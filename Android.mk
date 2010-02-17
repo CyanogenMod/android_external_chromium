@@ -327,7 +327,7 @@ LOCAL_C_INCLUDES := \
 	external/icu4c/common \
 	external/icu4c/i18n
 
-include external/stlport/libstlport.mk
+#include external/stlport/libstlport.mk
 
 # include a prefix header for missing headers or definitions.
 LOCAL_CFLAGS := -include "android/prefix.h"
