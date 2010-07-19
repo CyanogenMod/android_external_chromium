@@ -47,6 +47,12 @@
 #define USE_X11 1  // Use X for graphics.
 #endif
 
+#if defined(ANDROID)
+#define USE_OPENSSL 1
+#undef USE_NSS
+#define USE_SYSTEM_ZLIB 1
+#endif
+
 // For access to standard POSIXish features, use OS_POSIX instead of a
 // more specific macro.
 #if defined(OS_MACOSX) || defined(OS_LINUX) || defined(OS_FREEBSD) || \

@@ -325,7 +325,8 @@ LOCAL_C_INCLUDES := \
 	$(LOCAL_PATH)/sdch/open-vcdiff/src \
 	$(LOCAL_PATH)/third_party/libevent/compat \
 	external/icu4c/common \
-	external/icu4c/i18n
+	external/icu4c/i18n \
+	external/zlib
 
 #include external/stlport/libstlport.mk
 
@@ -334,6 +335,6 @@ LOCAL_CFLAGS := -include "android/prefix.h"
 
 LOCAL_MODULE := chromium_net
 
-LOCAL_SHARED_LIBRARIES := libstlport
+LOCAL_SHARED_LIBRARIES := libstlport libz
 
 #include $(BUILD_STATIC_LIBRARY)
