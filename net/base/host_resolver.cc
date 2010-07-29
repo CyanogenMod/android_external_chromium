@@ -35,8 +35,13 @@ int SingleRequestHostResolver::Resolve(const HostResolver::RequestInfo& info,
   // we can clear out |cur_request_*|.
   CompletionCallback* transient_callback = callback ? &callback_ : NULL;
 
+#ifdef ANDROID
+  HostResolver* hr = CreateSystemHostResolver(NULL);
+  int rv = hr->Resolve(info, addresses, transient_callback, &request, net_log);
+#else
   int rv = resolver_->Resolve(
       info, addresses, transient_callback, &request, net_log);
+#endif
 
   if (rv == ERR_IO_PENDING) {
     // Cleared in OnResolveCompletion().

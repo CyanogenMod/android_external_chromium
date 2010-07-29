@@ -105,7 +105,11 @@ typedef unsigned __int32 uint32;
 typedef __int64 int64;
 typedef unsigned __int64 uint64;
 #else
-#error Do not know how to define a 32-bit integer quantity on your system
+typedef int32_t int32;
+typedef uint32_t uint32;
+typedef int64_t int64;
+typedef uint64_t uint64;
+//#error Do not know how to define a 32-bit integer quantity on your system
 #endif
 
 // --------------------------------------------------------------------

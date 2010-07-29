@@ -237,6 +237,7 @@ FlipSession::~FlipSession() {
   DCHECK(!session_->flip_session_pool()->HasSession(
       HostResolver::RequestInfo(domain_, 80)));
 
+#ifndef ANDROID
   // Record per-session histograms here.
   UMA_HISTOGRAM_CUSTOM_COUNTS("Net.SpdyStreamsPerSession",
       streams_initiated_count_,
@@ -250,11 +251,14 @@ FlipSession::~FlipSession() {
   UMA_HISTOGRAM_CUSTOM_COUNTS("Net.SpdyStreamsAbandonedPerSession",
       streams_abandoned_count_,
       0, 300, 50);
+#endif
 }
 
 void FlipSession::InitializeWithSocket(ClientSocketHandle* connection) {
+#ifndef ANDROID
   static StatsCounter flip_sessions("flip.sessions");
   flip_sessions.Increment();
+#endif
 
   AdjustSocketBufferSizes(connection->socket());
 
@@ -279,8 +283,10 @@ net::Error FlipSession::Connect(const std::string& group_name,
 
   state_ = CONNECTING;
 
+#ifndef ANDROID
   static StatsCounter flip_sessions("flip.sessions");
   flip_sessions.Increment();
+#endif
 
   int rv = connection_->Init(group_name, host, priority, &connect_callback_,
                             session_->tcp_socket_pool(), load_log);
@@ -334,8 +340,10 @@ scoped_refptr<FlipStream> FlipSession::GetOrCreateStream(
   stream->set_path(path);
   ActivateStream(stream);
 
+#ifndef ANDROID
   UMA_HISTOGRAM_CUSTOM_COUNTS("Net.SpdyPriorityCount",
       static_cast<int>(request.priority), 0, 10, 11);
+#endif
 
   LOG(INFO) << "FlipStream: Creating stream " << stream_id << " for " << url;
 
@@ -360,8 +368,10 @@ scoped_refptr<FlipStream> FlipSession::GetOrCreateStream(
   memcpy(buffer->data(), syn_frame->data(), length);
   queue_.push(FlipIOBuffer(buffer, length, request.priority, stream));
 
+#ifndef ANDROID
   static StatsCounter flip_requests("flip.requests");
   flip_requests.Increment();
+#endif
 
   LOG(INFO) << "FETCHING: " << request.url.spec();
   streams_initiated_count_++;
@@ -465,7 +475,9 @@ void FlipSession::OnTCPConnect(int result) {
   // socket (or have an error trying to do so).
   DCHECK(!connection_->socket() || !connection_->is_reused());
 
+#ifndef ANDROID
   UpdateConnectionTypeHistograms(CONNECTION_SPDY, result >= 0);
+#endif
 
   if (result != net::OK) {
     DCHECK_LT(result, 0);
@@ -720,11 +732,15 @@ void FlipSession::WriteSocket() {
 void FlipSession::CloseAllStreams(net::Error code) {
   LOG(INFO) << "Closing all FLIP Streams";
 
+#ifndef ANDROID
   static StatsCounter abandoned_streams("flip.abandoned_streams");
   static StatsCounter abandoned_push_streams("flip.abandoned_push_streams");
+#endif
 
   if (active_streams_.size()) {
+#ifndef ANDROID
     abandoned_streams.Add(active_streams_.size());
+#endif
 
     // Create a copy of the list, since aborting streams can invalidate
     // our list.
@@ -749,7 +765,9 @@ void FlipSession::CloseAllStreams(net::Error code) {
 
   if (pushed_streams_.size()) {
     streams_abandoned_count_ += pushed_streams_.size();
+#ifndef ANDROID
     abandoned_push_streams.Add(pushed_streams_.size());
+#endif
     pushed_streams_.clear();
   }
 }
@@ -801,7 +819,9 @@ void FlipSession::DeactivateStream(flip::FlipStreamId id) {
 }
 
 scoped_refptr<FlipStream> FlipSession::GetPushStream(const std::string& path) {
+#ifndef ANDROID
   static StatsCounter used_push_streams("flip.claimed_push_streams");
+#endif
 
   LOG(INFO) << "Looking for push stream: " << path;
 
@@ -814,7 +834,9 @@ scoped_refptr<FlipStream> FlipSession::GetPushStream(const std::string& path) {
     if (path == stream->path()) {
       CHECK(stream->pushed());
       pushed_streams_.erase(it);
+#ifndef ANDROID
       used_push_streams.Increment();
+#endif
       LOG(INFO) << "Push Stream Claim for: " << path;
       break;
     }
@@ -931,8 +953,10 @@ void FlipSession::OnSyn(const flip::FlipSynStreamControlFrame* frame,
 
   LOG(INFO) << "Got pushed stream for " << stream->path();
 
+#ifndef ANDROID
   static StatsCounter push_requests("flip.pushed_streams");
   push_requests.Increment();
+#endif
 }
 
 void FlipSession::OnSynReply(const flip::FlipSynReplyControlFrame* frame,

@@ -587,7 +587,7 @@ ProxyConfigService* ProxyService::CreateSystemProxyConfigService(
   return new ProxyConfigServiceWin();
 #elif defined(OS_MACOSX)
   return new ProxyConfigServiceMac();
-#elif defined(OS_LINUX)
+#elif defined(OS_LINUX) && !defined(ANDROID)
   ProxyConfigServiceLinux* linux_config_service
       = new ProxyConfigServiceLinux();
 

@@ -4,6 +4,7 @@
 
 #include "net/base/address_list.h"
 
+#include <netinet/in.h>
 #include <stdlib.h>
 
 #include "base/logging.h"

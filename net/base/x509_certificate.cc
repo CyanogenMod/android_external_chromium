@@ -53,6 +53,9 @@ bool X509Certificate::IsSameOSCert(X509Certificate::OSCertHandle a,
 #elif defined(USE_NSS)
   return a->derCert.len == b->derCert.len &&
       memcmp(a->derCert.data, b->derCert.data, a->derCert.len) == 0;
+#elif defined(USE_OPENSSL)
+  // ANDROID needs this but doesn't have UNREACHED()
+  return false;
 #else
   // TODO(snej): not implemented
   UNREACHED();

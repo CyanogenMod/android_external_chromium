@@ -222,8 +222,10 @@ class ProxyConfigServiceLinux : public ProxyConfigService {
   void SetupAndFetchInitialConfig(MessageLoop* glib_default_loop,
                                   MessageLoop* io_loop,
                                   MessageLoopForIO* file_loop) {
+#ifndef ANDROID
     delegate_->SetupAndFetchInitialConfig(glib_default_loop, io_loop,
                                           file_loop);
+#endif
   }
   void OnCheckProxyConfigSettings() {
     delegate_->OnCheckProxyConfigSettings();

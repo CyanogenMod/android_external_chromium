@@ -14,7 +14,7 @@
 #include <AvailabilityMacros.h>
 #endif
 
-#if defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
+#if (defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5) || defined(ANDROID)
 // Manually define these here as weak imports, rather than including execinfo.h.
 // This lets us launch on 10.4 which does not have these calls.
 extern "C" {

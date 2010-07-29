@@ -48,7 +48,10 @@ int FlipNetworkTransaction::Start(const HttpRequestInfo* request_info,
   CHECK(request_info);
   CHECK(callback);
 
+// missing flockf
+#ifndef ANDROID
   SIMPLE_STATS_COUNTER("FlipNetworkTransaction.Count");
+#endif
 
   load_log_ = load_log;
   request_ = request_info;

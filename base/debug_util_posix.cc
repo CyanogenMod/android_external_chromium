@@ -116,6 +116,8 @@ bool GetBacktraceStrings(void **trace, int size,
     }
   }
 #else
+    return false; // For now on Android
+/*
   scoped_ptr_malloc<char*> trace_symbols(backtrace_symbols(trace, size));
   if (trace_symbols.get()) {
     for (int i = 0; i < size; ++i) {
@@ -129,6 +131,7 @@ bool GetBacktraceStrings(void **trace, int size,
       trace_strings->push_back(StringPrintf("%p", trace[i]));
     }
   }
+*/
 #endif  // defined(USE_SYMBOLIZE)
 
   return symbolized;
@@ -259,11 +262,15 @@ void DebugUtil::BreakDebugger() {
 }
 
 StackTrace::StackTrace() {
-#if defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
+#if (defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5) || defined(ANDROID)
+#if defined(ANDROID)
+  return;
+#else
   if (backtrace == NULL) {
     count_ = 0;
     return;
   }
+#endif // ANDROID
 #endif
   // Though the backtrace API man page does not list any possible negative
   // return values, we take no chance.
@@ -271,9 +278,13 @@ StackTrace::StackTrace() {
 }
 
 void StackTrace::PrintBacktrace() {
-#if defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
+#if (defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5) || defined(ANDROID)
+#if defined(ANDROID)
+  return;
+#else
   if (backtrace_symbols_fd == NULL)
     return;
+#endif // ANDROID
 #endif
   fflush(stderr);
   std::vector<std::string> trace_strings;
@@ -284,9 +295,13 @@ void StackTrace::PrintBacktrace() {
 }
 
 void StackTrace::OutputToStream(std::ostream* os) {
-#if defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
+#if (defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5) || defined(ANDROID)
+#if defined(ANDROID)
+  return;
+#else
   if (backtrace_symbols == NULL)
     return;
+#endif // ANDROID
 #endif
   std::vector<std::string> trace_strings;
   if (GetBacktraceStrings(trace_, count_, &trace_strings)) {

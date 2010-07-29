@@ -41,8 +41,8 @@ using stdext::hash_set;
 #undef __DEPRECATED
 #endif
 
-#include <ext/hash_map>
-#include <ext/hash_set>
+#include <hash_map>
+#include <hash_set>
 #include <string>
 
 #ifdef CHROME_OLD__DEPRECATED
@@ -51,11 +51,14 @@ using stdext::hash_set;
 #endif
 
 namespace base {
-using __gnu_cxx::hash_map;
-using __gnu_cxx::hash_set;
+using std::hash_map;
+using std::hash_set;
 }  // namespace base
 
-namespace __gnu_cxx {
+namespace std {
+
+#ifndef ANDROID
+// Already defined for android
 
 // The GNU C++ library provides identiy hash functions for many integral types,
 // but not for |long long|.  This hash function will truncate if |size_t| is
@@ -74,6 +77,7 @@ DEFINE_TRIVIAL_HASH(long long);
 DEFINE_TRIVIAL_HASH(unsigned long long);
 
 #undef DEFINE_TRIVIAL_HASH
+#endif
 
 // Implement string hash functions so that strings of various flavors can
 // be used as keys in STL maps and sets.  The hash algorithm comes from the

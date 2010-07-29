@@ -163,8 +163,10 @@ bool MimeUtil::GetMimeTypeFromExtension(const FilePath::StringType& ext,
     return true;
   }
 
+#ifndef ANDROID
   if (GetPlatformMimeTypeFromExtension(ext, result))
     return true;
+#endif
 
   mime_type = FindMimeType(secondary_mappings, arraysize(secondary_mappings),
                            ext_narrow_str.c_str());
@@ -480,7 +482,11 @@ bool GetMimeTypeFromFile(const FilePath& file_path, std::string* mime_type) {
 
 bool GetPreferredExtensionForMimeType(const std::string& mime_type,
                                       FilePath::StringType* extension) {
+#ifdef ANDROID
+  return false;
+#else
   return GetMimeUtil()->GetPreferredExtensionForMimeType(mime_type, extension);
+#endif
 }
 
 bool IsSupportedImageMimeType(const char* mime_type) {

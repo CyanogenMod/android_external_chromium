@@ -31,6 +31,7 @@ typedef HANDLE MutexHandle;
 #include <unistd.h>
 #define MAX_PATH PATH_MAX
 typedef FILE* FileHandle;
+#include "pthread.h"
 typedef pthread_mutex_t* MutexHandle;
 #endif
 
@@ -248,7 +249,11 @@ void InitLogMutex() {
 void InitLogging(const PathChar* new_log_file, LoggingDestination logging_dest,
                  LogLockingState lock_log, OldFileDeletionState delete_old) {
   g_enable_dcheck =
+#ifdef ANDROID
+      false;
+#else
       CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableDCHECK);
+#endif // ANDROID
 
   if (log_file) {
     // calling InitLogging twice or after some log call has already opened the

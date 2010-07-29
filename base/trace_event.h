@@ -131,7 +131,9 @@ class TraceLog {
   FILE* log_file_;
   Lock file_lock_;
   TimeTicks trace_start_time_;
+#ifndef ANDROID
   scoped_ptr<base::ProcessMetrics> process_metrics_;
+#endif
   RepeatingTimer<TraceLog> timer_;
 };
 

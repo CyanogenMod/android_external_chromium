@@ -24,6 +24,9 @@
 #elif defined(USE_NSS)
 // Forward declaration; real one in <cert.h>
 struct CERTCertificateStr;
+#elif defined(USE_OPENSSL)
+// real dec in x509.h
+struct x509_st;
 #endif
 
 class Pickle;
@@ -44,6 +47,8 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   typedef SecCertificateRef OSCertHandle;
 #elif defined(USE_NSS)
   typedef struct CERTCertificateStr* OSCertHandle;
+#elif defined(USE_OPENSSL)
+  typedef struct x509_st* OSCertHandle;
 #else
   // TODO(ericroman): not implemented
   typedef void* OSCertHandle;

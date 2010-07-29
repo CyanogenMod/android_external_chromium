@@ -6,7 +6,11 @@
 
 #include "base/logging.h"
 #include "base/utf_string_conversions.h"
+#ifdef ANDROID
+#include "sqlite3.h"
+#else
 #include "third_party/sqlite/preprocessed/sqlite3.h"
+#endif
 
 namespace sql {
 

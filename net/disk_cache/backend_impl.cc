@@ -1257,7 +1257,11 @@ void BackendImpl::AdjustMaxCacheSize(int table_len) {
   DCHECK(!table_len || data_->header.magic);
 
   // The user is not setting the size, let's figure it out.
+#ifdef ANDROID
+  int64 available = 10 * 1024 * 1024; // 10 MB
+#else
   int64 available = base::SysInfo::AmountOfFreeDiskSpace(path_);
+#endif
   if (available < 0) {
     max_size_ = kDefaultCacheSize;
     return;

@@ -10,6 +10,8 @@
 #include <resolv.h>
 #endif
 
+#include <netinet/in.h>
+
 #include "base/logging.h"
 #include "base/time.h"
 #include "net/base/address_list.h"
@@ -223,7 +225,7 @@ int SystemHostResolverProc(const std::string& host,
   hints.ai_socktype = SOCK_STREAM;
 
   int err = getaddrinfo(host.c_str(), NULL, &hints, &ai);
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_OPENBSD)
+#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(ANDROID)
   net::DnsReloadTimer* dns_timer = Singleton<net::DnsReloadTimer>::get();
   // If we fail, re-initialise the resolver just in case there have been any
   // changes to /etc/resolv.conf and retry. See http://crbug.com/11380 for info.

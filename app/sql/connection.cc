@@ -11,7 +11,11 @@
 #include "base/logging.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+#ifdef ANDROID
+#include "sqlite3.h"
+#else
 #include "third_party/sqlite/preprocessed/sqlite3.h"
+#endif
 
 namespace sql {
 
@@ -80,6 +84,15 @@ void Connection::Close() {
     db_ = NULL;
   }
 }
+
+#ifdef ANDROID
+// Other platforms may need this ???
+// This function is a local change to sqlite3 which doesn't exist when one is
+// using the system sqlite library. Thus, we stub it out here.
+int sqlite3Preload(sqlite3* db) {
+  return 0;
+}
+#endif
 
 void Connection::Preload() {
   if (!db_) {

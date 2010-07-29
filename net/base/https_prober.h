@@ -23,6 +23,7 @@ namespace net {
 class HTTPSProberDelegate {
  public:
   virtual void ProbeComplete(bool result) = 0;
+  virtual ~HTTPSProberDelegate() {};
 };
 
 // HTTPSProber is a singleton object that manages HTTPS probes. A HTTPS probe

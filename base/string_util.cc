@@ -774,19 +774,25 @@ bool LowerCaseEqualsASCII(string16::const_iterator a_begin,
 }
 #endif
 
+// weird string library ...
+#if !defined(ANDROID)
 bool LowerCaseEqualsASCII(const char* a_begin,
                           const char* a_end,
                           const char* b) {
   return DoLowerCaseEqualsASCII(a_begin, a_end, b);
 }
+#endif // !ANDROID
 
+// weird string library ...
+#if !defined(ANDROID)
 bool LowerCaseEqualsASCII(const wchar_t* a_begin,
                           const wchar_t* a_end,
                           const char* b) {
   return DoLowerCaseEqualsASCII(a_begin, a_end, b);
 }
+#endif // !ANDROID
 
-#if !defined(WCHAR_T_IS_UTF16)
+#if !defined(WCHAR_T_IS_UTF16) && !defined(ANDROID)
 bool LowerCaseEqualsASCII(const char16* a_begin,
                           const char16* a_end,
                           const char* b) {

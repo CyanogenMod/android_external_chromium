@@ -49,22 +49,34 @@ HostCache* CreateDefaultCache() {
 
   return cache;
 }
+HostResolver* systemResolver = NULL;
 
 }  // anonymous namespace
 
 HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves) {
   // Maximum of 50 concurrent threads.
   // TODO(eroman): Adjust this, do some A/B experiments.
+#ifdef ANDROID
+  static const size_t kDefaultMaxJobs = 4u;
+#else
   static const size_t kDefaultMaxJobs = 50u;
+#endif
 
   if (max_concurrent_resolves == HostResolver::kDefaultParallelism)
     max_concurrent_resolves = kDefaultMaxJobs;
 
+#ifdef ANDROID
+  // TODO: Clean this up!
+  if (!systemResolver)
+    systemResolver = new HostResolverImpl(
+        NULL, CreateDefaultCache(), max_concurrent_resolves);
+#else
   HostResolverImpl* resolver =
       new HostResolverImpl(NULL, CreateDefaultCache(),
                            max_concurrent_resolves);
+#endif
 
-  return resolver;
+  return systemResolver;
 }
 
 static int ResolveAddrInfo(HostResolverProc* resolver_proc,
@@ -133,7 +145,10 @@ class HostResolveFailedParams : public NetLog::EventParameters {
 std::vector<int> GetAllGetAddrinfoOSErrors() {
   int os_errors[] = {
 #if defined(OS_POSIX)
+#ifndef ANDROID
+    // "obsoleted ..." see bionic/libc/include/netdb.h
     EAI_ADDRFAMILY,
+#endif
     EAI_AGAIN,
     EAI_BADFLAGS,
     EAI_FAIL,

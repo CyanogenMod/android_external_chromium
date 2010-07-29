@@ -9,11 +9,6 @@ using std::find;
 using std::reverse;
 using std::search;
 
-// Our pwrite has buf declared void*.
-ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset) {
-    return pwrite(fd, const_cast<void*>(buf), count, offset);
-}
-
 // Called by command_line.cc to shorten the process name. Not needed for
 // network stack.
 inline int prctl(int option, ...) { return 0; }
@@ -43,10 +38,13 @@ inline size_t abs(size_t x) { return x; }
 extern char* mkdtemp(char* path);
 extern time_t timegm(struct tm* const tmp);
 
+#define FRIEND_TEST(test_case_name, test_name)\
+friend class test_case_name##_##test_name##_Test
+
 // This will probably need a real implementation.
-#define F_ULOCK 0
-#define F_LOCK 1
-inline int lockf(int fd, int cmd, off_t len) { return -1; }
+//#define F_ULOCK 0
+//#define F_LOCK 1
+//inline int lockf(int fd, int cmd, off_t len) { return -1; }
 
 // We have posix monotonic clocks but don't define this...
 #define _POSIX_MONOTONIC_CLOCK 1

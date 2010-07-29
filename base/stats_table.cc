@@ -115,7 +115,9 @@ class StatsTablePrivate {
   static StatsTablePrivate* New(const std::string& name, int size,
                                 int max_threads, int max_counters);
 
+#ifndef ANDROID
   base::SharedMemory* shared_memory() { return &shared_memory_; }
+#endif
 
   // Accessors for our header pointers
   TableHeader* table_header() const { return table_header_; }
@@ -155,7 +157,10 @@ class StatsTablePrivate {
   // Initializes our in-memory pointers into a pre-created StatsTable.
   void ComputeMappedPointers(void* memory);
 
+#ifndef ANDROID
   base::SharedMemory shared_memory_;
+#endif
+
   TableHeader* table_header_;
   char* thread_names_table_;
   PlatformThreadId* thread_tid_table_;
@@ -169,6 +174,9 @@ StatsTablePrivate* StatsTablePrivate::New(const std::string& name,
                                           int size,
                                           int max_threads,
                                           int max_counters) {
+#ifdef ANDROID
+  return NULL;
+#else
   scoped_ptr<StatsTablePrivate> priv(new StatsTablePrivate());
   if (!priv->shared_memory_.Create(UTF8ToWide(name), false, true, size))
     return NULL;
@@ -187,6 +195,7 @@ StatsTablePrivate* StatsTablePrivate::New(const std::string& name,
   priv->ComputeMappedPointers(memory);
 
   return priv.release();
+#endif
 }
 
 void StatsTablePrivate::InitializeTable(void* memory, int size,
@@ -279,6 +288,9 @@ StatsTable::~StatsTable() {
 }
 
 int StatsTable::RegisterThread(const std::string& name) {
+#ifdef ANDROID
+  return 0;
+#else
   int slot = 0;
   if (!impl_)
     return 0;
@@ -309,6 +321,7 @@ int StatsTable::RegisterThread(const std::string& name) {
   data->slot = slot;
   tls_index_.Set(data);
   return slot;
+#endif
 }
 
 StatsTableTLSData* StatsTable::GetTLSData() const {
@@ -441,6 +454,10 @@ int StatsTable::FindCounter(const std::string& name) {
 }
 
 int StatsTable::AddCounter(const std::string& name) {
+#ifdef ANDROID
+  return 0;
+#else
+
   if (!impl_)
     return 0;
 
@@ -468,6 +485,7 @@ int StatsTable::AddCounter(const std::string& name) {
     counters_[name] = counter_id;
   }
   return counter_id;
+#endif
 }
 
 int* StatsTable::GetLocation(int counter_id, int slot_id) const {

@@ -7,12 +7,14 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/param.h>
+#ifndef ANDROID
 #include <sys/statvfs.h>
+#endif
 #include <sys/sysctl.h>
 #include <sys/utsname.h>
 #include <unistd.h>
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MACOSX) && !defined(ANDROID)
 #include <gdk/gdk.h>
 #endif
 
@@ -39,11 +41,15 @@ int SysInfo::NumberOfProcessors() {
 
 // static
 int64 SysInfo::AmountOfFreeDiskSpace(const FilePath& path) {
+#ifdef ANDROID
+  return -1;
+#else
   struct statvfs stats;
   if (statvfs(path.value().c_str(), &stats) != 0) {
     return -1;
   }
   return static_cast<int64>(stats.f_bavail) * stats.f_frsize;
+#endif
 }
 
 // static
@@ -79,6 +85,9 @@ std::string SysInfo::CPUArchitecture() {
 #if !defined(OS_MACOSX)
 // static
 void SysInfo::GetPrimaryDisplayDimensions(int* width, int* height) {
+#ifdef ANDROID
+  return;
+#else
   // Note that Bad Things Happen if this isn't called from the UI thread,
   // but also that there's no way to check that from here.  :(
   GdkScreen* screen = gdk_screen_get_default();
@@ -86,10 +95,14 @@ void SysInfo::GetPrimaryDisplayDimensions(int* width, int* height) {
     *width = gdk_screen_get_width(screen);
   if (height)
     *height = gdk_screen_get_height(screen);
+#endif
 }
 
 // static
 int SysInfo::DisplayCount() {
+#ifdef ANDROID
+  return 1;
+#else
   // Note that Bad Things Happen if this isn't called from the UI thread,
   // but also that there's no way to check that from here.  :(
 
@@ -97,6 +110,7 @@ int SysInfo::DisplayCount() {
   // The number of monitors Xinerama has?  We'll just use whatever GDK uses.
   GdkScreen* screen = gdk_screen_get_default();
   return gdk_screen_get_n_monitors(screen);
+#endif
 }
 #endif
 

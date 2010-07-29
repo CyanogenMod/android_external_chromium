@@ -542,8 +542,8 @@ class URLRequest : public NonThreadSafe {
   // Returns the priority level for this request.
   net::RequestPriority priority() const { return priority_; }
   void set_priority(net::RequestPriority priority) {
-    DCHECK_GE(priority, net::HIGHEST);
-    DCHECK_LE(priority, net::LOWEST);
+    //DCHECK_GE(priority, net::HIGHEST);
+    //DCHECK_LE(priority, net::LOWEST);
     priority_ = priority;
   }
 

@@ -31,9 +31,11 @@ static const SchemeToFactory kBuiltinFactories[] = {
   { "http", URLRequestHttpJob::Factory },
   { "https", URLRequestHttpJob::Factory },
   { "file", URLRequestFileJob::Factory },
+#ifndef ANDROID
   { "ftp", URLRequestFtpJob::Factory },
   { "about", URLRequestAboutJob::Factory },
   { "data", URLRequestDataJob::Factory },
+#endif
 };
 
 URLRequestJobManager::URLRequestJobManager() {

@@ -22,7 +22,9 @@
 #include <wspiapi.h>  // Needed for Win2k compat.
 #elif defined(OS_POSIX)
 #include <fcntl.h>
+#ifndef ANDROID
 #include <ifaddrs.h>
+#endif
 #include <netdb.h>
 #include <net/if.h>
 #include <netinet/in.h>
@@ -64,6 +66,10 @@
 #endif
 #include "unicode/datefmt.h"
 
+
+#ifdef ANDROID
+#include "netinet/in6.h"
+#endif
 
 using base::Time;
 
@@ -1682,7 +1688,10 @@ static void IPv6SupportResults(IPv6SupportStatus result) {
 // to do a test resolution, and a test connection, to REALLY verify support.
 // static
 bool IPv6Supported() {
-#if defined(OS_POSIX)
+#ifdef ANDROID
+  // Android does not have the ifaddrs.h header
+  return false;
+#elif defined(OS_POSIX)
   int test_socket = socket(AF_INET6, SOCK_STREAM, 0);
   if (test_socket == -1) {
     IPv6SupportResults(IPV6_CANNOT_CREATE_SOCKETS);

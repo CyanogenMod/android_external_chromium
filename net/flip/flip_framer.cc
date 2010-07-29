@@ -636,8 +636,10 @@ FlipFrame* FlipFramer::CompressFrame(const FlipFrame* frame) {
   int header_length;
   const char* payload;
 
+#ifndef ANDROID
   static StatsCounter pre_compress_bytes("flip.PreCompressSize");
   static StatsCounter post_compress_bytes("flip.PostCompressSize");
+#endif
 
   if (!enable_compression_)
     return DuplicateFrame(frame);
@@ -678,8 +680,10 @@ FlipFrame* FlipFramer::CompressFrame(const FlipFrame* frame) {
   int compressed_size = compressed_max_size - compressor_->avail_out;
   new_frame->set_length(header_length + compressed_size - FlipFrame::size());
 
+#ifndef ANDROID
   pre_compress_bytes.Add(payload_length);
   post_compress_bytes.Add(new_frame->length());
+#endif
 
   return new_frame;
 }
@@ -689,8 +693,10 @@ FlipFrame* FlipFramer::DecompressFrame(const FlipFrame* frame) {
   int header_length;
   const char* payload;
 
+#ifndef ANDROID
   static StatsCounter pre_decompress_bytes("flip.PreDeCompressSize");
   static StatsCounter post_decompress_bytes("flip.PostDeCompressSize");
+#endif
 
   if (!enable_compression_)
     return DuplicateFrame(frame);
@@ -747,8 +753,10 @@ FlipFrame* FlipFramer::DecompressFrame(const FlipFrame* frame) {
   int decompressed_size = decompressed_max_size - decompressor_->avail_out;
   new_frame->set_length(header_length + decompressed_size - FlipFrame::size());
 
+#ifndef ANDROID
   pre_decompress_bytes.Add(frame->length());
   post_decompress_bytes.Add(new_frame->length());
+#endif
 
   return new_frame;
 }

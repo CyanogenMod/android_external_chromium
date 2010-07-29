@@ -41,6 +41,7 @@ Backend* MemBackendImpl::CreateBackend(int max_bytes) {
 }
 
 bool MemBackendImpl::Init() {
+#ifndef ANDROID
   if (max_size_)
     return true;
 
@@ -58,7 +59,9 @@ bool MemBackendImpl::Init() {
     max_size_ = kDefaultCacheSize * 5;
   else
     max_size_ = static_cast<int32>(total_memory);
-
+#else
+  max_size_ = kDefaultCacheSize*3;
+#endif
   return true;
 }
 

@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <wchar.h>
+#include <ctype.h>
 
 #include "base/logging.h"
 

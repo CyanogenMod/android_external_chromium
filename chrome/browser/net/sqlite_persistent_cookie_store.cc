@@ -15,8 +15,33 @@
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/thread.h"
+#ifndef ANDROID
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/diagnostics/sqlite_diagnostics.h"
+#endif
+
+#ifdef ANDROID
+base::Thread* getDbThread()
+{
+  static base::Thread* dbThread = NULL;
+  if (dbThread && dbThread->IsRunning())
+    return dbThread;
+
+  if (!dbThread)
+    dbThread = new base::Thread("db");
+
+  if (!dbThread)
+    return NULL;
+
+  base::Thread::Options options;
+  options.message_loop_type = MessageLoop::TYPE_DEFAULT;
+  if (!dbThread->StartWithOptions(options)) {
+    delete dbThread;
+    dbThread = NULL;
+  }
+  return dbThread;
+}
+#endif
 
 using base::Time;
 
@@ -123,7 +148,9 @@ void SQLitePersistentCookieStore::Backend::BatchOperation(
   static const int kCommitIntervalMs = 30 * 1000;
   // Commit right away if we have more than 512 outstanding operations.
   static const size_t kCommitAfterBatchSize = 512;
+#ifndef ANDROID
   DCHECK(!ChromeThread::CurrentlyOn(ChromeThread::DB));
+#endif
 
   // We do a full copy of the cookie here, and hopefully just here.
   scoped_ptr<PendingOperation> po(new PendingOperation(op, key, cc));
@@ -136,20 +163,37 @@ void SQLitePersistentCookieStore::Backend::BatchOperation(
     num_pending = ++num_pending_;
   }
 
+#ifdef ANDROID
+  if (!getDbThread())
+    return;
+  MessageLoop* loop = getDbThread()->message_loop();
+#endif
+
   if (num_pending == 1) {
     // We've gotten our first entry for this batch, fire off the timer.
+#ifdef ANDROID
+    loop->PostDelayedTask(FROM_HERE, NewRunnableMethod(
+        this, &Backend::Commit), kCommitIntervalMs);
+#else
     ChromeThread::PostDelayedTask(
         ChromeThread::DB, FROM_HERE,
         NewRunnableMethod(this, &Backend::Commit), kCommitIntervalMs);
+#endif
   } else if (num_pending == kCommitAfterBatchSize) {
     // We've reached a big enough batch, fire off a commit now.
+#ifdef ANDROID
+    loop->PostTask(FROM_HERE, NewRunnableMethod(this, &Backend::Commit));
+#else
     ChromeThread::PostTask(
         ChromeThread::DB, FROM_HERE, NewRunnableMethod(this, &Backend::Commit));
+#endif
   }
 }
 
 void SQLitePersistentCookieStore::Backend::Commit() {
+#ifndef ANDROID
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+#endif
   PendingOperationsList ops;
   {
     AutoLock locked(pending_lock_);
@@ -240,15 +284,29 @@ void SQLitePersistentCookieStore::Backend::Commit() {
 // pending commit timer that will be holding a reference on us, but if/when
 // this fires we will already have been cleaned up and it will be ignored.
 void SQLitePersistentCookieStore::Backend::Close() {
+#ifndef ANDROID
   DCHECK(!ChromeThread::CurrentlyOn(ChromeThread::DB));
+#endif
+
+#ifdef ANDROID
+  if (!getDbThread())
+    return;
+
+  MessageLoop* loop = getDbThread()->message_loop();
+  loop->PostTask(FROM_HERE,
+      NewRunnableMethod(this, &Backend::InternalBackgroundClose));
+#else
   // Must close the backend on the background thread.
   ChromeThread::PostTask(
       ChromeThread::DB, FROM_HERE,
       NewRunnableMethod(this, &Backend::InternalBackgroundClose));
+#endif
 }
 
 void SQLitePersistentCookieStore::Backend::InternalBackgroundClose() {
+#ifndef ANDROID
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+#endif
   // Commit any pending operations
   Commit();
 
@@ -315,7 +373,11 @@ bool SQLitePersistentCookieStore::Load(
     return false;
   }
 
+#ifndef ANDROID
+  // GetErrorHandlerForCookieDb is defined in sqlite_diagnostics.h
+  // which we do not currently include on Android
   db->set_error_delegate(GetErrorHandlerForCookieDb());
+#endif
 
   if (!EnsureDatabaseVersion(db.get()) || !InitTable(db.get())) {
     NOTREACHED() << "Unable to initialize cookie DB.";

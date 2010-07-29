@@ -24,7 +24,7 @@
 
 #if defined(OS_MACOSX)
 #include <AvailabilityMacros.h>
-#else
+#elif !defined(ANDROID)
 #include <glib.h>
 #endif
 
@@ -782,6 +782,7 @@ bool GetShmemTempDir(FilePath* path) {
 }
 
 FilePath GetHomeDir() {
+#ifndef ANDROID
   const char* home_dir = getenv("HOME");
   if (home_dir && home_dir[0])
     return FilePath(home_dir);
@@ -793,7 +794,7 @@ FilePath GetHomeDir() {
   FilePath rv;
   if (file_util::GetTempDir(&rv))
     return rv;
-
+#endif
   // Last resort.
   return FilePath("/tmp");
 }

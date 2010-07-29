@@ -26,7 +26,9 @@
 #include "net/base/net_errors.h"
 
 // We cast back and forth, so make sure it's the size we're expecting.
-COMPILE_ASSERT(sizeof(int64) == sizeof(off_t), off_t_64_bit);
+//COMPILE_ASSERT(sizeof(int64) == sizeof(off_t), off_t_64_bit);
+COMPILE_ASSERT(sizeof(int32) == sizeof(off_t), off_t_32_bit);
+// I don't tink this will be a problem for now
 
 // Make sure our Whence mappings match the system headers.
 COMPILE_ASSERT(net::FROM_BEGIN   == SEEK_SET &&

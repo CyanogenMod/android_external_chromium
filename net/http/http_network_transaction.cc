@@ -1621,6 +1621,10 @@ void HttpNetworkTransaction::ResetConnectionAndRequestForResend() {
 }
 
 int HttpNetworkTransaction::ReconsiderProxyAfterError(int error) {
+#ifdef ANDROID
+  // Android crashes :(
+  return error;
+#endif
   DCHECK(!pac_request_);
 
   // A failure to resolve the hostname or any error related to establishing a

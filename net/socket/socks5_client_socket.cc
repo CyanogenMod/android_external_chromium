@@ -4,6 +4,8 @@
 
 #include "net/socket/socks5_client_socket.h"
 
+#include <netinet/in.h>
+
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/format_macros.h"

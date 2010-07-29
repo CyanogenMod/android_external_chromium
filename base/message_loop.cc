@@ -135,6 +135,9 @@ MessageLoop::MessageLoop(Type type)
 #elif defined(OS_MACOSX)
 #define MESSAGE_PUMP_UI base::MessagePumpMac::Create()
 #define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
+#elif defined(ANDROID)
+#define MESSAGE_PUMP_UI new base::MessagePumpDefault()
+#define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
 #elif defined(OS_POSIX)  // POSIX but not MACOSX.
 #define MESSAGE_PUMP_UI new base::MessagePumpForUI()
 #define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
@@ -244,7 +247,7 @@ __declspec(noinline) void MessageLoop::RunInternalInSEHFrame() {
 void MessageLoop::RunInternal() {
   DCHECK(this == current());
 
-  StartHistogrammer();
+//  StartHistogrammer();
 
 #if !defined(OS_MACOSX)
   if (state_->dispatcher && type() == TYPE_UI) {
@@ -640,7 +643,7 @@ void MessageLoopForUI::DidProcessMessage(const MSG& message) {
 }
 #endif  // defined(OS_WIN)
 
-#if !defined(OS_MACOSX)
+#if !defined(OS_MACOSX) && !defined(ANDROID)
 void MessageLoopForUI::AddObserver(Observer* observer) {
   pump_ui()->AddObserver(observer);
 }

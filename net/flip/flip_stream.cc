@@ -421,6 +421,7 @@ void FlipStream::UpdateHistograms() {
       recv_last_byte_time_.is_null())
     return;
 
+#ifndef ANDROID
   UMA_HISTOGRAM_TIMES("Net.SpdyStreamTimeToFirstByte",
       recv_first_byte_time_ - send_time_);
   UMA_HISTOGRAM_TIMES("Net.SpdyStreamDownloadTime",
@@ -430,6 +431,7 @@ void FlipStream::UpdateHistograms() {
 
   UMA_HISTOGRAM_COUNTS("Net.SpdySendBytes", send_bytes_);
   UMA_HISTOGRAM_COUNTS("Net.SpdyRecvBytes", recv_bytes_);
+#endif
 }
 
 }  // namespace net

@@ -737,6 +737,7 @@ void URLRequestJob::RecordPacketStats(StatisticSelector statistic) const {
 
   base::TimeDelta duration = final_packet_time_ - request_time_snapshot_;
   switch (statistic) {
+#ifndef ANDROID
     case SDCH_DECODE: {
       UMA_HISTOGRAM_CLIPPED_TIMES("Sdch3.Network_Decode_Latency_F_a", duration,
                                   base::TimeDelta::FromMilliseconds(20),
@@ -853,6 +854,7 @@ void URLRequestJob::RecordPacketStats(StatisticSelector statistic) const {
                                   base::TimeDelta::FromSeconds(10), 100);
       return;
     }
+#endif // ANDROID
     default:
       NOTREACHED();
       return;
