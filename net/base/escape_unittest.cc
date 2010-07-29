@@ -9,6 +9,7 @@
 #include "base/basictypes.h"
 #include "base/i18n/icu_string_conversions.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -237,6 +238,10 @@ TEST(EscapeTest, UnescapeURLComponent) {
     {L"Hello%20%13%10world %23# %3F? %3D= %26& %25% %2B+",
      UnescapeRule::URL_SPECIAL_CHARS,
      L"Hello%20%13%10world ## ?? == && %% ++"},
+    // We can neither escape nor unescape '@' since some websites expect it to
+    // be preserved as either '@' or "%40".
+    // See http://b/996720 and http://crbug.com/23933 .
+    {L"me@my%40example", UnescapeRule::NORMAL, L"me@my%40example"},
     // Control characters.
     {L"%01%02%03%04%05%06%07%08%09 %25", UnescapeRule::URL_SPECIAL_CHARS,
      L"%01%02%03%04%05%06%07%08%09 %"},

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include "base/rand_util.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
+#include "base/utf_string_conversions.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
 #include "net/http/des.h"
@@ -120,13 +121,12 @@ enum {
 
 // We send these flags with our type 1 message.
 enum {
-  NTLM_TYPE1_FLAGS =
-      NTLM_NegotiateUnicode |
-      NTLM_NegotiateOEM |
-      NTLM_RequestTarget |
-      NTLM_NegotiateNTLMKey |
-      NTLM_NegotiateAlwaysSign |
-      NTLM_NegotiateNTLM2Key
+  NTLM_TYPE1_FLAGS = (NTLM_NegotiateUnicode |
+                      NTLM_NegotiateOEM |
+                      NTLM_RequestTarget |
+                      NTLM_NegotiateNTLMKey |
+                      NTLM_NegotiateAlwaysSign |
+                      NTLM_NegotiateNTLM2Key)
 };
 
 static const char NTLM_SIGNATURE[] = "NTLMSSP";
@@ -657,6 +657,12 @@ bool HttpAuthHandlerNTLM::IsFinalRound() {
   return !auth_data_.empty();
 }
 
+bool HttpAuthHandlerNTLM::AllowsDefaultCredentials() {
+  // Default credentials are not supported in the portable implementation of
+  // NTLM, but are supported in the SSPI implementation.
+  return false;
+}
+
 // static
 HttpAuthHandlerNTLM::GenerateRandomProc
 HttpAuthHandlerNTLM::SetGenerateRandomProc(
@@ -701,6 +707,33 @@ int HttpAuthHandlerNTLM::GetNextToken(const void* in_token,
 }
 
 int HttpAuthHandlerNTLM::InitializeBeforeFirstChallenge() {
+  return OK;
+}
+
+HttpAuthHandlerNTLM::Factory::Factory() {
+}
+
+HttpAuthHandlerNTLM::Factory::~Factory() {
+}
+
+int HttpAuthHandlerNTLM::Factory::CreateAuthHandler(
+    HttpAuth::ChallengeTokenizer* challenge,
+    HttpAuth::Target target,
+    const GURL& origin,
+    CreateReason reason,
+    int digest_nonce_count,
+    const BoundNetLog& net_log,
+    scoped_ptr<HttpAuthHandler>* handler) {
+  if (reason == CREATE_PREEMPTIVE)
+    return ERR_UNSUPPORTED_AUTH_SCHEME;
+  // TODO(cbentzel): Move towards model of parsing in the factory
+  //                 method and only constructing when valid.
+  // NOTE: Default credentials are not supported for the portable implementation
+  // of NTLM.
+  scoped_ptr<HttpAuthHandler> tmp_handler(new HttpAuthHandlerNTLM);
+  if (!tmp_handler->InitFromChallenge(challenge, target, origin, net_log))
+    return ERR_INVALID_RESPONSE;
+  handler->swap(tmp_handler);
   return OK;
 }
 

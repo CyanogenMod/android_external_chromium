@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 
 #include <string>
 #include <set>
+#include <vector>
 
 #include "base/basictypes.h"
 #include "base/string16.h"
@@ -35,6 +36,26 @@ struct Parsed;
 }
 
 namespace net {
+
+// Used by FormatUrl to specify handling of certain parts of the url.
+typedef uint32 FormatUrlType;
+typedef uint32 FormatUrlTypes;
+
+// Nothing is ommitted.
+extern const FormatUrlType kFormatUrlOmitNothing;
+
+// If set, any username and password are removed.
+extern const FormatUrlType kFormatUrlOmitUsernamePassword;
+
+// If the scheme is 'http://', it's removed.
+extern const FormatUrlType kFormatUrlOmitHTTP;
+
+// Omits the path if it is just a slash and there is no query or ref.  This is
+// meaningful for non-file "standard" URLs.
+extern const FormatUrlType kFormatUrlOmitTrailingSlashOnBareHostname;
+
+// Convenience for omitting all unecessary types.
+extern const FormatUrlType kFormatUrlOmitAll;
 
 // Holds a list of ports that should be accepted despite bans.
 extern std::set<int> explicitly_allowed_ports;
@@ -74,6 +95,10 @@ std::string GetHostAndOptionalPort(const GURL& url);
 // Returns empty string on failure.
 std::string NetAddressToString(const struct addrinfo* net_address);
 
+// Same as NetAddressToString, but additionally includes the port number. For
+// example: "192.168.0.1:99" or "[::1]:80".
+std::string NetAddressToStringWithPort(const struct addrinfo* net_address);
+
 // Returns the hostname of the current system. Returns empty string on failure.
 std::string GetHostName();
 
@@ -82,6 +107,9 @@ std::string GetHostName();
 void GetIdentityFromURL(const GURL& url,
                         std::wstring* username,
                         std::wstring* password);
+
+// Returns either the host from |url|, or, if the host is empty, the full spec.
+std::string GetHostOrSpecFromURL(const GURL& url);
 
 // Return the value of the HTTP response header with name 'name'.  'headers'
 // should be in the format that URLRequest::GetResponseHeaders() returns.
@@ -171,10 +199,15 @@ std::string CanonicalizeHost(const std::wstring& host,
 //   * Each component contains only alphanumeric characters and '-' or '_'
 //   * The last component does not begin with a digit
 //   * Optional trailing dot after last component (means "treat as FQDN")
+// If |desired_tld| is non-NULL, the host will only be considered invalid if
+// appending it as a trailing component still results in an invalid host.  This
+// helps us avoid marking as "invalid" user attempts to open "www.401k.com" by
+// typing 4-0-1-k-<ctrl>+<enter>.
 //
 // NOTE: You should only pass in hosts that have been returned from
 // CanonicalizeHost(), or you may not get accurate results.
-bool IsCanonicalizedHostCompliant(const std::string& host);
+bool IsCanonicalizedHostCompliant(const std::string& host,
+                                  const std::string& desired_tld);
 
 // Call these functions to get the html snippet for a directory listing.
 // The return values of both functions are in UTF-8.
@@ -186,10 +219,12 @@ std::string GetDirectoryListingHeader(const string16& title);
 // Currently, it's a script tag containing a call to a Javascript function
 // |addRow|.
 //
-// Its 1st parameter is derived from |name| and is the Javascript-string
-// escaped form of |name| (i.e \uXXXX). The 2nd parameter is the url-escaped
-// |raw_bytes| if it's not empty. If empty, the 2nd parameter is the
-// url-escaped |name| in UTF-8.
+// |name| is the file name to be displayed. |raw_bytes| will be used
+// as the actual target of the link (so for example, ftp links should use
+// server's encoding). If |raw_bytes| is an empty string, UTF-8 encoded |name|
+// will be used.
+//
+// Both |name| and |raw_bytes| are escaped internally.
 std::string GetDirectoryListingEntry(const string16& name,
                                      const std::string& raw_bytes,
                                      bool is_dir, int64 size,
@@ -240,13 +275,12 @@ void AppendFormattedHost(const GURL& url,
                          size_t* offset_for_adjustment);
 
 // Creates a string representation of |url|. The IDN host name may be in Unicode
-// if |languages| accepts the Unicode representation. If
-// |omit_username_password| is true, any username and password are removed.
-// |unescape_rules| defines how to clean the URL for human readability.
-// You will generally want |UnescapeRule::SPACES| for display to the user if you
-// can handle spaces, or |UnescapeRule::NORMAL| if not. If the path part and the
-// query part seem to be encoded in %-encoded UTF-8, decodes %-encoding and
-// UTF-8.
+// if |languages| accepts the Unicode representation. |format_type| is a bitmask
+// of FormatUrlTypes, see it for details. |unescape_rules| defines how to clean
+// the URL for human readability. You will generally want |UnescapeRule::SPACES|
+// for display to the user if you can handle spaces, or |UnescapeRule::NORMAL|
+// if not. If the path part and the query part seem to be encoded in %-encoded
+// UTF-8, decodes %-encoding and UTF-8.
 //
 // The last three parameters may be NULL.
 // |new_parsed| will be set to the parsing parameters of the resultant URL.
@@ -262,19 +296,24 @@ void AppendFormattedHost(const GURL& url,
 // std::wstring::npos.
 std::wstring FormatUrl(const GURL& url,
                        const std::wstring& languages,
-                       bool omit_username_password,
+                       FormatUrlTypes format_types,
                        UnescapeRule::Type unescape_rules,
                        url_parse::Parsed* new_parsed,
                        size_t* prefix_end,
                        size_t* offset_for_adjustment);
 
-// Creates a string representation of |url| for display to the user.
-// This is a shorthand of the above function with omit_username_password=true,
-// unescape=SPACES, new_parsed=NULL, and prefix_end=NULL.
+// This is a convenience function for FormatUrl() with
+// format_types = kFormatUrlOmitAll and unescape = SPACES.  This is the typical
+// set of flags for "URLs to display to the user".  You should be cautious about
+// using this for URLs which will be parsed or sent to other applications.
 inline std::wstring FormatUrl(const GURL& url, const std::wstring& languages) {
-  return FormatUrl(url, languages, true, UnescapeRule::SPACES, NULL, NULL,
-                   NULL);
+  return FormatUrl(url, languages, kFormatUrlOmitAll, UnescapeRule::SPACES,
+                   NULL, NULL, NULL);
 }
+
+// Returns whether FormatUrl() would strip a trailing slash from |url|, given a
+// format flag including kFormatUrlOmitTrailingSlashOnBareHostname.
+bool CanStripTrailingSlash(const GURL& url);
 
 // Strip the portions of |url| that aren't core to the network request.
 //   - user name / password
@@ -282,6 +321,62 @@ inline std::wstring FormatUrl(const GURL& url, const std::wstring& languages) {
 GURL SimplifyUrlForRequest(const GURL& url);
 
 void SetExplicitlyAllowedPorts(const std::wstring& allowed_ports);
+
+// Perform a simplistic test to see if IPv6 is supported by trying to create an
+// IPv6 socket.
+// TODO(jar): Make test more in-depth as needed.
+bool IPv6Supported();
+
+// IPAddressNumber is used to represent an IP address's numeric value as an
+// array of bytes, from most significant to least significant. This is the
+// network byte ordering.
+//
+// IPv4 addresses will have length 4, whereas IPv6 address will have length 16.
+typedef std::vector<unsigned char> IPAddressNumber;
+
+// Parses an IP address literal (either IPv4 or IPv6) to its numeric value.
+// Returns true on success and fills |ip_number| with the numeric value.
+bool ParseIPLiteralToNumber(const std::string& ip_literal,
+                            IPAddressNumber* ip_number);
+
+// Converts an IPv4 address to an IPv4-mapped IPv6 address.
+// For example 192.168.0.1 would be converted to ::ffff:192.168.0.1.
+IPAddressNumber ConvertIPv4NumberToIPv6Number(
+    const IPAddressNumber& ipv4_number);
+
+// Parses an IP block specifier from CIDR notation to an
+// (IP address, prefix length) pair. Returns true on success and fills
+// |*ip_number| with the numeric value of the IP address and sets
+// |*prefix_length_in_bits| with the length of the prefix.
+//
+// CIDR notation literals can use either IPv4 or IPv6 literals. Some examples:
+//
+//    10.10.3.1/20
+//    a:b:c::/46
+//    ::1/128
+bool ParseCIDRBlock(const std::string& cidr_literal,
+                    IPAddressNumber* ip_number,
+                    size_t* prefix_length_in_bits);
+
+// Compares an IP address to see if it falls within the specified IP block.
+// Returns true if it does, false otherwise.
+//
+// The IP block is given by (|ip_prefix|, |prefix_length_in_bits|) -- any
+// IP address whose |prefix_length_in_bits| most significant bits match
+// |ip_prefix| will be matched.
+//
+// In cases when an IPv4 address is being compared to an IPv6 address prefix
+// and vice versa, the IPv4 addresses will be converted to IPv4-mapped
+// (IPv6) addresses.
+bool IPNumberMatchesPrefix(const IPAddressNumber& ip_number,
+                           const IPAddressNumber& ip_prefix,
+                           size_t prefix_length_in_bits);
+
+// Returns the port field of the sockaddr in |info|.
+uint16* GetPortFieldFromAddrinfo(const struct addrinfo* info);
+
+// Returns the value of |info's| port (in host byte ordering).
+int GetPortFromAddrinfo(const struct addrinfo* info);
 
 }  // namespace net
 

@@ -428,6 +428,7 @@ uni-core-data: GODATA "$(ICUBLD_PKG)\uprops.icu" "$(ICUBLD_PKG)\ucase.icu" "$(IC
 	cd "$(ICUBLD_PKG)"
 	"$(ICUPBIN)\icupkg" -x * --list "$(ICUDATA_SOURCE_ARCHIVE)" > "$(ICUTMP)\icudata.lst"
 	"$(ICUPBIN)\pkgdata" $(COMMON_ICUDATA_ARGUMENTS) "$(ICUTMP)\icudata.lst"
+	editbin /NXCOMPAT /DYNAMICBASE "$(U_ICUDATA_NAME).dll"
 	copy "$(U_ICUDATA_NAME).dll" "$(DLL_OUTPUT)"
 	-@erase "$(U_ICUDATA_NAME).dll"
 	copy "$(ICUTMP)\$(ICUPKG).dat" "$(ICUOUT)\$(U_ICUDATA_NAME)$(U_ICUDATA_ENDIAN_SUFFIX).dat"
@@ -712,4 +713,3 @@ $(MISC_SOURCE) $(RB_FILES) $(COL_COL_FILES) $(RBNF_RES_FILES) $(BRK_RES_FILES) $
 # See Jitterbug 4497 for details.
 $(BRK_SOURCE) : "$(ICUBLD_PKG)\unames.icu" "$(ICUBLD_PKG)\pnames.icu"
 !ENDIF
-

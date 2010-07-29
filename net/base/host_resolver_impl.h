@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,10 +8,13 @@
 #include <string>
 #include <vector>
 
+#include "base/non_thread_safe.h"
 #include "base/scoped_ptr.h"
+#include "net/base/capturing_net_log.h"
 #include "net/base/host_cache.h"
 #include "net/base/host_resolver.h"
 #include "net/base/host_resolver_proc.h"
+#include "net/base/net_log.h"
 #include "net/base/network_change_notifier.h"
 
 namespace net {
@@ -47,6 +50,7 @@ namespace net {
 // Requests are ordered in the queue based on their priority.
 
 class HostResolverImpl : public HostResolver,
+                         public NonThreadSafe,
                          public NetworkChangeNotifier::Observer {
  public:
   // The index into |job_pools_| for the various job pools. Pools with a higher
@@ -69,13 +73,10 @@ class HostResolverImpl : public HostResolver,
   // thread-safe since it is run from multiple worker threads. If
   // |resolver_proc| is NULL then the default host resolver procedure is
   // used (which is SystemHostResolverProc except if overridden).
-  // |notifier| must outlive HostResolverImpl.  It can optionally be NULL, in
-  // which case HostResolverImpl will not respond to network changes.
   // |max_jobs| specifies the maximum number of threads that the host resolver
   // will use. Use SetPoolConstraints() to specify finer-grain settings.
   HostResolverImpl(HostResolverProc* resolver_proc,
                    HostCache* cache,
-                   NetworkChangeNotifier* notifier,
                    size_t max_jobs);
 
   // HostResolver methods:
@@ -83,33 +84,25 @@ class HostResolverImpl : public HostResolver,
                       AddressList* addresses,
                       CompletionCallback* callback,
                       RequestHandle* out_req,
-                      LoadLog* load_log);
+                      const BoundNetLog& net_log);
   virtual void CancelRequest(RequestHandle req);
   virtual void AddObserver(HostResolver::Observer* observer);
   virtual void RemoveObserver(HostResolver::Observer* observer);
 
-  // TODO(eroman): temp hack for http://crbug.com/15513
+  // Set address family, and disable IPv6 probe support.
+  virtual void SetDefaultAddressFamily(AddressFamily address_family);
+
+  // Continuously observe whether IPv6 is supported, and set the allowable
+  // address family to IPv4 iff IPv6 is not supported.
+  void ProbeIPv6Support();
+
+  virtual HostResolverImpl* GetAsHostResolverImpl() { return this; }
+
+  // TODO(eroman): hack for http://crbug.com/15513
   virtual void Shutdown();
-
-  virtual void SetDefaultAddressFamily(AddressFamily address_family) {
-    default_address_family_ = address_family;
-  }
-
-  virtual bool IsHostResolverImpl() { return true; }
 
   // Returns the cache this resolver uses, or NULL if caching is disabled.
   HostCache* cache() { return cache_.get(); }
-
-  // Clears the request trace log.
-  void ClearRequestsTrace();
-
-  // Starts/ends capturing requests to a trace log.
-  void EnableRequestsTracing(bool enable);
-
-  bool IsRequestsTracingEnabled() const;
-
-  // Returns a copy of the requests trace log, or NULL if there is none.
-  scoped_refptr<LoadLog> GetRequestsTrace();
 
   // Applies a set of constraints for requests that belong to the specified
   // pool. NOTE: Don't call this after requests have been already been started.
@@ -129,8 +122,8 @@ class HostResolverImpl : public HostResolver,
  private:
   class Job;
   class JobPool;
+  class IPv6ProbeJob;
   class Request;
-  class RequestsTrace;
   typedef std::vector<Request*> RequestsList;
   typedef HostCache::Key Key;
   typedef std::map<Key, scoped_refptr<Job> > JobMap;
@@ -156,27 +149,36 @@ class HostResolverImpl : public HostResolver,
   // Removes |job| from the outstanding jobs list.
   void RemoveOutstandingJob(Job* job);
 
-  // Callback for when |job| has completed with |error| and |addrlist|.
-  void OnJobComplete(Job* job, int error, const AddressList& addrlist);
+  // Callback for when |job| has completed with |net_error| and |addrlist|.
+  void OnJobComplete(Job* job, int net_error, int os_error,
+                     const AddressList& addrlist);
 
   // Called when a request has just been started.
-  void OnStartRequest(LoadLog* load_log,
+  void OnStartRequest(const BoundNetLog& net_log,
                       int request_id,
                       const RequestInfo& info);
 
   // Called when a request has just completed (before its callback is run).
-  void OnFinishRequest(LoadLog* load_log,
+  void OnFinishRequest(const BoundNetLog& net_log,
                        int request_id,
                        const RequestInfo& info,
-                       int error);
+                       int net_error,
+                       int os_error,
+                       bool was_from_cache);
 
   // Called when a request has been cancelled.
-  void OnCancelRequest(LoadLog* load_log,
+  void OnCancelRequest(const BoundNetLog& net_log,
                        int request_id,
                        const RequestInfo& info);
 
   // NetworkChangeNotifier::Observer methods:
   virtual void OnIPAddressChanged();
+
+  // Notify IPv6ProbeJob not to call back, and discard reference to the job.
+  void DiscardIPv6ProbeJob();
+
+  // Callback from IPv6 probe activity.
+  void IPv6ProbeSetDefaultAddressFamily(AddressFamily address_family);
 
   // Returns true if the constraints for |pool| are met, and a new job can be
   // created for this pool.
@@ -192,6 +194,11 @@ class HostResolverImpl : public HostResolver,
   // Starts up to 1 job given the current pool constraints. This job
   // may have multiple requests attached to it.
   void ProcessQueuedRequests();
+
+  // Returns the (hostname, address_family) key to use for |info|, choosing an
+  // "effective" address family by inheriting the resolver's default address
+  // family when the request leaves it unspecified.
+  Key GetEffectiveKeyForRequest(const RequestInfo& info) const;
 
   // Attaches |req| to a new job, and starts it. Returns that job.
   Job* CreateAndStartJob(Request* req);
@@ -234,12 +241,16 @@ class HostResolverImpl : public HostResolver,
   // Address family to use when the request doesn't specify one.
   AddressFamily default_address_family_;
 
-  // TODO(eroman): temp hack for http://crbug.com/15513
+  // TODO(eroman): hack for http://crbug.com/15513
   bool shutdown_;
 
-  NetworkChangeNotifier* const network_change_notifier_;
+  // Indicate if probing is done after each network change event to set address
+  // family.
+  // When false, explicit setting of address family is used.
+  bool ipv6_probe_monitoring_;
 
-  scoped_refptr<RequestsTrace> requests_trace_;
+  // The last un-cancelled IPv6ProbeJob (if any).
+  scoped_refptr<IPv6ProbeJob> ipv6_probe_job_;
 
   DISALLOW_COPY_AND_ASSIGN(HostResolverImpl);
 };

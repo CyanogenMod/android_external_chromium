@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/linux_util.h"
+#include "base/env_var.h"
 #include "base/message_loop.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
@@ -76,6 +76,14 @@ class ProxyConfigServiceLinux : public ProxyConfigService {
     virtual bool GetStringList(const char* key,
                                std::vector<std::string>* result) = 0;
 
+    // Returns true if the bypass list should be interpreted as a proxy
+    // whitelist rather than blacklist. (This is KDE-specific.)
+    virtual bool BypassListIsReversed() = 0;
+
+    // Returns true if the bypass rules should be interpreted as
+    // suffix-matching rules.
+    virtual bool MatchHostsUsingSuffixMatching() = 0;
+
    private:
     DISALLOW_COPY_AND_ASSIGN(GConfSettingGetter);
   };
@@ -105,10 +113,10 @@ class ProxyConfigServiceLinux : public ProxyConfigService {
    public:
     // Constructor receives env var getter implementation to use, and
     // takes ownership of it. This is the normal constructor.
-    explicit Delegate(base::EnvironmentVariableGetter* env_var_getter);
+    explicit Delegate(base::EnvVarGetter* env_var_getter);
     // Constructor receives gconf and env var getter implementations
     // to use, and takes ownership of them. Used for testing.
-    Delegate(base::EnvironmentVariableGetter* env_var_getter,
+    Delegate(base::EnvVarGetter* env_var_getter,
              GConfSettingGetter* gconf_getter);
     // Synchronously obtains the proxy configuration. If gconf is
     // used, also enables gconf notification for setting
@@ -168,7 +176,7 @@ class ProxyConfigServiceLinux : public ProxyConfigService {
     // carry the new config information.
     void SetNewProxyConfig(const ProxyConfig& new_config);
 
-    scoped_ptr<base::EnvironmentVariableGetter> env_var_getter_;
+    scoped_ptr<base::EnvVarGetter> env_var_getter_;
     scoped_ptr<GConfSettingGetter> gconf_getter_;
 
     // Cached proxy configuration, to be returned by
@@ -203,9 +211,8 @@ class ProxyConfigServiceLinux : public ProxyConfigService {
   // Usual constructor
   ProxyConfigServiceLinux();
   // For testing: take alternate gconf and env var getter implementations.
-  explicit ProxyConfigServiceLinux(
-      base::EnvironmentVariableGetter* env_var_getter);
-  ProxyConfigServiceLinux(base::EnvironmentVariableGetter* env_var_getter,
+  explicit ProxyConfigServiceLinux(base::EnvVarGetter* env_var_getter);
+  ProxyConfigServiceLinux(base::EnvVarGetter* env_var_getter,
                           GConfSettingGetter* gconf_getter);
 
   virtual ~ProxyConfigServiceLinux() {

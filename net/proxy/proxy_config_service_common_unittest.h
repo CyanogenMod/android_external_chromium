@@ -9,36 +9,86 @@
 #include <vector>
 
 #include "net/proxy/proxy_config.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
-// A few small helper functions common to the win and linux unittests.
+// Helper functions to describe the expected value of a
+// ProxyConfig::ProxyRules, and to check for a match.
 
 namespace net {
 
-ProxyConfig::ProxyRules MakeProxyRules(
-    ProxyConfig::ProxyRules::Type type,
-    const char* single_proxy,
-    const char* proxy_for_http,
-    const char* proxy_for_https,
-    const char* proxy_for_ftp,
-    const char* socks_proxy);
+class ProxyBypassRules;
 
-ProxyConfig::ProxyRules MakeSingleProxyRules(const char* single_proxy);
+// This structure contains our expectations on what values the ProxyRules
+// should have.
+struct ProxyRulesExpectation {
+  ProxyRulesExpectation(ProxyConfig::ProxyRules::Type type,
+                        const char* single_proxy,
+                        const char* proxy_for_http,
+                        const char* proxy_for_https,
+                        const char* proxy_for_ftp,
+                        const char* socks_proxy,
+                        const char* flattened_bypass_rules,
+                        bool reverse_bypass)
+    : type(type),
+      single_proxy(single_proxy),
+      proxy_for_http(proxy_for_http),
+      proxy_for_https(proxy_for_https),
+      proxy_for_ftp(proxy_for_ftp),
+      socks_proxy(socks_proxy),
+      flattened_bypass_rules(flattened_bypass_rules),
+      reverse_bypass(reverse_bypass) {
+  }
 
-ProxyConfig::ProxyRules MakeProxyPerSchemeRules(
-    const char* proxy_http,
-    const char* proxy_https,
-    const char* proxy_ftp);
 
-ProxyConfig::ProxyRules MakeProxyPerSchemeRules(
-    const char* proxy_http,
-    const char* proxy_https,
-    const char* proxy_ftp,
-    const char* socks_proxy);
+  // Call this within an EXPECT_TRUE(), to assert that |rules| matches
+  // our expected values |*this|.
+  ::testing::AssertionResult Matches(
+      const ProxyConfig::ProxyRules& rules) const;
 
-typedef std::vector<std::string> BypassList;
+  // Creates an expectation that the ProxyRules has no rules.
+  static ProxyRulesExpectation Empty();
 
-// Joins the proxy bypass list using "\n" to make it into a single string.
-std::string FlattenProxyBypass(const BypassList& proxy_bypass);
+  // Creates an expectation that the ProxyRules has nothing other than
+  // the specified bypass rules.
+  static ProxyRulesExpectation EmptyWithBypass(
+      const char* flattened_bypass_rules);
+
+  // Creates an expectation that the ProxyRules is for a single proxy
+  // server for all schemes.
+  static ProxyRulesExpectation Single(const char* single_proxy,
+                                      const char* flattened_bypass_rules);
+
+  // Creates an expectation that the ProxyRules specifies a different
+  // proxy server for each URL scheme.
+  static ProxyRulesExpectation PerScheme(const char* proxy_http,
+                                         const char* proxy_https,
+                                         const char* proxy_ftp,
+                                         const char* flattened_bypass_rules);
+
+  // Same as above, but additionally with a SOCKS fallback.
+  static ProxyRulesExpectation PerSchemeWithSocks(
+      const char* proxy_http,
+      const char* proxy_https,
+      const char* proxy_ftp,
+      const char* socks_proxy,
+      const char* flattened_bypass_rules);
+
+  // Same as PerScheme, but with the bypass rules reversed
+  static ProxyRulesExpectation PerSchemeWithBypassReversed(
+      const char* proxy_http,
+      const char* proxy_https,
+      const char* proxy_ftp,
+      const char* flattened_bypass_rules);
+
+  ProxyConfig::ProxyRules::Type type;
+  const char* single_proxy;
+  const char* proxy_for_http;
+  const char* proxy_for_https;
+  const char* proxy_for_ftp;
+  const char* socks_proxy;
+  const char* flattened_bypass_rules;
+  bool reverse_bypass;
+};
 
 }  // namespace net
 

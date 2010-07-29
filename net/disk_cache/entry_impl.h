@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2006-2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -47,11 +47,25 @@ class EntryImpl : public Entry, public base::RefCounted<EntryImpl> {
                              net::CompletionCallback* completion_callback);
   virtual int WriteSparseData(int64 offset, net::IOBuffer* buf, int buf_len,
                               net::CompletionCallback* completion_callback);
-  virtual int GetAvailableRange(int64 offset, int len, int64* start);
   virtual int GetAvailableRange(int64 offset, int len, int64* start,
                                 CompletionCallback* callback);
+  virtual bool CouldBeSparse() const;
   virtual void CancelSparseIO();
   virtual int ReadyForSparseIO(net::CompletionCallback* completion_callback);
+
+  // Background implementation of the Entry interface.
+  void DoomImpl();
+  int ReadDataImpl(int index, int offset, net::IOBuffer* buf, int buf_len,
+                   CompletionCallback* callback);
+  int WriteDataImpl(int index, int offset, net::IOBuffer* buf, int buf_len,
+                    CompletionCallback* callback, bool truncate);
+  int ReadSparseDataImpl(int64 offset, net::IOBuffer* buf, int buf_len,
+                         CompletionCallback* callback);
+  int WriteSparseDataImpl(int64 offset, net::IOBuffer* buf, int buf_len,
+                          CompletionCallback* callback);
+  int GetAvailableRangeImpl(int64 offset, int len, int64* start);
+  void CancelSparseIOImpl();
+  int ReadyForSparseIOImpl(CompletionCallback* callback);
 
   inline CacheEntryBlock* entry() {
     return &entry_;
@@ -112,7 +126,7 @@ class EntryImpl : public Entry, public base::RefCounted<EntryImpl> {
   void SetTimes(base::Time last_used, base::Time last_modified);
 
   // Generates a histogram for the time spent working on this operation.
-  void ReportIOTime(Operation op, const base::Time& start);
+  void ReportIOTime(Operation op, const base::TimeTicks& start);
 
  private:
   enum {
@@ -183,13 +197,12 @@ class EntryImpl : public Entry, public base::RefCounted<EntryImpl> {
   scoped_array<char> user_buffers_[kNumStreams];  // Store user data.
   // Files to store external user data and key.
   scoped_refptr<File> files_[kNumStreams + 1];
-  // Copy of the file used to store the key. We don't own this object.
-  mutable File* key_file_;
+  mutable std::string key_;           // Copy of the key.
   int unreported_size_[kNumStreams];  // Bytes not reported yet to the backend.
   bool doomed_;               // True if this entry was removed from the cache.
   scoped_ptr<SparseControl> sparse_;  // Support for sparse entries.
 
-  DISALLOW_EVIL_CONSTRUCTORS(EntryImpl);
+  DISALLOW_COPY_AND_ASSIGN(EntryImpl);
 };
 
 }  // namespace disk_cache

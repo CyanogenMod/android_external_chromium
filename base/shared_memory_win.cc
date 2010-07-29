@@ -62,13 +62,20 @@ void SharedMemory::CloseHandle(const SharedMemoryHandle& handle) {
 }
 
 bool SharedMemory::Create(const std::wstring &name, bool read_only,
-                          bool open_existing, size_t size) {
+                          bool open_existing, uint32 size) {
   DCHECK(mapped_file_ == NULL);
 
+  // NaCl's memory allocator requires 0mod64K alignment and size for
+  // shared memory objects.  To allow passing shared memory to NaCl,
+  // therefore we round the size actually created to the nearest 64K unit.
+  // To avoid client impact, we continue to retain the size as the
+  // actual requested size.
+  uint32 rounded_size = (size + 0xffff) & ~0xffff;
   name_ = name;
   read_only_ = read_only;
   mapped_file_ = CreateFileMapping(INVALID_HANDLE_VALUE, NULL,
-      read_only_ ? PAGE_READONLY : PAGE_READWRITE, 0, static_cast<DWORD>(size),
+      read_only_ ? PAGE_READONLY : PAGE_READWRITE, 0,
+      static_cast<DWORD>(rounded_size),
       name.empty() ? NULL : name.c_str());
   if (!mapped_file_)
     return false;
@@ -102,7 +109,7 @@ bool SharedMemory::Open(const std::wstring &name, bool read_only) {
   return false;
 }
 
-bool SharedMemory::Map(size_t bytes) {
+bool SharedMemory::Map(uint32 bytes) {
   if (mapped_file_ == NULL)
     return false;
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,14 +16,17 @@
 #include "base/scoped_ptr.h"
 #include "net/base/cert_verify_result.h"
 #include "net/base/completion_callback.h"
+#include "net/base/net_log.h"
 #include "net/base/nss_memio.h"
 #include "net/base/ssl_config_service.h"
+#include "net/base/x509_certificate.h"
 #include "net/socket/ssl_client_socket.h"
 
 namespace net {
 
+class BoundNetLog;
 class CertVerifier;
-class LoadLog;
+class ClientSocketHandle;
 class X509Certificate;
 
 // An SSL client socket implemented with Mozilla NSS.
@@ -33,7 +36,7 @@ class SSLClientSocketNSS : public SSLClientSocket {
   // The given hostname will be compared with the name(s) in the server's
   // certificate during the SSL handshake.  ssl_config specifies the SSL
   // settings.
-  SSLClientSocketNSS(ClientSocket* transport_socket,
+  SSLClientSocketNSS(ClientSocketHandle* transport_socket,
                      const std::string& hostname,
                      const SSLConfig& ssl_config);
   ~SSLClientSocketNSS();
@@ -44,11 +47,12 @@ class SSLClientSocketNSS : public SSLClientSocket {
   virtual NextProtoStatus GetNextProto(std::string* proto);
 
   // ClientSocket methods:
-  virtual int Connect(CompletionCallback* callback, LoadLog* load_log);
+  virtual int Connect(CompletionCallback* callback);
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
-  virtual int GetPeerName(struct sockaddr* name, socklen_t* namelen);
+  virtual int GetPeerAddress(AddressList* address) const;
+  virtual const BoundNetLog& NetLog() const { return net_log_; }
 
   // Socket methods:
   virtual int Read(IOBuffer* buf, int buf_len, CompletionCallback* callback);
@@ -56,12 +60,19 @@ class SSLClientSocketNSS : public SSLClientSocket {
   virtual bool SetReceiveBufferSize(int32 size);
   virtual bool SetSendBufferSize(int32 size);
 
+  void set_handshake_callback_called() { handshake_callback_called_ = true; }
+
  private:
   // Initializes NSS SSL options.  Returns a net error code.
   int InitializeSSLOptions();
 
   void InvalidateSessionIfBadCertificate();
+#if defined(OS_MACOSX) || defined(OS_WIN)
+  // Creates an OS certificate from a DER-encoded certificate.
+  static X509Certificate::OSCertHandle CreateOSCert(const SECItem& der_cert);
+#endif
   X509Certificate* UpdateServerCert();
+  void CheckSecureRenegotiation() const;
   void DoReadCallback(int result);
   void DoWriteCallback(int result);
   void DoConnectCallback(int result);
@@ -107,7 +118,7 @@ class SSLClientSocketNSS : public SSLClientSocket {
   scoped_refptr<IOBuffer> recv_buffer_;
 
   CompletionCallbackImpl<SSLClientSocketNSS> handshake_io_callback_;
-  scoped_ptr<ClientSocket> transport_;
+  scoped_ptr<ClientSocketHandle> transport_;
   std::string hostname_;
   SSLConfig ssl_config_;
 
@@ -137,6 +148,10 @@ class SSLClientSocketNSS : public SSLClientSocket {
 
   scoped_ptr<CertVerifier> verifier_;
 
+  // True if NSS has called HandshakeCallback.
+  bool handshake_callback_called_;
+
+  // True if the SSL handshake has been completed.
   bool completed_handshake_;
 
   enum State {
@@ -153,12 +168,15 @@ class SSLClientSocketNSS : public SSLClientSocket {
   // Buffers for the network end of the SSL state machine
   memio_Private* nss_bufs_;
 
-  scoped_refptr<LoadLog> load_log_;
+  BoundNetLog net_log_;
 
 #if defined(OS_WIN)
-  // A CryptoAPI in-memory certificate store that we import server
-  // certificates into so that we can verify and display the certificates
-  // using CryptoAPI.
+  // A CryptoAPI in-memory certificate store.  We use it for two purposes:
+  // 1. Import server certificates into this store so that we can verify and
+  //    display the certificates using CryptoAPI.
+  // 2. Copy client certificates from the "MY" system certificate store into
+  //    this store so that we can close the system store when we finish
+  //    searching for client certificates.
   static HCERTSTORE cert_store_;
 #endif
 };

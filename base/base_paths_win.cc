@@ -28,7 +28,6 @@ bool PathProviderWin(int key, FilePath* result) {
   system_buffer[0] = 0;
 
   FilePath cur;
-  std::wstring wstring_path;
   switch (key) {
     case base::FILE_EXE:
       GetModuleFileName(NULL, system_buffer, MAX_PATH);
@@ -94,10 +93,7 @@ bool PathProviderWin(int key, FilePath* result) {
       if (FAILED(SHGetFolderPath(NULL, CSIDL_APPDATA, NULL, SHGFP_TYPE_CURRENT,
                                  system_buffer)))
         return false;
-      wstring_path = system_buffer;
-      file_util::UpOneDirectory(&wstring_path);
-      file_util::AppendToPath(&wstring_path, L"LocalLow");
-      cur = FilePath(wstring_path);
+      cur = FilePath(system_buffer).DirName().AppendASCII("LocalLow");
       break;
     case base::DIR_LOCAL_APP_DATA:
       if (FAILED(SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, NULL,
@@ -105,12 +101,22 @@ bool PathProviderWin(int key, FilePath* result) {
         return false;
       cur = FilePath(system_buffer);
       break;
-    case base::DIR_SOURCE_ROOT:
+    case base::DIR_SOURCE_ROOT: {
+      FilePath executableDir;
       // On Windows, unit tests execute two levels deep from the source root.
       // For example:  chrome/{Debug|Release}/ui_tests.exe
-      PathService::Get(base::DIR_EXE, &cur);
-      cur = cur.DirName().DirName();
+      PathService::Get(base::DIR_EXE, &executableDir);
+      cur = executableDir.DirName().DirName();
+      FilePath checkedPath =
+          cur.Append(FILE_PATH_LITERAL("base/base_paths_win.cc"));
+      if (!file_util::PathExists(checkedPath)) {
+        // Check for WebKit-only checkout. Executable files are put into
+        // WebKit/WebKit/chromium/{Debug|Relese}, and we should return
+        // WebKit/WebKit/chromium.
+        cur = executableDir.DirName();
+      }
       break;
+    }
     default:
       return false;
   }

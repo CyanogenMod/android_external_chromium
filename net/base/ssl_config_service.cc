@@ -25,4 +25,31 @@ SSLConfigService* SSLConfigService::CreateSystemSSLConfigService() {
 #endif
 }
 
+// static
+bool SSLConfigService::IsKnownStrictTLSServer(const std::string& hostname) {
+  // If you wish to add an entry to this list, please contact agl AT chromium
+  // DOT org.
+  //
+  // If this list starts growing, it'll need to be something more efficient
+  // than a linear list.
+  static const char kStrictServers[][20] = {
+      "www.google.com",
+      "mail.google.com",
+      "www.gmail.com",
+      "docs.google.com",
+      "clients1.google.com",
+
+      // Removed until we update the XMPP servers with the renegotiation
+      // extension.
+      // "gmail.com",
+  };
+
+  for (size_t i = 0; i < arraysize(kStrictServers); i++) {
+    if (strcmp(hostname.c_str(), kStrictServers[i]) == 0)
+      return true;
+  }
+
+  return false;
+}
+
 }  // namespace net

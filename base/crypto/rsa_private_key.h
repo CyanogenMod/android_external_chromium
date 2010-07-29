@@ -13,15 +13,16 @@ struct SECKEYPrivateKeyStr;
 struct SECKEYPublicKeyStr;
 #elif defined(OS_MACOSX)
 #include <Security/cssm.h>
-#elif defined(OS_WIN)
-#include <windows.h>
-#include <wincrypt.h>
 #endif
 
 #include <list>
 #include <vector>
 
 #include "base/basictypes.h"
+
+#if defined(OS_WIN)
+#include "base/crypto/scoped_capi_types.h"
+#endif
 
 namespace base {
 
@@ -174,7 +175,6 @@ class RSAPrivateKey {
   HCRYPTPROV provider() { return provider_; }
   HCRYPTKEY key() { return key_; }
 #elif defined(OS_MACOSX)
-  CSSM_CSP_HANDLE csp_handle() { return csp_handle_; }
   CSSM_KEY_PTR key() { return &key_; }
 #endif
 
@@ -195,11 +195,10 @@ private:
 #elif defined(OS_WIN)
   bool InitProvider();
 
-  HCRYPTPROV provider_;
-  HCRYPTKEY key_;
+  ScopedHCRYPTPROV provider_;
+  ScopedHCRYPTKEY key_;
 #elif defined(OS_MACOSX)
   CSSM_KEY key_;
-  CSSM_CSP_HANDLE csp_handle_;
 #endif
 
   DISALLOW_COPY_AND_ASSIGN(RSAPrivateKey);

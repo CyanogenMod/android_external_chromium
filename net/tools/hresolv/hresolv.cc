@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,6 +27,7 @@
 #include "base/condition_variable.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/message_loop.h"
 #include "base/string_util.h"
 #include "base/thread.h"
 #include "base/time.h"
@@ -50,7 +51,7 @@ static const FlagName kAddrinfoFlagNames[] = {
   {AI_V4MAPPED, "AI_V4MAPPED"},
   {AI_ALL, "AI_ALL"},
   {AI_ADDRCONFIG, "AI_ADDRCONFIG"},
-#if defined(OS_LINUX) || defined(OS_WIN)
+#if !defined(OS_MACOSX)
   {AI_NUMERICSERV, "AI_NUMERICSERV"},
 #endif
 };
@@ -185,7 +186,7 @@ class DelayedResolve : public base::RefCounted<DelayedResolve> {
         invoker_(invoker),
         ALLOW_THIS_IN_INITIALIZER_LIST(
             io_callback_(this, &DelayedResolve::OnResolveComplete)) {
-   }
+  }
 
   void Start() {
     net::CompletionCallback* callback = (is_async_) ? &io_callback_ : NULL;
@@ -194,7 +195,7 @@ class DelayedResolve : public base::RefCounted<DelayedResolve> {
                                 &address_list_,
                                 callback,
                                 NULL,
-                                NULL);
+                                net::BoundNetLog());
     if (rv != net::ERR_IO_PENDING) {
       OnResolveComplete(rv);
     }
@@ -353,14 +354,18 @@ bool ParseCommandLine(CommandLine* command_line, CommandLineOptions* options) {
 }
 
 bool ReadHostsAndTimesFromLooseValues(
-    const std::vector<std::wstring>& loose_args,
+    const std::vector<CommandLine::StringType>& args,
     std::vector<HostAndTime>* hosts_and_times) {
-  std::vector<std::wstring>::const_iterator loose_args_end = loose_args.end();
-  for (std::vector<std::wstring>::const_iterator it = loose_args.begin();
-       it != loose_args_end;
+  for (std::vector<CommandLine::StringType>::const_iterator it =
+           args.begin();
+       it != args.end();
        ++it) {
     // TODO(cbentzel): Read time offset.
+#if defined(OS_WIN)
     HostAndTime host_and_time = {WideToASCII(*it), 0};
+#else
+    HostAndTime host_and_time = {*it, 0};
+#endif
     hosts_and_times->push_back(host_and_time);
   }
   return true;
@@ -430,7 +435,7 @@ int main(int argc, char** argv) {
   // file into memory.
   std::vector<HostAndTime> hosts_and_times;
   if (options.input_path.empty()) {
-    if (!ReadHostsAndTimesFromLooseValues(command_line->GetLooseValues(),
+    if (!ReadHostsAndTimesFromLooseValues(command_line->args(),
                                           &hosts_and_times)) {
       exit(1);
     }
@@ -446,7 +451,7 @@ int main(int argc, char** argv) {
       base::TimeDelta::FromSeconds(0));
 
   scoped_refptr<net::HostResolver> host_resolver(
-      new net::HostResolverImpl(NULL, cache, NULL, 100u));
+      new net::HostResolverImpl(NULL, cache, 100u));
   ResolverInvoker invoker(host_resolver.get());
   invoker.ResolveAll(hosts_and_times, options.async);
 

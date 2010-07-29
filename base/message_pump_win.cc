@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -143,17 +143,11 @@ void MessagePumpForUI::PumpOutPendingPaintMessages() {
   // to get the job done.  Actual common max is 4 peeks, but we'll be a little
   // safe here.
   const int kMaxPeekCount = 20;
-  bool win2k = win_util::GetWinVersion() <= win_util::WINVERSION_2000;
   int peek_count;
   for (peek_count = 0; peek_count < kMaxPeekCount; ++peek_count) {
     MSG msg;
-    if (win2k) {
-      if (!PeekMessage(&msg, NULL, WM_PAINT, WM_PAINT, PM_REMOVE))
-        break;
-    } else {
-      if (!PeekMessage(&msg, NULL, 0, 0, PM_REMOVE | PM_QS_PAINT))
-        break;
-    }
+    if (!PeekMessage(&msg, NULL, 0, 0, PM_REMOVE | PM_QS_PAINT))
+      break;
     ProcessMessageHelper(msg);
     if (state_->should_quit)  // Handle WM_QUIT.
       break;
@@ -503,9 +497,11 @@ bool MessagePumpForIO::WaitForIOCompletion(DWORD timeout, IOHandler* filter) {
       // Save this item for later
       completed_io_.push_back(item);
     } else {
-      DCHECK(item.context->handler == item.handler);
+      DCHECK_EQ(item.context->handler, item.handler);
+      WillProcessIOEvent();
       item.handler->OnIOCompleted(item.context, item.bytes_transfered,
                                   item.error);
+      DidProcessIOEvent();
     }
   } else {
     // The handler must be gone by now, just cleanup the mess.
@@ -555,6 +551,22 @@ bool MessagePumpForIO::MatchCompletedIOItem(IOHandler* filter, IOItem* item) {
     }
   }
   return false;
+}
+
+void MessagePumpForIO::AddIOObserver(IOObserver *obs) {
+  io_observers_.AddObserver(obs);
+}
+
+void MessagePumpForIO::RemoveIOObserver(IOObserver *obs) {
+  io_observers_.RemoveObserver(obs);
+}
+
+void MessagePumpForIO::WillProcessIOEvent() {
+  FOR_EACH_OBSERVER(IOObserver, io_observers_, WillProcessIOEvent());
+}
+
+void MessagePumpForIO::DidProcessIOEvent() {
+  FOR_EACH_OBSERVER(IOObserver, io_observers_, DidProcessIOEvent());
 }
 
 }  // namespace base

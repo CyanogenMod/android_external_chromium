@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,9 +17,9 @@
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/process_util.h"
-#include "base/string_util.h"
 #include "base/thread.h"
 #include "base/time.h"
+#include "base/utf_string_conversions.h"
 #include "base/waitable_event.h"
 #include "net/base/cookie_monster.h"
 #include "net/base/cookie_policy.h"
@@ -30,9 +30,10 @@
 #include "net/base/ssl_config_service_defaults.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/ftp/ftp_network_layer.h"
+#include "net/http/http_auth_handler_factory.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_network_layer.h"
-#include "net/socket/ssl_test_util.h"
+#include "net/test/test_server.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 #include "net/proxy/proxy_service.h"
@@ -53,7 +54,8 @@ class TestCookiePolicy : public net::CookiePolicy {
   enum Options {
     NO_GET_COOKIES = 1 << 0,
     NO_SET_COOKIE  = 1 << 1,
-    ASYNC          = 1 << 2
+    ASYNC          = 1 << 2,
+    FORCE_SESSION  = 1 << 3,
   };
 
   explicit TestCookiePolicy(int options_bit_mask)
@@ -93,6 +95,9 @@ class TestCookiePolicy : public net::CookiePolicy {
     if (options_ & NO_SET_COOKIE)
       return net::ERR_ACCESS_DENIED;
 
+    if (options_ & FORCE_SESSION)
+      return net::OK_FOR_SESSION_ONLY;
+
     return net::OK;
   }
 
@@ -126,15 +131,17 @@ class TestCookiePolicy : public net::CookiePolicy {
 class TestURLRequestContext : public URLRequestContext {
  public:
   TestURLRequestContext() {
-    host_resolver_ = net::CreateSystemHostResolver(NULL);
+    host_resolver_ =
+        net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism);
     proxy_service_ = net::ProxyService::CreateNull();
     Init();
   }
 
   explicit TestURLRequestContext(const std::string& proxy) {
-    host_resolver_ = net::CreateSystemHostResolver(NULL);
+    host_resolver_ =
+        net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism);
     net::ProxyConfig proxy_config;
-    proxy_config.proxy_rules.ParseFromString(proxy);
+    proxy_config.proxy_rules().ParseFromString(proxy);
     proxy_service_ = net::ProxyService::CreateFixed(proxy_config);
     Init();
   }
@@ -147,27 +154,28 @@ class TestURLRequestContext : public URLRequestContext {
   virtual ~TestURLRequestContext() {
     delete ftp_transaction_factory_;
     delete http_transaction_factory_;
+    delete http_auth_handler_factory_;
   }
 
  private:
   void Init() {
     ftp_transaction_factory_ = new net::FtpNetworkLayer(host_resolver_);
     ssl_config_service_ = new net::SSLConfigServiceDefaults;
-    http_transaction_factory_ =
-        new net::HttpCache(
-          net::HttpNetworkLayer::CreateFactory(NULL, host_resolver_,
-                                               proxy_service_,
-                                               ssl_config_service_),
-          disk_cache::CreateInMemoryCacheBackend(0));
+    http_auth_handler_factory_ = net::HttpAuthHandlerFactory::CreateDefault();
+    http_transaction_factory_ = new net::HttpCache(
+        net::HttpNetworkLayer::CreateFactory(host_resolver_,
+                                             proxy_service_,
+                                             ssl_config_service_,
+                                             http_auth_handler_factory_,
+                                             network_delegate_,
+                                             NULL),
+        net::HttpCache::DefaultBackend::InMemory(0));
     // In-memory cookie store.
-    cookie_store_ = new net::CookieMonster();
+    cookie_store_ = new net::CookieMonster(NULL, NULL);
     accept_language_ = "en-us,fr";
     accept_charset_ = "iso-8859-1,*,utf-8";
   }
 };
-
-// TODO(phajdan.jr): Migrate callers to the new name and remove the typedef.
-typedef TestURLRequestContext URLRequestTestContext;
 
 //-----------------------------------------------------------------------------
 
@@ -188,12 +196,17 @@ class TestDelegate : public URLRequest::Delegate {
         cancel_in_rs_(false),
         cancel_in_rd_(false),
         cancel_in_rd_pending_(false),
+        cancel_in_getcookiesblocked_(false),
+        cancel_in_setcookieblocked_(false),
         quit_on_complete_(true),
         quit_on_redirect_(false),
         allow_certificate_errors_(false),
         response_started_count_(0),
         received_bytes_count_(0),
         received_redirect_count_(0),
+        blocked_get_cookies_count_(0),
+        blocked_set_cookie_count_(0),
+        set_cookie_count_(0),
         received_data_before_response_(false),
         request_failed_(false),
         have_certificate_errors_(false),
@@ -296,11 +309,37 @@ class TestDelegate : public URLRequest::Delegate {
       request->Cancel();
   }
 
+  virtual void OnGetCookies(URLRequest* request, bool blocked_by_policy) {
+    if (blocked_by_policy) {
+      blocked_get_cookies_count_++;
+      if (cancel_in_getcookiesblocked_)
+        request->Cancel();
+    }
+  }
+
+  virtual void OnSetCookie(URLRequest* request,
+                           const std::string& cookie_line,
+                           bool blocked_by_policy) {
+    if (blocked_by_policy) {
+      blocked_set_cookie_count_++;
+      if (cancel_in_setcookieblocked_)
+        request->Cancel();
+    } else {
+      set_cookie_count_++;
+    }
+  }
+
   void set_cancel_in_received_redirect(bool val) { cancel_in_rr_ = val; }
   void set_cancel_in_response_started(bool val) { cancel_in_rs_ = val; }
   void set_cancel_in_received_data(bool val) { cancel_in_rd_ = val; }
   void set_cancel_in_received_data_pending(bool val) {
     cancel_in_rd_pending_ = val;
+  }
+  void set_cancel_in_get_cookies_blocked(bool val) {
+    cancel_in_getcookiesblocked_ = val;
+  }
+  void set_cancel_in_set_cookie_blocked(bool val) {
+    cancel_in_setcookieblocked_ = val;
   }
   void set_quit_on_complete(bool val) { quit_on_complete_ = val; }
   void set_quit_on_redirect(bool val) { quit_on_redirect_ = val; }
@@ -315,6 +354,9 @@ class TestDelegate : public URLRequest::Delegate {
   int bytes_received() const { return static_cast<int>(data_received_.size()); }
   int response_started_count() const { return response_started_count_; }
   int received_redirect_count() const { return received_redirect_count_; }
+  int blocked_get_cookies_count() const { return blocked_get_cookies_count_; }
+  int blocked_set_cookie_count() const { return blocked_set_cookie_count_; }
+  int set_cookie_count() const { return set_cookie_count_; }
   bool received_data_before_response() const {
     return received_data_before_response_;
   }
@@ -328,6 +370,8 @@ class TestDelegate : public URLRequest::Delegate {
   bool cancel_in_rs_;
   bool cancel_in_rd_;
   bool cancel_in_rd_pending_;
+  bool cancel_in_getcookiesblocked_;
+  bool cancel_in_setcookieblocked_;
   bool quit_on_complete_;
   bool quit_on_redirect_;
   bool allow_certificate_errors_;
@@ -339,6 +383,9 @@ class TestDelegate : public URLRequest::Delegate {
   int response_started_count_;
   int received_bytes_count_;
   int received_redirect_count_;
+  int blocked_get_cookies_count_;
+  int blocked_set_cookie_count_;
+  int set_cookie_count_;
   bool received_data_before_response_;
   bool request_failed_;
   bool have_certificate_errors_;
@@ -393,12 +440,6 @@ class BaseTestServer : public base::RefCounted<BaseTestServer> {
 
     return GURL(scheme_ + "://" + user + ":" + password +
                 "@" + host_name_ + ":" + port_str_ + "/" + path);
-  }
-
-  // Deprecated in favor of TestServerPage.
-  // TODO(phajdan.jr): Remove TestServerPageW.
-  GURL TestServerPageW(const std::wstring& path) {
-    return TestServerPage(WideToUTF8(path));
   }
 
   virtual bool MakeGETRequest(const std::string& page_name) = 0;

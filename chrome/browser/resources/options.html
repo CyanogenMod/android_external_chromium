@@ -1,0 +1,155 @@
+<!DOCTYPE HTML>
+<html i18n-values="dir:textdirection;" id="t">
+<head>
+<meta charset="utf-8">
+<title i18n-content="title"></title>
+
+<!-- TODO(zelidrag) need a better icon here -->
+<link rel="icon" href="../../app/theme/history_favicon.png">
+
+<script src="chrome://resources/js/class_list.js"></script>
+<script src="chrome://resources/js/cr.js"></script>
+<script src="chrome://resources/js/cr/event_target.js"></script>
+<script src="chrome://resources/js/cr/ui.js"></script>
+<script src="chrome://resources/js/cr/ui/array_data_model.js"></script>
+<script src="chrome://resources/js/cr/ui/list_selection_model.js"></script>
+<script src="chrome://resources/js/cr/ui/list_item.js"></script>
+<script src="chrome://resources/js/cr/ui/list.js"></script>
+<script src="chrome://resources/js/local_strings.js"></script>
+<script src="chrome://resources/js/util.js"></script>
+<script src="options/preferences.js"></script>
+<script src="options/pref_ui.js"></script>
+<script src="options/options_page.js"></script>
+<if expr="pp_ifdef('chromeos')">
+  <script src="options/chromeos_language_hangul_options.js"></script>
+  <script src="options/chromeos_system_options.js"></script>
+  <script src="options/chromeos_accounts_options.js"></script>
+  <script src="options/chromeos_accounts_user_list.js"></script>
+  <script src="options/chromeos_accounts_add_user_overlay.js"></script>
+</if>
+<script src="options/advanced_options.js"></script>
+<script src="options/browser_options.js"></script>
+<script src="options/personal_options.js"></script>
+<script src="options/content_settings_ui.js"></script>
+<script src="options/content_settings.js"></script>
+<script src="options/clear_browser_data_overlay.js"></script>
+<script src="options/font_settings_overlay.js"></script>
+<script>
+
+///////////////////////////////////////////////////////////////////////////////
+// Document Functions:
+/**
+ * Window onload handler, sets up the page.
+ */
+function load() {
+  localStrings = new LocalStrings();
+  
+  if (cr.isChromeOS) {
+    OptionsPage.register(SystemOptions.getInstance());
+    OptionsPage.register(AccountsOptions.getInstance());
+    // TODO(mazda): uncomment this once the language options is ready
+    // OptionsPage.register(LanguageHangulOptions.getInstance());
+  }
+
+  OptionsPage.register(BrowserOptions.getInstance());
+  OptionsPage.register(PersonalOptions.getInstance());
+  OptionsPage.register(AdvancedOptions.getInstance());
+  OptionsPage.registerSubPage(ContentSettings.getInstance());
+  OptionsPage.registerOverlay(ClearBrowserDataOverlay.getInstance());
+  OptionsPage.registerOverlay(FontSettingsOverlay.getInstance());
+
+  if (cr.isChromeOS) {
+    var labsOptions = new OptionsPage('labs',
+                                      localStrings.getString('labsPage'),
+                                      'labsPage');
+    OptionsPage.register(labsOptions);
+    var languageSettings = new OptionsPage('language',
+                                           localStrings.getString(
+                                               'languagePage'),
+                                           'languagePage');
+    OptionsPage.registerSubPage(languageSettings);
+  }
+
+  var syncSettings = new OptionsPage('sync',
+                                     localStrings.getString('syncPage'),
+                                     'syncPage');
+  OptionsPage.registerSubPage(syncSettings);
+
+  Preferences.getInstance().initialize();
+  OptionsPage.initialize();
+
+  // TODO(csilv): Save/restore last selected page.
+  if (cr.isChromeOS) {
+    OptionsPage.showPageByName(SystemOptions.getInstance().name);
+  } else {
+    OptionsPage.showPageByName(BrowserOptions.getInstance().name);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', load);
+
+window.onpopstate = function(e) {
+  OptionsPage.setState(e.state);
+};
+
+</script>
+<link rel="stylesheet" href="chrome://resources/css/list.css">
+<link rel="stylesheet" href="dom_ui.css">
+<link rel="stylesheet" href="options/options_page.css">
+<link rel="stylesheet" href="options/browser_options_page.css">
+<link rel="stylesheet" href="options/content_settings_page.css">
+<if expr="pp_ifdef('chromeos')">
+  <link rel="stylesheet" href="options/chromeos_accounts_options_page.css">
+  <link rel="stylesheet" href="options/chromeos_language_options.css">
+</if>
+</head>
+<body i18n-values=".style.fontFamily:fontfamily;.style.fontSize:fontsize">
+<div class="header">
+</div>
+<div id="overlay" class="overlay hidden">
+  <div id="overlayview">
+    <button id="close-overlay" onclick="OptionsPage.clearOverlays();"></button>
+    <include src="options/clear_browser_data_overlay.html">
+    <include src="options/font_settings_overlay.html">
+    <if expr="pp_ifdef('chromeos')">
+       <include src="options/chromeos_accounts_add_user_overlay.html">
+    </if>
+  </div>
+</div>
+<div id="main-content">
+  <div id="navbar-container">
+     <h1 id="settings-title" i18n-content="title"></h1>
+     <ul id="navbar">
+     </ul>
+     <hr/>
+     <ul id="subpagesnav">
+     </ul>
+  </div>
+  <div id="mainview">
+     <if expr="pp_ifdef('chromeos')">
+        <include src="options/chromeos_system_options.html">
+        <include src="options/chromeos_language_options.html">
+        <include src="options/chromeos_labs.html">
+        <include src="options/chromeos_accounts_options.html">
+        <!-- TODO(mazda): include options/chromeos_language_hangul_options.html
+             once the language options dialog is ready. -->
+     </if>
+     <include src="options/browser_options.html">
+     <include src="options/personal_options.html">
+     <include src="options/advanced_options.html">
+     <include src="options/content_settings.html">
+     <include src="options/sync_options.html">
+  </div>
+</div>
+
+<script>
+// Decorate the existing elements in the document.
+cr.ui.decorate('input[pref][type=checkbox]', PrefCheckbox);
+cr.ui.decorate('input[pref][type=range]', PrefRange);
+cr.ui.decorate('select[pref]', PrefSelect);
+cr.ui.decorate('input[pref][type=url]', PrefTextField);
+cr.ui.decorate('#contentSettingsPage input[type=radio]', ContentSettingsRadio);
+// TODO(zelidrag) add other elements here when we implement them
+</script>
+</body>
+</html>

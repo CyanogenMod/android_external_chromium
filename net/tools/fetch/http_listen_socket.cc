@@ -2,11 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "net/tools/fetch/http_listen_socket.h"
+
+#include <map>
+
 #include "base/compiler_specific.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
-#include "net/tools/fetch/http_listen_socket.h"
 #include "net/tools/fetch/http_server_request_info.h"
 #include "net/tools/fetch/http_server_response_info.h"
 
@@ -182,8 +185,9 @@ void HttpListenSocket::DidAccept(ListenSocket* server,
 }
 
 void HttpListenSocket::DidRead(ListenSocket* connection,
-                               const std::string& data) {
-  recv_data_ += data;
+                               const char* data,
+                               int len) {
+  recv_data_.append(data, len);
   while (recv_data_.length()) {
     HttpServerRequestInfo* request = ParseHeaders();
     if (!request)

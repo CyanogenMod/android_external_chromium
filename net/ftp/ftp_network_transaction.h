@@ -1,6 +1,6 @@
-// Copyright (c) 2008 The Chromium Authors. All rights reserved.  Use of this
-// source code is governed by a BSD-style license that can be found in the
-// LICENSE file.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef NET_FTP_FTP_NETWORK_TRANSACTION_H_
 #define NET_FTP_FTP_NETWORK_TRANSACTION_H_
@@ -14,6 +14,7 @@
 #include "base/scoped_ptr.h"
 #include "net/base/address_list.h"
 #include "net/base/host_resolver.h"
+#include "net/base/net_log.h"
 #include "net/ftp/ftp_ctrl_response_buffer.h"
 #include "net/ftp/ftp_response_info.h"
 #include "net/ftp/ftp_transaction.h"
@@ -33,7 +34,7 @@ class FtpNetworkTransaction : public FtpTransaction {
   // FtpTransaction methods:
   virtual int Start(const FtpRequestInfo* request_info,
                     CompletionCallback* callback,
-                    LoadLog* load_log);
+                    const BoundNetLog& net_log);
   virtual int Stop(int error);
   virtual int RestartWithAuth(const std::wstring& username,
                               const std::wstring& password,
@@ -49,9 +50,9 @@ class FtpNetworkTransaction : public FtpTransaction {
     COMMAND_NONE,
     COMMAND_USER,
     COMMAND_PASS,
-    COMMAND_ACCT,
     COMMAND_SYST,
     COMMAND_TYPE,
+    COMMAND_EPSV,
     COMMAND_PASV,
     COMMAND_PWD,
     COMMAND_SIZE,
@@ -59,31 +60,7 @@ class FtpNetworkTransaction : public FtpTransaction {
     COMMAND_CWD,
     COMMAND_MLSD,
     COMMAND_LIST,
-    COMMAND_MDTM,
-    COMMAND_QUIT
-  };
-
-  enum ErrorClass {
-    // The requested action was initiated. The client should expect another
-    // reply before issuing the next command.
-    ERROR_CLASS_INITIATED,
-
-    // The requested action has been successfully completed.
-    ERROR_CLASS_OK,
-
-    // The command has been accepted, but to complete the operation, more
-    // information must be sent by the client.
-    ERROR_CLASS_INFO_NEEDED,
-
-    // The command was not accepted and the requested action did not take place.
-    // This condition is temporary, and the client is encouraged to restart the
-    // command sequence.
-    ERROR_CLASS_TRANSIENT_ERROR,
-
-    // The command was not accepted and the requested action did not take place.
-    // This condition is rather permanent, and the client is discouraged from
-    // repeating the exact request.
-    ERROR_CLASS_PERMANENT_ERROR,
+    COMMAND_QUIT,
   };
 
   // Major categories of remote system types, as returned by SYST command.
@@ -93,6 +70,22 @@ class FtpNetworkTransaction : public FtpTransaction {
     SYSTEM_TYPE_WINDOWS,
     SYSTEM_TYPE_OS2,
     SYSTEM_TYPE_VMS,
+  };
+
+  // Data representation type, see RFC 959 section 3.1.1. Data Types.
+  // We only support the two most popular data types.
+  enum DataType {
+    DATA_TYPE_ASCII,
+    DATA_TYPE_IMAGE,
+  };
+
+  // In FTP we need to issue different commands depending on whether a resource
+  // is a file or directory. If we don't know that, we're going to autodetect
+  // it.
+  enum ResourceType {
+    RESOURCE_TYPE_UNKNOWN,
+    RESOURCE_TYPE_FILE,
+    RESOURCE_TYPE_DIRECTORY,
   };
 
   // Resets the members of the transaction so it can be restarted.
@@ -107,13 +100,12 @@ class FtpNetworkTransaction : public FtpTransaction {
 
   int SendFtpCommand(const std::string& command, Command cmd);
 
-  // Return the error class for given response code. You should validate the
-  // code to be in range 100-599.
-  static ErrorClass GetErrorClass(int response_code);
-
   // Returns request path suitable to be included in an FTP command. If the path
   // will be used as a directory, |is_directory| should be true.
   std::string GetRequestPathForFtpCommand(bool is_directory) const;
+
+  // See if the request URL contains a typecode and make us respect it.
+  void DetectTypecode();
 
   // Runs the state transition loop.
   int DoLoop(int result);
@@ -122,8 +114,6 @@ class FtpNetworkTransaction : public FtpTransaction {
   // argument receive the result from the previous state.  If a method returns
   // ERR_IO_PENDING, then the result from OnIOComplete will be passed to the
   // next state method as the result arg.
-  int DoCtrlInit();
-  int DoCtrlInitComplete(int result);
   int DoCtrlResolveHost();
   int DoCtrlResolveHostComplete(int result);
   int DoCtrlConnect();
@@ -136,14 +126,14 @@ class FtpNetworkTransaction : public FtpTransaction {
   int ProcessResponseUSER(const FtpCtrlResponse& response);
   int DoCtrlWritePASS();
   int ProcessResponsePASS(const FtpCtrlResponse& response);
-  int DoCtrlWriteACCT();
-  int ProcessResponseACCT(const FtpCtrlResponse& response);
   int DoCtrlWriteSYST();
   int ProcessResponseSYST(const FtpCtrlResponse& response);
   int DoCtrlWritePWD();
   int ProcessResponsePWD(const FtpCtrlResponse& response);
   int DoCtrlWriteTYPE();
   int ProcessResponseTYPE(const FtpCtrlResponse& response);
+  int DoCtrlWriteEPSV();
+  int ProcessResponseEPSV(const FtpCtrlResponse& response);
   int DoCtrlWritePASV();
   int ProcessResponsePASV(const FtpCtrlResponse& response);
   int DoCtrlWriteRETR();
@@ -156,8 +146,6 @@ class FtpNetworkTransaction : public FtpTransaction {
   int ProcessResponseMLSD(const FtpCtrlResponse& response);
   int DoCtrlWriteLIST();
   int ProcessResponseLIST(const FtpCtrlResponse& response);
-  int DoCtrlWriteMDTM();
-  int ProcessResponseMDTM(const FtpCtrlResponse& response);
   int DoCtrlWriteQUIT();
   int ProcessResponseQUIT(const FtpCtrlResponse& response);
 
@@ -175,7 +163,7 @@ class FtpNetworkTransaction : public FtpTransaction {
 
   scoped_refptr<FtpNetworkSession> session_;
 
-  scoped_refptr<LoadLog> load_log_;
+  BoundNetLog net_log_;
   const FtpRequestInfo* request_;
   FtpResponseInfo response_;
 
@@ -190,7 +178,6 @@ class FtpNetworkTransaction : public FtpTransaction {
 
   scoped_refptr<IOBuffer> read_data_buf_;
   int read_data_buf_len_;
-  int file_data_len_;
 
   // Buffer holding the command line to be written to the control socket.
   scoped_refptr<IOBufferWithSize> write_command_buf_;
@@ -203,6 +190,16 @@ class FtpNetworkTransaction : public FtpTransaction {
 
   SystemType system_type_;
 
+  // Data type to be used for the TYPE command.
+  DataType data_type_;
+
+  // Detected resource type (file or directory).
+  ResourceType resource_type_;
+
+  // Initially we favour EPSV over PASV for transfers but should any
+  // EPSV fail, we fall back to PASV for the duration of connection.
+  bool use_epsv_;
+
   // We get username and password as wstrings in RestartWithAuth, so they are
   // also kept as wstrings here.
   std::wstring username_;
@@ -211,8 +208,6 @@ class FtpNetworkTransaction : public FtpTransaction {
   // Current directory on the remote server, as returned by last PWD command,
   // with any trailing slash removed.
   std::string current_remote_directory_;
-
-  bool retr_failed_;
 
   int data_connection_port_;
 
@@ -223,8 +218,6 @@ class FtpNetworkTransaction : public FtpTransaction {
 
   enum State {
     // Control connection states:
-    STATE_CTRL_INIT,
-    STATE_CTRL_INIT_COMPLETE,
     STATE_CTRL_RESOLVE_HOST,
     STATE_CTRL_RESOLVE_HOST_COMPLETE,
     STATE_CTRL_CONNECT,
@@ -235,9 +228,9 @@ class FtpNetworkTransaction : public FtpTransaction {
     STATE_CTRL_WRITE_COMPLETE,
     STATE_CTRL_WRITE_USER,
     STATE_CTRL_WRITE_PASS,
-    STATE_CTRL_WRITE_ACCT,
     STATE_CTRL_WRITE_SYST,
     STATE_CTRL_WRITE_TYPE,
+    STATE_CTRL_WRITE_EPSV,
     STATE_CTRL_WRITE_PASV,
     STATE_CTRL_WRITE_PWD,
     STATE_CTRL_WRITE_RETR,
@@ -245,7 +238,6 @@ class FtpNetworkTransaction : public FtpTransaction {
     STATE_CTRL_WRITE_CWD,
     STATE_CTRL_WRITE_MLSD,
     STATE_CTRL_WRITE_LIST,
-    STATE_CTRL_WRITE_MDTM,
     STATE_CTRL_WRITE_QUIT,
     // Data connection states:
     STATE_DATA_CONNECT,

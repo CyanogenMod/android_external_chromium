@@ -1,5 +1,5 @@
 #!/usr/bin/python2.4
-# Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+# Copyright (c) 2006-2010 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
@@ -22,9 +22,13 @@ import shutil
 import SocketServer
 import sys
 import time
+import urllib2
+
+import pyftpdlib.ftpserver
 import tlslite
 import tlslite.api
-import pyftpdlib.ftpserver
+
+import chromiumsync
 
 try:
   import hashlib
@@ -47,7 +51,7 @@ class StoppableHTTPServer(BaseHTTPServer.HTTPServer):
 
   def serve_forever(self):
     self.stop = False
-    self.nonce = None
+    self.nonce_time = None
     while not self.stop:
       self.handle_request()
     self.socket.close()
@@ -125,11 +129,14 @@ class TestPageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
       self.ContentTypeHandler,
       self.ServerRedirectHandler,
       self.ClientRedirectHandler,
+      self.ChromiumSyncTimeHandler,
+      self.MultipartHandler,
       self.DefaultResponseHandler]
     self._post_handlers = [
       self.WriteFile,
       self.EchoTitleHandler,
       self.EchoAllHandler,
+      self.ChromiumSyncCommandHandler,
       self.EchoHandler] + self._get_handlers
     self._put_handlers = [
       self.WriteFile,
@@ -148,6 +155,8 @@ class TestPageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     BaseHTTPServer.BaseHTTPRequestHandler.__init__(self, request,
                                                    client_address,
                                                    socket_server)
+  # Class variable; shared across requests.
+  _sync_handler = chromiumsync.TestServer()
 
   def _ShouldHandleRequest(self, handler_name):
     """Determines if the path can be handled by the handler.
@@ -813,27 +822,34 @@ class TestPageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     return True
 
-  def AuthDigestHandler(self):
-    """This handler tests 'Digest' authentication.  It just sends a page with
-    title 'user/pass' if you succeed."""
+  def GetNonce(self, force_reset=False):
+   """Returns a nonce that's stable per request path for the server's lifetime.
 
+   This is a fake implementation. A real implementation would only use a given
+   nonce a single time (hence the name n-once). However, for the purposes of
+   unittesting, we don't care about the security of the nonce.
+
+   Args:
+     force_reset: Iff set, the nonce will be changed. Useful for testing the
+         "stale" response.
+   """
+   if force_reset or not self.server.nonce_time:
+     self.server.nonce_time = time.time()
+   return _new_md5('privatekey%s%d' %
+                   (self.path, self.server.nonce_time)).hexdigest()
+
+  def AuthDigestHandler(self):
+    """This handler tests 'Digest' authentication.
+
+    It just sends a page with title 'user/pass' if you succeed.
+
+    A stale response is sent iff "stale" is present in the request path.
+    """
     if not self._ShouldHandleRequest("/auth-digest"):
       return False
 
-    # Periodically generate a new nonce.  Technically we should incorporate
-    # the request URL into this, but we don't care for testing.
-    nonce_life = 10
-    stale = False
-    if (not self.server.nonce or
-        (time.time() - self.server.nonce_time > nonce_life)):
-      if self.server.nonce:
-        stale = True
-      self.server.nonce_time = time.time()
-      self.server.nonce = \
-          _new_md5(time.ctime(self.server.nonce_time) +
-                   'privatekey').hexdigest()
-
-    nonce = self.server.nonce
+    stale = 'stale' in self.path
+    nonce = self.GetNonce(force_reset=stale)
     opaque = _new_md5('opaque').hexdigest()
     password = 'secret'
     realm = 'testrealm'
@@ -988,6 +1004,61 @@ class TestPageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     return True
 
+  def ChromiumSyncTimeHandler(self):
+    """Handle Chromium sync .../time requests.
+
+    The syncer sometimes checks server reachability by examining /time.
+    """
+    test_name = "/chromiumsync/time"
+    if not self._ShouldHandleRequest(test_name):
+      return False
+
+    self.send_response(200)
+    self.send_header('Content-type', 'text/html')
+    self.end_headers()
+    return True
+
+  def ChromiumSyncCommandHandler(self):
+    """Handle a chromiumsync command arriving via http.
+
+    This covers all sync protocol commands: authentication, getupdates, and
+    commit.
+    """
+    test_name = "/chromiumsync/command"
+    if not self._ShouldHandleRequest(test_name):
+      return False
+
+    length = int(self.headers.getheader('content-length'))
+    raw_request = self.rfile.read(length)
+
+    http_response, raw_reply = self._sync_handler.HandleCommand(raw_request)
+    self.send_response(http_response)
+    self.end_headers()
+    self.wfile.write(raw_reply)
+    return True
+
+  def MultipartHandler(self):
+    """Send a multipart response (10 text/html pages)."""
+    test_name = "/multipart"
+    if not self._ShouldHandleRequest(test_name):
+      return False
+
+    num_frames = 10
+    bound = '12345'
+    self.send_response(200)
+    self.send_header('Content-type',
+                     'multipart/x-mixed-replace;boundary=' + bound)
+    self.end_headers()
+
+    for i in xrange(num_frames):
+      self.wfile.write('--' + bound + '\r\n')
+      self.wfile.write('Content-type: text/html\r\n\r\n')
+      self.wfile.write('<title>page ' + str(i) + '</title>')
+      self.wfile.write('page ' + str(i))
+
+    self.wfile.write('--' + bound + '--')
+    return True
+
   def DefaultResponseHandler(self):
     """This is the catch-all response handler for requests that aren't handled
     by one of the special handlers above.
@@ -1095,12 +1166,23 @@ def MakeDataDir():
     # Create the default path to our data dir, relative to the exe dir.
     my_data_dir = os.path.dirname(sys.argv[0])
     my_data_dir = os.path.join(my_data_dir, "..", "..", "..", "..",
-                                   "test", "data")
+                               "test", "data")
 
     #TODO(ibrar): Must use Find* funtion defined in google\tools
     #i.e my_data_dir = FindUpward(my_data_dir, "test", "data")
 
   return my_data_dir
+
+def TryKillingOldServer(port):
+  # Note that an HTTP /kill request to the FTP server has the effect of
+  # killing it.
+  for protocol in ["http", "https"]:
+    try:
+      urllib2.urlopen("%s://localhost:%d/kill" % (protocol, port)).read()
+      print "Killed old server instance on port %d (via %s)" % (port, protocol)
+    except urllib2.URLError:
+      # Common case, indicates no server running.
+      pass
 
 def main(options, args):
   # redirect output to a log file so it doesn't spam the unit test output
@@ -1108,6 +1190,9 @@ def main(options, args):
   sys.stderr = sys.stdout = logfile
 
   port = options.port
+
+  # Try to free up the port if there's an orphaned old instance.
+  TryKillingOldServer(port)
 
   if options.server_type == SERVER_HTTP:
     if options.cert:

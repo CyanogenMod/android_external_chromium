@@ -15,22 +15,25 @@
 #include "net/base/cert_status_flags.h"
 #include "net/base/cookie_policy.h"
 #include "net/base/filter.h"
-#include "net/base/https_prober.h"
 #include "net/base/transport_security_state.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
 #include "net/base/sdch_manager.h"
 #include "net/base/ssl_cert_request_info.h"
+#include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_response_info.h"
 #include "net/http/http_transaction.h"
 #include "net/http/http_transaction_factory.h"
 #include "net/http/http_util.h"
+#include "net/url_request/https_prober.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_error_job.h"
 #include "net/url_request/url_request_redirect_job.h"
+
+static const char kAvailDictionaryHeader[] = "Avail-Dictionary";
 
 // TODO(darin): make sure the port blocking code is not lost
 // static
@@ -128,9 +131,9 @@ void URLRequestHttpJob::SetUpload(net::UploadData* upload) {
 }
 
 void URLRequestHttpJob::SetExtraRequestHeaders(
-    const std::string& headers) {
+    const net::HttpRequestHeaders& headers) {
   DCHECK(!transaction_.get()) << "cannot change once started";
-  request_info_.extra_headers = headers;
+  request_info_.extra_headers.CopyFrom(headers);
 }
 
 void URLRequestHttpJob::Start() {
@@ -146,8 +149,9 @@ void URLRequestHttpJob::Start() {
   request_info_.priority = request_->priority();
 
   if (request_->context()) {
-    request_info_.user_agent =
-        request_->context()->GetUserAgent(request_->url());
+    request_info_.extra_headers.SetHeader(
+        net::HttpRequestHeaders::kUserAgent,
+        request_->context()->GetUserAgent(request_->url()));
   }
 
   AddExtraHeaders();
@@ -334,9 +338,8 @@ void URLRequestHttpJob::RestartTransactionWithAuth(
   // Update the cookies, since the cookie store may have been updated from the
   // headers in the 401/407. Since cookies were already appended to
   // extra_headers, we need to strip them out before adding them again.
-  static const char* const cookie_name[] = { "cookie" };
-  request_info_.extra_headers = net::HttpUtil::StripHeaders(
-      request_info_.extra_headers, cookie_name, arraysize(cookie_name));
+  request_info_.extra_headers.RemoveHeader(
+      net::HttpRequestHeaders::kCookie);
 
   AddCookieHeaderAndStart();
 }
@@ -429,20 +432,34 @@ bool URLRequestHttpJob::ReadRawData(net::IOBuffer* buf, int buf_size,
   return false;
 }
 
+void URLRequestHttpJob::StopCaching() {
+  if (transaction_.get())
+    transaction_->StopCaching();
+}
+
 void URLRequestHttpJob::OnCanGetCookiesCompleted(int policy) {
   // If the request was destroyed, then there is no more work to do.
   if (request_ && request_->delegate()) {
-    if (policy == net::OK && request_->context()->cookie_store()) {
+    if (policy == net::ERR_ACCESS_DENIED) {
+      request_->delegate()->OnGetCookies(request_, true);
+    } else if (policy == net::OK && request_->context()->cookie_store()) {
+      request_->delegate()->OnGetCookies(request_, false);
       net::CookieOptions options;
       options.set_include_httponly();
       std::string cookies =
           request_->context()->cookie_store()->GetCookiesWithOptions(
               request_->url(), options);
-      if (request_->context()->InterceptRequestCookies(request_, cookies) &&
-          !cookies.empty())
-        request_info_.extra_headers += "Cookie: " + cookies + "\r\n";
+      if (!cookies.empty()) {
+        request_info_.extra_headers.SetHeader(
+            net::HttpRequestHeaders::kCookie, cookies);
+      }
     }
-    StartTransaction();
+    // We may have been canceled within OnGetCookies.
+    if (GetStatus().is_success()) {
+      StartTransaction();
+    } else {
+      NotifyCanceled();
+    }
   }
   Release();  // Balance AddRef taken in AddCookieHeaderAndStart
 }
@@ -450,16 +467,33 @@ void URLRequestHttpJob::OnCanGetCookiesCompleted(int policy) {
 void URLRequestHttpJob::OnCanSetCookieCompleted(int policy) {
   // If the request was destroyed, then there is no more work to do.
   if (request_ && request_->delegate()) {
-    if (policy == net::OK && request_->context()->cookie_store()) {
+    if (policy == net::ERR_ACCESS_DENIED) {
+      request_->delegate()->OnSetCookie(
+          request_,
+          response_cookies_[response_cookies_save_index_],
+          true);
+    } else if ((policy == net::OK || policy == net::OK_FOR_SESSION_ONLY) &&
+               request_->context()->cookie_store()) {
       // OK to save the current response cookie now.
       net::CookieOptions options;
       options.set_include_httponly();
+      if (policy == net::OK_FOR_SESSION_ONLY)
+        options.set_force_session();
       request_->context()->cookie_store()->SetCookieWithOptions(
           request_->url(), response_cookies_[response_cookies_save_index_],
           options);
+      request_->delegate()->OnSetCookie(
+          request_,
+          response_cookies_[response_cookies_save_index_],
+          false);
     }
     response_cookies_save_index_++;
-    SaveNextCookie();
+    // We may have been canceled within OnSetCookie.
+    if (GetStatus().is_success()) {
+      SaveNextCookie();
+    } else {
+      NotifyCanceled();
+    }
   }
   Release();  // Balance AddRef taken in SaveNextCookie
 }
@@ -569,23 +603,12 @@ void URLRequestHttpJob::NotifyHeadersComplete() {
   URLRequestJob::NotifyHeadersComplete();
 }
 
-#if defined(OS_WIN)
-#pragma optimize("", off)
-#pragma warning(disable:4748)
-#endif
 void URLRequestHttpJob::DestroyTransaction() {
-  CHECK(transaction_.get());
-  // TODO(rvargas): remove this after finding the cause for bug 31723.
-  char local_obj[sizeof(*this)];
-  memcpy(local_obj, this, sizeof(local_obj));
+  DCHECK(transaction_.get());
 
   transaction_.reset();
   response_info_ = NULL;
 }
-#if defined(OS_WIN)
-#pragma warning(default:4748)
-#pragma optimize("", on)
-#endif
 
 void URLRequestHttpJob::StartTransaction() {
   // NOTE: This method assumes that request_info_ is already setup properly.
@@ -606,7 +629,7 @@ void URLRequestHttpJob::StartTransaction() {
         &transaction_);
     if (rv == net::OK) {
       rv = transaction_->Start(
-          &request_info_, &start_callback_, request_->load_log());
+          &request_info_, &start_callback_, request_->net_log());
     }
   }
 
@@ -654,14 +677,16 @@ void URLRequestHttpJob::AddExtraHeaders() {
   // these headers.  Some proxies deliberately corrupt Accept-Encoding headers.
   if (!advertise_sdch) {
     // Tell the server what compression formats we support (other than SDCH).
-    request_info_.extra_headers += "Accept-Encoding: gzip,deflate\r\n";
+    request_info_.extra_headers.SetHeader(
+        net::HttpRequestHeaders::kAcceptEncoding, "gzip,deflate");
   } else {
     // Include SDCH in acceptable list.
-    request_info_.extra_headers += "Accept-Encoding: "
-        "gzip,deflate,sdch\r\n";
+    request_info_.extra_headers.SetHeader(
+        net::HttpRequestHeaders::kAcceptEncoding, "gzip,deflate,sdch");
     if (!avail_dictionaries.empty()) {
-      request_info_.extra_headers += "Avail-Dictionary: "
-          + avail_dictionaries + "\r\n";
+      request_info_.extra_headers.SetHeader(
+          kAvailDictionaryHeader,
+          avail_dictionaries);
       sdch_dictionary_advertised_ = true;
       // Since we're tagging this transaction as advertising a dictionary, we'll
       // definately employ an SDCH filter (or tentative sdch filter) when we get
@@ -675,12 +700,18 @@ void URLRequestHttpJob::AddExtraHeaders() {
   if (context) {
     // Only add default Accept-Language and Accept-Charset if the request
     // didn't have them specified.
-    net::HttpUtil::AppendHeaderIfMissing("Accept-Language",
-                                         context->accept_language(),
-                                         &request_info_.extra_headers);
-    net::HttpUtil::AppendHeaderIfMissing("Accept-Charset",
-                                         context->accept_charset(),
-                                         &request_info_.extra_headers);
+    if (!request_info_.extra_headers.HasHeader(
+        net::HttpRequestHeaders::kAcceptLanguage)) {
+      request_info_.extra_headers.SetHeader(
+          net::HttpRequestHeaders::kAcceptLanguage,
+          context->accept_language());
+    }
+    if (!request_info_.extra_headers.HasHeader(
+        net::HttpRequestHeaders::kAcceptCharset)) {
+      request_info_.extra_headers.SetHeader(
+          net::HttpRequestHeaders::kAcceptCharset,
+          context->accept_charset());
+    }
   }
 }
 
@@ -694,7 +725,7 @@ void URLRequestHttpJob::AddCookieHeaderAndStart() {
   int policy = net::OK;
 
   if (request_info_.load_flags & net::LOAD_DO_NOT_SEND_COOKIES) {
-    policy = net::ERR_ACCESS_DENIED;
+    policy = net::ERR_FAILED;
   } else if (request_->context()->cookie_policy()) {
     policy = request_->context()->cookie_policy()->CanGetCookies(
         request_->url(),
@@ -740,7 +771,7 @@ void URLRequestHttpJob::SaveNextCookie() {
   int policy = net::OK;
 
   if (request_info_.load_flags & net::LOAD_DO_NOT_SAVE_COOKIES) {
-    policy = net::ERR_ACCESS_DENIED;
+    policy = net::ERR_FAILED;
   } else if (request_->context()->cookie_policy()) {
     policy = request_->context()->cookie_policy()->CanSetCookie(
         request_->url(),
@@ -761,10 +792,8 @@ void URLRequestHttpJob::FetchResponseCookies(
   std::string value;
 
   void* iter = NULL;
-  while (response_info->headers->EnumerateHeader(&iter, name, &value)) {
-    if (request_->context()->InterceptResponseCookie(request_, value))
-      cookies->push_back(value);
-  }
+  while (response_info->headers->EnumerateHeader(&iter, name, &value))
+    cookies->push_back(value);
 }
 
 class HTTPSProberDelegate : public net::HTTPSProberDelegate {
@@ -810,8 +839,7 @@ void URLRequestHttpJob::ProcessStrictTransportSecurityHeader() {
 
   const bool https = response_info_->ssl_info.is_valid();
   const bool valid_https =
-      https &&
-      !(response_info_->ssl_info.cert_status & net::CERT_STATUS_ALL_ERRORS);
+      https && !net::IsCertStatusError(response_info_->ssl_info.cert_status);
 
   std::string name = "Strict-Transport-Security";
   std::string value;
@@ -879,7 +907,7 @@ void URLRequestHttpJob::ProcessStrictTransportSecurityHeader() {
       continue;
     }
 
-    net::HTTPSProberDelegate* delegate =
+    HTTPSProberDelegate* delegate =
         new HTTPSProberDelegate(request_info_.url.host(), max_age,
                                 include_subdomains,
                                 ctx->transport_security_state());

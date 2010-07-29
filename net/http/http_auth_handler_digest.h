@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define NET_HTTP_HTTP_AUTH_HANDLER_DIGEST_H_
 
 #include "net/http/http_auth_handler.h"
+#include "net/http/http_auth_handler_factory.h"
 
 // This is needed for the FRIEND_TEST() macro.
 #include "testing/gtest/include/gtest/gtest_prod.h"
@@ -15,21 +16,35 @@ namespace net {
 // Code for handling http digest authentication.
 class HttpAuthHandlerDigest : public HttpAuthHandler {
  public:
-  virtual std::string GenerateCredentials(const std::wstring& username,
-                                          const std::wstring& password,
-                                          const HttpRequestInfo* request,
-                                          const ProxyInfo* proxy);
+  class Factory : public HttpAuthHandlerFactory {
+   public:
+    Factory();
+    virtual ~Factory();
+
+    virtual int CreateAuthHandler(HttpAuth::ChallengeTokenizer* challenge,
+                                  HttpAuth::Target target,
+                                  const GURL& origin,
+                                  CreateReason reason,
+                                  int digest_nonce_count,
+                                  const BoundNetLog& net_log,
+                                  scoped_ptr<HttpAuthHandler>* handler);
+  };
 
  protected:
-  virtual bool Init(std::string::const_iterator challenge_begin,
-                    std::string::const_iterator challenge_end) {
-    nonce_count_ = 0;
-    return ParseChallenge(challenge_begin, challenge_end);
+  virtual bool Init(HttpAuth::ChallengeTokenizer* challenge) {
+    return ParseChallenge(challenge);
   }
+
+  virtual int GenerateAuthTokenImpl(const std::wstring* username,
+                                    const std::wstring* password,
+                                    const HttpRequestInfo* request,
+                                    CompletionCallback* callback,
+                                    std::string* auth_token);
 
  private:
   FRIEND_TEST(HttpAuthHandlerDigestTest, ParseChallenge);
   FRIEND_TEST(HttpAuthHandlerDigestTest, AssembleCredentials);
+  FRIEND_TEST(HttpNetworkTransactionTest, DigestPreAuthNonceCount);
 
   // Possible values for the "algorithm" property.
   enum DigestAlgorithm {
@@ -53,12 +68,13 @@ class HttpAuthHandlerDigest : public HttpAuthHandler {
     QOP_AUTH_INT = 1 << 1,
   };
 
+  explicit HttpAuthHandlerDigest(int nonce_count) : nonce_count_(nonce_count) {}
+
   ~HttpAuthHandlerDigest() {}
 
   // Parse the challenge, saving the results into this instance.
   // Returns true on success.
-  bool ParseChallenge(std::string::const_iterator challenge_begin,
-                      std::string::const_iterator challenge_end);
+  bool ParseChallenge(HttpAuth::ChallengeTokenizer* challenge);
 
   // Parse an individual property. Returns true on success.
   bool ParseChallengeProperty(const std::string& name,
@@ -74,7 +90,6 @@ class HttpAuthHandlerDigest : public HttpAuthHandler {
   // Extract the method and path of the request, as needed by
   // the 'A2' production. (path may be a hostname for proxy).
   void GetRequestMethodAndPath(const HttpRequestInfo* request,
-                               const ProxyInfo* proxy,
                                std::string* method,
                                std::string* path) const;
 
@@ -94,6 +109,11 @@ class HttpAuthHandlerDigest : public HttpAuthHandler {
                                   const std::string& cnonce,
                                   int nonce_count) const;
 
+  // Forces cnonce to be the same each time. This is used for unit tests.
+  static void SetFixedCnonce(bool fixed_cnonce) {
+    fixed_cnonce_ = fixed_cnonce;
+  }
+
   // Information parsed from the challenge.
   std::string nonce_;
   std::string domain_;
@@ -103,6 +123,9 @@ class HttpAuthHandlerDigest : public HttpAuthHandler {
   int qop_; // Bitfield of QualityOfProtection
 
   int nonce_count_;
+
+  // Forces the cnonce to be the same each time, for unit tests.
+  static bool fixed_cnonce_;
 };
 
 }  // namespace net

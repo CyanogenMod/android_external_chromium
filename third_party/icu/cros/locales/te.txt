@@ -1,0 +1,24 @@
+﻿// ***************************************************************************
+// *
+// * Copyright (C) 2009 International Business Machines
+// * Corporation and others.  All Rights Reserved.
+// * Tool: com.ibm.icu.dev.tool.cldr.LDML2ICUConverter.java
+// * Source File:<path>/common/main/te.xml
+// *
+// ***************************************************************************
+/**
+ *  ICU <specials> source: <path>/xml/main/te.xml
+ *  Chrome Note: This locale data is abridged to contain categories
+ *  actually used by Chrome.
+ */
+te{
+    AuxExemplarCharacters{"[\u200C \u200D ౦-౯ b c e g m q t]"}
+    ExemplarCharacters{"[\u200c \u200d \u0c01-\u0c03 \u0c05-\u0c0c \u0c0e-\u0c10 \u0c12-\u0c28 \u0c2a-\u0c33 \u0c35-\u0c39 \u0c3e-\u0c44 \u0c46-\u0c48 \u0c4a-\u0c4d \u0c55-\u0c56 \u0c60-\u0c61 \u0c66-\u0c6f]"}
+    Languages{
+        te{"తెలుగు"}
+    }
+    LocaleScript{
+        "Telu",
+    }
+    Version{"1.81"}
+}

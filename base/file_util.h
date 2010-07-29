@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,9 @@
 
 #if defined(OS_WIN)
 #include <windows.h>
+#if defined(UNIT_TEST)
+#include <aclapi.h>
+#endif
 #elif defined(OS_POSIX)
 #include <sys/stat.h>
 #endif
@@ -30,7 +33,9 @@
 #include "base/time.h"
 
 #if defined(OS_POSIX)
+#include "base/eintr_wrapper.h"
 #include "base/file_descriptor_posix.h"
+#include "base/logging.h"
 #endif
 
 namespace base {
@@ -44,68 +49,23 @@ namespace file_util {
 
 // Returns true if the given path ends with a path separator character.
 bool EndsWithSeparator(const FilePath& path);
-// These two versions are both deprecated. TODO(estade): remove them.
-bool EndsWithSeparator(std::wstring* path);
-bool EndsWithSeparator(const std::wstring& path);
 
 // Makes sure that |path| ends with a separator IFF path is a directory that
 // exists. Returns true if |path| is an existing directory, false otherwise.
 bool EnsureEndsWithSeparator(FilePath* path);
 
-// Strips the topmost directory from the end of 'dir'.  Assumes 'dir' does not
-// refer to a file.
-// If 'dir' is a root directory, return without change.
-// Deprecated. Use FilePath::DirName instead.
-void UpOneDirectory(std::wstring* dir);
-// Strips the topmost directory from the end of 'dir'.  Assumes 'dir' does not
-// refer to a file.
-// If 'dir' is a root directory, the result becomes empty string.
-// Deprecated. Use FilePath::DirName instead.
-void UpOneDirectoryOrEmpty(std::wstring* dir);
-
-// Returns the filename portion of 'path', without any leading \'s or /'s.
-// Deprecated. Use FilePath::BaseName instead.
-std::wstring GetFilenameFromPath(const std::wstring& path);
-
-// Deprecated compatibility function.  Use FilePath::Extension.
-FilePath::StringType GetFileExtensionFromPath(const FilePath& path);
-// Deprecated temporary compatibility function.
-std::wstring GetFileExtensionFromPath(const std::wstring& path);
-
-// Returns the directory component of a path, without the trailing
-// path separator, or an empty string on error. The function does not
-// check for the existence of the path, so if it is passed a directory
-// without the trailing \, it will interpret the last component of the
-// path as a file and chomp it. This does not support relative paths.
-// Examples:
-// path == "C:\pics\jojo.jpg",     returns "C:\pics"
-// path == "C:\Windows\system32\", returns "C:\Windows\system32"
-// path == "C:\Windows\system32",  returns "C:\Windows"
-std::wstring GetDirectoryFromPath(const std::wstring& path);
-
-// Appends new_ending to path, adding a separator between the two if necessary.
-void AppendToPath(std::wstring* path, const std::wstring& new_ending);
-
 // Convert provided relative path into an absolute path.  Returns false on
 // error. On POSIX, this function fails if the path does not exist.
 bool AbsolutePath(FilePath* path);
-// Deprecated temporary compatibility function.
-bool AbsolutePath(std::wstring* path);
 
 // Returns true if |parent| contains |child|. Both paths are converted to
 // absolute paths before doing the comparison.
 bool ContainsPath(const FilePath& parent, const FilePath& child);
 
-// Deprecated compatibility function.  Use FilePath::InsertBeforeExtension.
-void InsertBeforeExtension(FilePath* path, const FilePath::StringType& suffix);
-
-// Deprecated compatibility function.  Use FilePath::ReplaceExtension.
-void ReplaceExtension(FilePath* file_name,
-                      const FilePath::StringType& extension);
-
 //-----------------------------------------------------------------------------
 // Functions that involve filesystem access or modification:
 
+// Returns the number of files matching the current path that were
 // created on or after the given |file_time|.  Doesn't count ".." or ".".
 //
 // Note for POSIX environments: a file created before |file_time|
@@ -116,6 +76,22 @@ void ReplaceExtension(FilePath* file_name,
 int CountFilesCreatedAfter(const FilePath& path,
                            const base::Time& file_time);
 
+// Returns the total number of bytes used by all the files under |root_path|.
+// If the path does not exist the function returns 0.
+//
+// This function is implemented using the FileEnumerator class so it is not
+// particularly speedy in any platform.
+int64 ComputeDirectorySize(const FilePath& root_path);
+
+// Returns the total number of bytes used by all files matching the provided
+// |pattern|, on this |directory| (without recursion). If the path does not
+// exist the function returns 0.
+//
+// This function is implemented using the FileEnumerator class so it is not
+// particularly speedy in any platform.
+int64 ComputeFilesSize(const FilePath& directory,
+                       const FilePath::StringType& pattern);
+
 // Deletes the given path, whether it's a file or a directory.
 // If it's a directory, it's perfectly happy to delete all of the
 // directory's contents.  Passing true to recursive deletes
@@ -125,8 +101,6 @@ int CountFilesCreatedAfter(const FilePath& path,
 // WARNING: USING THIS WITH recursive==true IS EQUIVALENT
 //          TO "rm -rf", SO USE WITH CAUTION.
 bool Delete(const FilePath& path, bool recursive);
-// Deprecated temporary compatibility function.
-bool Delete(const std::wstring& path, bool recursive);
 
 #if defined(OS_WIN)
 // Schedules to delete the given path, whether it's a file or a directory, until
@@ -162,9 +136,6 @@ bool CopyFile(const FilePath& from_path, const FilePath& to_path);
 // If you only need to copy a file use CopyFile, it's faster.
 bool CopyDirectory(const FilePath& from_path, const FilePath& to_path,
                    bool recursive);
-// Deprecated temporary compatibility function.
-bool CopyDirectory(const std::wstring& from_path, const std::wstring& to_path,
-                   bool recursive);
 
 // Returns true if the given path exists on the local filesystem,
 // false otherwise.
@@ -198,10 +169,10 @@ bool ContentsEqual(const FilePath& filename1,
 bool TextContentsEqual(const FilePath& filename1, const FilePath& filename2);
 
 // Read the file at |path| into |contents|, returning true on success.
+// |contents| may be NULL, in which case this function is useful for its
+// side effect of priming the disk cache.
 // Useful for unit tests.
 bool ReadFileToString(const FilePath& path, std::string* contents);
-// Deprecated version.
-bool ReadFileToString(const std::wstring& path, std::string* contents);
 
 #if defined(OS_POSIX)
 // Read exactly |bytes| bytes from file descriptor |fd|, storing the result
@@ -251,24 +222,26 @@ bool TaskbarPinShortcutLink(const wchar_t* shortcut);
 // already be pinned to the taskbar.
 bool TaskbarUnpinShortcutLink(const wchar_t* shortcut);
 
-// Return true if the given directory is empty
-bool IsDirectoryEmpty(const std::wstring& dir_path);
-
 // Copy from_path to to_path recursively and then delete from_path recursively.
 // Returns true if all operations succeed.
 // This function simulates Move(), but unlike Move() it works across volumes.
 // This fuction is not transactional.
 bool CopyAndDeleteDirectory(const FilePath& from_path,
                             const FilePath& to_path);
-#endif
+#endif  // defined(OS_WIN)
+
+// Return true if the given directory is empty
+bool IsDirectoryEmpty(const FilePath& dir_path);
 
 // Get the temporary directory provided by the system.
 bool GetTempDir(FilePath* path);
-// Deprecated temporary compatibility function.
-bool GetTempDir(std::wstring* path);
 // Get a temporary directory for shared memory files.
 // Only useful on POSIX; redirects to GetTempDir() on Windows.
 bool GetShmemTempDir(FilePath* path);
+
+// Get the home directory.  This is more complicated than just getenv("HOME")
+// as it knows to fall back on getpwent() etc.
+FilePath GetHomeDir();
 
 // Creates a temporary file. The full path is placed in |path|, and the
 // function returns true if was successful in creating the file. The file will
@@ -276,8 +249,8 @@ bool GetShmemTempDir(FilePath* path);
 bool CreateTemporaryFile(FilePath* path);
 
 // Create and open a temporary file.  File is opened for read/write.
-// The full path is placed in |path|, and the function returns true if
-// was successful in creating and opening the file.
+// The full path is placed in |path|.
+// Returns a handle to the opened file or NULL if an error occured.
 FILE* CreateAndOpenTemporaryFile(FilePath* path);
 // Like above but for shmem files.  Only useful for POSIX.
 FILE* CreateAndOpenTemporaryShmemFile(FilePath* path);
@@ -288,6 +261,18 @@ FILE* CreateAndOpenTemporaryFileInDir(const FilePath& dir, FilePath* path);
 // Same as CreateTemporaryFile but the file is created in |dir|.
 bool CreateTemporaryFileInDir(const FilePath& dir,
                               FilePath* temp_file);
+
+// Create a directory within another directory.
+// Extra characters will be appended to |name_tmpl| to ensure that the
+// new directory does not have the same name as an existing directory.
+// If |loosen_permissions| is true, the new directory will be readable
+// and writable to all users on windows.  It is ignored on other platforms.
+// |loosen_permissions| exists to allow debugging of crbug/35198, and will
+// be removed when the issue is understood.
+bool CreateTemporaryDirInDir(const FilePath& base_dir,
+                             const FilePath::StringType& prefix,
+                             bool loosen_permissions,
+                             FilePath* new_dir);
 
 // Create a new directory under TempPath. If prefix is provided, the new
 // directory name is in the format of prefixyyyy.
@@ -302,10 +287,30 @@ bool CreateNewTempDirectory(const FilePath::StringType& prefix,
 // already exists.  The directory is only readable by the current user.
 bool CreateDirectory(const FilePath& full_path);
 
+#if defined(OS_WIN)
+// Added for debugging an issue where CreateDirectory() fails.  LOG(*) does
+// not work, because the failure happens in a sandboxed process.
+// TODO(skerner): Remove once crbug/35198 is resolved.
+bool CreateDirectoryExtraLogging(const FilePath& full_path,
+                                 std::ostream& error);
+#endif  // defined (OS_WIN)
+
 // Returns the file size. Returns true on success.
 bool GetFileSize(const FilePath& file_path, int64* file_size);
-// Deprecated temporary compatibility function.
-bool GetFileSize(const std::wstring& file_path, int64* file_size);
+
+// Returns true if the given path's base name is ".".
+bool IsDot(const FilePath& path);
+
+// Returns true if the given path's base name is "..".
+bool IsDotDot(const FilePath& path);
+
+// Sets |real_path| to |path| with symbolic links and junctions expanded.
+// On windows, make sure the path starts with a lettered drive.
+// |path| must reference a file.  Function will fail if |path| points to
+// a directory or to a nonexistent path.  On windows, this function will
+// fail if |path| is a junction or symlink that points to an empty file,
+// or if |real_path| would be longer than MAX_PATH characters.
+bool NormalizeFilePath(const FilePath& path, FilePath* real_path);
 
 // Used to hold information about a given file path.  See GetFileInfo below.
 struct FileInfo {
@@ -323,8 +328,9 @@ struct FileInfo {
 
 // Returns information about the given file path.
 bool GetFileInfo(const FilePath& file_path, FileInfo* info);
-// Deprecated temporary compatibility function.
-bool GetFileInfo(const std::wstring& file_path, FileInfo* info);
+
+// Set the time of the last modification. Useful for unit tests.
+bool SetLastModifiedTime(const FilePath& file_path, base::Time last_modified);
 
 #if defined(OS_POSIX)
 // Store inode number of |path| in |inode|. Return true on success.
@@ -333,9 +339,6 @@ bool GetInode(const FilePath& path, ino_t* inode);
 
 // Wrapper for fopen-like calls. Returns non-NULL FILE* on success.
 FILE* OpenFile(const FilePath& filename, const char* mode);
-// Deprecated temporary compatibility functions.
-FILE* OpenFile(const std::string& filename, const char* mode);
-FILE* OpenFile(const std::wstring& filename, const char* mode);
 
 // Closes file opened by OpenFile. Returns true on success.
 bool CloseFile(FILE* file);
@@ -347,14 +350,10 @@ bool TruncateFile(FILE* file);
 // Reads the given number of bytes from the file into the buffer.  Returns
 // the number of read bytes, or -1 on error.
 int ReadFile(const FilePath& filename, char* data, int size);
-// Deprecated temporary compatibility function.
-int ReadFile(const std::wstring& filename, char* data, int size);
 
 // Writes the given buffer into the file, overwriting any data that was
 // previously there.  Returns the number of bytes written, or -1 on error.
 int WriteFile(const FilePath& filename, const char* data, int size);
-// Deprecated temporary compatibility function.
-int WriteFile(const std::wstring& filename, const char* data, int size);
 #if defined(OS_POSIX)
 // Append the data to |fd|. Does not close |fd| when done.
 int WriteFileDescriptor(const int fd, const char* data, int size);
@@ -362,8 +361,6 @@ int WriteFileDescriptor(const int fd, const char* data, int size);
 
 // Gets the current working directory for the process.
 bool GetCurrentDirectory(FilePath* path);
-// Deprecated temporary compatibility function.
-bool GetCurrentDirectory(std::wstring* path);
 
 // Sets the current working directory for the process.
 bool SetCurrentDirectory(const FilePath& path);
@@ -385,8 +382,9 @@ typedef scoped_ptr_malloc<FILE, ScopedFILEClose> ScopedFILE;
 class ScopedFDClose {
  public:
   inline void operator()(int* x) const {
-    if (x) {
-      close(*x);
+    if (x && *x >= 0) {
+      if (HANDLE_EINTR(close(*x)) < 0)
+        PLOG(ERROR) << "close";
     }
   }
 };
@@ -457,15 +455,12 @@ class FileEnumerator {
   // Looks inside a FindInfo and determines if it's a directory.
   static bool IsDirectory(const FindInfo& info);
 
+  static FilePath GetFilename(const FindInfo& find_info);
+
  private:
   // Returns true if the given path should be skipped in enumeration.
   bool ShouldSkip(const FilePath& path);
 
-  // Returns true if the given path's base name is ".".
-  bool IsDot(const FilePath& path);
-
-  // Returns true if the given path's base name is "..".
-  bool IsDotDot(const FilePath& path);
 
 #if defined(OS_WIN)
   WIN32_FIND_DATA find_data_;
@@ -556,6 +551,71 @@ bool RenameFileAndResetSecurityDescriptor(
 bool HasFileBeenModifiedSince(const FileEnumerator::FindInfo& find_info,
                               const base::Time& cutoff_time);
 
+#ifdef UNIT_TEST
+
+inline bool MakeFileUnreadable(const FilePath& path) {
+#if defined(OS_POSIX)
+  struct stat stat_buf;
+  if (stat(path.value().c_str(), &stat_buf) != 0)
+    return false;
+  stat_buf.st_mode &= ~(S_IRUSR | S_IRGRP | S_IROTH);
+
+  return chmod(path.value().c_str(), stat_buf.st_mode) == 0;
+
+#elif defined(OS_WIN)
+  PACL old_dacl;
+  PSECURITY_DESCRIPTOR security_descriptor;
+  if (GetNamedSecurityInfo(const_cast<wchar_t*>(path.value().c_str()),
+                           SE_FILE_OBJECT,
+                           DACL_SECURITY_INFORMATION, NULL, NULL, &old_dacl,
+                           NULL, &security_descriptor) != ERROR_SUCCESS)
+    return false;
+
+  // Deny Read access for the current user.
+  EXPLICIT_ACCESS change;
+  change.grfAccessPermissions = GENERIC_READ;
+  change.grfAccessMode = DENY_ACCESS;
+  change.grfInheritance = 0;
+  change.Trustee.pMultipleTrustee = NULL;
+  change.Trustee.MultipleTrusteeOperation = NO_MULTIPLE_TRUSTEE;
+  change.Trustee.TrusteeForm = TRUSTEE_IS_NAME;
+  change.Trustee.TrusteeType = TRUSTEE_IS_USER;
+  change.Trustee.ptstrName = L"CURRENT_USER";
+
+  PACL new_dacl;
+  if (SetEntriesInAcl(1, &change, old_dacl, &new_dacl) != ERROR_SUCCESS) {
+    LocalFree(security_descriptor);
+    return false;
+  }
+
+  DWORD rc = SetNamedSecurityInfo(const_cast<wchar_t*>(path.value().c_str()),
+                                  SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+                                  NULL, NULL, new_dacl, NULL);
+  LocalFree(security_descriptor);
+  LocalFree(new_dacl);
+
+  return rc == ERROR_SUCCESS;
+#else
+  NOTIMPLEMENTED();
+  return false;
+#endif
+}
+
+#endif  // UNIT_TEST
+
+#if defined(OS_WIN)
+  // Loads the file passed in as an image section and touches pages to avoid
+  // subsequent hard page faults during LoadLibrary. The size to be pre read
+  // is passed in. If it is 0 then the whole file is paged in. The step size
+  // which indicates the number of bytes to skip after every page touched is
+  // also passed in.
+  bool PreReadImage(const wchar_t* file_path, size_t size_to_read,
+                    size_t step_size);
+#endif  // OS_WIN
 }  // namespace file_util
+
+// Deprecated functions have been moved to this separate header file,
+// which must be included last after all the above definitions.
+#include "base/file_util_deprecated.h"
 
 #endif  // BASE_FILE_UTIL_H_

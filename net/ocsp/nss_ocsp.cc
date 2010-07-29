@@ -15,6 +15,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/condition_variable.h"
+#include "base/histogram.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/singleton.h"
@@ -23,6 +24,7 @@
 #include "googleurl/src/gurl.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
+#include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
@@ -63,6 +65,8 @@ SECStatus OCSPTrySendAndReceive(SEC_HTTP_REQUEST_SESSION request,
                                 PRUint32* http_response_data_len);
 SECStatus OCSPFree(SEC_HTTP_REQUEST_SESSION request);
 
+char* GetAlternateOCSPAIAInfo(CERTCertificate *cert);
+
 class OCSPInitSingleton : public MessageLoop::DestructionObserver {
  public:
   // Called on IO thread.
@@ -97,6 +101,11 @@ class OCSPInitSingleton : public MessageLoop::DestructionObserver {
       : io_loop_(MessageLoopForIO::current()) {
     DCHECK(io_loop_);
     io_loop_->AddDestructionObserver(this);
+
+    // NSS calls the functions in the function table to download certificates
+    // or CRLs or talk to OCSP responders over HTTP.  These functions must
+    // set an NSS/NSPR error code when they fail.  Otherwise NSS will get the
+    // residual error code from an earlier failed function call.
     client_fcn_.version = 1;
     SEC_HttpClientFcnV1Struct *ft = &client_fcn_.fcnTable.ftable1;
     ft->createSessionFcn = OCSPCreateSession;
@@ -110,6 +119,20 @@ class OCSPInitSingleton : public MessageLoop::DestructionObserver {
     ft->freeFcn = OCSPFree;
     SECStatus status = SEC_RegisterDefaultHttpClient(&client_fcn_);
     if (status != SECSuccess) {
+      NOTREACHED() << "Error initializing OCSP: " << PR_GetError();
+    }
+
+    // Work around NSS bugs 524013 and 564334.  NSS incorrectly thinks the
+    // CRLs for Network Solutions Certificate Authority have bad signatures,
+    // which causes certificates issued by that CA to be reported as revoked.
+    // By using OCSP for those certificates, which don't have AIA extensions,
+    // we can work around these bugs.  See http://crbug.com/41730.
+    CERT_StringFromCertFcn old_callback = NULL;
+    status = CERT_RegisterAlternateOCSPAIAInfoCallBack(
+        GetAlternateOCSPAIAInfo, &old_callback);
+    if (status == SECSuccess) {
+      DCHECK(!old_callback);
+    } else {
       NOTREACHED() << "Error initializing OCSP: " << PR_GetError();
     }
   }
@@ -166,10 +189,8 @@ class OCSPRequestSession
   }
 
   void AddHeader(const char* http_header_name, const char* http_header_value) {
-    if (!extra_request_headers_.empty())
-      extra_request_headers_ += "\r\n";
-    StringAppendF(&extra_request_headers_,
-                  "%s: %s", http_header_name, http_header_value);
+    extra_request_headers_.SetHeader(http_header_name,
+                                     http_header_value);
   }
 
   void Start() {
@@ -343,14 +364,12 @@ class OCSPRequestSession
       DCHECK(!upload_content_type_.empty());
 
       request_->set_method("POST");
-      if (!extra_request_headers_.empty())
-        extra_request_headers_ += "\r\n";
-      StringAppendF(&extra_request_headers_,
-                    "Content-Type: %s", upload_content_type_.c_str());
+      extra_request_headers_.SetHeader(
+          net::HttpRequestHeaders::kContentType, upload_content_type_);
       request_->AppendBytesToUpload(upload_content_.data(),
                                     static_cast<int>(upload_content_.size()));
     }
-    if (!extra_request_headers_.empty())
+    if (!extra_request_headers_.IsEmpty())
       request_->SetExtraRequestHeaders(extra_request_headers_);
 
     request_->Start();
@@ -388,7 +407,7 @@ class OCSPRequestSession
   base::TimeDelta timeout_;       // The timeout for OCSP
   URLRequest* request_;           // The actual request this wraps
   scoped_refptr<net::IOBuffer> buffer_;  // Read buffer
-  std::string extra_request_headers_;  // Extra headers for the request, if any
+  net::HttpRequestHeaders extra_request_headers_;
   std::string upload_content_;    // HTTP POST payload
   std::string upload_content_type_;  // MIME type of POST payload
 
@@ -421,8 +440,10 @@ class OCSPServerSession {
     // We dont' support "https" because we haven't thought about
     // whether it's safe to re-enter this code from talking to an OCSP
     // responder over SSL.
-    if (strcmp(http_protocol_variant, "http") != 0)
+    if (strcmp(http_protocol_variant, "http") != 0) {
+      PORT_SetError(PR_NOT_IMPLEMENTED_ERROR);
       return NULL;
+    }
 
     // TODO(ukai): If |host| is an IPv6 literal, we need to quote it with
     //  square brackets [].
@@ -455,6 +476,10 @@ SECStatus OCSPCreateSession(const char* host, PRUint16 portnum,
   DCHECK(!MessageLoop::current());
   if (OCSPInitSingleton::url_request_context() == NULL) {
     LOG(ERROR) << "No URLRequestContext for OCSP handler.";
+    // The application failed to call SetURLRequestContextForOCSP, so we
+    // can't create and use URLRequest.  PR_NOT_IMPLEMENTED_ERROR is not an
+    // accurate error code for this error condition, but is close enough.
+    PORT_SetError(PR_NOT_IMPLEMENTED_ERROR);
     return SECFailure;
   }
   *pSession = new OCSPServerSession(host, portnum);
@@ -532,20 +557,21 @@ SECStatus OCSPAddHeader(SEC_HTTP_REQUEST_SESSION request,
 // It is helper routine for OCSP trySendAndReceiveFcn.
 // |http_response_data_len| could be used as input parameter.  If it has
 // non-zero value, it is considered as maximum size of |http_response_data|.
-bool OCSPSetResponse(OCSPRequestSession* req,
-                     PRUint16* http_response_code,
-                     const char** http_response_content_type,
-                     const char** http_response_headers,
-                     const char** http_response_data,
-                     PRUint32* http_response_data_len) {
+SECStatus OCSPSetResponse(OCSPRequestSession* req,
+                          PRUint16* http_response_code,
+                          const char** http_response_content_type,
+                          const char** http_response_headers,
+                          const char** http_response_data,
+                          PRUint32* http_response_data_len) {
   DCHECK(req->Finished());
   const std::string& data = req->http_response_data();
   if (http_response_data_len && *http_response_data_len) {
     if (*http_response_data_len < data.size()) {
-      LOG(ERROR) << "data size too large: " << *http_response_data_len
+      LOG(ERROR) << "response body too large: " << *http_response_data_len
                  << " < " << data.size();
       *http_response_data_len = data.size();
-      return false;
+      PORT_SetError(SEC_ERROR_BAD_HTTP_RESPONSE);
+      return SECFailure;
     }
   }
   LOG(INFO) << "OCSP response "
@@ -563,7 +589,7 @@ bool OCSPSetResponse(OCSPRequestSession* req,
     *http_response_data = data.data();
   if (http_response_data_len)
     *http_response_data_len = data.size();
-  return true;
+  return SECSuccess;
 }
 
 SECStatus OCSPTrySendAndReceive(SEC_HTTP_REQUEST_SESSION request,
@@ -573,6 +599,12 @@ SECStatus OCSPTrySendAndReceive(SEC_HTTP_REQUEST_SESSION request,
                                 const char** http_response_headers,
                                 const char** http_response_data,
                                 PRUint32* http_response_data_len) {
+  if (http_response_data_len) {
+    // We must always set an output value, even on failure.  The output value 0
+    // means the failure was unrelated to the acceptable response data length.
+    *http_response_data_len = 0;
+  }
+
   LOG(INFO) << "OCSP try send and receive";
   DCHECK(!MessageLoop::current());
   OCSPRequestSession* req = reinterpret_cast<OCSPRequestSession*>(request);
@@ -584,30 +616,70 @@ SECStatus OCSPTrySendAndReceive(SEC_HTTP_REQUEST_SESSION request,
     // We support blocking mode only, so this function shouldn't be called
     // again when req has stareted or finished.
     NOTREACHED();
-    goto failed;
+    PORT_SetError(SEC_ERROR_BAD_HTTP_RESPONSE);  // Simple approximation.
+    return SECFailure;
   }
-  req->Start();
-  if (!req->Wait())
-    goto failed;
 
-  // If the response code is -1, the request failed and there is no response.
-  if (req->http_response_code() == static_cast<PRUint16>(-1))
-    goto failed;
+  const base::Time start_time = base::Time::Now();
+  req->Start();
+  if (!req->Wait() || req->http_response_code() == static_cast<PRUint16>(-1)) {
+    // If the response code is -1, the request failed and there is no response.
+    PORT_SetError(SEC_ERROR_BAD_HTTP_RESPONSE);  // Simple approximation.
+    return SECFailure;
+  }
+  const base::TimeDelta duration = base::Time::Now() - start_time;
+
+  // We want to know if this was:
+  //   1) An OCSP request
+  //   2) A CRL request
+  //   3) A request for a missing intermediate certificate
+  // There's no sure way to do this, so we use heuristics like MIME type and
+  // URL.
+  const char* mime_type = req->http_response_content_type().c_str();
+  bool is_ocsp_resp =
+      strcasecmp(mime_type, "application/ocsp-response") == 0;
+  bool is_crl_resp = strcasecmp(mime_type, "application/x-pkcs7-crl") == 0 ||
+                     strcasecmp(mime_type, "application/x-x509-crl") == 0 ||
+                     strcasecmp(mime_type, "application/pkix-crl") == 0;
+  bool is_crt_resp =
+      strcasecmp(mime_type, "application/x-x509-ca-cert") == 0 ||
+      strcasecmp(mime_type, "application/x-x509-server-cert") == 0 ||
+      strcasecmp(mime_type, "application/pkix-cert") == 0 ||
+      strcasecmp(mime_type, "application/pkcs7-mime") == 0;
+  bool known_resp_type = is_crt_resp || is_crt_resp || is_ocsp_resp;
+
+  bool crl_in_url = false, crt_in_url = false, ocsp_in_url = false,
+       have_url_hint = false;
+  if (!known_resp_type) {
+    const std::string path = req->url().path();
+    const std::string host = req->url().host();
+    crl_in_url = strcasestr(path.c_str(), ".crl") != NULL;
+    crt_in_url = strcasestr(path.c_str(), ".crt") != NULL ||
+                 strcasestr(path.c_str(), ".p7c") != NULL ||
+                 strcasestr(path.c_str(), ".cer") != NULL;
+    ocsp_in_url = strcasestr(host.c_str(), "ocsp") != NULL;
+    have_url_hint = crl_in_url || crt_in_url || ocsp_in_url;
+  }
+
+  if (is_ocsp_resp ||
+      (!known_resp_type && (ocsp_in_url ||
+                            (!have_url_hint &&
+                             req->http_request_method() == "POST")))) {
+    UMA_HISTOGRAM_TIMES("Net.OCSPRequestTimeMs", duration);
+  } else if (is_crl_resp || (!known_resp_type && crl_in_url)) {
+    UMA_HISTOGRAM_TIMES("Net.CRLRequestTimeMs", duration);
+  } else if (is_crt_resp || (!known_resp_type && crt_in_url)) {
+    UMA_HISTOGRAM_TIMES("Net.CRTRequestTimeMs", duration);
+  } else {
+    UMA_HISTOGRAM_TIMES("Net.UnknownTypeRequestTimeMs", duration);
+  }
 
   return OCSPSetResponse(
       req, http_response_code,
       http_response_content_type,
       http_response_headers,
       http_response_data,
-      http_response_data_len) ? SECSuccess : SECFailure;
-
- failed:
-  if (http_response_data_len) {
-    // We must always set an output value, even on failure.  The output value 0
-    // means the failure was unrelated to the acceptable response data length.
-    *http_response_data_len = 0;
-  }
-  return SECFailure;
+      http_response_data_len);
 }
 
 SECStatus OCSPFree(SEC_HTTP_REQUEST_SESSION request) {
@@ -617,6 +689,92 @@ SECStatus OCSPFree(SEC_HTTP_REQUEST_SESSION request) {
   req->Cancel();
   req->Release();
   return SECSuccess;
+}
+
+// Data for GetAlternateOCSPAIAInfo.
+
+// CN=Network Solutions Certificate Authority,O=Network Solutions L.L.C.,C=US
+//
+// There are two CAs with this name.  Their key IDs are listed next.
+const unsigned char network_solutions_ca_name[] = {
+  0x30, 0x62, 0x31, 0x0b, 0x30, 0x09, 0x06, 0x03, 0x55, 0x04,
+  0x06, 0x13, 0x02, 0x55, 0x53, 0x31, 0x21, 0x30, 0x1f, 0x06,
+  0x03, 0x55, 0x04, 0x0a, 0x13, 0x18, 0x4e, 0x65, 0x74, 0x77,
+  0x6f, 0x72, 0x6b, 0x20, 0x53, 0x6f, 0x6c, 0x75, 0x74, 0x69,
+  0x6f, 0x6e, 0x73, 0x20, 0x4c, 0x2e, 0x4c, 0x2e, 0x43, 0x2e,
+  0x31, 0x30, 0x30, 0x2e, 0x06, 0x03, 0x55, 0x04, 0x03, 0x13,
+  0x27, 0x4e, 0x65, 0x74, 0x77, 0x6f, 0x72, 0x6b, 0x20, 0x53,
+  0x6f, 0x6c, 0x75, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x20, 0x43,
+  0x65, 0x72, 0x74, 0x69, 0x66, 0x69, 0x63, 0x61, 0x74, 0x65,
+  0x20, 0x41, 0x75, 0x74, 0x68, 0x6f, 0x72, 0x69, 0x74, 0x79
+};
+const unsigned int network_solutions_ca_name_len = 100;
+
+// This CA is an intermediate CA, subordinate to UTN-USERFirst-Hardware.
+const unsigned char network_solutions_ca_key_id[] = {
+  0x3c, 0x41, 0xe2, 0x8f, 0x08, 0x08, 0xa9, 0x4c, 0x25, 0x89,
+  0x8d, 0x6d, 0xc5, 0x38, 0xd0, 0xfc, 0x85, 0x8c, 0x62, 0x17
+};
+const unsigned int network_solutions_ca_key_id_len = 20;
+
+// This CA is a root CA.  It is also cross-certified by
+// UTN-USERFirst-Hardware.
+const unsigned char network_solutions_ca_key_id2[] = {
+  0x21, 0x30, 0xc9, 0xfb, 0x00, 0xd7, 0x4e, 0x98, 0xda, 0x87,
+  0xaa, 0x2a, 0xd0, 0xa7, 0x2e, 0xb1, 0x40, 0x31, 0xa7, 0x4c
+};
+const unsigned int network_solutions_ca_key_id2_len = 20;
+
+// An entry in our OCSP responder table.  |issuer| and |issuer_key_id| are
+// the key.  |ocsp_url| is the value.
+struct OCSPResponderTableEntry {
+  SECItem issuer;
+  SECItem issuer_key_id;
+  const char *ocsp_url;
+};
+
+const OCSPResponderTableEntry g_ocsp_responder_table[] = {
+  {
+    {
+      siBuffer,
+      const_cast<unsigned char*>(network_solutions_ca_name),
+      network_solutions_ca_name_len
+    },
+    {
+      siBuffer,
+      const_cast<unsigned char*>(network_solutions_ca_key_id),
+      network_solutions_ca_key_id_len
+    },
+    "http://ocsp.netsolssl.com"
+  },
+  {
+    {
+      siBuffer,
+      const_cast<unsigned char*>(network_solutions_ca_name),
+      network_solutions_ca_name_len
+    },
+    {
+      siBuffer,
+      const_cast<unsigned char*>(network_solutions_ca_key_id2),
+      network_solutions_ca_key_id2_len
+    },
+    "http://ocsp.netsolssl.com"
+  }
+};
+
+char* GetAlternateOCSPAIAInfo(CERTCertificate *cert) {
+  if (cert && !cert->isRoot && cert->authKeyID) {
+    for (unsigned int i=0; i < arraysize(g_ocsp_responder_table); i++) {
+      if (SECITEM_CompareItem(&g_ocsp_responder_table[i].issuer,
+                              &cert->derIssuer) == SECEqual &&
+          SECITEM_CompareItem(&g_ocsp_responder_table[i].issuer_key_id,
+                              &cert->authKeyID->keyID) == SECEqual) {
+        return PORT_Strdup(g_ocsp_responder_table[i].ocsp_url);
+      }
+    }
+  }
+
+  return NULL;
 }
 
 }  // anonymous namespace

@@ -12,6 +12,7 @@
 #include "base/lock.h"
 #include "base/ref_counted.h"
 #include "base/time.h"
+#include "testing/gtest/include/gtest/gtest_prod.h"
 
 class GURL;
 
@@ -48,8 +49,10 @@ class TransportSecurityState :
 
     DomainState()
         : mode(MODE_STRICT),
+          created(base::Time::Now()),
           include_subdomains(false) { }
 
+    base::Time created;  // when this host entry was first created
     base::Time expiry;  // the absolute time (UTC) when this record expires
     bool include_subdomains;  // subdomains included?
   };
@@ -60,6 +63,9 @@ class TransportSecurityState :
   // Returns true if |host| has TransportSecurity enabled. If that case,
   // *result is filled out.
   bool IsEnabledForHost(DomainState* result, const std::string& host);
+
+  // Deletes all records created since a given time.
+  void DeleteSince(const base::Time& time);
 
   // Returns |true| if |value| parses as a valid *-Transport-Security
   // header value.  The values of max-age and and includeSubDomains are
@@ -74,15 +80,19 @@ class TransportSecurityState :
     // This function may not block and may be called with internal locks held.
     // Thus it must not reenter the TransportSecurityState object.
     virtual void StateIsDirty(TransportSecurityState* state) = 0;
+
+   protected:
+    virtual ~Delegate() {}
   };
 
   void SetDelegate(Delegate*);
 
   bool Serialise(std::string* output);
-  bool Deserialise(const std::string& state);
+  bool Deserialise(const std::string& state, bool* dirty);
 
  private:
   friend class base::RefCountedThreadSafe<TransportSecurityState>;
+  FRIEND_TEST(TransportSecurityStateTest, IsPreloaded);
 
   ~TransportSecurityState() {}
 
@@ -95,13 +105,12 @@ class TransportSecurityState :
   // ('www.google.com') to the form used in DNS: "\x03www\x06google\x03com"
   std::map<std::string, DomainState> enabled_hosts_;
 
-  // Protect access to our data members with this lock.
-  Lock lock_;
-
   // Our delegate who gets notified when we are dirtied, or NULL.
   Delegate* delegate_;
 
   static std::string CanonicaliseHost(const std::string& host);
+  static bool isPreloadedSTS(const std::string& canonicalised_host,
+                             bool* out_include_subdomains);
 
   DISALLOW_COPY_AND_ASSIGN(TransportSecurityState);
 };

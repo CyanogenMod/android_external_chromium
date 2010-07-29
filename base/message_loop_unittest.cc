@@ -2,10 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/eintr_wrapper.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/platform_thread.h"
 #include "base/ref_counted.h"
+#include "base/task.h"
 #include "base/thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -1375,20 +1377,21 @@ TEST(MessageLoopTest, PostDelayedTask_SharedTimer_SubPump) {
 }
 #endif
 
-// TODO(darin): re-enable these tests once MessageLoop supports them again.
-#if 0
-TEST(MessageLoopTest, EnsureTaskDeletion) {
+// TODO(darin): MessageLoop does not support deleting all tasks in the
+// destructor.
+TEST(MessageLoopTest, FAILS_EnsureTaskDeletion) {
   RunTest_EnsureTaskDeletion(MessageLoop::TYPE_DEFAULT);
   RunTest_EnsureTaskDeletion(MessageLoop::TYPE_UI);
   RunTest_EnsureTaskDeletion(MessageLoop::TYPE_IO);
 }
 
-TEST(MessageLoopTest, EnsureTaskDeletion_Chain) {
+// TODO(darin): MessageLoop does not support deleting all tasks in the
+// destructor.
+TEST(MessageLoopTest, FAILS_EnsureTaskDeletion_Chain) {
   RunTest_EnsureTaskDeletion_Chain(MessageLoop::TYPE_DEFAULT);
   RunTest_EnsureTaskDeletion_Chain(MessageLoop::TYPE_UI);
   RunTest_EnsureTaskDeletion_Chain(MessageLoop::TYPE_IO);
 }
-#endif
 
 #if defined(OS_WIN)
 TEST(MessageLoopTest, Crasher) {
@@ -1423,7 +1426,8 @@ TEST(MessageLoopTest, RecursiveSupport1) {
 }
 
 #if defined(OS_WIN)
-TEST(MessageLoopTest, RecursiveDenial2) {
+// This test occasionally hangs http://crbug.com/44567
+TEST(MessageLoopTest, DISABLED_RecursiveDenial2) {
   RunTest_RecursiveDenial2(MessageLoop::TYPE_DEFAULT);
   RunTest_RecursiveDenial2(MessageLoop::TYPE_UI);
   RunTest_RecursiveDenial2(MessageLoop::TYPE_IO);
@@ -1453,6 +1457,70 @@ TEST(MessageLoopTest, NonNestableDelayedInNestedLoop) {
   RunTest_NonNestableInNestedLoop(MessageLoop::TYPE_IO, true);
 }
 
+class DummyTask : public Task {
+ public:
+  DummyTask(int num_tasks) : num_tasks_(num_tasks) {}
+
+  virtual void Run() {
+    if (num_tasks_ > 1) {
+      MessageLoop::current()->PostTask(
+          FROM_HERE,
+          new DummyTask(num_tasks_ - 1));
+    } else {
+      MessageLoop::current()->Quit();
+    }
+  }
+
+ private:
+  const int num_tasks_;
+};
+
+class DummyTaskObserver : public MessageLoop::TaskObserver {
+ public:
+  DummyTaskObserver(int num_tasks)
+      : num_tasks_started_(0),
+        num_tasks_processed_(0),
+        num_tasks_(num_tasks) {}
+
+  virtual ~DummyTaskObserver() {}
+
+  virtual void WillProcessTask(base::TimeTicks /* birth_time */) {
+    num_tasks_started_++;
+    EXPECT_LE(num_tasks_started_, num_tasks_);
+    EXPECT_EQ(num_tasks_started_, num_tasks_processed_ + 1);
+  }
+
+  virtual void DidProcessTask() {
+    num_tasks_processed_++;
+    EXPECT_LE(num_tasks_started_, num_tasks_);
+    EXPECT_EQ(num_tasks_started_, num_tasks_processed_);
+  }
+
+  int num_tasks_started() const { return num_tasks_started_; }
+  int num_tasks_processed() const { return num_tasks_processed_; }
+
+ private:
+  int num_tasks_started_;
+  int num_tasks_processed_;
+  const int num_tasks_;
+
+  DISALLOW_COPY_AND_ASSIGN(DummyTaskObserver);
+};
+
+TEST(MessageLoopTest, TaskObserver) {
+  const int kNumTasks = 6;
+  DummyTaskObserver observer(kNumTasks);
+
+  MessageLoop loop;
+  loop.AddTaskObserver(&observer);
+  loop.PostTask(FROM_HERE, new DummyTask(kNumTasks));
+  loop.Run();
+  loop.RemoveTaskObserver(&observer);
+
+  EXPECT_EQ(kNumTasks, observer.num_tasks_started());
+  EXPECT_EQ(kNumTasks, observer.num_tasks_processed());
+}
+
 #if defined(OS_WIN)
 TEST(MessageLoopTest, Dispatcher) {
   // This test requires a UI loop
@@ -1471,14 +1539,42 @@ TEST(MessageLoopTest, IOHandler) {
 TEST(MessageLoopTest, WaitForIO) {
   RunTest_WaitForIO();
 }
+
+TEST(MessageLoopTest, HighResolutionTimer) {
+  MessageLoop loop;
+
+  const int kFastTimerMs = 5;
+  const int kSlowTimerMs = 100;
+
+  EXPECT_EQ(false, loop.high_resolution_timers_enabled());
+
+  // Post a fast task to enable the high resolution timers.
+  loop.PostDelayedTask(FROM_HERE, new DummyTask(1), kFastTimerMs);
+  loop.Run();
+  EXPECT_EQ(true, loop.high_resolution_timers_enabled());
+
+  // Post a slow task and verify high resolution timers
+  // are still enabled.
+  loop.PostDelayedTask(FROM_HERE, new DummyTask(1), kSlowTimerMs);
+  loop.Run();
+  EXPECT_EQ(true, loop.high_resolution_timers_enabled());
+
+  // Wait for a while so that high-resolution mode elapses.
+  Sleep(MessageLoop::kHighResolutionTimerModeLeaseTimeMs);
+
+  // Post a slow task to disable the high resolution timers.
+  loop.PostDelayedTask(FROM_HERE, new DummyTask(1), kSlowTimerMs);
+  loop.Run();
+  EXPECT_EQ(false, loop.high_resolution_timers_enabled());
+}
+
 #endif  // defined(OS_WIN)
 
 #if defined(OS_POSIX)
 
 namespace {
 
-class QuitDelegate : public
-    base::MessagePumpLibevent::Watcher {
+class QuitDelegate : public base::MessagePumpLibevent::Watcher {
  public:
   virtual void OnFileCanWriteWithoutBlocking(int fd) {
     MessageLoop::current()->Quit();
@@ -1488,14 +1584,9 @@ class QuitDelegate : public
   }
 };
 
-}  // namespace
-
-TEST(MessageLoopTest, DISABLED_FileDescriptorWatcherOutlivesMessageLoop) {
+TEST(MessageLoopTest, FileDescriptorWatcherOutlivesMessageLoop) {
   // Simulate a MessageLoop that dies before an FileDescriptorWatcher.
   // This could happen when people use the Singleton pattern or atexit.
-  // This is disabled for now because it fails (valgrind shows
-  // invalid reads), and it's not clear any code relies on this...
-  // TODO(dkegel): enable if it turns out we rely on this
 
   // Create a file descriptor.  Doesn't need to be readable or writable,
   // as we don't need to actually get any notifications.
@@ -1516,8 +1607,10 @@ TEST(MessageLoopTest, DISABLED_FileDescriptorWatcherOutlivesMessageLoop) {
       // and don't run the message loop, just destroy it.
     }
   }
-  close(pipefds[0]);
-  close(pipefds[1]);
+  if (HANDLE_EINTR(close(pipefds[0])) < 0)
+    PLOG(ERROR) << "close";
+  if (HANDLE_EINTR(close(pipefds[1])) < 0)
+    PLOG(ERROR) << "close";
 }
 
 TEST(MessageLoopTest, FileDescriptorWatcherDoubleStop) {
@@ -1539,8 +1632,12 @@ TEST(MessageLoopTest, FileDescriptorWatcherDoubleStop) {
       controller.StopWatchingFileDescriptor();
     }
   }
-  close(pipefds[0]);
-  close(pipefds[1]);
+  if (HANDLE_EINTR(close(pipefds[0])) < 0)
+    PLOG(ERROR) << "close";
+  if (HANDLE_EINTR(close(pipefds[1])) < 0)
+    PLOG(ERROR) << "close";
 }
+
+}  // namespace
 
 #endif  // defined(OS_POSIX)

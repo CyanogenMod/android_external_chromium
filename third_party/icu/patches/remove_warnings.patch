@@ -1,0 +1,30 @@
+Index: source/i18n/colldata.cpp
+===================================================================
+--- source/i18n/colldata.cpp	(revision 42287)
++++ source/i18n/colldata.cpp	(working copy)
+@@ -467,7 +467,7 @@
+     UHashtable *cache;
+ };
+ 
+-U_CFUNC void deleteChars(void */*obj*/)
++U_CFUNC void deleteChars(void * /*obj*/)
+ {
+     // char *chars = (char *) obj;
+     // All the key strings are owned by the
+Index: source/tools/toolutil/swapimpl.cpp
+===================================================================
+--- source/tools/toolutil/swapimpl.cpp	(revision 42287)
++++ source/tools/toolutil/swapimpl.cpp	(working copy)
+@@ -541,11 +541,8 @@
+     const uint8_t *inBytes;
+     uint8_t *outBytes;
+ 
+-    const int32_t *inIndexes;
+-    int32_t indexes[32];
++    int32_t offset;
+ 
+-    int32_t i, offset, count;
+-
+     /* udata_swapDataHeader checks the arguments */
+     headerSize=udata_swapDataHeader(ds, inData, length, outData, pErrorCode);
+     if(pErrorCode==NULL || U_FAILURE(*pErrorCode)) {

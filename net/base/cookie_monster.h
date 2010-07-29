@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,7 +13,10 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/histogram.h"
 #include "base/lock.h"
+#include "base/ref_counted.h"
+#include "base/scoped_ptr.h"
 #include "base/time.h"
 #include "net/base/cookie_store.h"
 
@@ -33,8 +36,9 @@ namespace net {
 //  - Verify that our domain enforcement and non-dotted handling is correct
 class CookieMonster : public CookieStore {
  public:
-  class ParsedCookie;
   class CanonicalCookie;
+  class Delegate;
+  class ParsedCookie;
   class PersistentCookieStore;
 
   // NOTE(deanm):
@@ -47,30 +51,37 @@ class CookieMonster : public CookieStore {
   typedef std::multimap<std::string, CanonicalCookie*> CookieMap;
   typedef std::pair<CookieMap::iterator, CookieMap::iterator> CookieMapItPair;
   typedef std::pair<std::string, CanonicalCookie*> KeyedCanonicalCookie;
-  typedef std::pair<std::string, CanonicalCookie> CookieListPair;
-  typedef std::vector<CookieListPair> CookieList;
+  typedef std::vector<CanonicalCookie> CookieList;
 
-
-  CookieMonster();
-
-  // The store passed in should not have had Init() called on it yet. This class
-  // will take care of initializing it. The backing store is NOT owned by this
-  // class, but it must remain valid for the duration of the cookie monster's
-  // existence.
-  CookieMonster(PersistentCookieStore* store);
+  // The store passed in should not have had Init() called on it yet. This
+  // class will take care of initializing it. The backing store is NOT owned by
+  // this class, but it must remain valid for the duration of the cookie
+  // monster's existence. If |store| is NULL, then no backing store will be
+  // updated. If |delegate| is non-NULL, it will be notified on
+  // creation/deletion of cookies.
+  CookieMonster(PersistentCookieStore* store, Delegate* delegate);
 
 #ifdef UNIT_TEST
-  CookieMonster(int last_access_threshold_milliseconds)
+  CookieMonster(PersistentCookieStore* store,
+                Delegate* delegate,
+                int last_access_threshold_milliseconds)
       : initialized_(false),
-        store_(NULL),
+        store_(store),
         last_access_threshold_(base::TimeDelta::FromMilliseconds(
-            last_access_threshold_milliseconds)) {
+            last_access_threshold_milliseconds)),
+        delegate_(delegate),
+        last_statistic_record_time_(base::Time::Now()) {
+    InitializeHistograms();
     SetDefaultCookieableSchemes();
   }
 #endif
 
   // Parse the string with the cookie time (very forgivingly).
   static base::Time ParseCookieTime(const std::string& time_string);
+
+  // Returns true if a domain string represents a host-only cookie,
+  // i.e. it doesn't begin with a leading '.' character.
+  static bool DomainIsHostOnly(const std::string& domain_string);
 
   // CookieStore implementation.
   virtual bool SetCookieWithOptions(const GURL& url,
@@ -81,6 +92,19 @@ class CookieMonster : public CookieStore {
   virtual void DeleteCookie(const GURL& url, const std::string& cookie_name);
   virtual CookieMonster* GetCookieMonster() { return this; }
 
+  // Sets a cookie given explicit user-provided cookie attributes. The cookie
+  // name, value, domain, etc. are each provided as separate strings. This
+  // function expects each attribute to be well-formed. It will check for
+  // disallowed characters (e.g. the ';' character is disallowed within the
+  // cookie value attribute) and will return false without setting the cookie
+  // if such characters are found.
+  bool SetCookieWithDetails(const GURL& url,
+                            const std::string& name,
+                            const std::string& value,
+                            const std::string& domain,
+                            const std::string& path,
+                            const base::Time& expiration_time,
+                            bool secure, bool http_only);
 
   // Exposed for unit testing.
   bool SetCookieWithCreationTimeAndOptions(const GURL& url,
@@ -99,8 +123,8 @@ class CookieMonster : public CookieStore {
   CookieList GetAllCookies();
 
   // Returns all the cookies, for use in management UI, etc. Filters results
-  // using given url scheme and host / domain. This does not mark the cookies
-  // as having been accessed.
+  // using given url scheme, host / domain and path. This does not mark the
+  // cookies as having been accessed.
   CookieList GetAllCookiesForURL(const GURL& url);
 
   // Delete all of the cookies.
@@ -114,6 +138,12 @@ class CookieMonster : public CookieStore {
   // one passed into the function via |delete_after|.
   int DeleteAllCreatedAfter(const base::Time& delete_begin, bool sync_to_store);
 
+  // Delete all cookies that match the host of the given URL
+  // regardless of path.  This includes all http_only and secure cookies,
+  // but does not include any domain cookies that may apply to this host.
+  // Returns the number of cookies deleted.
+  int DeleteAllForHost(const GURL& url);
+
   // Delete one specific cookie.
   bool DeleteCookie(const std::string& domain,
                     const CanonicalCookie& cookie,
@@ -122,6 +152,8 @@ class CookieMonster : public CookieStore {
   // Override the default list of schemes that are allowed to be set in
   // this cookie store.  Calling his overrides the value of
   // "enable_file_scheme_".
+  // If this this method is called, it must be called before first use of
+  // the instance (i.e. as part of the instance initialization process.)
   void SetCookieableSchemes(const char* schemes[], size_t num_schemes);
 
   // There are some unknowns about how to correctly handle file:// cookies,
@@ -150,6 +182,17 @@ class CookieMonster : public CookieStore {
   // Should only be called by InitIfNecessary().
   void InitStore();
 
+  // Checks that |cookies_| matches our invariants, and tries to repair any
+  // inconsistencies. (In other words, it does not have duplicate cookies).
+  void EnsureCookiesMapIsValid();
+
+  // Checks for any duplicate cookies for host |key|, which lie between
+  // |begin| and |end|. If any are found, all but the most recent are deleted.
+  // Returns the number of duplicate cookies that were deleted.
+  int TrimDuplicateCookiesForHost(const std::string& key,
+                                  CookieMap::iterator begin,
+                                  CookieMap::iterator end);
+
   void SetDefaultCookieableSchemes();
 
   void FindCookiesForHostAndDomain(const GURL& url,
@@ -164,7 +207,12 @@ class CookieMonster : public CookieStore {
 
   void FindRawCookies(const std::string& key,
                       bool include_secure,
+                      const std::string& path,
                       CookieList* list);
+
+  // Internal helper returning all cookies for a given URL. The caller is
+  // assumed to hold lock_ and having called InitIfNecessary().
+  CookieList InternalGetAllCookiesForURL(const GURL& url);
 
   // Delete any cookies that are equivalent to |ecc| (same path, key, etc).
   // If |skip_httponly| is true, httponly cookies will not be deleted.  The
@@ -178,9 +226,28 @@ class CookieMonster : public CookieStore {
                             CanonicalCookie* cc,
                             bool sync_to_store);
 
+  // Helper function that sets a canonical cookie, deleting equivalents and
+  // performing garbage collection.
+  bool SetCanonicalCookie(scoped_ptr<CanonicalCookie>* cc,
+                          const std::string& cookie_domain,
+                          const base::Time& creation_time,
+                          const CookieOptions& options);
+
   void InternalUpdateCookieAccessTime(CanonicalCookie* cc);
 
-  void InternalDeleteCookie(CookieMap::iterator it, bool sync_to_store);
+  enum DeletionCause {
+    DELETE_COOKIE_EXPLICIT,
+    DELETE_COOKIE_OVERWRITE,
+    DELETE_COOKIE_EXPIRED,
+    DELETE_COOKIE_EVICTED,
+    DELETE_COOKIE_DUPLICATE_IN_BACKING_STORE,
+    DELETE_COOKIE_DONT_RECORD,
+    DELETE_COOKIE_LAST_ENTRY = DELETE_COOKIE_DONT_RECORD
+  };
+
+  // |deletion_cause| argument is for collecting statistics.
+  void InternalDeleteCookie(CookieMap::iterator it, bool sync_to_store,
+                            DeletionCause deletion_cause);
 
   // If the number of cookies for host |key|, or globally, are over preset
   // maximums, garbage collects, first for the host and then globally, as
@@ -212,6 +279,27 @@ class CookieMonster : public CookieStore {
 
   bool HasCookieableScheme(const GURL& url);
 
+  // Statistics support
+  // Record statistics every kRecordStatisticsIntervalSeconds of uptime.
+  static const int kRecordStatisticsIntervalSeconds = 10 * 60;
+
+  // This function should be called repeatedly, and will record
+  // statistics if a sufficient time period has passed.
+  void RecordPeriodicStats(const base::Time& current_time);
+
+  // Histogram variables; see CookieMonster::InitializeHistograms() in
+  // cookie_monster.cc for details.
+  scoped_refptr<Histogram> histogram_expiration_duration_minutes_;
+  scoped_refptr<Histogram> histogram_between_access_interval_minutes_;
+  scoped_refptr<Histogram> histogram_evicted_last_access_minutes_;
+  scoped_refptr<Histogram> histogram_count_;
+  scoped_refptr<Histogram> histogram_number_duplicate_db_cookies_;
+  scoped_refptr<Histogram> histogram_cookie_deletion_cause_;
+
+  // Initialize the above variables; should only be called from
+  // the constructor.
+  void InitializeHistograms();
+
   CookieMap cookies_;
 
   // Indicates whether the cookie store has been initialized. This happens
@@ -231,10 +319,123 @@ class CookieMonster : public CookieStore {
 
   std::vector<std::string> cookieable_schemes_;
 
+  scoped_refptr<Delegate> delegate_;
+
   // Lock for thread-safety
   Lock lock_;
 
+  base::Time last_statistic_record_time_;
+
   DISALLOW_COPY_AND_ASSIGN(CookieMonster);
+};
+
+class CookieMonster::CanonicalCookie {
+ public:
+
+  // These constructors do no validation or canonicalization of their inputs;
+  // the resulting CanonicalCookies should not be relied on to be canonical
+  // unless the caller has done appropriate validation and canonicalization
+  // themselves.
+  CanonicalCookie() { }
+  CanonicalCookie(const std::string& name,
+                  const std::string& value,
+                  const std::string& domain,
+                  const std::string& path,
+                  bool secure,
+                  bool httponly,
+                  const base::Time& creation,
+                  const base::Time& last_access,
+                  bool has_expires,
+                  const base::Time& expires)
+      : name_(name),
+        value_(value),
+        domain_(domain),
+        path_(path),
+        creation_date_(creation),
+        last_access_date_(last_access),
+        expiry_date_(expires),
+        has_expires_(has_expires),
+        secure_(secure),
+        httponly_(httponly) {
+  }
+
+  // This constructor does canonicalization but not validation.
+  // The result of this constructor should not be relied on in contexts
+  // in which pre-validation of the ParsedCookie has not been done.
+  CanonicalCookie(const GURL& url, const ParsedCookie& pc);
+
+  // Supports the default copy constructor.
+
+  // Creates a canonical cookie from unparsed attribute values.
+  // Canonicalizes and validates inputs.  May return NULL if an attribute
+  // value is invalid.
+  static CanonicalCookie* Create(
+      const GURL& url, const std::string& name, const std::string& value,
+      const std::string& domain, const std::string& path,
+      const base::Time& creation_time, const base::Time& expiration_time,
+      bool secure, bool http_only);
+
+  const std::string& Name() const { return name_; }
+  const std::string& Value() const { return value_; }
+  const std::string& Domain() const { return domain_; }
+  const std::string& Path() const { return path_; }
+  const base::Time& CreationDate() const { return creation_date_; }
+  const base::Time& LastAccessDate() const { return last_access_date_; }
+  bool DoesExpire() const { return has_expires_; }
+  bool IsPersistent() const { return DoesExpire(); }
+  const base::Time& ExpiryDate() const { return expiry_date_; }
+  bool IsSecure() const { return secure_; }
+  bool IsHttpOnly() const { return httponly_; }
+
+  bool IsExpired(const base::Time& current) {
+    return has_expires_ && current >= expiry_date_;
+  }
+
+  // Are the cookies considered equivalent in the eyes of RFC 2965.
+  // The RFC says that name must match (case-sensitive), domain must
+  // match (case insensitive), and path must match (case sensitive).
+  // For the case insensitive domain compare, we rely on the domain
+  // having been canonicalized (in
+  // GetCookieDomainKeyWithString->CanonicalizeHost).
+  bool IsEquivalent(const CanonicalCookie& ecc) const {
+    // It seems like it would make sense to take secure and httponly into
+    // account, but the RFC doesn't specify this.
+    // NOTE: Keep this logic in-sync with TrimDuplicateCookiesForHost().
+    return (name_ == ecc.Name() && domain_ == ecc.Domain()
+            && path_ == ecc.Path());
+  }
+
+  void SetLastAccessDate(const base::Time& date) {
+    last_access_date_ = date;
+  }
+
+  bool IsOnPath(const std::string& url_path) const;
+
+  std::string DebugString() const;
+ private:
+  std::string name_;
+  std::string value_;
+  std::string domain_;
+  std::string path_;
+  base::Time creation_date_;
+  base::Time last_access_date_;
+  base::Time expiry_date_;
+  bool has_expires_;
+  bool secure_;
+  bool httponly_;
+};
+
+class CookieMonster::Delegate
+    : public base::RefCountedThreadSafe<CookieMonster::Delegate> {
+ public:
+  // Will be called when a cookie is added or removed. The function is passed
+  // the respective |cookie| which was added to or removed from the cookies.
+  // If |removed| is true, the cookie was deleted.
+  virtual void OnCookieChanged(const CookieMonster::CanonicalCookie& cookie,
+                               bool removed) = 0;
+ protected:
+  friend class base::RefCountedThreadSafe<CookieMonster::Delegate>;
+  virtual ~Delegate() {}
 };
 
 class CookieMonster::ParsedCookie {
@@ -269,14 +470,48 @@ class CookieMonster::ParsedCookie {
   bool IsSecure() const { return secure_index_ != 0; }
   bool IsHttpOnly() const { return httponly_index_ != 0; }
 
-  // Return the number of attributes, for example, returning 2 for:
+  // Returns the number of attributes, for example, returning 2 for:
   //   "BLAH=hah; path=/; domain=.google.com"
   size_t NumberOfAttributes() const { return pairs_.size() - 1; }
 
   // For debugging only!
   std::string DebugString() const;
 
+  // Returns an iterator pointing to the first terminator character found in
+  // the given string.
+  static std::string::const_iterator FindFirstTerminator(const std::string& s);
+
+  // Given iterators pointing to the beginning and end of a string segment,
+  // returns as output arguments token_start and token_end to the start and end
+  // positions of a cookie attribute token name parsed from the segment, and
+  // updates the segment iterator to point to the next segment to be parsed.
+  // If no token is found, the function returns false.
+  static bool ParseToken(std::string::const_iterator* it,
+                         const std::string::const_iterator& end,
+                         std::string::const_iterator* token_start,
+                         std::string::const_iterator* token_end);
+
+  // Given iterators pointing to the beginning and end of a string segment,
+  // returns as output arguments value_start and value_end to the start and end
+  // positions of a cookie attribute value parsed from the segment, and updates
+  // the segment iterator to point to the next segment to be parsed.
+  static void ParseValue(std::string::const_iterator* it,
+                         const std::string::const_iterator& end,
+                         std::string::const_iterator* value_start,
+                         std::string::const_iterator* value_end);
+
+  // Same as the above functions, except the input is assumed to contain the
+  // desired token/value and nothing else.
+  static std::string ParseTokenString(const std::string& token);
+  static std::string ParseValueString(const std::string& value);
+
  private:
+  static const char kTerminator[];
+  static const int  kTerminatorLen;
+  static const char kWhitespace[];
+  static const char kValueSeparator[];
+  static const char kTokenSeparator[];
+
   void ParseTokenValuePairs(const std::string& cookie_line);
   void SetupAttributes();
 
@@ -294,74 +529,6 @@ class CookieMonster::ParsedCookie {
   size_t httponly_index_;
 
   DISALLOW_COPY_AND_ASSIGN(ParsedCookie);
-};
-
-
-class CookieMonster::CanonicalCookie {
- public:
-  CanonicalCookie() { }
-  CanonicalCookie(const std::string& name,
-                  const std::string& value,
-                  const std::string& path,
-                  bool secure,
-                  bool httponly,
-                  const base::Time& creation,
-                  const base::Time& last_access,
-                  bool has_expires,
-                  const base::Time& expires)
-      : name_(name),
-        value_(value),
-        path_(path),
-        creation_date_(creation),
-        last_access_date_(last_access),
-        expiry_date_(expires),
-        has_expires_(has_expires),
-        secure_(secure),
-        httponly_(httponly) {
-  }
-
-  // Supports the default copy constructor.
-
-  const std::string& Name() const { return name_; }
-  const std::string& Value() const { return value_; }
-  const std::string& Path() const { return path_; }
-  const base::Time& CreationDate() const { return creation_date_; }
-  const base::Time& LastAccessDate() const { return last_access_date_; }
-  bool DoesExpire() const { return has_expires_; }
-  bool IsPersistent() const { return DoesExpire(); }
-  const base::Time& ExpiryDate() const { return expiry_date_; }
-  bool IsSecure() const { return secure_; }
-  bool IsHttpOnly() const { return httponly_; }
-
-  bool IsExpired(const base::Time& current) {
-    return has_expires_ && current >= expiry_date_;
-  }
-
-  // Are the cookies considered equivalent in the eyes of the RFC.
-  // This says that the domain and path should string match identically.
-  bool IsEquivalent(const CanonicalCookie& ecc) const {
-    // It seems like it would make sense to take secure and httponly into
-    // account, but the RFC doesn't specify this.
-    return name_ == ecc.Name() && path_ == ecc.Path();
-  }
-
-  void SetLastAccessDate(const base::Time& date) {
-    last_access_date_ = date;
-  }
-
-  bool IsOnPath(const std::string& url_path) const;
-
-  std::string DebugString() const;
- private:
-  std::string name_;
-  std::string value_;
-  std::string path_;
-  base::Time creation_date_;
-  base::Time last_access_date_;
-  base::Time expiry_date_;
-  bool has_expires_;
-  bool secure_;
-  bool httponly_;
 };
 
 typedef base::RefCountedThreadSafe<CookieMonster::PersistentCookieStore>

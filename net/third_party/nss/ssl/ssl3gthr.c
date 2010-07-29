@@ -188,6 +188,7 @@ ssl3_GatherCompleteHandshake(sslSocket *ss, int flags)
 {
     SSL3Ciphertext cText;
     int            rv;
+    PRBool         canFalseStart = PR_FALSE;
 
     PORT_Assert( ss->opt.noLocks || ssl_HaveRecvBufLock(ss) );
     do {
@@ -207,7 +208,20 @@ ssl3_GatherCompleteHandshake(sslSocket *ss, int flags)
 	if (rv < 0) {
 	    return ss->recvdCloseNotify ? 0 : rv;
 	}
-    } while (ss->ssl3.hs.ws != idle_handshake && ss->gs.buf.len == 0);
+
+	/* If we kicked off a false start in ssl3_HandleServerHelloDone, break
+	 * out of this loop early without finishing the handshake.
+	 */
+	if (ss->opt.enableFalseStart) {
+	    ssl_GetSSL3HandshakeLock(ss);
+	    canFalseStart = (ss->ssl3.hs.ws == wait_change_cipher ||
+			     ss->ssl3.hs.ws == wait_new_session_ticket) &&
+		            ssl3_CanFalseStart(ss);
+	    ssl_ReleaseSSL3HandshakeLock(ss);
+	}
+    } while (ss->ssl3.hs.ws != idle_handshake &&
+             !canFalseStart &&
+             ss->gs.buf.len == 0);
 
     ss->gs.readOffset = 0;
     ss->gs.writeOffset = ss->gs.buf.len;

@@ -43,12 +43,10 @@ class MockHostResolverBase : public HostResolver {
                       AddressList* addresses,
                       CompletionCallback* callback,
                       RequestHandle* out_req,
-                      LoadLog* load_log);
+                      const BoundNetLog& net_log);
   virtual void CancelRequest(RequestHandle req);
   virtual void AddObserver(Observer* observer);
   virtual void RemoveObserver(Observer* observer);
-  // TODO(eroman): temp hack for http://crbug.com/18373
-  virtual void Shutdown();
 
   RuleBasedHostResolverProc* rules() { return rules_; }
 
@@ -109,12 +107,14 @@ class RuleBasedHostResolverProc : public HostResolverProc {
                                AddressFamily address_family,
                                const std::string& replacement);
 
-  // Same as AddRule(), but the replacement is expected to be an IPV6 literal.
-  // You should use this in place of AddRule(), since the system's host resolver
-  // may not support IPv6 literals on all systems. Whereas this variant
-  // constructs the socket address directly so it will always work.
-  void AddIPv6Rule(const std::string& host_pattern,
-                   const std::string& ipv6_literal);
+  // Same as AddRule(), but the replacement is expected to be an IPv4 or IPv6
+  // literal. This can be used in place of AddRule() to bypass the system's
+  // host resolver (the address list will be constructed manually).
+  // If |canonical-name| is non-empty, it is copied to the resulting AddressList
+  // but does not impact DNS resolution.
+  void AddIPLiteralRule(const std::string& host_pattern,
+                        const std::string& ip_literal,
+                        const std::string& canonical_name);
 
   void AddRuleWithLatency(const std::string& host_pattern,
                           const std::string& replacement,
@@ -130,7 +130,9 @@ class RuleBasedHostResolverProc : public HostResolverProc {
   // HostResolverProc methods:
   virtual int Resolve(const std::string& host,
                       AddressFamily address_family,
-                      AddressList* addrlist);
+                      HostResolverFlags host_resolver_flags,
+                      AddressList* addrlist,
+                      int* os_error);
 
  private:
   ~RuleBasedHostResolverProc();
@@ -154,9 +156,12 @@ class WaitingHostResolverProc : public HostResolverProc {
   // HostResolverProc methods:
   virtual int Resolve(const std::string& host,
                       AddressFamily address_family,
-                      AddressList* addrlist) {
+                      HostResolverFlags host_resolver_flags,
+                      AddressList* addrlist,
+                      int* os_error) {
     event_.Wait();
-    return ResolveUsingPrevious(host, address_family, addrlist);
+    return ResolveUsingPrevious(host, address_family, host_resolver_flags,
+                                addrlist, os_error);
   }
 
  private:

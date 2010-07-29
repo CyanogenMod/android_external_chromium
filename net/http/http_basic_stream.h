@@ -18,16 +18,16 @@
 
 namespace net {
 
+class BoundNetLog;
 class ClientSocketHandle;
-class HttpRequestInfo;
+struct HttpRequestInfo;
 class HttpResponseInfo;
-class LoadLog;
 class UploadDataStream;
 
 class HttpBasicStream : public HttpStream {
  public:
-  HttpBasicStream(ClientSocketHandle* handle, LoadLog* load_log);
-  virtual ~HttpBasicStream() {}
+  HttpBasicStream(ClientSocketHandle* handle, const BoundNetLog& net_log);
+  virtual ~HttpBasicStream();
 
   // HttpStream methods:
   virtual int SendRequest(const HttpRequestInfo* request,

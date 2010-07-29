@@ -7,7 +7,7 @@
 #include <wchar.h>
 
 #include "base/string_piece.h"
-#include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 
 namespace base {
 
@@ -23,6 +23,19 @@ std::wstring SysUTF8ToWide(const StringPiece& utf8) {
   UTF8ToWide(utf8.data(), utf8.size(), &out);
   return out;
 }
+
+#if defined(OS_CHROMEOS)
+
+// ChromeOS always runs in UTF-8 locale.
+std::string SysWideToNativeMB(const std::wstring& wide) {
+  return WideToUTF8(wide);
+}
+
+std::wstring SysNativeMBToWide(const StringPiece& native_mb) {
+  return SysUTF8ToWide(native_mb);
+}
+
+#else
 
 std::string SysWideToNativeMB(const std::wstring& wide) {
   mbstate_t ps;
@@ -140,5 +153,7 @@ std::wstring SysNativeMBToWide(const StringPiece& native_mb) {
 
   return out;
 }
+
+#endif  // OS_CHROMEOS
 
 }  // namespace base

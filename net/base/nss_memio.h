@@ -6,6 +6,8 @@
 #ifndef __MEMIO_H
 #define __MEMIO_H
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif

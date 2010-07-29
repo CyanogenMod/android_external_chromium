@@ -67,14 +67,20 @@ HostResolverProc* HostResolverProc::GetDefault() {
   return default_proc_;
 }
 
-int HostResolverProc::ResolveUsingPrevious(const std::string& host,
-                                           AddressFamily address_family,
-                                           AddressList* addrlist) {
-  if (previous_proc_)
-    return previous_proc_->Resolve(host, address_family, addrlist);
+int HostResolverProc::ResolveUsingPrevious(
+    const std::string& host,
+    AddressFamily address_family,
+    HostResolverFlags host_resolver_flags,
+    AddressList* addrlist,
+    int* os_error) {
+  if (previous_proc_) {
+    return previous_proc_->Resolve(host, address_family, host_resolver_flags,
+                                   addrlist, os_error);
+  }
 
   // Final fallback is the system resolver.
-  return SystemHostResolverProc(host, address_family, addrlist);
+  return SystemHostResolverProc(host, address_family, host_resolver_flags,
+                                addrlist, os_error);
 }
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_OPENBSD)
@@ -152,7 +158,12 @@ ThreadLocalStorage::Slot DnsReloadTimer::tls_index_(base::LINKER_INITIALIZED);
 
 int SystemHostResolverProc(const std::string& host,
                            AddressFamily address_family,
-                           AddressList* addrlist) {
+                           HostResolverFlags host_resolver_flags,
+                           AddressList* addrlist,
+                           int* os_error) {
+  if (os_error)
+    *os_error = 0;
+
   // The result of |getaddrinfo| for empty hosts is inconsistent across systems.
   // On Windows it gives the default interface's address, whereas on Linux it
   // gives an error. We will make it fail on all platforms for consistency.
@@ -205,6 +216,9 @@ int SystemHostResolverProc(const std::string& host,
   hints.ai_flags = AI_ADDRCONFIG;
 #endif
 
+  if (host_resolver_flags & HOST_RESOLVER_CANONNAME)
+    hints.ai_flags |= AI_CANONNAME;
+
   // Restrict result set to only this socket type to avoid duplicates.
   hints.ai_socktype = SOCK_STREAM;
 
@@ -220,8 +234,16 @@ int SystemHostResolverProc(const std::string& host,
   }
 #endif
 
-  if (err)
+  if (err) {
+    if (os_error) {
+#if defined(OS_WIN)
+      *os_error = WSAGetLastError();
+#else
+      *os_error = err;
+#endif
+    }
     return ERR_NAME_NOT_RESOLVED;
+  }
 
   addrlist->Adopt(ai);
   return OK;

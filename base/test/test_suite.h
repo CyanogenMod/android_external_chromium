@@ -12,6 +12,7 @@
 #include "base/at_exit.h"
 #include "base/base_paths.h"
 #include "base/debug_on_start.h"
+#include "base/debug_util.h"
 #include "base/i18n/icu_util.h"
 #include "base/multiprocess_test.h"
 #include "base/nss_util.h"
@@ -26,6 +27,10 @@
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
 #include <gtk/gtk.h>
 #endif
+
+// A command-line flag that makes a test failure always result in a non-zero
+// process exit code.
+const char kStrictFailureHandling[] = "strict_failure_handling";
 
 // Match function used by the GetTestCount method.
 typedef bool (*TestMatch)(const testing::TestInfo&);
@@ -67,19 +72,34 @@ class TestSuite {
     CommandLine::Reset();
   }
 
-  // Returns true if a string starts with FLAKY_.
-  static bool IsFlaky(const char* name) {
-    return strncmp(name, "FLAKY_", 6) == 0;
-  }
-
   // Returns true if the test is marked as flaky.
-  static bool FlakyTest(const testing::TestInfo& test) {
-    return IsFlaky(test.name()) || IsFlaky(test.test_case_name());
+  static bool IsMarkedFlaky(const testing::TestInfo& test) {
+    return strncmp(test.name(), "FLAKY_", 6) == 0;
   }
 
-  // Returns true if the test failed and is not marked as flaky.
-  static bool NonFlakyFailures(const testing::TestInfo& test) {
-    return test.should_run() && test.result()->Failed() && !FlakyTest(test);
+  // Returns true if the test is marked as failing.
+  static bool IsMarkedFailing(const testing::TestInfo& test) {
+    return strncmp(test.name(), "FAILS_", 6) == 0;
+  }
+
+  // Returns true if the test is marked as "MAYBE_".
+  // When using different prefixes depending on platform, we use MAYBE_ and
+  // preprocessor directives to replace MAYBE_ with the target prefix.
+  static bool IsMarkedMaybe(const testing::TestInfo& test) {
+    return strncmp(test.name(), "MAYBE_", 6) == 0;
+  }
+
+  // Returns true if the test failure should be ignored.
+  static bool ShouldIgnoreFailure(const testing::TestInfo& test) {
+    if (CommandLine::ForCurrentProcess()->HasSwitch(kStrictFailureHandling))
+      return false;
+    return IsMarkedFlaky(test) || IsMarkedFailing(test);
+  }
+
+  // Returns true if the test failed and the failure shouldn't be ignored.
+  static bool NonIgnoredFailures(const testing::TestInfo& test) {
+    return test.should_run() && test.result()->Failed() &&
+        !ShouldIgnoreFailure(test);
   }
 
   // Returns the number of tests where the match function returns true.
@@ -106,6 +126,12 @@ class TestSuite {
     listeners.Append(new TestIsolationEnforcer);
   }
 
+  void CatchMaybeTests() {
+    testing::TestEventListeners& listeners =
+        testing::UnitTest::GetInstance()->listeners();
+    listeners.Append(new MaybeTestDisabler);
+  }
+
   // Don't add additional code to this method.  Instead add it to
   // Initialize().  See bug 6436.
   int Run() {
@@ -123,16 +149,22 @@ class TestSuite {
     }
     int result = RUN_ALL_TESTS();
 
-    // Reset the result code if only flaky test failed.
-    if (result != 0 && GetTestCount(&TestSuite::NonFlakyFailures) == 0) {
+    // If there are failed tests, see if we should ignore the failures.
+    if (result != 0 && GetTestCount(&TestSuite::NonIgnoredFailures) == 0)
       result = 0;
-    }
 
     // Display the number of flaky tests.
-    int flaky_count = GetTestCount(&TestSuite::FlakyTest);
+    int flaky_count = GetTestCount(&TestSuite::IsMarkedFlaky);
     if (flaky_count) {
       printf("  YOU HAVE %d FLAKY %s\n\n", flaky_count,
              flaky_count == 1 ? "TEST" : "TESTS");
+    }
+
+    // Display the number of tests with ignored failures (FAILS).
+    int failing_count = GetTestCount(&TestSuite::IsMarkedFailing);
+    if (failing_count) {
+      printf("  YOU HAVE %d %s with ignored failures (FAILS prefix)\n\n",
+             failing_count, failing_count == 1 ? "test" : "tests");
     }
 
     // This MUST happen before Shutdown() since Shutdown() tears down
@@ -146,24 +178,26 @@ class TestSuite {
   }
 
  protected:
-#if defined(OS_WIN)
-  // TODO(phajdan.jr): Clean up the windows-specific hacks.
-  // See http://crbug.com/29997
+  class MaybeTestDisabler : public testing::EmptyTestEventListener {
+   public:
+    virtual void OnTestStart(const testing::TestInfo& test_info) {
+      ASSERT_FALSE(TestSuite::IsMarkedMaybe(test_info))
+          << "Probably the OS #ifdefs don't include all of the necessary "
+             "platforms.\nPlease ensure that no tests have the MAYBE_ prefix "
+             "after the code is preprocessed.";
+    }
+  };
 
-  // By default, base::LogMessage::~LogMessage calls DebugUtil::BreakDebugger()
-  // when severity is LOG_FATAL. On Windows, this results in error dialogs
-  // which are not friendly to buildbots.
-  // To avoid these problems, we override the LogMessage behaviour by
-  // replacing the assert handler with UnitTestAssertHandler.
+  // By default fatal log messages (e.g. from DCHECKs) result in error dialogs
+  // which gum up buildbots. Use a minimalistic assert handler which just
+  // terminates the process.
   static void UnitTestAssertHandler(const std::string& str) {
-    // FAIL is a googletest macro, it marks the current test as failed.
-    // If throw_on_failure is set to true, it also ends the process.
-    ::testing::FLAGS_gtest_throw_on_failure = true;
-    FAIL() << str;
+    RAW_LOG(FATAL, str.c_str());
   }
 
   // Disable crash dialogs so that it doesn't gum up the buildbot
   virtual void SuppressErrorDialogs() {
+#if defined(OS_WIN)
     UINT new_flags = SEM_FAILCRITICALERRORS |
                      SEM_NOGPFAULTERRORBOX |
                      SEM_NOOPENFILEERRORBOX;
@@ -172,8 +206,8 @@ class TestSuite {
     // http://blogs.msdn.com/oldnewthing/archive/2004/07/27/198410.aspx
     UINT existing_flags = SetErrorMode(new_flags);
     SetErrorMode(existing_flags | new_flags);
-  }
 #endif  // defined(OS_WIN)
+  }
 
   // Override these for custom initialization and shutdown handling.  Use these
   // instead of putting complex code in your constructor/destructor.
@@ -195,20 +229,16 @@ class TestSuite {
 #if defined(OS_WIN)
     // Make sure we run with high resolution timer to minimize differences
     // between production code and test code.
-    bool result = base::Time::UseHighResolutionTimer(true);
-    CHECK(result);
+    base::Time::EnableHighResolutionTimer(true);
+#endif  // defined(OS_WIN)
 
     // In some cases, we do not want to see standard error dialogs.
-    if (!IsDebuggerPresent() &&
+    if (!DebugUtil::BeingDebugged() &&
         !CommandLine::ForCurrentProcess()->HasSwitch("show-error-dialogs")) {
       SuppressErrorDialogs();
-#if !defined(PURIFY)
-      // When the code in this file moved around, bug 6436 resurfaced.
-      // As a hack workaround, just #ifdef out this code for Purify builds.
+      DebugUtil::SuppressDialogs();
       logging::SetLogAssertHandler(UnitTestAssertHandler);
-#endif  // !defined(PURIFY)
     }
-#endif  // defined(OS_WIN)
 
     icu_util::Initialize();
 
@@ -219,6 +249,8 @@ class TestSuite {
     // will be done only on process exit.
     base::EnsureNSSInit();
 #endif  // defined(USE_NSS)
+
+    CatchMaybeTests();
   }
 
   virtual void Shutdown() {

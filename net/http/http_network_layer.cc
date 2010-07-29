@@ -1,18 +1,19 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/http/http_network_layer.h"
 
+#include "base/field_trial.h"
 #include "base/logging.h"
 #include "base/string_util.h"
-#include "net/flip/flip_framer.h"
-#include "net/flip/flip_network_transaction.h"
-#include "net/flip/flip_session.h"
-#include "net/flip/flip_session_pool.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_network_transaction.h"
 #include "net/socket/client_socket_factory.h"
+#include "net/spdy/spdy_framer.h"
+#include "net/spdy/spdy_network_transaction.h"
+#include "net/spdy/spdy_session.h"
+#include "net/spdy/spdy_session_pool.h"
 
 namespace net {
 
@@ -20,15 +21,19 @@ namespace net {
 
 // static
 HttpTransactionFactory* HttpNetworkLayer::CreateFactory(
-    NetworkChangeNotifier* network_change_notifier,
     HostResolver* host_resolver,
     ProxyService* proxy_service,
-    SSLConfigService* ssl_config_service) {
+    SSLConfigService* ssl_config_service,
+    HttpAuthHandlerFactory* http_auth_handler_factory,
+    HttpNetworkDelegate* network_delegate,
+    NetLog* net_log) {
   DCHECK(proxy_service);
 
   return new HttpNetworkLayer(ClientSocketFactory::GetDefaultFactory(),
-                              network_change_notifier,
-                              host_resolver, proxy_service, ssl_config_service);
+                              host_resolver, proxy_service, ssl_config_service,
+                              http_auth_handler_factory,
+                              network_delegate,
+                              net_log);
 }
 
 // static
@@ -40,21 +45,25 @@ HttpTransactionFactory* HttpNetworkLayer::CreateFactory(
 }
 
 //-----------------------------------------------------------------------------
-bool HttpNetworkLayer::force_flip_ = false;
+bool HttpNetworkLayer::force_spdy_ = false;
 
 HttpNetworkLayer::HttpNetworkLayer(
     ClientSocketFactory* socket_factory,
-    NetworkChangeNotifier* network_change_notifier,
     HostResolver* host_resolver,
     ProxyService* proxy_service,
-    SSLConfigService* ssl_config_service)
+    SSLConfigService* ssl_config_service,
+    HttpAuthHandlerFactory* http_auth_handler_factory,
+    HttpNetworkDelegate* network_delegate,
+    NetLog* net_log)
     : socket_factory_(socket_factory),
-      network_change_notifier_(network_change_notifier),
       host_resolver_(host_resolver),
       proxy_service_(proxy_service),
       ssl_config_service_(ssl_config_service),
       session_(NULL),
-      flip_session_pool_(NULL),
+      spdy_session_pool_(NULL),
+      http_auth_handler_factory_(http_auth_handler_factory),
+      network_delegate_(network_delegate),
+      net_log_(net_log),
       suspended_(false) {
   DCHECK(proxy_service_);
   DCHECK(ssl_config_service_.get());
@@ -62,10 +71,12 @@ HttpNetworkLayer::HttpNetworkLayer(
 
 HttpNetworkLayer::HttpNetworkLayer(HttpNetworkSession* session)
     : socket_factory_(ClientSocketFactory::GetDefaultFactory()),
-      network_change_notifier_(NULL),
       ssl_config_service_(NULL),
       session_(session),
-      flip_session_pool_(session->flip_session_pool()),
+      spdy_session_pool_(session->spdy_session_pool()),
+      http_auth_handler_factory_(NULL),
+      network_delegate_(NULL),
+      net_log_(NULL),
       suspended_(false) {
   DCHECK(session_.get());
 }
@@ -77,8 +88,8 @@ int HttpNetworkLayer::CreateTransaction(scoped_ptr<HttpTransaction>* trans) {
   if (suspended_)
     return ERR_NETWORK_IO_SUSPENDED;
 
-  if (force_flip_)
-    trans->reset(new FlipNetworkTransaction(GetSession()));
+  if (force_spdy_)
+    trans->reset(new SpdyNetworkTransaction(GetSession()));
   else
     trans->reset(new HttpNetworkTransaction(GetSession()));
   return OK;
@@ -98,47 +109,80 @@ void HttpNetworkLayer::Suspend(bool suspend) {
 HttpNetworkSession* HttpNetworkLayer::GetSession() {
   if (!session_) {
     DCHECK(proxy_service_);
-    FlipSessionPool* flip_pool = new FlipSessionPool;
-    session_ = new HttpNetworkSession(
-        network_change_notifier_, host_resolver_, proxy_service_,
-        socket_factory_, ssl_config_service_, flip_pool);
+    SpdySessionPool* spdy_pool = new SpdySessionPool();
+    session_ = new HttpNetworkSession(host_resolver_, proxy_service_,
+        socket_factory_, ssl_config_service_, spdy_pool,
+        http_auth_handler_factory_, network_delegate_, net_log_);
     // These were just temps for lazy-initializing HttpNetworkSession.
-    network_change_notifier_ = NULL;
     host_resolver_ = NULL;
     proxy_service_ = NULL;
     socket_factory_ = NULL;
+    http_auth_handler_factory_ = NULL;
+    net_log_ = NULL;
+    network_delegate_ = NULL;
   }
   return session_;
 }
 
 // static
-void HttpNetworkLayer::EnableFlip(const std::string& mode) {
+void HttpNetworkLayer::EnableSpdy(const std::string& mode) {
   static const char kDisableSSL[] = "no-ssl";
   static const char kDisableCompression[] = "no-compress";
+  static const char kDisableAltProtocols[] = "no-alt-protocols";
+
+  // We want an A/B experiment between SPDY enabled and SPDY disabled,
+  // but only for pages where SPDY *could have been* negotiated.  To do
+  // this, we use NPN, but prevent it from negotiating SPDY.  If the
+  // server negotiates HTTP, rather than SPDY, today that will only happen
+  // on servers that installed NPN (and could have done SPDY).  But this is
+  // a bit of a hack, as this correlation between NPN and SPDY is not
+  // really guaranteed.
   static const char kEnableNPN[] = "npn";
+  static const char kEnableNpnHttpOnly[] = "npn-http";
 
-  std::vector<std::string> flip_options;
-  SplitString(mode, ',', &flip_options);
+  // Except for the first element, the order is irrelevant.  First element
+  // specifies the fallback in case nothing matches
+  // (SSLClientSocket::kNextProtoNoOverlap).  Otherwise, the SSL library
+  // will choose the first overlapping protocol in the server's list, since
+  // it presumedly has a better understanding of which protocol we should
+  // use, therefore the rest of the ordering here is not important.
+  static const char kNpnProtosFull[] =
+      "\x08http/1.1\x07http1.1\x06spdy/1\x04spdy";
+  // No spdy specified.
+  static const char kNpnProtosHttpOnly[] = "\x08http/1.1\x07http1.1";
 
-  // Force flip mode (use FlipNetworkTransaction for all http requests).
-  force_flip_ = true;
+  std::vector<std::string> spdy_options;
+  SplitString(mode, ',', &spdy_options);
 
-  for (std::vector<std::string>::iterator it = flip_options.begin();
-       it != flip_options.end(); ++it) {
+  // Force spdy mode (use SpdyNetworkTransaction for all http requests).
+  force_spdy_ = true;
+
+  bool use_alt_protocols = true;
+
+  for (std::vector<std::string>::iterator it = spdy_options.begin();
+       it != spdy_options.end(); ++it) {
     const std::string& option = *it;
-
-    // Disable SSL
     if (option == kDisableSSL) {
-      FlipSession::SetSSLMode(false);
+      SpdySession::SetSSLMode(false);  // Disable SSL
     } else if (option == kDisableCompression) {
-      flip::FlipFramer::set_enable_compression_default(false);
+      spdy::SpdyFramer::set_enable_compression_default(false);
     } else if (option == kEnableNPN) {
-      HttpNetworkTransaction::SetNextProtos("\007http1.1\004spdy");
-      force_flip_ = false;
-    } else if (option.empty() && it == flip_options.begin()) {
+      HttpNetworkTransaction::SetUseAlternateProtocols(use_alt_protocols);
+      HttpNetworkTransaction::SetNextProtos(kNpnProtosFull);
+      force_spdy_ = false;
+    } else if (option == kEnableNpnHttpOnly) {
+      // Avoid alternate protocol in this case. Otherwise, browser will try SSL
+      // and then fallback to http. This introduces extra load.
+      HttpNetworkTransaction::SetUseAlternateProtocols(false);
+      HttpNetworkTransaction::SetNextProtos(kNpnProtosHttpOnly);
+      force_spdy_ = false;
+    } else if (option == kDisableAltProtocols) {
+      use_alt_protocols = false;
+      HttpNetworkTransaction::SetUseAlternateProtocols(false);
+    } else if (option.empty() && it == spdy_options.begin()) {
       continue;
     } else {
-      LOG(DFATAL) << "Unrecognized flip option: " << option;
+      LOG(DFATAL) << "Unrecognized spdy option: " << option;
     }
   }
 }

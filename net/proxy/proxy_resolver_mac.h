@@ -24,21 +24,21 @@ class ProxyResolverMac : public ProxyResolver {
                              ProxyInfo* results,
                              CompletionCallback* callback,
                              RequestHandle* request,
-                             LoadLog* load_log);
+                             const BoundNetLog& net_log);
 
   virtual void CancelRequest(RequestHandle request) {
     NOTREACHED();
   }
 
- private:
-  virtual int SetPacScript(const GURL& pac_url,
-                           const std::string& /*pac_bytes*/,
-                           CompletionCallback* /*callback*/) {
-    pac_url_ = pac_url;
+  virtual int SetPacScript(
+      const scoped_refptr<ProxyResolverScriptData>& script_data,
+      CompletionCallback* /*callback*/) {
+    script_data_ = script_data_;
     return OK;
   }
 
-  GURL pac_url_;
+ private:
+  scoped_refptr<ProxyResolverScriptData> script_data_;
 };
 
 }  // namespace net

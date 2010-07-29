@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,9 +28,6 @@ class BaseDropTarget : public IDropTarget {
 
   // When suspended is set to |true|, the drop target does not receive drops
   // from drags initiated within the owning HWND.
-  // TODO(beng): (http://b/1085385) figure out how we will handle legitimate
-  //             drag-drop operations within the same HWND, such as dragging
-  //             selected text to an edit field.
   bool suspended() const { return suspended_; }
   void set_suspended(bool suspended) { suspended_ = suspended; }
 
@@ -125,7 +122,7 @@ class BaseDropTarget : public IDropTarget {
 
   LONG ref_count_;
 
-  DISALLOW_EVIL_CONSTRUCTORS(BaseDropTarget);
+  DISALLOW_COPY_AND_ASSIGN(BaseDropTarget);
 };
 
 #endif  // BASE_BASE_DROP_TARGET_H_

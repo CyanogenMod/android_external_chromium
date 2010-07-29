@@ -1,15 +1,17 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "testing/gtest/include/gtest/gtest.h"
 
 #include "base/basictypes.h"
+#include "net/base/net_errors.h"
 #include "net/http/http_auth_handler_basic.h"
+#include "net/http/http_request_info.h"
 
 namespace net {
 
-TEST(HttpAuthHandlerBasicTest, GenerateCredentials) {
+TEST(HttpAuthHandlerBasicTest, GenerateAuthToken) {
   static const struct {
     const wchar_t* username;
     const wchar_t* password;
@@ -24,48 +26,53 @@ TEST(HttpAuthHandlerBasicTest, GenerateCredentials) {
     { L"", L"", "Basic Og==" },
   };
   GURL origin("http://www.example.com");
+  HttpAuthHandlerBasic::Factory factory;
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
     std::string challenge = "Basic realm=\"Atlantis\"";
-    scoped_refptr<HttpAuthHandlerBasic> basic = new HttpAuthHandlerBasic;
-    bool ok = basic->InitFromChallenge(challenge.begin(), challenge.end(),
-                                       HttpAuth::AUTH_SERVER, origin);
-    EXPECT_TRUE(ok);
-    std::string credentials = basic->GenerateCredentials(tests[i].username,
-                                                         tests[i].password,
-                                                         NULL, NULL);
-    EXPECT_STREQ(tests[i].expected_credentials, credentials.c_str());
+    scoped_ptr<HttpAuthHandler> basic;
+    EXPECT_EQ(OK, factory.CreateAuthHandlerFromString(
+        challenge, HttpAuth::AUTH_SERVER, origin, BoundNetLog(), &basic));
+    std::wstring username(tests[i].username);
+    std::wstring password(tests[i].password);
+    HttpRequestInfo request_info;
+    std::string auth_token;
+    int rv = basic->GenerateAuthToken(&username, &password, &request_info,
+                                      NULL, &auth_token);
+    EXPECT_EQ(OK, rv);
+    EXPECT_STREQ(tests[i].expected_credentials, auth_token.c_str());
   }
 }
 
 TEST(HttpAuthHandlerBasicTest, InitFromChallenge) {
   static const struct {
     const char* challenge;
-    bool expected_success;
+    int expected_rv;
     const char* expected_realm;
   } tests[] = {
     // No realm (we allow this even though realm is supposed to be required
     // according to RFC 2617.)
     {
       "Basic",
-      true,
+      OK,
       "",
     },
 
     // Realm is empty string.
     {
       "Basic realm=\"\"",
-      true,
+      OK,
       "",
     },
   };
+  HttpAuthHandlerBasic::Factory factory;
   GURL origin("http://www.example.com");
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
     std::string challenge = tests[i].challenge;
-    scoped_refptr<HttpAuthHandlerBasic> basic = new HttpAuthHandlerBasic;
-    bool ok = basic->InitFromChallenge(challenge.begin(), challenge.end(),
-                                       HttpAuth::AUTH_SERVER, origin);
-    EXPECT_EQ(tests[i].expected_success, ok);
-    if (ok)
+    scoped_ptr<HttpAuthHandler> basic;
+    int rv = factory.CreateAuthHandlerFromString(
+        challenge, HttpAuth::AUTH_SERVER, origin, BoundNetLog(), &basic);
+    EXPECT_EQ(tests[i].expected_rv, rv);
+    if (rv == OK)
       EXPECT_EQ(tests[i].expected_realm, basic->realm());
   }
 }

@@ -306,20 +306,3 @@ Index: patches/locdet.patch
 +     {
 +         /* Everything failed. Return US ASCII (ISO 646). */
 
-Property changes on: patches/locdet.patch
-___________________________________________________________________
-Name: svn:eol-style
-   + LF
-
-Index: README.google
-===================================================================
---- README.google	(revision 33767)
-+++ README.google	(working copy)
-@@ -143,3 +143,7 @@
-     see http://bugs.icu-project.org/trac/ticket/7177
- 
-     - patches/linuxtz.patch
-+
-+15. The patch for Linux locale detection
-+
-+    - patches/locdet.patch

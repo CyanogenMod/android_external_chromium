@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "base/task.h"
+#include "base/callback.h"
 #include "net/base/completion_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/mock_host_resolver.h"
@@ -19,16 +19,18 @@
 
 struct WebSocketEvent {
   enum EventType {
-    EVENT_OPEN, EVENT_MESSAGE, EVENT_CLOSE,
+    EVENT_OPEN, EVENT_MESSAGE, EVENT_ERROR, EVENT_CLOSE,
   };
 
   WebSocketEvent(EventType type, net::WebSocket* websocket,
-                 const std::string& websocket_msg)
-      : event_type(type), socket(websocket), msg(websocket_msg) {}
+                 const std::string& websocket_msg, bool websocket_flag)
+      : event_type(type), socket(websocket), msg(websocket_msg),
+        flag(websocket_flag) {}
 
   EventType event_type;
   net::WebSocket* socket;
   std::string msg;
+  bool flag;
 };
 
 class WebSocketEventRecorder : public net::WebSocketDelegate {
@@ -36,11 +38,13 @@ class WebSocketEventRecorder : public net::WebSocketDelegate {
   explicit WebSocketEventRecorder(net::CompletionCallback* callback)
       : onopen_(NULL),
         onmessage_(NULL),
+        onerror_(NULL),
         onclose_(NULL),
         callback_(callback) {}
   virtual ~WebSocketEventRecorder() {
     delete onopen_;
     delete onmessage_;
+    delete onerror_;
     delete onclose_;
   }
 
@@ -56,20 +60,29 @@ class WebSocketEventRecorder : public net::WebSocketDelegate {
 
   virtual void OnOpen(net::WebSocket* socket) {
     events_.push_back(
-        WebSocketEvent(WebSocketEvent::EVENT_OPEN, socket, std::string()));
+        WebSocketEvent(WebSocketEvent::EVENT_OPEN, socket,
+                       std::string(), false));
     if (onopen_)
       onopen_->Run(&events_.back());
   }
 
   virtual void OnMessage(net::WebSocket* socket, const std::string& msg) {
     events_.push_back(
-        WebSocketEvent(WebSocketEvent::EVENT_MESSAGE, socket, msg));
+        WebSocketEvent(WebSocketEvent::EVENT_MESSAGE, socket, msg, false));
     if (onmessage_)
       onmessage_->Run(&events_.back());
   }
-  virtual void OnClose(net::WebSocket* socket) {
+  virtual void OnError(net::WebSocket* socket) {
     events_.push_back(
-        WebSocketEvent(WebSocketEvent::EVENT_CLOSE, socket, std::string()));
+        WebSocketEvent(WebSocketEvent::EVENT_ERROR, socket,
+                       std::string(), false));
+    if (onerror_)
+      onerror_->Run(&events_.back());
+  }
+  virtual void OnClose(net::WebSocket* socket, bool was_clean) {
+    events_.push_back(
+        WebSocketEvent(WebSocketEvent::EVENT_CLOSE, socket,
+                       std::string(), was_clean));
     if (onclose_)
       onclose_->Run(&events_.back());
     if (callback_)
@@ -88,6 +101,7 @@ class WebSocketEventRecorder : public net::WebSocketDelegate {
   std::vector<WebSocketEvent> events_;
   Callback1<WebSocketEvent*>::Type* onopen_;
   Callback1<WebSocketEvent*>::Type* onmessage_;
+  Callback1<WebSocketEvent*>::Type* onerror_;
   Callback1<WebSocketEvent*>::Type* onclose_;
   net::CompletionCallback* callback_;
 
@@ -148,7 +162,8 @@ TEST_F(WebSocketTest, Connect) {
               "WebSocket-Protocol: sample\r\n"
               "\r\n"),
   };
-  StaticSocketDataProvider data(data_reads, data_writes);
+  StaticSocketDataProvider data(data_reads, arraysize(data_reads),
+                                data_writes, arraysize(data_writes));
   mock_socket_factory.AddSocketDataProvider(&data);
 
   WebSocket::Request* request(
@@ -156,6 +171,7 @@ TEST_F(WebSocketTest, Connect) {
                              "sample",
                              "http://example.com",
                              "ws://example.com/demo",
+                             WebSocket::DRAFT75,
                              new TestURLRequestContext()));
   request->SetHostResolver(new MockHostResolver());
   request->SetClientSocketFactory(&mock_socket_factory);
@@ -208,7 +224,8 @@ TEST_F(WebSocketTest, ServerSentData) {
               "WebSocket-Protocol: sample\r\n"
               "\r\n"),
   };
-  StaticSocketDataProvider data(data_reads, data_writes);
+  StaticSocketDataProvider data(data_reads, arraysize(data_reads),
+                                data_writes, arraysize(data_writes));
   mock_socket_factory.AddSocketDataProvider(&data);
 
   WebSocket::Request* request(
@@ -216,6 +233,7 @@ TEST_F(WebSocketTest, ServerSentData) {
                              "sample",
                              "http://example.com",
                              "ws://example.com/demo",
+                             WebSocket::DRAFT75,
                              new TestURLRequestContext()));
   request->SetHostResolver(new MockHostResolver());
   request->SetClientSocketFactory(&mock_socket_factory);
@@ -250,6 +268,7 @@ TEST_F(WebSocketTest, ProcessFrameDataForLengthCalculation) {
                              "sample",
                              "http://example.com",
                              "ws://example.com/demo",
+                             WebSocket::DRAFT75,
                              new TestURLRequestContext()));
   TestCompletionCallback callback;
   scoped_ptr<WebSocketEventRecorder> delegate(
@@ -274,7 +293,9 @@ TEST_F(WebSocketTest, ProcessFrameDataForLengthCalculation) {
                        kExpectedRemainingFrame, kExpectedRemainingLength);
   // No onmessage event expected.
   const std::vector<WebSocketEvent>& events = delegate->GetSeenEvents();
-  EXPECT_EQ(0U, events.size());
+  EXPECT_EQ(1U, events.size());
+
+  EXPECT_EQ(WebSocketEvent::EVENT_ERROR, events[0].event_type);
 
   websocket->DetachDelegate();
 }
@@ -285,6 +306,7 @@ TEST_F(WebSocketTest, ProcessFrameDataForUnterminatedString) {
                              "sample",
                              "http://example.com",
                              "ws://example.com/demo",
+                             WebSocket::DRAFT75,
                              new TestURLRequestContext()));
   TestCompletionCallback callback;
   scoped_ptr<WebSocketEventRecorder> delegate(
@@ -325,131 +347,6 @@ TEST_F(WebSocketTest, ProcessFrameDataForUnterminatedString) {
   }
 
   websocket->DetachDelegate();
-}
-
-TEST(WebSocketRequestTest, is_secure_false) {
-  WebSocket::Request request(GURL("ws://example.com/demo"),
-                             "sample",
-                             "http://example.com",
-                             "ws://example.com/demo",
-                             NULL);
-  EXPECT_FALSE(request.is_secure());
-}
-
-TEST(WebSocketRequestTest, is_secure_true) {
-  // wss:// is secure.
-  WebSocket::Request request(GURL("wss://example.com/demo"),
-                             "sample",
-                             "http://example.com",
-                             "wss://example.com/demo",
-                             NULL);
-  EXPECT_TRUE(request.is_secure());
-}
-
-TEST(WebSocketRequestTest, CreateClientHandshakeMessage_Simple) {
-  WebSocket::Request request(GURL("ws://example.com/demo"),
-                             "sample",
-                             "http://example.com",
-                             "ws://example.com/demo",
-                             NULL);
-  EXPECT_EQ("GET /demo HTTP/1.1\r\n"
-            "Upgrade: WebSocket\r\n"
-            "Connection: Upgrade\r\n"
-            "Host: example.com\r\n"
-            "Origin: http://example.com\r\n"
-            "WebSocket-Protocol: sample\r\n"
-            "\r\n",
-            request.CreateClientHandshakeMessage());
-}
-
-TEST(WebSocketRequestTest, CreateClientHandshakeMessage_PathAndQuery) {
-  WebSocket::Request request(GURL("ws://example.com/Test?q=xxx&p=%20"),
-                             "sample",
-                             "http://example.com",
-                             "ws://example.com/demo",
-                             NULL);
-  // Path and query should be preserved as-is.
-  EXPECT_THAT(request.CreateClientHandshakeMessage(),
-              testing::HasSubstr("GET /Test?q=xxx&p=%20 HTTP/1.1\r\n"));
-}
-
-TEST(WebSocketRequestTest, CreateClientHandshakeMessage_Host) {
-  WebSocket::Request request(GURL("ws://Example.Com/demo"),
-                             "sample",
-                             "http://Example.Com",
-                             "ws://Example.Com/demo",
-                             NULL);
-  // Host should be lowercased
-  EXPECT_THAT(request.CreateClientHandshakeMessage(),
-              testing::HasSubstr("Host: example.com\r\n"));
-  EXPECT_THAT(request.CreateClientHandshakeMessage(),
-              testing::HasSubstr("Origin: http://example.com\r\n"));
-}
-
-TEST(WebSocketRequestTest, CreateClientHandshakeMessage_TrimPort80) {
-  WebSocket::Request request(GURL("ws://example.com:80/demo"),
-                             "sample",
-                             "http://example.com",
-                             "ws://example.com/demo",
-                             NULL);
-  // :80 should be trimmed as it's the default port for ws://.
-  EXPECT_THAT(request.CreateClientHandshakeMessage(),
-              testing::HasSubstr("Host: example.com\r\n"));
-}
-
-TEST(WebSocketRequestTest, CreateClientHandshakeMessage_TrimPort443) {
-  WebSocket::Request request(GURL("wss://example.com:443/demo"),
-                             "sample",
-                             "http://example.com",
-                             "wss://example.com/demo",
-                             NULL);
-  // :443 should be trimmed as it's the default port for wss://.
-  EXPECT_THAT(request.CreateClientHandshakeMessage(),
-              testing::HasSubstr("Host: example.com\r\n"));
-}
-
-TEST(WebSocketRequestTest, CreateClientHandshakeMessage_NonDefaultPortForWs) {
-  WebSocket::Request request(GURL("ws://example.com:8080/demo"),
-                             "sample",
-                             "http://example.com",
-                             "wss://example.com/demo",
-                             NULL);
-  // :8080 should be preserved as it's not the default port for ws://.
-  EXPECT_THAT(request.CreateClientHandshakeMessage(),
-              testing::HasSubstr("Host: example.com:8080\r\n"));
-}
-
-TEST(WebSocketRequestTest, CreateClientHandshakeMessage_NonDefaultPortForWss) {
-  WebSocket::Request request(GURL("wss://example.com:4443/demo"),
-                             "sample",
-                             "http://example.com",
-                             "wss://example.com/demo",
-                             NULL);
-  // :4443 should be preserved as it's not the default port for wss://.
-  EXPECT_THAT(request.CreateClientHandshakeMessage(),
-              testing::HasSubstr("Host: example.com:4443\r\n"));
-}
-
-TEST(WebSocketRequestTest, CreateClientHandshakeMessage_WsBut443) {
-  WebSocket::Request request(GURL("ws://example.com:443/demo"),
-                             "sample",
-                             "http://example.com",
-                             "ws://example.com/demo",
-                             NULL);
-  // :443 should be preserved as it's not the default port for ws://.
-  EXPECT_THAT(request.CreateClientHandshakeMessage(),
-              testing::HasSubstr("Host: example.com:443\r\n"));
-}
-
-TEST(WebSocketRequestTest, CreateClientHandshakeMessage_WssBut80) {
-  WebSocket::Request request(GURL("wss://example.com:80/demo"),
-                             "sample",
-                             "http://example.com",
-                             "wss://example.com/demo",
-                             NULL);
-  // :80 should be preserved as it's not the default port for wss://.
-  EXPECT_THAT(request.CreateClientHandshakeMessage(),
-              testing::HasSubstr("Host: example.com:80\r\n"));
 }
 
 }  // namespace net

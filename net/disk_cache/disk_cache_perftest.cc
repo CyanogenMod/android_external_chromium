@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2006-2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,12 @@
 #include "base/file_util.h"
 #include "base/perftimer.h"
 #include "base/string_util.h"
+#include "base/thread.h"
 #include "base/test/test_file_util.h"
 #include "base/timer.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
+#include "net/base/test_completion_callback.h"
 #include "net/disk_cache/block_files.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/disk_cache/disk_cache_test_util.h"
@@ -64,7 +66,9 @@ int TimeWrite(int num_entries, disk_cache::Backend* cache,
     entries->push_back(entry);
 
     disk_cache::Entry* cache_entry;
-    if (!cache->CreateEntry(entry.key, &cache_entry))
+    TestCompletionCallback cb;
+    int rv = cache->CreateEntry(entry.key, &cache_entry, &cb);
+    if (net::OK != cb.GetResult(rv))
       break;
     int ret = cache_entry->WriteData(0, 0, buffer1, kSize1, &callback, false);
     if (net::ERR_IO_PENDING == ret)
@@ -110,7 +114,9 @@ int TimeRead(int num_entries, disk_cache::Backend* cache,
 
   for (int i = 0; i < num_entries; i++) {
     disk_cache::Entry* cache_entry;
-    if (!cache->OpenEntry(entries[i].key, &cache_entry))
+    TestCompletionCallback cb;
+    int rv = cache->OpenEntry(entries[i].key, &cache_entry, &cb);
+    if (net::OK != cb.GetResult(rv))
       break;
     int ret = cache_entry->ReadData(0, 0, buffer1, kSize1, &callback);
     if (net::ERR_IO_PENDING == ret)
@@ -154,11 +160,18 @@ TEST_F(DiskCacheTest, Hash) {
 TEST_F(DiskCacheTest, CacheBackendPerformance) {
   MessageLoopForIO message_loop;
 
+  base::Thread cache_thread("CacheThread");
+  ASSERT_TRUE(cache_thread.StartWithOptions(
+                  base::Thread::Options(MessageLoop::TYPE_IO, 0)));
+
   ScopedTestCache test_cache;
-  disk_cache::Backend* cache =
-      disk_cache::CreateCacheBackend(test_cache.path(), false, 0,
-                                     net::DISK_CACHE);
-  ASSERT_TRUE(NULL != cache);
+  TestCompletionCallback cb;
+  disk_cache::Backend* cache;
+  int rv = disk_cache::CreateCacheBackend(
+               net::DISK_CACHE, test_cache.path(), 0, false,
+               cache_thread.message_loop_proxy(), &cache, &cb);
+
+  ASSERT_EQ(net::OK, cb.GetResult(rv));
 
   int seed = static_cast<int>(Time::Now().ToInternalValue());
   srand(seed);
@@ -183,9 +196,10 @@ TEST_F(DiskCacheTest, CacheBackendPerformance) {
   ASSERT_TRUE(file_util::EvictFileFromSystemCache(
               test_cache.path().AppendASCII("data_3")));
 
-  cache = disk_cache::CreateCacheBackend(test_cache.path(), false, 0,
-                                         net::DISK_CACHE);
-  ASSERT_TRUE(NULL != cache);
+  rv = disk_cache::CreateCacheBackend(net::DISK_CACHE, test_cache.path(), 0,
+                                      false, cache_thread.message_loop_proxy(),
+                                      &cache, &cb);
+  ASSERT_EQ(net::OK, cb.GetResult(rv));
 
   ret = TimeRead(num_entries, cache, entries, true);
   EXPECT_EQ(ret, g_cache_tests_received);

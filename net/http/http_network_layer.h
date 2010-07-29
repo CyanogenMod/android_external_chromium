@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "base/non_thread_safe.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "net/http/http_transaction_factory.h"
@@ -14,22 +15,27 @@
 namespace net {
 
 class ClientSocketFactory;
-class FlipSessionPool;
 class HostResolver;
+class HttpAuthHandlerFactory;
+class HttpNetworkDelegate;
 class HttpNetworkSession;
-class NetworkChangeNotifier;
+class NetLog;
 class ProxyInfo;
 class ProxyService;
+class SpdySessionPool;
 class SSLConfigService;
 
-class HttpNetworkLayer : public HttpTransactionFactory {
+class HttpNetworkLayer : public HttpTransactionFactory, public NonThreadSafe {
  public:
-  // |socket_factory|, |network_change_notifier|, |proxy_service| and
-  // |host_resolver| must remain valid for the lifetime of HttpNetworkLayer.
+  // |socket_factory|, |proxy_service| and |host_resolver| must remain valid for
+  // the lifetime of HttpNetworkLayer.
   HttpNetworkLayer(ClientSocketFactory* socket_factory,
-                   NetworkChangeNotifier* network_change_notifier,
-                   HostResolver* host_resolver, ProxyService* proxy_service,
-                   SSLConfigService* ssl_config_service);
+                   HostResolver* host_resolver,
+                   ProxyService* proxy_service,
+                   SSLConfigService* ssl_config_service,
+                   HttpAuthHandlerFactory* http_auth_handler_factory,
+                   HttpNetworkDelegate* network_delegate,
+                   NetLog* net_log);
   // Construct a HttpNetworkLayer with an existing HttpNetworkSession which
   // contains a valid ProxyService.
   explicit HttpNetworkLayer(HttpNetworkSession* session);
@@ -38,10 +44,12 @@ class HttpNetworkLayer : public HttpTransactionFactory {
   // This function hides the details of how a network layer gets instantiated
   // and allows other implementations to be substituted.
   static HttpTransactionFactory* CreateFactory(
-      NetworkChangeNotifier* network_change_notifier,
       HostResolver* host_resolver,
       ProxyService* proxy_service,
-      SSLConfigService* ssl_config_service);
+      SSLConfigService* ssl_config_service,
+      HttpAuthHandlerFactory* http_auth_handler_factory,
+      HttpNetworkDelegate* network_delegate,
+      NetLog* net_log);
   // Create a transaction factory that instantiate a network layer over an
   // existing network session. Network session contains some valuable
   // information (e.g. authentication data) that we want to share across
@@ -56,19 +64,17 @@ class HttpNetworkLayer : public HttpTransactionFactory {
   virtual HttpNetworkSession* GetSession();
   virtual void Suspend(bool suspend);
 
-  // Enable the flip protocol.
-  // Without calling this function, FLIP is disabled.  The mode can be:
+  // Enable the spdy protocol.
+  // Without calling this function, SPDY is disabled.  The mode can be:
   //   ""            : (default) SSL and compression are enabled.
   //   "no-ssl"      : disables SSL.
   //   "no-compress" : disables compression.
   //   "none"        : disables both SSL and compression.
-  static void EnableFlip(const std::string& mode);
+  static void EnableSpdy(const std::string& mode);
 
  private:
   // The factory we will use to create network sockets.
   ClientSocketFactory* socket_factory_;
-
-  NetworkChangeNotifier* network_change_notifier_;
 
   // The host resolver and proxy service that will be used when lazily
   // creating |session_|.
@@ -79,10 +85,14 @@ class HttpNetworkLayer : public HttpTransactionFactory {
   scoped_refptr<SSLConfigService> ssl_config_service_;
 
   scoped_refptr<HttpNetworkSession> session_;
-  scoped_refptr<FlipSessionPool> flip_session_pool_;
+  scoped_refptr<SpdySessionPool> spdy_session_pool_;
+
+  HttpAuthHandlerFactory* http_auth_handler_factory_;
+  HttpNetworkDelegate* network_delegate_;
+  NetLog* net_log_;
 
   bool suspended_;
-  static bool force_flip_;
+  static bool force_spdy_;
 };
 
 }  // namespace net

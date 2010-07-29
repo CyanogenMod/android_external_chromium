@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -54,7 +54,7 @@ void ListenSocketTester::SetUp() {
 
   // verify the connect/accept and setup test_socket_
   test_socket_ = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  ASSERT_NE(-1, test_socket_);
+  ASSERT_NE(INVALID_SOCKET, test_socket_);
   struct sockaddr_in client;
   client.sin_family = AF_INET;
   client.sin_addr.s_addr = inet_addr(kLoopback);
@@ -212,8 +212,10 @@ void ListenSocketTester::DidAccept(ListenSocket *server,
 }
 
 void ListenSocketTester::DidRead(ListenSocket *connection,
-                                 const std::string& data) {
-  ReportAction(ListenSocketTestAction(ACTION_READ, data));
+                                 const char* data,
+                                 int len) {
+  std::string str(data, len);
+  ReportAction(ListenSocketTestAction(ACTION_READ, str));
 }
 
 void ListenSocketTester::DidClose(ListenSocket *sock) {
@@ -317,6 +319,8 @@ TEST_F(ListenSocketTest, ClientSendLong) {
   tester_->TestClientSendLong();
 }
 
-TEST_F(ListenSocketTest, ServerSend) {
+// This test is flaky; see comment in ::TestServerSend.
+// http://code.google.com/p/chromium/issues/detail?id=48562
+TEST_F(ListenSocketTest, FLAKY_ServerSend) {
   tester_->TestServerSend();
 }

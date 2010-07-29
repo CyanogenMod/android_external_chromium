@@ -5,9 +5,10 @@
 #include <string>
 #include <vector>
 
-#include "net/base/load_log.h"
-#include "net/base/load_log_unittest.h"
+#include "base/callback.h"
 #include "net/base/mock_host_resolver.h"
+#include "net/base/net_log.h"
+#include "net/base/net_log_unittest.h"
 #include "net/base/test_completion_callback.h"
 #include "net/socket/socket_test_util.h"
 #include "net/socket_stream/socket_stream.h"
@@ -146,7 +147,139 @@ class SocketStreamEventRecorder : public net::SocketStream::Delegate {
 namespace net {
 
 class SocketStreamTest : public PlatformTest {
+ public:
+  virtual ~SocketStreamTest() {}
+  virtual void SetUp() {
+    mock_socket_factory_.reset();
+    handshake_request_ = kWebSocketHandshakeRequest;
+    handshake_response_ = kWebSocketHandshakeResponse;
+  }
+  virtual void TearDown() {
+    mock_socket_factory_.reset();
+  }
+
+  virtual void SetWebSocketHandshakeMessage(
+      const char* request, const char* response) {
+    handshake_request_ = request;
+    handshake_response_ = response;
+  }
+  virtual void AddWebSocketMessage(const std::string& message) {
+    messages_.push_back(message);
+  }
+
+  virtual MockClientSocketFactory* GetMockClientSocketFactory() {
+    mock_socket_factory_.reset(new MockClientSocketFactory);
+    return mock_socket_factory_.get();
+  }
+
+  virtual void DoSendWebSocketHandshake(SocketStreamEvent* event) {
+    event->socket->SendData(
+        handshake_request_.data(), handshake_request_.size());
+  }
+
+  virtual void DoCloseFlushPendingWriteTest(SocketStreamEvent* event) {
+    // handshake response received.
+    for (size_t i = 0; i < messages_.size(); i++) {
+      std::vector<char> frame;
+      frame.push_back('\0');
+      frame.insert(frame.end(), messages_[i].begin(), messages_[i].end());
+      frame.push_back('\xff');
+      EXPECT_TRUE(event->socket->SendData(&frame[0], frame.size()));
+    }
+    // Actual ClientSocket close must happen after all frames queued by
+    // SendData above are sent out.
+    event->socket->Close();
+  }
+
+  static const char* kWebSocketHandshakeRequest;
+  static const char* kWebSocketHandshakeResponse;
+
+ private:
+  std::string handshake_request_;
+  std::string handshake_response_;
+  std::vector<std::string> messages_;
+
+  scoped_ptr<MockClientSocketFactory> mock_socket_factory_;
 };
+
+const char* SocketStreamTest::kWebSocketHandshakeRequest =
+    "GET /demo HTTP/1.1\r\n"
+    "Host: example.com\r\n"
+    "Connection: Upgrade\r\n"
+    "Sec-WebSocket-Key2: 12998 5 Y3 1  .P00\r\n"
+    "Sec-WebSocket-Protocol: sample\r\n"
+    "Upgrade: WebSocket\r\n"
+    "Sec-WebSocket-Key1: 4 @1  46546xW%0l 1 5\r\n"
+    "Origin: http://example.com\r\n"
+    "\r\n"
+    "^n:ds[4U";
+
+const char* SocketStreamTest::kWebSocketHandshakeResponse =
+    "HTTP/1.1 101 WebSocket Protocol Handshake\r\n"
+    "Upgrade: WebSocket\r\n"
+    "Connection: Upgrade\r\n"
+    "Sec-WebSocket-Origin: http://example.com\r\n"
+    "Sec-WebSocket-Location: ws://example.com/demo\r\n"
+    "Sec-WebSocket-Protocol: sample\r\n"
+    "\r\n"
+    "8jKS'y:G*Co,Wxa-";
+
+TEST_F(SocketStreamTest, CloseFlushPendingWrite) {
+  TestCompletionCallback callback;
+
+  scoped_ptr<SocketStreamEventRecorder> delegate(
+      new SocketStreamEventRecorder(&callback));
+  // Necessary for NewCallback.
+  SocketStreamTest* test = this;
+  delegate->SetOnConnected(NewCallback(
+      test, &SocketStreamTest::DoSendWebSocketHandshake));
+  delegate->SetOnReceivedData(NewCallback(
+      test, &SocketStreamTest::DoCloseFlushPendingWriteTest));
+
+  scoped_refptr<SocketStream> socket_stream =
+      new SocketStream(GURL("ws://example.com/demo"), delegate.get());
+
+  socket_stream->set_context(new TestURLRequestContext());
+  socket_stream->SetHostResolver(new MockHostResolver());
+
+  MockWrite data_writes[] = {
+    MockWrite(SocketStreamTest::kWebSocketHandshakeRequest),
+    MockWrite(true, "\0message1\xff", 10),
+    MockWrite(true, "\0message2\xff", 10)
+  };
+  MockRead data_reads[] = {
+    MockRead(SocketStreamTest::kWebSocketHandshakeResponse),
+    // Server doesn't close the connection after handshake.
+    MockRead(true, ERR_IO_PENDING)
+  };
+  AddWebSocketMessage("message1");
+  AddWebSocketMessage("message2");
+
+  scoped_refptr<DelayedSocketData> data_provider(
+      new DelayedSocketData(1,
+                            data_reads, arraysize(data_reads),
+                            data_writes, arraysize(data_writes)));
+
+  MockClientSocketFactory* mock_socket_factory =
+      GetMockClientSocketFactory();
+  mock_socket_factory->AddSocketDataProvider(data_provider.get());
+
+  socket_stream->SetClientSocketFactory(mock_socket_factory);
+
+  socket_stream->Connect();
+
+  callback.WaitForResult();
+
+  const std::vector<SocketStreamEvent>& events = delegate->GetSeenEvents();
+  EXPECT_EQ(6U, events.size());
+
+  EXPECT_EQ(SocketStreamEvent::EVENT_CONNECTED, events[0].event_type);
+  EXPECT_EQ(SocketStreamEvent::EVENT_SENT_DATA, events[1].event_type);
+  EXPECT_EQ(SocketStreamEvent::EVENT_RECEIVED_DATA, events[2].event_type);
+  EXPECT_EQ(SocketStreamEvent::EVENT_SENT_DATA, events[3].event_type);
+  EXPECT_EQ(SocketStreamEvent::EVENT_SENT_DATA, events[4].event_type);
+  EXPECT_EQ(SocketStreamEvent::EVENT_CLOSE, events[5].event_type);
+}
 
 TEST_F(SocketStreamTest, BasicAuthProxy) {
   MockClientSocketFactory mock_socket_factory;
@@ -160,7 +293,8 @@ TEST_F(SocketStreamTest, BasicAuthProxy) {
     MockRead("Proxy-Authenticate: Basic realm=\"MyRealm1\"\r\n"),
     MockRead("\r\n"),
   };
-  StaticSocketDataProvider data1(data_reads1, data_writes1);
+  StaticSocketDataProvider data1(data_reads1, arraysize(data_reads1),
+                                 data_writes1, arraysize(data_writes1));
   mock_socket_factory.AddSocketDataProvider(&data1);
 
   MockWrite data_writes2[] = {
@@ -174,7 +308,8 @@ TEST_F(SocketStreamTest, BasicAuthProxy) {
     MockRead("Proxy-agent: Apache/2.2.8\r\n"),
     MockRead("\r\n"),
   };
-  StaticSocketDataProvider data2(data_reads2, data_writes2);
+  StaticSocketDataProvider data2(data_reads2, arraysize(data_reads2),
+                                 data_writes2, arraysize(data_writes2));
   mock_socket_factory.AddSocketDataProvider(&data2);
 
   TestCompletionCallback callback;
@@ -208,12 +343,7 @@ TEST_F(SocketStreamTest, BasicAuthProxy) {
   EXPECT_EQ(SocketStreamEvent::EVENT_CONNECTED, events[1].event_type);
   EXPECT_EQ(SocketStreamEvent::EVENT_CLOSE, events[2].event_type);
 
-  // The first and last entries of the LoadLog should be for
-  // SOCKET_STREAM_CONNECT.
-  EXPECT_TRUE(LogContainsBeginEvent(
-      *socket_stream->load_log(), 0, LoadLog::TYPE_SOCKET_STREAM_CONNECT));
-  EXPECT_TRUE(LogContainsEndEvent(
-      *socket_stream->load_log(), -1, LoadLog::TYPE_SOCKET_STREAM_CONNECT));
+  // TODO(eroman): Add back NetLogTest here...
 }
 
 }  // namespace net

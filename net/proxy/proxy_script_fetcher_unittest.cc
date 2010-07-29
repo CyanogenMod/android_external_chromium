@@ -1,4 +1,4 @@
-// Copyright (c) 2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -24,7 +24,7 @@ const wchar_t kDocRoot[] = L"net/data/proxy_script_fetcher_unittest";
 
 struct FetchResult {
   int code;
-  std::string bytes;
+  string16 text;
 };
 
 // A non-mock URL request which can access http:// and file:// urls.
@@ -32,14 +32,15 @@ class RequestContext : public URLRequestContext {
  public:
   RequestContext() {
     net::ProxyConfig no_proxy;
-    host_resolver_ = net::CreateSystemHostResolver(NULL);
+    host_resolver_ =
+        net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism);
     proxy_service_ = net::ProxyService::CreateFixed(no_proxy);
     ssl_config_service_ = new net::SSLConfigServiceDefaults;
 
-    http_transaction_factory_ =
-        new net::HttpCache(net::HttpNetworkLayer::CreateFactory(
-            NULL, host_resolver_, proxy_service_, ssl_config_service_),
-            disk_cache::CreateInMemoryCacheBackend(0));
+    http_transaction_factory_ = new net::HttpCache(
+        net::HttpNetworkLayer::CreateFactory(host_resolver_, proxy_service_,
+            ssl_config_service_, NULL, NULL, NULL),
+        net::HttpCache::DefaultBackend::InMemory(0));
   }
 
  private:
@@ -70,22 +71,22 @@ TEST_F(ProxyScriptFetcherTest, FileUrl) {
       ProxyScriptFetcher::Create(context));
 
   { // Fetch a non-existent file.
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
     int result = pac_fetcher->Fetch(GetTestFileUrl("does-not-exist"),
-                                    &bytes, &callback);
+                                    &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(ERR_FILE_NOT_FOUND, callback.WaitForResult());
-    EXPECT_TRUE(bytes.empty());
+    EXPECT_TRUE(text.empty());
   }
   { // Fetch a file that exists.
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
     int result = pac_fetcher->Fetch(GetTestFileUrl("pac.txt"),
-                                    &bytes, &callback);
+                                    &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(OK, callback.WaitForResult());
-    EXPECT_EQ("-pac.txt-\n", bytes);
+    EXPECT_EQ(ASCIIToUTF16("-pac.txt-\n"), text);
   }
 }
 
@@ -101,30 +102,30 @@ TEST_F(ProxyScriptFetcherTest, HttpMimeType) {
 
   { // Fetch a PAC with mime type "text/plain"
     GURL url = server->TestServerPage("files/pac.txt");
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(OK, callback.WaitForResult());
-    EXPECT_EQ("-pac.txt-\n", bytes);
+    EXPECT_EQ(ASCIIToUTF16("-pac.txt-\n"), text);
   }
   { // Fetch a PAC with mime type "text/html"
     GURL url = server->TestServerPage("files/pac.html");
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(OK, callback.WaitForResult());
-    EXPECT_EQ("-pac.html-\n", bytes);
+    EXPECT_EQ(ASCIIToUTF16("-pac.html-\n"), text);
   }
   { // Fetch a PAC with mime type "application/x-ns-proxy-autoconfig"
     GURL url = server->TestServerPage("files/pac.nsproxy");
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(OK, callback.WaitForResult());
-    EXPECT_EQ("-pac.nsproxy-\n", bytes);
+    EXPECT_EQ(ASCIIToUTF16("-pac.nsproxy-\n"), text);
   }
 }
 
@@ -138,21 +139,21 @@ TEST_F(ProxyScriptFetcherTest, HttpStatusCode) {
 
   { // Fetch a PAC which gives a 500 -- FAIL
     GURL url = server->TestServerPage("files/500.pac");
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(ERR_PAC_STATUS_NOT_OK, callback.WaitForResult());
-    EXPECT_TRUE(bytes.empty());
+    EXPECT_TRUE(text.empty());
   }
   { // Fetch a PAC which gives a 404 -- FAIL
     GURL url = server->TestServerPage("files/404.pac");
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(ERR_PAC_STATUS_NOT_OK, callback.WaitForResult());
-    EXPECT_TRUE(bytes.empty());
+    EXPECT_TRUE(text.empty());
   }
 }
 
@@ -167,12 +168,12 @@ TEST_F(ProxyScriptFetcherTest, ContentDisposition) {
   // Fetch PAC scripts via HTTP with a Content-Disposition header -- should
   // have no effect.
   GURL url = server->TestServerPage("files/downloadable.pac");
-  std::string bytes;
+  string16 text;
   TestCompletionCallback callback;
-  int result = pac_fetcher->Fetch(url, &bytes, &callback);
+  int result = pac_fetcher->Fetch(url, &text, &callback);
   EXPECT_EQ(ERR_IO_PENDING, result);
   EXPECT_EQ(OK, callback.WaitForResult());
-  EXPECT_EQ("-downloadable.pac-\n", bytes);
+  EXPECT_EQ(ASCIIToUTF16("-downloadable.pac-\n"), text);
 }
 
 TEST_F(ProxyScriptFetcherTest, NoCache) {
@@ -186,12 +187,12 @@ TEST_F(ProxyScriptFetcherTest, NoCache) {
   // Fetch a PAC script whose HTTP headers make it cacheable for 1 hour.
   GURL url = server->TestServerPage("files/cacheable_1hr.pac");
   {
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(OK, callback.WaitForResult());
-    EXPECT_EQ("-cacheable_1hr.pac-\n", bytes);
+    EXPECT_EQ(ASCIIToUTF16("-cacheable_1hr.pac-\n"), text);
   }
 
   // Now kill the HTTP server.
@@ -202,9 +203,9 @@ TEST_F(ProxyScriptFetcherTest, NoCache) {
   // running anymore. (If it were instead being loaded from cache, we would
   // get a success.
   {
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(ERR_CONNECTION_REFUSED, callback.WaitForResult());
   }
@@ -231,12 +232,12 @@ TEST_F(ProxyScriptFetcherTest, TooLarge) {
   // after 50 bytes have been read, and fail with a too large error.
   for (size_t i = 0; i < arraysize(urls); ++i) {
     const GURL& url = urls[i];
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(ERR_FILE_TOO_BIG, callback.WaitForResult());
-    EXPECT_TRUE(bytes.empty());
+    EXPECT_TRUE(text.empty());
   }
 
   // Restore the original size bound.
@@ -244,12 +245,12 @@ TEST_F(ProxyScriptFetcherTest, TooLarge) {
 
   { // Make sure we can still fetch regular URLs.
     GURL url = server->TestServerPage("files/pac.nsproxy");
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(OK, callback.WaitForResult());
-    EXPECT_EQ("-pac.nsproxy-\n", bytes);
+    EXPECT_EQ(ASCIIToUTF16("-pac.nsproxy-\n"), text);
   }
 }
 
@@ -268,12 +269,12 @@ TEST_F(ProxyScriptFetcherTest, Hang) {
   // Try fetching a URL which takes 1.2 seconds. We should abort the request
   // after 500 ms, and fail with a timeout error.
   { GURL url = server->TestServerPage("slow/proxy.pac?1.2");
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(ERR_TIMED_OUT, callback.WaitForResult());
-    EXPECT_TRUE(bytes.empty());
+    EXPECT_TRUE(text.empty());
   }
 
   // Restore the original timeout period.
@@ -281,12 +282,12 @@ TEST_F(ProxyScriptFetcherTest, Hang) {
 
   { // Make sure we can still fetch regular URLs.
     GURL url = server->TestServerPage("files/pac.nsproxy");
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(OK, callback.WaitForResult());
-    EXPECT_EQ("-pac.nsproxy-\n", bytes);
+    EXPECT_EQ(ASCIIToUTF16("-pac.nsproxy-\n"), text);
   }
 }
 
@@ -304,24 +305,24 @@ TEST_F(ProxyScriptFetcherTest, Encodings) {
   // Test a response that is gzip-encoded -- should get inflated.
   {
     GURL url = server->TestServerPage("files/gzipped_pac");
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(OK, callback.WaitForResult());
-    EXPECT_EQ("This data was gzipped.\n", bytes);
+    EXPECT_EQ(ASCIIToUTF16("This data was gzipped.\n"), text);
   }
 
   // Test a response that was served as UTF-16 (BE). It should
   // be converted to UTF8.
   {
     GURL url = server->TestServerPage("files/utf16be_pac");
-    std::string bytes;
+    string16 text;
     TestCompletionCallback callback;
-    int result = pac_fetcher->Fetch(url, &bytes, &callback);
+    int result = pac_fetcher->Fetch(url, &text, &callback);
     EXPECT_EQ(ERR_IO_PENDING, result);
     EXPECT_EQ(OK, callback.WaitForResult());
-    EXPECT_EQ("This was encoded as UTF-16BE.\n", bytes);
+    EXPECT_EQ(ASCIIToUTF16("This was encoded as UTF-16BE.\n"), text);
   }
 }
 

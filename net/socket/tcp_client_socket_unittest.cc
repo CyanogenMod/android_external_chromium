@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include "net/base/host_resolver.h"
 #include "net/base/io_buffer.h"
 #include "net/base/listen_socket.h"
-#include "net/base/load_log.h"
-#include "net/base/load_log_unittest.h"
+#include "net/base/net_log.h"
+#include "net/base/net_log_unittest.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
 #include "net/base/winsock_init.h"
@@ -26,14 +26,14 @@ const char kServerReply[] = "HTTP/1.1 404 Not Found";
 class TCPClientSocketTest
     : public PlatformTest, public ListenSocket::ListenSocketDelegate {
  public:
-  TCPClientSocketTest() {
+  TCPClientSocketTest() : net_log_(CapturingNetLog::kUnbounded) {
   }
 
   // Implement ListenSocketDelegate methods
   virtual void DidAccept(ListenSocket* server, ListenSocket* connection) {
     connected_sock_ = connection;
   }
-  virtual void DidRead(ListenSocket*, const std::string& s) {
+  virtual void DidRead(ListenSocket*, const char* str, int len) {
     // TODO(dkegel): this might not be long enough to tickle some bugs.
     connected_sock_->Send(kServerReply,
                           arraysize(kServerReply) - 1,
@@ -59,6 +59,7 @@ class TCPClientSocketTest
 
  protected:
   int listen_port_;
+  CapturingNetLog net_log_;
   scoped_ptr<TCPClientSocket> sock_;
 
  private:
@@ -88,33 +89,32 @@ void TCPClientSocketTest::SetUp() {
   listen_port_ = port;
 
   AddressList addr;
-  scoped_refptr<HostResolver> resolver(CreateSystemHostResolver(NULL));
+  scoped_refptr<HostResolver> resolver(
+      CreateSystemHostResolver(HostResolver::kDefaultParallelism));
   HostResolver::RequestInfo info("localhost", listen_port_);
-  int rv = resolver->Resolve(info, &addr, NULL, NULL, NULL);
-  CHECK(rv == OK);
-  sock_.reset(new TCPClientSocket(addr));
+  int rv = resolver->Resolve(info, &addr, NULL, NULL, BoundNetLog());
+  CHECK_EQ(rv, OK);
+  sock_.reset(new TCPClientSocket(addr, &net_log_));
 }
 
 TEST_F(TCPClientSocketTest, Connect) {
   TestCompletionCallback callback;
   EXPECT_FALSE(sock_->IsConnected());
 
-  scoped_refptr<LoadLog> log(new LoadLog(LoadLog::kUnbounded));
-  int rv = sock_->Connect(&callback, log);
+  int rv = sock_->Connect(&callback);
   EXPECT_TRUE(net::LogContainsBeginEvent(
-      *log, 0, net::LoadLog::TYPE_TCP_CONNECT));
+      net_log_.entries(), 0, net::NetLog::TYPE_SOCKET_ALIVE));
+  EXPECT_TRUE(net::LogContainsBeginEvent(
+      net_log_.entries(), 1, net::NetLog::TYPE_TCP_CONNECT));
   if (rv != OK) {
     ASSERT_EQ(rv, ERR_IO_PENDING);
-    EXPECT_FALSE(net::LogContainsEndEvent(
-        *log, -1, net::LoadLog::TYPE_TCP_CONNECT));
-
     rv = callback.WaitForResult();
     EXPECT_EQ(rv, OK);
   }
 
   EXPECT_TRUE(sock_->IsConnected());
   EXPECT_TRUE(net::LogContainsEndEvent(
-      *log, -1, net::LoadLog::TYPE_TCP_CONNECT));
+      net_log_.entries(), -1, net::NetLog::TYPE_TCP_CONNECT));
 
   sock_->Disconnect();
   EXPECT_FALSE(sock_->IsConnected());
@@ -126,7 +126,7 @@ TEST_F(TCPClientSocketTest, Connect) {
 
 TEST_F(TCPClientSocketTest, Read) {
   TestCompletionCallback callback;
-  int rv = sock_->Connect(&callback, NULL);
+  int rv = sock_->Connect(&callback);
   if (rv != OK) {
     ASSERT_EQ(rv, ERR_IO_PENDING);
 
@@ -171,7 +171,7 @@ TEST_F(TCPClientSocketTest, Read) {
 
 TEST_F(TCPClientSocketTest, Read_SmallChunks) {
   TestCompletionCallback callback;
-  int rv = sock_->Connect(&callback, NULL);
+  int rv = sock_->Connect(&callback);
   if (rv != OK) {
     ASSERT_EQ(rv, ERR_IO_PENDING);
 
@@ -216,7 +216,7 @@ TEST_F(TCPClientSocketTest, Read_SmallChunks) {
 
 TEST_F(TCPClientSocketTest, Read_Interrupted) {
   TestCompletionCallback callback;
-  int rv = sock_->Connect(&callback, NULL);
+  int rv = sock_->Connect(&callback);
   if (rv != OK) {
     ASSERT_EQ(ERR_IO_PENDING, rv);
 
@@ -250,7 +250,7 @@ TEST_F(TCPClientSocketTest, Read_Interrupted) {
 
 TEST_F(TCPClientSocketTest, DISABLED_FullDuplex_ReadFirst) {
   TestCompletionCallback callback;
-  int rv = sock_->Connect(&callback, NULL);
+  int rv = sock_->Connect(&callback);
   if (rv != OK) {
     ASSERT_EQ(rv, ERR_IO_PENDING);
 
@@ -292,7 +292,7 @@ TEST_F(TCPClientSocketTest, DISABLED_FullDuplex_ReadFirst) {
 
 TEST_F(TCPClientSocketTest, DISABLED_FullDuplex_WriteFirst) {
   TestCompletionCallback callback;
-  int rv = sock_->Connect(&callback, NULL);
+  int rv = sock_->Connect(&callback);
   if (rv != OK) {
     ASSERT_EQ(ERR_IO_PENDING, rv);
 

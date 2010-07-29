@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/compiler_specific.h"
+#include "base/histogram.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/message_pump_default.h"
@@ -27,22 +28,53 @@
 using base::Time;
 using base::TimeDelta;
 
+namespace {
+
 // A lazily created thread local storage for quick access to a thread's message
 // loop, if one exists.  This should be safe and free of static constructors.
-static base::LazyInstance<base::ThreadLocalPointer<MessageLoop> > lazy_tls_ptr(
+base::LazyInstance<base::ThreadLocalPointer<MessageLoop> > lazy_tls_ptr(
     base::LINKER_INITIALIZED);
-
-//------------------------------------------------------------------------------
 
 // Logical events for Histogram profiling. Run with -message-loop-histogrammer
 // to get an accounting of messages and actions taken on each thread.
-static const int kTaskRunEvent = 0x1;
-static const int kTimerEvent = 0x2;
+const int kTaskRunEvent = 0x1;
+const int kTimerEvent = 0x2;
 
 // Provide range of message IDs for use in histogramming and debug display.
-static const int kLeastNonZeroMessageId = 1;
-static const int kMaxMessageId = 1099;
-static const int kNumberOfDistinctMessagesDisplayed = 1100;
+const int kLeastNonZeroMessageId = 1;
+const int kMaxMessageId = 1099;
+const int kNumberOfDistinctMessagesDisplayed = 1100;
+
+// Provide a macro that takes an expression (such as a constant, or macro
+// constant) and creates a pair to initalize an array of pairs.  In this case,
+// our pair consists of the expressions value, and the "stringized" version
+// of the expression (i.e., the exrpression put in quotes).  For example, if
+// we have:
+//    #define FOO 2
+//    #define BAR 5
+// then the following:
+//    VALUE_TO_NUMBER_AND_NAME(FOO + BAR)
+// will expand to:
+//   {7, "FOO + BAR"}
+// We use the resulting array as an argument to our histogram, which reads the
+// number as a bucket identifier, and proceeds to use the corresponding name
+// in the pair (i.e., the quoted string) when printing out a histogram.
+#define VALUE_TO_NUMBER_AND_NAME(name) {name, #name},
+
+const LinearHistogram::DescriptionPair event_descriptions_[] = {
+  // Provide some pretty print capability in our histogram for our internal
+  // messages.
+
+  // A few events we handle (kindred to messages), and used to profile actions.
+  VALUE_TO_NUMBER_AND_NAME(kTaskRunEvent)
+  VALUE_TO_NUMBER_AND_NAME(kTimerEvent)
+
+  {-1, NULL}  // The list must be null terminated, per API to histogram.
+};
+
+bool enable_histogrammer_ = false;
+
+}  // namespace
 
 //------------------------------------------------------------------------------
 
@@ -68,6 +100,17 @@ static LPTOP_LEVEL_EXCEPTION_FILTER GetTopSEHFilter() {
 
 //------------------------------------------------------------------------------
 
+MessageLoop::TaskObserver::TaskObserver() {
+}
+
+MessageLoop::TaskObserver::~TaskObserver() {
+}
+
+MessageLoop::DestructionObserver::~DestructionObserver() {
+}
+
+//------------------------------------------------------------------------------
+
 // static
 MessageLoop* MessageLoop::current() {
   // TODO(darin): sadly, we cannot enable this yet since people call us even
@@ -85,29 +128,28 @@ MessageLoop::MessageLoop(Type type)
   DCHECK(!current()) << "should only have one message loop per thread";
   lazy_tls_ptr.Pointer()->Set(this);
 
+// TODO(rvargas): Get rid of the OS guards.
 #if defined(OS_WIN)
-  // TODO(rvargas): Get rid of the OS guards.
-  if (type_ == TYPE_DEFAULT) {
-    pump_ = new base::MessagePumpDefault();
-  } else if (type_ == TYPE_IO) {
-    pump_ = new base::MessagePumpForIO();
-  } else {
-    DCHECK(type_ == TYPE_UI);
-    pump_ = new base::MessagePumpForUI();
-  }
-#elif defined(OS_POSIX)
-  if (type_ == TYPE_UI) {
-#if defined(OS_MACOSX)
-    pump_ = base::MessagePumpMac::Create();
+#define MESSAGE_PUMP_UI new base::MessagePumpForUI()
+#define MESSAGE_PUMP_IO new base::MessagePumpForIO()
+#elif defined(OS_MACOSX)
+#define MESSAGE_PUMP_UI base::MessagePumpMac::Create()
+#define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
+#elif defined(OS_POSIX)  // POSIX but not MACOSX.
+#define MESSAGE_PUMP_UI new base::MessagePumpForUI()
+#define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
 #else
-    pump_ = new base::MessagePumpForUI();
+#error Not implemented
 #endif
+
+  if (type_ == TYPE_UI) {
+    pump_ = MESSAGE_PUMP_UI;
   } else if (type_ == TYPE_IO) {
-    pump_ = new base::MessagePumpLibevent();
+    pump_ = MESSAGE_PUMP_IO;
   } else {
+    DCHECK_EQ(TYPE_DEFAULT, type_);
     pump_ = new base::MessagePumpDefault();
   }
-#endif  // OS_POSIX
 }
 
 MessageLoop::~MessageLoop() {
@@ -148,6 +190,16 @@ void MessageLoop::AddDestructionObserver(DestructionObserver *obs) {
 void MessageLoop::RemoveDestructionObserver(DestructionObserver *obs) {
   DCHECK(this == current());
   destruction_observers_.RemoveObserver(obs);
+}
+
+void MessageLoop::AddTaskObserver(TaskObserver *obs) {
+  DCHECK_EQ(this, current());
+  task_observers_.AddObserver(obs);
+}
+
+void MessageLoop::RemoveTaskObserver(TaskObserver *obs) {
+  DCHECK_EQ(this, current());
+  task_observers_.RemoveObserver(obs);
 }
 
 void MessageLoop::Run() {
@@ -233,6 +285,15 @@ void MessageLoop::Quit() {
   }
 }
 
+void MessageLoop::QuitNow() {
+  DCHECK(current() == this);
+  if (state_) {
+    pump_->Quit();
+  } else {
+    NOTREACHED() << "Must be inside Run to call Quit";
+  }
+}
+
 void MessageLoop::PostTask(
     const tracked_objects::Location& from_here, Task* task) {
   PostTask_Helper(from_here, task, 0, true);
@@ -264,9 +325,35 @@ void MessageLoop::PostTask_Helper(
   if (delay_ms > 0) {
     pending_task.delayed_run_time =
         Time::Now() + TimeDelta::FromMilliseconds(delay_ms);
+
+#if defined(OS_WIN)
+    if (high_resolution_timer_expiration_.is_null()) {
+      // Windows timers are granular to 15.6ms.  If we only set high-res
+      // timers for those under 15.6ms, then a 18ms timer ticks at ~32ms,
+      // which as a percentage is pretty inaccurate.  So enable high
+      // res timers for any timer which is within 2x of the granularity.
+      // This is a tradeoff between accuracy and power management.
+      bool needs_high_res_timers =
+          delay_ms < (2 * Time::kMinLowResolutionThresholdMs);
+      if (needs_high_res_timers) {
+        Time::ActivateHighResolutionTimer(true);
+        high_resolution_timer_expiration_ = base::TimeTicks::Now() +
+            TimeDelta::FromMilliseconds(kHighResolutionTimerModeLeaseTimeMs);
+      }
+    }
+#endif
   } else {
     DCHECK_EQ(delay_ms, 0) << "delay should not be negative";
   }
+
+#if defined(OS_WIN)
+  if (!high_resolution_timer_expiration_.is_null()) {
+    if (base::TimeTicks::Now() > high_resolution_timer_expiration_) {
+      Time::ActivateHighResolutionTimer(false);
+      high_resolution_timer_expiration_ = base::TimeTicks();
+    }
+  }
+#endif
 
   // Warning: Don't try to short-circuit, and handle this thread's tasks more
   // directly, as it could starve handling of foreign threads.  Put every task
@@ -317,7 +404,10 @@ void MessageLoop::RunTask(Task* task) {
   nestable_tasks_allowed_ = false;
 
   HistogramEvent(kTaskRunEvent);
+  FOR_EACH_OBSERVER(TaskObserver, task_observers_,
+                    WillProcessTask(task->tracked_birth_time()));
   task->Run();
+  FOR_EACH_OBSERVER(TaskObserver, task_observers_, DidProcessTask());
   delete task;
 
   nestable_tasks_allowed_ = true;
@@ -520,9 +610,6 @@ bool MessageLoop::PendingTask::operator<(const PendingTask& other) const {
 // on each thread.
 
 // static
-bool MessageLoop::enable_histogrammer_ = false;
-
-// static
 void MessageLoop::EnableHistogrammer(bool enable) {
   enable_histogrammer_ = enable;
 }
@@ -544,48 +631,13 @@ void MessageLoop::HistogramEvent(int event) {
     message_histogram_->Add(event);
 }
 
-// Provide a macro that takes an expression (such as a constant, or macro
-// constant) and creates a pair to initalize an array of pairs.  In this case,
-// our pair consists of the expressions value, and the "stringized" version
-// of the expression (i.e., the exrpression put in quotes).  For example, if
-// we have:
-//    #define FOO 2
-//    #define BAR 5
-// then the following:
-//    VALUE_TO_NUMBER_AND_NAME(FOO + BAR)
-// will expand to:
-//   {7, "FOO + BAR"}
-// We use the resulting array as an argument to our histogram, which reads the
-// number as a bucket identifier, and proceeds to use the corresponding name
-// in the pair (i.e., the quoted string) when printing out a histogram.
-#define VALUE_TO_NUMBER_AND_NAME(name) {name, #name},
-
-// static
-const LinearHistogram::DescriptionPair MessageLoop::event_descriptions_[] = {
-  // Provide some pretty print capability in our histogram for our internal
-  // messages.
-
-  // A few events we handle (kindred to messages), and used to profile actions.
-  VALUE_TO_NUMBER_AND_NAME(kTaskRunEvent)
-  VALUE_TO_NUMBER_AND_NAME(kTimerEvent)
-
-  {-1, NULL}  // The list must be null terminated, per API to histogram.
-};
-
 //------------------------------------------------------------------------------
 // MessageLoopForUI
 
 #if defined(OS_WIN)
-void MessageLoopForUI::WillProcessMessage(const MSG& message) {
-  pump_win()->WillProcessMessage(message);
-}
 void MessageLoopForUI::DidProcessMessage(const MSG& message) {
   pump_win()->DidProcessMessage(message);
 }
-void MessageLoopForUI::PumpOutPendingPaintMessages() {
-  pump_ui()->PumpOutPendingPaintMessages();
-}
-
 #endif  // defined(OS_WIN)
 
 #if !defined(OS_MACOSX)

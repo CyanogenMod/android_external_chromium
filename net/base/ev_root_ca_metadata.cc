@@ -20,7 +20,7 @@ namespace net {
 struct EVMetadata {
   // The SHA-1 fingerprint of the root CA certificate, used as a unique
   // identifier for a root CA certificate.
-  X509Certificate::Fingerprint fingerprint;
+  SHA1Fingerprint fingerprint;
 
   // The EV policy OID of the root CA.
   // Note: a root CA may have multiple EV policies.  When that actually
@@ -34,6 +34,12 @@ static const EVMetadata ev_root_ca_metadata[] = {
   { { { 0x02, 0xfa, 0xf3, 0xe2, 0x91, 0x43, 0x54, 0x68, 0x60, 0x78,
         0x57, 0x69, 0x4d, 0xf5, 0xe4, 0x5b, 0x68, 0x85, 0x18, 0x68 } },
     "1.3.6.1.4.1.6449.1.2.1.5.1"
+  },
+  // CertPlus Class 2 Primary CA (KEYNECTIS)
+  // https://www.keynectis.com/
+  { { { 0x74, 0x20, 0x74, 0x41, 0x72, 0x9c, 0xdd, 0x92, 0xec, 0x79,
+        0x31, 0xd8, 0x23, 0x10, 0x8d, 0xc2, 0x81, 0x92, 0xe2, 0xbb } },
+    "1.3.6.1.4.1.22234.2.5.2.3.1"
   },
   // COMODO Certification Authority
   // https://secure.comodo.com/
@@ -149,6 +155,12 @@ static const EVMetadata ev_root_ca_metadata[] = {
         0x3d, 0xd8, 0x90, 0x8f, 0xfd, 0x28, 0x86, 0x65, 0x64, 0x7d } },
     "1.2.392.200091.100.721.1"
   },
+  // StartCom Certification Authority
+  // https://www.startssl.com/
+  { { { 0x3e, 0x2b, 0xf7, 0xf2, 0x03, 0x1b, 0x96, 0xf3, 0x8c, 0xe6,
+        0xc4, 0xd8, 0xa8, 0x5d, 0x3e, 0x2d, 0x58, 0x47, 0x6a, 0x0f } },
+    "1.3.6.1.4.1.23223.1.1.1"
+  },
   // Starfield Class 2 Certification Authority
   // https://www.starfieldtech.com/
   { { { 0xad, 0x7e, 0x1c, 0x28, 0xb0, 0x64, 0xef, 0x8f, 0x60, 0x03,
@@ -221,7 +233,7 @@ EVRootCAMetadata* EVRootCAMetadata::GetInstance() {
 }
 
 bool EVRootCAMetadata::GetPolicyOID(
-    const X509Certificate::Fingerprint& fingerprint,
+    const SHA1Fingerprint& fingerprint,
     PolicyOID* policy_oid) const {
   PolicyOidMap::const_iterator iter = ev_policy_.find(fingerprint);
   if (iter == ev_policy_.end())

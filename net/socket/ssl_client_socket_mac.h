@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,13 +13,14 @@
 #include "base/scoped_ptr.h"
 #include "net/base/cert_verify_result.h"
 #include "net/base/completion_callback.h"
+#include "net/base/net_log.h"
 #include "net/base/ssl_config_service.h"
 #include "net/socket/ssl_client_socket.h"
 
 namespace net {
 
 class CertVerifier;
-class LoadLog;
+class ClientSocketHandle;
 
 // An SSL client socket implemented with Secure Transport.
 class SSLClientSocketMac : public SSLClientSocket {
@@ -28,7 +29,7 @@ class SSLClientSocketMac : public SSLClientSocket {
   // The given hostname will be compared with the name(s) in the server's
   // certificate during the SSL handshake. ssl_config specifies the SSL
   // settings.
-  SSLClientSocketMac(ClientSocket* transport_socket,
+  SSLClientSocketMac(ClientSocketHandle* transport_socket,
                      const std::string& hostname,
                      const SSLConfig& ssl_config);
   ~SSLClientSocketMac();
@@ -39,11 +40,12 @@ class SSLClientSocketMac : public SSLClientSocket {
   virtual NextProtoStatus GetNextProto(std::string* proto);
 
   // ClientSocket methods:
-  virtual int Connect(CompletionCallback* callback, LoadLog* load_log);
+  virtual int Connect(CompletionCallback* callback);
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
-  virtual int GetPeerName(struct sockaddr* name, socklen_t* namelen);
+  virtual int GetPeerAddress(AddressList* address) const;
+  virtual const BoundNetLog& NetLog() const { return net_log_; }
 
   // Socket methods:
   virtual int Read(IOBuffer* buf, int buf_len, CompletionCallback* callback);
@@ -54,6 +56,8 @@ class SSLClientSocketMac : public SSLClientSocket {
  private:
   // Initializes the SSLContext.  Returns a net error code.
   int InitializeSSLContext();
+
+  OSStatus EnableBreakOnAuth(bool enabled);
 
   void DoConnectCallback(int result);
   void DoReadCallback(int result);
@@ -70,6 +74,9 @@ class SSLClientSocketMac : public SSLClientSocket {
   int DoVerifyCert();
   int DoVerifyCertComplete(int result);
   int DoHandshakeFinish();
+  void HandshakeFinished();
+
+  int SetClientCert();
 
   static OSStatus SSLReadCallback(SSLConnectionRef connection,
                                   void* data,
@@ -82,7 +89,7 @@ class SSLClientSocketMac : public SSLClientSocket {
   CompletionCallbackImpl<SSLClientSocketMac> transport_read_callback_;
   CompletionCallbackImpl<SSLClientSocketMac> transport_write_callback_;
 
-  scoped_ptr<ClientSocket> transport_;
+  scoped_ptr<ClientSocketHandle> transport_;
   std::string hostname_;
   SSLConfig ssl_config_;
 
@@ -113,6 +120,7 @@ class SSLClientSocketMac : public SSLClientSocket {
 
   bool completed_handshake_;
   bool handshake_interrupted_;
+  bool client_cert_requested_;
   SSLContextRef ssl_context_;
 
   // These buffers hold data retrieved from/sent to the underlying transport
@@ -125,7 +133,7 @@ class SSLClientSocketMac : public SSLClientSocket {
   scoped_refptr<IOBuffer> read_io_buf_;
   scoped_refptr<IOBuffer> write_io_buf_;
 
-  scoped_refptr<LoadLog> load_log_;
+  BoundNetLog net_log_;
 };
 
 }  // namespace net

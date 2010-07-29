@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -28,7 +28,7 @@ class TCPPingerTest
     LOG(INFO) << "TCPPinger accepted connection";
     connected_sock_ = connection;
   }
-  virtual void DidRead(ListenSocket*, const std::string& s) {
+  virtual void DidRead(ListenSocket*, const char* str, int len) {
     // Not really needed yet, as TCPPinger doesn't support Read
     connected_sock_->Send(std::string("HTTP/1.1 404 Not Found"), true);
     connected_sock_ = NULL;
@@ -66,10 +66,10 @@ void TCPPingerTest::SetUp() {
 TEST_F(TCPPingerTest, Ping) {
   net::AddressList addr;
   scoped_refptr<net::HostResolver> resolver(
-      net::CreateSystemHostResolver(NULL));
+      net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism));
 
   net::HostResolver::RequestInfo info("localhost", listen_port_);
-  int rv = resolver->Resolve(info, &addr, NULL, NULL, NULL);
+  int rv = resolver->Resolve(info, &addr, NULL, NULL, net::BoundNetLog());
   EXPECT_EQ(rv, net::OK);
 
   net::TCPPinger pinger(addr);
@@ -80,13 +80,13 @@ TEST_F(TCPPingerTest, Ping) {
 TEST_F(TCPPingerTest, PingFail) {
   net::AddressList addr;
   scoped_refptr<net::HostResolver> resolver(
-      net::CreateSystemHostResolver(NULL));
+      net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism));
 
   // "Kill" "server"
   listen_sock_ = NULL;
 
   net::HostResolver::RequestInfo info("localhost", listen_port_);
-  int rv = resolver->Resolve(info, &addr, NULL, NULL, NULL);
+  int rv = resolver->Resolve(info, &addr, NULL, NULL, net::BoundNetLog());
   EXPECT_EQ(rv, net::OK);
 
   net::TCPPinger pinger(addr);

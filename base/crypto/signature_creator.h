@@ -12,15 +12,16 @@
 struct SGNContextStr;
 #elif defined(OS_MACOSX)
 #include <Security/cssm.h>
-#elif defined(OS_WIN)
-#include <windows.h>
-#include <wincrypt.h>
 #endif
 
 #include <vector>
 
 #include "base/basictypes.h"
 #include "base/crypto/rsa_private_key.h"
+
+#if defined(OS_WIN)
+#include "base/crypto/scoped_capi_types.h"
+#endif
 
 namespace base {
 
@@ -49,10 +50,9 @@ class SignatureCreator {
 #if defined(USE_NSS)
   SGNContextStr* sign_context_;
 #elif defined(OS_MACOSX)
-  CSSM_CSP_HANDLE csp_handle_;	
   CSSM_CC_HANDLE sig_handle_;
 #elif defined(OS_WIN)
-  HCRYPTHASH hash_object_;
+  ScopedHCRYPTHASH hash_object_;
 #endif
 
   DISALLOW_COPY_AND_ASSIGN(SignatureCreator);

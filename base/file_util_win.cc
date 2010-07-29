@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include <windows.h>
 #include <propvarutil.h>
+#include <psapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <time.h>
@@ -13,6 +14,7 @@
 
 #include "base/file_path.h"
 #include "base/logging.h"
+#include "base/pe_image.h"
 #include "base/scoped_comptr_win.h"
 #include "base/scoped_handle.h"
 #include "base/string_util.h"
@@ -20,6 +22,99 @@
 #include "base/win_util.h"
 
 namespace file_util {
+
+namespace {
+
+// Helper for NormalizeFilePath(), defined below.
+bool DevicePathToDriveLetterPath(const FilePath& device_path,
+                                 FilePath* drive_letter_path) {
+  // Get the mapping of drive letters to device paths.
+  const int kDriveMappingSize = 1024;
+  wchar_t drive_mapping[kDriveMappingSize] = {'\0'};
+  if (!::GetLogicalDriveStrings(kDriveMappingSize - 1, drive_mapping)) {
+    LOG(ERROR) << "Failed to get drive mapping.";
+    return false;
+  }
+
+  // The drive mapping is a sequence of null terminated strings.
+  // The last string is empty.
+  wchar_t* drive_map_ptr = drive_mapping;
+  wchar_t device_name[MAX_PATH];
+  wchar_t drive[] = L" :";
+
+  // For each string in the drive mapping, get the junction that links
+  // to it.  If that junction is a prefix of |device_path|, then we
+  // know that |drive| is the real path prefix.
+  while(*drive_map_ptr) {
+    drive[0] = drive_map_ptr[0];  // Copy the drive letter.
+
+    if (QueryDosDevice(drive, device_name, MAX_PATH) &&
+        StartsWith(device_path.value(), device_name, true)) {
+      *drive_letter_path = FilePath(drive +
+          device_path.value().substr(wcslen(device_name)));
+      return true;
+    }
+    // Move to the next drive letter string, which starts one
+    // increment after the '\0' that terminates the current string.
+    while(*drive_map_ptr++);
+  }
+
+  // No drive matched.  The path does not start with a device junction.
+  *drive_letter_path = device_path;
+  return true;
+}
+
+// Build a security descriptor with the weakest possible file permissions.
+bool InitLooseSecurityDescriptor(SECURITY_ATTRIBUTES *sa,
+                                 SECURITY_DESCRIPTOR *sd) {
+  DWORD last_error;
+
+  if (!InitializeSecurityDescriptor(sd, SECURITY_DESCRIPTOR_REVISION)) {
+    last_error = GetLastError();
+    LOG(ERROR) << "InitializeSecurityDescriptor failed: GetLastError() = "
+               << last_error;
+    return false;
+  }
+
+  if (!SetSecurityDescriptorDacl(sd,
+                                 TRUE,  // bDaclPresent: Add one to |sd|.
+                                 NULL,  // pDacl: NULL means allow all access.
+                                 FALSE  // bDaclDefaulted: Not defaulted.
+                                 )) {
+    last_error = GetLastError();
+    LOG(ERROR) << "SetSecurityDescriptorDacl() failed: GetLastError() = "
+               << last_error;
+    return false;
+  }
+
+  if (!SetSecurityDescriptorGroup(sd,
+                                  NULL,  // pGroup: No no primary group.
+                                  FALSE  // bGroupDefaulted: Not defaulted.
+                                  )) {
+    last_error = GetLastError();
+    LOG(ERROR) << "SetSecurityDescriptorGroup() failed: GetLastError() = "
+               << last_error;
+    return false;
+  }
+
+  if (!SetSecurityDescriptorSacl(sd,
+                                 FALSE,  // bSaclPresent: No SACL.
+                                 NULL,
+                                 FALSE
+                                 )) {
+    last_error = GetLastError();
+    LOG(ERROR) << "SetSecurityDescriptorSacl() failed: GetLastError() = "
+               << last_error;
+    return false;
+  }
+
+  sa->nLength = sizeof(SECURITY_ATTRIBUTES);
+  sa->lpSecurityDescriptor = sd;
+  sa->bInheritHandle = TRUE;
+  return true;
+}
+
+}  // namespace
 
 std::wstring GetDirectoryFromPath(const std::wstring& path) {
   wchar_t path_buffer[MAX_PATH];
@@ -73,11 +168,19 @@ bool Delete(const FilePath& path, bool recursive) {
   if (path.value().length() >= MAX_PATH)
     return false;
 
-  // If we're not recursing use DeleteFile; it should be faster. DeleteFile
-  // fails if passed a directory though, which is why we fall through on
-  // failure to the SHFileOperation.
-  if (!recursive && DeleteFile(path.value().c_str()) != 0)
-    return true;
+  if (!recursive) {
+    // If not recursing, then first check to see if |path| is a directory.
+    // If it is, then remove it with RemoveDirectory.
+    FileInfo file_info;
+    if (GetFileInfo(path, &file_info) && file_info.is_directory)
+      return RemoveDirectory(path.value().c_str()) != 0;
+
+    // Otherwise, it's a file, wildcard or non-existant. Try DeleteFile first
+    // because it should be faster. If DeleteFile fails, then we fall through
+    // to SHFileOperation, which will do the right thing.
+    if (DeleteFile(path.value().c_str()) != 0)
+      return true;
+  }
 
   // SHFILEOPSTRUCT wants the path to be terminated with two NULLs,
   // so we have to use wcscpy because wcscpy_s writes non-NULLs
@@ -93,9 +196,10 @@ bool Delete(const FilePath& path, bool recursive) {
   if (!recursive)
     file_operation.fFlags |= FOF_NORECURSION | FOF_FILESONLY;
   int err = SHFileOperation(&file_operation);
-  // Some versions of Windows return ERROR_FILE_NOT_FOUND when
-  // deleting an empty directory.
-  return (err == 0 || err == ERROR_FILE_NOT_FOUND);
+  // Some versions of Windows return ERROR_FILE_NOT_FOUND (0x2) when deleting
+  // an empty directory and some return 0x402 when they should be returning
+  // ERROR_FILE_NOT_FOUND. MSDN says Vista and up won't return 0x402.
+  return (err == 0 || err == ERROR_FILE_NOT_FOUND || err == 0x402);
 }
 
 bool DeleteAfterReboot(const FilePath& path) {
@@ -128,10 +232,14 @@ bool Move(const FilePath& from_path, const FilePath& to_path) {
 
 bool ReplaceFile(const FilePath& from_path, const FilePath& to_path) {
   // Make sure that the target file exists.
-  HANDLE target_file = ::CreateFile(to_path.value().c_str(), 0,
-                                    FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                    NULL, CREATE_NEW,
-                                    FILE_ATTRIBUTE_NORMAL, NULL);
+  HANDLE target_file = ::CreateFile(
+      to_path.value().c_str(),
+      0,
+      FILE_SHARE_READ | FILE_SHARE_WRITE,
+      NULL,
+      CREATE_NEW,
+      FILE_ATTRIBUTE_NORMAL,
+      NULL);
   if (target_file != INVALID_HANDLE_VALUE)
     ::CloseHandle(target_file);
   // When writing to a network share, we may not be able to change the ACLs.
@@ -306,6 +414,10 @@ bool CreateShortcutLink(const wchar_t *source, const wchar_t *destination,
                         const wchar_t *working_dir, const wchar_t *arguments,
                         const wchar_t *description, const wchar_t *icon,
                         int icon_index, const wchar_t* app_id) {
+  // Length of arguments and description must be less than MAX_PATH.
+  DCHECK(lstrlen(arguments) < MAX_PATH);
+  DCHECK(lstrlen(description) < MAX_PATH);
+
   ScopedComPtr<IShellLink> i_shell_link;
   ScopedComPtr<IPersistFile> i_persist_file;
 
@@ -353,6 +465,10 @@ bool UpdateShortcutLink(const wchar_t *source, const wchar_t *destination,
                         const wchar_t *working_dir, const wchar_t *arguments,
                         const wchar_t *description, const wchar_t *icon,
                         int icon_index, const wchar_t* app_id) {
+  // Length of arguments and description must be less than MAX_PATH.
+  DCHECK(lstrlen(arguments) < MAX_PATH);
+  DCHECK(lstrlen(description) < MAX_PATH);
+
   // Get pointer to the IPersistFile interface and load existing link
   ScopedComPtr<IShellLink> i_shell_link;
   if (FAILED(i_shell_link.CreateInstance(CLSID_ShellLink, NULL,
@@ -412,15 +528,6 @@ bool TaskbarUnpinShortcutLink(const wchar_t* shortcut) {
   int result = reinterpret_cast<int>(ShellExecute(NULL, L"taskbarunpin",
       shortcut, NULL, NULL, 0));
   return result > 32;
-}
-
-bool IsDirectoryEmpty(const std::wstring& dir_path) {
-  FileEnumerator files(FilePath(dir_path), false,
-    static_cast<FileEnumerator::FILE_TYPE>(
-        FileEnumerator::FILES | FileEnumerator::DIRECTORIES));
-  if (files.Next().value().empty())
-    return true;
-  return false;
 }
 
 bool GetTempDir(FilePath* path) {
@@ -492,11 +599,20 @@ bool CreateTemporaryFileInDir(const FilePath& dir,
   return true;
 }
 
-bool CreateNewTempDirectory(const FilePath::StringType& prefix,
-                            FilePath* new_temp_path) {
-  FilePath system_temp_dir;
-  if (!GetTempDir(&system_temp_dir))
-    return false;
+bool CreateTemporaryDirInDir(const FilePath& base_dir,
+                             const FilePath::StringType& prefix,
+                             bool loosen_permissions,
+                             FilePath* new_dir) {
+  SECURITY_ATTRIBUTES sa;
+  SECURITY_DESCRIPTOR sd;
+
+  LPSECURITY_ATTRIBUTES directory_security_attributes = NULL;
+  if (loosen_permissions) {
+    if (InitLooseSecurityDescriptor(&sa, &sd))
+      directory_security_attributes = &sa;
+    else
+      LOG(ERROR) << "Failed to init security attributes, fall back to NULL.";
+  }
 
   FilePath path_to_create;
   srand(static_cast<uint32>(time(NULL)));
@@ -505,13 +621,15 @@ bool CreateNewTempDirectory(const FilePath::StringType& prefix,
   while (count < 50) {
     // Try create a new temporary directory with random generated name. If
     // the one exists, keep trying another path name until we reach some limit.
-    path_to_create = system_temp_dir;
+    path_to_create = base_dir;
+
     std::wstring new_dir_name;
     new_dir_name.assign(prefix);
     new_dir_name.append(IntToWString(rand() % kint16max));
-    path_to_create = path_to_create.Append(new_dir_name);
 
-    if (::CreateDirectory(path_to_create.value().c_str(), NULL))
+    path_to_create = path_to_create.Append(new_dir_name);
+    if (::CreateDirectory(path_to_create.value().c_str(),
+                          directory_security_attributes))
       break;
     count++;
   }
@@ -520,22 +638,49 @@ bool CreateNewTempDirectory(const FilePath::StringType& prefix,
     return false;
   }
 
-  *new_temp_path = path_to_create;
+  *new_dir = path_to_create;
+
   return true;
 }
 
+bool CreateNewTempDirectory(const FilePath::StringType& prefix,
+                            FilePath* new_temp_path) {
+  FilePath system_temp_dir;
+  if (!GetTempDir(&system_temp_dir))
+    return false;
+
+  return CreateTemporaryDirInDir(system_temp_dir,
+                                 prefix,
+                                 false,
+                                 new_temp_path);
+}
+
 bool CreateDirectory(const FilePath& full_path) {
+  return file_util::CreateDirectoryExtraLogging(full_path, LOG(INFO));
+}
+
+// TODO(skerner): Extra logging has been added to understand crbug/35198 .
+// Remove it once we get a log from a user who can reproduce the issue.
+bool CreateDirectoryExtraLogging(const FilePath& full_path,
+                                 std::ostream& log) {
+  log << "Enter CreateDirectory: full_path = " << full_path.value()
+      << std::endl;
   // If the path exists, we've succeeded if it's a directory, failed otherwise.
   const wchar_t* full_path_str = full_path.value().c_str();
   DWORD fileattr = ::GetFileAttributes(full_path_str);
-  if (fileattr != INVALID_FILE_ATTRIBUTES) {
+  log << "::GetFileAttributes() returned " << fileattr << std::endl;
+  if (fileattr == INVALID_FILE_ATTRIBUTES) {
+    DWORD fileattr_error = GetLastError();
+    log << "::GetFileAttributes() failed.  GetLastError() = "
+        << fileattr_error << std::endl;
+  } else {
     if ((fileattr & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-      DLOG(INFO) << "CreateDirectory(" << full_path_str << "), " <<
-          "directory already exists.";
+      log << "CreateDirectory(" << full_path_str << "), "
+          << "directory already exists." << std::endl;
       return true;
     } else {
-      LOG(WARNING) << "CreateDirectory(" << full_path_str << "), " <<
-          "conflicts with existing file.";
+      log << "CreateDirectory(" << full_path_str << "), "
+          << "conflicts with existing file." << std::endl;
     }
   }
 
@@ -546,33 +691,56 @@ bool CreateDirectory(const FilePath& full_path) {
   // directories starting with the highest-level missing parent.
   FilePath parent_path(full_path.DirName());
   if (parent_path.value() == full_path.value()) {
+    log << "Can't create directory: parent_path " << parent_path.value()
+        << " should not equal full_path " << full_path.value()
+        << std::endl;
     return false;
   }
   if (!CreateDirectory(parent_path)) {
-    DLOG(WARNING) << "Failed to create one of the parent directories.";
+    log << "Failed to create one of the parent directories: "
+        << parent_path.value() << std::endl;
     return false;
   }
 
+  log << "About to call ::CreateDirectory() with full_path_str = "
+      << full_path_str << std::endl;
   if (!::CreateDirectory(full_path_str, NULL)) {
     DWORD error_code = ::GetLastError();
+    log << "CreateDirectory() gave last error " << error_code << std::endl;
+
+    DWORD fileattr = GetFileAttributes(full_path.value().c_str());
+    if (fileattr == INVALID_FILE_ATTRIBUTES) {
+      DWORD fileattr_error = ::GetLastError();
+      log << "GetFileAttributes() failed, GetLastError() = "
+          << fileattr_error << std::endl;
+    } else {
+      log << "GetFileAttributes() returned " << fileattr << std::endl;
+      log << "Is the path a directory: "
+          << ((fileattr & FILE_ATTRIBUTE_DIRECTORY) != 0) << std::endl;
+    }
     if (error_code == ERROR_ALREADY_EXISTS && DirectoryExists(full_path)) {
       // This error code doesn't indicate whether we were racing with someone
       // creating the same directory, or a file with the same path, therefore
       // we check.
+      log << "Race condition? Directory already exists: "
+          << full_path.value() << std::endl;
       return true;
     } else {
-      LOG(WARNING) << "Failed to create directory " << full_path_str <<
-          ", le=" << error_code;
+      DWORD dir_exists_error = ::GetLastError();
+      log << "Failed to create directory " << full_path_str << std::endl;
+      log << "GetLastError() for DirectoryExists() is "
+          << dir_exists_error << std::endl;
       return false;
     }
   } else {
+    log << "::CreateDirectory() succeeded." << std::endl;
     return true;
   }
 }
 
 bool GetFileInfo(const FilePath& file_path, FileInfo* results) {
   WIN32_FILE_ATTRIBUTE_DATA attr;
-  if (!GetFileAttributesEx(file_path.ToWStringHack().c_str(),
+  if (!GetFileAttributesEx(file_path.value().c_str(),
                            GetFileExInfoStandard, &attr)) {
     return false;
   }
@@ -589,21 +757,23 @@ bool GetFileInfo(const FilePath& file_path, FileInfo* results) {
   return true;
 }
 
+bool SetLastModifiedTime(const FilePath& file_path, base::Time last_modified) {
+  FILETIME timestamp(last_modified.ToFileTime());
+  ScopedHandle file_handle(
+      CreateFile(file_path.value().c_str(), FILE_WRITE_ATTRIBUTES,
+                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL));
+  BOOL ret = SetFileTime(file_handle.Get(), NULL, &timestamp, &timestamp);
+  return ret != 0;
+}
+
 FILE* OpenFile(const FilePath& filename, const char* mode) {
   std::wstring w_mode = ASCIIToWide(std::string(mode));
-  FILE* file;
-  if (_wfopen_s(&file, filename.value().c_str(), w_mode.c_str()) != 0) {
-    return NULL;
-  }
-  return file;
+  return _wfsopen(filename.value().c_str(), w_mode.c_str(), _SH_DENYNO);
 }
 
 FILE* OpenFile(const std::string& filename, const char* mode) {
-  FILE* file;
-  if (fopen_s(&file, filename.c_str(), mode) != 0) {
-    return NULL;
-  }
-  return file;
+  return _fsopen(filename.c_str(), mode, _SH_DENYNO);
 }
 
 int ReadFile(const FilePath& filename, char* data, int size) {
@@ -617,15 +787,11 @@ int ReadFile(const FilePath& filename, char* data, int size) {
   if (file == INVALID_HANDLE_VALUE)
     return -1;
 
-  int ret_value;
   DWORD read;
-  if (::ReadFile(file, data, size, &read, NULL) && read == size) {
-    ret_value = static_cast<int>(read);
-  } else {
-    ret_value = -1;
-  }
-
-  return ret_value;
+  if (::ReadFile(file, data, size, &read, NULL) &&
+      static_cast<int>(read) == size)
+    return read;
+  return -1;
 }
 
 int WriteFile(const FilePath& filename, const char* data, int size) {
@@ -645,8 +811,8 @@ int WriteFile(const FilePath& filename, const char* data, int size) {
 
   DWORD written;
   BOOL result = ::WriteFile(file, data, size, &written, NULL);
-  if (result && written == size)
-    return static_cast<int>(written);
+  if (result && static_cast<int>(written) == size)
+    return written;
 
   if (!result) {
     // WriteFile failed.
@@ -749,6 +915,11 @@ void FileEnumerator::GetFindInfo(FindInfo* info) {
 
 bool FileEnumerator::IsDirectory(const FindInfo& info) {
   return (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+}
+
+// static
+FilePath FileEnumerator::GetFilename(const FindInfo& find_info) {
+  return FilePath(find_info.cFileName);
 }
 
 FilePath FileEnumerator::Next() {
@@ -859,6 +1030,99 @@ bool HasFileBeenModifiedSince(const FileEnumerator::FindInfo& find_info,
   long result = CompareFileTime(&find_info.ftLastWriteTime,
                                 &cutoff_time.ToFileTime());
   return result == 1 || result == 0;
+}
+
+bool NormalizeFilePath(const FilePath& path, FilePath* real_path) {
+  ScopedHandle path_handle(
+      ::CreateFile(path.value().c_str(),
+                   GENERIC_READ,
+                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                   NULL,
+                   OPEN_EXISTING,
+                   FILE_ATTRIBUTE_NORMAL,
+                   NULL));
+  if (path_handle == INVALID_HANDLE_VALUE)
+    return false;
+
+  // In Vista, GetFinalPathNameByHandle() would give us the real path
+  // from a file handle.  If we ever deprecate XP, consider changing the
+  // code below to a call to GetFinalPathNameByHandle().  The method this
+  // function uses is explained in the following msdn article:
+  // http://msdn.microsoft.com/en-us/library/aa366789(VS.85).aspx
+  DWORD file_size_high = 0;
+  DWORD file_size_low = ::GetFileSize(path_handle.Get(), &file_size_high);
+  if (file_size_low == 0 && file_size_high == 0) {
+    // It is not possible to map an empty file.
+    LOG(ERROR) << "NormalizeFilePath failed: Empty file.";
+    return false;
+  }
+
+  // Create a file mapping object.  Can't easily use MemoryMappedFile, because
+  // we only map the first byte, and need direct access to the handle.
+  ScopedHandle file_map_handle(
+      ::CreateFileMapping(path_handle.Get(),
+                          NULL,
+                          PAGE_READONLY,
+                          0,
+                          1, // Just one byte.  No need to look at the data.
+                          NULL));
+
+  if (file_map_handle == INVALID_HANDLE_VALUE)
+    return false;
+
+  // Use a view of the file to get the path to the file.
+  void* file_view = MapViewOfFile(
+      file_map_handle.Get(), FILE_MAP_READ, 0, 0, 1);
+  if (!file_view)
+    return false;
+
+  bool success = false;
+
+  // The expansion of |path| into a full path may make it longer.
+  // GetMappedFileName() will fail if the result is longer than MAX_PATH.
+  // Pad a bit to be safe.  If kMaxPathLength is ever changed to be less
+  // than MAX_PATH, it would be nessisary to test that GetMappedFileName()
+  // not return kMaxPathLength.  This would mean that only part of the
+  // path fit in |mapped_file_path|.
+  const int kMaxPathLength = MAX_PATH + 10;
+  wchar_t mapped_file_path[kMaxPathLength];
+  if (::GetMappedFileName(GetCurrentProcess(),
+                          file_view,
+                          mapped_file_path,
+                          kMaxPathLength)) {
+    // GetMappedFileName() will return a path that starts with
+    // "\Device\Harddisk...".  Helper DevicePathToDriveLetterPath()
+    // will find a drive letter which maps to the path's device, so
+    // that we return a path starting with a drive letter.
+    FilePath mapped_file(mapped_file_path);
+    success = DevicePathToDriveLetterPath(mapped_file, real_path);
+  }
+  UnmapViewOfFile(file_view);
+  return success;
+}
+
+bool PreReadImage(const wchar_t* file_path, size_t size_to_read,
+                  size_t step_size) {
+  HMODULE dll_module = LoadLibraryExW(
+      file_path,
+      NULL,
+      LOAD_WITH_ALTERED_SEARCH_PATH | DONT_RESOLVE_DLL_REFERENCES);
+
+  if (!dll_module)
+    return false;
+
+  PEImage pe_image(dll_module);
+  PIMAGE_NT_HEADERS nt_headers = pe_image.GetNTHeaders();
+  size_t actual_size_to_read = size_to_read ? size_to_read :
+                               nt_headers->OptionalHeader.SizeOfImage;
+  volatile uint8* touch = reinterpret_cast<uint8*>(dll_module);
+  size_t offset = 0;
+  while (offset < actual_size_to_read) {
+    uint8 unused = *(touch + offset);
+    offset += step_size;
+  }
+  FreeLibrary(dll_module);
+  return true;
 }
 
 }  // namespace file_util

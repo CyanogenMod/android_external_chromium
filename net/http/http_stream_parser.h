@@ -9,7 +9,7 @@
 
 #include "base/basictypes.h"
 #include "net/base/io_buffer.h"
-#include "net/base/load_log.h"
+#include "net/base/net_log.h"
 #include "net/base/upload_data_stream.h"
 #include "net/http/http_chunked_decoder.h"
 #include "net/http/http_response_info.h"
@@ -18,7 +18,7 @@
 namespace net {
 
 class ClientSocketHandle;
-class HttpRequestInfo;
+struct HttpRequestInfo;
 
 class HttpStreamParser {
  public:
@@ -29,8 +29,8 @@ class HttpStreamParser {
   // have its capacity changed.
   HttpStreamParser(ClientSocketHandle* connection,
                    GrowableIOBuffer* read_buffer,
-                   LoadLog* load_log);
-  ~HttpStreamParser() {}
+                   const BoundNetLog& net_log);
+  ~HttpStreamParser();
 
   // These functions implement the interface described in HttpStream with
   // some additional functionality
@@ -162,7 +162,7 @@ class HttpStreamParser {
   // The underlying socket.
   ClientSocketHandle* const connection_;
 
-  scoped_refptr<LoadLog> load_log_;
+  BoundNetLog net_log_;
 
   // Callback to be used when doing IO.
   CompletionCallbackImpl<HttpStreamParser> io_callback_;

@@ -7,6 +7,7 @@
 #include "base/basictypes.h"
 #include "base/format_macros.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "base/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -93,6 +94,7 @@ TEST(FtpUtilTest, VMSPathToUnix) {
     { "[.a.b.c]",    "a/b/c"      },
     { "[.a.b.c]d",   "a/b/c/d"    },
     { "[.a.b.c.d]",  "a/b/c/d"    },
+    { "[.",          ""           },
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kTestCases); i++) {
     EXPECT_EQ(kTestCases[i].expected_output,
@@ -102,8 +104,9 @@ TEST(FtpUtilTest, VMSPathToUnix) {
 }
 
 TEST(FtpUtilTest, LsDateListingToTime) {
-  base::Time::Exploded now_exploded;
-  base::Time::Now().LocalExplode(&now_exploded);
+  base::Time mock_current_time;
+  ASSERT_TRUE(base::Time::FromString(L"Tue, 15 Nov 1994 12:45:26 GMT",
+                                     &mock_current_time));
 
   const struct {
     // Input.
@@ -119,14 +122,22 @@ TEST(FtpUtilTest, LsDateListingToTime) {
     int expected_minute;
   } kTestCases[] = {
     { "Nov", "01", "2007", 2007, 11, 1, 0, 0 },
-    { "Jul", "25", "13:37", now_exploded.year, 7, 25, 13, 37 },
+    { "Jul", "25", "13:37", 1994, 7, 25, 13, 37 },
 
     // Test date listings in German, we should support them for FTP servers
     // giving localized listings.
     { "M\xc3\xa4r", "13", "2009", 2009, 3, 13, 0, 0 },
-    { "Mai", "1", "10:10", now_exploded.year, 5, 1, 10, 10 },
-    { "Okt", "14", "21:18", now_exploded.year, 10, 14, 21, 18 },
+    { "Mai", "1", "10:10", 1994, 5, 1, 10, 10 },
+    { "Okt", "14", "21:18", 1994, 10, 14, 21, 18 },
     { "Dez", "25", "2008", 2008, 12, 25, 0, 0 },
+
+    // Test current year detection.
+    { "Nov", "01", "12:00", 1994, 11, 1, 12, 0 },
+    { "Nov", "15", "12:00", 1994, 11, 15, 12, 0 },
+    { "Nov", "16", "12:00", 1993, 11, 16, 12, 0 },
+    { "Jan", "01", "08:30", 1994, 1, 1, 8, 30 },
+    { "Sep", "02", "09:00", 1994, 9, 2, 9, 0 },
+    { "Dec", "06", "21:00", 1993, 12, 6, 21, 0 },
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kTestCases); i++) {
     SCOPED_TRACE(StringPrintf("Test[%" PRIuS "]: %s %s %s", i,
@@ -136,7 +147,7 @@ TEST(FtpUtilTest, LsDateListingToTime) {
     base::Time time;
     ASSERT_TRUE(net::FtpUtil::LsDateListingToTime(
         UTF8ToUTF16(kTestCases[i].month), UTF8ToUTF16(kTestCases[i].day),
-        UTF8ToUTF16(kTestCases[i].rest), &time));
+        UTF8ToUTF16(kTestCases[i].rest), mock_current_time, &time));
 
     base::Time::Exploded time_exploded;
     time.LocalExplode(&time_exploded);

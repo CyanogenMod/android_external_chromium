@@ -7,6 +7,7 @@
 
 #include "base/time.h"
 #include "net/base/auth.h"
+#include "net/base/io_buffer.h"
 #include "net/base/ssl_cert_request_info.h"
 #include "net/base/ssl_info.h"
 #include "net/http/http_response_headers.h"
@@ -27,12 +28,24 @@ class HttpResponseInfo {
   // request_time may corresponds to a time "far" in the past.  Note that
   // stale content (perhaps un-cacheable) may be fetched from cache subject to
   // the load flags specified on the request info.  For example, this is done
-  // when a user presses the back button to re-render pages, or at startup, when
-  // reloading previously visited pages (without going over the network).
+  // when a user presses the back button to re-render pages, or at startup,
+  // when reloading previously visited pages (without going over the network).
   bool was_cached;
 
   // True if the request was fetched over a SPDY channel.
   bool was_fetched_via_spdy;
+
+  // True if the npn was negotiated for this request.
+  bool was_npn_negotiated;
+
+  // True if response could use alternate protocol. However, browser
+  // will ingore the alternate protocol if spdy is not enabled.
+  bool was_alternate_protocol_available;
+
+  // True if the request was fetched via an explicit proxy.  The proxy could
+  // be any type of proxy, HTTP or SOCKS.  Note, we do not know if a
+  // transparent proxy may have been involved.
+  bool was_fetched_via_proxy;
 
   // The time at which the request was made that resulted in this response.
   // For cached responses, this is the last time the cache entry was validated.
@@ -60,6 +73,9 @@ class HttpResponseInfo {
 
   // The "Vary" header data for this response.
   HttpVaryData vary_data;
+
+  // Any metadata asociated with this resource's cached data.
+  scoped_refptr<IOBufferWithSize> metadata;
 
   // Initializes from the representation stored in the given pickle.
   bool InitFromPickle(const Pickle& pickle, bool* response_truncated);

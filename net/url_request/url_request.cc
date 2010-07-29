@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 20010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,8 @@
 #include "base/singleton.h"
 #include "base/stats_counters.h"
 #include "net/base/load_flags.h"
-#include "net/base/load_log.h"
 #include "net/base/net_errors.h"
+#include "net/base/net_log.h"
 #include "net/base/ssl_cert_request_info.h"
 #include "net/base/upload_data.h"
 #include "net/http/http_response_headers.h"
@@ -18,18 +18,32 @@
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_job.h"
 #include "net/url_request/url_request_job_manager.h"
+#include "net/url_request/url_request_netlog_params.h"
 
 using base::Time;
 using net::UploadData;
 using std::string;
 using std::wstring;
 
-// Max number of http redirects to follow.  Same number as gecko.
-static const int kMaxRedirects = 20;
+namespace {
 
-static URLRequestJobManager* GetJobManager() {
+// Max number of http redirects to follow.  Same number as gecko.
+const int kMaxRedirects = 20;
+
+URLRequestJobManager* GetJobManager() {
   return Singleton<URLRequestJobManager>::get();
 }
+
+// Discard headers which have meaning in POST (Content-Length, Content-Type,
+// Origin).
+void StripPostSpecificHeaders(net::HttpRequestHeaders* headers) {
+  // These are headers that may be attached to a POST.
+  headers->RemoveHeader(net::HttpRequestHeaders::kContentLength);
+  headers->RemoveHeader(net::HttpRequestHeaders::kContentType);
+  headers->RemoveHeader(net::HttpRequestHeaders::kOrigin);
+}
+
+}  // namespace
 
 ///////////////////////////////////////////////////////////////////////////////
 // URLRequest
@@ -44,8 +58,7 @@ URLRequest::URLRequest(const GURL& url, Delegate* delegate)
       enable_profiling_(false),
       redirect_limit_(kMaxRedirects),
       final_upload_progress_(0),
-      priority_(net::LOWEST),
-      ALLOW_THIS_IN_INITIALIZER_LIST(request_tracker_node_(this)) {
+      priority_(net::LOWEST) {
   SIMPLE_STATS_COUNTER("URLRequestCount");
 
   // Sanity check out environment.
@@ -87,12 +100,16 @@ void URLRequest::AppendBytesToUpload(const char* bytes, int bytes_len) {
   upload_->AppendBytes(bytes, bytes_len);
 }
 
-void URLRequest::AppendFileRangeToUpload(const FilePath& file_path,
-                                         uint64 offset, uint64 length) {
+void URLRequest::AppendFileRangeToUpload(
+    const FilePath& file_path,
+    uint64 offset,
+    uint64 length,
+    const base::Time& expected_modification_time) {
   DCHECK(file_path.value().length() > 0 && length > 0);
   if (!upload_)
     upload_ = new UploadData();
-  upload_->AppendFileRange(file_path, offset, length);
+  upload_->AppendFileRange(file_path, offset, length,
+                           expected_modification_time);
 }
 
 void URLRequest::set_upload(net::UploadData* upload) {
@@ -121,17 +138,10 @@ void URLRequest::SetExtraRequestHeaderByName(const string& name,
   NOTREACHED() << "implement me!";
 }
 
-void URLRequest::SetExtraRequestHeaders(const string& headers) {
+void URLRequest::SetExtraRequestHeaders(
+    const net::HttpRequestHeaders& headers) {
   DCHECK(!is_pending_);
-  if (headers.empty()) {
-    extra_request_headers_.clear();
-  } else {
-#ifndef NDEBUG
-    size_t crlf = headers.rfind("\r\n", headers.size() - 1);
-    DCHECK(crlf != headers.size() - 2) << "headers must not end with CRLF";
-#endif
-    extra_request_headers_ = headers + "\r\n";
-  }
+  extra_request_headers_ = headers;
 
   // NOTE: This method will likely become non-trivial once the other setters
   // for request headers are implemented.
@@ -256,7 +266,10 @@ void URLRequest::StartJob(URLRequestJob* job) {
   DCHECK(!is_pending_);
   DCHECK(!job_);
 
-  net::LoadLog::BeginEvent(load_log_, net::LoadLog::TYPE_URL_REQUEST_START);
+  net_log_.BeginEvent(
+      net::NetLog::TYPE_URL_REQUEST_START_JOB,
+      new URLRequestStartEventParameters(
+          url_, method_, load_flags_, priority_));
 
   job_ = job;
   job_->SetExtraRequestHeaders(extra_request_headers_);
@@ -327,7 +340,7 @@ void URLRequest::DoCancel(int os_error, const net::SSLInfo& ssl_info) {
   // about being called recursively.
 }
 
-bool URLRequest::Read(net::IOBuffer* dest, int dest_size, int *bytes_read) {
+bool URLRequest::Read(net::IOBuffer* dest, int dest_size, int* bytes_read) {
   DCHECK(job_);
   DCHECK(bytes_read);
   DCHECK(!job_->is_done());
@@ -347,6 +360,11 @@ bool URLRequest::Read(net::IOBuffer* dest, int dest_size, int *bytes_read) {
   return job_->Read(dest, dest_size, bytes_read);
 }
 
+void URLRequest::StopCaching() {
+  DCHECK(job_);
+  job_->StopCaching();
+}
+
 void URLRequest::ReceivedRedirect(const GURL& location, bool* defer_redirect) {
   URLRequestJob* job = GetJobManager()->MaybeInterceptRedirect(this, location);
   if (job) {
@@ -357,10 +375,10 @@ void URLRequest::ReceivedRedirect(const GURL& location, bool* defer_redirect) {
 }
 
 void URLRequest::ResponseStarted() {
+  scoped_refptr<net::NetLog::EventParameters> params;
   if (!status_.is_success())
-    net::LoadLog::AddErrorCode(load_log_, status_.os_error());
-
-  net::LoadLog::EndEvent(load_log_, net::LoadLog::TYPE_URL_REQUEST_START);
+    params = new net::NetLogIntegerParameter("net_error", status_.os_error());
+  net_log_.EndEvent(net::NetLog::TYPE_URL_REQUEST_START_JOB, params);
 
   URLRequestJob* job = GetJobManager()->MaybeInterceptResponse(this);
   if (job) {
@@ -371,8 +389,8 @@ void URLRequest::ResponseStarted() {
 }
 
 void URLRequest::FollowDeferredRedirect() {
-  DCHECK(job_);
-  DCHECK(status_.is_success());
+  CHECK(job_);
+  CHECK(status_.is_success());
 
   job_->FollowDeferredRedirect();
 }
@@ -406,6 +424,10 @@ void URLRequest::ContinueDespiteLastError() {
 void URLRequest::PrepareToRestart() {
   DCHECK(job_);
 
+  // Close the current URL_REQUEST_START_JOB, since we will be starting a new
+  // one.
+  net_log_.EndEvent(net::NetLog::TYPE_URL_REQUEST_START_JOB, NULL);
+
   job_->Kill();
   OrphanJob();
 
@@ -420,22 +442,12 @@ void URLRequest::OrphanJob() {
   job_ = NULL;
 }
 
-// static
-std::string URLRequest::StripPostSpecificHeaders(const std::string& headers) {
-  // These are headers that may be attached to a POST.
-  static const char* const kPostHeaders[] = {
-      "content-type",
-      "content-length",
-      "origin"
-  };
-  return net::HttpUtil::StripHeaders(
-      headers, kPostHeaders, arraysize(kPostHeaders));
-}
-
 int URLRequest::Redirect(const GURL& location, int http_status_code) {
-  if (net::LoadLog::IsUnbounded(load_log_)) {
-    net::LoadLog::AddString(load_log_, StringPrintf("Redirected (%d) to %s",
-        http_status_code, location.spec().c_str()));
+  if (net_log_.HasListener()) {
+    net_log_.AddEvent(
+        net::NetLog::TYPE_URL_REQUEST_REDIRECTED,
+        new net::NetLogStringParameter(
+            "location", location.possibly_invalid_spec()));
   }
   if (redirect_limit_ <= 0) {
     DLOG(INFO) << "disallowing redirect: exceeds limit";
@@ -476,10 +488,7 @@ int URLRequest::Redirect(const GURL& location, int http_status_code) {
     // the inclusion of a multipart Content-Type header in GET can cause
     // problems with some servers:
     // http://code.google.com/p/chromium/issues/detail?id=843
-    //
-    // TODO(eroman): It would be better if this data was structured into
-    // specific fields/flags, rather than a stew of extra headers.
-    extra_request_headers_ = StripPostSpecificHeaders(extra_request_headers_);
+    StripPostSpecificHeaders(&extra_request_headers_);
   }
 
   if (!final_upload_progress_)
@@ -499,18 +508,15 @@ void URLRequest::set_context(URLRequestContext* context) {
 
   context_ = context;
 
-  // If the context this request belongs to has changed, update the tracker(s).
+  // If the context this request belongs to has changed, update the tracker.
   if (prev_context != context) {
-    if (prev_context)
-      prev_context->url_request_tracker()->Remove(this);
-    if (context) {
-      if (!load_log_) {
-        // Create the LoadLog -- we waited until now to create it so we know
-        // what constraints the URLRequestContext is enforcing on log levels.
-        load_log_ = context->url_request_tracker()->CreateLoadLog();
-      }
+    net_log_.EndEvent(net::NetLog::TYPE_REQUEST_ALIVE, NULL);
+    net_log_ = net::BoundNetLog();
 
-      context->url_request_tracker()->Add(this);
+    if (context) {
+      net_log_ = net::BoundNetLog::Make(context->net_log(),
+                                        net::NetLog::SOURCE_URL_REQUEST);
+      net_log_.BeginEvent(net::NetLog::TYPE_REQUEST_ALIVE, NULL);
     }
   }
 }
@@ -532,11 +538,4 @@ URLRequest::UserData* URLRequest::GetUserData(const void* key) const {
 
 void URLRequest::SetUserData(const void* key, UserData* data) {
   user_data_[key] = linked_ptr<UserData>(data);
-}
-
-void URLRequest::GetInfoForTracker(
-    RequestTracker<URLRequest>::RecentRequestInfo* info) const {
-  DCHECK(info);
-  info->original_url = original_url_;
-  info->load_log = load_log_;
 }

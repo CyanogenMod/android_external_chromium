@@ -195,20 +195,6 @@ bool Pickle::ReadUInt64(void** iter, uint64* result) const {
   return true;
 }
 
-bool Pickle::ReadIntPtr(void** iter, intptr_t* result) const {
-  DCHECK(iter);
-  if (!*iter)
-    *iter = const_cast<char*>(payload());
-
-  if (!IteratorHasRoomFor(*iter, sizeof(*result)))
-    return false;
-
-  memcpy(result, *iter, sizeof(*result));
-
-  UpdateIter(iter, sizeof(*result));
-  return true;
-}
-
 bool Pickle::ReadString(void** iter, std::string* result) const {
   DCHECK(iter);
 
@@ -264,6 +250,8 @@ bool Pickle::ReadBytes(void** iter, const char** data, int length) const {
   DCHECK(iter);
   DCHECK(data);
   *data = 0;
+  if (!*iter)
+    *iter = const_cast<char*>(payload());
 
   if (!IteratorHasRoomFor(*iter, length))
     return false;
@@ -391,7 +379,7 @@ void Pickle::TrimWriteData(int new_length) {
 bool Pickle::Resize(size_t new_capacity) {
   new_capacity = AlignInt(new_capacity, kPayloadUnit);
 
-  CHECK(capacity_ != kCapacityReadOnly);
+  CHECK_NE(capacity_, kCapacityReadOnly);
   void* p = realloc(header_, new_capacity);
   if (!p)
     return false;

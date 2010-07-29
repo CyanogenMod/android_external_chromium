@@ -8,7 +8,7 @@
 #include "base/format_macros.h"
 #include "base/logging.h"
 #include "base/string_util.h"
-#include "net/base/load_log.h"
+#include "net/base/net_log.h"
 #include "net/base/net_errors.h"
 #include "net/proxy/proxy_config.h"
 #include "net/proxy/proxy_resolver.h"
@@ -17,14 +17,17 @@
 namespace net {
 
 InitProxyResolver::InitProxyResolver(ProxyResolver* resolver,
-                                     ProxyScriptFetcher* proxy_script_fetcher)
+                                     ProxyScriptFetcher* proxy_script_fetcher,
+                                     NetLog* net_log)
     : resolver_(resolver),
       proxy_script_fetcher_(proxy_script_fetcher),
       ALLOW_THIS_IN_INITIALIZER_LIST(io_callback_(
           this, &InitProxyResolver::OnIOCompletion)),
       user_callback_(NULL),
       current_pac_url_index_(0u),
-      next_state_(STATE_NONE) {
+      next_state_(STATE_NONE),
+      net_log_(BoundNetLog::Make(
+          net_log, NetLog::SOURCE_INIT_PROXY_RESOLVER)) {
 }
 
 InitProxyResolver::~InitProxyResolver() {
@@ -33,16 +36,12 @@ InitProxyResolver::~InitProxyResolver() {
 }
 
 int InitProxyResolver::Init(const ProxyConfig& config,
-                            CompletionCallback* callback,
-                            LoadLog* load_log) {
+                            CompletionCallback* callback) {
   DCHECK_EQ(STATE_NONE, next_state_);
   DCHECK(callback);
   DCHECK(config.MayRequirePACResolver());
-  DCHECK(!load_log_);
 
-  load_log_ = load_log;
-
-  LoadLog::BeginEvent(load_log_, LoadLog::TYPE_INIT_PROXY_RESOLVER);
+  net_log_.BeginEvent(NetLog::TYPE_INIT_PROXY_RESOLVER, NULL);
 
   pac_urls_ = BuildPacUrlsFallbackList(config);
   DCHECK(!pac_urls_.empty());
@@ -64,13 +63,10 @@ int InitProxyResolver::Init(const ProxyConfig& config,
 InitProxyResolver::UrlList InitProxyResolver::BuildPacUrlsFallbackList(
     const ProxyConfig& config) const {
   UrlList pac_urls;
-  if (config.auto_detect) {
-     GURL pac_url = resolver_->expects_pac_bytes() ?
-        GURL("http://wpad/wpad.dat") : GURL();
-     pac_urls.push_back(pac_url);
-  }
-  if (config.pac_url.is_valid())
-    pac_urls.push_back(config.pac_url);
+  if (config.auto_detect())
+    pac_urls.push_back(PacURL(true, GURL()));
+  if (config.has_pac_url())
+    pac_urls.push_back(PacURL(false, config.pac_url()));
   return pac_urls;
 }
 
@@ -122,70 +118,73 @@ void InitProxyResolver::DoCallback(int result) {
 int InitProxyResolver::DoFetchPacScript() {
   DCHECK(resolver_->expects_pac_bytes());
 
-  LoadLog::BeginEvent(load_log_,
-      LoadLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT);
-
   next_state_ = STATE_FETCH_PAC_SCRIPT_COMPLETE;
 
-  const GURL& pac_url = current_pac_url();
+  const PacURL& pac_url = current_pac_url();
 
-  LoadLog::AddString(load_log_, pac_url.spec());
+  const GURL effective_pac_url =
+      pac_url.auto_detect ? GURL("http://wpad/wpad.dat") : pac_url.url;
+
+  net_log_.BeginEvent(
+      NetLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT,
+      new NetLogStringParameter("url",
+                                effective_pac_url.possibly_invalid_spec()));
 
   if (!proxy_script_fetcher_) {
-    LoadLog::AddStringLiteral(load_log_,
-        "Can't download PAC script, because no fetcher was specified");
+    net_log_.AddEvent(NetLog::TYPE_INIT_PROXY_RESOLVER_HAS_NO_FETCHER, NULL);
     return ERR_UNEXPECTED;
   }
 
-  return proxy_script_fetcher_->Fetch(pac_url, &pac_bytes_, &io_callback_);
+  return proxy_script_fetcher_->Fetch(effective_pac_url,
+                                      &pac_script_,
+                                      &io_callback_);
 }
 
 int InitProxyResolver::DoFetchPacScriptComplete(int result) {
   DCHECK(resolver_->expects_pac_bytes());
 
-  LoadLog::AddString(load_log_,
-      StringPrintf(
-          "Completed fetch with result %s. Received %" PRIuS " bytes",
-          ErrorToString(result),
-          pac_bytes_.size()));
-
-  LoadLog::EndEvent(load_log_,
-      LoadLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT);
-
-  if (result != OK)
+  if (result == OK) {
+    net_log_.EndEvent(NetLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT, NULL);
+  } else {
+    net_log_.EndEvent(
+        NetLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT,
+        new NetLogIntegerParameter("net_error", result));
     return TryToFallbackPacUrl(result);
+  }
 
   next_state_ = STATE_SET_PAC_SCRIPT;
   return result;
 }
 
 int InitProxyResolver::DoSetPacScript() {
-  LoadLog::BeginEvent(load_log_,
-      LoadLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT);
+  net_log_.BeginEvent(NetLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT, NULL);
 
-  const GURL& pac_url = current_pac_url();
+  const PacURL& pac_url = current_pac_url();
 
   next_state_ = STATE_SET_PAC_SCRIPT_COMPLETE;
 
-  return resolver_->expects_pac_bytes() ?
-      resolver_->SetPacScriptByData(pac_bytes_, &io_callback_) :
-      resolver_->SetPacScriptByUrl(pac_url, &io_callback_);
+  scoped_refptr<ProxyResolverScriptData> script_data;
+
+  if (resolver_->expects_pac_bytes()) {
+    script_data = ProxyResolverScriptData::FromUTF16(pac_script_);
+  } else {
+    script_data = pac_url.auto_detect ?
+        ProxyResolverScriptData::ForAutoDetect() :
+        ProxyResolverScriptData::FromURL(pac_url.url);
+  }
+
+  return resolver_->SetPacScript(script_data, &io_callback_);
 }
 
 int InitProxyResolver::DoSetPacScriptComplete(int result) {
   if (result != OK) {
-    LoadLog::AddString(load_log_,
-        StringPrintf("Failed initializing the PAC script with error: %s",
-                     ErrorToString(result)));
-    LoadLog::EndEvent(load_log_,
-        LoadLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT);
+    net_log_.EndEvent(
+        NetLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT,
+        new NetLogIntegerParameter("net_error", result));
     return TryToFallbackPacUrl(result);
   }
 
-  LoadLog::AddStringLiteral(load_log_, "Successfully initialized PAC script.");
-
-  LoadLog::EndEvent(load_log_,
-      LoadLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT);
+  net_log_.EndEvent(NetLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT, NULL);
   return result;
 }
 
@@ -200,7 +199,8 @@ int InitProxyResolver::TryToFallbackPacUrl(int error) {
   // Advance to next URL in our list.
   ++current_pac_url_index_;
 
-  LoadLog::AddStringLiteral(load_log_, "Falling back to next PAC URL...");
+  net_log_.AddEvent(
+      NetLog::TYPE_INIT_PROXY_RESOLVER_FALLING_BACK_TO_NEXT_PAC_URL, NULL);
 
   next_state_ = GetStartState();
 
@@ -212,19 +212,19 @@ InitProxyResolver::State InitProxyResolver::GetStartState() const {
       STATE_FETCH_PAC_SCRIPT : STATE_SET_PAC_SCRIPT;
 }
 
-const GURL& InitProxyResolver::current_pac_url() const {
+const InitProxyResolver::PacURL& InitProxyResolver::current_pac_url() const {
   DCHECK_LT(current_pac_url_index_, pac_urls_.size());
   return pac_urls_[current_pac_url_index_];
 }
 
 void InitProxyResolver::DidCompleteInit() {
-  LoadLog::EndEvent(load_log_, LoadLog::TYPE_INIT_PROXY_RESOLVER);
+  net_log_.EndEvent(NetLog::TYPE_INIT_PROXY_RESOLVER, NULL);
 }
 
 void InitProxyResolver::Cancel() {
   DCHECK_NE(STATE_NONE, next_state_);
 
-  LoadLog::AddEvent(load_log_, LoadLog::TYPE_CANCELLED);
+  net_log_.AddEvent(NetLog::TYPE_CANCELLED, NULL);
 
   switch (next_state_) {
     case STATE_FETCH_PAC_SCRIPT_COMPLETE:

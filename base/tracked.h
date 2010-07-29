@@ -39,16 +39,10 @@ class Location {
   // Constructor should be called with a long-lived char*, such as __FILE__.
   // It assumes the provided value will persist as a global constant, and it
   // will not make a copy of it.
-  Location(const char* function_name, const char* file_name, int line_number)
-      : function_name_(function_name),
-        file_name_(file_name),
-        line_number_(line_number) { }
+  Location(const char* function_name, const char* file_name, int line_number);
 
   // Provide a default constructor for easy of debugging.
-  Location()
-      : function_name_("Unknown"),
-        file_name_("Unknown"),
-        line_number_(-1) { }
+  Location();
 
   // Comparison operator for insertion into a std::map<> hash tables.
   // All we need is *some* (any) hashing distinction.  Strings should already
@@ -107,8 +101,14 @@ class Tracked {
 
   bool MissingBirthplace() const;
 
+#if defined(TRACK_ALL_TASK_OBJECTS)
+  base::TimeTicks tracked_birth_time() const { return tracked_birth_time_; }
+#else
+  base::TimeTicks tracked_birth_time() const { return base::TimeTicks::Now(); }
+#endif  // defined(TRACK_ALL_TASK_OBJECTS)
+
  private:
-#ifdef TRACK_ALL_TASK_OBJECTS
+#if defined(TRACK_ALL_TASK_OBJECTS)
 
   // Pointer to instance were counts of objects with the same birth location
   // (on the same thread) are stored.
@@ -116,9 +116,9 @@ class Tracked {
   // The time this object was constructed.  If its life consisted of a long
   // waiting period, and then it became active, then this value is generally
   // reset before the object begins it active life.
-  base::Time tracked_birth_time_;
+  base::TimeTicks tracked_birth_time_;
 
-#endif  // TRACK_ALL_TASK_OBJECTS
+#endif  // defined(TRACK_ALL_TASK_OBJECTS)
 
   DISALLOW_COPY_AND_ASSIGN(Tracked);
 };

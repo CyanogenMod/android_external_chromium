@@ -3243,7 +3243,7 @@ ca{
                 y{"y"}
                 yM{"M/yyyy"}
                 yMEd{"E d/M/yyyy"}
-                yMMM{"MMM y"}
+                yMMM{"LLL y"}
                 yMMMEd{"EEE d MMM y"}
                 yMMMM{"LLLL 'del' y"}
                 yQ{"Q yyyy"}
@@ -3352,18 +3352,24 @@ ca{
                     d{"E dd/MM - E dd/MM"}
                 }
                 MMM{
-                    M{"MMM-MMM"}
+		// Chrome change begins
+                    M{"LLL-LLL"}
+		// Chrome change ends
                 }
                 MMMEd{
-                    M{"E d 'de' MMM - E d 'de' MMM"}
-                    d{"E d - E d 'de' MMM"}
+		// Chrome change begins
+                    M{"E d MMM - E d MMM"}
+                    d{"E d - E d MMM"}
+		// Chrome change ends
                 }
                 MMMM{
                     M{"LLLL-LLLL"}
                 }
                 MMMd{
-                    M{"d 'de' MMM - d 'de' MMM"}
-                    d{"d-d 'de' MMM"}
+		// Chrome change begins
+                    M{"d MMM - d MMM"}
+                    d{"d-d MMM"}
+		// Chrome change ends
                 }
                 Md{
                     M{"dd/MM - dd/MM"}
@@ -3404,22 +3410,28 @@ ca{
                     y{"E dd/MM/yy - E dd/MM/yy"}
                 }
                 yMMM{
-                    M{"MMM-MMM 'de' y"}
-                    y{"MMM 'de' y - MMM 'de' y"}
+		    // Chrome change begins
+                    M{"LLL-LLL 'de' y"}
+                    y{"LLL 'de' y - LLL 'de' y"}
+		    // Chrome change ends
                 }
                 yMMMEd{
-                    M{"E d 'de' MMM - E d 'de' MMM 'de' y"}
-                    d{"E d - E d 'de' MMM 'de' y"}
-                    y{"E d 'de' MMM 'de' y - E d 'de' MMM 'de' y"}
+		    // Chrome change begins
+                    M{"E d MMM - E d MMM 'de' y"}
+                    d{"E d - E d MMM 'de' y"}
+                    y{"E d MMM 'de' y - E d MMM 'de' y"}
+		    // Chrome change ends
                 }
                 yMMMM{
                     M{"MM – MM-yyyy"}
                     y{"MM-yyyy – MM-yyyy"}
                 }
                 yMMMd{
-                    M{"d 'de' MMM - d 'de' MMM 'de' y"}
-                    d{"d-d 'de' MMM 'de' y"}
-                    y{"d 'de' MMM 'de' y - d 'de' MMM 'de' y"}
+		    // Chrome change begins
+                    M{"d MMM - d MMM 'de' y"}
+                    d{"d-d MMM 'de' y"}
+                    y{"d MMM 'de' y - d MMM 'de' y"}
+		    // Chrome change ends
                 }
                 yMd{
                     M{"dd/MM/yy - dd/MM/yy"}
@@ -3429,21 +3441,21 @@ ca{
             }
             monthNames{
                 format{
-                    abbreviated{
-                        "gen.",
-                        "febr.",
-                        "març",
-                        "abr.",
-                        "maig",
-                        "juny",
-                        "jul.",
-                        "ag.",
-                        "set.",
-                        "oct.",
-                        "nov.",
-                        "des.",
-                    }
 		    // Chrome change begins
+                    abbreviated{
+                        "de gen.",
+                        "de febr.",
+                        "de març",
+                        "d’abr.",
+                        "de maig",
+                        "de juny",
+                        "de jul.",
+                        "d’ag.",
+                        "de set.",
+                        "d’oct.",
+                        "de nov.",
+                        "de des.",
+                    }
                     wide{
                         "de gener",
                         "de febrer",
@@ -3476,6 +3488,20 @@ ca{
                         "d",
                     }
 		    // Chrome addition begins
+                    abbreviated{
+                        "gen.",
+                        "febr.",
+                        "març",
+                        "abr.",
+                        "maig",
+                        "juny",
+                        "jul.",
+                        "ag.",
+                        "set.",
+                        "oct.",
+                        "nov.",
+                        "des.",
+                    }
                     wide{
                         "gener",
                         "febrer",

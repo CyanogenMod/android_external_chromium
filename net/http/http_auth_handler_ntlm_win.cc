@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,12 +14,17 @@
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
 #include "net/http/http_auth_sspi_win.h"
+#include "net/http/url_security_manager.h"
 
 #pragma comment(lib, "secur32.lib")
 
 namespace net {
 
-HttpAuthHandlerNTLM::HttpAuthHandlerNTLM() :  auth_sspi_("NTLM", NTLMSP_NAME) {
+HttpAuthHandlerNTLM::HttpAuthHandlerNTLM(
+    SSPILibrary* sspi_library, ULONG max_token_length,
+    URLSecurityManager* url_security_manager)
+    : auth_sspi_(sspi_library, "NTLM", NTLMSP_NAME, max_token_length),
+      url_security_manager_(url_security_manager) {
 }
 
 HttpAuthHandlerNTLM::~HttpAuthHandlerNTLM() {
@@ -34,6 +39,51 @@ bool HttpAuthHandlerNTLM::IsFinalRound() {
   return auth_sspi_.IsFinalRound();
 }
 
+bool HttpAuthHandlerNTLM::AllowsDefaultCredentials() {
+  if (target_ == HttpAuth::AUTH_PROXY)
+    return true;
+  if (!url_security_manager_)
+    return false;
+  return url_security_manager_->CanUseDefaultCredentials(origin_);
+}
+
+HttpAuthHandlerNTLM::Factory::Factory()
+    : max_token_length_(0),
+      first_creation_(true),
+      is_unsupported_(false),
+      sspi_library_(SSPILibrary::GetDefault()) {
+}
+
+HttpAuthHandlerNTLM::Factory::~Factory() {
+}
+
+int HttpAuthHandlerNTLM::Factory::CreateAuthHandler(
+    HttpAuth::ChallengeTokenizer* challenge,
+    HttpAuth::Target target,
+    const GURL& origin,
+    CreateReason reason,
+    int digest_nonce_count,
+    const BoundNetLog& net_log,
+    scoped_ptr<HttpAuthHandler>* handler) {
+  if (is_unsupported_ || reason == CREATE_PREEMPTIVE)
+    return ERR_UNSUPPORTED_AUTH_SCHEME;
+  if (max_token_length_ == 0) {
+    int rv = DetermineMaxTokenLength(sspi_library_, NTLMSP_NAME,
+                                     &max_token_length_);
+    if (rv == ERR_UNSUPPORTED_AUTH_SCHEME)
+      is_unsupported_ = true;
+    if (rv != OK)
+      return rv;
+  }
+  // TODO(cbentzel): Move towards model of parsing in the factory
+  //                 method and only constructing when valid.
+  scoped_ptr<HttpAuthHandler> tmp_handler(
+      new HttpAuthHandlerNTLM(sspi_library_, max_token_length_,
+                              url_security_manager()));
+  if (!tmp_handler->InitFromChallenge(challenge, target, origin, net_log))
+    return ERR_INVALID_RESPONSE;
+  handler->swap(tmp_handler);
+  return OK;
+}
 
 }  // namespace net
-

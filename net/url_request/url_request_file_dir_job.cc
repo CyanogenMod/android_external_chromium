@@ -6,8 +6,8 @@
 
 #include "base/file_util.h"
 #include "base/message_loop.h"
-#include "base/string_util.h"
 #include "base/sys_string_conversions.h"
+#include "base/utf_string_conversions.h"
 #include "base/time.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/io_buffer.h"
@@ -210,25 +210,4 @@ void URLRequestFileDirJob::CompleteRead() {
       NotifyDone(URLRequestStatus(URLRequestStatus::FAILED, 0));
     }
   }
-}
-
-bool URLRequestFileDirJob::IsRedirectResponse(
-    GURL* location, int* http_status_code) {
-  // If the URL did not have a trailing slash, treat the response as a redirect
-  // to the URL with a trailing slash appended.
-  std::string path = request_->url().path();
-  if (path.empty() || (path[path.size() - 1] != '/')) {
-    // This happens when we discovered the file is a directory, so needs a
-    // slash at the end of the path.
-    std::string new_path = path;
-    new_path.push_back('/');
-    GURL::Replacements replacements;
-    replacements.SetPathStr(new_path);
-
-    *location = request_->url().ReplaceComponents(replacements);
-    *http_status_code = 301;  // simulate a permanent redirect
-    return true;
-  }
-
-  return false;
 }

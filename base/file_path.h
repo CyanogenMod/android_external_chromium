@@ -66,7 +66,7 @@
 //
 // WARNING: FilePaths should ALWAYS be displayed with LTR directionality, even
 // when the UI language is RTL. This means you always need to pass filepaths
-// through l10n_util::WrapPathWithLTRFormatting() before displaying it in the
+// through base::i18n::WrapPathWithLTRFormatting() before displaying it in the
 // RTL UI.
 //
 // This is a very common source of bugs, please try to keep this in mind.
@@ -150,14 +150,11 @@ class FilePath {
   // The character used to identify a file extension.
   static const CharType kExtensionSeparator;
 
-  FilePath() {}
-  FilePath(const FilePath& that) : path_(that.path_) {}
-  explicit FilePath(const StringType& path) : path_(path) {}
-
-  FilePath& operator=(const FilePath& that) {
-    path_ = that.path_;
-    return *this;
-  }
+  FilePath();
+  FilePath(const FilePath& that);
+  explicit FilePath(const StringType& path);
+  ~FilePath();
+  FilePath& operator=(const FilePath& that);
 
   bool operator==(const FilePath& that) const;
 
@@ -171,6 +168,8 @@ class FilePath {
   const StringType& value() const { return path_; }
 
   bool empty() const { return path_.empty(); }
+
+  void clear() { path_.clear(); }
 
   // Returns true if |character| is in kSeparators.
   static bool IsSeparator(CharType character);
@@ -278,11 +277,20 @@ class FilePath {
   bool ReferencesParent() const;
 
   // Older Chromium code assumes that paths are always wstrings.
-  // This function converts a wstring to a FilePath, and is useful to smooth
-  // porting that old code to the FilePath API.
-  // It has "Hack" in its name so people feel bad about using it.
-  // TODO(port): remove these functions.
+  // These functions convert wstrings to/from FilePaths, and are
+  // useful to smooth porting that old code to the FilePath API.
+  // They have "Hack" in their names so people feel bad about using them.
+  // http://code.google.com/p/chromium/issues/detail?id=24672
+  //
+  // If you are trying to be a good citizen and remove these, ask yourself:
+  // - Am I interacting with other Chrome code that deals with files?  Then
+  //   try to convert the API into using FilePath.
+  // - Am I interacting with OS-native calls?  Then use value() to get at an
+  //   OS-native string format.
+  // - Am I using well-known file names, like "config.ini"?  Then use the
+  //   ASCII functions (we require paths to always be supersets of ASCII).
   static FilePath FromWStringHack(const std::wstring& wstring);
+  std::wstring ToWStringHack() const;
 
   // Static helper method to write a StringType to a pickle.
   static void WriteStringTypeToPickle(Pickle* pickle,
@@ -292,6 +300,11 @@ class FilePath {
 
   void WriteToPickle(Pickle* pickle);
   bool ReadFromPickle(Pickle* pickle, void** iter);
+
+#if defined(FILE_PATH_USES_WIN_SEPARATORS)
+  // Normalize all path separators to backslash.
+  FilePath NormalizeWindowsPathSeparators() const;
+#endif
 
   // Compare two strings in the same way the file system does.
   // Note that these always ignore case, even on file systems that are case-
@@ -328,13 +341,6 @@ class FilePath {
                                    const StringType& string2);
 #endif
 
-  // Older Chromium code assumes that paths are always wstrings.
-  // This function produces a wstring from a FilePath, and is useful to smooth
-  // porting that old code to the FilePath API.
-  // It has "Hack" in its name so people feel bad about using it.
-  // TODO(port): remove these functions.
-  std::wstring ToWStringHack() const;
-
  private:
   // Remove trailing separators from this object.  If the path is absolute, it
   // will never be stripped any more than to refer to the absolute root
@@ -346,11 +352,16 @@ class FilePath {
   StringType path_;
 };
 
-// Macros for string literal initialization of FilePath::CharType[].
+// Macros for string literal initialization of FilePath::CharType[], and for
+// using a FilePath::CharType[] in a printf-style format string.
 #if defined(OS_POSIX)
 #define FILE_PATH_LITERAL(x) x
+#define PRFilePath "s"
+#define PRFilePathLiteral "%s"
 #elif defined(OS_WIN)
 #define FILE_PATH_LITERAL(x) L ## x
+#define PRFilePath "ls"
+#define PRFilePathLiteral L"%ls"
 #endif  // OS_WIN
 
 // Provide a hash function so that hash_sets and maps can contain FilePath

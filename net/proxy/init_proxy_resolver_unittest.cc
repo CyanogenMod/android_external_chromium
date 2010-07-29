@@ -4,10 +4,11 @@
 
 #include <vector>
 
+#include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "net/base/net_errors.h"
-#include "net/base/load_log.h"
-#include "net/base/load_log_util.h"
-#include "net/base/load_log_unittest.h"
+#include "net/base/net_log.h"
+#include "net/base/net_log_unittest.h"
 #include "net/base/test_completion_callback.h"
 #include "net/proxy/init_proxy_resolver.h"
 #include "net/proxy/proxy_config.h"
@@ -34,12 +35,12 @@ class Rules {
           set_pac_error(set_pac_error) {
     }
 
-    std::string bytes() const {
+    string16 text() const {
       if (set_pac_error == OK)
-        return url.spec() + "!valid-script";
+        return UTF8ToUTF16(url.spec() + "!valid-script");
       if (fetch_error == OK)
-        return url.spec() + "!invalid-script";
-      return std::string();
+        return UTF8ToUTF16(url.spec() + "!invalid-script");
+      return string16();
     }
 
     GURL url;
@@ -69,17 +70,17 @@ class Rules {
       if (it->url == url)
         return *it;
     }
-    CHECK(false) << "Rule not found for " << url;
+    LOG(FATAL) << "Rule not found for " << url;
     return rules_[0];
   }
 
-  const Rule& GetRuleByBytes(const std::string& bytes) const {
+  const Rule& GetRuleByText(const string16& text) const {
     for (RuleList::const_iterator it = rules_.begin(); it != rules_.end();
          ++it) {
-      if (it->bytes() == bytes)
+      if (it->text() == text)
         return *it;
     }
-    CHECK(false) << "Rule not found for " << bytes;
+    LOG(FATAL) << "Rule not found for " << text;
     return rules_[0];
   }
 
@@ -94,13 +95,13 @@ class RuleBasedProxyScriptFetcher : public ProxyScriptFetcher {
 
   // ProxyScriptFetcher implementation.
   virtual int Fetch(const GURL& url,
-                    std::string* bytes,
+                    string16* text,
                     CompletionCallback* callback) {
     const Rules::Rule& rule = rules_->GetRuleByUrl(url);
     int rv = rule.fetch_error;
     EXPECT_NE(ERR_UNEXPECTED, rv);
     if (rv == OK)
-      *bytes = rule.bytes();
+      *text = rule.text();
     return rv;
   }
 
@@ -120,7 +121,7 @@ class RuleBasedProxyResolver : public ProxyResolver {
                              ProxyInfo* /*results*/,
                              CompletionCallback* /*callback*/,
                              RequestHandle* /*request_handle*/,
-                             LoadLog* /*load_log*/) {
+                             const BoundNetLog& /*net_log*/) {
     NOTREACHED();
     return ERR_UNEXPECTED;
   }
@@ -129,35 +130,37 @@ class RuleBasedProxyResolver : public ProxyResolver {
     NOTREACHED();
   }
 
-  virtual int SetPacScript(const GURL& pac_url,
-                           const std::string& pac_bytes,
-                           CompletionCallback* callback) {
+  virtual int SetPacScript(
+      const scoped_refptr<ProxyResolverScriptData>& script_data,
+      CompletionCallback* callback) {
+
+   const GURL url =
+      script_data->type() == ProxyResolverScriptData::TYPE_SCRIPT_URL ?
+          script_data->url() : GURL();
+
     const Rules::Rule& rule = expects_pac_bytes() ?
-        rules_->GetRuleByBytes(pac_bytes) :
-        rules_->GetRuleByUrl(pac_url);
+        rules_->GetRuleByText(script_data->utf16()) :
+        rules_->GetRuleByUrl(url);
 
     int rv = rule.set_pac_error;
     EXPECT_NE(ERR_UNEXPECTED, rv);
 
-    if (expects_pac_bytes())
-      EXPECT_EQ(rule.bytes(), pac_bytes);
-    else
-      EXPECT_EQ(rule.url, pac_url);
-
-    if (rv == OK) {
-      pac_bytes_ = pac_bytes;
-      pac_url_ = pac_url;
+    if (expects_pac_bytes()) {
+      EXPECT_EQ(rule.text(), script_data->utf16());
+    } else {
+      EXPECT_EQ(rule.url, url);
     }
+
+    if (rv == OK)
+      script_data_ = script_data;
     return rv;
   }
 
-  const std::string& pac_bytes() const { return pac_bytes_; }
-  const GURL& pac_url() const { return pac_url_; }
+  const ProxyResolverScriptData* script_data() const { return script_data_; }
 
  private:
   const Rules* rules_;
-  std::string pac_bytes_;
-  GURL pac_url_;
+  scoped_refptr<ProxyResolverScriptData> script_data_;
 };
 
 // Succeed using custom PAC script.
@@ -167,29 +170,30 @@ TEST(InitProxyResolverTest, CustomPacSucceeds) {
   RuleBasedProxyScriptFetcher fetcher(&rules);
 
   ProxyConfig config;
-  config.pac_url = GURL("http://custom/proxy.pac");
+  config.set_pac_url(GURL("http://custom/proxy.pac"));
 
   Rules::Rule rule = rules.AddSuccessRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  scoped_refptr<LoadLog> log(new LoadLog(LoadLog::kUnbounded));
-  InitProxyResolver init(&resolver, &fetcher);
-  EXPECT_EQ(OK, init.Init(config, &callback, log));
-  EXPECT_EQ(rule.bytes(), resolver.pac_bytes());
+  CapturingNetLog log(CapturingNetLog::kUnbounded);
+  InitProxyResolver init(&resolver, &fetcher, &log);
+  EXPECT_EQ(OK, init.Init(config, &callback));
+  EXPECT_EQ(rule.text(), resolver.script_data()->utf16());
 
-  // Check the LoadLog was filled correctly.
-  EXPECT_EQ(9u, log->entries().size());
+  // Check the NetLog was filled correctly.
+  EXPECT_EQ(6u, log.entries().size());
   EXPECT_TRUE(LogContainsBeginEvent(
-      *log, 0, LoadLog::TYPE_INIT_PROXY_RESOLVER));
+      log.entries(), 0, NetLog::TYPE_INIT_PROXY_RESOLVER));
   EXPECT_TRUE(LogContainsBeginEvent(
-      *log, 1, LoadLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
+      log.entries(), 1, NetLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
   EXPECT_TRUE(LogContainsEndEvent(
-      *log, 4, LoadLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
+      log.entries(), 2, NetLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
   EXPECT_TRUE(LogContainsBeginEvent(
-      *log, 5, LoadLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT));
+      log.entries(), 3, NetLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT));
   EXPECT_TRUE(LogContainsEndEvent(
-      *log, 7, LoadLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT));
-  EXPECT_TRUE(LogContainsEndEvent(*log, 8, LoadLog::TYPE_INIT_PROXY_RESOLVER));
+      log.entries(), 4, NetLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT));
+  EXPECT_TRUE(LogContainsEndEvent(
+      log.entries(), 5, NetLog::TYPE_INIT_PROXY_RESOLVER));
 }
 
 // Fail downloading the custom PAC script.
@@ -199,25 +203,26 @@ TEST(InitProxyResolverTest, CustomPacFails1) {
   RuleBasedProxyScriptFetcher fetcher(&rules);
 
   ProxyConfig config;
-  config.pac_url = GURL("http://custom/proxy.pac");
+  config.set_pac_url(GURL("http://custom/proxy.pac"));
 
   rules.AddFailDownloadRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  scoped_refptr<LoadLog> log(new LoadLog(LoadLog::kUnbounded));
-  InitProxyResolver init(&resolver, &fetcher);
-  EXPECT_EQ(kFailedDownloading, init.Init(config, &callback, log));
-  EXPECT_EQ("", resolver.pac_bytes());
+  CapturingNetLog log(CapturingNetLog::kUnbounded);
+  InitProxyResolver init(&resolver, &fetcher, &log);
+  EXPECT_EQ(kFailedDownloading, init.Init(config, &callback));
+  EXPECT_EQ(NULL, resolver.script_data());
 
-  // Check the LoadLog was filled correctly.
-  EXPECT_EQ(6u, log->entries().size());
+  // Check the NetLog was filled correctly.
+  EXPECT_EQ(4u, log.entries().size());
   EXPECT_TRUE(LogContainsBeginEvent(
-      *log, 0, LoadLog::TYPE_INIT_PROXY_RESOLVER));
+      log.entries(), 0, NetLog::TYPE_INIT_PROXY_RESOLVER));
   EXPECT_TRUE(LogContainsBeginEvent(
-      *log, 1, LoadLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
+      log.entries(), 1, NetLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
   EXPECT_TRUE(LogContainsEndEvent(
-      *log, 4, LoadLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
-  EXPECT_TRUE(LogContainsEndEvent(*log, 5, LoadLog::TYPE_INIT_PROXY_RESOLVER));
+      log.entries(), 2, NetLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
+  EXPECT_TRUE(LogContainsEndEvent(
+      log.entries(), 3, NetLog::TYPE_INIT_PROXY_RESOLVER));
 }
 
 // Fail parsing the custom PAC script.
@@ -227,14 +232,14 @@ TEST(InitProxyResolverTest, CustomPacFails2) {
   RuleBasedProxyScriptFetcher fetcher(&rules);
 
   ProxyConfig config;
-  config.pac_url = GURL("http://custom/proxy.pac");
+  config.set_pac_url(GURL("http://custom/proxy.pac"));
 
   rules.AddFailParsingRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  InitProxyResolver init(&resolver, &fetcher);
-  EXPECT_EQ(kFailedParsing, init.Init(config, &callback, NULL));
-  EXPECT_EQ("", resolver.pac_bytes());
+  InitProxyResolver init(&resolver, &fetcher, NULL);
+  EXPECT_EQ(kFailedParsing, init.Init(config, &callback));
+  EXPECT_EQ(NULL, resolver.script_data());
 }
 
 // Fail downloading the custom PAC script, because the fetcher was NULL.
@@ -243,12 +248,12 @@ TEST(InitProxyResolverTest, HasNullProxyScriptFetcher) {
   RuleBasedProxyResolver resolver(&rules, true /*expects_pac_bytes*/);
 
   ProxyConfig config;
-  config.pac_url = GURL("http://custom/proxy.pac");
+  config.set_pac_url(GURL("http://custom/proxy.pac"));
 
   TestCompletionCallback callback;
-  InitProxyResolver init(&resolver, NULL);
-  EXPECT_EQ(ERR_UNEXPECTED, init.Init(config, &callback, NULL));
-  EXPECT_EQ("", resolver.pac_bytes());
+  InitProxyResolver init(&resolver, NULL, NULL);
+  EXPECT_EQ(ERR_UNEXPECTED, init.Init(config, &callback));
+  EXPECT_EQ(NULL, resolver.script_data());
 }
 
 // Succeeds in choosing autodetect (wpad).
@@ -258,14 +263,14 @@ TEST(InitProxyResolverTest, AutodetectSuccess) {
   RuleBasedProxyScriptFetcher fetcher(&rules);
 
   ProxyConfig config;
-  config.auto_detect = true;
+  config.set_auto_detect(true);
 
   Rules::Rule rule = rules.AddSuccessRule("http://wpad/wpad.dat");
 
   TestCompletionCallback callback;
-  InitProxyResolver init(&resolver, &fetcher);
-  EXPECT_EQ(OK, init.Init(config, &callback, NULL));
-  EXPECT_EQ(rule.bytes(), resolver.pac_bytes());
+  InitProxyResolver init(&resolver, &fetcher, NULL);
+  EXPECT_EQ(OK, init.Init(config, &callback));
+  EXPECT_EQ(rule.text(), resolver.script_data()->utf16());
 }
 
 // Fails at WPAD (downloading), but succeeds in choosing the custom PAC.
@@ -275,16 +280,16 @@ TEST(InitProxyResolverTest, AutodetectFailCustomSuccess1) {
   RuleBasedProxyScriptFetcher fetcher(&rules);
 
   ProxyConfig config;
-  config.auto_detect = true;
-  config.pac_url = GURL("http://custom/proxy.pac");
+  config.set_auto_detect(true);
+  config.set_pac_url(GURL("http://custom/proxy.pac"));
 
   rules.AddFailDownloadRule("http://wpad/wpad.dat");
   Rules::Rule rule = rules.AddSuccessRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  InitProxyResolver init(&resolver, &fetcher);
-  EXPECT_EQ(OK, init.Init(config, &callback, NULL));
-  EXPECT_EQ(rule.bytes(), resolver.pac_bytes());
+  InitProxyResolver init(&resolver, &fetcher, NULL);
+  EXPECT_EQ(OK, init.Init(config, &callback));
+  EXPECT_EQ(rule.text(), resolver.script_data()->utf16());
 }
 
 // Fails at WPAD (parsing), but succeeds in choosing the custom PAC.
@@ -294,41 +299,46 @@ TEST(InitProxyResolverTest, AutodetectFailCustomSuccess2) {
   RuleBasedProxyScriptFetcher fetcher(&rules);
 
   ProxyConfig config;
-  config.auto_detect = true;
-  config.pac_url = GURL("http://custom/proxy.pac");
+  config.set_auto_detect(true);
+  config.set_pac_url(GURL("http://custom/proxy.pac"));
 
   rules.AddFailParsingRule("http://wpad/wpad.dat");
   Rules::Rule rule = rules.AddSuccessRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  scoped_refptr<LoadLog> log(new LoadLog(LoadLog::kUnbounded));
-  InitProxyResolver init(&resolver, &fetcher);
-  EXPECT_EQ(OK, init.Init(config, &callback, log));
-  EXPECT_EQ(rule.bytes(), resolver.pac_bytes());
+  CapturingNetLog log(CapturingNetLog::kUnbounded);
+  InitProxyResolver init(&resolver, &fetcher, &log);
+  EXPECT_EQ(OK, init.Init(config, &callback));
+  EXPECT_EQ(rule.text(), resolver.script_data()->utf16());
 
-  // Check the LoadLog was filled correctly.
+  // Check the NetLog was filled correctly.
   // (Note that the Fetch and Set states are repeated since both WPAD and custom
   // PAC scripts are tried).
-  EXPECT_EQ(17u, log->entries().size());
+  EXPECT_EQ(11u, log.entries().size());
   EXPECT_TRUE(LogContainsBeginEvent(
-      *log, 0, LoadLog::TYPE_INIT_PROXY_RESOLVER));
+      log.entries(), 0, NetLog::TYPE_INIT_PROXY_RESOLVER));
   EXPECT_TRUE(LogContainsBeginEvent(
-      *log, 1, LoadLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
+      log.entries(), 1, NetLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
   EXPECT_TRUE(LogContainsEndEvent(
-      *log, 4, LoadLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
+      log.entries(), 2, NetLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
   EXPECT_TRUE(LogContainsBeginEvent(
-      *log, 5, LoadLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT));
+      log.entries(), 3, NetLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT));
   EXPECT_TRUE(LogContainsEndEvent(
-      *log, 7, LoadLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT));
+      log.entries(), 4, NetLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT));
+  EXPECT_TRUE(LogContainsEvent(
+      log.entries(), 5,
+      NetLog::TYPE_INIT_PROXY_RESOLVER_FALLING_BACK_TO_NEXT_PAC_URL,
+      NetLog::PHASE_NONE));
   EXPECT_TRUE(LogContainsBeginEvent(
-      *log, 9, LoadLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
+      log.entries(), 6, NetLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
   EXPECT_TRUE(LogContainsEndEvent(
-      *log, 12, LoadLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
+      log.entries(), 7, NetLog::TYPE_INIT_PROXY_RESOLVER_FETCH_PAC_SCRIPT));
   EXPECT_TRUE(LogContainsBeginEvent(
-      *log, 13, LoadLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT));
+      log.entries(), 8, NetLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT));
   EXPECT_TRUE(LogContainsEndEvent(
-      *log, 15, LoadLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT));
-  EXPECT_TRUE(LogContainsEndEvent(*log, 16, LoadLog::TYPE_INIT_PROXY_RESOLVER));
+      log.entries(), 9, NetLog::TYPE_INIT_PROXY_RESOLVER_SET_PAC_SCRIPT));
+  EXPECT_TRUE(LogContainsEndEvent(
+      log.entries(), 10, NetLog::TYPE_INIT_PROXY_RESOLVER));
 }
 
 // Fails at WPAD (downloading), and fails at custom PAC (downloading).
@@ -338,16 +348,16 @@ TEST(InitProxyResolverTest, AutodetectFailCustomFails1) {
   RuleBasedProxyScriptFetcher fetcher(&rules);
 
   ProxyConfig config;
-  config.auto_detect = true;
-  config.pac_url = GURL("http://custom/proxy.pac");
+  config.set_auto_detect(true);
+  config.set_pac_url(GURL("http://custom/proxy.pac"));
 
   rules.AddFailDownloadRule("http://wpad/wpad.dat");
   rules.AddFailDownloadRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  InitProxyResolver init(&resolver, &fetcher);
-  EXPECT_EQ(kFailedDownloading, init.Init(config, &callback, NULL));
-  EXPECT_EQ("", resolver.pac_bytes());
+  InitProxyResolver init(&resolver, &fetcher, NULL);
+  EXPECT_EQ(kFailedDownloading, init.Init(config, &callback));
+  EXPECT_EQ(NULL, resolver.script_data());
 }
 
 // Fails at WPAD (downloading), and fails at custom PAC (parsing).
@@ -357,16 +367,16 @@ TEST(InitProxyResolverTest, AutodetectFailCustomFails2) {
   RuleBasedProxyScriptFetcher fetcher(&rules);
 
   ProxyConfig config;
-  config.auto_detect = true;
-  config.pac_url = GURL("http://custom/proxy.pac");
+  config.set_auto_detect(true);
+  config.set_pac_url(GURL("http://custom/proxy.pac"));
 
   rules.AddFailDownloadRule("http://wpad/wpad.dat");
   rules.AddFailParsingRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  InitProxyResolver init(&resolver, &fetcher);
-  EXPECT_EQ(kFailedParsing, init.Init(config, &callback, NULL));
-  EXPECT_EQ("", resolver.pac_bytes());
+  InitProxyResolver init(&resolver, &fetcher, NULL);
+  EXPECT_EQ(kFailedParsing, init.Init(config, &callback));
+  EXPECT_EQ(NULL, resolver.script_data());
 }
 
 // Fails at WPAD (parsing), but succeeds in choosing the custom PAC.
@@ -378,16 +388,16 @@ TEST(InitProxyResolverTest, AutodetectFailCustomSuccess2_NoFetch) {
   RuleBasedProxyScriptFetcher fetcher(&rules);
 
   ProxyConfig config;
-  config.auto_detect = true;
-  config.pac_url = GURL("http://custom/proxy.pac");
+  config.set_auto_detect(true);
+  config.set_pac_url(GURL("http://custom/proxy.pac"));
 
   rules.AddFailParsingRule("");  // Autodetect.
   Rules::Rule rule = rules.AddSuccessRule("http://custom/proxy.pac");
 
   TestCompletionCallback callback;
-  InitProxyResolver init(&resolver, &fetcher);
-  EXPECT_EQ(OK, init.Init(config, &callback, NULL));
-  EXPECT_EQ(rule.url, resolver.pac_url());
+  InitProxyResolver init(&resolver, &fetcher, NULL);
+  EXPECT_EQ(OK, init.Init(config, &callback));
+  EXPECT_EQ(rule.url, resolver.script_data()->url());
 }
 
 }  // namespace

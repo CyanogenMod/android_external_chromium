@@ -1,6 +1,9 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+// This file intentionally does not have header guards, it's included
+// inside a macro to generate enum.
 
 // This file contains the list of network errors.
 
@@ -11,6 +14,8 @@
 //   200-299 Certificate errors
 //   300-399 HTTP errors
 //   400-499 Cache errors
+//   500-599 ?
+//   600-699 FTP errors
 //
 
 // An asynchronous IO operation is not yet complete.  This usually does not
@@ -55,6 +60,10 @@ NET_ERROR(INSUFFICIENT_RESOURCES, -12)
 
 // Memory allocation failed.
 NET_ERROR(OUT_OF_MEMORY, -13)
+
+// The file upload failed because the file's modification time was different
+// from the expectation.
+NET_ERROR(UPLOAD_FILE_CHANGED, -14)
 
 // A connection was closed (corresponding to a TCP FIN).
 NET_ERROR(CONNECTION_CLOSED, -100)
@@ -105,8 +114,9 @@ NET_ERROR(SSL_VERSION_OR_CIPHER_MISMATCH, -113)
 // The server requested a renegotiation (rehandshake).
 NET_ERROR(SSL_RENEGOTIATION_REQUESTED, -114)
 
-// The proxy requested authentication (for tunnel establishment).
-NET_ERROR(PROXY_AUTH_REQUESTED, -115)
+// The proxy requested authentication (for tunnel establishment) with an
+// unsupported method.
+NET_ERROR(PROXY_AUTH_UNSUPPORTED, -115)
 
 // During SSL renegotiation (rehandshake), the server sent a certificate with
 // an error.
@@ -124,6 +134,43 @@ NET_ERROR(CONNECTION_TIMED_OUT, -118)
 // There are too many pending DNS resolves, so a request in the queue was
 // aborted.
 NET_ERROR(HOST_RESOLVER_QUEUE_TOO_LARGE, -119)
+
+// Failed establishing a connection to the SOCKS proxy server for a target host.
+NET_ERROR(SOCKS_CONNECTION_FAILED, -120)
+
+// The SOCKS proxy server failed establishing connection to the target host
+// because that host is unreachable.
+NET_ERROR(SOCKS_CONNECTION_HOST_UNREACHABLE, -121)
+
+// The request to negotiate an alternate protocol failed.
+NET_ERROR(NPN_NEGOTIATION_FAILED, -122)
+
+// The peer sent an SSL no_renegotiation alert message.
+NET_ERROR(SSL_NO_RENEGOTIATION, -123)
+
+// Winsock sometimes reports more data written than passed.  This is probably
+// due to a broken LSP.
+NET_ERROR(WINSOCK_UNEXPECTED_WRITTEN_BYTES, -124)
+
+// An SSL peer sent us a fatal decompression_failure alert. This typically
+// occurs when a peer selects DEFLATE compression in the mismaken belief that
+// it supports it.
+NET_ERROR(SSL_DECOMPRESSION_FAILURE_ALERT, -125)
+
+// An SSL peer sent us a fatal bad_record_mac alert. This has been observed
+// from servers with buggy DEFLATE support.
+NET_ERROR(SSL_BAD_RECORD_MAC_ALERT, -126)
+
+// The proxy requested authentication (for tunnel establishment).
+NET_ERROR(PROXY_AUTH_REQUESTED, -127)
+
+// A known TLS strict server didn't offer the renegotiation extension.
+NET_ERROR(SSL_UNSAFE_NEGOTIATION, -128)
+
+// The socket is reporting that we tried to provide new credentials after a
+// a failed attempt on a connection without keep alive.  We need to
+// reestablish the transport socket in order to retry the authentication.
+NET_ERROR(RETRY_CONNECTION, -129)
 
 // Certificate error codes
 //
@@ -176,6 +223,8 @@ NET_ERROR(CERT_AUTHORITY_INVALID, -202)
 //
 // MSDN describes this error as follows:
 //   "The SSL certificate contains errors."
+// NOTE: It's unclear how this differs from ERR_CERT_INVALID. For consistency,
+// use that code instead of this one from now on.
 //
 NET_ERROR(CERT_CONTAINS_ERRORS, -203)
 
@@ -289,14 +338,27 @@ NET_ERROR(ENCODING_CONVERSION_FAILED, -333)
 // The server sent an FTP directory listing in a format we do not understand.
 NET_ERROR(UNRECOGNIZED_FTP_DIRECTORY_LISTING_FORMAT, -334)
 
-// Attempted use of an unknown FLIP stream id.
-NET_ERROR(INVALID_FLIP_STREAM, -335)
+// Attempted use of an unknown SPDY stream id.
+NET_ERROR(INVALID_SPDY_STREAM, -335)
 
 // There are no supported proxies in the provided list.
 NET_ERROR(NO_SUPPORTED_PROXIES, -336)
 
-// There is a FLIP protocol framing error.
-NET_ERROR(FLIP_PROTOCOL_ERROR, -337)
+// There is a SPDY protocol framing error.
+NET_ERROR(SPDY_PROTOCOL_ERROR, -337)
+
+// Credentials could not be estalished during HTTP Authentication.
+NET_ERROR(INVALID_AUTH_CREDENTIALS, -338)
+
+// An HTTP Authentication scheme was tried which is not supported on this
+// machine.
+NET_ERROR(UNSUPPORTED_AUTH_SCHEME, -339)
+
+// Detecting the encoding of the response failed.
+NET_ERROR(ENCODING_DETECTION_FAILED, -340)
+
+// (GSSAPI) No Kerberos credentials were available during HTTP Authentication.
+NET_ERROR(MISSING_AUTH_CREDENTIALS, -341)
 
 // The cache does not have the requested entry.
 NET_ERROR(CACHE_MISS, -400)
@@ -323,3 +385,43 @@ NET_ERROR(CACHE_RACE, -406)
 
 // The server's response was insecure (e.g. there was a cert error).
 NET_ERROR(INSECURE_RESPONSE, -501)
+
+// The server responded to a <keygen> with a generated client cert that we
+// don't have the matching private key for.
+NET_ERROR(NO_PRIVATE_KEY_FOR_CERT, -502)
+
+// An error adding to the OS certificate database (e.g. OS X Keychain).
+NET_ERROR(ADD_USER_CERT_FAILED, -503)
+
+// *** Code -600 is reserved (was FTP_PASV_COMMAND_FAILED). ***
+
+// A generic error for failed FTP control connection command.
+// If possible, please use or add a more specific error code.
+NET_ERROR(FTP_FAILED, -601)
+
+// The server cannot fulfill the request at this point. This is a temporary
+// error.
+// FTP response code 421.
+NET_ERROR(FTP_SERVICE_UNAVAILABLE, -602)
+
+// The server has aborted the transfer.
+// FTP response code 426.
+NET_ERROR(FTP_TRANSFER_ABORTED, -603)
+
+// The file is busy, or some other temporary error condition on opening
+// the file.
+// FTP response code 450.
+NET_ERROR(FTP_FILE_BUSY, -604)
+
+// Server rejected our command because of syntax errors.
+// FTP response codes 500, 501.
+NET_ERROR(FTP_SYNTAX_ERROR, -605)
+
+// Server does not support the command we issued.
+// FTP response codes 502, 504.
+NET_ERROR(FTP_COMMAND_NOT_SUPPORTED, -606)
+
+// Server rejected our command because we didn't issue the commands in right
+// order.
+// FTP response code 503.
+NET_ERROR(FTP_BAD_COMMAND_SEQUENCE, -607)

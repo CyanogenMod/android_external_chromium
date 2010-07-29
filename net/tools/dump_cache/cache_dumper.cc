@@ -1,25 +1,27 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/tools/dump_cache/cache_dumper.h"
 
 #include "net/base/io_buffer.h"
+#include "net/base/net_errors.h"
 #include "net/disk_cache/entry_impl.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_response_info.h"
 #include "net/tools/dump_cache/url_to_filename_encoder.h"
 
-bool CacheDumper::CreateEntry(const std::string& key,
-                              disk_cache::Entry** entry) {
-  return cache_->CreateEntry(key, entry);
+int CacheDumper::CreateEntry(const std::string& key,
+                             disk_cache::Entry** entry,
+                             net::CompletionCallback* callback) {
+  return cache_->CreateEntry(key, entry, callback);
 }
 
-bool CacheDumper::WriteEntry(disk_cache::Entry* entry, int index, int offset,
-                             net::IOBuffer* buf, int buf_len) {
-  int written = entry->WriteData(index, offset, buf, buf_len, NULL, false);
-  return written == buf_len;
+int CacheDumper::WriteEntry(disk_cache::Entry* entry, int index, int offset,
+                            net::IOBuffer* buf, int buf_len,
+                            net::CompletionCallback* callback) {
+  return entry->WriteData(index, offset, buf, buf_len, callback, false);
 }
 
 void CacheDumper::CloseEntry(disk_cache::Entry* entry, base::Time last_used,
@@ -48,7 +50,7 @@ bool SafeCreateDirectory(const std::wstring& path) {
     pos = 4;
 
   // Create the subdirectories individually
-  while((pos = path.find(backslash, pos)) != std::wstring::npos) {
+  while ((pos = path.find(backslash, pos)) != std::wstring::npos) {
     std::wstring subdir = path.substr(0, pos);
     CreateDirectoryW(subdir.c_str(), NULL);
     // we keep going even if directory creation failed.
@@ -61,10 +63,17 @@ bool SafeCreateDirectory(const std::wstring& path) {
 #endif
 }
 
-bool DiskDumper::CreateEntry(const std::string& key,
-                             disk_cache::Entry** entry) {
+int DiskDumper::CreateEntry(const std::string& key,
+                            disk_cache::Entry** entry,
+                            net::CompletionCallback* callback) {
   FilePath path(path_);
-  entry_path_ = net::UrlToFilenameEncoder::Encode(key, path);
+  // The URL may not start with a valid protocol; search for it.
+  int urlpos = key.find("http");
+  std::string url = urlpos > 0 ? key.substr(urlpos) : key;
+  std::string base_path = WideToASCII(path_);
+  std::string new_path =
+      net::UrlToFilenameEncoder::Encode(url, base_path, false);
+  entry_path_ = FilePath(ASCIIToWide(new_path));
 
 #ifdef WIN32_LARGE_FILENAME_SUPPORT
   // In order for long filenames to work, we'll need to prepend
@@ -86,10 +95,12 @@ bool DiskDumper::CreateEntry(const std::string& key,
 #ifdef WIN32_LARGE_FILENAME_SUPPORT
   entry_ = CreateFileW(file.c_str(), GENERIC_WRITE|GENERIC_READ, 0, 0,
                        CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
-  return entry_ != INVALID_HANDLE_VALUE;
+  if (entry_ == INVALID_HANDLE_VALUE)
+    wprintf(L"CreateFileW (%s) failed: %d\n", file.c_str(), GetLastError());
+  return (entry_ != INVALID_HANDLE_VALUE) ? net::OK : net::ERR_FAILED;
 #else
   entry_ = file_util::OpenFile(entry_path_, "w+");
-  return entry_ != NULL;
+  return (entry_ != NULL) ? net::OK : net::ERR_FAILED;
 #endif
 }
 
@@ -133,24 +144,25 @@ void GetNormalizedHeaders(const net::HttpResponseInfo& info,
   output->append("\r\n");
 }
 
-bool DiskDumper::WriteEntry(disk_cache::Entry* entry, int index, int offset,
-                            net::IOBuffer* buf, int buf_len) {
+int DiskDumper::WriteEntry(disk_cache::Entry* entry, int index, int offset,
+                           net::IOBuffer* buf, int buf_len,
+                           net::CompletionCallback* callback) {
   if (!entry_)
-    return false;
+    return 0;
 
   std::string headers;
   const char *data;
-  int len;
+  size_t len;
   if (index == 0) {  // Stream 0 is the headers.
     net::HttpResponseInfo response_info;
     bool truncated;
     if (!net::HttpCache::ParseResponseInfo(buf->data(), buf_len,
                                            &response_info, &truncated))
-      return false;
+      return 0;
 
     // Skip this entry if it was truncated (results in an empty file).
     if (truncated)
-      return true;
+      return buf_len;
 
     // Remove the size headers.
     response_info.headers->RemoveHeader("transfer-encoding");
@@ -180,11 +192,12 @@ bool DiskDumper::WriteEntry(disk_cache::Entry* entry, int index, int offset,
   }
 #ifdef WIN32_LARGE_FILENAME_SUPPORT
   DWORD bytes;
-  DWORD rv = WriteFile(entry_, data, len, &bytes, 0);
-  return rv == TRUE && bytes == len;
+  if (!WriteFile(entry_, data, len, &bytes, 0))
+    return 0;
+
+  return bytes;
 #else
-  int bytes = fwrite(data, 1, len, entry_);
-  return bytes == len;
+  return fwrite(data, 1, len, entry_);
 #endif
 }
 

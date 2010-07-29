@@ -1,14 +1,16 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/url_request/url_request_job.h"
 
+#include "base/histogram.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
 #include "net/base/auth.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
+#include "net/base/mime_util.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
@@ -24,10 +26,13 @@ const int URLRequestJob::kFilterBufSize = 32 * 1024;
 
 URLRequestJob::URLRequestJob(URLRequest* request)
     : request_(request),
+      prefilter_bytes_read_(0),
+      postfilter_bytes_read_(0),
+      is_compressible_content_(false),
+      is_compressed_(false),
       done_(false),
       filter_needs_more_output_space_(false),
-      read_buffer_(NULL),
-      read_buffer_len_(0),
+      filtered_read_buffer_len_(0),
       has_handled_response_(false),
       expected_content_size_(-1),
       deferred_redirect_status_code_(-1),
@@ -49,6 +54,13 @@ URLRequestJob::~URLRequestJob() {
   g_url_request_job_tracker.RemoveJob(this);
 }
 
+void URLRequestJob::SetUpload(net::UploadData* upload) {
+}
+
+void URLRequestJob::SetExtraRequestHeaders(
+    const net::HttpRequestHeaders& headers) {
+}
+
 void URLRequestJob::Kill() {
   // Make sure the request is notified that we are done.  We assume that the
   // request took care of setting its error status before calling Kill.
@@ -58,10 +70,6 @@ void URLRequestJob::Kill() {
 
 void URLRequestJob::DetachRequest() {
   request_ = NULL;
-}
-
-bool URLRequestJob::IsDownload() const {
-  return (load_flags_ & net::LOAD_IS_DOWNLOAD) != 0;
 }
 
 void URLRequestJob::SetupFilter() {
@@ -85,6 +93,14 @@ bool URLRequestJob::IsRedirectResponse(GURL* location,
   *location = request_->url().Resolve(value);
   *http_status_code = headers->response_code();
   return true;
+}
+
+bool URLRequestJob::IsSafeRedirect(const GURL& location) {
+  return true;
+}
+
+bool URLRequestJob::NeedsAuth() {
+  return false;
 }
 
 void URLRequestJob::GetAuthChallengeInfo(
@@ -143,6 +159,10 @@ int64 URLRequestJob::GetByteReadCount() const {
   return filter_input_byte_count_;
 }
 
+bool URLRequestJob::GetMimeType(std::string* mime_type) const {
+  return false;
+}
+
 bool URLRequestJob::GetURL(GURL* gurl) const {
   if (!request_)
     return false;
@@ -156,6 +176,18 @@ base::Time URLRequestJob::GetRequestTime() const {
   return request_->request_time();
 };
 
+bool URLRequestJob::IsCachedContent() const {
+  return false;
+}
+
+int URLRequestJob::GetResponseCode() const {
+  return -1;
+}
+
+int URLRequestJob::GetInputStreamBufferSize() const {
+  return kFilterBufSize;
+}
+
 // This function calls ReadData to get stream data. If a filter exists, passes
 // the data to the attached filter. Then returns the output from filter back to
 // the caller.
@@ -165,19 +197,19 @@ bool URLRequestJob::Read(net::IOBuffer* buf, int buf_size, int *bytes_read) {
   DCHECK_LT(buf_size, 1000000);  // sanity check
   DCHECK(buf);
   DCHECK(bytes_read);
+  DCHECK(filtered_read_buffer_ == NULL);
+  DCHECK_EQ(0, filtered_read_buffer_len_);
 
   *bytes_read = 0;
 
   // Skip Filter if not present
   if (!filter_.get()) {
-    rv = ReadRawData(buf, buf_size, bytes_read);
-    if (rv && *bytes_read > 0)
-      RecordBytesRead(*bytes_read);
+    rv = ReadRawDataHelper(buf, buf_size, bytes_read);
   } else {
     // Save the caller's buffers while we do IO
     // in the filter's buffers.
-    read_buffer_ = buf;
-    read_buffer_len_ = buf_size;
+    filtered_read_buffer_ = buf;
+    filtered_read_buffer_len_ = buf_size;
 
     if (ReadFilteredData(bytes_read)) {
       rv = true;   // we have data to return
@@ -190,7 +222,43 @@ bool URLRequestJob::Read(net::IOBuffer* buf, int buf_size, int *bytes_read) {
   return rv;
 }
 
-bool URLRequestJob::ReadRawDataForFilter(int *bytes_read) {
+void URLRequestJob::StopCaching() {
+  // Nothing to do here.
+}
+
+net::LoadState URLRequestJob::GetLoadState() const {
+  return net::LOAD_STATE_IDLE;
+}
+
+uint64 URLRequestJob::GetUploadProgress() const {
+  return 0;
+}
+
+bool URLRequestJob::GetCharset(std::string* charset) {
+  return false;
+}
+
+void URLRequestJob::GetResponseInfo(net::HttpResponseInfo* info) {
+}
+
+bool URLRequestJob::GetResponseCookies(std::vector<std::string>* cookies) {
+  return false;
+}
+
+bool URLRequestJob::GetContentEncodings(
+    std::vector<Filter::FilterType>* encoding_types) {
+  return false;
+}
+
+bool URLRequestJob::IsDownload() const {
+  return (load_flags_ & net::LOAD_IS_DOWNLOAD) != 0;
+}
+
+bool URLRequestJob::IsSdchResponse() const {
+  return false;
+}
+
+bool URLRequestJob::ReadRawDataForFilter(int* bytes_read) {
   bool rv = false;
 
   DCHECK(bytes_read);
@@ -204,9 +272,7 @@ bool URLRequestJob::ReadRawDataForFilter(int *bytes_read) {
   if (!filter_->stream_data_len() && !is_done()) {
     net::IOBuffer* stream_buffer = filter_->stream_buffer();
     int stream_buffer_size = filter_->stream_buffer_size();
-    rv = ReadRawData(stream_buffer, stream_buffer_size, bytes_read);
-    if (rv && *bytes_read > 0)
-      RecordBytesRead(*bytes_read);
+    rv = ReadRawDataHelper(stream_buffer, stream_buffer_size, bytes_read);
   }
   return rv;
 }
@@ -224,11 +290,12 @@ void URLRequestJob::FilteredDataRead(int bytes_read) {
   filter_->FlushStreamBuffer(bytes_read);
 }
 
-bool URLRequestJob::ReadFilteredData(int *bytes_read) {
+bool URLRequestJob::ReadFilteredData(int* bytes_read) {
   DCHECK(filter_.get());  // don't add data if there is no filter
-  DCHECK(read_buffer_ != NULL);  // we need to have a buffer to fill
-  DCHECK_GT(read_buffer_len_, 0);  // sanity check
-  DCHECK_LT(read_buffer_len_, 1000000);  // sanity check
+  DCHECK(filtered_read_buffer_ != NULL);  // we need to have a buffer to fill
+  DCHECK_GT(filtered_read_buffer_len_, 0);  // sanity check
+  DCHECK_LT(filtered_read_buffer_len_, 1000000);  // sanity check
+  DCHECK(raw_read_buffer_ == NULL);  // there should be no raw read buffer yet
 
   bool rv = false;
   *bytes_read = 0;
@@ -254,10 +321,11 @@ bool URLRequestJob::ReadFilteredData(int *bytes_read) {
   if ((filter_->stream_data_len() || filter_needs_more_output_space_)
       && !is_done()) {
     // Get filtered data.
-    int filtered_data_len = read_buffer_len_;
+    int filtered_data_len = filtered_read_buffer_len_;
     Filter::FilterStatus status;
     int output_buffer_size = filtered_data_len;
-    status = filter_->ReadData(read_buffer_->data(), &filtered_data_len);
+    status = filter_->ReadData(filtered_read_buffer_->data(),
+                               &filtered_data_len);
 
     if (filter_needs_more_output_space_ && 0 == filtered_data_len) {
       // filter_needs_more_output_space_ was mistaken... there are no more bytes
@@ -321,10 +389,29 @@ bool URLRequestJob::ReadFilteredData(int *bytes_read) {
 
   if (rv) {
     // When we successfully finished a read, we no longer need to
-    // save the caller's buffers.  For debugging purposes, we clear
-    // them out.
-    read_buffer_ = NULL;
-    read_buffer_len_ = 0;
+    // save the caller's buffers. Release our reference.
+    filtered_read_buffer_ = NULL;
+    filtered_read_buffer_len_ = 0;
+  }
+  return rv;
+}
+
+bool URLRequestJob::ReadRawDataHelper(net::IOBuffer* buf, int buf_size,
+                                      int* bytes_read) {
+  DCHECK(!request_->status().is_io_pending());
+  DCHECK(raw_read_buffer_ == NULL);
+
+  // Keep a pointer to the read buffer, so we have access to it in the
+  // OnRawReadComplete() callback in the event that the read completes
+  // asynchronously.
+  raw_read_buffer_ = buf;
+  bool rv = ReadRawData(buf, buf_size, bytes_read);
+
+  if (!request_->status().is_io_pending()) {
+    // If the read completes synchronously, either success or failure,
+    // invoke the OnRawReadComplete callback so we can account for the
+    // completed read.
+    OnRawReadComplete(*bytes_read);
   }
   return rv;
 }
@@ -412,14 +499,28 @@ void URLRequestJob::NotifyHeadersComplete() {
   }
 
   has_handled_response_ = true;
-  if (request_->status().is_success())
+  if (request_->status().is_success()) {
     SetupFilter();
+
+    // Check if this content appears to be compressible.
+    std::string mime_type;
+    if (GetMimeType(&mime_type) &&
+        (net::IsSupportedJavascriptMimeType(mime_type.c_str()) ||
+        net::IsSupportedNonImageMimeType(mime_type.c_str()))) {
+      is_compressible_content_ = true;
+    }
+  }
 
   if (!filter_.get()) {
     std::string content_length;
     request_->GetResponseHeaderByName("content-length", &content_length);
     if (!content_length.empty())
       expected_content_size_ = StringToInt64(content_length);
+  } else {
+    // Chrome today only sends "Accept-Encoding" for compression schemes.
+    // So, if there is a filter on the response, we know that the content
+    // was compressed.
+    is_compressed_ = true;
   }
 
   request_->ResponseStarted();
@@ -445,8 +546,7 @@ void URLRequestJob::NotifyReadComplete(int bytes_read) {
   // The headers should be complete before reads complete
   DCHECK(has_handled_response_);
 
-  if (bytes_read > 0)
-    RecordBytesRead(bytes_read);
+  OnRawReadComplete(bytes_read);
 
   // Don't notify if we had an error.
   if (!request_->status().is_success())
@@ -459,15 +559,19 @@ void URLRequestJob::NotifyReadComplete(int bytes_read) {
   // survival until we can get out of this method.
   scoped_refptr<URLRequestJob> self_preservation = this;
 
+  prefilter_bytes_read_ += bytes_read;
   if (filter_.get()) {
     // Tell the filter that it has more data
     FilteredDataRead(bytes_read);
 
     // Filter the data.
     int filter_bytes_read = 0;
-    if (ReadFilteredData(&filter_bytes_read))
+    if (ReadFilteredData(&filter_bytes_read)) {
+      postfilter_bytes_read_ += filter_bytes_read;
       request_->delegate()->OnReadCompleted(request_, filter_bytes_read);
+    }
   } else {
+    postfilter_bytes_read_ += bytes_read;
     request_->delegate()->OnReadCompleted(request_, bytes_read);
   }
 }
@@ -477,6 +581,8 @@ void URLRequestJob::NotifyDone(const URLRequestStatus &status) {
   if (done_)
     return;
   done_ = true;
+
+  RecordCompressionHistograms();
 
   if (is_profiling() && metrics_->total_bytes_read_ > 0) {
     // There are valid IO statistics. Fill in other fields of metrics for
@@ -553,6 +659,14 @@ bool URLRequestJob::FilterHasData() {
     return filter_.get() && filter_->stream_data_len();
 }
 
+void URLRequestJob::OnRawReadComplete(int bytes_read) {
+  DCHECK(raw_read_buffer_);
+  if (bytes_read > 0) {
+    RecordBytesRead(bytes_read);
+  }
+  raw_read_buffer_ = NULL;
+}
+
 void URLRequestJob::RecordBytesRead(int bytes_read) {
   if (is_profiling()) {
     ++(metrics_->number_of_read_IO_);
@@ -560,7 +674,8 @@ void URLRequestJob::RecordBytesRead(int bytes_read) {
   }
   filter_input_byte_count_ += bytes_read;
   UpdatePacketReadTimes();  // Facilitate stats recording if it is active.
-  g_url_request_job_tracker.OnBytesRead(this, bytes_read);
+  g_url_request_job_tracker.OnBytesRead(this, raw_read_buffer_->data(),
+                                        bytes_read);
 }
 
 const URLRequestStatus URLRequestJob::GetStatus() {
@@ -741,5 +856,76 @@ void URLRequestJob::RecordPacketStats(StatisticSelector statistic) const {
     default:
       NOTREACHED();
       return;
+  }
+}
+
+// The common type of histogram we use for all compression-tracking histograms.
+#define COMPRESSION_HISTOGRAM(name, sample) \
+    do { \
+      UMA_HISTOGRAM_CUSTOM_COUNTS("Net.Compress." name, sample, \
+                                  500, 1000000, 100); \
+    } while(0)
+
+void URLRequestJob::RecordCompressionHistograms() {
+  if (IsCachedContent() ||          // Don't record cached content
+      !GetStatus().is_success() ||  // Don't record failed content
+      !is_compressible_content_ ||  // Only record compressible content
+      !prefilter_bytes_read_)       // Zero-byte responses aren't useful.
+    return;
+
+  // Miniature requests aren't really compressible.  Don't count them.
+  const int kMinSize = 16;
+  if (prefilter_bytes_read_ < kMinSize)
+    return;
+
+  // Only record for http or https urls.
+  bool is_http = request_->url().SchemeIs("http");
+  bool is_https = request_->url().SchemeIs("https");
+  if (!is_http && !is_https)
+    return;
+
+  const net::HttpResponseInfo& response = request_->response_info_;
+  int compressed_B = prefilter_bytes_read_;
+  int decompressed_B = postfilter_bytes_read_;
+
+  // We want to record how often downloaded resources are compressed.
+  // But, we recognize that different protocols may have different
+  // properties.  So, for each request, we'll put it into one of 3
+  // groups:
+  //      a) SSL resources
+  //         Proxies cannot tamper with compression headers with SSL.
+  //      b) Non-SSL, loaded-via-proxy resources
+  //         In this case, we know a proxy might have interfered.
+  //      c) Non-SSL, loaded-without-proxy resources
+  //         In this case, we know there was no explicit proxy.  However,
+  //         it is possible that a transparent proxy was still interfering.
+  //
+  // For each group, we record the same 3 histograms.
+
+  if (is_https) {
+    if (is_compressed_) {
+      COMPRESSION_HISTOGRAM("SSL.BytesBeforeCompression", compressed_B);
+      COMPRESSION_HISTOGRAM("SSL.BytesAfterCompression", decompressed_B);
+    } else {
+      COMPRESSION_HISTOGRAM("SSL.ShouldHaveBeenCompressed", decompressed_B);
+    }
+    return;
+  }
+
+  if (response.was_fetched_via_proxy) {
+    if (is_compressed_) {
+      COMPRESSION_HISTOGRAM("Proxy.BytesBeforeCompression", compressed_B);
+      COMPRESSION_HISTOGRAM("Proxy.BytesAfterCompression", decompressed_B);
+    } else {
+      COMPRESSION_HISTOGRAM("Proxy.ShouldHaveBeenCompressed", decompressed_B);
+    }
+    return;
+  }
+
+  if (is_compressed_) {
+    COMPRESSION_HISTOGRAM("NoProxy.BytesBeforeCompression", compressed_B);
+    COMPRESSION_HISTOGRAM("NoProxy.BytesAfterCompression", decompressed_B);
+  } else {
+    COMPRESSION_HISTOGRAM("NoProxy.ShouldHaveBeenCompressed", decompressed_B);
   }
 }

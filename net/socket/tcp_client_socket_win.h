@@ -1,34 +1,39 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_SOCKET_TCP_CLIENT_SOCKET_WIN_H_
 #define NET_SOCKET_TCP_CLIENT_SOCKET_WIN_H_
 
+#include <winsock2.h>
+
+#include "base/non_thread_safe.h"
 #include "base/object_watcher.h"
 #include "net/base/address_list.h"
 #include "net/base/completion_callback.h"
+#include "net/base/net_log.h"
 #include "net/socket/client_socket.h"
 
 namespace net {
 
-class LoadLog;
+class BoundNetLog;
 
-class TCPClientSocketWin : public ClientSocket {
+class TCPClientSocketWin : public ClientSocket, NonThreadSafe {
  public:
   // The IP address(es) and port number to connect to.  The TCP socket will try
   // each IP address in the list until it succeeds in establishing a
   // connection.
-  explicit TCPClientSocketWin(const AddressList& addresses);
+  TCPClientSocketWin(const AddressList& addresses, net::NetLog* net_log);
 
   ~TCPClientSocketWin();
 
   // ClientSocket methods:
-  virtual int Connect(CompletionCallback* callback, LoadLog* load_log);
+  virtual int Connect(CompletionCallback* callback);
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
-  virtual int GetPeerName(struct sockaddr* name, socklen_t* namelen);
+  virtual int GetPeerAddress(AddressList* address) const;
+  virtual const BoundNetLog& NetLog() const { return net_log_; }
 
   // Socket methods:
   // Multiple outstanding requests are not supported.
@@ -40,12 +45,35 @@ class TCPClientSocketWin : public ClientSocket {
   virtual bool SetSendBufferSize(int32 size);
 
  private:
+  // State machine for connecting the socket.
+  enum ConnectState {
+    CONNECT_STATE_CONNECT,
+    CONNECT_STATE_CONNECT_COMPLETE,
+    CONNECT_STATE_NONE,
+  };
+
   class Core;
 
-  // Performs the actual connect().  Returns a net error code.
+  // State machine used by Connect().
+  int DoConnectLoop(int result);
   int DoConnect();
+  int DoConnectComplete(int result);
 
+  // Helper used by Disconnect(), which disconnects minus the logging and
+  // resetting of current_ai_.
+  void DoDisconnect();
+
+  // Returns true if a Connect() is in progress.
+  bool waiting_connect() const {
+    return next_connect_state_ != CONNECT_STATE_NONE;
+  }
+
+  // Returns the OS error code (or 0 on success).
   int CreateSocket(const struct addrinfo* ai);
+
+  // Called after Connect() has completed with |net_error|.
+  void LogConnectCompletion(int net_error);
+
   void DoReadCallback(int rv);
   void DoWriteCallback(int rv);
   void DidCompleteConnect();
@@ -61,7 +89,6 @@ class TCPClientSocketWin : public ClientSocket {
   const struct addrinfo* current_ai_;
 
   // The various states that the socket could be in.
-  bool waiting_connect_;
   bool waiting_read_;
   bool waiting_write_;
 
@@ -76,7 +103,13 @@ class TCPClientSocketWin : public ClientSocket {
   // External callback; called when write is complete.
   CompletionCallback* write_callback_;
 
-  scoped_refptr<LoadLog> load_log_;
+  // The next state for the Connect() state machine.
+  ConnectState next_connect_state_;
+
+  // The OS error that CONNECT_STATE_CONNECT last completed with.
+  int connect_os_error_;
+
+  BoundNetLog net_log_;
 
   DISALLOW_COPY_AND_ASSIGN(TCPClientSocketWin);
 };

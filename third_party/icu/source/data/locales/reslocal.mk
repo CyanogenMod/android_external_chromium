@@ -82,7 +82,6 @@ GENRB_SOURCE =\
  mr.txt\
  nb.txt\
  nl.txt\
- or.txt\
  pl.txt\
  pt.txt pt_BR.txt\
  pt_PT.txt\
@@ -125,6 +124,7 @@ GENRB_SOURCE =\
  nn.txt\
  no.txt\
  om.txt\
+ or.txt\
  pa.txt\
  ps.txt\
  si.txt\

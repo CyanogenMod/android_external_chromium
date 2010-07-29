@@ -1,14 +1,16 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef BASE_OBSERVER_LIST_THREADSAFE_H_
 #define BASE_OBSERVER_LIST_THREADSAFE_H_
 
-#include <vector>
 #include <algorithm>
+#include <map>
+#include <vector>
 
 #include "base/basictypes.h"
+#include "base/callback.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/observer_list.h"
@@ -27,7 +29,7 @@
 //    * Observers can register for notifications from any thread.
 //      Callbacks to the observer will occur on the same thread where
 //      the observer initially called AddObserver() from.
-//    * Any thread may trigger a notification via NOTIFY_OBSERVERS.
+//    * Any thread may trigger a notification via Notify().
 //    * Observers can remove themselves from the observer list inside
 //      of a callback.
 //    * If one thread is notifying observers concurrently with an observer
@@ -137,7 +139,8 @@ class ObserverListThreadSafe
     for (it = observer_lists_.begin(); it != observer_lists_.end(); ++it) {
       MessageLoop* loop = (*it).first;
       ObserverList<ObserverType>* list = (*it).second;
-      loop->PostTask(FROM_HERE,
+      loop->PostTask(
+          FROM_HERE,
           NewRunnableMethod(this,
               &ObserverListThreadSafe<ObserverType>::
                  template NotifyWrapper<Method, Params>, list, method));
@@ -193,7 +196,7 @@ class ObserverListThreadSafe
   Lock list_lock_;  // Protects the observer_lists_.
   ObserversListMap observer_lists_;
 
-  DISALLOW_EVIL_CONSTRUCTORS(ObserverListThreadSafe);
+  DISALLOW_COPY_AND_ASSIGN(ObserverListThreadSafe);
 };
 
 #endif  // BASE_OBSERVER_LIST_THREADSAFE_H_

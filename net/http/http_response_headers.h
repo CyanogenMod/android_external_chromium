@@ -99,6 +99,9 @@ class HttpResponseHeaders
   //
   void GetNormalizedHeaders(std::string* output) const;
 
+  // Gets the raw stored headers, in human-readable form.
+  void GetRawHeaders(std::string* output) const;
+
   // Fetch the "normalized" value of a single header, where all values for the
   // header name are separated by commas.  See the GetNormalizedHeaders for
   // format details.  Returns false if this header wasn't found.
@@ -153,6 +156,10 @@ class HttpResponseHeaders
   // Returns true if the response contains the specified header-value pair.
   // Both name and value are compared case insensitively.
   bool HasHeaderValue(const std::string& name, const std::string& value) const;
+
+  // Returns true if the response contains the specified header.
+  // The name is compared case insensitively.
+  bool HasHeader(const std::string& name) const;
 
   // Get the mime type and charset values in lower case form from the headers.
   // Empty strings are returned if the values are not present.

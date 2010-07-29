@@ -5,10 +5,9 @@
 // This class works with command lines: building and parsing.
 // Switches can optionally have a value attached using an equals sign,
 // as in "-switch=value".  Arguments that aren't prefixed with a
-// switch prefix are considered "loose parameters".  Switch names are
-// case-insensitive.  An argument of "--" will terminate switch
-// parsing, causing everything after to be considered as loose
-// parameters.
+// switch prefix are saved as extra arguments.  An argument of "--"
+// will terminate switch parsing, causing everything after to be
+// considered as extra arguments.
 
 // There is a singleton read-only CommandLine that represents the command
 // line that the current process was started with.  It must be initialized
@@ -35,8 +34,12 @@ class CommandLine {
   // A constructor for CommandLines that are used only to carry arguments.
   enum ArgumentsOnly { ARGUMENTS_ONLY };
   explicit CommandLine(ArgumentsOnly args_only);
+  ~CommandLine();
 
 #if defined(OS_WIN)
+  // The type of native command line arguments.
+  typedef std::wstring StringType;
+
   // Initialize by parsing the given command-line string.
   // The program name is assumed to be the first item in the string.
   void ParseFromString(const std::wstring& command_line);
@@ -46,6 +49,9 @@ class CommandLine {
     return cmd;
   }
 #elif defined(OS_POSIX)
+  // The type of native command line arguments.
+  typedef std::string StringType;
+
   // Initialize from an argv vector.
   void InitFromArgv(int argc, const char* const* argv);
   void InitFromArgv(const std::vector<std::string>& argv);
@@ -123,9 +129,16 @@ class CommandLine {
   // Get the number of switches in this process.
   size_t GetSwitchCount() const { return switches_.size(); }
 
+  // The type of map for parsed-out switch key and values.
+  typedef std::map<std::string, StringType> SwitchMap;
+
+  // Get a copy of all switches, along with their values
+  SwitchMap GetSwitches() const {
+    return switches_;
+  }
+
   // Get the remaining arguments to the command.
-  // WARNING: this is incorrect on POSIX; we must do string conversions.
-  std::vector<std::wstring> GetLooseValues() const;
+  const std::vector<StringType>& args() const { return args_; }
 
 #if defined(OS_WIN)
   // Returns the original command line string.
@@ -137,6 +150,9 @@ class CommandLine {
   const std::vector<std::string>& argv() const {
     return argv_;
   }
+  // Try to match the same result as command_line_string() would get you
+  // on windows.
+  std::string command_line_string() const;
 #endif
 
   // Returns the program part of the command line string (the first item).
@@ -186,7 +202,7 @@ class CommandLine {
  private:
   friend class InProcessBrowserTest;
 
-  CommandLine() {}
+  CommandLine();
 
   // Used by InProcessBrowserTest.
   static CommandLine* ForCurrentProcessMutable() {
@@ -204,19 +220,11 @@ class CommandLine {
 #if defined(OS_WIN)
   // The quoted, space-separated command-line string.
   std::wstring command_line_string_;
-
   // The name of the program.
   std::wstring program_;
-
-  // The type of native command line arguments.
-  typedef std::wstring StringType;
-
 #elif defined(OS_POSIX)
   // The argv array, with the program name in argv_[0].
   std::vector<std::string> argv_;
-
-  // The type of native command line arguments.
-  typedef std::string StringType;
 #endif
 
   // Returns true and fills in |switch_string| and |switch_value|
@@ -226,10 +234,10 @@ class CommandLine {
                        StringType* switch_value);
 
   // Parsed-out values.
-  std::map<std::string, StringType> switches_;
+  SwitchMap switches_;
 
   // Non-switch command-line arguments.
-  std::vector<StringType> loose_values_;
+  std::vector<StringType> args_;
 
   // We allow copy constructors, because a common pattern is to grab a
   // copy of the current process's command line and then add some

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,6 +15,7 @@
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/base/ssl_config_service.h"
+#include "net/http/http_auth_handler_factory.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_network_layer.h"
 #include "net/http/http_request_info.h"
@@ -62,7 +63,7 @@ class Client {
     request_info_.url = url_;
     request_info_.method = "GET";
     int state = transaction_->Start(
-        &request_info_, &connect_callback_, NULL);
+        &request_info_, &connect_callback_, net::BoundNetLog());
     DCHECK(state == net::ERR_IO_PENDING);
   };
 
@@ -132,20 +133,24 @@ int main(int argc, char**argv) {
   MessageLoop loop(MessageLoop::TYPE_IO);
 
   scoped_refptr<net::HostResolver> host_resolver(
-      net::CreateSystemHostResolver(NULL));
+      net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism));
 
   scoped_refptr<net::ProxyService> proxy_service(
       net::ProxyService::CreateNull());
   scoped_refptr<net::SSLConfigService> ssl_config_service(
       net::SSLConfigService::CreateSystemSSLConfigService());
   net::HttpTransactionFactory* factory = NULL;
+  scoped_ptr<net::HttpAuthHandlerFactory> http_auth_handler_factory(
+      net::HttpAuthHandlerFactory::CreateDefault());
   if (use_cache) {
-    factory = new net::HttpCache(NULL, host_resolver, proxy_service,
-                                 ssl_config_service, 0);
+    factory = new net::HttpCache(host_resolver, proxy_service,
+        ssl_config_service, http_auth_handler_factory.get(), NULL, NULL,
+        net::HttpCache::DefaultBackend::InMemory(0));
   } else {
     factory = new net::HttpNetworkLayer(
-        net::ClientSocketFactory::GetDefaultFactory(), NULL, host_resolver,
-        proxy_service, ssl_config_service);
+        net::ClientSocketFactory::GetDefaultFactory(), host_resolver,
+        proxy_service, ssl_config_service, http_auth_handler_factory.get(),
+        NULL, NULL);
   }
 
   {

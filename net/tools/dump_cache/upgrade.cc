@@ -1,4 +1,4 @@
-// Copyright (c) 2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,10 @@
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
+#include "base/thread.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/io_buffer.h"
+#include "net/base/test_completion_callback.h"
 #include "net/disk_cache/backend_impl.h"
 #include "net/disk_cache/entry_impl.h"
 #include "net/http/http_cache.h"
@@ -102,14 +104,15 @@ enum {
   RESULT_OK = 0,
   RESULT_UNKNOWN_COMMAND,
   RESULT_INVALID_PARAMETER,
-  RESULT_NAME_OVERFLOW
+  RESULT_NAME_OVERFLOW,
+  RESULT_PENDING  // This error code is NOT expected by the master process.
 };
 
 // -----------------------------------------------------------------------
 
 class BaseSM : public MessageLoopForIO::IOHandler {
  public:
-  BaseSM(HANDLE channel);
+  explicit BaseSM(HANDLE channel);
   virtual ~BaseSM();
 
  protected:
@@ -128,11 +131,14 @@ class BaseSM : public MessageLoopForIO::IOHandler {
   scoped_array<char> out_buffer_;
   IoBuffer* input_;
   IoBuffer* output_;
+  base::Thread cache_thread_;
+
   DISALLOW_COPY_AND_ASSIGN(BaseSM);
 };
 
 BaseSM::BaseSM(HANDLE channel)
-      : entry_(NULL), channel_(channel), state_(0), pending_count_(0) {
+      : entry_(NULL), channel_(channel), state_(0), pending_count_(0),
+        cache_thread_("cache") {
   in_buffer_.reset(new char[kChannelSize]);
   out_buffer_.reset(new char[kChannelSize]);
   input_ = reinterpret_cast<IoBuffer*>(in_buffer_.get());
@@ -143,6 +149,8 @@ BaseSM::BaseSM(HANDLE channel)
   in_context_.handler = this;
   out_context_.handler = this;
   MessageLoopForIO::current()->RegisterIOHandler(channel_, this);
+  CHECK(cache_thread_.StartWithOptions(
+            base::Thread::Options(MessageLoop::TYPE_IO, 0)));
 }
 
 BaseSM::~BaseSM() {
@@ -200,8 +208,12 @@ bool BaseSM::IsPending() {
 
 class MasterSM : public BaseSM {
  public:
-   MasterSM(const std::wstring& path, HANDLE channel, bool dump_to_disk)
-      : BaseSM(channel), path_(path), dump_to_disk_(dump_to_disk) {
+  MasterSM(const std::wstring& path, HANDLE channel, bool dump_to_disk)
+      : BaseSM(channel), path_(path), dump_to_disk_(dump_to_disk),
+        ALLOW_THIS_IN_INITIALIZER_LIST(
+            create_callback_(this, &MasterSM::DoCreateEntryComplete)),
+        ALLOW_THIS_IN_INITIALIZER_LIST(
+            write_callback_(this, &MasterSM::DoReadDataComplete)) {
   }
   virtual ~MasterSM() {
     delete writer_;
@@ -227,12 +239,14 @@ class MasterSM : public BaseSM {
   void SendGetPrevEntry();
   void DoGetEntry();
   void DoGetKey(int bytes_read);
+  void DoCreateEntryComplete(int result);
   void DoGetUseTimes();
   void SendGetDataSize();
   void DoGetDataSize();
   void CloseEntry();
   void SendReadData();
   void DoReadData(int bytes_read);
+  void DoReadDataComplete(int ret);
   void SendQuit();
   void DoEnd();
   void Fail();
@@ -244,10 +258,13 @@ class MasterSM : public BaseSM {
   int bytes_remaining_;
   int offset_;
   int copied_entries_;
-  scoped_ptr<disk_cache::BackendImpl> cache_;
+  int read_size_;
+  scoped_ptr<disk_cache::Backend> cache_;
   CacheDumpWriter* writer_;
   const std::wstring& path_;
   bool dump_to_disk_;
+  net::CompletionCallbackImpl<MasterSM> create_callback_;
+  net::CompletionCallbackImpl<MasterSM> write_callback_;
 };
 
 void MasterSM::OnIOCompleted(MessageLoopForIO::IOContext* context,
@@ -302,11 +319,18 @@ bool MasterSM::DoInit() {
   if (dump_to_disk_) {
     writer_ = new DiskDumper(path_);
   } else {
-    cache_.reset(new disk_cache::BackendImpl(FilePath::FromWStringHack(path_)));
-    if (!cache_->Init()) {
+    disk_cache::Backend* cache;
+    TestCompletionCallback cb;
+    int rv = disk_cache::CreateCacheBackend(net::DISK_CACHE,
+                                            FilePath::FromWStringHack(path_), 0,
+                                            false,
+                                            cache_thread_.message_loop_proxy(),
+                                            &cache, &cb);
+    if (cb.GetResult(rv) != net::OK) {
       printf("Unable to initialize new files\n");
       return false;
     }
+    cache_.reset(cache);
     writer_ = new CacheDumper(cache_.get());
   }
   if (!writer_)
@@ -367,11 +391,20 @@ void MasterSM::DoGetKey(int bytes_read) {
     return Fail();
 
   std::string key(input_->buffer);
-  DCHECK(key.size() == input_->msg.buffer_bytes - 1);
+  DCHECK(key.size() == static_cast<size_t>(input_->msg.buffer_bytes - 1));
 
-  if (!writer_->CreateEntry(key,
-                            reinterpret_cast<disk_cache::Entry**>(&entry_))) {
-    printf("Skipping entry \"%s\" (name conflict!)\n", key.c_str());
+  int rv = writer_->CreateEntry(key,
+                                reinterpret_cast<disk_cache::Entry**>(&entry_),
+                                &create_callback_);
+
+  if (rv != net::ERR_IO_PENDING)
+    DoCreateEntryComplete(rv);
+}
+
+void MasterSM::DoCreateEntryComplete(int result) {
+  std::string key(input_->buffer);
+  if (result != net::OK) {
+    printf("Skipping entry \"%s\": %d\n", key.c_str(), GetLastError());
     return SendGetPrevEntry();
   }
 
@@ -474,11 +507,29 @@ void MasterSM::DoReadData(int bytes_read) {
 
   scoped_refptr<net::WrappedIOBuffer> buf =
       new net::WrappedIOBuffer(input_->buffer);
-  if (!writer_->WriteEntry(entry_, stream_, offset_, buf, read_size))
+  int rv = writer_->WriteEntry(entry_, stream_, offset_, buf, read_size,
+                               &write_callback_);
+  if (rv == net::ERR_IO_PENDING) {
+    // We'll continue in DoReadDataComplete.
+    read_size_ = read_size;
+    return;
+  }
+
+  if (rv <= 0)
     return Fail();
 
   offset_ += read_size;
   bytes_remaining_ -= read_size;
+  // Read some more.
+  SendReadData();
+}
+
+void MasterSM::DoReadDataComplete(int ret) {
+  if (ret != read_size_)
+    return Fail();
+
+  offset_ += ret;
+  bytes_remaining_ -= ret;
   // Read some more.
   SendReadData();
 }
@@ -508,15 +559,7 @@ void MasterSM::Fail() {
 
 class SlaveSM : public BaseSM {
  public:
-  SlaveSM(const std::wstring& path, HANDLE channel)
-      : BaseSM(channel), iterator_(NULL) {
-    cache_.reset(new disk_cache::BackendImpl(FilePath::FromWStringHack(path)));
-    if (!cache_->Init()) {
-      printf("Unable to open cache files\n");
-      return;
-    }
-    cache_->SetUpgradeMode();
-  }
+  SlaveSM(const std::wstring& path, HANDLE channel);
   virtual ~SlaveSM();
 
   bool DoInit();
@@ -533,18 +576,44 @@ class SlaveSM : public BaseSM {
   void DoGetNextEntry();
   void DoGetPrevEntry();
   int32 GetEntryFromList();
+  void DoGetEntryComplete(int result);
   void DoCloseEntry();
   void DoGetKey();
   void DoGetUseTimes();
   void DoGetDataSize();
   void DoReadData();
+  void DoReadDataComplete(int ret);
   void DoEnd();
   void Fail();
 
   void* iterator_;
+  Message msg_;  // Used for DoReadDataComplete and DoGetEntryComplete.
 
+  net::CompletionCallbackImpl<SlaveSM> read_callback_;
+  net::CompletionCallbackImpl<SlaveSM> next_callback_;
   scoped_ptr<disk_cache::BackendImpl> cache_;
 };
+
+SlaveSM::SlaveSM(const std::wstring& path, HANDLE channel)
+    : BaseSM(channel), iterator_(NULL),
+      ALLOW_THIS_IN_INITIALIZER_LIST(
+          read_callback_(this, &SlaveSM::DoReadDataComplete)),
+      ALLOW_THIS_IN_INITIALIZER_LIST(
+          next_callback_(this, &SlaveSM::DoGetEntryComplete)) {
+  disk_cache::Backend* cache;
+  TestCompletionCallback cb;
+  int rv = disk_cache::CreateCacheBackend(net::DISK_CACHE,
+                                          FilePath::FromWStringHack(path), 0,
+                                          false,
+                                          cache_thread_.message_loop_proxy(),
+                                          &cache, &cb);
+  if (cb.GetResult(rv) != net::OK) {
+    printf("Unable to open cache files\n");
+    return;
+  }
+  cache_.reset(reinterpret_cast<disk_cache::BackendImpl*>(cache));
+  cache_->SetUpgradeMode();
+}
 
 SlaveSM::~SlaveSM() {
   if (iterator_)
@@ -608,6 +677,9 @@ bool SlaveSM::DoInit() {
   DEBUGMSG("\t\t\tSlave DoInit\n");
   DCHECK(state_ == SLAVE_INITIAL);
   state_ = SLAVE_WAITING;
+  if (!cache_.get())
+    return false;
+
   return ReceiveMsg();
 }
 
@@ -636,6 +708,11 @@ void SlaveSM::DoGetPrevEntry() {
     msg.result = RESULT_UNKNOWN_COMMAND;
   } else {
     msg.result = GetEntryFromList();
+    if (msg.result == RESULT_PENDING) {
+      // We are not done yet.
+      msg_ = msg;
+      return;
+    }
     msg.long_arg1 = reinterpret_cast<int64>(entry_);
   }
   SendMsg(msg);
@@ -651,23 +728,31 @@ int32 SlaveSM::GetEntryFromList() {
   if (entry_)
     entry_->Close();
 
-  bool ret;
+  int rv;
   if (input_->msg.command == GET_NEXT_ENTRY) {
-    ret = cache_->OpenNextEntry(&iterator_,
-                                reinterpret_cast<disk_cache::Entry**>(&entry_));
+    rv = cache_->OpenNextEntry(&iterator_,
+                               reinterpret_cast<disk_cache::Entry**>(&entry_),
+                               &next_callback_);
   } else {
     DCHECK(input_->msg.command == GET_PREV_ENTRY);
-    ret = cache_->OpenPrevEntry(&iterator_,
-                                reinterpret_cast<disk_cache::Entry**>(&entry_));
+    rv = cache_->OpenPrevEntry(&iterator_,
+                               reinterpret_cast<disk_cache::Entry**>(&entry_),
+                               &next_callback_);
+  }
+  DCHECK_EQ(net::ERR_IO_PENDING, rv);
+  return RESULT_PENDING;
+}
+
+void SlaveSM::DoGetEntryComplete(int result) {
+  DEBUGMSG("\t\t\tSlave DoGetEntryComplete\n");
+  if (result != net::OK) {
+    entry_ = NULL;
+    DEBUGMSG("\t\t\tSlave end of list\n");
   }
 
-  if (!ret)
-    entry_ = NULL;
-
-  if (!entry_)
-    DEBUGMSG("\t\t\tSlave end of list\n");
-
-  return RESULT_OK;
+  msg_.result = RESULT_OK;
+  msg_.long_arg1 = reinterpret_cast<int64>(entry_);
+  SendMsg(msg_);
 }
 
 void SlaveSM::DoCloseEntry() {
@@ -698,7 +783,7 @@ void SlaveSM::DoGetKey() {
     msg.buffer_bytes = std::min(key.size() + 1,
                                 static_cast<size_t>(kBufferSize));
     memcpy(output_->buffer, key.c_str(), msg.buffer_bytes);
-    if (msg.buffer_bytes != key.size() + 1) {
+    if (msg.buffer_bytes != static_cast<int32>(key.size() + 1)) {
       // We don't support moving this entry. Just tell the master.
       msg.result = RESULT_NAME_OVERFLOW;
     } else {
@@ -753,12 +838,26 @@ void SlaveSM::DoReadData() {
   } else {
     scoped_refptr<net::WrappedIOBuffer> buf =
         new net::WrappedIOBuffer(output_->buffer);
-    int ret = entry_->ReadData(stream, input_->msg.arg3, buf, size, NULL);
+    int ret = entry_->ReadData(stream, input_->msg.arg3, buf, size,
+                               &read_callback_);
+    if (ret == net::ERR_IO_PENDING) {
+      // Save the message so we can continue were we left.
+      msg_ = msg;
+      return;
+    }
 
     msg.buffer_bytes = (ret < 0) ? 0 : ret;
     msg.result = RESULT_OK;
   }
   SendMsg(msg);
+}
+
+void SlaveSM::DoReadDataComplete(int ret) {
+  DEBUGMSG("\t\t\tSlave DoReadDataComplete\n");
+  DCHECK_EQ(READ_DATA, msg_.command);
+  msg_.buffer_bytes = (ret < 0) ? 0 : ret;
+  msg_.result = RESULT_OK;
+  SendMsg(msg_);
 }
 
 void SlaveSM::DoEnd() {

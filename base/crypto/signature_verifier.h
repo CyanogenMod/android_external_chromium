@@ -11,14 +11,15 @@
 #include <cryptoht.h>
 #elif defined(OS_MACOSX)
 #include <Security/cssm.h>
-#elif defined(OS_WIN)
-#include <windows.h>
-#include <wincrypt.h>
 #endif
 
 #include <vector>
 
 #include "base/basictypes.h"
+
+#if defined(OS_WIN)
+#include "base/crypto/scoped_capi_types.h"
+#endif
 
 namespace base {
 
@@ -86,17 +87,15 @@ class SignatureVerifier {
 #elif defined(OS_MACOSX)
   std::vector<uint8> public_key_info_;
 
-  CSSM_CSP_HANDLE csp_handle_;
-
   CSSM_CC_HANDLE sig_handle_;
 
   CSSM_KEY public_key_;
 #elif defined(OS_WIN)
-  HCRYPTPROV provider_;
+  ScopedHCRYPTPROV provider_;
 
-  HCRYPTHASH hash_object_;
+  ScopedHCRYPTHASH hash_object_;
 
-  HCRYPTKEY public_key_;
+  ScopedHCRYPTKEY public_key_;
 #endif
 };
 

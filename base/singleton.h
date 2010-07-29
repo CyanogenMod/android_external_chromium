@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,8 @@
 
 #include "base/at_exit.h"
 #include "base/atomicops.h"
-#include "base/dynamic_annotations.h"
 #include "base/platform_thread.h"
+#include "base/third_party/dynamic_annotations/dynamic_annotations.h"
 
 // Default traits for Singleton<Type>. Calls operator new and operator delete on
 // the object. Registers automatic deletion at process exit.
@@ -40,6 +40,70 @@ template<typename Type>
 struct LeakySingletonTraits : public DefaultSingletonTraits<Type> {
   static const bool kRegisterAtExit = false;
 };
+
+
+// Alternate traits for use with the Singleton<Type>.  Allocates memory
+// for the singleton instance from a static buffer.  The singleton will
+// be cleaned up at exit, but can't be revived after destruction unless
+// the Resurrect() method is called.
+//
+// This is useful for a certain category of things, notably logging and
+// tracing, where the singleton instance is of a type carefully constructed to
+// be safe to access post-destruction.
+// In logging and tracing you'll typically get stray calls at odd times, like
+// during static destruction, thread teardown and the like, and there's a
+// termination race on the heap-based singleton - e.g. if one thread calls
+// get(), but then another thread initiates AtExit processing, the first thread
+// may call into an object residing in unallocated memory. If the instance is
+// allocated from the data segment, then this is survivable.
+//
+// The destructor is to deallocate system resources, in this case to unregister
+// a callback the system will invoke when logging levels change. Note that
+// this is also used in e.g. Chrome Frame, where you have to allow for the
+// possibility of loading briefly into someone else's process space, and
+// so leaking is not an option, as that would sabotage the state of your host
+// process once you've unloaded.
+template <typename Type>
+struct StaticMemorySingletonTraits {
+  // WARNING: User has to deal with get() in the singleton class
+  // this is traits for returning NULL.
+  static Type* New() {
+    if (base::subtle::NoBarrier_AtomicExchange(&dead_, 1))
+      return NULL;
+    Type* ptr = reinterpret_cast<Type*>(buffer_);
+
+    // We are protected by a memory barrier.
+    new(ptr) Type();
+    return ptr;
+  }
+
+  static void Delete(Type* p) {
+    base::subtle::NoBarrier_Store(&dead_, 1);
+    base::subtle::MemoryBarrier();
+    if (p != NULL)
+      p->Type::~Type();
+  }
+
+  static const bool kRegisterAtExit = true;
+
+  // Exposed for unittesting.
+  static void Resurrect() {
+    base::subtle::NoBarrier_Store(&dead_, 0);
+  }
+
+ private:
+  static const size_t kBufferSize = (sizeof(Type) +
+                                     sizeof(intptr_t) - 1) / sizeof(intptr_t);
+  static intptr_t buffer_[kBufferSize];
+
+  // Signal the object was already deleted, so it is not revived.
+  static base::subtle::Atomic32 dead_;
+};
+
+template <typename Type> intptr_t
+    StaticMemorySingletonTraits<Type>::buffer_[kBufferSize];
+template <typename Type> base::subtle::Atomic32
+    StaticMemorySingletonTraits<Type>::dead_ = 0;
 
 
 // The Singleton<Type, Traits, DifferentiatingType> class manages a single
@@ -90,7 +154,7 @@ struct LeakySingletonTraits : public DefaultSingletonTraits<Type> {
 //     FooClass() { ... }
 //     friend struct DefaultSingletonTraits<FooClass>;
 //
-//     DISALLOW_EVIL_CONSTRUCTORS(FooClass);
+//     DISALLOW_COPY_AND_ASSIGN(FooClass);
 //   };
 //
 // Caveats:
@@ -139,7 +203,7 @@ class Singleton {
       base::subtle::Release_Store(
           &instance_, reinterpret_cast<base::subtle::AtomicWord>(newval));
 
-      if (Traits::kRegisterAtExit)
+      if (newval != NULL && Traits::kRegisterAtExit)
         base::AtExitManager::RegisterCallback(OnExit, NULL);
 
       return newval;

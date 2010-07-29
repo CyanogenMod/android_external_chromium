@@ -1,4 +1,4 @@
-// Copyright (c) 2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -45,22 +45,6 @@ int64 SysInfo::AmountOfFreeDiskSpace(const FilePath& path) {
   if (rv < 0)
     rv = kint64max;
   return rv;
-}
-
-// static
-bool SysInfo::HasEnvVar(const wchar_t* var) {
-  return GetEnvironmentVariable(var, NULL, 0) != 0;
-}
-
-// static
-std::wstring SysInfo::GetEnvVar(const wchar_t* var) {
-  DWORD value_length = GetEnvironmentVariable(var, NULL, 0);
-  if (value_length == 0) {
-    return L"";
-  }
-  scoped_array<wchar_t> value(new wchar_t[value_length]);
-  GetEnvironmentVariable(var, value.get(), value_length);
-  return std::wstring(value.get());
 }
 
 // static

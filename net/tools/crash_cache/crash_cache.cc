@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2006-2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,7 +17,9 @@
 #include "base/path_service.h"
 #include "base/process_util.h"
 #include "base/string_util.h"
-
+#include "base/thread.h"
+#include "net/base/net_errors.h"
+#include "net/base/test_completion_callback.h"
 #include "net/disk_cache/backend_impl.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/disk_cache/disk_cache_test_util.h"
@@ -116,11 +118,23 @@ bool CreateTargetFolder(const FilePath& path, RankCrashes action,
   return file_util::CreateDirectory(*full_path);
 }
 
+// Makes sure that any pending task is processed.
+void FlushQueue(disk_cache::Backend* cache) {
+  TestCompletionCallback cb;
+  int rv =
+      reinterpret_cast<disk_cache::BackendImpl*>(cache)->FlushQueueForTest(&cb);
+  cb.GetResult(rv);  // Ignore the result;
+}
+
 // Generates the files for an empty and one item cache.
-int SimpleInsert(const FilePath& path, RankCrashes action) {
-  disk_cache::Backend* cache = disk_cache::CreateCacheBackend(path, false, 0,
-                                                              net::DISK_CACHE);
-  if (!cache || cache->GetEntryCount())
+int SimpleInsert(const FilePath& path, RankCrashes action,
+                 base::Thread* cache_thread) {
+  TestCompletionCallback cb;
+  disk_cache::Backend* cache;
+  int rv = disk_cache::CreateCacheBackend(net::DISK_CACHE, path, 0, false,
+                                          cache_thread->message_loop_proxy(),
+                                          &cache, &cb);
+  if (cb.GetResult(rv) != net::OK || cache->GetEntryCount())
     return GENERIC;
 
   const char* test_name = "some other key";
@@ -131,92 +145,122 @@ int SimpleInsert(const FilePath& path, RankCrashes action) {
   }
 
   disk_cache::Entry* entry;
-  if (!cache->CreateEntry(test_name, &entry))
+  rv = cache->CreateEntry(test_name, &entry, &cb);
+  if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
   entry->Close();
+  FlushQueue(cache);
 
   DCHECK(action <= disk_cache::INSERT_ONE_3);
   g_rankings_crash = action;
   test_name = kCrashEntryName;
 
-  if (!cache->CreateEntry(test_name, &entry))
+  rv = cache->CreateEntry(test_name, &entry, &cb);
+  if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
   return NOT_REACHED;
 }
 
 // Generates the files for a one item cache, and removing the head.
-int SimpleRemove(const FilePath& path, RankCrashes action) {
+int SimpleRemove(const FilePath& path, RankCrashes action,
+                 base::Thread* cache_thread) {
   DCHECK(action >= disk_cache::REMOVE_ONE_1);
   DCHECK(action <= disk_cache::REMOVE_TAIL_3);
 
-  disk_cache::Backend* cache = disk_cache::CreateCacheBackend(path, false, 0,
-                                                              net::DISK_CACHE);
-  if (!cache || cache->GetEntryCount())
+  TestCompletionCallback cb;
+  disk_cache::Backend* cache;
+  // Use a simple LRU for eviction.
+  int rv = disk_cache::CreateCacheBackend(net::MEDIA_CACHE, path, 0, false,
+                                          cache_thread->message_loop_proxy(),
+                                          &cache, &cb);
+  if (cb.GetResult(rv) != net::OK || cache->GetEntryCount())
     return GENERIC;
 
   disk_cache::Entry* entry;
-  if (!cache->CreateEntry(kCrashEntryName, &entry))
+  rv = cache->CreateEntry(kCrashEntryName, &entry, &cb);
+  if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
   entry->Close();
+  FlushQueue(cache);
 
   if (action >= disk_cache::REMOVE_TAIL_1) {
-    if (!cache->CreateEntry("some other key", &entry))
+    rv = cache->CreateEntry("some other key", &entry, &cb);
+    if (cb.GetResult(rv) != net::OK)
       return GENERIC;
 
     entry->Close();
+    FlushQueue(cache);
   }
 
-  if (!cache->OpenEntry(kCrashEntryName, &entry))
+  rv = cache->OpenEntry(kCrashEntryName, &entry, &cb);
+  if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
   g_rankings_crash = action;
   entry->Doom();
   entry->Close();
+  FlushQueue(cache);
 
   return NOT_REACHED;
 }
 
-int HeadRemove(const FilePath& path, RankCrashes action) {
+int HeadRemove(const FilePath& path, RankCrashes action,
+               base::Thread* cache_thread) {
   DCHECK(action >= disk_cache::REMOVE_HEAD_1);
   DCHECK(action <= disk_cache::REMOVE_HEAD_4);
 
-  disk_cache::Backend* cache = disk_cache::CreateCacheBackend(path, false, 0,
-                                                              net::DISK_CACHE);
-  if (!cache || cache->GetEntryCount())
+  TestCompletionCallback cb;
+  disk_cache::Backend* cache;
+  // Use a simple LRU for eviction.
+  int rv = disk_cache::CreateCacheBackend(net::MEDIA_CACHE, path, 0, false,
+                                          cache_thread->message_loop_proxy(),
+                                          &cache, &cb);
+  if (cb.GetResult(rv) != net::OK || cache->GetEntryCount())
     return GENERIC;
 
   disk_cache::Entry* entry;
-  if (!cache->CreateEntry("some other key", &entry))
+  rv = cache->CreateEntry("some other key", &entry, &cb);
+  if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
   entry->Close();
-  if (!cache->CreateEntry(kCrashEntryName, &entry))
+  FlushQueue(cache);
+  rv = cache->CreateEntry(kCrashEntryName, &entry, &cb);
+  if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
   entry->Close();
+  FlushQueue(cache);
 
-  if (!cache->OpenEntry(kCrashEntryName, &entry))
+  rv = cache->OpenEntry(kCrashEntryName, &entry, &cb);
+  if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
   g_rankings_crash = action;
   entry->Doom();
   entry->Close();
+  FlushQueue(cache);
 
   return NOT_REACHED;
 }
 
 // Generates the files for insertion and removals on heavy loaded caches.
-int LoadOperations(const FilePath& path, RankCrashes action) {
+int LoadOperations(const FilePath& path, RankCrashes action,
+                   base::Thread* cache_thread) {
   DCHECK(action >= disk_cache::INSERT_LOAD_1);
 
-  // Work with a tiny index table (16 entries)
-  disk_cache::BackendImpl* cache =
-      new disk_cache::BackendImpl(path, 0xf);
-  if (!cache || !cache->SetMaxSize(0x100000) || !cache->Init() ||
-      cache->GetEntryCount())
+  // Work with a tiny index table (16 entries).
+  disk_cache::BackendImpl* cache = new disk_cache::BackendImpl(
+      path, 0xf, cache_thread->message_loop_proxy());
+  if (!cache || !cache->SetMaxSize(0x100000))
+    return GENERIC;
+
+  TestCompletionCallback cb;
+  int rv = cache->Init(&cb);
+  if (cb.GetResult(rv) != net::OK || cache->GetEntryCount())
     return GENERIC;
 
   int seed = static_cast<int>(Time::Now().ToInternalValue());
@@ -225,37 +269,44 @@ int LoadOperations(const FilePath& path, RankCrashes action) {
   disk_cache::Entry* entry;
   for (int i = 0; i < 100; i++) {
     std::string key = GenerateKey(true);
-    if (!cache->CreateEntry(key, &entry))
+    rv = cache->CreateEntry(key, &entry, &cb);
+    if (cb.GetResult(rv) != net::OK)
       return GENERIC;
     entry->Close();
+    FlushQueue(cache);
     if (50 == i && action >= disk_cache::REMOVE_LOAD_1) {
-      if (!cache->CreateEntry(kCrashEntryName, &entry))
+      rv = cache->CreateEntry(kCrashEntryName, &entry, &cb);
+      if (cb.GetResult(rv) != net::OK)
         return GENERIC;
       entry->Close();
+      FlushQueue(cache);
     }
   }
 
   if (action <= disk_cache::INSERT_LOAD_2) {
     g_rankings_crash = action;
 
-    if (!cache->CreateEntry(kCrashEntryName, &entry))
+    rv = cache->CreateEntry(kCrashEntryName, &entry, &cb);
+    if (cb.GetResult(rv) != net::OK)
       return GENERIC;
   }
 
-  if (!cache->OpenEntry(kCrashEntryName, &entry))
+  rv = cache->OpenEntry(kCrashEntryName, &entry, &cb);
+  if (cb.GetResult(rv) != net::OK)
     return GENERIC;
 
   g_rankings_crash = action;
 
   entry->Doom();
   entry->Close();
+  FlushQueue(cache);
 
   return NOT_REACHED;
 }
 
 // Main function on the child process.
 int SlaveCode(const FilePath& path, RankCrashes action) {
-  MessageLoop message_loop;
+  MessageLoopForIO message_loop;
 
   FilePath full_path;
   if (!CreateTargetFolder(path, action, &full_path)) {
@@ -263,23 +314,28 @@ int SlaveCode(const FilePath& path, RankCrashes action) {
     return CRASH_OVERWRITE;
   }
 
+  base::Thread cache_thread("CacheThread");
+  if (!cache_thread.StartWithOptions(
+          base::Thread::Options(MessageLoop::TYPE_IO, 0)))
+    return GENERIC;
+
   if (action <= disk_cache::INSERT_ONE_3)
-    return SimpleInsert(full_path, action);
+    return SimpleInsert(full_path, action, &cache_thread);
 
   if (action <= disk_cache::INSERT_LOAD_2)
-    return LoadOperations(full_path, action);
+    return LoadOperations(full_path, action, &cache_thread);
 
   if (action <= disk_cache::REMOVE_ONE_4)
-    return SimpleRemove(full_path, action);
+    return SimpleRemove(full_path, action, &cache_thread);
 
   if (action <= disk_cache::REMOVE_HEAD_4)
-    return HeadRemove(full_path, action);
+    return HeadRemove(full_path, action, &cache_thread);
 
   if (action <= disk_cache::REMOVE_TAIL_3)
-    return SimpleRemove(full_path, action);
+    return SimpleRemove(full_path, action, &cache_thread);
 
   if (action <= disk_cache::REMOVE_LOAD_3)
-    return LoadOperations(full_path, action);
+    return LoadOperations(full_path, action, &cache_thread);
 
   return NOT_REACHED;
 }

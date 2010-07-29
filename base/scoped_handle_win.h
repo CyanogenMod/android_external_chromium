@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -77,7 +77,7 @@ class ScopedHandle {
 
  private:
   HANDLE handle_;
-  DISALLOW_EVIL_CONSTRUCTORS(ScopedHandle);
+  DISALLOW_COPY_AND_ASSIGN(ScopedHandle);
 };
 
 // Like ScopedHandle, but for HANDLEs returned from FindFile().
@@ -103,7 +103,7 @@ class ScopedFindFileHandle {
  private:
   HANDLE handle_;
 
-  DISALLOW_EVIL_CONSTRUCTORS(ScopedFindFileHandle);
+  DISALLOW_COPY_AND_ASSIGN(ScopedFindFileHandle);
 };
 
 // Like ScopedHandle but for HDC.  Only use this on HDCs returned from
@@ -139,7 +139,7 @@ class ScopedHDC {
   }
 
   HDC hdc_;
-  DISALLOW_EVIL_CONSTRUCTORS(ScopedHDC);
+  DISALLOW_COPY_AND_ASSIGN(ScopedHDC);
 };
 
 // Like ScopedHandle but for GDI objects.
@@ -186,11 +186,19 @@ class ScopedGDIObject {
   DISALLOW_COPY_AND_ASSIGN(ScopedGDIObject);
 };
 
+// An explicit specialization for HICON because we have to call DestroyIcon()
+// instead of DeleteObject() for HICON.
+template<>
+void ScopedGDIObject<HICON>::Close() {
+  if (object_)
+    DestroyIcon(object_);
+}
+
 // Typedefs for some common use cases.
 typedef ScopedGDIObject<HBITMAP> ScopedBitmap;
 typedef ScopedGDIObject<HRGN> ScopedRegion;
 typedef ScopedGDIObject<HFONT> ScopedHFONT;
-
+typedef ScopedGDIObject<HICON> ScopedHICON;
 
 // Like ScopedHandle except for HGLOBAL.
 template<class T>
@@ -212,12 +220,18 @@ class ScopedHGlobal {
     return data_;
   }
 
+  T* release() {
+    T* data = data_;
+    data_ = NULL;
+    return data;
+  }
+
  private:
   HGLOBAL glob_;
 
   T* data_;
 
-  DISALLOW_EVIL_CONSTRUCTORS(ScopedHGlobal);
+  DISALLOW_COPY_AND_ASSIGN(ScopedHGlobal);
 };
 
 #endif  // BASE_SCOPED_HANDLE_WIN_H_

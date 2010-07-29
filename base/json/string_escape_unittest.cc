@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/json/string_escape.h"
-#include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace base {
@@ -18,9 +18,10 @@ const struct json_narrow_test_data {
   {"a\b\f\n\r\t\v\1\\.\"z",
       "a\\b\\f\\n\\r\\t\\u000B\\u0001\\\\.\\\"z"},
   {"b\x0f\x7f\xf0\xff!", "b\\u000F\\u007F\\u00F0\\u00FF!"},
+  {"c<>d", "c\\u003C\\u003Ed"},
 };
 
-}
+}  // namespace
 
 TEST(StringEscapeTest, JsonDoubleQuoteNarrow) {
   for (size_t i = 0; i < arraysize(json_narrow_cases); ++i) {
@@ -62,12 +63,12 @@ const struct json_wide_test_data {
   {L"a\b\f\n\r\t\v\1\\.\"z",
       "a\\b\\f\\n\\r\\t\\u000B\\u0001\\\\.\\\"z"},
   {L"b\x0f\x7f\xf0\xff!", "b\\u000F\\u007F\\u00F0\\u00FF!"},
+  {L"c<>d", "c\\u003C\\u003Ed"},
 };
 
-}
+}  // namespace
 
 TEST(StringEscapeTest, JsonDoubleQuoteWide) {
-
   for (size_t i = 0; i < arraysize(json_wide_cases); ++i) {
     std::string out;
     string16 in = WideToUTF16(json_wide_cases[i].to_escape);

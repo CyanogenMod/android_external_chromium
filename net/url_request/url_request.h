@@ -10,17 +10,16 @@
 #include <vector>
 
 #include "base/leak_tracker.h"
-#include "base/linked_list.h"
 #include "base/linked_ptr.h"
 #include "base/logging.h"
+#include "base/non_thread_safe.h"
 #include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
 #include "googleurl/src/gurl.h"
-#include "net/base/load_log.h"
 #include "net/base/load_states.h"
+#include "net/base/net_log.h"
 #include "net/base/request_priority.h"
+#include "net/http/http_request_headers.h"
 #include "net/http/http_response_info.h"
-#include "net/url_request/request_tracker.h"
 #include "net/url_request/url_request_status.h"
 
 namespace base {
@@ -54,7 +53,7 @@ typedef std::vector<std::string> ResponseCookies;
 //
 // NOTE: All usage of all instances of this class should be on the same thread.
 //
-class URLRequest {
+class URLRequest : public NonThreadSafe {
  public:
   // Derive from this class and add your own data members to associate extra
   // information with a URLRequest. Use GetUserData(key) and SetUserData()
@@ -187,6 +186,20 @@ class URLRequest {
       request->Cancel();
     }
 
+    // Called when reading cookies. |blocked_by_policy| is true if access to
+    // cookies was denied due to content settings. This method will never be
+    // invoked when LOAD_DO_NOT_SEND_COOKIES is specified.
+    virtual void OnGetCookies(URLRequest* request, bool blocked_by_policy) {
+    }
+
+    // Called when a cookie is set. |blocked_by_policy| is true if the cookie
+    // was rejected due to content settings. This method will never be invoked
+    // when LOAD_DO_NOT_SAVE_COOKIES is specified.
+    virtual void OnSetCookie(URLRequest* request,
+                             const std::string& cookie_line,
+                             bool blocked_by_policy) {
+    }
+
     // After calling Start(), the delegate will receive an OnResponseStarted
     // callback when the request has completed.  If an error occurred, the
     // request->status() will be set.  On success, all redirects have been
@@ -292,12 +305,16 @@ class URLRequest {
   //
   // When uploading data, bytes_len must be non-zero.
   // When uploading a file range, length must be non-zero. If length
-  // exceeds the end-of-file, the upload is clipped at end-of-file.
+  // exceeds the end-of-file, the upload is clipped at end-of-file. If the
+  // expected modification time is provided (non-zero), it will be used to
+  // check if the underlying file has been changed or not. The granularity of
+  // the time comparison is 1 second since time_t precision is used in WebKit.
   void AppendBytesToUpload(const char* bytes, int bytes_len);
   void AppendFileRangeToUpload(const FilePath& file_path,
-                               uint64 offset, uint64 length);
+                               uint64 offset, uint64 length,
+                               const base::Time& expected_modification_time);
   void AppendFileToUpload(const FilePath& file_path) {
-    AppendFileRangeToUpload(file_path, 0, kuint64max);
+    AppendFileRangeToUpload(file_path, 0, kuint64max, base::Time());
   }
 
   // Set the upload data directly.
@@ -316,17 +333,14 @@ class URLRequest {
   void SetExtraRequestHeaderByName(const std::string& name,
                                    const std::string& value, bool overwrite);
 
-  // Sets all extra request headers, from a \r\n-delimited string.  Any extra
-  // request headers set by other methods are overwritten by this method.  This
-  // method may only be called before Start() is called.  It is an error to
-  // call it later.
-  //
-  // Note: \r\n is only used to separate the headers in the string if there
-  // are multiple headers.  The last header in the string must not be followed
-  // by \r\n.
-  void SetExtraRequestHeaders(const std::string& headers);
+  // Sets all extra request headers.  Any extra request headers set by other
+  // methods are overwritten by this method.  This method may only be called
+  // before Start() is called.  It is an error to call it later.
+  void SetExtraRequestHeaders(const net::HttpRequestHeaders& headers);
 
-  const std::string& extra_request_headers() { return extra_request_headers_; }
+  const net::HttpRequestHeaders& extra_request_headers() const {
+    return extra_request_headers_;
+  }
 
   // Returns the current load state for the request.
   net::LoadState GetLoadState() const;
@@ -362,9 +376,27 @@ class URLRequest {
   // Indicate if this response was fetched from disk cache.
   bool was_cached() const { return response_info_.was_cached; }
 
-  // Returns true if the URLRequest was delivered with SPDY.
+  // True if response could use alternate protocol. However, browser will
+  // ingore the alternate protocol if spdy is not enabled.
   bool was_fetched_via_spdy() const {
     return response_info_.was_fetched_via_spdy;
+  }
+
+  // Returns true if the URLRequest was delivered after NPN is negotiated,
+  // using either SPDY or HTTP.
+  bool was_npn_negotiated() const {
+    return response_info_.was_npn_negotiated;
+  }
+
+  // Returns true if the URLRequest was delivered when the alertnate protocol
+  // is available.
+  bool was_alternate_protocol_available() const {
+    return response_info_.was_alternate_protocol_available;
+  }
+
+  // Returns true if the URLRequest was delivered through a proxy.
+  bool was_fetched_via_proxy() const {
+    return response_info_.was_fetched_via_proxy;
   }
 
   // Get all response headers, as a HttpResponseHeaders object.  See comments
@@ -454,7 +486,14 @@ class URLRequest {
   //
   // If a read error occurs, Read returns false and the request->status
   // will be set to an error.
-  bool Read(net::IOBuffer* buf, int max_bytes, int *bytes_read);
+  bool Read(net::IOBuffer* buf, int max_bytes, int* bytes_read);
+
+  // If this request is being cached by the HTTP cache, stop subsequent caching.
+  // Note that this method has no effect on other (simultaneous or not) requests
+  // for the same resource. The typical example is a request that results in
+  // the data being stored to disk (downloaded instead of rendered) so we don't
+  // want to store it twice.
+  void StopCaching();
 
   // This method may be called to follow a redirect that was deferred in
   // response to an OnReceivedRedirect call.
@@ -495,7 +534,7 @@ class URLRequest {
   URLRequestContext* context();
   void set_context(URLRequestContext* context);
 
-  net::LoadLog* load_log() { return load_log_; }
+  const net::BoundNetLog& net_log() const { return net_log_; }
 
   // Returns the expected content size if available
   int64 GetExpectedContentSize() const;
@@ -536,13 +575,12 @@ class URLRequest {
 
  private:
   friend class URLRequestJob;
-  friend class RequestTracker<URLRequest>;
 
   void StartJob(URLRequestJob* job);
 
   // Restarting involves replacing the current job with a new one such as what
   // happens when following a HTTP redirect.
-  void RestartWithJob(URLRequestJob *job);
+  void RestartWithJob(URLRequestJob* job);
   void PrepareToRestart();
 
   // Detaches the job from this request in preparation for this object going
@@ -554,22 +592,13 @@ class URLRequest {
   // passed values.
   void DoCancel(int os_error, const net::SSLInfo& ssl_info);
 
-  // Discard headers which have meaning in POST (Content-Length, Content-Type,
-  // Origin).
-  static std::string StripPostSpecificHeaders(const std::string& headers);
-
-  // Gets the goodies out of this that we want to show the user later on the
-  // chrome://net-internals/ page.
-  void GetInfoForTracker(
-      RequestTracker<URLRequest>::RecentRequestInfo* info) const;
-
   // Contextual information used for this request (can be NULL). This contains
   // most of the dependencies which are shared between requests (disk cache,
   // cookie store, socket poool, etc.)
   scoped_refptr<URLRequestContext> context_;
 
   // Tracks the time spent in various load states throughout this request.
-  scoped_refptr<net::LoadLog> load_log_;
+  net::BoundNetLog net_log_;
 
   scoped_refptr<URLRequestJob> job_;
   scoped_refptr<net::UploadData> upload_;
@@ -578,7 +607,7 @@ class URLRequest {
   GURL first_party_for_cookies_;
   std::string method_;  // "GET", "POST", etc. Should be all uppercase.
   std::string referrer_;
-  std::string extra_request_headers_;
+  net::HttpRequestHeaders extra_request_headers_;
   int load_flags_;  // Flags indicating the request type for the load;
                     // expected values are LOAD_* enums above.
 
@@ -616,7 +645,6 @@ class URLRequest {
   // this to determine which URLRequest to allocate sockets to first.
   net::RequestPriority priority_;
 
-  RequestTracker<URLRequest>::Node request_tracker_node_;
   base::LeakTracker<URLRequest> leak_tracker_;
 
   DISALLOW_COPY_AND_ASSIGN(URLRequest);

@@ -11,7 +11,7 @@
 #include "net/disk_cache/cache_util.h"
 #include "net/disk_cache/file_lock.h"
 
-using base::Time;
+using base::TimeTicks;
 
 namespace {
 
@@ -41,7 +41,7 @@ bool CreateMapBlock(int target, int size, disk_cache::BlockFileHeader* header,
     return false;
   }
 
-  Time start = Time::Now();
+  TimeTicks start = TimeTicks::Now();
   // We are going to process the map on 32-block chunks (32 bits), and on every
   // chunk, iterate through the 8 nibbles where the new block can be located.
   int current = header->hints[target - 1];
@@ -67,7 +67,7 @@ bool CreateMapBlock(int target, int size, disk_cache::BlockFileHeader* header,
       if (target != size) {
         header->empty[target - size - 1]++;
       }
-      HISTOGRAM_TIMES("DiskCache.CreateBlock", Time::Now() - start);
+      HISTOGRAM_TIMES("DiskCache.CreateBlock", TimeTicks::Now() - start);
       return true;
     }
   }
@@ -86,7 +86,7 @@ void DeleteMapBlock(int index, int size, disk_cache::BlockFileHeader* header) {
     NOTREACHED();
     return;
   }
-  Time start = Time::Now();
+  TimeTicks start = TimeTicks::Now();
   int byte_index = index / 8;
   uint8* byte_map = reinterpret_cast<uint8*>(header->allocation_map);
   uint8 map_block = byte_map[byte_index];
@@ -115,7 +115,7 @@ void DeleteMapBlock(int index, int size, disk_cache::BlockFileHeader* header) {
   }
   header->num_entries--;
   DCHECK(header->num_entries >= 0);
-  HISTOGRAM_TIMES("DiskCache.DeleteBlock", Time::Now() - start);
+  HISTOGRAM_TIMES("DiskCache.DeleteBlock", TimeTicks::Now() - start);
 }
 
 // Restores the "empty counters" and allocation hints.
@@ -172,8 +172,8 @@ bool BlockFiles::Init(bool create_files) {
   if (init_)
     return false;
 
-  block_files_.resize(kFirstAdditionlBlockFile);
-  for (int i = 0; i < kFirstAdditionlBlockFile; i++) {
+  block_files_.resize(kFirstAdditionalBlockFile);
+  for (int i = 0; i < kFirstAdditionalBlockFile; i++) {
     if (create_files)
       if (!CreateBlockFile(i, static_cast<FileType>(i + 1), true))
         return false;
@@ -200,11 +200,21 @@ void BlockFiles::CloseFiles() {
   block_files_.clear();
 }
 
-FilePath BlockFiles::Name(int index) {
-  // The file format allows for 256 files.
-  DCHECK(index < 256 || index >= 0);
-  std::string tmp = StringPrintf("%s%d", kBlockName, index);
-  return path_.AppendASCII(tmp);
+void BlockFiles::ReportStats() {
+  int used_blocks[kFirstAdditionalBlockFile];
+  int load[kFirstAdditionalBlockFile];
+  for (int i = 0; i < kFirstAdditionalBlockFile; i++) {
+    GetFileStats(i, &used_blocks[i], &load[i]);
+  }
+  UMA_HISTOGRAM_COUNTS("DiskCache.Blocks_0", used_blocks[0]);
+  UMA_HISTOGRAM_COUNTS("DiskCache.Blocks_1", used_blocks[1]);
+  UMA_HISTOGRAM_COUNTS("DiskCache.Blocks_2", used_blocks[2]);
+  UMA_HISTOGRAM_COUNTS("DiskCache.Blocks_3", used_blocks[3]);
+
+  UMA_HISTOGRAM_ENUMERATION("DiskCache.BlockLoad_0", load[0], 101);
+  UMA_HISTOGRAM_ENUMERATION("DiskCache.BlockLoad_1", load[1], 101);
+  UMA_HISTOGRAM_ENUMERATION("DiskCache.BlockLoad_2", load[2], 101);
+  UMA_HISTOGRAM_ENUMERATION("DiskCache.BlockLoad_3", load[3], 101);
 }
 
 bool BlockFiles::CreateBlockFile(int index, FileType file_type, bool force) {
@@ -241,7 +251,8 @@ bool BlockFiles::OpenBlockFile(int index) {
     return false;
   }
 
-  if (file->GetLength() < static_cast<size_t>(kBlockHeaderSize)) {
+  size_t file_len = file->GetLength();
+  if (file_len < static_cast<size_t>(kBlockHeaderSize)) {
     LOG(ERROR) << "File too small " << name.value();
     return false;
   }
@@ -255,6 +266,13 @@ bool BlockFiles::OpenBlockFile(int index) {
   if (header->updating) {
     // Last instance was not properly shutdown.
     if (!FixBlockFileHeader(file))
+      return false;
+  }
+
+  if (index == 0) {
+    // Load the links file into memory with a single read.
+    scoped_array<char> buf(new char[file_len]);
+    if (!file->Read(buf.get(), file_len, 0))
       return false;
   }
 
@@ -314,7 +332,7 @@ MappedFile* BlockFiles::FileForNewBlock(FileType block_type, int block_count) {
   MappedFile* file = block_files_[block_type - 1];
   BlockFileHeader* header = reinterpret_cast<BlockFileHeader*>(file->buffer());
 
-  Time start = Time::Now();
+  TimeTicks start = TimeTicks::Now();
   while (NeedToGrowBlockFile(header, block_count)) {
     if (kMaxBlocks == header->max_entries) {
       file = NextFile(file);
@@ -328,7 +346,7 @@ MappedFile* BlockFiles::FileForNewBlock(FileType block_type, int block_count) {
       return NULL;
     break;
   }
-  HISTOGRAM_TIMES("DiskCache.GetFileForNewBlock", Time::Now() - start);
+  HISTOGRAM_TIMES("DiskCache.GetFileForNewBlock", TimeTicks::Now() - start);
   return file;
 }
 
@@ -356,7 +374,7 @@ MappedFile* BlockFiles::NextFile(const MappedFile* file) {
 }
 
 int BlockFiles::CreateNextBlockFile(FileType block_type) {
-  for (int i = kFirstAdditionlBlockFile; i <= kMaxBlockFile; i++) {
+  for (int i = kFirstAdditionalBlockFile; i <= kMaxBlockFile; i++) {
     if (CreateBlockFile(i, block_type, false))
       return i;
   }
@@ -483,6 +501,44 @@ bool BlockFiles::FixBlockFileHeader(MappedFile* file) {
   FixAllocationCounters(header);
   header->updating = 0;
   return true;
+}
+
+// We are interested in the total number of block used by this file type, and
+// the max number of blocks that we can store (reported as the percentage of
+// used blocks). In order to find out the number of used blocks, we have to
+// substract the empty blocks from the total blocks for each file in the chain.
+void BlockFiles::GetFileStats(int index, int* used_count, int* load) {
+  int max_blocks = 0;
+  *used_count = 0;
+  *load = 0;
+  for (;;) {
+    if (!block_files_[index] && !OpenBlockFile(index))
+      return;
+
+    BlockFileHeader* header =
+        reinterpret_cast<BlockFileHeader*>(block_files_[index]->buffer());
+
+    max_blocks += header->max_entries;
+    int used = header->max_entries;
+    for (int i = 0; i < 4; i++) {
+      used -= header->empty[i] * (i + 1);
+      DCHECK_GE(used, 0);
+    }
+    *used_count += used;
+
+    if (!header->next_file)
+      break;
+    index = header->next_file;
+  }
+  if (max_blocks)
+    *load = *used_count * 100 / max_blocks;
+}
+
+FilePath BlockFiles::Name(int index) {
+  // The file format allows for 256 files.
+  DCHECK(index < 256 || index >= 0);
+  std::string tmp = StringPrintf("%s%d", kBlockName, index);
+  return path_.AppendASCII(tmp);
 }
 
 }  // namespace disk_cache

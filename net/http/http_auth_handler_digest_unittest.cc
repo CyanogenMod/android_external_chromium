@@ -1,10 +1,11 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "testing/gtest/include/gtest/gtest.h"
 
 #include "base/basictypes.h"
+#include "net/base/net_errors.h"
 #include "net/http/http_auth_handler_digest.h"
 
 namespace net {
@@ -63,7 +64,7 @@ TEST(HttpAuthHandlerDigestTest, ParseChallenge) {
 
     { // Check that md5-sess is recognized, as is single QOP
       "Digest nonce=\"xyz\", algorithm=\"md5-sess\", "
-          "realm=\"Oblivion\", qop=\"auth\"",
+      "realm=\"Oblivion\", qop=\"auth\"",
       true,
       "Oblivion",
       "xyz",
@@ -100,13 +101,25 @@ TEST(HttpAuthHandlerDigestTest, ParseChallenge) {
     }
   };
 
+  GURL origin("http://www.example.com");
+  scoped_ptr<HttpAuthHandlerDigest::Factory> factory(
+      new HttpAuthHandlerDigest::Factory());
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
-    std::string challenge(tests[i].challenge);
-
-    scoped_refptr<HttpAuthHandlerDigest> digest = new HttpAuthHandlerDigest;
-    bool ok = digest->ParseChallenge(challenge.begin(), challenge.end());
-
-    EXPECT_EQ(tests[i].parsed_success, ok);
+    scoped_ptr<HttpAuthHandler> handler;
+    int rv = factory->CreateAuthHandlerFromString(tests[i].challenge,
+                                                  HttpAuth::AUTH_SERVER,
+                                                  origin,
+                                                  BoundNetLog(),
+                                                  &handler);
+    if (tests[i].parsed_success) {
+      EXPECT_EQ(OK, rv);
+    } else {
+      EXPECT_NE(OK, rv);
+      continue;
+    }
+    ASSERT_TRUE(handler != NULL);
+    HttpAuthHandlerDigest* digest =
+        static_cast<HttpAuthHandlerDigest*>(handler.get());
     EXPECT_STREQ(tests[i].parsed_realm, digest->realm_.c_str());
     EXPECT_STREQ(tests[i].parsed_nonce, digest->nonce_.c_str());
     EXPECT_STREQ(tests[i].parsed_domain, digest->domain_.c_str());
@@ -249,15 +262,26 @@ TEST(HttpAuthHandlerDigestTest, AssembleCredentials) {
     }
   };
   GURL origin("http://www.example.com");
+  scoped_ptr<HttpAuthHandlerDigest::Factory> factory(
+      new HttpAuthHandlerDigest::Factory());
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
-    scoped_refptr<HttpAuthHandlerDigest> digest = new HttpAuthHandlerDigest;
-    std::string challenge = tests[i].challenge;
-    EXPECT_TRUE(digest->InitFromChallenge(
-        challenge.begin(), challenge.end(), HttpAuth::AUTH_SERVER, origin));
+    scoped_ptr<HttpAuthHandler> handler;
+    int rv = factory->CreateAuthHandlerFromString(tests[i].challenge,
+                                                  HttpAuth::AUTH_SERVER,
+                                                  origin,
+                                                  BoundNetLog(),
+                                                  &handler);
+    EXPECT_EQ(OK, rv);
+    ASSERT_TRUE(handler != NULL);
 
+    HttpAuthHandlerDigest* digest =
+        static_cast<HttpAuthHandlerDigest*>(handler.get());
     std::string creds = digest->AssembleCredentials(tests[i].req_method,
-        tests[i].req_path, tests[i].username, tests[i].password,
-        tests[i].cnonce, tests[i].nonce_count);
+                                                    tests[i].req_path,
+                                                    tests[i].username,
+                                                    tests[i].password,
+                                                    tests[i].cnonce,
+                                                    tests[i].nonce_count);
 
     EXPECT_STREQ(tests[i].expected_creds, creds.c_str());
   }

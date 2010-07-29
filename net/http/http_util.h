@@ -19,14 +19,14 @@ namespace net {
 
 class HttpUtil {
  public:
-   // Returns the absolute path of the URL, to be used for the http request.
-   // The absolute path starts with a '/' and may contain a query.
-   static std::string PathForRequest(const GURL& url);
+  // Returns the absolute path of the URL, to be used for the http request.
+  // The absolute path starts with a '/' and may contain a query.
+  static std::string PathForRequest(const GURL& url);
 
-   // Returns the absolute URL, to be used for the http request. This url is
-   // made up of the protocol, host, [port], path, [query]. Everything else
-   // is stripped (username, password, reference).
-   static std::string SpecForRequest(const GURL& url);
+  // Returns the absolute URL, to be used for the http request. This url is
+  // made up of the protocol, host, [port], path, [query]. Everything else
+  // is stripped (username, password, reference).
+  static std::string SpecForRequest(const GURL& url);
 
   // Locates the next occurance of delimiter in line, skipping over quoted
   // strings (e.g., commas will not be treated as delimiters if they appear
@@ -53,6 +53,11 @@ class HttpUtil {
   // http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html#sec14.35.1
   static bool ParseRanges(const std::string& headers,
                           std::vector<HttpByteRange>* ranges);
+
+  // Same thing as ParseRanges except the Range header is known and its value
+  // is directly passed in, rather than requiring searching through a string.
+  static bool ParseRangeHeader(const std::string& range_specifier,
+                               std::vector<HttpByteRange>* ranges);
 
   // Scans the '\r\n'-delimited headers for the given header name.  Returns
   // true if a match is found.  Input is assumed to be well-formed.

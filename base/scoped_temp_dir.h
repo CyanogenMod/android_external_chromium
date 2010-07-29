@@ -25,6 +25,10 @@ class ScopedTempDir {
   // See file_util::CreateNewTemporaryDirectory.
   bool CreateUniqueTempDir();
 
+  // Creates a unique directory under a given path, and takes ownership of it.
+  bool CreateUniqueTempDirUnderPath(const FilePath& path,
+                                    bool loose_permissions);
+
   // Takes ownership of directory at |path|, creating it if necessary.
   // Don't call multiple times unless Take() has been called first.
   bool Set(const FilePath& path);

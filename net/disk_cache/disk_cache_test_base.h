@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2006-2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #define NET_DISK_CACHE_DISK_CACHE_TEST_BASE_H_
 
 #include "base/basictypes.h"
+#include "base/thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
 
@@ -15,6 +16,7 @@ namespace disk_cache {
 
 class Backend;
 class BackendImpl;
+class Entry;
 class MemBackendImpl;
 
 }  // namespace disk_cache
@@ -33,7 +35,8 @@ class DiskCacheTestWithCache : public DiskCacheTest {
   DiskCacheTestWithCache()
       : cache_(NULL), cache_impl_(NULL), mem_cache_(NULL), mask_(0), size_(0),
         memory_only_(false), implementation_(false), force_creation_(false),
-        new_eviction_(false), first_cleanup_(true), integrity_(true) {}
+        new_eviction_(false), first_cleanup_(true), integrity_(true),
+        use_current_thread_(false), cache_thread_("CacheThread") {}
 
   void InitCache();
   virtual void TearDown();
@@ -72,6 +75,21 @@ class DiskCacheTestWithCache : public DiskCacheTest {
     integrity_ = false;
   }
 
+  void UseCurrentThread() {
+    use_current_thread_ = true;
+  }
+
+  // Utility methods to access the cache and wait for each operation to finish.
+  int OpenEntry(const std::string& key, disk_cache::Entry** entry);
+  int CreateEntry(const std::string& key, disk_cache::Entry** entry);
+  int DoomEntry(const std::string& key);
+  int DoomAllEntries();
+  int DoomEntriesBetween(const base::Time initial_time,
+                         const base::Time end_time);
+  int DoomEntriesSince(const base::Time initial_time);
+  int OpenNextEntry(void** iter, disk_cache::Entry** next_entry);
+  void FlushQueueForTest();
+
   // cache_ will always have a valid object, regardless of how the cache was
   // initialized. The implementation pointers can be NULL.
   disk_cache::Backend* cache_;
@@ -86,6 +104,7 @@ class DiskCacheTestWithCache : public DiskCacheTest {
   bool new_eviction_;
   bool first_cleanup_;
   bool integrity_;
+  bool use_current_thread_;
   // This is intentionally left uninitialized, to be used by any test.
   bool success_;
 
@@ -93,6 +112,9 @@ class DiskCacheTestWithCache : public DiskCacheTest {
   void InitMemoryCache();
   void InitDiskCache();
   void InitDiskCacheImpl(const FilePath& path);
+
+  base::Thread cache_thread_;
+  DISALLOW_COPY_AND_ASSIGN(DiskCacheTestWithCache);
 };
 
 #endif  // NET_DISK_CACHE_DISK_CACHE_TEST_BASE_H_

@@ -13,11 +13,11 @@
 #include <string>
 
 #include "base/basictypes.h"
-#include "net/socket/client_socket_handle.h"
+#include "net/base/completion_callback.h"
 
 namespace net {
 
-class HttpRequestInfo;
+struct HttpRequestInfo;
 class HttpResponseInfo;
 class IOBuffer;
 class UploadDataStream;
@@ -53,12 +53,14 @@ class HttpStream {
 
   // Reads response body data, up to |buf_len| bytes. |buf_len| should be a
   // reasonable size (<2MB). The number of bytes read is returned, or an
-  // error is returned upon failure.  ERR_CONNECTION_CLOSED is returned to
-  // indicate end-of-connection.  ERR_IO_PENDING is returned if the operation
-  // could not be completed synchronously, in which case the result will be
-  // passed to the callback when available. If the operation is not completed
-  // immediately, the socket acquires a reference to the provided buffer until
-  // the callback is invoked or the socket is destroyed.
+  // error is returned upon failure.  0 indicates that the request has been
+  // fully satisfied and there is no more data to read.
+  // ERR_CONNECTION_CLOSED is returned when the connection has been closed
+  // prematurely.  ERR_IO_PENDING is returned if the operation could not be
+  // completed synchronously, in which case the result will be passed to the
+  // callback when available. If the operation is not completed immediately,
+  // the socket acquires a reference to the provided buffer until the callback
+  // is invoked or the socket is destroyed.
   virtual int ReadResponseBody(IOBuffer* buf, int buf_len,
                                CompletionCallback* callback) = 0;
 

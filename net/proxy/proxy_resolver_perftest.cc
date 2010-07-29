@@ -1,8 +1,9 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/perftimer.h"
+#include "base/string_util.h"
 #include "net/base/mock_host_resolver.h"
 #include "net/proxy/proxy_resolver_js_bindings.h"
 #include "net/proxy/proxy_resolver_v8.h"
@@ -97,7 +98,8 @@ class PacPerfSuiteRunner {
       InitHttpServer();
       GURL pac_url =
           server_->TestServerPage(std::string("files/") + script_name);
-      int rv = resolver_->SetPacScriptByUrl(pac_url, NULL);
+      int rv = resolver_->SetPacScript(
+          net::ProxyResolverScriptData::FromURL(pac_url), NULL);
       EXPECT_EQ(net::OK, rv);
     } else {
       LoadPacScriptIntoResolver(script_name);
@@ -109,7 +111,8 @@ class PacPerfSuiteRunner {
     {
       net::ProxyInfo proxy_info;
       int result = resolver_->GetProxyForURL(
-          GURL("http://www.warmup.com"), &proxy_info, NULL, NULL, NULL);
+          GURL("http://www.warmup.com"), &proxy_info, NULL, NULL,
+          net::BoundNetLog());
       ASSERT_EQ(net::OK, result);
     }
 
@@ -124,7 +127,8 @@ class PacPerfSuiteRunner {
       // Resolve.
       net::ProxyInfo proxy_info;
       int result = resolver_->GetProxyForURL(GURL(query.query_url),
-                                             &proxy_info, NULL, NULL, NULL);
+                                             &proxy_info, NULL, NULL,
+                                             net::BoundNetLog());
 
       // Check that the result was correct. Note that ToPacString() and
       // ASSERT_EQ() are fast, so they won't skew the results.
@@ -164,7 +168,8 @@ class PacPerfSuiteRunner {
     ASSERT_TRUE(ok);
 
     // Load the PAC script into the ProxyResolver.
-    int rv = resolver_->SetPacScriptByData(file_contents, NULL);
+    int rv = resolver_->SetPacScript(
+        net::ProxyResolverScriptData::FromUTF8(file_contents), NULL);
     EXPECT_EQ(net::OK, rv);
   }
 
@@ -196,3 +201,4 @@ TEST(ProxyResolverPerfTest, ProxyResolverV8) {
   PacPerfSuiteRunner runner(&resolver, "ProxyResolverV8");
   runner.RunAllTests();
 }
+

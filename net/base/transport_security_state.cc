@@ -27,12 +27,21 @@ void TransportSecurityState::EnableHost(const std::string& host,
   const std::string canonicalised_host = CanonicaliseHost(host);
   if (canonicalised_host.empty())
     return;
+
+  bool temp;
+  if (isPreloadedSTS(canonicalised_host, &temp))
+    return;
+
   char hashed[base::SHA256_LENGTH];
   base::SHA256HashString(canonicalised_host, hashed, sizeof(hashed));
 
-  AutoLock lock(lock_);
+  // Use the original creation date if we already have this host.
+  DomainState state_copy(state);
+  DomainState existing_state;
+  if (IsEnabledForHost(&existing_state, host))
+    state_copy.created = existing_state.created;
 
-  enabled_hosts_[std::string(hashed, sizeof(hashed))] = state;
+  enabled_hosts_[std::string(hashed, sizeof(hashed))] = state_copy;
   DirtyNotify();
 }
 
@@ -42,8 +51,15 @@ bool TransportSecurityState::IsEnabledForHost(DomainState* result,
   if (canonicalised_host.empty())
     return false;
 
+  bool include_subdomains;
+  if (isPreloadedSTS(canonicalised_host, &include_subdomains)) {
+    result->created = result->expiry = base::Time::FromTimeT(0);
+    result->mode = DomainState::MODE_STRICT;
+    result->include_subdomains = include_subdomains;
+    return true;
+  }
+
   base::Time current_time(base::Time::Now());
-  AutoLock lock(lock_);
 
   for (size_t i = 0; canonicalised_host[i]; i += canonicalised_host[i] + 1) {
     char hashed_domain[base::SHA256_LENGTH];
@@ -175,8 +191,6 @@ bool TransportSecurityState::ParseHeader(const std::string& value,
 
 void TransportSecurityState::SetDelegate(
     TransportSecurityState::Delegate* delegate) {
-  AutoLock lock(lock_);
-
   delegate_ = delegate;
 }
 
@@ -202,13 +216,12 @@ static std::string ExternalStringToHashedDomain(const std::wstring& external) {
 }
 
 bool TransportSecurityState::Serialise(std::string* output) {
-  AutoLock lock(lock_);
-
   DictionaryValue toplevel;
   for (std::map<std::string, DomainState>::const_iterator
        i = enabled_hosts_.begin(); i != enabled_hosts_.end(); ++i) {
     DictionaryValue* state = new DictionaryValue;
     state->SetBoolean(L"include_subdomains", i->second.include_subdomains);
+    state->SetReal(L"created", i->second.created.ToDoubleT());
     state->SetReal(L"expiry", i->second.expiry.ToDoubleT());
 
     switch (i->second.mode) {
@@ -234,9 +247,8 @@ bool TransportSecurityState::Serialise(std::string* output) {
   return true;
 }
 
-bool TransportSecurityState::Deserialise(const std::string& input) {
-  AutoLock lock(lock_);
-
+bool TransportSecurityState::Deserialise(const std::string& input,
+                                         bool* dirty) {
   enabled_hosts_.clear();
 
   scoped_ptr<Value> value(
@@ -246,6 +258,7 @@ bool TransportSecurityState::Deserialise(const std::string& input) {
 
   DictionaryValue* dict_value = reinterpret_cast<DictionaryValue*>(value.get());
   const base::Time current_time(base::Time::Now());
+  bool dirtied = false;
 
   for (DictionaryValue::key_iterator i = dict_value->begin_keys();
        i != dict_value->end_keys(); ++i) {
@@ -255,6 +268,7 @@ bool TransportSecurityState::Deserialise(const std::string& input) {
 
     bool include_subdomains;
     std::string mode_string;
+    double created;
     double expiry;
 
     if (!state->GetBoolean(L"include_subdomains", &include_subdomains) ||
@@ -277,8 +291,21 @@ bool TransportSecurityState::Deserialise(const std::string& input) {
     }
 
     base::Time expiry_time = base::Time::FromDoubleT(expiry);
-    if (expiry_time <= current_time)
+    base::Time created_time;
+    if (state->GetReal(L"created", &created)) {
+      created_time = base::Time::FromDoubleT(created);
+    } else {
+      // We're migrating an old entry with no creation date. Make sure we
+      // write the new date back in a reasonable time frame.
+      dirtied = true;
+      created_time = base::Time::Now();
+    }
+
+    if (expiry_time <= current_time) {
+      // Make sure we dirty the state if we drop an entry.
+      dirtied = true;
       continue;
+    }
 
     std::string hashed = ExternalStringToHashedDomain(*i);
     if (hashed.empty())
@@ -286,12 +313,31 @@ bool TransportSecurityState::Deserialise(const std::string& input) {
 
     DomainState new_state;
     new_state.mode = mode;
+    new_state.created = created_time;
     new_state.expiry = expiry_time;
     new_state.include_subdomains = include_subdomains;
     enabled_hosts_[hashed] = new_state;
   }
 
+  *dirty = dirtied;
   return true;
+}
+
+void TransportSecurityState::DeleteSince(const base::Time& time) {
+  bool dirtied = false;
+
+  std::map<std::string, DomainState>::iterator i = enabled_hosts_.begin();
+  while (i != enabled_hosts_.end()) {
+    if (i->second.created >= time) {
+      dirtied = true;
+      enabled_hosts_.erase(i++);
+    } else {
+      i++;
+    }
+  }
+
+  if (dirtied)
+    DirtyNotify();
 }
 
 void TransportSecurityState::DirtyNotify() {
@@ -332,6 +378,39 @@ std::string TransportSecurityState::CanonicaliseHost(const std::string& host) {
   }
 
   return new_host;
+}
+
+// isPreloadedSTS returns true if the canonicalised hostname should always be
+// considered to have STS enabled.
+// static
+bool TransportSecurityState::isPreloadedSTS(
+    const std::string& canonicalised_host, bool *include_subdomains) {
+  // In the medium term this list is likely to just be hardcoded here. This,
+  // slightly odd, form removes the need for additional relocations records.
+  static const struct {
+    uint8 length;
+    bool include_subdomains;
+    char dns_name[30];
+  } kPreloadedSTS[] = {
+    {16, false, "\003www\006paypal\003com"},
+    {16, false, "\003www\006elanex\003biz"},
+    {12, true,  "\006jottit\003com"},
+  };
+  static const size_t kNumPreloadedSTS = ARRAYSIZE_UNSAFE(kPreloadedSTS);
+
+  for (size_t i = 0; canonicalised_host[i]; i += canonicalised_host[i] + 1) {
+    for (size_t j = 0; j < kNumPreloadedSTS; j++) {
+      if (kPreloadedSTS[j].length == canonicalised_host.size() + 1 - i &&
+          (kPreloadedSTS[j].include_subdomains || i == 0) &&
+          memcmp(kPreloadedSTS[j].dns_name, &canonicalised_host[i],
+                 kPreloadedSTS[j].length) == 0) {
+        *include_subdomains = kPreloadedSTS[j].include_subdomains;
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 }  // namespace

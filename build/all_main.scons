@@ -1,0 +1,529 @@
+# This file is generated; do not edit.
+
+__doc__ = '''
+Wrapper configuration for building this entire "solution,"
+including all the specific targets in various *.scons files.
+'''
+
+import os
+import sys
+
+import SCons.Environment
+import SCons.Util
+
+def GetProcessorCount():
+  '''
+  Detects the number of CPUs on the system. Adapted form:
+  http://codeliberates.blogspot.com/2008/05/detecting-cpuscores-in-python.html
+  '''
+  # Linux, Unix and Mac OS X:
+  if hasattr(os, 'sysconf'):
+    if os.sysconf_names.has_key('SC_NPROCESSORS_ONLN'):
+      # Linux and Unix or Mac OS X with python >= 2.5:
+      return os.sysconf('SC_NPROCESSORS_ONLN')
+    else:  # Mac OS X with Python < 2.5:
+      return int(os.popen2("sysctl -n hw.ncpu")[1].read())
+  # Windows:
+  if os.environ.has_key('NUMBER_OF_PROCESSORS'):
+    return max(int(os.environ.get('NUMBER_OF_PROCESSORS', '1')), 1)
+  return 1  # Default
+
+# Support PROGRESS= to show progress in different ways.
+p = ARGUMENTS.get('PROGRESS')
+if p == 'spinner':
+  Progress(['/\r', '|\r', '\\\r', '-\r'],
+           interval=5,
+           file=open('/dev/tty', 'w'))
+elif p == 'name':
+  Progress('$TARGET\r', overwrite=True, file=open('/dev/tty', 'w'))
+
+# Set the default -j value based on the number of processors.
+SetOption('num_jobs', GetProcessorCount() + 1)
+
+# Have SCons use its cached dependency information.
+SetOption('implicit_cache', 1)
+
+# Only re-calculate MD5 checksums if a timestamp has changed.
+Decider('MD5-timestamp')
+
+# Since we set the -j value by default, suppress SCons warnings about being
+# unable to support parallel build on versions of Python with no threading.
+default_warnings = ['no-no-parallel-support']
+SetOption('warn', default_warnings + GetOption('warn'))
+
+AddOption('--mode', nargs=1, dest='conf_list', default=[],
+          action='append', help='Configuration to build.')
+
+AddOption('--verbose', dest='verbose', default=False,
+          action='store_true', help='Verbose command-line output.')
+
+
+#
+sconscript_file_map = dict(
+    All = 'All.scons',
+    app_base = '../app/app_base.scons',
+    app_resources = '../app/app_resources.scons',
+    app_strings = '../app/app_strings.scons',
+    app_unittests = '../app/app_unittests.scons',
+    appcache = '../webkit/appcache.scons',
+    assemble_ffmpeg_asm = '../third_party/ffmpeg/assemble_ffmpeg_asm.scons',
+    automated_ui_tests = '../chrome/automated_ui_tests.scons',
+    base = '../base/base.scons',
+    base_i18n = '../base/base_i18n.scons',
+    base_unittests = '../base/base_unittests.scons',
+    breakpad_client = '../breakpad/breakpad_client.scons',
+    breakpad_unittests = '../breakpad/breakpad_unittests.scons',
+    browser = '../chrome/browser.scons',
+    browser_tests = '../chrome/browser_tests.scons',
+    chrome = '../chrome/chrome.scons',
+    chrome_gpu = '../chrome/chrome_gpu.scons',
+    chrome_resources = '../chrome/chrome_resources.scons',
+    chrome_sandbox = '../sandbox/chrome_sandbox.scons',
+    chrome_strings = '../chrome/chrome_strings.scons',
+    cld = '../third_party/cld/cld.scons',
+    codesighs = '../third_party/codesighs/codesighs.scons',
+    command_buffer_common = '../gpu/command_buffer_common.scons',
+    command_buffer_service = '../gpu/command_buffer_service.scons',
+    command_buffer_service_impl = '../gpu/command_buffer_service_impl.scons',
+    common = '../chrome/common.scons',
+    common_constants = '../chrome/common_constants.scons',
+    concatenated_devtools_js = '../webkit/concatenated_devtools_js.scons',
+    config_sources = '../third_party/yasm/config_sources.scons',
+    convert_dict = '../chrome/convert_dict.scons',
+    convert_dict_lib = '../chrome/convert_dict_lib.scons',
+    courgette = '../courgette/courgette.scons',
+    courgette_fuzz = '../courgette/courgette_fuzz.scons',
+    courgette_lib = '../courgette/courgette_lib.scons',
+    courgette_minimal_tool = '../courgette/courgette_minimal_tool.scons',
+    courgette_unittests = '../courgette/courgette_unittests.scons',
+    crash_cache = '../net/crash_cache.scons',
+    database = '../webkit/database.scons',
+    debugger = '../chrome/debugger.scons',
+    default_extensions = '../chrome/default_extensions.scons',
+    devtools_html = '../webkit/devtools_html.scons',
+    expiration = '../native_client/src/trusted/service_runtime/expiration.scons',
+    fetch_client = '../net/fetch_client.scons',
+    fetch_server = '../net/fetch_server.scons',
+    ffmpeg = '../third_party/ffmpeg/ffmpeg.scons',
+    ffmpeg_binaries = '../third_party/ffmpeg/ffmpeg_binaries.scons',
+    ffmpegsumo = '../third_party/ffmpeg/ffmpegsumo.scons',
+    ffmpegsumo_nolink = '../third_party/ffmpeg/ffmpegsumo_nolink.scons',
+    flush_cache = '../chrome/flush_cache.scons',
+    generate_files = '../third_party/yasm/generate_files.scons',
+    generate_test_dump = '../breakpad/generate_test_dump.scons',
+    genmacro = '../third_party/yasm/genmacro.scons',
+    genmodule = '../third_party/yasm/genmodule.scons',
+    genperf = '../third_party/yasm/genperf.scons',
+    genperf_libs = '../third_party/yasm/genperf_libs.scons',
+    genstring = '../third_party/yasm/genstring.scons',
+    genversion = '../third_party/yasm/genversion.scons',
+    gio = '../native_client/src/trusted/gio/gio.scons',
+    gl_libs = '../gpu/gl_libs.scons',
+    glue = '../webkit/glue.scons',
+    gmock = '../testing/gmock.scons',
+    gmockmain = '../testing/gmockmain.scons',
+    google_nacl_npruntime = '../native_client/src/shared/npruntime/google_nacl_npruntime.scons',
+    googleurl = 'temp_gyp/googleurl.scons',
+    googleurl_unittests = 'temp_gyp/googleurl_unittests.scons',
+    gpu_plugin = '../gpu/gpu_plugin.scons',
+    gtest = '../testing/gtest.scons',
+    gtestmain = '../testing/gtestmain.scons',
+    gtk_clipboard_dump = '../tools/gtk_clipboard_dump/gtk_clipboard_dump.scons',
+    harfbuzz = '../third_party/harfbuzz/harfbuzz.scons',
+    harfbuzz_interface = '../third_party/harfbuzz/harfbuzz_interface.scons',
+    hresolv = '../net/hresolv.scons',
+    hunspell = '../third_party/hunspell/hunspell.scons',
+    icudata = '../third_party/icu/icudata.scons',
+    icui18n = '../third_party/icu/icui18n.scons',
+    icuuc = '../third_party/icu/icuuc.scons',
+    il = '../third_party/openmax/il.scons',
+    image_diff = '../tools/imagediff/image_diff.scons',
+    inspector_resources = '../webkit/inspector_resources.scons',
+    interactive_ui_tests = '../chrome/interactive_ui_tests.scons',
+    ipc = '../ipc/ipc.scons',
+    ipc_tests = '../ipc/ipc_tests.scons',
+    js2c = '../v8/tools/gyp/js2c.scons',
+    lastchange = 'util/lastchange.scons',
+    libevent = '../third_party/libevent/libevent.scons',
+    libgoogle_nacl_imc_c = '../native_client/src/shared/imc/libgoogle_nacl_imc_c.scons',
+    libjingle = '../third_party/libjingle/libjingle.scons',
+    libxml = '../third_party/libxml/libxml.scons',
+    libxslt = '../third_party/libxslt/libxslt.scons',
+    linux_symbols = '../chrome/linux_symbols.scons',
+    linux_versioninfo = '../base/linux_versioninfo.scons',
+    lzma_sdk = '../third_party/lzma_sdk/lzma_sdk.scons',
+    make_ffmpeg_asm_lib = '../third_party/ffmpeg/make_ffmpeg_asm_lib.scons',
+    maptsvdifftool = '../third_party/codesighs/maptsvdifftool.scons',
+    media = '../media/media.scons',
+    media_bench = '../media/media_bench.scons',
+    media_unittests = '../media/media_unittests.scons',
+    memory_test = '../chrome/memory_test.scons',
+    mksnapshot = '../v8/tools/gyp/mksnapshot.scons',
+    modp_b64 = '../third_party/modp_b64/modp_b64.scons',
+    nacl = '../chrome/nacl.scons',
+    nacl_ui_tests = '../chrome/nacl_ui_tests.scons',
+    ncdecode_table = '../native_client/src/trusted/validator_x86/ncdecode_table.scons',
+    ncdecode_tablegen = '../native_client/src/trusted/validator_x86/ncdecode_tablegen.scons',
+    ncopcode_utils = '../native_client/src/trusted/validator_x86/ncopcode_utils.scons',
+    ncopcode_utils_gen = '../native_client/src/trusted/validator_x86/ncopcode_utils_gen.scons',
+    ncvalidate = '../native_client/src/trusted/validator_x86/ncvalidate.scons',
+    net = '../net/net.scons',
+    net_base = '../net/net_base.scons',
+    net_perftests = '../net/net_perftests.scons',
+    net_resources = '../net/net_resources.scons',
+    net_test_support = '../net/net_test_support.scons',
+    net_unittests = '../net/net_unittests.scons',
+    nm2tsv = '../third_party/codesighs/nm2tsv.scons',
+    nonnacl_srpc = '../native_client/src/shared/srpc/nonnacl_srpc.scons',
+    nonnacl_util_chrome = '../native_client/src/trusted/nonnacl_util/nonnacl_util_chrome.scons',
+    nonnacl_util_linux = '../native_client/src/trusted/nonnacl_util/linux/nonnacl_util_linux.scons',
+    notifier = '../chrome/notifier.scons',
+    npGoogleNaClPluginChrome = '../native_client/src/trusted/plugin/npGoogleNaClPluginChrome.scons',
+    npapi = '../third_party/npapi/npapi.scons',
+    npapi_layout_test_plugin = '../webkit/tools/test_shell/npapi_layout_test_plugin.scons',
+    nrd_xfer = '../native_client/src/trusted/desc/nrd_xfer.scons',
+    omx_test = '../media/omx_test.scons',
+    omx_unittests = '../media/omx_unittests.scons',
+    omx_wrapper = '../media/omx_wrapper.scons',
+    ots = '../third_party/ots/ots.scons',
+    packed_resources = '../chrome/packed_resources.scons',
+    page_cycler_tests = '../chrome/page_cycler_tests.scons',
+    pcre = '../third_party/WebKit/JavaScriptCore/JavaScriptCore.gyp/pcre.scons',
+    pepper_test_plugin = '../webkit/tools/pepper_test_plugin/pepper_test_plugin.scons',
+    perf_tests = '../chrome/perf_tests.scons',
+    platform = '../native_client/src/shared/platform/platform.scons',
+    platform_locale_settings = '../chrome/platform_locale_settings.scons',
+    platform_qual_lib = '../native_client/src/trusted/platform_qualify/platform_qual_lib.scons',
+    player_x11 = '../media/player_x11.scons',
+    plugin = '../chrome/plugin.scons',
+    printing = '../printing/printing.scons',
+    printing_unittests = '../printing/printing_unittests.scons',
+    profile_import = '../chrome/profile_import.scons',
+    protobuf = '../third_party/protobuf2/protobuf.scons',
+    protobuf_lite = '../third_party/protobuf2/protobuf_lite.scons',
+    protoc = '../third_party/protobuf2/protoc.scons',
+    pull_in_test_shell = '../webkit/pull_in_test_shell.scons',
+    pull_in_webkit_unit_tests = '../webkit/pull_in_webkit_unit_tests.scons',
+    qt_faststart = '../media/qt_faststart.scons',
+    re2c = '../third_party/yasm/re2c.scons',
+    reliability_tests = '../chrome/reliability_tests.scons',
+    renderer = '../chrome/renderer.scons',
+    sandbox = '../sandbox/sandbox.scons',
+    sdch = '../sdch/sdch.scons',
+    sel = '../native_client/src/trusted/service_runtime/sel.scons',
+    sel_ldr_launcher = '../native_client/src/trusted/nonnacl_util/sel_ldr_launcher.scons',
+    service_runtime_x86 = '../native_client/src/trusted/service_runtime/arch/x86/service_runtime_x86.scons',
+    service_runtime_x86_64 = '../native_client/src/trusted/service_runtime/arch/x86_64/service_runtime_x86_64.scons',
+    skia = '../skia/skia.scons',
+    skia_opts = '../skia/skia_opts.scons',
+    sqlite = '../third_party/sqlite/sqlite.scons',
+    sqlite_shell = '../third_party/sqlite/sqlite_shell.scons',
+    ssl = '../net/third_party/nss/ssl.scons',
+    startup_tests = '../chrome/startup_tests.scons',
+    stress_cache = '../net/stress_cache.scons',
+    symbolize = '../base/symbolize.scons',
+    sync = '../chrome/sync.scons',
+    sync_integration_tests = '../chrome/sync_integration_tests.scons',
+    sync_proto = '../chrome/sync_proto.scons',
+    sync_unit_tests = '../chrome/sync_unit_tests.scons',
+    syncapi = '../chrome/syncapi.scons',
+    tab_switching_test = '../chrome/tab_switching_test.scons',
+    test_shell = '../webkit/tools/test_shell/test_shell.scons',
+    test_shell_common = '../webkit/tools/test_shell/test_shell_common.scons',
+    test_shell_pak = '../webkit/tools/test_shell/test_shell_pak.scons',
+    test_shell_resources = '../webkit/tools/test_shell/test_shell_resources.scons',
+    test_shell_tests = '../webkit/tools/test_shell/test_shell_tests.scons',
+    test_support_base = '../base/test_support_base.scons',
+    test_support_common = '../chrome/test_support_common.scons',
+    test_support_perf = '../base/test_support_perf.scons',
+    test_support_ui = '../chrome/test_support_ui.scons',
+    test_support_unit = '../chrome/test_support_unit.scons',
+    theme_resources = '../chrome/theme_resources.scons',
+    tld_cleanup = '../net/tld_cleanup.scons',
+    ui_tests = '../chrome/ui_tests.scons',
+    unit_tests = '../chrome/unit_tests.scons',
+    url_fetch_test = '../chrome/url_fetch_test.scons',
+    utility = '../chrome/utility.scons',
+    v8 = '../v8/tools/gyp/v8.scons',
+    v8_base = '../v8/tools/gyp/v8_base.scons',
+    v8_nosnapshot = '../v8/tools/gyp/v8_nosnapshot.scons',
+    v8_shell = '../v8/tools/gyp/v8_shell.scons',
+    v8_snapshot = '../v8/tools/gyp/v8_snapshot.scons',
+    wav_ola_test = '../media/wav_ola_test.scons',
+    webcore = '../third_party/WebKit/WebCore/WebCore.gyp/webcore.scons',
+    webcore_bindings = '../third_party/WebKit/WebCore/WebCore.gyp/webcore_bindings.scons',
+    webcore_bindings_sources = '../third_party/WebKit/WebCore/WebCore.gyp/webcore_bindings_sources.scons',
+    webkit = '../third_party/WebKit/WebKit/chromium/webkit.scons',
+    webkit_resources = '../webkit/webkit_resources.scons',
+    webkit_strings = '../webkit/webkit_strings.scons',
+    webkit_unit_tests = '../third_party/WebKit/WebKit/chromium/webkit_unit_tests.scons',
+    worker = '../chrome/worker.scons',
+    wtf = '../third_party/WebKit/JavaScriptCore/JavaScriptCore.gyp/wtf.scons',
+    wtf_config = '../third_party/WebKit/JavaScriptCore/JavaScriptCore.gyp/wtf_config.scons',
+    xdg_mime = '../base/xdg_mime.scons',
+    xdisplaycheck = '../tools/xdisplaycheck/xdisplaycheck.scons',
+    yasm = '../third_party/yasm/yasm.scons',
+    zlib = '../third_party/zlib/zlib.scons',
+)
+
+class LoadTarget:
+  '''
+  Class for deciding if a given target sconscript is to be included
+  based on a list of included target names, optionally prefixed with '-'
+  to exclude a target name.
+  '''
+  def __init__(self, load):
+    '''
+    Initialize a class with a list of names for possible loading.
+
+    Arguments:
+      load:  list of elements in the LOAD= specification
+    '''
+    self.included = set([c for c in load if not c.startswith('-')])
+    self.excluded = set([c[1:] for c in load if c.startswith('-')])
+
+    if not self.included:
+      self.included = set(['all'])
+
+  def __call__(self, target):
+    '''
+    Returns True if the specified target's sconscript file should be
+    loaded, based on the initialized included and excluded lists.
+    '''
+    return (target in self.included or
+            ('all' in self.included and not target in self.excluded))
+
+if 'LOAD' in ARGUMENTS:
+  load = ARGUMENTS['LOAD'].split(',')
+else:
+  load = []
+load_target = LoadTarget(load)
+
+sconscript_files = []
+for target, sconscript in sconscript_file_map.iteritems():
+  if load_target(target):
+    sconscript_files.append(sconscript)
+
+
+target_alias_list= []
+
+conf_list = GetOption('conf_list')
+if conf_list:
+    # In case the same --mode= value was specified multiple times.
+    conf_list = list(set(conf_list))
+else:
+    conf_list = ['Debug']
+
+sconsbuild_dir = Dir('../sconsbuild')
+
+
+def FilterOut(self, **kw):
+  kw = SCons.Environment.copy_non_reserved_keywords(kw)
+  for key, val in kw.items():
+    envval = self.get(key, None)
+    if envval is None:
+      # No existing variable in the environment, so nothing to delete.
+      continue
+
+    for vremove in val:
+      # Use while not if, so we can handle duplicates.
+      while vremove in envval:
+        envval.remove(vremove)
+
+    self[key] = envval
+
+    # TODO(sgk): SCons.Environment.Append() has much more logic to deal
+    # with various types of values.  We should handle all those cases in here
+    # too.  (If variable is a dict, etc.)
+
+
+non_compilable_suffixes = {
+    'LINUX' : set([
+        '.bdic',
+        '.css',
+        '.dat',
+        '.fragment',
+        '.gperf',
+        '.h',
+        '.hh',
+        '.hpp',
+        '.html',
+        '.hxx',
+        '.idl',
+        '.in',
+        '.in0',
+        '.in1',
+        '.js',
+        '.mk',
+        '.rc',
+        '.sigs',
+        '',
+    ]),
+    'WINDOWS' : set([
+        '.h',
+        '.hh',
+        '.hpp',
+        '.dat',
+        '.idl',
+        '.in',
+        '.in0',
+        '.in1',
+    ]),
+}
+
+def compilable(env, file):
+  base, ext = os.path.splitext(str(file))
+  if ext in non_compilable_suffixes[env['TARGET_PLATFORM']]:
+    return False
+  return True
+
+def compilable_files(env, sources):
+  return [x for x in sources if compilable(env, x)]
+
+def GypProgram(env, target, source, *args, **kw):
+  source = compilable_files(env, source)
+  result = env.Program(target, source, *args, **kw)
+  if env.get('INCREMENTAL'):
+    env.Precious(result)
+  return result
+
+def GypTestProgram(env, target, source, *args, **kw):
+  source = compilable_files(env, source)
+  result = env.Program(target, source, *args, **kw)
+  if env.get('INCREMENTAL'):
+    env.Precious(*result)
+  return result
+
+def GypLibrary(env, target, source, *args, **kw):
+  source = compilable_files(env, source)
+  result = env.Library(target, source, *args, **kw)
+  return result
+
+def GypLoadableModule(env, target, source, *args, **kw):
+  source = compilable_files(env, source)
+  result = env.LoadableModule(target, source, *args, **kw)
+  return result
+
+def GypStaticLibrary(env, target, source, *args, **kw):
+  source = compilable_files(env, source)
+  result = env.StaticLibrary(target, source, *args, **kw)
+  return result
+
+def GypSharedLibrary(env, target, source, *args, **kw):
+  source = compilable_files(env, source)
+  result = env.SharedLibrary(target, source, *args, **kw)
+  if env.get('INCREMENTAL'):
+    env.Precious(result)
+  return result
+
+def add_gyp_methods(env):
+  env.AddMethod(GypProgram)
+  env.AddMethod(GypTestProgram)
+  env.AddMethod(GypLibrary)
+  env.AddMethod(GypLoadableModule)
+  env.AddMethod(GypStaticLibrary)
+  env.AddMethod(GypSharedLibrary)
+
+  env.AddMethod(FilterOut)
+
+  env.AddMethod(compilable)
+
+
+base_env = Environment(
+    tools = ['ar', 'as', 'gcc', 'g++', 'gnulink', 'chromium_builders'],
+    INTERMEDIATE_DIR='$OBJ_DIR/${COMPONENT_NAME}/_${TARGET_NAME}_intermediate',
+    LIB_DIR='$TOP_BUILDDIR/lib',
+    OBJ_DIR='$TOP_BUILDDIR/obj',
+    SCONSBUILD_DIR=sconsbuild_dir.abspath,
+    SHARED_INTERMEDIATE_DIR='$OBJ_DIR/_global_intermediate',
+    SRC_DIR=Dir('..'),
+    TARGET_PLATFORM='LINUX',
+    TOP_BUILDDIR='$SCONSBUILD_DIR/$CONFIG_NAME',
+    LIBPATH=['$LIB_DIR'],
+)
+
+if not GetOption('verbose'):
+  base_env.SetDefault(
+      ARCOMSTR='Creating library $TARGET',
+      ASCOMSTR='Assembling $TARGET',
+      CCCOMSTR='Compiling $TARGET',
+      CONCATSOURCECOMSTR='ConcatSource $TARGET',
+      CXXCOMSTR='Compiling $TARGET',
+      LDMODULECOMSTR='Building loadable module $TARGET',
+      LINKCOMSTR='Linking $TARGET',
+      MANIFESTCOMSTR='Updating manifest for $TARGET',
+      MIDLCOMSTR='Compiling IDL $TARGET',
+      PCHCOMSTR='Precompiling $TARGET',
+      RANLIBCOMSTR='Indexing $TARGET',
+      RCCOMSTR='Compiling resource $TARGET',
+      SHCCCOMSTR='Compiling $TARGET',
+      SHCXXCOMSTR='Compiling $TARGET',
+      SHLINKCOMSTR='Linking $TARGET',
+      SHMANIFESTCOMSTR='Updating manifest for $TARGET',
+  )
+
+add_gyp_methods(base_env)
+
+for conf in conf_list:
+  env = base_env.Clone(CONFIG_NAME=conf)
+  SConsignFile(env.File('$TOP_BUILDDIR/.sconsign').abspath)
+  for sconscript in sconscript_files:
+    target_alias = env.SConscript(sconscript, exports=['env'])
+    if target_alias:
+      target_alias_list.extend(target_alias)
+
+Default(Alias('all', target_alias_list))
+
+help_fmt = '''
+Usage: hammer [SCONS_OPTIONS] [VARIABLES] [TARGET] ...
+
+Local command-line build options:
+  --mode=CONFIG             Configuration to build:
+                              --mode=Debug [default]
+                              --mode=Release
+  --verbose                 Print actual executed command lines.
+
+Supported command-line build variables:
+  LOAD=[module,...]         Comma-separated list of components to load in the
+                              dependency graph ('-' prefix excludes)
+  PROGRESS=type             Display a progress indicator:
+                              name:  print each evaluated target name
+                              spinner:  print a spinner every 5 targets
+
+The following TARGET names can also be used as LOAD= module names:
+
+%s
+'''
+
+if GetOption('help'):
+  def columnar_text(items, width=78, indent=2, sep=2):
+    result = []
+    colwidth = max(map(len, items)) + sep
+    cols = (width - indent) / colwidth
+    if cols < 1:
+      cols = 1
+    rows = (len(items) + cols - 1) / cols
+    indent = '%*s' % (indent, '')
+    sep = indent
+    for row in xrange(0, rows):
+      result.append(sep)
+      for i in xrange(row, len(items), rows):
+        result.append('%-*s' % (colwidth, items[i]))
+      sep = '\n' + indent
+    result.append('\n')
+    return ''.join(result)
+
+  load_list = set(sconscript_file_map.keys())
+  target_aliases = set(map(str, target_alias_list))
+
+  common = load_list and target_aliases
+  load_only = load_list - common
+  target_only = target_aliases - common
+  help_text = [help_fmt % columnar_text(sorted(list(common)))]
+  if target_only:
+    fmt = "The following are additional TARGET names:\n\n%s\n"
+    help_text.append(fmt % columnar_text(sorted(list(target_only))))
+  if load_only:
+    fmt = "The following are additional LOAD= module names:\n\n%s\n"
+    help_text.append(fmt % columnar_text(sorted(list(load_only))))
+  Help(''.join(help_text))

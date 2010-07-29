@@ -7,6 +7,7 @@
 
 #include "base/mac_util.h"
 
+#import "base/chrome_application_mac.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/scoped_cftyperef.h"
@@ -53,7 +54,7 @@ TEST_F(MacUtilTest, TestLibraryPath) {
 
 TEST_F(MacUtilTest, TestGrabWindowSnapshot) {
   // Launch a test window so we can take a snapshot.
-  [NSApplication sharedApplication];
+  [CrApplication sharedApplication];
   NSRect frame = NSMakeRect(0, 0, 400, 400);
   scoped_nsobject<NSWindow> window(
       [[NSWindow alloc] initWithContentRect:frame
@@ -65,7 +66,9 @@ TEST_F(MacUtilTest, TestGrabWindowSnapshot) {
 
   scoped_ptr<std::vector<unsigned char> > png_representation(
       new std::vector<unsigned char>);
-  GrabWindowSnapshot(window, png_representation.get());
+  int width, height;
+  GrabWindowSnapshot(window, png_representation.get(),
+                     &width, &height);
 
   // Copy png back into NSData object so we can make sure we grabbed a png.
   scoped_nsobject<NSData> image_data(

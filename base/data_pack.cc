@@ -22,7 +22,6 @@ static const uint32 kFileFormatVersion = 1;
 // Length of file header: version and entry count.
 static const size_t kHeaderLength = 2 * sizeof(uint32);
 
-#pragma pack(push,1)
 struct DataPackEntry {
   uint32 resource_id;
   uint32 file_offset;
@@ -41,7 +40,6 @@ struct DataPackEntry {
     }
   }
 };
-#pragma pack(pop)
 
 COMPILE_ASSERT(sizeof(DataPackEntry) == 12, size_of_header_must_be_twelve);
 
@@ -98,7 +96,7 @@ bool DataPack::Load(const FilePath& path) {
   return true;
 }
 
-bool DataPack::GetStringPiece(uint32 resource_id, StringPiece* data) {
+bool DataPack::GetStringPiece(uint32 resource_id, StringPiece* data) const {
   // It won't be hard to make this endian-agnostic, but it's not worth
   // bothering to do right now.
 #if defined(__BYTE_ORDER)
@@ -121,7 +119,7 @@ bool DataPack::GetStringPiece(uint32 resource_id, StringPiece* data) {
   return true;
 }
 
-RefCountedStaticMemory* DataPack::GetStaticMemory(uint32 resource_id) {
+RefCountedStaticMemory* DataPack::GetStaticMemory(uint32 resource_id) const {
   base::StringPiece piece;
   if (!GetStringPiece(resource_id, &piece))
     return NULL;

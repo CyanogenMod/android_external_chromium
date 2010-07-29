@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,30 +23,29 @@ class MemBackendImpl : public Backend {
   MemBackendImpl() : max_size_(0), current_size_(0) {}
   ~MemBackendImpl();
 
+  // Returns an instance of a Backend implemented only in memory. The returned
+  // object should be deleted when not needed anymore. max_bytes is the maximum
+  // size the cache can grow to. If zero is passed in as max_bytes, the cache
+  // will determine the value to use based on the available memory. The returned
+  // pointer can be NULL if a fatal error is found.
+  static Backend* CreateBackend(int max_bytes);
+
   // Performs general initialization for this current instance of the cache.
   bool Init();
 
   // Backend interface.
   virtual int32 GetEntryCount() const;
-  virtual bool OpenEntry(const std::string& key, Entry** entry);
   virtual int OpenEntry(const std::string& key, Entry** entry,
                         CompletionCallback* callback);
-  virtual bool CreateEntry(const std::string& key, Entry** entry);
   virtual int CreateEntry(const std::string& key, Entry** entry,
                           CompletionCallback* callback);
-  virtual bool DoomEntry(const std::string& key);
   virtual int DoomEntry(const std::string& key, CompletionCallback* callback);
-  virtual bool DoomAllEntries();
   virtual int DoomAllEntries(CompletionCallback* callback);
-  virtual bool DoomEntriesBetween(const base::Time initial_time,
-                                  const base::Time end_time);
   virtual int DoomEntriesBetween(const base::Time initial_time,
                                  const base::Time end_time,
                                  CompletionCallback* callback);
-  virtual bool DoomEntriesSince(const base::Time initial_time);
   virtual int DoomEntriesSince(const base::Time initial_time,
                                CompletionCallback* callback);
-  virtual bool OpenNextEntry(void** iter, Entry** next_entry);
   virtual int OpenNextEntry(void** iter, Entry** next_entry,
                             CompletionCallback* callback);
   virtual void EndEnumeration(void** iter);
@@ -78,6 +77,16 @@ class MemBackendImpl : public Backend {
   void RemoveFromRankingList(MemEntryImpl* entry);
 
  private:
+  // Old Backend interface.
+  bool OpenEntry(const std::string& key, Entry** entry);
+  bool CreateEntry(const std::string& key, Entry** entry);
+  bool DoomEntry(const std::string& key);
+  bool DoomAllEntries();
+  bool DoomEntriesBetween(const base::Time initial_time,
+                          const base::Time end_time);
+  bool DoomEntriesSince(const base::Time initial_time);
+  bool OpenNextEntry(void** iter, Entry** next_entry);
+
   // Deletes entries from the cache until the current size is below the limit.
   // If empty is true, the whole cache will be trimmed, regardless of being in
   // use.
@@ -94,7 +103,7 @@ class MemBackendImpl : public Backend {
   int32 max_size_;        // Maximum data size for this instance.
   int32 current_size_;
 
-  DISALLOW_EVIL_CONSTRUCTORS(MemBackendImpl);
+  DISALLOW_COPY_AND_ASSIGN(MemBackendImpl);
 };
 
 }  // namespace disk_cache

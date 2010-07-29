@@ -17,10 +17,6 @@
 #include "base/string16.h"
 #include "base/string_piece.h"  // For implicit conversions.
 
-// TODO(brettw) this dependency should be removed and callers that need
-// these functions should include this file directly.
-#include "base/utf_string_conversions.h"
-
 // Safe standard library wrappers for all platforms.
 
 namespace base {
@@ -143,6 +139,19 @@ extern const char kWhitespaceASCII[];
 
 extern const char kUtf8ByteOrderMark[];
 
+// Removes characters in remove_chars from anywhere in input.  Returns true if
+// any characters were removed.
+// NOTE: Safe to use the same variable for both input and output.
+bool RemoveChars(const std::wstring& input,
+                 const wchar_t remove_chars[],
+                 std::wstring* output);
+bool RemoveChars(const string16& input,
+                 const char16 remove_chars[],
+                 string16* output);
+bool RemoveChars(const std::string& input,
+                 const char remove_chars[],
+                 std::string* output);
+
 // Removes characters in trim_chars from the beginning and end of input.
 // NOTE: Safe to use the same variable for both input and output.
 bool TrimString(const std::wstring& input,
@@ -154,6 +163,12 @@ bool TrimString(const string16& input,
 bool TrimString(const std::string& input,
                 const char trim_chars[],
                 std::string* output);
+
+// Truncates a string to the nearest UTF-8 character that will leave
+// the string less than or equal to the specified byte size.
+void TruncateUTF8ToByteSize(const std::string& input,
+                            const size_t byte_size,
+                            std::string* output);
 
 // Trims any whitespace from either end of the input string.  Returns where
 // whitespace was found.
@@ -204,6 +219,13 @@ std::string CollapseWhitespaceASCII(const std::string& text,
 bool ContainsOnlyWhitespaceASCII(const std::string& str);
 bool ContainsOnlyWhitespace(const string16& str);
 
+// Returns true if |input| is empty or contains only characters found in
+// |characters|.
+bool ContainsOnlyChars(const std::wstring& input,
+                       const std::wstring& characters);
+bool ContainsOnlyChars(const string16& input, const string16& characters);
+bool ContainsOnlyChars(const std::string& input, const std::string& characters);
+
 // These convert between ASCII (7-bit) and Wide/UTF16 strings.
 std::string WideToASCII(const std::wstring& wide);
 std::wstring ASCIIToWide(const base::StringPiece& ascii);
@@ -227,7 +249,6 @@ bool WideToLatin1(const std::wstring& wide, std::string* latin1);
 // add a new function for that.
 bool IsString8Bit(const std::wstring& str);
 bool IsStringUTF8(const std::string& str);
-bool IsStringWideUTF8(const std::wstring& str);
 bool IsStringASCII(const std::wstring& str);
 bool IsStringASCII(const base::StringPiece& str);
 bool IsStringASCII(const string16& str);
@@ -560,6 +581,14 @@ void SplitStringDontTrim(const std::string& str,
                          char s,
                          std::vector<std::string>* r);
 
+// The same as SplitString, but use a substring delimiter instead of a char.
+void SplitStringUsingSubstr(const string16& str,
+                            const string16& s,
+                            std::vector<string16>* r);
+void SplitStringUsingSubstr(const std::string& str,
+                            const std::string& s,
+                            std::vector<std::string>* r);
+
 // Splits a string into its fields delimited by any of the characters in
 // |delimiters|.  Each field is added to the |tokens| vector.  Returns the
 // number of tokens found.
@@ -572,6 +601,9 @@ size_t Tokenize(const string16& str,
 size_t Tokenize(const std::string& str,
                 const std::string& delimiters,
                 std::vector<std::string>* tokens);
+size_t Tokenize(const base::StringPiece& str,
+                const base::StringPiece& delimiters,
+                std::vector<base::StringPiece>* tokens);
 
 // Does the opposite of SplitString().
 std::wstring JoinString(const std::vector<std::wstring>& parts, wchar_t s);

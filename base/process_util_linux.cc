@@ -19,6 +19,7 @@
 #include "base/logging.h"
 #include "base/string_tokenizer.h"
 #include "base/string_util.h"
+#include "base/sys_info.h"
 
 namespace {
 
@@ -87,32 +88,19 @@ FilePath GetProcessExecutablePath(ProcessHandle process) {
   return FilePath(std::string(exename, len));
 }
 
-NamedProcessIterator::NamedProcessIterator(const std::wstring& executable_name,
-                                           const ProcessFilter* filter)
-    : executable_name_(executable_name), filter_(filter) {
+ProcessIterator::ProcessIterator(const ProcessFilter* filter)
+    : filter_(filter) {
   procfs_dir_ = opendir("/proc");
 }
 
-NamedProcessIterator::~NamedProcessIterator() {
+ProcessIterator::~ProcessIterator() {
   if (procfs_dir_) {
     closedir(procfs_dir_);
     procfs_dir_ = NULL;
   }
 }
 
-const ProcessEntry* NamedProcessIterator::NextProcessEntry() {
-  bool result = false;
-  do {
-    result = CheckForNextProcess();
-  } while (result && !IncludeEntry());
-
-  if (result)
-    return &entry_;
-
-  return NULL;
-}
-
-bool NamedProcessIterator::CheckForNextProcess() {
+bool ProcessIterator::CheckForNextProcess() {
   // TODO(port): skip processes owned by different UID
 
   dirent* slot = 0;
@@ -155,8 +143,8 @@ bool NamedProcessIterator::CheckForNextProcess() {
       return false;
 
     // Parse the status.  It is formatted like this:
-    // %d (%s) %c %d ...
-    // pid (name) runstate ppid
+    // %d (%s) %c %d %d ...
+    // pid (name) runstate ppid gid
     // To avoid being fooled by names containing a closing paren, scan
     // backwards.
     openparen = strchr(buf, '(');
@@ -179,27 +167,37 @@ bool NamedProcessIterator::CheckForNextProcess() {
     return false;
   }
 
-  entry_.pid = atoi(slot->d_name);
-  entry_.ppid = atoi(closeparen + 3);
+  // This seems fragile.
+  entry_.pid_ = atoi(slot->d_name);
+  entry_.ppid_ = atoi(closeparen + 3);
+  entry_.gid_ = atoi(strchr(closeparen + 4, ' '));
 
   // TODO(port): read pid's commandline's $0, like killall does.  Using the
   // short name between openparen and closeparen won't work for long names!
   int len = closeparen - openparen - 1;
-  if (len > NAME_MAX)
-    len = NAME_MAX;
-  memcpy(entry_.szExeFile, openparen + 1, len);
-  entry_.szExeFile[len] = 0;
-
+  entry_.exe_file_.assign(openparen + 1, len);
   return true;
 }
 
 bool NamedProcessIterator::IncludeEntry() {
   // TODO(port): make this also work for non-ASCII filenames
-  if (WideToASCII(executable_name_) != entry_.szExeFile)
+  if (WideToASCII(executable_name_) != entry().exe_file())
     return false;
-  if (!filter_)
-    return true;
-  return filter_->Includes(entry_.pid, entry_.ppid);
+  return ProcessIterator::IncludeEntry();
+}
+
+
+ProcessMetrics::ProcessMetrics(ProcessHandle process)
+    : process_(process),
+      last_time_(0),
+      last_system_time_(0),
+      last_cpu_(0) {
+  processor_count_ = base::SysInfo::NumberOfProcessors();
+}
+
+// static
+ProcessMetrics* ProcessMetrics::CreateProcessMetrics(ProcessHandle process) {
+  return new ProcessMetrics(process);
 }
 
 // On linux, we return vsize.
@@ -246,10 +244,19 @@ size_t ProcessMetrics::GetPeakWorkingSetSize() const {
   return 0;
 }
 
-size_t ProcessMetrics::GetPrivateBytes() const {
+bool ProcessMetrics::GetMemoryBytes(size_t* private_bytes,
+                                    size_t* shared_bytes) {
   WorkingSetKBytes ws_usage;
-  GetWorkingSetKBytes(&ws_usage);
-  return ws_usage.priv << 10;
+  if (!GetWorkingSetKBytes(&ws_usage))
+    return false;
+
+  if (private_bytes)
+    *private_bytes = ws_usage.priv << 10;
+
+  if (shared_bytes)
+    *shared_bytes = ws_usage.shared * 1024;
+
+  return true;
 }
 
 // Private and Shared working set sizes are obtained from /proc/<pid>/smaps.
@@ -264,13 +271,15 @@ bool ProcessMetrics::GetWorkingSetKBytes(WorkingSetKBytes* ws_usage) const {
   int pss_kb = 0;
   bool have_pss = false;
   if (file_util::ReadFileToString(stat_file, &smaps) && smaps.length() > 0) {
+    const std::string private_prefix = "Private_";
+    const std::string pss_prefix = "Pss";
     StringTokenizer tokenizer(smaps, ":\n");
+    StringPiece last_key_name;
     ParsingState state = KEY_NAME;
-    std::string last_key_name;
     while (tokenizer.GetNext()) {
       switch (state) {
         case KEY_NAME:
-          last_key_name = tokenizer.token();
+          last_key_name = tokenizer.token_piece();
           state = KEY_VALUE;
           break;
         case KEY_VALUE:
@@ -278,9 +287,9 @@ bool ProcessMetrics::GetWorkingSetKBytes(WorkingSetKBytes* ws_usage) const {
             NOTREACHED();
             return false;
           }
-          if (StartsWithASCII(last_key_name, "Private_", 1)) {
+          if (last_key_name.starts_with(private_prefix)) {
             private_kb += StringToInt(tokenizer.token());
-          } else if (StartsWithASCII(last_key_name, "Pss", 1)) {
+          } else if (last_key_name.starts_with(pss_prefix)) {
             have_pss = true;
             pss_kb += StringToInt(tokenizer.token());
           }
@@ -502,8 +511,8 @@ namespace {
 
 void OnNoMemorySize(size_t size) {
   if (size != 0)
-    CHECK(false) << "Out of memory, size = " << size;
-  CHECK(false) << "Out of memory.";
+    LOG(FATAL) << "Out of memory, size = " << size;
+  LOG(FATAL) << "Out of memory.";
 }
 
 void OnNoMemory() {
@@ -513,8 +522,7 @@ void OnNoMemory() {
 }  // namespace
 
 extern "C" {
-
-#if !defined(LINUX_USE_TCMALLOC)
+#if !defined(USE_TCMALLOC)
 
 extern "C" {
 void* __libc_malloc(size_t size);
@@ -539,7 +547,7 @@ void* __libc_memalign(size_t alignment, size_t size);
 // for this in process_util_unittest.cc.
 //
 // If we are using tcmalloc, then the problem is moot since tcmalloc handles
-// this for us. Thus this code is in a !defined(LINUX_USE_TCMALLOC) block.
+// this for us. Thus this code is in a !defined(USE_TCMALLOC) block.
 //
 // We call the real libc functions in this code by using __libc_malloc etc.
 // Previously we tried using dlsym(RTLD_NEXT, ...) but that failed depending on
@@ -590,7 +598,7 @@ int posix_memalign(void** ptr, size_t alignment, size_t size) {
   return 0;
 }
 
-#endif  // !defined(LINUX_USE_TCMALLOC)
+#endif  // !defined(USE_TCMALLOC)
 }  // extern C
 
 void EnableTerminationOnOutOfMemory() {

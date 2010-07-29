@@ -3,8 +3,13 @@
 // found in the LICENSE file.
 
 #include "base/crypto/cssm_init.h"
+
+#include <Security/SecBase.h>
+
+#include "base/lock.h"
 #include "base/logging.h"
 #include "base/singleton.h"
+#include "base/sys_string_conversions.h"
 
 // When writing crypto code for Mac OS X, you may find the following
 // documentation useful:
@@ -17,7 +22,7 @@ namespace {
 
 class CSSMInitSingleton {
  public:
-  CSSMInitSingleton() : inited_(false), loaded_(false) {
+  CSSMInitSingleton() : inited_(false), loaded_(false), csp_handle_(NULL) {
     static CSSM_VERSION version = {2, 0};
     // TODO(wtc): what should our caller GUID be?
     static const CSSM_GUID test_guid = {
@@ -39,10 +44,20 @@ class CSSMInitSingleton {
       return;
     }
     loaded_ = true;
+
+    crtn = CSSM_ModuleAttach(&gGuidAppleCSP, &version,
+                             &base::kCssmMemoryFunctions, 0,
+                             CSSM_SERVICE_CSP, 0, CSSM_KEY_HIERARCHY_NONE,
+                             NULL, 0, NULL, &csp_handle_);
+    DCHECK(crtn == CSSM_OK);
   }
 
   ~CSSMInitSingleton() {
     CSSM_RETURN crtn;
+    if (csp_handle_) {
+      CSSM_RETURN crtn = CSSM_ModuleDetach(csp_handle_);
+      DCHECK(crtn == CSSM_OK);
+    }
     if (loaded_) {
       crtn = CSSM_ModuleUnload(&gGuidAppleCSP, NULL, NULL);
       DCHECK(crtn == CSSM_OK);
@@ -53,9 +68,31 @@ class CSSMInitSingleton {
     }
   }
 
+  CSSM_CSP_HANDLE csp_handle() const  {return csp_handle_;}
+
  private:
   bool inited_;  // True if CSSM_Init has been called successfully.
   bool loaded_;  // True if CSSM_ModuleLoad has been called successfully.
+  CSSM_CSP_HANDLE csp_handle_;
+};
+
+// This singleton is separate as it pertains to Apple's wrappers over
+// their own CSSM handles, as opposed to our own CSSM_CSP_HANDLE.
+class SecurityServicesSingleton {
+ public:
+  ~SecurityServicesSingleton() {}
+
+  Lock& lock() { return lock_; }
+
+ private:
+  friend class Singleton<SecurityServicesSingleton>;
+  friend struct DefaultSingletonTraits<SecurityServicesSingleton>;
+
+  SecurityServicesSingleton() {}
+
+  Lock lock_;
+
+  DISALLOW_COPY_AND_ASSIGN(SecurityServicesSingleton);
 };
 
 }  // namespace
@@ -64,6 +101,10 @@ namespace base {
 
 void EnsureCSSMInit() {
   Singleton<CSSMInitSingleton>::get();
+}
+
+CSSM_CSP_HANDLE GetSharedCSPHandle() {
+  return Singleton<CSSMInitSingleton>::get()->csp_handle();
 }
 
 void* CSSMMalloc(CSSM_SIZE size, void *alloc_ref) {
@@ -89,5 +130,22 @@ const CSSM_API_MEMORY_FUNCS kCssmMemoryFunctions = {
   CSSMCalloc,
   NULL
 };
+
+void LogCSSMError(const char *fn_name, CSSM_RETURN err) {
+  if (!err)
+    return;
+  CFStringRef cfstr = SecCopyErrorMessageString(err, NULL);
+  if (cfstr) {
+    std::string err_name = SysCFStringRefToUTF8(cfstr);
+    CFRelease(cfstr);
+    LOG(ERROR) << fn_name << " returned " << err << " (" << err_name << ")";
+  } else {
+    LOG(ERROR) << fn_name << " returned " << err;
+  }
+}
+
+Lock& GetMacSecurityServicesLock() {
+  return Singleton<SecurityServicesSingleton>::get()->lock();
+}
 
 }  // namespace base

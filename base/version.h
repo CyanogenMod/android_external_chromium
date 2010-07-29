@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/gtest_prod_util.h"
 
 class Version {
  public:
@@ -17,6 +18,11 @@ class Version {
   // Caller is responsible for freeing the Version object once done.
   static Version* GetVersionFromString(const std::wstring& version_str);
   static Version* GetVersionFromString(const std::string& version_str);
+
+  // Exposed only so that a Version can be stored in STL containers;
+  // any call to the methods below on a default-constructed Version
+  // will DCHECK.
+  Version();
 
   ~Version() {}
 
@@ -31,10 +37,14 @@ class Version {
   const std::vector<uint16>& components() const { return components_; }
 
  private:
-  Version() {}
   bool InitFromString(const std::string& version_str);
 
+  bool is_valid_;
   std::vector<uint16> components_;
+
+  FRIEND_TEST_ALL_PREFIXES(VersionTest, DefaultConstructor);
+  FRIEND_TEST_ALL_PREFIXES(VersionTest, GetVersionFromString);
+  FRIEND_TEST_ALL_PREFIXES(VersionTest, Compare);
 };
 
 #endif  // BASE_VERSION_H_

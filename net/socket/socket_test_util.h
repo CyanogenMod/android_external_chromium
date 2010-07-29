@@ -1,26 +1,33 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_SOCKET_SOCKET_TEST_UTIL_H_
 #define NET_SOCKET_SOCKET_TEST_UTIL_H_
 
+#include <cstring>
 #include <deque>
 #include <string>
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/callback.h"
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/scoped_vector.h"
 #include "net/base/address_list.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
+#include "net/base/net_log.h"
 #include "net/base/ssl_config_service.h"
 #include "net/base/test_completion_callback.h"
+#include "net/http/http_auth_controller.h"
+#include "net/http/http_proxy_client_socket_pool.h"
 #include "net/socket/client_socket_factory.h"
 #include "net/socket/client_socket_handle.h"
+#include "net/socket/socks_client_socket_pool.h"
 #include "net/socket/ssl_client_socket.h"
+#include "net/socket/tcp_client_socket_pool.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -35,7 +42,8 @@ enum {
 };
 
 class ClientSocket;
-class LoadLog;
+class HttpRequestHeaders;
+class HttpResponseHeaders;
 class MockClientSocket;
 class SSLClientSocket;
 
@@ -49,29 +57,55 @@ struct MockConnect {
 };
 
 struct MockRead {
+  // Flag to indicate that the message loop should be terminated.
+  enum {
+    STOPLOOP = 1 << 31
+  };
+
   // Default
-  MockRead() : async(false), result(0), data(NULL), data_len(0) {}
+  MockRead() : async(false), result(0), data(NULL), data_len(0),
+      sequence_number(0), time_stamp(base::Time::Now()) {}
 
   // Read failure (no data).
   MockRead(bool async, int result) : async(async) , result(result), data(NULL),
-      data_len(0) { }
+      data_len(0), sequence_number(0), time_stamp(base::Time::Now()) { }
+
+  // Read failure (no data), with sequence information.
+  MockRead(bool async, int result, int seq) : async(async) , result(result),
+      data(NULL), data_len(0), sequence_number(seq),
+      time_stamp(base::Time::Now()) { }
 
   // Asynchronous read success (inferred data length).
   explicit MockRead(const char* data) : async(true),  result(0), data(data),
-      data_len(strlen(data)) { }
+      data_len(strlen(data)), sequence_number(0),
+      time_stamp(base::Time::Now()) { }
 
   // Read success (inferred data length).
   MockRead(bool async, const char* data) : async(async), result(0), data(data),
-      data_len(strlen(data)) { }
+      data_len(strlen(data)), sequence_number(0),
+      time_stamp(base::Time::Now()) { }
 
   // Read success.
   MockRead(bool async, const char* data, int data_len) : async(async),
-      result(0), data(data), data_len(data_len) { }
+      result(0), data(data), data_len(data_len), sequence_number(0),
+      time_stamp(base::Time::Now()) { }
+
+  // Read success with sequence information.
+  MockRead(bool async, const char* data, int data_len, int seq) : async(async),
+      result(0), data(data), data_len(data_len), sequence_number(seq),
+      time_stamp(base::Time::Now()) { }
 
   bool async;
   int result;
   const char* data;
   int data_len;
+
+  // For OrderedSocketData, which only allows reads to occur in a particular
+  // sequence.  If a read occurs before the given |sequence_number| is reached,
+  // an ERR_IO_PENDING is returned.
+  int sequence_number;      // The sequence number at which a read is allowed
+                            // to occur.
+  base::Time time_stamp;    // The time stamp at which the operation occurred.
 };
 
 // MockWrite uses the same member fields as MockRead, but with different
@@ -121,28 +155,44 @@ class SocketDataProvider {
 // writes.
 class StaticSocketDataProvider : public SocketDataProvider {
  public:
-  StaticSocketDataProvider() : reads_(NULL), read_index_(0),
-      writes_(NULL), write_index_(0) {}
-  StaticSocketDataProvider(MockRead* r, MockWrite* w) : reads_(r),
-      read_index_(0), writes_(w), write_index_(0) {}
+  StaticSocketDataProvider() : reads_(NULL), read_index_(0), read_count_(0),
+      writes_(NULL), write_index_(0), write_count_(0) {}
+  StaticSocketDataProvider(MockRead* reads, size_t reads_count,
+                           MockWrite* writes, size_t writes_count)
+      : reads_(reads),
+        read_index_(0),
+        read_count_(reads_count),
+        writes_(writes),
+        write_index_(0),
+        write_count_(writes_count) {
+  }
 
   // SocketDataProvider methods:
   virtual MockRead GetNextRead();
   virtual MockWriteResult OnWrite(const std::string& data);
   virtual void Reset();
 
-  // If the test wishes to verify that all data is consumed, it can include
-  // a EOF MockRead or MockWrite, which is a zero-length Read or Write.
-  // The test can then call at_read_eof() or at_write_eof() to verify that
-  // all data has been consumed.
-  bool at_read_eof() const { return reads_[read_index_].data_len == 0; }
-  bool at_write_eof() const { return writes_[write_index_].data_len == 0; }
+  // These functions get access to the next available read and write data.
+  const MockRead& PeekRead() const;
+  const MockWrite& PeekWrite() const;
+  // These functions get random access to the read and write data, for timing.
+  const MockRead& PeekRead(size_t index) const;
+  const MockWrite& PeekWrite(size_t index) const;
+  size_t read_index() const { return read_index_; }
+  size_t write_index() const { return write_index_; }
+  size_t read_count() const { return read_count_; }
+  size_t write_count() const { return write_count_; }
+
+  bool at_read_eof() const { return read_index_ >= read_count_; }
+  bool at_write_eof() const { return write_index_ >= write_count_; }
 
  private:
   MockRead* reads_;
-  int read_index_;
+  size_t read_index_;
+  size_t read_count_;
   MockWrite* writes_;
-  int write_index_;
+  size_t write_index_;
+  size_t write_count_;
 
   DISALLOW_COPY_AND_ASSIGN(StaticSocketDataProvider);
 };
@@ -168,7 +218,10 @@ class DynamicSocketDataProvider : public SocketDataProvider {
  protected:
   // The next time there is a read from this socket, it will return |data|.
   // Before calling SimulateRead next time, the previous data must be consumed.
-  void SimulateRead(const char* data);
+  void SimulateRead(const char* data, size_t length);
+  void SimulateRead(const char* data) {
+    SimulateRead(data, std::strlen(data));
+  }
 
  private:
   std::deque<MockRead> reads_;
@@ -186,9 +239,105 @@ class DynamicSocketDataProvider : public SocketDataProvider {
 // SSLSocketDataProviders only need to keep track of the return code from calls
 // to Connect().
 struct SSLSocketDataProvider {
-  SSLSocketDataProvider(bool async, int result) : connect(async, result) { }
+  SSLSocketDataProvider(bool async, int result)
+      : connect(async, result),
+        next_proto_status(SSLClientSocket::kNextProtoUnsupported),
+        was_npn_negotiated(false) { }
 
   MockConnect connect;
+  SSLClientSocket::NextProtoStatus next_proto_status;
+  std::string next_proto;
+  bool was_npn_negotiated;
+};
+
+// A DataProvider where the client must write a request before the reads (e.g.
+// the response) will complete.
+class DelayedSocketData : public StaticSocketDataProvider,
+                          public base::RefCounted<DelayedSocketData> {
+ public:
+  // |write_delay| the number of MockWrites to complete before allowing
+  //               a MockRead to complete.
+  // |reads| the list of MockRead completions.
+  // |writes| the list of MockWrite completions.
+  // Note: All MockReads and MockWrites must be async.
+  // Note: The MockRead and MockWrite lists musts end with a EOF
+  //       e.g. a MockRead(true, 0, 0);
+  DelayedSocketData(int write_delay,
+                    MockRead* reads, size_t reads_count,
+                    MockWrite* writes, size_t writes_count);
+
+  // |connect| the result for the connect phase.
+  // |reads| the list of MockRead completions.
+  // |write_delay| the number of MockWrites to complete before allowing
+  //               a MockRead to complete.
+  // |writes| the list of MockWrite completions.
+  // Note: All MockReads and MockWrites must be async.
+  // Note: The MockRead and MockWrite lists musts end with a EOF
+  //       e.g. a MockRead(true, 0, 0);
+  DelayedSocketData(const MockConnect& connect, int write_delay,
+                    MockRead* reads, size_t reads_count,
+                    MockWrite* writes, size_t writes_count);
+
+  virtual MockRead GetNextRead();
+  virtual MockWriteResult OnWrite(const std::string& data);
+  virtual void Reset();
+  void CompleteRead();
+
+ private:
+  int write_delay_;
+  ScopedRunnableMethodFactory<DelayedSocketData> factory_;
+};
+
+// A DataProvider where the reads are ordered.
+// If a read is requested before its sequence number is reached, we return an
+// ERR_IO_PENDING (that way we don't have to explicitly add a MockRead just to
+// wait).
+// The sequence number is incremented on every read and write operation.
+// The message loop may be interrupted by setting the high bit of the sequence
+// number in the MockRead's sequence number.  When that MockRead is reached,
+// we post a Quit message to the loop.  This allows us to interrupt the reading
+// of data before a complete message has arrived, and provides support for
+// testing server push when the request is issued while the response is in the
+// middle of being received.
+class OrderedSocketData : public StaticSocketDataProvider,
+                          public base::RefCounted<OrderedSocketData> {
+ public:
+  // |reads| the list of MockRead completions.
+  // |writes| the list of MockWrite completions.
+  // Note: All MockReads and MockWrites must be async.
+  // Note: The MockRead and MockWrite lists musts end with a EOF
+  //       e.g. a MockRead(true, 0, 0);
+  OrderedSocketData(MockRead* reads, size_t reads_count,
+                    MockWrite* writes, size_t writes_count);
+
+  // |connect| the result for the connect phase.
+  // |reads| the list of MockRead completions.
+  // |writes| the list of MockWrite completions.
+  // Note: All MockReads and MockWrites must be async.
+  // Note: The MockRead and MockWrite lists musts end with a EOF
+  //       e.g. a MockRead(true, 0, 0);
+  OrderedSocketData(const MockConnect& connect,
+                    MockRead* reads, size_t reads_count,
+                    MockWrite* writes, size_t writes_count);
+
+  virtual MockRead GetNextRead();
+  virtual MockWriteResult OnWrite(const std::string& data);
+  virtual void Reset();
+  void SetCompletionCallback(CompletionCallback* callback) {
+    callback_ = callback;
+  }
+
+  // Posts a quit message to the current message loop, if one is running.
+  void EndLoop();
+
+  void CompleteRead();
+
+ private:
+  int sequence_number_;
+  int loop_stop_stage_;
+  CompletionCallback* callback_;
+  bool blocked_;
+  ScopedRunnableMethodFactory<OrderedSocketData> factory_;
 };
 
 // Holds an array of SocketDataProvider elements.  As Mock{TCP,SSL}ClientSocket
@@ -201,7 +350,7 @@ class SocketDataProviderArray {
   }
 
   T* GetNext() {
-    DCHECK(next_index_ < data_providers_.size());
+    DCHECK_LT(next_index_, data_providers_.size());
     return data_providers_[next_index_++];
   }
 
@@ -239,16 +388,17 @@ class MockClientSocketFactory : public ClientSocketFactory {
 
   // Return |index|-th MockTCPClientSocket (starting from 0) that the factory
   // created.
-  MockTCPClientSocket* GetMockTCPClientSocket(int index) const;
+  MockTCPClientSocket* GetMockTCPClientSocket(size_t index) const;
 
   // Return |index|-th MockSSLClientSocket (starting from 0) that the factory
   // created.
-  MockSSLClientSocket* GetMockSSLClientSocket(int index) const;
+  MockSSLClientSocket* GetMockSSLClientSocket(size_t index) const;
 
   // ClientSocketFactory
-  virtual ClientSocket* CreateTCPClientSocket(const AddressList& addresses);
+  virtual ClientSocket* CreateTCPClientSocket(const AddressList& addresses,
+                                              NetLog* net_log);
   virtual SSLClientSocket* CreateSSLClientSocket(
-      ClientSocket* transport_socket,
+      ClientSocketHandle* transport_socket,
       const std::string& hostname,
       const SSLConfig& ssl_config);
 
@@ -263,14 +413,15 @@ class MockClientSocketFactory : public ClientSocketFactory {
 
 class MockClientSocket : public net::SSLClientSocket {
  public:
-  MockClientSocket();
+  explicit MockClientSocket(net::NetLog* net_log);
 
   // ClientSocket methods:
-  virtual int Connect(net::CompletionCallback* callback, LoadLog* load_log) = 0;
+  virtual int Connect(net::CompletionCallback* callback) = 0;
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
-  virtual int GetPeerName(struct sockaddr* name, socklen_t* namelen);
+  virtual int GetPeerAddress(AddressList* address) const;
+  virtual const BoundNetLog& NetLog() const { return net_log_;}
 
   // SSLClientSocket methods:
   virtual void GetSSLInfo(net::SSLInfo* ssl_info);
@@ -301,16 +452,18 @@ class MockClientSocket : public net::SSLClientSocket {
 
   // True if Connect completed successfully and Disconnect hasn't been called.
   bool connected_;
+
+  net::BoundNetLog net_log_;
 };
 
 class MockTCPClientSocket : public MockClientSocket {
  public:
-  MockTCPClientSocket(const net::AddressList& addresses,
+  MockTCPClientSocket(const net::AddressList& addresses, net::NetLog* net_log,
                       net::SocketDataProvider* socket);
 
   // ClientSocket methods:
-  virtual int Connect(net::CompletionCallback* callback,
-                      LoadLog* load_log);
+  virtual int Connect(net::CompletionCallback* callback);
+  virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const { return IsConnected(); }
 
@@ -348,15 +501,14 @@ class MockTCPClientSocket : public MockClientSocket {
 class MockSSLClientSocket : public MockClientSocket {
  public:
   MockSSLClientSocket(
-      net::ClientSocket* transport_socket,
+      net::ClientSocketHandle* transport_socket,
       const std::string& hostname,
       const net::SSLConfig& ssl_config,
       net::SSLSocketDataProvider* socket);
   ~MockSSLClientSocket();
 
-  virtual void GetSSLInfo(net::SSLInfo* ssl_info);
-
-  virtual int Connect(net::CompletionCallback* callback, LoadLog* load_log);
+  // ClientSocket methods:
+  virtual int Connect(net::CompletionCallback* callback);
   virtual void Disconnect();
 
   // Socket methods:
@@ -365,14 +517,22 @@ class MockSSLClientSocket : public MockClientSocket {
   virtual int Write(net::IOBuffer* buf, int buf_len,
                     net::CompletionCallback* callback);
 
+  // SSLClientSocket methods:
+  virtual void GetSSLInfo(net::SSLInfo* ssl_info);
+  virtual NextProtoStatus GetNextProto(std::string* proto);
+  virtual bool wasNpnNegotiated() const;
+  virtual bool setWasNpnNegotiated(bool negotiated);
+
   // This MockSocket does not implement the manual async IO feature.
   virtual void OnReadComplete(const MockRead& data) { NOTIMPLEMENTED(); }
 
  private:
   class ConnectCallback;
 
-  scoped_ptr<ClientSocket> transport_;
+  scoped_ptr<ClientSocketHandle> transport_;
   net::SSLSocketDataProvider* data_;
+  bool is_npn_state_set_;
+  bool new_npn_value_;
 };
 
 class TestSocketRequest : public CallbackRunner< Tuple1<int> > {
@@ -414,17 +574,17 @@ class ClientSocketPoolTest : public testing::Test {
   virtual void TearDown();
 
   template <typename PoolType, typename SocketParams>
-  int StartRequestUsingPool(PoolType* socket_pool,
+  int StartRequestUsingPool(const scoped_refptr<PoolType>& socket_pool,
                             const std::string& group_name,
                             RequestPriority priority,
-                            const SocketParams& socket_params) {
-    DCHECK(socket_pool);
+                            const scoped_refptr<SocketParams>& socket_params) {
+    DCHECK(socket_pool.get());
     TestSocketRequest* request = new TestSocketRequest(&request_order_,
                                                        &completion_count_);
     requests_.push_back(request);
     int rv = request->handle()->Init(
         group_name, socket_params, priority, request,
-        socket_pool, NULL);
+        socket_pool, BoundNetLog());
     if (rv != ERR_IO_PENDING)
       request_order_.push_back(request);
     return rv;
@@ -447,6 +607,143 @@ class ClientSocketPoolTest : public testing::Test {
   std::vector<TestSocketRequest*> request_order_;
   size_t completion_count_;
 };
+
+class MockTCPClientSocketPool : public TCPClientSocketPool {
+ public:
+  class MockConnectJob {
+   public:
+    MockConnectJob(ClientSocket* socket, ClientSocketHandle* handle,
+                   CompletionCallback* callback);
+
+    int Connect();
+    bool CancelHandle(const ClientSocketHandle* handle);
+
+   private:
+    void OnConnect(int rv);
+
+    scoped_ptr<ClientSocket> socket_;
+    ClientSocketHandle* handle_;
+    CompletionCallback* user_callback_;
+    CompletionCallbackImpl<MockConnectJob> connect_callback_;
+
+    DISALLOW_COPY_AND_ASSIGN(MockConnectJob);
+  };
+
+  MockTCPClientSocketPool(
+      int max_sockets,
+      int max_sockets_per_group,
+      const scoped_refptr<ClientSocketPoolHistograms>& histograms,
+      ClientSocketFactory* socket_factory);
+
+  int release_count() const { return release_count_; };
+  int cancel_count() const { return cancel_count_; };
+
+  // TCPClientSocketPool methods.
+  virtual int RequestSocket(const std::string& group_name,
+                            const void* socket_params,
+                            RequestPriority priority,
+                            ClientSocketHandle* handle,
+                            CompletionCallback* callback,
+                            const BoundNetLog& net_log);
+
+  virtual void CancelRequest(const std::string& group_name,
+                             ClientSocketHandle* handle);
+  virtual void ReleaseSocket(const std::string& group_name,
+                             ClientSocket* socket, int id);
+
+ protected:
+  virtual ~MockTCPClientSocketPool();
+
+ private:
+  ClientSocketFactory* client_socket_factory_;
+  int release_count_;
+  int cancel_count_;
+  ScopedVector<MockConnectJob> job_list_;
+
+  DISALLOW_COPY_AND_ASSIGN(MockTCPClientSocketPool);
+};
+
+class MockSOCKSClientSocketPool : public SOCKSClientSocketPool {
+ public:
+  MockSOCKSClientSocketPool(
+      int max_sockets,
+      int max_sockets_per_group,
+      const scoped_refptr<ClientSocketPoolHistograms>& histograms,
+      const scoped_refptr<TCPClientSocketPool>& tcp_pool);
+
+  // SOCKSClientSocketPool methods.
+  virtual int RequestSocket(const std::string& group_name,
+                            const void* socket_params,
+                            RequestPriority priority,
+                            ClientSocketHandle* handle,
+                            CompletionCallback* callback,
+                            const BoundNetLog& net_log);
+
+  virtual void CancelRequest(const std::string& group_name,
+                             ClientSocketHandle* handle);
+  virtual void ReleaseSocket(const std::string& group_name,
+                             ClientSocket* socket, int id);
+
+ protected:
+  virtual ~MockSOCKSClientSocketPool();
+
+ private:
+  const scoped_refptr<TCPClientSocketPool> tcp_pool_;
+
+  DISALLOW_COPY_AND_ASSIGN(MockSOCKSClientSocketPool);
+};
+
+struct MockHttpAuthControllerData {
+  MockHttpAuthControllerData(std::string header) : auth_header(header) {}
+
+  std::string auth_header;
+};
+
+class MockHttpAuthController : public HttpAuthController {
+ public:
+  MockHttpAuthController();
+  void SetMockAuthControllerData(struct MockHttpAuthControllerData* data,
+                                 size_t data_length);
+
+  // HttpAuthController methods.
+  virtual int MaybeGenerateAuthToken(const HttpRequestInfo* request,
+                                     CompletionCallback* callback,
+                                     const BoundNetLog& net_log);
+  virtual void AddAuthorizationHeader(
+      HttpRequestHeaders* authorization_headers);
+  virtual int HandleAuthChallenge(scoped_refptr<HttpResponseHeaders> headers,
+                                  bool do_not_send_server_auth,
+                                  bool establishing_tunnel,
+                                  const BoundNetLog& net_log);
+  virtual void ResetAuth(const std::wstring& username,
+                         const std::wstring& password);
+  virtual bool HaveAuthHandler() const;
+  virtual bool HaveAuth() const;
+
+ private:
+  virtual ~MockHttpAuthController() {}
+  const struct MockHttpAuthControllerData& CurrentData() const {
+    DCHECK(data_index_ < data_count_);
+    return data_[data_index_];
+  }
+
+  MockHttpAuthControllerData* data_;
+  size_t data_index_;
+  size_t data_count_;
+};
+
+// Constants for a successful SOCKS v5 handshake.
+extern const char kSOCKS5GreetRequest[];
+extern const int kSOCKS5GreetRequestLength;
+
+extern const char kSOCKS5GreetResponse[];
+extern const int kSOCKS5GreetResponseLength;
+
+extern const char kSOCKS5OkRequest[];
+extern const int kSOCKS5OkRequestLength;
+
+extern const char kSOCKS5OkResponse[];
+extern const int kSOCKS5OkResponseLength;
 
 }  // namespace net
 

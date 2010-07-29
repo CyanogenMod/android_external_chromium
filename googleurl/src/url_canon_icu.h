@@ -45,13 +45,13 @@ class ICUCharsetConverter : public CharsetConverter {
   // Constructs a converter using an already-existing ICU character set
   // converter. This converter is NOT owned by this object; the lifetime must
   // be managed by the creator such that it is alive as long as this is.
-  ICUCharsetConverter(UConverter* converter);
+  GURL_API ICUCharsetConverter(UConverter* converter);
 
-  virtual ~ICUCharsetConverter() {}
+  GURL_API virtual ~ICUCharsetConverter() {}
 
-  virtual void ConvertFromUTF16(const char16* input,
-                                int input_len,
-                                CanonOutput* output);
+  GURL_API virtual void ConvertFromUTF16(const char16* input,
+                                         int input_len,
+                                         CanonOutput* output);
 
  private:
   // The ICU converter, not owned by this class.

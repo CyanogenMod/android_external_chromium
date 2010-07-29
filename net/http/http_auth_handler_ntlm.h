@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -27,12 +27,47 @@
 #include "base/basictypes.h"
 #include "base/string16.h"
 #include "net/http/http_auth_handler.h"
+#include "net/http/http_auth_handler_factory.h"
 
 namespace net {
+
+class URLSecurityManager;
 
 // Code for handling HTTP NTLM authentication.
 class HttpAuthHandlerNTLM : public HttpAuthHandler {
  public:
+  class Factory : public HttpAuthHandlerFactory {
+   public:
+    Factory();
+    virtual ~Factory();
+
+    virtual int CreateAuthHandler(HttpAuth::ChallengeTokenizer* challenge,
+                                  HttpAuth::Target target,
+                                  const GURL& origin,
+                                  CreateReason reason,
+                                  int digest_nonce_count,
+                                  const BoundNetLog& net_log,
+                                  scoped_ptr<HttpAuthHandler>* handler);
+#if defined(NTLM_SSPI)
+    // Set the SSPILibrary to use. Typically the only callers which need to
+    // use this are unit tests which pass in a mocked-out version of the
+    // SSPI library.
+    // The caller is responsible for managing the lifetime of |*sspi_library|,
+    // and the lifetime must exceed that of this Factory object and all
+    // HttpAuthHandler's that this Factory object creates.
+    void set_sspi_library(SSPILibrary* sspi_library) {
+      sspi_library_ = sspi_library;
+    }
+#endif  // defined(NTLM_SSPI)
+   private:
+#if defined(NTLM_SSPI)
+    ULONG max_token_length_;
+    bool first_creation_;
+    bool is_unsupported_;
+    SSPILibrary* sspi_library_;
+#endif  // defined(NTLM_SSPI)
+  };
+
 #if defined(NTLM_PORTABLE)
   // A function that generates n random bytes in the output buffer.
   typedef void (*GenerateRandomProc)(uint8* output, size_t n);
@@ -62,22 +97,30 @@ class HttpAuthHandlerNTLM : public HttpAuthHandler {
   };
 #endif
 
+#if defined(NTLM_PORTABLE)
   HttpAuthHandlerNTLM();
+#endif
+#if defined(NTLM_SSPI)
+  HttpAuthHandlerNTLM(SSPILibrary* sspi_library, ULONG max_token_length,
+                      URLSecurityManager* url_security_manager);
+#endif
 
   virtual bool NeedsIdentity();
 
   virtual bool IsFinalRound();
 
-  virtual std::string GenerateCredentials(const std::wstring& username,
-                                          const std::wstring& password,
-                                          const HttpRequestInfo* request,
-                                          const ProxyInfo* proxy);
+  virtual bool AllowsDefaultCredentials();
 
  protected:
-  virtual bool Init(std::string::const_iterator challenge_begin,
-                    std::string::const_iterator challenge_end) {
-    return ParseChallenge(challenge_begin, challenge_end);
+  virtual bool Init(HttpAuth::ChallengeTokenizer* tok) {
+    return ParseChallenge(tok);
   }
+
+  virtual int GenerateAuthTokenImpl(const std::wstring* username,
+                                    const std::wstring* password,
+                                    const HttpRequestInfo* request,
+                                    CompletionCallback* callback,
+                                    std::string* auth_token);
 
   // This function acquires a credentials handle in the SSPI implementation.
   // It does nothing in the portable implementation.
@@ -95,8 +138,7 @@ class HttpAuthHandlerNTLM : public HttpAuthHandler {
 
   // Parse the challenge, saving the results into this instance.
   // Returns true on success.
-  bool ParseChallenge(std::string::const_iterator challenge_begin,
-                      std::string::const_iterator challenge_end);
+  bool ParseChallenge(HttpAuth::ChallengeTokenizer* tok);
 
   // Given an input token received from the server, generate the next output
   // token to be sent to the server.
@@ -104,6 +146,9 @@ class HttpAuthHandlerNTLM : public HttpAuthHandler {
                    uint32 in_token_len,
                    void** out_token,
                    uint32* out_token_len);
+
+  // Create an NTLM SPN to identify the |origin| server.
+  static std::wstring CreateSPN(const GURL& origin);
 
 #if defined(NTLM_SSPI)
   HttpAuthSSPI auth_sspi_;
@@ -121,6 +166,10 @@ class HttpAuthHandlerNTLM : public HttpAuthHandler {
   // The base64-encoded string following "NTLM" in the "WWW-Authenticate" or
   // "Proxy-Authenticate" response header.
   std::string auth_data_;
+
+#if defined(NTLM_SSPI)
+  URLSecurityManager* url_security_manager_;
+#endif
 };
 
 }  // namespace net

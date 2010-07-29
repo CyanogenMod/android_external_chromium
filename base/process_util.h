@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,6 +17,9 @@
 // kinfo_proc is defined in <sys/sysctl.h>, but this forward declaration
 // is sufficient for the vector<kinfo_proc> below.
 struct kinfo_proc;
+// malloc_zone_t is defined in <malloc/malloc.h>, but this forward declaration
+// is sufficient for GetPurgeableZone() below.
+typedef struct _malloc_zone_t malloc_zone_t;
 #include <mach/mach.h>
 #elif defined(OS_POSIX)
 #include <dirent.h>
@@ -24,23 +27,48 @@ struct kinfo_proc;
 #include <sys/types.h>
 #endif
 
+#include <list>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/file_descriptor_shuffle.h"
 #include "base/file_path.h"
 #include "base/process.h"
 
+#ifndef NAME_MAX  // Solaris and some BSDs have no NAME_MAX
+#ifdef MAXNAMLEN
+#define NAME_MAX MAXNAMLEN
+#else
+#define NAME_MAX 256
+#endif
+#endif
+
+namespace base {
+
 #if defined(OS_WIN)
-typedef PROCESSENTRY32 ProcessEntry;
-typedef IO_COUNTERS IoCounters;
+
+struct ProcessEntry : public PROCESSENTRY32 {
+  ProcessId pid() const { return th32ProcessID; }
+  ProcessId parent_pid() const { return th32ParentProcessID; }
+  const wchar_t* exe_file() const { return szExeFile; }
+};
+
+struct IoCounters : public IO_COUNTERS {
+};
+
 #elif defined(OS_POSIX)
-// TODO(port): we should not rely on a Win32 structure.
+
 struct ProcessEntry {
-  base::ProcessId pid;
-  base::ProcessId ppid;
-  char szExeFile[NAME_MAX + 1];
+  ProcessId pid_;
+  ProcessId ppid_;
+  ProcessId gid_;
+  std::string exe_file_;
+
+  ProcessId pid() const { return pid_; }
+  ProcessId parent_pid() const { return ppid_; }
+  const char* exe_file() const { return exe_file_.c_str(); }
 };
 
 struct IoCounters {
@@ -52,18 +80,15 @@ struct IoCounters {
   uint64_t OtherTransferCount;
 };
 
-#include "base/file_descriptor_shuffle.h"
-#endif
-
-namespace base {
+#endif  // defined(OS_POSIX)
 
 // A minimalistic but hopefully cross-platform set of exit codes.
 // Do not change the enumeration values or you will break third-party
 // installers.
 enum {
-  PROCESS_END_NORMAL_TERMINATON = 0,
-  PROCESS_END_KILLED_BY_USER    = 1,
-  PROCESS_END_PROCESS_WAS_HUNG  = 2
+  PROCESS_END_NORMAL_TERMINATION = 0,
+  PROCESS_END_KILLED_BY_USER     = 1,
+  PROCESS_END_PROCESS_WAS_HUNG   = 2
 };
 
 // Returns the id of the current process.
@@ -111,16 +136,10 @@ bool AdjustOOMScore(ProcessId process, int score);
 #endif
 
 #if defined(OS_POSIX)
-// Sets all file descriptors to close on exec except for stdin, stdout
-// and stderr.
-// TODO(agl): remove this function
-// WARNING: do not use. It's inherently race-prone in the face of
-// multi-threading.
-void SetAllFDsToCloseOnExec();
 // Close all file descriptors, expect those which are a destination in the
 // given multimap. Only call this function in a child process where you know
 // that there aren't any other threads.
-void CloseSuperfluousFds(const base::InjectiveMultimap& saved_map);
+void CloseSuperfluousFds(const InjectiveMultimap& saved_map);
 #endif
 
 #if defined(OS_WIN)
@@ -154,6 +173,13 @@ bool LaunchApp(const std::wstring& cmdline,
 bool LaunchAppAsUser(UserTokenHandle token, const std::wstring& cmdline,
                      bool start_hidden, ProcessHandle* process_handle);
 
+// Has the same behavior as LaunchAppAsUser, but offers the boolean option to
+// use an empty string for the desktop name.
+bool LaunchAppAsUser(UserTokenHandle token, const std::wstring& cmdline,
+                     bool start_hidden, ProcessHandle* process_handle,
+                     bool empty_desktop_name);
+
+
 #elif defined(OS_POSIX)
 // Runs the application specified in argv[0] with the command line argv.
 // Before launching all FDs open in the parent process will be marked as
@@ -178,6 +204,16 @@ bool LaunchApp(const std::vector<std::string>& argv,
                const file_handle_mapping_vector& fds_to_remap,
                bool wait, ProcessHandle* process_handle);
 
+// AlterEnvironment returns a modified environment vector, constructed from the
+// given environment and the list of changes given in |changes|. Each key in
+// the environment is matched against the first element of the pairs. In the
+// event of a match, the value is replaced by the second of the pair, unless
+// the second is empty, in which case the key-value is removed.
+//
+// The returned array is allocated using new[] and must be freed by the caller.
+char** AlterEnvironment(const environment_vector& changes,
+                        const char* const* const env);
+
 #if defined(OS_MACOSX)
 // Similar to the above, but also returns the new process's task_t if
 // |task_handle| is not NULL. If |task_handle| is not NULL, the caller is
@@ -199,8 +235,7 @@ bool LaunchApp(const CommandLine& cl,
 // Executes the application specified by |cl| and wait for it to exit. Stores
 // the output (stdout) in |output|. Redirects stderr to /dev/null. Returns true
 // on success (application launched and exited cleanly, with exit code
-// indicating success). |output| is modified only when the function finished
-// successfully.
+// indicating success).
 bool GetAppOutput(const CommandLine& cl, std::string* output);
 
 #if defined(OS_POSIX)
@@ -216,7 +251,7 @@ class ProcessFilter {
  public:
   // Returns true to indicate set-inclusion and false otherwise.  This method
   // should not have side-effects and should be idempotent.
-  virtual bool Includes(ProcessId pid, ProcessId parent_pid) const = 0;
+  virtual bool Includes(const ProcessEntry& entry) const = 0;
 };
 
 // Returns the number of processes on the machine that are running from the
@@ -245,10 +280,6 @@ bool KillProcessById(ProcessId process_id, int exit_code, bool wait);
 // Get the termination status (exit code) of the process and return true if the
 // status indicates the process crashed. |child_exited| is set to true iff the
 // child process has terminated. (|child_exited| may be NULL.)
-//
-// On Windows, it is an error to call this if the process hasn't terminated
-// yet. On POSIX, |child_exited| is set correctly since we detect terminate in
-// a different manner on POSIX.
 bool DidProcessCrash(bool* child_exited, ProcessHandle handle);
 
 // Waits for process to exit. In POSIX systems, if the process hasn't been
@@ -256,6 +287,14 @@ bool DidProcessCrash(bool* child_exited, ProcessHandle handle);
 // a failure. On Windows |exit_code| is always filled. Returns true on success,
 // and closes |handle| in any case.
 bool WaitForExitCode(ProcessHandle handle, int* exit_code);
+
+// Waits for process to exit. If it did exit within |timeout_milliseconds|,
+// then puts the exit code in |exit_code|, closes |handle|, and returns true.
+// In POSIX systems, if the process has been signaled then |exit_code| is set
+// to -1. Returns false on failure (the caller is then responsible for closing
+// |handle|).
+bool WaitForExitCodeWithTimeout(ProcessHandle handle, int* exit_code,
+                                int64 timeout_milliseconds);
 
 // Wait for all the processes based on the named executable to exit.  If filter
 // is non-null, then only processes selected by the filter are waited on.
@@ -285,15 +324,16 @@ bool CleanupProcesses(const std::wstring& executable_name,
                       int exit_code,
                       const ProcessFilter* filter);
 
-// This class provides a way to iterate through the list of processes
-// on the current machine that were started from the given executable
-// name.  To use, create an instance and then call NextProcessEntry()
-// until it returns false.
-class NamedProcessIterator {
+// This class provides a way to iterate through a list of processes on the
+// current machine with a specified filter.
+// To use, create an instance and then call NextProcessEntry() until it returns
+// false.
+class ProcessIterator {
  public:
-  NamedProcessIterator(const std::wstring& executable_name,
-                       const ProcessFilter* filter);
-  ~NamedProcessIterator();
+  typedef std::list<ProcessEntry> ProcessEntries;
+
+  explicit ProcessIterator(const ProcessFilter* filter);
+  virtual ~ProcessIterator();
 
   // If there's another process that matches the given executable name,
   // returns a const pointer to the corresponding PROCESSENTRY32.
@@ -302,19 +342,22 @@ class NamedProcessIterator {
   // is called again or this NamedProcessIterator goes out of scope.
   const ProcessEntry* NextProcessEntry();
 
+  // Takes a snapshot of all the ProcessEntry found.
+  ProcessEntries Snapshot();
+
+ protected:
+  virtual bool IncludeEntry();
+  const ProcessEntry& entry() { return entry_; }
+
  private:
   // Determines whether there's another process (regardless of executable)
   // left in the list of all processes.  Returns true and sets entry_ to
   // that process's info if there is one, false otherwise.
   bool CheckForNextProcess();
 
-  bool IncludeEntry();
-
   // Initializes a PROCESSENTRY32 data structure so that it's ready for
   // use with Process32First/Process32Next.
   void InitProcessEntry(ProcessEntry* entry);
-
-  std::wstring executable_name_;
 
 #if defined(OS_WIN)
   HANDLE snapshot_;
@@ -328,7 +371,26 @@ class NamedProcessIterator {
   ProcessEntry entry_;
   const ProcessFilter* filter_;
 
-  DISALLOW_EVIL_CONSTRUCTORS(NamedProcessIterator);
+  DISALLOW_COPY_AND_ASSIGN(ProcessIterator);
+};
+
+// This class provides a way to iterate through the list of processes
+// on the current machine that were started from the given executable
+// name.  To use, create an instance and then call NextProcessEntry()
+// until it returns false.
+class NamedProcessIterator : public ProcessIterator {
+ public:
+  NamedProcessIterator(const std::wstring& executable_name,
+                       const ProcessFilter* filter);
+  virtual ~NamedProcessIterator();
+
+ protected:
+  virtual bool IncludeEntry();
+
+ private:
+  std::wstring executable_name_;
+
+  DISALLOW_COPY_AND_ASSIGN(NamedProcessIterator);
 };
 
 // Working Set (resident) memory usage broken down by
@@ -408,7 +470,7 @@ class ProcessMetrics {
   // only returns valid metrics if |process| is the current process.
   static ProcessMetrics* CreateProcessMetrics(ProcessHandle process,
                                               PortProvider* port_provider);
-#endif
+#endif  // !defined(OS_MACOSX)
 
   ~ProcessMetrics();
 
@@ -423,10 +485,12 @@ class ProcessMetrics {
   size_t GetWorkingSetSize() const;
   // Returns the peak working set size, in bytes.
   size_t GetPeakWorkingSetSize() const;
-  // Returns private usage, in bytes. Private bytes is the amount
-  // of memory currently allocated to a process that cannot be shared.
-  // Note: returns 0 on unsupported OSes: prior to XP SP2.
-  size_t GetPrivateBytes() const;
+  // Returns private and sharedusage, in bytes. Private bytes is the amount of
+  // memory currently allocated to a process that cannot be shared. Returns
+  // false on platform specific error conditions.  Note: |private_bytes|
+  // returns 0 on unsupported OSes: prior to XP SP2.
+  bool GetMemoryBytes(size_t* private_bytes,
+                      size_t* shared_bytes);
   // Fills a CommittedKBytes with both resident and paged
   // memory usage as per definition of CommittedBytes.
   void GetCommittedKBytes(CommittedKBytes* usage) const;
@@ -460,7 +524,7 @@ class ProcessMetrics {
   explicit ProcessMetrics(ProcessHandle process);
 #else
   ProcessMetrics(ProcessHandle process, PortProvider* port_provider);
-#endif
+#endif  // !defined(OS_MACOSX)
 
   ProcessHandle process_;
 
@@ -471,19 +535,17 @@ class ProcessMetrics {
   int64 last_time_;
   int64 last_system_time_;
 
-#if defined(OS_LINUX)
-  // Jiffie count at the last_time_ we updated.
-  int last_cpu_;
-#endif
-
 #if defined(OS_MACOSX)
   // Queries the port provider if it's set.
   mach_port_t TaskForPid(ProcessHandle process) const;
 
   PortProvider* port_provider_;
-#endif
+#elif defined(OS_POSIX)
+  // Jiffie count at the last_time_ we updated.
+  int last_cpu_;
+#endif  // defined(OS_MACOSX)
 
-  DISALLOW_EVIL_CONSTRUCTORS(ProcessMetrics);
+  DISALLOW_COPY_AND_ASSIGN(ProcessMetrics);
 };
 
 // Returns the memory commited by the system in KBytes.
@@ -506,6 +568,10 @@ void EnableTerminationOnHeapCorruption();
 // Turns on process termination if memory runs out. This is handled on Windows
 // inside RegisterInvalidParamHandler().
 void EnableTerminationOnOutOfMemory();
+#if defined(OS_MACOSX)
+// Exposed for testing.
+malloc_zone_t* GetPurgeableZone();
+#endif
 #endif
 
 #if defined(UNIT_TEST)
@@ -528,7 +594,7 @@ void RaiseProcessToHighPriority();
 // in the child after forking will restore the standard exception handler.
 // See http://crbug.com/20371/ for more details.
 void RestoreDefaultExceptionHandler();
-#endif
+#endif  // defined(OS_MACOSX)
 
 }  // namespace base
 

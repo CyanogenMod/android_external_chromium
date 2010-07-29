@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/rand_util.h"
+#include "base/rand_util_c.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -22,7 +23,7 @@ class URandomFd {
  public:
   URandomFd() {
     fd_ = open("/dev/urandom", O_RDONLY);
-    CHECK(fd_ >= 0) << "Cannot open /dev/urandom: " << errno;
+    CHECK_GE(fd_, 0) << "Cannot open /dev/urandom: " << errno;
   }
 
   ~URandomFd() {
@@ -54,3 +55,7 @@ uint64 RandUint64() {
 }
 
 }  // namespace base
+
+int GetUrandomFD(void) {
+  return g_urandom_fd.Pointer()->fd();
+}

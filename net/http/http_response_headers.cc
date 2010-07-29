@@ -137,7 +137,7 @@ void HttpResponseHeaders::Persist(Pickle* pickle, PersistOptions options) {
 
     // Locate the start of the next header.
     size_t k = i;
-    while (++k < parsed_.size() && parsed_[k].is_continuation());
+    while (++k < parsed_.size() && parsed_[k].is_continuation()) {}
     --k;
 
     std::string header_name(parsed_[i].name_begin, parsed_[i].name_end);
@@ -177,7 +177,7 @@ void HttpResponseHeaders::Update(const HttpResponseHeaders& new_headers) {
 
     // Locate the start of the next header.
     size_t k = i;
-    while (++k < new_parsed.size() && new_parsed[k].is_continuation());
+    while (++k < new_parsed.size() && new_parsed[k].is_continuation()) {}
     --k;
 
     const std::string::const_iterator& name_begin = new_parsed[i].name_begin;
@@ -208,7 +208,7 @@ void HttpResponseHeaders::MergeWithHeaders(const std::string& raw_headers,
 
     // Locate the start of the next header.
     size_t k = i;
-    while (++k < parsed_.size() && parsed_[k].is_continuation());
+    while (++k < parsed_.size() && parsed_[k].is_continuation()) {}
     --k;
 
     std::string name(parsed_[i].name_begin, parsed_[i].name_end);
@@ -274,8 +274,9 @@ void HttpResponseHeaders::Parse(const std::string& raw_input) {
       find(line_begin, raw_input.end(), '\0');
   // has_headers = true, if there is any data following the status line.
   // Used by ParseStatusLine() to decide if a HTTP/0.9 is really a HTTP/1.0.
-  bool has_headers = line_end != raw_input.end() &&
-      (line_end + 1) != raw_input.end() && *(line_end + 1) != '\0';
+  bool has_headers = (line_end != raw_input.end() &&
+                      (line_end + 1) != raw_input.end() &&
+                      *(line_end + 1) != '\0');
   ParseStatusLine(line_begin, line_end, has_headers);
 
   if (line_end == raw_input.end()) {
@@ -355,6 +356,30 @@ void HttpResponseHeaders::GetNormalizedHeaders(std::string* output) const {
   }
 
   output->push_back('\n');
+}
+
+void HttpResponseHeaders::GetRawHeaders(std::string* output) const {
+  if (!output)
+    return;
+  output->erase();
+  const char* headers_string = raw_headers().c_str();
+  size_t headers_length = raw_headers().length();
+  if (!headers_string)
+    return;
+  // The headers_string is a NULL-terminated status line, followed by NULL-
+  // terminated headers.
+  std::string raw_string = headers_string;
+  size_t current_length = strlen(headers_string) + 1;
+  while (headers_length > current_length) {
+    // Move to the next header, and append it.
+    headers_string += current_length;
+    headers_length -= current_length;
+    raw_string += "\n";
+    raw_string += headers_string;
+    // Get the next header location.
+    current_length = strlen(headers_string) + 1;
+  }
+  *output = raw_string;
 }
 
 bool HttpResponseHeaders::GetNormalizedHeader(const std::string& name,
@@ -462,6 +487,10 @@ bool HttpResponseHeaders::HasHeaderValue(const std::string& name,
       return true;
   }
   return false;
+}
+
+bool HttpResponseHeaders::HasHeader(const std::string& name) const {
+  return FindHeader(0, name) != std::string::npos;
 }
 
 // Note: this implementation implicitly assumes that line_end points at a valid
@@ -1115,9 +1144,9 @@ bool HttpResponseHeaders::GetContentRange(int64* first_byte_position,
 
       // Obtain last-byte-pos.
       std::string::const_iterator last_byte_pos_begin =
-           byte_range_resp_spec.begin() + minus_position + 1;
+          byte_range_resp_spec.begin() + minus_position + 1;
       std::string::const_iterator last_byte_pos_end =
-           byte_range_resp_spec.end();
+          byte_range_resp_spec.end();
       HttpUtil::TrimLWS(&last_byte_pos_begin, &last_byte_pos_end);
 
       ok &= StringToInt64(
@@ -1146,8 +1175,8 @@ bool HttpResponseHeaders::GetContentRange(int64* first_byte_position,
   if (LowerCaseEqualsASCII(instance_length_begin, instance_length_end, "*")) {
     return false;
   } else if (!StringToInt64(
-                 std::string(instance_length_begin, instance_length_end),
-                 instance_length)) {
+      std::string(instance_length_begin, instance_length_end),
+      instance_length)) {
     *instance_length = -1;
     return false;
   }

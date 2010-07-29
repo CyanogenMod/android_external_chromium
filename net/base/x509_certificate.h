@@ -7,21 +7,20 @@
 
 #include <string.h>
 
-#include <map>
-#include <set>
 #include <string>
 #include <vector>
 
 #include "base/ref_counted.h"
-#include "base/singleton.h"
 #include "base/time.h"
+#include "net/base/x509_cert_types.h"
 #include "testing/gtest/include/gtest/gtest_prod.h"
 
 #if defined(OS_WIN)
 #include <windows.h>
 #include <wincrypt.h>
 #elif defined(OS_MACOSX)
-#include <Security/Security.h>
+#include <CoreFoundation/CFArray.h>
+#include <Security/SecBase.h>
 #elif defined(USE_NSS)
 // Forward declaration; real one in <cert.h>
 struct CERTCertificateStr;
@@ -36,28 +35,6 @@ class CertVerifyResult;
 // X509Certificate represents an X.509 certificate used by SSL.
 class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
  public:
-  // SHA-1 fingerprint (160 bits) of a certificate.
-  struct Fingerprint {
-    bool Equals(const Fingerprint& other) const {
-      return memcmp(data, other.data, sizeof(data)) == 0;
-    }
-
-    unsigned char data[20];
-  };
-
-  class FingerprintLessThan
-      : public std::binary_function<Fingerprint, Fingerprint, bool> {
-   public:
-    bool operator() (const Fingerprint& lhs, const Fingerprint& rhs) const;
-  };
-
-  // Predicate functor used in maps when X509Certificate is used as the key.
-  class LessThan
-      : public std::binary_function<X509Certificate*, X509Certificate*, bool> {
-   public:
-    bool operator() (X509Certificate* lhs,  X509Certificate* rhs) const;
-  };
-
   // A handle to the certificate object in the underlying crypto library.
   // We assume that OSCertHandle is a pointer type on all platforms and
   // NULL is an invalid OSCertHandle.
@@ -72,62 +49,13 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   typedef void* OSCertHandle;
 #endif
 
-  // Principal represent an X.509 principal.
-  struct Principal {
-    Principal() { }
-    explicit Principal(const std::string& name) : common_name(name) { }
+  typedef std::vector<OSCertHandle> OSCertHandles;
 
-    // The different attributes for a principal.  They may be "".
-    // Note that some of them can have several values.
-
-    std::string common_name;
-    std::string locality_name;
-    std::string state_or_province_name;
-    std::string country_name;
-
-    std::vector<std::string> street_addresses;
-    std::vector<std::string> organization_names;
-    std::vector<std::string> organization_unit_names;
-    std::vector<std::string> domain_components;
-  };
-
-  // This class is useful for maintaining policies about which certificates are
-  // permitted or forbidden for a particular purpose.
-  class Policy {
+  // Predicate functor used in maps when X509Certificate is used as the key.
+  class LessThan
+      : public std::binary_function<X509Certificate*, X509Certificate*, bool> {
    public:
-    // The judgments this policy can reach.
-    enum Judgment {
-      // We don't have policy information for this certificate.
-      UNKNOWN,
-
-      // This certificate is allowed.
-      ALLOWED,
-
-      // This certificate is denied.
-      DENIED,
-    };
-
-    // Returns the judgment this policy makes about this certificate.
-    Judgment Check(X509Certificate* cert) const;
-
-    // Causes the policy to allow this certificate.
-    void Allow(X509Certificate* cert);
-
-    // Causes the policy to deny this certificate.
-    void Deny(X509Certificate* cert);
-
-    // Returns true if this policy has allowed at least one certificate.
-    bool HasAllowedCert() const;
-
-    // Returns true if this policy has denied at least one certificate.
-    bool HasDeniedCert() const;
-
-   private:
-    // The set of fingerprints of allowed certificates.
-    std::set<Fingerprint, FingerprintLessThan> allowed_;
-
-    // The set of fingerprints of denied certificates.
-    std::set<Fingerprint, FingerprintLessThan> denied_;
+    bool operator() (X509Certificate* lhs,  X509Certificate* rhs) const;
   };
 
   // Where the certificate comes from.  The enumeration constants are
@@ -144,18 +72,17 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
     VERIFY_EV_CERT = 1 << 1,
   };
 
-  // Create an X509Certificate from a handle to the certificate object
-  // in the underlying crypto library. This is a transfer of ownership;
-  // X509Certificate will properly dispose of |cert_handle| for you.
-  // |source| specifies where |cert_handle| comes from.  Given two
-  // certificate handles for the same certificate, our certificate cache
-  // prefers the handle from the network because our HTTP cache isn't
-  // caching the corresponding intermediate CA certificates yet
+  // Create an X509Certificate from a handle to the certificate object in the
+  // underlying crypto library. |source| specifies where |cert_handle| comes
+  // from.  Given two certificate handles for the same certificate, our
+  // certificate cache prefers the handle from the network because our HTTP
+  // cache isn't caching the corresponding intermediate CA certificates yet
   // (http://crbug.com/7065).
-  //
+  // The list of intermediate certificates is ignored under NSS (i.e. Linux.)
   // The returned pointer must be stored in a scoped_refptr<X509Certificate>.
   static X509Certificate* CreateFromHandle(OSCertHandle cert_handle,
-                                           Source source);
+      Source source,
+      const OSCertHandles& intermediates);
 
   // Create an X509Certificate from the BER-encoded representation.
   // Returns NULL on failure.
@@ -183,10 +110,10 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   // The subject of the certificate.  For HTTPS server certificates, this
   // represents the web server.  The common name of the subject should match
   // the host name of the web server.
-  const Principal& subject() const { return subject_; }
+  const CertPrincipal& subject() const { return subject_; }
 
   // The issuer of the certificate.
-  const Principal& issuer() const { return issuer_; }
+  const CertPrincipal& issuer() const { return issuer_; }
 
   // Time period during which the certificate is valid.  More precisely, this
   // certificate is invalid before the |valid_start| date and invalid after
@@ -197,7 +124,7 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   const base::Time& valid_expiry() const { return valid_expiry_; }
 
   // The fingerprint of this certificate.
-  const Fingerprint& fingerprint() const { return fingerprint_; }
+  const SHA1Fingerprint& fingerprint() const { return fingerprint_; }
 
   // Gets the DNS names in the certificate.  Pursuant to RFC 2818, Section 3.1
   // Server Identity, if the certificate has a subjectAltName extension of
@@ -210,18 +137,43 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   bool HasExpired() const;
 
 #if defined(OS_MACOSX) || defined(OS_WIN)
-  // Adds an untrusted intermediate certificate that may be needed for
-  // chain building.
-  void AddIntermediateCertificate(OSCertHandle cert) {
-    intermediate_ca_certs_.push_back(cert);
-  }
-
   // Returns intermediate certificates added via AddIntermediateCertificate().
   // Ownership follows the "get" rule: it is the caller's responsibility to
   // retain the elements of the result.
-  const std::vector<OSCertHandle>& GetIntermediateCertificates() const {
+  const OSCertHandles& GetIntermediateCertificates() const {
     return intermediate_ca_certs_;
   }
+#endif
+
+  // Returns true if I already contain the given intermediate cert.
+  bool HasIntermediateCertificate(OSCertHandle cert);
+
+  // Returns true if I already contain all the given intermediate certs.
+  bool HasIntermediateCertificates(const OSCertHandles& certs);
+
+#if defined(OS_MACOSX)
+  // Does this certificate's usage allow SSL client authentication?
+  bool SupportsSSLClientAuth() const;
+
+  // Do any of the given issuer names appear in this cert's chain of trust?
+  bool IsIssuedBy(const std::vector<CertPrincipal>& valid_issuers);
+
+  // Creates a security policy for SSL client certificates.
+  static OSStatus CreateSSLClientPolicy(SecPolicyRef* outPolicy);
+
+  // Adds all available SSL client identity certs to the given vector.
+  // |server_domain| is a hint for which domain the cert is to be sent to
+  // (a cert previously specified as the default for that domain will be given
+  // precedence and returned first in the output vector.)
+  // If valid_issuers is non-empty, only certs that were transitively issued by
+  // one of the given names will be included in the list.
+  static bool GetSSLClientCertificates(
+      const std::string& server_domain,
+      const std::vector<CertPrincipal>& valid_issuers,
+      std::vector<scoped_refptr<X509Certificate> >* certs);
+
+  // Creates the chain of certs to use for this client identity cert.
+  CFArrayRef CreateClientCertificateChain() const;
 #endif
 
   // Verifies the certificate against the given hostname.  Returns OK if
@@ -243,39 +195,31 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
 
   OSCertHandle os_cert_handle() const { return cert_handle_; }
 
+  // Returns true if two OSCertHandles refer to identical certificates.
+  static bool IsSameOSCert(OSCertHandle a, OSCertHandle b);
+
+  // Creates an OS certificate handle from the BER-encoded representation.
+  // Returns NULL on failure.
+  static OSCertHandle CreateOSCertHandleFromBytes(const char* data,
+                                                  int length);
+
+  // Duplicates (or adds a reference to) an OS certificate handle.
+  static OSCertHandle DupOSCertHandle(OSCertHandle cert_handle);
+
+  // Frees (or releases a reference to) an OS certificate handle.
+  static void FreeOSCertHandle(OSCertHandle cert_handle);
+
  private:
   friend class base::RefCountedThreadSafe<X509Certificate>;
   FRIEND_TEST(X509CertificateTest, Cache);
+  FRIEND_TEST(X509CertificateTest, IntermediateCertificates);
 
-  // A cache of X509Certificate objects.
-  class Cache {
-   public:
-    static Cache* GetInstance();
-    void Insert(X509Certificate* cert);
-    void Remove(X509Certificate* cert);
-    X509Certificate* Find(const Fingerprint& fingerprint);
-
-   private:
-    typedef std::map<Fingerprint, X509Certificate*, FingerprintLessThan>
-        CertMap;
-
-    // Obtain an instance of X509Certificate::Cache via GetInstance().
-    Cache() { }
-    friend struct DefaultSingletonTraits<Cache>;
-
-    // You must acquire this lock before using any private data of this object.
-    // You must not block while holding this lock.
-    Lock lock_;
-
-    // The certificate cache.  You must acquire |lock_| before using |cache_|.
-    CertMap cache_;
-
-    DISALLOW_COPY_AND_ASSIGN(Cache);
-  };
+  class Cache;
 
   // Construct an X509Certificate from a handle to the certificate object
   // in the underlying crypto library.
-  X509Certificate(OSCertHandle cert_handle, Source source);
+  X509Certificate(OSCertHandle cert_handle, Source source,
+                  const OSCertHandles& intermediates);
 
   ~X509Certificate();
 
@@ -284,23 +228,15 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
 
   bool VerifyEV() const;
 
-  // Creates an OS certificate handle from the BER-encoded representation.
-  // Returns NULL on failure.
-  static OSCertHandle CreateOSCertHandleFromBytes(const char* data,
-                                                  int length);
-
-  // Frees an OS certificate handle.
-  static void FreeOSCertHandle(OSCertHandle cert_handle);
-
   // Calculates the SHA-1 fingerprint of the certificate.  Returns an empty
   // (all zero) fingerprint on failure.
-  static Fingerprint CalculateFingerprint(OSCertHandle cert_handle);
+  static SHA1Fingerprint CalculateFingerprint(OSCertHandle cert_handle);
 
   // The subject of the certificate.
-  Principal subject_;
+  CertPrincipal subject_;
 
   // The issuer of the certificate.
-  Principal issuer_;
+  CertPrincipal issuer_;
 
   // This certificate is not valid before |valid_start_|
   base::Time valid_start_;
@@ -309,15 +245,21 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   base::Time valid_expiry_;
 
   // The fingerprint of this certificate.
-  Fingerprint fingerprint_;
+  SHA1Fingerprint fingerprint_;
 
   // A handle to the certificate object in the underlying crypto library.
   OSCertHandle cert_handle_;
 
 #if defined(OS_MACOSX) || defined(OS_WIN)
   // Untrusted intermediate certificates associated with this certificate
-  // that may be needed for chain building.
-  std::vector<OSCertHandle> intermediate_ca_certs_;
+  // that may be needed for chain building. (NSS impl does not need these.)
+  OSCertHandles intermediate_ca_certs_;
+#endif
+
+#if defined(OS_MACOSX)
+  // Blocks multiple threads from verifying the cert simultaneously.
+  // (Marked mutable because it's used in a const method.)
+  mutable Lock verification_lock_;
 #endif
 
   // Where the certificate comes from.

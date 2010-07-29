@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -85,8 +85,8 @@ class Value {
 
   // These methods allow the convenient retrieval of settings.
   // If the current setting object can be converted into the given type,
-  // the value is returned through the "value" parameter and true is returned;
-  // otherwise, false is returned and "value" is unchanged.
+  // the value is returned through the |out_value| parameter and true is
+  // returned;  otherwise, false is returned and |out_value| is unchanged.
   virtual bool GetAsBoolean(bool* out_value) const;
   virtual bool GetAsInteger(int* out_value) const;
   virtual bool GetAsReal(double* out_value) const;
@@ -104,7 +104,7 @@ class Value {
  protected:
   // This isn't safe for end-users (they should use the Create*Value()
   // static methods above), but it's useful for subclasses.
-  explicit Value(ValueType type) : type_(type) {}
+  explicit Value(ValueType type);
 
  private:
   Value();
@@ -117,12 +117,9 @@ class Value {
 // FundamentalValue represents the simple fundamental types of values.
 class FundamentalValue : public Value {
  public:
-  explicit FundamentalValue(bool in_value)
-    : Value(TYPE_BOOLEAN), boolean_value_(in_value) {}
-  explicit FundamentalValue(int in_value)
-    : Value(TYPE_INTEGER), integer_value_(in_value) {}
-  explicit FundamentalValue(double in_value)
-    : Value(TYPE_REAL), real_value_(in_value) {}
+  explicit FundamentalValue(bool in_value);
+  explicit FundamentalValue(int in_value);
+  explicit FundamentalValue(double in_value);
   ~FundamentalValue();
 
   // Subclassed methods
@@ -206,7 +203,7 @@ class BinaryValue: public Value {
 
 class DictionaryValue : public Value {
  public:
-  DictionaryValue() : Value(TYPE_DICTIONARY) {}
+  DictionaryValue();
   ~DictionaryValue();
 
   // Subclassed methods
@@ -214,6 +211,9 @@ class DictionaryValue : public Value {
   virtual bool Equals(const Value* other) const;
 
   // Returns true if the current dictionary has a value for the given key.
+  bool HasKeyASCII(const std::string& key) const;
+  // Deprecated version of the above.  TODO: add a string16 version for Unicode.
+  // http://code.google.com/p/chromium/issues/detail?id=23581
   bool HasKey(const std::wstring& key) const;
 
   // Returns the number of Values in this dictionary.
@@ -253,8 +253,8 @@ class DictionaryValue : public Value {
   // A path has the form "<key>" or "<key>.<key>.[...]", where "." indexes
   // into the next DictionaryValue down.  If the path can be resolved
   // successfully, the value for the last key in the path will be returned
-  // through the "value" parameter, and the function will return true.
-  // Otherwise, it will return false and "value" will be untouched.
+  // through the |out_value| parameter, and the function will return true.
+  // Otherwise, it will return false and |out_value| will be untouched.
   // Note that the dictionary always owns the value that's returned.
   bool Get(const std::wstring& path, Value** out_value) const;
 
@@ -264,6 +264,10 @@ class DictionaryValue : public Value {
   bool GetBoolean(const std::wstring& path, bool* out_value) const;
   bool GetInteger(const std::wstring& path, int* out_value) const;
   bool GetReal(const std::wstring& path, double* out_value) const;
+  bool GetString(const std::string& path, string16* out_value) const;
+  bool GetStringASCII(const std::string& path, std::string* out_value) const;
+  // TODO: deprecate wstring accessors.
+  // http://code.google.com/p/chromium/issues/detail?id=23581
   bool GetString(const std::wstring& path, std::string* out_value) const;
   bool GetString(const std::wstring& path, std::wstring* out_value) const;
   bool GetStringAsUTF16(const std::wstring& path, string16* out_value) const;
@@ -305,6 +309,12 @@ class DictionaryValue : public Value {
   // the copy.  This never returns NULL, even if |this| itself is empty.
   DictionaryValue* DeepCopyWithoutEmptyChildren();
 
+  // Merge a given dictionary into this dictionary. This is done recursively,
+  // i.e. any subdictionaries will be merged as well. In case of key collisions,
+  // the passed in dictionary takes precedence and data already present will be
+  // replaced.
+  void MergeDictionary(const DictionaryValue* dictionary);
+
   // This class provides an iterator for the keys in the dictionary.
   // It can't be used to modify the dictionary.
   //
@@ -339,7 +349,7 @@ class DictionaryValue : public Value {
 // This type of Value represents a list of other Value values.
 class ListValue : public Value {
  public:
-  ListValue() : Value(TYPE_LIST) {}
+  ListValue();
   ~ListValue();
 
   // Subclassed methods
@@ -362,14 +372,14 @@ class ListValue : public Value {
   // the value is a null pointer.
   bool Set(size_t index, Value* in_value);
 
-  // Gets the Value at the given index.  Modifies value (and returns true)
+  // Gets the Value at the given index.  Modifies |out_value| (and returns true)
   // only if the index falls within the current list range.
-  // Note that the list always owns the Value passed out via out_value.
+  // Note that the list always owns the Value passed out via |out_value|.
   bool Get(size_t index, Value** out_value) const;
 
-  // Convenience forms of Get().  Modifies value (and returns true) only if
-  // the index is valid and the Value at that index can be returned in
-  // the specified form.
+  // Convenience forms of Get().  Modifies |out_value| (and returns true)
+  // only if the index is valid and the Value at that index can be returned
+  // in the specified form.
   bool GetBoolean(size_t index, bool* out_value) const;
   bool GetInteger(size_t index, int* out_value) const;
   bool GetReal(size_t index, double* out_value) const;
@@ -393,6 +403,10 @@ class ListValue : public Value {
 
   // Appends a Value to the end of the list.
   void Append(Value* in_value);
+
+  // Appends a Value if it's not already present.
+  // Returns true if successful, or false if the value was already present.
+  bool AppendIfNotPresent(Value* in_value);
 
   // Insert a Value at index.
   // Returns true if successful, or false if the index was out of range.
@@ -418,15 +432,17 @@ class ListValue : public Value {
 // deserialize Value objects.
 class ValueSerializer {
  public:
-  virtual ~ValueSerializer() {}
+  virtual ~ValueSerializer();
 
   virtual bool Serialize(const Value& root) = 0;
 
   // This method deserializes the subclass-specific format into a Value object.
   // If the return value is non-NULL, the caller takes ownership of returned
-  // Value. If the return value is NULL, and if error_message is non-NULL,
-  // error_message should be filled with a message describing the error.
-  virtual Value* Deserialize(std::string* error_message) = 0;
+  // Value. If the return value is NULL, and if error_code is non-NULL,
+  // error_code will be set with the underlying error.
+  // If |error_message| is non-null, it will be filled in with a formatted
+  // error message including the location of the error if appropriate.
+  virtual Value* Deserialize(int* error_code, std::string* error_str) = 0;
 };
 
 #endif  // BASE_VALUES_H_

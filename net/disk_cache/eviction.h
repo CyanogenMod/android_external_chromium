@@ -20,10 +20,13 @@ class EntryImpl;
 // integrated with BackendImpl.
 class Eviction {
  public:
-  Eviction() : backend_(NULL), ALLOW_THIS_IN_INITIALIZER_LIST(factory_(this)) {}
+  Eviction()
+      : backend_(NULL), init_(false),
+        ALLOW_THIS_IN_INITIALIZER_LIST(factory_(this)) {}
   ~Eviction() {}
 
   void Init(BackendImpl* backend);
+  void Stop();
 
   // Deletes entries from the cache until the current size is below the limit.
   // If empty is true, the whole cache will be trimmed, regardless of being in
@@ -42,6 +45,7 @@ class Eviction {
  private:
   void PostDelayedTrim();
   void DelayedTrim();
+  bool ShouldTrim();
   void ReportTrimTimes(EntryImpl* entry);
   Rankings::List GetListForEntry(EntryImpl* entry);
   bool EvictEntry(CacheRankingsBlock* node, bool empty);
@@ -67,10 +71,12 @@ class Eviction {
   Rankings* rankings_;
   IndexHeader* header_;
   int max_size_;
+  int trim_delays_;
   bool new_eviction_;
   bool first_trim_;
   bool trimming_;
   bool delay_trim_;
+  bool init_;
   ScopedRunnableMethodFactory<Eviction> factory_;
 
   DISALLOW_COPY_AND_ASSIGN(Eviction);

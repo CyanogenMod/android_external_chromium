@@ -21,8 +21,10 @@ class FtpDirectoryListingParser;
 
 class FtpDirectoryListingBuffer {
  public:
-  FtpDirectoryListingBuffer();
-
+  // Constructor. When the current time is needed to guess the year on partial
+  // date strings, |current_time| will be used. This allows passing a specific
+  // date during testing.
+  explicit FtpDirectoryListingBuffer(const base::Time& current_time);
   ~FtpDirectoryListingBuffer();
 
   // Called when data is received from the data socket. Returns network
@@ -42,6 +44,8 @@ class FtpDirectoryListingBuffer {
   // Returns recognized server type. It is valid to call this function at any
   // time, although it will return SERVER_UNKNOWN if it doesn't know the answer.
   FtpServerType GetServerType() const;
+
+  const std::string& encoding() const { return encoding_; }
 
  private:
   typedef std::set<FtpDirectoryListingParser*> ParserSet;

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -142,7 +142,22 @@ bool Value::Equals(const Value* other) const {
   return other->IsType(TYPE_NULL);
 }
 
+Value::Value(ValueType type) : type_(type) {
+}
+
 ///////////////////// FundamentalValue ////////////////////
+
+FundamentalValue::FundamentalValue(bool in_value)
+    : Value(TYPE_BOOLEAN), boolean_value_(in_value) {
+}
+
+FundamentalValue::FundamentalValue(int in_value)
+    : Value(TYPE_INTEGER), integer_value_(in_value) {
+}
+
+FundamentalValue::FundamentalValue(double in_value)
+    : Value(TYPE_REAL), real_value_(in_value) {
+}
 
 FundamentalValue::~FundamentalValue() {
 }
@@ -307,6 +322,10 @@ bool BinaryValue::Equals(const Value* other) const {
 
 ///////////////////// DictionaryValue ////////////////////
 
+DictionaryValue::DictionaryValue()
+  : Value(TYPE_DICTIONARY) {
+}
+
 DictionaryValue::~DictionaryValue() {
   Clear();
 }
@@ -352,6 +371,10 @@ bool DictionaryValue::HasKey(const std::wstring& key) const {
   ValueMap::const_iterator current_entry = dictionary_.find(key);
   DCHECK((current_entry == dictionary_.end()) || current_entry->second);
   return current_entry != dictionary_.end();
+}
+
+bool DictionaryValue::HasKeyASCII(const std::string& key) const {
+  return HasKey(ASCIIToWide(key));
 }
 
 void DictionaryValue::Clear() {
@@ -469,6 +492,26 @@ bool DictionaryValue::GetReal(const std::wstring& path,
     return false;
 
   return value->GetAsReal(out_value);
+}
+
+bool DictionaryValue::GetString(const std::string& path,
+                                string16* out_value) const {
+  return GetStringAsUTF16(ASCIIToWide(path), out_value);
+}
+
+bool DictionaryValue::GetStringASCII(const std::string& path,
+                                     std::string* out_value) const {
+  std::string out;
+  if (!GetString(ASCIIToWide(path), &out))
+    return false;
+
+  if (!IsStringASCII(out)) {
+    NOTREACHED();
+    return false;
+  }
+
+  out_value->assign(out);
+  return true;
 }
 
 bool DictionaryValue::GetString(const std::wstring& path,
@@ -650,7 +693,30 @@ DictionaryValue* DictionaryValue::DeepCopyWithoutEmptyChildren() {
   return copy ? static_cast<DictionaryValue*>(copy) : new DictionaryValue;
 }
 
+void DictionaryValue::MergeDictionary(const DictionaryValue* dictionary) {
+  for (DictionaryValue::key_iterator key(dictionary->begin_keys());
+       key != dictionary->end_keys(); ++key) {
+    Value* merge_value;
+    if (dictionary->GetWithoutPathExpansion(*key, &merge_value)) {
+      // Check whether we have to merge dictionaries.
+      if (merge_value->IsType(Value::TYPE_DICTIONARY)) {
+        DictionaryValue* sub_dict;
+        if (GetDictionaryWithoutPathExpansion(*key, &sub_dict)) {
+          sub_dict->MergeDictionary(
+              static_cast<const DictionaryValue*>(merge_value));
+          continue;
+        }
+      }
+      // All other cases: Make a copy and hook it up.
+      SetWithoutPathExpansion(*key, merge_value->DeepCopy());
+    }
+  }
+}
+
 ///////////////////// ListValue ////////////////////
+
+ListValue::ListValue() : Value(TYPE_LIST) {
+}
 
 ListValue::~ListValue() {
   Clear();
@@ -792,7 +858,12 @@ int ListValue::Remove(const Value& value) {
       size_t index = i - list_.begin();
       delete *i;
       list_.erase(i);
-      return index;
+
+      // TODO(anyone): Returning a signed int type here is just wrong.
+      // Change this interface to return a size_t.
+      DCHECK(index <= INT_MAX);
+      int return_index = static_cast<int>(index);
+      return return_index;
     }
   }
   return -1;
@@ -801,6 +872,16 @@ int ListValue::Remove(const Value& value) {
 void ListValue::Append(Value* in_value) {
   DCHECK(in_value);
   list_.push_back(in_value);
+}
+
+bool ListValue::AppendIfNotPresent(Value* in_value) {
+  DCHECK(in_value);
+  for (ValueVector::const_iterator i(list_.begin()); i != list_.end(); ++i) {
+    if ((*i)->Equals(in_value))
+      return false;
+  }
+  list_.push_back(in_value);
+  return true;
 }
 
 bool ListValue::Insert(size_t index, Value* in_value) {
@@ -838,4 +919,7 @@ bool ListValue::Equals(const Value* other) const {
     return false;
 
   return true;
+}
+
+ValueSerializer::~ValueSerializer() {
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,9 @@
 #include "net/base/completion_callback.h"
 #include "net/base/load_states.h"
 #include "net/base/net_errors.h"
+#include "net/base/net_log.h"
 #include "net/base/request_priority.h"
+#include "net/http/http_response_info.h"
 #include "net/socket/client_socket.h"
 #include "net/socket/client_socket_pool.h"
 
@@ -53,17 +55,26 @@ class ClientSocketHandle {
   // This method returns ERR_IO_PENDING if it cannot complete synchronously, in
   // which case the consumer will be notified of completion via |callback|.
   //
+  // If the pool was not able to reuse an existing socket, the new socket
+  // may report a recoverable error.  In this case, the return value will
+  // indicate an error and the socket member will be set.  If it is determined
+  // that the error is not recoverable, the Disconnect method should be used
+  // on the socket, so that it does not get reused.
+  //
+  // A non-recoverable error may set additional state in the ClientSocketHandle
+  // to allow the caller to determine what went wrong.
+  //
   // Init may be called multiple times.
   //
-  // Profiling information for the request is saved to |load_log| if non-NULL.
+  // Profiling information for the request is saved to |net_log| if non-NULL.
   //
   template <typename SocketParams, typename PoolType>
   int Init(const std::string& group_name,
-           const SocketParams& socket_params,
+           const scoped_refptr<SocketParams>& socket_params,
            RequestPriority priority,
            CompletionCallback* callback,
-           PoolType* pool,
-           LoadLog* load_log);
+           const scoped_refptr<PoolType>& pool,
+           const BoundNetLog& net_log);
 
   // An initialized handle can be reset, which causes it to return to the
   // un-initialized state.  This releases the underlying socket, which in the
@@ -80,18 +91,39 @@ class ClientSocketHandle {
   LoadState GetLoadState() const;
 
   // Returns true when Init() has completed successfully.
-  bool is_initialized() const { return socket_ != NULL; }
+  bool is_initialized() const { return is_initialized_; }
 
   // Returns the time tick when Init() was called.
   base::TimeTicks init_time() const { return init_time_; }
+
+  // Returns the time between Init() and when is_initialized() becomes true.
+  base::TimeDelta setup_time() const { return setup_time_; }
 
   // Used by ClientSocketPool to initialize the ClientSocketHandle.
   void set_is_reused(bool is_reused) { is_reused_ = is_reused; }
   void set_socket(ClientSocket* s) { socket_.reset(s); }
   void set_idle_time(base::TimeDelta idle_time) { idle_time_ = idle_time; }
+  void set_pool_id(int id) { pool_id_ = id; }
+  void set_is_ssl_error(bool is_ssl_error) { is_ssl_error_ = is_ssl_error; }
+  void set_ssl_error_response_info(const HttpResponseInfo& ssl_error_state) {
+    ssl_error_response_info_ = ssl_error_state;
+  }
+
+  // Only valid if there is no |socket_|.
+  bool is_ssl_error() const {
+    DCHECK(socket_.get() == NULL);
+    return is_ssl_error_;
+  }
+  // On an ERR_PROXY_AUTH_REQUESTED error, the |headers| and |auth_challenge|
+  // fields are filled in. On an ERR_SSL_CLIENT_AUTH_CERT_NEEDED error,
+  // the |cert_request_info| field is set.
+  const HttpResponseInfo& ssl_error_response_info() const {
+    return ssl_error_response_info_;
+  }
 
   // These may only be used if is_initialized() is true.
   const std::string& group_name() const { return group_name_; }
+  int id() const { return pool_id_; }
   ClientSocket* socket() { return socket_.get(); }
   ClientSocket* release_socket() { return socket_.release(); }
   bool is_reused() const { return is_reused_; }
@@ -128,9 +160,14 @@ class ClientSocketHandle {
   void HandleInitCompletion(int result);
 
   // Resets the state of the ClientSocketHandle.  |cancel| indicates whether or
-  // not to try to cancel the request with the ClientSocketPool.
+  // not to try to cancel the request with the ClientSocketPool.  Does not
+  // reset the supplemental error state.
   void ResetInternal(bool cancel);
 
+  // Resets the supplemental error state.
+  void ResetErrorState();
+
+  bool is_initialized_;
   scoped_refptr<ClientSocketPool> pool_;
   scoped_ptr<ClientSocket> socket_;
   std::string group_name_;
@@ -138,7 +175,13 @@ class ClientSocketHandle {
   CompletionCallbackImpl<ClientSocketHandle> callback_;
   CompletionCallback* user_callback_;
   base::TimeDelta idle_time_;
+  int pool_id_;  // See ClientSocketPool::ReleaseSocket() for an explanation.
+  bool is_ssl_error_;
+  HttpResponseInfo ssl_error_response_info_;
   base::TimeTicks init_time_;
+  base::TimeDelta setup_time_;
+
+  NetLog::Source requesting_source_;
 
   DISALLOW_COPY_AND_ASSIGN(ClientSocketHandle);
 };
@@ -146,22 +189,25 @@ class ClientSocketHandle {
 // Template function implementation:
 template <typename SocketParams, typename PoolType>
 int ClientSocketHandle::Init(const std::string& group_name,
-                             const SocketParams& socket_params,
+                             const scoped_refptr<SocketParams>& socket_params,
                              RequestPriority priority,
                              CompletionCallback* callback,
-                             PoolType* pool,
-                             LoadLog* load_log) {
+                             const scoped_refptr<PoolType>& pool,
+                             const BoundNetLog& net_log) {
+  requesting_source_ = net_log.source();
+
   CHECK(!group_name.empty());
-  // Note that this will result in a link error if the SocketParams has not been
-  // registered for the PoolType via REGISTER_SOCKET_PARAMS_FOR_POOL (defined in
-  // client_socket_pool.h).
+  // Note that this will result in a compile error if the SocketParams has not
+  // been registered for the PoolType via REGISTER_SOCKET_PARAMS_FOR_POOL
+  // (defined in client_socket_pool.h).
   CheckIsValidSocketParamsForPool<PoolType, SocketParams>();
   ResetInternal(true);
+  ResetErrorState();
   pool_ = pool;
   group_name_ = group_name;
   init_time_ = base::TimeTicks::Now();
   int rv = pool_->RequestSocket(
-      group_name, &socket_params, priority, this, &callback_, load_log);
+      group_name, &socket_params, priority, this, &callback_, net_log);
   if (rv == ERR_IO_PENDING) {
     user_callback_ = callback;
   } else {

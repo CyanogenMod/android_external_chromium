@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -147,7 +147,7 @@ void Time::Explode(bool is_local, Exploded* exploded) const {
 // FreeBSD 6 has CLOCK_MONOLITHIC but defines _POSIX_MONOTONIC_CLOCK to -1.
 #if (defined(OS_POSIX) &&                                               \
      defined(_POSIX_MONOTONIC_CLOCK) && _POSIX_MONOTONIC_CLOCK >= 0) || \
-    defined(OS_FREEBSD)
+     defined(OS_FREEBSD) || defined(OS_OPENBSD)
 
 // static
 TimeTicks TimeTicks::Now() {
@@ -187,6 +187,14 @@ struct timespec TimeDelta::ToTimeSpec() const {
   struct timespec result =
       {seconds,
        microseconds * Time::kNanosecondsPerMicrosecond};
+  return result;
+}
+
+struct timeval Time::ToTimeVal() const {
+  struct timeval result;
+  int64 us = us_ - kTimeTToMicrosecondsOffset;
+  result.tv_sec = us / Time::kMicrosecondsPerSecond;
+  result.tv_usec = us % Time::kMicrosecondsPerSecond;
   return result;
 }
 

@@ -10,10 +10,10 @@
 
 #include "googleurl/src/gurl.h"
 #include "net/base/completion_callback.h"
+#include "net/base/net_log.h"
 
 namespace net {
 
-class LoadLog;
 class ProxyConfig;
 class ProxyResolver;
 class ProxyScriptFetcher;
@@ -36,18 +36,18 @@ class ProxyScriptFetcher;
 //
 class InitProxyResolver {
  public:
-  // |resolver| and |proxy_script_fetcher| must remain valid for
+  // |resolver|, |proxy_script_fetcher| and |net_log| must remain valid for
   // the lifespan of InitProxyResolver.
   InitProxyResolver(ProxyResolver* resolver,
-                    ProxyScriptFetcher* proxy_script_fetcher);
+                    ProxyScriptFetcher* proxy_script_fetcher,
+                    NetLog* net_log);
 
   // Aborts any in-progress request.
   ~InitProxyResolver();
 
   // Apply the PAC settings of |config| to |resolver_|.
   int Init(const ProxyConfig& config,
-           CompletionCallback* callback,
-           LoadLog* load_log);
+           CompletionCallback* callback);
 
  private:
   enum State {
@@ -57,7 +57,15 @@ class InitProxyResolver {
     STATE_SET_PAC_SCRIPT,
     STATE_SET_PAC_SCRIPT_COMPLETE,
   };
-  typedef std::vector<GURL> UrlList;
+
+  struct PacURL {
+    PacURL(bool auto_detect, const GURL& url)
+        : auto_detect(auto_detect), url(url) {}
+    bool auto_detect;
+    GURL url;
+  };
+
+  typedef std::vector<PacURL> UrlList;
 
   // Returns ordered list of PAC urls to try for |config|.
   UrlList BuildPacUrlsFallbackList(const ProxyConfig& config) const;
@@ -83,7 +91,7 @@ class InitProxyResolver {
   State GetStartState() const;
 
   // Returns the current PAC URL we are fetching/testing.
-  const GURL& current_pac_url() const;
+  const PacURL& current_pac_url() const;
 
   void DidCompleteInit();
   void Cancel();
@@ -97,12 +105,12 @@ class InitProxyResolver {
   size_t current_pac_url_index_;
 
   // Filled when the PAC script fetch completes.
-  std::string pac_bytes_;
+  string16 pac_script_;
 
   UrlList pac_urls_;
   State next_state_;
 
-  scoped_refptr<LoadLog> load_log_;
+  BoundNetLog net_log_;
 
   DISALLOW_COPY_AND_ASSIGN(InitProxyResolver);
 };

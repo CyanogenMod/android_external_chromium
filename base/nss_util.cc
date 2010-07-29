@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/nss_util.h"
+#include "base/nss_util_internal.h"
 
 #include <nss.h>
 #include <plarena.h>
@@ -12,34 +13,80 @@
 #include <pk11pub.h>
 #include <secmod.h>
 
+#if defined(OS_LINUX)
+#include <linux/magic.h>
+#include <sys/vfs.h>
+#endif
+
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/singleton.h"
 #include "base/string_util.h"
 
-// On some platforms, we use NSS for SSL only -- we don't use NSS for crypto
-// or certificate verification, and we don't use the NSS certificate and key
-// databases.
-#if defined(OS_WIN)
-#define USE_NSS_FOR_SSL_ONLY 1
-#endif
+// USE_NSS means we use NSS for everything crypto-related.  If USE_NSS is not
+// defined, such as on Mac and Windows, we use NSS for SSL only -- we don't
+// use NSS for crypto or certificate verification, and we don't use the NSS
+// certificate and key databases.
+#if defined(USE_NSS)
+#include "base/env_var.h"
+#include "base/lock.h"
+#include "base/scoped_ptr.h"
+#endif  // defined(USE_NSS)
 
 namespace {
 
-#if !defined(USE_NSS_FOR_SSL_ONLY)
-std::string GetDefaultConfigDirectory() {
-  const char* home = getenv("HOME");
-  if (home == NULL) {
-    LOG(ERROR) << "$HOME is not set.";
-    return "";
+#if defined(USE_NSS)
+FilePath GetDefaultConfigDirectory() {
+  FilePath dir = file_util::GetHomeDir();
+  if (dir.empty()) {
+    LOG(ERROR) << "Failed to get home directory.";
+    return dir;
   }
-  FilePath dir(home);
   dir = dir.AppendASCII(".pki").AppendASCII("nssdb");
   if (!file_util::CreateDirectory(dir)) {
     LOG(ERROR) << "Failed to create ~/.pki/nssdb directory.";
-    return "";
+    dir.clear();
   }
-  return dir.value();
+  return dir;
+}
+
+// On non-chromeos platforms, return the default config directory.
+// On chromeos, return a read-only directory with fake root CA certs for testing
+// (which will not exist on non-testing images).  These root CA certs are used
+// by the local Google Accounts server mock we use when testing our login code.
+// If this directory is not present, NSS_Init() will fail.  It is up to the
+// caller to failover to NSS_NoDB_Init() at that point.
+FilePath GetInitialConfigDirectory() {
+#if defined(OS_CHROMEOS)
+  static const FilePath::CharType kReadOnlyCertDB[] =
+      FILE_PATH_LITERAL("/etc/fake_root_ca/nssdb");
+  return FilePath(kReadOnlyCertDB);
+#else
+  return GetDefaultConfigDirectory();
+#endif  // defined(OS_CHROMEOS)
+}
+
+// NSS creates a local cache of the sqlite database if it detects that the
+// filesystem the database is on is much slower than the local disk.  The
+// detection doesn't work with the latest versions of sqlite, such as 3.6.22
+// (NSS bug https://bugzilla.mozilla.org/show_bug.cgi?id=578561).  So we set
+// the NSS environment variable NSS_SDB_USE_CACHE to "yes" to override NSS's
+// detection when database_dir is on NFS.  See http://crbug.com/48585.
+//
+// TODO(wtc): port this function to other USE_NSS platforms.  It is defined
+// only for OS_LINUX simply because the statfs structure is OS-specific.
+void UseLocalCacheOfNSSDatabaseIfNFS(const FilePath& database_dir) {
+#if defined(OS_LINUX)
+  struct statfs buf;
+  if (statfs(database_dir.value().c_str(), &buf) == 0) {
+    if (buf.f_type == NFS_SUPER_MAGIC) {
+      scoped_ptr<base::EnvVarGetter> env(base::EnvVarGetter::Create());
+      const char* use_cache_env_var = "NSS_SDB_USE_CACHE";
+      if (!env->HasEnv(use_cache_env_var))
+        env->SetEnv(use_cache_env_var, "yes");
+    }
+  }
+#endif  // defined(OS_LINUX)
 }
 
 // Load nss's built-in root certs.
@@ -57,7 +104,7 @@ SECMODModule *InitDefaultRootCerts() {
   NOTREACHED();
   return NULL;
 }
-#endif  // !defined(USE_NSS_FOR_SSL_ONLY)
+#endif  // defined(USE_NSS)
 
 // A singleton to initialize/deinitialize NSPR.
 // Separate from the NSS singleton because we initialize NSPR on the UI thread.
@@ -78,7 +125,10 @@ class NSPRInitSingleton {
 
 class NSSInitSingleton {
  public:
-  NSSInitSingleton() : root_(NULL) {
+  NSSInitSingleton()
+      : real_db_slot_(NULL),
+        root_(NULL),
+        chromeos_user_logged_in_(false) {
     base::EnsureNSPRInit();
 
     // We *must* have NSS >= 3.12.3.  See bug 26448.
@@ -89,12 +139,21 @@ class NSSInitSingleton {
         nss_version_check_failed);
     // Also check the run-time NSS version.
     // NSS_VersionCheck is a >= check, not strict equality.
-    CHECK(NSS_VersionCheck("3.12.3")) << "We depend on NSS >= 3.12.3. "
-                                         "If NSS is up to date, please "
-                                         "update NSPR to the latest version.";
+    if (!NSS_VersionCheck("3.12.3")) {
+      // It turns out many people have misconfigured NSS setups, where
+      // their run-time NSPR doesn't match the one their NSS was compiled
+      // against.  So rather than aborting, complain loudly.
+      LOG(ERROR) << "NSS_VersionCheck(\"3.12.3\") failed.  "
+                    "We depend on NSS >= 3.12.3, and this error is not fatal "
+                    "only because many people have busted NSS setups (for "
+                    "example, using the wrong version of NSPR). "
+                    "Please upgrade to the latest NSS and NSPR, and if you "
+                    "still get this error, contact your distribution "
+                    "maintainer.";
+    }
 
     SECStatus status = SECFailure;
-#if defined(USE_NSS_FOR_SSL_ONLY)
+#if !defined(USE_NSS)
     // Use the system certificate store, so initialize NSS without database.
     status = NSS_NoDB_Init(NULL);
     if (status != SECSuccess) {
@@ -102,13 +161,19 @@ class NSSInitSingleton {
                     "database: NSS error code " << PR_GetError();
     }
 #else
-    std::string database_dir = GetDefaultConfigDirectory();
+    FilePath database_dir = GetInitialConfigDirectory();
     if (!database_dir.empty()) {
-      // Initialize with a persistant database (~/.pki/nssdb).
+      UseLocalCacheOfNSSDatabaseIfNFS(database_dir);
+
+      // Initialize with a persistent database (likely, ~/.pki/nssdb).
       // Use "sql:" which can be shared by multiple processes safely.
       std::string nss_config_dir =
-          StringPrintf("sql:%s", database_dir.c_str());
+          StringPrintf("sql:%s", database_dir.value().c_str());
+#if defined(OS_CHROMEOS)
+      status = NSS_Init(nss_config_dir.c_str());
+#else
       status = NSS_InitReadWrite(nss_config_dir.c_str());
+#endif
       if (status != SECSuccess) {
         LOG(ERROR) << "Error initializing NSS with a persistent "
                       "database (" << nss_config_dir
@@ -122,6 +187,7 @@ class NSSInitSingleton {
       if (status != SECSuccess) {
         LOG(ERROR) << "Error initializing NSS without a persistent "
                       "database: NSS error code " << PR_GetError();
+        return;
       }
     }
 
@@ -130,16 +196,28 @@ class NSSInitSingleton {
     // log in.
     PK11SlotInfo* slot = PK11_GetInternalKeySlot();
     if (slot) {
+      // PK11_InitPin may write to the keyDB, but no other thread can use NSS
+      // yet, so we don't need to lock.
       if (PK11_NeedUserInit(slot))
         PK11_InitPin(slot, NULL, NULL);
       PK11_FreeSlot(slot);
     }
 
+    // TODO(davidben): When https://bugzilla.mozilla.org/show_bug.cgi?id=564011
+    // is fixed, we will no longer need the lock. We should detect this and not
+    // initialize a Lock here.
+    write_lock_.reset(new Lock());
+
     root_ = InitDefaultRootCerts();
-#endif  // defined(USE_NSS_FOR_SSL_ONLY)
+#endif  // !defined(USE_NSS)
   }
 
   ~NSSInitSingleton() {
+    if (real_db_slot_) {
+      SECMOD_CloseUserDB(real_db_slot_);
+      PK11_FreeSlot(real_db_slot_);
+      real_db_slot_ = NULL;
+    }
     if (root_) {
       SECMOD_UnloadUserModule(root_);
       SECMOD_DestroyModule(root_);
@@ -155,8 +233,45 @@ class NSSInitSingleton {
     }
   }
 
+#if defined(OS_CHROMEOS)
+  void OpenPersistentNSSDB() {
+    if (!chromeos_user_logged_in_) {
+      chromeos_user_logged_in_ = true;
+
+      const std::string modspec =
+          StringPrintf("configDir='%s' tokenDescription='Real NSS database'",
+                       GetDefaultConfigDirectory().value().c_str());
+      real_db_slot_ = SECMOD_OpenUserDB(modspec.c_str());
+      if (real_db_slot_ == NULL) {
+        LOG(ERROR) << "Error opening persistent database (" << modspec
+                   << "): NSS error code " << PR_GetError();
+      } else {
+        if (PK11_NeedUserInit(real_db_slot_))
+          PK11_InitPin(real_db_slot_, NULL, NULL);
+      }
+    }
+  }
+#endif  // defined(OS_CHROMEOS)
+
+  PK11SlotInfo* GetDefaultKeySlot() {
+    if (real_db_slot_)
+      return PK11_ReferenceSlot(real_db_slot_);
+    return PK11_GetInternalKeySlot();
+  }
+
+#if defined(USE_NSS)
+  Lock* write_lock() {
+    return write_lock_.get();
+  }
+#endif  // defined(USE_NSS)
+
  private:
+  PK11SlotInfo* real_db_slot_;  // Overrides internal key slot if non-NULL.
   SECMODModule *root_;
+  bool chromeos_user_logged_in_;
+#if defined(USE_NSS)
+  scoped_ptr<Lock> write_lock_;
+#endif  // defined(USE_NSS)
 };
 
 }  // namespace
@@ -170,6 +285,31 @@ void EnsureNSPRInit() {
 void EnsureNSSInit() {
   Singleton<NSSInitSingleton>::get();
 }
+
+#if defined(USE_NSS)
+Lock* GetNSSWriteLock() {
+  return Singleton<NSSInitSingleton>::get()->write_lock();
+}
+
+AutoNSSWriteLock::AutoNSSWriteLock() : lock_(GetNSSWriteLock()) {
+  // May be NULL if the lock is not needed in our version of NSS.
+  if (lock_)
+    lock_->Acquire();
+}
+
+AutoNSSWriteLock::~AutoNSSWriteLock() {
+  if (lock_) {
+    lock_->AssertAcquired();
+    lock_->Release();
+  }
+}
+#endif  // defined(USE_NSS)
+
+#if defined(OS_CHROMEOS)
+void OpenPersistentNSSDB() {
+  Singleton<NSSInitSingleton>::get()->OpenPersistentNSSDB();
+}
+#endif
 
 // TODO(port): Implement this more simply.  We can convert by subtracting an
 // offset (the difference between NSPR's and base::Time's epochs).
@@ -188,6 +328,10 @@ Time PRTimeToBaseTime(PRTime prtime) {
   exploded.millisecond  = prxtime.tm_usec / 1000;
 
   return Time::FromUTCExploded(exploded);
+}
+
+PK11SlotInfo* GetDefaultNSSKeySlot() {
+  return Singleton<NSSInitSingleton>::get()->GetDefaultKeySlot();
 }
 
 }  // namespace base

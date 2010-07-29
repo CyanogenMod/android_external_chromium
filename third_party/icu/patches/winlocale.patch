@@ -1,0 +1,15 @@
+Index: third_party/icu/source/common/putil.c
+===================================================================
+--- third_party/icu/source/common/putil.c	(revision 43139)
++++ third_party/icu/source/common/putil.c	(working copy)
+@@ -1463,7 +1463,9 @@
+ 
+ #elif defined(U_WINDOWS)
+     UErrorCode status = U_ZERO_ERROR;
+-    LCID id = GetThreadLocale();
++    // Should we use GetUserDefaultLocaleName and stop
++    // calling uprv_convertToPosix?
++    LCID id = GetUserDefaultLCID();
+     const char* locID = uprv_convertToPosix(id, &status);
+ 
+     if (U_FAILURE(status)) {

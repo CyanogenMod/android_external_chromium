@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -55,6 +55,9 @@ static void Lowercase(std::string* parameter) {
 }
 #endif
 
+CommandLine::~CommandLine() {
+}
+
 #if defined(OS_WIN)
 CommandLine::CommandLine(ArgumentsOnly args_only) {
 }
@@ -79,7 +82,7 @@ void CommandLine::ParseFromString(const std::wstring& command_line) {
     TrimWhitespace(args[i], TRIM_ALL, &arg);
 
     if (!parse_switches) {
-      loose_values_.push_back(arg);
+      args_.push_back(arg);
       continue;
     }
 
@@ -93,7 +96,7 @@ void CommandLine::ParseFromString(const std::wstring& command_line) {
     if (IsSwitch(arg, &switch_string, &switch_value)) {
       switches_[switch_string] = switch_value;
     } else {
-      loose_values_.push_back(arg);
+      args_.push_back(arg);
     }
   }
 
@@ -127,7 +130,7 @@ void CommandLine::InitFromArgv(const std::vector<std::string>& argv) {
     const std::string& arg = argv_[i];
 
     if (!parse_switches) {
-      loose_values_.push_back(arg);
+      args_.push_back(arg);
       continue;
     }
 
@@ -141,7 +144,7 @@ void CommandLine::InitFromArgv(const std::vector<std::string>& argv) {
     if (IsSwitch(arg, &switch_string, &switch_value)) {
       switches_[switch_string] = switch_value;
     } else {
-      loose_values_.push_back(arg);
+      args_.push_back(arg);
     }
   }
 }
@@ -284,25 +287,21 @@ std::wstring CommandLine::GetSwitchValue(
 }
 
 #if defined(OS_WIN)
-std::vector<std::wstring> CommandLine::GetLooseValues() const {
-  return loose_values_;
-}
 std::wstring CommandLine::program() const {
   return program_;
 }
 #else
-std::vector<std::wstring> CommandLine::GetLooseValues() const {
-  std::vector<std::wstring> values;
-  for (size_t i = 0; i < loose_values_.size(); ++i)
-    values.push_back(base::SysNativeMBToWide(loose_values_[i]));
-  return values;
-}
 std::wstring CommandLine::program() const {
   DCHECK_GT(argv_.size(), 0U);
   return base::SysNativeMBToWide(argv_[0]);
 }
 #endif
 
+#if defined(OS_POSIX)
+std::string CommandLine::command_line_string() const {
+  return JoinString(argv_, ' ');
+}
+#endif
 
 // static
 std::wstring CommandLine::PrefixedSwitchString(
@@ -367,14 +366,14 @@ void CommandLine::AppendLooseValue(const std::wstring& value) {
   // TODO(evan): quoting?
   command_line_string_.append(L" ");
   command_line_string_.append(value);
-  loose_values_.push_back(value);
+  args_.push_back(value);
 }
 
 void CommandLine::AppendArguments(const CommandLine& other,
                                   bool include_program) {
   // Verify include_program is used correctly.
   // Logic could be shorter but this is clearer.
-  DCHECK(include_program ? !other.program().empty() : other.program().empty());
+  DCHECK_EQ(include_program, !other.GetProgram().empty());
   command_line_string_ += L" " + other.command_line_string_;
   std::map<std::string, StringType>::const_iterator i;
   for (i = other.switches_.begin(); i != other.switches_.end(); ++i)
@@ -413,8 +412,7 @@ void CommandLine::AppendArguments(const CommandLine& other,
                                   bool include_program) {
   // Verify include_program is used correctly.
   // Logic could be shorter but this is clearer.
-  DCHECK(include_program ? !other.program().empty() : other.program().empty());
-
+  DCHECK_EQ(include_program, !other.GetProgram().empty());
   size_t first_arg = include_program ? 0 : 1;
   for (size_t i = first_arg; i < other.argv_.size(); ++i)
     argv_.push_back(other.argv_[i]);
@@ -433,3 +431,7 @@ void CommandLine::PrependWrapper(const std::wstring& wrapper_wide) {
 }
 
 #endif
+
+// private
+CommandLine::CommandLine() {
+}

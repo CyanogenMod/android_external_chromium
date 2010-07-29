@@ -7,11 +7,25 @@
 #include "base/string_util.h"
 #include "base/tracked_objects.h"
 
-using base::Time;
+using base::TimeTicks;
 
 namespace tracked_objects {
 
 //------------------------------------------------------------------------------
+
+Location::Location(const char* function_name, const char* file_name,
+                   int line_number)
+    : function_name_(function_name),
+      file_name_(file_name),
+      line_number_(line_number) {
+}
+
+Location::Location()
+    : function_name_("Unknown"),
+      file_name_("Unknown"),
+      line_number_(-1) {
+}
+
 void Location::Write(bool display_filename, bool display_function_name,
                      std::string* output) const {
   StringAppendF(output, "%s[%d] ",
@@ -56,7 +70,9 @@ void Tracked::ResetBirthTime() {}
 
 #else
 
-Tracked::Tracked() : tracked_births_(NULL), tracked_birth_time_(Time::Now()) {
+Tracked::Tracked()
+    : tracked_births_(NULL),
+      tracked_birth_time_(TimeTicks::Now()) {
   if (!ThreadData::IsActive())
     return;
   SetBirthPlace(Location("NoFunctionName", "NeedToSetBirthPlace", -1));
@@ -66,7 +82,7 @@ Tracked::~Tracked() {
   if (!ThreadData::IsActive() || !tracked_births_)
     return;
   ThreadData::current()->TallyADeath(*tracked_births_,
-                                     Time::Now() - tracked_birth_time_);
+                                     TimeTicks::Now() - tracked_birth_time_);
 }
 
 void Tracked::SetBirthPlace(const Location& from_here) {
@@ -81,7 +97,7 @@ void Tracked::SetBirthPlace(const Location& from_here) {
 }
 
 void Tracked::ResetBirthTime() {
-  tracked_birth_time_ = Time::Now();
+  tracked_birth_time_ = TimeTicks::Now();
 }
 
 bool Tracked::MissingBirthplace() const {

@@ -26,14 +26,13 @@ class ProxyResolverWinHttp : public ProxyResolver {
                              ProxyInfo* results,
                              CompletionCallback* /*callback*/,
                              RequestHandle* /*request*/,
-                             LoadLog* /*load_log*/);
+                             const BoundNetLog& /*net_log*/);
   virtual void CancelRequest(RequestHandle request);
+  virtual int SetPacScript(
+      const scoped_refptr<ProxyResolverScriptData>& script_data,
+      CompletionCallback* /*callback*/);
 
  private:
-  // ProxyResolver implementation:
-  virtual int SetPacScript(const GURL& pac_url,
-                           const std::string& /*pac_bytes*/,
-                           CompletionCallback* /*callback*/);
   bool OpenWinHttpSession();
   void CloseWinHttpSession();
 

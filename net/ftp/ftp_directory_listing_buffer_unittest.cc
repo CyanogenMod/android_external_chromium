@@ -9,6 +9,7 @@
 #include "base/path_service.h"
 #include "base/string_tokenizer.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "net/base/net_errors.h"
 #include "net/ftp/ftp_directory_listing_parser.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -34,6 +35,7 @@ TEST(FtpDirectoryListingBufferTest, Parse) {
     "dir-listing-ls-14",
     "dir-listing-ls-15",
     "dir-listing-ls-16",
+    "dir-listing-ls-17",
     "dir-listing-mlsd-1",
     "dir-listing-mlsd-2",
     "dir-listing-netware-1",
@@ -53,10 +55,14 @@ TEST(FtpDirectoryListingBufferTest, Parse) {
   test_dir = test_dir.AppendASCII("data");
   test_dir = test_dir.AppendASCII("ftp");
 
+  base::Time mock_current_time;
+  ASSERT_TRUE(base::Time::FromString(L"Tue, 15 Nov 1994 12:45:26 GMT",
+                                     &mock_current_time));
+
   for (size_t i = 0; i < arraysize(test_files); i++) {
     SCOPED_TRACE(StringPrintf("Test[%" PRIuS "]: %s", i, test_files[i]));
 
-    net::FtpDirectoryListingBuffer buffer;
+    net::FtpDirectoryListingBuffer buffer(mock_current_time);
 
     std::string test_listing;
     EXPECT_TRUE(file_util::ReadFileToString(test_dir.AppendASCII(test_files[i]),
@@ -84,14 +90,7 @@ TEST(FtpDirectoryListingBufferTest, Parse) {
 
       SCOPED_TRACE(StringPrintf("Filename: %s", name.c_str()));
 
-      int year;
-      if (lines[8 * i + 3] == "current") {
-        base::Time::Exploded now_exploded;
-        base::Time::Now().LocalExplode(&now_exploded);
-        year = now_exploded.year;
-      } else {
-        year = StringToInt(lines[8 * i + 3]);
-      }
+      int year = StringToInt(lines[8 * i + 3]);
       int month = StringToInt(lines[8 * i + 4]);
       int day_of_month = StringToInt(lines[8 * i + 5]);
       int hour = StringToInt(lines[8 * i + 6]);

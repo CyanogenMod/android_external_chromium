@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -25,6 +25,11 @@
 #include <time.h>
 
 #include "base/basictypes.h"
+
+#if defined(OS_POSIX)
+// For struct timeval.
+#include <sys/time.h>
+#endif
 
 #if defined(OS_WIN)
 // For FILETIME in FromFileTime, until it moves to a new converter class.
@@ -241,14 +246,35 @@ class Time {
   static Time FromDoubleT(double dt);
   double ToDoubleT() const;
 
+#if defined(OS_POSIX)
+  struct timeval ToTimeVal() const;
+#endif
 
 #if defined(OS_WIN)
   static Time FromFileTime(FILETIME ft);
   FILETIME ToFileTime() const;
 
-  // Enable or disable Windows high resolution timer. For more details
-  // see comments in time_win.cc. Returns true on success.
-  static bool UseHighResolutionTimer(bool use);
+  // The minimum time of a low resolution timer.  This is basically a windows
+  // constant of ~15.6ms.  While it does vary on some older OS versions, we'll
+  // treat it as static across all windows versions.
+  static const int kMinLowResolutionThresholdMs = 16;
+
+  // Enable or disable Windows high resolution timer. If the high resolution
+  // timer is not enabled, calls to ActivateHighResolutionTimer will fail.
+  // When disabling the high resolution timer, this function will not cause
+  // the high resolution timer to be deactivated, but will prevent future
+  // activations.
+  // Must be called from the main thread.
+  // For more details see comments in time_win.cc.
+  static void EnableHighResolutionTimer(bool enable);
+
+  // Activates or deactivates the high resolution timer based on the |activate|
+  // flag.  If the HighResolutionTimer is not Enabled (see
+  // EnableHighResolutionTimer), this function will return false.  Otherwise
+  // returns true.
+  // All callers to activate the high resolution timer must eventually call
+  // this function to deactivate the high resolution timer.
+  static bool ActivateHighResolutionTimer(bool activate);
 #endif
 
   // Converts an exploded structure representing either the local time or UTC
@@ -361,6 +387,13 @@ class Time {
   // The representation of Jan 1, 1970 UTC in microseconds since the
   // platform-dependent epoch.
   static const int64 kTimeTToMicrosecondsOffset;
+
+#if defined(OS_WIN)
+  // Indicates whether fast timers are usable right now.  For instance,
+  // when using battery power, we might elect to prevent high speed timers
+  // which would draw more power.
+  static bool high_resolution_timer_enabled_;
+#endif
 
   // Time in microseconds in UTC.
   int64 us_;

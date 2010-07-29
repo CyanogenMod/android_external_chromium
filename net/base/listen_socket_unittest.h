@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,6 +16,7 @@
 #include <arpa/inet.h>
 #endif
 
+#include "base/scoped_ptr.h"
 #include "base/thread.h"
 #include "base/basictypes.h"
 #include "base/message_loop.h"
@@ -52,7 +53,7 @@ class ListenSocketTestAction {
         data_(data) {}
 
   const std::string data() const { return data_; }
-  const ActionType type() const { return action_; }
+  ActionType type() const { return action_; }
 
  private:
   ActionType action_;
@@ -94,7 +95,7 @@ class ListenSocketTester :
   void Listen();
   void SendFromTester();
   virtual void DidAccept(ListenSocket *server, ListenSocket *connection);
-  virtual void DidRead(ListenSocket *connection, const std::string& data);
+  virtual void DidRead(ListenSocket *connection, const char* data, int len);
   virtual void DidClose(ListenSocket *sock);
   virtual bool Send(SOCKET sock, const std::string& str);
   // verify the send/read from client to server

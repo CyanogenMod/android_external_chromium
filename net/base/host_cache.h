@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 #include <map>
 #include <string>
 
+#include "base/non_thread_safe.h"
 #include "base/ref_counted.h"
 #include "base/time.h"
 #include "net/base/address_family.h"
@@ -17,7 +18,7 @@
 namespace net {
 
 // Cache used by HostResolver to map hostnames to their resolved result.
-class HostCache {
+class HostCache : public NonThreadSafe {
  public:
   // Stores the latest address list that was looked up for a hostname.
   struct Entry : public base::RefCounted<Entry> {
@@ -37,22 +38,35 @@ class HostCache {
   };
 
   struct Key {
-    Key(const std::string& hostname, AddressFamily address_family)
-        : hostname(hostname), address_family(address_family) {}
+    Key(const std::string& hostname, AddressFamily address_family,
+        HostResolverFlags host_resolver_flags)
+        : hostname(hostname),
+          address_family(address_family),
+          host_resolver_flags(host_resolver_flags) {}
 
     bool operator==(const Key& other) const {
-      return other.hostname == hostname &&
-             other.address_family == address_family;
+      // |address_family| and |host_resolver_flags| are compared before
+      // |hostname| under assumption that integer comparisons are faster than
+      // string comparisons.
+      return (other.address_family == address_family &&
+              other.host_resolver_flags == host_resolver_flags &&
+              other.hostname == hostname);
     }
 
     bool operator<(const Key& other) const {
-      if (address_family == other.address_family)
-        return hostname < other.hostname;
-      return address_family < other.address_family;
+      // |address_family| and |host_resolver_flags| are compared before
+      // |hostname| under assumption that integer comparisons are faster than
+      // string comparisons.
+      if (address_family != other.address_family)
+        return address_family < other.address_family;
+      if (host_resolver_flags != other.host_resolver_flags)
+        return host_resolver_flags < other.host_resolver_flags;
+      return hostname < other.hostname;
     }
 
     std::string hostname;
     AddressFamily address_family;
+    HostResolverFlags host_resolver_flags;
   };
 
   typedef std::map<Key, scoped_refptr<Entry> > EntryMap;
@@ -76,40 +90,24 @@ class HostCache {
   // timestamp.
   Entry* Set(const Key& key,
              int error,
-             const AddressList addrlist,
+             const AddressList& addrlist,
              base::TimeTicks now);
 
-  // Empties the cache.
-  void clear() {
-    entries_.clear();
-  }
-
-  // Returns true if this HostCache can contain no entries.
-  bool caching_is_disabled() const {
-    return max_entries_ == 0;
-  }
+  // Empties the cache
+  void clear();
 
   // Returns the number of entries in the cache.
-  size_t size() const {
-    return entries_.size();
-  }
+  size_t size() const;
 
-  size_t max_entries() const {
-    return max_entries_;
-  }
+  // Following are used by net_internals UI.
+  size_t max_entries() const;
 
-  base::TimeDelta success_entry_ttl() const {
-    return success_entry_ttl_;
-  }
+  base::TimeDelta success_entry_ttl() const;
 
-  base::TimeDelta failure_entry_ttl() const {
-    return failure_entry_ttl_;
-  }
+  base::TimeDelta failure_entry_ttl() const;
 
   // Note that this map may contain expired entries.
-  const EntryMap& entries() const {
-    return entries_;
-  }
+  const EntryMap& entries() const;
 
  private:
   FRIEND_TEST(HostCacheTest, Compact);
@@ -121,6 +119,11 @@ class HostCache {
   // Prunes entries from the cache to bring it below max entry bound. Entries
   // matching |pinned_entry| will NOT be pruned.
   void Compact(base::TimeTicks now, const Entry* pinned_entry);
+
+  // Returns true if this HostCache can contain no entries.
+  bool caching_is_disabled() const {
+    return max_entries_ == 0;
+  }
 
   // Bound on total size of the cache.
   size_t max_entries_;

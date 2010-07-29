@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,15 +21,19 @@
 #include <ws2tcpip.h>
 #include <wspiapi.h>  // Needed for Win2k compat.
 #elif defined(OS_POSIX)
-#include <netdb.h>
-#include <sys/socket.h>
 #include <fcntl.h>
+#include <ifaddrs.h>
+#include <netdb.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #endif
 
 #include "base/base64.h"
 #include "base/basictypes.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
+#include "base/histogram.h"
 #include "base/i18n/file_util_icu.h"
 #include "base/i18n/icu_string_conversions.h"
 #include "base/i18n/time_formatting.h"
@@ -46,10 +50,13 @@
 #include "base/sys_string_conversions.h"
 #include "base/time.h"
 #include "base/utf_offset_string_conversions.h"
+#include "base/utf_string_conversions.h"
 #include "grit/net_resources.h"
 #include "googleurl/src/gurl.h"
 #include "googleurl/src/url_canon.h"
+#include "googleurl/src/url_canon_ip.h"
 #include "googleurl/src/url_parse.h"
+#include "net/base/dns_util.h"
 #include "net/base/escape.h"
 #include "net/base/net_module.h"
 #if defined(OS_WIN)
@@ -128,6 +135,13 @@ static const int kRestrictedPorts[] = {
   3659, // apple-sasl / PasswordServer
   4045, // lockd
   6000, // X11
+  6665, // Alternate IRC [Apple addition]
+  6666, // Alternate IRC [Apple addition]
+  6667, // Standard IRC [Apple addition]
+  6668, // Alternate IRC [Apple addition]
+  6669, // Alternate IRC [Apple addition]
+  0xFFFF, // Used to block all invalid port numbers (see
+          // third_party/WebKit/WebCore/platform/KURLGoogle.cpp, port())
 };
 
 // FTP overrides the following restricted ports.
@@ -257,8 +271,13 @@ bool DecodeBQEncoding(const std::string& part, RFC2047EncodingType enc_type,
 
 bool DecodeWord(const std::string& encoded_word,
                 const std::string& referrer_charset,
-                bool *is_rfc2047,
+                bool* is_rfc2047,
                 std::string* output) {
+  *is_rfc2047 = false;
+  output->clear();
+  if (encoded_word.empty())
+    return true;
+
   if (!IsStringASCII(encoded_word)) {
     // Try UTF-8, referrer_charset and the native OS default charset in turn.
     if (IsStringUTF8(encoded_word)) {
@@ -274,7 +293,7 @@ bool DecodeWord(const std::string& encoded_word,
         *output = WideToUTF8(base::SysNativeMBToWide(encoded_word));
       }
     }
-    *is_rfc2047 = false;
+
     return true;
   }
 
@@ -697,10 +716,30 @@ bool IDNToUnicodeOneComponent(const char16* comp,
   return false;
 }
 
+// If |component| is valid, its begin is incremented by |delta|.
+void AdjustComponent(int delta, url_parse::Component* component) {
+  if (!component->is_valid())
+    return;
+
+  DCHECK(delta >= 0 || component->begin >= -delta);
+  component->begin += delta;
+}
+
+// Adjusts all the components of |parsed| by |delta|, except for the scheme.
+void AdjustComponents(int delta, url_parse::Parsed* parsed) {
+  AdjustComponent(delta, &(parsed->username));
+  AdjustComponent(delta, &(parsed->password));
+  AdjustComponent(delta, &(parsed->host));
+  AdjustComponent(delta, &(parsed->port));
+  AdjustComponent(delta, &(parsed->path));
+  AdjustComponent(delta, &(parsed->query));
+  AdjustComponent(delta, &(parsed->ref));
+}
+
 // Helper for FormatUrl().
 std::wstring FormatViewSourceUrl(const GURL& url,
                                  const std::wstring& languages,
-                                 bool omit_username_password,
+                                 net::FormatUrlTypes format_types,
                                  UnescapeRule::Type unescape_rules,
                                  url_parse::Parsed* new_parsed,
                                  size_t* prefix_end,
@@ -715,8 +754,7 @@ std::wstring FormatViewSourceUrl(const GURL& url,
   size_t* temp_offset_ptr = (*offset_for_adjustment < kViewSourceLengthPlus1) ?
       NULL : &temp_offset;
   std::wstring result = net::FormatUrl(real_url, languages,
-      omit_username_password, unescape_rules, new_parsed, prefix_end,
-      temp_offset_ptr);
+      format_types, unescape_rules, new_parsed, prefix_end, temp_offset_ptr);
   result.insert(0, kWideViewSource);
 
   // Adjust position values.
@@ -727,20 +765,7 @@ std::wstring FormatViewSourceUrl(const GURL& url,
     new_parsed->scheme.begin = 0;
     new_parsed->scheme.len = kViewSourceLengthPlus1 - 1;
   }
-  if (new_parsed->username.is_nonempty())
-    new_parsed->username.begin += kViewSourceLengthPlus1;
-  if (new_parsed->password.is_nonempty())
-    new_parsed->password.begin += kViewSourceLengthPlus1;
-  if (new_parsed->host.is_nonempty())
-    new_parsed->host.begin += kViewSourceLengthPlus1;
-  if (new_parsed->port.is_nonempty())
-    new_parsed->port.begin += kViewSourceLengthPlus1;
-  if (new_parsed->path.is_nonempty())
-    new_parsed->path.begin += kViewSourceLengthPlus1;
-  if (new_parsed->query.is_nonempty())
-    new_parsed->query.begin += kViewSourceLengthPlus1;
-  if (new_parsed->ref.is_nonempty())
-    new_parsed->ref.begin += kViewSourceLengthPlus1;
+  AdjustComponents(kViewSourceLengthPlus1, new_parsed);
   if (prefix_end)
     *prefix_end += kViewSourceLengthPlus1;
   if (temp_offset_ptr) {
@@ -753,6 +778,13 @@ std::wstring FormatViewSourceUrl(const GURL& url,
 }  // namespace
 
 namespace net {
+
+const FormatUrlType kFormatUrlOmitNothing                     = 0;
+const FormatUrlType kFormatUrlOmitUsernamePassword            = 1 << 0;
+const FormatUrlType kFormatUrlOmitHTTP                        = 1 << 1;
+const FormatUrlType kFormatUrlOmitTrailingSlashOnBareHostname = 1 << 2;
+const FormatUrlType kFormatUrlOmitAll = kFormatUrlOmitUsernamePassword |
+    kFormatUrlOmitHTTP | kFormatUrlOmitTrailingSlashOnBareHostname;
 
 std::set<int> explicitly_allowed_ports;
 
@@ -956,7 +988,8 @@ inline bool IsHostCharDigit(char c) {
   return (c >= '0') && (c <= '9');
 }
 
-bool IsCanonicalizedHostCompliant(const std::string& host) {
+bool IsCanonicalizedHostCompliant(const std::string& host,
+                                  const std::string& desired_tld) {
   if (host.empty())
     return false;
 
@@ -986,7 +1019,8 @@ bool IsCanonicalizedHostCompliant(const std::string& host) {
     }
   }
 
-  return most_recent_component_started_alpha;
+  return most_recent_component_started_alpha ||
+      (!desired_tld.empty() && IsHostCharAlpha(desired_tld[0]));
 }
 
 std::string GetDirectoryListingEntry(const string16& name,
@@ -1051,7 +1085,7 @@ FilePath GetSuggestedFilename(const GURL& url,
   }
 
   const std::string filename_from_cd = GetFileNameFromCD(content_disposition,
-                                                          referrer_charset);
+                                                         referrer_charset);
 #if defined(OS_WIN)
   FilePath::StringType filename = UTF8ToWide(filename_from_cd);
 #elif defined(OS_POSIX)
@@ -1072,14 +1106,35 @@ FilePath GetSuggestedFilename(const GURL& url,
       const std::string unescaped_url_filename = UnescapeURLComponent(
           url.ExtractFileName(),
           UnescapeRule::SPACES | UnescapeRule::URL_SPECIAL_CHARS);
+
+      // The URL's path should be escaped UTF-8, but may not be.
+      std::string decoded_filename = unescaped_url_filename;
+      if (!IsStringASCII(decoded_filename)) {
+        bool ignore;
+        // TODO(jshin): this is probably not robust enough. To be sure, we
+        // need encoding detection.
+        DecodeWord(unescaped_url_filename, referrer_charset, &ignore,
+                   &decoded_filename);
+      }
+
 #if defined(OS_WIN)
-      filename = UTF8ToWide(unescaped_url_filename);
+      filename = UTF8ToWide(decoded_filename);
 #elif defined(OS_POSIX)
-      filename = unescaped_url_filename;
+      filename = decoded_filename;
 #endif
     }
   }
 
+#if defined(OS_WIN)
+  { // Handle CreateFile() stripping trailing dots and spaces on filenames
+    // http://support.microsoft.com/kb/115827
+    std::string::size_type pos = filename.find_last_not_of(L" .");
+    if (pos == std::string::npos)
+      filename.resize(0);
+    else
+      filename.resize(++pos);
+  }
+#endif
   // Trim '.' once more.
   TrimString(filename, FILE_PATH_LITERAL("."), &filename);
 
@@ -1147,7 +1202,7 @@ int SetNonBlocking(int fd) {
 #elif defined(OS_POSIX)
   int flags = fcntl(fd, F_GETFL, 0);
   if (-1 == flags)
-    flags = 0;
+    return flags;
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 #endif
 }
@@ -1238,6 +1293,21 @@ std::string NetAddressToString(const struct addrinfo* net_address) {
   return std::string(buffer);
 }
 
+std::string NetAddressToStringWithPort(const struct addrinfo* net_address) {
+  std::string ip_address_string = NetAddressToString(net_address);
+  if (ip_address_string.empty())
+    return std::string();  // Failed.
+
+  int port = GetPortFromAddrinfo(net_address);
+
+  if (ip_address_string.find(':') != std::string::npos) {
+    // Surround with square brackets to avoid ambiguity.
+    return StringPrintf("[%s]:%d", ip_address_string.c_str(), port);
+  }
+
+  return StringPrintf("%s:%d", ip_address_string.c_str(), port);
+}
+
 std::string GetHostName() {
 #if defined(OS_WIN)
   EnsureWinsockInit();
@@ -1256,11 +1326,16 @@ std::string GetHostName() {
 void GetIdentityFromURL(const GURL& url,
                         std::wstring* username,
                         std::wstring* password) {
-  UnescapeRule::Type flags = UnescapeRule::SPACES;
+  UnescapeRule::Type flags =
+      UnescapeRule::SPACES | UnescapeRule::URL_SPECIAL_CHARS;
   *username = UTF16ToWideHack(UnescapeAndDecodeUTF8URLComponent(url.username(),
                                                                 flags, NULL));
   *password = UTF16ToWideHack(UnescapeAndDecodeUTF8URLComponent(url.password(),
                                                                 flags, NULL));
+}
+
+std::string GetHostOrSpecFromURL(const GURL& url) {
+  return url.has_host() ? net::TrimEndingDot(url.host()) : url.spec();
 }
 
 void AppendFormattedHost(const GURL& url,
@@ -1349,7 +1424,7 @@ void AppendFormattedComponent(const std::string& spec,
 
 std::wstring FormatUrl(const GURL& url,
                        const std::wstring& languages,
-                       bool omit_username_password,
+                       FormatUrlTypes format_types,
                        UnescapeRule::Type unescape_rules,
                        url_parse::Parsed* new_parsed,
                        size_t* prefix_end,
@@ -1357,6 +1432,8 @@ std::wstring FormatUrl(const GURL& url,
   url_parse::Parsed parsed_temp;
   if (!new_parsed)
     new_parsed = &parsed_temp;
+  else
+    *new_parsed = url_parse::Parsed();
   size_t offset_temp = std::wstring::npos;
   if (!offset_for_adjustment)
     offset_for_adjustment = &offset_temp;
@@ -1374,11 +1451,11 @@ std::wstring FormatUrl(const GURL& url,
   // Special handling for view-source:.  Don't use chrome::kViewSourceScheme
   // because this library shouldn't depend on chrome.
   const char* const kViewSource = "view-source";
+  // Reject "view-source:view-source:..." to avoid deep recursion.
   const char* const kViewSourceTwice = "view-source:view-source:";
-  // Rejects view-source:view-source:... to avoid deep recursive call.
   if (url.SchemeIs(kViewSource) &&
       !StartsWithASCII(url.possibly_invalid_spec(), kViewSourceTwice, false)) {
-    return FormatViewSourceUrl(url, languages, omit_username_password,
+    return FormatViewSourceUrl(url, languages, format_types,
         unescape_rules, new_parsed, prefix_end, offset_for_adjustment);
   }
 
@@ -1395,9 +1472,22 @@ std::wstring FormatUrl(const GURL& url,
       spec.begin() + parsed.CountCharactersBefore(url_parse::Parsed::USERNAME,
                                                   true),
       std::back_inserter(url_string));
+
+  const wchar_t kHTTP[] = L"http://";
+  const char kFTP[] = "ftp.";
+  // URLFixerUpper::FixupURL() treats "ftp.foo.com" as ftp://ftp.foo.com.  This
+  // means that if we trim "http://" off a URL whose host starts with "ftp." and
+  // the user inputs this into any field subject to fixup (which is basically
+  // all input fields), the meaning would be changed.  (In fact, often the
+  // formatted URL is directly pre-filled into an input field.)  For this reason
+  // we avoid stripping "http://" in this case.
+  bool omit_http =
+      (format_types & kFormatUrlOmitHTTP) && (url_string == kHTTP) &&
+      (url.host().compare(0, arraysize(kFTP) - 1, kFTP) != 0);
+
   new_parsed->scheme = parsed.scheme;
 
-  if (omit_username_password) {
+  if ((format_types & kFormatUrlOmitUsernamePassword) != 0) {
     // Remove the username and password fields. We don't want to display those
     // to the user since they can be used for attacks,
     // e.g. "http://google.com:search@evil.ru/"
@@ -1433,14 +1523,12 @@ std::wstring FormatUrl(const GURL& url,
   } else {
     AppendFormattedComponent(spec, parsed.username, unescape_rules, &url_string,
                              &new_parsed->username, offset_for_adjustment);
-    if (parsed.password.is_valid()) {
+    if (parsed.password.is_valid())
       url_string.push_back(':');
-    }
     AppendFormattedComponent(spec, parsed.password, unescape_rules, &url_string,
                              &new_parsed->password, offset_for_adjustment);
-    if (parsed.username.is_valid() || parsed.password.is_valid()) {
+    if (parsed.username.is_valid() || parsed.password.is_valid())
       url_string.push_back('@');
-    }
   }
   if (prefix_end)
     *prefix_end = static_cast<size_t>(url_string.length());
@@ -1460,8 +1548,11 @@ std::wstring FormatUrl(const GURL& url,
   }
 
   // Path and query both get the same general unescape & convert treatment.
-  AppendFormattedComponent(spec, parsed.path, unescape_rules, &url_string,
-                           &new_parsed->path, offset_for_adjustment);
+  if (!(format_types & kFormatUrlOmitTrailingSlashOnBareHostname) ||
+      !CanStripTrailingSlash(url)) {
+    AppendFormattedComponent(spec, parsed.path, unescape_rules, &url_string,
+                             &new_parsed->path, offset_for_adjustment);
+  }
   if (parsed.query.is_valid())
     url_string.push_back('?');
   AppendFormattedComponent(spec, parsed.query, unescape_rules, &url_string,
@@ -1497,7 +1588,35 @@ std::wstring FormatUrl(const GURL& url,
     }
   }
 
+  // If we need to strip out http do it after the fact. This way we don't need
+  // to worry about how offset_for_adjustment is interpreted.
+  const size_t kHTTPSize = arraysize(kHTTP) - 1;
+  if (omit_http && !url_string.compare(0, kHTTPSize, kHTTP)) {
+    url_string = url_string.substr(kHTTPSize);
+    if (*offset_for_adjustment != std::wstring::npos) {
+      if (*offset_for_adjustment < kHTTPSize)
+        *offset_for_adjustment = std::wstring::npos;
+      else
+        *offset_for_adjustment -= kHTTPSize;
+    }
+    if (prefix_end)
+      *prefix_end -= kHTTPSize;
+
+    // Adjust new_parsed.
+    DCHECK(new_parsed->scheme.is_valid());
+    int delta = -(new_parsed->scheme.len + 3);  // +3 for ://.
+    new_parsed->scheme.reset();
+    AdjustComponents(delta, new_parsed);
+  }
+
   return url_string;
+}
+
+bool CanStripTrailingSlash(const GURL& url) {
+  // Omit the path only for standard, non-file URLs with nothing but "/" after
+  // the hostname.
+  return url.IsStandard() && !url.SchemeIsFile() && !url.has_query() &&
+      !url.has_ref() && url.path() == "/";
 }
 
 GURL SimplifyUrlForRequest(const GURL& url) {
@@ -1536,6 +1655,271 @@ void SetExplicitlyAllowedPorts(const std::wstring& allowed_ports) {
     }
   }
   explicitly_allowed_ports = ports;
+}
+
+enum IPv6SupportStatus {
+  IPV6_CANNOT_CREATE_SOCKETS,
+  IPV6_CAN_CREATE_SOCKETS,
+  IPV6_GETIFADDRS_FAILED,
+  IPV6_GLOBAL_ADDRESS_MISSING,
+  IPV6_GLOBAL_ADDRESS_PRESENT,
+  IPV6_INTERFACE_ARRAY_TOO_SHORT,
+  IPV6_SUPPORT_MAX  // Bounding values for enumeration.
+};
+
+static void IPv6SupportResults(IPv6SupportStatus result) {
+  static bool run_once = false;
+  if (!run_once) {
+    run_once = true;
+    UMA_HISTOGRAM_ENUMERATION("Net.IPv6Status", result, IPV6_SUPPORT_MAX);
+  } else {
+    UMA_HISTOGRAM_ENUMERATION("Net.IPv6Status_retest", result,
+                              IPV6_SUPPORT_MAX);
+  }
+}
+
+// TODO(jar): The following is a simple estimate of IPv6 support.  We may need
+// to do a test resolution, and a test connection, to REALLY verify support.
+// static
+bool IPv6Supported() {
+#if defined(OS_POSIX)
+  int test_socket = socket(AF_INET6, SOCK_STREAM, 0);
+  if (test_socket == -1) {
+    IPv6SupportResults(IPV6_CANNOT_CREATE_SOCKETS);
+    return false;
+  }
+  close(test_socket);
+
+  // Check to see if any interface has a IPv6 address.
+  struct ifaddrs* interface_addr = NULL;
+  int rv = getifaddrs(&interface_addr);
+  if (rv != 0) {
+     IPv6SupportResults(IPV6_GETIFADDRS_FAILED);
+     return true;  // Don't yet block IPv6.
+  }
+
+  bool found_ipv6 = false;
+  for (struct ifaddrs* interface = interface_addr;
+       interface != NULL;
+       interface = interface->ifa_next) {
+    if (!(IFF_UP & interface->ifa_flags))
+      continue;
+    if (IFF_LOOPBACK & interface->ifa_flags)
+      continue;
+    struct sockaddr* addr = interface->ifa_addr;
+    if (!addr)
+      continue;
+    if (addr->sa_family != AF_INET6)
+      continue;
+    // Safe cast since this is AF_INET6.
+    struct sockaddr_in6* addr_in6 =
+        reinterpret_cast<struct sockaddr_in6*>(addr);
+    struct in6_addr* sin6_addr = &addr_in6->sin6_addr;
+    if (IN6_IS_ADDR_LOOPBACK(sin6_addr) || IN6_IS_ADDR_LINKLOCAL(sin6_addr))
+      continue;
+    found_ipv6 = true;
+    break;
+  }
+  freeifaddrs(interface_addr);
+  if (!found_ipv6) {
+    IPv6SupportResults(IPV6_GLOBAL_ADDRESS_MISSING);
+    return false;
+  }
+
+  IPv6SupportResults(IPV6_GLOBAL_ADDRESS_PRESENT);
+  return true;
+#elif defined(OS_WIN)
+  EnsureWinsockInit();
+  SOCKET test_socket = socket(AF_INET6, SOCK_STREAM, 0);
+  if (test_socket == INVALID_SOCKET) {
+    IPv6SupportResults(IPV6_CANNOT_CREATE_SOCKETS);
+    return false;
+  }
+  closesocket(test_socket);
+
+  // TODO(jar): Bug 40851: The remainder of probe is not working.
+  IPv6SupportResults(IPV6_CAN_CREATE_SOCKETS);  // Record status.
+  return true;  // Don't disable IPv6 yet.
+
+  // Check to see if any interface has a IPv6 address.
+  // Note: The original IPv6 socket can't be used here, as WSAIoctl() will fail.
+  test_socket = socket(AF_INET, SOCK_STREAM, 0);
+  DCHECK(test_socket != INVALID_SOCKET);
+  INTERFACE_INFO interfaces[128];
+  DWORD bytes_written = 0;
+  int rv = WSAIoctl(test_socket, SIO_GET_INTERFACE_LIST, NULL, 0, interfaces,
+                    sizeof(interfaces), &bytes_written, NULL, NULL);
+  closesocket(test_socket);
+
+  if (0 != rv) {
+    if (WSAGetLastError() == WSAEFAULT)
+      IPv6SupportResults(IPV6_INTERFACE_ARRAY_TOO_SHORT);
+    else
+      IPv6SupportResults(IPV6_GETIFADDRS_FAILED);
+    return true;  // Don't yet block IPv6.
+  }
+  size_t interface_count = bytes_written / sizeof(interfaces[0]);
+  for (size_t i = 0; i < interface_count; ++i) {
+    INTERFACE_INFO* interface = &interfaces[i];
+    if (!(IFF_UP & interface->iiFlags))
+      continue;
+    if (IFF_LOOPBACK & interface->iiFlags)
+      continue;
+    sockaddr* addr = &interface->iiAddress.Address;
+    if (addr->sa_family != AF_INET6)
+      continue;
+    struct in6_addr* sin6_addr = &interface->iiAddress.AddressIn6.sin6_addr;
+    if (IN6_IS_ADDR_LOOPBACK(sin6_addr) || IN6_IS_ADDR_LINKLOCAL(sin6_addr))
+      continue;
+    IPv6SupportResults(IPV6_GLOBAL_ADDRESS_PRESENT);
+    return true;
+  }
+
+  IPv6SupportResults(IPV6_GLOBAL_ADDRESS_MISSING);
+  return false;
+#else
+  NOTIMPLEMENTED();
+  return true;
+#endif  // defined(various platforms)
+}
+
+bool ParseIPLiteralToNumber(const std::string& ip_literal,
+                            IPAddressNumber* ip_number) {
+  // |ip_literal| could be either a IPv4 or an IPv6 literal. If it contains
+  // a colon however, it must be an IPv6 address.
+  if (ip_literal.find(':') != std::string::npos) {
+    // GURL expects IPv6 hostnames to be surrounded with brackets.
+    std::string host_brackets = "[" + ip_literal + "]";
+    url_parse::Component host_comp(0, host_brackets.size());
+
+    // Try parsing the hostname as an IPv6 literal.
+    ip_number->resize(16);  // 128 bits.
+    return url_canon::IPv6AddressToNumber(host_brackets.data(),
+                                          host_comp,
+                                          &(*ip_number)[0]);
+  }
+
+  // Otherwise the string is an IPv4 address.
+  ip_number->resize(4);  // 32 bits.
+  url_parse::Component host_comp(0, ip_literal.size());
+  int num_components;
+  url_canon::CanonHostInfo::Family family = url_canon::IPv4AddressToNumber(
+      ip_literal.data(), host_comp, &(*ip_number)[0], &num_components);
+  return family == url_canon::CanonHostInfo::IPV4;
+}
+
+IPAddressNumber ConvertIPv4NumberToIPv6Number(
+    const IPAddressNumber& ipv4_number) {
+  DCHECK(ipv4_number.size() == 4);
+
+  // IPv4-mapped addresses are formed by:
+  // <80 bits of zeros>  + <16 bits of ones> + <32-bit IPv4 address>.
+  IPAddressNumber ipv6_number;
+  ipv6_number.reserve(16);
+  ipv6_number.insert(ipv6_number.end(), 10, 0);
+  ipv6_number.push_back(0xFF);
+  ipv6_number.push_back(0xFF);
+  ipv6_number.insert(ipv6_number.end(), ipv4_number.begin(), ipv4_number.end());
+  return ipv6_number;
+}
+
+bool ParseCIDRBlock(const std::string& cidr_literal,
+                    IPAddressNumber* ip_number,
+                    size_t* prefix_length_in_bits) {
+  // We expect CIDR notation to match one of these two templates:
+  //   <IPv4-literal> "/" <number of bits>
+  //   <IPv6-literal> "/" <number of bits>
+
+  std::vector<std::string> parts;
+  SplitString(cidr_literal, '/', &parts);
+  if (parts.size() != 2)
+    return false;
+
+  // Parse the IP address.
+  if (!ParseIPLiteralToNumber(parts[0], ip_number))
+    return false;
+
+  // Parse the prefix length.
+  int number_of_bits = -1;
+  if (!StringToInt(parts[1], &number_of_bits))
+    return false;
+
+  // Make sure the prefix length is in a valid range.
+  if (number_of_bits < 0 ||
+      number_of_bits > static_cast<int>(ip_number->size() * 8))
+    return false;
+
+  *prefix_length_in_bits = static_cast<size_t>(number_of_bits);
+  return true;
+}
+
+bool IPNumberMatchesPrefix(const IPAddressNumber& ip_number,
+                           const IPAddressNumber& ip_prefix,
+                           size_t prefix_length_in_bits) {
+  // Both the input IP address and the prefix IP address should be
+  // either IPv4 or IPv6.
+  DCHECK(ip_number.size() == 4 || ip_number.size() == 16);
+  DCHECK(ip_prefix.size() == 4 || ip_prefix.size() == 16);
+
+  DCHECK_LE(prefix_length_in_bits, ip_prefix.size() * 8);
+
+  // In case we have an IPv6 / IPv4 mismatch, convert the IPv4 addresses to
+  // IPv6 addresses in order to do the comparison.
+  if (ip_number.size() != ip_prefix.size()) {
+    if (ip_number.size() == 4) {
+      return IPNumberMatchesPrefix(ConvertIPv4NumberToIPv6Number(ip_number),
+                                   ip_prefix, prefix_length_in_bits);
+    }
+    return IPNumberMatchesPrefix(ip_number,
+                                 ConvertIPv4NumberToIPv6Number(ip_prefix),
+                                 96 + prefix_length_in_bits);
+  }
+
+  // Otherwise we are comparing two IPv4 addresses, or two IPv6 addresses.
+  // Compare all the bytes that fall entirely within the prefix.
+  int num_entire_bytes_in_prefix = prefix_length_in_bits / 8;
+  for (int i = 0; i < num_entire_bytes_in_prefix; ++i) {
+    if (ip_number[i] != ip_prefix[i])
+      return false;
+  }
+
+  // In case the prefix was not a multiple of 8, there will be 1 byte
+  // which is only partially masked.
+  int remaining_bits = prefix_length_in_bits % 8;
+  if (remaining_bits != 0) {
+    unsigned char mask = 0xFF << (8 - remaining_bits);
+    int i = num_entire_bytes_in_prefix;
+    if ((ip_number[i] & mask) != (ip_prefix[i] & mask))
+      return false;
+  }
+
+  return true;
+}
+
+// Returns the port field of the sockaddr in |info|.
+uint16* GetPortFieldFromAddrinfo(const struct addrinfo* info) {
+  DCHECK(info);
+  if (info->ai_family == AF_INET) {
+    DCHECK_EQ(sizeof(sockaddr_in), info->ai_addrlen);
+    struct sockaddr_in* sockaddr =
+        reinterpret_cast<struct sockaddr_in*>(info->ai_addr);
+    return &sockaddr->sin_port;
+  } else if (info->ai_family == AF_INET6) {
+    DCHECK_EQ(sizeof(sockaddr_in6), info->ai_addrlen);
+    struct sockaddr_in6* sockaddr =
+        reinterpret_cast<struct sockaddr_in6*>(info->ai_addr);
+    return &sockaddr->sin6_port;
+  } else {
+    NOTREACHED();
+    return NULL;
+  }
+}
+
+int GetPortFromAddrinfo(const struct addrinfo* info) {
+  uint16* port_field = GetPortFieldFromAddrinfo(info);
+  if (!port_field)
+    return -1;
+  return ntohs(*port_field);
 }
 
 }  // namespace net

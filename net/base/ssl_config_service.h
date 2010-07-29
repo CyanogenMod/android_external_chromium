@@ -18,8 +18,8 @@ struct SSLConfig {
   // Default to SSL 2.0 off, SSL 3.0 on, and TLS 1.0 on.
   SSLConfig()
       : rev_checking_enabled(true),  ssl2_enabled(false), ssl3_enabled(true),
-        tls1_enabled(true), send_client_cert(false), verify_ev_cert(false),
-        next_protos("\007http1.1") {
+        tls1_enabled(true), ssl3_fallback(false), send_client_cert(false),
+        verify_ev_cert(false) {
   }
 
   bool rev_checking_enabled;  // True if server certificate revocation
@@ -27,6 +27,8 @@ struct SSLConfig {
   bool ssl2_enabled;  // True if SSL 2.0 is enabled.
   bool ssl3_enabled;  // True if SSL 3.0 is enabled.
   bool tls1_enabled;  // True if TLS 1.0 is enabled.
+  bool ssl3_fallback;  // True if we are falling back to SSL 3.0 (one still
+                       // needs to clear tls1_enabled).
 
   // TODO(wtc): move the following members to a new SSLParams structure.  They
   // are not SSL configuration settings.
@@ -84,6 +86,14 @@ class SSLConfigService : public base::RefCountedThreadSafe<SSLConfigService> {
 
   // May not be thread-safe, should only be called on the IO thread.
   virtual void GetSSLConfig(SSLConfig* config) = 0;
+
+  // Returns true if the given hostname is known to be 'strict'. This means
+  // that we will require the renegotiation extension and will always use TLS
+  // (no SSLv3 fallback).
+  //
+  // If you wish to add an element to this list, file a bug at
+  // http://crbug.com and email the link to agl AT chromium DOT org.
+  static bool IsKnownStrictTLSServer(const std::string& hostname);
 
  protected:
   friend class base::RefCountedThreadSafe<SSLConfigService>;

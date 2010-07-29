@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,13 +16,15 @@
 #include "base/scoped_ptr.h"
 #include "net/base/cert_verify_result.h"
 #include "net/base/completion_callback.h"
+#include "net/base/net_log.h"
 #include "net/base/ssl_config_service.h"
 #include "net/socket/ssl_client_socket.h"
 
 namespace net {
 
 class CertVerifier;
-class LoadLog;
+class ClientSocketHandle;
+class BoundNetLog;
 
 // An SSL client socket implemented with the Windows Schannel.
 class SSLClientSocketWin : public SSLClientSocket {
@@ -31,7 +33,7 @@ class SSLClientSocketWin : public SSLClientSocket {
   // The given hostname will be compared with the name(s) in the server's
   // certificate during the SSL handshake.  ssl_config specifies the SSL
   // settings.
-  SSLClientSocketWin(ClientSocket* transport_socket,
+  SSLClientSocketWin(ClientSocketHandle* transport_socket,
                      const std::string& hostname,
                      const SSLConfig& ssl_config);
   ~SSLClientSocketWin();
@@ -42,11 +44,12 @@ class SSLClientSocketWin : public SSLClientSocket {
   virtual NextProtoStatus GetNextProto(std::string* proto);
 
   // ClientSocket methods:
-  virtual int Connect(CompletionCallback* callback, LoadLog* load_log);
+  virtual int Connect(CompletionCallback* callback);
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
-  virtual int GetPeerName(struct sockaddr* name, socklen_t* namelen);
+  virtual int GetPeerAddress(AddressList* address) const;
+  virtual const BoundNetLog& NetLog() const { return net_log_; }
 
   // Socket methods:
   virtual int Read(IOBuffer* buf, int buf_len, CompletionCallback* callback);
@@ -86,7 +89,7 @@ class SSLClientSocketWin : public SSLClientSocket {
   int DidCallInitializeSecurityContext();
   int DidCompleteHandshake();
   void DidCompleteRenegotiation();
-  void LogConnectionTypeMetrics(bool success) const;
+  void LogConnectionTypeMetrics() const;
   void FreeSendBuffer();
 
   // Internal callbacks as async operations complete.
@@ -94,7 +97,7 @@ class SSLClientSocketWin : public SSLClientSocket {
   CompletionCallbackImpl<SSLClientSocketWin> read_callback_;
   CompletionCallbackImpl<SSLClientSocketWin> write_callback_;
 
-  scoped_ptr<ClientSocket> transport_;
+  scoped_ptr<ClientSocketHandle> transport_;
   std::string hostname_;
   SSLConfig ssl_config_;
 
@@ -164,8 +167,6 @@ class SSLClientSocketWin : public SSLClientSocket {
   // state.
   bool writing_first_token_;
 
-  bool completed_handshake_;
-
   // Only used in the STATE_HANDSHAKE_READ_COMPLETE and
   // STATE_PAYLOAD_READ_COMPLETE states.  True if a 'result' argument of OK
   // should be ignored, to prevent it from being interpreted as EOF.
@@ -183,7 +184,7 @@ class SSLClientSocketWin : public SSLClientSocket {
   // True when the decrypter needs more data in order to decrypt.
   bool need_more_data_;
 
-  scoped_refptr<LoadLog> load_log_;
+  BoundNetLog net_log_;
 };
 
 }  // namespace net

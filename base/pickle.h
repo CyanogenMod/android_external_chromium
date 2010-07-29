@@ -8,9 +8,9 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/gtest_prod_util.h"
 #include "base/logging.h"
 #include "base/string16.h"
-#include "testing/gtest/include/gtest/gtest_prod.h"
 
 // This class provides facilities for basic binary value packing and unpacking.
 //
@@ -71,7 +71,6 @@ class Pickle {
   bool ReadUInt32(void** iter, uint32* result) const;
   bool ReadInt64(void** iter, int64* result) const;
   bool ReadUInt64(void** iter, uint64* result) const;
-  bool ReadIntPtr(void** iter, intptr_t* result) const;
   bool ReadString(void** iter, std::string* result) const;
   bool ReadWString(void** iter, std::wstring* result) const;
   bool ReadString16(void** iter, string16* result) const;
@@ -105,9 +104,6 @@ class Pickle {
     return WriteBytes(&value, sizeof(value));
   }
   bool WriteUInt64(uint64 value) {
-    return WriteBytes(&value, sizeof(value));
-  }
-  bool WriteIntPtr(intptr_t value) {
     return WriteBytes(&value, sizeof(value));
   }
   bool WriteString(const std::string& value);
@@ -235,9 +231,9 @@ class Pickle {
   size_t capacity_;
   size_t variable_buffer_offset_;  // IF non-zero, then offset to a buffer.
 
-  FRIEND_TEST(PickleTest, Resize);
-  FRIEND_TEST(PickleTest, FindNext);
-  FRIEND_TEST(PickleTest, IteratorHasRoom);
+  FRIEND_TEST_ALL_PREFIXES(PickleTest, Resize);
+  FRIEND_TEST_ALL_PREFIXES(PickleTest, FindNext);
+  FRIEND_TEST_ALL_PREFIXES(PickleTest, IteratorHasRoom);
 };
 
 #endif  // BASE_PICKLE_H__

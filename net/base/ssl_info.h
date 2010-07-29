@@ -16,12 +16,13 @@ namespace net {
 // This is really a struct.  All members are public.
 class SSLInfo {
  public:
-  SSLInfo() : cert_status(0), security_bits(-1) { }
+  SSLInfo() : cert_status(0), security_bits(-1), connection_status(0) { }
 
   void Reset() {
     cert = NULL;
-    security_bits = -1;
     cert_status = 0;
+    security_bits = -1;
+    connection_status = 0;
   }
 
   bool is_valid() const { return cert != NULL; }
@@ -43,6 +44,12 @@ class SSLInfo {
   // 0 means the connection is not encrypted.
   // -1 means the security strength is unknown.
   int security_bits;
+
+  // Information about the SSL connection itself. See
+  // ssl_connection_status_flags.h for values. The ciphersuite and compression
+  // in use are encoded within.
+  // TODO(agl): also encode the protocol version used.
+  int connection_status;
 };
 
 }  // namespace net

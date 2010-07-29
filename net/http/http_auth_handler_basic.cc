@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,8 @@
 
 #include "base/base64.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
+#include "net/base/net_errors.h"
 #include "net/http/http_auth.h"
 
 namespace net {
@@ -20,38 +22,63 @@ namespace net {
 //
 // We allow it to be compatibility with certain embedded webservers that don't
 // include a realm (see http://crbug.com/20984.)
-bool HttpAuthHandlerBasic::Init(std::string::const_iterator challenge_begin,
-                                std::string::const_iterator challenge_end) {
+bool HttpAuthHandlerBasic::Init(HttpAuth::ChallengeTokenizer* challenge) {
   scheme_ = "basic";
   score_ = 1;
   properties_ = 0;
 
   // Verify the challenge's auth-scheme.
-  HttpAuth::ChallengeTokenizer challenge_tok(challenge_begin, challenge_end);
-  if (!challenge_tok.valid() ||
-      !LowerCaseEqualsASCII(challenge_tok.scheme(), "basic"))
+  if (!challenge->valid() ||
+      !LowerCaseEqualsASCII(challenge->scheme(), "basic"))
     return false;
 
   // Extract the realm (may be missing).
-  while (challenge_tok.GetNext()) {
-    if (LowerCaseEqualsASCII(challenge_tok.name(), "realm"))
-      realm_ = challenge_tok.unquoted_value();
+  while (challenge->GetNext()) {
+    if (LowerCaseEqualsASCII(challenge->name(), "realm"))
+      realm_ = challenge->unquoted_value();
   }
 
-  return challenge_tok.valid();
+  return challenge->valid();
 }
 
-std::string HttpAuthHandlerBasic::GenerateCredentials(
-    const std::wstring& username,
-    const std::wstring& password,
+int HttpAuthHandlerBasic::GenerateAuthTokenImpl(
+    const std::wstring* username,
+    const std::wstring* password,
     const HttpRequestInfo*,
-    const ProxyInfo*) {
+    CompletionCallback*,
+    std::string* auth_token) {
   // TODO(eroman): is this the right encoding of username/password?
   std::string base64_username_password;
-  if (!base::Base64Encode(WideToUTF8(username) + ":" + WideToUTF8(password),
-                          &base64_username_password))
-    return std::string();  // FAIL
-  return std::string("Basic ") + base64_username_password;
+  if (!base::Base64Encode(WideToUTF8(*username) + ":" + WideToUTF8(*password),
+                          &base64_username_password)) {
+    LOG(ERROR) << "Unexpected problem Base64 encoding.";
+    return ERR_UNEXPECTED;
+  }
+  *auth_token = "Basic " + base64_username_password;
+  return OK;
+}
+
+HttpAuthHandlerBasic::Factory::Factory() {
+}
+
+HttpAuthHandlerBasic::Factory::~Factory() {
+}
+
+int HttpAuthHandlerBasic::Factory::CreateAuthHandler(
+    HttpAuth::ChallengeTokenizer* challenge,
+    HttpAuth::Target target,
+    const GURL& origin,
+    CreateReason reason,
+    int digest_nonce_count,
+    const BoundNetLog& net_log,
+    scoped_ptr<HttpAuthHandler>* handler) {
+  // TODO(cbentzel): Move towards model of parsing in the factory
+  //                 method and only constructing when valid.
+  scoped_ptr<HttpAuthHandler> tmp_handler(new HttpAuthHandlerBasic());
+  if (!tmp_handler->InitFromChallenge(challenge, target, origin, net_log))
+    return ERR_INVALID_RESPONSE;
+  handler->swap(tmp_handler);
+  return OK;
 }
 
 }  // namespace net

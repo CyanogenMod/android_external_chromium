@@ -1,12 +1,13 @@
-// Copyright (c) 2008 The Chromium Authors. All rights reserved.  Use of this
-// source code is governed by a BSD-style license that can be found in the
-// LICENSE file.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #include "net/base/file_stream.h"
 
 #include <windows.h>
 
 #include "base/file_path.h"
+#include "base/histogram.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "net/base/net_errors.h"
@@ -74,14 +75,15 @@ class FileStream::AsyncContext : public MessageLoopForIO::IOHandler {
 FileStream::AsyncContext::~AsyncContext() {
   is_closing_ = true;
   bool waited = false;
-  base::Time start = base::Time::Now();
+  base::TimeTicks start = base::TimeTicks::Now();
   while (callback_) {
     waited = true;
     MessageLoopForIO::current()->WaitForIOCompletion(INFINITE, this);
   }
   if (waited) {
     // We want to see if we block the message loop for too long.
-    UMA_HISTOGRAM_TIMES("AsyncIO.FileStreamClose", base::Time::Now() - start);
+    UMA_HISTOGRAM_TIMES("AsyncIO.FileStreamClose",
+                        base::TimeTicks::Now() - start);
   }
 }
 
@@ -117,12 +119,14 @@ void FileStream::AsyncContext::OnIOCompleted(
 
 FileStream::FileStream()
     : file_(INVALID_HANDLE_VALUE),
-      open_flags_(0) {
+      open_flags_(0),
+      auto_closed_(true) {
 }
 
 FileStream::FileStream(base::PlatformFile file, int flags)
     : file_(file),
-      open_flags_(flags) {
+      open_flags_(flags),
+      auto_closed_(false) {
   // If the file handle is opened with base::PLATFORM_FILE_ASYNC, we need to
   // make sure we will perform asynchronous File IO to it.
   if (flags & base::PLATFORM_FILE_ASYNC) {
@@ -133,7 +137,8 @@ FileStream::FileStream(base::PlatformFile file, int flags)
 }
 
 FileStream::~FileStream() {
-  Close();
+  if (auto_closed_)
+    Close();
 }
 
 void FileStream::Close() {
@@ -295,6 +300,21 @@ int FileStream::Write(
   } else {
     rv = static_cast<int>(bytes_written);
   }
+  return rv;
+}
+
+int FileStream::Flush() {
+  if (!IsOpen())
+    return ERR_UNEXPECTED;
+
+  DCHECK(open_flags_ & base::PLATFORM_FILE_WRITE);
+  if (FlushFileBuffers(file_)) {
+    return OK;
+  }
+
+  int rv;
+  DWORD error = GetLastError();
+  rv = MapErrorCode(error);
   return rv;
 }
 

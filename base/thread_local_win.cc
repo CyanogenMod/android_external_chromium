@@ -13,7 +13,7 @@ namespace base {
 // static
 void ThreadLocalPlatform::AllocateSlot(SlotType& slot) {
   slot = TlsAlloc();
-  CHECK(slot != TLS_OUT_OF_INDEXES);
+  CHECK_NE(slot, TLS_OUT_OF_INDEXES);
 }
 
 // static
@@ -31,7 +31,7 @@ void* ThreadLocalPlatform::GetValueFromSlot(SlotType& slot) {
 // static
 void ThreadLocalPlatform::SetValueInSlot(SlotType& slot, void* value) {
   if (!TlsSetValue(slot, value)) {
-    CHECK(false) << "Failed to TlsSetValue().";
+    LOG(FATAL) << "Failed to TlsSetValue().";
   }
 }
 

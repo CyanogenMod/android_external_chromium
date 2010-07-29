@@ -7,31 +7,35 @@
 #include "base/string_util.h"
 #include "base/platform_thread.h"
 #include "base/ref_counted.h"
-#include "googleurl/src/url_canon_ip.h"
 #include "net/base/net_errors.h"
+#include "net/base/net_util.h"
 
 namespace net {
 
 namespace {
-// Fills |addrlist| with a socket address for |host| which should be an
-// IPv6 literal. Returns OK on success.
-int ResolveIPV6LiteralUsingGURL(const std::string& host,
-                                AddressList* addrlist) {
-  // GURL expects the hostname to be surrounded with brackets.
-  std::string host_brackets = "[" + host + "]";
-  url_parse::Component host_comp(0, host_brackets.size());
 
-  // Try parsing the hostname as an IPv6 literal.
-  unsigned char ipv6_addr[16];  // 128 bits.
-  bool ok = url_canon::IPv6AddressToNumber(host_brackets.data(),
-                                           host_comp,
-                                           ipv6_addr);
-  if (!ok) {
-    LOG(WARNING) << "Not an IPv6 literal: " << host;
+// Fills |*addrlist| with a socket address for |host| which should be an
+// IPv4 or IPv6 literal without enclosing brackets. If |canonical_name| is
+// non-empty it is used as the DNS canonical name for the host. Returns OK on
+// success, ERR_UNEXPECTED otherwise.
+int CreateIPAddress(const std::string& host,
+                    const std::string& canonical_name,
+                    AddressList* addrlist) {
+  IPAddressNumber ip_number;
+  if (!ParseIPLiteralToNumber(host, &ip_number)) {
+    LOG(WARNING) << "Not a supported IP literal: " << host;
     return ERR_UNEXPECTED;
   }
 
-  *addrlist = AddressList::CreateIPv6Address(ipv6_addr);
+  if (ip_number.size() == 4) {
+    *addrlist = AddressList::CreateIPv4Address(&ip_number[0], canonical_name);
+  } else if (ip_number.size() == 16) {
+    *addrlist = AddressList::CreateIPv6Address(&ip_number[0], canonical_name);
+  } else {
+    NOTREACHED();
+    return ERR_UNEXPECTED;
+  }
+
   return OK;
 }
 
@@ -46,12 +50,12 @@ int MockHostResolverBase::Resolve(const RequestInfo& info,
                                   AddressList* addresses,
                                   CompletionCallback* callback,
                                   RequestHandle* out_req,
-                                  LoadLog* load_log) {
+                                  const BoundNetLog& net_log) {
   if (synchronous_mode_) {
     callback = NULL;
     out_req = NULL;
   }
-  return impl_->Resolve(info, addresses, callback, out_req, load_log);
+  return impl_->Resolve(info, addresses, callback, out_req, net_log);
 }
 
 void MockHostResolverBase::CancelRequest(RequestHandle req) {
@@ -64,10 +68,6 @@ void MockHostResolverBase::AddObserver(Observer* observer) {
 
 void MockHostResolverBase::RemoveObserver(Observer* observer) {
   impl_->RemoveObserver(observer);
-}
-
-void MockHostResolverBase::Shutdown() {
-  impl_->Shutdown();
 }
 
 void MockHostResolverBase::Reset(HostResolverProc* interceptor) {
@@ -98,7 +98,7 @@ void MockHostResolverBase::Reset(HostResolverProc* interceptor) {
         base::TimeDelta::FromSeconds(0));
   }
 
-  impl_ = new HostResolverImpl(proc, cache, NULL, 50u);
+  impl_ = new HostResolverImpl(proc, cache, 50u);
 }
 
 //-----------------------------------------------------------------------------
@@ -107,24 +107,30 @@ struct RuleBasedHostResolverProc::Rule {
   enum ResolverType {
     kResolverTypeFail,
     kResolverTypeSystem,
-    kResolverTypeIPV6Literal,
+    kResolverTypeIPLiteral,
   };
 
   ResolverType resolver_type;
   std::string host_pattern;
   AddressFamily address_family;
+  HostResolverFlags host_resolver_flags;
   std::string replacement;
+  std::string canonical_name;
   int latency_ms;  // In milliseconds.
 
   Rule(ResolverType resolver_type,
        const std::string& host_pattern,
        AddressFamily address_family,
+       HostResolverFlags host_resolver_flags,
        const std::string& replacement,
+       const std::string& canonical_name,
        int latency_ms)
       : resolver_type(resolver_type),
         host_pattern(host_pattern),
         address_family(address_family),
+        host_resolver_flags(host_resolver_flags),
         replacement(replacement),
+        canonical_name(canonical_name),
         latency_ms(latency_ms) {}
 };
 
@@ -147,14 +153,21 @@ void RuleBasedHostResolverProc::AddRuleForAddressFamily(
     const std::string& replacement) {
   DCHECK(!replacement.empty());
   Rule rule(Rule::kResolverTypeSystem, host_pattern,
-            address_family, replacement, 0);
+            address_family, 0, replacement, "", 0);
   rules_.push_back(rule);
 }
 
-void RuleBasedHostResolverProc::AddIPv6Rule(const std::string& host_pattern,
-                                            const std::string& ipv6_literal) {
-  Rule rule(Rule::kResolverTypeIPV6Literal, host_pattern,
-            ADDRESS_FAMILY_UNSPECIFIED, ipv6_literal, 0);
+void RuleBasedHostResolverProc::AddIPLiteralRule(
+    const std::string& host_pattern,
+    const std::string& ip_literal,
+    const std::string& canonical_name) {
+  Rule rule(Rule::kResolverTypeIPLiteral,
+            host_pattern,
+            ADDRESS_FAMILY_UNSPECIFIED,
+            canonical_name.empty() ? 0 : HOST_RESOLVER_CANONNAME,
+            ip_literal,
+            canonical_name,
+            0);
   rules_.push_back(rule);
 }
 
@@ -164,34 +177,42 @@ void RuleBasedHostResolverProc::AddRuleWithLatency(
     int latency_ms) {
   DCHECK(!replacement.empty());
   Rule rule(Rule::kResolverTypeSystem, host_pattern,
-            ADDRESS_FAMILY_UNSPECIFIED, replacement, latency_ms);
+            ADDRESS_FAMILY_UNSPECIFIED, 0, replacement, "", latency_ms);
   rules_.push_back(rule);
 }
 
 void RuleBasedHostResolverProc::AllowDirectLookup(
     const std::string& host_pattern) {
   Rule rule(Rule::kResolverTypeSystem, host_pattern,
-            ADDRESS_FAMILY_UNSPECIFIED, "", 0);
+            ADDRESS_FAMILY_UNSPECIFIED, 0, "", "", 0);
   rules_.push_back(rule);
 }
 
 void RuleBasedHostResolverProc::AddSimulatedFailure(
     const std::string& host_pattern) {
   Rule rule(Rule::kResolverTypeFail, host_pattern,
-            ADDRESS_FAMILY_UNSPECIFIED, "", 0);
+            ADDRESS_FAMILY_UNSPECIFIED, 0, "", "", 0);
   rules_.push_back(rule);
 }
 
 int RuleBasedHostResolverProc::Resolve(const std::string& host,
                                        AddressFamily address_family,
-                                       AddressList* addrlist) {
+                                       HostResolverFlags host_resolver_flags,
+                                       AddressList* addrlist,
+                                       int* os_error) {
   RuleList::iterator r;
   for (r = rules_.begin(); r != rules_.end(); ++r) {
     bool matches_address_family =
         r->address_family == ADDRESS_FAMILY_UNSPECIFIED ||
         r->address_family == address_family;
-
-    if (matches_address_family && MatchPatternASCII(host, r->host_pattern)) {
+    // Flags match if all of the bitflags in host_resolver_flags are enabled
+    // in the rule's host_resolver_flags. However, the rule may have additional
+    // flags specified, in which case the flags should still be considered a
+    // match.
+    bool matches_flags = (r->host_resolver_flags & host_resolver_flags) ==
+        host_resolver_flags;
+    if (matches_flags && matches_address_family &&
+        MatchPatternASCII(host, r->host_pattern)) {
       if (r->latency_ms != 0)
         PlatformThread::Sleep(r->latency_ms);
 
@@ -206,16 +227,18 @@ int RuleBasedHostResolverProc::Resolve(const std::string& host,
         case Rule::kResolverTypeSystem:
           return SystemHostResolverProc(effective_host,
                                         address_family,
-                                        addrlist);
-        case Rule::kResolverTypeIPV6Literal:
-          return ResolveIPV6LiteralUsingGURL(effective_host, addrlist);
+                                        host_resolver_flags,
+                                        addrlist, os_error);
+        case Rule::kResolverTypeIPLiteral:
+          return CreateIPAddress(effective_host, r->canonical_name, addrlist);
         default:
           NOTREACHED();
           return ERR_UNEXPECTED;
       }
     }
   }
-  return ResolveUsingPrevious(host, address_family, addrlist);
+  return ResolveUsingPrevious(host, address_family,
+                              host_resolver_flags, addrlist, os_error);
 }
 
 //-----------------------------------------------------------------------------
@@ -228,7 +251,7 @@ ScopedDefaultHostResolverProc::ScopedDefaultHostResolverProc(
 ScopedDefaultHostResolverProc::~ScopedDefaultHostResolverProc() {
   HostResolverProc* old_proc = HostResolverProc::SetDefault(previous_proc_);
   // The lifetimes of multiple instances must be nested.
-  CHECK(old_proc == current_proc_);
+  CHECK_EQ(old_proc, current_proc_);
 }
 
 void ScopedDefaultHostResolverProc::Init(HostResolverProc* proc) {

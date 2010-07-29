@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,31 +15,20 @@
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/nss_util.h"
+#include "net/base/net_errors.h"
+#include "net/base/x509_certificate.h"
 
 namespace net {
 
 CertDatabase::CertDatabase() {
-  Init();
+  base::EnsureNSSInit();
 }
 
-bool CertDatabase::AddUserCert(const char* data, int len) {
-  CERTCertificate* cert = NULL;
-  PK11SlotInfo* slot = NULL;
-  std::string nickname;
-  bool is_success = true;
-
-  // Make a copy of "data" since CERT_DecodeCertPackage
-  // might modify it.
-  char* data_copy = new char[len];
-  memcpy(data_copy, data, len);
-
-  // Parse into a certificate structure.
-  cert = CERT_DecodeCertFromPackage(data_copy, len);
-  delete [] data_copy;
-  if (!cert) {
-    LOG(ERROR) << "Couldn't create a temporary certificate";
-    return false;
-  }
+int CertDatabase::CheckUserCert(X509Certificate* cert_obj) {
+  if (!cert_obj)
+    return ERR_CERT_INVALID;
+  if (cert_obj->HasExpired())
+    return ERR_CERT_DATE_INVALID;
 
   // Check if the private key corresponding to the certificate exist
   // We shouldn't accept any random client certificate sent by a CA.
@@ -48,22 +37,25 @@ bool CertDatabase::AddUserCert(const char* data, int len) {
   // also imports the certificate if the private key exists. This
   // doesn't seem to be the case.
 
-  slot = PK11_KeyForCertExists(cert, NULL, NULL);
+  CERTCertificate* cert = cert_obj->os_cert_handle();
+  PK11SlotInfo* slot = PK11_KeyForCertExists(cert, NULL, NULL);
   if (!slot) {
     LOG(ERROR) << "No corresponding private key in store";
-    CERT_DestroyCertificate(cert);
-    return false;
+    return ERR_NO_PRIVATE_KEY_FOR_CERT;
   }
   PK11_FreeSlot(slot);
-  slot = NULL;
 
-  // TODO(gauravsh): We also need to make sure another certificate
-  // doesn't already exist for the same private key.
+  return OK;
+}
+
+int CertDatabase::AddUserCert(X509Certificate* cert_obj) {
+  CERTCertificate* cert = cert_obj->os_cert_handle();
+  PK11SlotInfo* slot = NULL;
+  std::string nickname;
 
   // Create a nickname for this certificate.
   // We use the scheme used by Firefox:
   // --> <subject's common name>'s <issuer's common name> ID.
-  //
 
   std::string username, ca_name;
   char* temp_username = CERT_GetCommonName(&cert->subject);
@@ -78,21 +70,19 @@ bool CertDatabase::AddUserCert(const char* data, int len) {
   }
   nickname = username + "'s " + ca_name + " ID";
 
-  slot = PK11_ImportCertForKey(cert,
-                               const_cast<char*>(nickname.c_str()),
-                               NULL);
-  if (slot) {
-    PK11_FreeSlot(slot);
-  } else {
-    LOG(ERROR) << "Couldn't import user certificate.";
-    is_success = false;
+  {
+    base::AutoNSSWriteLock lock;
+    slot = PK11_ImportCertForKey(cert,
+                                 const_cast<char*>(nickname.c_str()),
+                                 NULL);
   }
-  CERT_DestroyCertificate(cert);
-  return is_success;
-}
 
-void CertDatabase::Init() {
-  base::EnsureNSSInit();
+  if (!slot) {
+    LOG(ERROR) << "Couldn't import user certificate.";
+    return ERR_ADD_USER_CERT_FAILED;
+  }
+  PK11_FreeSlot(slot);
+  return OK;
 }
 
 }  // namespace net

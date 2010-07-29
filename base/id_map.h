@@ -82,7 +82,7 @@ class IDMap {
   }
 
   bool IsEmpty() const {
-    return data_.empty();
+    return size() == 0u;
   }
 
   T* Lookup(KeyType id) const {
@@ -93,7 +93,7 @@ class IDMap {
   }
 
   size_t size() const {
-    return data_.size();
+    return data_.size() - removed_ids_.size();
   }
 
   // It is safe to remove elements from the map during iteration. All iterators
@@ -101,7 +101,7 @@ class IDMap {
   template<class ReturnType>
   class Iterator {
    public:
-    Iterator(IDMap<T>* map)
+    Iterator(IDMap<T, OS>* map)
         : map_(map),
           iter_(map_->data_.begin()) {
       ++map_->iteration_depth_;
@@ -139,7 +139,7 @@ class IDMap {
       }
     }
 
-    IDMap<T>* map_;
+    IDMap<T, OS>* map_;
     typename HashTable::const_iterator iter_;
   };
 

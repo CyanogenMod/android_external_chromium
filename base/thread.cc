@@ -4,9 +4,9 @@
 
 #include "base/thread.h"
 
-#include "base/dynamic_annotations.h"
 #include "base/lazy_instance.h"
 #include "base/string_util.h"
+#include "base/third_party/dynamic_annotations/dynamic_annotations.h"
 #include "base/thread_local.h"
 #include "base/waitable_event.h"
 
@@ -35,7 +35,7 @@ struct Thread::StartupData {
         event(false, false) {}
 };
 
-Thread::Thread(const char *name)
+Thread::Thread(const char* name)
     : stopping_(false),
       startup_data_(NULL),
       thread_(0),
@@ -120,7 +120,10 @@ void Thread::Stop() {
 
 void Thread::StopSoon() {
   // We should only be called on the same thread that started us.
-  DCHECK_NE(thread_id_, PlatformThread::CurrentId());
+
+  // Reading thread_id_ without a lock can lead to a benign data race
+  // with ThreadMain, so we annotate it to stay silent under ThreadSanitizer.
+  DCHECK_NE(ANNOTATE_UNPROTECTED_READ(thread_id_), PlatformThread::CurrentId());
 
   if (stopping_ || !message_loop_)
     return;
@@ -134,34 +137,39 @@ void Thread::Run(MessageLoop* message_loop) {
 }
 
 void Thread::ThreadMain() {
-  // The message loop for this thread.
-  MessageLoop message_loop(startup_data_->options.message_loop_type);
+  {
+    // The message loop for this thread.
+    MessageLoop message_loop(startup_data_->options.message_loop_type);
 
-  // Complete the initialization of our Thread object.
-  thread_id_ = PlatformThread::CurrentId();
-  PlatformThread::SetName(name_.c_str());
-  ANNOTATE_THREAD_NAME(name_.c_str());  // Tell the name to race detector.
-  message_loop.set_thread_name(name_);
-  message_loop_ = &message_loop;
+    // Complete the initialization of our Thread object.
+    thread_id_ = PlatformThread::CurrentId();
+    PlatformThread::SetName(name_.c_str());
+    ANNOTATE_THREAD_NAME(name_.c_str());  // Tell the name to race detector.
+    message_loop.set_thread_name(name_);
+    message_loop_ = &message_loop;
+    message_loop_proxy_ = MessageLoopProxy::CreateForCurrentThread();
 
-  // Let the thread do extra initialization.
-  // Let's do this before signaling we are started.
-  Init();
+    // Let the thread do extra initialization.
+    // Let's do this before signaling we are started.
+    Init();
 
-  startup_data_->event.Signal();
-  // startup_data_ can't be touched anymore since the starting thread is now
-  // unlocked.
+    startup_data_->event.Signal();
+    // startup_data_ can't be touched anymore since the starting thread is now
+    // unlocked.
 
-  Run(message_loop_);
+    Run(message_loop_);
 
-  // Let the thread do extra cleanup.
-  CleanUp();
+    // Let the thread do extra cleanup.
+    CleanUp();
 
-  // Assert that MessageLoop::Quit was called by ThreadQuitTask.
-  DCHECK(GetThreadWasQuitProperly());
+    // Assert that MessageLoop::Quit was called by ThreadQuitTask.
+    DCHECK(GetThreadWasQuitProperly());
 
-  // We can't receive messages anymore.
-  message_loop_ = NULL;
+    // We can't receive messages anymore.
+    message_loop_ = NULL;
+    message_loop_proxy_ = NULL;
+  }
+  CleanUpAfterMessageLoopDestruction();
   thread_id_ = 0;
 }
 

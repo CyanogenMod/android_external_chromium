@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2006-2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -67,9 +67,9 @@ class MemEntryImpl : public Entry {
                              net::CompletionCallback* completion_callback);
   virtual int WriteSparseData(int64 offset, net::IOBuffer* buf, int buf_len,
                               net::CompletionCallback* completion_callback);
-  virtual int GetAvailableRange(int64 offset, int len, int64* start);
   virtual int GetAvailableRange(int64 offset, int len, int64* start,
                                 CompletionCallback* callback);
+  virtual bool CouldBeSparse() const;
   virtual void CancelSparseIO() {}
   virtual int ReadyForSparseIO(net::CompletionCallback* completion_callback);
 
@@ -111,6 +111,9 @@ class MemEntryImpl : public Entry {
   };
 
   ~MemEntryImpl();
+
+  // Old Entry interface.
+  int GetAvailableRange(int64 offset, int len, int64* start);
 
   // Grows and cleans up the data buffer.
   void PrepareTarget(int index, int offset, int buf_len);
@@ -159,7 +162,7 @@ class MemEntryImpl : public Entry {
   MemBackendImpl* backend_;   // Back pointer to the cache.
   bool doomed_;               // True if this entry was removed from the cache.
 
-  DISALLOW_EVIL_CONSTRUCTORS(MemEntryImpl);
+  DISALLOW_COPY_AND_ASSIGN(MemEntryImpl);
 };
 
 }  // namespace disk_cache
