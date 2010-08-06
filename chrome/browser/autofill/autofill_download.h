@@ -18,10 +18,18 @@
 #include "chrome/browser/autofill/form_structure.h"
 #include "chrome/common/net/url_fetcher.h"
 
+#ifdef ANDROID
+#include "android/autofill/url_fetcher_proxy.h"
+#endif
+
 class Profile;
 
 // Handles getting and updating AutoFill heuristics.
+#ifdef ANDROID
+class AutoFillDownloadManager : public URLFetcherProxy::Delegate {
+#else
 class AutoFillDownloadManager : public URLFetcher::Delegate {
+#endif
  public:
   enum AutoFillRequestType {
     REQUEST_QUERY,
@@ -108,7 +116,11 @@ class AutoFillDownloadManager : public URLFetcher::Delegate {
                     const FormRequestData& request_data);
 
   // URLFetcher::Delegate implementation:
+#ifdef ANDROID
+  virtual void OnURLFetchComplete(const URLFetcherProxy* source,
+#else
   virtual void OnURLFetchComplete(const URLFetcher* source,
+#endif
                                   const GURL& url,
                                   const URLRequestStatus& status,
                                   int response_code,
@@ -121,7 +133,11 @@ class AutoFillDownloadManager : public URLFetcher::Delegate {
   // For each requested form for both query and upload we create a separate
   // request and save its info. As url fetcher is identified by its address
   // we use a map between fetchers and info.
+#ifdef ANDROID
+  std::map<URLFetcherProxy*, FormRequestData> url_fetchers_;
+#else
   std::map<URLFetcher*, FormRequestData> url_fetchers_;
+#endif
   AutoFillDownloadManager::Observer *observer_;
 
   // Time when next query/upload requests are allowed. If 50x HTTP received,

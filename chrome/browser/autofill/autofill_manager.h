@@ -13,9 +13,13 @@
 #include "chrome/browser/autofill/autofill_dialog.h"
 #include "chrome/browser/autofill/autofill_download.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
+#ifndef ANDROID
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
+#endif
 
+#ifndef ANDROID
 class AutoFillCCInfoBarDelegate;
+#endif
 class AutoFillProfile;
 class CreditCard;
 class FormStructure;
@@ -32,8 +36,11 @@ extern const char* kAutoFillLearnMoreUrl;
 
 // Manages saving and restoring the user's personal information entered into web
 // forms.
-class AutoFillManager : public RenderViewHostDelegate::AutoFill,
-                        public AutoFillDownloadManager::Observer {
+class AutoFillManager :
+#ifndef ANDROID
+  public RenderViewHostDelegate::AutoFill,
+#endif
+  public AutoFillDownloadManager::Observer {
  public:
   explicit AutoFillManager(TabContents* tab_contents);
   virtual ~AutoFillManager();
@@ -176,8 +183,10 @@ class AutoFillManager : public RenderViewHostDelegate::AutoFill,
   // The form data the user has submitted.
   scoped_ptr<FormStructure> upload_form_structure_;
 
+#ifndef ANDROID
   // The InfoBar that asks for permission to store credit card information.
   scoped_ptr<AutoFillCCInfoBarDelegate> cc_infobar_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(AutoFillManager);
 };

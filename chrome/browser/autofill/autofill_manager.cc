@@ -9,17 +9,25 @@
 #include "base/basictypes.h"
 #include "base/string16.h"
 #include "chrome/browser/autofill/autofill_dialog.h"
+#ifndef ANDROID
 #include "chrome/browser/autofill/autofill_cc_infobar_delegate.h"
+#endif
 #include "chrome/browser/autofill/form_structure.h"
 #include "chrome/browser/pref_service.h"
 #include "chrome/browser/profile.h"
+#ifndef ANDROID
 #include "chrome/browser/renderer_host/render_view_host.h"
+#endif
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "webkit/glue/form_data.h"
+#ifdef ANDROID
+#include <WebCoreSupport/autofill/FormFieldAndroid.h>
+#else
 #include "webkit/glue/form_field.h"
+#endif
 
 using webkit_glue::FormData;
 using webkit_glue::FormField;
@@ -147,7 +155,13 @@ bool AutoFillManager::GetAutoFillSuggestions(int query_id,
   if (!IsAutoFillEnabled())
     return false;
 
+#ifdef ANDROID
+  // TODO: Refactor the Autofill methods for Chrome too so that
+  // they do not neet to get the render view host here
+  AutoFillHost* host = tab_contents_->autofill_host();
+#else
   RenderViewHost* host = tab_contents_->render_view_host();
+#endif
   if (!host)
     return false;
 
@@ -235,7 +249,11 @@ bool AutoFillManager::FillAutoFillFormData(int query_id,
   if (!IsAutoFillEnabled())
     return false;
 
+#ifdef ANDROID
+  AutoFillHost* host = tab_contents_->autofill_host();
+#else
   RenderViewHost* host = tab_contents_->render_view_host();
+#endif
   if (!host)
     return false;
 
@@ -352,9 +370,11 @@ bool AutoFillManager::FillAutoFillFormData(int query_id,
 }
 
 void AutoFillManager::ShowAutoFillDialog() {
+#ifndef ANDROID
   ::ShowAutoFillDialog(tab_contents_->GetContentNativeView(),
                        personal_data_,
                        tab_contents_->profile()->GetOriginalProfile());
+#endif
 }
 
 void AutoFillManager::Reset() {
@@ -382,6 +402,10 @@ void AutoFillManager::OnHeuristicsRequestError(
 }
 
 bool AutoFillManager::IsAutoFillEnabled() const {
+#ifdef ANDROID
+  // TODO: This should be a setting in the android UI.
+  return true;
+#endif
   PrefService* prefs = tab_contents_->profile()->GetPrefs();
 
   // Migrate obsolete AutoFill pref.
@@ -421,7 +445,9 @@ void AutoFillManager::HandleSubmit() {
   personal_data_->GetImportedFormData(&profile, &credit_card);
 
   if (credit_card) {
+#ifndef ANDROID
     cc_infobar_.reset(new AutoFillCCInfoBarDelegate(tab_contents_, this));
+#endif
   } else {
     UploadFormData();
   }

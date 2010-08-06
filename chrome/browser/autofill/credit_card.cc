@@ -4,13 +4,19 @@
 
 #include "chrome/browser/autofill/credit_card.h"
 
+#ifndef ANDROID
+// FIXME: Need l10n on Android?
 #include "app/l10n_util.h"
+#endif
+
 #include "base/basictypes.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/field_types.h"
+#ifndef ANDROID
 #include "grit/generated_resources.h"
+#endif
 
 static const string16 kCreditCardSeparators = ASCIIToUTF16(" -");
 static const char* kCreditCardObfuscationString = "************";
@@ -237,6 +243,13 @@ string16 CreditCard::ObfuscatedNumber() const {
 }
 
 string16 CreditCard::PreviewSummary() const {
+#ifdef ANDROID
+  // TODO: Hook up credit card support on Android.
+  // What is the Android UX for autofill previews?
+  // This has to be #if #else #endif as we can't
+  // compile the Chromium code that uses l10n functions.
+  return string16(ASCIIToUTF16("1234 5678 9123 4567"));
+#else
   string16 preview;
   if (number().empty())
     return preview;  // No CC number, means empty preview.
@@ -253,6 +266,7 @@ string16 CreditCard::PreviewSummary() const {
       obfuscated_cc_number,
       formatted_date);
   return preview;
+#endif
 }
 
 string16 CreditCard::LastFourDigits() const {

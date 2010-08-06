@@ -7,8 +7,13 @@
 #include <algorithm>
 #include <string>
 
+#ifndef ANDROID
+// FIXME: Do we need this on Android?
 #include "app/l10n_util.h"
+#endif
+#ifndef ANDROID
 #include "base/command_line.h"
+#endif
 #include "base/histogram.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
@@ -34,9 +39,13 @@
 #include "chrome/browser/extensions/extension_pref_store.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/json_pref_store.h"
+#ifndef ANDROID
+// Notifications do not compile on Android and are the cause
+// of most of the ANDROID guards in this file.
 #include "chrome/common/notification_service.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
+#endif
 
 namespace {
 
@@ -44,6 +53,7 @@ namespace {
 // the string value in the locale dll.  Because we control the values in a
 // locale dll, this should always return a Value of the appropriate type.
 Value* CreateLocaleDefaultValue(Value::ValueType type, int message_id) {
+#ifndef ANDROID
   std::wstring resource_string = l10n_util::GetString(message_id);
   DCHECK(!resource_string.empty());
   switch (type) {
@@ -77,6 +87,7 @@ Value* CreateLocaleDefaultValue(Value::ValueType type, int message_id) {
           "list and dictionary types can not have default locale values";
     }
   }
+#endif
   NOTREACHED();
   return Value::CreateNullValue();
 }
@@ -84,9 +95,11 @@ Value* CreateLocaleDefaultValue(Value::ValueType type, int message_id) {
 // Forwards a notification after a PostMessage so that we can wait for the
 // MessageLoop to run.
 void NotifyReadError(PrefService* pref, int message_id) {
+#ifndef ANDROID
   Source<PrefService> source(pref);
   NotificationService::current()->Notify(NotificationType::PROFILE_ERROR,
                                          source, Details<int>(&message_id));
+#endif
 }
 
 }  // namespace
@@ -98,11 +111,20 @@ PrefService* PrefService::CreatePrefService(const FilePath& pref_filename) {
   // memory leaks are fixed and any extension API is using it.
   // ExtensionPrefStore* extension_prefs = new ExtensionPrefStore(NULL);
   ExtensionPrefStore* extension_prefs = NULL;
+#ifdef ANDROID
+  CommandLinePrefStore* command_line_prefs = NULL;
+#else
   CommandLinePrefStore* command_line_prefs = new CommandLinePrefStore(
       CommandLine::ForCurrentProcess());
+#endif
+
+#ifdef ANDROID
+  PrefStore* local_prefs = NULL;
+#else
   PrefStore* local_prefs = new JsonPrefStore(
       pref_filename,
       ChromeThread::GetMessageLoopProxyForThread(ChromeThread::FILE));
+#endif
   PrefStore* recommended_prefs = NULL;
 
   ConfigurationPolicyProvider* managed_prefs_provider = NULL;
@@ -127,6 +149,10 @@ PrefService* PrefService::CreatePrefService(const FilePath& pref_filename) {
   }
 #endif
 
+#ifdef ANDROID
+  managed_prefs = NULL;
+  recommended_prefs = NULL;
+#else
   // The ConfigurationPolicyPrefStore takes ownership of the passed
   // |provider|.
   managed_prefs = new ConfigurationPolicyPrefStore(
@@ -135,6 +161,7 @@ PrefService* PrefService::CreatePrefService(const FilePath& pref_filename) {
   recommended_prefs = new ConfigurationPolicyPrefStore(
       CommandLine::ForCurrentProcess(),
       recommended_prefs_provider);
+#endif
 
   // The PrefValueStore takes ownership of the PrefStores.
   PrefValueStore* value_store = new PrefValueStore(
@@ -158,10 +185,14 @@ PrefService* PrefService::CreateUserPrefService(
       NULL, /* no enforced prefs */
       NULL, /* no extension prefs */
       NULL, /* no command-line prefs */
+#ifdef ANDROID
+      NULL, /* no user prefs */
+#else
       new JsonPrefStore(
           pref_filename,
           ChromeThread::GetMessageLoopProxyForThread(ChromeThread::FILE)),
           /* user prefs */
+#endif
       NULL /* no advised prefs */);
   return new PrefService(value_store);
 }
@@ -199,12 +230,13 @@ void PrefService::InitFromStorage() {
   // an example problem that this can cause.
   // Do some diagnosis and try to avoid losing data.
   int message_id = 0;
+#ifndef ANDROID
   if (error <= PrefStore::PREF_READ_ERROR_JSON_TYPE) {
     message_id = IDS_PREFERENCES_CORRUPT_ERROR;
   } else if (error != PrefStore::PREF_READ_ERROR_NO_FILE) {
     message_id = IDS_PREFERENCES_UNREADABLE_ERROR;
   }
-
+#endif
   if (message_id) {
     ChromeThread::PostTask(ChromeThread::UI, FROM_HERE,
         NewRunnableFunction(&NotifyReadError, this, message_id));
@@ -423,7 +455,7 @@ void PrefService::FireObserversIfChanged(const wchar_t* path,
 
 void PrefService::FireObservers(const wchar_t* path) {
   DCHECK(CalledOnValidThread());
-
+#ifndef ANDROID
   // Convert path to a std::wstring because the Details constructor requires a
   // class.
   std::wstring path_str(path);
@@ -438,6 +470,7 @@ void PrefService::FireObservers(const wchar_t* path) {
                       Source<PrefService>(this),
                       Details<std::wstring>(&path_str));
   }
+#endif
 }
 
 bool PrefService::PrefIsChanged(const wchar_t* path,
@@ -480,6 +513,7 @@ void PrefService::AddPrefObserver(const wchar_t* path,
                                   NotificationObserver* obs) {
   DCHECK(CalledOnValidThread());
 
+#ifndef ANDROID
   const Preference* pref = FindPreference(path);
   if (!pref) {
     NOTREACHED() << "Trying to add an observer for an unregistered pref: "
@@ -508,12 +542,14 @@ void PrefService::AddPrefObserver(const wchar_t* path,
 
   // Ok, safe to add the pref observer.
   observer_list->AddObserver(obs);
+#endif
 }
 
 void PrefService::RemovePrefObserver(const wchar_t* path,
                                      NotificationObserver* obs) {
   DCHECK(CalledOnValidThread());
 
+#ifndef ANDROID
   PrefObserverMap::iterator observer_iterator = pref_observers_.find(path);
   if (observer_iterator == pref_observers_.end()) {
     return;
@@ -521,6 +557,7 @@ void PrefService::RemovePrefObserver(const wchar_t* path,
 
   NotificationObserverList* observer_list = observer_iterator->second;
   observer_list->RemoveObserver(obs);
+#endif
 }
 
 void PrefService::RegisterPreference(Preference* pref) {

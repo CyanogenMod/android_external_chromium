@@ -5,6 +5,36 @@
 #ifndef CHROME_BROWSER_TAB_CONTENTS_TAB_CONTENTS_H_
 #define CHROME_BROWSER_TAB_CONTENTS_TAB_CONTENTS_H_
 
+#ifdef ANDROID
+#include "chrome/browser/profile.h"
+#include "chrome/browser/autofill/autofill_host.h"
+
+// Autofill does not need the entire TabContents class, just
+// access to the RenderViewHost and Profile. Later it would
+// be nice to create a small class that contains just this
+// data for AutoFill. Then Android won't care about this
+// file which as it stands does not compile for us.
+class RenderViewHost;
+
+class TabContents {
+public:
+  TabContents()
+    : profile_(ProfileImplAndroid::CreateProfile(FilePath()))
+    , autofill_host_(NULL)
+  {
+  }
+
+  Profile* profile() { return profile_; }
+  AutoFillHost* autofill_host() { return autofill_host_; }
+  void SetAutoFillHost(AutoFillHost* autofill_host) { autofill_host_ = autofill_host; }
+
+private:
+  Profile* profile_;
+  AutoFillHost* autofill_host_;
+};
+
+#else
+
 #include "build/build_config.h"
 
 #include <deque>
@@ -1276,5 +1306,7 @@ class TabContents : public PageNavigator,
 
   DISALLOW_COPY_AND_ASSIGN(TabContents);
 };
+
+#endif // !ANDROID
 
 #endif  // CHROME_BROWSER_TAB_CONTENTS_TAB_CONTENTS_H_

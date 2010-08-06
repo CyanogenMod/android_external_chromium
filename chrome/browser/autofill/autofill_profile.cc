@@ -10,7 +10,9 @@
 #include <set>
 #include <vector>
 
+#ifndef ANDROID
 #include "app/l10n_util.h"
+#endif
 #include "base/stl_util-inl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/address.h"
@@ -19,7 +21,9 @@
 #include "chrome/browser/autofill/fax_number.h"
 #include "chrome/browser/autofill/home_address.h"
 #include "chrome/browser/autofill/home_phone_number.h"
+#ifndef ANDROID
 #include "grit/generated_resources.h"
+#endif
 
 namespace {
 
@@ -162,6 +166,12 @@ FormGroup* AutoFillProfile::Clone() const {
 }
 
 string16 AutoFillProfile::PreviewSummary() const {
+#ifdef ANDROID
+  // TODO: What should the UX for AutoFill previews be? Should it be
+  // used at all? For now stub the method. We cannot compile the
+  // other side of the #else due to it's use of l10n functions.
+  return string16();
+#else
   // Fetch the components of the summary string.  Any or all of these
   // may be an empty string.
   string16 first_name = GetFieldText(AutoFillType(NAME_FIRST));
@@ -176,9 +186,11 @@ string16 AutoFillProfile::PreviewSummary() const {
   // Name separator defaults to "". Space if we have first and last name.
   string16 name_separator;
 
+
   if (have_first_name && have_last_name) {
     name_separator = l10n_util::GetStringUTF16(
         IDS_AUTOFILL_DIALOG_ADDRESS_NAME_SEPARATOR);
+
   }
 
   // E.g. "John Smith", or "John", or "Smith", or "".
@@ -203,6 +215,7 @@ string16 AutoFillProfile::PreviewSummary() const {
       address);
 
   return summary_format;
+#endif
 }
 
 // static
@@ -442,8 +455,13 @@ string16 AutoFillProfile::ConstructInferredLabel(
     const std::vector<AutoFillFieldType>* included_fields) const {
   DCHECK(included_fields);
   string16 label;
+#ifdef ANDROID
+  // TODO: Hook up l10n on Android.
+  string16 separator;
+#else
   string16 separator = l10n_util::GetStringUTF16(
                        IDS_AUTOFILL_DIALOG_ADDRESS_SUMMARY_SEPARATOR);
+#endif
   for (std::vector<AutoFillFieldType>::const_iterator it =
        included_fields->begin(); it != included_fields->end(); ++it) {
     string16 field = GetFieldText(AutoFillType(*it));
@@ -451,11 +469,15 @@ string16 AutoFillProfile::ConstructInferredLabel(
       if (!label.empty()) {
         label.append(separator);
       }
+#ifdef ANDROID
+      // TODO: Hook up l10n on Android.
+#else
       // Fax number has special format, to indicate that this is a fax number.
       if (*it == PHONE_FAX_WHOLE_NUMBER) {
         field = l10n_util::GetStringFUTF16(
             IDS_AUTOFILL_DIALOG_ADDRESS_SUMMARY_FAX_FORMAT, field);
       }
+#endif
       label.append(field);
     }
   }

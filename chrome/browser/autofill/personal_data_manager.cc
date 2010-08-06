@@ -96,6 +96,11 @@ void PersonalDataManager::RemoveObserver(
 bool PersonalDataManager::ImportFormData(
     const std::vector<FormStructure*>& form_structures,
     AutoFillManager* autofill_manager) {
+#ifdef ANDROID
+  // TODO: Is this the funcionality that tries to create a profile for the user
+  // based on what they've entered into forms?
+  return false;
+#else
   AutoLock lock(unique_ids_lock_);
   // Parse the form and construct a profile based on the information that is
   // possible to import.
@@ -195,6 +200,7 @@ bool PersonalDataManager::ImportFormData(
   }
 
   return true;
+#endif
 }
 
 void PersonalDataManager::GetImportedFormData(AutoFillProfile** profile,
@@ -225,10 +231,14 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
 
   SetUniqueProfileLabels(profiles);
 
+#ifndef ANDROID
   WebDataService* wds = profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
   if (!wds)
     return;
+#endif
 
+#ifndef ANDROID
+  // FIXME: AutoLock does not build on Android as of the initial checkin.
   AutoLock lock(unique_ids_lock_);
 
   // Remove the unique IDs of the new set of profiles from the unique ID set.
@@ -240,6 +250,8 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
 
   // Any remaining IDs are not in the new profile list and should be removed
   // from the web database.
+
+  // TODO: Need a web database service on Android
   for (std::set<int>::iterator iter = unique_profile_ids_.begin();
        iter != unique_profile_ids_.end(); ++iter) {
     wds->RemoveAutoFillProfile(*iter);
@@ -278,6 +290,7 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
       unique_profile_ids_.insert(iter->unique_id());
     }
   }
+#endif
 
   web_profiles_.reset();
   for (std::vector<AutoFillProfile>::iterator iter = profiles->begin();
@@ -309,6 +322,7 @@ void PersonalDataManager::SetCreditCards(
   if (!wds)
     return;
 
+#ifndef ANDROID
   AutoLock lock(unique_ids_lock_);
 
   // Remove the unique IDs of the new set of credit cards from the unique ID
@@ -323,6 +337,8 @@ void PersonalDataManager::SetCreditCards(
   // from the web database.
   for (std::set<int>::iterator iter = unique_creditcard_ids_.begin();
        iter != unique_creditcard_ids_.end(); ++iter) {
+    // TODO: Android needs some sort of WebDatabaseService backing store for sensitive data
+    // like credit cards.
     wds->RemoveCreditCard(*iter);
 
     // Also remove these IDs from the total set of unique IDs.
@@ -359,6 +375,7 @@ void PersonalDataManager::SetCreditCards(
       unique_creditcard_ids_.insert(iter->unique_id());
     }
   }
+#endif
 
   credit_cards_.reset();
   for (std::vector<CreditCard>::iterator iter = credit_cards->begin();
@@ -442,6 +459,10 @@ const std::vector<AutoFillProfile*>& PersonalDataManager::web_profiles() {
 
 AutoFillProfile* PersonalDataManager::CreateNewEmptyAutoFillProfileForDBThread(
     const string16& label) {
+#ifdef ANDROID
+  NOTREACHED();
+  return 0;
+#else
   // See comment in header for thread details.
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
   AutoLock lock(unique_ids_lock_);
@@ -450,6 +471,7 @@ AutoFillProfile* PersonalDataManager::CreateNewEmptyAutoFillProfileForDBThread(
   // Also update the unique profile IDs.
   unique_profile_ids_.insert(p->unique_id());
   return p;
+#endif
 }
 
 void PersonalDataManager::Refresh() {
@@ -473,15 +495,24 @@ void PersonalDataManager::Init(Profile* profile) {
 int PersonalDataManager::CreateNextUniqueID(std::set<int>* unique_ids) {
   // Profile IDs MUST start at 1 to allow 0 as an error value when reading
   // the ID from the WebDB (see LoadData()).
+#ifdef ANDROID
+  return 1;
+#else
   unique_ids_lock_.AssertAcquired();
   int id = 1;
   while (unique_ids->count(id) != 0)
     ++id;
   unique_ids->insert(id);
   return id;
+#endif
 }
 
 void PersonalDataManager::LoadProfiles() {
+#ifdef ANDROID
+  // This shoud request the profile(s) from java land on Android.
+  // Call to a java class that would read/write the data in a database.
+  // WebAutoFillClientAndroid will inject a profile while we're testing.
+#else
   WebDataService* web_data_service =
       profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
   if (!web_data_service) {
@@ -492,6 +523,7 @@ void PersonalDataManager::LoadProfiles() {
   CancelPendingQuery(&pending_profiles_query_);
 
   pending_profiles_query_ = web_data_service->GetAutoFillProfiles(this);
+#endif
 }
 
 // Win and Linux implementations do nothing.  Mac implementation fills in the
@@ -502,6 +534,8 @@ void PersonalDataManager::LoadAuxiliaryProfiles() {
 #endif
 
 void PersonalDataManager::LoadCreditCards() {
+#ifndef ANDROID
+  // Need a web database service on Android
   WebDataService* web_data_service =
       profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
   if (!web_data_service) {
@@ -512,6 +546,7 @@ void PersonalDataManager::LoadCreditCards() {
   CancelPendingQuery(&pending_creditcards_query_);
 
   pending_creditcards_query_ = web_data_service->GetCreditCards(this);
+#endif
 }
 
 void PersonalDataManager::ReceiveLoadedProfiles(WebDataService::Handle h,
@@ -519,6 +554,7 @@ void PersonalDataManager::ReceiveLoadedProfiles(WebDataService::Handle h,
   DCHECK_EQ(pending_profiles_query_, h);
   pending_profiles_query_ = 0;
 
+#ifndef ANDROID
   AutoLock lock(unique_ids_lock_);
   unique_profile_ids_.clear();
   web_profiles_.reset();
@@ -532,6 +568,7 @@ void PersonalDataManager::ReceiveLoadedProfiles(WebDataService::Handle h,
     unique_profile_ids_.insert((*iter)->unique_id());
     web_profiles_.push_back(*iter);
   }
+#endif
 }
 
 void PersonalDataManager::ReceiveLoadedCreditCards(
@@ -539,6 +576,7 @@ void PersonalDataManager::ReceiveLoadedCreditCards(
   DCHECK_EQ(pending_creditcards_query_, h);
   pending_creditcards_query_ = 0;
 
+#ifndef ANDROID
   AutoLock lock(unique_ids_lock_);
   unique_creditcard_ids_.clear();
   credit_cards_.reset();
@@ -552,9 +590,12 @@ void PersonalDataManager::ReceiveLoadedCreditCards(
     unique_creditcard_ids_.insert((*iter)->unique_id());
     credit_cards_.push_back(*iter);
   }
+#endif
 }
 
 void PersonalDataManager::CancelPendingQuery(WebDataService::Handle* handle) {
+#ifndef ANDROID
+  // TODO: We need to come up with a web data service class for Android
   if (*handle) {
     WebDataService* web_data_service =
         profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
@@ -565,6 +606,7 @@ void PersonalDataManager::CancelPendingQuery(WebDataService::Handle* handle) {
     web_data_service->CancelRequest(*handle);
   }
   *handle = 0;
+#endif
 }
 
 void PersonalDataManager::SetUniqueProfileLabels(
@@ -612,6 +654,10 @@ void PersonalDataManager::SetUniqueCreditCardLabels(
 }
 
 void PersonalDataManager::SaveImportedProfile() {
+#ifdef ANDROID
+  // TODO: This should update the profile in Java land.
+  return;
+#else
   if (profile_->IsOffTheRecord())
     return;
 
@@ -655,6 +701,7 @@ void PersonalDataManager::SaveImportedProfile() {
     profiles.push_back(*imported_profile_);
 
   SetProfiles(&profiles);
+#endif
 }
 
 // TODO(jhawkins): Refactor and merge this with SaveImportedProfile.

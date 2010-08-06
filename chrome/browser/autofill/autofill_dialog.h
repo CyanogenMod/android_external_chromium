@@ -9,7 +9,14 @@
 
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/credit_card.h"
+
+#ifdef ANDROID
+namespace gfx {
+typedef void* NativeView;
+}
+#else
 #include "gfx/native_widget_types.h"
+#endif
 
 class Profile;
 

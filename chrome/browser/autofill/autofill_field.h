@@ -9,7 +9,11 @@
 
 #include "base/string16.h"
 #include "chrome/browser/autofill/field_types.h"
+#ifdef ANDROID
+#include "WebCoreSupport/autofill/FormFieldAndroid.h"
+#else
 #include "webkit/glue/form_field.h"
+#endif
 
 class AutoFillField : public webkit_glue::FormField {
  public:

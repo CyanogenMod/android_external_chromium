@@ -104,11 +104,16 @@ bool PathProviderPosix(int key, FilePath* result) {
       return false;
     }
     case base::DIR_USER_CACHE:
+#ifdef ANDROID
+      NOTREACHED();
+      return false;
+#else
       scoped_ptr<base::EnvVarGetter> env(base::EnvVarGetter::Create());
       FilePath cache_dir(base::GetXDGDirectory(env.get(), "XDG_CACHE_HOME",
                                                ".cache"));
       *result = cache_dir;
       return true;
+#endif
   }
   return false;
 }

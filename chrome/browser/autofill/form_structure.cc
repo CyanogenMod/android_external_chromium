@@ -13,7 +13,11 @@
 #include "chrome/browser/autofill/field_types.h"
 #include "chrome/browser/autofill/form_field.h"
 #include "third_party/libjingle/source/talk/xmllite/xmlelement.h"
+#ifdef ANDROID
+#include <WebCoreSupport/autofill/FormFieldAndroid.h>
+#else
 #include "webkit/glue/form_field.h"
+#endif
 
 using webkit_glue::FormData;
 
@@ -37,7 +41,13 @@ const char* const kControlTypeSelect = "select-one";
 const char* const kControlTypeText = "text";
 
 // The number of fillable fields necessary for a form to be fillable.
+#ifdef ANDROID
+// Try and autofill more forms on Android, as filling out forms is
+// more frustrating on a mobile device.
+const size_t kRequiredFillableFields = 2;
+#else
 const size_t kRequiredFillableFields = 3;
+#endif
 
 static std::string Hash64Bit(const std::string& str) {
   std::string hash_bin = base::SHA1HashString(str);

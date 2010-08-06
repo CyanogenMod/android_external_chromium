@@ -156,6 +156,9 @@ class PersonalDataManager
   friend class PersonalDataManagerTest;
   friend class ProfileImpl;
   friend class ProfileSyncServiceAutofillTest;
+#ifdef ANDROID
+  friend class ProfileImplAndroid;
+#endif
 
   PersonalDataManager();
   ~PersonalDataManager();
@@ -218,7 +221,9 @@ class PersonalDataManager
   std::set<int> unique_creditcard_ids_;
 
   // Protects unique_*_ids_ members.
+#ifndef ANDROID
   Lock unique_ids_lock_;
+#endif
 
   // The loaded web profiles.
   ScopedVector<AutoFillProfile> web_profiles_;

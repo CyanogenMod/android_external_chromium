@@ -15,7 +15,11 @@
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#ifdef ANDROID
+#include <WebCoreSupport/autofill/FormFieldAndroid.h>
+#else
 #include "webkit/glue/form_field.h"
+#endif
 
 class AutofillChange;
 class AutoFillProfile;

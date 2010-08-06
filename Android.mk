@@ -8,6 +8,10 @@ LOCAL_CPP_EXTENSION := .cc
 
 LOCAL_ARM_MODE := arm
 
+LOCAL_MODULE := libchromium_net
+LOCAL_MODULE_CLASS := STATIC_LIBRARIES
+INTERMEDIATES := $(call local-intermediates-dir)
+
 LOCAL_SRC_FILES := \
 	googleurl/src/gurl.cc \
 	googleurl/src/url_canon_etc.cc \
@@ -276,18 +280,74 @@ LOCAL_SRC_FILES := \
     third_party/libevent/select.c \
     third_party/libevent/signal.c
 
+# AutoFill++ source files.
+LOCAL_SRC_FILES += \
+    android/autofill/android_url_request_context_getter.cc \
+    android/autofill/profile_android.cc \
+    \
+    base/base_paths.cc \
+    base/base_paths_posix.cc \
+    base/env_var.cc \
+    base/path_service.cc \
+    \
+    chrome/browser/autofill/address.cc \
+    chrome/browser/autofill/address_field.cc \
+    chrome/browser/autofill/autofill_download.cc \
+    chrome/browser/autofill/autofill_field.cc \
+    chrome/browser/autofill/autofill_manager.cc \
+    chrome/browser/autofill/autofill_profile.cc \
+    chrome/browser/autofill/autofill_type.cc \
+    chrome/browser/autofill/autofill_xml_parser.cc \
+    chrome/browser/autofill/contact_info.cc \
+    chrome/browser/autofill/credit_card.cc \
+    chrome/browser/autofill/credit_card_field.cc \
+    chrome/browser/autofill/fax_field.cc \
+    chrome/browser/autofill/form_structure.cc \
+    chrome/browser/autofill/form_field.cc \
+    chrome/browser/autofill/form_group.cc \
+    chrome/browser/autofill/name_field.cc \
+    chrome/browser/autofill/personal_data_manager.cc \
+    chrome/browser/autofill/phone_field.cc \
+    chrome/browser/autofill/phone_number.cc \
+    \
+    chrome/browser/config_dir_policy_provider.cc \
+    chrome/browser/configuration_policy_provider.cc \
+    chrome/browser/pref_service.cc \
+    chrome/browser/pref_value_store.cc \
+    \
+    chrome/common/json_value_serializer.cc \
+    chrome/common/pref_names.cc \
+    chrome/common/url_constants.cc \
+    \
+    chrome/common/net/url_fetcher.cc \
+    chrome/common/net/url_fetcher_protect.cc \
+    chrome/common/net/url_request_context_getter.cc \
+    \
+    third_party/libjingle/overrides/talk/xmllite/qname.cc \
+    third_party/libjingle/source/talk/xmllite/xmlbuilder.cc \
+    third_party/libjingle/source/talk/xmllite/xmlconstants.cc \
+    third_party/libjingle/source/talk/xmllite/xmlelement.cc \
+    third_party/libjingle/source/talk/xmllite/xmlnsstack.cc \
+    third_party/libjingle/source/talk/xmllite/xmlparser.cc \
+    third_party/libjingle/source/talk/xmllite/xmlprinter.cc
+
 # external/chromium/android is a directory to intercept stl headers that we do
 # not support yet.
 LOCAL_C_INCLUDES := \
     $(LOCAL_PATH)/android \
+    $(LOCAL_PATH)/chrome \
     $(LOCAL_PATH)/chrome/browser \
     $(LOCAL_PATH)/sdch/linux \
     $(LOCAL_PATH)/sdch/open-vcdiff/src \
     $(LOCAL_PATH)/third_party/libevent/compat \
+    external/expat \
     external/icu4c/common \
     external/icu4c/i18n \
     external/openssl/include \
+    external/skia \
     external/sqlite/dist \
+    external/webkit/WebKit/chromium \
+    external/webkit/WebKit/android \
     external/zlib \
     external \
     bionic \
@@ -295,14 +355,60 @@ LOCAL_C_INCLUDES := \
     $(LOCAL_PATH)/base/third_party/dmg_fp \
     $(LOCAL_PATH)/third_party/icu/public/common \
     $(LOCAL_PATH)/third_party/libevent/android \
-    $(LOCAL_PATH)/third_party/libevent
+    $(LOCAL_PATH)/third_party/libevent \
+    $(LOCAL_PATH)/third_party/libjingle/overrides \
+    $(LOCAL_PATH)/third_party/libjingle/source \
+    vendor/google/libraries/autofill
+
+# Chromium uses several third party libraries and headers that are already
+# present on Android, but in different include paths. Generate a set of
+# forwarding headers in the location that Chromium expects.
+
+THIRD_PARTY = $(INTERMEDIATES)/third_party
+SCRIPT := $(LOCAL_PATH)/android/generateAndroidForwardingHeader.pl
+CHECK_INTERNAL_HEADER_SCRIPT := $(LOCAL_PATH)/android/haveAutofillInternal.pl
+
+GEN := $(THIRD_PARTY)/expat/files/lib/expat.h
+$(GEN): $(SCRIPT)
+$(GEN):
+	perl $(SCRIPT) $@ "lib/expat.h"
+LOCAL_GENERATED_SOURCES += $(GEN)
+
+GEN := $(THIRD_PARTY)/skia/include/core/SkBitmap.h
+$(GEN): $(SCRIPT)
+$(GEN):
+	perl $(SCRIPT) $@ "include/core/SkBitmap.h"
+LOCAL_GENERATED_SOURCES += $(GEN)
+
+GEN := $(THIRD_PARTY)/WebKit/WebKit/chromium/public/WebFormControlElement.h
+$(GEN): $(SCRIPT)
+$(GEN):
+	perl $(SCRIPT) $@ "public/WebFormControlElement.h"
+LOCAL_GENERATED_SOURCES += $(GEN)
+
+GEN := $(THIRD_PARTY)/WebKit/WebKit/chromium/public/WebRegularExpression.h
+$(GEN): $(SCRIPT)
+$(GEN):
+	perl $(SCRIPT) $@ "public/WebRegularExpression.h"
+LOCAL_GENERATED_SOURCES += $(GEN)
+
+GEN := $(THIRD_PARTY)/WebKit/WebKit/chromium/public/WebString.h
+$(GEN): $(SCRIPT)
+$(GEN):
+	perl $(SCRIPT) $@ "public/WebString.h"
+LOCAL_GENERATED_SOURCES += $(GEN)
+
+GEN = $(INTERMEDIATES)/HaveAutofillInternal.h
+$(GEN): $(CHECK_INTERNAL_HEADER_SCRIPT)
+$(GEN):
+	perl $(CHECK_INTERNAL_HEADER_SCRIPT) $@
+LOCAL_GENERATED_SOURCES += $(GEN)
+
+LOCAL_SRC_FILES += $(LOCAL_GENERATED_SOURCES)
 
 include external/stlport/libstlport.mk
 
-# include a prefix header for missing headers or definitions.
-LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -include "android/prefix.h" -fvisibility=hidden
-
-LOCAL_MODULE := libchromium_net
+LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -include "android/prefix.h" -fvisibility=hidden -DEXPAT_RELATIVE_PATH
 
 include $(BUILD_STATIC_LIBRARY)
 endif

@@ -10,6 +10,10 @@ class SpellCheckHostObserver {
  public:
   // Invoked on the UI thread when SpellCheckHost is initialized.
   virtual void SpellCheckHostInitialized() = 0;
+#ifdef ANDROID
+  // TODO: Upstream
+  virtual ~SpellCheckHostObserver() { }
+#endif
 };
 
 #endif  // CHROME_BROWSER_SPELLCHECK_HOST_OBSERVER_H_

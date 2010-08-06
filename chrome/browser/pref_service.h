@@ -106,6 +106,10 @@ class PrefService : public NonThreadSafe {
   // preference values.
   explicit PrefService(PrefValueStore* pref_value_store);
 
+#ifdef ANDROID
+  // TODO: Upstream
+  virtual
+#endif
   ~PrefService();
 
   // Reloads the data from file. This should only be called when the importer
