@@ -1,3 +1,5 @@
+ifeq ($(TARGET_SIMULATOR),false)
+
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
@@ -303,3 +305,4 @@ LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -include "android/prefix.h" -fvisibili
 LOCAL_MODULE := libchromium_net
 
 include $(BUILD_STATIC_LIBRARY)
+endif
