@@ -704,7 +704,11 @@ void URLRequestHttpJob::AddExtraHeaders() {
         net::HttpRequestHeaders::kAcceptLanguage)) {
       request_info_.extra_headers.SetHeader(
           net::HttpRequestHeaders::kAcceptLanguage,
+#ifdef ANDROID
+          context->GetAcceptLanguage());
+#else
           context->accept_language());
+#endif
     }
     if (!request_info_.extra_headers.HasHeader(
         net::HttpRequestHeaders::kAcceptCharset)) {
