@@ -258,8 +258,16 @@ const LogSeverity LOG_DFATAL_LEVEL = LOG_FATAL;
   !(condition) ? (void) 0 : logging::LogMessageVoidify() & LOG(severity)
 #define SYSLOG_IF(severity, condition) LOG_IF(severity, condition)
 
+#ifdef ANDROID
+#ifndef LOG_ASSERT
 #define LOG_ASSERT(condition)  \
   LOG_IF(FATAL, !(condition)) << "Assert failed: " #condition ". "
+#endif // ifndef LOG_ASSERT
+#else
+#define LOG_ASSERT(condition)  \
+  LOG_IF(FATAL, !(condition)) << "Assert failed: " #condition ". "
+#endif // ANDROID
+
 #define SYSLOG_ASSERT(condition) \
   SYSLOG_IF(FATAL, !(condition)) << "Assert failed: " #condition ". "
 
