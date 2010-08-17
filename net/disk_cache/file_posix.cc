@@ -307,11 +307,7 @@ bool File::Write(const void* buffer, size_t buffer_len, size_t offset) {
   if (buffer_len > ULONG_MAX || offset > ULONG_MAX)
     return false;
 
-#ifdef ANDROID
-  int ret = pwrite(platform_file_, const_cast<void*>(buffer), buffer_len, offset);
-#else
   int ret = pwrite(platform_file_, buffer, buffer_len, offset);
-#endif
 
   return (static_cast<size_t>(ret) == buffer_len);
 }
