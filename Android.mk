@@ -1,4 +1,4 @@
-ifeq ($(TARGET_SIMULATOR),false)
+ifneq ($(TARGET_SIMULATOR),true)
 
 LOCAL_PATH := $(call my-dir)
 
