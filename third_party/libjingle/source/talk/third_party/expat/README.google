@@ -1,0 +1,14 @@
+URL:          http://sourceforge.net/projects/expat/
+License:      MIT
+License File: COPYING.txt
+
+Description:
+This is Expat XML parser - very lightweight C library for
+parsing XML, typically linked as a static lib.
+
+The typical usage of the library is to compile it in or compile it
+into a static lib and link in.
+
+Please refer to the specific version's README.google for more
+information on how to build/use etc.
+

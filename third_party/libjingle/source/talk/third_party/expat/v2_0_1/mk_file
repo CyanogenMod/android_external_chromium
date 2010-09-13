@@ -1,0 +1,16 @@
+t = NewTarget()
+t.OUTPUTS = ["expat.lib"]
+t.INPUTS = ["./Source/lib/xmlparse.c",
+            "./Source/lib/xmlrole.c",
+            "./Source/lib/xmltok.c",
+           ]
+t.INC_DIRS  += ["."]
+t.C_DEFINES += ["_LIB",
+                "XML_STATIC",
+                "COMPILED_FROM_DSP",
+               ]
+
+# No precompiled headers.
+t.PRECOMPILE_STOPFILE = ""
+t.PRECOMPILE_BUILDER  = ""
+DoBuild(t)

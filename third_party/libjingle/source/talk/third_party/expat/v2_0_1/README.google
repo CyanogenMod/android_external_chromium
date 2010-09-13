@@ -1,0 +1,39 @@
+URL:          http://downloads.sourceforge.net/expat/expat-win32bin-2.0.1.exe
+Version:      2.0.1
+License:      MIT
+License File: COPYING.txt
+
+Description:
+This is Expat XML parser - very lightweight C library for
+parsing XML, typically linked as a static lib.
+File tree is expanded from the win32-specific download of Expat from:
+  http://downloads.sourceforge.net/expat/expat-win32bin-2.0.1.exe
+Some directories are not checked in (bin, examples, tests)
+
+Local Modifications:
+The only modifications from the downloaded version is a patch to an
+internally discovered bug with the handling of utf-8 characters,
+that leads to a crash (CL 6144603 etc.), and a change has been made to
+winconfig.h to prevent a compiler warning when compiling with
+WIN32_LEAN_AND_MEAN defined.
+
+The typical usage of the library is to compile it in or compile it
+into a static lib and link in.
+
+The files you need to compile are:
+lib\xmlparse.c
+lib\xmltok.c
+lib\xmlrole.c
+
+Following compile-time #define variables can be used:
+XML_DTD     - if you need to parse DTDs and validate
+XML_UNICODE - if defined, all strings are 16-bit unicode, if not then UTF8.
+              defines XML_Char appropriately
+XML_UNICODE_WCHAR_T - if XML_UNICODE is defined, controls whether XML_Char
+                      is wchar_t or unsigned short
+COMPILED_FROM_DSP - if defined, automatically defines XML_UNICODE
+                    and includes windows headers
+XML_STATIC - should be defined to produce statically-linked DLL
+XML_MIN_SIZE - if defined, produces smaller but slower code
+
+

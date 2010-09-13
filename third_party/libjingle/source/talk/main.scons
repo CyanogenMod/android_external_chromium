@@ -1,0 +1,434 @@
+# -*- Python -*-
+# This is the main file of the hammer/scons build for magicflute.
+#
+# All the helper functions are defined in:
+#  - site_scons/talk.py
+# Use 'import talk' in any .scons file to get access to it.
+# Add any new helper functions to it; unittest are available
+# in talk_unittest.py.
+#
+# Each 'component' that is built is defined in a .scons file.
+# See talk.Components(...) for further info on file naming convention.
+#
+# To add a new platform clone and modify the root_env object. Remember to add
+# the new environment object to the envs list otherwise it will not be included
+# in the build.
+#
+#
+# For more documentation and information check:
+# https://sites.google.com/a/google.com/wavelet/Home/Magic-Flute--RTC-Engine-
+#
+import talk
+import os
+
+#-------------------------------------------------------------------------------
+# The build files/directories to 'build'.
+# If the name is the name of a directory then that directory shall contain a
+# .scons file with the same name as the directory itself:
+#  Ex: The directory magicflute contains a file called magicflute.scons
+#
+components = talk.Components("libjingle.scons")
+
+#-------------------------------------------------------------------------------
+# Build environments
+#
+
+# The list of build environments.
+envs = []
+
+# The root of all builds.
+root_env = Environment(
+  tools = [
+    'component_bits',
+    'component_setup',
+    'replace_strings',
+    'talk_noops',
+  ],
+  BUILD_SCONSCRIPTS = components,
+  DESTINATION_ROOT = '$MAIN_DIR/build',
+  CPPPATH = [
+    '$OBJ_ROOT',     # generated headers are relative to here
+    '$MAIN_DIR/..',  # TODO(dape): how can we use GOOGLECLIENT instead?
+    '$GOOGLE3',      # google3 headers are relative to here
+  ],
+  CPPDEFINES = [
+    # Temp flag while porting to hammer.
+    'HAMMER_TIME=1',
+    'LOGGING=1',
+
+    # Feature selection
+    'FEATURE_ENABLE_SSL',
+    'FEATURE_ENABLE_VOICEMAIL',
+    'FEATURE_ENABLE_PSTN',
+    'HAVE_GIPS',
+    'HAVE_LMI',
+  ]
+)
+
+#-------------------------------------------------------------------------------
+# W I N D O W S
+#
+win_env = root_env.Clone(
+  tools = [
+    'atlmfc_vc80',
+    'component_targets_msvs',
+    'directx_9_0_c',
+    #'grid_builder',
+    'midl',
+    'target_platform_windows',
+  ],
+  # Don't use default vc80 midl.exe.  It doesn't understand vista_sdk idl files.
+  MIDL = '$PLATFORM_SDK_VISTA_6_0_DIR/Bin/midl.exe ',
+  WIX_DIR = '$GOOGLECLIENT/third_party/wix/v3_0_2925/files',
+)
+
+win_env.Append(
+  COMPONENT_LIBRARY_PUBLISH = True,  # Put dlls in output dir too
+  CCFLAGS = [
+    '/nologo',
+    '/W3',          # level 3 warnings
+    '/WX',          # warnings are errors
+    '/Zc:forScope', # handle 'for (int i = 0 ...)' right
+    '/GS',          # enable stack smash protection
+    '/EHs-c-',      # disable C++ EH
+    '/GR-',         # disable RTTI
+    '/wd4996',      # ignore POSIX deprecated warnings
+
+    # promote certain level 4 warnings
+    '/w14701',     # potentially uninitialized var
+    '/w14702',     # unreachable code
+    '/w14706',     # assignment within a conditional
+    '/w14709',     # comma operator within array index
+    '/w14063',     # case 'identifier' is not a valid value for switch of enum
+    '/w14064',     # switch of incomplete enum 'enumeration'
+    '/w14057',     # 'identifier1' indirection to slightly different base
+                   #   types from 'identifier2'
+    '/w14263',     # member function does not override any base class virtual
+                   #   member function
+    '/w14266',     # no override available for virtual memberfunction from base
+                   #  'type'; function is hidden
+    '/w14296',     # expression is always false
+    '/w14355',     # 'this' : used in base member initializer list
+  ],
+  CPPDEFINES = [
+    '_ATL_CSTRING_EXPLICIT_CONSTRUCTORS',
+    # TODO(dape): encapsulate all string operations that are not based
+    # on std::string/std::wstring and make sure we use the safest versions
+    # available on all platforms.
+    '_CRT_SECURE_NO_WARNINGS',
+    '_SCL_SECURE_NO_WARNINGS',
+    '_USE_32BIT_TIME_T',
+    '_UNICODE',
+    'UNICODE',
+    '_HAS_EXCEPTIONS=0',
+    'WIN32',
+    # TODO(dape): remove this from logging.cc and enable here instead.
+    #'WIN32_LEAN_AND_MEAN',
+
+    'WINVER=0x0500',
+    '_WIN32_WINNT=0x0501',
+    '_WIN32_IE=0x0501',
+    # The Vista platform SDK 6.0 needs at least
+    # this NTDDI version or else the headers
+    # that LMI includes from it won't compile.
+    'NTDDI_VERSION=NTDDI_WINXP',
+  ],
+  CPPPATH = [
+    '$THIRD_PARTY/wtl_71/include',
+    '$PLATFORM_SDK_VISTA_6_0_DIR/Include',
+  ],
+  LIBPATH = [
+    '$PLATFORM_SDK_VISTA_6_0_DIR/Lib'
+  ],
+  LINKFLAGS = [
+    '-manifest' # TODO(thaloun): Why do we need this?
+  ],
+  MIDLFLAGS = [
+    '/win32',
+    '/I$PLATFORM_SDK_VISTA_6_0_DIR/include'
+  ]
+)
+
+# TODO(dape): Figure out what this does; found it in
+# omaha/main.scons. This fixes the problem with redefinition
+# of OS_WINDOWS symbol.
+win_env.FilterOut(CPPDEFINES = ['OS_WINDOWS=OS_WINDOWS'])
+
+win_dbg_env = win_env.Clone(
+  BUILD_TYPE = 'dbg',
+  BUILD_TYPE_DESCRIPTION = 'Windows debug build',
+  BUILD_GROUPS = ['default', 'all'],
+  tools = ['target_debug']
+)
+envs.append(win_dbg_env)
+
+win_opt_env = win_env.Clone(
+  BUILD_TYPE = 'opt',
+  BUILD_TYPE_DESCRIPTION = 'Windows opt build',
+  BUILD_GROUPS = ['all'],
+  tools = ['target_optimized']
+)
+envs.append(win_opt_env)
+
+
+#-------------------------------------------------------------------------------
+# P O S I X
+#
+posix_env = root_env.Clone()
+posix_env.Append(
+  CPPDEFINES = [
+    'HASHNAMESPACE=__gnu_cxx',
+    'HASH_NAMESPACE=__gnu_cxx',
+    'POSIX',
+    'DISABLE_DYNAMIC_CAST',
+    'HAVE_OPENSSL_SSL_H=1',
+  ],
+  CCFLAGS = [
+    '-m32',
+    '-Wall',
+    '-Werror',
+    '-Wno-switch',
+    '-fno-exceptions',
+  ],
+  CXXFLAGS = [
+    '-Wno-non-virtual-dtor',
+    '-Wno-ctor-dtor-privacy',
+    '-fno-rtti',
+  ],
+  LINKFLAGS = [
+    '-m32',
+  ],
+)
+
+#-------------------------------------------------------------------------------
+# M A C OSX
+#
+mac_env = posix_env.Clone(
+  tools = [
+    'target_platform_mac',
+    #'talk_mac',
+    #'fill_plist',
+  ],
+)
+mac_env.Append(
+  CPPDEFINES = [
+    'OSX',
+    'MAC_OS_X_VERSION_MIN_REQUIRED=1040',
+    'HAVE_SRTP',
+  ],
+  CCFLAGS = [
+    '-arch', 'i386',
+    '-isysroot', '/Developer/SDKs/MacOSX10.4u.sdk',
+    '-fasm-blocks',
+  ],
+  LINKFLAGS = [
+    '-Wl,-search_paths_first',
+    # This flag makes all members of a static library be included in the
+    # final exe - that increases the size of the exe, but without it
+    # Obj-C categories aren't properly included in the exe.
+    # TODO(thaloun): consider only defining for libs that actually have objc.
+    '-ObjC',
+    '-arch', 'i386',
+  ],
+  FRAMEWORKS = [
+    'CoreServices',
+    'Carbon',
+    'Security',
+    'SystemConfiguration',
+  ]
+)
+
+mac_dbg_env = mac_env.Clone(
+  BUILD_TYPE = 'dbg',
+  BUILD_TYPE_DESCRIPTION = 'Mac debug build',
+  BUILD_GROUPS = ['default', 'all'],
+  tools = ['target_debug']
+)
+mac_dbg_env.Append(
+  CPPDEFINES = [
+    'FLAVOR_DBG',
+    'ENABLE_DEBUG',
+  ],
+  CCFLAGS = [
+    '-O0',
+  ]
+)
+envs.append(mac_dbg_env)
+
+mac_opt_env = mac_env.Clone(
+  BUILD_TYPE = 'opt',
+  BUILD_TYPE_DESCRIPTION = 'Mac opt build',
+  BUILD_GROUPS = ['all'],
+  tools = ['target_optimized']
+)
+mac_opt_env.Append(
+  CCFLAGS = [
+    # TODO(thaloun): Figure out how mk can compile without
+    # this flag, then remove.  Confirmed asserts are preprocessed
+    # out.  Maybe it's a different version of gcc?
+    '-Wno-unused-variable',
+  ],
+)
+envs.append(mac_opt_env)
+
+#-------------------------------------------------------------------------------
+# L I N U X
+#
+linux_env = posix_env.Clone(
+  tools = ['target_platform_linux'],
+)
+
+linux_env.Append(
+  CPPDEFINES = [
+    'LINUX',
+    'HAVE_GLIB',
+    # TODO() Enable once we figure out multiple defines with gips lib
+    #'HAVE_SRTP',
+    # Also consider other linux flags:  64bit, no-strict-aliasing, wrap, etc
+  ],
+  LINKFLAGS = [
+    # TODO(tschmelcher) consider enabling gc-sections.  Perhaps only in opt.
+    #'-Wl,--gc-sections',
+    '-Wl,--start-group',
+  ],
+  _LIBFLAGS = ['-Wl,--end-group'],
+)
+
+linux_dbg_env = linux_env.Clone(
+  BUILD_TYPE = 'dbg',
+  BUILD_TYPE_DESCRIPTION = 'Linux debug build',
+  BUILD_GROUPS = ['default', 'all'],
+  tools = ['target_debug']
+)
+envs.append(linux_dbg_env)
+
+linux_opt_env = linux_env.Clone(
+  BUILD_TYPE = 'opt',
+  BUILD_TYPE_DESCRIPTION = 'Linux optimized build',
+  BUILD_GROUPS = ['all'],
+  tools = ['target_optimized']
+)
+envs.append(linux_opt_env)
+
+#-------------------------------------------------------------------------------
+# L I N U X -- C H R O M E -- O S
+#
+linux_chromeos_env = linux_env.Clone(
+  AR = os.environ.get("AR"),
+  AS = os.environ.get("AS"),
+  LD = os.environ.get("LD"),
+  NM = os.environ.get("NM"),
+  RANLIB = os.environ.get("RANLIB"),
+  CC = str(os.environ.get("CC")) +
+    ' --sysroot=' + str(os.environ.get("SYSROOT")),
+  CXX = str(os.environ.get("CXX")) +
+    ' --sysroot=' + str(os.environ.get("SYSROOT")),
+)
+
+linux_chromeos_env.Append(
+  CPPPATH = [
+    os.environ.get("CPPPATH"),
+  ],
+
+  LIBPATH = [
+    os.environ.get("LIBPATH"),
+  ],
+
+  CCFLAGS = [
+    os.environ.get("CCFLAGS"),
+  ],
+
+  CXXFLAGS = [
+    os.environ.get("CXXFLAGS"),
+  ],
+
+  RPATH = [
+    os.environ.get("RPATH"),
+  ],
+)
+
+DeclareBit('linux_chromeos', 'Chrome OS ebuild')
+linux_chromeos_env.SetBits('linux_chromeos')
+
+linux_chromeos_dbg_env = linux_chromeos_env.Clone(
+  BUILD_TYPE = 'chromeos-dbg',
+  BUILD_TYPE_DESCRIPTION = 'Chrome OS debug build',
+  BUILD_GROUPS = ['chromeos'],
+  tools = ['target_debug']
+)
+envs.append(linux_chromeos_dbg_env)
+
+linux_chromeos_opt_env = linux_chromeos_env.Clone(
+  BUILD_TYPE = 'chromeos-opt',
+  BUILD_TYPE_DESCRIPTION = 'Chrome OS optimized build',
+  BUILD_GROUPS = ['chromeos'],
+  tools = ['target_optimized']
+)
+envs.append(linux_chromeos_opt_env)
+
+
+# TODO(): Clone linux envs for 64bit.  See 'variant' documentation.
+
+# Parse child .scons files
+BuildEnvironments(envs)
+
+# Explicitly set which targets to build when not stated on commandline
+Default(None)
+# Build the following, which excludes unit test output (ie running them)
+# To run unittests, specify the test to run, or run_all_tests.  See -h option.
+Default(['all_libraries', 'all_programs', 'all_test_programs'])
+
+# .sln creation code lifted from googleclient/bar/main.scons.  Must be after
+# the call to BuildEnvironments for all_foo aliases to be defined.
+# Run 'hammer --mode=all --vsproj' to generate
+DeclareBit('vsproj', 'Generate Visual Studio projects and solution files.')
+win_env.SetBitFromOption('vsproj', False)
+
+if win_env.Bit('vsproj'):
+  vs_env = win_env.Clone()
+  vs_env.Append(
+    COMPONENT_VS_SOURCE_SUFFIXES = [
+      '.def',
+      '.grd',
+      '.html',
+      '.idl',
+      '.mk',
+      '.txt',
+      '.py',
+      '.scons',
+      '.wxs.template',
+    ]
+  )
+
+  # Source project
+  p = vs_env.ComponentVSDirProject(
+    'flute_source',
+    ['$MAIN_DIR', '$GOOGLE3', '$THIRD_PARTY'],
+    COMPONENT_VS_SOURCE_FOLDERS = [
+      # Files are assigned to first matching folder. Folder names of None
+      # are filters.
+      (None, '$DESTINATION_ROOT'),
+      ('flute', '$MAIN_DIR'),
+      ('google3', '$GOOGLE3'),
+      ('third_party', '$THIRD_PARTY'),
+    ],
+    # Force source project to main dir, so that Visual Studio can find the
+    # source files corresponding to build errors.
+    COMPONENT_VS_PROJECT_DIR = '$MAIN_DIR',
+  )
+  vs_env.AlwaysBuild(p)
+
+  # Solution and target projects
+  s = vs_env.ComponentVSSolution(
+    '../../flute',
+    ['all_libraries', 'all_programs', 'all_test_programs'],
+    projects = [p],
+  )
+
+  print '***Unfortunately the vsproj creator isn\'t smart enough to '
+  print '***automatically get the correct output locations.  It is very easy'
+  print '***though to change it in the properties pane to the following'
+  print '***($SolutionDir)/build/<foo>/staging/<bar>.exe'
+  Default(None)
+  Default([s])
+
