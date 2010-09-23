@@ -18,6 +18,10 @@
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 
+#ifdef ANDROID
+#include "android/autofill/url_fetcher_proxy.h"
+#endif
+
 static const int kBufferSize = 4096;
 
 bool URLFetcher::g_interception_enabled = false;
@@ -129,8 +133,13 @@ URLFetcher::~URLFetcher() {
 // static
 URLFetcher* URLFetcher::Create(int id, const GURL& url,
                                RequestType request_type, Delegate* d) {
+#ifdef ANDROID
+  // TODO: Upstream.
+  return new URLFetcherProxy(url, request_type, d);
+#else
   return factory_ ? factory_->CreateURLFetcher(id, url, request_type, d) :
                     new URLFetcher(url, request_type, d);
+#endif
 }
 
 URLFetcher::Core::Core(URLFetcher* fetcher,

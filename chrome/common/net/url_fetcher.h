@@ -74,9 +74,10 @@ class URLFetcher {
                                     const ResponseCookies& cookies,
                                     const std::string& data) = 0;
 #ifdef ANDROID
-  // TODO: Upstream.
-  virtual ~Delegate() { }
+    // TODO: Upstream.
+    virtual
 #endif
+    ~Delegate() { }
   };
 
   // URLFetcher::Create uses the currently registered Factory to create the
@@ -88,9 +89,10 @@ class URLFetcher {
                                          RequestType request_type,
                                          Delegate* d) = 0;
 #ifdef ANDROID
-  // TODO: Upstream
-  virtual ~Factory() { }
+    // TODO: Upstream
+    virtual
 #endif
+    ~Factory() { }
   };
 
   // |url| is the URL to send the request to.
@@ -125,6 +127,10 @@ class URLFetcher {
   // call this before the request is started.  |upload_content_type| is the MIME
   // type of the content, while |upload_content| is the data to be sent (the
   // Content-Length header value will be set to the length of this data).
+#ifdef ANDROID
+  // TODO: Upstream.
+  virtual
+#endif
   void set_upload_data(const std::string& upload_content_type,
                        const std::string& upload_content);
 
@@ -141,11 +147,19 @@ class URLFetcher {
 
   // Set the URLRequestContext on the request.  Must be called before the
   // request is started.
+#ifdef ANDROID
+  // TODO: Upstream.
+  virtual
+#endif
   void set_request_context(URLRequestContextGetter* request_context_getter);
 
   // If |retry| is false, 5xx responses will be propagated to the observer,
   // if it is true URLFetcher will automatically re-execute the request,
   // after backoff_delay() elapses. URLFetcher has it set to true by default.
+#ifdef ANDROID
+  // TODO: Upstream.
+  virtual
+#endif
   void set_automatcally_retry_on_5xx(bool retry);
 
   // Returns the back-off delay before the request will be retried,

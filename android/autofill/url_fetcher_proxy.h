@@ -27,12 +27,11 @@
 
 #include "android/autofill/android_url_request_context_getter.h"
 #include "android/autofill/profile_android.h"
+#include "base/scoped_ptr.h"
 #include "base/thread.h"
 #include "common/net/url_fetcher.h"
 #include "net/url_request/url_request_status.h"
 #include <WebCoreSupport/autofill/MainThreadProxy.h>
-
-#define AUTOFILL_FETCHER_ID 1
 
 class URLFetcherProxy;
 
@@ -54,48 +53,60 @@ struct RunnableMethodTraits<class URLFetcherProxy> {
 
 // A class that implements the same API as URLFetcher but instead of
 // assuming that the calling thread is a chrome thread with a message
-// loop, it assumes the calling thread is WebKit's main
-// thread. Implemented as a wrapper round URLFetcher.
-// TODO: I think this can be improved as follows, which should reduce
-// our diff here and in autofill_download.cc as we'll be able to use
-// a URLFetcher base class pointer.
-//  * Have URLFetcherProxy extend URLFetcher and URLFetcherDelegate
-//  * Delete the Delegate inner class here
-//  * Update the URLFetcher::Create factory method to return
-//    a URLFetcherProxy on Android.
-class URLFetcherProxy : public URLFetcher::Delegate {
+// loop, it assumes the calling thread is WebKit's main thread.
+//
+// It extends URLFetcher so as to minimise the diff in other code when
+// using this class in place of URLFetcher. It uses a private
+// URLFetcher instance to do the network request and thus implements
+// URLFetcher::Delegate.
+//
+// Note that we overide the minimum number of methods to allow this
+// class to be used by AutoFillDownloadManager ...
+// - set_upload_data()
+// - set_request_context()
+// - set_automatcally_retry_on_5xx()
+// - Start()
+class URLFetcherProxy : public URLFetcher, public URLFetcher::Delegate {
 public:
-  class Delegate {
-   public:
-    virtual ~Delegate() { };
-    // This will be called when the URL has been fetched, successfully or not.
-    // |response_code| is the HTTP response code (200, 404, etc.) if
-    // applicable.  |url|, |status| and |data| are all valid until the
-    // URLFetcherProxy instance is destroyed.
-    virtual void OnURLFetchComplete(const URLFetcherProxy* source,
-                                    const GURL& url,
-                                    const URLRequestStatus& status,
-                                    int response_code,
-                                    const ResponseCookies& cookies,
-                                    const std::string& data) = 0;
-  };
-
-  URLFetcherProxy(const GURL& url, Delegate* d,
-                  const std::string& upload_content)
-    : url_(url), d_(d), upload_content_(upload_content)
-    {
-      URLRequestContextGetter* con =  Profile::GetDefaultRequestContext();
-      scoped_refptr<base::MessageLoopProxy> mlp = con->GetIOMessageLoopProxy();
-      // TODO: See the template specialisation at the top of the file. Can we use
-      // an alternative to RunnableMethod that doesn't expect a ref counted object?
-      mlp->PostTask(FROM_HERE, NewRunnableMethod(this, &URLFetcherProxy::DoStart));
-    };
-
+  URLFetcherProxy(const GURL& url,
+                  URLFetcher::RequestType request_type,
+                  URLFetcher::Delegate* d)
+      : URLFetcher(url /*unused*/, URLFetcher::POST /*unused*/, d),
+        real_fetcher_(new URLFetcher(url, request_type, this)),
+        request_type_(request_type),
+        retry_(true)
+  {
+  }
 
   virtual ~URLFetcherProxy()
   {
-    delete real_fetcher_;
   }
+
+  virtual void set_automatcally_retry_on_5xx(bool retry)
+  {
+    retry_ = retry;
+  }
+
+  virtual void set_request_context(URLRequestContextGetter* request_context_getter)
+  {
+    request_context_getter_ = request_context_getter;
+  }
+
+  virtual void set_upload_data(const std::string& upload_content_type,
+                               const std::string& upload_content)
+  {
+    upload_content_type_ = upload_content_type;
+    upload_content_ = upload_content;
+  }
+
+  virtual void Start()
+  {
+    URLRequestContextGetter* con =  Profile::GetDefaultRequestContext();
+    scoped_refptr<base::MessageLoopProxy> mlp = con->GetIOMessageLoopProxy();
+    // TODO: See the template specialisation at the top of the file. Can we use
+    // an alternative to RunnableMethod that doesn't expect a ref counted object?
+    mlp->PostTask(FROM_HERE, NewRunnableMethod(this, &URLFetcherProxy::DoStart));
+  };
 
   virtual void OnURLFetchComplete(const URLFetcher* source,
                                   const GURL& url,
@@ -121,26 +132,33 @@ public:
 private:
   void DoStart()
   {
-    real_fetcher_ = URLFetcher::Create(AUTOFILL_FETCHER_ID, url_, URLFetcher::POST, this);
-    real_fetcher_->set_automatcally_retry_on_5xx(false);
-    real_fetcher_->set_request_context(ProfileImplAndroid::GetDefaultRequestContext());
-    real_fetcher_->set_upload_data("text/plain", upload_content_);
+    real_fetcher_->set_automatcally_retry_on_5xx(retry_);
+    // We expect set_upload_data() to have been called on this object.
+    real_fetcher_->set_upload_data(upload_content_type_, upload_content_);
+    real_fetcher_->set_request_context(request_context_getter_);
     real_fetcher_->Start();
   };
 
   static void DoComplete(void* context)
   {
-    URLFetcherProxy* that = (URLFetcherProxy*)context;
-    that->d_->OnURLFetchComplete(that, that->url_, that->status_,
-                                 that->response_code_, that->cookies_,
-                                 that->data_);
+    URLFetcherProxy* that = static_cast<URLFetcherProxy*>(context);
+    that->DoCompleteImpl();
   }
 
-  URLFetcher* real_fetcher_;
-  GURL url_;
-  Delegate* d_;
+  void DoCompleteImpl()
+  {
+    delegate()->OnURLFetchComplete(this, url_, status_, response_code_, cookies_, data_);
+  }
+
+  scoped_ptr<URLFetcher> real_fetcher_;
+  URLFetcher::RequestType request_type_;
+
+  bool retry_;
+  URLRequestContextGetter* request_context_getter_;
+  std::string upload_content_type_;
   std::string upload_content_;
 
+  GURL url_;
   URLRequestStatus status_;
   int response_code_;
   ResponseCookies cookies_;
