@@ -314,6 +314,9 @@ int SSLClientSocketOpenSSL::BufferRecv(void) {
         if (ret != rv) {
           //android_printLog(ANDROID_LOG_ERROR, "https", "wrote less than capacity, should not happen (%d > %d : %d)", rv, ret, max_write);
         }
+      } else {
+        BIO_set_mem_eof_return(bio_read, 0);
+        BIO_shutdown_wr(bio_read);
       }
       recv_buffer_ = NULL;
     }
@@ -327,6 +330,9 @@ void SSLClientSocketOpenSSL::BufferRecvComplete(int result) {
     if (ret != result) {
       //android_printLog(ANDROID_LOG_ERROR, "https", "BIO_write returned: %d (not %d)", ret, result);
     }
+  } else {
+    BIO_set_mem_eof_return(bio_read, 0);
+    BIO_shutdown_wr(bio_read);
   }
   recv_buffer_ = NULL;
   transport_recv_busy_ = false;
