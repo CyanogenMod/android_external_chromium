@@ -15,10 +15,6 @@
 #include "chrome/common/pref_names.h"
 #include "net/http/http_response_headers.h"
 
-#ifdef ANDROID
-#include "android/autofill/url_fetcher_proxy.h"
-#endif
-
 #define DISABLED_REQUEST_URL "http://disabled"
 
 #if defined(GOOGLE_CHROME_BUILD) || (defined(ANDROID) && defined(HAVE_AUTOFILL_DOWNLOAD_INTERNAL_H) && HAVE_AUTOFILL_DOWNLOAD_INTERNAL_H)
@@ -113,11 +109,7 @@ bool AutoFillDownloadManager::StartUploadRequest(
 bool AutoFillDownloadManager::CancelRequest(
     const std::string& form_signature,
     AutoFillDownloadManager::AutoFillRequestType request_type) {
-#ifdef ANDROID
-  for (std::map<URLFetcherProxy *, FormRequestData>::iterator it =
-#else
   for (std::map<URLFetcher *, FormRequestData>::iterator it =
-#endif
        url_fetchers_.begin();
        it != url_fetchers_.end();
        ++it) {
@@ -176,10 +168,6 @@ bool AutoFillDownloadManager::StartRequest(
     // We have it disabled - return true as if it succeeded, but do nothing.
     return true;
   }
-#ifdef ANDROID
-  URLFetcherProxy *fetcher = new URLFetcherProxy(GURL(request_url), this, form_xml);
-  url_fetchers_[fetcher] = request_data;
-#else
   // Id is ignored for regular chrome, in unit test id's for fake fetcher
   // factory will be 0, 1, 2, ...
   URLFetcher *fetcher = URLFetcher::Create(fetcher_id_for_unittest_++,
@@ -191,27 +179,17 @@ bool AutoFillDownloadManager::StartRequest(
   fetcher->set_request_context(Profile::GetDefaultRequestContext());
   fetcher->set_upload_data("text/plain", form_xml);
   fetcher->Start();
-#endif
   return true;
 }
 
-#ifdef ANDROID
-void AutoFillDownloadManager::OnURLFetchComplete(const URLFetcherProxy* source,
-#else
 void AutoFillDownloadManager::OnURLFetchComplete(const URLFetcher* source,
-#endif
                                                  const GURL& url,
                                                  const URLRequestStatus& status,
                                                  int response_code,
                                                  const ResponseCookies& cookies,
                                                  const std::string& data) {
-#ifdef ANDROID
-  std::map<URLFetcherProxy *, FormRequestData>::iterator it =
-      url_fetchers_.find(const_cast<URLFetcherProxy*>(source));
-#else
   std::map<URLFetcher *, FormRequestData>::iterator it =
       url_fetchers_.find(const_cast<URLFetcher*>(source));
-#endif
   if (it == url_fetchers_.end()) {
     // Looks like crash on Mac is possibly caused with callback entering here
     // with unknown fetcher when network is refreshed.
@@ -286,4 +264,3 @@ void AutoFillDownloadManager::OnURLFetchComplete(const URLFetcher* source,
   delete it->first;
   url_fetchers_.erase(it);
 }
-
