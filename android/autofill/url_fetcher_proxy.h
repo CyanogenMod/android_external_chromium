@@ -58,12 +58,13 @@ struct RunnableMethodTraits<class URLFetcherProxy> {
 // It extends URLFetcher so as to minimise the diff in other code when
 // using this class in place of URLFetcher. It uses a private
 // URLFetcher instance to do the network request and thus implements
-// URLFetcher::Delegate.
+// URLFetcher::Delegate. We always use
+// ProfileImplAndroid::GetDefaultRequestContext() as the request
+// context.
 //
 // Note that we overide the minimum number of methods to allow this
 // class to be used by AutoFillDownloadManager ...
 // - set_upload_data()
-// - set_request_context()
 // - set_automatcally_retry_on_5xx()
 // - Start()
 class URLFetcherProxy : public URLFetcher, public URLFetcher::Delegate {
@@ -72,7 +73,6 @@ public:
                   URLFetcher::RequestType request_type,
                   URLFetcher::Delegate* d)
       : URLFetcher(url /*unused*/, URLFetcher::POST /*unused*/, d),
-        real_fetcher_(new URLFetcher(url, request_type, this)),
         request_type_(request_type),
         retry_(true)
   {
@@ -85,11 +85,6 @@ public:
   virtual void set_automatcally_retry_on_5xx(bool retry)
   {
     retry_ = retry;
-  }
-
-  virtual void set_request_context(URLRequestContextGetter* request_context_getter)
-  {
-    request_context_getter_ = request_context_getter;
   }
 
   virtual void set_upload_data(const std::string& upload_content_type,
@@ -132,10 +127,11 @@ public:
 private:
   void DoStart()
   {
+    real_fetcher_.reset(new URLFetcher(url(), request_type_, this));
     real_fetcher_->set_automatcally_retry_on_5xx(retry_);
     // We expect set_upload_data() to have been called on this object.
     real_fetcher_->set_upload_data(upload_content_type_, upload_content_);
-    real_fetcher_->set_request_context(request_context_getter_);
+    real_fetcher_->set_request_context(ProfileImplAndroid::GetDefaultRequestContext());
     real_fetcher_->Start();
   };
 
@@ -154,7 +150,6 @@ private:
   URLFetcher::RequestType request_type_;
 
   bool retry_;
-  URLRequestContextGetter* request_context_getter_;
   std::string upload_content_type_;
   std::string upload_content_;
 
