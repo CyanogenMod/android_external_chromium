@@ -29,11 +29,12 @@
 #include "base/message_loop_proxy.h"
 #include "base/thread.h"
 #include "common/net/url_request_context_getter.h"
+#include "net/url_request/url_request_context.h"
 
 class AndroidURLRequestContextGetter : public URLRequestContextGetter {
 public:
   AndroidURLRequestContextGetter()
-    : context_(0), io_thread_(0) { };
+    : context_getter_function_(0), io_thread_(0) { };
 
   virtual ~AndroidURLRequestContextGetter() { }
 
@@ -43,12 +44,14 @@ public:
 
   static AndroidURLRequestContextGetter* Get();
 
-  void SetURLRequestContext(URLRequestContext*);
+  typedef scoped_refptr<URLRequestContext> (URLRequestContextGetterFunction)();
+  void SetURLRequestContextGetterFunction(
+      URLRequestContextGetterFunction* function);
   void SetIOThread(base::Thread* io_thread) { io_thread_ = io_thread; }
 
 private:
   static scoped_refptr<AndroidURLRequestContextGetter> instance_;
-  URLRequestContext* context_;
+  URLRequestContextGetterFunction* context_getter_function_;
   base::Thread* io_thread_;
 };
 
