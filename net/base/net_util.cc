@@ -67,7 +67,7 @@
 #include "unicode/datefmt.h"
 
 
-#ifdef ANDROID
+#ifdef __BIONIC__
 #include "netinet/in6.h"
 #endif
 

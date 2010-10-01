@@ -1,5 +1,3 @@
-ifneq ($(TARGET_SIMULATOR),true)
-
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
@@ -329,13 +327,9 @@ LOCAL_SRC_FILES += \
     third_party/libjingle/source/talk/xmllite/xmlparser.cc \
     third_party/libjingle/source/talk/xmllite/xmlprinter.cc
 
-# external/chromium/android is a directory to intercept stl headers that we do
-# not support yet.
 LOCAL_C_INCLUDES := \
-    $(LOCAL_PATH)/android \
     $(LOCAL_PATH)/chrome \
     $(LOCAL_PATH)/chrome/browser \
-    $(LOCAL_PATH)/sdch/linux \
     $(LOCAL_PATH)/sdch/open-vcdiff/src \
     $(LOCAL_PATH)/third_party/libevent/compat \
     external/expat \
@@ -348,8 +342,6 @@ LOCAL_C_INCLUDES := \
     external/webkit/WebKit/android \
     external/zlib \
     external \
-    bionic \
-    bionic/libc/include \
     $(LOCAL_PATH)/base/third_party/dmg_fp \
     $(LOCAL_PATH)/third_party/icu/public/common \
     $(LOCAL_PATH)/third_party/libevent/android \
@@ -404,9 +396,20 @@ LOCAL_GENERATED_SOURCES += $(GEN)
 
 LOCAL_SRC_FILES += $(LOCAL_GENERATED_SOURCES)
 
-include external/stlport/libstlport.mk
+LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -fvisibility=hidden -DEXPAT_RELATIVE_PATH
 
-LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -include "android/prefix.h" -fvisibility=hidden -DEXPAT_RELATIVE_PATH
+ifneq ($(TARGET_SIMULATOR),true)
+# Just a few definitions not provided by bionic.
+LOCAL_CFLAGS += -include "android/prefix.h"
+
+# external/chromium/android is a directory to intercept stl headers that we do
+# not support yet.
+LOCAL_C_INCLUDES := \
+	$(LOCAL_PATH)/android \
+	$(LOCAL_C_INCLUDES)
+
+# Including this will modify the include path
+include external/stlport/libstlport.mk
+endif
 
 include $(BUILD_STATIC_LIBRARY)
-endif

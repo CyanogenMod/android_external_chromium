@@ -367,7 +367,7 @@ class FilePath {
 // Provide a hash function so that hash_sets and maps can contain FilePath
 // objects.
 #if defined(COMPILER_GCC)
-namespace std {
+namespace __gnu_cxx {
 
 template<>
 struct hash<FilePath> {

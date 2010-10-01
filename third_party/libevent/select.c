@@ -61,7 +61,7 @@
 #endif
 
 //#ifndef _EVENT_HAVE_FD_MASK
-#ifdef ANDROID
+#ifdef __BIONIC__
 /* This type is mandatory, but Android doesn't define it. */
 #undef NFDBITS
 #define NFDBITS (sizeof(long)*8)
