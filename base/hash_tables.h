@@ -41,8 +41,8 @@ using stdext::hash_set;
 #undef __DEPRECATED
 #endif
 
-#include <hash_map>
-#include <hash_set>
+#include <ext/hash_map>
+#include <ext/hash_set>
 #include <string>
 
 #ifdef CHROME_OLD__DEPRECATED
@@ -51,11 +51,11 @@ using stdext::hash_set;
 #endif
 
 namespace base {
-using std::hash_map;
-using std::hash_set;
+using __gnu_cxx::hash_map;
+using __gnu_cxx::hash_set;
 }  // namespace base
 
-namespace std {
+namespace __gnu_cxx {
 
 #ifndef ANDROID
 // Already defined for android
