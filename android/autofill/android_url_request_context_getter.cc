@@ -30,7 +30,7 @@ scoped_refptr<AndroidURLRequestContextGetter> AndroidURLRequestContextGetter::in
 
 URLRequestContext* AndroidURLRequestContextGetter::GetURLRequestContext()
 {
-  return context_;
+  return (*context_getter_function_)();
 }
 
 scoped_refptr<base::MessageLoopProxy> AndroidURLRequestContextGetter::GetIOMessageLoopProxy()
@@ -56,7 +56,8 @@ AndroidURLRequestContextGetter* AndroidURLRequestContextGetter::Get()
   return instance_;
 }
 
-void AndroidURLRequestContextGetter::SetURLRequestContext(URLRequestContext* c)
+void AndroidURLRequestContextGetter::SetURLRequestContextGetterFunction(
+    URLRequestContextGetterFunction* function)
 {
-  context_ = c;
+  context_getter_function_ = function;
 }

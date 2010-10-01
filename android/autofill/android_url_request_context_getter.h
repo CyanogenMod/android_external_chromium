@@ -29,35 +29,30 @@
 #include "base/message_loop_proxy.h"
 #include "base/thread.h"
 #include "common/net/url_request_context_getter.h"
-
-class MainThreadProxy;
+#include "net/url_request/url_request_context.h"
 
 class AndroidURLRequestContextGetter : public URLRequestContextGetter {
 public:
   AndroidURLRequestContextGetter()
-    : context_(0), io_thread_(0) { };
+    : context_getter_function_(0), io_thread_(0) { };
 
   virtual ~AndroidURLRequestContextGetter() { }
 
+  // URLRequestContextGetter implementation
   virtual URLRequestContext* GetURLRequestContext();
-
-  // Returns a MessageLoopProxy corresponding to the thread on which the
-  // request IO happens (the thread on which the returned URLRequestContext
-  // may be used).
   virtual scoped_refptr<base::MessageLoopProxy> GetIOMessageLoopProxy();
 
   static AndroidURLRequestContextGetter* Get();
 
-  void SetURLRequestContext(URLRequestContext*);
-  void SetMainThread(MainThreadProxy* m) { main_thread_proxy_ = m; };
-  MainThreadProxy* GetMainThreadProxy() { return main_thread_proxy_; };
+  typedef scoped_refptr<URLRequestContext> (URLRequestContextGetterFunction)();
+  void SetURLRequestContextGetterFunction(
+      URLRequestContextGetterFunction* function);
   void SetIOThread(base::Thread* io_thread) { io_thread_ = io_thread; }
 
 private:
   static scoped_refptr<AndroidURLRequestContextGetter> instance_;
-  URLRequestContext* context_;
+  URLRequestContextGetterFunction* context_getter_function_;
   base::Thread* io_thread_;
-  MainThreadProxy* main_thread_proxy_;
 };
 
 #endif // ANDROID_URL_REQUEST_CONTEXT_GETTER_H
