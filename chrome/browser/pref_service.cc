@@ -23,7 +23,9 @@
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
+#ifndef ANDROID
 #include "chrome/browser/chrome_thread.h"
+#endif
 
 #if defined(OS_WIN)
 #include "chrome/browser/configuration_policy_provider_win.h"
@@ -222,26 +224,28 @@ PrefService::~PrefService() {
 }
 
 void PrefService::InitFromStorage() {
+#ifdef ANDROID
+  // Don't use pref storage on Android.
+  // TODO: see if we can remove this entire class.
+#else
   PrefStore::PrefReadError error = LoadPersistentPrefs();
   if (error == PrefStore::PREF_READ_ERROR_NONE)
     return;
-
   // Failing to load prefs on startup is a bad thing(TM). See bug 38352 for
   // an example problem that this can cause.
   // Do some diagnosis and try to avoid losing data.
   int message_id = 0;
-#ifndef ANDROID
   if (error <= PrefStore::PREF_READ_ERROR_JSON_TYPE) {
     message_id = IDS_PREFERENCES_CORRUPT_ERROR;
   } else if (error != PrefStore::PREF_READ_ERROR_NO_FILE) {
     message_id = IDS_PREFERENCES_UNREADABLE_ERROR;
   }
-#endif
   if (message_id) {
     ChromeThread::PostTask(ChromeThread::UI, FROM_HERE,
         NewRunnableFunction(&NotifyReadError, this, message_id));
   }
   UMA_HISTOGRAM_ENUMERATION("PrefService.ReadError", error, 20);
+#endif
 }
 
 bool PrefService::ReloadPersistentPrefs() {
