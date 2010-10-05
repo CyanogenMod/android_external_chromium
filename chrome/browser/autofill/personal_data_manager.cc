@@ -257,18 +257,11 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
                      std::mem_fun_ref(&AutoFillProfile::IsEmpty)),
       profiles->end());
 
-<<<<<<< HEAD
-  SetUniqueProfileLabels(profiles);
-
 #ifndef ANDROID
-=======
->>>>>>> Chromium at release 7.0.540.0
   WebDataService* wds = profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
   if (!wds)
     return;
-#endif
 
-#ifndef ANDROID
   // FIXME: AutoLock does not build on Android as of the initial checkin.
   AutoLock lock(unique_ids_lock_);
 
@@ -459,6 +452,7 @@ void PersonalDataManager::AddProfile(const AutoFillProfile& profile) {
 }
 
 void PersonalDataManager::UpdateProfile(const AutoFillProfile& profile) {
+#ifndef ANDROID
   WebDataService* wds = profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
   if (!wds)
     return;
@@ -475,6 +469,7 @@ void PersonalDataManager::UpdateProfile(const AutoFillProfile& profile) {
 
   wds->UpdateAutoFillProfile(profile);
   FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
+#endif
 }
 
 void PersonalDataManager::RemoveProfile(int unique_id) {
@@ -505,6 +500,7 @@ void PersonalDataManager::AddCreditCard(const CreditCard& credit_card) {
 }
 
 void PersonalDataManager::UpdateCreditCard(const CreditCard& credit_card) {
+#ifndef ANDROID
   WebDataService* wds = profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
   if (!wds)
     return;
@@ -521,6 +517,7 @@ void PersonalDataManager::UpdateCreditCard(const CreditCard& credit_card) {
 
   wds->UpdateCreditCard(credit_card);
   FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
+#endif
 }
 
 void PersonalDataManager::RemoveCreditCard(int unique_id) {
@@ -796,48 +793,8 @@ void PersonalDataManager::SaveImportedProfile() {
   if (!imported_profile_.get())
     return;
 
-<<<<<<< HEAD
-  // Set to true if |imported_profile_| is merged into the profile list.
-  bool merged = false;
-
-  imported_profile_->set_label(ASCIIToUTF16(kUnlabeled));
-
-  // Don't save a web profile if the data in the profile is a subset of an
-  // auxiliary profile.
-  for (std::vector<AutoFillProfile*>::const_iterator iter =
-           auxiliary_profiles_.begin();
-       iter != auxiliary_profiles_.end(); ++iter) {
-    if (imported_profile_->IsSubsetOf(**iter))
-      return;
-  }
-
-  std::vector<AutoFillProfile> profiles;
-  for (std::vector<AutoFillProfile*>::const_iterator iter =
-           web_profiles_.begin();
-       iter != web_profiles_.end(); ++iter) {
-    if (imported_profile_->IsSubsetOf(**iter)) {
-      // In this case, the existing profile already contains all of the data
-      // in |imported_profile_|, so consider the profiles already merged.
-      merged = true;
-    } else if ((*iter)->IntersectionOfTypesHasEqualValues(
-        *imported_profile_)) {
-      // |imported_profile| contains all of the data in this profile, plus
-      // more.
-      merged = true;
-      (*iter)->MergeWith(*imported_profile_);
-    }
-
-    profiles.push_back(**iter);
-  }
-
-  if (!merged)
-    profiles.push_back(*imported_profile_);
-
-  SetProfiles(&profiles);
-#endif
-=======
   AddProfile(*imported_profile_);
->>>>>>> Chromium at release 7.0.540.0
+#endif
 }
 
 // TODO(jhawkins): Refactor and merge this with SaveImportedProfile.

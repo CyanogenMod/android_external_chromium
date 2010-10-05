@@ -270,15 +270,9 @@ class ProcessFilter {
   // Returns true to indicate set-inclusion and false otherwise.  This method
   // should not have side-effects and should be idempotent.
   virtual bool Includes(const ProcessEntry& entry) const = 0;
-<<<<<<< HEAD
-#ifdef ANDROID
-  virtual ~ProcessFilter() {}
-#endif
-=======
 
  protected:
   virtual ~ProcessFilter() {}
->>>>>>> Chromium at release 7.0.540.0
 };
 
 // Returns the number of processes on the machine that are running from the

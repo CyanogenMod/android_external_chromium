@@ -42,7 +42,7 @@
 class AutoFillHost {
 public:
   virtual ~AutoFillHost() { }
-  virtual void AutoFillSuggestionsReturned(int query_id, const std::vector<string16>& values, const std::vector<string16>& labels, const std::vector<int>& unique_ids) = 0;
+  virtual void AutoFillSuggestionsReturned(int query_id, const std::vector<string16>& values, const std::vector<string16>& labels, const std::vector<string16>& icons, const std::vector<int>& unique_ids) = 0;
   virtual void AutoFillFormDataFilled(int query_id, const webkit_glue::FormData& form) = 0;
 };
 

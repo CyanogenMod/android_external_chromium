@@ -213,20 +213,19 @@ class AutoFillManager :
   // The form data the user has submitted.
   scoped_ptr<FormStructure> upload_form_structure_;
 
-#ifndef ANDROID
+#ifdef ANDROID
+  // To minimize merge conflicts, we keep this pointer around, but never use it.
+  void* cc_infobar_;
+#else
   // The InfoBar that asks for permission to store credit card information.
-<<<<<<< HEAD
-  scoped_ptr<AutoFillCCInfoBarDelegate> cc_infobar_;
-#endif
-=======
   // Deletes itself when closed.
   AutoFillCCInfoBarDelegate* cc_infobar_;
+#endif
 
   friend class TestAutoFillManager;
   FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillCreditCardForm);
   FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillNonBillingFormSemicolon);
   FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillBillFormSemicolon);
->>>>>>> Chromium at release 7.0.540.0
 
   DISALLOW_COPY_AND_ASSIGN(AutoFillManager);
 };

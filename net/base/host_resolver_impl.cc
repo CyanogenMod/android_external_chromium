@@ -77,12 +77,8 @@ HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
 #else
   HostResolverImpl* resolver =
       new HostResolverImpl(NULL, CreateDefaultCache(),
-<<<<<<< HEAD
-                           max_concurrent_resolves);
-#endif
-=======
                            max_concurrent_resolves, net_log);
->>>>>>> Chromium at release 7.0.540.0
+#endif
 
   return systemResolver;
 }

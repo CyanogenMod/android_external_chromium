@@ -199,13 +199,8 @@ int SystemHostResolverProc(const std::string& host,
   hints.ai_socktype = SOCK_STREAM;
 
   int err = getaddrinfo(host.c_str(), NULL, &hints, &ai);
-<<<<<<< HEAD
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(ANDROID)
-  net::DnsReloadTimer* dns_timer = Singleton<net::DnsReloadTimer>::get();
-=======
   bool should_retry = false;
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_OPENBSD)
->>>>>>> Chromium at release 7.0.540.0
+#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(ANDROID)
   // If we fail, re-initialise the resolver just in case there have been any
   // changes to /etc/resolv.conf and retry. See http://crbug.com/11380 for info.
   if (err && DnsReloadTimerHasExpired()) {

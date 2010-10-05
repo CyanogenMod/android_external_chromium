@@ -14,15 +14,11 @@
 #include "base/lock.h"
 #include "base/ref_counted.h"
 #include "chrome/browser/chrome_thread.h"
-<<<<<<< HEAD
-#include "chrome/browser/search_engines/template_url.h"
+#include "chrome/browser/search_engines/template_url_id.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #ifdef ANDROID
 #include <WebCoreSupport/autofill/FormFieldAndroid.h>
 #else
-=======
-#include "chrome/browser/search_engines/template_url_id.h"
->>>>>>> Chromium at release 7.0.540.0
 #include "webkit/glue/form_field.h"
 #endif
 

@@ -9,16 +9,11 @@
 
 #include "base/basictypes.h"
 #include "base/string16.h"
-<<<<<<< HEAD
-#include "chrome/browser/autofill/autofill_dialog.h"
+#include "base/utf_string_conversions.h"
 #ifndef ANDROID
 #include "chrome/browser/autofill/autofill_cc_infobar_delegate.h"
 #endif
-=======
-#include "base/utf_string_conversions.h"
-#include "chrome/browser/autofill/autofill_cc_infobar_delegate.h"
 #include "chrome/browser/autofill/autofill_dialog.h"
->>>>>>> Chromium at release 7.0.540.0
 #include "chrome/browser/autofill/form_structure.h"
 #include "chrome/browser/autofill/select_control_handler.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -465,24 +460,18 @@ void AutoFillManager::HandleSubmit() {
   CreditCard* credit_card;
   personal_data_->GetImportedFormData(&profile, &credit_card);
 
-<<<<<<< HEAD
-  if (credit_card) {
-#ifndef ANDROID
-    cc_infobar_.reset(new AutoFillCCInfoBarDelegate(tab_contents_, this));
-#endif
-  } else {
-=======
   if (!credit_card) {
->>>>>>> Chromium at release 7.0.540.0
     UploadFormData();
     return;
   }
 
+#ifndef ANDROID
   // Show an infobar to offer to save the credit card info.
   if (tab_contents_) {
     tab_contents_->AddInfoBar(new AutoFillCCInfoBarDelegate(tab_contents_,
                                                             this));
   }
+#endif
 }
 
 void AutoFillManager::UploadFormData() {

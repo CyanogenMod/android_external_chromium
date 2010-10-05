@@ -11,14 +11,11 @@
 #include "base/logging.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-<<<<<<< HEAD
 #ifdef ANDROID
 #include "sqlite3.h"
 #else
-#include "third_party/sqlite/preprocessed/sqlite3.h"
-#endif
-=======
 #include "third_party/sqlite/sqlite3.h"
+#endif
 
 namespace {
 
@@ -47,7 +44,6 @@ class ScopedBusyTimeout {
 };
 
 }  // namespace
->>>>>>> Chromium at release 7.0.540.0
 
 namespace sql {
 

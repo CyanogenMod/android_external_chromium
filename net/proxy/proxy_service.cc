@@ -743,17 +743,12 @@ ProxyConfigService* ProxyService::CreateSystemProxyConfigService(
 #if defined(OS_WIN)
   return new ProxyConfigServiceWin();
 #elif defined(OS_MACOSX)
-<<<<<<< HEAD
-  return new ProxyConfigServiceMac();
-#elif defined(OS_LINUX) && !defined(ANDROID)
-=======
   return new ProxyConfigServiceMac(io_loop);
 #elif defined(OS_CHROMEOS)
   NOTREACHED() << "ProxyConfigService for ChromeOS should be created in "
                << "chrome_url_request_context.cc::CreateProxyConfigService.";
   return NULL;
-#elif defined(OS_LINUX)
->>>>>>> Chromium at release 7.0.540.0
+#elif defined(OS_LINUX) && !defined(ANDROID)
   ProxyConfigServiceLinux* linux_config_service
       = new ProxyConfigServiceLinux();
 

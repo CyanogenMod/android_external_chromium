@@ -4,13 +4,10 @@
 
 #include "chrome/browser/autofill/credit_card.h"
 
-<<<<<<< HEAD
-#ifndef ANDROID
-// FIXME: Need l10n on Android?
-=======
 #include <string>
 
->>>>>>> Chromium at release 7.0.540.0
+#ifndef ANDROID
+// FIXME: Need l10n on Android?
 #include "app/l10n_util.h"
 #endif
 

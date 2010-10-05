@@ -1149,76 +1149,7 @@ void HttpNetworkTransaction::ResetConnectionAndRequestForResend() {
   // headers, but we may need to resend the CONNECT request first to recreate
   // the SSL tunnel.
   request_headers_.clear();
-<<<<<<< HEAD
-  next_state_ = STATE_INIT_CONNECTION;  // Resend the request.
-}
-
-int HttpNetworkTransaction::ReconsiderProxyAfterError(int error) {
-#ifdef ANDROID
-  // Android crashes :(
-  return error;
-#endif
-  DCHECK(!pac_request_);
-
-  // A failure to resolve the hostname or any error related to establishing a
-  // TCP connection could be grounds for trying a new proxy configuration.
-  //
-  // Why do this when a hostname cannot be resolved?  Some URLs only make sense
-  // to proxy servers.  The hostname in those URLs might fail to resolve if we
-  // are still using a non-proxy config.  We need to check if a proxy config
-  // now exists that corresponds to a proxy server that could load the URL.
-  //
-  switch (error) {
-    case ERR_NAME_NOT_RESOLVED:
-    case ERR_INTERNET_DISCONNECTED:
-    case ERR_ADDRESS_UNREACHABLE:
-    case ERR_CONNECTION_CLOSED:
-    case ERR_CONNECTION_RESET:
-    case ERR_CONNECTION_REFUSED:
-    case ERR_CONNECTION_ABORTED:
-    case ERR_TIMED_OUT:
-    case ERR_TUNNEL_CONNECTION_FAILED:
-    case ERR_SOCKS_CONNECTION_FAILED:
-      break;
-    case ERR_SOCKS_CONNECTION_HOST_UNREACHABLE:
-      // Remap the SOCKS-specific "host unreachable" error to a more
-      // generic error code (this way consumers like the link doctor
-      // know to substitute their error page).
-      //
-      // Note that if the host resolving was done by the SOCSK5 proxy, we can't
-      // differentiate between a proxy-side "host not found" versus a proxy-side
-      // "address unreachable" error, and will report both of these failures as
-      // ERR_ADDRESS_UNREACHABLE.
-      return ERR_ADDRESS_UNREACHABLE;
-    default:
-      return error;
-  }
-
-  if (request_->load_flags & LOAD_BYPASS_PROXY) {
-    return error;
-  }
-
-  int rv = session_->proxy_service()->ReconsiderProxyAfterError(
-      request_->url, &proxy_info_, &io_callback_, &pac_request_, net_log_);
-  if (rv == OK || rv == ERR_IO_PENDING) {
-    // If the error was during connection setup, there is no socket to
-    // disconnect.
-    if (connection_->socket())
-      connection_->socket()->Disconnect();
-    connection_->Reset();
-    next_state_ = STATE_RESOLVE_PROXY_COMPLETE;
-  } else {
-    // If ReconsiderProxyAfterError() failed synchronously, it means
-    // there was nothing left to fall-back to, so fail the transaction
-    // with the last connection error we got.
-    // TODO(eroman): This is a confusing contract, make it more obvious.
-    rv = error;
-  }
-
-  return rv;
-=======
   next_state_ = STATE_CREATE_STREAM;  // Resend the request.
->>>>>>> Chromium at release 7.0.540.0
 }
 
 bool HttpNetworkTransaction::ShouldApplyProxyAuth() const {

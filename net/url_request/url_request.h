@@ -531,13 +531,8 @@ class URLRequest : public NonThreadSafe {
   // Returns the priority level for this request.
   net::RequestPriority priority() const { return priority_; }
   void set_priority(net::RequestPriority priority) {
-<<<<<<< HEAD
-    //DCHECK_GE(priority, net::HIGHEST);
-    //DCHECK_LE(priority, net::LOWEST);
-=======
     DCHECK_GE(priority, net::HIGHEST);
     DCHECK_LT(priority, net::NUM_PRIORITIES);
->>>>>>> Chromium at release 7.0.540.0
     priority_ = priority;
   }
 

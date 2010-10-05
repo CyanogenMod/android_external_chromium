@@ -52,12 +52,16 @@ typedef pthread_mutex_t* MutexHandle;
 #include "base/process_util.h"
 #include "base/string_piece.h"
 #include "base/utf_string_conversions.h"
+#ifndef ANDROID
 #include "base/vlog.h"
+#endif
 
 namespace logging {
 
 bool g_enable_dcheck = false;
+#ifndef ANDROID
 VlogInfo* g_vlog_info = NULL;
+#endif
 
 const char* const log_severity_names[LOG_NUM_SEVERITIES] = {
   "INFO", "WARNING", "ERROR", "ERROR_REPORT", "FATAL" };
@@ -332,6 +336,9 @@ void BaseInitLoggingImpl(const PathChar* new_log_file,
                          LoggingDestination logging_dest,
                          LogLockingState lock_log,
                          OldFileDeletionState delete_old) {
+#ifdef ANDROID
+  g_enable_dcheck = false;
+#else
   CommandLine* command_line = CommandLine::ForCurrentProcess();
   g_enable_dcheck =
       command_line->HasSwitch(switches::kEnableDCHECK);
@@ -345,21 +352,11 @@ void BaseInitLoggingImpl(const PathChar* new_log_file,
         new VlogInfo(command_line->GetSwitchValueASCII(switches::kV),
                      command_line->GetSwitchValueASCII(switches::kVModule));
   }
+#endif
 
-<<<<<<< HEAD
-void InitLogging(const PathChar* new_log_file, LoggingDestination logging_dest,
-                 LogLockingState lock_log, OldFileDeletionState delete_old) {
-  g_enable_dcheck =
-#ifdef ANDROID
-      false;
-#else
-      CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableDCHECK);
-#endif // ANDROID
-=======
   LoggingLock::Init(lock_log, new_log_file);
 
   LoggingLock logging_lock;
->>>>>>> Chromium at release 7.0.540.0
 
   if (log_file) {
     // calling InitLogging twice or after some log call has already opened the
@@ -394,10 +391,14 @@ int GetMinLogLevel() {
 }
 
 int GetVlogLevelHelper(const char* file, size_t N) {
+#ifdef ANDROID
+  return 0;
+#else
   DCHECK_GT(N, 0U);
   return g_vlog_info ?
       g_vlog_info->GetVlogLevel(base::StringPiece(file, N - 1)) :
       VlogInfo::kDefaultVlogLevel;
+#endif
 }
 
 void SetLogFilterPrefix(const char* filter)  {
