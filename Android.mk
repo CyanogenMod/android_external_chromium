@@ -47,9 +47,11 @@ LOCAL_SRC_FILES := \
     base/lock_impl_posix.cc \
     base/logging.cc \
     base/message_loop.cc \
+    base/message_loop_proxy.cc \
     base/message_loop_proxy_impl.cc \
-    base/message_pump_libevent.cc \
+    base/message_pump.cc \
     base/message_pump_default.cc \
+    base/message_pump_libevent.cc \
     base/md5.cc \
     base/native_library_linux.cc \
     base/pickle.cc \
@@ -64,10 +66,15 @@ LOCAL_SRC_FILES := \
     base/safe_strerror_posix.cc \
     base/sha1.cc \
     base/sha2.cc \
+    base/stats_counters.cc \
     base/stats_table.cc \
+    base/string_number_conversions.cc \
     base/string_piece.cc \
+    base/string_split.cc \
     base/string_util.cc \
     base/string16.cc \
+    base/stringprintf.cc \
+    base/sys_info_linux.cc \
     base/sys_info_posix.cc \
     base/sys_string_conversions_linux.cc \
     base/task.cc \
@@ -111,12 +118,15 @@ LOCAL_SRC_FILES := \
     \
     net/base/address_list.cc \
     net/base/address_list_net_log_param.cc \
+    net/base/auth.cc \
     net/base/capturing_net_log.cc \
+    net/base/cert_status_flags.cc \
     net/base/connection_type_histograms.cc \
     net/base/cookie_monster.cc \
     net/base/data_url.cc \
     net/base/directory_lister.cc \
     net/base/dns_util.cc \
+    net/base/dnsrr_resolver.cc \
     net/base/escape.cc \
     net/base/file_stream_posix.cc \
     net/base/filter.cc \
@@ -129,7 +139,6 @@ LOCAL_SRC_FILES := \
     net/base/host_resolver.cc \
     net/base/host_resolver_impl.cc \
     net/base/host_resolver_proc.cc \
-    net/base/https_prober.cc \
     net/base/io_buffer.cc \
     net/base/load_log.cc \
     net/base/mime_util.cc \
@@ -141,14 +150,19 @@ LOCAL_SRC_FILES := \
     net/base/network_change_notifier.cc \
     net/base/network_change_notifier_linux.cc \
     net/base/network_change_notifier_netlink_linux.cc \
+    net/base/pem_tokenizer.cc \
     net/base/registry_controlled_domain.cc \
     net/base/sdch_manager.cc \
     net/base/sdch_filter.cc \
+    net/base/ssl_cert_request_info.cc \
     net/base/ssl_client_auth_cache.cc \
     net/base/ssl_config_service.cc \
+    net/base/ssl_config_service_defaults.cc \
+    net/base/ssl_info.cc \
     net/base/transport_security_state.cc \
     net/base/upload_data.cc \
     net/base/upload_data_stream.cc \
+    net/base/x509_cert_types.cc \
     net/base/x509_certificate.cc \
     net/base/x509_certificate_openssl.cc \
     \
@@ -177,8 +191,8 @@ LOCAL_SRC_FILES := \
     net/spdy/spdy_framer.cc \
     net/spdy/spdy_frame_builder.cc \
     net/spdy/spdy_http_stream.cc \
+    net/spdy/spdy_http_utils.cc \
     net/spdy/spdy_io_buffer.cc \
-    net/spdy/spdy_network_transaction.cc \
     net/spdy/spdy_session.cc \
     net/spdy/spdy_session_pool.cc \
     net/spdy/spdy_settings_storage.cc \
@@ -208,9 +222,12 @@ LOCAL_SRC_FILES := \
     net/http/http_proxy_client_socket.cc \
     net/http/http_proxy_client_socket_pool.cc \
     net/http/http_request_headers.cc \
+    net/http/http_response_body_drainer.cc \
     net/http/http_response_headers.cc \
     net/http/http_response_info.cc \
+    net/http/http_stream_factory.cc \
     net/http/http_stream_parser.cc \
+    net/http/http_stream_request.cc \
     net/http/http_util.cc \
     net/http/http_util_icu.cc \
     net/http/http_vary_data.cc \
@@ -231,11 +248,13 @@ LOCAL_SRC_FILES := \
     net/proxy/proxy_service.cc \
     net/proxy/sync_host_resolver_bridge.cc \
     \
+    net/socket/client_socket.cc \
     net/socket/client_socket_handle.cc \
     net/socket/client_socket_factory.cc \
     net/socket/client_socket_pool.cc \
     net/socket/client_socket_pool_base.cc \
     net/socket/client_socket_pool_histograms.cc \
+    net/socket/client_socket_pool_manager.cc \
     net/socket/socks_client_socket.cc \
     net/socket/socks_client_socket_pool.cc \
     net/socket/socks5_client_socket.cc \
@@ -244,7 +263,9 @@ LOCAL_SRC_FILES := \
     net/socket/tcp_client_socket_libevent.cc \
     net/socket/tcp_client_socket_pool.cc \
     \
+    net/url_request/https_prober.cc \
     net/url_request/url_request.cc \
+    net/url_request/url_request_context.cc \
     net/url_request/url_request_file_job.cc \
     net/url_request/url_request_file_dir_job.cc \
     net/url_request/url_request_http_job.cc \
@@ -283,7 +304,6 @@ LOCAL_SRC_FILES += \
     \
     base/base_paths.cc \
     base/base_paths_posix.cc \
-    base/env_var.cc \
     base/path_service.cc \
     \
     chrome/browser/autofill/address.cc \
@@ -298,18 +318,18 @@ LOCAL_SRC_FILES += \
     chrome/browser/autofill/credit_card.cc \
     chrome/browser/autofill/credit_card_field.cc \
     chrome/browser/autofill/fax_field.cc \
-    chrome/browser/autofill/form_structure.cc \
     chrome/browser/autofill/form_field.cc \
     chrome/browser/autofill/form_group.cc \
+    chrome/browser/autofill/form_structure.cc \
     chrome/browser/autofill/name_field.cc \
     chrome/browser/autofill/personal_data_manager.cc \
     chrome/browser/autofill/phone_field.cc \
     chrome/browser/autofill/phone_number.cc \
+    chrome/browser/autofill/select_control_handler.cc \
     \
-    chrome/browser/config_dir_policy_provider.cc \
-    chrome/browser/configuration_policy_provider.cc \
-    chrome/browser/pref_service.cc \
-    chrome/browser/pref_value_store.cc \
+    chrome/browser/prefs/default_pref_store.cc \
+    chrome/browser/prefs/pref_service.cc \
+    chrome/browser/prefs/pref_value_store.cc \
     \
     chrome/common/json_value_serializer.cc \
     chrome/common/pref_names.cc \
@@ -325,7 +345,9 @@ LOCAL_SRC_FILES += \
     third_party/libjingle/source/talk/xmllite/xmlelement.cc \
     third_party/libjingle/source/talk/xmllite/xmlnsstack.cc \
     third_party/libjingle/source/talk/xmllite/xmlparser.cc \
-    third_party/libjingle/source/talk/xmllite/xmlprinter.cc
+    third_party/libjingle/source/talk/xmllite/xmlprinter.cc \
+    \
+    webkit/glue/form_data.cc
 
 LOCAL_C_INCLUDES := \
     $(LOCAL_PATH)/chrome \
