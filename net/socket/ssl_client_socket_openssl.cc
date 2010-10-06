@@ -1,121 +1,170 @@
-/*
- * Copyright (C) 2010 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+// OpenSSL binding for SSLClientSocket. The class layout and general principle
+// of operation is derived from SSLClientSocketNSS.
 
 #include "net/socket/ssl_client_socket_openssl.h"
 
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+
 #include "net/base/net_errors.h"
-#include "openssl/err.h"
+#include "net/base/ssl_connection_status_flags.h"
+#include "net/base/ssl_info.h"
+#include "net/base/test_certificate_data.h"  // TODO(joth): Remove!!
 
 namespace net {
 
-#if 1
-#define GotoState(s) next_handshake_state_ = s
-#else
+namespace {
+
+// Enable this to see logging for state machine state transitions.
+#if 0
 #define GotoState(s) do { LOG(INFO) << (void *)this << " " << __FUNCTION__ << \
                            " jump to state " << s; \
                            next_handshake_state_ = s; } while (0)
+#else
+#define GotoState(s) next_handshake_state_ = s
 #endif
 
+const size_t kMaxRecvBufferSize = 4096;
 
-bool SSLClientSocketOpenSSL::InitOpenSSL() {
-  if(ctx) {
-    return true;
+void MaybeLogSSLError() {
+  int error_num;
+  while ((error_num = ERR_get_error()) != 0) {
+    char buf[128];  // this buffer must be at least 120 chars long.
+    ERR_error_string_n(error_num, buf, arraysize(buf));
+    LOG(INFO) << "SSL error " << error_num << ": " << buf;
   }
-
-  SSL_load_error_strings();
-  if (!SSL_library_init())
-    return false;
-
-  const SSL_METHOD *pMethod = SSLv23_client_method();
-  ctx = SSL_CTX_new(pMethod);
-
-  if (!ctx) {
-    return false;
-  }
-
-  SSL_CTX_set_verify(ctx, /*SSL_VERIFY_PEER*/ SSL_VERIFY_NONE, NULL/*callback*/); //void
-
-  return true;
 }
 
-// Add some error checking ...
-bool SSLClientSocketOpenSSL::Init() {
-  if (!ctx) {
-    return false;
+int MapOpenSSLError(int err) {
+  switch (err) {
+    case SSL_ERROR_WANT_READ:
+    case SSL_ERROR_WANT_WRITE:
+      return ERR_IO_PENDING;
+    default:
+      // TODO(joth): Implement full mapping.
+      LOG(WARNING) << "Unknown OpenSSL error " << err;
+      MaybeLogSSLError();
+      return ERR_SSL_PROTOCOL_ERROR;
   }
-
-  ssl = SSL_new(ctx);
-
-  bio_read = BIO_new(BIO_s_mem());
-  bio_write = BIO_new(BIO_s_mem());
-
-  write_buf_size = 1024; // Why does this not work? BIO_get_write_buf_size(bio_write, 1000);
-
-  if (!SSL_set_tlsext_host_name(ssl, hostname_.c_str()))
-    return false;
-
-  SSL_set_bio(ssl, bio_read, bio_write); // void
-
-  // Connect as client
-  SSL_set_connect_state(ssl); // void
-
-  return true;
 }
 
-SSL_CTX* SSLClientSocketOpenSSL::ctx = NULL;
+}  // namespace
 
-SSLClientSocketOpenSSL::SSLClientSocketOpenSSL(ClientSocketHandle* transport_socket,
-                                               const std::string& hostname,
-                                               const SSLConfig& ssl_config)
-    : transport_send_busy_(false),
+// static
+SSL_CTX* SSLClientSocketOpenSSL::g_ctx = NULL;
+
+SSLClientSocketOpenSSL::SSLClientSocketOpenSSL(
+    ClientSocketHandle* transport_socket,
+    const std::string& hostname,
+    const SSLConfig& ssl_config)
+    : ALLOW_THIS_IN_INITIALIZER_LIST(buffer_send_callback_(
+          this, &SSLClientSocketOpenSSL::BufferSendComplete)),
+      ALLOW_THIS_IN_INITIALIZER_LIST(buffer_recv_callback_(
+          this, &SSLClientSocketOpenSSL::BufferRecvComplete)),
+      transport_send_busy_(false),
       transport_recv_busy_(false),
       user_connect_callback_(NULL),
       user_read_callback_(NULL),
       user_write_callback_(NULL),
       client_auth_cert_needed_(false),
+      ssl_(NULL),
+      transport_bio_(NULL),
       transport_(transport_socket),
       hostname_(hostname),
       ssl_config_(ssl_config),
       completed_handshake_(false),
       net_log_(transport_socket->socket()->NetLog()) {
-  buffer_send_callback_ = new CompletionCallbackImpl<SSLClientSocketOpenSSL>(
-      this, &SSLClientSocketOpenSSL::BufferSendComplete);
-  buffer_recv_callback_ = new CompletionCallbackImpl<SSLClientSocketOpenSSL>(
-      this, &SSLClientSocketOpenSSL::BufferRecvComplete);
 }
 
 SSLClientSocketOpenSSL::~SSLClientSocketOpenSSL() {
-  delete buffer_send_callback_;
-  delete buffer_recv_callback_;
-
   Disconnect();
 }
 
+// TODO(joth): This method needs to be thread-safe.
+bool SSLClientSocketOpenSSL::InitOpenSSL() {
+  if (g_ctx)
+    return true;
+
+  SSL_load_error_strings();
+  MaybeLogSSLError();
+  SSL_library_init();
+  MaybeLogSSLError();
+
+  g_ctx = SSL_CTX_new(TLSv1_client_method());
+
+  if (!g_ctx) {
+    MaybeLogSSLError();
+    return false;
+  }
+
+  SSL_CTX_set_verify(g_ctx, SSL_VERIFY_NONE, NULL /*callback*/);
+
+  return true;
+}
+
+bool SSLClientSocketOpenSSL::Init() {
+  DCHECK(g_ctx);
+  ssl_ = SSL_new(g_ctx);
+  if (!ssl_) {
+    MaybeLogSSLError();
+    return false;
+  }
+
+  if (!SSL_set_tlsext_host_name(ssl_, hostname_.c_str())) {
+    MaybeLogSSLError();
+    return false;
+  }
+
+  BIO* ssl_bio = NULL;
+  // TODO(joth): Provide explicit write buffer sizes, rather than use defaults?
+  if (!BIO_new_bio_pair(&ssl_bio, 0, &transport_bio_, 0)) {
+    MaybeLogSSLError();
+    return false;
+  }
+  DCHECK(ssl_bio);
+  DCHECK(transport_bio_);
+
+  SSL_set_bio(ssl_, ssl_bio, ssl_bio);
+
+  return true;
+}
 
 // SSLClientSocket methods
 
 void SSLClientSocketOpenSSL::GetSSLInfo(SSLInfo* ssl_info) {
+  // Chrome DCHECKs that https pages provide a valid cert. For now (whilst in
+  // early dev) we just create a spoof cert.
+  // TODO(joth): implement X509Certificate for OpenSSL and remove this hack.
+  LOG(WARNING) << "Filling in certificate with bogus content";
+  ssl_info->Reset();
+  ssl_info->cert = X509Certificate::CreateFromBytes(
+      reinterpret_cast<const char*>(google_der), sizeof(google_der));
+  DCHECK(ssl_info->cert);
+  ssl_info->cert_status = 0;
+  ssl_info->security_bits = 56;
+  ssl_info->connection_status =
+      ((TLS1_CK_RSA_EXPORT1024_WITH_DES_CBC_SHA) &
+          SSL_CONNECTION_CIPHERSUITE_MASK) << SSL_CONNECTION_CIPHERSUITE_SHIFT;
+
+  // Silence compiler about unused vars.
+  (void)google_der;
+  (void)webkit_der;
+  (void)thawte_der;
+  (void)paypal_null_der;
 }
 
 void SSLClientSocketOpenSSL::GetSSLCertRequestInfo(
     SSLCertRequestInfo* cert_request_info) {
+  NOTREACHED();
 }
 
-SSLClientSocket::NextProtoStatus
-SSLClientSocketOpenSSL::GetNextProto(std::string* proto) {
+SSLClientSocket::NextProtoStatus SSLClientSocketOpenSSL::GetNextProto(
+    std::string* proto) {
+  proto->clear();
   return kNextProtoUnsupported;
 }
 
@@ -141,36 +190,61 @@ void SSLClientSocketOpenSSL::DoWriteCallback(int rv) {
 
 // ClientSocket methods
 
-// Should make a proper return error
-// and call the callback with more info
 int SSLClientSocketOpenSSL::Connect(CompletionCallback* callback) {
-  if(!InitOpenSSL()) {
-    return -1; // Anything but OK signals error
+  net_log_.BeginEvent(NetLog::TYPE_SSL_CONNECT, NULL);
+
+  if (!InitOpenSSL()) {
+    net_log_.EndEvent(NetLog::TYPE_SSL_CONNECT, NULL);
+    return ERR_UNEXPECTED;
   }
 
-  // Set up new ssl object
-  if(!Init()) {
-    return -1;
+  // Set up new ssl object.
+  if (!Init()) {
+    net_log_.EndEvent(NetLog::TYPE_SSL_CONNECT, NULL);
+    return ERR_UNEXPECTED;
   }
 
-  // Handshake happens here
-  int err = SSL_connect(ssl);
+  // Set SSL to client mode. Handshake happens in the loop below.
+  SSL_set_connect_state(ssl_);
 
   GotoState(STATE_HANDSHAKE);
   int rv = DoHandshakeLoop(net::OK);
   if (rv == ERR_IO_PENDING) {
     user_connect_callback_ = callback;
+  } else {
+    net_log_.EndEvent(NetLog::TYPE_SSL_CONNECT, NULL);
   }
 
-  // (Optional) Tell loadlog we are starting and store a ref
   return rv > OK ? OK : rv;
 }
 
 void SSLClientSocketOpenSSL::Disconnect() {
-  // Null all callbacks
-  // Delete all buffers
-  // Handshake not completed anymore
-  //verifier_.reset();
+  // Null all callbacks, delete all buffers.
+  transport_send_busy_ = false;
+  send_buffer_ = NULL;
+  transport_recv_busy_ = false;
+  recv_buffer_ = NULL;
+
+  user_connect_callback_ = NULL;
+  user_read_callback_    = NULL;
+  user_write_callback_   = NULL;
+  user_read_buf_         = NULL;
+  user_read_buf_len_     = 0;
+  user_write_buf_        = NULL;
+  user_write_buf_len_    = 0;
+
+  client_certs_.clear();
+  client_auth_cert_needed_ = false;
+
+  if (ssl_) {
+    SSL_free(ssl_);
+    ssl_ = NULL;
+  }
+  if (transport_bio_) {
+    BIO_free(transport_bio_);
+    transport_bio_ = NULL;
+  }
+
   completed_handshake_ = false;
   transport_->socket()->Disconnect();
 }
@@ -193,16 +267,18 @@ int SSLClientSocketOpenSSL::DoHandshakeLoop(int last_io_result) {
       case STATE_HANDSHAKE:
         rv = DoHandshake();
         break;
+#if 0  // TODO(joth): Implement cert verification.
       case STATE_VERIFY_CERT:
-//        DCHECK(rv == OK);
-//        rv = DoVerifyCert(rv);
-//       break;
+        DCHECK(rv == OK);
+        rv = DoVerifyCert(rv);
+       break;
       case STATE_VERIFY_CERT_COMPLETE:
-//        rv = DoVerifyCertComplete(rv);
-//        break;
+        rv = DoVerifyCertComplete(rv);
+        break;
+#endif
       default:
-//        rv = ERR_UNEXPECTED;
-//        NOTREACHED() << "unexpected state";
+        rv = ERR_UNEXPECTED;
+        NOTREACHED() << "unexpected state" << state;
         break;
     }
 
@@ -210,7 +286,7 @@ int SSLClientSocketOpenSSL::DoHandshakeLoop(int last_io_result) {
     if (next_handshake_state_ == STATE_NONE)
       break;
 
-    // Do the actual network I/O
+    // Do the actual network I/O.
     network_moved = DoTransportIO();
   } while ((rv != ERR_IO_PENDING || network_moved) &&
             next_handshake_state_ != STATE_NONE);
@@ -218,31 +294,24 @@ int SSLClientSocketOpenSSL::DoHandshakeLoop(int last_io_result) {
 }
 
 int SSLClientSocketOpenSSL::DoHandshake() {
-  int rv = SSL_do_handshake(ssl);
+  int net_error = net::OK;
+  int rv = SSL_do_handshake(ssl_);
 
   if (rv == 1) {
     // SSL handshake is completed.  Let's verify the certificate.
-    // For now we are done, certificates not implemented yet
-    // TODO: Implement certificates
-    rv = OK;
+    // For now we are done, certificates not implemented yet.
+    // TODO(joth): Implement certificates
     GotoState(STATE_NONE);
     completed_handshake_ = true;
   } else {
-    int ssl_error = SSL_get_error(ssl, rv);
+    int ssl_error = SSL_get_error(ssl_, rv);
 
     // If not done, stay in this state
-    if (ssl_error == SSL_ERROR_WANT_READ) {
-      rv = ERR_IO_PENDING;
-      GotoState(STATE_HANDSHAKE);
-    } else if (ssl_error == SSL_ERROR_WANT_WRITE) {
-      rv = ERR_IO_PENDING;
-      GotoState(STATE_HANDSHAKE);
-    } else {
-      GotoState(STATE_HANDSHAKE);
-    }
+    GotoState(STATE_HANDSHAKE);
+    net_error = MapOpenSSLError(ssl_error);
   }
 
-  return rv;
+  return net_error;
 }
 
 bool SSLClientSocketOpenSSL::DoTransportIO() {
@@ -250,93 +319,97 @@ bool SSLClientSocketOpenSSL::DoTransportIO() {
   int nsent = BufferSend();
   int nreceived = BufferRecv();
   network_moved = (nsent > 0 || nreceived >= 0);
-
   return network_moved;
 }
 
 int SSLClientSocketOpenSSL::BufferSend(void) {
-  size_t data_pending = BIO_ctrl_pending(bio_write);
-  if (data_pending == 0) {
-    return NULL;
+  if (transport_send_busy_)
+    return ERR_IO_PENDING;
+
+  if (!send_buffer_) {
+    // Get a fresh send buffer out of the send BIO.
+    size_t max_read = BIO_ctrl_pending(transport_bio_);
+    if (max_read > 0) {
+      send_buffer_ = new DrainableIOBuffer(new IOBuffer(max_read), max_read);
+      int read_bytes = BIO_read(transport_bio_, send_buffer_->data(), max_read);
+      DCHECK_GT(read_bytes, 0);
+      CHECK_EQ(static_cast<int>(max_read), read_bytes);
+    }
   }
 
-  scoped_refptr<IOBuffer> send_buffer = new IOBuffer(data_pending);
-  int bytes_read = BIO_read(bio_write, send_buffer->data(), data_pending);
-
-  if (bytes_read > 0) {
-    int rv;
-    do {
-      rv = transport_->socket()->Write(send_buffer, data_pending, buffer_send_callback_);
-      if (rv == ERR_IO_PENDING) {
-        transport_send_busy_ = true;
-        break; // will get callback
-      } else if (rv < 0) {
-        // just resend and pray
-        //android_printLog(ANDROID_LOG_ERROR, "https", "transport->write returned %d", rv);
-      } else if (rv != bytes_read) { // TODO: what to do about the rest of data read from openssl?
-        //android_printLog(ANDROID_LOG_ERROR, "https", "Only sent %d out of %d bytes", rv, bytes_read);
-      }
-    } while (rv < ERR_IO_PENDING); // -1
-    return rv;
-  } else {
-    int err = SSL_get_error(ssl, bytes_read);
-    //android_printLog(ANDROID_LOG_DEBUG, "https", "SSL error in BufferSend: %d / %d (%d)", err, bytes_read, data_pending);
-    return 0;
+  int rv = 0;
+  while (send_buffer_) {
+    rv = transport_->socket()->Write(send_buffer_,
+                                     send_buffer_->BytesRemaining(),
+                                     &buffer_send_callback_);
+    if (rv == ERR_IO_PENDING) {
+      transport_send_busy_ = true;
+      return rv;
+    }
+    TransportWriteComplete(rv);
   }
+  return rv;
 }
 
 void SSLClientSocketOpenSSL::BufferSendComplete(int result) {
   transport_send_busy_ = false;
+  TransportWriteComplete(result);
   OnSendComplete(result);
+}
+
+void SSLClientSocketOpenSSL::TransportWriteComplete(int result) {
+  if (result < 0) {
+    // Got a socket write error; close the BIO to indicate this upward.
+    (void)BIO_shutdown_wr(transport_bio_);
+    send_buffer_ = NULL;
+  } else {
+    DCHECK(send_buffer_);
+    send_buffer_->DidConsume(result);
+    DCHECK_GE(send_buffer_->BytesRemaining(), 0);
+    if (send_buffer_->BytesRemaining() <= 0)
+      send_buffer_ = NULL;
+  }
 }
 
 int SSLClientSocketOpenSSL::BufferRecv(void) {
   if (transport_recv_busy_)
     return ERR_IO_PENDING;
 
-  int max_write = write_buf_size;
-//  Why does this not work?
-//  int max_write = BIO_ctrl_get_write_guarantee(bio_read);
-//  int mw        = BIO_ctrl_get_write_guarantee(bio_write);
-//  android_printLog(ANDROID_LOG_DEBUG, "https", "BufferRecv can write at most %d", max_write);
-  
-  int rv;
-  if (!max_write) {
-    rv = ERR_IO_PENDING;
+  size_t max_write = BIO_ctrl_get_write_guarantee(transport_bio_);
+  if (max_write > kMaxRecvBufferSize)
+    max_write = kMaxRecvBufferSize;
+
+  if (!max_write)
+    return ERR_IO_PENDING;
+
+  recv_buffer_ = new IOBuffer(max_write);
+  int rv = transport_->socket()->Read(recv_buffer_, max_write,
+                                      &buffer_recv_callback_);
+  if (rv == ERR_IO_PENDING) {
+    transport_recv_busy_ = true;
   } else {
-    recv_buffer_ = new IOBuffer(max_write);
-    rv = transport_->socket()->Read(recv_buffer_, max_write, buffer_recv_callback_);
-    if (rv == ERR_IO_PENDING) {
-      transport_recv_busy_ = true;
-    } else {
-      if (rv > 0) {
-        int ret = BIO_write(bio_read, recv_buffer_->data(), rv);
-        if (ret != rv) {
-          //android_printLog(ANDROID_LOG_ERROR, "https", "wrote less than capacity, should not happen (%d > %d : %d)", rv, ret, max_write);
-        }
-      } else {
-        BIO_set_mem_eof_return(bio_read, 0);
-        BIO_shutdown_wr(bio_read);
-      }
-      recv_buffer_ = NULL;
-    }
+    TransportReadComplete(rv);
   }
   return rv;
 }
 
 void SSLClientSocketOpenSSL::BufferRecvComplete(int result) {
+  TransportReadComplete(result);
+  OnRecvComplete(result);
+}
+
+void SSLClientSocketOpenSSL::TransportReadComplete(int result) {
   if (result > 0) {
-    int ret = BIO_write(bio_read, recv_buffer_->data(), result);
-    if (ret != result) {
-      //android_printLog(ANDROID_LOG_ERROR, "https", "BIO_write returned: %d (not %d)", ret, result);
-    }
+    int ret = BIO_write(transport_bio_, recv_buffer_->data(), result);
+    // A write into a memory BIO should always succeed.
+    CHECK_EQ(result, ret);
   } else {
-    BIO_set_mem_eof_return(bio_read, 0);
-    BIO_shutdown_wr(bio_read);
+    // Received end of file: bubble it up to the SSL layer via the BIO.
+    BIO_set_mem_eof_return(transport_bio_, 0);
+    (void)BIO_shutdown_wr(transport_bio_);
   }
   recv_buffer_ = NULL;
   transport_recv_busy_ = false;
-  OnRecvComplete(result);
 }
 
 void SSLClientSocketOpenSSL::DoConnectCallback(int rv) {
@@ -348,6 +421,7 @@ void SSLClientSocketOpenSSL::DoConnectCallback(int rv) {
 void SSLClientSocketOpenSSL::OnHandshakeIOComplete(int result) {
   int rv = DoHandshakeLoop(result);
   if (rv != ERR_IO_PENDING) {
+    net_log_.EndEvent(NetLog::TYPE_SSL_CONNECT, NULL);
     DoConnectCallback(rv);
   }
 }
@@ -389,10 +463,8 @@ void SSLClientSocketOpenSSL::OnRecvComplete(int result) {
 
   // Network layer received some data, check if client requested to read
   // decrypted data.
-  if (!user_read_buf_) {
-    //android_printLog(ANDROID_LOG_ERROR, "https", "recv with no user_read_buf_");
+  if (!user_read_buf_)
     return;
-  }
 
   int rv = DoReadLoop(result);
   if (rv != ERR_IO_PENDING)
@@ -414,20 +486,46 @@ int SSLClientSocketOpenSSL::GetPeerAddress(AddressList* addressList) const {
 }
 
 const BoundNetLog& SSLClientSocketOpenSSL::NetLog() const {
-  return net_log_; 
+  return net_log_;
+}
+
+void SSLClientSocketOpenSSL::SetSubresourceSpeculation() {
+  if (transport_.get() && transport_->socket()) {
+    transport_->socket()->SetSubresourceSpeculation();
+  } else {
+    NOTREACHED();
+  }
+}
+
+void SSLClientSocketOpenSSL::SetOmniboxSpeculation() {
+  if (transport_.get() && transport_->socket()) {
+    transport_->socket()->SetOmniboxSpeculation();
+  } else {
+    NOTREACHED();
+  }
+}
+
+bool SSLClientSocketOpenSSL::WasEverUsed() const {
+  if (transport_.get() && transport_->socket())
+    return transport_->socket()->WasEverUsed();
+
+  NOTREACHED();
+  return false;
 }
 
 // Socket methods
 
-int SSLClientSocketOpenSSL::Read(IOBuffer* buf, int buf_len, CompletionCallback* callback) {
+int SSLClientSocketOpenSSL::Read(IOBuffer* buf,
+                                 int buf_len,
+                                 CompletionCallback* callback) {
   user_read_buf_ = buf;
   user_read_buf_len_ = buf_len;
 
   int rv = DoReadLoop(OK);
 
-  if (rv == ERR_IO_PENDING)
+  if (rv == ERR_IO_PENDING) {
     user_read_callback_ = callback;
-  else {
+  } else {
     user_read_buf_ = NULL;
     user_read_buf_len_ = 0;
   }
@@ -449,15 +547,17 @@ int SSLClientSocketOpenSSL::DoReadLoop(int result) {
   return rv;
 }
 
-int SSLClientSocketOpenSSL::Write(IOBuffer* buf, int buf_len, CompletionCallback* callback) {
+int SSLClientSocketOpenSSL::Write(IOBuffer* buf,
+                                  int buf_len,
+                                  CompletionCallback* callback) {
   user_write_buf_ = buf;
   user_write_buf_len_ = buf_len;
 
   int rv = DoWriteLoop(OK);
 
-  if (rv == ERR_IO_PENDING)
+  if (rv == ERR_IO_PENDING) {
     user_write_callback_ = callback;
-  else {
+  } else {
     user_write_buf_ = NULL;
     user_write_buf_len_ = 0;
   }
@@ -480,49 +580,35 @@ int SSLClientSocketOpenSSL::DoWriteLoop(int result) {
 }
 
 bool SSLClientSocketOpenSSL::SetReceiveBufferSize(int32 size) {
-  return true;
+  return transport_->socket()->SetReceiveBufferSize(size);
 }
 
 bool SSLClientSocketOpenSSL::SetSendBufferSize(int32 size) {
-  return true;
+  return transport_->socket()->SetSendBufferSize(size);
 }
 
-
 int SSLClientSocketOpenSSL::DoPayloadRead() {
-  int rv = SSL_read(ssl, user_read_buf_->data(), user_read_buf_len_);
-  if (client_auth_cert_needed_) {
-    // We don't need to invalidate the non-client-authenticated SSL session
-    // because the server will renegotiate anyway.
+  int rv = SSL_read(ssl_, user_read_buf_->data(), user_read_buf_len_);
+  // We don't need to invalidate the non-client-authenticated SSL session
+  // because the server will renegotiate anyway.
+  if (client_auth_cert_needed_)
     return ERR_SSL_CLIENT_AUTH_CERT_NEEDED;
-  }
 
-  if (rv >= 0) {
+  if (rv >= 0)
     return rv;
-  }
 
-  int err = SSL_get_error(ssl, rv);
-  if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-    // This will trigger another read/write after DoTransportIO
-    return ERR_IO_PENDING;
-  }
-
-  return rv; // return err instead?
+  int err = SSL_get_error(ssl_, rv);
+  return MapOpenSSLError(err);
 }
 
 int SSLClientSocketOpenSSL::DoPayloadWrite() {
-  int rv = SSL_write(ssl, user_write_buf_->data(), user_write_buf_len_);
+  int rv = SSL_write(ssl_, user_write_buf_->data(), user_write_buf_len_);
 
-  if (rv >= 0) {
+  if (rv >= 0)
     return rv;
-  }
 
-  int err = SSL_get_error(ssl, rv);
-  if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-    // This will trigger another read/write after DoTransportIO
-    return ERR_IO_PENDING;
-  }
-
-  return rv; // return err instead ?
+  int err = SSL_get_error(ssl_, rv);
+  return MapOpenSSLError(err);
 }
 
 } // namespace net

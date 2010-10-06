@@ -1,29 +1,21 @@
-/*
- * Copyright (C) 2010 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef NET_SOCKET_SSL_CLIENT_SOCKET_OPENSSL_H_
 #define NET_SOCKET_SSL_CLIENT_SOCKET_OPENSSL_H_
+#pragma once
 
 #include "base/scoped_ptr.h"
+#include "net/base/completion_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ssl_config_service.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/client_socket_handle.h"
 
-#include "openssl/ssl.h"
+typedef struct bio_st BIO;
+typedef struct ssl_ctx_st SSL_CTX;
+typedef struct ssl_st SSL;
 
 namespace net {
 
@@ -39,8 +31,8 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   // certificate during the SSL handshake.  ssl_config specifies the SSL
   // settings.
   SSLClientSocketOpenSSL(ClientSocketHandle* transport_socket,
-                     const std::string& hostname,
-                     const SSLConfig& ssl_config);
+                         const std::string& hostname,
+                         const SSLConfig& ssl_config);
   ~SSLClientSocketOpenSSL();
 
   // SSLClientSocket methods:
@@ -55,6 +47,9 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   virtual bool IsConnectedAndIdle() const;
   virtual int GetPeerAddress(AddressList*) const;
   virtual const BoundNetLog& NetLog() const;
+  virtual void SetSubresourceSpeculation();
+  virtual void SetOmniboxSpeculation();
+  virtual bool WasEverUsed() const;
 
   // Socket methods:
   virtual int Read(IOBuffer* buf, int buf_len, CompletionCallback* callback);
@@ -63,8 +58,6 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   virtual bool SetSendBufferSize(int32 size);
 
  private:
-  // Initializes OpenSSL SSL options.  Returns a net error code.
-  bool InitializeSSLOptions();
   bool InitOpenSSL();
   bool Init();
   void DoReadCallback(int result);
@@ -84,14 +77,17 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   int DoPayloadRead();
   int DoPayloadWrite();
 
-  int BufferSend(void);
-  int BufferRecv(void);
+  int BufferSend();
+  int BufferRecv();
   void BufferSendComplete(int result);
   void BufferRecvComplete(int result);
+  void TransportWriteComplete(int result);
+  void TransportReadComplete(int result);
 
-  CompletionCallbackImpl<SSLClientSocketOpenSSL> *buffer_send_callback_;
-  CompletionCallbackImpl<SSLClientSocketOpenSSL> *buffer_recv_callback_;
+  CompletionCallbackImpl<SSLClientSocketOpenSSL> buffer_send_callback_;
+  CompletionCallbackImpl<SSLClientSocketOpenSSL> buffer_recv_callback_;
   bool transport_send_busy_;
+  scoped_refptr<DrainableIOBuffer> send_buffer_;
   bool transport_recv_busy_;
   scoped_refptr<IOBuffer> recv_buffer_;
 
@@ -111,13 +107,11 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
   // GetSSLCertRequestInfo calls.
   std::vector<scoped_refptr<X509Certificate> > client_certs_;
   bool client_auth_cert_needed_;
-  
+
   // OpenSSL stuff
-  static SSL_CTX* ctx;
-  SSL* ssl;
-  BIO* bio_read;
-  BIO* bio_write;
-  size_t write_buf_size;
+  static SSL_CTX* g_ctx;
+  SSL* ssl_;
+  BIO* transport_bio_;
 
   scoped_ptr<ClientSocketHandle> transport_;
   std::string hostname_;

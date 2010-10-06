@@ -52,6 +52,12 @@ X509Certificate::OSCertHandle X509Certificate::CreateOSCertHandleFromBytes(
   return NULL;
 }
 
+X509Certificate::OSCertHandles X509Certificate::CreateOSCertHandlesFromBytes(
+    const char* data, int length, Format format) {
+  OSCertHandles results;
+  return results;
+}
+
 X509Certificate* X509Certificate::CreateFromPickle(const Pickle& pickle,
                                            void** pickle_iter) {
     return NULL;
