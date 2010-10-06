@@ -65,7 +65,7 @@ struct RunnableMethodTraits<class URLFetcherProxy> {
 // Note that we overide the minimum number of methods to allow this
 // class to be used by AutoFillDownloadManager ...
 // - set_upload_data()
-// - set_automatcally_retry_on_5xx()
+// - set_automatically_retry_on_5xx()
 // - Start()
 class URLFetcherProxy : public URLFetcher, public URLFetcher::Delegate {
 public:
@@ -82,7 +82,7 @@ public:
   {
   }
 
-  virtual void set_automatcally_retry_on_5xx(bool retry)
+  virtual void set_automatically_retry_on_5xx(bool retry)
   {
     retry_ = retry;
   }
@@ -128,7 +128,7 @@ private:
   void DoStart()
   {
     real_fetcher_.reset(new URLFetcher(url(), request_type_, this));
-    real_fetcher_->set_automatcally_retry_on_5xx(retry_);
+    real_fetcher_->set_automatically_retry_on_5xx(retry_);
     // We expect set_upload_data() to have been called on this object.
     real_fetcher_->set_upload_data(upload_content_type_, upload_content_);
     real_fetcher_->set_request_context(ProfileImplAndroid::GetDefaultRequestContext());

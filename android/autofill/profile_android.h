@@ -36,7 +36,7 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 
 namespace base {
@@ -122,6 +122,7 @@ class ProfileImplAndroid : public Profile {
   virtual Profile* GetOffTheRecordProfile() { NOTREACHED(); return NULL; }
   virtual void DestroyOffTheRecordProfile() { NOTREACHED(); }
   virtual bool HasOffTheRecordProfile() { NOTREACHED(); return false; }
+  virtual ChromeAppCacheService* GetAppCacheService() { NOTREACHED(); return NULL; }
   virtual webkit_database::DatabaseTracker* GetDatabaseTracker() { NOTREACHED(); return NULL; }
   virtual history::TopSites* GetTopSites() { NOTREACHED(); return NULL; }
   virtual VisitedLinkMaster* GetVisitedLinkMaster() { NOTREACHED(); return NULL; }
@@ -142,6 +143,7 @@ class ProfileImplAndroid : public Profile {
   virtual TemplateURLModel* GetTemplateURLModel() { NOTREACHED(); return NULL; }
   virtual TemplateURLFetcher* GetTemplateURLFetcher() { NOTREACHED(); return NULL; }
   virtual DownloadManager* GetDownloadManager() { NOTREACHED(); return NULL; }
+  virtual FileSystemHostContext* GetFileSystemHostContext() { NOTREACHED(); return NULL; }
   virtual void InitThemes() { NOTREACHED(); }
   virtual void SetTheme(Extension* extension) { NOTREACHED(); }
   virtual void SetNativeTheme() { NOTREACHED(); }
@@ -175,13 +177,16 @@ class ProfileImplAndroid : public Profile {
   virtual WebKitContext* GetWebKitContext()  { NOTREACHED(); return NULL; }
   virtual DesktopNotificationService* GetDesktopNotificationService() { NOTREACHED(); return NULL; }
   virtual BackgroundContentsService* GetBackgroundContentsService()  { NOTREACHED(); return NULL; }
+  virtual StatusTray* GetStatusTray() { NOTREACHED(); return NULL; }
   virtual void MarkAsCleanShutdown() { NOTREACHED(); }
   virtual void InitExtensions() { NOTREACHED(); }
   virtual void InitWebResources() { NOTREACHED(); }
   virtual NTPResourceCache* GetNTPResourceCache()  { NOTREACHED(); return NULL; }
   virtual FilePath last_selected_directory() { NOTREACHED(); return FilePath(""); }
   virtual void set_last_selected_directory(const FilePath& path) { NOTREACHED(); }
+  virtual ChromeBlobStorageContext* GetBlobStorageContext() { NOTREACHED(); return NULL; }
   virtual ProfileSyncService* GetProfileSyncService()  { NOTREACHED();  return NULL; }
+  virtual ProfileSyncService* GetProfileSyncService(const std::string&) { NOTREACHED(); return NULL; }
   virtual TokenService* GetTokenService()  { NOTREACHED(); return NULL; }
   void InitSyncService() { NOTREACHED(); }
   virtual CloudPrintProxyService* GetCloudPrintProxyService()  { NOTREACHED(); return NULL; }
