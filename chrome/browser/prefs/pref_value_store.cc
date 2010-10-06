@@ -4,13 +4,17 @@
 
 #include "chrome/browser/prefs/pref_value_store.h"
 
+#ifndef ANDROID
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/extensions/extension_pref_store.h"
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
 #include "chrome/browser/prefs/command_line_pref_store.h"
+#endif
 #include "chrome/browser/prefs/default_pref_store.h"
+#ifndef ANDROID
 #include "chrome/common/json_pref_store.h"
 #include "chrome/common/notification_service.h"
+#endif
 
 namespace {
 
@@ -38,6 +42,9 @@ PrefValueStore* PrefValueStore::CreatePrefValueStore(
     const FilePath& pref_filename,
     Profile* profile,
     bool user_only) {
+#ifdef ANDROID
+  return new PrefValueStore(NULL, NULL, NULL, NULL, NULL, new DefaultPrefStore());
+#else
   using policy::ConfigurationPolicyPrefStore;
   ConfigurationPolicyPrefStore* managed = NULL;
   ExtensionPrefStore* extension = NULL;
@@ -58,6 +65,7 @@ PrefValueStore* PrefValueStore::CreatePrefValueStore(
   }
   return new PrefValueStore(managed, extension, command_line, user,
                             recommended, default_store);
+#endif
 }
 
 PrefValueStore::~PrefValueStore() {}
@@ -239,6 +247,7 @@ bool PrefValueStore::PrefValueInStore(const char* name,
   return false;
 }
 
+#ifndef ANDROID
 void PrefValueStore::RefreshPolicyPrefsCompletion(
     PrefStore* new_managed_pref_store,
     PrefStore* new_recommended_pref_store,
@@ -323,6 +332,7 @@ void PrefValueStore::RefreshPolicyPrefs(
                         new_recommended_pref_store,
                         callback));
 }
+#endif // ANDROID
 
 PrefValueStore::PrefValueStore(PrefStore* managed_prefs,
                                PrefStore* extension_prefs,

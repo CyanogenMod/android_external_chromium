@@ -16,7 +16,9 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/values.h"
+#ifndef ANDROID
 #include "chrome/browser/chrome_thread.h"
+#endif
 #include "chrome/browser/prefs/pref_notifier.h"
 #include "chrome/common/pref_store.h"
 
@@ -47,6 +49,9 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
                                               Profile* profile,
                                               bool user_only);
 
+#ifdef ANDROID
+  virtual
+#endif
   ~PrefValueStore();
 
   // Gets the value for the given preference name that has a valid value type;
@@ -147,6 +152,7 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
   // lifecycle is managed in another thread.
   typedef Callback1<std::vector<std::string> >::Type AfterRefreshCallback;
 
+#ifndef ANDROID
   // Called as a result of a notification of policy change. Triggers a
   // reload of managed preferences from policy. Caller must pass in
   // new, uninitialized managed and recommended PrefStores in
@@ -159,6 +165,7 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
   void RefreshPolicyPrefs(PrefStore* managed_pref_store,
                           PrefStore* recommended_pref_store,
                           AfterRefreshCallback* callback);
+#endif
 
  protected:
   // In decreasing order of precedence:
@@ -198,6 +205,7 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
   bool PrefValueInStore(const char* name,
                         PrefNotifier::PrefStoreType store) const;
 
+#ifndef ANDROID
   // Called during policy refresh after ReadPrefs completes on the thread
   // that initiated the policy refresh. RefreshPolicyPrefsCompletion takes
   // ownership of the |callback| object.
@@ -213,6 +221,7 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
       PrefStore* new_managed_pref_store,
       PrefStore* new_recommended_pref_store,
       AfterRefreshCallback* callback);
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(PrefValueStore);
 };

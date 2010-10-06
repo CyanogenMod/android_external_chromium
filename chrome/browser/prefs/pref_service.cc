@@ -7,8 +7,13 @@
 #include <algorithm>
 #include <string>
 
+#ifndef ANDROID
+// FIXME: Do we need this on Android?
 #include "app/l10n_util.h"
+#endif
+#ifndef ANDROID
 #include "base/command_line.h"
+#endif
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/histogram.h"
@@ -22,9 +27,13 @@
 #include "build/build_config.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/profile.h"
+#ifndef ANDROID
+// Notifications do not compile on Android and are the cause
+// of most of the ANDROID guards in this file.
 #include "chrome/common/notification_service.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
+#endif
 
 namespace {
 
@@ -32,6 +41,7 @@ namespace {
 // the string value in the locale dll.  Because we control the values in a
 // locale dll, this should always return a Value of the appropriate type.
 Value* CreateLocaleDefaultValue(Value::ValueType type, int message_id) {
+#ifndef ANDROID
   std::string resource_string = l10n_util::GetStringUTF8(message_id);
   DCHECK(!resource_string.empty());
   switch (type) {
@@ -64,6 +74,7 @@ Value* CreateLocaleDefaultValue(Value::ValueType type, int message_id) {
           "list and dictionary types cannot have default locale values";
     }
   }
+#endif
   NOTREACHED();
   return Value::CreateNullValue();
 }
@@ -71,9 +82,11 @@ Value* CreateLocaleDefaultValue(Value::ValueType type, int message_id) {
 // Forwards a notification after a PostMessage so that we can wait for the
 // MessageLoop to run.
 void NotifyReadError(PrefService* pref, int message_id) {
+#ifndef ANDROID
   Source<PrefService> source(pref);
   NotificationService::current()->Notify(NotificationType::PROFILE_ERROR,
                                          source, Details<int>(&message_id));
+#endif
 }
 
 }  // namespace
@@ -81,7 +94,7 @@ void NotifyReadError(PrefService* pref, int message_id) {
 // static
 PrefService* PrefService::CreatePrefService(const FilePath& pref_filename,
                                             Profile* profile) {
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) && !defined(ANDROID)
   // We'd like to see what fraction of our users have the preferences
   // stored on a network file system, as we've had no end of troubles
   // with NFS/AFS.
@@ -106,7 +119,9 @@ PrefService* PrefService::CreateUserPrefService(const FilePath& pref_filename) {
 
 PrefService::PrefService(PrefValueStore* pref_value_store)
     : pref_value_store_(pref_value_store) {
+#ifndef ANDROID
   pref_notifier_.reset(new PrefNotifier(this, pref_value_store));
+#endif
   InitFromStorage();
 }
 
@@ -117,6 +132,7 @@ PrefService::~PrefService() {
 }
 
 void PrefService::InitFromStorage() {
+#ifndef ANDROID
   PrefStore::PrefReadError error = LoadPersistentPrefs();
   if (error == PrefStore::PREF_READ_ERROR_NONE)
     return;
@@ -136,6 +152,7 @@ void PrefService::InitFromStorage() {
         NewRunnableFunction(&NotifyReadError, this, message_id));
   }
   UMA_HISTOGRAM_ENUMERATION("PrefService.ReadError", error, 20);
+#endif
 }
 
 bool PrefService::ReloadPersistentPrefs() {
@@ -353,6 +370,7 @@ const ListValue* PrefService::GetList(const char* path) const {
   return static_cast<const ListValue*>(value);
 }
 
+#ifndef ANDROID
 void PrefService::AddPrefObserver(const char* path,
                                   NotificationObserver* obs) {
   pref_notifier_->AddPrefObserver(path, obs);
@@ -362,6 +380,7 @@ void PrefService::RemovePrefObserver(const char* path,
                                      NotificationObserver* obs) {
   pref_notifier_->RemovePrefObserver(path, obs);
 }
+#endif
 
 void PrefService::RegisterPreference(const char* path, Value* default_value) {
   DCHECK(CalledOnValidThread());
@@ -400,8 +419,10 @@ void PrefService::ClearPref(const char* path) {
     NOTREACHED() << "Trying to clear an unregistered pref: " << path;
     return;
   }
+#ifndef ANDROID
   if (pref_value_store_->RemoveUserPrefValue(path))
     pref_notifier_->OnUserPreferenceSet(path);
+#endif
 }
 
 void PrefService::Set(const char* path, const Value& value) {
@@ -427,9 +448,10 @@ void PrefService::Set(const char* path, const Value& value) {
   } else {
     value_changed = pref_value_store_->SetUserPrefValue(path, value.DeepCopy());
   }
-
+#ifndef ANDROID
   if (value_changed)
     pref_notifier_->OnUserPreferenceSet(path);
+#endif
 }
 
 void PrefService::SetBoolean(const char* path, bool value) {
@@ -564,8 +586,10 @@ void PrefService::SetUserPrefValue(const char* path, Value* new_value) {
     return;
   }
 
+#ifndef ANDROID
   if (pref_value_store_->SetUserPrefValue(path, new_value))
     pref_notifier_->OnUserPreferenceSet(path);
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////

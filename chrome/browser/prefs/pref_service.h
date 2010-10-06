@@ -218,15 +218,19 @@ class PrefService : public NonThreadSafe {
 
   bool read_only() const { return pref_value_store_->ReadOnly(); }
 
+#ifndef ANDROID
   PrefNotifier* pref_notifier() const { return pref_notifier_.get(); }
+#endif
 
   PrefValueStore* pref_value_store() const { return pref_value_store_.get(); }
 
+#ifndef ANDROID
  protected:
   // The PrefNotifier handles registering and notifying preference observers.
   // It is created and owned by this PrefService. Subclasses may access it for
   // unit testing.
   scoped_ptr<PrefNotifier> pref_notifier_;
+#endif
 
  private:
   // Registration of pref change observers must be done using the
@@ -238,12 +242,14 @@ class PrefService : public NonThreadSafe {
   friend class PrefChangeRegistrar;
   friend class subtle::PrefMemberBase;
 
+#ifndef ANDROID
   // If the pref at the given path changes, we call the observer's Observe
   // method with PREF_CHANGED. Note that observers should not call these methods
   // directly but rather use a PrefChangeRegistrar to make sure the observer
   // gets cleaned up properly.
   virtual void AddPrefObserver(const char* path, NotificationObserver* obs);
   virtual void RemovePrefObserver(const char* path, NotificationObserver* obs);
+#endif
 
   // Add a preference to the PreferenceMap.  If the pref already exists, return
   // false.  This method takes ownership of |default_value|.
