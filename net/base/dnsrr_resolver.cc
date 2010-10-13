@@ -76,7 +76,7 @@ class CompletionCallbackTask : public Task,
   MessageLoop* message_loop_;
 };
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) && !defined(ANDROID)
 class ResolveTask : public Task {
  public:
   ResolveTask(const std::string& name, uint16 rrtype,
@@ -313,7 +313,7 @@ class Buffer {
 
 bool RRResponse::ParseFromResponse(const uint8* p, unsigned len,
                                    uint16 rrtype_requested) {
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) && !defined(ANDROID)
   name.clear();
   ttl = 0;
   dnssec = false;

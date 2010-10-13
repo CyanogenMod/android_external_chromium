@@ -52,7 +52,6 @@ HostCache* CreateDefaultCache() {
 
   return cache;
 }
-HostResolver* systemResolver = NULL;
 
 }  // anonymous namespace
 
@@ -61,6 +60,7 @@ HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
   // Maximum of 50 concurrent threads.
   // TODO(eroman): Adjust this, do some A/B experiments.
 #ifdef ANDROID
+  static HostResolver* systemResolver = NULL;
   static const size_t kDefaultMaxJobs = 4u;
 #else
   static const size_t kDefaultMaxJobs = 50u;
@@ -73,14 +73,16 @@ HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
   // TODO: Clean this up!
   if (!systemResolver)
     systemResolver = new HostResolverImpl(
-        NULL, CreateDefaultCache(), max_concurrent_resolves);
+        NULL, CreateDefaultCache(), max_concurrent_resolves, net_log);
+
+  return systemResolver;
 #else
   HostResolverImpl* resolver =
       new HostResolverImpl(NULL, CreateDefaultCache(),
                            max_concurrent_resolves, net_log);
-#endif
 
-  return systemResolver;
+  return resolver;
+#endif
 }
 
 static int ResolveAddrInfo(HostResolverProc* resolver_proc,

@@ -84,7 +84,11 @@ bool SSLConfigService::IsKnownStrictTLSServer(const std::string& hostname) {
 // static
 bool SSLConfigService::IsKnownFalseStartIncompatibleServer(
     const std::string& hostname) {
+#ifdef ANDROID
+  return true;
+#else
   return SSLFalseStartBlacklist::IsMember(hostname.c_str());
+#endif
 }
 
 static bool g_dnssec_enabled = false;

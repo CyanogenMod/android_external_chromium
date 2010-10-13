@@ -1824,7 +1824,10 @@ bool IPv6Supported() {
 }
 
 bool HaveOnlyLoopbackAddresses() {
-#if defined(OS_POSIX)
+#if defined(ANDROID)
+  // Android has no <ifaddrs.h>
+  return false;
+#elif defined(OS_POSIX)
   struct ifaddrs* interface_addr = NULL;
   int rv = getifaddrs(&interface_addr);
   if (rv != 0) {

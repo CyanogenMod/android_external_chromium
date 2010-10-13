@@ -85,6 +85,19 @@ const size_t kDefaultNumPacThreads = 4;
 // setups.
 const int64 kNumMillisToStallAfterNetworkChanges = 2000;
 
+#ifdef ANDROID
+// Config getter that fails every time.
+class ProxyConfigServiceNull : public ProxyConfigService {
+ public:
+  // ProxyConfigService implementation:
+  virtual void AddObserver(Observer* observer) {}
+  virtual void RemoveObserver(Observer* observer) {}
+  virtual bool GetLatestProxyConfig(ProxyConfig* config) {
+    return false;
+  }
+};
+#endif
+
 // Config getter that always returns direct settings.
 class ProxyConfigServiceDirect : public ProxyConfigService {
  public:

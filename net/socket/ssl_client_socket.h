@@ -30,6 +30,11 @@ class DNSSECProvider {
   //      function will return OK if called again.
   virtual int GetDNSSECRecords(RRResponse** out,
                                CompletionCallback* callback) = 0;
+
+#ifdef ANDROID
+ protected:
+  virtual ~DNSSECProvider() {}
+#endif
 };
 
 // A client socket that uses SSL as the transport layer.
