@@ -167,6 +167,11 @@ bool FlushPlatformFile(PlatformFile file) {
 
 bool TouchPlatformFile(PlatformFile file, const base::Time& last_access_time,
                        const base::Time& last_modified_time) {
+#ifdef ANDROID
+  // futimes() isn't actually POSIX.
+  // TODO: Check all callers to see if this needs to work correctly on Android.
+  return false;
+#else
   if (file < 0)
     return false;
 
@@ -174,6 +179,7 @@ bool TouchPlatformFile(PlatformFile file, const base::Time& last_access_time,
   times[0] = last_access_time.ToTimeVal();
   times[1] = last_modified_time.ToTimeVal();
   return !futimes(file, times);
+#endif
 }
 
 bool GetPlatformFileInfo(PlatformFile file, PlatformFileInfo* info) {
