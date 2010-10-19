@@ -20,6 +20,7 @@ JNIEnv* getJNIEnv();
 // WebCoreJni.h
 namespace android {
 std::string jstringToStdString(JNIEnv* env, jstring jstr);
+string16 jstringToString16(JNIEnv* env, jstring jstr);
 }
 
 namespace android {
@@ -30,6 +31,11 @@ JNIEnv* GetJNIEnv() {
 
 std::string JstringToStdString(JNIEnv* env, jstring jstr) {
   return jstringToStdString(env, jstr);
+}
+
+string16 JstringToString16(JNIEnv* env, jstring jstr)
+{
+    return jstringToString16(env, jstr);
 }
 
 } // namespace android

@@ -4,6 +4,7 @@
 
 #include <string>
 
+#include "base/string16.h"
 #include "nativehelper/jni.h"
 
 namespace android {
@@ -13,6 +14,8 @@ JNIEnv* GetJNIEnv();
 
 // Convert Java String to std::string. On null input, returns an empty string.
 std::string JstringToStdString(JNIEnv* env, jstring jstr);
+
+string16 JstringToString16(JNIEnv* env, jstring jstr);
 
 } // namespace android
 

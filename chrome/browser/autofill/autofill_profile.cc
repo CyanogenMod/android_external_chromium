@@ -10,9 +10,7 @@
 #include <set>
 #include <vector>
 
-#ifndef ANDROID
 #include "app/l10n_util.h"
-#endif
 #include "base/stl_util-inl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/address.h"
@@ -166,12 +164,6 @@ FormGroup* AutoFillProfile::Clone() const {
 }
 
 string16 AutoFillProfile::PreviewSummary() const {
-#ifdef ANDROID
-  // TODO: What should the UX for AutoFill previews be? Should it be
-  // used at all? For now stub the method. We cannot compile the
-  // other side of the #else due to it's use of l10n functions.
-  return string16();
-#else
   // Fetch the components of the summary string.  Any or all of these
   // may be an empty string.
   string16 first_name = GetFieldText(AutoFillType(NAME_FIRST));
@@ -213,7 +205,6 @@ string16 AutoFillProfile::PreviewSummary() const {
       address);
 
   return summary_format;
-#endif
 }
 
 // static

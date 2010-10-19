@@ -7,10 +7,7 @@
 #include <algorithm>
 #include <string>
 
-#ifndef ANDROID
-// FIXME: Do we need this on Android?
 #include "app/l10n_util.h"
-#endif
 #ifndef ANDROID
 #include "base/command_line.h"
 #endif

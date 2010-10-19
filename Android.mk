@@ -58,6 +58,7 @@ LOCAL_SRC_FILES := \
     googleurl/src/url_parse_file.cc \
     googleurl/src/url_util.cc \
     \
+    android/app/l10n_util.cc \
     android/jni/mime_utils.cc \
     android/jni/jni_utils.cc \
     \
