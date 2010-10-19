@@ -4,17 +4,13 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_RENDER_VIEW_CONTEXT_MENU_GTK_H_
 #define CHROME_BROWSER_TAB_CONTENTS_RENDER_VIEW_CONTEXT_MENU_GTK_H_
-
-#include <map>
-#include <string>
-#include <vector>
+#pragma once
 
 #include "base/scoped_ptr.h"
 #include "chrome/browser/gtk/menu_gtk.h"
 #include "chrome/browser/tab_contents/render_view_context_menu.h"
 #include "gfx/point.h"
 
-class RenderWidgetHostView;
 struct ContextMenuParams;
 
 class RenderViewContextMenuGtk : public RenderViewContextMenu,

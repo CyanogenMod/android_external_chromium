@@ -8,7 +8,7 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/test/test_server.h"
 
 static void PrintUsage() {
   printf("run_testserver --doc-root=relpath [--http|--https|--ftp]\n");
@@ -29,41 +29,28 @@ int main(int argc, const char* argv[]) {
     return -1;
   }
 
-  std::string protocol;
-  int port;
-  if (command_line->HasSwitch("https")) {
-    protocol = "https";
-    port = net::TestServerLauncher::kOKHTTPSPort;
-  } else if (command_line->HasSwitch("ftp")) {
-    protocol = "ftp";
-    port = kFTPDefaultPort;
-  } else {
-    protocol = "http";
-    port = kHTTPDefaultPort;
-  }
-  std::wstring doc_root = command_line->GetSwitchValue("doc-root");
+  FilePath doc_root =  command_line->GetSwitchValuePath("doc-root");
   if (doc_root.empty()) {
     printf("Error: --doc-root must be specified\n");
     PrintUsage();
     return -1;
   }
 
-  // Launch testserver
-  scoped_refptr<BaseTestServer> test_server;
-  if (protocol == "https") {
-    test_server = HTTPSTestServer::CreateGoodServer(doc_root);
-  } else if (protocol == "ftp") {
-    test_server = FTPTestServer::CreateServer(doc_root);
-  } else if (protocol == "http") {
-    test_server = HTTPTestServer::CreateServer(doc_root, NULL);
-  } else {
-    NOTREACHED();
+  net::TestServer::Type server_type(net::TestServer::TYPE_HTTP);
+  if (command_line->HasSwitch("https")) {
+    server_type = net::TestServer::TYPE_HTTPS;
+  } else if (command_line->HasSwitch("ftp")) {
+    server_type = net::TestServer::TYPE_FTP;
   }
 
-  printf("testserver running at %s://%s:%d (type ctrl+c to exit)\n",
-         protocol.c_str(),
-         net::TestServerLauncher::kHostName,
-         port);
+  net::TestServer test_server(server_type, doc_root);
+  if (!test_server.Start()) {
+    printf("Error: failed to start test server. Exiting.\n");
+    return -1;
+  }
+
+  printf("testserver running at %s (type ctrl+c to exit)\n",
+         test_server.host_port_pair().ToString().c_str());
 
   message_loop.Run();
   return 0;

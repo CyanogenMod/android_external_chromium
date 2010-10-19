@@ -15,12 +15,12 @@
 #include <map>
 #include <queue>
 
+#include "base/rand_util.h"
 #include "base/third_party/dynamic_annotations/dynamic_annotations.h"
-#include "chrome/browser/sync/engine/auth_watcher.h"
 #include "chrome/browser/sync/engine/model_safe_worker.h"
 #include "chrome/browser/sync/engine/net/server_connection_manager.h"
 #include "chrome/browser/sync/engine/syncer.h"
-#include "chrome/browser/sync/syncable/directory_manager.h"
+#include "chrome/browser/sync/sessions/session_state.h"
 #include "chrome/common/chrome_switches.h"
 #include "jingle/notifier/listener/notification_constants.h"
 
@@ -30,8 +30,9 @@ using base::Time;
 using base::TimeDelta;
 using base::TimeTicks;
 
-
 namespace browser_sync {
+
+using sessions::SyncSessionSnapshot;
 
 // We use high values here to ensure that failure to receive poll updates from
 // the server doesn't result in rapid-fire polling from the client due to low
@@ -47,6 +48,11 @@ const int SyncerThread::kDefaultLongPollIntervalSeconds = 3600 * 12;
 // is really something we want and make sure it works, if it is.
 const int SyncerThread::kDefaultMaxPollIntervalMs = 30 * 60 * 1000;
 
+// Backoff interval randomization factor.
+static const int kBackoffRandomizationFactor = 2;
+
+const int SyncerThread::kMaxBackoffSeconds = 60 * 60 * 4;  // 4 hours.
+
 void SyncerThread::NudgeSyncer(int milliseconds_from_now, NudgeSource source) {
   AutoLock lock(lock_);
   if (vault_.syncer_ == NULL) {
@@ -56,31 +62,22 @@ void SyncerThread::NudgeSyncer(int milliseconds_from_now, NudgeSource source) {
   NudgeSyncImpl(milliseconds_from_now, source);
 }
 
-SyncerThread::SyncerThread(sessions::SyncSessionContext* context,
-    AllStatus* all_status)
+SyncerThread::SyncerThread(sessions::SyncSessionContext* context)
     : thread_main_started_(false, false),
       thread_("SyncEngine_SyncerThread"),
       vault_field_changed_(&lock_),
       p2p_authenticated_(false),
       p2p_subscribed_(false),
       conn_mgr_hookup_(NULL),
-      allstatus_(all_status),
       syncer_short_poll_interval_seconds_(kDefaultShortPollIntervalSeconds),
       syncer_long_poll_interval_seconds_(kDefaultLongPollIntervalSeconds),
       syncer_polling_interval_(kDefaultShortPollIntervalSeconds),
       syncer_max_interval_(kDefaultMaxPollIntervalMs),
-      directory_manager_hookup_(NULL),
       syncer_events_(NULL),
       session_context_(context),
       disable_idle_detection_(false) {
   DCHECK(context);
   syncer_event_relay_channel_.reset(new SyncerEventChannel());
-
-  if (context->directory_manager()) {
-    directory_manager_hookup_.reset(NewEventListenerHookup(
-        context->directory_manager()->channel(), this,
-            &SyncerThread::HandleDirectoryManagerEvent));
-  }
 
   if (context->connection_manager())
     WatchConnectionManager(context->connection_manager());
@@ -92,7 +89,6 @@ SyncerThread::~SyncerThread() {
   syncer_event_relay_channel_->Notify(SyncerEvent(
       SyncerEvent::SHUTDOWN_USE_WITH_CARE));
   syncer_event_relay_channel_.reset();
-  directory_manager_hookup_.reset();
   syncer_events_.reset();
   delete vault_.syncer_;
   CHECK(!thread_.IsRunning());
@@ -298,10 +294,10 @@ void SyncerThread::ThreadMainLoop() {
         WaitInterval::THROTTLED;
     // If we are throttled, we must wait.  Otherwise, wait until either the next
     // nudge (if one exists) or the poll interval.
-    const TimeTicks end_wait = throttled ? next_poll :
-        !vault_.nudge_queue_.empty() &&
-        vault_.nudge_queue_.top().first < next_poll ?
-        vault_.nudge_queue_.top().first : next_poll;
+    TimeTicks end_wait = next_poll;
+    if (!throttled && !vault_.pending_nudge_time_.is_null()) {
+      end_wait = std::min(end_wait, vault_.pending_nudge_time_);
+    }
     LOG(INFO) << "end_wait is " << end_wait.ToInternalValue();
     LOG(INFO) << "next_poll is " << next_poll.ToInternalValue();
 
@@ -336,7 +332,6 @@ void SyncerThread::ThreadMainLoop() {
 
     LOG(INFO) << "Updating the next polling time after SyncMain";
     vault_.current_wait_interval_ = CalculatePollingWaitTime(
-        allstatus_->status(),
         static_cast<int>(vault_.current_wait_interval_.poll_delta.InSeconds()),
         &user_idle_milliseconds, &continue_sync_cycle, nudged);
   }
@@ -415,9 +410,7 @@ void SyncerThread::ExitPausedState() {
 
 // We check how long the user's been idle and sync less often if the machine is
 // not in use. The aim is to reduce server load.
-// TODO(timsteele): Should use Time(Delta).
 SyncerThread::WaitInterval SyncerThread::CalculatePollingWaitTime(
-    const AllStatus::Status& status,
     int last_poll_wait,  // Time in seconds.
     int* user_idle_milliseconds,
     bool* continue_sync_cycle,
@@ -436,15 +429,16 @@ SyncerThread::WaitInterval SyncerThread::CalculatePollingWaitTime(
   bool is_continuing_sync_cyle = *continue_sync_cycle;
   *continue_sync_cycle = false;
 
-  // Determine if the syncer has unfinished work to do from allstatus_.
-  const bool syncer_has_work_to_do =
-    status.updates_available > status.updates_received
-    || status.unsynced_count > 0;
+  // Determine if the syncer has unfinished work to do.
+  SyncSessionSnapshot* snapshot = session_context_->previous_session_snapshot();
+  const bool syncer_has_work_to_do = snapshot &&
+      (snapshot->num_server_changes_remaining > snapshot->max_local_timestamp
+          || snapshot->unsynced_count > 0);
   LOG(INFO) << "syncer_has_work_to_do is " << syncer_has_work_to_do;
 
   // First calculate the expected wait time, figuring in any backoff because of
   // user idle time.  next_wait is in seconds
-  syncer_polling_interval_ = (!status.notifications_enabled) ?
+  syncer_polling_interval_ = (!session_context_->notifications_enabled()) ?
       syncer_short_poll_interval_seconds_ :
       syncer_long_poll_interval_seconds_;
   int default_next_wait = syncer_polling_interval_;
@@ -464,15 +458,15 @@ SyncerThread::WaitInterval SyncerThread::CalculatePollingWaitTime(
       } else {
         // We weren't nudged, or we were in a NORMAL wait interval until now.
         return_interval.poll_delta = TimeDelta::FromSeconds(
-            AllStatus::GetRecommendedDelaySeconds(last_poll_wait));
+            GetRecommendedDelaySeconds(last_poll_wait));
       }
     } else {
       // No consecutive error.
       return_interval.poll_delta = TimeDelta::FromSeconds(
-           AllStatus::GetRecommendedDelaySeconds(0));
+           GetRecommendedDelaySeconds(0));
     }
     *continue_sync_cycle = true;
-  } else if (!status.notifications_enabled) {
+  } else if (!session_context_->notifications_enabled()) {
     // Ensure that we start exponential backoff from our base polling
     // interval when we are not continuing a sync cycle.
     last_poll_wait = std::max(last_poll_wait, syncer_polling_interval_);
@@ -533,13 +527,17 @@ bool SyncerThread::UpdateNudgeSource(bool was_throttled,
   }
   // Update the nudge source if a new nudge has come through during the
   // previous sync cycle.
-  while (!vault_.nudge_queue_.empty() &&
-         TimeTicks::Now() >= vault_.nudge_queue_.top().first) {
+  if (!vault_.pending_nudge_time_.is_null()) {
     if (!was_throttled && !nudged) {
-      nudge_source = vault_.nudge_queue_.top().second;
+      nudge_source = vault_.pending_nudge_source_;
       nudged = true;
     }
-    vault_.nudge_queue_.pop();
+    LOG(INFO) << "Clearing pending nudge from "
+              << vault_.pending_nudge_source_
+              << " at tick "
+              << vault_.pending_nudge_time_.ToInternalValue();
+    vault_.pending_nudge_source_ = kUnknown;
+    vault_.pending_nudge_time_ = base::TimeTicks();
   }
   SetUpdatesSource(nudged, nudge_source, initial_sync);
   return nudged;
@@ -565,6 +563,9 @@ void SyncerThread::SetUpdatesSource(bool nudged, NudgeSource nudge_source,
       case kContinuation:
         updates_source = sync_pb::GetUpdatesCallerInfo::SYNC_CYCLE_CONTINUATION;
         break;
+      case kClearPrivateData:
+        updates_source = sync_pb::GetUpdatesCallerInfo::CLEAR_PRIVATE_DATA;
+        break;
       case kUnknown:
       default:
         updates_source = sync_pb::GetUpdatesCallerInfo::UNKNOWN;
@@ -583,22 +584,18 @@ void SyncerThread::HandleChannelEvent(const SyncerEvent& event) {
   NudgeSyncImpl(event.nudge_delay_milliseconds, kUnknown);
 }
 
-void SyncerThread::HandleDirectoryManagerEvent(
-    const syncable::DirectoryManagerEvent& event) {
-  LOG(INFO) << "Handling a directory manager event";
-  if (syncable::DirectoryManagerEvent::OPENED == event.what_happened) {
-    AutoLock lock(lock_);
-    LOG(INFO) << "Syncer starting up for: " << event.dirname;
-    // The underlying database structure is ready, and we should create
-    // the syncer.
-    CHECK(vault_.syncer_ == NULL);
-    session_context_->set_account_name(event.dirname);
-    vault_.syncer_ = new Syncer(session_context_.get());
+void SyncerThread::CreateSyncer(const std::string& dirname) {
+  AutoLock lock(lock_);
+  LOG(INFO) << "Creating syncer up for: " << dirname;
+  // The underlying database structure is ready, and we should create
+  // the syncer.
+  CHECK(vault_.syncer_ == NULL);
+  session_context_->set_account_name(dirname);
+  vault_.syncer_ = new Syncer(session_context_.get());
 
-    syncer_events_.reset(
-        session_context_->syncer_event_channel()->AddObserver(this));
-    vault_field_changed_.Broadcast();
-  }
+  syncer_events_.reset(
+      session_context_->syncer_event_channel()->AddObserver(this));
+  vault_field_changed_.Broadcast();
 }
 
 // Sets |*connected| to false if it is currently true but |code| suggests that
@@ -650,6 +647,27 @@ SyncerEventChannel* SyncerThread::relay_channel() {
   return syncer_event_relay_channel_.get();
 }
 
+int SyncerThread::GetRecommendedDelaySeconds(int base_delay_seconds) {
+  if (base_delay_seconds >= kMaxBackoffSeconds)
+    return kMaxBackoffSeconds;
+
+  // This calculates approx. base_delay_seconds * 2 +/- base_delay_seconds / 2
+  int backoff_s =
+      std::max(1, base_delay_seconds * kBackoffRandomizationFactor);
+
+  // Flip a coin to randomize backoff interval by +/- 50%.
+  int rand_sign = base::RandInt(0, 1) * 2 - 1;
+
+  // Truncation is adequate for rounding here.
+  backoff_s = backoff_s +
+      (rand_sign * (base_delay_seconds / kBackoffRandomizationFactor));
+
+  // Cap the backoff interval.
+  backoff_s = std::max(1, std::min(backoff_s, kMaxBackoffSeconds));
+
+  return backoff_s;
+}
+
 // Inputs and return value in milliseconds.
 int SyncerThread::CalculateSyncWaitTime(int last_interval, int user_idle_ms) {
   // syncer_polling_interval_ is in seconds
@@ -664,7 +682,7 @@ int SyncerThread::CalculateSyncWaitTime(int last_interval, int user_idle_ms) {
   // If the user has been idle for a while, we'll start decreasing the poll
   // rate.
   if (idle >= kPollBackoffThresholdMultiplier * syncer_polling_interval_ms) {
-    next_wait = std::min(AllStatus::GetRecommendedDelaySeconds(
+    next_wait = std::min(GetRecommendedDelaySeconds(
         last_interval / 1000), syncer_max_interval_ / 1000) * 1000;
   }
 
@@ -686,8 +704,16 @@ void SyncerThread::NudgeSyncImpl(int milliseconds_from_now,
 
   const TimeTicks nudge_time = TimeTicks::Now() +
       TimeDelta::FromMilliseconds(milliseconds_from_now);
-  NudgeObject nudge_object(nudge_time, source);
-  vault_.nudge_queue_.push(nudge_object);
+  if (nudge_time <= vault_.pending_nudge_time_) {
+    LOG(INFO) << "Nudge for source " << source
+              << " dropped due to existing later pending nudge";
+    return;
+  }
+
+  LOG(INFO) << "Replacing pending nudge for source "
+            << source << " at " << nudge_time.ToInternalValue();
+  vault_.pending_nudge_source_ = source;
+  vault_.pending_nudge_time_ = nudge_time;
   vault_field_changed_.Broadcast();
 }
 

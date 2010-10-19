@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_HISTORY_HISTORY_DATABASE_H_
 #define CHROME_BROWSER_HISTORY_HISTORY_DATABASE_H_
+#pragma once
 
 #include "app/sql/connection.h"
 #include "app/sql/init_status.h"
@@ -122,14 +123,6 @@ class HistoryDatabase : public DownloadDatabase,
     return needs_version_17_migration_;
   }
 
-  // Returns true if the Thumbnails database should be renamed to
-  // Favicons database. 17 -> 18 is migration to TopSites. ThumbnailsDatabase
-  // doesn't store the thumbnails any more, only the favicons. Hence, its file
-  // is renamed from Thumbnails to Favicons.
-  bool needs_version_18_migration() const {
-    return needs_version_18_migration_;
-  }
-
   // Update the database version after the TopSites migration.
   void MigrationToTopSitesDone();
 
@@ -178,7 +171,6 @@ class HistoryDatabase : public DownloadDatabase,
 
   // See the getters above.
   bool needs_version_17_migration_;
-  bool needs_version_18_migration_;
 
   DISALLOW_COPY_AND_ASSIGN(HistoryDatabase);
 };

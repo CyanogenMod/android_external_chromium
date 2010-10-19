@@ -4,10 +4,12 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSIONS_UI_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSIONS_UI_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
+#include "base/scoped_ptr.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/dom_ui/dom_ui.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
@@ -22,20 +24,22 @@ class DictionaryValue;
 class Extension;
 class ExtensionsService;
 class FilePath;
+class ListValue;
 class PrefService;
 class RenderProcessHost;
 class UserScript;
-class Value;
 
 // Information about a page running in an extension, for example a toolstrip,
 // a background page, or a tab contents.
 struct ExtensionPage {
-  ExtensionPage(const GURL& url, int render_process_id, int render_view_id)
+  ExtensionPage(const GURL& url, int render_process_id, int render_view_id,
+                bool incognito)
     : url(url), render_process_id(render_process_id),
-      render_view_id(render_view_id) {}
+      render_view_id(render_view_id), incognito(incognito) {}
   GURL url;
   int render_process_id;
   int render_view_id;
+  bool incognito;
 };
 
 class ExtensionsUIHTMLSource : public ChromeURLDataManager::DataSource {
@@ -123,55 +127,58 @@ class ExtensionsDOMHandler
   virtual void OnPackSuccess(const FilePath& crx_file,
                              const FilePath& key_file);
 
-  virtual void OnPackFailure(const std::wstring& message);
+  virtual void OnPackFailure(const std::string& error);
 
   // ExtensionInstallUI::Delegate implementation, used for receiving
   // notification about uninstall confirmation dialog selections.
-  virtual void InstallUIProceed(bool create_app_shortcut);
+  virtual void InstallUIProceed();
   virtual void InstallUIAbort();
 
  private:
   // Callback for "requestExtensionsData" message.
-  void HandleRequestExtensionsData(const Value* value);
+  void HandleRequestExtensionsData(const ListValue* args);
 
   // Callback for "toggleDeveloperMode" message.
-  void HandleToggleDeveloperMode(const Value* value);
+  void HandleToggleDeveloperMode(const ListValue* args);
 
   // Callback for "inspect" message.
-  void HandleInspectMessage(const Value* value);
+  void HandleInspectMessage(const ListValue* args);
 
   // Callback for "reload" message.
-  void HandleReloadMessage(const Value* value);
+  void HandleReloadMessage(const ListValue* args);
 
   // Callback for "enable" message.
-  void HandleEnableMessage(const Value* value);
+  void HandleEnableMessage(const ListValue* args);
 
   // Callback for "enableIncognito" message.
-  void HandleEnableIncognitoMessage(const Value* value);
+  void HandleEnableIncognitoMessage(const ListValue* args);
 
   // Callback for "allowFileAcces" message.
-  void HandleAllowFileAccessMessage(const Value* value);
+  void HandleAllowFileAccessMessage(const ListValue* args);
 
   // Callback for "uninstall" message.
-  void HandleUninstallMessage(const Value* value);
+  void HandleUninstallMessage(const ListValue* args);
 
   // Callback for "options" message.
-  void HandleOptionsMessage(const Value* value);
+  void HandleOptionsMessage(const ListValue* args);
 
   // Callback for "load" message.
-  void HandleLoadMessage(const Value* value);
+  void HandleLoadMessage(const ListValue* args);
 
   // Callback for "pack" message.
-  void HandlePackMessage(const Value* value);
+  void HandlePackMessage(const ListValue* args);
 
   // Callback for "autoupdate" message.
-  void HandleAutoUpdateMessage(const Value* value);
+  void HandleAutoUpdateMessage(const ListValue* args);
 
   // Utility for calling javascript window.alert in the page.
   void ShowAlert(const std::string& message);
 
   // Callback for "selectFilePath" message.
-  void HandleSelectFilePathMessage(const Value* value);
+  void HandleSelectFilePathMessage(const ListValue* args);
+
+  // Utility for callbacks that get an extension ID as the sole argument.
+  Extension* GetExtension(const ListValue* args);
 
   // Forces a UI update if appropriate after a notification is received.
   void MaybeUpdateAfterNotification();
@@ -191,9 +198,11 @@ class ExtensionsDOMHandler
                        const NotificationDetails& details);
 
   // Helper that lists the current active html pages for an extension.
-  std::vector<ExtensionPage> GetActivePagesForExtension(
+  std::vector<ExtensionPage> GetActivePagesForExtension(Extension* extension);
+  void GetActivePagesForExtensionProcess(
       RenderProcessHost* process,
-      Extension* extension);
+      Extension* extension,
+      std::vector<ExtensionPage> *result);
 
   // Returns the best icon to display in the UI for an extension, or an empty
   // ExtensionResource if no good icon exists.

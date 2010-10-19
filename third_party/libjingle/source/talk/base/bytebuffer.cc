@@ -34,12 +34,6 @@
 #include "talk/base/basictypes.h"
 #include "talk/base/byteorder.h"
 
-#if defined(_MSC_VER) && _MSC_VER < 1300
-namespace std {
-  using ::memcpy;
-}
-#endif
-
 namespace talk_base {
 
 static const int DEFAULT_SIZE = 4096;
@@ -71,45 +65,67 @@ ByteBuffer::~ByteBuffer() {
   delete[] bytes_;
 }
 
-bool ByteBuffer::ReadUInt8(uint8& val) {
-  return ReadBytes(reinterpret_cast<char*>(&val), 1);
+bool ByteBuffer::ReadUInt8(uint8* val) {
+  if (!val) return false;
+
+  return ReadBytes(reinterpret_cast<char*>(val), 1);
 }
 
-bool ByteBuffer::ReadUInt16(uint16& val) {
+bool ByteBuffer::ReadUInt16(uint16* val) {
+  if (!val) return false;
+
   uint16 v;
   if (!ReadBytes(reinterpret_cast<char*>(&v), 2)) {
     return false;
   } else {
-    val = NetworkToHost16(v);
+    *val = NetworkToHost16(v);
     return true;
   }
 }
 
-bool ByteBuffer::ReadUInt24(uint32& val) {
+bool ByteBuffer::ReadUInt24(uint32* val) {
+  if (!val) return false;
+
   uint32 v = 0;
   if (!ReadBytes(reinterpret_cast<char*>(&v) + 1, 3)) {
     return false;
   } else {
-    val = NetworkToHost32(v);
+    *val = NetworkToHost32(v);
     return true;
   }
 }
 
-bool ByteBuffer::ReadUInt32(uint32& val) {
+bool ByteBuffer::ReadUInt32(uint32* val) {
+  if (!val) return false;
+
   uint32 v;
   if (!ReadBytes(reinterpret_cast<char*>(&v), 4)) {
     return false;
   } else {
-    val = NetworkToHost32(v);
+    *val = NetworkToHost32(v);
     return true;
   }
 }
 
-bool ByteBuffer::ReadString(std::string& val, size_t len) {
+bool ByteBuffer::ReadUInt64(uint64* val) {
+  if (!val) return false;
+
+  uint64 v;
+  if (!ReadBytes(reinterpret_cast<char*>(&v), 8)) {
+    return false;
+  } else {
+    *val = NetworkToHost64(v);
+    return true;
+  }
+}
+
+bool ByteBuffer::ReadString(std::string* val, size_t len) {
+  if (!val) return false;
+
   if (len > Length()) {
     return false;
   } else {
-    val.append(bytes_ + start_, len);
+    val->append(bytes_ + start_, len);
     start_ += len;
     return true;
   }
@@ -142,6 +158,11 @@ void ByteBuffer::WriteUInt24(uint32 val) {
 void ByteBuffer::WriteUInt32(uint32 val) {
   uint32 v = HostToNetwork32(val);
   WriteBytes(reinterpret_cast<const char*>(&v), 4);
+}
+
+void ByteBuffer::WriteUInt64(uint64 val) {
+  uint64 v = HostToNetwork64(val);
+  WriteBytes(reinterpret_cast<const char*>(&v), 8);
 }
 
 void ByteBuffer::WriteString(const std::string& val) {
@@ -187,4 +208,4 @@ void ByteBuffer::Shift(size_t size) {
   start_ = 0;
 }
 
-} // namespace talk_base
+}  // namespace talk_base

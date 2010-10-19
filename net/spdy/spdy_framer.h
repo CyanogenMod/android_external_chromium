@@ -4,6 +4,7 @@
 
 #ifndef NET_SPDY_SPDY_FRAMER_H_
 #define NET_SPDY_SPDY_FRAMER_H_
+#pragma once
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -16,10 +17,9 @@
 #include <utility>
 
 #include "base/basictypes.h"
-#include "base/logging.h"
+#include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
 #include "net/spdy/spdy_protocol.h"
-#include "testing/gtest/include/gtest/gtest_prod.h"
 
 typedef struct z_stream_s z_stream;  // Forward declaration for zlib.
 
@@ -238,14 +238,16 @@ class SpdyFramer {
   // For debugging.
   static const char* StateToString(int state);
   static const char* ErrorCodeToString(int error_code);
+  static void set_protocol_version(int version) { spdy_version_= version; }
+  static int protocol_version() { return spdy_version_; }
 
   // Export the compression dictionary
   static const char kDictionary[];
   static const int kDictionarySize;
 
  protected:
-  FRIEND_TEST(SpdyFramerTest, DataCompression);
-  FRIEND_TEST(SpdyFramerTest, UnclosedStreamDataCompressors);
+  FRIEND_TEST_ALL_PREFIXES(SpdyFramerTest, DataCompression);
+  FRIEND_TEST_ALL_PREFIXES(SpdyFramerTest, UnclosedStreamDataCompressors);
   friend class net::SpdyNetworkTransactionTest;
   friend class net::HttpNetworkTransactionTest;
   friend class net::HttpNetworkLayer;  // This is temporary for the server.
@@ -327,6 +329,7 @@ class SpdyFramer {
   SpdyFramerVisitorInterface* visitor_;
 
   static bool compression_default_;
+  static int spdy_version_;
 };
 
 }  // namespace spdy

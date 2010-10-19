@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_BOOKMARKS_BOOKMARK_CONTEXT_MENU_CONTROLLER_H_
 #define CHROME_BROWSER_BOOKMARKS_BOOKMARK_CONTEXT_MENU_CONTROLLER_H_
+#pragma once
 
 #include <vector>
 
@@ -12,7 +13,6 @@
 #include "chrome/browser/bookmarks/base_bookmark_model_observer.h"
 #include "gfx/native_widget_types.h"
 
-class Browser;
 class PageNavigator;
 class Profile;
 

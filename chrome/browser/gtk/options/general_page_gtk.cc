@@ -19,10 +19,11 @@
 #include "chrome/browser/gtk/options/options_layout_gtk.h"
 #include "chrome/browser/gtk/options/url_picker_dialog_gtk.h"
 #include "chrome/browser/net/url_fixer_upper.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
-#include "chrome/browser/session_startup_pref.h"
+#include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -94,8 +95,9 @@ GeneralPageGtk::GeneralPageGtk(Profile* profile)
       InitDefaultBrowserGroup(), false);
 #endif
 
-  profile->GetPrefs()->AddPrefObserver(prefs::kRestoreOnStartup, this);
-  profile->GetPrefs()->AddPrefObserver(prefs::kURLsToRestoreOnStartup, this);
+  registrar_.Init(profile->GetPrefs());
+  registrar_.Add(prefs::kRestoreOnStartup, this);
+  registrar_.Add(prefs::kURLsToRestoreOnStartup, this);
 
   new_tab_page_is_home_page_.Init(prefs::kHomePageIsNewTabPage,
       profile->GetPrefs(), this);
@@ -107,10 +109,6 @@ GeneralPageGtk::GeneralPageGtk(Profile* profile)
 }
 
 GeneralPageGtk::~GeneralPageGtk() {
-  profile()->GetPrefs()->RemovePrefObserver(prefs::kRestoreOnStartup, this);
-  profile()->GetPrefs()->RemovePrefObserver(
-      prefs::kURLsToRestoreOnStartup, this);
-
   if (template_url_model_)
     template_url_model_->RemoveObserver(this);
 
@@ -120,37 +118,39 @@ GeneralPageGtk::~GeneralPageGtk() {
 ///////////////////////////////////////////////////////////////////////////////
 // GeneralPageGtk, OptionsPageBase overrides:
 
-void GeneralPageGtk::NotifyPrefChanged(const std::wstring* pref_name) {
+void GeneralPageGtk::NotifyPrefChanged(const std::string* pref_name) {
   initializing_ = true;
-  if (!pref_name || *pref_name == prefs::kRestoreOnStartup) {
+  if (!pref_name ||
+      *pref_name == prefs::kRestoreOnStartup ||
+      *pref_name == prefs::kURLsToRestoreOnStartup) {
     PrefService* prefs = profile()->GetPrefs();
     const SessionStartupPref startup_pref =
         SessionStartupPref::GetStartupPref(prefs);
+    bool radio_buttons_enabled = !SessionStartupPref::TypeIsManaged(prefs);
+    bool restore_urls_enabled = !SessionStartupPref::URLsAreManaged(prefs);
     switch (startup_pref.type) {
     case SessionStartupPref::DEFAULT:
       gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(startup_homepage_radio_),
                                    TRUE);
-      EnableCustomHomepagesControls(false);
+      restore_urls_enabled = false;
       break;
 
     case SessionStartupPref::LAST:
       gtk_toggle_button_set_active(
           GTK_TOGGLE_BUTTON(startup_last_session_radio_), TRUE);
-      EnableCustomHomepagesControls(false);
+      restore_urls_enabled = false;
       break;
 
     case SessionStartupPref::URLS:
       gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(startup_custom_radio_),
                                    TRUE);
-      EnableCustomHomepagesControls(true);
       break;
     }
-  }
-
-  if (!pref_name || *pref_name == prefs::kURLsToRestoreOnStartup) {
-    PrefService* prefs = profile()->GetPrefs();
-    const SessionStartupPref startup_pref =
-        SessionStartupPref::GetStartupPref(prefs);
+    gtk_widget_set_sensitive(startup_homepage_radio_, radio_buttons_enabled);
+    gtk_widget_set_sensitive(startup_last_session_radio_,
+                             radio_buttons_enabled);
+    gtk_widget_set_sensitive(startup_custom_radio_, radio_buttons_enabled);
+    EnableCustomHomepagesControls(restore_urls_enabled);
     startup_custom_pages_table_model_->SetURLs(startup_pref.urls);
   }
 
@@ -182,6 +182,9 @@ void GeneralPageGtk::NotifyPrefChanged(const std::wstring* pref_name) {
     gtk_toggle_button_set_active(
         GTK_TOGGLE_BUTTON(homepage_show_home_button_checkbox_),
         show_home_button_.GetValue());
+    gtk_widget_set_sensitive(
+        homepage_show_home_button_checkbox_,
+        !show_home_button_.IsManaged());
   }
 
   initializing_ = false;
@@ -544,6 +547,12 @@ void GeneralPageGtk::SetCustomUrlListFromCurrentPages() {
 }
 
 void GeneralPageGtk::OnAddCustomUrl(const GURL& url) {
+  // The restore URLs policy might have become managed while the dialog is
+  // displayed.  While the model makes sure that no changes are made in this
+  // condition, we should still avoid the rest of the method otherwise
+  // graphic elements will become enabled.
+  if (SessionStartupPref::URLsAreManaged(profile()->GetPrefs()))
+    return;
   std::set<int> indices;
   gtk_tree::GetSelectedIndices(startup_custom_pages_selection_, &indices);
   int index;

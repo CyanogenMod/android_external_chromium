@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_EXTERNAL_PROTOCOL_DIALOG_GTK_H_
 #define CHROME_BROWSER_GTK_EXTERNAL_PROTOCOL_DIALOG_GTK_H_
+#pragma once
 
 #include "app/gtk_signal.h"
 #include "base/time.h"
@@ -16,6 +17,9 @@ typedef struct _GtkWidget GtkWidget;
 class ExternalProtocolDialogGtk {
  public:
   explicit ExternalProtocolDialogGtk(const GURL& url);
+
+ protected:
+  virtual ~ExternalProtocolDialogGtk() {}
 
  private:
   CHROMEGTK_CALLBACK_1(ExternalProtocolDialogGtk, void, OnDialogResponse, int);

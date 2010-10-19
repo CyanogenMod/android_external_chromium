@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/utf_string_conversions.h"
+#include "net/base/auth.h"
 #include "net/base/mock_host_resolver.h"
 #include "net/base/net_log.h"
 #include "net/base/net_log_unittest.h"
@@ -119,8 +121,8 @@ class SocketStreamEventRecorder : public net::SocketStream::Delegate {
               << " password=" << password_;
     event->socket->RestartWithAuth(username_, password_);
   }
-  void SetAuthInfo(const std::wstring& username,
-                   const std::wstring& password) {
+  void SetAuthInfo(const string16& username,
+                   const string16& password) {
     username_ = username;
     password_ = password;
   }
@@ -138,8 +140,8 @@ class SocketStreamEventRecorder : public net::SocketStream::Delegate {
   Callback1<SocketStreamEvent*>::Type* on_auth_required_;
   net::CompletionCallback* callback_;
 
-  std::wstring username_;
-  std::wstring password_;
+  string16 username_;
+  string16 password_;
 
   DISALLOW_COPY_AND_ASSIGN(SocketStreamEventRecorder);
 };
@@ -307,6 +309,10 @@ TEST_F(SocketStreamTest, BasicAuthProxy) {
     MockRead("HTTP/1.1 200 Connection Established\r\n"),
     MockRead("Proxy-agent: Apache/2.2.8\r\n"),
     MockRead("\r\n"),
+    // SocketStream::DoClose is run asynchronously.  Socket can be read after
+    // "\r\n".  We have to give ERR_IO_PENDING to SocketStream then to indicate
+    // server doesn't close the connection.
+    MockRead(true, ERR_IO_PENDING)
   };
   StaticSocketDataProvider data2(data_reads2, arraysize(data_reads2),
                                  data_writes2, arraysize(data_writes2));
@@ -318,9 +324,7 @@ TEST_F(SocketStreamTest, BasicAuthProxy) {
       new SocketStreamEventRecorder(&callback));
   delegate->SetOnConnected(NewCallback(delegate.get(),
                                        &SocketStreamEventRecorder::DoClose));
-  const std::wstring kUsername = L"foo";
-  const std::wstring kPassword = L"bar";
-  delegate->SetAuthInfo(kUsername, kPassword);
+  delegate->SetAuthInfo(ASCIIToUTF16("foo"), ASCIIToUTF16("bar"));
   delegate->SetOnAuthRequired(
       NewCallback(delegate.get(),
                   &SocketStreamEventRecorder::DoRestartWithAuth));

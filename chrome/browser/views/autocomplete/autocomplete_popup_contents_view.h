@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_AUTOCOMPLETE_AUTOCOMPLETE_POPUP_CONTENTS_VIEW_H_
 #define CHROME_BROWSER_VIEWS_AUTOCOMPLETE_AUTOCOMPLETE_POPUP_CONTENTS_VIEW_H_
+#pragma once
 
 #include "app/slide_animation.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
@@ -60,9 +61,11 @@ class AutocompletePopupContentsView : public views::View,
   virtual bool IsOpen() const;
   virtual void InvalidateLine(size_t line);
   virtual void UpdatePopupAppearance();
+  virtual gfx::Rect GetTargetBounds();
   virtual void PaintUpdatesNow();
   virtual void OnDragCanceled();
   virtual AutocompletePopupModel* GetModel();
+  virtual int GetMaxYCoordinate();
 
   // Overridden from AutocompleteResultViewModel:
   virtual bool IsSelectedIndex(size_t index) const;
@@ -118,6 +121,9 @@ class AutocompletePopupContentsView : public views::View,
   // match at the specified point.
   size_t GetIndexForPoint(const gfx::Point& point);
 
+  // Returns the target bounds given the specified content height.
+  gfx::Rect CalculateTargetBounds(int h);
+
   // The popup that contains this view.  We create this, but it deletes itself
   // when its window is destroyed.  This is a WeakPtr because it's possible for
   // the OS to destroy the window and thus delete this object before we're
@@ -139,6 +145,9 @@ class AutocompletePopupContentsView : public views::View,
   // The font that we should use for result rows. This is based on the font used
   // by the edit that created us.
   gfx::Font result_font_;
+
+  // The font used for portions that match the input.
+  gfx::Font result_bold_font_;
 
   // If the user cancels a dragging action (i.e. by pressing ESC), we don't have
   // a convenient way to release mouse capture. Instead we use this flag to

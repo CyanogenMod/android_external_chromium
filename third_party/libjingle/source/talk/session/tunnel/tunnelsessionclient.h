@@ -2,26 +2,26 @@
  * libjingle
  * Copyright 2004--2008, Google Inc.
  *
- * Redistribution and use in source and binary forms, with or without 
+ * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  *
- *  1. Redistributions of source code must retain the above copyright notice, 
+ *  1. Redistributions of source code must retain the above copyright notice,
  *     this list of conditions and the following disclaimer.
  *  2. Redistributions in binary form must reproduce the above copyright notice,
  *     this list of conditions and the following disclaimer in the documentation
  *     and/or other materials provided with the distribution.
- *  3. The name of the author may not be used to endorse or promote products 
+ *  3. The name of the author may not be used to endorse or promote products
  *     derived from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
- * EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+ * EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
  * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
  * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR 
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
@@ -54,7 +54,7 @@ enum TunnelSessionRole { INITIATOR, RESPONDER };
 class TunnelSessionClientBase
   : public SessionClient, public talk_base::MessageHandler {
 public:
-  TunnelSessionClientBase(const buzz::Jid& jid, SessionManager* manager, 
+  TunnelSessionClientBase(const buzz::Jid& jid, SessionManager* manager,
                           const std::string &ns);
   virtual ~TunnelSessionClientBase();
 
@@ -77,12 +77,12 @@ public:
   virtual void OnIncomingTunnel(const buzz::Jid &jid, Session *session) = 0;
 
   // Invoked on an outgoing session request
-  virtual SessionDescription *CreateOutgoingSessionDescription(
-                    const buzz::Jid &jid, const std::string &description) = 0;
-  // Invoked on a session request accept to create 
+  virtual SessionDescription* CreateOffer(
+      const buzz::Jid &jid, const std::string &description) = 0;
+  // Invoked on a session request accept to create
   // the local-side session description
-  virtual SessionDescription *CreateOutgoingSessionDescription(
-                                                      Session *incoming) = 0;
+  virtual SessionDescription* CreateAnswer(
+      const SessionDescription* offer) = 0;
 
 protected:
 
@@ -102,7 +102,7 @@ protected:
   bool shutdown_;
 };
 
-class TunnelSessionClient 
+class TunnelSessionClient
   : public TunnelSessionClientBase, public sigslot::has_slots<>  {
 public:
   TunnelSessionClient(const buzz::Jid& jid, SessionManager* manager);
@@ -110,21 +110,23 @@ public:
                       const std::string &ns);
   virtual ~TunnelSessionClient();
 
-  virtual const SessionDescription* CreateSessionDescription(
-    const buzz::XmlElement* element);
-  virtual buzz::XmlElement* TranslateSessionDescription(
-    const SessionDescription* description);
+  virtual bool ParseContent(const buzz::XmlElement* elem,
+                            const ContentDescription** content,
+                            ParseError* error);
+  virtual bool WriteContent(const ContentDescription* content,
+                            buzz::XmlElement** elem,
+                            WriteError* error);
 
   // Signal arguments are this, initiator, description, session
   sigslot::signal4<TunnelSessionClient*, buzz::Jid, std::string, Session*>
     SignalIncomingTunnel;
 
-  virtual void OnIncomingTunnel(const buzz::Jid &jid, 
+  virtual void OnIncomingTunnel(const buzz::Jid &jid,
                                 Session *session);
-  virtual SessionDescription *CreateOutgoingSessionDescription(
-                    const buzz::Jid &jid, const std::string &description);
-  virtual SessionDescription *CreateOutgoingSessionDescription(
-                                                        Session *incoming);
+  virtual SessionDescription* CreateOffer(
+      const buzz::Jid &jid, const std::string &description);
+  virtual SessionDescription* CreateAnswer(
+      const SessionDescription* offer);
 };
 
 ///////////////////////////////////////////////////////////////////////////////

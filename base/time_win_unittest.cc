@@ -6,6 +6,7 @@
 #include <mmsystem.h>
 #include <process.h>
 
+#include "base/platform_thread.h"
 #include "base/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -107,27 +108,29 @@ TEST(TimeTicks, WinRollover) {
   }
 }
 
-// Flaky, http://crbug.com/42850.
-TEST(TimeTicks, FLAKY_SubMillisecondTimers) {
-  // Loop for a bit getting timers quickly.  We want to
-  // see at least one case where we get a new sample in
-  // less than one millisecond.
+TEST(TimeTicks, SubMillisecondTimers) {
+  // HighResNow doesn't work on some systems.  Since the product still works
+  // even if it doesn't work, it makes this entire test questionable.
+  if (!TimeTicks::IsHighResClockWorking())
+    return;
+
+  const int kRetries = 1000;
   bool saw_submillisecond_timer = false;
-  int64 min_timer = 1000;
-  TimeTicks last_time = TimeTicks::HighResNow();
+
+  // Run kRetries attempts to see a sub-millisecond timer.
   for (int index = 0; index < 1000; index++) {
-    TimeTicks now = TimeTicks::HighResNow();
-    TimeDelta delta = now - last_time;
-    if (delta.InMicroseconds() > 0 &&
-        delta.InMicroseconds() < 1000) {
-      if (min_timer > delta.InMicroseconds())
-        min_timer = delta.InMicroseconds();
+    TimeTicks last_time = TimeTicks::HighResNow();
+    TimeDelta delta;
+    // Spin until the clock has detected a change.
+    do {
+      delta = TimeTicks::HighResNow() - last_time;
+    } while (delta.InMicroseconds() == 0);
+    if (delta.InMicroseconds() < 1000) {
       saw_submillisecond_timer = true;
+      break;
     }
-    last_time = now;
   }
   EXPECT_TRUE(saw_submillisecond_timer);
-  printf("Min timer is: %ldus\n", static_cast<long>(min_timer));
 }
 
 TEST(TimeTicks, TimeGetTimeCaps) {
@@ -202,4 +205,31 @@ TEST(TimeTicks, TimerPerformance) {
       (stop - start).InMillisecondsF() * 1000 / kLoops);
     test_case++;
   }
+}
+
+TEST(TimeTicks, Drift) {
+  const int kIterations = 100;
+  int64 total_drift = 0;
+
+  for (int i = 0; i < kIterations; ++i) {
+    int64 drift_microseconds = TimeTicks::GetQPCDriftMicroseconds();
+
+    // Make sure the drift never exceeds our limit.
+    EXPECT_LT(drift_microseconds, 50000);
+
+    // Sleep for a few milliseconds (note that it means 1000 microseconds).
+    // If we check the drift too frequently, it's going to increase
+    // monotonically, making our measurement less realistic.
+    PlatformThread::Sleep((i % 2 == 0) ? 1 : 2);
+
+    total_drift += drift_microseconds;
+  }
+
+  // Sanity check. We expect some time drift to occur, especially across
+  // the number of iterations we do. However, if the QPC is disabled, this
+  // is not measuring anything (drift is zero in that case).
+  EXPECT_LT(0, total_drift);
+
+  printf("average time drift in microseconds: %lld\n",
+         total_drift / kIterations);
 }

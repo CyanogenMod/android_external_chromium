@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_BASE_VIEW_H_
 #define CHROME_BROWSER_COCOA_BASE_VIEW_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
@@ -29,8 +30,8 @@
 - (void)keyEvent:(NSEvent *)theEvent;
 
 // Useful rect conversions (doing coordinate flipping)
-- (gfx::Rect)NSRectToRect:(NSRect)rect;
-- (NSRect)RectToNSRect:(gfx::Rect)rect;
+- (gfx::Rect)flipNSRectToRect:(NSRect)rect;
+- (NSRect)flipRectToNSRect:(gfx::Rect)rect;
 
 @end
 

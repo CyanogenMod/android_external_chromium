@@ -4,6 +4,7 @@
 
 #ifndef NET_SPDY_SPDY_SETTING_STORAGE_H_
 #define NET_SPDY_SPDY_SETTING_STORAGE_H_
+#pragma once
 
 #include <map>
 #include "base/basictypes.h"
@@ -17,6 +18,7 @@ namespace net {
 class SpdySettingsStorage {
  public:
   SpdySettingsStorage();
+  ~SpdySettingsStorage();
 
   // Get a copy of the SpdySettings stored for a host.
   // If no settings are stored, returns an empty set of settings.

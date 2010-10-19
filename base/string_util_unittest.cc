@@ -414,6 +414,15 @@ TEST(StringUtilTest, IsStringUTF8) {
   EXPECT_FALSE(IsStringUTF8("\xd9\xee\xe4\xee"));
   // U+03B3 U+03B5 U+03B9 U+03AC in ISO-8859-7
   EXPECT_FALSE(IsStringUTF8("\xe3\xe5\xe9\xdC"));
+
+  // Check that we support Embedded Nulls. The first uses the canonical UTF-8
+  // representation, and the second uses a 2-byte sequence. The second version
+  // is invalid UTF-8 since UTF-8 states that the shortest encoding for a
+  // given codepoint must be used.
+  static const char kEmbeddedNull[] = "embedded\0null";
+  EXPECT_TRUE(IsStringUTF8(
+      std::string(kEmbeddedNull, sizeof(kEmbeddedNull))));
+  EXPECT_FALSE(IsStringUTF8("embedded\xc0\x80U+0000"));
 }
 
 TEST(StringUtilTest, ConvertASCII) {
@@ -530,8 +539,8 @@ TEST(StringUtilTest, FormatBytes) {
   static const struct {
     int64 bytes;
     DataUnits units;
-    const wchar_t* expected;
-    const wchar_t* expected_with_units;
+    const char* expected;
+    const char* expected_with_units;
   } cases[] = {
     // Expected behavior: we show one post-decimal digit when we have
     // under two pre-decimal digits, except in cases where it makes no
@@ -539,35 +548,35 @@ TEST(StringUtilTest, FormatBytes) {
     // Since we switch units once we cross the 1000 mark, this keeps
     // the display of file sizes or bytes consistently around three
     // digits.
-    {0, DATA_UNITS_BYTE, L"0", L"0 B"},
-    {512, DATA_UNITS_BYTE, L"512", L"512 B"},
-    {512, DATA_UNITS_KIBIBYTE, L"0.5", L"0.5 kB"},
-    {1024*1024, DATA_UNITS_KIBIBYTE, L"1024", L"1024 kB"},
-    {1024*1024, DATA_UNITS_MEBIBYTE, L"1.0", L"1.0 MB"},
-    {1024*1024*1024, DATA_UNITS_GIBIBYTE, L"1.0", L"1.0 GB"},
-    {10LL*1024*1024*1024, DATA_UNITS_GIBIBYTE, L"10.0", L"10.0 GB"},
-    {99LL*1024*1024*1024, DATA_UNITS_GIBIBYTE, L"99.0", L"99.0 GB"},
-    {105LL*1024*1024*1024, DATA_UNITS_GIBIBYTE, L"105", L"105 GB"},
+    {0, DATA_UNITS_BYTE, "0", "0 B"},
+    {512, DATA_UNITS_BYTE, "512", "512 B"},
+    {512, DATA_UNITS_KIBIBYTE, "0.5", "0.5 kB"},
+    {1024*1024, DATA_UNITS_KIBIBYTE, "1024", "1024 kB"},
+    {1024*1024, DATA_UNITS_MEBIBYTE, "1.0", "1.0 MB"},
+    {1024*1024*1024, DATA_UNITS_GIBIBYTE, "1.0", "1.0 GB"},
+    {10LL*1024*1024*1024, DATA_UNITS_GIBIBYTE, "10.0", "10.0 GB"},
+    {99LL*1024*1024*1024, DATA_UNITS_GIBIBYTE, "99.0", "99.0 GB"},
+    {105LL*1024*1024*1024, DATA_UNITS_GIBIBYTE, "105", "105 GB"},
     {105LL*1024*1024*1024 + 500LL*1024*1024, DATA_UNITS_GIBIBYTE,
-     L"105", L"105 GB"},
-    {~(1LL<<63), DATA_UNITS_GIBIBYTE, L"8589934592", L"8589934592 GB"},
+     "105", "105 GB"},
+    {~(1LL<<63), DATA_UNITS_GIBIBYTE, "8589934592", "8589934592 GB"},
 
-    {99*1024 + 103, DATA_UNITS_KIBIBYTE, L"99.1", L"99.1 kB"},
-    {1024*1024 + 103, DATA_UNITS_KIBIBYTE, L"1024", L"1024 kB"},
-    {1024*1024 + 205 * 1024, DATA_UNITS_MEBIBYTE, L"1.2", L"1.2 MB"},
+    {99*1024 + 103, DATA_UNITS_KIBIBYTE, "99.1", "99.1 kB"},
+    {1024*1024 + 103, DATA_UNITS_KIBIBYTE, "1024", "1024 kB"},
+    {1024*1024 + 205 * 1024, DATA_UNITS_MEBIBYTE, "1.2", "1.2 MB"},
     {1024*1024*1024 + (927 * 1024*1024), DATA_UNITS_GIBIBYTE,
-     L"1.9", L"1.9 GB"},
-    {10LL*1024*1024*1024, DATA_UNITS_GIBIBYTE, L"10.0", L"10.0 GB"},
-    {100LL*1024*1024*1024, DATA_UNITS_GIBIBYTE, L"100", L"100 GB"},
+     "1.9", "1.9 GB"},
+    {10LL*1024*1024*1024, DATA_UNITS_GIBIBYTE, "10.0", "10.0 GB"},
+    {100LL*1024*1024*1024, DATA_UNITS_GIBIBYTE, "100", "100 GB"},
 #ifdef NDEBUG
-    {-1, DATA_UNITS_BYTE, L"", L""},
+    {-1, DATA_UNITS_BYTE, "", ""},
 #endif
   };
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(cases); ++i) {
-    EXPECT_EQ(cases[i].expected,
+    EXPECT_EQ(ASCIIToUTF16(cases[i].expected),
               FormatBytes(cases[i].bytes, cases[i].units, false));
-    EXPECT_EQ(cases[i].expected_with_units,
+    EXPECT_EQ(ASCIIToUTF16(cases[i].expected_with_units),
               FormatBytes(cases[i].bytes, cases[i].units, true));
   }
 }
@@ -633,363 +642,31 @@ TEST(StringUtilTest, ReplaceFirstSubstringAfterOffset) {
   }
 }
 
-namespace {
+TEST(StringUtilTest, HexDigitToInt) {
+  EXPECT_EQ(0, HexDigitToInt('0'));
+  EXPECT_EQ(1, HexDigitToInt('1'));
+  EXPECT_EQ(2, HexDigitToInt('2'));
+  EXPECT_EQ(3, HexDigitToInt('3'));
+  EXPECT_EQ(4, HexDigitToInt('4'));
+  EXPECT_EQ(5, HexDigitToInt('5'));
+  EXPECT_EQ(6, HexDigitToInt('6'));
+  EXPECT_EQ(7, HexDigitToInt('7'));
+  EXPECT_EQ(8, HexDigitToInt('8'));
+  EXPECT_EQ(9, HexDigitToInt('9'));
+  EXPECT_EQ(10, HexDigitToInt('A'));
+  EXPECT_EQ(11, HexDigitToInt('B'));
+  EXPECT_EQ(12, HexDigitToInt('C'));
+  EXPECT_EQ(13, HexDigitToInt('D'));
+  EXPECT_EQ(14, HexDigitToInt('E'));
+  EXPECT_EQ(15, HexDigitToInt('F'));
 
-template <typename INT>
-struct IntToStringTest {
-  INT num;
-  const char* sexpected;
-  const char* uexpected;
-};
-
-}  // namespace
-
-TEST(StringUtilTest, IntToString) {
-  static const IntToStringTest<int> int_tests[] = {
-      { 0, "0", "0" },
-      { -1, "-1", "4294967295" },
-      { std::numeric_limits<int>::max(), "2147483647", "2147483647" },
-      { std::numeric_limits<int>::min(), "-2147483648", "2147483648" },
-  };
-  static const IntToStringTest<int64> int64_tests[] = {
-      { 0, "0", "0" },
-      { -1, "-1", "18446744073709551615" },
-      { std::numeric_limits<int64>::max(),
-        "9223372036854775807",
-        "9223372036854775807", },
-      { std::numeric_limits<int64>::min(),
-        "-9223372036854775808",
-        "9223372036854775808" },
-  };
-
-  for (size_t i = 0; i < arraysize(int_tests); ++i) {
-    const IntToStringTest<int>* test = &int_tests[i];
-    EXPECT_EQ(IntToString(test->num), test->sexpected);
-    EXPECT_EQ(IntToWString(test->num), UTF8ToWide(test->sexpected));
-    EXPECT_EQ(UintToString(test->num), test->uexpected);
-    EXPECT_EQ(UintToWString(test->num), UTF8ToWide(test->uexpected));
-  }
-  for (size_t i = 0; i < arraysize(int64_tests); ++i) {
-    const IntToStringTest<int64>* test = &int64_tests[i];
-    EXPECT_EQ(Int64ToString(test->num), test->sexpected);
-    EXPECT_EQ(Int64ToWString(test->num), UTF8ToWide(test->sexpected));
-    EXPECT_EQ(Uint64ToString(test->num), test->uexpected);
-    EXPECT_EQ(Uint64ToWString(test->num), UTF8ToWide(test->uexpected));
-  }
-}
-
-TEST(StringUtilTest, Uint64ToString) {
-  static const struct {
-    uint64 input;
-    std::string output;
-  } cases[] = {
-    {0, "0"},
-    {42, "42"},
-    {INT_MAX, "2147483647"},
-    {kuint64max, "18446744073709551615"},
-  };
-
-  for (size_t i = 0; i < ARRAYSIZE_UNSAFE(cases); ++i)
-    EXPECT_EQ(cases[i].output, Uint64ToString(cases[i].input));
-}
-
-TEST(StringUtilTest, StringToInt) {
-  static const struct {
-    std::string input;
-    int output;
-    bool success;
-  } cases[] = {
-    {"0", 0, true},
-    {"42", 42, true},
-    {"-2147483648", INT_MIN, true},
-    {"2147483647", INT_MAX, true},
-    {"", 0, false},
-    {" 42", 42, false},
-    {"42 ", 42, false},
-    {"\t\n\v\f\r 42", 42, false},
-    {"blah42", 0, false},
-    {"42blah", 42, false},
-    {"blah42blah", 0, false},
-    {"-273.15", -273, false},
-    {"+98.6", 98, false},
-    {"--123", 0, false},
-    {"++123", 0, false},
-    {"-+123", 0, false},
-    {"+-123", 0, false},
-    {"-", 0, false},
-    {"-2147483649", INT_MIN, false},
-    {"-99999999999", INT_MIN, false},
-    {"2147483648", INT_MAX, false},
-    {"99999999999", INT_MAX, false},
-  };
-
-  for (size_t i = 0; i < ARRAYSIZE_UNSAFE(cases); ++i) {
-    EXPECT_EQ(cases[i].output, StringToInt(cases[i].input));
-    int output;
-    EXPECT_EQ(cases[i].success, StringToInt(cases[i].input, &output));
-    EXPECT_EQ(cases[i].output, output);
-
-    std::wstring wide_input = ASCIIToWide(cases[i].input);
-    EXPECT_EQ(cases[i].output, StringToInt(WideToUTF16Hack(wide_input)));
-    EXPECT_EQ(cases[i].success, StringToInt(WideToUTF16Hack(wide_input),
-                                            &output));
-    EXPECT_EQ(cases[i].output, output);
-  }
-
-  // One additional test to verify that conversion of numbers in strings with
-  // embedded NUL characters.  The NUL and extra data after it should be
-  // interpreted as junk after the number.
-  const char input[] = "6\06";
-  std::string input_string(input, arraysize(input) - 1);
-  int output;
-  EXPECT_FALSE(StringToInt(input_string, &output));
-  EXPECT_EQ(6, output);
-
-  std::wstring wide_input = ASCIIToWide(input_string);
-  EXPECT_FALSE(StringToInt(WideToUTF16Hack(wide_input), &output));
-  EXPECT_EQ(6, output);
-}
-
-TEST(StringUtilTest, StringToInt64) {
-  static const struct {
-    std::string input;
-    int64 output;
-    bool success;
-  } cases[] = {
-    {"0", 0, true},
-    {"42", 42, true},
-    {"-2147483648", INT_MIN, true},
-    {"2147483647", INT_MAX, true},
-    {"-2147483649", GG_INT64_C(-2147483649), true},
-    {"-99999999999", GG_INT64_C(-99999999999), true},
-    {"2147483648", GG_INT64_C(2147483648), true},
-    {"99999999999", GG_INT64_C(99999999999), true},
-    {"9223372036854775807", kint64max, true},
-    {"-9223372036854775808", kint64min, true},
-    {"09", 9, true},
-    {"-09", -9, true},
-    {"", 0, false},
-    {" 42", 42, false},
-    {"42 ", 42, false},
-    {"\t\n\v\f\r 42", 42, false},
-    {"blah42", 0, false},
-    {"42blah", 42, false},
-    {"blah42blah", 0, false},
-    {"-273.15", -273, false},
-    {"+98.6", 98, false},
-    {"--123", 0, false},
-    {"++123", 0, false},
-    {"-+123", 0, false},
-    {"+-123", 0, false},
-    {"-", 0, false},
-    {"-9223372036854775809", kint64min, false},
-    {"-99999999999999999999", kint64min, false},
-    {"9223372036854775808", kint64max, false},
-    {"99999999999999999999", kint64max, false},
-  };
-
-  for (size_t i = 0; i < ARRAYSIZE_UNSAFE(cases); ++i) {
-    EXPECT_EQ(cases[i].output, StringToInt64(cases[i].input));
-    int64 output;
-    EXPECT_EQ(cases[i].success, StringToInt64(cases[i].input, &output));
-    EXPECT_EQ(cases[i].output, output);
-
-    std::wstring wide_input = ASCIIToWide(cases[i].input);
-    EXPECT_EQ(cases[i].output, StringToInt64(WideToUTF16Hack(wide_input)));
-    EXPECT_EQ(cases[i].success, StringToInt64(WideToUTF16Hack(wide_input),
-                                              &output));
-    EXPECT_EQ(cases[i].output, output);
-  }
-
-  // One additional test to verify that conversion of numbers in strings with
-  // embedded NUL characters.  The NUL and extra data after it should be
-  // interpreted as junk after the number.
-  const char input[] = "6\06";
-  std::string input_string(input, arraysize(input) - 1);
-  int64 output;
-  EXPECT_FALSE(StringToInt64(input_string, &output));
-  EXPECT_EQ(6, output);
-
-  std::wstring wide_input = ASCIIToWide(input_string);
-  EXPECT_FALSE(StringToInt64(WideToUTF16Hack(wide_input), &output));
-  EXPECT_EQ(6, output);
-}
-
-TEST(StringUtilTest, HexStringToInt) {
-  static const struct {
-    std::string input;
-    int output;
-    bool success;
-  } cases[] = {
-    {"0", 0, true},
-    {"42", 66, true},
-    {"-42", -66, true},
-    {"+42", 66, true},
-    {"7fffffff", INT_MAX, true},
-    {"80000000", INT_MIN, true},
-    {"ffffffff", -1, true},
-    {"DeadBeef", 0xdeadbeef, true},
-    {"0x42", 66, true},
-    {"-0x42", -66, true},
-    {"+0x42", 66, true},
-    {"0x7fffffff", INT_MAX, true},
-    {"0x80000000", INT_MIN, true},
-    {"0xffffffff", -1, true},
-    {"0XDeadBeef", 0xdeadbeef, true},
-    {"0x0f", 15, true},
-    {"0f", 15, true},
-    {" 45", 0x45, false},
-    {"\t\n\v\f\r 0x45", 0x45, false},
-    {" 45", 0x45, false},
-    {"45 ", 0x45, false},
-    {"efgh", 0xef, false},
-    {"0xefgh", 0xef, false},
-    {"hgfe", 0, false},
-    {"100000000", -1, false},  // don't care about |output|, just |success|
-    {"-", 0, false},
-    {"", 0, false},
-  };
-
-  for (size_t i = 0; i < ARRAYSIZE_UNSAFE(cases); ++i) {
-    EXPECT_EQ(cases[i].output, HexStringToInt(cases[i].input));
-    int output;
-    EXPECT_EQ(cases[i].success, HexStringToInt(cases[i].input, &output));
-    EXPECT_EQ(cases[i].output, output);
-
-    std::wstring wide_input = ASCIIToWide(cases[i].input);
-    EXPECT_EQ(cases[i].output, HexStringToInt(WideToUTF16Hack(wide_input)));
-    EXPECT_EQ(cases[i].success, HexStringToInt(WideToUTF16Hack(wide_input),
-                                               &output));
-    EXPECT_EQ(cases[i].output, output);
-  }
-  // One additional test to verify that conversion of numbers in strings with
-  // embedded NUL characters.  The NUL and extra data after it should be
-  // interpreted as junk after the number.
-  const char input[] = "0xc0ffee\09";
-  std::string input_string(input, arraysize(input) - 1);
-  int output;
-  EXPECT_FALSE(HexStringToInt(input_string, &output));
-  EXPECT_EQ(0xc0ffee, output);
-
-  std::wstring wide_input = ASCIIToWide(input_string);
-  EXPECT_FALSE(HexStringToInt(WideToUTF16Hack(wide_input), &output));
-  EXPECT_EQ(0xc0ffee, output);
-}
-
-TEST(StringUtilTest, HexStringToBytes) {
-  static const struct {
-    const std::string input;
-    const char* output;
-    size_t output_len;
-    bool success;
-  } cases[] = {
-    {"0", "", 0, false},  // odd number of characters fails
-    {"00", "\0", 1, true},
-    {"42", "\x42", 1, true},
-    {"-42", "", 0, false},  // any non-hex value fails
-    {"+42", "", 0, false},
-    {"7fffffff", "\x7f\xff\xff\xff", 4, true},
-    {"80000000", "\x80\0\0\0", 4, true},
-    {"deadbeef", "\xde\xad\xbe\xef", 4, true},
-    {"DeadBeef", "\xde\xad\xbe\xef", 4, true},
-    {"0x42", "", 0, false},  // leading 0x fails (x is not hex)
-    {"0f", "\xf", 1, true},
-    {"45  ", "\x45", 1, false},
-    {"efgh", "\xef", 1, false},
-    {"", "", 0, false},
-    {"0123456789ABCDEF", "\x01\x23\x45\x67\x89\xAB\xCD\xEF", 8, true},
-    {"0123456789ABCDEF012345",
-     "\x01\x23\x45\x67\x89\xAB\xCD\xEF\x01\x23\x45", 11, true},
-  };
-
-
-  for (size_t i = 0; i < ARRAYSIZE_UNSAFE(cases); ++i) {
-    std::vector<uint8> output;
-    std::vector<uint8> compare;
-    EXPECT_EQ(cases[i].success, HexStringToBytes(cases[i].input, &output)) <<
-        i << ": " << cases[i].input;
-    for (size_t j = 0; j < cases[i].output_len; ++j)
-      compare.push_back(static_cast<uint8>(cases[i].output[j]));
-    ASSERT_EQ(output.size(), compare.size()) << i << ": " << cases[i].input;
-    EXPECT_TRUE(std::equal(output.begin(), output.end(), compare.begin())) <<
-        i << ": " << cases[i].input;
-
-    output.clear();
-    compare.clear();
-
-    std::wstring wide_input = ASCIIToWide(cases[i].input);
-    EXPECT_EQ(cases[i].success,
-              HexStringToBytes(WideToUTF16Hack(wide_input), &output)) <<
-        i << ": " << cases[i].input;
-    for (size_t j = 0; j < cases[i].output_len; ++j)
-      compare.push_back(static_cast<uint8>(cases[i].output[j]));
-    ASSERT_EQ(output.size(), compare.size()) << i << ": " << cases[i].input;
-    EXPECT_TRUE(std::equal(output.begin(), output.end(), compare.begin())) <<
-        i << ": " << cases[i].input;
-  }
-}
-
-TEST(StringUtilTest, StringToDouble) {
-  static const struct {
-    std::string input;
-    double output;
-    bool success;
-  } cases[] = {
-    {"0", 0.0, true},
-    {"42", 42.0, true},
-    {"-42", -42.0, true},
-    {"123.45", 123.45, true},
-    {"-123.45", -123.45, true},
-    {"+123.45", 123.45, true},
-    {"2.99792458e8", 299792458.0, true},
-    {"149597870.691E+3", 149597870691.0, true},
-    {"6.", 6.0, true},
-    {"9e99999999999999999999", HUGE_VAL, false},
-    {"-9e99999999999999999999", -HUGE_VAL, false},
-    {"1e-2", 0.01, true},
-    {" 1e-2", 0.01, false},
-    {"1e-2 ", 0.01, false},
-    {"-1E-7", -0.0000001, true},
-    {"01e02", 100, true},
-    {"2.3e15", 2.3e15, true},
-    {"\t\n\v\f\r -123.45e2", -12345.0, false},
-    {"+123 e4", 123.0, false},
-    {"123e ", 123.0, false},
-    {"123e", 123.0, false},
-    {" 2.99", 2.99, false},
-    {"1e3.4", 1000.0, false},
-    {"nothing", 0.0, false},
-    {"-", 0.0, false},
-    {"+", 0.0, false},
-    {"", 0.0, false},
-  };
-
-  for (size_t i = 0; i < ARRAYSIZE_UNSAFE(cases); ++i) {
-    EXPECT_DOUBLE_EQ(cases[i].output, StringToDouble(cases[i].input));
-    double output;
-    EXPECT_EQ(cases[i].success, StringToDouble(cases[i].input, &output));
-    EXPECT_DOUBLE_EQ(cases[i].output, output);
-
-    std::wstring wide_input = ASCIIToWide(cases[i].input);
-    EXPECT_DOUBLE_EQ(cases[i].output,
-                     StringToDouble(WideToUTF16Hack(wide_input)));
-    EXPECT_EQ(cases[i].success, StringToDouble(WideToUTF16Hack(wide_input),
-                                               &output));
-    EXPECT_DOUBLE_EQ(cases[i].output, output);
-  }
-
-  // One additional test to verify that conversion of numbers in strings with
-  // embedded NUL characters.  The NUL and extra data after it should be
-  // interpreted as junk after the number.
-  const char input[] = "3.14\0159";
-  std::string input_string(input, arraysize(input) - 1);
-  double output;
-  EXPECT_FALSE(StringToDouble(input_string, &output));
-  EXPECT_DOUBLE_EQ(3.14, output);
-
-  std::wstring wide_input = ASCIIToWide(input_string);
-  EXPECT_FALSE(StringToDouble(WideToUTF16Hack(wide_input), &output));
-  EXPECT_DOUBLE_EQ(3.14, output);
+  // Verify the lower case as well.
+  EXPECT_EQ(10, HexDigitToInt('a'));
+  EXPECT_EQ(11, HexDigitToInt('b'));
+  EXPECT_EQ(12, HexDigitToInt('c'));
+  EXPECT_EQ(13, HexDigitToInt('d'));
+  EXPECT_EQ(14, HexDigitToInt('e'));
+  EXPECT_EQ(15, HexDigitToInt('f'));
 }
 
 // This checks where we can use the assignment operator for a va_list. We need
@@ -1023,227 +700,6 @@ static void VariableArgsFunc(const char* format, ...) {
 
 TEST(StringUtilTest, VAList) {
   VariableArgsFunc("%d %d %s %lf", 45, 92, "This is interesting", 9.21);
-}
-
-TEST(StringUtilTest, StringPrintfEmpty) {
-  EXPECT_EQ("", StringPrintf("%s", ""));
-}
-
-TEST(StringUtilTest, StringPrintfMisc) {
-  EXPECT_EQ("123hello w", StringPrintf("%3d%2s %1c", 123, "hello", 'w'));
-  EXPECT_EQ(L"123hello w", StringPrintf(L"%3d%2ls %1lc", 123, L"hello", 'w'));
-}
-
-TEST(StringUtilTest, StringAppendfEmptyString) {
-  std::string value("Hello");
-  StringAppendF(&value, "%s", "");
-  EXPECT_EQ("Hello", value);
-
-  std::wstring valuew(L"Hello");
-  StringAppendF(&valuew, L"%ls", L"");
-  EXPECT_EQ(L"Hello", valuew);
-}
-
-TEST(StringUtilTest, StringAppendfString) {
-  std::string value("Hello");
-  StringAppendF(&value, " %s", "World");
-  EXPECT_EQ("Hello World", value);
-
-  std::wstring valuew(L"Hello");
-  StringAppendF(&valuew, L" %ls", L"World");
-  EXPECT_EQ(L"Hello World", valuew);
-}
-
-TEST(StringUtilTest, StringAppendfInt) {
-  std::string value("Hello");
-  StringAppendF(&value, " %d", 123);
-  EXPECT_EQ("Hello 123", value);
-
-  std::wstring valuew(L"Hello");
-  StringAppendF(&valuew, L" %d", 123);
-  EXPECT_EQ(L"Hello 123", valuew);
-}
-
-// Make sure that lengths exactly around the initial buffer size are handled
-// correctly.
-TEST(StringUtilTest, StringPrintfBounds) {
-  const int kSrcLen = 1026;
-  char src[kSrcLen];
-  for (size_t i = 0; i < arraysize(src); i++)
-    src[i] = 'A';
-
-  wchar_t srcw[kSrcLen];
-  for (size_t i = 0; i < arraysize(srcw); i++)
-    srcw[i] = 'A';
-
-  for (int i = 1; i < 3; i++) {
-    src[kSrcLen - i] = 0;
-    std::string out;
-    SStringPrintf(&out, "%s", src);
-    EXPECT_STREQ(src, out.c_str());
-
-    srcw[kSrcLen - i] = 0;
-    std::wstring outw;
-    SStringPrintf(&outw, L"%ls", srcw);
-    EXPECT_STREQ(srcw, outw.c_str());
-  }
-}
-
-// Test very large sprintfs that will cause the buffer to grow.
-TEST(StringUtilTest, Grow) {
-  char src[1026];
-  for (size_t i = 0; i < arraysize(src); i++)
-    src[i] = 'A';
-  src[1025] = 0;
-
-  const char* fmt = "%sB%sB%sB%sB%sB%sB%s";
-
-  std::string out;
-  SStringPrintf(&out, fmt, src, src, src, src, src, src, src);
-
-  const int kRefSize = 320000;
-  char* ref = new char[kRefSize];
-#if defined(OS_WIN)
-  sprintf_s(ref, kRefSize, fmt, src, src, src, src, src, src, src);
-#elif defined(OS_POSIX)
-  snprintf(ref, kRefSize, fmt, src, src, src, src, src, src, src);
-#endif
-
-  EXPECT_STREQ(ref, out.c_str());
-  delete[] ref;
-}
-
-// A helper for the StringAppendV test that follows.
-// Just forwards its args to StringAppendV.
-static void StringAppendVTestHelper(std::string* out,
-                                    const char* format,
-                                    ...) PRINTF_FORMAT(2, 3);
-
-static void StringAppendVTestHelper(std::string* out, const char* format, ...) {
-  va_list ap;
-  va_start(ap, format);
-  StringAppendV(out, format, ap);
-  va_end(ap);
-}
-
-TEST(StringUtilTest, StringAppendV) {
-  std::string out;
-  StringAppendVTestHelper(&out, "%d foo %s", 1, "bar");
-  EXPECT_EQ("1 foo bar", out);
-}
-
-// Test the boundary condition for the size of the string_util's
-// internal buffer.
-TEST(StringUtilTest, GrowBoundary) {
-  const int string_util_buf_len = 1024;
-  // Our buffer should be one larger than the size of StringAppendVT's stack
-  // buffer.
-  const int buf_len = string_util_buf_len + 1;
-  char src[buf_len + 1];  // Need extra one for NULL-terminator.
-  for (int i = 0; i < buf_len; ++i)
-    src[i] = 'a';
-  src[buf_len] = 0;
-
-  std::string out;
-  SStringPrintf(&out, "%s", src);
-
-  EXPECT_STREQ(src, out.c_str());
-}
-
-// TODO(evanm): what's the proper cross-platform test here?
-#if defined(OS_WIN)
-// sprintf in Visual Studio fails when given U+FFFF. This tests that the
-// failure case is gracefuly handled.
-TEST(StringUtilTest, Invalid) {
-  wchar_t invalid[2];
-  invalid[0] = 0xffff;
-  invalid[1] = 0;
-
-  std::wstring out;
-  SStringPrintf(&out, L"%ls", invalid);
-  EXPECT_STREQ(L"", out.c_str());
-}
-#endif
-
-// Test for SplitString
-TEST(StringUtilTest, SplitString) {
-  std::vector<std::wstring> r;
-
-  SplitString(L"", L',', &r);
-  ASSERT_EQ(1U, r.size());
-  EXPECT_EQ(r[0], L"");
-  r.clear();
-
-  SplitString(L"a,b,c", L',', &r);
-  ASSERT_EQ(3U, r.size());
-  EXPECT_EQ(r[0], L"a");
-  EXPECT_EQ(r[1], L"b");
-  EXPECT_EQ(r[2], L"c");
-  r.clear();
-
-  SplitString(L"a, b, c", L',', &r);
-  ASSERT_EQ(3U, r.size());
-  EXPECT_EQ(r[0], L"a");
-  EXPECT_EQ(r[1], L"b");
-  EXPECT_EQ(r[2], L"c");
-  r.clear();
-
-  SplitString(L"a,,c", L',', &r);
-  ASSERT_EQ(3U, r.size());
-  EXPECT_EQ(r[0], L"a");
-  EXPECT_EQ(r[1], L"");
-  EXPECT_EQ(r[2], L"c");
-  r.clear();
-
-  SplitString(L"", L'*', &r);
-  ASSERT_EQ(1U, r.size());
-  EXPECT_EQ(r[0], L"");
-  r.clear();
-
-  SplitString(L"foo", L'*', &r);
-  ASSERT_EQ(1U, r.size());
-  EXPECT_EQ(r[0], L"foo");
-  r.clear();
-
-  SplitString(L"foo ,", L',', &r);
-  ASSERT_EQ(2U, r.size());
-  EXPECT_EQ(r[0], L"foo");
-  EXPECT_EQ(r[1], L"");
-  r.clear();
-
-  SplitString(L",", L',', &r);
-  ASSERT_EQ(2U, r.size());
-  EXPECT_EQ(r[0], L"");
-  EXPECT_EQ(r[1], L"");
-  r.clear();
-
-  SplitString(L"\t\ta\t", L'\t', &r);
-  ASSERT_EQ(4U, r.size());
-  EXPECT_EQ(r[0], L"");
-  EXPECT_EQ(r[1], L"");
-  EXPECT_EQ(r[2], L"a");
-  EXPECT_EQ(r[3], L"");
-  r.clear();
-
-  SplitStringDontTrim(L"\t\ta\t", L'\t', &r);
-  ASSERT_EQ(4U, r.size());
-  EXPECT_EQ(r[0], L"");
-  EXPECT_EQ(r[1], L"");
-  EXPECT_EQ(r[2], L"a");
-  EXPECT_EQ(r[3], L"");
-  r.clear();
-
-  SplitString(L"\ta\t\nb\tcc", L'\n', &r);
-  ASSERT_EQ(2U, r.size());
-  EXPECT_EQ(r[0], L"a");
-  EXPECT_EQ(r[1], L"b\tcc");
-  r.clear();
-
-  SplitStringDontTrim(L"\ta\t\nb\tcc", L'\n', &r);
-  ASSERT_EQ(2U, r.size());
-  EXPECT_EQ(r[0], L"\ta\t");
-  EXPECT_EQ(r[1], L"b\tcc");
-  r.clear();
 }
 
 // Test for Tokenize
@@ -1485,6 +941,15 @@ TEST(StringUtilTest, StdStringReplaceStringPlaceholders) {
   EXPECT_EQ(formatted, "9aa,8bb,7cc,6dd,5ee,4ff,3gg,2hh,1ii");
 }
 
+TEST(StringUtilTest, ReplaceStringPlaceholdersConsecutiveDollarSigns) {
+  std::vector<std::string> subst;
+  subst.push_back("a");
+  subst.push_back("b");
+  subst.push_back("c");
+  EXPECT_EQ(ReplaceStringPlaceholders("$$1 $$$2 $$$$3", subst, NULL),
+            "$1 $$2 $$$3");
+}
+
 TEST(StringUtilTest, SplitStringAlongWhitespace) {
   struct TestData {
     const std::wstring input;
@@ -1518,22 +983,36 @@ TEST(StringUtilTest, SplitStringAlongWhitespace) {
 }
 
 TEST(StringUtilTest, MatchPatternTest) {
-  EXPECT_EQ(MatchPatternASCII("www.google.com", "*.com"), true);
-  EXPECT_EQ(MatchPatternASCII("www.google.com", "*"), true);
-  EXPECT_EQ(MatchPatternASCII("www.google.com", "www*.g*.org"), false);
-  EXPECT_EQ(MatchPatternASCII("Hello", "H?l?o"), true);
-  EXPECT_EQ(MatchPatternASCII("www.google.com", "http://*)"), false);
-  EXPECT_EQ(MatchPatternASCII("www.msn.com", "*.COM"), false);
-  EXPECT_EQ(MatchPatternASCII("Hello*1234", "He??o\\*1*"), true);
-  EXPECT_EQ(MatchPatternASCII("", "*.*"), false);
-  EXPECT_EQ(MatchPatternASCII("", "*"), true);
-  EXPECT_EQ(MatchPatternASCII("", "?"), true);
-  EXPECT_EQ(MatchPatternASCII("", ""), true);
-  EXPECT_EQ(MatchPatternASCII("Hello", ""), false);
-  EXPECT_EQ(MatchPatternASCII("Hello*", "Hello*"), true);
+  EXPECT_TRUE(MatchPattern("www.google.com", "*.com"));
+  EXPECT_TRUE(MatchPattern("www.google.com", "*"));
+  EXPECT_FALSE(MatchPattern("www.google.com", "www*.g*.org"));
+  EXPECT_TRUE(MatchPattern("Hello", "H?l?o"));
+  EXPECT_FALSE(MatchPattern("www.google.com", "http://*)"));
+  EXPECT_FALSE(MatchPattern("www.msn.com", "*.COM"));
+  EXPECT_TRUE(MatchPattern("Hello*1234", "He??o\\*1*"));
+  EXPECT_FALSE(MatchPattern("", "*.*"));
+  EXPECT_TRUE(MatchPattern("", "*"));
+  EXPECT_TRUE(MatchPattern("", "?"));
+  EXPECT_TRUE(MatchPattern("", ""));
+  EXPECT_FALSE(MatchPattern("Hello", ""));
+  EXPECT_TRUE(MatchPattern("Hello*", "Hello*"));
   // Stop after a certain recursion depth.
-  EXPECT_EQ(MatchPatternASCII("12345678901234567890", "???????????????????*"),
-                              false);
+  EXPECT_FALSE(MatchPattern("123456789012345678", "?????????????????*"));
+
+  // Test UTF8 matching.
+  EXPECT_TRUE(MatchPattern("heart: \xe2\x99\xa0", "*\xe2\x99\xa0"));
+  EXPECT_TRUE(MatchPattern("heart: \xe2\x99\xa0.", "heart: ?."));
+  EXPECT_TRUE(MatchPattern("hearts: \xe2\x99\xa0\xe2\x99\xa0", "*"));
+  // Invalid sequences should be handled as a single invalid character.
+  EXPECT_TRUE(MatchPattern("invalid: \xef\xbf\xbe", "invalid: ?"));
+  // If the pattern has invalid characters, it shouldn't match anything.
+  EXPECT_FALSE(MatchPattern("\xf4\x90\x80\x80", "\xf4\x90\x80\x80"));
+
+  // Test UTF16 character matching.
+  EXPECT_TRUE(MatchPattern(UTF8ToUTF16("www.google.com"),
+                           UTF8ToUTF16("*.com")));
+  EXPECT_TRUE(MatchPattern(UTF8ToUTF16("Hello*1234"),
+                           UTF8ToUTF16("He??o\\*1*")));
 }
 
 TEST(StringUtilTest, LcpyTest) {
@@ -1655,14 +1134,6 @@ TEST(StringUtilTest, ElideString) {
   }
 }
 
-TEST(StringUtilTest, HexEncode) {
-  std::string hex(HexEncode(NULL, 0));
-  EXPECT_EQ(hex.length(), 0U);
-  unsigned char bytes[] = {0x01, 0xff, 0x02, 0xfe, 0x03, 0x80, 0x81};
-  hex = HexEncode(bytes, sizeof(bytes));
-  EXPECT_EQ(hex.compare("01FF02FE038081"), 0);
-}
-
 TEST(StringUtilTest, RemoveChars) {
   const char* kRemoveChars = "-/+*";
   std::string input = "A-+bc/d!*";
@@ -1690,51 +1161,6 @@ TEST(StringUtilTest, ContainsOnlyChars) {
   EXPECT_TRUE(ContainsOnlyChars("1", "4321"));
   EXPECT_TRUE(ContainsOnlyChars("123", "4321"));
   EXPECT_FALSE(ContainsOnlyChars("123a", "4321"));
-}
-
-TEST(SplitStringUsingSubstrTest, EmptyString) {
-  std::vector<std::string> results;
-  SplitStringUsingSubstr("", "DELIMITER", &results);
-  ASSERT_EQ(1u, results.size());
-  EXPECT_THAT(results, ElementsAre(""));
-}
-
-TEST(SplitStringUsingSubstrTest, StringWithNoDelimiter) {
-  std::vector<std::string> results;
-  SplitStringUsingSubstr("alongwordwithnodelimiter", "DELIMITER", &results);
-  ASSERT_EQ(1u, results.size());
-  EXPECT_THAT(results, ElementsAre("alongwordwithnodelimiter"));
-}
-
-TEST(SplitStringUsingSubstrTest, LeadingDelimitersSkipped) {
-  std::vector<std::string> results;
-  SplitStringUsingSubstr(
-      "DELIMITERDELIMITERDELIMITERoneDELIMITERtwoDELIMITERthree",
-      "DELIMITER",
-      &results);
-  ASSERT_EQ(6u, results.size());
-  EXPECT_THAT(results, ElementsAre("", "", "", "one", "two", "three"));
-}
-
-TEST(SplitStringUsingSubstrTest, ConsecutiveDelimitersSkipped) {
-  std::vector<std::string> results;
-  SplitStringUsingSubstr(
-      "unoDELIMITERDELIMITERDELIMITERdosDELIMITERtresDELIMITERDELIMITERcuatro",
-      "DELIMITER",
-      &results);
-  ASSERT_EQ(7u, results.size());
-  EXPECT_THAT(results, ElementsAre("uno", "", "", "dos", "tres", "", "cuatro"));
-}
-
-TEST(SplitStringUsingSubstrTest, TrailingDelimitersSkipped) {
-  std::vector<std::string> results;
-  SplitStringUsingSubstr(
-      "unDELIMITERdeuxDELIMITERtroisDELIMITERquatreDELIMITERDELIMITERDELIMITER",
-      "DELIMITER",
-      &results);
-  ASSERT_EQ(7u, results.size());
-  EXPECT_THAT(
-      results, ElementsAre("un", "deux", "trois", "quatre", "", "", ""));
 }
 
 }  // namespace base

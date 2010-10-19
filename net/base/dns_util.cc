@@ -50,9 +50,9 @@ bool DNSDomainFromDot(const std::string& dotted, std::string* out) {
 
   if (namelen + 1 > sizeof name)
     return false;
-  name[namelen++] = 0;
+  name[namelen++] = 0;  // This is the root label (of length 0).
 
-  *out = name;
+  *out = std::string(name, namelen);
   return true;
 }
 

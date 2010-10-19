@@ -1,15 +1,15 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// File utilities that use the ICU library go in this file.
+#ifndef BASE_I18N_FILE_UTIL_ICU_H_
+#define BASE_I18N_FILE_UTIL_ICU_H_
+#pragma once
 
-#include <string>
+// File utilities that use the ICU library go in this file.
 
 #include "base/file_path.h"
 #include "base/string16.h"
-
-class FilePath;
 
 namespace file_util {
 
@@ -33,3 +33,5 @@ void ReplaceIllegalCharactersInPath(FilePath::StringType* file_name,
 bool LocaleAwareCompareFilenames(const FilePath& a, const FilePath& b);
 
 }  // namespace file_util
+
+#endif  // BASE_I18N_FILE_UTIL_ICU_H_

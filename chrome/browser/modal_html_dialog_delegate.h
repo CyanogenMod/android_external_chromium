@@ -4,13 +4,21 @@
 
 #ifndef CHROME_BROWSER_MODAL_HTML_DIALOG_DELEGATE_H_
 #define CHROME_BROWSER_MODAL_HTML_DIALOG_DELEGATE_H_
+#pragma once
 
 #include <vector>
 
 #include "chrome/browser/dom_ui/html_dialog_ui.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "gfx/size.h"
-#include "ipc/ipc_message.h"
+
+namespace gfx {
+class Size;
+}
+
+namespace IPC {
+class Message;
+}
 
 // This class can only be used on the UI thread.
 class ModalHtmlDialogDelegate

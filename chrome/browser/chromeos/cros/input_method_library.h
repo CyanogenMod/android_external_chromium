@@ -4,8 +4,8 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_CROS_INPUT_METHOD_LIBRARY_H_
 #define CHROME_BROWSER_CHROMEOS_CROS_INPUT_METHOD_LIBRARY_H_
+#pragma once
 
-#include <map>
 #include <string>
 #include <utility>
 
@@ -18,18 +18,27 @@ namespace chromeos {
 
 // This class handles the interaction with the ChromeOS language library APIs.
 // Classes can add themselves as observers. Users can get an instance of this
-// library class like this: InputMethodLibrary::Get()
+// library class like this:
+//   chromeos::CrosLibrary::Get()->GetInputMethodLibrary()
 class InputMethodLibrary {
  public:
   class Observer {
    public:
     virtual ~Observer() = 0;
+    // Called when the current input method is changed.
     virtual void InputMethodChanged(InputMethodLibrary* obj) = 0;
+
+    // Called when input method properties (see chromeos_input_method.h
+    // for details) are changed.
     virtual void ImePropertiesChanged(InputMethodLibrary* obj) = 0;
+
+    // Called when the active input methods are changed.
     virtual void ActiveInputMethodsChanged(InputMethodLibrary* obj) = 0;
   };
   virtual ~InputMethodLibrary() {}
 
+  // Adds an observer to receive notifications of input method related
+  // changes as desribed in the Observer class above.
   virtual void AddObserver(Observer* observer) = 0;
   virtual void RemoveObserver(Observer* observer) = 0;
 
@@ -76,124 +85,31 @@ class InputMethodLibrary {
   // the request and returns false.
   // You can specify |section| and |config_name| arguments in the same way
   // as GetImeConfig() above.
+  // Notice: This function might call the Observer::ActiveInputMethodsChanged()
+  // callback function immediately, before returning from the SetImeConfig
+  // function. See also http://crosbug.com/5217.
   virtual bool SetImeConfig(const char* section,
                             const char* config_name,
                             const ImeConfigValue& value) = 0;
+
+  // Sets the IME state to enabled, and launches its processes if needed.
+  virtual void StartInputMethodProcesses() = 0;
+
+  // Disables the IME, and kills the processes if they are running.
+  virtual void StopInputMethodProcesses() = 0;
+
+  // Controls whether the IME process is started when preload engines are
+  // specificed, or defered until a non-default method is activated.
+  virtual void SetDeferImeStartup(bool defer) = 0;
 
   virtual const InputMethodDescriptor& previous_input_method() const = 0;
   virtual const InputMethodDescriptor& current_input_method() const = 0;
 
   virtual const ImePropertyList& current_ime_properties() const = 0;
-};
 
-// This class handles the interaction with the ChromeOS language library APIs.
-// Classes can add themselves as observers. Users can get an instance of this
-// library class like this: InputMethodLibrary::Get()
-class InputMethodLibraryImpl : public InputMethodLibrary {
- public:
-  InputMethodLibraryImpl();
-  virtual ~InputMethodLibraryImpl();
-
-  // InputMethodLibrary overrides.
-  virtual void AddObserver(Observer* observer);
-  virtual void RemoveObserver(Observer* observer);
-  virtual InputMethodDescriptors* GetActiveInputMethods();
-  virtual size_t GetNumActiveInputMethods();
-  virtual InputMethodDescriptors* GetSupportedInputMethods();
-  virtual void ChangeInputMethod(const std::string& input_method_id);
-  virtual void SetImePropertyActivated(const std::string& key,
-                                       bool activated);
-  virtual bool InputMethodIsActivated(const std::string& input_method_id);
-  virtual bool GetImeConfig(
-      const char* section, const char* config_name, ImeConfigValue* out_value);
-  virtual bool SetImeConfig(const char* section,
-                            const char* config_name,
-                            const ImeConfigValue& value);
-
-  virtual const InputMethodDescriptor& previous_input_method() const {
-    return previous_input_method_;
-  }
-  virtual const InputMethodDescriptor& current_input_method() const {
-    return current_input_method_;
-  }
-
-  virtual const ImePropertyList& current_ime_properties() const {
-    return current_ime_properties_;
-  }
-
- private:
-  // This method is called when there's a change in input method status.
-  static void InputMethodChangedHandler(
-      void* object, const InputMethodDescriptor& current_input_method);
-
-  // This method is called when an input method sends "RegisterProperties"
-  // signal.
-  static void RegisterPropertiesHandler(
-      void* object, const ImePropertyList& prop_list);
-
-  // This method is called when an input method sends "UpdateProperty" signal.
-  static void UpdatePropertyHandler(
-      void* object, const ImePropertyList& prop_list);
-
-  // This method is called when bus connects or disconnects.
-  static void ConnectionChangeHandler(void* object, bool connected);
-
-  // Ensures that the monitoring of input method changes is started. Starts
-  // the monitoring if necessary. Returns true if the monitoring has been
-  // successfully started.
-  bool EnsureStarted();
-
-  // Ensures that the cros library is loaded and the the monitoring is
-  // started. Loads the cros library and starts the monitoring if
-  // necessary.  Returns true if the two conditions are both met.
-  bool EnsureLoadedAndStarted();
-
-  // Called by the handler to update the input method status.
-  // This will notify all the Observers.
-  void UpdateCurrentInputMethod(
-      const InputMethodDescriptor& current_input_method);
-
-  // Called by the handler to register input method properties.
-  void RegisterProperties(const ImePropertyList& prop_list);
-
-  // Called by the handler to update input method properties.
-  void UpdateProperty(const ImePropertyList& prop_list);
-
-  // Tries to send all pending SetImeConfig requests to the input method config
-  // daemon.
-  void FlushImeConfig();
-
-  // A reference to the language api, to allow callbacks when the input method
-  // status changes.
-  InputMethodStatusConnection* input_method_status_connection_;
-  ObserverList<Observer> observers_;
-
-  // The input method which was/is selected.
-  InputMethodDescriptor previous_input_method_;
-  InputMethodDescriptor current_input_method_;
-
-  // The input method properties which the current input method uses. The list
-  // might be empty when no input method is used.
-  ImePropertyList current_ime_properties_;
-
-  typedef std::pair<std::string, std::string> ConfigKeyType;
-  typedef std::map<ConfigKeyType, ImeConfigValue> InputMethodConfigRequests;
-  // SetImeConfig requests that are not yet completed.
-  // Use a map to queue config requests, so we only send the last request for
-  // the same config key (i.e. we'll discard ealier requests for the same
-  // config key). As we discard old requests for the same config key, the order
-  // of requests doesn't matter, so it's safe to use a map.
-  InputMethodConfigRequests pending_config_requests_;
-
-  // Values that have been set via SetImeConfig().  We keep a copy available to
-  // resend if the ime restarts and loses its state.
-  InputMethodConfigRequests current_config_values_;
-
-  // A timer for retrying to send |pendning_config_commands_| to the input
-  // method config daemon.
-  base::OneShotTimer<InputMethodLibraryImpl> timer_;
-
-  DISALLOW_COPY_AND_ASSIGN(InputMethodLibraryImpl);
+  // Factory function, creates a new instance and returns ownership.
+  // For normal usage, access the singleton via CrosLibrary::Get().
+  static InputMethodLibrary* GetImpl(bool stub);
 };
 
 }  // namespace chromeos

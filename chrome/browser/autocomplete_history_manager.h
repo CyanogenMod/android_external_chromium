@@ -4,8 +4,9 @@
 
 #ifndef CHROME_BROWSER_AUTOCOMPLETE_HISTORY_MANAGER_H_
 #define CHROME_BROWSER_AUTOCOMPLETE_HISTORY_MANAGER_H_
+#pragma once
 
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/webdata/web_data_service.h"
 

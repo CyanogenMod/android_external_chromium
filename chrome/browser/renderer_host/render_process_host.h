@@ -1,12 +1,12 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RENDER_PROCESS_HOST_H_
 #define CHROME_BROWSER_RENDERER_HOST_RENDER_PROCESS_HOST_H_
+#pragma once
 
 #include <set>
-#include <string>
 
 #include "app/surface/transport_dib.h"
 #include "base/id_map.h"
@@ -148,8 +148,8 @@ class RenderProcessHost : public IPC::Channel::Sender,
   // be called once before the object can be used, but can be called after
   // that with no effect. Therefore, if the caller isn't sure about whether
   // the process has been created, it should just call Init().
-  virtual bool Init(bool is_extensions_process,
-                    URLRequestContextGetter* request_context) = 0;
+  virtual bool Init(
+      bool is_accessibility_enabled, bool is_extensions_process) = 0;
 
   // Gets the next available routing id.
   virtual int GetNextRoutingID() = 0;

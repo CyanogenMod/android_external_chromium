@@ -4,8 +4,12 @@
 
 #ifndef CHROME_BROWSER_DOM_UI_PERSONAL_OPTIONS_HANDLER_H_
 #define CHROME_BROWSER_DOM_UI_PERSONAL_OPTIONS_HANDLER_H_
+#pragma once
 
 #include "chrome/browser/dom_ui/options_ui.h"
+#include "chrome/browser/sync/profile_sync_service.h"
+
+class OptionsManagedBannerHandler;
 
 // Chrome personal options page UI handler.
 class PersonalOptionsHandler : public OptionsPageUIHandler {
@@ -15,8 +19,27 @@ class PersonalOptionsHandler : public OptionsPageUIHandler {
 
   // OptionsUIHandler implementation.
   virtual void GetLocalizedValues(DictionaryValue* localized_strings);
+  virtual void Initialize();
+
+  // DOMMessageHandler implementation.
+  virtual void RegisterMessages();
+
+  // NotificationObserver implementation.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
 
  private:
+  void ObserveThemeChanged();
+  void SetSyncStatusUIString(const ListValue* args);
+  void ThemesReset(const ListValue* args);
+  void ThemesGallery(const ListValue* args);
+#if defined(TOOLKIT_GTK)
+  void ThemesSetGTK(const ListValue* args);
+#endif
+
+  scoped_ptr<OptionsManagedBannerHandler> banner_handler_;
+
   DISALLOW_COPY_AND_ASSIGN(PersonalOptionsHandler);
 };
 

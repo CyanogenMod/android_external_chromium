@@ -4,9 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_LOCAL_STORAGE_INFO_VIEW_H_
 #define CHROME_BROWSER_VIEWS_LOCAL_STORAGE_INFO_VIEW_H_
-
-#include <string>
-#include <vector>
+#pragma once
 
 #include "views/view.h"
 #include "chrome/browser/browsing_data_local_storage_helper.h"

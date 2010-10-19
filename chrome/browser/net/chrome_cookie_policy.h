@@ -4,9 +4,9 @@
 
 #ifndef CHROME_BROWSER_NET_CHROME_COOKIE_POLICY_H_
 #define CHROME_BROWSER_NET_CHROME_COOKIE_POLICY_H_
+#pragma once
 
 #include <map>
-#include <queue>
 #include <string>
 #include <vector>
 
@@ -38,9 +38,6 @@ class ChromeCookiePolicy
                            net::CompletionCallback* callback);
 
  private:
-  class PromptDelegate;
-  friend class PromptDelegate;
-
   class Completion {
    public:
     static Completion ForSetCookie(net::CompletionCallback* callback) {
@@ -67,8 +64,6 @@ class ChromeCookiePolicy
   typedef std::map<std::string, Completions> HostCompletionsMap;
 
   int CheckPolicy(const GURL& url) const;
-  void PromptForSetCookie(const GURL& url, const std::string& cookie_line);
-  void DidPromptForSetCookie(const std::string& host, int result);
 
   // A map from hostname to callbacks awaiting a cookie policy response.
   // This map is only accessed on the IO thread.

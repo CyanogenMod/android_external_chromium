@@ -4,8 +4,10 @@
 
 #ifndef CHROME_BROWSER_VIEWS_OPTIONS_GENERAL_PAGE_VIEW_H_
 #define CHROME_BROWSER_VIEWS_OPTIONS_GENERAL_PAGE_VIEW_H_
+#pragma once
 
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/views/options/options_page_view.h"
 #include "chrome/browser/views/url_picker.h"
@@ -59,7 +61,7 @@ class GeneralPageView : public OptionsPageView,
 
   // OptionsPageView implementation:
   virtual void InitControlLayout();
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
   virtual void HighlightGroup(OptionsGroup highlight_group);
 
  private:
@@ -154,6 +156,8 @@ class GeneralPageView : public OptionsPageView,
 
   // The helper object that performs default browser set/check tasks.
   scoped_refptr<ShellIntegration::DefaultBrowserWorker> default_browser_worker_;
+
+  PrefChangeRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(GeneralPageView);
 };

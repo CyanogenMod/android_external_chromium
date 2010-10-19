@@ -1,14 +1,15 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_DOM_UI_DOM_UI_FAVICON_SOURCE_H_
 #define CHROME_BROWSER_DOM_UI_DOM_UI_FAVICON_SOURCE_H_
+#pragma once
 
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
+#include "base/ref_counted.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/favicon_service.h"
 
@@ -27,11 +28,7 @@ class DOMUIFavIconSource : public ChromeURLDataManager::DataSource {
                                 bool is_off_the_record,
                                 int request_id);
 
-  virtual std::string GetMimeType(const std::string&) const {
-    // We need to explicitly return a mime type, otherwise if the user tries to
-    // drag the image they get no extension.
-    return "image/png";
-  }
+  virtual std::string GetMimeType(const std::string&) const;
 
   // Called when favicon data is available from the history backend.
   void OnFavIconDataAvailable(FaviconService::Handle request_handle,
@@ -41,7 +38,10 @@ class DOMUIFavIconSource : public ChromeURLDataManager::DataSource {
                               GURL url);
 
  private:
-  virtual ~DOMUIFavIconSource() {}
+  // Sends the default favicon.
+  void SendDefaultResponse(int request_id);
+
+  virtual ~DOMUIFavIconSource();
 
   Profile* profile_;
   CancelableRequestConsumerT<int, 0> cancelable_consumer_;

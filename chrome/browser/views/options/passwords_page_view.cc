@@ -9,7 +9,7 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/password_manager/password_store.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
@@ -33,6 +33,9 @@ MultiLabelButtons::MultiLabelButtons(views::ButtonListener* listener,
 }
 
 gfx::Size MultiLabelButtons::GetPreferredSize() {
+  if (!IsVisible())
+    return gfx::Size();
+
   if (pref_size_.IsEmpty()) {
     // Let's compute our preferred size.
     std::wstring current_label = label();
@@ -73,7 +76,8 @@ std::wstring PasswordsTableModel::GetText(int row,
     case IDS_PASSWORDS_PAGE_VIEW_SITE_COLUMN: {  // Site.
       // Force URL to have LTR directionality.
       std::wstring url(saved_signons_[row]->display_url.display_url());
-      base::i18n::GetDisplayStringInLTRDirectionality(&url);
+      url = UTF16ToWide(base::i18n::GetDisplayStringInLTRDirectionality(
+          WideToUTF16(url)));
       return url;
     }
     case IDS_PASSWORDS_PAGE_VIEW_USERNAME_COLUMN: {  // Username.
@@ -184,6 +188,9 @@ PasswordsPageView::PasswordsPageView(Profile* profile)
       table_model_(profile),
       table_view_(NULL),
       current_selected_password_(NULL) {
+  allow_show_passwords_.Init(prefs::kPasswordManagerAllowShowPasswords,
+                             profile->GetPrefs(),
+                             this);
 }
 
 PasswordsPageView::~PasswordsPageView() {
@@ -237,14 +244,13 @@ void PasswordsPageView::ButtonPressed(
   if (sender == &remove_button_) {
     table_model_.ForgetAndRemoveSignon(row);
   } else if (sender == &show_button_) {
-    if (password_label_.GetText().length() == 0) {
+    if (password_label_.GetText().length() == 0 &&
+        allow_show_passwords_.GetValue()) {
       password_label_.SetText(selected->password_value);
       show_button_.SetLabel(
           l10n_util::GetString(IDS_PASSWORDS_PAGE_VIEW_HIDE_BUTTON));
     } else {
-      password_label_.SetText(L"");
-      show_button_.SetLabel(
-          l10n_util::GetString(IDS_PASSWORDS_PAGE_VIEW_SHOW_BUTTON));
+      HidePassword();
     }
   } else {
     NOTREACHED() << "Invalid button.";
@@ -339,4 +345,23 @@ void PasswordsPageView::SetupTable() {
       IDS_PASSWORDS_PAGE_VIEW_SITE_COLUMN, true));
   table_view_->SetSortDescriptors(sort);
   table_view_->SetObserver(this);
+}
+
+void PasswordsPageView::HidePassword() {
+  password_label_.SetText(L"");
+  show_button_.SetLabel(
+      l10n_util::GetString(IDS_PASSWORDS_PAGE_VIEW_SHOW_BUTTON));
+}
+
+void PasswordsPageView::NotifyPrefChanged(const std::string* pref_name) {
+  if (!pref_name || *pref_name == prefs::kPasswordManagerAllowShowPasswords) {
+    bool show = allow_show_passwords_.GetValue();
+    if (!show)
+      HidePassword();
+    show_button_.SetVisible(show);
+    password_label_.SetVisible(show);
+    // Update the layout (it may depend on the button size).
+    show_button_.InvalidateLayout();
+    Layout();
+  }
 }

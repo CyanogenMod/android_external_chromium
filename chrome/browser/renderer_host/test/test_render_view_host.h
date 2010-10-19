@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_TEST_TEST_RENDER_VIEW_HOST_H_
 #define CHROME_BROWSER_RENDERER_HOST_TEST_TEST_RENDER_VIEW_HOST_H_
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
@@ -13,12 +14,18 @@
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_view_host_factory.h"
-#include "chrome/browser/renderer_host/site_instance.h"
-#include "chrome/browser/tab_contents/navigation_controller.h"
-#include "chrome/browser/tab_contents/test_tab_contents.h"
-#include "chrome/common/render_messages.h"
-#include "chrome/test/testing_profile.h"
+#include "chrome/common/page_transition_types.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+namespace gfx {
+class Rect;
+}
+
+class NavigationController;
+class SiteInstance;
+class TestingProfile;
+class TestTabContents;
+struct ViewHostMsg_FrameNavigate_Params;
 
 // Utility function to initialize ViewHostMsg_NavigateParams_Params
 // with given |page_id|, |url| and |transition_type|.
@@ -44,6 +51,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
 
   virtual void InitAsPopup(RenderWidgetHostView* parent_host_view,
                            const gfx::Rect& pos) {}
+  virtual void InitAsFullscreen(RenderWidgetHostView* parent_host_view) {}
   virtual RenderWidgetHost* GetRenderWidgetHost() const { return NULL; }
   virtual void DidBecomeSelected() {}
   virtual void WasHidden() {}
@@ -63,7 +71,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
   virtual void Show() { is_showing_ = true; }
   virtual void Hide() { is_showing_ = false; }
   virtual bool IsShowing() { return is_showing_; }
-  virtual gfx::Rect GetViewBounds() const { return gfx::Rect(); }
+  virtual gfx::Rect GetViewBounds() const;
   virtual void SetIsLoading(bool is_loading) {}
   virtual void UpdateCursor(const WebCursor& cursor) {}
   virtual void UpdateCursorIfOverSelf() {}
@@ -86,14 +94,15 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
                                   double item_font_size,
                                   int selected_item,
                                   const std::vector<WebMenuItem>& items,
-                                  bool right_aligned) {}
+                                  bool right_aligned);
   virtual gfx::Rect GetWindowRect();
   virtual gfx::Rect GetRootWindowRect();
   virtual void SetActive(bool active);
   virtual void SetWindowVisibility(bool visible) {}
   virtual void WindowFrameChanged() {}
   virtual gfx::PluginWindowHandle AllocateFakePluginWindowHandle(
-      bool opaque);
+      bool opaque,
+      bool root);
   virtual void DestroyFakePluginWindowHandle(gfx::PluginWindowHandle window);
   virtual void AcceleratedSurfaceSetIOSurface(gfx::PluginWindowHandle window,
                                               int32 width,
@@ -105,11 +114,11 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
       int32 height,
       TransportDIB::Handle transport_dib);
   virtual void AcceleratedSurfaceBuffersSwapped(gfx::PluginWindowHandle window);
-  virtual void DrawAcceleratedSurfaceInstances(CGLContextObj context);
+  virtual void GpuRenderingStateDidChange();
 #endif
   virtual void SetVisuallyDeemphasized(bool deemphasized) { }
 
-#if defined(OS_LINUX)
+#if defined(TOOLKIT_USES_GTK)
   virtual void CreatePluginContainer(gfx::PluginWindowHandle id) { }
   virtual void DestroyPluginContainer(gfx::PluginWindowHandle id) { }
 #endif
@@ -175,8 +184,7 @@ class TestRenderViewHost : public RenderViewHost {
 
   // RenderViewHost overrides --------------------------------------------------
 
-  virtual bool CreateRenderView(URLRequestContextGetter* request_context,
-                                const string16& frame_name);
+  virtual bool CreateRenderView(const string16& frame_name);
   virtual bool IsRenderViewLive() const;
 
  private:
@@ -200,28 +208,16 @@ class TestRenderViewHost : public RenderViewHost {
 // registered at a time, you can only have one of these objects at a time.
 class TestRenderViewHostFactory : public RenderViewHostFactory {
  public:
-  explicit TestRenderViewHostFactory(RenderProcessHostFactory* rph_factory)
-      : render_process_host_factory_(rph_factory) {
-    RenderViewHostFactory::RegisterFactory(this);
-  }
-  virtual ~TestRenderViewHostFactory() {
-    RenderViewHostFactory::UnregisterFactory();
-  }
+  explicit TestRenderViewHostFactory(RenderProcessHostFactory* rph_factory);
+  virtual ~TestRenderViewHostFactory();
 
   virtual void set_render_process_host_factory(
-      RenderProcessHostFactory* rph_factory) {
-    render_process_host_factory_ = rph_factory;
-  }
-
+      RenderProcessHostFactory* rph_factory);
   virtual RenderViewHost* CreateRenderViewHost(
       SiteInstance* instance,
       RenderViewHostDelegate* delegate,
       int routing_id,
-      int64 session_storage_namespace_id) {
-    // See declaration of render_process_host_factory_ below.
-    instance->set_render_process_host_factory(render_process_host_factory_);
-    return new TestRenderViewHost(instance, delegate, routing_id);
-  }
+      SessionStorageNamespace* session_storage);
 
  private:
   // This is a bit of a hack. With the current design of the site instances /
@@ -240,49 +236,25 @@ class TestRenderViewHostFactory : public RenderViewHostFactory {
 
 class RenderViewHostTestHarness : public testing::Test {
  public:
-  RenderViewHostTestHarness()
-      : rph_factory_(),
-        rvh_factory_(&rph_factory_),
-        contents_(NULL) {}
-  virtual ~RenderViewHostTestHarness() {}
+  RenderViewHostTestHarness();
+  virtual ~RenderViewHostTestHarness();
 
-  NavigationController& controller() {
-    return contents_->controller();
-  }
-
-  TestTabContents* contents() {
-    return contents_.get();
-  }
-
-  TestRenderViewHost* rvh() {
-    return static_cast<TestRenderViewHost*>(contents_->render_view_host());
-  }
-
-  TestRenderViewHost* pending_rvh() {
-    return static_cast<TestRenderViewHost*>(
-        contents_->render_manager()->pending_render_view_host());
-  }
-
-  TestRenderViewHost* active_rvh() {
-    return pending_rvh() ? pending_rvh() : rvh();
-  }
-
-  TestingProfile* profile() {
-    return profile_.get();
-  }
-
-  MockRenderProcessHost* process() {
-    return static_cast<MockRenderProcessHost*>(rvh()->process());
-  }
+  NavigationController& controller();
+  TestTabContents* contents();
+  TestRenderViewHost* rvh();
+  TestRenderViewHost* pending_rvh();
+  TestRenderViewHost* active_rvh();
+  TestingProfile* profile();
+  MockRenderProcessHost* process();
 
   // Frees the current tab contents for tests that want to test destruction.
-  void DeleteContents() {
-    contents_.reset();
-  }
+  void DeleteContents();
 
-  // Creates a pending navigation to the given URL with the default parameters
-  // and then commits the load with a page ID one larger than any seen. This
-  // emulates what happens on a new navigation.
+  // Creates a new TestTabContents. Ownership passes to the caller.
+  TestTabContents* CreateTestTabContents();
+
+  // Cover for |contents()->NavigateAndCommit(url)|. See
+  // TestTabContents::NavigateAndCommit for details.
   void NavigateAndCommit(const GURL& url);
 
   // Simulates a reload of the current page.

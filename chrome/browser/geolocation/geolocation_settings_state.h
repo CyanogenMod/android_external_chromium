@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GEOLOCATION_GEOLOCATION_SETTINGS_STATE_H_
 #define CHROME_BROWSER_GEOLOCATION_GEOLOCATION_SETTINGS_STATE_H_
+#pragma once
 
 #include <map>
 #include <set>
@@ -31,6 +32,8 @@ class GeolocationSettingsState {
   // Delegated by TabContents to indicate a navigation has happened and we
   // may need to clear our settings.
   void DidNavigate(const NavigationController::LoadCommittedDetails& details);
+
+  void ClearStateMap();
 
   enum TabState {
     TABSTATE_NONE = 0,

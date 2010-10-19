@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_NOTIFICATIONS_NOTIFICATION_OBJECT_PROXY_H_
 #define CHROME_BROWSER_NOTIFICATIONS_NOTIFICATION_OBJECT_PROXY_H_
+#pragma once
 
 #include <string>
 
@@ -29,6 +30,7 @@ class NotificationObjectProxy
   virtual void Display();
   virtual void Error();
   virtual void Close(bool by_user);
+  virtual void Click();
   virtual std::string id() const;
 
  protected:

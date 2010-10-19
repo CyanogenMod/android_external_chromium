@@ -5,7 +5,7 @@
 #include "chrome/browser/extensions/extension_rlz_module.h"
 
 #include "base/scoped_ptr.h"
-#include "chrome/browser/rlz/rlz.h"
+#include "base/values.h"
 #include "chrome/common/extensions/extension.h"
 #include "rlz/win/lib/lib_values.h"
 
@@ -86,7 +86,7 @@ bool RlzRecordProductEventFunction::RunImpl() {
   rlz_lib::Event event_id;
   EXTENSION_FUNCTION_VALIDATE(GetEventFromName(event_name, &event_id));
 
-  return RLZTracker::RecordProductEvent(product, access_point, event_id);
+  return rlz_lib::RecordProductEvent(product, access_point, event_id);
 }
 
 bool RlzGetAccessPointRlzFunction::RunImpl() {
@@ -144,10 +144,18 @@ bool RlzSendFinancialPingFunction::RunImpl() {
   bool exclude_machine_id;
   EXTENSION_FUNCTION_VALIDATE(args_->GetBoolean(6, &exclude_machine_id));
 
-  return rlz_lib::SendFinancialPing(product, access_points.get(),
-                                    signature.c_str(), brand.c_str(),
-                                    id.c_str(), lang.c_str(),
-                                    exclude_machine_id);
+  // rlz_lib::SendFinancialPing() will not send a ping more often than once in
+  // any 24-hour period.  Calling it more often has no effect.  If a ping is
+  // not sent false is returned, but this is not an error, so we should not
+  // use the return value of rlz_lib::SendFinancialPing() as the return value
+  // of this function.  Callers interested in the return value can register
+  // an optional callback function.
+  bool sent = rlz_lib::SendFinancialPing(product, access_points.get(),
+                                         signature.c_str(), brand.c_str(),
+                                         id.c_str(), lang.c_str(),
+                                         exclude_machine_id);
+  result_.reset(Value::CreateBooleanValue(sent));
+  return true;
 }
 
 bool RlzClearProductStateFunction::RunImpl() {

@@ -8,9 +8,12 @@
 #include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/helper.h"
+#include "chrome/browser/chromeos/login/rounded_rect_painter.h"
 #include "chrome/browser/chromeos/login/screen_locker.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/login/user_view.h"
+#include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
+#include "chrome/browser/profile_manager.h"
 #include "chrome/common/notification_service.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -24,6 +27,8 @@
 namespace chromeos {
 
 namespace {
+
+const int kCornerRadius = 5;
 
 // A Textfield for password, which also sets focus to itself
 // when a mouse is clicked on it. This is necessary in screen locker
@@ -64,10 +69,17 @@ void ScreenLockView::Init() {
                  NotificationType::LOGIN_USER_IMAGE_CHANGED,
                  NotificationService::AllSources());
 
-  user_view_ = new UserView(this, false);
+  user_view_ = new UserView(this,
+                            false,  // is_login
+                            true);  // need_background
   views::View* main = new views::View();
+  // Use rounded rect background.
+  views::Painter* painter =
+      CreateWizardPainter(&BorderDefinition::kUserBorder);
+
   main->set_background(
-      views::Background::CreateSolidBackground(login::kBackgroundColor));
+      views::Background::CreateBackgroundPainter(true, painter));
+  main->set_border(CreateWizardBorder(&BorderDefinition::kUserBorder));
 
   // Password field.
   password_field_ = new PasswordField();
@@ -184,7 +196,7 @@ bool ScreenLockView::HandleKeystroke(
     views::Textfield* sender,
     const views::Textfield::Keystroke& keystroke) {
   screen_locker_->ClearErrors();
-  if (keystroke.GetKeyboardCode() == base::VKEY_RETURN) {
+  if (keystroke.GetKeyboardCode() == app::VKEY_RETURN) {
     screen_locker_->Authenticate(password_field_->text());
     return true;
   }
@@ -205,4 +217,10 @@ void ScreenLockView::Observe(
   user_view_->SetImage(user->image());
 }
 
+void ScreenLockView::ViewHierarchyChanged(bool is_add,
+                                          views::View* parent,
+                                          views::View* child) {
+  if (is_add && this == child)
+    WizardAccessibilityHelper::GetInstance()->MaybeEnableAccessibility(this);
+}
 }  // namespace chromeos

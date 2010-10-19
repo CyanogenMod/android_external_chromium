@@ -4,18 +4,19 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_GTK_H_
 #define CHROME_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_GTK_H_
+#pragma once
 
 #include <gdk/gdk.h>
 
-#include <map>
 #include <vector>
 #include <string>
 
 #include "base/scoped_ptr.h"
 #include "base/time.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/common/owned_widget_gtk.h"
 #include "gfx/native_widget_types.h"
+#include "gfx/rect.h"
 #include "webkit/glue/plugins/gtk_plugin_container_manager.h"
 #include "webkit/glue/webcursor.h"
 
@@ -23,7 +24,9 @@ class RenderWidgetHost;
 class GpuViewHost;
 class GtkIMContextWrapper;
 class GtkKeyBindingsHandler;
+#if !defined(TOOLKIT_VIEWS)
 class MenuGtk;
+#endif
 struct NativeWebKeyboardEvent;
 
 #if defined(OS_CHROMEOS)
@@ -49,6 +52,7 @@ class RenderWidgetHostViewGtk : public RenderWidgetHostView {
   // RenderWidgetHostView implementation.
   virtual void InitAsPopup(RenderWidgetHostView* parent_host_view,
                            const gfx::Rect& pos);
+  virtual void InitAsFullscreen(RenderWidgetHostView* parent_host_view);
   virtual RenderWidgetHost* GetRenderWidgetHost() const { return host_; }
   virtual void DidBecomeSelected();
   virtual void WasHidden();
@@ -87,6 +91,11 @@ class RenderWidgetHostViewGtk : public RenderWidgetHostView {
 
   gfx::NativeView native_view() const { return view_.get(); }
 
+  // If the widget is aligned with an edge of the monitor its on and the user
+  // attempts to drag past that edge we track the number of times it has
+  // occurred, so that we can force the widget to scroll when it otherwise
+  // would be unable to.
+  void ModifyEventForEdgeDragging(GtkWidget* widget, GdkEventMotion* event);
   void Paint(const gfx::Rect&);
 
   // Called by GtkIMContextWrapper to forward a keyboard event to renderer.
@@ -96,9 +105,11 @@ class RenderWidgetHostViewGtk : public RenderWidgetHostView {
   // RenderWidgetHost::ForwardEditCommandsForNextKeyEvent().
   void ForwardKeyboardEvent(const NativeWebKeyboardEvent& event);
 
+#if !defined(TOOLKIT_VIEWS)
   // Appends the input methods context menu to the specified |menu| object as a
   // submenu.
   void AppendInputMethodsContextMenu(MenuGtk* menu);
+#endif
 
  private:
   friend class RenderWidgetHostViewGtkWidget;
@@ -113,6 +124,13 @@ class RenderWidgetHostViewGtk : public RenderWidgetHostView {
 
   // Update the display cursor for the render view.
   void ShowCurrentCursor();
+
+  // Helper method for InitAsPopup() and InitAsFullscreen().
+  void DoInitAsPopup(
+      RenderWidgetHostView* parent_host_view,
+      GtkWindowType window_type,
+      const gfx::Rect& pos,  // Ignored if is_fullscreen is true.
+      bool is_fullscreen);
 
   // The model object.
   RenderWidgetHost* host_;
@@ -188,6 +206,16 @@ class RenderWidgetHostViewGtk : public RenderWidgetHostView {
   // The size that we want the renderer to be.  We keep this in a separate
   // variable because resizing in GTK+ is async.
   gfx::Size requested_size_;
+
+  // The number of times the user has dragged against horizontal edge  of the
+  // monitor (if the widget is aligned with that edge). Negative values
+  // indicate the left edge, positive the right.
+  int dragged_at_horizontal_edge_;
+
+  // The number of times the user has dragged against vertical edge  of the
+  // monitor (if the widget is aligned with that edge). Negative values
+  // indicate the top edge, positive the bottom.
+  int dragged_at_vertical_edge_;
 
 #if defined(OS_CHROMEOS)
   // Custimized tooltip window.

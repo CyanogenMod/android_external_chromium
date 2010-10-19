@@ -4,15 +4,18 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_CROS_SETTINGS_NAMES_H_
 #define CHROME_BROWSER_CHROMEOS_CROS_SETTINGS_NAMES_H_
+#pragma once
 
 namespace chromeos {
 
-extern const wchar_t kCrosSettingsPrefix[];
+extern const char kCrosSettingsPrefix[];
 
-extern const wchar_t kAccountsPrefAllowBWSI[];
-extern const wchar_t kAccountsPrefAllowGuest[];
-extern const wchar_t kAccountsPrefUsers[];
+extern const char kAccountsPrefAllowBWSI[];
+extern const char kAccountsPrefAllowGuest[];
+extern const char kAccountsPrefShowUserNamesOnSignIn[];
+extern const char kAccountsPrefUsers[];
 
+extern const char kSystemTimezone[];
 }  // namespace chromeos
 
 #endif  // CHROME_BROWSER_CHROMEOS_CROS_SETTINGS_NAMES_H_

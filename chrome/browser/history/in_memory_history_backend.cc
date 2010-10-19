@@ -5,13 +5,19 @@
 #include "chrome/browser/history/in_memory_history_backend.h"
 
 #include "base/command_line.h"
+#include "base/histogram.h"
+#include "base/time.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/history/history_notifications.h"
 #include "chrome/browser/history/in_memory_database.h"
 #include "chrome/browser/history/in_memory_url_index.h"
+#include "chrome/browser/history/url_database.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
+#include "chrome/common/pref_names.h"
 
 namespace history {
 
@@ -26,14 +32,19 @@ InMemoryHistoryBackend::InMemoryHistoryBackend()
 InMemoryHistoryBackend::~InMemoryHistoryBackend() {
 }
 
-bool InMemoryHistoryBackend::Init(const FilePath& history_filename) {
+bool InMemoryHistoryBackend::Init(const FilePath& history_filename,
+                                  URLDatabase* db) {
   db_.reset(new InMemoryDatabase);
   bool success = db_->InitFromDisk(history_filename);
 
   if (CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kEnableInMemoryURLIndex)) {
-    index_.reset(new InMemoryURLIndex);
-    // TODO(rohitrao): Load index.
+    index_.reset(new InMemoryURLIndex());
+    base::TimeTicks beginning_time = base::TimeTicks::Now();
+    // TODO(mrossetti): Provide languages when profile is available.
+    index_->Init(db, std::string());
+    UMA_HISTOGRAM_TIMES("Autocomplete.HistoryDatabaseIndexingTime",
+                        base::TimeTicks::Now() - beginning_time);
   }
 
   return success;

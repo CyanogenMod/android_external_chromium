@@ -8,12 +8,14 @@
 
 #include "base/json/json_writer.h"
 #include "base/task.h"
+#include "base/values.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/extensions/extension_cookies_api_constants.h"
 #include "chrome/browser/extensions/extension_cookies_helpers.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/profile.h"
+#include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_error_utils.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/common/notification_type.h"
@@ -75,7 +77,7 @@ void ExtensionCookiesEventRouter::DispatchEvent(Profile* profile,
                                                 GURL& cookie_domain) {
   if (profile && profile->GetExtensionMessageService()) {
     profile->GetExtensionMessageService()->DispatchEventToRenderers(
-        event_name, json_args, profile->IsOffTheRecord(), cookie_domain);
+        event_name, json_args, profile, cookie_domain);
   }
 }
 
@@ -143,6 +145,8 @@ bool CookiesFunction::ParseStoreContext(const DictionaryValue* details,
 
 GetCookieFunction::GetCookieFunction() {}
 
+GetCookieFunction::~GetCookieFunction() {}
+
 bool GetCookieFunction::RunImpl() {
   // Return false if the arguments are malformed.
   DictionaryValue* details;
@@ -190,7 +194,8 @@ void GetCookieFunction::RespondOnUIThread() {
   net::CookieMonster::CookieList::iterator it;
   for (it = cookie_list_.begin(); it != cookie_list_.end(); ++it) {
     // Return the first matching cookie. Relies on the fact that the
-    // CookieMonster retrieves them in reverse domain-length order.
+    // CookieMonster returns them in canonical order (longest path, then
+    // earliest creation time).
     if (it->Name() == name_) {
       result_.reset(
           extension_cookies_helpers::CreateCookieValue(*it, store_id_));
@@ -205,7 +210,9 @@ void GetCookieFunction::RespondOnUIThread() {
   SendResponse(true);
 }
 
-GetAllCookiesFunction::GetAllCookiesFunction() {}
+GetAllCookiesFunction::GetAllCookiesFunction() : details_(NULL) {}
+
+GetAllCookiesFunction::~GetAllCookiesFunction() {}
 
 bool GetAllCookiesFunction::RunImpl() {
   // Return false if the arguments are malformed.
@@ -257,7 +264,14 @@ void GetAllCookiesFunction::RespondOnUIThread() {
   SendResponse(true);
 }
 
-SetCookieFunction::SetCookieFunction() : secure_(false), http_only_(false) {}
+SetCookieFunction::SetCookieFunction()
+    : secure_(false),
+      http_only_(false),
+      success_(false) {
+}
+
+SetCookieFunction::~SetCookieFunction() {
+}
 
 bool SetCookieFunction::RunImpl() {
   // Return false if the arguments are malformed.
@@ -300,7 +314,10 @@ bool SetCookieFunction::RunImpl() {
       EXTENSION_FUNCTION_VALIDATE(
           expiration_date_value->GetAsReal(&expiration_date));
     }
-    expiration_time_ = base::Time::FromDoubleT(expiration_date);
+    // Time::FromDoubleT converts double time 0 to empty Time object. So we need
+    // to do special handling here.
+    expiration_time_ = (expiration_date == 0) ?
+        base::Time::UnixEpoch() : base::Time::FromDoubleT(expiration_date);
   }
 
   URLRequestContextGetter* store_context = NULL;
@@ -398,8 +415,12 @@ bool RemoveCookieFunction::RunImpl() {
   return true;
 }
 
+void RemoveCookieFunction::Run() {
+  SendResponse(RunImpl());
+}
+
 bool GetAllCookieStoresFunction::RunImpl() {
-  Profile* original_profile = profile()->GetOriginalProfile();
+  Profile* original_profile = profile();
   DCHECK(original_profile);
   scoped_ptr<ListValue> original_tab_ids(new ListValue());
   Profile* incognito_profile = NULL;
@@ -409,6 +430,8 @@ bool GetAllCookieStoresFunction::RunImpl() {
     if (incognito_profile)
       incognito_tab_ids.reset(new ListValue());
   }
+  DCHECK(original_profile != incognito_profile);
+
   // Iterate through all browser instances, and for each browser,
   // add its tab IDs to either the regular or incognito tab ID list depending
   // whether the browser is regular or incognito.
@@ -438,4 +461,8 @@ bool GetAllCookieStoresFunction::RunImpl() {
   }
   result_.reset(cookie_store_list);
   return true;
+}
+
+void GetAllCookieStoresFunction::Run() {
+  SendResponse(RunImpl());
 }

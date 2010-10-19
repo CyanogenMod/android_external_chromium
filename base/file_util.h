@@ -7,6 +7,7 @@
 
 #ifndef BASE_FILE_UTIL_H_
 #define BASE_FILE_UTIL_H_
+#pragma once
 
 #include "build/build_config.h"
 
@@ -34,7 +35,6 @@
 #include "base/platform_file.h"
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
-#include "base/time.h"
 
 #if defined(OS_POSIX)
 #include "base/eintr_wrapper.h"
@@ -238,6 +238,8 @@ bool CopyAndDeleteDirectory(const FilePath& from_path,
 bool IsDirectoryEmpty(const FilePath& dir_path);
 
 // Get the temporary directory provided by the system.
+// WARNING: DON'T USE THIS. If you want to create a temporary file, use one of
+// the functions below.
 bool GetTempDir(FilePath* path);
 // Get a temporary directory for shared memory files.
 // Only useful on POSIX; redirects to GetTempDir() on Windows.
@@ -252,52 +254,36 @@ FilePath GetHomeDir();
 // be empty and all handles closed after this function returns.
 bool CreateTemporaryFile(FilePath* path);
 
+// Same as CreateTemporaryFile but the file is created in |dir|.
+bool CreateTemporaryFileInDir(const FilePath& dir, FilePath* temp_file);
+
 // Create and open a temporary file.  File is opened for read/write.
 // The full path is placed in |path|.
 // Returns a handle to the opened file or NULL if an error occured.
 FILE* CreateAndOpenTemporaryFile(FilePath* path);
 // Like above but for shmem files.  Only useful for POSIX.
 FILE* CreateAndOpenTemporaryShmemFile(FilePath* path);
-
 // Similar to CreateAndOpenTemporaryFile, but the file is created in |dir|.
 FILE* CreateAndOpenTemporaryFileInDir(const FilePath& dir, FilePath* path);
 
-// Same as CreateTemporaryFile but the file is created in |dir|.
-bool CreateTemporaryFileInDir(const FilePath& dir,
-                              FilePath* temp_file);
-
-// Create a directory within another directory.
-// Extra characters will be appended to |name_tmpl| to ensure that the
-// new directory does not have the same name as an existing directory.
-// If |loosen_permissions| is true, the new directory will be readable
-// and writable to all users on windows.  It is ignored on other platforms.
-// |loosen_permissions| exists to allow debugging of crbug/35198, and will
-// be removed when the issue is understood.
-bool CreateTemporaryDirInDir(const FilePath& base_dir,
-                             const FilePath::StringType& prefix,
-                             bool loosen_permissions,
-                             FilePath* new_dir);
-
-// Create a new directory under TempPath. If prefix is provided, the new
-// directory name is in the format of prefixyyyy.
+// Create a new directory. If prefix is provided, the new directory name is in
+// the format of prefixyyyy.
 // NOTE: prefix is ignored in the POSIX implementation.
-// TODO(erikkay): is this OK?
 // If success, return true and output the full path of the directory created.
 bool CreateNewTempDirectory(const FilePath::StringType& prefix,
                             FilePath* new_temp_path);
+
+// Create a directory within another directory.
+// Extra characters will be appended to |prefix| to ensure that the
+// new directory does not have the same name as an existing directory.
+bool CreateTemporaryDirInDir(const FilePath& base_dir,
+                             const FilePath::StringType& prefix,
+                             FilePath* new_dir);
 
 // Creates a directory, as well as creating any parent directories, if they
 // don't exist. Returns 'true' on successful creation, or if the directory
 // already exists.  The directory is only readable by the current user.
 bool CreateDirectory(const FilePath& full_path);
-
-#if defined(OS_WIN)
-// Added for debugging an issue where CreateDirectory() fails.  LOG(*) does
-// not work, because the failure happens in a sandboxed process.
-// TODO(skerner): Remove once crbug/35198 is resolved.
-bool CreateDirectoryExtraLogging(const FilePath& full_path,
-                                 std::ostream& error);
-#endif  // defined (OS_WIN)
 
 // Returns the file size. Returns true on success.
 bool GetFileSize(const FilePath& file_path, int64* file_size);
@@ -316,25 +302,25 @@ bool IsDotDot(const FilePath& path);
 // or if |real_path| would be longer than MAX_PATH characters.
 bool NormalizeFilePath(const FilePath& path, FilePath* real_path);
 
-// Used to hold information about a given file path.  See GetFileInfo below.
-struct FileInfo {
-  // The size of the file in bytes.  Undefined when is_directory is true.
-  int64 size;
-
-  // True if the file corresponds to a directory.
-  bool is_directory;
-
-  // The last modified time of a file.
-  base::Time last_modified;
-
-  // Add additional fields here as needed.
-};
+#if defined(OS_WIN)
+// Given an existing file in |path|, it returns in |real_path| the path
+// in the native NT format, of the form "\Device\HarddiskVolumeXX\..".
+// Returns false it it fails. Empty files cannot be resolved with this
+// function.
+bool NormalizeToNativeFilePath(const FilePath& path, FilePath* nt_path);
+#endif
 
 // Returns information about the given file path.
-bool GetFileInfo(const FilePath& file_path, FileInfo* info);
+bool GetFileInfo(const FilePath& file_path, base::PlatformFileInfo* info);
+
+// Sets the time of the last access and the time of the last modification.
+bool TouchFile(const FilePath& path,
+               const base::Time& last_accessed,
+               const base::Time& last_modified);
 
 // Set the time of the last modification. Useful for unit tests.
-bool SetLastModifiedTime(const FilePath& file_path, base::Time last_modified);
+bool SetLastModifiedTime(const FilePath& path,
+                         const base::Time& last_modified);
 
 #if defined(OS_POSIX)
 // Store inode number of |path| in |inode|. Return true on success.
@@ -613,9 +599,29 @@ inline bool MakeFileUnreadable(const FilePath& path) {
   // is passed in. If it is 0 then the whole file is paged in. The step size
   // which indicates the number of bytes to skip after every page touched is
   // also passed in.
-  bool PreReadImage(const wchar_t* file_path, size_t size_to_read,
-                    size_t step_size);
+bool PreReadImage(const wchar_t* file_path, size_t size_to_read,
+                  size_t step_size);
 #endif  // OS_WIN
+
+#if defined(OS_LINUX)
+// Broad categories of file systems as returned by statfs() on Linux.
+enum FileSystemType {
+  FILE_SYSTEM_UNKNOWN,  // statfs failed.
+  FILE_SYSTEM_0,        // statfs.f_type == 0 means unknown, may indicate AFS.
+  FILE_SYSTEM_ORDINARY,       // on-disk filesystem like ext2
+  FILE_SYSTEM_NFS,
+  FILE_SYSTEM_SMB,
+  FILE_SYSTEM_CODA,
+  FILE_SYSTEM_MEMORY,         // in-memory file system
+  FILE_SYSTEM_OTHER,          // any other value.
+  FILE_SYSTEM_TYPE_COUNT
+};
+
+// Attempts determine the FileSystemType for |path|.
+// Returns false if |path| doesn't exist.
+bool GetFileSystemType(const FilePath& path, FileSystemType* type);
+#endif
+
 }  // namespace file_util
 
 // Deprecated functions have been moved to this separate header file,

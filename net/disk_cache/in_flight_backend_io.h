@@ -4,6 +4,7 @@
 
 #ifndef NET_DISK_CACHE_IN_FLIGHT_BACKEND_IO_H_
 #define NET_DISK_CACHE_IN_FLIGHT_BACKEND_IO_H_
+#pragma once
 
 #include <list>
 #include <string>
@@ -38,6 +39,9 @@ class BackendIO : public BackgroundIO {
 
   void ReleaseEntry();
 
+  // Returns the time that has passed since the operation was created.
+  base::TimeDelta ElapsedTime() const;
+
   // The operations we proxy:
   void Init();
   void OpenEntry(const std::string& key, Entry** entry);
@@ -53,6 +57,7 @@ class BackendIO : public BackgroundIO {
   void CloseEntryImpl(EntryImpl* entry);
   void DoomEntryImpl(EntryImpl* entry);
   void FlushQueue();  // Dummy operation.
+  void RunTask(Task* task);
   void ReadData(EntryImpl* entry, int index, int offset, net::IOBuffer* buf,
                 int buf_len);
   void WriteData(EntryImpl* entry, int index, int offset, net::IOBuffer* buf,
@@ -88,6 +93,7 @@ class BackendIO : public BackgroundIO {
     OP_CLOSE_ENTRY,
     OP_DOOM_ENTRY,
     OP_FLUSH_QUEUE,
+    OP_RUN_TASK,
     OP_MAX_BACKEND,
     OP_READ,
     OP_WRITE,
@@ -123,6 +129,8 @@ class BackendIO : public BackgroundIO {
   bool truncate_;
   int64 offset64_;
   int64* start_;
+  base::TimeTicks start_time_;
+  Task* task_;
 
   DISALLOW_COPY_AND_ASSIGN(BackendIO);
 };
@@ -131,9 +139,8 @@ class BackendIO : public BackgroundIO {
 class InFlightBackendIO : public InFlightIO {
  public:
   InFlightBackendIO(BackendImpl* backend,
-                    base::MessageLoopProxy* background_thread)
-      : backend_(backend), background_thread_(background_thread) {}
-  ~InFlightBackendIO() {}
+                    base::MessageLoopProxy* background_thread);
+  ~InFlightBackendIO();
 
   // The operations we proxy:
   void Init(net::CompletionCallback* callback);
@@ -156,6 +163,7 @@ class InFlightBackendIO : public InFlightIO {
   void CloseEntryImpl(EntryImpl* entry);
   void DoomEntryImpl(EntryImpl* entry);
   void FlushQueue(net::CompletionCallback* callback);
+  void RunTask(Task* task, net::CompletionCallback* callback);
   void ReadData(EntryImpl* entry, int index, int offset, net::IOBuffer* buf,
                 int buf_len, net::CompletionCallback* callback);
   void WriteData(EntryImpl* entry, int index, int offset, net::IOBuffer* buf,
@@ -181,6 +189,10 @@ class InFlightBackendIO : public InFlightIO {
     return background_thread_->BelongsToCurrentThread();
   }
 
+  // Controls the queing of entry (async) operations.
+  void StartQueingOperations();
+  void StopQueingOperations();
+
  protected:
   virtual void OnOperationComplete(BackgroundIO* operation, bool cancel);
 
@@ -188,10 +200,14 @@ class InFlightBackendIO : public InFlightIO {
   typedef std::list<scoped_refptr<BackendIO> > OperationList;
   void QueueOperation(BackendIO* operation);
   void PostOperation(BackendIO* operation);
+  void PostQueuedOperation(OperationList* from_list);
+  void QueueOperationToList(BackendIO* operation, OperationList* list);
 
   BackendImpl* backend_;
   scoped_refptr<base::MessageLoopProxy> background_thread_;
   OperationList pending_ops_;  // The list of operations to be posted.
+  OperationList pending_entry_ops_;  // Entry (async) operations to be posted.
+  bool queue_entry_ops_;  // True if we are queuing entry (async) operations.
 
   DISALLOW_COPY_AND_ASSIGN(InFlightBackendIO);
 };

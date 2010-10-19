@@ -4,11 +4,12 @@
 
 #include "chrome/browser/chromeos/login/password_changed_view.h"
 
+#include "app/keyboard_codes.h"
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
-#include "base/keyboard_codes.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
+#include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "views/controls/button/radio_button.h"
@@ -60,8 +61,10 @@ gfx::Size PasswordChangedView::GetPreferredSize() {
 void PasswordChangedView::ViewHierarchyChanged(bool is_add,
                                                views::View* parent,
                                                views::View* child) {
-  if (is_add && child == this)
+  if (is_add && child == this) {
     Init();
+    WizardAccessibilityHelper::GetInstance()->MaybeEnableAccessibility(this);
+  }
 }
 
 void PasswordChangedView::Init() {
@@ -162,7 +165,7 @@ void PasswordChangedView::ButtonPressed(Button* sender,
 
 bool PasswordChangedView::HandleKeystroke(views::Textfield* s,
     const views::Textfield::Keystroke& keystroke) {
-  if (keystroke.GetKeyboardCode() == base::VKEY_RETURN) {
+  if (keystroke.GetKeyboardCode() == app::VKEY_RETURN) {
     ExitDialog();
     return true;
   }

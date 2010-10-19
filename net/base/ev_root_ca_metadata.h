@@ -4,6 +4,7 @@
 
 #ifndef NET_BASE_EV_ROOT_CA_METADATA_H_
 #define NET_BASE_EV_ROOT_CA_METADATA_H_
+#pragma once
 
 #include "build/build_config.h"
 
@@ -43,7 +44,7 @@ class EVRootCAMetadata {
 
  private:
   EVRootCAMetadata();
-  ~EVRootCAMetadata() { }
+  ~EVRootCAMetadata();
 
   friend struct DefaultSingletonTraits<EVRootCAMetadata>;
 

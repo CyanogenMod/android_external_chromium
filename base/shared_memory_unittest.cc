@@ -3,12 +3,13 @@
 // found in the LICENSE file.
 
 #include "base/basictypes.h"
-#include "base/multiprocess_test.h"
 #include "base/platform_thread.h"
 #include "base/scoped_nsautorelease_pool.h"
 #include "base/shared_memory.h"
 #include "base/scoped_ptr.h"
+#include "base/test/multiprocess_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "testing/multiprocess_func_list.h"
 
 static const int kNumThreads = 5;
 static const int kNumTasks = 5;
@@ -54,13 +55,13 @@ class MultipleThreadMain : public PlatformThread::Delegate {
  private:
   int16 id_;
 
-  static const wchar_t* const s_test_name_;
+  static const char* const s_test_name_;
 
   DISALLOW_COPY_AND_ASSIGN(MultipleThreadMain);
 };
 
-const wchar_t* const MultipleThreadMain::s_test_name_ =
-    L"SharedMemoryOpenThreadTest";
+const char* const MultipleThreadMain::s_test_name_ =
+    "SharedMemoryOpenThreadTest";
 
 // TODO(port):
 // This test requires the ability to pass file descriptors between processes.
@@ -81,7 +82,7 @@ class MultipleLockThread : public PlatformThread::Delegate {
     SharedMemoryHandle handle = NULL;
     {
       SharedMemory memory1;
-      EXPECT_TRUE(memory1.Create(L"SharedMemoryMultipleLockThreadTest",
+      EXPECT_TRUE(memory1.Create("SharedMemoryMultipleLockThreadTest",
                                  false, true, kDataSize));
       EXPECT_TRUE(memory1.ShareToProcess(GetCurrentProcess(), &handle));
       // TODO(paulg): Implement this once we have a posix version of
@@ -116,7 +117,7 @@ class MultipleLockThread : public PlatformThread::Delegate {
 
 TEST(SharedMemoryTest, OpenClose) {
   const uint32 kDataSize = 1024;
-  std::wstring test_name = L"SharedMemoryOpenCloseTest";
+  std::string test_name = "SharedMemoryOpenCloseTest";
 
   // Open two handles to a memory segment, confirm that they are mapped
   // separately yet point to the same space.
@@ -242,7 +243,7 @@ TEST(SharedMemoryTest, AnonymousPrivate) {
   ASSERT_TRUE(pointers.get());
 
   for (i = 0; i < count; i++) {
-    rv = memories[i].Create(L"", false, true, kDataSize);
+    rv = memories[i].Create("", false, true, kDataSize);
     EXPECT_TRUE(rv);
     rv = memories[i].Map(kDataSize);
     EXPECT_TRUE(rv);
@@ -271,13 +272,11 @@ TEST(SharedMemoryTest, AnonymousPrivate) {
   for (int i = 0; i < count; i++) {
     memories[i].Close();
   }
-
 }
-
 
 // On POSIX it is especially important we test shmem across processes,
 // not just across threads.  But the test is enabled on all platforms.
-class SharedMemoryProcessTest : public MultiProcessTest {
+class SharedMemoryProcessTest : public base::MultiProcessTest {
  public:
 
   static void CleanUp() {
@@ -315,10 +314,10 @@ class SharedMemoryProcessTest : public MultiProcessTest {
   }
 
  private:
-  static const wchar_t* const s_test_name_;
+  static const char* const s_test_name_;
 };
 
-const wchar_t* const SharedMemoryProcessTest::s_test_name_ = L"MPMem";
+const char* const SharedMemoryProcessTest::s_test_name_ = "MPMem";
 
 
 TEST_F(SharedMemoryProcessTest, Tasks) {
@@ -326,7 +325,7 @@ TEST_F(SharedMemoryProcessTest, Tasks) {
 
   base::ProcessHandle handles[kNumTasks];
   for (int index = 0; index < kNumTasks; ++index) {
-    handles[index] = SpawnChild(L"SharedMemoryTestMain");
+    handles[index] = SpawnChild("SharedMemoryTestMain", false);
   }
 
   int exit_code = 0;
@@ -341,6 +340,5 @@ TEST_F(SharedMemoryProcessTest, Tasks) {
 MULTIPROCESS_TEST_MAIN(SharedMemoryTestMain) {
   return SharedMemoryProcessTest::TaskTestMain();
 }
-
 
 }  // namespace base

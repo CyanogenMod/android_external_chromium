@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_DEBUGGER_INSPECTABLE_TAB_PROXY_H_
 #define CHROME_BROWSER_DEBUGGER_INSPECTABLE_TAB_PROXY_H_
+#pragma once
 
 #include <string>
 
@@ -82,8 +83,7 @@ class DevToolsClientHostImpl : public DevToolsClientHost {
 
  private:
   // Message handling routines
-  void OnRpcMessage(const DevToolsMessageData& data);
-  void DebuggerOutput(const std::string& msg);
+  void OnDebuggerOutput(const std::string& msg);
   void FrameNavigate(const std::string& url);
   void TabClosed();
 

@@ -6,7 +6,9 @@
 
 #include <algorithm>
 
-#include "base/env_var.h"
+#if defined(OS_POSIX)
+#include "base/environment.h"
+#endif
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/string_util.h"
@@ -170,7 +172,7 @@ static std::string FixupPath(const std::string& text) {
   // Here, we know the input looks like a file.
   GURL file_url = net::FilePathToFileURL(FilePath(filename));
   if (file_url.is_valid()) {
-    return WideToUTF8(net::FormatUrl(file_url, std::wstring(),
+    return UTF16ToUTF8(net::FormatUrl(file_url, std::string(),
         net::kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL, NULL,
         NULL, NULL));
   }
@@ -568,7 +570,7 @@ GURL URLFixerUpper::FixupRelativeFile(const FilePath& base_dir,
   if (is_file) {
     GURL file_url = net::FilePathToFileURL(full_path);
     if (file_url.is_valid())
-      return GURL(WideToUTF8(net::FormatUrl(file_url, std::wstring(),
+      return GURL(UTF16ToUTF8(net::FormatUrl(file_url, std::string(),
           net::kFormatUrlOmitUsernamePassword, UnescapeRule::NORMAL, NULL,
           NULL, NULL)));
     // Invalid files fall through to regular processing.

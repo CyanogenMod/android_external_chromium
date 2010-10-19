@@ -78,34 +78,45 @@ void AutofillChangeProcessor::Observe(NotificationType type,
   }
 }
 
-void AutofillChangeProcessor::HandleMoveAsideIfNeeded(
-    sync_api::BaseTransaction* trans, AutoFillProfile* profile,
+void AutofillChangeProcessor::ChangeProfileLabelIfAlreadyTaken(
+    sync_api::BaseTransaction* trans,
+    const string16& pre_update_label,
+    AutoFillProfile* profile,
     std::string* tag) {
   DCHECK_EQ(AutofillModelAssociator::ProfileLabelToTag(profile->Label()),
                                                        *tag);
   sync_api::ReadNode read_node(trans);
+  if (!pre_update_label.empty() && pre_update_label == profile->Label())
+    return;
   if (read_node.InitByClientTagLookup(syncable::AUTOFILL, *tag)) {
     // Handle the edge case of duplicate labels.
-    string16 label(AutofillModelAssociator::MakeUniqueLabel(profile->Label(),
-        trans));
-    if (label.empty()) {
+    string16 new_label(AutofillModelAssociator::MakeUniqueLabel(
+        profile->Label(), pre_update_label, trans));
+    if (new_label.empty()) {
       error_handler()->OnUnrecoverableError(FROM_HERE,
           "No unique label; can't move aside");
       return;
     }
-    tag->assign(AutofillModelAssociator::ProfileLabelToTag(label));
-
-    profile->set_label(label);
-    if (!web_database_->UpdateAutoFillProfile(*profile)) {
-      std::string err = "Failed to overwrite label for node ";
-      err += UTF16ToUTF8(label);
-      error_handler()->OnUnrecoverableError(FROM_HERE, err);
-      return;
-    }
-
-    // Notify the PersonalDataManager that it's out of date.
-    PostOptimisticRefreshTask();
+    OverrideProfileLabel(new_label, profile, tag);
   }
+}
+
+void AutofillChangeProcessor::OverrideProfileLabel(
+    const string16& new_label,
+    AutoFillProfile* profile_to_update,
+    std::string* tag_to_update) {
+  tag_to_update->assign(AutofillModelAssociator::ProfileLabelToTag(new_label));
+
+  profile_to_update->set_label(new_label);
+  if (!web_database_->UpdateAutoFillProfile(*profile_to_update)) {
+    std::string err = "Failed to overwrite label for node ";
+    err += UTF16ToUTF8(new_label);
+    error_handler()->OnUnrecoverableError(FROM_HERE, err);
+    return;
+  }
+
+  // Notify the PersonalDataManager that it's out of date.
+  PostOptimisticRefreshTask();
 }
 
 void AutofillChangeProcessor::PostOptimisticRefreshTask() {
@@ -137,24 +148,24 @@ void AutofillChangeProcessor::ObserveAutofillProfileChanged(
     case AutofillProfileChange::ADD: {
       scoped_ptr<AutoFillProfile> clone(
           static_cast<AutoFillProfile*>(change->profile()->Clone()));
-      DCHECK_EQ(AutofillModelAssociator::ProfileLabelToTag(clone->Label()),
-                tag);
-      HandleMoveAsideIfNeeded(trans, clone.get(), &tag);
+      DCHECK_EQ(clone->Label(), change->key());
+      ChangeProfileLabelIfAlreadyTaken(trans, string16(), clone.get(), &tag);
       AddAutofillProfileSyncNode(trans, autofill_root, tag, clone.get());
       break;
     }
     case AutofillProfileChange::UPDATE: {
       scoped_ptr<AutoFillProfile> clone(
           static_cast<AutoFillProfile*>(change->profile()->Clone()));
+      std::string pre_update_tag = AutofillModelAssociator::ProfileLabelToTag(
+          change->pre_update_label());
+      DCHECK_EQ(clone->Label(), change->key());
       sync_api::WriteNode sync_node(trans);
-      if (change->pre_update_label() != change->profile()->Label()) {
-        // A re-labelling: we need to remove + add on the sync side.
-        RemoveSyncNode(AutofillModelAssociator::ProfileLabelToTag(
-            change->pre_update_label()), trans);
-        // Watch out! Could be relabelling to an existing label!
-        HandleMoveAsideIfNeeded(trans, clone.get(), &tag);
-        AddAutofillProfileSyncNode(trans, autofill_root, tag,
-                                   clone.get());
+      ChangeProfileLabelIfAlreadyTaken(trans, change->pre_update_label(),
+                                       clone.get(), &tag);
+      if (pre_update_tag != tag) {
+        // If the label changes, replace the node instead of updating it.
+        RemoveSyncNode(pre_update_tag, trans);
+        AddAutofillProfileSyncNode(trans, autofill_root, tag, clone.get());
         return;
       }
       int64 sync_id = model_associator_->GetSyncIdFromChromeId(tag);
@@ -168,7 +179,7 @@ void AutofillChangeProcessor::ObserveAutofillProfileChanged(
               "Autofill node lookup failed.");
           return;
         }
-        WriteAutofillProfile(*change->profile(), &sync_node);
+        WriteAutofillProfile(*clone.get(), &sync_node);
       }
       break;
     }
@@ -294,7 +305,6 @@ void AutofillChangeProcessor::ApplyChangesFromSyncModel(
     return;
   }
 
-  std::vector<AutofillEntry> new_entries;
   for (int i = 0; i < change_count; ++i) {
     sync_api::SyncManager::ChangeRecord::Action action(changes[i].action);
     if (sync_api::SyncManager::ChangeRecord::ACTION_DELETE == action) {
@@ -302,12 +312,13 @@ void AutofillChangeProcessor::ApplyChangesFromSyncModel(
           << "Autofill specifics data not present on delete!";
       const sync_pb::AutofillSpecifics& autofill =
           changes[i].specifics.GetExtension(sync_pb::autofill);
-      if (autofill.has_value())
-        ApplySyncAutofillEntryDelete(autofill);
-      else if (autofill.has_profile())
-        ApplySyncAutofillProfileDelete(autofill.profile(), changes[i].id);
-      else
+      if (autofill.has_value() || autofill.has_profile()) {
+        autofill_changes_.push_back(AutofillChangeRecord(changes[i].action,
+                                                         changes[i].id,
+                                                         autofill));
+      } else {
         NOTREACHED() << "Autofill specifics has no data!";
+      }
       continue;
     }
 
@@ -326,17 +337,59 @@ void AutofillChangeProcessor::ApplyChangesFromSyncModel(
     const sync_pb::AutofillSpecifics& autofill(
         sync_node.GetAutofillSpecifics());
     int64 sync_id = sync_node.GetId();
-    if (autofill.has_value())
-      ApplySyncAutofillEntryChange(action, autofill, &new_entries, sync_id);
-    else if (autofill.has_profile())
-      ApplySyncAutofillProfileChange(action, autofill.profile(), sync_id);
-    else
+    if (autofill.has_value() || autofill.has_profile()) {
+      autofill_changes_.push_back(AutofillChangeRecord(changes[i].action,
+                                                       sync_id, autofill));
+    } else {
       NOTREACHED() << "Autofill specifics has no data!";
+    }
   }
 
+  StartObserving();
+}
+
+void AutofillChangeProcessor::CommitChangesFromSyncModel() {
+  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  if (!running())
+    return;
+  StopObserving();
+
+  std::vector<AutofillEntry> new_entries;
+  for (unsigned int i = 0; i < autofill_changes_.size(); i++) {
+    // Handle deletions.
+    if (sync_api::SyncManager::ChangeRecord::ACTION_DELETE ==
+        autofill_changes_[i].action_) {
+      if (autofill_changes_[i].autofill_.has_value()) {
+        ApplySyncAutofillEntryDelete(autofill_changes_[i].autofill_);
+      } else if (autofill_changes_[i].autofill_.has_profile()) {
+        ApplySyncAutofillProfileDelete(autofill_changes_[i].autofill_.profile(),
+                                       autofill_changes_[i].id_);
+      } else {
+        NOTREACHED() << "Autofill's CommitChanges received change with no"
+            " data!";
+      }
+      continue;
+    }
+
+    // Handle update/adds.
+    if (autofill_changes_[i].autofill_.has_value()) {
+      ApplySyncAutofillEntryChange(autofill_changes_[i].action_,
+                                   autofill_changes_[i].autofill_, &new_entries,
+                                   autofill_changes_[i].id_);
+    } else if (autofill_changes_[i].autofill_.has_profile()) {
+      ApplySyncAutofillProfileChange(autofill_changes_[i].action_,
+                                     autofill_changes_[i].autofill_.profile(),
+                                     autofill_changes_[i].id_);
+    } else {
+      NOTREACHED() << "Autofill's CommitChanges received change with no data!";
+    }
+  }
+  autofill_changes_.clear();
+
+  // Make changes
   if (!web_database_->UpdateAutofillEntries(new_entries)) {
     error_handler()->OnUnrecoverableError(FROM_HERE,
-        "Could not update autofill entries.");
+                                          "Could not update autofill entries.");
     return;
   }
 

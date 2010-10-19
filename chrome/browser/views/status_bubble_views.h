@@ -1,12 +1,14 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_VIEWS_STATUS_BUBBLE_VIEWS_H_
 #define CHROME_BROWSER_VIEWS_STATUS_BUBBLE_VIEWS_H_
+#pragma once
 
-#include "base/logging.h"
+#include "base/basictypes.h"
 #include "base/scoped_ptr.h"
+#include "base/string16.h"
 #include "base/task.h"
 #include "chrome/browser/status_bubble.h"
 #include "googleurl/src/gurl.h"
@@ -17,6 +19,7 @@ namespace gfx {
 class Point;
 }
 namespace views {
+class View;
 class Widget;
 }
 
@@ -31,7 +34,7 @@ class StatusBubbleViews : public StatusBubble {
   // The combined vertical padding above and below the text.
   static const int kTotalVerticalPadding = 7;
 
-  explicit StatusBubbleViews(views::Widget* frame);
+  explicit StatusBubbleViews(views::View* base_view);
   ~StatusBubbleViews();
 
   // Reposition the bubble - as we are using a WS_POPUP for the bubble,
@@ -49,8 +52,8 @@ class StatusBubbleViews : public StatusBubble {
   void SetBubbleWidth(int width);
 
   // Overridden from StatusBubble:
-  virtual void SetStatus(const std::wstring& status);
-  virtual void SetURL(const GURL& url, const std::wstring& languages);
+  virtual void SetStatus(const string16& status);
+  virtual void SetURL(const GURL& url, const string16& languages);
   virtual void Hide();
   virtual void MouseMoved(const gfx::Point& location, bool left_content);
   virtual void UpdateDownloadShelfVisibility(bool visible);
@@ -66,7 +69,7 @@ class StatusBubbleViews : public StatusBubble {
   // users to see links in the region normally occupied by the status bubble.
   void AvoidMouse(const gfx::Point& location);
 
-  // Returns true if the frame_ is visible and not minimized.
+  // Returns true if the base_view_'s widget is visible and not minimized.
   bool IsFrameVisible();
 
   // Expand bubble size to accommodate a long URL.
@@ -83,18 +86,20 @@ class StatusBubbleViews : public StatusBubble {
   int GetMaxStatusBubbleWidth();
 
   // The status text we want to display when there are no URLs to display.
-  std::wstring status_text_;
+  string16 status_text_;
 
   // The url we want to display when there is no status text to display.
-  std::wstring url_text_;
+  string16 url_text_;
 
   // The original, non-elided URL.
   GURL url_;
 
   // Used to elide the original URL again when we expand it.
-  std::wstring languages_;
+  string16 languages_;
 
-  // Position relative to the parent window.
+  // Position relative to the base_view_.
+  gfx::Point original_position_;
+  // original_position_ adjusted according to the current RTL.
   gfx::Point position_;
   gfx::Size size_;
 
@@ -106,7 +111,7 @@ class StatusBubbleViews : public StatusBubble {
   scoped_ptr<views::Widget> popup_;
   double opacity_;
 
-  views::Widget* frame_;
+  views::View* base_view_;
   StatusView* view_;
 
   // Manages the expansion of a status bubble to fit a long URL.

@@ -23,6 +23,21 @@ namespace net {
 
 namespace {
 
+// Assert that the (manual-reset) event object is not signaled.
+void AssertEventNotSignaled(WSAEVENT hEvent) {
+  DWORD wait_rv = WaitForSingleObject(hEvent, 0);
+  if (wait_rv != WAIT_TIMEOUT) {
+    DWORD err = ERROR_SUCCESS;
+    if (wait_rv == WAIT_FAILED)
+      err = GetLastError();
+    CHECK(false);  // Crash.
+    // This LOG statement is unreachable since we have already crashed, but it
+    // should prevent the compiler from optimizing away the |wait_rv| and
+    // |err| variables so they appear nicely on the stack in crash dumps.
+    LOG(INFO) << "wait_rv=" << wait_rv << ", err=" << err;
+  }
+}
+
 // If the (manual-reset) event object is signaled, resets it and returns true.
 // Otherwise, does nothing and returns false.  Called after a Winsock function
 // succeeds synchronously
@@ -69,13 +84,14 @@ int MapWinsockError(int os_error) {
       // connection shutdown.  We should not ever see this error code for TCP
       // sockets, which are byte stream oriented.
       NOTREACHED();
-      return ERR_CONNECTION_CLOSED;
+      return ERR_UNEXPECTED;
     case WSAEHOSTUNREACH:
     case WSAENETUNREACH:
       return ERR_ADDRESS_UNREACHABLE;
     case WSAEADDRNOTAVAIL:
       return ERR_ADDRESS_INVALID;
     case WSA_IO_INCOMPLETE:
+      LOG(ERROR) << "Unexpected error " << os_error;
       return ERR_UNEXPECTED;
     case ERROR_SUCCESS:
       return OK;
@@ -256,7 +272,8 @@ void TCPClientSocketWin::Core::WriteDelegate::OnObjectSignaled(
 //-----------------------------------------------------------------------------
 
 TCPClientSocketWin::TCPClientSocketWin(const AddressList& addresses,
-                                       net::NetLog* net_log)
+                                       net::NetLog* net_log,
+                                       const net::NetLog::Source& source)
     : socket_(INVALID_SOCKET),
       addresses_(addresses),
       current_ai_(NULL),
@@ -267,7 +284,11 @@ TCPClientSocketWin::TCPClientSocketWin(const AddressList& addresses,
       next_connect_state_(CONNECT_STATE_NONE),
       connect_os_error_(0),
       net_log_(BoundNetLog::Make(net_log, NetLog::SOURCE_SOCKET)) {
-  net_log_.BeginEvent(NetLog::TYPE_SOCKET_ALIVE, NULL);
+
+  scoped_refptr<NetLog::EventParameters> params;
+  if (source.is_valid())
+    params = new NetLogSourceParameter("source_dependency", source);
+  net_log_.BeginEvent(NetLog::TYPE_SOCKET_ALIVE, params);
   EnsureWinsockInit();
 }
 
@@ -322,7 +343,7 @@ int TCPClientSocketWin::DoConnectLoop(int result) {
         rv = DoConnectComplete(rv);
         break;
       default:
-        LOG(DFATAL) << "bad state";
+        LOG(DFATAL) << "bad state " << state;
         rv = ERR_UNEXPECTED;
         break;
     }
@@ -394,8 +415,10 @@ int TCPClientSocketWin::DoConnectComplete(int result) {
     params = new NetLogIntegerParameter("os_error", os_error);
   net_log_.EndEvent(NetLog::TYPE_TCP_CONNECT_ATTEMPT, params);
 
-  if (result == OK)
+  if (result == OK) {
+    use_history_.set_was_ever_connected();
     return OK;  // Done!
+  }
 
   // Close whatever partially connected socket we currently have.
   DoDisconnect();
@@ -488,10 +511,22 @@ bool TCPClientSocketWin::IsConnectedAndIdle() const {
 int TCPClientSocketWin::GetPeerAddress(AddressList* address) const {
   DCHECK(CalledOnValidThread());
   DCHECK(address);
-  if (!current_ai_)
-    return ERR_FAILED;
+  if (!IsConnected())
+    return ERR_UNEXPECTED;
   address->Copy(current_ai_, false);
   return OK;
+}
+
+void TCPClientSocketWin::SetSubresourceSpeculation() {
+  use_history_.set_subresource_speculation();
+}
+
+void TCPClientSocketWin::SetOmniboxSpeculation() {
+  use_history_.set_omnibox_speculation();
+}
+
+bool TCPClientSocketWin::WasEverUsed() const {
+  return use_history_.was_used_to_convey_data();
 }
 
 int TCPClientSocketWin::Read(IOBuffer* buf,
@@ -508,9 +543,8 @@ int TCPClientSocketWin::Read(IOBuffer* buf,
   core_->read_buffer_.len = buf_len;
   core_->read_buffer_.buf = buf->data();
 
-  // TODO(wtc): Remove the CHECK after enough testing.
-  CHECK_EQ(static_cast<DWORD>(WAIT_TIMEOUT),
-           WaitForSingleObject(core_->read_overlapped_.hEvent, 0));
+  // TODO(wtc): Remove the assertion after enough testing.
+  AssertEventNotSignaled(core_->read_overlapped_.hEvent);
   DWORD num, flags = 0;
   int rv = WSARecv(socket_, &core_->read_buffer_, 1, &num, &flags,
                    &core_->read_overlapped_, NULL);
@@ -525,6 +559,8 @@ int TCPClientSocketWin::Read(IOBuffer* buf,
       base::MemoryDebug::MarkAsInitialized(core_->read_buffer_.buf, num);
       static StatsCounter read_bytes("tcp.read_bytes");
       read_bytes.Add(num);
+      if (num > 0)
+        use_history_.set_was_used_to_convey_data();
       net_log_.AddEvent(NetLog::TYPE_SOCKET_BYTES_RECEIVED,
                         new NetLogIntegerParameter("num_bytes", num));
       return static_cast<int>(num);
@@ -551,16 +587,15 @@ int TCPClientSocketWin::Write(IOBuffer* buf,
   DCHECK_GT(buf_len, 0);
   DCHECK(!core_->write_iobuffer_);
 
-  static StatsCounter reads("tcp.writes");
-  reads.Increment();
+  static StatsCounter writes("tcp.writes");
+  writes.Increment();
 
   core_->write_buffer_.len = buf_len;
   core_->write_buffer_.buf = buf->data();
   core_->write_buffer_length_ = buf_len;
 
-  // TODO(wtc): Remove the CHECK after enough testing.
-  CHECK_EQ(static_cast<DWORD>(WAIT_TIMEOUT),
-           WaitForSingleObject(core_->write_overlapped_.hEvent, 0));
+  // TODO(wtc): Remove the assertion after enough testing.
+  AssertEventNotSignaled(core_->write_overlapped_.hEvent);
   DWORD num;
   int rv = WSASend(socket_, &core_->write_buffer_, 1, &num, 0,
                    &core_->write_overlapped_, NULL);
@@ -576,6 +611,8 @@ int TCPClientSocketWin::Write(IOBuffer* buf,
       }
       static StatsCounter write_bytes("tcp.write_bytes");
       write_bytes.Add(rv);
+      if (rv > 0)
+        use_history_.set_was_used_to_convey_data();
       net_log_.AddEvent(NetLog::TYPE_SOCKET_BYTES_SENT,
                         new NetLogIntegerParameter("num_bytes", rv));
       return rv;
@@ -680,9 +717,6 @@ void TCPClientSocketWin::DoReadCallback(int rv) {
   DCHECK_NE(rv, ERR_IO_PENDING);
   DCHECK(read_callback_);
 
-  static StatsCounter read_bytes("tcp.read_bytes");
-  read_bytes.Add(rv);
-
   // since Run may result in Read being called, clear read_callback_ up front.
   CompletionCallback* c = read_callback_;
   read_callback_ = NULL;
@@ -692,9 +726,6 @@ void TCPClientSocketWin::DoReadCallback(int rv) {
 void TCPClientSocketWin::DoWriteCallback(int rv) {
   DCHECK_NE(rv, ERR_IO_PENDING);
   DCHECK(write_callback_);
-
-  static StatsCounter write_bytes("tcp.write_bytes");
-  write_bytes.Add(rv);
 
   // since Run may result in Write being called, clear write_callback_ up front.
   CompletionCallback* c = write_callback_;
@@ -739,6 +770,10 @@ void TCPClientSocketWin::DidCompleteRead() {
   waiting_read_ = false;
   core_->read_iobuffer_ = NULL;
   if (ok) {
+    static StatsCounter read_bytes("tcp.read_bytes");
+    read_bytes.Add(num_bytes);
+    if (num_bytes > 0)
+      use_history_.set_was_used_to_convey_data();
     net_log_.AddEvent(NetLog::TYPE_SOCKET_BYTES_RECEIVED,
                       new NetLogIntegerParameter("num_bytes", num_bytes));
   }
@@ -766,6 +801,10 @@ void TCPClientSocketWin::DidCompleteWrite() {
                  << " bytes reported.";
       rv = ERR_WINSOCK_UNEXPECTED_WRITTEN_BYTES;
     } else {
+      static StatsCounter write_bytes("tcp.write_bytes");
+      write_bytes.Add(num_bytes);
+      if (num_bytes > 0)
+        use_history_.set_was_used_to_convey_data();
       net_log_.AddEvent(NetLog::TYPE_SOCKET_BYTES_SENT,
                         new NetLogIntegerParameter("num_bytes", rv));
     }

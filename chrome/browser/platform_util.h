@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_PLATFORM_UTIL_H_
 #define CHROME_BROWSER_PLATFORM_UTIL_H_
+#pragma once
 
 #include "base/string16.h"
 #include "gfx/native_widget_types.h"
@@ -54,7 +55,7 @@ bool SimpleYesNoBox(gfx::NativeWindow parent,
 // Return a human readable modifier for the version string.  For a
 // branded Chrome (not Chromium), this modifier is the channel (dev,
 // beta, but "" for stable).
-string16 GetVersionStringModifier();
+std::string GetVersionStringModifier();
 
 }
 

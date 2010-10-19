@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_FIND_BAR_VIEW_H_
 #define CHROME_BROWSER_VIEWS_FIND_BAR_VIEW_H_
+#pragma once
 
 #include "base/string16.h"
 #include "chrome/browser/find_notification_details.h"
@@ -76,7 +77,7 @@ class FindBarView : public DropdownBarView,
   void UpdateMatchCountAppearance(bool no_match);
 
   // Overridden from views::View.
-  virtual void ThemeChanged();
+  virtual void OnThemeChanged();
 
   // We use a hidden view to grab mouse clicks and bring focus to the find
   // text box. This is because although the find text box may look like it

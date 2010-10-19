@@ -4,9 +4,11 @@
 
 #ifndef NET_BASE_CERT_TEST_UTIL_H_
 #define NET_BASE_CERT_TEST_UTIL_H_
+#pragma once
 
-#include "base/file_path.h"
 #include "build/build_config.h"
+
+class FilePath;
 
 namespace net {
 

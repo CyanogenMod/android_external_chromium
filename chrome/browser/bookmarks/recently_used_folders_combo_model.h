@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CHROME_BROWSER_RECENTLY_FOLDERS_COMBO_MODEL_H_
-#define CHROME_BROWSER_RECENTLY_FOLDERS_COMBO_MODEL_H_
+#ifndef CHROME_BROWSER_BOOKMARKS_RECENTLY_USED_FOLDERS_COMBO_MODEL_H_
+#define CHROME_BROWSER_BOOKMARKS_RECENTLY_USED_FOLDERS_COMBO_MODEL_H_
+#pragma once
 
 #include <vector>
 
 #include "app/combobox_model.h"
+#include "base/string16.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 
 // Model for the combobox showing the list of folders to choose from. The
@@ -19,9 +21,9 @@ class RecentlyUsedFoldersComboModel : public ComboboxModel {
 
   // Overridden from ComboboxModel:
   virtual int GetItemCount();
-  virtual std::wstring GetItemAt(int index);
+  virtual string16 GetItemAt(int index);
 
-  // Returns the node at the specified index.
+  // Returns the node at the specified |index|.
   const BookmarkNode* GetNodeAt(int index);
 
   // Returns the index of the original parent folder.
@@ -37,4 +39,4 @@ class RecentlyUsedFoldersComboModel : public ComboboxModel {
   DISALLOW_COPY_AND_ASSIGN(RecentlyUsedFoldersComboModel);
 };
 
-#endif  // CHROME_BROWSER_RECENTLY_FOLDERS_COMBO_MODEL_H_
+#endif  // CHROME_BROWSER_BOOKMARKS_RECENTLY_USED_FOLDERS_COMBO_MODEL_H_

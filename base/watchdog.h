@@ -17,12 +17,12 @@
 
 #ifndef BASE_WATCHDOG_H__
 #define BASE_WATCHDOG_H__
+#pragma once
 
 #include <string>
 
 #include "base/condition_variable.h"
 #include "base/lock.h"
-#include "base/logging.h"
 #include "base/platform_thread.h"
 #include "base/time.h"
 
@@ -44,9 +44,7 @@ class Watchdog {
 
   // Alarm is called if the time expires after an Arm() without someone calling
   // Disarm().  This method can be overridden to create testable classes.
-  virtual void Alarm() {
-    DLOG(INFO) << "Watchdog alarmed for " << thread_watched_name_;
-  }
+  virtual void Alarm();
 
   // Reset static data to initial state. Useful for tests, to ensure
   // they are independent.

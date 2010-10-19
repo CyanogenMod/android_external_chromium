@@ -4,9 +4,11 @@
 
 #ifndef CHROME_BROWSER_VIEWS_THEME_INSTALL_BUBBLE_VIEW_H_
 #define CHROME_BROWSER_VIEWS_THEME_INSTALL_BUBBLE_VIEW_H_
+#pragma once
 
 #include <string>
 
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
 #include "gfx/canvas.h"

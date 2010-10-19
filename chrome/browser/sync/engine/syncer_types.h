@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_ENGINE_SYNCER_TYPES_H_
 #define CHROME_BROWSER_SYNC_ENGINE_SYNCER_TYPES_H_
+#pragma once
 
 #include <map>
 #include <vector>
@@ -77,6 +78,8 @@ struct SyncerEvent {
 
     STATUS_CHANGED,
 
+    UPDATED_TOKEN,  // new token in updated_token
+
     // Take care not to wait in shutdown handlers for the syncer to stop as it
     // causes a race in the event system. Use SyncerShutdownEvent instead.
     SHUTDOWN_USE_WITH_CARE,
@@ -114,6 +117,11 @@ struct SyncerEvent {
     // data (i.e. as if the user clicked 'Stop Syncing' in the browser.
     STOP_SYNCING_PERMANENTLY,
 
+    // These events are sent to indicate when we know the clearing of
+    // server data have failed or succeeded.
+    CLEAR_SERVER_DATA_SUCCEEDED,
+    CLEAR_SERVER_DATA_FAILED,
+
     // Sent when the main syncer loop finishes.
     SYNCER_THREAD_EXITING,
   };
@@ -142,10 +150,13 @@ struct SyncerEvent {
   // How many milliseconds later should the syncer kick in? For
   // REQUEST_SYNC_NUDGE only.
   int nudge_delay_milliseconds;
+
+  // Update-Client-Auth returns a new token for sync use.
+  std::string updated_token;
 };
 
 struct SyncerShutdownEvent {
-  SyncerShutdownEvent(Syncer *syncer_ptr) : syncer(syncer_ptr) {}
+  explicit SyncerShutdownEvent(Syncer *syncer_ptr) : syncer(syncer_ptr) {}
   Syncer* syncer;
   static bool IsChannelShutdownEvent(Syncer* syncer) {
     return true;

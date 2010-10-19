@@ -7,6 +7,7 @@
 #include "base/histogram.h"
 #include "base/logging.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "net/base/net_errors.h"
 
 namespace net {
@@ -27,7 +28,7 @@ HttpAuthHandler::~HttpAuthHandler() {
 //static
 std::string HttpAuthHandler::GenerateHistogramNameFromScheme(
     const std::string& scheme) {
-  return StringPrintf("Net.AuthGenerateToken_%s", scheme.c_str());
+  return base::StringPrintf("Net.AuthGenerateToken_%s", scheme.c_str());
 }
 
 bool HttpAuthHandler::InitFromChallenge(
@@ -76,8 +77,8 @@ NetLog::EventType EventTypeFromAuthTarget(HttpAuth::Target target) {
 
 }  // namespace
 
-int HttpAuthHandler::GenerateAuthToken(const std::wstring* username,
-                                       const std::wstring* password,
+int HttpAuthHandler::GenerateAuthToken(const string16* username,
+                                       const string16* password,
                                        const HttpRequestInfo* request,
                                        CompletionCallback* callback,
                                        std::string* auth_token) {

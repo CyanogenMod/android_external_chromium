@@ -13,7 +13,9 @@
 #include "base/message_loop.h"
 #include "base/process_util.h"
 #include "base/singleton.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/thread.h"
 #include "base/time.h"
 #include "chrome/browser/browser_process.h"
@@ -96,7 +98,7 @@ static bool GetTime(const std::string& log, double* value) {
     size_t chars_left =
         space_index != std::string::npos ? space_index : std::string::npos;
     std::string value_string = contents.substr(0, chars_left);
-    return StringToDouble(value_string, value);
+    return base::StringToDouble(value_string, value);
   }
   return false;
 }
@@ -134,16 +136,16 @@ static void SendBootTimesToUMA(const BootTimesLoader::BootTimes& boot_times) {
   // Stores the boot times to a file in /tmp to indicate that the
   // times for the most recent boot event have been reported
   // already. The file will be deleted at system shutdown/reboot.
-  std::string boot_times_text = StringPrintf("total: %.2f\n"
-                                             "firmware: %.2f\n"
-                                             "kernel: %.2f\n"
-                                             "system: %.2f\n"
-                                             "chrome: %.2f\n",
-                                             boot_times.total,
-                                             boot_times.firmware,
-                                             boot_times.pre_startup,
-                                             boot_times.system,
-                                             boot_times.chrome);
+  std::string boot_times_text = base::StringPrintf("total: %.2f\n"
+                                                   "firmware: %.2f\n"
+                                                   "kernel: %.2f\n"
+                                                   "system: %.2f\n"
+                                                   "chrome: %.2f\n",
+                                                   boot_times.total,
+                                                   boot_times.firmware,
+                                                   boot_times.pre_startup,
+                                                   boot_times.system,
+                                                   boot_times.chrome);
   file_util::WriteFile(sent, boot_times_text.data(), boot_times_text.size());
   DCHECK(file_util::PathExists(sent));
 }
@@ -219,7 +221,7 @@ static void WriteLoginTimes(
     base::Time chrome_first_render) {
   const FilePath log_path(kLogPath);
   std::string output =
-      StringPrintf("total: %.2f\nauth: %.2f\nlogin: %.2f\n",
+      base::StringPrintf("total: %.2f\nauth: %.2f\nlogin: %.2f\n",
           (chrome_first_render - login_attempt).InSecondsF(),
           (login_success - login_attempt).InSecondsF(),
           (chrome_first_render - login_success).InSecondsF());

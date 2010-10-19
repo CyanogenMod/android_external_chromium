@@ -48,7 +48,7 @@ Task::Task(TaskParent *parent)
   unique_id_ = unique_id_seed_++;
 
   // sanity check that we didn't roll-over our id seed
-  assert(unique_id_ < unique_id_seed_);
+  ASSERT(unique_id_ < unique_id_seed_);
 }
 
 Task::~Task() {
@@ -89,7 +89,7 @@ void Task::Step() {
     // we do not know how !blocked_ happens when done_ - should be impossible.
     // But it causes problems, so in retail build, we force blocked_, and
     // under debug we assert.
-    assert(blocked_);
+    ASSERT(blocked_);
 #else
     blocked_ = true;
 #endif
@@ -107,7 +107,7 @@ void Task::Step() {
     Stop();
 #ifdef _DEBUG
     // verify that stop removed this from its parent
-    assert(!parent()->IsChildTask(this));
+    ASSERT(!parent()->IsChildTask(this));
 #endif
     return;
   }
@@ -144,7 +144,7 @@ void Task::Step() {
     Stop();
 #if _DEBUG
     // verify that stop removed this from its parent
-    assert(!parent()->IsChildTask(this));
+    ASSERT(!parent()->IsChildTask(this));
 #endif
     blocked_ = true;
   }
@@ -169,7 +169,7 @@ void Task::Abort(bool nowake) {
     Stop();
 #ifdef _DEBUG
     // verify that stop removed this from its parent
-    assert(!parent()->IsChildTask(this));
+    ASSERT(!parent()->IsChildTask(this));
 #endif
     if (!nowake) {
       // WakeTasks to self-delete.

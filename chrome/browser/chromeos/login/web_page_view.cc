@@ -7,9 +7,9 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/callback.h"
+#include "base/logging.h"
 #include "base/string_util.h"
 #include "base/time.h"
-#include "base/values.h"
 #include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
@@ -53,7 +53,7 @@ WizardWebPageViewTabContents::WizardWebPageViewTabContents(
     Profile* profile,
     SiteInstance* site_instance,
     WebPageDelegate* page_delegate)
-      : TabContents(profile, site_instance, MSG_ROUTING_NONE, NULL),
+      : TabContents(profile, site_instance, MSG_ROUTING_NONE, NULL, NULL),
         page_delegate_(page_delegate) {
   }
 
@@ -63,15 +63,18 @@ void WizardWebPageViewTabContents::DidFailProvisionalLoadWithError(
       int error_code,
       const GURL& url,
       bool showing_repost_interstitial) {
+  LOG(ERROR) << "Page load failed. URL = " << url << ", error: " << error_code;
   page_delegate_->OnPageLoadFailed(url.spec());
 }
 
 void WizardWebPageViewTabContents::DidDisplayInsecureContent() {
-  page_delegate_->OnPageLoadFailed("");
+  LOG(ERROR) << "Page load failed: did display insecure content";
+  page_delegate_->OnPageLoadFailed("Displayed insecure content");
 }
 
 void WizardWebPageViewTabContents::DidRunInsecureContent(
     const std::string& security_origin) {
+  LOG(ERROR) << "Page load failed: did run insecure content";
   page_delegate_->OnPageLoadFailed(security_origin);
 }
 
@@ -80,6 +83,7 @@ void WizardWebPageViewTabContents::DocumentLoadedInFrame() {
 }
 
 void WizardWebPageViewTabContents::OnContentBlocked(ContentSettingsType type) {
+  LOG(ERROR) << "Page load failed: content blocked. Type: " << type;
   page_delegate_->OnPageLoadFailed("");
 }
 

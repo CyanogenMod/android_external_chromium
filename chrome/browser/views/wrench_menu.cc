@@ -8,6 +8,7 @@
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
+#include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/browser.h"
@@ -21,6 +22,7 @@
 #include "gfx/canvas.h"
 #include "gfx/canvas_skia.h"
 #include "gfx/skia_util.h"
+#include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkPaint.h"
@@ -60,7 +62,8 @@ const int kHorizontalPadding = 6;
 // Subclass of ImageButton whose preferred size includes the size of the border.
 class FullscreenButton : public ImageButton {
  public:
-  FullscreenButton(views::ButtonListener* listener) : ImageButton(listener) {}
+  explicit FullscreenButton(views::ButtonListener* listener)
+      : ImageButton(listener) { }
 
   virtual gfx::Size GetPreferredSize() {
     gfx::Size pref = ImageButton::GetPreferredSize();
@@ -86,9 +89,9 @@ class MenuButtonBorder : public views::Border {
   }
 
   virtual void GetInsets(gfx::Insets* insets) const {
-    insets->Set(MenuConfig::instance().item_no_icon_top_margin,
+    insets->Set(MenuConfig::instance().item_top_margin,
                 kHorizontalPadding,
-                MenuConfig::instance().item_no_icon_bottom_margin,
+                MenuConfig::instance().item_bottom_margin,
                 kHorizontalPadding);
   }
 
@@ -116,8 +119,13 @@ class MenuButtonBackground : public views::Background {
   // Used when the type is CENTER_BUTTON to determine if the left/right edge
   // needs to be rendered selected.
   void SetOtherButtons(CustomButton* left_button, CustomButton* right_button) {
-    left_button_ = left_button;
-    right_button_ = right_button;
+    if (base::i18n::IsRTL()) {
+      left_button_ = right_button;
+      right_button_ = left_button;
+    } else {
+      left_button_ = left_button;
+      right_button_ = right_button;
+    }
   }
 
   virtual void Paint(gfx::Canvas* canvas, View* view) const {
@@ -258,7 +266,6 @@ TextButton* CreateAndConfigureButton(View* parent,
     *background = bg;
   button->set_border(new MenuButtonBorder());
   button->set_alignment(TextButton::ALIGN_CENTER);
-  button->SetShowHighlighted(true);
   button->SetNormalHasBorder(true);
   button->SetFont(views::MenuConfig::instance().font);
   button->ClearMaxTextSize();
@@ -358,6 +365,8 @@ class WrenchMenu::ZoomView : public ScheduleAllView,
     decrement_button_ = CreateAndConfigureButton(
         this, this, IDS_ZOOM_MINUS2, MenuButtonBackground::LEFT_BUTTON,
         menu_model, decrement_index, NULL);
+    decrement_button_->SetAccessibleName(
+        l10n_util::GetString(IDS_ACCNAME_ZOOM_MINUS2));
 
     zoom_label_ = new Label(l10n_util::GetStringF(IDS_ZOOM_PERCENT, L"100"));
     zoom_label_->SetColor(MenuConfig::instance().text_color);
@@ -373,8 +382,10 @@ class WrenchMenu::ZoomView : public ScheduleAllView,
     increment_button_ = CreateAndConfigureButton(
         this, this, IDS_ZOOM_PLUS2, MenuButtonBackground::RIGHT_BUTTON,
         menu_model, increment_index, NULL);
+    increment_button_->SetAccessibleName(
+        l10n_util::GetString(IDS_ACCNAME_ZOOM_PLUS2));
 
-    center_bg->SetOtherButtons(increment_button_, decrement_button_);
+    center_bg->SetOtherButtons(decrement_button_, increment_button_);
 
     fullscreen_button_ = new FullscreenButton(this);
     fullscreen_button_->SetImage(
@@ -390,6 +401,8 @@ class WrenchMenu::ZoomView : public ScheduleAllView,
         0, kHorizontalPadding, 0, kHorizontalPadding));
     fullscreen_button_->set_background(
         new MenuButtonBackground(MenuButtonBackground::SINGLE_BUTTON));
+    fullscreen_button_->SetAccessibleName(
+        l10n_util::GetString(IDS_ACCNAME_FULLSCREEN));
     AddChildView(fullscreen_button_);
 
     UpdateZoomControls();
@@ -463,14 +476,15 @@ class WrenchMenu::ZoomView : public ScheduleAllView,
     increment_button_->SetEnabled(enable_increment);
     decrement_button_->SetEnabled(enable_decrement);
     zoom_label_->SetText(l10n_util::GetStringF(
-                             IDS_ZOOM_PERCENT, IntToWString(zoom_percent)));
+                             IDS_ZOOM_PERCENT,
+                             UTF8ToWide(base::IntToString(zoom_percent))));
     // If both increment and decrement are disabled, then we disable the zoom
     // label too.
     zoom_label_->SetEnabled(enable_increment || enable_decrement);
   }
 
   double GetZoom(bool* enable_increment, bool* enable_decrement) {
-    // TODO: move this somewhere it can be shared.
+    // TODO(sky): move this somewhere it can be shared.
     TabContents* selected_tab = menu_->browser_->GetSelectedTabContents();
     *enable_decrement = *enable_increment = false;
     if (!selected_tab)
@@ -550,6 +564,7 @@ WrenchMenu::~WrenchMenu() {
 void WrenchMenu::Init(menus::MenuModel* model) {
   DCHECK(!root_.get());
   root_.reset(new MenuItemView(this));
+  root_->SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_APP));
   root_->set_has_icons(true);  // We have checks, radios and icons, set this
                                // so we get the taller menu style.
   int next_id = 1;
@@ -559,11 +574,10 @@ void WrenchMenu::Init(menus::MenuModel* model) {
 void WrenchMenu::RunMenu(views::MenuButton* host) {
   gfx::Point screen_loc;
   views::View::ConvertPointToScreen(host, &screen_loc);
-  // Subtract 1 from the height to make the popup flush with the button border.
-  gfx::Rect bounds(screen_loc.x(), screen_loc.y(), host->width(),
-                   host->height() - 1);
+  gfx::Rect bounds(screen_loc, host->size());
   root_->RunMenuAt(host->GetWindow()->GetNativeWindow(), host, bounds,
-                   MenuItemView::TOPRIGHT, true);
+      base::i18n::IsRTL() ? MenuItemView::TOPLEFT : MenuItemView::TOPRIGHT,
+      true);
   if (selected_menu_model_)
     selected_menu_model_->ActivatedAt(selected_index_);
 }
@@ -691,6 +705,9 @@ MenuItemView* WrenchMenu::AppendMenuItem(MenuItemView* parent,
   id_to_entry_[id].second = index;
 
   MenuItemView* menu_item = parent->AppendMenuItemImpl(id, label, icon, type);
+
+  if (menu_item)
+    menu_item->SetVisible(model->IsVisibleAt(index));
 
   if (menu_type == MenuModel::TYPE_COMMAND && model->HasIcons()) {
     SkBitmap icon;

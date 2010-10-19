@@ -7,11 +7,8 @@
 #include <string>
 #include <vector>
 
-#include "base/base64.h"
 #include "base/basictypes.h"
 #include "base/file_util.h"
-#include "base/file_version_info.h"
-#include "base/md5.h"
 #include "base/perftimer.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
@@ -22,7 +19,7 @@
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/gpu_process_host.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/logging_chrome.h"
 #include "chrome/common/pref_names.h"
@@ -72,20 +69,22 @@ std::string MetricsLog::GetInstallDate() const {
 
 // static
 std::string MetricsLog::GetVersionString() {
-  scoped_ptr<FileVersionInfo> version_info(
-      chrome::GetChromeVersionInfo());
-  if (version_info.get()) {
-    std::string version = WideToUTF8(version_info->product_version());
-    if (!version_extension_.empty())
-      version += version_extension_;
-    if (!version_info->is_official_build())
-      version.append("-devel");
-    return version;
-  } else {
-    NOTREACHED() << "Unable to retrieve version string.";
+  chrome::VersionInfo version_info;
+  if (!version_info.is_valid()) {
+    NOTREACHED() << "Unable to retrieve version info.";
+    return std::string();
   }
 
-  return std::string();
+  std::string version = version_info.Version();
+  if (!version_extension_.empty())
+    version += version_extension_;
+  if (!version_info.IsOfficialBuild())
+    version.append("-devel");
+  return version;
+}
+
+MetricsLog* MetricsLog::AsMetricsLog() {
+  return this;
 }
 
 void MetricsLog::RecordIncrementalStabilityElements() {
@@ -160,13 +159,13 @@ void MetricsLog::WritePluginStabilityElements(PrefService* pref) {
       }
       DictionaryValue* plugin_dict = static_cast<DictionaryValue*>(*iter);
 
-      std::wstring plugin_name;
+      std::string plugin_name;
       plugin_dict->GetString(prefs::kStabilityPluginName, &plugin_name);
 
       OPEN_ELEMENT_FOR_SCOPE("pluginstability");
       // Use "filename" instead of "name", otherwise we need to update the
       // UMA servers.
-      WriteAttribute("filename", CreateBase64Hash(WideToUTF8(plugin_name)));
+      WriteAttribute("filename", CreateBase64Hash(plugin_name));
 
       int launches = 0;
       plugin_dict->GetInteger(prefs::kStabilityPluginLaunches, &launches);
@@ -354,10 +353,10 @@ void MetricsLog::RecordEnvironment(
 
 void MetricsLog::WriteAllProfilesMetrics(
     const DictionaryValue& all_profiles_metrics) {
-  const std::wstring profile_prefix(prefs::kProfilePrefix);
+  const std::string profile_prefix(prefs::kProfilePrefix);
   for (DictionaryValue::key_iterator i = all_profiles_metrics.begin_keys();
        i != all_profiles_metrics.end_keys(); ++i) {
-    const std::wstring& key_name = *i;
+    const std::string& key_name = *i;
     if (key_name.compare(0, profile_prefix.size(), profile_prefix) == 0) {
       DictionaryValue* profile;
       if (all_profiles_metrics.GetDictionaryWithoutPathExpansion(key_name,
@@ -367,21 +366,21 @@ void MetricsLog::WriteAllProfilesMetrics(
   }
 }
 
-void MetricsLog::WriteProfileMetrics(const std::wstring& profileidhash,
+void MetricsLog::WriteProfileMetrics(const std::string& profileidhash,
                                      const DictionaryValue& profile_metrics) {
   OPEN_ELEMENT_FOR_SCOPE("userprofile");
-  WriteAttribute("profileidhash", WideToUTF8(profileidhash));
+  WriteAttribute("profileidhash", profileidhash);
   for (DictionaryValue::key_iterator i = profile_metrics.begin_keys();
        i != profile_metrics.end_keys(); ++i) {
     Value* value;
     if (profile_metrics.GetWithoutPathExpansion(*i, &value)) {
-      DCHECK(*i != L"id");
+      DCHECK(*i != "id");
       switch (value->GetType()) {
         case Value::TYPE_STRING: {
           std::string string_value;
           if (value->GetAsString(&string_value)) {
             OPEN_ELEMENT_FOR_SCOPE("profileparam");
-            WriteAttribute("name", WideToUTF8(*i));
+            WriteAttribute("name", *i);
             WriteAttribute("value", string_value);
           }
           break;
@@ -391,7 +390,7 @@ void MetricsLog::WriteProfileMetrics(const std::wstring& profileidhash,
           bool bool_value;
           if (value->GetAsBoolean(&bool_value)) {
             OPEN_ELEMENT_FOR_SCOPE("profileparam");
-            WriteAttribute("name", WideToUTF8(*i));
+            WriteAttribute("name", *i);
             WriteIntAttribute("value", bool_value ? 1 : 0);
           }
           break;
@@ -401,7 +400,7 @@ void MetricsLog::WriteProfileMetrics(const std::wstring& profileidhash,
           int int_value;
           if (value->GetAsInteger(&int_value)) {
             OPEN_ELEMENT_FOR_SCOPE("profileparam");
-            WriteAttribute("name", WideToUTF8(*i));
+            WriteAttribute("name", *i);
             WriteIntAttribute("value", int_value);
           }
           break;

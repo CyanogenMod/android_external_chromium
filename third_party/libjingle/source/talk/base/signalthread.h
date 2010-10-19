@@ -28,6 +28,8 @@
 #ifndef TALK_BASE_SIGNALTHREAD_H_
 #define TALK_BASE_SIGNALTHREAD_H_
 
+#include <string>
+
 #include "talk/base/thread.h"
 #include "talk/base/sigslot.h"
 
@@ -54,8 +56,11 @@ class SignalThread : public sigslot::has_slots<>, protected MessageHandler {
  public:
   SignalThread();
 
+  // Context: Main Thread.  Call before Start to change the worker's name.
+  bool SetName(const std::string& name, const void* obj);
+
   // Context: Main Thread.  Call before Start to change the worker's priority.
-  void SetPriority(ThreadPriority priority);
+  bool SetPriority(ThreadPriority priority);
 
   // Context: Main Thread.  Call to begin the worker thread.
   void Start();

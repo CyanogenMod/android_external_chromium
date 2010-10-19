@@ -14,7 +14,8 @@
 #include "app/gtk_util.h"
 #include "app/l10n_util.h"
 #include "base/basictypes.h"
-#include "base/env_var.h"
+#include "base/command_line.h"
+#include "base/environment.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/process_util.h"
@@ -23,6 +24,7 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_manager.h"
+#include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/fonts_languages_window.h"
 #include "chrome/browser/gtk/accessible_widget_helper_gtk.h"
 #include "chrome/browser/gtk/clear_browsing_data_dialog_gtk.h"
@@ -33,11 +35,13 @@
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/options_page_base.h"
 #include "chrome/browser/options_util.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
+#include "chrome/browser/prefs/pref_set_observer.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/process_watcher.h"
 #include "grit/chromium_strings.h"
@@ -75,8 +79,8 @@ const int kWrapWidth = 475;
 GtkWidget* CreateWrappedLabel(int string_id) {
   GtkWidget* label = gtk_label_new(
       l10n_util::GetStringUTF8(string_id).c_str());
-  gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
-  gtk_widget_set_size_request(label, kWrapWidth, -1);
+  gtk_misc_set_alignment(GTK_MISC(label), 0.0, 0.5);
+  gtk_util::SetLabelWidth(label, kWrapWidth);
   return label;
 }
 
@@ -152,7 +156,7 @@ class DownloadSection : public OptionsPageBase {
 
  private:
   // Overridden from OptionsPageBase.
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
 
   // Callbacks for the widgets.
   static void OnDownloadLocationChanged(GtkFileChooser* widget,
@@ -267,7 +271,7 @@ DownloadSection::DownloadSection(Profile* profile)
   NotifyPrefChanged(NULL);
 }
 
-void DownloadSection::NotifyPrefChanged(const std::wstring* pref_name) {
+void DownloadSection::NotifyPrefChanged(const std::string* pref_name) {
   pref_changing_ = true;
   if (!pref_name || *pref_name == prefs::kDownloadDefaultDirectory) {
     gtk_file_chooser_set_current_folder(
@@ -282,8 +286,8 @@ void DownloadSection::NotifyPrefChanged(const std::wstring* pref_name) {
   }
 
   if (!pref_name || *pref_name == prefs::kDownloadExtensionsToOpen) {
-    bool enabled =
-        profile()->GetDownloadManager()->HasAutoOpenFileTypesRegistered();
+    DownloadPrefs* prefs = profile()->GetDownloadManager()->download_prefs();
+    bool enabled = prefs->IsAutoOpenUsed();
     gtk_widget_set_sensitive(reset_file_handlers_label_, enabled);
     gtk_widget_set_sensitive(reset_file_handlers_button_, enabled);
   }
@@ -330,7 +334,7 @@ void DownloadSection::OnDownloadAskForSaveLocationChanged(
 // static
 void DownloadSection::OnResetFileHandlersClicked(GtkButton *button,
                                                  DownloadSection* section) {
-  section->profile()->GetDownloadManager()->ResetAutoOpenFiles();
+  section->profile()->GetDownloadManager()->download_prefs()->ResetAutoOpen();
   section->UserMetricsRecordAction(
       UserMetricsAction("Options_ResetAutoOpenFiles"),
       section->profile()->GetPrefs());
@@ -349,6 +353,9 @@ class NetworkSection : public OptionsPageBase {
   }
 
  private:
+  // Overridden from OptionsPageBase.
+  virtual void NotifyPrefChanged(const std::string* pref_name);
+
   struct ProxyConfigCommand {
     std::string binary;
     const char** argv;
@@ -363,8 +370,14 @@ class NetworkSection : public OptionsPageBase {
   // Start the given proxy configuration utility.
   static void StartProxyConfigUtil(const ProxyConfigCommand& command);
 
+  // Tracks the state of proxy preferences.
+  scoped_ptr<PrefSetObserver> proxy_prefs_;
+
   // The widget containing the options for this section.
   GtkWidget* page_;
+
+  // The proxy configuration button.
+  GtkWidget* change_proxies_button_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkSection);
 };
@@ -379,20 +392,30 @@ NetworkSection::NetworkSection(Profile* profile)
   gtk_box_pack_start(GTK_BOX(page_), proxy_description_label,
                      FALSE, FALSE, 0);
 
-  GtkWidget* change_proxies_button = gtk_button_new_with_label(
+  change_proxies_button_ = gtk_button_new_with_label(
       l10n_util::GetStringUTF8(
           IDS_OPTIONS_PROXIES_CONFIGURE_BUTTON).c_str());
-  g_signal_connect(change_proxies_button, "clicked",
+  g_signal_connect(change_proxies_button_, "clicked",
                    G_CALLBACK(OnChangeProxiesButtonClicked), this);
 
   // Stick it in an hbox so it doesn't expand to the whole width.
   GtkWidget* button_hbox = gtk_hbox_new(FALSE, 0);
   gtk_box_pack_start(GTK_BOX(button_hbox),
-                     change_proxies_button,
+                     change_proxies_button_,
                      FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(page_),
                      gtk_util::IndentWidget(button_hbox),
                      FALSE, FALSE, 0);
+
+  proxy_prefs_.reset(PrefSetObserver::CreateProxyPrefSetObserver(
+      profile->GetPrefs(), this));
+  NotifyPrefChanged(NULL);
+}
+
+void NetworkSection::NotifyPrefChanged(const std::string* pref_name) {
+  if (!pref_name || proxy_prefs_->IsObserved(*pref_name))
+    gtk_widget_set_sensitive(change_proxies_button_,
+                             !proxy_prefs_->IsManaged());
 }
 
 // static
@@ -401,11 +424,11 @@ void NetworkSection::OnChangeProxiesButtonClicked(GtkButton *button,
   section->UserMetricsRecordAction(UserMetricsAction("Options_ChangeProxies"),
                                    NULL);
 
-  scoped_ptr<base::EnvVarGetter> env_getter(base::EnvVarGetter::Create());
+  scoped_ptr<base::Environment> env(base::Environment::Create());
 
   ProxyConfigCommand command;
   bool found_command = false;
-  switch (base::GetDesktopEnvironment(env_getter.get())) {
+  switch (base::GetDesktopEnvironment(env.get())) {
     case base::DESKTOP_ENVIRONMENT_GNOME: {
       size_t index;
       ProxyConfigCommand commands[2];
@@ -435,7 +458,7 @@ void NetworkSection::OnChangeProxiesButtonClicked(GtkButton *button,
   if (found_command) {
     StartProxyConfigUtil(command);
   } else {
-    const char* name = base::GetDesktopEnvironmentName(env_getter.get());
+    const char* name = base::GetDesktopEnvironmentName(env.get());
     if (name)
       LOG(ERROR) << "Could not find " << name << " network settings in $PATH";
     BrowserList::GetLastActive()->
@@ -500,7 +523,7 @@ class TranslateSection : public OptionsPageBase {
 
  private:
   // Overridden from OptionsPageBase.
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
 
   CHROMEGTK_CALLBACK_0(TranslateSection, void, OnTranslateClicked);
 
@@ -546,7 +569,7 @@ TranslateSection::TranslateSection(Profile* profile)
   NotifyPrefChanged(NULL);
 }
 
-void TranslateSection::NotifyPrefChanged(const std::wstring* pref_name) {
+void TranslateSection::NotifyPrefChanged(const std::string* pref_name) {
   pref_changing_ = true;
   if (!pref_name || *pref_name == prefs::kEnableTranslate) {
     gtk_toggle_button_set_active(
@@ -568,6 +591,106 @@ void TranslateSection::OnTranslateClicked(GtkWidget* widget) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// ChromeAppsSection
+
+class ChromeAppsSection : public OptionsPageBase {
+ public:
+  explicit ChromeAppsSection(Profile* profile);
+  virtual ~ChromeAppsSection() {}
+
+  GtkWidget* get_page_widget() const {
+    return page_;
+  }
+
+ private:
+  // Overridden from OptionsPageBase.
+  virtual void NotifyPrefChanged(const std::string* pref_name);
+
+  CHROMEGTK_CALLBACK_0(ChromeAppsSection, void, OnBackgroundModeClicked);
+  CHROMEGTK_CALLBACK_0(ChromeAppsSection, void, OnLearnMoreLinkClicked);
+
+  // Preferences for this section:
+  BooleanPrefMember enable_background_mode_;
+
+  // The widget containing the options for this section.
+  GtkWidget* page_;
+
+  // The checkbox.
+  GtkWidget* background_mode_checkbox_;
+
+  // Flag to ignore gtk callbacks while we are loading prefs, to avoid
+  // then turning around and saving them again.
+  bool pref_changing_;
+
+  scoped_ptr<AccessibleWidgetHelper> accessible_widget_helper_;
+
+  DISALLOW_COPY_AND_ASSIGN(ChromeAppsSection);
+};
+
+ChromeAppsSection::ChromeAppsSection(Profile* profile)
+    : OptionsPageBase(profile),
+      pref_changing_(true) {
+  page_ = gtk_vbox_new(FALSE, gtk_util::kControlSpacing);
+
+  accessible_widget_helper_.reset(new AccessibleWidgetHelper(page_, profile));
+
+  background_mode_checkbox_ = CreateCheckButtonWithWrappedLabel(
+      IDS_OPTIONS_CHROME_APPS_ENABLE_BACKGROUND_MODE);
+  gtk_box_pack_start(GTK_BOX(page_), background_mode_checkbox_,
+                     FALSE, FALSE, 0);
+  g_signal_connect(background_mode_checkbox_, "clicked",
+                   G_CALLBACK(OnBackgroundModeClickedThunk), this);
+  accessible_widget_helper_->SetWidgetName(
+      background_mode_checkbox_,
+      IDS_OPTIONS_CHROME_APPS_ENABLE_BACKGROUND_MODE);
+
+  // Init member prefs so we can update the controls if prefs change.
+  enable_background_mode_.Init(prefs::kBackgroundModeEnabled,
+                               profile->GetPrefs(), this);
+
+  GtkWidget* learn_more_link = gtk_chrome_link_button_new(
+      l10n_util::GetStringUTF8(IDS_LEARN_MORE).c_str());
+  // Stick it in an hbox so it doesn't expand to the whole width.
+  GtkWidget* learn_more_hbox = gtk_hbox_new(FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(learn_more_hbox), learn_more_link,
+                     FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(page_), learn_more_hbox,
+                     FALSE, FALSE, 0);
+  g_signal_connect(learn_more_link, "clicked",
+                   G_CALLBACK(OnLearnMoreLinkClickedThunk), this);
+
+  NotifyPrefChanged(NULL);
+}
+
+void ChromeAppsSection::NotifyPrefChanged(const std::string* pref_name) {
+  pref_changing_ = true;
+  if (!pref_name || *pref_name == prefs::kBackgroundModeEnabled) {
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(background_mode_checkbox_),
+                                 enable_background_mode_.GetValue());
+  }
+  pref_changing_ = false;
+}
+
+void ChromeAppsSection::OnBackgroundModeClicked(GtkWidget* widget) {
+  if (pref_changing_)
+    return;
+  bool enabled = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
+  UserMetricsRecordAction(
+      enabled ?
+      UserMetricsAction("Options_BackgroundMode_Enable") :
+      UserMetricsAction("Options_BackgroundMode_Disable"),
+      profile()->GetPrefs());
+  enable_background_mode_.SetValue(enabled);
+}
+
+void ChromeAppsSection::OnLearnMoreLinkClicked(GtkWidget* widget) {
+  BrowserList::GetLastActive()->OpenURL(
+      GURL(l10n_util::GetStringUTF8(IDS_LEARN_MORE_BACKGROUND_MODE_URL)),
+      GURL(), NEW_WINDOW, PageTransition::LINK);
+}
+
+
+///////////////////////////////////////////////////////////////////////////////
 // PrivacySection
 
 class PrivacySection : public OptionsPageBase {
@@ -581,7 +704,7 @@ class PrivacySection : public OptionsPageBase {
 
  private:
   // Overridden from OptionsPageBase.
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
 
   // Try to make the the crash stats consent and the metrics upload
   // permission match the |reporting_enabled_checkbox_|.
@@ -739,20 +862,6 @@ PrivacySection::PrivacySection(Profile* profile)
   safe_browsing_.Init(prefs::kSafeBrowsingEnabled, profile->GetPrefs(), this);
   enable_metrics_recording_.Init(prefs::kMetricsReportingEnabled,
                                  g_browser_process->local_state(), this);
-
-  gtk_widget_set_sensitive(enable_link_doctor_checkbox_,
-                           !alternate_error_pages_.IsManaged());
-  gtk_widget_set_sensitive(enable_suggest_checkbox_,
-                           !use_suggest_.IsManaged());
-  gtk_widget_set_sensitive(enable_dns_prefetching_checkbox_,
-                           !dns_prefetch_enabled_.IsManaged());
-  gtk_widget_set_sensitive(enable_safe_browsing_checkbox_,
-                           !safe_browsing_.IsManaged());
-#if defined(GOOGLE_CHROME_BUILD)
-  gtk_widget_set_sensitive(reporting_enabled_checkbox_,
-                           !enable_metrics_recording_.IsManaged());
-#endif
-
   NotifyPrefChanged(NULL);
 }
 
@@ -867,31 +976,48 @@ void PrivacySection::OnLoggingChange(GtkWidget* widget,
   privacy_section->enable_metrics_recording_.SetValue(enabled);
 }
 
-void PrivacySection::NotifyPrefChanged(const std::wstring* pref_name) {
+void PrivacySection::NotifyPrefChanged(const std::string* pref_name) {
   pref_changing_ = true;
   if (!pref_name || *pref_name == prefs::kAlternateErrorPagesEnabled) {
+    gtk_widget_set_sensitive(
+        GTK_WIDGET(enable_link_doctor_checkbox_),
+        !alternate_error_pages_.IsManaged());
     gtk_toggle_button_set_active(
         GTK_TOGGLE_BUTTON(enable_link_doctor_checkbox_),
         alternate_error_pages_.GetValue());
   }
   if (!pref_name || *pref_name == prefs::kSearchSuggestEnabled) {
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(enable_suggest_checkbox_),
-                                 use_suggest_.GetValue());
+    gtk_widget_set_sensitive(
+        GTK_WIDGET(enable_suggest_checkbox_),
+        !use_suggest_.IsManaged());
+    gtk_toggle_button_set_active(
+        GTK_TOGGLE_BUTTON(enable_suggest_checkbox_),
+        use_suggest_.GetValue());
   }
   if (!pref_name || *pref_name == prefs::kDnsPrefetchingEnabled) {
+    gtk_widget_set_sensitive(
+        GTK_WIDGET(enable_dns_prefetching_checkbox_),
+        !dns_prefetch_enabled_.IsManaged());
     bool enabled = dns_prefetch_enabled_.GetValue();
     gtk_toggle_button_set_active(
         GTK_TOGGLE_BUTTON(enable_dns_prefetching_checkbox_), enabled);
     chrome_browser_net::EnablePredictor(enabled);
   }
   if (!pref_name || *pref_name == prefs::kSafeBrowsingEnabled) {
+    gtk_widget_set_sensitive(
+        GTK_WIDGET(enable_safe_browsing_checkbox_),
+        !safe_browsing_.IsManaged());
     gtk_toggle_button_set_active(
         GTK_TOGGLE_BUTTON(enable_safe_browsing_checkbox_),
         safe_browsing_.GetValue());
   }
 #if defined(GOOGLE_CHROME_BUILD)
   if (!pref_name || *pref_name == prefs::kMetricsReportingEnabled) {
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(reporting_enabled_checkbox_),
+    gtk_widget_set_sensitive(
+        GTK_WIDGET(reporting_enabled_checkbox_),
+        !enable_metrics_recording_.IsManaged());
+    gtk_toggle_button_set_active(
+        GTK_TOGGLE_BUTTON(reporting_enabled_checkbox_),
         enable_metrics_recording_.GetValue());
     ResolveMetricsReportingEnabled();
   }
@@ -941,7 +1067,7 @@ class SecuritySection : public OptionsPageBase {
 
  private:
   // Overridden from OptionsPageBase.
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
 
   // The callback functions for the options widgets.
   static void OnManageCertificatesClicked(GtkButton* button,
@@ -1035,7 +1161,7 @@ SecuritySection::SecuritySection(Profile* profile)
   NotifyPrefChanged(NULL);
 }
 
-void SecuritySection::NotifyPrefChanged(const std::wstring* pref_name) {
+void SecuritySection::NotifyPrefChanged(const std::string* pref_name) {
   pref_changing_ = true;
   if (!pref_name || *pref_name == prefs::kCertRevocationCheckingEnabled) {
     gtk_toggle_button_set_active(
@@ -1239,5 +1365,13 @@ void AdvancedContentsGtk::Init() {
       l10n_util::GetStringUTF8(IDS_OPTIONS_ADVANCED_SECTION_TITLE_SECURITY),
       security_section_->get_page_widget(), false);
 
+  // Add ChromeApps preferences if background mode is runtime-enabled.
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableBackgroundMode)) {
+    chrome_apps_section_.reset(new ChromeAppsSection(profile_));
+    options_builder->AddOptionGroup(l10n_util::GetStringUTF8(
+        IDS_OPTIONS_ADVANCED_SECTION_TITLE_CHROME_APPS),
+        chrome_apps_section_->get_page_widget(), false);
+  }
   page_ = options_builder->get_page_widget();
 }

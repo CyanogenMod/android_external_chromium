@@ -4,7 +4,7 @@
 
 #import "chrome/browser/cocoa/html_dialog_window_controller.h"
 
-#include "base/keyboard_codes.h"
+#include "app/keyboard_codes.h"
 #include "base/logging.h"
 #include "base/scoped_nsobject.h"
 #include "base/sys_string_conversions.h"
@@ -14,6 +14,7 @@
 #include "chrome/browser/dom_ui/html_dialog_tab_contents_delegate.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/common/native_web_keyboard_event.h"
 #include "gfx/size.h"
 #include "ipc/ipc_message.h"
 
@@ -193,8 +194,8 @@ void HtmlDialogWindowDelegateBridge::HandleKeyboardEvent(
   // TODO(thakis): It would be nice to get cancel: to work somehow.
   // Bug: http://code.google.com/p/chromium/issues/detail?id=32828 .
   if (event.type == NativeWebKeyboardEvent::RawKeyDown &&
-      ((event.windowsKeyCode == base::VKEY_ESCAPE) ||
-       (event.windowsKeyCode == base::VKEY_OEM_PERIOD &&
+      ((event.windowsKeyCode == app::VKEY_ESCAPE) ||
+       (event.windowsKeyCode == app::VKEY_OEM_PERIOD &&
         event.modifiers == NativeWebKeyboardEvent::MetaKey))) {
     [controller_ close];
     return;
@@ -264,8 +265,8 @@ void HtmlDialogWindowDelegateBridge::HandleKeyboardEvent(
 }
 
 - (void)loadDialogContents {
-  tabContents_.reset(
-      new TabContents(delegate_->profile(), NULL, MSG_ROUTING_NONE, NULL));
+  tabContents_.reset(new TabContents(
+      delegate_->profile(), NULL, MSG_ROUTING_NONE, NULL, NULL));
   [[self window] setContentView:tabContents_->GetNativeView()];
   tabContents_->set_delegate(delegate_.get());
 

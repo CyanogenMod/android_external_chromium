@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_HISTORY_API_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_HISTORY_API_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -70,6 +71,9 @@ class HistoryFunction : public AsyncExtensionFunction {
 // chrome services and the extension thread.
 class HistoryFunctionWithCallback : public HistoryFunction {
  public:
+  HistoryFunctionWithCallback();
+  ~HistoryFunctionWithCallback();
+
   // Return true if the async call was completed, false otherwise.
   virtual bool RunAsyncImpl() = 0;
 

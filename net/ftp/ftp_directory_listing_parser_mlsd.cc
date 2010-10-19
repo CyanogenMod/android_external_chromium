@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.  Use of this
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.  Use of this
 // source code is governed by a BSD-style license that can be found in the
 // LICENSE file.
 
@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "base/stl_util-inl.h"
+#include "base/string_number_conversions.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 
@@ -26,15 +28,15 @@ bool MlsdDateListingToTime(const string16& text, base::Time* time) {
   if (text.length() < 14)
     return false;
 
-  if (!StringToInt(text.substr(0, 4), &time_exploded.year))
+  if (!base::StringToInt(text.substr(0, 4), &time_exploded.year))
     return false;
-  if (!StringToInt(text.substr(4, 2), &time_exploded.month))
+  if (!base::StringToInt(text.substr(4, 2), &time_exploded.month))
     return false;
-  if (!StringToInt(text.substr(6, 2), &time_exploded.day_of_month))
+  if (!base::StringToInt(text.substr(6, 2), &time_exploded.day_of_month))
     return false;
-  if (!StringToInt(text.substr(8, 2), &time_exploded.hour))
+  if (!base::StringToInt(text.substr(8, 2), &time_exploded.hour))
     return false;
-  if (!StringToInt(text.substr(10, 2), &time_exploded.minute))
+  if (!base::StringToInt(text.substr(10, 2), &time_exploded.minute))
     return false;
 
   // We don't know the time zone of the server, so just use local time.
@@ -95,7 +97,7 @@ bool FtpDirectoryListingParserMlsd::ConsumeLine(const string16& line) {
     entry.type = FtpDirectoryListingEntry::FILE;
     if (!ContainsKey(facts, "size"))
       return false;
-    if (!StringToInt64(facts["size"], &entry.size))
+    if (!base::StringToInt64(facts["size"], &entry.size))
       return false;
   } else {
     // Ignore other types of entries. They are either not interesting for us

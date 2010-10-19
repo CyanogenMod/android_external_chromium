@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "app/gtk_signal.h"
+#include "app/gtk_util.h"
 #include "app/l10n_util.h"
 #include "base/command_line.h"
 #include "base/message_loop.h"
@@ -32,7 +33,7 @@ GtkWidget* NewComboboxFromModel(ComboboxModel* model) {
   int count = model->GetItemCount();
   for (int i = 0; i < count; ++i)
     gtk_combo_box_append_text(GTK_COMBO_BOX(combobox),
-                              WideToUTF8(model->GetItemAt(i)).c_str());
+                              UTF16ToUTF8(model->GetItemAt(i)).c_str());
   return combobox;
 }
 
@@ -42,6 +43,8 @@ GtkWidget* NewComboboxFromModel(ComboboxModel* model) {
 class AddLanguageDialog {
  public:
   AddLanguageDialog(Profile* profile, LanguagesPageGtk* delegate);
+  virtual ~AddLanguageDialog() {}
+
  private:
   // Callback for dialog buttons.
   CHROMEGTK_CALLBACK_1(AddLanguageDialog, void, OnResponse, int);
@@ -139,8 +142,7 @@ void LanguagesPageGtk::Init() {
       l10n_util::GetStringUTF8(
           IDS_FONT_LANGUAGE_SETTING_LANGUAGES_INSTRUCTIONS).c_str());
   gtk_misc_set_alignment(GTK_MISC(languages_instructions_label), 0, .5);
-  gtk_label_set_line_wrap(GTK_LABEL(languages_instructions_label), TRUE);
-  gtk_widget_set_size_request(languages_instructions_label, kWrapWidth, -1);
+  gtk_util::SetLabelWidth(languages_instructions_label, kWrapWidth);
   gtk_box_pack_start(GTK_BOX(languages_vbox), languages_instructions_label,
                      FALSE, FALSE, 0);
 
@@ -311,7 +313,7 @@ int LanguagesPageGtk::FirstSelectedRowNum() {
   return row_num;
 }
 
-void LanguagesPageGtk::NotifyPrefChanged(const std::wstring* pref_name) {
+void LanguagesPageGtk::NotifyPrefChanged(const std::string* pref_name) {
   initializing_ = true;
   if (!pref_name || *pref_name == prefs::kAcceptLanguages) {
     language_order_table_model_->SetAcceptLanguagesString(

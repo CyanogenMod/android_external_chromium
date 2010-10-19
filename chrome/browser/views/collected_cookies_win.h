@@ -6,15 +6,18 @@
 
 #ifndef CHROME_BROWSER_VIEWS_COLLECTED_COOKIES_WIN_H_
 #define CHROME_BROWSER_VIEWS_COLLECTED_COOKIES_WIN_H_
+#pragma once
 
 #include "chrome/browser/tab_contents/constrained_window.h"
 #include "chrome/common/content_settings.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "views/controls/tree/tree_view.h"
 #include "views/window/dialog_delegate.h"
 
 class ConstrainedWindow;
 class CookiesTreeModel;
+class InfobarView;
 class TabContents;
 namespace views {
 class Label;
@@ -50,9 +53,6 @@ class CollectedCookiesWin : public ConstrainedDialogDelegate,
   // views::TreeViewController implementation.
   virtual void OnTreeViewSelectionChanged(views::TreeView* tree_view);
 
-  // views::View implementation.
-  virtual gfx::Size GetPreferredSize();
-
  private:
   virtual ~CollectedCookiesWin();
 
@@ -87,6 +87,8 @@ class CollectedCookiesWin : public ConstrainedDialogDelegate,
 
   scoped_ptr<CookiesTreeModel> allowed_cookies_tree_model_;
   scoped_ptr<CookiesTreeModel> blocked_cookies_tree_model_;
+
+  InfobarView* infobar_;
 
   DISALLOW_COPY_AND_ASSIGN(CollectedCookiesWin);
 };

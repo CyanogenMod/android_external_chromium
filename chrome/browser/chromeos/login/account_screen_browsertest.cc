@@ -5,13 +5,14 @@
 #include <string>
 
 #include "chrome/browser/child_process_security_policy.h"
+#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/chromeos/login/account_screen.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/login/wizard_in_process_browser_test.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
+#include "net/test/test_server.h"
 #include "net/url_request/url_request_about_job.h"
 #include "net/url_request/url_request_filter.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -27,9 +28,8 @@ class AccountScreenTest : public WizardInProcessBrowserTest {
  protected:
   // Overridden from WizardInProcessBrowserTest:
   virtual void SetUpWizard() {
-    HTTPTestServer* server = StartHTTPServer();
-    ASSERT_TRUE(server != NULL);
-    GURL new_account_page_url(server->TestServerPage("files/new_account.html"));
+    ASSERT_TRUE(test_server()->Start());
+    GURL new_account_page_url(test_server()->GetURL("files/new_account.html"));
     AccountScreen::set_new_account_page_url(new_account_page_url);
     AccountScreen::set_check_for_https(false);
   }
@@ -41,8 +41,7 @@ class AccountScreenTest : public WizardInProcessBrowserTest {
 // A basic test. It does not care how things evolve after the URL is
 // loaded. Thus no message loop is started. Just check that initial
 // status is expected.
-// This test is flaky. See http://crbug.com/49004 .
-IN_PROC_BROWSER_TEST_F(AccountScreenTest, FLAKY_TestBasic) {
+IN_PROC_BROWSER_TEST_F(AccountScreenTest, TestBasic) {
   ASSERT_TRUE(controller());
   EXPECT_EQ(controller()->GetAccountScreen(), controller()->current_screen());
 }
@@ -69,7 +68,7 @@ static URLRequestJob* InspectorHook(URLRequest* request,
   return new URLRequestAboutJob(request);
 }
 
-IN_PROC_BROWSER_TEST_F(AccountScreenTest, FLAKY_TestSchemeInspector) {
+IN_PROC_BROWSER_TEST_F(AccountScreenTest, TestSchemeInspector) {
   ChildProcessSecurityPolicy::GetInstance()->RegisterWebSafeScheme(
       chrome::kCrosScheme);
   URLRequestFilter::GetInstance()->AddHostnameHandler(chrome::kCrosScheme,

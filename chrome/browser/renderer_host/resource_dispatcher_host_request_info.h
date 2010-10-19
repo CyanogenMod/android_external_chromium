@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RESOURCE_DISPATCHER_HOST_REQUEST_INFO_H_
 #define CHROME_BROWSER_RENDERER_HOST_RESOURCE_DISPATCHER_HOST_REQUEST_INFO_H_
+#pragma once
 
 #include <string>
 
@@ -19,6 +20,10 @@ class LoginHandler;
 class ResourceDispatcherHost;
 class ResourceHandler;
 class SSLClientAuthHandler;
+
+namespace webkit_blob {
+class BlobData;
+}
 
 // Holds the data ResourceDispatcherHost associates with each request.
 // Retrieve this data by calling ResourceDispatcherHost::InfoForRequest.
@@ -127,6 +132,7 @@ class ResourceDispatcherHostRequestInfo : public URLRequest::UserData {
   // When there is upload data, this is the byte count of that data. When there
   // is no upload, this will be 0.
   uint64 upload_size() const { return upload_size_; }
+  void set_upload_size(uint64 upload_size) { upload_size_ = upload_size; }
 
   // When we're uploading data, this is the the byte offset into the uploaded
   // data that we've uploaded that we've send an upload progress update about.
@@ -157,6 +163,13 @@ class ResourceDispatcherHostRequestInfo : public URLRequest::UserData {
 
   int host_renderer_id() const { return host_renderer_id_; }
   int host_render_view_id() const { return host_render_view_id_; }
+
+  // We hold a reference to the requested blob data to ensure it doesn't
+  // get finally released prior to the URLRequestJob being started.
+  webkit_blob::BlobData* requested_blob_data() const {
+    return requested_blob_data_.get();
+  }
+  void set_requested_blob_data(webkit_blob::BlobData* data);
 
  private:
   friend class ResourceDispatcherHost;
@@ -212,6 +225,7 @@ class ResourceDispatcherHostRequestInfo : public URLRequest::UserData {
   base::TimeTicks last_upload_ticks_;
   bool waiting_for_upload_progress_ack_;
   int memory_cost_;
+  scoped_refptr<webkit_blob::BlobData> requested_blob_data_;
 
   // "Private" data accessible only to ResourceDispatcherHost (use the
   // accessors above for consistency).

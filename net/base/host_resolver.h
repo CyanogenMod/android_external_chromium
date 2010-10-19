@@ -4,6 +4,7 @@
 
 #ifndef NET_BASE_HOST_RESOLVER_H_
 #define NET_BASE_HOST_RESOLVER_H_
+#pragma once
 
 #include <string>
 
@@ -11,16 +12,15 @@
 #include "googleurl/src/gurl.h"
 #include "net/base/address_family.h"
 #include "net/base/completion_callback.h"
+#include "net/base/host_port_pair.h"
 #include "net/base/request_priority.h"
-
-class MessageLoop;
 
 namespace net {
 
 class AddressList;
 class BoundNetLog;
-class HostCache;
 class HostResolverImpl;
+class NetLog;
 
 // This class represents the task of resolving hostnames (or IP address
 // literal) to an AddressList object.
@@ -33,28 +33,19 @@ class HostResolverImpl;
 // goes out of scope).
 class HostResolver : public base::RefCounted<HostResolver> {
  public:
-  // The parameters for doing a Resolve(). |hostname| and |port| are required,
+  // The parameters for doing a Resolve(). A hostname and port are required,
   // the rest are optional (and have reasonable defaults).
   class RequestInfo {
    public:
-    RequestInfo(const std::string& hostname, int port)
-        : hostname_(hostname),
-          address_family_(ADDRESS_FAMILY_UNSPECIFIED),
-          host_resolver_flags_(0),
-          port_(port),
-          allow_cached_response_(true),
-          is_speculative_(false),
-          priority_(MEDIUM) {}
+    explicit RequestInfo(const HostPortPair& host_port_pair);
 
-    int port() const { return port_; }
-    void set_port(int port) {
-      port_ = port;
+    const HostPortPair& host_port_pair() const { return host_port_pair_; }
+    void set_host_port_pair(const HostPortPair& host_port_pair) {
+      host_port_pair_ = host_port_pair;
     }
 
-    const std::string& hostname() const { return hostname_; }
-    void set_hostname(const std::string& hostname) {
-      hostname_ = hostname;
-    }
+    int port() const { return host_port_pair_.port(); }
+    const std::string& hostname() const { return host_port_pair_.host(); }
 
     AddressFamily address_family() const { return address_family_; }
     void set_address_family(AddressFamily address_family) {
@@ -81,17 +72,14 @@ class HostResolver : public base::RefCounted<HostResolver> {
     void set_referrer(const GURL& referrer) { referrer_ = referrer; }
 
    private:
-    // The hostname to resolve.
-    std::string hostname_;
+    // The hostname to resolve, and the port to use in resulting sockaddrs.
+    HostPortPair host_port_pair_;
 
     // The address family to restrict results to.
     AddressFamily address_family_;
 
     // Flags to use when resolving this request.
     HostResolverFlags host_resolver_flags_;
-
-    // The port number to set in the result's sockaddrs.
-    int port_;
 
     // Whether it is ok to return a result from the host cache.
     bool allow_cached_response_;
@@ -188,12 +176,12 @@ class HostResolver : public base::RefCounted<HostResolver> {
  protected:
   friend class base::RefCounted<HostResolver>;
 
-  HostResolver() { }
+  HostResolver();
 
   // If any completion callbacks are pending when the resolver is destroyed,
   // the host resolutions are cancelled, and the completion callbacks will not
   // be called.
-  virtual ~HostResolver() {}
+  virtual ~HostResolver();
 
  private:
   DISALLOW_COPY_AND_ASSIGN(HostResolver);
@@ -246,7 +234,8 @@ class SingleRequestHostResolver {
 // |max_concurrent_resolves| is how many resolve requests will be allowed to
 // run in parallel. Pass HostResolver::kDefaultParallelism to choose a
 // default value.
-HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves);
+HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
+                                       NetLog* net_log);
 
 }  // namespace net
 

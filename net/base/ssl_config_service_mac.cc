@@ -95,6 +95,7 @@ bool SSLConfigServiceMac::GetSSLConfigNow(SSLConfig* config) {
                                              kSSL3EnabledDefaultValue);
   config->tls1_enabled = SSLVersionIsEnabled(kTLS1EnabledKey,
                                              kTLS1EnabledDefaultValue);
+  SSLConfigService::SetSSLConfigFlags(config);
 
   return true;
 }
@@ -139,7 +140,10 @@ void SSLConfigServiceMac::SetRevCheckingEnabled(bool enabled) {
 }
 
 void SSLConfigServiceMac::UpdateConfig(TimeTicks now) {
+  SSLConfig orig_config = config_info_;
   GetSSLConfigNow(&config_info_);
+  if (ever_updated_)
+    ProcessConfigUpdate(orig_config, config_info_);
   config_time_ = now;
   ever_updated_ = true;
 }

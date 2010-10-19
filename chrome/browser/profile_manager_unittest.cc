@@ -9,7 +9,7 @@
 #include "base/path_service.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_thread.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/profile_manager.h"
 #include "chrome/common/chrome_constants.h"
@@ -95,7 +95,7 @@ TEST_F(ProfileManagerTest, LoggedInProfileDir) {
   ProfileManager profile_manager;
   std::string profile_dir("my_user");
 
-  cl->AppendSwitchWithValue(switches::kLoginProfile, profile_dir);
+  cl->AppendSwitchASCII(switches::kLoginProfile, profile_dir);
   cl->AppendSwitch(switches::kTestType);
 
   FilePath expected_default =

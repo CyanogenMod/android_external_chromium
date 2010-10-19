@@ -4,18 +4,20 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_FUNCTION_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_FUNCTION_H_
+#pragma once
 
 #include <string>
 #include <list>
 
-#include "base/values.h"
 #include "base/scoped_ptr.h"
 #include "base/ref_counted.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
 
 class ExtensionFunctionDispatcher;
+class ListValue;
 class Profile;
 class QuotaLimitHeuristic;
+class Value;
 
 #define EXTENSION_FUNCTION_VALIDATE(test) do { \
     if (!(test)) { \
@@ -88,6 +90,9 @@ class ExtensionFunction : public base::RefCountedThreadSafe<ExtensionFunction> {
   void set_include_incognito(bool include) { include_incognito_ = include; }
   bool include_incognito() { return include_incognito_; }
 
+  void set_user_gesture(bool user_gesture) { user_gesture_ = user_gesture; }
+  bool user_gesture() const { return user_gesture_; }
+
   // Execute the API. Clients should call set_raw_args() and
   // set_request_id() before calling this method. Derived classes should be
   // ready to return raw_result() and error() before returning from this
@@ -144,8 +149,14 @@ class ExtensionFunction : public base::RefCountedThreadSafe<ExtensionFunction> {
   // of this call.
   bool has_callback_;
 
-  // True if this callback should include information from incognito contexts.
+  // True if this callback should include information from incognito contexts
+  // even if our profile_ is non-incognito. Note that in the case of a "split"
+  // mode extension, this will always be false, and we will limit access to
+  // data from within the same profile_ (either incognito or not).
   bool include_incognito_;
+
+  // True if the call was made in response of user gesture.
+  bool user_gesture_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionFunction);
 };

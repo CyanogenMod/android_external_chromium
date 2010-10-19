@@ -31,7 +31,9 @@
 #include "base/logging.h"
 #include "base/perftimer.h"
 #include "base/scoped_ptr.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/stl_util-inl.h"
 #include "base/time.h"
 #include "chrome/browser/sync/engine/syncer.h"
 #include "chrome/browser/sync/engine/syncer_util.h"
@@ -82,7 +84,7 @@ int64 Now() {
   LARGE_INTEGER n;
   memcpy(&n, &filetime, sizeof(filetime));
   return n.QuadPart;
-#elif defined(OS_LINUX) || defined(OS_MACOSX)
+#elif defined(OS_POSIX)
   struct timeval tv;
   gettimeofday(&tv, NULL);
   return static_cast<int64>(tv.tv_sec);
@@ -183,10 +185,6 @@ Directory::Kernel::Kernel(const FilePath& db_path,
       next_metahandle(info.max_metahandle + 1) {
 }
 
-inline void DeleteEntry(EntryKernel* kernel) {
-  delete kernel;
-}
-
 void Directory::Kernel::AddRef() {
   base::subtle::NoBarrier_AtomicIncrement(&refcount, 1);
 }
@@ -207,7 +205,7 @@ Directory::Kernel::~Kernel() {
   delete parent_id_child_index;
   delete client_tag_index;
   delete ids_index;
-  for_each(metahandles_index->begin(), metahandles_index->end(), DeleteEntry);
+  STLDeleteElements(metahandles_index);
   delete metahandles_index;
 }
 
@@ -339,7 +337,7 @@ EntryKernel* Directory::GetEntryByHandle(const int64 metahandle,
   // Look up in memory
   kernel_->needle.put(META_HANDLE, metahandle);
   MetahandlesIndex::iterator found =
-    kernel_->metahandles_index->find(&kernel_->needle);
+      kernel_->metahandles_index->find(&kernel_->needle);
   if (found != kernel_->metahandles_index->end()) {
     // Found it in memory.  Easy.
     return *found;
@@ -630,17 +628,19 @@ void Directory::PurgeEntriesWithTypeIn(const std::set<ModelType>& types) {
           kernel_->metahandles_to_purge->insert(handle);
 
           size_t num_erased = 0;
-          num_erased = kernel_->ids_index->erase(*it);
+          EntryKernel* entry = *it;
+          num_erased = kernel_->ids_index->erase(entry);
           DCHECK_EQ(1u, num_erased);
-          num_erased = kernel_->client_tag_index->erase(*it);
-          DCHECK_EQ((*it)->ref(UNIQUE_CLIENT_TAG).empty(), !num_erased);
+          num_erased = kernel_->client_tag_index->erase(entry);
+          DCHECK_EQ(entry->ref(UNIQUE_CLIENT_TAG).empty(), !num_erased);
           num_erased = kernel_->unsynced_metahandles->erase(handle);
-          DCHECK_EQ((*it)->ref(IS_UNSYNCED), num_erased > 0);
+          DCHECK_EQ(entry->ref(IS_UNSYNCED), num_erased > 0);
           num_erased = kernel_->unapplied_update_metahandles->erase(handle);
-          DCHECK_EQ((*it)->ref(IS_UNAPPLIED_UPDATE), num_erased > 0);
-          num_erased = kernel_->parent_id_child_index->erase(*it);
-          DCHECK_EQ((*it)->ref(IS_DEL), !num_erased);
+          DCHECK_EQ(entry->ref(IS_UNAPPLIED_UPDATE), num_erased > 0);
+          num_erased = kernel_->parent_id_child_index->erase(entry);
+          DCHECK_EQ(entry->ref(IS_DEL), !num_erased);
           kernel_->metahandles_index->erase(it++);
+          delete entry;
         } else {
           ++it;
         }
@@ -963,6 +963,19 @@ BaseTransaction::BaseTransaction(Directory* directory, const char* name,
 BaseTransaction::~BaseTransaction() {}
 
 void BaseTransaction::UnlockAndLog(OriginalEntries* originals_arg) {
+  // Triggers the CALCULATE_CHANGES and TRANSACTION_ENDING events while
+  // holding dir_kernel_'s transaction_mutex and changes_channel mutex.
+  // Releases all mutexes upon completion.
+  if (!NotifyTransactionChangingAndEnding(originals_arg)) {
+    return;
+  }
+
+  // Triggers the TRANSACTION_COMPLETE event (and does not hold any mutexes).
+  NotifyTransactionComplete();
+}
+
+bool BaseTransaction::NotifyTransactionChangingAndEnding(
+    OriginalEntries* originals_arg) {
   dirkernel_->transaction_mutex.AssertAcquired();
 
   scoped_ptr<OriginalEntries> originals(originals_arg);
@@ -975,26 +988,37 @@ void BaseTransaction::UnlockAndLog(OriginalEntries* originals_arg) {
 
   if (NULL == originals.get() || originals->empty()) {
     dirkernel_->transaction_mutex.Release();
-    return;
+    return false;
   }
 
-  AutoLock scoped_lock(dirkernel_->changes_channel_mutex);
-  // Tell listeners to calculate changes while we still have the mutex.
-  DirectoryChangeEvent event = { DirectoryChangeEvent::CALCULATE_CHANGES,
-                                 originals.get(), this, writer_ };
-  dirkernel_->changes_channel.Notify(event);
 
-  // Necessary for reads to be performed prior to transaction mutex release.
-  // Allows the listener to use the current transaction to perform reads.
-  DirectoryChangeEvent ending_event =
-      { DirectoryChangeEvent::TRANSACTION_ENDING,
-        NULL, this, INVALID };
-  dirkernel_->changes_channel.Notify(ending_event);
+  {
+    // Scoped_lock is only active through the calculate_changes and
+    // transaction_ending events.
+    AutoLock scoped_lock(dirkernel_->changes_channel_mutex);
 
-  dirkernel_->transaction_mutex.Release();
+    // Tell listeners to calculate changes while we still have the mutex.
+    DirectoryChangeEvent event = { DirectoryChangeEvent::CALCULATE_CHANGES,
+                                   originals.get(), this, writer_ };
+    dirkernel_->changes_channel.Notify(event);
 
-  // Directly after transaction mutex release, but lock on changes channel.
-  // You cannot be re-entrant to a transaction in this handler.
+    // Necessary for reads to be performed prior to transaction mutex release.
+    // Allows the listener to use the current transaction to perform reads.
+    DirectoryChangeEvent ending_event =
+        { DirectoryChangeEvent::TRANSACTION_ENDING,
+          NULL, this, INVALID };
+    dirkernel_->changes_channel.Notify(ending_event);
+
+    dirkernel_->transaction_mutex.Release();
+  }
+
+  return true;
+}
+
+void BaseTransaction::NotifyTransactionComplete() {
+  // Transaction is no longer holding any locks/mutexes, notify that we're
+  // complete (and commit any outstanding changes that should not be performed
+  // while holding mutexes).
   DirectoryChangeEvent complete_event =
       { DirectoryChangeEvent::TRANSACTION_COMPLETE,
         NULL, NULL, INVALID };
@@ -1442,7 +1466,7 @@ Id Directory::NextId() {
     kernel_->info_status = KERNEL_SHARE_INFO_DIRTY;
   }
   DCHECK_LT(result, 0);
-  return Id::CreateFromClientString(Int64ToString(result));
+  return Id::CreateFromClientString(base::Int64ToString(result));
 }
 
 Id Directory::GetChildWithNullIdField(IdField field,
@@ -1506,7 +1530,6 @@ namespace {
   } separator;
   class DumpColon {
   } colon;
-}  // namespace
 
 inline FastDump& operator<<(FastDump& dump, const DumpSeparator&) {
   dump.out_->sputn(", ", 2);
@@ -1517,26 +1540,13 @@ inline FastDump& operator<<(FastDump& dump, const DumpColon&) {
   dump.out_->sputn(": ", 2);
   return dump;
 }
+}  // namespace
 
-std::ostream& operator<<(std::ostream& stream, const syncable::Entry& entry) {
+namespace syncable {
+
+std::ostream& operator<<(std::ostream& stream, const Entry& entry) {
   // Using ostreams directly here is dreadfully slow, because a mutex is
   // acquired for every <<.  Users noticed it spiking CPU.
-  using syncable::BEGIN_FIELDS;
-  using syncable::BIT_FIELDS_END;
-  using syncable::BIT_TEMPS_BEGIN;
-  using syncable::BIT_TEMPS_END;
-  using syncable::BitField;
-  using syncable::BitTemp;
-  using syncable::EntryKernel;
-  using syncable::ID_FIELDS_END;
-  using syncable::INT64_FIELDS_END;
-  using syncable::IdField;
-  using syncable::Int64Field;
-  using syncable::PROTO_FIELDS_END;
-  using syncable::ProtoField;
-  using syncable::STRING_FIELDS_END;
-  using syncable::StringField;
-  using syncable::g_metas_columns;
 
   int i;
   FastDump s(&stream);
@@ -1572,17 +1582,19 @@ std::ostream& operator<<(std::ostream& stream, const syncable::Entry& entry) {
   return stream;
 }
 
-std::ostream& operator<<(std::ostream& s, const syncable::Blob& blob) {
-  for (syncable::Blob::const_iterator i = blob.begin(); i != blob.end(); ++i)
+std::ostream& operator<<(std::ostream& s, const Blob& blob) {
+  for (Blob::const_iterator i = blob.begin(); i != blob.end(); ++i)
     s << std::hex << std::setw(2)
       << std::setfill('0') << static_cast<unsigned int>(*i);
   return s << std::dec;
 }
 
-FastDump& operator<<(FastDump& dump, const syncable::Blob& blob) {
+FastDump& operator<<(FastDump& dump, const Blob& blob) {
   if (blob.empty())
     return dump;
-  string buffer(HexEncode(&blob[0], blob.size()));
+  string buffer(base::HexEncode(&blob[0], blob.size()));
   dump.out_->sputn(buffer.c_str(), buffer.size());
   return dump;
 }
+
+}  // namespace syncable

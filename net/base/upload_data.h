@@ -4,41 +4,33 @@
 
 #ifndef NET_BASE_UPLOAD_DATA_H_
 #define NET_BASE_UPLOAD_DATA_H_
+#pragma once
 
 #include <vector>
 
 #include "base/basictypes.h"
 #include "base/file_path.h"
-#include "base/logging.h"
+#include "base/gtest_prod_util.h"
 #include "base/ref_counted.h"
-#include "net/base/file_stream.h"
+#include "googleurl/src/gurl.h"
 #include "base/time.h"
-#include "testing/gtest/include/gtest/gtest_prod.h"
 
 namespace net {
 
+class FileStream;
+
 class UploadData : public base::RefCounted<UploadData> {
  public:
-  UploadData() : identifier_(0) {}
-
   enum Type {
     TYPE_BYTES,
-    TYPE_FILE
+    TYPE_FILE,
+    TYPE_BLOB
   };
 
   class Element {
    public:
-    Element() : type_(TYPE_BYTES), file_range_offset_(0),
-                file_range_length_(kuint64max),
-                override_content_length_(false),
-                content_length_computed_(false),
-                file_stream_(NULL) {
-    }
-
-    ~Element() {
-      // In the common case |file__stream_| will be null.
-      delete file_stream_;
-    }
+    Element();
+    ~Element();
 
     Type type() const { return type_; }
     const std::vector<char>& bytes() const { return bytes_; }
@@ -49,6 +41,7 @@ class UploadData : public base::RefCounted<UploadData> {
     const base::Time& expected_file_modification_time() const {
       return expected_file_modification_time_;
     }
+    const GURL& blob_url() const { return blob_url_; }
 
     void SetToBytes(const char* bytes, int bytes_len) {
       type_ = TYPE_BYTES;
@@ -70,6 +63,13 @@ class UploadData : public base::RefCounted<UploadData> {
       file_range_offset_ = offset;
       file_range_length_ = length;
       expected_file_modification_time_ = expected_modification_time;
+    }
+
+    // TODO(jianli): UploadData should not contain any blob reference. We need
+    // to define another structure to represent WebKit::WebHTTPBody.
+    void SetToBlobUrl(const GURL& blob_url) {
+      type_ = TYPE_BLOB;
+      blob_url_ = blob_url;
     }
 
     // Returns the byte-length of the element.  For files that do not exist, 0
@@ -96,34 +96,28 @@ class UploadData : public base::RefCounted<UploadData> {
     uint64 file_range_offset_;
     uint64 file_range_length_;
     base::Time expected_file_modification_time_;
+    GURL blob_url_;
     bool override_content_length_;
     bool content_length_computed_;
     uint64 content_length_;
     FileStream* file_stream_;
 
-    FRIEND_TEST(UploadDataStreamTest, FileSmallerThanLength);
-    FRIEND_TEST(HttpNetworkTransactionTest, UploadFileSmallerThanLength);
+    FRIEND_TEST_ALL_PREFIXES(UploadDataStreamTest, FileSmallerThanLength);
+    FRIEND_TEST_ALL_PREFIXES(HttpNetworkTransactionTest,
+                             UploadFileSmallerThanLength);
   };
 
-  void AppendBytes(const char* bytes, int bytes_len) {
-    if (bytes_len > 0) {
-      elements_.push_back(Element());
-      elements_.back().SetToBytes(bytes, bytes_len);
-    }
-  }
+  UploadData();
 
-  void AppendFile(const FilePath& file_path) {
-    elements_.push_back(Element());
-    elements_.back().SetToFilePath(file_path);
-  }
+  void AppendBytes(const char* bytes, int bytes_len);
+
+  void AppendFile(const FilePath& file_path);
 
   void AppendFileRange(const FilePath& file_path,
                        uint64 offset, uint64 length,
-                       const base::Time& expected_modification_time) {
-    elements_.push_back(Element());
-    elements_.back().SetToFilePathRange(file_path, offset, length,
-                                        expected_modification_time);
-  }
+                       const base::Time& expected_modification_time);
+
+  void AppendBlob(const GURL& blob_url);
 
   // Returns the total size in bytes of the data to upload.
   uint64 GetContentLength();
@@ -132,9 +126,7 @@ class UploadData : public base::RefCounted<UploadData> {
     return &elements_;
   }
 
-  void set_elements(const std::vector<Element>& elements) {
-    elements_ = elements;
-  }
+  void SetElements(const std::vector<Element>& elements);
 
   void swap_elements(std::vector<Element>* elements) {
     elements_.swap(*elements);
@@ -149,11 +141,38 @@ class UploadData : public base::RefCounted<UploadData> {
  private:
   friend class base::RefCounted<UploadData>;
 
-  ~UploadData() {}
+  ~UploadData();
 
   std::vector<Element> elements_;
   int64 identifier_;
+
+  DISALLOW_COPY_AND_ASSIGN(UploadData);
 };
+
+#if defined(UNIT_TEST)
+inline bool operator==(const UploadData::Element& a,
+                       const UploadData::Element& b) {
+  if (a.type() != b.type())
+    return false;
+  if (a.type() == UploadData::TYPE_BYTES)
+    return a.bytes() == b.bytes();
+  if (a.type() == UploadData::TYPE_FILE) {
+    return a.file_path() == b.file_path() &&
+           a.file_range_offset() == b.file_range_offset() &&
+           a.file_range_length() == b.file_range_length() &&
+           a.expected_file_modification_time() ==
+              b.expected_file_modification_time();
+  }
+  if (a.type() == UploadData::TYPE_BLOB)
+    return a.blob_url() == b.blob_url();
+  return false;
+}
+
+inline bool operator!=(const UploadData::Element& a,
+                       const UploadData::Element& b) {
+  return !(a == b);
+}
+#endif  // defined(UNIT_TEST)
 
 }  // namespace net
 

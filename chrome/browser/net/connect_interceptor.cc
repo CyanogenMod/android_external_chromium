@@ -5,6 +5,7 @@
 #include "chrome/browser/net/connect_interceptor.h"
 
 #include "chrome/browser/net/predictor_api.h"
+#include "net/base/load_flags.h"
 
 namespace chrome_browser_net {
 
@@ -17,24 +18,43 @@ ConnectInterceptor::~ConnectInterceptor() {
 }
 
 URLRequestJob* ConnectInterceptor::MaybeIntercept(URLRequest* request) {
-  if (!request->referrer().empty()) {
+  // Learn what URLs are likely to be needed during next startup.
+  // Pass actual URL, rather than WithEmptyPath, as we often won't need to do
+  // the canonicalization.
+  LearnAboutInitialNavigation(request->url());
+
+  bool is_subresource = !(request->load_flags() & net::LOAD_MAIN_FRAME);
+  if (is_subresource && !request->referrer().empty()) {
     // Learn about our referring URL, for use in the future.
     GURL referring_url(GURL(request->referrer()).GetWithEmptyPath());
-    // TODO(jar): Only call if we think this was part of a frame load, and not a
-    // link navigation.  For now, we'll "learn" that to preconnect when a user
-    // actually does a click... which will probably waste space in our referrers
-    // table (since it probably won't be that deterministic).
-    LearnFromNavigation(referring_url, request->url().GetWithEmptyPath());
+    GURL request_url(request->url().GetWithEmptyPath());
+    if (referring_url == request_url) {
+      // There is nothing to learn about preconnections when the referrer is
+      // already the site needed in the request URL.  Similarly, we've already
+      // made any/all predictions when we navigated to the referring_url, so we
+      // can bail out here. This will also avoid useless boosting of the number
+      // of times we navigated to this site, which was already accounted for by
+      // the navigation to the referrering_url.
+      return NULL;
+    }
+    LearnFromNavigation(referring_url, request_url);
   }
-  // Now we use previous learning and setup for our subresources.
-  if (request->was_fetched_via_proxy())
-    return NULL;
-  // TODO(jar): Only call if we believe this is a frame, and might have
-  // subresources.  We could "guess" by looking at path extensions (such as
-  // foo.jpg or goo.gif etc.), but better would be to get this info from webkit
-  // and have it add the info to the request (we currently only set the
-  // priority, but we could record whether it was a frame).
-  PredictFrameSubresources(request->url().GetWithEmptyPath());
+
+  // Subresources for main frames usually get loaded when we detected the main
+  // frame - way back in RenderViewHost::Navigate.  So only use subresource
+  // prediction here for subframes.
+  if (request->load_flags() & net::LOAD_SUB_FRAME)
+    PredictFrameSubresources(request->url().GetWithEmptyPath());
+  return NULL;
+}
+
+URLRequestJob* ConnectInterceptor::MaybeInterceptResponse(URLRequest* request) {
+  return NULL;
+}
+
+URLRequestJob* ConnectInterceptor::MaybeInterceptRedirect(
+    URLRequest* request,
+    const GURL& location) {
   return NULL;
 }
 

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
 
+#include <map>
+
 #include "base/process_util.h"
 #include "base/singleton.h"
 #include "base/ref_counted.h"
@@ -13,11 +15,11 @@
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
+#include "chrome/browser/external_protocol_handler.h"
 #include "chrome/browser/extensions/execute_code_in_tab_function.h"
 #include "chrome/browser/extensions/extension_accessibility_api.h"
 #include "chrome/browser/extensions/extension_bookmark_manager_api.h"
 #include "chrome/browser/extensions/extension_bookmarks_module.h"
-#include "chrome/browser/extensions/extension_bookmarks_module_constants.h"
 #include "chrome/browser/extensions/extension_browser_actions_api.h"
 #include "chrome/browser/extensions/extension_clipboard_api.h"
 #include "chrome/browser/extensions/extension_context_menu_api.h"
@@ -28,27 +30,35 @@
 #include "chrome/browser/extensions/extension_idle_api.h"
 #include "chrome/browser/extensions/extension_i18n_api.h"
 #include "chrome/browser/extensions/extension_infobar_module.h"
+#if defined(TOOLKIT_VIEWS)
+#include "chrome/browser/extensions/extension_input_api.h"
+#endif
+#include "chrome/browser/extensions/extension_management_api.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/extensions/extension_metrics_module.h"
 #include "chrome/browser/extensions/extension_omnibox_api.h"
 #include "chrome/browser/extensions/extension_page_actions_module.h"
-#include "chrome/browser/extensions/extension_page_actions_module_constants.h"
 #include "chrome/browser/extensions/extension_popup_api.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/extensions/extension_processes_api.h"
+#include "chrome/browser/extensions/extension_proxy_api.h"
 #include "chrome/browser/extensions/extension_rlz_module.h"
+#include "chrome/browser/extensions/extension_sidebar_api.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
-#include "chrome/browser/extensions/extension_tabs_module_constants.h"
 #include "chrome/browser/extensions/extension_test_api.h"
-#include "chrome/browser/extensions/extension_toolstrip_api.h"
+#include "chrome/browser/extensions/extension_tts_api.h"
+#include "chrome/browser/extensions/extension_webstore_private_api.h"
 #include "chrome/browser/extensions/extensions_quota_service.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/render_messages_params.h"
 #include "chrome/common/result_codes.h"
 #include "chrome/common/url_constants.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+
 
 // FactoryRegistry -------------------------------------------------------------
 
@@ -176,10 +186,6 @@ void FactoryRegistry::ResetFunctions() {
   // Idle
   RegisterFunction<ExtensionIdleQueryStateFunction>();
 
-  // Toolstrips.
-  RegisterFunction<ToolstripExpandFunction>();
-  RegisterFunction<ToolstripCollapseFunction>();
-
   // I18N.
   RegisterFunction<GetAcceptLanguagesFunction>();
 
@@ -221,10 +227,16 @@ void FactoryRegistry::ResetFunctions() {
   RegisterFunction<ExtensionTestLogFunction>();
   RegisterFunction<ExtensionTestQuotaResetFunction>();
   RegisterFunction<ExtensionTestCreateIncognitoTabFunction>();
+  RegisterFunction<ExtensionTestSendMessageFunction>();
 
   // Accessibility.
   RegisterFunction<GetFocusedControlFunction>();
   RegisterFunction<SetAccessibilityEnabledFunction>();
+
+  // Text-to-speech.
+  RegisterFunction<ExtensionTtsSpeakFunction>();
+  RegisterFunction<ExtensionTtsStopSpeakingFunction>();
+  RegisterFunction<ExtensionTtsIsSpeakingFunction>();
 
   // Clipboard.
   RegisterFunction<ExecuteCopyClipboardFunction>();
@@ -239,6 +251,37 @@ void FactoryRegistry::ResetFunctions() {
 
   // Omnibox.
   RegisterFunction<OmniboxSendSuggestionsFunction>();
+
+  // Proxies.
+  RegisterFunction<UseCustomProxySettingsFunction>();
+
+  // Sidebar.
+  RegisterFunction<CollapseSidebarFunction>();
+  RegisterFunction<ExpandSidebarFunction>();
+  RegisterFunction<GetStateSidebarFunction>();
+  RegisterFunction<HideSidebarFunction>();
+  RegisterFunction<NavigateSidebarFunction>();
+  RegisterFunction<SetBadgeTextSidebarFunction>();
+  RegisterFunction<SetIconSidebarFunction>();
+  RegisterFunction<SetTitleSidebarFunction>();
+  RegisterFunction<ShowSidebarFunction>();
+
+#if defined(TOOLKIT_VIEWS)
+  // Input.
+  RegisterFunction<SendKeyboardEventInputFunction>();
+#endif
+
+  // Management.
+  RegisterFunction<GetAllExtensionsFunction>();
+  RegisterFunction<LaunchAppFunction>();
+  RegisterFunction<SetEnabledFunction>();
+  RegisterFunction<UninstallFunction>();
+
+  // WebstorePrivate.
+  RegisterFunction<GetSyncLoginFunction>();
+  RegisterFunction<GetStoreLoginFunction>();
+  RegisterFunction<InstallFunction>();
+  RegisterFunction<SetStoreLoginFunction>();
 }
 
 void FactoryRegistry::GetAllNames(std::vector<std::string>* names) {
@@ -293,7 +336,13 @@ ExtensionFunctionDispatcher* ExtensionFunctionDispatcher::Create(
       render_view_host->process()->profile()->GetExtensionsService();
   DCHECK(service);
 
+  if (!service->ExtensionBindingsAllowed(url))
+    return NULL;
+
   Extension* extension = service->GetExtensionByURL(url);
+  if (!extension)
+    extension = service->GetExtensionByWebExtent(url);
+
   if (extension)
     return new ExtensionFunctionDispatcher(render_view_host, delegate,
                                            extension, url);
@@ -310,10 +359,12 @@ ExtensionFunctionDispatcher::ExtensionFunctionDispatcher(
     render_view_host_(render_view_host),
     delegate_(delegate),
     url_(url),
+    extension_id_(extension->id()),
     ALLOW_THIS_IN_INITIALIZER_LIST(peer_(new Peer(this))) {
   // TODO(erikkay) should we do something for these errors in Release?
-  DCHECK(url.SchemeIs(chrome::kExtensionScheme));
   DCHECK(extension);
+  DCHECK(url.SchemeIs(chrome::kExtensionScheme) ||
+         extension->location() == Extension::COMPONENT);
 
   // Notify the ExtensionProcessManager that the view was created.
   ExtensionProcessManager* epm = profile()->GetExtensionProcessManager();
@@ -343,7 +394,7 @@ ExtensionFunctionDispatcher::ExtensionFunctionDispatcher(
   render_view_host->Send(new ViewMsg_Extension_SetHostPermissions(
       extension->url(), extension->host_permissions()));
   render_view_host->Send(new ViewMsg_Extension_ExtensionSetIncognitoEnabled(
-      extension->id(), incognito_enabled));
+      extension->id(), incognito_enabled, extension->incognito_split_mode()));
 
   NotificationService::current()->Notify(
       NotificationType::EXTENSION_FUNCTION_DISPATCHER_CREATED,
@@ -364,54 +415,59 @@ Browser* ExtensionFunctionDispatcher::GetCurrentBrowser(
     bool include_incognito) {
   Browser* browser = delegate_->GetBrowser();
 
-  // If the delegate has an associated browser and that browser is in the right
-  // incognito state, we can return it.
-  if (browser) {
-    if (include_incognito || !browser->profile()->IsOffTheRecord())
-      return browser;
-  }
+  // If the delegate has an associated browser, that is always the right answer.
+  if (browser)
+    return browser;
 
-  // Otherwise, try to default to a reasonable browser.
+  // Otherwise, try to default to a reasonable browser. If |include_incognito|
+  // is true, we will also search browsers in the incognito version of this
+  // profile. Note that the profile may already be incognito, in which case
+  // we will search the incognito version only, regardless of the value of
+  // |include_incognito|.
   Profile* profile = render_view_host()->process()->profile();
-
-  // Make sure we don't return an incognito browser without proper access.
-  if (!include_incognito)
-    profile = profile->GetOriginalProfile();
-
-  browser = BrowserList::FindBrowserWithType(profile, Browser::TYPE_ANY,
+  browser = BrowserList::FindBrowserWithType(profile, Browser::TYPE_NORMAL,
                                              include_incognito);
 
   // NOTE(rafaelw): This can return NULL in some circumstances. In particular,
-  // a toolstrip or background_page onload chrome.tabs api call can make it
-  // into here before the browser is sufficiently initialized to return here.
+  // a background_page onload chrome.tabs api call can make it into here
+  // before the browser is sufficiently initialized to return here.
   // A similar situation may arise during shutdown.
   // TODO(rafaelw): Delay creation of background_page until the browser
   // is available. http://code.google.com/p/chromium/issues/detail?id=13284
   return browser;
 }
 
-void ExtensionFunctionDispatcher::HandleRequest(const std::string& name,
-                                                const ListValue* args,
-                                                const GURL& source_url,
-                                                int request_id,
-                                                bool has_callback) {
+void ExtensionFunctionDispatcher::HandleRequest(
+    const ViewHostMsg_DomMessage_Params& params) {
   scoped_refptr<ExtensionFunction> function(
-      FactoryRegistry::instance()->NewFunction(name));
+      FactoryRegistry::instance()->NewFunction(params.name));
   function->set_dispatcher_peer(peer_);
   function->set_profile(profile_);
   function->set_extension_id(extension_id());
-  function->SetArgs(args);
-  function->set_source_url(source_url);
-  function->set_request_id(request_id);
-  function->set_has_callback(has_callback);
+  function->SetArgs(&params.arguments);
+  function->set_source_url(params.source_url);
+  function->set_request_id(params.request_id);
+  function->set_has_callback(params.has_callback);
+  function->set_user_gesture(params.user_gesture);
   ExtensionsService* service = profile()->GetExtensionsService();
   DCHECK(service);
   Extension* extension = service->GetExtensionById(extension_id(), false);
   DCHECK(extension);
-  function->set_include_incognito(service->IsIncognitoEnabled(extension));
+  function->set_include_incognito(service->IsIncognitoEnabled(extension) &&
+                                  !extension->incognito_split_mode());
+
+  if (!service->ExtensionBindingsAllowed(function->source_url()) ||
+      !extension->HasApiPermission(function->name())) {
+    render_view_host_->BlockExtensionRequest(function->request_id());
+    return;
+  }
 
   ExtensionsQuotaService* quota = service->quota_service();
-  if (quota->Assess(extension_id(), function, args, base::TimeTicks::Now())) {
+  if (quota->Assess(extension_id(), function, &params.arguments,
+                    base::TimeTicks::Now())) {
+    // See crbug.com/39178.
+    ExternalProtocolHandler::PermitLaunchUrl();
+
     function->Run();
   } else {
     render_view_host_->SendExtensionResponse(function->request_id(), false,

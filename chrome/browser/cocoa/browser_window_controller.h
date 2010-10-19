@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_BROWSER_WINDOW_CONTROLLER_H_
 #define CHROME_BROWSER_COCOA_BROWSER_WINDOW_CONTROLLER_H_
+#pragma once
 
 // A class acting as the Objective-C controller for the Browser
 // object. Handles interactions between Cocoa and the cross-platform
@@ -17,6 +18,7 @@
 #import "chrome/browser/cocoa/bookmark_bar_controller.h"
 #import "chrome/browser/cocoa/bookmark_bubble_controller.h"
 #import "chrome/browser/cocoa/browser_command_executor.h"
+#import "chrome/browser/cocoa/tab_strip_controller.h"
 #import "chrome/browser/cocoa/tab_window_controller.h"
 #import "chrome/browser/cocoa/themed_window.h"
 #import "chrome/browser/cocoa/url_drop_target.h"
@@ -27,8 +29,8 @@
 class Browser;
 class BrowserWindow;
 class BrowserWindowCocoa;
-@class ChromeBrowserWindow;
 class ConstrainedWindowMac;
+@class DevToolsController;
 @class DownloadShelfController;
 @class FindBarCocoaController;
 @class FullscreenController;
@@ -36,10 +38,10 @@ class ConstrainedWindowMac;
 @class IncognitoImageView;
 @class InfoBarContainerController;
 class LocationBarViewMac;
+@class SidebarController;
 class StatusBubbleMac;
 class TabContents;
 @class TabStripController;
-class TabStripModelObserverBridge;
 @class TabStripView;
 @class ToolbarController;
 
@@ -48,7 +50,8 @@ class TabStripModelObserverBridge;
   TabWindowController<NSUserInterfaceValidations,
                       BookmarkBarControllerDelegate,
                       BrowserCommandExecutor,
-                      ViewResizer> {
+                      ViewResizer,
+                      TabStripControllerDelegate> {
  @private
   // The ordering of these members is important as it determines the order in
   // which they are destroyed. |browser_| needs to be destroyed last as most of
@@ -56,7 +59,6 @@ class TabStripModelObserverBridge;
   // (tab/toolbar/bookmark models, profiles, etc).
   scoped_ptr<Browser> browser_;
   NSWindow* savedRegularWindow_;
-  scoped_ptr<TabStripModelObserverBridge> tabObserver_;
   scoped_ptr<BrowserWindowCocoa> windowShim_;
   scoped_nsobject<ToolbarController> toolbarController_;
   scoped_nsobject<TabStripController> tabStripController_;
@@ -64,6 +66,8 @@ class TabStripModelObserverBridge;
   scoped_nsobject<InfoBarContainerController> infoBarContainerController_;
   scoped_nsobject<DownloadShelfController> downloadShelfController_;
   scoped_nsobject<BookmarkBarController> bookmarkBarController_;
+  scoped_nsobject<DevToolsController> devToolsController_;
+  scoped_nsobject<SidebarController> sidebarController_;
   scoped_nsobject<FullscreenController> fullscreenController_;
 
   // Strong. StatusBubble is a special case of a strong reference that
@@ -75,7 +79,6 @@ class TabStripModelObserverBridge;
   BookmarkBubbleController* bookmarkBubbleController_;  // Weak.
   BOOL initializing_;  // YES while we are currently in initWithBrowser:
   BOOL ownsBrowser_;  // Only ever NO when testing
-  CGFloat verticalOffsetForStatusBubble_;
 
   // The total amount by which we've grown the window up or down (to display a
   // bookmark bar and/or download shelf), respectively; reset to 0 when moved
@@ -215,8 +218,8 @@ class TabStripModelObserverBridge;
 // "chrome/app/chrome_dll_resource.h" file.
 - (void)executeCommand:(int)command;
 
-// Delegate method for the status bubble to query about its vertical offset.
-- (CGFloat)verticalOffsetForStatusBubble;
+// Delegate method for the status bubble to query its base frame.
+- (NSRect)statusBubbleBaseFrame;
 
 // Show the bookmark bubble (e.g. user just clicked on the STAR)
 - (void)showBookmarkBubbleForURL:(const GURL&)url
@@ -234,6 +237,10 @@ class TabStripModelObserverBridge;
 
 // Shows or hides the docked web inspector depending on |contents|'s state.
 - (void)updateDevToolsForContents:(TabContents*)contents;
+
+// Displays the active sidebar linked to the |contents| or hides sidebar UI,
+// if there's no such sidebar.
+- (void)updateSidebarForContents:(TabContents*)contents;
 
 // Gets the current theme provider.
 - (ThemeProvider*)themeProvider;
@@ -336,6 +343,9 @@ class TabStripModelObserverBridge;
 // Returns YES if any of the views in the floating bar currently has focus.
 - (BOOL)floatingBarHasFocus;
 
+// Opens the tabpose window.
+- (void)openTabpose;
+
 @end  // @interface BrowserWindowController(Fullscreen)
 
 
@@ -366,6 +376,10 @@ class TabStripModelObserverBridge;
 // or the download shelf), so that future shrinking will occur from the bottom.
 - (void)resetWindowGrowthState;
 
+// Computes by how far in each direction, horizontal and vertical, the
+// |source| rect doesn't fit into |target|.
+- (NSSize)overflowFrom:(NSRect)source
+                    to:(NSRect)target;
 @end  // @interface BrowserWindowController(TestingAPI)
 
 

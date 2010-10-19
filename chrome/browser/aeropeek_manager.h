@@ -4,19 +4,21 @@
 
 #ifndef CHROME_BROWSER_AEROPEEK_MANAGER_H_
 #define CHROME_BROWSER_AEROPEEK_MANAGER_H_
+#pragma once
+
+#include <windows.h>
 
 #include <list>
 
-#include "base/waitable_event.h"
-#include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/tabs/tab_strip_model_observer.h"
 #include "gfx/insets.h"
 
 namespace gfx {
 class Size;
 }
-class TabContents;
 class AeroPeekWindow;
 class SkBitmap;
+class TabContents;
 
 // A class which defines interfaces called from AeroPeekWindow.
 // This class is used for dispatching an event received by a thumbnail window
@@ -45,6 +47,9 @@ class AeroPeekWindowDelegate {
   virtual void GetContentInsets(gfx::Insets* insets) = 0;
   virtual bool GetTabThumbnail(int tab_id, SkBitmap* thumbnail) = 0;
   virtual bool GetTabPreview(int tab_id, SkBitmap* preview) = 0;
+
+ protected:
+  virtual ~AeroPeekWindowDelegate() {}
 };
 
 // A class that implements AeroPeek of Windows 7:
@@ -91,7 +96,7 @@ class AeroPeekManager : public TabStripModelObserver,
                         public AeroPeekWindowDelegate {
  public:
   explicit AeroPeekManager(HWND application_window);
-  ~AeroPeekManager();
+  virtual ~AeroPeekManager();
 
   // Sets the margins of the "user-perceived content area".
   // (See comments of |content_insets_|).

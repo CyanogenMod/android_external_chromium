@@ -22,10 +22,6 @@
 #include "chrome/browser/diagnostics/diagnostics_model.h"
 #include "chrome/common/chrome_paths.h"
 
-#if defined(OS_WIN)
-#include "base/win_util.h"
-#endif
-
 namespace {
 // This is a minimalistic interface to wrap the platform console.  This will be
 // eventually replaced by a view that can be subclassed for each platform and
@@ -139,7 +135,7 @@ SimpleConsole* SimpleConsole::Create() {
 
 class PosixConsole : public SimpleConsole {
  public:
-  PosixConsole() { }
+  PosixConsole() : use_color_(false) { }
 
   virtual bool Init() {
     // Technically, we should also check the terminal capabilities before using
@@ -256,7 +252,9 @@ std::wstring PrintableUSCurrentTime() {
 // More info at http://martinfowler.com/eaaDev/PassiveScreen.html
 class TestController : public DiagnosticsModel::Observer {
  public:
-  explicit TestController(TestWriter* writer) : writer_(writer) {
+  explicit TestController(TestWriter* writer)
+      : model_(NULL),
+        writer_(writer) {
   }
 
   // Run all the diagnostics of |model| and invoke the view as the model
@@ -278,7 +276,7 @@ class TestController : public DiagnosticsModel::Observer {
     model->RunAll(this);
   }
 
-  // Next four are overriden from DiagnosticsModel::Observer
+  // Next four are overridden from DiagnosticsModel::Observer.
   virtual void OnProgress(int id, int percent, DiagnosticsModel* model) {
   }
 

@@ -4,9 +4,11 @@
 
 #ifndef CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_POPUP_MODEL_H_
 #define CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_POPUP_MODEL_H_
+#pragma once
 
 #include "base/scoped_ptr.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
 class AutocompleteEditModel;
@@ -39,6 +41,8 @@ class AutocompletePopupModel : public NotificationObserver {
   // Returns true if the popup is currently open.
   bool IsOpen() const;
 
+  AutocompletePopupView* view() const { return view_; }
+
   // Returns the AutocompleteController used by this popup.
   AutocompleteController* autocomplete_controller() const {
     return controller_.get();
@@ -62,7 +66,7 @@ class AutocompletePopupModel : public NotificationObserver {
 
   // Call to change the selected line.  This will update all state and repaint
   // the necessary parts of the window, as well as updating the edit with the
-  // new temporary text.  |line| should be within the range of valid lines.
+  // new temporary text.  |line| will be clamped to the range of valid lines.
   // |reset_to_default| is true when the selection is being reset back to the
   // default match, and thus there is no temporary text (and no
   // |manually_selected_match_|).

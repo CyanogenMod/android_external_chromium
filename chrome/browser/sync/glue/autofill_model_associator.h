@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_GLUE_AUTOFILL_MODEL_ASSOCIATOR_H_
 #define CHROME_BROWSER_SYNC_GLUE_AUTOFILL_MODEL_ASSOCIATOR_H_
+#pragma once
 
 #include <map>
 #include <set>
@@ -13,7 +14,6 @@
 #include "base/basictypes.h"
 #include "base/lock.h"
 #include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/sync/engine/syncapi.h"
@@ -121,7 +121,14 @@ class AutofillModelAssociator
   // Returns sync service instance.
   ProfileSyncService* sync_service() { return sync_service_; }
 
-  static string16 MakeUniqueLabel(const string16& non_unique_label,
+  // Compute and apply suffix to a label so that the resulting label is
+  // unique in the sync database.
+  // |new_non_unique_label| is the colliding label which is to be uniquified.
+  // |existing_unique_label| is the current label of the object, if any; this
+  // is treated as a unique label even if colliding.  If no such label is
+  // available, |existing_unique_label| may be empty.
+  static string16 MakeUniqueLabel(const string16& new_non_unique_label,
+                                  const string16& existing_unique_label,
                                   sync_api::BaseTransaction* trans);
 
  private:

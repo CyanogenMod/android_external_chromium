@@ -6,23 +6,24 @@
 
 #ifndef NET_DISK_CACHE_BLOCK_FILES_H__
 #define NET_DISK_CACHE_BLOCK_FILES_H__
+#pragma once
 
 #include <vector>
 
 #include "base/file_path.h"
+#include "base/gtest_prod_util.h"
+#include "base/scoped_ptr.h"
 #include "net/disk_cache/addr.h"
 #include "net/disk_cache/mapped_file.h"
-#include "testing/gtest/include/gtest/gtest_prod.h"
+
+class ThreadChecker;
 
 namespace disk_cache {
-
-class EntryImpl;
 
 // This class handles the set of block-files open by the disk cache.
 class BlockFiles {
  public:
-  explicit BlockFiles(const FilePath& path)
-      : init_(false), zero_buffer_(NULL), path_(path) {}
+  explicit BlockFiles(const FilePath& path);
   ~BlockFiles();
 
   // Performs the object initialization. create_files indicates if the backing
@@ -48,6 +49,10 @@ class BlockFiles {
 
   // Sends UMA stats.
   void ReportStats();
+
+  // Returns true if the blocks pointed by a given address are currently used.
+  // This method is only intended for debugging.
+  bool IsValid(Addr address);
 
  private:
   // Set force to true to overwrite the file if it exists.
@@ -82,10 +87,11 @@ class BlockFiles {
   char* zero_buffer_;  // Buffer to speed-up cleaning deleted entries.
   FilePath path_;  // Path to the backing folder.
   std::vector<MappedFile*> block_files_;  // The actual files.
+  scoped_ptr<ThreadChecker> thread_checker_;
 
-  FRIEND_TEST(DiskCacheTest, BlockFiles_ZeroSizeFile);
-  FRIEND_TEST(DiskCacheTest, BlockFiles_InvalidFile);
-  FRIEND_TEST(DiskCacheTest, BlockFiles_Stats);
+  FRIEND_TEST_ALL_PREFIXES(DiskCacheTest, BlockFiles_ZeroSizeFile);
+  FRIEND_TEST_ALL_PREFIXES(DiskCacheTest, BlockFiles_InvalidFile);
+  FRIEND_TEST_ALL_PREFIXES(DiskCacheTest, BlockFiles_Stats);
 
   DISALLOW_COPY_AND_ASSIGN(BlockFiles);
 };

@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -7,6 +7,7 @@
 
 #ifndef CHROME_COMMON_NET_URL_FETCHER_PROTECT_H_
 #define CHROME_COMMON_NET_URL_FETCHER_PROTECT_H_
+#pragma once
 
 #include <map>
 #include <queue>
@@ -58,6 +59,11 @@ class URLFetcherProtectEntry {
   // Returns the max retries allowed.
   int max_retries() const {
     return max_retries_;
+  }
+
+  // Sets the max retries.
+  void SetMaxRetries(int max_retries) {
+    max_retries_ = max_retries;
   }
 
  private:

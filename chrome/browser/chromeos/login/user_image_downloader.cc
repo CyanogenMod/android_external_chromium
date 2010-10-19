@@ -8,10 +8,11 @@
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_thread.h"
-#include "chrome/browser/chromeos/login/google_authenticator.h"
+#include "chrome/browser/chromeos/login/authenticator.h"
 #include "chrome/browser/chromeos/login/image_downloader.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/profile_manager.h"
@@ -50,7 +51,7 @@ UserImageDownloader::UserImageDownloader(const std::string& username,
   profile_fetcher_->set_request_context(
       ProfileManager::GetDefaultProfile()->GetRequestContext());
   profile_fetcher_->set_extra_request_headers(
-      StringPrintf(kAuthorizationHeader, auth_token_.c_str()));
+      base::StringPrintf(kAuthorizationHeader, auth_token_.c_str()));
   profile_fetcher_->Start();
 }
 
@@ -85,8 +86,12 @@ void UserImageDownloader::OnURLFetchComplete(const URLFetcher* source,
 void UserImageDownloader::OnImageDecoded(const SkBitmap& decoded_image) {
   // Save the image to file and its path to preferences.
   chromeos::UserManager* user_manager = chromeos::UserManager::Get();
-  if (user_manager)
+  if (user_manager) {
+    if (user_manager->logged_in_user().email() == username_) {
+      user_manager->SetLoggedInUserImage(decoded_image);
+    }
     user_manager->SaveUserImage(username_, decoded_image);
+  }
 }
 
 bool UserImageDownloader::GetImageURL(const std::string& json_data,
@@ -105,11 +110,11 @@ bool UserImageDownloader::GetImageURL(const std::string& json_data,
   DictionaryValue* root_dictionary =
       static_cast<DictionaryValue*>(root.get());
   DictionaryValue* feed_dictionary = NULL;
-  if (!root_dictionary->GetDictionary(L"feed", &feed_dictionary))
+  if (!root_dictionary->GetDictionary("feed", &feed_dictionary))
     return false;
 
   ListValue* entry_list = NULL;
-  if (!feed_dictionary->GetList(L"entry", &entry_list))
+  if (!feed_dictionary->GetList("entry", &entry_list))
     return false;
 
   return GetImageURLFromEntries(entry_list, image_url);
@@ -125,7 +130,7 @@ bool UserImageDownloader::GetImageURLFromEntries(ListValue* entry_list,
       continue;
 
     ListValue* email_list = NULL;
-    if (!entry_dictionary->GetList(L"gd$email", &email_list))
+    if (!entry_dictionary->GetList("gd$email", &email_list))
       continue;
 
     // Match entry email address to understand that this is user's entry.
@@ -133,7 +138,7 @@ bool UserImageDownloader::GetImageURLFromEntries(ListValue* entry_list,
       continue;
 
     ListValue* link_list = NULL;
-    if (!entry_dictionary->GetList(L"link", &link_list))
+    if (!entry_dictionary->GetList("link", &link_list))
       continue;
 
     if (GetImageURLFromLinks(link_list, image_url))
@@ -153,7 +158,7 @@ bool UserImageDownloader::IsUserEntry(ListValue* email_list) const {
     if (!email_dictionary->GetStringASCII("address", &email))
       continue;
 
-    if (GoogleAuthenticator::Canonicalize(email) == username_)
+    if (Authenticator::Canonicalize(email) == username_)
       return true;
   }
   return false;

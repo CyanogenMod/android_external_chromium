@@ -4,16 +4,17 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_LANGUAGE_SWITCH_MENU_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_LANGUAGE_SWITCH_MENU_H_
+#pragma once
 
 #include <string>
 
 #include "app/menus/simple_menu_model.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/language_combobox_model.h"
+#include "testing/gtest/include/gtest/gtest_prod.h"
 #include "views/controls/menu/menu_2.h"
 #include "views/controls/menu/view_menu_delegate.h"
 #include "views/view.h"
-#include "testing/gtest/include/gtest/gtest_prod.h"
 
 class WizardControllerTest_SwitchLanguage_Test;
 
@@ -32,8 +33,7 @@ class LanguageSwitchMenu : public views::ViewMenuDelegate,
   // Returns current locale name to be placed on the language menu-button.
   std::wstring GetCurrentLocaleName() const;
 
-  // Returns original width of the first level menu to be shown when called.
-  int GetFirstLevelMenuWidth() const;
+  // Sets the minimum width of the first level menu to be shown.
   void SetFirstLevelMenuWidth(int width);
 
   void set_menu_offset(int delta_x, int delta_y) {

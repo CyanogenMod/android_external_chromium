@@ -4,6 +4,7 @@
 
 #ifndef APP_SQL_CONNECTION_H_
 #define APP_SQL_CONNECTION_H_
+#pragma once
 
 #include <map>
 #include <set>
@@ -11,6 +12,7 @@
 
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
+#include "base/time.h"
 
 class FilePath;
 struct sqlite3;
@@ -76,6 +78,8 @@ class Connection;
 // corruption, low-level IO errors or locking violations.
 class ErrorDelegate : public base::RefCounted<ErrorDelegate> {
  public:
+  ErrorDelegate();
+
   // |error| is an sqlite result code as seen in sqlite\preprocessed\sqlite3.h
   // |connection| is db connection where the error happened and |stmt| is
   // our best guess at the statement that triggered the error.  Do not store
@@ -92,7 +96,7 @@ class ErrorDelegate : public base::RefCounted<ErrorDelegate> {
  protected:
   friend class base::RefCounted<ErrorDelegate>;
 
-  virtual ~ErrorDelegate() {}
+  virtual ~ErrorDelegate();
 };
 
 class Connection {
@@ -260,6 +264,10 @@ class Connection {
   // Returns the error code associated with the last sqlite operation.
   int GetErrorCode() const;
 
+  // Returns the errno associated with GetErrorCode().  See
+  // SQLITE_LAST_ERRNO in SQLite documentation.
+  int GetLastErrno() const;
+
   // Returns a pointer to a statically allocated string associated with the
   // last sqlite operation.
   const char* GetErrorMessage() const;
@@ -333,6 +341,9 @@ class Connection {
   // Called by Statement objects when an sqlite function returns an error.
   // The return value is the error code reflected back to client code.
   int OnSqliteError(int err, Statement* stmt);
+
+  // Like |Execute()|, but retries if the database is locked.
+  bool ExecuteWithTimeout(const char* sql, base::TimeDelta ms_timeout);
 
   // The actual sqlite database. Will be NULL before Init has been called or if
   // Init resulted in an error.

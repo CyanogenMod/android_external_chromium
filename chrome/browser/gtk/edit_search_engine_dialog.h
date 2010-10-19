@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_EDIT_SEARCH_ENGINE_DIALOG_H_
 #define CHROME_BROWSER_GTK_EDIT_SEARCH_ENGINE_DIALOG_H_
+#pragma once
 
 #include <gtk/gtk.h>
 #include <string>
@@ -11,6 +12,7 @@
 #include "app/gtk_signal.h"
 #include "base/basictypes.h"
 #include "base/scoped_ptr.h"
+#include "base/string16.h"
 
 class AccessibleWidgetHelper;
 class EditSearchEngineController;
@@ -24,14 +26,15 @@ class EditSearchEngineDialog {
                          const TemplateURL* template_url,
                          EditSearchEngineControllerDelegate* delegate,
                          Profile* profile);
+  virtual ~EditSearchEngineDialog();
 
  private:
   // Create and show the window.
   void Init(GtkWindow* parent_window, Profile* profile);
 
   // Retrieve the user input in the various fields.
-  std::wstring GetTitleInput() const;
-  std::wstring GetKeywordInput() const;
+  string16 GetTitleInput() const;
+  string16 GetKeywordInput() const;
   std::string GetURLInput() const;
 
   // Set sensitivity of buttons based on entry state.

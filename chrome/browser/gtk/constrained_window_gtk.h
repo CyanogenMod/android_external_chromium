@@ -4,17 +4,18 @@
 
 #ifndef CHROME_BROWSER_GTK_CONSTRAINED_WINDOW_GTK_H_
 #define CHROME_BROWSER_GTK_CONSTRAINED_WINDOW_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
 #include "app/gtk_signal.h"
 #include "base/basictypes.h"
+#include "base/task.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/tab_contents/constrained_window.h"
-#include "chrome/common/owned_widget_gtk.h"
 
 class TabContents;
 class TabContentsViewGtk;
-typedef struct _GtkWidget GtkWidget;
 
 class ConstrainedWindowGtkDelegate {
  public:
@@ -55,12 +56,9 @@ class ConstrainedWindowGtk : public ConstrainedWindow {
   ConstrainedWindowGtk(TabContents* owner,
                        ConstrainedWindowGtkDelegate* delegate);
 
-  // Connects the ESC accelerator to the window.
-  void ConnectAccelerators();
-
-  // Handles an ESC accelerator being pressed.
-  CHROMEG_CALLBACK_3(ConstrainedWindowGtk, gboolean, OnEscape, GtkAccelGroup*,
-                     GObject*, guint, GdkModifierType);
+  // Handler for Escape.
+  CHROMEGTK_CALLBACK_1(ConstrainedWindowGtk, gboolean, OnKeyPress,
+                       GdkEventKey*);
 
   // The TabContents that owns and constrains this ConstrainedWindow.
   TabContents* owner_;
@@ -74,7 +72,7 @@ class ConstrainedWindowGtk : public ConstrainedWindow {
   // Stores if |ShowConstrainedWindow()| has been called.
   bool visible_;
 
-  GtkAccelGroup* accel_group_;
+  ScopedRunnableMethodFactory<ConstrainedWindowGtk> factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ConstrainedWindowGtk);
 };

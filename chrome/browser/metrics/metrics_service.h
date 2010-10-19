@@ -7,6 +7,7 @@
 
 #ifndef CHROME_BROWSER_METRICS_METRICS_SERVICE_H_
 #define CHROME_BROWSER_METRICS_METRICS_SERVICE_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -17,6 +18,7 @@
 #include "base/scoped_ptr.h"
 #include "chrome/common/metrics_helpers.h"
 #include "chrome/common/net/url_fetcher.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
 #if defined(OS_CHROMEOS)
@@ -63,6 +65,7 @@ class MetricsService : public NotificationObserver,
   // TODO(ziadh): This is here temporarily for a side experiment. Remove later
   // on.
   enum LogStoreStatus {
+    STORE_SUCCESS,    // Successfully presisted log.
     ENCODE_FAIL,      // Failed to encode log.
     COMPRESS_FAIL,    // Failed to compress log.
     END_STORE_STATUS  // Number of bins to use to create the histogram.
@@ -332,11 +335,11 @@ class MetricsService : public NotificationObserver,
                        const NotificationDetails& details);
 
   // Reads, increments and then sets the specified integer preference.
-  void IncrementPrefValue(const wchar_t* path);
+  void IncrementPrefValue(const char* path);
 
   // Reads, increments and then sets the specified long preference that is
   // stored as a string.
-  void IncrementLongPrefsValue(const wchar_t* path);
+  void IncrementLongPrefsValue(const char* path);
 
   // Records a renderer process crash.
   void LogRendererCrash();
@@ -351,8 +354,8 @@ class MetricsService : public NotificationObserver,
   // in node. The pref key for the number of bookmarks in num_bookmarks_key and
   // the pref key for number of folders in num_folders_key.
   void LogBookmarks(const BookmarkNode* node,
-                    const wchar_t* num_bookmarks_key,
-                    const wchar_t* num_folders_key);
+                    const char* num_bookmarks_key,
+                    const char* num_folders_key);
 
   // Sets preferences for the number of bookmarks in model.
   void LogBookmarks(BookmarkModel* model);
@@ -390,7 +393,7 @@ class MetricsService : public NotificationObserver,
                           const NotificationDetails& details);
 
   // Sets the value of the specified path in prefs and schedules a save.
-  void RecordBooleanPrefValue(const wchar_t* path, bool value);
+  void RecordBooleanPrefValue(const char* path, bool value);
 
   NotificationRegistrar registrar_;
 
@@ -487,13 +490,13 @@ class MetricsService : public NotificationObserver,
   scoped_refptr<chromeos::ExternalMetrics> external_metrics_;
 #endif
 
-  FRIEND_TEST(MetricsServiceTest, EmptyLogList);
-  FRIEND_TEST(MetricsServiceTest, SingleElementLogList);
-  FRIEND_TEST(MetricsServiceTest, OverLimitLogList);
-  FRIEND_TEST(MetricsServiceTest, SmallRecoveredListSize);
-  FRIEND_TEST(MetricsServiceTest, RemoveSizeFromLogList);
-  FRIEND_TEST(MetricsServiceTest, CorruptSizeOfLogList);
-  FRIEND_TEST(MetricsServiceTest, CorruptChecksumOfLogList);
+  FRIEND_TEST_ALL_PREFIXES(MetricsServiceTest, EmptyLogList);
+  FRIEND_TEST_ALL_PREFIXES(MetricsServiceTest, SingleElementLogList);
+  FRIEND_TEST_ALL_PREFIXES(MetricsServiceTest, OverLimitLogList);
+  FRIEND_TEST_ALL_PREFIXES(MetricsServiceTest, SmallRecoveredListSize);
+  FRIEND_TEST_ALL_PREFIXES(MetricsServiceTest, RemoveSizeFromLogList);
+  FRIEND_TEST_ALL_PREFIXES(MetricsServiceTest, CorruptSizeOfLogList);
+  FRIEND_TEST_ALL_PREFIXES(MetricsServiceTest, CorruptChecksumOfLogList);
   FRIEND_TEST_ALL_PREFIXES(MetricsServiceTest, ClientIdGeneratesAllZeroes);
   FRIEND_TEST_ALL_PREFIXES(MetricsServiceTest, ClientIdGeneratesCorrectly);
   FRIEND_TEST_ALL_PREFIXES(MetricsServiceTest, ClientIdCorrectlyFormatted);

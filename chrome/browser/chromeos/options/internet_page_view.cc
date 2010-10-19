@@ -6,11 +6,14 @@
 
 #include <string>
 
-#include "app/combobox_model.h"
+#include "app/l10n_util.h"
+#include "app/resource_bundle.h"
+#include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/options/network_config_view.h"
 #include "chrome/browser/chromeos/options/options_window_view.h"
-#include "chrome/browser/chromeos/status/network_menu_button.h"
+#include "chrome/browser/chromeos/status/network_menu.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "views/controls/button/native_button.h"
@@ -246,7 +249,7 @@ void WiredSection::InitSection() {
 
   SkBitmap icon = *rb.GetBitmapNamed(IDR_STATUSBAR_WIRED_BLACK);
   if (!cros->ethernet_connecting() && !cros->ethernet_connected()) {
-    icon = NetworkMenuButton::IconForDisplay(icon,
+    icon = NetworkMenu::IconForDisplay(icon,
         *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_DISCONNECTED));
   }
 
@@ -317,10 +320,10 @@ void WirelessSection::InitSection() {
   for (size_t i = 0; i < wifi_networks_.size(); ++i) {
     std::wstring name = ASCIIToWide(wifi_networks_[i].name());
 
-    SkBitmap icon = NetworkMenuButton::IconForNetworkStrength(
+    SkBitmap icon = NetworkMenu::IconForNetworkStrength(
         wifi_networks_[i].strength(), true);
     if (wifi_networks_[i].encrypted()) {
-      icon = NetworkMenuButton::IconForDisplay(icon,
+      icon = NetworkMenu::IconForDisplay(icon,
           *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_SECURE));
     }
 
@@ -335,12 +338,12 @@ void WirelessSection::InitSection() {
   for (size_t i = 0; i < celluar_networks_.size(); ++i) {
     std::wstring name = ASCIIToWide(celluar_networks_[i].name());
 
-    SkBitmap icon = NetworkMenuButton::IconForNetworkStrength(
+    SkBitmap icon = NetworkMenu::IconForNetworkStrength(
         celluar_networks_[i].strength(), true);
     // TODO(chocobo): Check cellular network 3g/edge.
     SkBitmap badge = *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_3G);
 //    SkBitmap badge = *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_EDGE);
-    icon = NetworkMenuButton::IconForDisplay(icon, badge);
+    icon = NetworkMenu::IconForDisplay(icon, badge);
 
     bool connecting = celluar_networks_[i].connecting();
     bool connected = celluar_networks_[i].connected();
@@ -446,7 +449,7 @@ void RememberedSection::InitSection() {
 
     SkBitmap icon = *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_BARS0);
     if (wifi_networks_[i].encrypted()) {
-      icon = NetworkMenuButton::IconForDisplay(icon,
+      icon = NetworkMenu::IconForDisplay(icon,
           *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_SECURE));
     }
 
@@ -463,7 +466,7 @@ void RememberedSection::InitSection() {
     // TODO(chocobo): Check cellular network 3g/edge.
     SkBitmap badge = *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_3G);
 //    SkBitmap badge = *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_EDGE);
-    icon = NetworkMenuButton::IconForDisplay(icon, badge);
+    icon = NetworkMenu::IconForDisplay(icon, badge);
 
     AddNetwork(i, icon, name, false, std::wstring(), FORGET_BUTTON,
                TYPE_CELLULAR);
@@ -474,12 +477,12 @@ void RememberedSection::ButtonClicked(int button, int connection_type, int id) {
   if (connection_type == TYPE_CELLULAR) {
     if (static_cast<int>(celluar_networks_.size()) > id) {
       CrosLibrary::Get()->GetNetworkLibrary()->ForgetWirelessNetwork(
-          celluar_networks_[id]);
+          celluar_networks_[id].service_path());
     }
   } else if (connection_type == TYPE_WIFI) {
     if (static_cast<int>(wifi_networks_.size()) > id) {
       CrosLibrary::Get()->GetNetworkLibrary()->ForgetWirelessNetwork(
-          wifi_networks_[id]);
+          wifi_networks_[id].service_path());
     }
   } else {
     NOTREACHED();
@@ -522,7 +525,7 @@ class InternetPageContentView : public SettingsPageView {
 InternetPageContentView::InternetPageContentView(Profile* profile)
     : SettingsPageView(profile) {
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  line_height_ = rb.GetFont(ResourceBundle::BaseFont).height();
+  line_height_ = rb.GetFont(ResourceBundle::BaseFont).GetHeight();
 }
 
 void InternetPageContentView::RefreshContents() {

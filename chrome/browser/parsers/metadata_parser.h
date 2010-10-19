@@ -1,18 +1,21 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_PARSERS_METADATA_PARSER_H_
 #define CHROME_BROWSER_PARSERS_METADATA_PARSER_H_
+#pragma once
 
 #include <string>
 
-#include "base/file_path.h"
+class FilePath;
 
 // Allows for Iteration on the Properties of a given file.
 class MetadataPropertyIterator {
  public:
   MetadataPropertyIterator() {}
+  virtual ~MetadataPropertyIterator() {}
+
 
   // Gets the next Property in the iterator.  Returns false if at the end
   // of the list.
@@ -29,6 +32,8 @@ class MetadataPropertyIterator {
 class MetadataParser {
  public:
   explicit MetadataParser(const FilePath& path) {}
+  virtual ~MetadataParser() {}
+
 
   static const char* kPropertyType;
   static const char* kPropertyFilesize;

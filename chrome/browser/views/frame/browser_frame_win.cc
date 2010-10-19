@@ -9,13 +9,11 @@
 
 #include <set>
 
-#include "app/resource_bundle.h"
-#include "app/theme_provider.h"
 #include "app/win_util.h"
 #include "base/win_util.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_theme_provider.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/views/frame/app_panel_browser_frame_view.h"
 #include "chrome/browser/views/frame/browser_non_client_frame_view.h"
 #include "chrome/browser/views/frame/browser_root_view.h"
@@ -69,15 +67,6 @@ void BrowserFrameWin::Init() {
 BrowserFrameWin::~BrowserFrameWin() {
 }
 
-int BrowserFrameWin::GetTitleBarHeight() {
-  RECT caption = { 0 };
-  if (DwmGetWindowAttribute(GetNativeView(), DWMWA_CAPTION_BUTTON_BOUNDS,
-                            &caption, sizeof(RECT)) == S_OK) {
-    return caption.bottom;
-  }
-  return GetSystemMetrics(SM_CYCAPTION);
-}
-
 views::Window* BrowserFrameWin::GetWindow() {
   return this;
 }
@@ -96,6 +85,10 @@ int BrowserFrameWin::GetMinimizeButtonOffset() const {
 
 gfx::Rect BrowserFrameWin::GetBoundsForTabStrip(BaseTabStrip* tabstrip) const {
   return browser_frame_view_->GetBoundsForTabStrip(tabstrip);
+}
+
+int BrowserFrameWin::GetHorizontalTabStripVerticalOffset(bool restored) const {
+  return browser_frame_view_->GetHorizontalTabStripVerticalOffset(restored);
 }
 
 void BrowserFrameWin::UpdateThrobber(bool running) {
@@ -137,9 +130,13 @@ views::View* BrowserFrameWin::GetFrameView() const {
 }
 
 void BrowserFrameWin::TabStripDisplayModeChanged() {
+  if (GetRootView()->GetChildViewCount() > 0) {
+    // Make sure the child of the root view gets Layout again.
+    GetRootView()->GetChildViewAt(0)->InvalidateLayout();
+  }
   GetRootView()->Layout();
+
   UpdateDWMFrame();
-  GetRootView()->Layout();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -220,13 +217,15 @@ LRESULT BrowserFrameWin::OnNCHitTest(const CPoint& pt) {
 }
 
 void BrowserFrameWin::OnWindowPosChanged(WINDOWPOS* window_pos) {
+  WindowWin::OnWindowPosChanged(window_pos);
+  UpdateDWMFrame();
+
   // Windows lies to us about the position of the minimize button before a
-  // window is visible. We use the position of the minimize button to place the
-  // distributor logo in official builds. When the window is shown, we need to
-  // re-layout and schedule a paint for the non-client frame view so that the
-  // distributor logo has the correct position when the window becomes visible.
-  // This fixes bugs where the distributor logo appears to overlay the minimize
-  // button. http://crbug.com/15520
+  // window is visible.  We use this position to place the OTR avatar in RTL
+  // mode, so when the window is shown, we need to re-layout and schedule a
+  // paint for the non-client frame view so that the icon top has the correct
+  // position when the window becomes visible.  This fixes bugs where the icon
+  // appears to overlay the minimize button.
   // Note that we will call Layout every time SetWindowPos is called with
   // SWP_SHOWWINDOW, however callers typically are careful about not specifying
   // this flag unless necessary to avoid flicker.
@@ -234,11 +233,6 @@ void BrowserFrameWin::OnWindowPosChanged(WINDOWPOS* window_pos) {
     GetNonClientView()->Layout();
     GetNonClientView()->SchedulePaint();
   }
-
-  UpdateDWMFrame();
-
-  // Let the default window procedure handle - IMPORTANT!
-  WindowWin::OnWindowPosChanged(window_pos);
 }
 
 ThemeProvider* BrowserFrameWin::GetThemeProvider() const {
@@ -312,13 +306,10 @@ void BrowserFrameWin::UpdateDWMFrame() {
     // In maximized mode, we only have a titlebar strip of glass, no side/bottom
     // borders.
     if (!browser_view_->IsFullscreen()) {
-      if (browser_view_->UseVerticalTabs()) {
-        margins.cyTopHeight = GetTitleBarHeight();
-      } else {
-        margins.cyTopHeight =
-            GetBoundsForTabStrip(browser_view_->tabstrip()).bottom() +
-            kDWMFrameTopOffset;
-      }
+      gfx::Rect tabstrip_bounds(
+          GetBoundsForTabStrip(browser_view_->tabstrip()));
+      margins.cyTopHeight = (browser_view_->UseVerticalTabs() ?
+          tabstrip_bounds.y() : tabstrip_bounds.bottom()) + kDWMFrameTopOffset;
     }
   } else {
     // For popup and app windows we want to use the default margins.

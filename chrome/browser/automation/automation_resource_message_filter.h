@@ -4,14 +4,17 @@
 
 #ifndef CHROME_BROWSER_AUTOMATION_AUTOMATION_RESOURCE_MESSAGE_FILTER_H_
 #define CHROME_BROWSER_AUTOMATION_AUTOMATION_RESOURCE_MESSAGE_FILTER_H_
+#pragma once
 
 #include <map>
 
 #include "base/atomicops.h"
+#include "base/lazy_instance.h"
 #include "base/lock.h"
 #include "base/platform_thread.h"
 #include "ipc/ipc_channel_proxy.h"
 #include "net/base/completion_callback.h"
+#include "net/base/cookie_store.h"
 
 class URLRequestAutomationJob;
 class GURL;
@@ -39,12 +42,23 @@ class AutomationResourceMessageFilter
         is_pending_render_view(pending_view) {
     }
 
+    void set_cookie_store(net::CookieStore* cookie_store) {
+      cookie_store_ = cookie_store;
+    }
+
+    net::CookieStore* cookie_store() {
+      return cookie_store_.get();
+    }
+
     int tab_handle;
     int ref_count;
     scoped_refptr<AutomationResourceMessageFilter> filter;
     // Indicates whether network requests issued by this render view need to
     // be executed later.
     bool is_pending_render_view;
+
+    // The cookie store associated with this render view.
+    scoped_refptr<net::CookieStore> cookie_store_;
   };
 
   // Create the filter.
@@ -99,9 +113,13 @@ class AutomationResourceMessageFilter
 
   // Retrieves cookies for the url passed in from the external host. The
   // callback passed in is notified on success or failure asynchronously.
-  void GetCookiesForUrl(int tab_handle, const GURL& url,
-                        net::CompletionCallback* callback,
-                        net::CookieStore* cookie_store);
+  // Returns true on success.
+  static bool GetCookiesForUrl(const GURL& url,
+                               net::CompletionCallback* callback);
+
+  // Sets cookies on the URL in the external host. Returns true on success.
+  static bool SetCookiesForUrl(const GURL& url, const std::string& cookie_line,
+                               net::CompletionCallback* callback);
 
   // This function gets invoked when we receive a response from the external
   // host for the cookie request sent in GetCookiesForUrl above. It sets the
@@ -126,6 +144,13 @@ class AutomationResourceMessageFilter
       int renderer_pid, int renderer_id, int tab_handle,
       AutomationResourceMessageFilter* filter);
 
+  // Helper function to execute the GetCookies completion callback with the
+  // response for the GetCookies request from the renderer.
+  static void OnGetCookiesHostResponseInternal(
+      int tab_handle, bool success, const GURL& url,
+      const std::string& cookies, net::CompletionCallback* callback,
+      net::CookieStore* cookie_store);
+
  private:
   void OnSetFilteredInet(bool enable);
   void OnGetFilteredInetHitCount(int* hit_count);
@@ -138,7 +163,7 @@ class AutomationResourceMessageFilter
       AutomationResourceMessageFilter* old_filter,
       AutomationResourceMessageFilter* new_filter);
 
-  int GetNextCompletionCallbackId() {
+  static int GetNextCompletionCallbackId() {
     return ++next_completion_callback_id_;
   }
 
@@ -174,7 +199,7 @@ class AutomationResourceMessageFilter
   RequestMap pending_request_map_;
 
   // Map of render views interested in diverting url requests over automation.
-  static RenderViewMap filtered_render_views_;
+  static base::LazyInstance<RenderViewMap> filtered_render_views_;
 
   // Contains information used for completing the request to read cookies from
   // the host coming in from the renderer.
@@ -189,11 +214,11 @@ class AutomationResourceMessageFilter
   // cookies from the host and is removed when we receive a response from the
   // host. Please see the OnGetCookiesHostResponse function.
   typedef std::map<int, CookieCompletionInfo> CompletionCallbackMap;
-  CompletionCallbackMap completion_callback_map_;
+  static base::LazyInstance<CompletionCallbackMap> completion_callback_map_;
 
   // Contains the id of the next completion callback. This is passed to the the
   // external host as a cookie referring to the completion callback.
-  int next_completion_callback_id_;
+  static int next_completion_callback_id_;
 
   DISALLOW_COPY_AND_ASSIGN(AutomationResourceMessageFilter);
 };

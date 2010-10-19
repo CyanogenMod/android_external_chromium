@@ -39,6 +39,7 @@
 
 #ifndef NET_PROXY_PROXY_RESOLVER_SCRIPT_H_
 #define NET_PROXY_PROXY_RESOLVER_SCRIPT_H_
+#pragma once
 
 // The following code was formatted from:
 //   'mozilla/netwerk/base/src/nsProxyAutoConfig.js' (1.55)
@@ -266,7 +267,7 @@
   "}\n"
 
 // This is a Microsoft extension to PAC for IPv6, see:
-// http://blogs.msdn.com/wndp/articles/IPV6_PAC_Extensions_v0_9.aspx
+// http://blogs.msdn.com/b/wndp/archive/2006/07/13/ipv6-pac-extensions-v0-9.aspx
 #define PROXY_RESOLVER_SCRIPT_EX \
   "function isResolvableEx(host) {\n" \
   "    var ipList = dnsResolveEx(host);\n" \

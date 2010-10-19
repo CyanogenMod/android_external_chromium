@@ -457,16 +457,22 @@ bool GetDefaultFirefoxProfile(Pathname* profile_path) {
     if (line.at(0) == '[') {
       relative = true;
       candidate.clear();
-    } else if (line.find("IsRelative=") == 0) {
+    } else if (line.find("IsRelative=") == 0 &&
+               line.length() >= 12) {
+      // TODO(tschmelcher): The initial Linux public launch revealed a fairly
+      // high number of machines where IsRelative= did not have anything after
+      // it. Perhaps that is legal profiles.ini syntax?
       relative = (line.at(11) != '0');
-    } else if (line.find("Path=") == 0) {
+    } else if (line.find("Path=") == 0 &&
+               line.length() >= 6) {
       if (relative) {
         candidate = path;
       } else {
         candidate.clear();
       }
       candidate.AppendFolder(line.substr(5));
-    } else if (line.find("Default=") == 0)  {
+    } else if (line.find("Default=") == 0 &&
+               line.length() >= 9) {
       if ((line.at(8) != '0') && !candidate.empty()) {
         break;
       }

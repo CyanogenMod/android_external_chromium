@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_RENDER_VIEW_CONTEXT_MENU_MAC_H_
 #define CHROME_BROWSER_TAB_CONTENTS_RENDER_VIEW_CONTEXT_MENU_MAC_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
@@ -32,6 +33,9 @@ class RenderViewContextMenuMac : public RenderViewContextMenu {
     return false;
   }
 
+  virtual void LookUpInDictionary();
+
+  void InitPlatformMenu();
  private:
   scoped_nsobject<MenuController> menuController_;
   NSView* parent_view_;  // parent view

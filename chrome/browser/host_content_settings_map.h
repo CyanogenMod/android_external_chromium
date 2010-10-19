@@ -7,6 +7,7 @@
 
 #ifndef CHROME_BROWSER_HOST_CONTENT_SETTINGS_MAP_H_
 #define CHROME_BROWSER_HOST_CONTENT_SETTINGS_MAP_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -17,6 +18,7 @@
 #include "base/lock.h"
 #include "base/ref_counted.h"
 #include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/content_settings.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
@@ -72,21 +74,38 @@ class HostContentSettingsMap
   // for each pattern.
   class ContentSettingsDetails {
    public:
-    explicit ContentSettingsDetails(const Pattern& pattern)
-        : pattern_(pattern), update_all_(false) {}
-
-    explicit ContentSettingsDetails(bool update_all)
-        : pattern_(), update_all_(update_all) {}
+    // Update the setting that matches this pattern/content type/resource.
+    ContentSettingsDetails(const Pattern& pattern,
+                           ContentSettingsType type,
+                           const std::string& resource_identifier)
+        : pattern_(pattern),
+          type_(type),
+          resource_identifier_(resource_identifier) {}
 
     // The pattern whose settings have changed.
     const Pattern& pattern() const { return pattern_; }
 
-    // True if many settings changed at once.
-    bool update_all() const { return update_all_; }
+    // True if all settings should be updated for the given type.
+    bool update_all() const { return pattern_.AsString().empty(); }
+
+    // The type of the pattern whose settings have changed.
+    ContentSettingsType type() const { return type_; }
+
+    // The resource identifier for the settings type that has changed.
+    const std::string& resource_identifier() const {
+      return resource_identifier_;
+    }
+
+    // True if all types should be updated. If update_all() is false, this will
+    // be false as well (although the reverse does not hold true).
+    bool update_all_types() const {
+      return CONTENT_SETTINGS_TYPE_DEFAULT == type_;
+    }
 
    private:
     Pattern pattern_;
-    bool update_all_;
+    ContentSettingsType type_;
+    std::string resource_identifier_;
   };
 
 
@@ -105,25 +124,52 @@ class HostContentSettingsMap
       ContentSettingsType content_type) const;
 
   // Returns a single ContentSetting which applies to a given URL. Note that
-  // certain internal schemes are whitelisted.
+  // certain internal schemes are whitelisted. For ContentSettingsTypes that
+  // require an resource identifier to be specified, the |resource_identifier|
+  // must be non-empty.
   //
   // This may be called on any thread.
-  ContentSetting GetContentSetting(const GURL& url,
-                                   ContentSettingsType content_type) const;
+  ContentSetting GetContentSetting(
+      const GURL& url,
+      ContentSettingsType content_type,
+      const std::string& resource_identifier) const;
 
-  // Returns all ContentSettings which apply to a given URL.
+  // Returns a single ContentSetting which applies to a given URL or
+  // CONTENT_SETTING_DEFAULT, if no exception applies. Note that certain
+  // internal schemes are whitelisted. For ContentSettingsTypes that require an
+  // resource identifier to be specified, the |resource_identifier| must be
+  // non-empty.
+  //
+  // This may be called on any thread.
+  ContentSetting GetNonDefaultContentSetting(
+      const GURL& url,
+      ContentSettingsType content_type,
+      const std::string& resource_identifier) const;
+
+  // Returns all ContentSettings which apply to a given URL. For content
+  // setting types that require an additional resource identifier, the default
+  // content setting is returned.
   //
   // This may be called on any thread.
   ContentSettings GetContentSettings(const GURL& url) const;
+
+  // Returns all non-default ContentSettings which apply to a given URL. For
+  // content setting types that require an additional resource identifier,
+  // CONTENT_SETTING_DEFAULT is returned.
+  //
+  // This may be called on any thread.
+  ContentSettings GetNonDefaultContentSettings(const GURL& url) const;
 
   // For a given content type, returns all patterns with a non-default setting,
   // mapped to their actual settings, in lexicographical order.  |settings|
   // must be a non-NULL outparam. If this map was created for the
   // off-the-record profile, it will only return those settings differing from
-  // the main map.
+  // the main map. For ContentSettingsTypes that require an resource identifier
+  // to be specified, the |resource_identifier| must be non-empty.
   //
   // This may be called on any thread.
   void GetSettingsForOneType(ContentSettingsType content_type,
+                             const std::string& resource_identifier,
                              SettingsForOneType* settings) const;
 
   // Sets the default setting for a particular content type. This method must
@@ -134,25 +180,36 @@ class HostContentSettingsMap
                                 ContentSetting setting);
 
   // Sets the blocking setting for a particular pattern and content type.
-  // Setting the value to CONTENT_SETTING_DEFAULT causes the default setting for
-  // that type to be used when loading pages matching this pattern.
+  // Setting the value to CONTENT_SETTING_DEFAULT causes the default setting
+  // for that type to be used when loading pages matching this pattern. For
+  // ContentSettingsTypes that require an resource identifier to be specified,
+  // the |resource_identifier| must be non-empty.
   //
   // This should only be called on the UI thread.
   void SetContentSetting(const Pattern& pattern,
                          ContentSettingsType content_type,
+                         const std::string& resource_identifier,
                          ContentSetting setting);
 
   // Convenience method to add a content setting for a given URL, making sure
-  // that there is no setting overriding it.
+  // that there is no setting overriding it. For ContentSettingsTypes that
+  // require an resource identifier to be specified, the |resource_identifier|
+  // must be non-empty.
+  //
   // This should only be called on the UI thread.
   void AddExceptionForURL(const GURL& url,
                           ContentSettingsType content_type,
+                          const std::string& resource_identifier,
                           ContentSetting setting);
 
   // Clears all host-specific settings for one content type.
   //
   // This should only be called on the UI thread.
   void ClearSettingsForOneType(ContentSettingsType content_type);
+
+  // Whether the |content_type| requires an additional resource identifier for
+  // accessing content settings.
+  bool RequiresResourceIdentifier(ContentSettingsType content_type) const;
 
   // This setting trumps any host-specific settings.
   bool BlockThirdPartyCookies() const { return block_third_party_cookies_; }
@@ -163,13 +220,16 @@ class HostContentSettingsMap
   // This should only be called on the UI thread.
   void SetBlockThirdPartyCookies(bool block);
 
+  bool GetBlockNonsandboxedPlugins() const {
+    return block_nonsandboxed_plugins_;
+  }
+
+  void SetBlockNonsandboxedPlugins(bool block);
+
   // Resets all settings levels.
   //
   // This should only be called on the UI thread.
   void ResetToDefaults();
-
-  // Whether this settings map is associated with an OTR session.
-  bool IsOffTheRecord();
 
   // NotificationObserver implementation.
   virtual void Observe(NotificationType type,
@@ -179,29 +239,32 @@ class HostContentSettingsMap
  private:
   friend class base::RefCountedThreadSafe<HostContentSettingsMap>;
 
-  typedef std::map<std::string, ContentSettings> HostContentSettings;
+  typedef std::pair<ContentSettingsType, std::string>
+      ContentSettingsTypeResourceIdentifierPair;
+  typedef std::map<ContentSettingsTypeResourceIdentifierPair, ContentSetting>
+      ResourceContentSettings;
 
-  // The names of the ContentSettingsType values, for use with dictionary prefs.
-  static const wchar_t* kTypeNames[CONTENT_SETTINGS_NUM_TYPES];
+  struct ExtendedContentSettings {
+    ContentSettings content_settings;
+    ResourceContentSettings content_settings_for_resources;
+  };
 
-  // The default setting for each content type.
-  static const ContentSetting kDefaultSettings[CONTENT_SETTINGS_NUM_TYPES];
-
-  // Returns true if we should allow all content types for this URL.  This is
-  // true for various internal objects like chrome:// URLs, so UI and other
-  // things users think of as "not webpages" don't break.
-  static bool ShouldAllowAllContent(const GURL& url);
+  typedef std::map<std::string, ExtendedContentSettings> HostContentSettings;
 
   // Sets the fields of |settings| based on the values in |dictionary|.
   void GetSettingsFromDictionary(const DictionaryValue* dictionary,
                                  ContentSettings* settings);
+
+  // Populates |settings| based on the values in |dictionary|.
+  void GetResourceSettingsFromDictionary(const DictionaryValue* dictionary,
+                                         ResourceContentSettings* settings);
 
   // Forces the default settings to be explicitly set instead of themselves
   // being CONTENT_SETTING_DEFAULT.
   void ForceDefaultsToBeExplicit();
 
   // Returns true if |settings| consists entirely of CONTENT_SETTING_DEFAULT.
-  bool AllDefault(const ContentSettings& settings) const;
+  bool AllDefault(const ExtendedContentSettings& settings) const;
 
   // Reads the default settings from the prefereces service. If |overwrite| is
   // true and the preference is missing, the local copy will be cleared as well.
@@ -223,6 +286,7 @@ class HostContentSettingsMap
   Profile* profile_;
 
   NotificationRegistrar notification_registrar_;
+  PrefChangeRegistrar pref_change_registrar_;
 
   // Copies of the pref data, so that we can read it on the IO thread.
   ContentSettings default_content_settings_;
@@ -234,6 +298,7 @@ class HostContentSettingsMap
 
   // Misc global settings.
   bool block_third_party_cookies_;
+  bool block_nonsandboxed_plugins_;
 
   // Used around accesses to the settings objects to guarantee thread safety.
   mutable Lock lock_;

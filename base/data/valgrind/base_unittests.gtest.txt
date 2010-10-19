@@ -16,4 +16,7 @@ ClipboardTest.*
 
 # These tests trigger a CHECK so they will leak memory.  They don't test
 # anything else, so just disable them on valgrind. Bug 28179.
-OutOfMemoryTest.*
+OutOfMemoryDeathTest.*
+
+# Flaky under Valgrind, see http://crbug.com/55517
+PlatformFile.TouchGetInfoPlatformFile

@@ -6,6 +6,7 @@
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/notification_registrar.h"
+#include "googleurl/src/gurl.h"
 
 namespace {
 
@@ -27,19 +28,19 @@ class MessageSender : public NotificationObserver {
     // from the origin http://b.com/ are supposed to arrive.
     message_service->DispatchEventToRenderers("test.onMessage",
         "[{\"lastMessage\":false,\"data\":\"no restriction\"}]",
-        Source<Profile>(source).ptr()->IsOffTheRecord(),
+        Source<Profile>(source).ptr(),
         GURL());
     message_service->DispatchEventToRenderers("test.onMessage",
         "[{\"lastMessage\":false,\"data\":\"http://a.com/\"}]",
-        Source<Profile>(source).ptr()->IsOffTheRecord(),
+        Source<Profile>(source).ptr(),
         GURL("http://a.com/"));
     message_service->DispatchEventToRenderers("test.onMessage",
         "[{\"lastMessage\":false,\"data\":\"http://b.com/\"}]",
-        Source<Profile>(source).ptr()->IsOffTheRecord(),
+        Source<Profile>(source).ptr(),
         GURL("http://b.com/"));
     message_service->DispatchEventToRenderers("test.onMessage",
         "[{\"lastMessage\":true,\"data\":\"last message\"}]",
-        Source<Profile>(source).ptr()->IsOffTheRecord(),
+        Source<Profile>(source).ptr(),
         GURL());
   }
 
@@ -50,7 +51,7 @@ class MessageSender : public NotificationObserver {
 
 // Tests that message passing between extensions and content scripts works.
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, Messaging) {
-  ASSERT_TRUE(StartHTTPServer());
+  ASSERT_TRUE(test_server()->Start());
   ASSERT_TRUE(RunExtensionTest("messaging/connect")) << message_;
 }
 

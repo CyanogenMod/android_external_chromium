@@ -4,8 +4,7 @@
 
 #ifndef CHROME_BROWSER_IO_THREAD_H_
 #define CHROME_BROWSER_IO_THREAD_H_
-
-#include <vector>
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
@@ -111,7 +110,6 @@ class IOThread : public BrowserProcessSubThread {
   // these observers would be used accidentally after we have begun to tear
   // down.
   chrome_browser_net::ConnectInterceptor* speculative_interceptor_;
-  net::HostResolver::Observer* prefetch_observer_;
   chrome_browser_net::Predictor* predictor_;
 
   DISALLOW_COPY_AND_ASSIGN(IOThread);

@@ -7,12 +7,27 @@
 #import "chrome/browser/browser_window.h"
 #include "chrome/browser/cocoa/browser_test_helper.h"
 #import "chrome/browser/cocoa/cocoa_test_helper.h"
+#import "chrome/browser/cocoa/new_tab_button.h"
 #import "chrome/browser/cocoa/tab_strip_controller.h"
 #import "chrome/browser/cocoa/tab_strip_view.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
+
+@interface TestTabStripControllerDelegate :
+  NSObject<TabStripControllerDelegate> {
+}
+@end
+
+@implementation TestTabStripControllerDelegate
+- (void)onSelectTabWithContents:(TabContents*)contents {
+}
+- (void)onSelectedTabChange:(TabStripModelObserver::TabChangeType)change {
+}
+- (void)onTabDetachedWithContents:(TabContents*)contents {
+}
+@end
 
 namespace {
 
@@ -27,7 +42,8 @@ class TestTabStripDelegate : public TabStripModelDelegate {
   }
   virtual Browser* CreateNewStripWithContents(TabContents* contents,
                                               const gfx::Rect& window_bounds,
-                                              const DockInfo& dock_info) {
+                                              const DockInfo& dock_info,
+                                              bool maximize) {
     return NULL;
   }
   virtual void ContinueDraggingDetachedTab(TabContents* contents,
@@ -62,11 +78,15 @@ class TestTabStripDelegate : public TabStripModelDelegate {
 
   virtual bool CanBookmarkAllTabs() const { return false; }
 
+  virtual bool CanCloseTab() const { return true; }
+
   virtual void BookmarkAllTabs() {}
 
   virtual bool UseVerticalTabs() const { return false; }
 
   virtual void ToggleUseVerticalTabs() {}
+
+  virtual bool LargeIconsPermitted() const { return true; }
 };
 
 class TabStripControllerTest : public CocoaTest {
@@ -93,17 +113,19 @@ class TabStripControllerTest : public CocoaTest {
         [[TabStripView alloc] initWithFrame:strip_frame]);
     [parent addSubview:tab_strip.get()];
     NSRect button_frame = NSMakeRect(0, 0, 15, 15);
-    scoped_nsobject<NSButton> new_tab_button(
-        [[NSButton alloc] initWithFrame:button_frame]);
+    scoped_nsobject<NewTabButton> new_tab_button(
+        [[NewTabButton alloc] initWithFrame:button_frame]);
     [tab_strip addSubview:new_tab_button.get()];
     [tab_strip setNewTabButton:new_tab_button.get()];
 
     delegate_.reset(new TestTabStripDelegate());
     model_ = browser->tabstrip_model();
+    controller_delegate_.reset([TestTabStripControllerDelegate alloc]);
     controller_.reset([[TabStripController alloc]
                         initWithView:static_cast<TabStripView*>(tab_strip.get())
                           switchView:switch_view.get()
-                             browser:browser]);
+                             browser:browser
+                            delegate:controller_delegate_.get()]);
   }
 
   virtual void TearDown() {
@@ -118,6 +140,7 @@ class TabStripControllerTest : public CocoaTest {
   BrowserTestHelper browser_helper_;
   scoped_ptr<TestTabStripDelegate> delegate_;
   TabStripModel* model_;
+  scoped_nsobject<TestTabStripControllerDelegate> controller_delegate_;
   scoped_nsobject<TabStripController> controller_;
 };
 
@@ -129,7 +152,7 @@ TEST_F(TabStripControllerTest, AddRemoveTabs) {
       SiteInstance::CreateSiteInstance(browser_helper_.profile());
   TabContents* tab_contents =
       new TabContents(browser_helper_.profile(), instance, MSG_ROUTING_NONE,
-                      NULL);
+                      NULL, NULL);
   model_->AppendTabContents(tab_contents, true);
   EXPECT_EQ(model_->count(), 1);
 }

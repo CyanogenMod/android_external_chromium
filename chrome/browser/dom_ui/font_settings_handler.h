@@ -4,10 +4,12 @@
 
 #ifndef CHROME_BROWSER_DOM_UI_FONT_SETTINGS_HANDLER_H_
 #define CHROME_BROWSER_DOM_UI_FONT_SETTINGS_HANDLER_H_
+#pragma once
 
 #include "chrome/browser/dom_ui/options_ui.h"
+#include "chrome/browser/prefs/pref_member.h"
 
-// Chrome personal options page UI handler.
+// Font settings overlay page UI handler.
 class FontSettingsHandler : public OptionsPageUIHandler {
  public:
   FontSettingsHandler();
@@ -15,8 +17,27 @@ class FontSettingsHandler : public OptionsPageUIHandler {
 
   // OptionsUIHandler implementation.
   virtual void GetLocalizedValues(DictionaryValue* localized_strings);
+  virtual void Initialize();
+
+  // DOMMessageHandler implementation.
+  virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
+
+  // NotificationObserver implementation.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
 
  private:
+  void SetupSerifFontPreview();
+  void SetupSansSerifFontPreview();
+  void SetupFixedFontPreview();
+
+  StringPrefMember serif_font_;
+  StringPrefMember sans_serif_font_;
+  StringPrefMember fixed_font_;
+  IntegerPrefMember default_font_size_;
+  IntegerPrefMember default_fixed_font_size_;
+
   DISALLOW_COPY_AND_ASSIGN(FontSettingsHandler);
 };
 

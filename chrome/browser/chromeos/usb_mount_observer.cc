@@ -8,8 +8,10 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/dom_ui/filebrowse_ui.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 
 namespace chromeos {
@@ -52,7 +54,11 @@ void USBMountObserver::OpenFileBrowse(const std::string& url,
                                       bool small) {
   Browser* browser;
   Profile* profile;
-  profile = BrowserList::GetLastActive()->profile();
+  browser =  BrowserList::GetLastActive();
+  if (browser == NULL) {
+    return;
+  }
+  profile = browser->profile();
   PrefService* pref_service = profile->GetPrefs();
   if (!pref_service->GetBoolean(prefs::kLabsAdvancedFilesystemEnabled)) {
     return;

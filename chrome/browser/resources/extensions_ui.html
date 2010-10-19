@@ -14,13 +14,16 @@ a {
   font-size: 103%;
 }
 
-#header {
+div#header {
   margin-bottom: 1.05em;
+  /* 67px is the height of the header's background image. */
+  min-height: 67px;
   overflow: hidden;
-  padding-bottom: 1.5em;
+  padding-bottom: 20px;
   padding-left: 0;
-  padding-top: 1.5em;
+  padding-top: 20px;
   position: relative;
+  -webkit-box-sizing: border-box;
 }
 
 html[dir=rtl] #header {
@@ -35,6 +38,7 @@ html[dir=rtl] #header {
   padding-left: 75px;
   padding-top: 40px;
 }
+
 html[dir=rtl] #header h1 {
   background: url('../../app/theme/extensions_section.png') right no-repeat;
   padding-right: 95px;
@@ -355,6 +359,7 @@ var extensionDataFormat = {
       'wantsFileAccess': 'false',
       'allowFileAccess': 'false',
       'allow_reload': true,
+      'is_hosted_app': false,
       'order': 1,
       'options_url': 'options.html',
       'icon': 'relative-path-to-icon.png',
@@ -378,12 +383,14 @@ var extensionDataFormat = {
         {
           'path': 'toolstrip.html',
           'renderViewId': 1,
-          'renderProcessId': 1
+          'renderProcessId': 1,
+          'incognito': false
         },
         {
           'path': 'background.html',
           'renderViewId': 2,
-          'renderProcessId': 1
+          'renderProcessId': 1,
+          'incognito': false
         }
       ]
     },
@@ -397,6 +404,7 @@ var extensionDataFormat = {
       'wantsFileAccess': 'false',
       'allowFileAccess': 'false',
       'allow_reload': false,
+      'is_hosted_app': false,
       'order': 2,
       'icon': '',
       'content_scripts': [
@@ -415,7 +423,8 @@ var extensionDataFormat = {
         {
           'path': 'foo/bar/toolstrip.html',
           'renderViewId': 3,
-          'renderProcessId': 1
+          'renderProcessId': 1,
+          'incognito': false
         }
       ],
       "hasPopupAction": false
@@ -856,12 +865,15 @@ document.addEventListener('DOMContentLoaded', requestExtensionsData);
                 </span>
                 <ul class="extension-views">
                   <li jsselect="views">
-                    <a jsvalues=".extensionView:$this" href="#"
-                       onclick="sendInspectMessage(this.extensionView); return false;">
-                       <span jscontent="path"></span>
-                    </a>
+                    <span jsvalues=".extensionView:$this">
+                      <a jsvalues=".extensionView:$this" href="#"
+                         onclick="sendInspectMessage(this.extensionView); return false;">
+                        <span jscontent="path"></span></a>
+                      <span jsdisplay="incognito"
+                            i18n-content="viewIncognito">(INCOGNITO)</span>
+                    </span>
                   </li>
-                  <li i18n-content="inspectPopupsInstructions" 
+                  <li i18n-content="inspectPopupsInstructions"
                       class="inspectPopupNote" jsdisplay="hasPopupAction">
                     INSPECT POPUP INSRUCTIONS
                   </li>
@@ -906,8 +918,7 @@ document.addEventListener('DOMContentLoaded', requestExtensionsData);
                   href="javascript:void 0;"
                   i18n-content="options"
                   >OPTIONS</a>
-                <label
-                  jsdisplay="enabled">
+                <label jsdisplay="enabled && !is_hosted_app">
                 <input type="checkbox"
                   jsvalues=".extensionId:id;.enabled:enabled"
                   jsdisplay="enabled"

@@ -28,26 +28,75 @@
 #ifndef TALK_P2P_BASE_SESSIONDESCRIPTION_H_
 #define TALK_P2P_BASE_SESSIONDESCRIPTION_H_
 
+#include <string>
+#include <vector>
+
 namespace cricket {
 
-// Describes a session. Individual session types can override this as needed.
+// Describes a session content. Individual content types inherit from
+// this class.  Analagous to a <jingle><content><description> or
+// <session><description>.
+class ContentDescription {
+ public:
+  virtual ~ContentDescription() {}
+};
+
+// Analagous to a <jingle><content> or <session><description>.
+// name = name of <content name="...">
+// type = xmlns of <content>
+struct ContentInfo {
+  ContentInfo() : description(NULL) {}
+  ContentInfo(const std::string& name,
+              const std::string& type,
+              const ContentDescription* description) :
+      name(name), type(type), description(description) {}
+  std::string name;
+  std::string type;
+  const ContentDescription* description;
+};
+
+// Describes a collection of contents, each with its own name and
+// type.  Analgous to a <jingle> or <session> stanza.  Assumes that
+// contents are unique be name, but doesn't enforce that.
 class SessionDescription {
  public:
-  virtual ~SessionDescription() {}
+  SessionDescription() {}
+  explicit SessionDescription(const std::vector<ContentInfo>& contents) :
+      contents_(contents) {}
+  const ContentInfo* GetContentByName(const std::string& name) const;
+  const ContentInfo* FirstContentByType(const std::string& type) const;
+  // Takes ownership of ContentDescription*.
+  void AddContent(const std::string& name,
+                  const std::string& type,
+                  const ContentDescription* description);
+  // TODO(pthatcher): Implement RemoveContent when it's needed for
+  // content-remove Jingle messages.
+  // void RemoveContent(const std::string& name);
+  const std::vector<ContentInfo>& contents() const { return contents_; }
+
+  ~SessionDescription() {
+    for (std::vector<ContentInfo>::iterator content = contents_.begin();
+         content != contents_.end(); content++) {
+      delete content->description;
+    }
+  }
+
+ private:
+  std::vector<ContentInfo> contents_;
 };
 
-// Indicates whether a SessionDescription was an offer or an answer, as
-// described in http://www.ietf.org/rfc/rfc3264.txt. DT_UPDATE
+// Indicates whether a ContentDescription was an offer or an answer, as
+// described in http://www.ietf.org/rfc/rfc3264.txt. CA_UPDATE
 // indicates a jingle update message which contains a subset of a full
 // session description
-enum DescriptionType {
-  DT_OFFER, DT_ANSWER, DT_UPDATE
+enum ContentAction {
+  CA_OFFER, CA_ANSWER, CA_UPDATE
 };
 
-// Indicates whether a SessionDescription was sent by the local client
+// Indicates whether a ContentDescription was sent by the local client
 // or received from the remote client.
-enum DescriptionSource {
-  DS_LOCAL, DS_REMOTE
+enum ContentSource {
+  CS_LOCAL, CS_REMOTE
 };
 
 }  // namespace cricket

@@ -7,13 +7,14 @@
 #include "base/json/json_writer.h"
 #include "base/scoped_ptr.h"
 #include "base/stl_util-inl.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/google_service_auth_error.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/sync/profile_sync_factory_mock.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_setup_flow.h"
+#include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/browser_with_test_window_test.h"
 #include "chrome/test/testing_profile.h"
@@ -31,7 +32,7 @@ typedef GoogleServiceAuthError AuthError;
 class ProfileSyncServiceForWizardTest : public ProfileSyncService {
  public:
   ProfileSyncServiceForWizardTest(ProfileSyncFactory* factory, Profile* profile)
-      : ProfileSyncService(factory, profile, false),
+      : ProfileSyncService(factory, profile, ""),
         user_cancelled_dialog_(false) {
     RegisterPreferences();
     ResetTestStats();
@@ -164,8 +165,7 @@ class TestBrowserWindowForWizardTest : public TestBrowserWindow {
 class SyncSetupWizardTest : public BrowserWithTestWindowTest {
  public:
   SyncSetupWizardTest()
-      : ui_thread_(ChromeThread::UI, MessageLoop::current()),
-        file_thread_(ChromeThread::FILE, MessageLoop::current()),
+      : file_thread_(ChromeThread::FILE, MessageLoop::current()),
         test_window_(NULL),
         wizard_(NULL) { }
   virtual ~SyncSetupWizardTest() { }
@@ -190,7 +190,6 @@ class SyncSetupWizardTest : public BrowserWithTestWindowTest {
     wizard_.reset();
   }
 
-  ChromeThread ui_thread_;
   ChromeThread file_thread_;
   TestBrowserWindowForWizardTest* test_window_;
   scoped_ptr<SyncSetupWizard> wizard_;
@@ -250,15 +249,15 @@ TEST_F(SyncSetupWizardTest, InitialStepLogin) {
   EXPECT_EQ(SyncSetupWizard::GAIA_LOGIN, test_window_->flow()->current_state_);
   dialog_args.Clear();
   SyncSetupFlow::GetArgsForGaiaLogin(service_, &dialog_args);
-  EXPECT_EQ(4U, dialog_args.size());
+  EXPECT_EQ(5U, dialog_args.size());
   std::string iframe_to_show;
-  dialog_args.GetString(L"iframeToShow", &iframe_to_show);
+  dialog_args.GetString("iframeToShow", &iframe_to_show);
   EXPECT_EQ("login", iframe_to_show);
   std::string actual_user;
-  dialog_args.GetString(L"user", &actual_user);
+  dialog_args.GetString("user", &actual_user);
   EXPECT_EQ(kTestUser, actual_user);
   int error = -1;
-  dialog_args.GetInteger(L"error", &error);
+  dialog_args.GetInteger("error", &error);
   EXPECT_EQ(static_cast<int>(AuthError::INVALID_GAIA_CREDENTIALS), error);
   service_->set_auth_state(kTestUser, AuthError::None());
 
@@ -268,14 +267,14 @@ TEST_F(SyncSetupWizardTest, InitialStepLogin) {
   service_->set_auth_state(kTestUser, captcha_error);
   wizard_->Step(SyncSetupWizard::GAIA_LOGIN);
   SyncSetupFlow::GetArgsForGaiaLogin(service_, &dialog_args);
-  EXPECT_EQ(4U, dialog_args.size());
-  dialog_args.GetString(L"iframeToShow", &iframe_to_show);
+  EXPECT_EQ(5U, dialog_args.size());
+  dialog_args.GetString("iframeToShow", &iframe_to_show);
   EXPECT_EQ("login", iframe_to_show);
   std::string captcha_url;
-  dialog_args.GetString(L"captchaUrl", &captcha_url);
+  dialog_args.GetString("captchaUrl", &captcha_url);
   EXPECT_EQ(kTestCaptchaUrl, GURL(captcha_url).spec());
   error = -1;
-  dialog_args.GetInteger(L"error", &error);
+  dialog_args.GetInteger("error", &error);
   EXPECT_EQ(static_cast<int>(AuthError::CAPTCHA_REQUIRED), error);
   service_->set_auth_state(kTestUser, AuthError::None());
 
@@ -306,11 +305,12 @@ TEST_F(SyncSetupWizardTest, ChooseDataTypesSetsPrefs) {
   data_type_choices += "\"syncBookmarks\":true,\"syncPreferences\":true,";
   data_type_choices += "\"syncThemes\":false,\"syncPasswords\":false,";
   data_type_choices += "\"syncAutofill\":false,\"syncExtensions\":false,";
-  data_type_choices += "\"syncTypedUrls\":true}";
+  data_type_choices += "\"syncTypedUrls\":true,\"syncApps\":true,";
+  data_type_choices += "\"syncSessions\":false}";
   data_type_choices_value.Append(new StringValue(data_type_choices));
 
-  // Simulate the user choosing data types; bookmarks and prefs are on, the rest
-  // are off.
+  // Simulate the user choosing data types; bookmarks, prefs, typed
+  // URLS, and apps are on, the rest are off.
   test_window_->flow()->flow_handler_->HandleChooseDataTypes(
       &data_type_choices_value);
   EXPECT_TRUE(wizard_->IsVisible());
@@ -323,6 +323,7 @@ TEST_F(SyncSetupWizardTest, ChooseDataTypesSetsPrefs) {
   EXPECT_EQ(service_->chosen_data_types_.count(syncable::AUTOFILL), 0U);
   EXPECT_EQ(service_->chosen_data_types_.count(syncable::EXTENSIONS), 0U);
   EXPECT_EQ(service_->chosen_data_types_.count(syncable::TYPED_URLS), 1U);
+  EXPECT_EQ(service_->chosen_data_types_.count(syncable::APPS), 1U);
 
   test_window_->CloseDialog();
 }
@@ -472,15 +473,15 @@ TEST_F(SyncSetupWizardTest, DiscreteRunGaiaLogin) {
   wizard_->Step(SyncSetupWizard::GAIA_LOGIN);
   EXPECT_TRUE(wizard_->IsVisible());
   SyncSetupFlow::GetArgsForGaiaLogin(service_, &dialog_args);
-  EXPECT_EQ(4U, dialog_args.size());
+  EXPECT_EQ(5U, dialog_args.size());
   std::string iframe_to_show;
-  dialog_args.GetString(L"iframeToShow", &iframe_to_show);
+  dialog_args.GetString("iframeToShow", &iframe_to_show);
   EXPECT_EQ("login", iframe_to_show);
   std::string actual_user;
-  dialog_args.GetString(L"user", &actual_user);
+  dialog_args.GetString("user", &actual_user);
   EXPECT_EQ(kTestUser, actual_user);
   int error = -1;
-  dialog_args.GetInteger(L"error", &error);
+  dialog_args.GetInteger("error", &error);
   EXPECT_EQ(static_cast<int>(AuthError::INVALID_GAIA_CREDENTIALS), error);
   service_->set_auth_state(kTestUser, AuthError::None());
 

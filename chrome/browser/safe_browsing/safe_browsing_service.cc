@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -11,7 +11,7 @@
 #include "base/string_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/metrics/metrics_service.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile_manager.h"
 #include "chrome/browser/safe_browsing/protocol_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_blocking_page.h"
@@ -55,6 +55,7 @@ SafeBrowsingService::SafeBrowsingService()
       protocol_manager_(NULL),
       enabled_(false),
       update_in_progress_(false),
+      database_update_in_progress_(false),
       closing_database_(false) {
 }
 
@@ -148,6 +149,7 @@ void SafeBrowsingService::CancelCheck(Client* client) {
 }
 
 void SafeBrowsingService::DisplayBlockingPage(const GURL& url,
+                                              const GURL& original_url,
                                               ResourceType::Type resource_type,
                                               UrlCheckResult result,
                                               Client* client,
@@ -173,6 +175,7 @@ void SafeBrowsingService::DisplayBlockingPage(const GURL& url,
 
   UnsafeResource resource;
   resource.url = url;
+  resource.original_url = original_url;
   resource.resource_type = resource_type;
   resource.threat_type= result;
   resource.client = client;
@@ -362,7 +365,9 @@ void SafeBrowsingService::OnIOInitialize(
 #endif
 #endif
   CommandLine* cmdline = CommandLine::ForCurrentProcess();
-  bool disable_auto_update = cmdline->HasSwitch(switches::kSbDisableAutoUpdate);
+  bool disable_auto_update =
+      cmdline->HasSwitch(switches::kSbDisableAutoUpdate) ||
+      cmdline->HasSwitch(switches::kDisableBackgroundNetworking);
   std::string info_url_prefix =
       cmdline->HasSwitch(switches::kSbInfoURLPrefix) ?
       cmdline->GetSwitchValueASCII(switches::kSbInfoURLPrefix) :
@@ -451,7 +456,7 @@ bool SafeBrowsingService::MakeDatabaseAvailable() {
 }
 
 SafeBrowsingDatabase* SafeBrowsingService::GetDatabase() {
-  DCHECK(MessageLoop::current() == safe_browsing_thread_->message_loop());
+  DCHECK_EQ(MessageLoop::current(), safe_browsing_thread_->message_loop());
   if (database_)
     return database_;
 
@@ -521,12 +526,14 @@ void SafeBrowsingService::OnCheckDone(SafeBrowsingCheck* check) {
 }
 
 void SafeBrowsingService::GetAllChunksFromDatabase() {
-  DCHECK(MessageLoop::current() == safe_browsing_thread_->message_loop());
+  DCHECK_EQ(MessageLoop::current(), safe_browsing_thread_->message_loop());
+
   bool database_error = true;
   std::vector<SBListChunkRanges> lists;
+  DCHECK(!database_update_in_progress_);
+  database_update_in_progress_ = true;
   GetDatabase();  // This guarantees that |database_| is non-NULL.
-  if (database_->UpdateStarted()) {
-    database_->GetListsInfo(&lists);
+  if (database_->UpdateStarted(&lists)) {
     database_error = false;
   } else {
     database_->UpdateFinished(false);
@@ -579,7 +586,7 @@ void SafeBrowsingService::DatabaseLoadComplete() {
 void SafeBrowsingService::HandleChunkForDatabase(
     const std::string& list_name,
     SBChunkList* chunks) {
-  DCHECK(MessageLoop::current() == safe_browsing_thread_->message_loop());
+  DCHECK_EQ(MessageLoop::current(), safe_browsing_thread_->message_loop());
   if (chunks) {
     GetDatabase()->InsertChunks(list_name, *chunks);
     delete chunks;
@@ -591,7 +598,7 @@ void SafeBrowsingService::HandleChunkForDatabase(
 
 void SafeBrowsingService::DeleteChunks(
     std::vector<SBChunkDelete>* chunk_deletes) {
-  DCHECK(MessageLoop::current() == safe_browsing_thread_->message_loop());
+  DCHECK_EQ(MessageLoop::current(), safe_browsing_thread_->message_loop());
   if (chunk_deletes) {
     GetDatabase()->DeleteChunks(*chunk_deletes);
     delete chunk_deletes;
@@ -618,8 +625,10 @@ void SafeBrowsingService::NotifyClientBlockingComplete(Client* client,
 }
 
 void SafeBrowsingService::DatabaseUpdateFinished(bool update_succeeded) {
-  DCHECK(MessageLoop::current() == safe_browsing_thread_->message_loop());
+  DCHECK_EQ(MessageLoop::current(), safe_browsing_thread_->message_loop());
   GetDatabase()->UpdateFinished(update_succeeded);
+  DCHECK(database_update_in_progress_);
+  database_update_in_progress_ = false;
 }
 
 void SafeBrowsingService::Start() {
@@ -651,7 +660,7 @@ void SafeBrowsingService::Start() {
 }
 
 void SafeBrowsingService::OnCloseDatabase() {
-  DCHECK(MessageLoop::current() == safe_browsing_thread_->message_loop());
+  DCHECK_EQ(MessageLoop::current(), safe_browsing_thread_->message_loop());
   DCHECK(closing_database_);
 
   // Because |closing_database_| is true, nothing on the IO thread will be
@@ -668,14 +677,14 @@ void SafeBrowsingService::OnCloseDatabase() {
 }
 
 void SafeBrowsingService::OnResetDatabase() {
-  DCHECK(MessageLoop::current() == safe_browsing_thread_->message_loop());
+  DCHECK_EQ(MessageLoop::current(), safe_browsing_thread_->message_loop());
   GetDatabase()->ResetDatabase();
 }
 
 void SafeBrowsingService::CacheHashResults(
   const std::vector<SBPrefix>& prefixes,
   const std::vector<SBFullHashResult>& full_hashes) {
-  DCHECK(MessageLoop::current() == safe_browsing_thread_->message_loop());
+  DCHECK_EQ(MessageLoop::current(), safe_browsing_thread_->message_loop());
   GetDatabase()->CacheHashResults(prefixes, full_hashes);
 }
 
@@ -744,26 +753,44 @@ void SafeBrowsingService::DoDisplayBlockingPage(
     return;
   }
 
-  // Report the malware sub-resource to the SafeBrowsing servers if we have a
-  // malware sub-resource on a safe page and only if the user has opted in to
+  // Report the malware resource to the SafeBrowsing servers if we have a
+  // malware resource on a safe page and only if the user has opted in to
   // reporting statistics.
   const MetricsService* metrics = g_browser_process->metrics_service();
   DCHECK(metrics);
   if (metrics && metrics->reporting_active() &&
-      resource.resource_type != ResourceType::MAIN_FRAME &&
       resource.threat_type == SafeBrowsingService::URL_MALWARE) {
     GURL page_url = wc->GetURL();
     GURL referrer_url;
     NavigationEntry* entry = wc->controller().GetActiveEntry();
     if (entry)
       referrer_url = entry->referrer();
-    ChromeThread::PostTask(
-        ChromeThread::IO, FROM_HERE,
-        NewRunnableMethod(this,
-                          &SafeBrowsingService::ReportMalware,
-                          resource.url,
-                          page_url,
-                          referrer_url));
+    bool is_subresource = resource.resource_type != ResourceType::MAIN_FRAME;
+
+    // When the malicious url is on the main frame, and resource.original_url
+    // is not the same as the resource.url, that means we have a redirect from
+    // resource.original_url to resource.url.
+    // Also, at this point, page_url points to the _previous_ page that we
+    // were on. We replace page_url with resource.original_url and referrer
+    // with page_url.
+    if (!is_subresource &&
+        !resource.original_url.is_empty() &&
+        resource.original_url != resource.url) {
+      referrer_url = page_url;
+      page_url = resource.original_url;
+    }
+
+    if ((!page_url.is_empty() && resource.url != page_url) ||
+        !referrer_url.is_empty()) {
+      ChromeThread::PostTask(
+          ChromeThread::IO, FROM_HERE,
+          NewRunnableMethod(this,
+                            &SafeBrowsingService::ReportMalware,
+                            resource.url,
+                            page_url,
+                            referrer_url,
+                            is_subresource));
+    }
   }
 
   SafeBrowsingBlockingPage::ShowBlockingPage(this, resource);
@@ -771,7 +798,8 @@ void SafeBrowsingService::DoDisplayBlockingPage(
 
 void SafeBrowsingService::ReportMalware(const GURL& malware_url,
                                         const GURL& page_url,
-                                        const GURL& referrer_url) {
+                                        const GURL& referrer_url,
+                                        bool is_subresource) {
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
 
   if (!enabled_)
@@ -779,7 +807,8 @@ void SafeBrowsingService::ReportMalware(const GURL& malware_url,
 
   if (DatabaseAvailable()) {
     // Check if 'page_url' is already blacklisted (exists in our cache). Only
-    // report if it's not there.
+    // report if it's not there. This can happen if the user has ignored
+    // the warning for page_url and is now hitting a warning for a resource.
     std::string list;
     std::vector<SBPrefix> prefix_hits;
     std::vector<SBFullHashResult> full_hits;
@@ -789,5 +818,9 @@ void SafeBrowsingService::ReportMalware(const GURL& malware_url,
       return;
   }
 
-  protocol_manager_->ReportMalware(malware_url, page_url, referrer_url);
+  DLOG(INFO) << "ReportMalware: " << malware_url << " " << page_url << " " <<
+      referrer_url << " " << is_subresource;
+
+  protocol_manager_->ReportMalware(malware_url, page_url, referrer_url,
+                                   is_subresource);
 }

@@ -20,14 +20,86 @@ EVENT_TYPE(REQUEST_ALIVE)
 // HostResolverImpl
 // ------------------------------------------------------------------------
 
-// The start/end of a host resolve (DNS) request.
-// If an error occurred, the end phase will contain these parameters:
+// The start/end of waiting on a host resolve (DNS) request.
+// The BEGIN phase contains the following parameters:
+//
+//   {
+//     "source_dependency": <Source id of the request being waited on>
+//   }
+EVENT_TYPE(HOST_RESOLVER_IMPL)
+
+// The start/end of a host resolve (DNS) request.  Note that these events are
+// logged for all DNS requests, though not all requests result in the creation
+// of a HostResolvedImpl::Request object.
+//
+// The BEGIN phase contains the following parameters:
+//
+//   {
+//     "host": <Hostname associated with the request>
+//     "source_dependency": <Source id, if any, of what created the request>
+//   }
+//
+// If an error occurred, the END phase will contain these parameters:
 //   {
 //     "net_error": <The net error code integer for the failure>,
 //     "os_error": <The exact error code integer that getaddrinfo() returned>,
-//     "was_from_cache": <True if the response was gotten from the cache>
 //   }
-EVENT_TYPE(HOST_RESOLVER_IMPL)
+
+EVENT_TYPE(HOST_RESOLVER_IMPL_REQUEST)
+
+// This event is logged when a request is handled by a cache entry.
+EVENT_TYPE(HOST_RESOLVER_IMPL_CACHE_HIT)
+
+// This event means a request was queued/dequeued for subsequent job creation,
+// because there are already too many active HostResolverImpl::Jobs.
+//
+// The BEGIN phase contains the following parameters:
+//
+//   {
+//     "priority": <Priority of the queued request>
+//   }
+EVENT_TYPE(HOST_RESOLVER_IMPL_JOB_POOL_QUEUE)
+
+// This event is created when a new HostResolverImpl::Request is evicted from
+// JobPool without a Job being created, because the limit on number of queued
+// Requests was reached.
+EVENT_TYPE(HOST_RESOLVER_IMPL_JOB_POOL_QUEUE_EVICTED)
+
+// This event is created when a new HostResolverImpl::Job is about to be created
+// for a request.
+EVENT_TYPE(HOST_RESOLVER_IMPL_CREATE_JOB)
+
+// This is logged for a request when it's attached to a
+// HostResolverImpl::Job.  When this occurs without a preceding
+// HOST_RESOLVER_IMPL_CREATE_JOB entry, it means the request was attached to an
+// existing HostResolverImpl::Job.
+//
+// If the BoundNetLog used to create the event has a valid source id, the BEGIN
+// phase contains the following parameters:
+//
+//   {
+//     "source_dependency": <Source identifier for the attached Job>
+//   }
+EVENT_TYPE(HOST_RESOLVER_IMPL_JOB_ATTACH)
+
+// The creation/completion of a host resolve (DNS) job.
+// The BEGIN phase contains the following parameters:
+//
+//   {
+//     "host": <Hostname associated with the request>
+//     "source_dependency": <Source id, if any, of what created the request>
+//   }
+//
+// On success, the END phase has these parameters:
+//   {
+//     "address_list": <The host name being resolved>,
+//   }
+// If an error occurred, the END phase will contain these parameters:
+//   {
+//     "net_error": <The net error code integer for the failure>,
+//     "os_error": <The exact error code integer that getaddrinfo() returned>,
+//   }
+EVENT_TYPE(HOST_RESOLVER_IMPL_JOB)
 
 // ------------------------------------------------------------------------
 // InitProxyResolver
@@ -35,6 +107,11 @@ EVENT_TYPE(HOST_RESOLVER_IMPL)
 
 // The start/end of auto-detect + custom PAC URL configuration.
 EVENT_TYPE(INIT_PROXY_RESOLVER)
+
+// The start/end of when proxy autoconfig was artificially paused following
+// a network change event. (We wait some amount of time after being told of
+// network changes to avoid hitting spurious errors during auto-detect).
+EVENT_TYPE(INIT_PROXY_RESOLVER_WAIT)
 
 // The start/end of download of a PAC script. This could be the well-known
 // WPAD URL (if testing auto-detect), or a custom PAC URL.
@@ -79,9 +156,6 @@ EVENT_TYPE(PROXY_SERVICE)
 // are found from ProxyService::init_proxy_resolver_log().
 EVENT_TYPE(PROXY_SERVICE_WAITING_FOR_INIT_PAC)
 
-// The time taken to fetch the system proxy configuration.
-EVENT_TYPE(PROXY_SERVICE_POLL_CONFIG_SERVICE_FOR_CHANGES)
-
 // This event is emitted to show what the PAC script returned. It can contain
 // extra parameters that are either:
 //   {
@@ -93,6 +167,19 @@ EVENT_TYPE(PROXY_SERVICE_POLL_CONFIG_SERVICE_FOR_CHANGES)
 //      "net_error": <Net error code that resolver failed with>
 //   }
 EVENT_TYPE(PROXY_SERVICE_RESOLVED_PROXY_LIST)
+
+// This event is emitted whenever the proxy settings used by ProxyService
+// change.
+//
+// It contains these parameters:
+//  {
+//     "old_config": <Dump of the previous proxy settings>,
+//     "new_config": <Dump of the new proxy settings>
+//  }
+//
+// Note that the "old_config" key will be omitted on the first fetch of the
+// proxy settings (since there wasn't a previous value).
+EVENT_TYPE(PROXY_CONFIG_CHANGED)
 
 // ------------------------------------------------------------------------
 // Proxy Resolver
@@ -433,27 +520,43 @@ EVENT_TYPE(HTTP_TRANSACTION_READ_BODY)
 EVENT_TYPE(HTTP_TRANSACTION_DRAIN_BODY_FOR_AUTH_RESTART)
 
 // ------------------------------------------------------------------------
-// SpdyNetworkTransaction
-// ------------------------------------------------------------------------
-
-// Measures the time taken to get a spdy stream.
-EVENT_TYPE(SPDY_TRANSACTION_INIT_CONNECTION)
-
-// Measures the time taken to send the request to the server.
-EVENT_TYPE(SPDY_TRANSACTION_SEND_REQUEST)
-
-// Measures the time to read HTTP response headers from the server.
-EVENT_TYPE(SPDY_TRANSACTION_READ_HEADERS)
-
-// Measures the time to read the entity body from the server.
-EVENT_TYPE(SPDY_TRANSACTION_READ_BODY)
-
-// ------------------------------------------------------------------------
 // SpdySession
 // ------------------------------------------------------------------------
 
 // The start/end of a SpdySession.
+//   {
+//     "host": <The host-port string>,
+//     "proxy": <The Proxy PAC string>,
+//   }
 EVENT_TYPE(SPDY_SESSION)
+
+// This event is sent for a SPDY SYN_STREAM.
+// The following parameters are attached:
+//   {
+//     "flags": <The control frame flags>,
+//     "headers": <The list of header:value pairs>,
+//     "id": <The stream id>
+//   }
+EVENT_TYPE(SPDY_SESSION_SYN_STREAM)
+
+// This event is sent for a SPDY SYN_STREAM pushed by the server, where a
+// URLRequest is already waiting for the stream.
+// The following parameters are attached:
+//   {
+//     "flags": <The control frame flags>
+//     "headers": <The list of header:value pairs>
+//     "id": <The stream id>
+//   }
+EVENT_TYPE(SPDY_SESSION_PUSHED_SYN_STREAM)
+
+// This event is sent for a SPDY SYN_REPLY.
+// The following parameters are attached:
+//   {
+//     "flags": <The control frame flags>,
+//     "headers": <The list of header:value pairs>,
+//     "id": <The stream id>
+//   }
+EVENT_TYPE(SPDY_SESSION_SYN_REPLY)
 
 // On sending a SPDY SETTINGS frame.
 // The following parameters are attached:
@@ -469,76 +572,129 @@ EVENT_TYPE(SPDY_SESSION_SEND_SETTINGS)
 //   }
 EVENT_TYPE(SPDY_SESSION_RECV_SETTINGS)
 
+// The receipt of a RST_STREAM
+// The following parameters are attached:
+//   {
+//     "stream_id": <The stream ID for the window update>
+//     "status": <The reason for the RST_STREAM>
+//   }
+EVENT_TYPE(SPDY_SESSION_RST_STREAM)
+
+// Sending of a RST_STREAM
+// The following parameters are attached:
+//   {
+//     "stream_id": <The stream ID for the window update>
+//     "status": <The reason for the RST_STREAM>
+//   }
+EVENT_TYPE(SPDY_SESSION_SEND_RST_STREAM)
+
 // Receipt of a SPDY GOAWAY frame.
 // The following parameters are attached:
 //   {
 //     "last_accepted_stream_id": <Last stream id accepted by the server, duh>
+//     "active_streams":          <Number of active streams>
+//     "unclaimed_streams":       <Number of unclaimed push streams>
 //   }
 EVENT_TYPE(SPDY_SESSION_GOAWAY)
 
-// This event is sent for a SPDY SYN_STREAM pushed by the server, but no
-// URLRequest has requested it yet.
-// The following parameters are attached:
+// Receipt of a SPDY WINDOW_UPDATE frame (which controls the send window).
 //   {
-//     "flags": <The control frame flags>
-//     "headers": <The list of header:value pairs>
-//     "id": <The stream id>
+//     "stream_id": <The stream ID for the window update>
+//     "delta"    : <The delta window size>
+//     "new_size" : <The new window size (computed)>
 //   }
-EVENT_TYPE(SPDY_SESSION_PUSHED_SYN_STREAM)
+EVENT_TYPE(SPDY_SESSION_SEND_WINDOW_UPDATE)
+
+// Sending of a SPDY WINDOW_UPDATE frame (which controls the receive window).
+//   {
+//     "stream_id": <The stream ID for the window update>
+//     "delta"    : <The delta window size>
+//     "new_size" : <The new window size (computed)>
+//   }
+EVENT_TYPE(SPDY_SESSION_RECV_WINDOW_UPDATE)
+
+// Sending a data frame
+//   {
+//     "stream_id": <The stream ID for the window update>
+//     "length"   : <The size of data sent>
+//     "flags"    : <Send data flags>
+//   }
+EVENT_TYPE(SPDY_SESSION_SEND_DATA)
+
+// Receiving a data frame
+//   {
+//     "stream_id": <The stream ID for the window update>
+//     "length"   : <The size of data sent>
+//     "flags"    : <Send data flags>
+//   }
+EVENT_TYPE(SPDY_SESSION_RECV_DATA)
+
+// Logs that a stream is stalled on the send window being closed.
+EVENT_TYPE(SPDY_SESSION_STALLED_ON_SEND_WINDOW)
+
+// Session is closing
+//   {
+//     "status": <The error status of the closure>
+//   }
+EVENT_TYPE(SPDY_SESSION_CLOSE)
+
+// Event when the creation of a stream is stalled because we're at
+// the maximum number of concurrent streams.
+EVENT_TYPE(SPDY_SESSION_STALLED_MAX_STREAMS)
+
+// ------------------------------------------------------------------------
+// SpdySessionPool
+// ------------------------------------------------------------------------
+
+// This event indicates the pool is reusing an existing session
+//   {
+//     "id": <The session id>,
+//   }
+EVENT_TYPE(SPDY_SESSION_POOL_FOUND_EXISTING_SESSION)
+
+// This event indicates the pool created a new session
+//   {
+//     "id": <The session id>,
+//   }
+EVENT_TYPE(SPDY_SESSION_POOL_CREATED_NEW_SESSION)
+
+// This event indicates that a SSL socket has been upgraded to a SPDY session.
+//   {
+//     "id": <The session id>,
+//   }
+EVENT_TYPE(SPDY_SESSION_POOL_IMPORTED_SESSION_FROM_SOCKET)
+
+// This event indicates that the session has been removed.
+//   {
+//     "id": <The session id>,
+//   }
+EVENT_TYPE(SPDY_SESSION_POOL_REMOVE_SESSION)
 
 // ------------------------------------------------------------------------
 // SpdyStream
 // ------------------------------------------------------------------------
 
-// This event is sent for a SPDY SYN_STREAM.
-// The following parameters are attached:
-//   {
-//     "flags": <The control frame flags>,
-//     "headers": <The list of header:value pairs>,
-//     "id": <The stream id>
-//   }
-EVENT_TYPE(SPDY_STREAM_SYN_STREAM)
-
-// This event is sent for a SPDY SYN_STREAM pushed by the server, where a
-// URLRequest is already waiting for the stream.
-// The following parameters are attached:
-//   {
-//     "flags": <The control frame flags>
-//     "headers": <The list of header:value pairs>
-//     "id": <The stream id>
-//   }
-EVENT_TYPE(SPDY_STREAM_PUSHED_SYN_STREAM)
-
-// Measures the time taken to send headers on a stream.
-EVENT_TYPE(SPDY_STREAM_SEND_HEADERS)
-
-// Measures the time taken to send the body (e.g. a POST) on a stream.
-EVENT_TYPE(SPDY_STREAM_SEND_BODY)
-
-// This event is sent for a SPDY SYN_REPLY.
-// The following parameters are attached:
-//   {
-//     "flags": <The control frame flags>,
-//     "headers": <The list of header:value pairs>,
-//     "id": <The stream id>
-//   }
-EVENT_TYPE(SPDY_STREAM_SYN_REPLY)
-
-// Measures the time taken to read headers on a stream.
-EVENT_TYPE(SPDY_STREAM_READ_HEADERS)
-
-// Measures the time taken to read the body on a stream.
-EVENT_TYPE(SPDY_STREAM_READ_BODY)
+// The begin and end of a SPDY STREAM.
+EVENT_TYPE(SPDY_STREAM)
 
 // Logs that a stream attached to a pushed stream.
 EVENT_TYPE(SPDY_STREAM_ADOPTED_PUSH_STREAM)
 
-// The receipt of a RST_STREAM
-// The following parameters are attached:
+// This event indicates that the send window has been updated
 //   {
-//     "status": <The reason for the RST_STREAM>
+//     "id":         <The stream id>,
+//     "delta":      <The window size delta>,
+//     "new_window": <The new window size>,
 //   }
-EVENT_TYPE(SPDY_STREAM_RST_STREAM)
+EVENT_TYPE(SPDY_STREAM_SEND_WINDOW_UPDATE)
+
+// This event indicates that the recv window has been updated
+//   {
+//     "id":         <The stream id>,
+//     "delta":      <The window size delta>,
+//     "new_window": <The new window size>,
+//   }
+EVENT_TYPE(SPDY_STREAM_RECV_WINDOW_UPDATE)
 
 // ------------------------------------------------------------------------
 // HttpStreamParser
@@ -573,6 +729,24 @@ EVENT_TYPE(SOCKET_STREAM_SENT)
 EVENT_TYPE(SOCKET_STREAM_RECEIVED)
 
 // ------------------------------------------------------------------------
+// WebSocketJob
+// ------------------------------------------------------------------------
+
+// This event is sent for a WebSocket handshake request.
+// The following parameters are attached:
+//   {
+//     "headers": <handshake request message>
+//   }
+EVENT_TYPE(WEB_SOCKET_SEND_REQUEST_HEADERS)
+
+// This event is sent on receipt of the WebSocket handshake response headers.
+// The following parameters are attached:
+//   {
+//     "headers": <handshake response message>
+//   }
+EVENT_TYPE(WEB_SOCKET_READ_RESPONSE_HEADERS)
+
+// ------------------------------------------------------------------------
 // SOCKS5ClientSocket
 // ------------------------------------------------------------------------
 
@@ -599,6 +773,20 @@ EVENT_TYPE(AUTH_PROXY)
 EVENT_TYPE(AUTH_SERVER)
 
 // ------------------------------------------------------------------------
+// HTML5 Application Cache
+// ------------------------------------------------------------------------
+
+// This event is emitted whenever a request is satistifed directly from
+// the appache.
+EVENT_TYPE(APPCACHE_DELIVERING_CACHED_RESPONSE)
+
+// This event is emitted whenever the appcache uses a fallback response.
+EVENT_TYPE(APPCACHE_DELIVERING_FALLBACK_RESPONSE)
+
+// This event is emitted whenever the appcache generates an error response.
+EVENT_TYPE(APPCACHE_DELIVERING_ERROR_RESPONSE)
+
+// ------------------------------------------------------------------------
 // Global events
 // ------------------------------------------------------------------------
 // These are events which are not grouped by source id, as they have no
@@ -606,4 +794,4 @@ EVENT_TYPE(AUTH_SERVER)
 
 // This event is emitted whenever NetworkChangeNotifier determines that the
 // underlying network has changed.
-EVENT_TYPE(NETWORK_IP_ADDRESSSES_CHANGED)
+EVENT_TYPE(NETWORK_IP_ADDRESSES_CHANGED)

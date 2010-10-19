@@ -4,6 +4,7 @@
 
 #ifndef NET_BASE_NET_UTIL_H_
 #define NET_BASE_NET_UTIL_H_
+#pragma once
 
 #include "build/build_config.h"
 
@@ -105,8 +106,8 @@ std::string GetHostName();
 // Extracts the unescaped username/password from |url|, saving the results
 // into |*username| and |*password|.
 void GetIdentityFromURL(const GURL& url,
-                        std::wstring* username,
-                        std::wstring* password);
+                        string16* username,
+                        string16* password);
 
 // Returns either the host from |url|, or, if the host is empty, the full spec.
 std::string GetHostOrSpecFromURL(const GURL& url);
@@ -232,7 +233,7 @@ std::string GetDirectoryListingEntry(const string16& name,
 
 // If text starts with "www." it is removed, otherwise text is returned
 // unmodified.
-std::wstring StripWWW(const std::wstring& text);
+string16 StripWWW(const string16& text);
 
 // Gets the filename from the raw Content-Disposition header (as read from the
 // network).  Otherwise uses the last path component name or hostname from
@@ -293,20 +294,20 @@ void AppendFormattedHost(const GURL& url,
 // 8.  If the offset cannot be successfully adjusted (e.g. because it points
 // into the middle of a component that was entirely removed, past the end of the
 // string, or into the middle of an encoding sequence), it will be set to
-// std::wstring::npos.
-std::wstring FormatUrl(const GURL& url,
-                       const std::wstring& languages,
-                       FormatUrlTypes format_types,
-                       UnescapeRule::Type unescape_rules,
-                       url_parse::Parsed* new_parsed,
-                       size_t* prefix_end,
-                       size_t* offset_for_adjustment);
+// string16::npos.
+string16 FormatUrl(const GURL& url,
+                   const std::string& languages,
+                   FormatUrlTypes format_types,
+                   UnescapeRule::Type unescape_rules,
+                   url_parse::Parsed* new_parsed,
+                   size_t* prefix_end,
+                   size_t* offset_for_adjustment);
 
 // This is a convenience function for FormatUrl() with
 // format_types = kFormatUrlOmitAll and unescape = SPACES.  This is the typical
 // set of flags for "URLs to display to the user".  You should be cautious about
 // using this for URLs which will be parsed or sent to other applications.
-inline std::wstring FormatUrl(const GURL& url, const std::wstring& languages) {
+inline string16 FormatUrl(const GURL& url, const std::string& languages) {
   return FormatUrl(url, languages, kFormatUrlOmitAll, UnescapeRule::SPACES,
                    NULL, NULL, NULL);
 }
@@ -320,12 +321,16 @@ bool CanStripTrailingSlash(const GURL& url);
 //   - reference section
 GURL SimplifyUrlForRequest(const GURL& url);
 
-void SetExplicitlyAllowedPorts(const std::wstring& allowed_ports);
+void SetExplicitlyAllowedPorts(const std::string& allowed_ports);
 
 // Perform a simplistic test to see if IPv6 is supported by trying to create an
 // IPv6 socket.
 // TODO(jar): Make test more in-depth as needed.
 bool IPv6Supported();
+
+// Returns true if it can determine that only loopback addresses are configured.
+// i.e. if only 127.0.0.1 and ::1 are routable.
+bool HaveOnlyLoopbackAddresses();
 
 // IPAddressNumber is used to represent an IP address's numeric value as an
 // array of bytes, from most significant to least significant. This is the

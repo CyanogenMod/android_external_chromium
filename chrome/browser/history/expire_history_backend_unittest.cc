@@ -8,6 +8,7 @@
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/scoped_ptr.h"
+#include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/history/archived_database.h"
@@ -16,8 +17,10 @@
 #include "chrome/browser/history/history_notifications.h"
 #include "chrome/browser/history/text_database_manager.h"
 #include "chrome/browser/history/thumbnail_database.h"
+#include "chrome/browser/history/top_sites.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/thumbnail_score.h"
+#include "chrome/test/testing_profile.h"
 #include "chrome/tools/profiles/thumbnail-inl.h"
 #include "gfx/codec/jpeg_codec.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -53,6 +56,8 @@ class ExpireHistoryTest : public testing::Test,
  protected:
   // Called by individual tests when they want data populated.
   void AddExampleData(URLID url_ids[3], Time visit_times[4]);
+  // Add visits with source information.
+  void AddExampleSourceData(const GURL& url, URLID* id);
 
   // Returns true if the given favicon/thumanil has an entry in the DB.
   bool HasFavIcon(FavIconID favicon_id);
@@ -75,7 +80,7 @@ class ExpireHistoryTest : public testing::Test,
 
   void StarURL(const GURL& url) {
     bookmark_model_.AddURL(
-        bookmark_model_.GetBookmarkBarNode(), 0, std::wstring(), url);
+        bookmark_model_.GetBookmarkBarNode(), 0, string16(), url);
   }
 
   static bool IsStringInFile(const FilePath& filename, const char* str);
@@ -90,6 +95,8 @@ class ExpireHistoryTest : public testing::Test,
   scoped_ptr<ArchivedDatabase> archived_db_;
   scoped_ptr<ThumbnailDatabase> thumb_db_;
   scoped_ptr<TextDatabaseManager> text_db_;
+  TestingProfile profile_;
+  scoped_refptr<TopSites> top_sites_;
 
   // Time at the beginning of the test, so everybody agrees what "now" is.
   const Time now_;
@@ -134,6 +141,7 @@ class ExpireHistoryTest : public testing::Test,
 
     expirer_.SetDatabases(main_db_.get(), archived_db_.get(), thumb_db_.get(),
                           text_db_.get());
+    top_sites_ = profile_.GetTopSites();
   }
 
   void TearDown() {
@@ -145,6 +153,7 @@ class ExpireHistoryTest : public testing::Test,
     archived_db_.reset();
     thumb_db_.reset();
     text_db_.reset();
+    TopSites::DeleteTopSites(top_sites_);
     file_util::Delete(dir_, true);
   }
 
@@ -211,35 +220,35 @@ void ExpireHistoryTest::AddExampleData(URLID url_ids[3], Time visit_times[4]) {
 
   Time time;
   GURL gurl;
-  thumb_db_->SetPageThumbnail(gurl, url_ids[0], *thumbnail, score, time);
-  thumb_db_->SetPageThumbnail(gurl, url_ids[1], *thumbnail, score, time);
-  thumb_db_->SetPageThumbnail(gurl, url_ids[2], *thumbnail, score, time);
+  top_sites_->SetPageThumbnail(url_row1.url(), *thumbnail, score);
+  top_sites_->SetPageThumbnail(url_row2.url(), *thumbnail, score);
+  top_sites_->SetPageThumbnail(url_row3.url(), *thumbnail, score);
 
   // Four visits.
   VisitRow visit_row1;
   visit_row1.url_id = url_ids[0];
   visit_row1.visit_time = visit_times[0];
   visit_row1.is_indexed = true;
-  main_db_->AddVisit(&visit_row1);
+  main_db_->AddVisit(&visit_row1, SOURCE_BROWSED);
 
   VisitRow visit_row2;
   visit_row2.url_id = url_ids[1];
   visit_row2.visit_time = visit_times[1];
   visit_row2.is_indexed = true;
-  main_db_->AddVisit(&visit_row2);
+  main_db_->AddVisit(&visit_row2, SOURCE_BROWSED);
 
   VisitRow visit_row3;
   visit_row3.url_id = url_ids[1];
   visit_row3.visit_time = visit_times[2];
   visit_row3.is_indexed = true;
   visit_row3.transition = PageTransition::TYPED;
-  main_db_->AddVisit(&visit_row3);
+  main_db_->AddVisit(&visit_row3, SOURCE_BROWSED);
 
   VisitRow visit_row4;
   visit_row4.url_id = url_ids[2];
   visit_row4.visit_time = visit_times[3];
   visit_row4.is_indexed = true;
-  main_db_->AddVisit(&visit_row4);
+  main_db_->AddVisit(&visit_row4, SOURCE_BROWSED);
 
   // Full text index for each visit.
   text_db_->AddPageData(url_row1.url(), visit_row1.url_id, visit_row1.visit_id,
@@ -260,6 +269,35 @@ void ExpireHistoryTest::AddExampleData(URLID url_ids[3], Time visit_times[4]) {
                         UTF8ToUTF16("goats body"));
 }
 
+void ExpireHistoryTest::AddExampleSourceData(const GURL& url, URLID* id) {
+  if (!main_db_.get())
+    return;
+
+  Time last_visit_time = Time::Now();
+  // Add one URL.
+  URLRow url_row1(url);
+  url_row1.set_last_visit(last_visit_time);
+  url_row1.set_visit_count(4);
+  URLID url_id = main_db_->AddURL(url_row1);
+  *id = url_id;
+
+  // Four times for each visit.
+  VisitRow visit_row1(url_id, last_visit_time - TimeDelta::FromDays(4), 0,
+                      PageTransition::TYPED, 0);
+  main_db_->AddVisit(&visit_row1, SOURCE_SYNCED);
+
+  VisitRow visit_row2(url_id, last_visit_time - TimeDelta::FromDays(3), 0,
+                      PageTransition::TYPED, 0);
+  main_db_->AddVisit(&visit_row2, SOURCE_BROWSED);
+
+  VisitRow visit_row3(url_id, last_visit_time - TimeDelta::FromDays(2), 0,
+                      PageTransition::TYPED, 0);
+  main_db_->AddVisit(&visit_row3, SOURCE_EXTENSION);
+
+  VisitRow visit_row4(url_id, last_visit_time, 0, PageTransition::TYPED, 0);
+  main_db_->AddVisit(&visit_row4, SOURCE_FIREFOX_IMPORTED);
+}
+
 bool ExpireHistoryTest::HasFavIcon(FavIconID favicon_id) {
   if (!thumb_db_.get())
     return false;
@@ -271,8 +309,12 @@ bool ExpireHistoryTest::HasFavIcon(FavIconID favicon_id) {
 }
 
 bool ExpireHistoryTest::HasThumbnail(URLID url_id) {
-  std::vector<unsigned char> temp_data;
-  return thumb_db_->GetPageThumbnail(url_id, &temp_data);
+  URLRow info;
+  if (!main_db_->GetURLRow(url_id, &info))
+    return false;
+  GURL url = info.url();
+  RefCountedBytes *data;
+  return top_sites_->GetPageThumbnail(url, &data);
 }
 
 int ExpireHistoryTest::CountTextMatchesForURL(const GURL& url) {
@@ -507,7 +549,7 @@ TEST_F(ExpireHistoryTest, DontDeleteStarredURL) {
   ASSERT_TRUE(HasThumbnail(url_row.id()));
 
   // Unstar the URL and delete again.
-  bookmark_model_.SetURLStarred(url, std::wstring(), false);
+  bookmark_model_.SetURLStarred(url, string16(), false);
   expirer_.DeleteURL(url);
 
   // Now it should be completely deleted.
@@ -804,8 +846,52 @@ TEST_F(ExpireHistoryTest, ExpiringVisitsReader) {
   EXPECT_EQ(1U, visits.size());
 }
 
+// Tests how ArchiveSomeOldHistory treats source information.
+TEST_F(ExpireHistoryTest, ArchiveSomeOldHistoryWithSource) {
+  const GURL url("www.testsource.com");
+  URLID url_id;
+  AddExampleSourceData(url, &url_id);
+  const ExpiringVisitsReader* reader = expirer_.GetAllVisitsReader();
+
+  // Archiving all the visits we added.
+  ASSERT_FALSE(expirer_.ArchiveSomeOldHistory(Time::Now(), reader, 10));
+
+  URLRow archived_row;
+  ASSERT_TRUE(archived_db_->GetRowForURL(url, &archived_row));
+  VisitVector archived_visits;
+  archived_db_->GetVisitsForURL(archived_row.id(), &archived_visits);
+  ASSERT_EQ(4U, archived_visits.size());
+  VisitSourceMap sources;
+  archived_db_->GetVisitsSource(archived_visits, &sources);
+  ASSERT_EQ(3U, sources.size());
+  int result = 0;
+  VisitSourceMap::iterator iter;
+  for (int i = 0; i < 4; i++) {
+    iter = sources.find(archived_visits[i].visit_id);
+    if (iter == sources.end())
+      continue;
+    switch (iter->second) {
+      case history::SOURCE_EXTENSION:
+        result |= 0x1;
+        break;
+      case history::SOURCE_FIREFOX_IMPORTED:
+        result |= 0x2;
+        break;
+      case history::SOURCE_SYNCED:
+        result |= 0x4;
+      default:
+        break;
+    }
+  }
+  EXPECT_EQ(0x7, result);
+  main_db_->GetVisitsSource(archived_visits, &sources);
+  EXPECT_EQ(0U, sources.size());
+  main_db_->GetVisitsForURL(url_id, &archived_visits);
+  EXPECT_EQ(0U, archived_visits.size());
+}
+
 // TODO(brettw) add some visits with no URL to make sure everything is updated
-// properly. Have the visits also refer to nonexistant FTS rows.
+// properly. Have the visits also refer to nonexistent FTS rows.
 //
 // Maybe also refer to invalid favicons.
 

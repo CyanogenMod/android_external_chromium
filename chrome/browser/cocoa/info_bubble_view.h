@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_INFO_BUBBLE_VIEW_H_
 #define CHROME_BROWSER_COCOA_INFO_BUBBLE_VIEW_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
@@ -21,8 +22,9 @@ enum BubbleArrowLocation {
 };
 
 enum InfoBubbleType {
-  kGradientInfoBubble,
-  kWhiteInfoBubble
+  kWhiteInfoBubble,
+  // Gradient bubbles are deprecated, per alcor@google.com. Please use white.
+  kGradientInfoBubble
 };
 
 }  // namespace info_bubble

@@ -1,19 +1,18 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/dom_ui/slideshow_ui.h"
 
-#include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/callback.h"
-#include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
 #include "base/thread.h"
 #include "base/time.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/weak_ptr.h"
 #include "chrome/browser/chrome_thread.h"
@@ -33,10 +32,10 @@
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 
-static const std::wstring kPropertyPath = L"path";
-static const std::wstring kPropertyTitle = L"title";
-static const std::wstring kPropertyOffset = L"currentOffset";
-static const std::wstring kPropertyDirectory = L"isDirectory";
+static const char kPropertyPath[] = "path";
+static const char kPropertyTitle[] = "title";
+static const char kPropertyOffset[] = "currentOffset";
+static const char kPropertyDirectory[] = "isDirectory";
 
 class SlideshowUIHTMLSource : public ChromeURLDataManager::DataSource {
  public:
@@ -69,19 +68,20 @@ class SlideshowHandler : public net::DirectoryLister::DirectoryListerDelegate,
   void Init();
 
   // DirectoryLister::DirectoryListerDelegate methods:
-  virtual void OnListFile(const file_util::FileEnumerator::FindInfo& data);
+  virtual void OnListFile(
+      const net::DirectoryLister::DirectoryListerData& data);
   virtual void OnListDone(int error);
 
   // DOMMessageHandler implementation.
   virtual DOMMessageHandler* Attach(DOMUI* dom_ui);
   virtual void RegisterMessages();
 
-  void GetChildrenForPath(FilePath& path, bool is_refresh);
+  void GetChildrenForPath(const FilePath& path, bool is_refresh);
 
   // Callback for the "getChildren" message.
-  void HandleGetChildren(const Value* value);
+  void HandleGetChildren(const ListValue* args);
 
-  void HandleRefreshDirectory(const Value* value);
+  void HandleRefreshDirectory(const ListValue* args);
 
  private:
   bool PathIsImageFile(const char* filename);
@@ -169,28 +169,17 @@ void SlideshowHandler::RegisterMessages() {
       NewCallback(this, &SlideshowHandler::HandleRefreshDirectory));
 }
 
-void SlideshowHandler::HandleRefreshDirectory(const Value* value) {
+void SlideshowHandler::HandleRefreshDirectory(const ListValue* args) {
 #if defined(OS_CHROMEOS)
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    std::string path;
-
-    // Get path string.
-    if (list_value->GetString(0, &path)) {
-      FilePath currentpath;
-      currentpath = FilePath(path);
-      GetChildrenForPath(currentpath, true);
-    } else {
-      LOG(ERROR) << "Unable to get string";
-      return;
-    }
-  }
+  std::string path = WideToUTF8(ExtractStringValue(args));
+  GetChildrenForPath(FilePath(path), true);
 #endif
 }
 
-void SlideshowHandler::GetChildrenForPath(FilePath& path, bool is_refresh) {
+void SlideshowHandler::GetChildrenForPath(const FilePath& path,
+                                          bool is_refresh) {
   filelist_value_.reset(new ListValue());
-  currentpath_ = FilePath(path);
+  currentpath_ = path;
 
   if (lister_.get()) {
     lister_->Cancel();
@@ -212,29 +201,11 @@ void SlideshowHandler::GetChildrenForPath(FilePath& path, bool is_refresh) {
   lister_->Start();
 }
 
-void SlideshowHandler::HandleGetChildren(const Value* value) {
+void SlideshowHandler::HandleGetChildren(const ListValue* args) {
 #if defined(OS_CHROMEOS)
-  std::string path;
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    Value* list_member;
-
-    // Get search string.
-    if (list_value->Get(0, &list_member) &&
-        list_member->GetType() == Value::TYPE_STRING) {
-      const StringValue* string_value =
-          static_cast<const StringValue*>(list_member);
-      string_value->GetAsString(&path);
-    }
-
-  } else {
-    LOG(ERROR) << "Wasn't able to get the List if requested files.";
-    return;
-  }
   filelist_value_.reset(new ListValue());
-  FilePath currentpath;
-  currentpath = FilePath(path);
-  GetChildrenForPath(currentpath, false);
+  std::string path = WideToUTF8(ExtractStringValue(args));
+  GetChildrenForPath(FilePath(path), false);
 #endif
 }
 
@@ -257,21 +228,21 @@ bool SlideshowHandler::PathIsImageFile(const char* filename) {
 }
 
 void SlideshowHandler::OnListFile(
-    const file_util::FileEnumerator::FindInfo& data) {
+    const net::DirectoryLister::DirectoryListerData& data) {
 #if defined(OS_CHROMEOS)
-  if (data.filename[0] == '.') {
+  if (data.info.filename[0] == '.') {
     return;
   }
-  if (!PathIsImageFile(data.filename.c_str())) {
+  if (!PathIsImageFile(data.info.filename.c_str())) {
     return;
   }
 
   DictionaryValue* file_value = new DictionaryValue();
 
-  file_value->SetString(kPropertyTitle, data.filename);
+  file_value->SetString(kPropertyTitle, data.info.filename);
   file_value->SetString(kPropertyPath,
-                        currentpath_.Append(data.filename).value());
-  file_value->SetBoolean(kPropertyDirectory, S_ISDIR(data.stat.st_mode));
+                        currentpath_.Append(data.info.filename).value());
+  file_value->SetBoolean(kPropertyDirectory, S_ISDIR(data.info.stat.st_mode));
   filelist_value_->Append(file_value);
   std::string val;
   file_value->GetString(kPropertyTitle, &val);
@@ -291,9 +262,9 @@ void SlideshowHandler::OnListDone(int error) {
     info_value.SetInteger(kPropertyOffset, currentOffset_);
   }
   if (is_refresh_) {
-    info_value.SetString(L"functionCall", "refresh");
+    info_value.SetString("functionCall", "refresh");
   } else {
-    info_value.SetString(L"functionCall", "getChildren");
+    info_value.SetString("functionCall", "getChildren");
   }
   info_value.SetString(kPropertyPath, currentpath_.value());
   dom_ui_->CallJavascriptFunction(L"browseFileResult",
@@ -306,7 +277,7 @@ void SlideshowHandler::OnListDone(int error) {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-SlideshowUI::SlideshowUI(TabContents* contents) : DOMUI(contents){
+SlideshowUI::SlideshowUI(TabContents* contents) : DOMUI(contents) {
   SlideshowHandler* handler = new SlideshowHandler();
   AddMessageHandler((handler)->Attach(this));
   handler->Init();

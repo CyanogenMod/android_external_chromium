@@ -4,8 +4,8 @@
 
 #ifndef CHROME_BROWSER_VIEWS_TABS_SIDE_TAB_H_
 #define CHROME_BROWSER_VIEWS_TABS_SIDE_TAB_H_
+#pragma once
 
-#include "app/slide_animation.h"
 #include "chrome/browser/views/tabs/base_tab.h"
 #include "gfx/font.h"
 

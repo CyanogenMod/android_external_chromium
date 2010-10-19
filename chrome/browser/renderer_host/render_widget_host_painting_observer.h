@@ -4,12 +4,10 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_PAINTING_OBSERVER_H_
 #define CHROME_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_PAINTING_OBSERVER_H_
-
-#include "app/surface/transport_dib.h"
+#pragma once
 
 class BackingStore;
 class RenderWidgetHost;
-class SkBitmap;
 
 namespace gfx {
 class Size;
@@ -33,6 +31,9 @@ class RenderWidgetHostPaintingObserver {
       RenderWidgetHost* widget,
       int tag,
       const gfx::Size& size) = 0;
+
+ protected:
+  virtual ~RenderWidgetHostPaintingObserver() {}
 };
 
 #endif  // CHROME_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_PAINTING_OBSERVER_H_

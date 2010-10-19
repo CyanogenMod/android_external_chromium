@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "app/test/data/resource.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/message_loop_proxy.h"
 #include "base/path_service.h"
 #include "base/scoped_ptr.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/thread.h"
 #include "base/utf_string_conversions.h"
@@ -99,17 +99,17 @@ TEST_F(JsonPrefStoreTest, Basic) {
   //   }
   // }
 
-  const wchar_t kNewWindowsInTabs[] = L"tabs.new_windows_in_tabs";
-  const wchar_t kMaxTabs[] = L"tabs.max_tabs";
-  const wchar_t kLongIntPref[] = L"long_int.pref";
+  const char kNewWindowsInTabs[] = "tabs.new_windows_in_tabs";
+  const char kMaxTabs[] = "tabs.max_tabs";
+  const char kLongIntPref[] = "long_int.pref";
 
-  std::wstring cnn(L"http://www.cnn.com");
+  std::string cnn("http://www.cnn.com");
 
-  std::wstring string_value;
+  std::string string_value;
   EXPECT_TRUE(prefs->GetString(prefs::kHomePage, &string_value));
   EXPECT_EQ(cnn, string_value);
 
-  const wchar_t kSomeDirectory[] = L"some_directory";
+  const char kSomeDirectory[] = "some_directory";
 
   FilePath::StringType path;
   EXPECT_TRUE(prefs->GetString(kSomeDirectory, &path));
@@ -135,9 +135,11 @@ TEST_F(JsonPrefStoreTest, Basic) {
   EXPECT_TRUE(prefs->GetInteger(kMaxTabs, &integer));
   EXPECT_EQ(10, integer);
 
-  prefs->SetString(kLongIntPref, Int64ToWString(214748364842LL));
+  prefs->SetString(kLongIntPref, base::Int64ToString(214748364842LL));
   EXPECT_TRUE(prefs->GetString(kLongIntPref, &string_value));
-  EXPECT_EQ(214748364842LL, StringToInt64(WideToUTF16Hack(string_value)));
+  int64 value;
+  base::StringToInt64(string_value, &value);
+  EXPECT_EQ(214748364842LL, value);
 
   // Serialize and compare to expected output.
   FilePath output_file = input_file;

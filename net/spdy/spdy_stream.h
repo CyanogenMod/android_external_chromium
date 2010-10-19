@@ -4,6 +4,7 @@
 
 #ifndef NET_SPDY_SPDY_STREAM_H_
 #define NET_SPDY_SPDY_STREAM_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -21,6 +22,7 @@
 namespace net {
 
 class SpdySession;
+class SSLCertRequestInfo;
 class SSLInfo;
 
 // The SpdyStream is used by the SpdySession to represent each stream known
@@ -50,8 +52,8 @@ class SpdyStream : public base::RefCounted<SpdyStream> {
     // Returns true if no more data to be sent.
     virtual bool OnSendBodyComplete(int status) = 0;
 
-    // Called when SYN_REPLY received. |status| indicates network error.
-    // Returns network error code.
+    // Called when SYN_STREAM or SYN_REPLY received. |status| indicates network
+    // error. Returns network error code.
     virtual int OnResponseReceived(const spdy::SpdyHeaderBlock& response,
                                    base::Time response_time,
                                    int status) = 0;
@@ -74,7 +76,10 @@ class SpdyStream : public base::RefCounted<SpdyStream> {
   };
 
   // SpdyStream constructor
-  SpdyStream(SpdySession* session, spdy::SpdyStreamId stream_id, bool pushed);
+  SpdyStream(SpdySession* session,
+             spdy::SpdyStreamId stream_id,
+             bool pushed,
+             const BoundNetLog& net_log);
 
   // Set new |delegate|. |delegate| must not be NULL.
   // If it already received SYN_REPLY or data, OnResponseReceived() or
@@ -92,8 +97,8 @@ class SpdyStream : public base::RefCounted<SpdyStream> {
   spdy::SpdyStreamId stream_id() const { return stream_id_; }
   void set_stream_id(spdy::SpdyStreamId stream_id) { stream_id_ = stream_id; }
 
-  bool syn_reply_received() const { return syn_reply_received_; }
-  void set_syn_reply_received() { syn_reply_received_ = true; }
+  bool response_received() const { return response_received_; }
+  void set_response_received() { response_received_ = true; }
 
   // For pushed streams, we track a path to identify them.
   const std::string& path() const { return path_; }
@@ -102,26 +107,47 @@ class SpdyStream : public base::RefCounted<SpdyStream> {
   int priority() const { return priority_; }
   void set_priority(int priority) { priority_ = priority; }
 
-  int window_size() const { return window_size_; }
-  void set_window_size(int window_size) { window_size_ = window_size; }
+  int send_window_size() const { return send_window_size_; }
+  void set_send_window_size(int window_size) {
+    send_window_size_ = window_size;
+  }
 
-  // Updates |window_size_| with delta extracted from a WINDOW_UPDATE
-  // frame; sends a RST_STREAM if delta overflows |window_size_| and
+  int recv_window_size() const { return recv_window_size_; }
+  void set_recv_window_size(int window_size) {
+    recv_window_size_ = window_size;
+  }
+
+  void set_stalled_by_flow_control(bool stalled) {
+    stalled_by_flow_control_ = stalled;
+  }
+
+  // Increases |send_window_size_| with delta extracted from a WINDOW_UPDATE
+  // frame; sends a RST_STREAM if delta overflows |send_window_size_| and
   // removes the stream from the session.
-  void UpdateWindowSize(int delta_window_size);
+  void IncreaseSendWindowSize(int delta_window_size);
+
+  // Decreases |send_window_size_| by the given number of bytes.
+  void DecreaseSendWindowSize(int delta_window_size);
+
+  // Increases |recv_window_size_| by the given number of bytes, also sends
+  // a WINDOW_UPDATE frame.
+  void IncreaseRecvWindowSize(int delta_window_size);
+
+  // Decreases |recv_window_size_| by the given number of bytes, called
+  // whenever data is read.  May also send a RST_STREAM and remove the
+  // stream from the session if the resultant |recv_window_size_| is
+  // negative, since that would be a flow control violation.
+  void DecreaseRecvWindowSize(int delta_window_size);
 
   const BoundNetLog& net_log() const { return net_log_; }
-  void set_net_log(const BoundNetLog& log) { net_log_ = log; }
 
   const linked_ptr<spdy::SpdyHeaderBlock>& spdy_headers() const;
   void set_spdy_headers(const linked_ptr<spdy::SpdyHeaderBlock>& headers);
   base::Time GetRequestTime() const;
   void SetRequestTime(base::Time t);
 
-  // Called by the SpdySession when a response (e.g. a SYN_REPLY) has been
-  // received for this stream.  |path| is the path of the URL for a server
-  // initiated stream, otherwise is empty.
-  // Returns a status code.
+  // Called by the SpdySession when a response (e.g. a SYN_STREAM or SYN_REPLY)
+  // has been received for this stream. Returns a status code.
   int OnResponseReceived(const spdy::SpdyHeaderBlock& response);
 
   // Called by the SpdySession when response data has been received for this
@@ -137,7 +163,7 @@ class SpdyStream : public base::RefCounted<SpdyStream> {
   // will be called multiple times for each write which completes.  Writes
   // include the SYN_STREAM write and also DATA frame writes.
   // |result| is the number of bytes written or a net error code.
-  void OnWriteComplete(int status);
+  void OnWriteComplete(int bytes);
 
   // Called by the SpdySession when the request is finished.  This callback
   // will always be called at the end of the request and signals to the
@@ -148,29 +174,29 @@ class SpdyStream : public base::RefCounted<SpdyStream> {
 
   void Cancel();
   bool cancelled() const { return cancelled_; }
+  bool closed() const { return io_state_ == STATE_DONE; }
 
   // Interface for Spdy[Http|WebSocket]Stream to use.
 
   // Sends the request.
   // For non push stream, it will send SYN_STREAM frame.
-  int DoSendRequest(bool has_upload_data);
-
-  // Reads response headers. If the SpdyStream have already received
-  // the response headers, return OK and response headers filled in
-  // |response| given in SendRequest.
-  // Otherwise, return ERR_IO_PENDING and OnResponseReceived() will be called.
-  int DoReadResponseHeaders();
+  int SendRequest(bool has_upload_data);
 
   // Sends DATA frame.
   int WriteStreamData(IOBuffer* data, int length,
                       spdy::SpdyDataFlags flags);
 
+  // Fills SSL info in |ssl_info| and returns true when SSL is in use.
   bool GetSSLInfo(SSLInfo* ssl_info, bool* was_npn_negotiated);
 
+  // Fills SSL Certificate Request info |cert_request_info| and returns
+  // true when SSL is in use.
+  bool GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info);
+
   bool is_idle() const {
-    return io_state_ == STATE_NONE || io_state_ == STATE_OPEN;
+    return io_state_ == STATE_OPEN || io_state_ == STATE_DONE;
   }
-  bool response_complete() const { return response_complete_; }
+
   int response_status() const { return response_status_; }
 
  private:
@@ -180,8 +206,7 @@ class SpdyStream : public base::RefCounted<SpdyStream> {
     STATE_SEND_HEADERS_COMPLETE,
     STATE_SEND_BODY,
     STATE_SEND_BODY_COMPLETE,
-    STATE_READ_HEADERS,
-    STATE_READ_HEADERS_COMPLETE,
+    STATE_WAITING_FOR_RESPONSE,
     STATE_OPEN,
     STATE_DONE
   };
@@ -205,13 +230,27 @@ class SpdyStream : public base::RefCounted<SpdyStream> {
   // be called after the stream has completed.
   void UpdateHistograms();
 
+  // When a server pushed stream is first created, this function is posted on
+  // the MessageLoop to replay all the data that the server has already sent.
+  void PushedStreamReplayData();
+
+  // There is a small period of time between when a server pushed stream is
+  // first created, and the pushed data is replayed. Any data received during
+  // this time should continue to be buffered.
+  bool continue_buffering_data_;
+
   spdy::SpdyStreamId stream_id_;
   std::string path_;
   int priority_;
-  int window_size_;
+
+  // Flow control variables.
+  bool stalled_by_flow_control_;
+  int send_window_size_;
+  int recv_window_size_;
+
   const bool pushed_;
   ScopedBandwidthMetrics metrics_;
-  bool syn_reply_received_;
+  bool response_received_;
 
   scoped_refptr<SpdySession> session_;
 
@@ -228,14 +267,14 @@ class SpdyStream : public base::RefCounted<SpdyStream> {
   linked_ptr<spdy::SpdyHeaderBlock> response_;
   base::Time response_time_;
 
-  bool response_complete_;  // TODO(mbelshe): fold this into the io_state.
   State io_state_;
 
   // Since we buffer the response, we also buffer the response status.
-  // Not valid until response_complete_ is true.
+  // Not valid until the stream is closed.
   int response_status_;
 
   bool cancelled_;
+  bool has_upload_data_;
 
   BoundNetLog net_log_;
 
@@ -244,7 +283,6 @@ class SpdyStream : public base::RefCounted<SpdyStream> {
   base::TimeTicks recv_last_byte_time_;
   int send_bytes_;
   int recv_bytes_;
-  bool histograms_recorded_;
   // Data received before delegate is attached.
   std::vector<scoped_refptr<IOBufferWithSize> > pending_buffers_;
 

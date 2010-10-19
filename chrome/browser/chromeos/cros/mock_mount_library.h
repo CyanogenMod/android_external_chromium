@@ -1,25 +1,22 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_CHROMEOS_CROS_MOCK_MOUNT_LIBRARY_H_
 #define CHROME_BROWSER_CHROMEOS_CROS_MOCK_MOUNT_LIBRARY_H_
+#pragma once
 
 #include <string>
-#include <vector>
 
 #include "base/observer_list.h"
 #include "base/time.h"
-#include "cros/chromeos_mount.h"
 #include "chrome/browser/chromeos/cros/mount_library.h"
-#include "testing/gtest/include/gtest/gtest.h"
+#include "cros/chromeos_mount.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace chromeos {
 
-// This class handles the interaction with the ChromeOS mount library APIs.
-// Classes can add themselves as observers. Users can get an instance of this
-// library class like this: MountLibrary::Get().
 class MockMountLibrary : public MountLibrary {
  public:
   MockMountLibrary();

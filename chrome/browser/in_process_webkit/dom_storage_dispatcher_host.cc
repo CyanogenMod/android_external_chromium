@@ -14,6 +14,7 @@
 #include "chrome/browser/renderer_host/render_view_host_notification_task.h"
 #include "chrome/browser/renderer_host/resource_message_filter.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/render_messages_params.h"
 #include "googleurl/src/gurl.h"
 
 using WebKit::WebStorageArea;
@@ -47,7 +48,8 @@ DOMStorageDispatcherHost::DOMStorageDispatcherHost(
     WebKitContext* webkit_context)
     : webkit_context_(webkit_context),
       resource_message_filter_(resource_message_filter),
-      process_handle_(0) {
+      process_handle_(0),
+      process_id_(0) {
   DCHECK(webkit_context_.get());
   DCHECK(resource_message_filter_);
 }
@@ -268,7 +270,8 @@ void DOMStorageDispatcherHost::OnSetItem(
     CallRenderViewHostContentSettingsDelegate(
         process_id_, reply_msg->routing_id(),
         &RenderViewHostDelegate::ContentSettings::OnLocalStorageAccessed,
-        url, result == WebStorageArea::ResultBlockedByPolicy);
+        url, storage_area->owner()->dom_storage_type(),
+        result == WebStorageArea::ResultBlockedByPolicy);
   }
 
   ViewHostMsg_DOMStorageSetItem::WriteReplyParams(reply_msg, result, old_value);

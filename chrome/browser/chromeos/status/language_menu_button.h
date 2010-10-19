@@ -4,11 +4,12 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_STATUS_LANGUAGE_MENU_BUTTON_H_
 #define CHROME_BROWSER_CHROMEOS_STATUS_LANGUAGE_MENU_BUTTON_H_
+#pragma once
 
 #include "app/menus/simple_menu_model.h"
 #include "chrome/browser/chromeos/cros/input_method_library.h"
 #include "chrome/browser/chromeos/status/status_area_button.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
@@ -24,7 +25,7 @@ class StatusAreaHost;
 
 // The language menu button in the status area.
 // This class will handle getting the IME/XKB status and populating the menu.
-class LanguageMenuButton : public views::MenuButton,
+class LanguageMenuButton : public StatusAreaButton,
                            public views::ViewMenuDelegate,
                            public menus::MenuModel,
                            public InputMethodLibrary::Observer,
@@ -69,15 +70,14 @@ class LanguageMenuButton : public views::MenuButton,
 
   // Converts an InputMethodDescriptor object into human readable string.
   // Returns a string for the drop-down menu and the tooltip for the indicator.
-  static std::wstring GetTextForMenu(
-      const InputMethodDescriptor& input_method, bool add_method_name);
+  static std::wstring GetTextForMenu(const InputMethodDescriptor& input_method);
 
   // Registers input method preferences for the login screen.
   static void RegisterPrefs(PrefService* local_state);
 
  protected:
   // views::View implementation.
-  virtual void LocaleChanged();
+  virtual void OnLocaleChanged();
 
  private:
   // views::ViewMenuDelegate implementation.
@@ -113,9 +113,6 @@ class LanguageMenuButton : public views::MenuButton,
   // Objects for reading/writing the Chrome prefs.
   StringPrefMember previous_input_method_pref_;
   StringPrefMember current_input_method_pref_;
-
-  // Languages that need the input method name displayed.
-  std::set<std::string> need_method_name_;
 
   // We borrow menus::SimpleMenuModel implementation to maintain the current
   // content of the pop-up menu. The menus::MenuModel is implemented using this

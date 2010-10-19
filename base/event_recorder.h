@@ -4,10 +4,11 @@
 
 #ifndef BASE_EVENT_RECORDER_H_
 #define BASE_EVENT_RECORDER_H_
+#pragma once
 
-#include <string>
 #if defined(OS_WIN)
 #include <windows.h>
+#include <stdio.h>
 #endif
 #include "base/basictypes.h"
 

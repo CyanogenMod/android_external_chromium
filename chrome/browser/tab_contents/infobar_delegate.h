@@ -4,10 +4,10 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_INFOBAR_DELEGATE_H_
 #define CHROME_BROWSER_TAB_CONTENTS_INFOBAR_DELEGATE_H_
-
-#include <string>
+#pragma once
 
 #include "base/basictypes.h"
+#include "base/string16.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "webkit/glue/window_open_disposition.h"
 
@@ -48,10 +48,8 @@ class InfoBarDelegate {
   // The type of the infobar. It controls its appearance, such as its background
   // color.
   enum Type {
-    INFO_TYPE,
     WARNING_TYPE,
-    ERROR_TYPE,
-    PAGE_ACTION_TYPE
+    PAGE_ACTION_TYPE,
   };
 
   // Returns true if the supplied |delegate| is equal to this one. Equality is
@@ -156,7 +154,7 @@ class InfoBarDelegate {
 class AlertInfoBarDelegate : public InfoBarDelegate {
  public:
   // Returns the message string to be displayed for the InfoBar.
-  virtual std::wstring GetMessageText() const = 0;
+  virtual string16 GetMessageText() const = 0;
 
   // Overridden from InfoBarDelegate.
   virtual SkBitmap* GetIcon() const { return NULL; }
@@ -178,15 +176,15 @@ class LinkInfoBarDelegate : public InfoBarDelegate {
  public:
   // Returns the message string to be displayed in the InfoBar. |link_offset|
   // is the position where the link should be inserted. If |link_offset| is set
-  // to std::wstring::npos (it is by default), the link is right aligned within
+  // to string16::npos (it is by default), the link is right aligned within
   // the InfoBar rather than being embedded in the message text.
-  virtual std::wstring GetMessageTextWithOffset(size_t* link_offset) const {
-    *link_offset = std::wstring::npos;
-    return std::wstring();
+  virtual string16 GetMessageTextWithOffset(size_t* link_offset) const {
+    *link_offset = string16::npos;
+    return string16();
   }
 
   // Returns the text of the link to be displayed.
-  virtual std::wstring GetLinkText() const = 0;
+  virtual string16 GetLinkText() const = 0;
 
   // Overridden from InfoBarDelegate.
   virtual SkBitmap* GetIcon() const { return NULL; }
@@ -231,7 +229,7 @@ class ConfirmInfoBarDelegate : public AlertInfoBarDelegate {
 
   // Return the label for the specified button. The default implementation
   // returns "OK" for the OK button and "Cancel" for the Cancel button.
-  virtual std::wstring GetButtonLabel(InfoBarButton button) const;
+  virtual string16 GetButtonLabel(InfoBarButton button) const;
 
   // Return whether or not the specified button needs elevation.
   virtual bool NeedElevation(InfoBarButton button) const { return false; }
@@ -246,8 +244,8 @@ class ConfirmInfoBarDelegate : public AlertInfoBarDelegate {
 
   // Returns the text of the link to be displayed, if any. Otherwise returns
   // and empty string.
-  virtual std::wstring GetLinkText() {
-    return std::wstring();
+  virtual string16 GetLinkText() {
+    return string16();
   }
 
   // Called when the Link is clicked. The |disposition| specifies how the
@@ -278,19 +276,19 @@ class SimpleAlertInfoBarDelegate : public AlertInfoBarDelegate {
  public:
   // |icon| may be |NULL|.
   SimpleAlertInfoBarDelegate(TabContents* contents,
-                             const std::wstring& message,
+                             const string16& message,
                              SkBitmap* icon,
                              bool auto_expire);
 
   // Overridden from AlertInfoBarDelegate:
   virtual bool ShouldExpire(
       const NavigationController::LoadCommittedDetails& details) const;
-  virtual std::wstring GetMessageText() const;
+  virtual string16 GetMessageText() const;
   virtual SkBitmap* GetIcon() const;
   virtual void InfoBarClosed();
 
  private:
-  std::wstring message_;
+  string16 message_;
   SkBitmap* icon_;
   bool auto_expire_;  // Should it expire automatically on navigation?
 

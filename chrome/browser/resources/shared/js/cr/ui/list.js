@@ -10,6 +10,7 @@
 
 cr.define('cr.ui', function() {
   const ListSelectionModel = cr.ui.ListSelectionModel;
+  const ListSelectionController = cr.ui.ListSelectionController;
   const ArrayDataModel = cr.ui.ArrayDataModel;
 
   /**
@@ -91,9 +92,9 @@ cr.define('cr.ui', function() {
       if (this.dataModel_ != dataModel) {
         if (!this.boundHandleDataModelSplice_) {
           this.boundHandleDataModelSplice_ =
-              cr.bind(this.handleDataModelSplice_, this);
+              this.handleDataModelSplice_.bind(this);
           this.boundHandleDataModelChange_ =
-              cr.bind(this.handleDataModelChange_, this);
+              this.handleDataModelChange_.bind(this);
         }
 
         if (this.dataModel_) {
@@ -138,8 +139,8 @@ cr.define('cr.ui', function() {
         return;
 
       if (!this.boundHandleOnChange_) {
-        this.boundHandleOnChange_ = cr.bind(this.handleOnChange_, this);
-        this.boundHandleLeadChange_ = cr.bind(this.handleLeadChange_, this);
+        this.boundHandleOnChange_ = this.handleOnChange_.bind(this);
+        this.boundHandleLeadChange_ = this.handleLeadChange_.bind(this);
       }
 
       if (oldSm) {
@@ -149,6 +150,7 @@ cr.define('cr.ui', function() {
       }
 
       this.selectionModel_ = sm;
+      this.selectionController_ = this.createSelectionController(sm);
 
       if (sm) {
         sm.addEventListener('change', this.boundHandleOnChange_);
@@ -240,7 +242,7 @@ cr.define('cr.ui', function() {
       this.addEventListener('mousedown', this.handleMouseDownUp_);
       this.addEventListener('mouseup', this.handleMouseDownUp_);
       this.addEventListener('keydown', this.handleKeyDown);
-      this.addEventListener('scroll', cr.bind(this.redraw, this));
+      this.addEventListener('scroll', this.redraw.bind(this));
 
       // Make list focusable
       if (!this.hasAttribute('tabindex'))
@@ -265,13 +267,13 @@ cr.define('cr.ui', function() {
       }
 
       if (!target) {
-        this.selectionModel.handleMouseDownUp(e, -1);
+        this.selectionController_.handleMouseDownUp(e, -1);
       } else {
         var cs = getComputedStyle(target);
         var top = target.offsetTop -
                   parseFloat(cs.marginTop);
         var index = Math.floor(top / this.itemHeight_);
-        this.selectionModel.handleMouseDownUp(e, index);
+        this.selectionController_.handleMouseDownUp(e, index);
       }
     },
 
@@ -281,7 +283,7 @@ cr.define('cr.ui', function() {
      * @return {boolean} Whether the key event was handled.
      */
     handleKeyDown: function(e) {
-      return this.selectionModel.handleKeyDown(e);
+      return this.selectionController_.handleKeyDown(e);
     },
 
     /**
@@ -415,6 +417,16 @@ cr.define('cr.ui', function() {
      */
     createItem: function(value) {
       return new cr.ui.ListItem({label: value});
+    },
+
+    /**
+     * Creates the selection controller to use internally.
+     * @param {cr.ui.ListSelectionModel} sm The underlying selection model.
+     * @return {!cr.ui.ListSelectionModel} The newly created selection
+     *     controller.
+     */
+    createSelectionController: function(sm) {
+      return new ListSelectionController(sm);
     },
 
     /**

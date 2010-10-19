@@ -21,19 +21,18 @@
 
 #ifndef CHROME_BROWSER_GEOLOCATION_DEVICE_DATA_PROVIDER_H_
 #define CHROME_BROWSER_GEOLOCATION_DEVICE_DATA_PROVIDER_H_
+#pragma once
 
 #include <algorithm>
-#include <functional>
 #include <set>
-#include <string>
 #include <vector>
 
 #include "base/basictypes.h"
 #include "base/message_loop.h"
 #include "base/non_thread_safe.h"
+#include "base/ref_counted.h"
 #include "base/string16.h"
 #include "base/string_util.h"
-#include "base/scoped_ptr.h"
 #include "base/task.h"
 
 // The following data structures are used to store cell radio data and wifi
@@ -133,7 +132,7 @@ struct AccessPointData {
 
 // This is to allow AccessPointData to be used in std::set. We order
 // lexicographically by MAC address.
-struct AccessPointDataLess : public std::less<AccessPointData> {
+struct AccessPointDataLess {
   bool operator()(const AccessPointData& data1,
                   const AccessPointData& data2) const {
     return data1.mac_address < data2.mac_address;
@@ -174,6 +173,49 @@ struct WifiData {
   // comparison of sets for detecting changes and for caching.
   typedef std::set<AccessPointData, AccessPointDataLess> AccessPointDataSet;
   AccessPointDataSet access_point_data;
+};
+
+// Gateway data relating to a single router.
+struct RouterData {
+  RouterData() {}
+  // MAC address, formatted as per MacAddressAsString16.
+  string16 mac_address;
+};
+
+// This is to allow RouterData to be used in std::set. We order
+// lexicographically by MAC address.
+struct RouterDataLess {
+  bool operator()(const RouterData& data1,
+                  const RouterData& data2) const {
+    return data1.mac_address < data2.mac_address;
+  }
+};
+
+// All gateway data for routers.
+struct GatewayData {
+  // Determines whether a new set of gateway data differs significantly
+  // from this.
+  bool DiffersSignificantly(const GatewayData& other) const {
+    // Any change is significant.
+    if (this->router_data.size() != other.router_data.size())
+      return true;
+    RouterDataSet::const_iterator iter1 = router_data.begin();
+    RouterDataSet::const_iterator iter2 = other.router_data.begin();
+    while (iter1 != router_data.end()) {
+      if (iter1->mac_address != iter2->mac_address) {
+        // There is a difference between the sets of routers.
+        return true;
+      }
+      ++iter1;
+      ++iter2;
+    }
+    return false;
+  }
+
+  // Store routers as a set, sorted by MAC address. This allows quick
+  // comparison of sets for detecting changes and for caching.
+  typedef std::set<RouterData, RouterDataLess> RouterDataSet;
+  RouterDataSet router_data;
 };
 
 template<typename DataType>
@@ -271,6 +313,7 @@ class DeviceDataProviderImplBase : public DeviceDataProviderImplBaseHack {
   DISALLOW_COPY_AND_ASSIGN(DeviceDataProviderImplBase);
 };
 
+typedef DeviceDataProviderImplBase<GatewayData> GatewayDataProviderImplBase;
 typedef DeviceDataProviderImplBase<RadioData> RadioDataProviderImplBase;
 typedef DeviceDataProviderImplBase<WifiData> WifiDataProviderImplBase;
 
@@ -307,16 +350,20 @@ class DeviceDataProvider : public NonThreadSafe {
   // Adds a listener, which will be called back with DeviceDataUpdateAvailable
   // whenever new data is available. Returns the singleton instance.
   static DeviceDataProvider* Register(ListenerInterface* listener) {
+    bool need_to_start_thread = false;
     if (!instance_) {
       instance_ = new DeviceDataProvider();
+      need_to_start_thread = true;
     }
     DCHECK(instance_);
     DCHECK(instance_->CalledOnValidThread());
     instance_->AddListener(listener);
     // Start the provider after adding the listener, to avoid any race in
     // it receiving an early callback.
-    bool started = instance_->StartDataProvider();
-    DCHECK(started);
+    if (need_to_start_thread) {
+      bool started = instance_->StartDataProvider();
+      DCHECK(started);
+    }
     return instance_;
   }
 
@@ -407,6 +454,7 @@ template<typename DataType>
 typename DeviceDataProvider<DataType>::ImplFactoryFunction
     DeviceDataProvider<DataType>::factory_function_ = DefaultFactoryFunction;
 
+typedef DeviceDataProvider<GatewayData> GatewayDataProvider;
 typedef DeviceDataProvider<RadioData> RadioDataProvider;
 typedef DeviceDataProvider<WifiData> WifiDataProvider;
 

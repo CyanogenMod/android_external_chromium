@@ -4,15 +4,14 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_GOOGLE_AUTHENTICATOR_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_GOOGLE_AUTHENTICATOR_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
 #include "base/gtest_prod_util.h"
-#include "base/ref_counted.h"
-#include "base/sha2.h"
+#include "base/scoped_ptr.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/cryptohome_library.h"
 #include "chrome/browser/chromeos/login/authenticator.h"
@@ -23,6 +22,8 @@
 class Lock;
 class Profile;
 class GaiaAuthenticator2;
+class GoogleServiceAuthError;
+class LoginFailure;
 
 namespace chromeos {
 
@@ -30,7 +31,6 @@ class GoogleAuthenticatorTest;
 class LoginStatusConsumer;
 
 class GoogleAuthenticator : public Authenticator, public GaiaAuthConsumer {
-
  public:
   explicit GoogleAuthenticator(LoginStatusConsumer* consumer);
   virtual ~GoogleAuthenticator();
@@ -74,9 +74,9 @@ class GoogleAuthenticator : public Authenticator, public GaiaAuthConsumer {
   // These methods must be called on the UI thread, as they make DBus calls
   // and also call back to the login UI.
   void OnLoginSuccess(const GaiaAuthConsumer::ClientLoginResult& credentials);
-  void CheckOffline(const std::string& error);
-  void CheckLocalaccount(const std::string& error);
-  void OnLoginFailure(const std::string& error);
+  void CheckOffline(const LoginFailure& error);
+  void CheckLocalaccount(const LoginFailure& error);
+  void OnLoginFailure(const LoginFailure& error);
 
   // Call these methods on the UI thread.
   void RecoverEncryptedData(
@@ -85,15 +85,9 @@ class GoogleAuthenticator : public Authenticator, public GaiaAuthConsumer {
   void ResyncEncryptedData(
       const GaiaAuthConsumer::ClientLoginResult& credentials);
 
-  // Perform basic canonicalization of |email_address|, taking into account
-  // that gmail does not consider '.' or caps inside a username to matter.
-  // For example, c.masone@gmail.com == cMaSone@gmail.com, per
-  // http://mail.google.com/support/bin/answer.py?hl=en&ctx=mail&answer=10313#
-  static std::string Canonicalize(const std::string& email_address);
-
   // Callbacks from GaiaAuthenticator2
   virtual void OnClientLoginFailure(
-      const GaiaAuthConsumer::GaiaAuthError& error);
+      const GoogleServiceAuthError& error);
   virtual void OnClientLoginSuccess(
       const GaiaAuthConsumer::ClientLoginResult& credentials);
 

@@ -180,7 +180,7 @@ bool HttpHasNthAttribute(HttpAttributeList& attributes,
 // Convert RFC1123 date (DoW, DD Mon YYYY HH:MM:SS TZ) to unix timestamp
 bool HttpDateToSeconds(const std::string& date, unsigned long* seconds);
 
-inline const uint16 HttpDefaultPort(bool secure) {
+inline uint16 HttpDefaultPort(bool secure) {
   return secure ? HTTP_SECURE_PORT : HTTP_DEFAULT_PORT;
 }
 

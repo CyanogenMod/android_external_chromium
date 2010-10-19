@@ -42,24 +42,26 @@ class P2PTransport: public Transport {
   virtual bool ParseCandidates(const buzz::XmlElement* elem,
                                Candidates* candidates,
                                ParseError* error);
-  virtual void WriteCandidates(const Candidates& candidates,
+  virtual bool WriteCandidates(const Candidates& candidates,
                                SignalingProtocol protocol,
-                               XmlElements* candidate_elems);
+                               XmlElements* candidate_elems,
+                               WriteError* error);
 
   virtual void OnTransportError(const buzz::XmlElement* error);
 
  protected:
   // Creates and destroys P2PTransportChannel.
   virtual TransportChannelImpl* CreateTransportChannel(
-      const std::string& name, const std::string& session_type);
+      const std::string& name, const std::string& content_type);
   virtual void DestroyTransportChannel(TransportChannelImpl* channel);
 
  private:
   bool ParseCandidate(const buzz::XmlElement* elem,
                       Candidate* candidate,
                       ParseError* error);
-  void WriteCandidate(const Candidate& candidate,
-                      buzz::XmlElement* elem);
+  bool WriteCandidate(const Candidate& candidate,
+                      buzz::XmlElement* elem,
+                      WriteError* error);
   bool VerifyUsernameFormat(const std::string& username,
                             ParseError* error);
 

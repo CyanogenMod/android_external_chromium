@@ -7,6 +7,7 @@
 #include "base/file_path.h"
 #include "base/registry.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "base/version.h"
 
 // The Registry hive where to look for external extensions.
@@ -36,7 +37,7 @@ void ExternalRegistryExtensionProvider::VisitRegisteredExtension(
     std::wstring key_path = ASCIIToWide(kRegistryExtensions);
     key_path.append(L"\\");
     key_path.append(iterator.Name());
-    if (key.Open(kRegRoot, key_path.c_str())) {
+    if (key.Open(kRegRoot, key_path.c_str(), KEY_READ)) {
       std::wstring extension_path;
       if (key.ReadValue(kRegistryExtensionPath, &extension_path)) {
         std::wstring extension_version;
@@ -51,8 +52,8 @@ void ExternalRegistryExtensionProvider::VisitRegisteredExtension(
           scoped_ptr<Version> version;
           version.reset(Version::GetVersionFromString(extension_version));
           FilePath path = FilePath::FromWStringHack(extension_path);
-          visitor->OnExternalExtensionFound(id, version.get(), path,
-                                            Extension::EXTERNAL_REGISTRY);
+          visitor->OnExternalExtensionFileFound(id, version.get(), path,
+                                                Extension::EXTERNAL_REGISTRY);
         } else {
           // TODO(erikkay): find a way to get this into about:extensions
           LOG(WARNING) << "Missing value " << kRegistryExtensionVersion <<
@@ -76,7 +77,7 @@ Version* ExternalRegistryExtensionProvider::RegisteredVersion(
   key_path.append(L"\\");
   key_path.append(ASCIIToWide(id));
 
-  if (!key.Open(kRegRoot, key_path.c_str()))
+  if (!key.Open(kRegRoot, key_path.c_str(), KEY_READ))
     return NULL;
 
   std::wstring extension_version;

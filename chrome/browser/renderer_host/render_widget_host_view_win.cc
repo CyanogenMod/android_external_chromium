@@ -45,6 +45,8 @@
 #include "views/widget/widget_win.h"
 #include "webkit/glue/plugins/plugin_constants_win.h"
 #include "webkit/glue/plugins/webplugin_delegate_impl.h"
+#include "webkit/glue/plugins/webplugin.h"
+#include "webkit/glue/webaccessibility.h"
 #include "webkit/glue/webcursor.h"
 
 using base::TimeDelta;
@@ -289,12 +291,6 @@ RenderWidgetHostViewWin::RenderWidgetHostViewWin(RenderWidgetHost* widget)
   registrar_.Add(this,
                  NotificationType::RENDERER_PROCESS_TERMINATED,
                  NotificationService::AllSources());
-
-  BOOL screenreader_running = FALSE;
-  if (SystemParametersInfo(SPI_GETSCREENREADER, 0, &screenreader_running, 0) &&
-      screenreader_running) {
-    render_widget_host_->EnableRendererAccessibility();
-  }
 }
 
 RenderWidgetHostViewWin::~RenderWidgetHostViewWin() {
@@ -328,6 +324,11 @@ void RenderWidgetHostViewWin::InitAsPopup(
   MoveWindow(pos.x(), pos.y(), pos.width(), pos.height(), TRUE);
   // Popups are not activated.
   ShowWindow(IsActivatable() ? SW_SHOW : SW_SHOWNA);
+}
+
+void RenderWidgetHostViewWin::InitAsFullscreen(
+    RenderWidgetHostView* parent_host_view) {
+  NOTIMPLEMENTED() << "Fullscreen not implemented on Win";
 }
 
 RenderWidgetHost* RenderWidgetHostViewWin::GetRenderWidgetHost() const {
@@ -691,19 +692,17 @@ void RenderWidgetHostViewWin::DrawResizeCorner(const gfx::Rect& paint_rect,
     canvas.getDevice()->accessBitmap(true).eraseARGB(0, 0, 0, 0);
     int x = resize_corner_rect.x() + resize_corner_rect.width() -
         bitmap->width();
-    bool rtl_dir = base::i18n::IsRTL();
-    if (rtl_dir) {
+    canvas.save();
+    if (base::i18n::IsRTL()) {
       canvas.TranslateInt(bitmap->width(), 0);
       canvas.ScaleInt(-1, 1);
-      canvas.save();
       x = 0;
     }
     canvas.DrawBitmapInt(*bitmap, 0, 0);
     canvas.getTopPlatformDevice().drawToHDC(dc, x,
         resize_corner_rect.y() + resize_corner_rect.height() -
         bitmap->height(), NULL);
-    if (rtl_dir)
-      canvas.restore();
+    canvas.restore();
   }
 }
 
@@ -1447,7 +1446,9 @@ LRESULT RenderWidgetHostViewWin::OnWheelEvent(UINT message, WPARAM wparam,
   return 0;
 }
 
-LRESULT RenderWidgetHostViewWin::OnMouseActivate(UINT, WPARAM, LPARAM,
+LRESULT RenderWidgetHostViewWin::OnMouseActivate(UINT message,
+                                                 WPARAM wparam,
+                                                 LPARAM lparam,
                                                  BOOL& handled) {
   if (!IsActivatable())
     return MA_NOACTIVATE;
@@ -1466,7 +1467,7 @@ LRESULT RenderWidgetHostViewWin::OnMouseActivate(UINT, WPARAM, LPARAM,
     ::GetCursorPos(&cursor_pos);
     ::ScreenToClient(m_hWnd, &cursor_pos);
     HWND child_window = ::RealChildWindowFromPoint(m_hWnd, cursor_pos);
-    if (::IsWindow(child_window)) {
+    if (::IsWindow(child_window) && child_window != m_hWnd) {
       if (win_util::GetClassName(child_window) == kWrapperNativeWindowClassName)
         child_window = ::GetWindow(child_window, GW_CHILD);
 
@@ -1475,35 +1476,22 @@ LRESULT RenderWidgetHostViewWin::OnMouseActivate(UINT, WPARAM, LPARAM,
     }
   }
   handled = FALSE;
+  render_widget_host_->OnMouseActivate();
   return MA_ACTIVATE;
 }
 
-void RenderWidgetHostViewWin::UpdateAccessibilityTree(
-    const webkit_glue::WebAccessibility& tree) {
-  browser_accessibility_manager_.reset(
-      new BrowserAccessibilityManager(m_hWnd, tree, this));
-
-  BrowserAccessibility* root = browser_accessibility_manager_.get()->GetRoot();
-  LONG root_id;
-  if (root && SUCCEEDED(root->get_uniqueID(&root_id))) {
-    ::NotifyWinEvent(
-        EVENT_OBJECT_FOCUS, m_hWnd, OBJID_CLIENT, root_id);
-    ::NotifyWinEvent(
-        IA2_EVENT_DOCUMENT_LOAD_COMPLETE, m_hWnd, OBJID_CLIENT, root_id);
+void RenderWidgetHostViewWin::OnAccessibilityNotifications(
+    const std::vector<ViewHostMsg_AccessibilityNotification_Params>& params) {
+  if (!browser_accessibility_manager_.get()) {
+    // Use empty document to process notifications
+    webkit_glue::WebAccessibility empty_document;
+    empty_document.role = WebAccessibility::ROLE_DOCUMENT;
+    empty_document.state = 0;
+    browser_accessibility_manager_.reset(
+        new BrowserAccessibilityManager(m_hWnd, empty_document, this));
   }
-}
 
-void RenderWidgetHostViewWin::OnAccessibilityFocusChange(int acc_obj_id) {
-  if (browser_accessibility_manager_.get()) {
-    browser_accessibility_manager_->OnAccessibilityFocusChange(acc_obj_id);
-  }
-}
-
-void RenderWidgetHostViewWin::OnAccessibilityObjectStateChange(int acc_obj_id) {
-  if (browser_accessibility_manager_.get()) {
-    browser_accessibility_manager_->OnAccessibilityObjectStateChange(
-        acc_obj_id);
-  }
+  browser_accessibility_manager_->OnAccessibilityNotifications(params);
 }
 
 void RenderWidgetHostViewWin::Observe(NotificationType type,
@@ -1558,39 +1546,18 @@ LRESULT RenderWidgetHostViewWin::OnGetObject(UINT message, WPARAM wparam,
   if (!browser_accessibility_manager_.get()) {
     render_widget_host_->EnableRendererAccessibility();
 
-    if (!loading_accessible_.get()) {
-      // Create IAccessible to return while waiting for the accessibility tree
-      // from the renderer.
-      HRESULT hr = ::CreateStdAccessibleObject(
-          m_hWnd, OBJID_CLIENT, IID_IAccessible,
-          reinterpret_cast<void **>(&loading_accessible_));
+    // Return busy document tree while renderer accessibility tree loads.
+    webkit_glue::WebAccessibility loading_tree;
+    loading_tree.role = WebAccessibility::ROLE_DOCUMENT;
+    loading_tree.state = (1 << WebAccessibility::STATE_BUSY);
+    browser_accessibility_manager_.reset(
+      new BrowserAccessibilityManager(m_hWnd, loading_tree, this));
+  }
 
-      // Annotate with STATE_SYSTEM_BUSY to indicate that the page is loading.
-      // We annotate the HWND, not the loading_accessible IAccessible, but the
-      // IAccessible will reflect the state annotation.
-      ScopedComPtr<IAccPropServices> pAccPropServices;
-      hr = CoCreateInstance(CLSID_AccPropServices, NULL, CLSCTX_SERVER,
-          IID_IAccPropServices, reinterpret_cast<void**>(&pAccPropServices));
-      if (SUCCEEDED(hr)) {
-        VARIANT var;
-        var.vt = VT_I4;
-        var.lVal = STATE_SYSTEM_BUSY;
-        pAccPropServices->SetHwndProp(m_hWnd, OBJID_CLIENT,
-            CHILDID_SELF, PROPID_ACC_STATE, var);
-      }
-    }
-
-    if (loading_accessible_.get()) {
-      return LresultFromObject(
-          IID_IAccessible, wparam,
-          static_cast<IAccessible*>(loading_accessible_));
-    }
-  } else {
-    BrowserAccessibility* root = browser_accessibility_manager_->GetRoot();
-    if (root) {
-      return LresultFromObject(IID_IAccessible, wparam,
-          static_cast<IAccessible*>(root->NewReference()));
-    }
+  BrowserAccessibility* root = browser_accessibility_manager_->GetRoot();
+  if (root) {
+    return LresultFromObject(IID_IAccessible, wparam,
+        static_cast<IAccessible*>(root->NewReference()));
   }
 
   handled = false;

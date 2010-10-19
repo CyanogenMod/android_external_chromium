@@ -34,6 +34,7 @@
 
 #ifndef BASE_LAZY_INSTANCE_H_
 #define BASE_LAZY_INSTANCE_H_
+#pragma once
 
 #include "base/atomicops.h"
 #include "base/basictypes.h"
@@ -80,10 +81,6 @@ class LazyInstanceHelper {
   base::subtle::Atomic32 state_;
 
  private:
-  // Resets state of |helper| to STATE_EMPTY so that it can be reused.
-  // Not thread safe.
-  static void ResetState(void* helper);
-
   DISALLOW_COPY_AND_ASSIGN(LazyInstanceHelper);
 };
 

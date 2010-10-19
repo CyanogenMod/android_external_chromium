@@ -8,6 +8,7 @@
 
 #include "base/file_util.h"
 #include "base/logging.h"
+#include "net/base/file_stream.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 
@@ -84,7 +85,7 @@ int UploadDataStream::FillBuf() {
         // Note that the expected modification time from WebKit is based on
         // time_t precision. So we have to convert both to time_t to compare.
         if (!element.expected_file_modification_time().is_null()) {
-          file_util::FileInfo info;
+          base::PlatformFileInfo info;
           if (file_util::GetFileInfo(element.file_path(), &info) &&
               element.expected_file_modification_time().ToTimeT() !=
                   info.last_modified.ToTimeT()) {

@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_STATUS_ICONS_STATUS_TRAY_MAC_H_
 #define CHROME_BROWSER_COCOA_STATUS_ICONS_STATUS_TRAY_MAC_H_
+#pragma once
 
 #include "chrome/browser/status_icons/status_tray.h"
 
@@ -13,7 +14,7 @@ class StatusTrayMac : public StatusTray {
 
  protected:
   // Factory method for creating a status icon.
-  virtual StatusIcon* CreateStatusIcon();
+  virtual StatusIcon* CreatePlatformStatusIcon();
 
  private:
   DISALLOW_COPY_AND_ASSIGN(StatusTrayMac);

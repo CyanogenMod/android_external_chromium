@@ -8,8 +8,10 @@
 #include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
+#include "base/string16.h"
 #include "base/string_util.h"
 #include "base/time.h"
+#include "base/utf_string_conversions.h"
 #include "base/i18n/time_formatting.h"
 #include "chrome/browser/bookmarks/bookmark_html_writer.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
@@ -51,40 +53,41 @@ class BookmarkHTMLWriterTest : public testing::Test {
   }
 
   // Converts a BookmarkEntry to a string suitable for assertion testing.
-  std::wstring BookmarkEntryToString(
+  string16 BookmarkEntryToString(
       const ProfileWriter::BookmarkEntry& entry) {
-    std::wstring result;
-    result.append(L"on_toolbar=");
+    string16 result;
+    result.append(ASCIIToUTF16("on_toolbar="));
     if (entry.in_toolbar)
-      result.append(L"false");
+      result.append(ASCIIToUTF16("false"));
     else
-      result.append(L"true");
+      result.append(ASCIIToUTF16("true"));
 
-    result.append(L" url=" + UTF8ToWide(entry.url.spec()));
+    result.append(ASCIIToUTF16(" url=") + UTF8ToUTF16(entry.url.spec()));
 
-    result.append(L" path=");
+    result.append(ASCIIToUTF16(" path="));
     for (size_t i = 0; i < entry.path.size(); ++i) {
       if (i != 0)
-        result.append(L"/");
-      result.append(entry.path[i]);
+        result.append(ASCIIToUTF16("/"));
+      result.append(WideToUTF16Hack(entry.path[i]));
     }
 
-    result.append(L" title=");
-    result.append(entry.title);
+    result.append(ASCIIToUTF16(" title="));
+    result.append(WideToUTF16Hack(entry.title));
 
-    result.append(L" time=");
-    result.append(base::TimeFormatFriendlyDateAndTime(entry.creation_time));
+    result.append(ASCIIToUTF16(" time="));
+    result.append(WideToUTF16Hack(
+        base::TimeFormatFriendlyDateAndTime(entry.creation_time)));
     return result;
   }
 
   // Creates a set of bookmark values to a string for assertion testing.
-  std::wstring BookmarkValuesToString(bool on_toolbar,
-                                      const GURL& url,
-                                      const std::wstring& title,
-                                      base::Time creation_time,
-                                      const std::wstring& f1,
-                                      const std::wstring& f2,
-                                      const std::wstring& f3) {
+  string16 BookmarkValuesToString(bool on_toolbar,
+                                  const GURL& url,
+                                  const string16& title,
+                                  base::Time creation_time,
+                                  const string16& f1,
+                                  const string16& f2,
+                                  const string16& f3) {
     ProfileWriter::BookmarkEntry entry;
     entry.in_toolbar = on_toolbar;
     entry.url = url;
@@ -92,14 +95,14 @@ class BookmarkHTMLWriterTest : public testing::Test {
     // to the importer.
     entry.path.push_back(L"x");
     if (!f1.empty()) {
-      entry.path.push_back(f1);
+      entry.path.push_back(UTF16ToWideHack(f1));
       if (!f2.empty()) {
-        entry.path.push_back(f2);
+        entry.path.push_back(UTF16ToWideHack(f2));
         if (!f3.empty())
-          entry.path.push_back(f3);
+          entry.path.push_back(UTF16ToWideHack(f3));
       }
     }
-    entry.title = title;
+    entry.title = UTF16ToWideHack(title);
     entry.creation_time = creation_time;
     return BookmarkEntryToString(entry);
   }
@@ -107,11 +110,11 @@ class BookmarkHTMLWriterTest : public testing::Test {
   void AssertBookmarkEntryEquals(const ProfileWriter::BookmarkEntry& entry,
                                  bool on_toolbar,
                                  const GURL& url,
-                                 const std::wstring& title,
+                                 const string16& title,
                                  base::Time creation_time,
-                                 const std::wstring& f1,
-                                 const std::wstring& f2,
-                                 const std::wstring& f3) {
+                                 const string16& f1,
+                                 const string16& f2,
+                                 const string16& f3) {
     EXPECT_EQ(BookmarkValuesToString(on_toolbar, url, title, creation_time,
                                      f1, f2, f3),
               BookmarkEntryToString(entry));
@@ -171,19 +174,19 @@ TEST_F(BookmarkHTMLWriterTest, Test) {
   //   F3
   //     F4
   //       url1
-  std::wstring f1_title = L"F\"&;<1\"";
-  std::wstring f2_title = L"F2";
-  std::wstring f3_title = L"F 3";
-  std::wstring f4_title = L"F4";
-  std::wstring url1_title = L"url 1";
-  std::wstring url2_title = L"url&2";
-  std::wstring url3_title = L"url\"3";
-  std::wstring url4_title = L"url\"&;";
+  string16 f1_title = ASCIIToUTF16("F\"&;<1\"");
+  string16 f2_title = ASCIIToUTF16("F2");
+  string16 f3_title = ASCIIToUTF16("F 3");
+  string16 f4_title = ASCIIToUTF16("F4");
+  string16 url1_title = ASCIIToUTF16("url 1");
+  string16 url2_title = ASCIIToUTF16("url&2");
+  string16 url3_title = ASCIIToUTF16("url\"3");
+  string16 url4_title = ASCIIToUTF16("url\"&;");
   GURL url1("http://url1");
   GURL url1_favicon("http://url1/icon.ico");
   GURL url2("http://url2");
   GURL url3("http://url3");
-  GURL url4("http://\"&;\"");
+  GURL url4("javascript:alert(\"Hello!\");");
   base::Time t1(base::Time::Now());
   base::Time t2(t1 + base::TimeDelta::FromHours(1));
   base::Time t3(t1 + base::TimeDelta::FromHours(1));
@@ -191,7 +194,8 @@ TEST_F(BookmarkHTMLWriterTest, Test) {
   const BookmarkNode* f1 = model->AddGroup(
       model->GetBookmarkBarNode(), 0, f1_title);
   model->AddURLWithCreationTime(f1, 0, url1_title, url1, t1);
-  profile.GetHistoryService(Profile::EXPLICIT_ACCESS)->AddPage(url1);
+  profile.GetHistoryService(Profile::EXPLICIT_ACCESS)->AddPage(url1,
+      history::SOURCE_BROWSED);
   profile.GetFaviconService(Profile::EXPLICIT_ACCESS)->SetFavicon(url1,
                                                                   url1_favicon,
                                                                   icon_data);
@@ -243,22 +247,20 @@ TEST_F(BookmarkHTMLWriterTest, Test) {
   // Verify we got back what we wrote.
   ASSERT_EQ(7U, parsed_bookmarks.size());
   // Windows and ChromeOS builds use Sentence case.
-  std::wstring bookmark_folder_name =
-      l10n_util::GetString(IDS_BOOMARK_BAR_FOLDER_NAME);
+  string16 bookmark_folder_name =
+      l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_FOLDER_NAME);
   AssertBookmarkEntryEquals(parsed_bookmarks[0], false, url1, url1_title, t1,
-                            bookmark_folder_name, f1_title, std::wstring());
+                            bookmark_folder_name, f1_title, string16());
   AssertBookmarkEntryEquals(parsed_bookmarks[1], false, url2, url2_title, t2,
                             bookmark_folder_name, f1_title, f2_title);
   AssertBookmarkEntryEquals(parsed_bookmarks[2], false, url3, url3_title, t3,
-                            bookmark_folder_name, std::wstring(),
-                            std::wstring());
+                            bookmark_folder_name, string16(), string16());
   AssertBookmarkEntryEquals(parsed_bookmarks[3], false, url4, url4_title, t4,
-                            bookmark_folder_name, std::wstring(),
-                            std::wstring());
+                            bookmark_folder_name, string16(), string16());
   AssertBookmarkEntryEquals(parsed_bookmarks[4], false, url1, url1_title, t1,
-                            std::wstring(), std::wstring(), std::wstring());
+                            string16(), string16(), string16());
   AssertBookmarkEntryEquals(parsed_bookmarks[5], false, url2, url2_title, t2,
-                            std::wstring(), std::wstring(), std::wstring());
+                            string16(), string16(), string16());
   AssertBookmarkEntryEquals(parsed_bookmarks[6], false, url1, url1_title, t1,
-                            f3_title, f4_title, std::wstring());
+                            f3_title, f4_title, string16());
 }

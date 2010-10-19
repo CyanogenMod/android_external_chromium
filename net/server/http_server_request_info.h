@@ -4,6 +4,7 @@
 
 #ifndef NET_SERVER_HTTP_SERVER_REQUEST_INFO_H_
 #define NET_SERVER_HTTP_SERVER_REQUEST_INFO_H_
+#pragma once
 
 #include <string>
 #include <map>
@@ -29,7 +30,7 @@ class HttpServerRequestInfo {
 
   // A map of the names -> values for HTTP headers.
   typedef std::map<std::string, std::string> HeadersMap;
-  HeadersMap headers;
+  mutable HeadersMap headers;
 };
 
 #endif  // NET_SERVER_HTTP_SERVER_REQUEST_INFO_H_

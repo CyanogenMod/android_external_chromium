@@ -87,6 +87,20 @@ TEST(PassingTest, PassingTest1) {
 TEST(PassingTest, PassingTest2) {
 }
 
+// Tests that parameters of failing parameterized tests are printed in the
+// failing test summary.
+class FailingParamTest : public testing::TestWithParam<int> {};
+
+TEST_P(FailingParamTest, Fails) {
+  EXPECT_EQ(1, GetParam());
+}
+
+// This generates a test which will fail. Google Test is expected to print
+// its parameter when it outputs the list of all failed tests.
+INSTANTIATE_TEST_CASE_P(PrintingFailingParams,
+                        FailingParamTest,
+                        testing::Values(2));
+
 // Tests catching a fatal failure in a subroutine.
 TEST(FatalFailureTest, FatalFailureInSubroutine) {
   printf("(expecting a failure that x should be 1)\n");
@@ -1085,9 +1099,7 @@ class BarEnvironment : public testing::Environment {
   }
 };
 
-GTEST_DEFINE_bool_(internal_skip_environment_and_ad_hoc_tests, false,
-                   "This flag causes the program to skip test environment "
-                   "tests and ad hoc tests.");
+bool GTEST_FLAG(internal_skip_environment_and_ad_hoc_tests) = false;
 
 // The main function.
 //

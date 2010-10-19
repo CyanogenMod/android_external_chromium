@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -16,7 +16,11 @@
 #include "net/proxy/proxy_info.h"
 #include "net/proxy/proxy_server.h"
 
+namespace net {
+
 namespace {
+
+const int kPollIntervalSec = 5;
 
 // Utility function to pull out a boolean value from a dictionary and return it,
 // returning a default value if the key is not present.
@@ -35,11 +39,7 @@ bool GetBoolFromDictionary(CFDictionaryRef dict,
     return default_value;
 }
 
-}  // namespace
-
-namespace net {
-
-int ProxyConfigServiceMac::GetProxyConfig(ProxyConfig* config) {
+void GetCurrentProxyConfig(ProxyConfig* config) {
   scoped_cftyperef<CFDictionaryRef> config_dict(
       SCDynamicStoreCopyProxies(NULL));
   DCHECK(config_dict);
@@ -122,7 +122,7 @@ int ProxyConfigServiceMac::GetProxyConfig(ProxyConfig* config) {
     if (proxy_server.is_valid()) {
       config->proxy_rules().type =
           ProxyConfig::ProxyRules::TYPE_PROXY_PER_SCHEME;
-      config->proxy_rules().socks_proxy = proxy_server;
+      config->proxy_rules().fallback_proxy = proxy_server;
     }
   }
 
@@ -157,8 +157,112 @@ int ProxyConfigServiceMac::GetProxyConfig(ProxyConfig* config) {
                             false)) {
     config->proxy_rules().bypass_rules.AddRuleToBypassLocal();
   }
+}
 
-  return OK;
+}  // namespace
+
+// Reference-counted helper for posting a task to
+// ProxyConfigServiceMac::OnProxyConfigChanged between the notifier and IO
+// thread. This helper object may outlive the ProxyConfigServiceMac.
+class ProxyConfigServiceMac::Helper
+    : public base::RefCountedThreadSafe<ProxyConfigServiceMac::Helper> {
+ public:
+  explicit Helper(ProxyConfigServiceMac* parent) : parent_(parent) {
+    DCHECK(parent);
+  }
+
+  // Called when the parent is destroyed.
+  void Orphan() {
+    parent_ = NULL;
+  }
+
+  void OnProxyConfigChanged(const ProxyConfig& new_config) {
+    if (parent_)
+      parent_->OnProxyConfigChanged(new_config);
+  }
+
+ private:
+  ProxyConfigServiceMac* parent_;
+};
+
+ProxyConfigServiceMac::ProxyConfigServiceMac(MessageLoop* io_loop)
+    : forwarder_(this),
+      config_watcher_(&forwarder_),
+      has_fetched_config_(false),
+      helper_(new Helper(this)),
+      io_loop_(io_loop) {
+  DCHECK(io_loop);
+}
+
+ProxyConfigServiceMac::~ProxyConfigServiceMac() {
+  DCHECK_EQ(io_loop_, MessageLoop::current());
+  helper_->Orphan();
+  io_loop_ = NULL;
+}
+
+void ProxyConfigServiceMac::AddObserver(Observer* observer) {
+  DCHECK_EQ(io_loop_, MessageLoop::current());
+  observers_.AddObserver(observer);
+}
+
+void ProxyConfigServiceMac::RemoveObserver(Observer* observer) {
+  DCHECK_EQ(io_loop_, MessageLoop::current());
+  observers_.RemoveObserver(observer);
+}
+
+bool ProxyConfigServiceMac::GetLatestProxyConfig(ProxyConfig* config) {
+  DCHECK_EQ(io_loop_, MessageLoop::current());
+
+  // Lazy-initialize by fetching the proxy setting from this thread.
+  if (!has_fetched_config_) {
+    GetCurrentProxyConfig(&last_config_fetched_);
+    has_fetched_config_ = true;
+  }
+
+  *config = last_config_fetched_;
+  return has_fetched_config_;
+}
+
+void ProxyConfigServiceMac::SetDynamicStoreNotificationKeys(
+    SCDynamicStoreRef store) {
+  // Called on notifier thread.
+
+  CFStringRef proxies_key = SCDynamicStoreKeyCreateProxies(NULL);
+  CFArrayRef key_array = CFArrayCreate(
+      NULL, (const void **)(&proxies_key), 1, &kCFTypeArrayCallBacks);
+
+  bool ret = SCDynamicStoreSetNotificationKeys(store, key_array, NULL);
+  // TODO(willchan): Figure out a proper way to handle this rather than crash.
+  CHECK(ret);
+
+  CFRelease(key_array);
+  CFRelease(proxies_key);
+}
+
+void ProxyConfigServiceMac::OnNetworkConfigChange(CFArrayRef changed_keys) {
+  // Called on notifier thread.
+
+  // Fetch the new system proxy configuration.
+  ProxyConfig new_config;
+  GetCurrentProxyConfig(&new_config);
+
+  // Call OnProxyConfigChanged() on the IO thread to notify our observers.
+  io_loop_->PostTask(
+      FROM_HERE,
+      NewRunnableMethod(
+          helper_.get(), &Helper::OnProxyConfigChanged, new_config));
+}
+
+void ProxyConfigServiceMac::OnProxyConfigChanged(
+    const ProxyConfig& new_config) {
+  DCHECK_EQ(io_loop_, MessageLoop::current());
+
+  // Keep track of the last value we have seen.
+  has_fetched_config_ = true;
+  last_config_fetched_ = new_config;
+
+  // Notify all the observers.
+  FOR_EACH_OBSERVER(Observer, observers_, OnProxyConfigChanged(new_config));
 }
 
 }  // namespace net

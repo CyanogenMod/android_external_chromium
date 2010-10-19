@@ -23,7 +23,7 @@
 #include "base/message_loop.h"
 #include "base/platform_file.h"
 #include "base/string_util.h"
-#include "base/worker_pool.h"
+#include "build/build_config.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
@@ -35,6 +35,10 @@
 #include "net/url_request/url_request_file_dir_job.h"
 
 #if defined(OS_WIN)
+#include "base/worker_pool.h"
+#endif
+
+#if defined(OS_WIN)
 class URLRequestFileJob::AsyncResolver :
     public base::RefCountedThreadSafe<URLRequestFileJob::AsyncResolver> {
  public:
@@ -43,7 +47,7 @@ class URLRequestFileJob::AsyncResolver :
   }
 
   void Resolve(const FilePath& file_path) {
-    file_util::FileInfo file_info;
+    base::PlatformFileInfo file_info;
     bool exists = file_util::GetFileInfo(file_path, &file_info);
     AutoLock locked(lock_);
     if (owner_loop_) {
@@ -64,7 +68,7 @@ class URLRequestFileJob::AsyncResolver :
 
   ~AsyncResolver() {}
 
-  void ReturnResults(bool exists, const file_util::FileInfo& file_info) {
+  void ReturnResults(bool exists, const base::PlatformFileInfo& file_info) {
     if (owner_)
       owner_->DidResolve(exists, file_info);
   }
@@ -124,7 +128,7 @@ void URLRequestFileJob::Start() {
     return;
   }
 #endif
-  file_util::FileInfo file_info;
+  base::PlatformFileInfo file_info;
   bool exists = file_util::GetFileInfo(file_path_, &file_info);
 
   // Continue asynchronously.
@@ -217,7 +221,7 @@ void URLRequestFileJob::SetExtraRequestHeaders(
 }
 
 void URLRequestFileJob::DidResolve(
-    bool exists, const file_util::FileInfo& file_info) {
+    bool exists, const base::PlatformFileInfo& file_info) {
 #if defined(OS_WIN)
   async_resolver_ = NULL;
 #endif

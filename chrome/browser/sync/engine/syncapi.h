@@ -37,20 +37,22 @@
 
 #ifndef CHROME_BROWSER_SYNC_ENGINE_SYNCAPI_H_
 #define CHROME_BROWSER_SYNC_ENGINE_SYNCAPI_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
 #include "build/build_config.h"
-#include "chrome/browser/google_service_auth_error.h"
-#include "chrome/browser/sync/notification_method.h"
+#include "chrome/browser/sync/protocol/password_specifics.pb.h"
 #include "chrome/browser/sync/syncable/model_type.h"
 #include "chrome/browser/sync/util/cryptographer.h"
+#include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "googleurl/src/gurl.h"
+
+class FilePath;
 
 namespace browser_sync {
 class ModelSafeWorkerRegistrar;
@@ -58,6 +60,10 @@ class ModelSafeWorkerRegistrar;
 namespace sessions {
 struct SyncSessionSnapshot;
 }
+}
+
+namespace notifier {
+struct NotifierOptions;
 }
 
 // Forward declarations of internal class types so that sync API objects
@@ -73,10 +79,12 @@ class WriteTransaction;
 }
 
 namespace sync_pb {
+class AppSpecifics;
 class AutofillSpecifics;
 class BookmarkSpecifics;
 class EntitySpecifics;
 class ExtensionSpecifics;
+class SessionSpecifics;
 class NigoriSpecifics;
 class PasswordSpecifics;
 class PreferenceSpecifics;
@@ -103,12 +111,14 @@ struct UserShare {
   // be shared across multiple threads (unlike Directory).
   scoped_ptr<syncable::DirectoryManager> dir_manager;
 
-  // The username of the sync user. This is empty until we have performed at
-  // least one successful GAIA authentication with this username, which means
-  // on first-run it is empty until an AUTH_SUCCEEDED event and on future runs
-  // it is set as soon as the client instructs us to authenticate for the last
-  // known valid user (AuthenticateForLastKnownUser()).
-  std::string authenticated_name;
+  // The username of the sync user.
+  std::string name;
+};
+
+// Contains everything needed to talk to and identify a user account.
+struct SyncCredentials {
+  std::string email;
+  std::string sync_token;
 };
 
 // A valid BaseNode will never have an ID of zero.
@@ -174,6 +184,10 @@ class BaseNode {
   // TODO(ncarter): Remove this datatype-specific accessor.
   void GetFaviconBytes(std::vector<unsigned char>* output) const;
 
+  // Getter specific to the APPS datatype.  Returns protobuf
+  // data.  Can only be called if GetModelType() == APPS.
+  const sync_pb::AppSpecifics& GetAppSpecifics() const;
+
   // Getter specific to the AUTOFILL datatype.  Returns protobuf
   // data.  Can only be called if GetModelType() == AUTOFILL.
   const sync_pb::AutofillSpecifics& GetAutofillSpecifics() const;
@@ -201,6 +215,10 @@ class BaseNode {
   // Getter specific to the EXTENSIONS datatype.  Returns protobuf
   // data.  Can only be called if GetModelType() == EXTENSIONS.
   const sync_pb::ExtensionSpecifics& GetExtensionSpecifics() const;
+
+  // Getter specific to the SESSIONS datatype.  Returns protobuf
+  // data.  Can only be called if GetModelType() == SESSIONS.
+  const sync_pb::SessionSpecifics& GetSessionSpecifics() const;
 
   // Returns the local external ID associated with the node.
   int64 GetExternalId() const;
@@ -315,6 +333,10 @@ class WriteNode : public BaseNode {
   void SetURL(const GURL& url);
   void SetFaviconBytes(const std::vector<unsigned char>& bytes);
 
+  // Set the app specifics (id, update url, enabled state, etc).
+  // Should only be called if GetModelType() == APPS.
+  void SetAppSpecifics(const sync_pb::AppSpecifics& specifics);
+
   // Set the autofill specifics (name and value).
   // Should only be called if GetModelType() == AUTOFILL.
   void SetAutofillSpecifics(const sync_pb::AutofillSpecifics& specifics);
@@ -343,6 +365,10 @@ class WriteNode : public BaseNode {
   // Should only be called if GetModelType() == EXTENSIONS.
   void SetExtensionSpecifics(const sync_pb::ExtensionSpecifics& specifics);
 
+  // Set the session specifics (windows, tabs, navigations etc.).
+  // Should only be called if GetModelType() == SESSIONS.
+  void SetSessionSpecifics(const sync_pb::SessionSpecifics& specifics);
+
   // Implementation of BaseNode's abstract virtual accessors.
   virtual const syncable::Entry* GetEntry() const;
 
@@ -362,6 +388,8 @@ class WriteNode : public BaseNode {
   // for internal initialization (you can use them to set the modeltype).
   // Additionally, they will mark for syncing if the underlying value
   // changes.
+  void PutAppSpecificsAndMarkForSyncing(
+      const sync_pb::AppSpecifics& new_value);
   void PutAutofillSpecificsAndMarkForSyncing(
       const sync_pb::AutofillSpecifics& new_value);
   void PutBookmarkSpecificsAndMarkForSyncing(
@@ -378,6 +406,8 @@ class WriteNode : public BaseNode {
       const sync_pb::TypedUrlSpecifics& new_value);
   void PutExtensionSpecificsAndMarkForSyncing(
       const sync_pb::ExtensionSpecifics& new_value);
+  void PutSessionSpecificsAndMarkForSyncing(
+      const sync_pb::SessionSpecifics& new_value);
   void PutSpecificsAndMarkForSyncing(
       const sync_pb::EntitySpecifics& specifics);
 
@@ -525,6 +555,15 @@ class SyncManager {
   // internal types from clients of the interface.
   class SyncInternal;
 
+  // TODO(tim): Depending on how multi-type encryption pans out, maybe we
+  // should turn ChangeRecord itself into a class.  Or we could template this
+  // wrapper / add a templated method to return unencrypted protobufs.
+  class ExtraChangeRecordData {
+   public:
+    ExtraChangeRecordData() {}
+    virtual ~ExtraChangeRecordData() {}
+  };
+
   // ChangeRecord indicates a single item that changed as a result of a sync
   // operation.  This gives the sync id of the node that changed, and the type
   // of change.  To get the actual property values after an ADD or UPDATE, the
@@ -539,6 +578,21 @@ class SyncManager {
     int64 id;
     Action action;
     sync_pb::EntitySpecifics specifics;
+    linked_ptr<ExtraChangeRecordData> extra;
+  };
+
+  // Since PasswordSpecifics is just an encrypted blob, we extend to provide
+  // access to unencrypted bits.
+  class ExtraPasswordChangeRecordData : public ExtraChangeRecordData {
+   public:
+    ExtraPasswordChangeRecordData(const sync_pb::PasswordSpecificsData& data)
+        : unencrypted_(data) {}
+    virtual ~ExtraPasswordChangeRecordData() {}
+    const sync_pb::PasswordSpecificsData& unencrypted() {
+      return unencrypted_;
+    }
+   private:
+    sync_pb::PasswordSpecificsData unencrypted_;
   };
 
   // Status encapsulates detailed state about the internals of the SyncManager.
@@ -637,6 +691,19 @@ class SyncManager {
                                   const ChangeRecord* changes,
                                   int change_count) = 0;
 
+    // OnChangesComplete gets called when the TransactionComplete event is
+    // posted (after OnChangesApplied finishes), after the transaction lock
+    // and the change channel mutex are released.
+    //
+    // The purpose of this function is to support processors that require
+    // split-transactions changes. For example, if a model processor wants to
+    // perform blocking I/O due to a change, it should calculate the changes
+    // while holding the transaction lock (from within OnChangesApplied), buffer
+    // those changes, let the transaction fall out of scope, and then commit
+    // those changes from within OnChangesComplete (postponing the blocking
+    // I/O to when it no longer holds any lock).
+    virtual void OnChangesComplete(syncable::ModelType model_type) = 0;
+
     // A round-trip sync-cycle took place and the syncer has resolved any
     // conflicts that may have arisen.
     virtual void OnSyncCycleCompleted(
@@ -645,12 +712,18 @@ class SyncManager {
     // Called when user interaction may be required due to an auth problem.
     virtual void OnAuthError(const GoogleServiceAuthError& auth_error) = 0;
 
+    // Called when a new auth token is provided by the sync server.
+    virtual void OnUpdatedToken(const std::string& token) = 0;
+
     // Called when user interaction is required to obtain a valid passphrase.
     virtual void OnPassphraseRequired() = 0;
 
     // Called when the passphrase provided by the user has been accepted and is
-    // now used to encrypt sync data.
-    virtual void OnPassphraseAccepted() = 0;
+    // now used to encrypt sync data.  |bootstrap_token| is an opaque base64
+    // encoded representation of the key generated by the accepted passphrase,
+    // and is provided to the observer for persistence purposes and use in a
+    // future initialization of sync (e.g. after restart).
+    virtual void OnPassphraseAccepted(const std::string& bootstrap_token) = 0;
 
     // Called when initialization is complete to the point that SyncManager can
     // process changes. This does not necessarily mean authentication succeeded
@@ -673,6 +746,11 @@ class SyncManager {
     // global stop syncing operation has wiped the store.
     virtual void OnStopSyncingPermanently() = 0;
 
+    // After a request to clear server data, these callbacks are invoked to
+    // indicate success or failure
+    virtual void OnClearServerDataSucceeded() = 0;
+    virtual void OnClearServerDataFailed() = 0;
+
    private:
     DISALLOW_COPY_AND_ASSIGN(Observer);
   };
@@ -688,64 +766,39 @@ class SyncManager {
   // |sync_server_and_path| and |sync_server_port| represent the Chrome sync
   // server to use, and |use_ssl| specifies whether to communicate securely;
   // the default is false.
-  // |gaia_service_id| is the service id used for GAIA authentication. If it's
-  // null then default will be used.
   // |post_factory| will be owned internally and used to create
   // instances of an HttpPostProvider.
-  // |auth_post_factory| will be owned internally and used to create
-  // instances of an HttpPostProvider for communicating with GAIA.
-  // TODO(timsteele): It seems like one factory should suffice, but for now to
-  // avoid having to deal with threading issues since the auth code and syncer
-  // code live on separate threads that run simultaneously, we just dedicate
-  // one to each component. Long term we may want to reconsider the HttpBridge
-  // API to take all the params in one chunk in a threadsafe manner.. which is
-  // still suboptimal as there will be high contention between the two threads
-  // on startup; so maybe what we have now is the best solution- it does mirror
-  // the CURL implementation as each thread creates their own internet handle.
-  // Investigate.
   // |model_safe_worker| ownership is given to the SyncManager.
   // |user_agent| is a 7-bit ASCII string suitable for use as the User-Agent
   // HTTP header. Used internally when collecting stats to classify clients.
-  // As a fallback when no cached auth information is available, try to
-  // bootstrap authentication using |lsid|, if it isn't empty.
-  //
-  // |invalidate_last_user_auth_token| makes it so that any auth token
-  // read from user settings is invalidated.  This is used for testing
-  // code paths related to authentication failures.
-  //
-  // |invalidate_xmpp_auth_token| makes it so that any auth token
-  // used to log into XMPP is invalidated.  This is used for testing
-  // code paths related to authentication failures for XMPP only.
+  // |notifier_options| contains options specific to sync notifications.
   bool Init(const FilePath& database_location,
             const char* sync_server_and_path,
             int sync_server_port,
-            const char* gaia_service_id,
-            const char* gaia_source,
             bool use_ssl,
             HttpPostProviderFactory* post_factory,
-            HttpPostProviderFactory* auth_post_factory,
             browser_sync::ModelSafeWorkerRegistrar* registrar,
-            bool attempt_last_user_authentication,
-            bool invalidate_last_user_auth_token,
-            bool invalidate_xmpp_auth_token,
             const char* user_agent,
-            const char* lsid,
-            bool use_chrome_async_socket,
-            browser_sync::NotificationMethod notification_method);
+            const SyncCredentials& credentials,
+            const notifier::NotifierOptions& notifier_options,
+            const std::string& restored_key_for_bootstrapping,
+            bool setup_for_test_mode);
 
   // Returns the username last used for a successful authentication.
   // Returns empty if there is no such username.
   const std::string& GetAuthenticatedUsername();
 
-  // Submit credentials to GAIA for verification. On success, both |username|
-  // and the obtained auth token are persisted on disk for future re-use.
-  // If authentication fails, OnAuthProblem is called on our Observer.
-  // The Observer may, in turn, decide to try again with new
-  // credentials. Calling this method again is the appropriate course of action
-  // to "retry".
-  // |username|, |password|, and |captcha| are owned by the caller.
-  void Authenticate(const char* username, const char* password,
-                    const char* captcha);
+  // Check if the database has been populated with a full "initial" download of
+  // sync items for each data type currently present in the routing info.
+  // Prerequisite for calling this is that OnInitializationComplete has been
+  // called.
+  bool InitialSyncEndedForAllEnabledTypes();
+
+  // Migrate tokens from user settings DB to the token service.
+  void MigrateTokens();
+
+  // Update tokens that we're using in Sync. Email must stay the same.
+  void UpdateCredentials(const SyncCredentials& credentials);
 
   // Start the SyncerThread.
   void StartSyncing();
@@ -775,6 +828,9 @@ class SyncManager {
   // to run at the next available opportunity.
   void RequestNudge();
 
+  // Request a clearing of all data on the server
+  void RequestClearServerData();
+
   // Adds a listener to be notified of sync events.
   // NOTE: It is OK (in fact, it's probably a good idea) to call this before
   // having received OnInitializationCompleted.
@@ -798,19 +854,15 @@ class SyncManager {
   // to the syncapi model.
   void SaveChanges();
 
-  // Invoking this method will result in the syncapi bypassing authentication
-  // and opening a local store suitable for testing client code. When in this
-  // mode, nothing will ever get synced to a server (in fact no HTTP
-  // communication will take place).
-  // Note: The SyncManager precondition that you must first call Init holds;
-  // this will fail unless we're initialized.
-  void SetupForTestMode(const std::wstring& test_username);
-
   // Issue a final SaveChanges, close sqlite handles, and stop running threads.
   // Must be called from the same thread that called Init().
   void Shutdown();
 
   UserShare* GetUserShare() const;
+
+  // Uses a read-only transaction to determine if the directory being synced has
+  // any remaining unsynced items.
+  bool HasUnsyncedItems() const;
 
  private:
   // An opaque pointer to the nested private class.

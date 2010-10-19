@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_BROWSER_WINDOW_COCOA_H_
 #define CHROME_BROWSER_COCOA_BROWSER_WINDOW_COCOA_H_
+#pragma once
 
 #include "base/task.h"
 #include "chrome/browser/browser_window.h"
@@ -34,13 +35,13 @@ class BrowserWindowCocoa : public BrowserWindow,
   virtual void SetBounds(const gfx::Rect& bounds);
   virtual void Close();
   virtual void Activate();
+  virtual void Deactivate();
   virtual bool IsActive() const;
   virtual void FlashFrame();
   virtual gfx::NativeWindow GetNativeHandle();
   virtual BrowserWindowTesting* GetBrowserWindowTesting();
   virtual StatusBubble* GetStatusBubble();
   virtual void SelectedTabToolbarSizeChanged(bool is_animating);
-  virtual void SelectedTabExtensionShelfSizeChanged();
   virtual void UpdateTitleBar();
   virtual void ShelfVisibilityChanged();
   virtual void UpdateDevTools();
@@ -68,7 +69,6 @@ class BrowserWindowCocoa : public BrowserWindow,
   virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
                                         Profile* profile);
   virtual void ToggleBookmarkBar();
-  virtual void ToggleExtensionShelf();
   virtual views::Window* ShowAboutChromeDialog();
   virtual void ShowUpdateChromeDialog();
   virtual void ShowTaskManager();
@@ -105,6 +105,10 @@ class BrowserWindowCocoa : public BrowserWindow,
   virtual void Copy();
   virtual void Paste();
   virtual void ToggleTabStripMode();
+  virtual void OpenTabpose();
+  virtual void ShowMatchPreview();
+  virtual void HideMatchPreview();
+  virtual gfx::Rect GetMatchPreviewBounds();
 
   // Overridden from NotificationObserver
   virtual void Observe(NotificationType type,
@@ -124,6 +128,7 @@ class BrowserWindowCocoa : public BrowserWindow,
   int GetCommandId(const NativeWebKeyboardEvent& event);
   bool HandleKeyboardEventInternal(NSEvent* event);
   NSWindow* window() const;  // Accessor for the (current) |NSWindow|.
+  void UpdateSidebarForContents(TabContents* tab_contents);
 
   NotificationRegistrar registrar_;
   Browser* browser_;  // weak, owned by controller

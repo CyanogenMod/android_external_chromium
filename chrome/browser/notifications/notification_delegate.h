@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_NOTIFICATIONS_NOTIFICATION_DELEGATE_H_
 #define CHROME_BROWSER_NOTIFICATIONS_NOTIFICATION_DELEGATE_H_
+#pragma once
 
 #include <string>
 
@@ -15,7 +16,6 @@
 class NotificationDelegate
     : public base::RefCountedThreadSafe<NotificationDelegate> {
  public:
-
   // To be called when the desktop notification is actually shown.
   virtual void Display() = 0;
 
@@ -27,8 +27,17 @@ class NotificationDelegate
   // user explicitly (as opposed to timeout/script), |by_user| should be true.
   virtual void Close(bool by_user) = 0;
 
+  // To be called when a desktop notification is clicked.
+  virtual void Click() = 0;
+
   // Returns unique id of the notification.
   virtual std::string id() const = 0;
+
+ protected:
+  virtual ~NotificationDelegate() {}
+
+ private:
+  friend class base::RefCountedThreadSafe<NotificationDelegate>;
 };
 
 #endif  // CHROME_BROWSER_NOTIFICATIONS_NOTIFICATION_DELEGATE_H_

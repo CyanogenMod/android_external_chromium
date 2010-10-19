@@ -14,18 +14,17 @@
 #import "chrome/browser/cocoa/window_size_autosaver.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 
-// TODO(thakis): Column sort comparator
-// TODO(thakis): Clicking column header doesn't sort
-// TODO(thakis): Default sort column
+namespace {
 
 // Width of "a" and most other letters/digits in "small" table views.
-static const int kCharWidth = 6;
+const int kCharWidth = 6;
 
 // Some of the strings below have spaces at the end or are missing letters, to
 // make the columns look nicer, and to take potentially longer localized strings
 // into account.
-static const struct ColumnWidth {
+const struct ColumnWidth {
   int columnId;
   int minWidth;
   int maxWidth;  // If this is -1, 1.5*minColumWidth is used as max width.
@@ -50,9 +49,44 @@ static const struct ColumnWidth {
       arraysize("2000.0K (2000.0 live)") * kCharWidth, -1 },
   { IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN,
       arraysize("2000.0K (2000.0 live)") * kCharWidth, -1 },
+  { IDS_TASK_MANAGER_SQLITE_MEMORY_USED_COLUMN,
+      arraysize("800 kB") * kCharWidth, -1 },
+  { IDS_TASK_MANAGER_JAVASCRIPT_MEMORY_ALLOCATED_COLUMN,
+      arraysize("2000.0K (2000.0 live)") * kCharWidth, -1 },
   { IDS_TASK_MANAGER_GOATS_TELEPORTED_COLUMN,
       arraysize("15 ") * kCharWidth, -1 },
 };
+
+class SortHelper {
+ public:
+  SortHelper(TaskManagerModel* model, NSSortDescriptor* column)
+      : sort_column_([[column key] intValue]),
+        ascending_([column ascending]),
+        model_(model) {}
+
+  bool operator()(int a, int b) {
+    std::pair<int, int> group_range1 = model_->GetGroupRangeForResource(a);
+    std::pair<int, int> group_range2 = model_->GetGroupRangeForResource(b);
+    if (group_range1 == group_range2) {
+      // The two rows are in the same group, sort so that items in the same
+      // group always appear in the same order. |ascending_| is intentionally
+      // ignored.
+      return a < b;
+    }
+    // Sort by the first entry of each of the groups.
+    int cmp_result = model_->CompareValues(
+        group_range1.first, group_range2.first, sort_column_);
+    if (!ascending_)
+      cmp_result = -cmp_result;
+    return cmp_result < 0;
+  }
+ private:
+  int sort_column_;
+  bool ascending_;
+  TaskManagerModel* model_;  // weak;
+};
+
+}  // namespace
 
 @interface TaskManagerWindowController (Private)
 - (NSTableColumn*)addColumnWithId:(int)columnId visible:(BOOL)isVisible;
@@ -60,6 +94,7 @@ static const struct ColumnWidth {
 - (void)setUpTableHeaderContextMenu;
 - (void)toggleColumn:(id)sender;
 - (void)adjustSelectionAndEndProcessButton;
+- (void)deselectRows;
 @end
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -80,15 +115,49 @@ static const struct ColumnWidth {
       size_saver_.reset([[WindowSizeAutosaver alloc]
           initWithWindow:[self window]
              prefService:g_browser_process->local_state()
-                    path:prefs::kTaskManagerWindowPlacement
-                   state:kSaveWindowRect]);
+                    path:prefs::kTaskManagerWindowPlacement]);
     }
-    [[self window] makeKeyAndOrderFront:self];
+    [self showWindow:self];
   }
   return self;
 }
 
+- (void)sortShuffleArray {
+  viewToModelMap_.resize(model_->ResourceCount());
+  for (size_t i = 0; i < viewToModelMap_.size(); ++i)
+    viewToModelMap_[i] = i;
+
+  std::sort(viewToModelMap_.begin(), viewToModelMap_.end(),
+            SortHelper(model_, currentSortDescriptor_.get()));
+
+  modelToViewMap_.resize(viewToModelMap_.size());
+  for (size_t i = 0; i < viewToModelMap_.size(); ++i)
+    modelToViewMap_[viewToModelMap_[i]] = i;
+}
+
 - (void)reloadData {
+  // Store old view indices, and the model indices they map to.
+  NSIndexSet* viewSelection = [tableView_ selectedRowIndexes];
+  std::vector<int> modelSelection;
+  for (NSUInteger i = [viewSelection lastIndex];
+       i != NSNotFound;
+       i = [viewSelection indexLessThanIndex:i]) {
+    modelSelection.push_back(viewToModelMap_[i]);
+  }
+
+  // Sort.
+  [self sortShuffleArray];
+
+  // Use the model indices to get the new view indices of the selection, and
+  // set selection to that. This assumes that no rows were added or removed
+  // (in that case, the selection is cleared before -reloadData is called).
+  if (modelSelection.size() > 0)
+    DCHECK_EQ([tableView_ numberOfRows], model_->ResourceCount());
+  NSMutableIndexSet* indexSet = [NSMutableIndexSet indexSet];
+  for (size_t i = 0; i < modelSelection.size(); ++i)
+    [indexSet addIndex:modelToViewMap_[modelSelection[i]]];
+  [tableView_ selectRowIndexes:indexSet byExtendingSelection:NO];
+
   [tableView_ reloadData];
   [self adjustSelectionAndEndProcessButton];
 }
@@ -102,7 +171,7 @@ static const struct ColumnWidth {
   for (NSUInteger i = [selection lastIndex];
        i != NSNotFound;
        i = [selection indexLessThanIndex:i]) {
-    taskManager_->KillProcess(i);
+    taskManager_->KillProcess(viewToModelMap_[i]);
   }
 }
 
@@ -110,7 +179,11 @@ static const struct ColumnWidth {
   NSInteger row = [tableView_ clickedRow];
   if (row < 0)
     return;  // Happens e.g. if the table header is double-clicked.
-  taskManager_->ActivateProcess(row);
+  taskManager_->ActivateProcess(viewToModelMap_[row]);
+}
+
+- (NSTableView*)tableView {
+  return tableView_;
 }
 
 - (void)awakeFromNib {
@@ -119,6 +192,7 @@ static const struct ColumnWidth {
   [self adjustSelectionAndEndProcessButton];
 
   [tableView_ setDoubleAction:@selector(selectDoubleClickedTab:)];
+  [tableView_ sizeToFit];
 }
 
 // Adds a column which has the given string id as title. |isVisible| specifies
@@ -140,6 +214,14 @@ static const struct ColumnWidth {
 
   [column.get() setHidden:!isVisible];
   [column.get() setEditable:NO];
+
+  // The page column should by default be sorted ascending.
+  BOOL ascending = columnId == IDS_TASK_MANAGER_PAGE_COLUMN;
+
+  scoped_nsobject<NSSortDescriptor> sortDescriptor([[NSSortDescriptor alloc]
+      initWithKey:[NSString stringWithFormat:@"%d", columnId]
+        ascending:ascending]);
+  [column.get() setSortDescriptorPrototype:sortDescriptor.get()];
 
   // Default values, only used in release builds if nobody notices the DCHECK
   // during development when adding new columns.
@@ -181,6 +263,10 @@ static const struct ColumnWidth {
   [nameCell.get() setFont:[[nameColumn dataCell] font]];
   [nameColumn setDataCell:nameCell.get()];
 
+  // Initially, sort on the tab name.
+  [tableView_ setSortDescriptors:
+      [NSArray arrayWithObject:[nameColumn sortDescriptorPrototype]]];
+
   [self addColumnWithId:IDS_TASK_MANAGER_PHYSICAL_MEM_COLUMN visible:YES];
   [self addColumnWithId:IDS_TASK_MANAGER_SHARED_MEM_COLUMN visible:NO];
   [self addColumnWithId:IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN visible:NO];
@@ -192,6 +278,9 @@ static const struct ColumnWidth {
   [self addColumnWithId:IDS_TASK_MANAGER_WEBCORE_SCRIPTS_CACHE_COLUMN
                 visible:NO];
   [self addColumnWithId:IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN visible:NO];
+  [self addColumnWithId:IDS_TASK_MANAGER_SQLITE_MEMORY_USED_COLUMN visible:NO];
+  [self addColumnWithId:IDS_TASK_MANAGER_JAVASCRIPT_MEMORY_ALLOCATED_COLUMN
+                visible:NO];
   [self addColumnWithId:IDS_TASK_MANAGER_GOATS_TELEPORTED_COLUMN visible:NO];
 }
 
@@ -242,22 +331,37 @@ static const struct ColumnWidth {
   for (NSUInteger i = [selection lastIndex];
        i != NSNotFound;
        i = [selection indexLessThanIndex:i]) {
-    if (taskManager_->IsBrowserProcess(i))
+    int modelIndex = viewToModelMap_[i];
+    if (taskManager_->IsBrowserProcess(modelIndex))
       selectionContainsBrowserProcess = true;
 
-    std::pair<int, int> rangePair = model_->GetGroupRangeForResource(i);
-    NSRange range = NSMakeRange(rangePair.first, rangePair.second);
-    NSIndexSet* rangeIndexSet = [NSIndexSet indexSetWithIndexesInRange:range];
-    [tableView_ selectRowIndexes:rangeIndexSet byExtendingSelection:YES];
+    std::pair<int, int> rangePair =
+        model_->GetGroupRangeForResource(modelIndex);
+    NSMutableIndexSet* indexSet = [NSMutableIndexSet indexSet];
+    for (int j = 0; j < rangePair.second; ++j)
+      [indexSet addIndex:modelToViewMap_[rangePair.first + j]];
+    [tableView_ selectRowIndexes:indexSet byExtendingSelection:YES];
   }
 
   bool enabled = [selection count] > 0 && !selectionContainsBrowserProcess;
   [endProcessButton_ setEnabled:enabled];
 }
 
+- (void)deselectRows {
+  [tableView_ deselectAll:self];
+}
+
 // Table view delegate method.
 - (void)tableViewSelectionIsChanging:(NSNotification*)aNotification {
   [self adjustSelectionAndEndProcessButton];
+}
+
+- (void)windowWillClose:(NSNotification*)notification {
+  if (taskManagerObserver_) {
+    taskManagerObserver_->WindowWasClosed();
+    taskManagerObserver_ = nil;
+  }
+  [self autorelease];
 }
 
 @end
@@ -270,58 +374,72 @@ static const struct ColumnWidth {
 }
 
 - (NSString*)modelTextForRow:(int)row column:(int)columnId {
+  DCHECK_LT(static_cast<size_t>(row), viewToModelMap_.size());
+  row = viewToModelMap_[row];
   switch (columnId) {
     case IDS_TASK_MANAGER_PAGE_COLUMN:  // Process
-      return base::SysWideToNSString(model_->GetResourceTitle(row));
+      return base::SysUTF16ToNSString(model_->GetResourceTitle(row));
 
     case IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN:  // Memory
       if (!model_->IsResourceFirstInGroup(row))
         return @"";
-      return base::SysWideToNSString(model_->GetResourcePrivateMemory(row));
+      return base::SysUTF16ToNSString(model_->GetResourcePrivateMemory(row));
 
     case IDS_TASK_MANAGER_SHARED_MEM_COLUMN:  // Memory
       if (!model_->IsResourceFirstInGroup(row))
         return @"";
-      return base::SysWideToNSString(model_->GetResourceSharedMemory(row));
+      return base::SysUTF16ToNSString(model_->GetResourceSharedMemory(row));
 
     case IDS_TASK_MANAGER_PHYSICAL_MEM_COLUMN:  // Memory
       if (!model_->IsResourceFirstInGroup(row))
         return @"";
-      return base::SysWideToNSString(model_->GetResourcePhysicalMemory(row));
+      return base::SysUTF16ToNSString(model_->GetResourcePhysicalMemory(row));
 
     case IDS_TASK_MANAGER_CPU_COLUMN:  // CPU
       if (!model_->IsResourceFirstInGroup(row))
         return @"";
-      return base::SysWideToNSString(model_->GetResourceCPUUsage(row));
+      return base::SysUTF16ToNSString(model_->GetResourceCPUUsage(row));
 
     case IDS_TASK_MANAGER_NET_COLUMN:  // Net
-      return base::SysWideToNSString(model_->GetResourceNetworkUsage(row));
+      return base::SysUTF16ToNSString(model_->GetResourceNetworkUsage(row));
 
     case IDS_TASK_MANAGER_PROCESS_ID_COLUMN:  // Process ID
       if (!model_->IsResourceFirstInGroup(row))
         return @"";
-      return base::SysWideToNSString(model_->GetResourceProcessId(row));
+      return base::SysUTF16ToNSString(model_->GetResourceProcessId(row));
 
     case IDS_TASK_MANAGER_WEBCORE_IMAGE_CACHE_COLUMN:  // WebCore image cache
       if (!model_->IsResourceFirstInGroup(row))
         return @"";
-      return base::SysWideToNSString(
+      return base::SysUTF16ToNSString(
           model_->GetResourceWebCoreImageCacheSize(row));
 
     case IDS_TASK_MANAGER_WEBCORE_SCRIPTS_CACHE_COLUMN:  // WebCore script cache
       if (!model_->IsResourceFirstInGroup(row))
         return @"";
-      return base::SysWideToNSString(
+      return base::SysUTF16ToNSString(
           model_->GetResourceWebCoreScriptsCacheSize(row));
 
     case IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN:  // WebCore CSS cache
       if (!model_->IsResourceFirstInGroup(row))
         return @"";
-      return base::SysWideToNSString(
+      return base::SysUTF16ToNSString(
           model_->GetResourceWebCoreCSSCacheSize(row));
 
+    case IDS_TASK_MANAGER_SQLITE_MEMORY_USED_COLUMN:
+      if (!model_->IsResourceFirstInGroup(row))
+        return @"";
+      return base::SysUTF16ToNSString(
+          model_->GetResourceSqliteMemoryUsed(row));
+
+    case IDS_TASK_MANAGER_JAVASCRIPT_MEMORY_ALLOCATED_COLUMN:
+      if (!model_->IsResourceFirstInGroup(row))
+        return @"";
+      return base::SysUTF16ToNSString(
+          model_->GetResourceV8MemoryAllocatedSize(row));
+
     case IDS_TASK_MANAGER_GOATS_TELEPORTED_COLUMN:  // Goats Teleported!
-      return base::SysWideToNSString(model_->GetResourceGoatsTeleported(row));
+      return base::SysUTF16ToNSString(model_->GetResourceGoatsTeleported(row));
 
     default:
       NOTREACHED();
@@ -354,7 +472,8 @@ static const struct ColumnWidth {
     NSString* title = [self modelTextForRow:rowIndex
                                     column:[[tableColumn identifier] intValue]];
     [buttonCell setTitle:title];
-    [buttonCell setImage:taskManagerObserver_->GetImageForRow(rowIndex)];
+    [buttonCell setImage:
+        taskManagerObserver_->GetImageForRow(viewToModelMap_[rowIndex])];
     [buttonCell setRefusesFirstResponder:YES];  // Don't push in like a button.
     [buttonCell setHighlightsBy:NSNoCellMask];
   }
@@ -362,14 +481,24 @@ static const struct ColumnWidth {
   return cell;
 }
 
+- (void)           tableView:(NSTableView*)tableView
+    sortDescriptorsDidChange:(NSArray*)oldDescriptors {
+  NSArray* newDescriptors = [tableView sortDescriptors];
+  if ([newDescriptors count] < 1)
+    return;
+
+  currentSortDescriptor_.reset([[newDescriptors objectAtIndex:0] retain]);
+  [self reloadData];  // Sorts.
+}
+
 @end
 
 ////////////////////////////////////////////////////////////////////////////////
 // TaskManagerMac implementation:
 
-TaskManagerMac::TaskManagerMac()
-  : task_manager_(TaskManager::GetInstance()),
-    model_(TaskManager::GetInstance()->model()),
+TaskManagerMac::TaskManagerMac(TaskManager* task_manager)
+  : task_manager_(task_manager),
+    model_(task_manager->model()),
     icon_cache_(this) {
   window_controller_ =
       [[TaskManagerWindowController alloc] initWithTaskManagerObserver:this];
@@ -380,7 +509,11 @@ TaskManagerMac::TaskManagerMac()
 TaskManagerMac* TaskManagerMac::instance_ = NULL;
 
 TaskManagerMac::~TaskManagerMac() {
-  task_manager_->OnWindowClosed();
+  if (this == instance_) {
+    // Do not do this when running in unit tests: |StartUpdating()| never got
+    // called in that case.
+    task_manager_->OnWindowClosed();
+  }
   model_->RemoveObserver(this);
 }
 
@@ -389,6 +522,7 @@ TaskManagerMac::~TaskManagerMac() {
 
 void TaskManagerMac::OnModelChanged() {
   icon_cache_.OnModelChanged();
+  [window_controller_ deselectRows];
   [window_controller_ reloadData];
 }
 
@@ -399,11 +533,13 @@ void TaskManagerMac::OnItemsChanged(int start, int length) {
 
 void TaskManagerMac::OnItemsAdded(int start, int length) {
   icon_cache_.OnItemsAdded(start, length);
+  [window_controller_ deselectRows];
   [window_controller_ reloadData];
 }
 
 void TaskManagerMac::OnItemsRemoved(int start, int length) {
   icon_cache_.OnItemsRemoved(start, length);
+  [window_controller_ deselectRows];
   [window_controller_ reloadData];
 }
 
@@ -419,6 +555,14 @@ void TaskManagerMac::WindowWasClosed() {
   instance_ = NULL;
 }
 
+int TaskManagerMac::RowCount() const {
+  return model_->ResourceCount();
+}
+
+SkBitmap TaskManagerMac::GetIcon(int r) const {
+  return model_->GetResourceIcon(r);
+}
+
 // static
 void TaskManagerMac::Show() {
   if (instance_) {
@@ -426,7 +570,7 @@ void TaskManagerMac::Show() {
     [[instance_->window_controller_ window]
         makeKeyAndOrderFront:instance_->window_controller_];
   } else {
-    instance_ = new TaskManagerMac;
+    instance_ = new TaskManagerMac(TaskManager::GetInstance());
     instance_->model_->StartUpdating();
   }
 }

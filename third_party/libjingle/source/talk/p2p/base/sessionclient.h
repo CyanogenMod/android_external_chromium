@@ -34,39 +34,26 @@ class XmlElement;
 
 namespace cricket {
 
+struct ParseError;
 class Session;
 class SessionDescription;
 
-// TODO(pthatcher): For Jingle migration, we're calling what was
-// previously "SessionDescription" now "FormatDescription", since we can
-// have multiple contents.  But for backwards compatibility of the
-// code, we keep the SessionDescription name around.  When we're ready
-// to break backwards compatibilty or make a nicer API for
-// SessionClients, we should remove the SessionDescription name
-// entirely.
-typedef SessionDescription FormatDescription;
-
-class FormatParser {
+class ContentParser {
  public:
-  // TODO(pthatcher): We decided "bool Parse(in, out*, error*)" was
-  // generally the best parse signature for parsing.  However, in
-  // order to keep backwards compatibility with exisisting
-  // SessionClients, we are keeping the signatures like "out
-  // Parse(in)".  Someday when we're willing to break backwards
-  // compatibility, we should change this.
-  virtual const FormatDescription* ParseFormat(
-      const buzz::XmlElement* element) = 0;
-  virtual buzz::XmlElement* WriteFormat(
-      const FormatDescription* format) = 0;
-
-  virtual ~FormatParser() {}
+  virtual bool ParseContent(const buzz::XmlElement* elem,
+                            const ContentDescription** content,
+                            ParseError* error) = 0;
+  virtual bool WriteContent(const ContentDescription* content,
+                            buzz::XmlElement** elem,
+                            WriteError* error) = 0;
+  virtual ~ContentParser() {}
 };
 
 // A SessionClient exists in 1-1 relation with each session.  The implementor
 // of this interface is the one that understands *what* the two sides are
 // trying to send to one another.  The lower-level layers only know how to send
 // data; they do not know what is being sent.
-class SessionClient : public FormatParser {
+class SessionClient : public ContentParser {
  public:
   // Notifies the client of the creation / destruction of sessions of this type.
   //
@@ -78,20 +65,12 @@ class SessionClient : public FormatParser {
   virtual void OnSessionCreate(Session* session, bool received_initiate) = 0;
   virtual void OnSessionDestroy(Session* session) = 0;
 
-  // For backwards compability.  Old ones work with Create/Translate.
-  // In the future, use Parse/Write
-  virtual const SessionDescription* CreateSessionDescription(
-      const buzz::XmlElement* element) {return NULL;}
-  virtual buzz::XmlElement* TranslateSessionDescription(
-      const SessionDescription* description) {return NULL;}
-  virtual const FormatDescription* ParseFormat(
-      const buzz::XmlElement* element) {
-    return CreateSessionDescription(element);
-  }
-  virtual buzz::XmlElement* WriteFormat(
-      const FormatDescription* format) {
-    return TranslateSessionDescription(format);
-  }
+  virtual bool ParseContent(const buzz::XmlElement* elem,
+                            const ContentDescription** content,
+                            ParseError* error) = 0;
+  virtual bool WriteContent(const ContentDescription* content,
+                            buzz::XmlElement** elem,
+                            WriteError* error) = 0;
 
  protected:
   // The SessionClient interface explicitly does not include destructor

@@ -4,6 +4,7 @@
 
 #ifndef NET_BASE_HOST_MAPPING_RULES_H_
 #define NET_BASE_HOST_MAPPING_RULES_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -11,12 +12,13 @@
 
 namespace net {
 
-struct HostPortPair;
+class HostPortPair;
 
 class HostMappingRules {
  public:
   HostMappingRules();
-  
+  ~HostMappingRules();
+
   // Modifies |*host_port| based on the current rules. Returns true if the
   // RequestInfo was modified, false otherwise.
   bool RewriteHost(HostPortPair* host_port) const;
@@ -35,17 +37,8 @@ class HostMappingRules {
   void SetRulesFromString(const std::string& rules_string);
 
  private:
-  struct MapRule {
-    MapRule() : replacement_port(-1) {}
-
-    std::string hostname_pattern;
-    std::string replacement_hostname;
-    int replacement_port;
-  };
-
-  struct ExclusionRule {
-    std::string hostname_pattern;
-  };
+  struct MapRule;
+  struct ExclusionRule;
 
   typedef std::vector<MapRule> MapRuleList;
   typedef std::vector<ExclusionRule> ExclusionRuleList;

@@ -62,6 +62,7 @@ root_env = Environment(
     'FEATURE_ENABLE_PSTN',
     'HAVE_GIPS',
     'HAVE_LMI',
+    'HAVE_SRTP',
   ]
 )
 
@@ -71,6 +72,7 @@ root_env = Environment(
 win_env = root_env.Clone(
   tools = [
     'atlmfc_vc80',
+    'code_signing',
     'component_targets_msvs',
     'directx_9_0_c',
     #'grid_builder',
@@ -80,16 +82,18 @@ win_env = root_env.Clone(
   # Don't use default vc80 midl.exe.  It doesn't understand vista_sdk idl files.
   MIDL = '$PLATFORM_SDK_VISTA_6_0_DIR/Bin/midl.exe ',
   WIX_DIR = '$GOOGLECLIENT/third_party/wix/v3_0_2925/files',
+  # Flags for debug and optimization are added to CCFLAGS instead
+  CCPDBFLAGS = '',
+  CCFLAGS_DEBUG = '',
+  CCFLAGS_OPTIMIZED = '',
 )
 
 win_env.Append(
   COMPONENT_LIBRARY_PUBLISH = True,  # Put dlls in output dir too
   CCFLAGS = [
-    '/nologo',
-    '/W3',          # level 3 warnings
+    '/Fd${TARGET}.pdb', # pdb per object allows --jobs=
     '/WX',          # warnings are errors
     '/Zc:forScope', # handle 'for (int i = 0 ...)' right
-    '/GS',          # enable stack smash protection
     '/EHs-c-',      # disable C++ EH
     '/GR-',         # disable RTTI
     '/wd4996',      # ignore POSIX deprecated warnings
@@ -154,20 +158,51 @@ win_env.Append(
 # of OS_WINDOWS symbol.
 win_env.FilterOut(CPPDEFINES = ['OS_WINDOWS=OS_WINDOWS'])
 
+# Set up digital signing
+DeclareBit('test_signing', 'Sign binaries with the test certificate')
+win_env.SetBitFromOption('test_signing', False)
+if win_env.Bit('test_signing'):
+   win_env.Replace(
+     CERTIFICATE_PATH = win_env.File(
+         '$GOOGLECLIENT/tools/test_key/testkey.pfx').abspath,
+     CERTIFICATE_PASSWORD = 'test',
+   )
+AddTargetGroup('signed_binaries', 'digitally signed binaries can be built')
+
 win_dbg_env = win_env.Clone(
   BUILD_TYPE = 'dbg',
   BUILD_TYPE_DESCRIPTION = 'Windows debug build',
   BUILD_GROUPS = ['default', 'all'],
-  tools = ['target_debug']
+  tools = ['target_debug'],
 )
+
+win_dbg_env.Prepend(
+  CCFLAGS=[
+      '/ZI',     # enable debugging
+      '/Od',     # disable optimizations
+      '/MTd',    # link with LIBCMTD.LIB debug lib
+      '/RTC1',   # enable runtime checks
+  ],
+)
+
 envs.append(win_dbg_env)
 
 win_opt_env = win_env.Clone(
   BUILD_TYPE = 'opt',
   BUILD_TYPE_DESCRIPTION = 'Windows opt build',
   BUILD_GROUPS = ['all'],
-  tools = ['target_optimized']
+  tools = ['target_optimized'],
 )
+
+win_opt_env.Prepend(
+  CCFLAGS=[
+      '/Zi',     # enable debugging
+      '/O1',     # optimize for size
+      '/MT',     # link with LIBCMT.LIB (multi-threaded, static linked crt)
+      '/GS',     # enable security checks
+  ],
+)
+
 envs.append(win_opt_env)
 
 
@@ -214,11 +249,10 @@ mac_env.Append(
   CPPDEFINES = [
     'OSX',
     'MAC_OS_X_VERSION_MIN_REQUIRED=1040',
-    'HAVE_SRTP',
   ],
   CCFLAGS = [
     '-arch', 'i386',
-    '-isysroot', '/Developer/SDKs/MacOSX10.4u.sdk',
+    '-isysroot', '/Developer/SDKs/MacOSX10.5.sdk',
     '-fasm-blocks',
   ],
   LINKFLAGS = [
@@ -235,6 +269,7 @@ mac_env.Append(
     'Carbon',
     'Security',
     'SystemConfiguration',
+    'OpenGL',
   ]
 )
 
@@ -283,7 +318,6 @@ linux_env.Append(
     'LINUX',
     'HAVE_GLIB',
     # TODO() Enable once we figure out multiple defines with gips lib
-    #'HAVE_SRTP',
     # Also consider other linux flags:  64bit, no-strict-aliasing, wrap, etc
   ],
   LINKFLAGS = [
@@ -326,6 +360,14 @@ linux_chromeos_env = linux_env.Clone(
 )
 
 linux_chromeos_env.Append(
+  CPPDEFINES = [
+     'CHROMEOS',
+     '__MMX__',
+     '__SSE__',
+     '__SSE2__',
+     'USE_TALK_SOUND',
+  ],
+
   CPPPATH = [
     os.environ.get("CPPPATH"),
   ],
@@ -336,6 +378,12 @@ linux_chromeos_env.Append(
 
   CCFLAGS = [
     os.environ.get("CCFLAGS"),
+    # ChromeOS devices for sure has MMX, SSE, and SSE2.
+    # So turning on -mmmx, -msse, and -msse2 without CPU detection should be
+    # safe.
+    '-mmmx',
+    '-msse',
+    '-msse2',
   ],
 
   CXXFLAGS = [

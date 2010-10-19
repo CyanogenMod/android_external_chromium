@@ -33,8 +33,8 @@
 namespace cricket {
 
 TransportChannelProxy::TransportChannelProxy(const std::string& name,
-                                             const std::string &session_type)
-    : TransportChannel(name, session_type), impl_(NULL) {
+                                             const std::string &content_type)
+    : TransportChannel(name, content_type), impl_(NULL) {
 }
 
 TransportChannelProxy::~TransportChannelProxy() {

@@ -4,12 +4,11 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_USER_IMAGE_DOWNLOADER_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_USER_IMAGE_DOWNLOADER_H_
+#pragma once
 
 #include <string>
-#include <vector>
 
 #include "base/basictypes.h"
-#include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/chromeos/login/image_decoder.h"
 #include "chrome/common/net/url_fetcher.h"

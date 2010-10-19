@@ -1,9 +1,10 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_URL_REQUEST_URL_REQUEST_H_
 #define NET_URL_REQUEST_URL_REQUEST_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -14,6 +15,7 @@
 #include "base/logging.h"
 #include "base/non_thread_safe.h"
 #include "base/ref_counted.h"
+#include "base/string16.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/load_states.h"
 #include "net/base/net_log.h"
@@ -88,9 +90,7 @@ class URLRequest : public NonThreadSafe {
     // the delegate never sees the original redirect response, instead the
     // response produced by the intercept job will be returned.
     virtual URLRequestJob* MaybeInterceptRedirect(URLRequest* request,
-                                                  const GURL& location) {
-      return NULL;
-    }
+                                                  const GURL& location);
 
     // Called after having received a final response, but prior to the
     // the request delegate being informed of the response. This is also
@@ -100,9 +100,7 @@ class URLRequest : public NonThreadSafe {
     // continue. If a new job is provided, the delegate never sees the original
     // response, instead the response produced by the intercept job will be
     // returned.
-    virtual URLRequestJob* MaybeInterceptResponse(URLRequest* request) {
-      return NULL;
-    }
+    virtual URLRequestJob* MaybeInterceptResponse(URLRequest* request);
   };
 
   // The delegate's methods are called from the message loop of the thread
@@ -150,8 +148,7 @@ class URLRequest : public NonThreadSafe {
     // deferring redirect.
     virtual void OnReceivedRedirect(URLRequest* request,
                                     const GURL& new_url,
-                                    bool* defer_redirect) {
-    }
+                                    bool* defer_redirect);
 
     // Called when we receive an authentication failure.  The delegate should
     // call request->SetAuth() with the user's credentials once it obtains them,
@@ -159,9 +156,7 @@ class URLRequest : public NonThreadSafe {
     // When it does so, the request will be reissued, restarting the sequence
     // of On* callbacks.
     virtual void OnAuthRequired(URLRequest* request,
-                                net::AuthChallengeInfo* auth_info) {
-      request->CancelAuth();
-    }
+                                net::AuthChallengeInfo* auth_info);
 
     // Called when we receive an SSL CertificateRequest message for client
     // authentication.  The delegate should call
@@ -170,9 +165,7 @@ class URLRequest : public NonThreadSafe {
     // handshake without a client certificate.
     virtual void OnCertificateRequested(
         URLRequest* request,
-        net::SSLCertRequestInfo* cert_request_info) {
-      request->ContinueWithCertificate(NULL);
-    }
+        net::SSLCertRequestInfo* cert_request_info);
 
     // Called when using SSL and the server responds with a certificate with
     // an error, for example, whose common name does not match the common name
@@ -182,23 +175,19 @@ class URLRequest : public NonThreadSafe {
     // indicating what's wrong with the certificate.
     virtual void OnSSLCertificateError(URLRequest* request,
                                        int cert_error,
-                                       net::X509Certificate* cert) {
-      request->Cancel();
-    }
+                                       net::X509Certificate* cert);
 
     // Called when reading cookies. |blocked_by_policy| is true if access to
     // cookies was denied due to content settings. This method will never be
     // invoked when LOAD_DO_NOT_SEND_COOKIES is specified.
-    virtual void OnGetCookies(URLRequest* request, bool blocked_by_policy) {
-    }
+    virtual void OnGetCookies(URLRequest* request, bool blocked_by_policy);
 
     // Called when a cookie is set. |blocked_by_policy| is true if the cookie
     // was rejected due to content settings. This method will never be invoked
     // when LOAD_DO_NOT_SAVE_COOKIES is specified.
     virtual void OnSetCookie(URLRequest* request,
                              const std::string& cookie_line,
-                             bool blocked_by_policy) {
-    }
+                             bool blocked_by_policy);
 
     // After calling Start(), the delegate will receive an OnResponseStarted
     // callback when the request has completed.  If an error occurred, the
@@ -377,7 +366,7 @@ class URLRequest : public NonThreadSafe {
   bool was_cached() const { return response_info_.was_cached; }
 
   // True if response could use alternate protocol. However, browser will
-  // ingore the alternate protocol if spdy is not enabled.
+  // ignore the alternate protocol if spdy is not enabled.
   bool was_fetched_via_spdy() const {
     return response_info_.was_fetched_via_spdy;
   }
@@ -388,7 +377,7 @@ class URLRequest : public NonThreadSafe {
     return response_info_.was_npn_negotiated;
   }
 
-  // Returns true if the URLRequest was delivered when the alertnate protocol
+  // Returns true if the URLRequest was delivered when the alternate protocol
   // is available.
   bool was_alternate_protocol_available() const {
     return response_info_.was_alternate_protocol_available;
@@ -503,7 +492,7 @@ class URLRequest : public NonThreadSafe {
   // OnAuthRequired() callback (and only then).
   // SetAuth will reissue the request with the given credentials.
   // CancelAuth will give up and display the error page.
-  void SetAuth(const std::wstring& username, const std::wstring& password);
+  void SetAuth(const string16& username, const string16& password);
   void CancelAuth();
 
   // This method can be called after the user selects a client certificate to
@@ -542,8 +531,13 @@ class URLRequest : public NonThreadSafe {
   // Returns the priority level for this request.
   net::RequestPriority priority() const { return priority_; }
   void set_priority(net::RequestPriority priority) {
+<<<<<<< HEAD
     //DCHECK_GE(priority, net::HIGHEST);
     //DCHECK_LE(priority, net::LOWEST);
+=======
+    DCHECK_GE(priority, net::HIGHEST);
+    DCHECK_LT(priority, net::NUM_PRIORITIES);
+>>>>>>> Chromium at release 7.0.540.0
     priority_ = priority;
   }
 
@@ -570,7 +564,7 @@ class URLRequest : public NonThreadSafe {
   void ResponseStarted();
 
   // Allow an interceptor's URLRequestJob to restart this request.
-  // Should only be called if the original job has not started a resposne.
+  // Should only be called if the original job has not started a response.
   void Restart();
 
  private:
@@ -594,7 +588,7 @@ class URLRequest : public NonThreadSafe {
 
   // Contextual information used for this request (can be NULL). This contains
   // most of the dependencies which are shared between requests (disk cache,
-  // cookie store, socket poool, etc.)
+  // cookie store, socket pool, etc.)
   scoped_refptr<URLRequestContext> context_;
 
   // Tracks the time spent in various load states throughout this request.

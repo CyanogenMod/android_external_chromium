@@ -8,6 +8,7 @@
 #include "base/string_piece.h"
 #include "base/string_util.h"
 #include "googleurl/src/gurl.h"
+#include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
 
 namespace {
@@ -410,6 +411,12 @@ void WebSocketHandshakeResponseHandler::RemoveHeaders(
   DCHECK_EQ(kResponseKeySize, key_.size());
 
   headers_ = FilterHeaders(headers_, headers_to_remove, headers_to_remove_len);
+}
+
+std::string WebSocketHandshakeResponseHandler::GetRawResponse() const {
+  DCHECK(HasResponse());
+  return std::string(original_.data(),
+                     original_header_length_ + kResponseKeySize);
 }
 
 std::string WebSocketHandshakeResponseHandler::GetResponse() {

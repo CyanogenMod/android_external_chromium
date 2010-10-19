@@ -4,18 +4,28 @@
 
 #ifndef CHROME_BROWSER_BACKGROUND_CONTENTS_SERVICE_H_
 #define CHROME_BROWSER_BACKGROUND_CONTENTS_SERVICE_H_
+#pragma once
 
 #include <map>
 
+#include "base/gtest_prod_util.h"
+#include "chrome/browser/tab_contents/background_contents.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
+#include "chrome/common/window_container_type.h"
 #include "googleurl/src/gurl.h"
-#include "testing/gtest/include/gtest/gtest_prod.h"
+#include "webkit/glue/window_open_disposition.h"
 
 class BackgroundContents;
 class CommandLine;
 class PrefService;
 class Profile;
+class TabContents;
+
+namespace gfx {
+class Rect;
+}
+
 struct BackgroundContentsOpenedDetails;
 
 // BackgroundContentsService is owned by the profile, and is responsible for
@@ -26,7 +36,8 @@ struct BackgroundContentsOpenedDetails;
 // It is also responsible for tracking the association between
 // BackgroundContents and their parent app, and shutting them down when the
 // parent app is unloaded.
-class BackgroundContentsService : private NotificationObserver {
+class BackgroundContentsService : private NotificationObserver,
+                                  public BackgroundContents::Delegate {
  public:
   BackgroundContentsService(Profile* profile, const CommandLine* command_line);
   virtual ~BackgroundContentsService();
@@ -37,10 +48,18 @@ class BackgroundContentsService : private NotificationObserver {
 
   static void RegisterUserPrefs(PrefService* prefs);
 
+  // BackgroundContents::Delegate implementation.
+  virtual void AddTabContents(TabContents* new_contents,
+                              WindowOpenDisposition disposition,
+                              const gfx::Rect& initial_pos,
+                              bool user_gesture);
+
  private:
   friend class BackgroundContentsServiceTest;
-  FRIEND_TEST(BackgroundContentsServiceTest, BackgroundContentsCreateDestroy);
-  FRIEND_TEST(BackgroundContentsServiceTest, TestApplicationIDLinkage);
+  FRIEND_TEST_ALL_PREFIXES(BackgroundContentsServiceTest,
+                           BackgroundContentsCreateDestroy);
+  FRIEND_TEST_ALL_PREFIXES(BackgroundContentsServiceTest,
+                           TestApplicationIDLinkage);
 
   // Registers for various notifications.
   void StartObserving(Profile* profile);
@@ -107,10 +126,6 @@ class BackgroundContentsService : private NotificationObserver {
   // Value: BackgroundContentsInfo for the BC associated with that application
   typedef std::map<string16, BackgroundContentsInfo> BackgroundContentsMap;
   BackgroundContentsMap contents_map_;
-
-  // If true, should always keep the browser process alive regardless of whether
-  // there are any BackgroundContents (used for manual/automated testing).
-  bool always_keep_alive_;
 
   DISALLOW_COPY_AND_ASSIGN(BackgroundContentsService);
 };

@@ -4,9 +4,12 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_VIDEO_LAYER_X_H_
 #define CHROME_BROWSER_RENDERER_HOST_VIDEO_LAYER_X_H_
+#pragma once
 
 #include "app/x11_util.h"
+#include "base/scoped_ptr.h"
 #include "chrome/browser/renderer_host/video_layer.h"
+#include "gfx/rect.h"
 
 // Implements a YUV data layer using X to hold the RGB data.
 class VideoLayerX : public VideoLayer {

@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_TOOLBAR_MODEL_H__
 #define CHROME_BROWSER_TOOLBAR_MODEL_H__
+#pragma once
 
 #include <string>
 
@@ -11,7 +12,6 @@
 
 class Browser;
 class NavigationController;
-class NavigationEntry;
 
 // This class is the model used by the toolbar, location bar and autocomplete
 // edit.  It populates its states from the current navigation entry retrieved

@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/file_path.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/password_manager/password_manager.h"
 #include "chrome/browser/password_manager/password_manager_delegate.h"
 #include "chrome/browser/password_manager/password_store.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/testing_profile.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -72,7 +72,8 @@ ACTION_P(SaveToScopedPtr, scoped) {
 
 class PasswordManagerTest : public testing::Test {
  public:
-  PasswordManagerTest() {}
+  PasswordManagerTest()
+      : ui_thread_(ChromeThread::UI, &message_loop_) {}
  protected:
 
   virtual void SetUp() {
@@ -104,6 +105,10 @@ class PasswordManagerTest : public testing::Test {
   }
 
   PasswordManager* manager() { return manager_.get(); }
+
+  // We create a UI thread to satisfy PasswordStore.
+  MessageLoopForUI message_loop_;
+  ChromeThread ui_thread_;
 
   scoped_ptr<Profile> profile_;
   scoped_refptr<MockPasswordStore> store_;

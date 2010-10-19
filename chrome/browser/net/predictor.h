@@ -13,17 +13,17 @@
 // Subresource relationships are usually acquired from the referrer field in a
 // navigation.  A subresource URL may be associated with a referrer URL.  Later
 // navigations may, if the likelihood of needing the subresource is high enough,
-// cause this module to speculatively create a TCP/IP connection that will
-// probably be needed to fetch the subresource.
+// cause this module to speculatively create a TCP/IP connection. If there is
+// only a low likelihood, then a DNS pre-resolution operation may be performed.
 
 #ifndef CHROME_BROWSER_NET_PREDICTOR_H_
 #define CHROME_BROWSER_NET_PREDICTOR_H_
+#pragma once
 
 #include <map>
 #include <queue>
 #include <set>
 #include <string>
-#include <vector>
 
 #include "base/gtest_prod_util.h"
 #include "base/ref_counted.h"
@@ -31,6 +31,8 @@
 #include "chrome/browser/net/referrer.h"
 #include "chrome/common/net/predictor_common.h"
 #include "net/base/host_port_pair.h"
+
+class ListValue;
 
 namespace net {
 class HostResolver;
@@ -48,9 +50,19 @@ class Predictor : public base::RefCountedThreadSafe<Predictor> {
  public:
   // A version number for prefs that are saved. This should be incremented when
   // we change the format so that we discard old data.
-  enum { DNS_REFERRER_VERSION = 1 };
+  enum { PREDICTOR_REFERRER_VERSION = 2 };
 
-// |max_concurrent| specifies how many concurrent (parallel) prefetches will
+  // Depending on the expected_subresource_use_, we may either make a TCP/IP
+  // preconnection, or merely pre-resolve the hostname via DNS (or even do
+  // nothing).  The following are the threasholds for taking those actions.
+  static const double kPreconnectWorthyExpectedValue;
+  static const double kDNSPreresolutionWorthyExpectedValue;
+  // Values of expected_subresource_use_ that are less than the following
+  // threshold will be discarded when we Trim() the values, such as is done when
+  // the process ends, and some values are persisted.
+  static const double kPersistWorthyExpectedValue;
+
+  // |max_concurrent| specifies how many concurrent (parallel) prefetches will
   // be performed. Host lookups will be issued through |host_resolver|.
   Predictor(net::HostResolver* host_resolver,
             base::TimeDelta max_queue_delay_ms, size_t max_concurrent,
@@ -72,20 +84,25 @@ class Predictor : public base::RefCountedThreadSafe<Predictor> {
   void Resolve(const GURL& url,
                UrlInfo::ResolutionMotivation motivation);
 
-  // Get latency benefit of the prefetch that we are navigating to.
-  bool AccruePrefetchBenefits(const GURL& referrer,
-                              UrlInfo* navigation_info);
-
-  // Instigate preresolution of any domains we predict will be needed after this
-  // navigation.
-  void PredictSubresources(const GURL& url);
-
-  // Instigate pre-connection to any URLs we predict will be needed after this
-  // navigation (typically more-embedded resources on a page).
+  // Instigate pre-connection to any URLs, or pre-resolution of related host,
+  // that we predict will be needed after this navigation (typically
+  // more-embedded resources on a page).  This method will actually post a task
+  // to do the actual work, so as not to jump ahead of the frame navigation that
+  // instigated this activity.
   void PredictFrameSubresources(const GURL& url);
+
+  // The Omnibox has proposed a given url to the user, and if it is a search
+  // URL, then it also indicates that this is preconnectable (i.e., we could
+  // preconnect to the search server).
+  void AnticipateOmniboxUrl(const GURL& url, bool preconnectable);
+
+  // Preconnect a URL and all of its subresource domains.
+  void PreconnectUrlAndSubresources(const GURL& url);
 
   // Record details of a navigation so that we can preresolve the host name
   // ahead of time the next time the users navigates to the indicated host.
+  // Should only be called when urls are distinct, and they should already be
+  // canonicalized to not have a path.
   void LearnFromNavigation(const GURL& referring_url, const GURL& target_url);
 
   // Dump HTML table containing list of referrers for about:dns.
@@ -111,10 +128,7 @@ class Predictor : public base::RefCountedThreadSafe<Predictor> {
   // values into the current referrer list.
   void DeserializeReferrers(const ListValue& referral_list);
 
-  void DeserializeReferrersThenDelete(ListValue* referral_list) {
-    DeserializeReferrers(*referral_list);
-    delete referral_list;
-  }
+  void DeserializeReferrersThenDelete(ListValue* referral_list);
 
   // For unit test code only.
   size_t max_concurrent_dns_lookups() const {
@@ -123,6 +137,11 @@ class Predictor : public base::RefCountedThreadSafe<Predictor> {
 
   // Flag setting to use preconnection instead of just DNS pre-fetching.
   bool preconnect_enabled() const { return preconnect_enabled_; }
+
+  // Put URL in canonical form, including a scheme, host, and port.
+  // Returns GURL::EmptyGURL() if the scheme is not http/https or if the url
+  // cannot be otherwise canonicalized.
+  static GURL CanonicalizeUrl(const GURL& url);
 
  private:
   friend class base::RefCountedThreadSafe<Predictor>;
@@ -134,8 +153,6 @@ class Predictor : public base::RefCountedThreadSafe<Predictor> {
   FRIEND_TEST_ALL_PREFIXES(PredictorTest, PriorityQueuePushPopTest);
   FRIEND_TEST_ALL_PREFIXES(PredictorTest, PriorityQueueReorderTest);
   friend class WaitForResolutionHelper;  // For testing.
-
-  ~Predictor();
 
   class LookupRequest;
 
@@ -170,6 +187,13 @@ class Predictor : public base::RefCountedThreadSafe<Predictor> {
   // of loading additional URLs.  The list of additional targets is held
   // in a Referrer instance, which is a value in this map.
   typedef std::map<GURL, Referrer> Referrers;
+
+  ~Predictor();
+
+  // Perform actual resolution or preconnection to subresources now.  This is
+  // an internal worker method that is reached via a post task from
+  // PredictFrameSubresources().
+  void PrepareFrameSubresources(const GURL& url);
 
   // Only for testing. Returns true if hostname has been successfully resolved
   // (name found).
@@ -239,12 +263,6 @@ class Predictor : public base::RefCountedThreadSafe<Predictor> {
   // When true, we don't make new lookup requests.
   bool shutdown_;
 
-  // A list of successful events resulting from pre-fetching.
-  UrlInfo::DnsInfoTable dns_cache_hits_;
-  // A map of hosts that were evicted from our cache (after we prefetched them)
-  // and before the HTTP stack tried to look them up.
-  Results cache_eviction_map_;
-
   // The number of concurrent lookups currently allowed.
   const size_t max_concurrent_dns_lookups_;
 
@@ -258,6 +276,19 @@ class Predictor : public base::RefCountedThreadSafe<Predictor> {
   // Are we currently using preconnection, rather than just DNS resolution, for
   // subresources and omni-box search URLs.
   bool preconnect_enabled_;
+
+  // Most recent suggestion from Omnibox provided via AnticipateOmniboxUrl().
+  std::string last_omnibox_host_;
+
+  // The time when the last preresolve was done for last_omnibox_host_.
+  base::TimeTicks last_omnibox_preresolve_;
+
+  // The number of consecutive requests to AnticipateOmniboxUrl() that suggested
+  // preconnecting (because it was to a search service).
+  int consecutive_omnibox_preconnect_count_;
+
+  // The time when the last preconnection was requested to a search service.
+  base::TimeTicks last_omnibox_preconnect_;
 
   DISALLOW_COPY_AND_ASSIGN(Predictor);
 };

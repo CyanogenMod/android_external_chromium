@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_CROS_MOCK_SYSTEM_LIBRARY_H_
 #define CHROME_BROWSER_CHROMEOS_CROS_MOCK_SYSTEM_LIBRARY_H_
+#pragma once
 
 #include "chrome/browser/chromeos/cros/system_library.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -18,9 +19,9 @@ class MockSystemLibrary : public SystemLibrary {
   MOCK_METHOD1(RemoveObserver, void(Observer*));
   MOCK_METHOD0(GetTimezone, const icu::TimeZone&());
   MOCK_METHOD1(SetTimezone, void(const icu::TimeZone*));
+  MOCK_METHOD2(GetMachineStatistic, bool(const std::string&, std::string*));
 };
 
 }  // namespace chromeos
 
 #endif  // CHROME_BROWSER_CHROMEOS_CROS_MOCK_SYSTEM_LIBRARY_H_
-

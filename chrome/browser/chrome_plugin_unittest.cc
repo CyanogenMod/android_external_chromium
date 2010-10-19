@@ -17,11 +17,12 @@
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request_test_job.h"
 #include "net/url_request/url_request_unittest.h"
+#include "net/test/test_server.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
 
-const wchar_t kDocRoot[] = L"chrome/test/data";
+const FilePath::CharType kDocRoot[] = FILE_PATH_LITERAL("chrome/test/data");
 const char kPluginFilename[] = "test_chrome_plugin.dll";
 const int kResponseBufferSize = 4096;
 
@@ -278,11 +279,10 @@ TEST_F(ChromePluginTest, CanMakeGETRequestAsync) {
 
 // Tests that the plugin can issue a POST request.
 TEST_F(ChromePluginTest, CanMakePOSTRequest) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  net::TestServer test_server(net::TestServer::TYPE_HTTP, FilePath(kDocRoot));
+  ASSERT_TRUE(test_server.Start());
 
-  GURL url = server->TestServerPage("echo");
+  GURL url = test_server.GetURL("echo");
 
   EXPECT_EQ(CPERR_SUCCESS, test_funcs_.test_make_request("POST", url));
 

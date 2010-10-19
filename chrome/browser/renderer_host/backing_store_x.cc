@@ -85,6 +85,7 @@ BackingStoreX::BackingStoreX(RenderWidgetHost* widget,
         x11_util::GetRenderVisualFormat(display_,
                                         static_cast<Visual*>(visual)),
                                         0, NULL);
+    pixmap_bpp_ = 0;
   } else {
     picture_ = 0;
     pixmap_bpp_ = x11_util::BitsPerPixelForPixmapDepth(display_, depth);
@@ -98,9 +99,13 @@ BackingStoreX::BackingStoreX(RenderWidgetHost* widget, const gfx::Size& size)
       display_(NULL),
       shared_memory_support_(x11_util::SHARED_MEMORY_NONE),
       use_render_(false),
+      pixmap_bpp_(0),
       visual_(NULL),
       visual_depth_(-1),
-      root_window_(0) {
+      root_window_(0),
+      pixmap_(0),
+      picture_(0),
+      pixmap_gc_(NULL) {
 }
 
 BackingStoreX::~BackingStoreX() {
@@ -239,7 +244,7 @@ void BackingStoreX::PaintToBackingStore(
                    width, height, False /* send_event */);
 #endif
       XDestroyImage(image);
-    } else { // case SHARED_MEMORY_NONE
+    } else {  // case SHARED_MEMORY_NONE
       // No shared memory support, we have to copy the bitmap contents
       // to the X server. Xlib wraps the underlying PutImage call
       // behind several layers of functions which try to convert the
@@ -326,8 +331,8 @@ bool BackingStoreX::CopyFromBackingStore(const gfx::Rect& rect,
     }
     // Create the shared memory segment for the image and map it.
     if (image->bytes_per_line == 0 || image->height == 0 ||
-        (std::numeric_limits<size_t>::max() / image->bytes_per_line) >
-        static_cast<size_t>(image->height)) {
+        static_cast<size_t>(image->height) >
+        (std::numeric_limits<size_t>::max() / image->bytes_per_line)) {
       XDestroyImage(image);
       return false;
     }

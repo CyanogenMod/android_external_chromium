@@ -4,6 +4,7 @@
 
 #ifndef NET_DISK_CACHE_ENTRY_IMPL_H_
 #define NET_DISK_CACHE_ENTRY_IMPL_H_
+#pragma once
 
 #include "base/scoped_ptr.h"
 #include "net/disk_cache/disk_cache.h"
@@ -29,7 +30,7 @@ class EntryImpl : public Entry, public base::RefCounted<EntryImpl> {
     kAsyncIO
   };
 
-  EntryImpl(BackendImpl* backend, Addr address);
+  EntryImpl(BackendImpl* backend, Addr address, bool read_only);
 
   // Entry interface.
   virtual void Doom();
@@ -132,6 +133,7 @@ class EntryImpl : public Entry, public base::RefCounted<EntryImpl> {
   enum {
      kNumStreams = 3
   };
+  class UserBuffer;
 
   ~EntryImpl();
 
@@ -142,6 +144,9 @@ class EntryImpl : public Entry, public base::RefCounted<EntryImpl> {
   bool CreateBlock(int size, Addr* address);
 
   // Deletes the data pointed by address, maybe backed by files_[index].
+  // Note that most likely the caller should delete (and store) the reference to
+  // |address| *before* calling this method because we don't want to have an
+  // entry using an address that is already free.
   void DeleteData(Addr address, int index);
 
   // Updates ranking information.
@@ -157,17 +162,29 @@ class EntryImpl : public Entry, public base::RefCounted<EntryImpl> {
   // given offset.
   bool PrepareTarget(int index, int offset, int buf_len, bool truncate);
 
-  // Grows the size of the storage used to store user data, if needed.
-  bool GrowUserBuffer(int index, int offset, int buf_len, bool truncate);
+  // Adjusts the internal buffer and file handle for a write that truncates this
+  // stream.
+  bool HandleTruncation(int index, int offset, int buf_len);
+
+  // Copies data from disk to the internal buffer.
+  bool CopyToLocalBuffer(int index);
 
   // Reads from a block data file to this object's memory buffer.
   bool MoveToLocalBuffer(int index);
 
   // Loads the external file to this object's memory buffer.
-  bool ImportSeparateFile(int index, int offset, int buf_len);
+  bool ImportSeparateFile(int index, int new_size);
 
-  // Flush the in-memory data to the backing storage.
-  bool Flush(int index, int size, bool async);
+  // Makes sure that the internal buffer can handle the a write of |buf_len|
+  // bytes to |offset|.
+  bool PrepareBuffer(int index, int offset, int buf_len);
+
+  // Flushes the in-memory data to the backing storage. The data destination
+  // is determined based on the current data length and |min_len|.
+  bool Flush(int index, int min_len);
+
+  // Updates the size of a given data stream.
+  void UpdateSize(int index, int old_size, int new_size);
 
   // Initializes the sparse control object. Returns a net error code.
   int InitSparseData();
@@ -194,12 +211,13 @@ class EntryImpl : public Entry, public base::RefCounted<EntryImpl> {
   CacheEntryBlock entry_;     // Key related information for this entry.
   CacheRankingsBlock node_;   // Rankings related information for this entry.
   BackendImpl* backend_;      // Back pointer to the cache.
-  scoped_array<char> user_buffers_[kNumStreams];  // Store user data.
+  scoped_ptr<UserBuffer> user_buffers_[kNumStreams];  // Stores user data.
   // Files to store external user data and key.
   scoped_refptr<File> files_[kNumStreams + 1];
   mutable std::string key_;           // Copy of the key.
   int unreported_size_[kNumStreams];  // Bytes not reported yet to the backend.
   bool doomed_;               // True if this entry was removed from the cache.
+  bool read_only_;            // True if not yet writing.
   scoped_ptr<SparseControl> sparse_;  // Support for sparse entries.
 
   DISALLOW_COPY_AND_ASSIGN(EntryImpl);

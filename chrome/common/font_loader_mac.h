@@ -4,11 +4,11 @@
 
 #ifndef CHROME_COMMON_FONT_LOADER_MAC_H_
 #define CHROME_COMMON_FONT_LOADER_MAC_H_
+#pragma once
 
 #include <ApplicationServices/ApplicationServices.h>
 
 #include "base/shared_memory.h"
-#include "base/string16.h"
 
 #ifdef __OBJC__
 @class NSFont;

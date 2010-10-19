@@ -4,11 +4,11 @@
 
 #ifndef CHROME_BROWSER_AUTOFILL_AUTOFILL_ADDRESS_SHEET_CONTROLLER_MAC_
 #define CHROME_BROWSER_AUTOFILL_AUTOFILL_ADDRESS_SHEET_CONTROLLER_MAC_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
 @class AutoFillAddressModel;
-@class AutoFillDialogController;
 class AutoFillProfile;
 
 // The sheet can be invoked in "Add" or "Edit" mode.  This dictates the caption

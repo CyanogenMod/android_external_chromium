@@ -6,17 +6,28 @@
 
 #include "base/callback.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/extensions/extension_tabs_module_constants.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/extensions/file_reader.h"
+#include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_error_utils.h"
+#include "chrome/common/notification_service.h"
 
 namespace keys = extension_tabs_module_constants;
+
+ExecuteCodeInTabFunction::ExecuteCodeInTabFunction()
+    : execute_tab_id_(-1),
+      all_frames_(false) {
+}
+
+ExecuteCodeInTabFunction::~ExecuteCodeInTabFunction() {
+}
 
 bool ExecuteCodeInTabFunction::RunImpl() {
   DictionaryValue* script_info;
@@ -113,6 +124,8 @@ void ExecuteCodeInTabFunction::DidLoadFile(bool success,
     Execute(data);
   } else {
 #if defined(OS_POSIX)
+    // TODO(viettrungluu): bug: there's no particular reason the path should be
+    // UTF-8, in which case this may fail.
     error_ = ExtensionErrorUtils::FormatErrorMessage(keys::kLoadFileError,
         resource_.relative_path().value());
 #elif defined(OS_WIN)

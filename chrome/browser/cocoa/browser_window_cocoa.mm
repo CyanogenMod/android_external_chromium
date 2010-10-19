@@ -5,7 +5,7 @@
 #include "chrome/browser/cocoa/browser_window_cocoa.h"
 
 #include "app/l10n_util_mac.h"
-#include "base/keyboard_codes.h"
+#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/sys_string_conversions.h"
@@ -15,7 +15,7 @@
 #include "chrome/browser/browser_list.h"
 #import "chrome/browser/cocoa/browser_window_controller.h"
 #import "chrome/browser/cocoa/bug_report_window_controller.h"
-#import "chrome/browser/cocoa/chrome_browser_window.h"
+#import "chrome/browser/cocoa/chrome_event_processing_window.h"
 #import "chrome/browser/cocoa/clear_browsing_data_controller.h"
 #import "chrome/browser/cocoa/collected_cookies_mac.h"
 #import "chrome/browser/cocoa/content_settings_dialog_controller.h"
@@ -35,9 +35,13 @@
 #import "chrome/browser/cocoa/toolbar_controller.h"
 #include "chrome/browser/download/download_shelf.h"
 #include "chrome/browser/global_keyboard_shortcuts_mac.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/sidebar/sidebar_container.h"
+#include "chrome/browser/sidebar/sidebar_manager.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/common/chrome_switches.h"
+#include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "gfx/rect.h"
@@ -52,6 +56,8 @@ BrowserWindowCocoa::BrowserWindowCocoa(Browser* browser,
     confirm_close_factory_(browser) {
   // This pref applies to all windows, so all must watch for it.
   registrar_.Add(this, NotificationType::BOOKMARK_BAR_VISIBILITY_PREF_CHANGED,
+                 NotificationService::AllSources());
+  registrar_.Add(this, NotificationType::SIDEBAR_CHANGED,
                  NotificationService::AllSources());
 }
 
@@ -108,6 +114,11 @@ void BrowserWindowCocoa::Activate() {
   [controller_ activate];
 }
 
+void BrowserWindowCocoa::Deactivate() {
+  // TODO(jcivelli): http://crbug.com/51364 Implement me.
+  NOTIMPLEMENTED();
+}
+
 void BrowserWindowCocoa::FlashFrame() {
   [NSApp requestUserAttention:NSInformationalRequest];
 }
@@ -134,10 +145,6 @@ void BrowserWindowCocoa::SelectedTabToolbarSizeChanged(bool is_animating) {
   // size changed via animation it notified through TCD/etc to the browser view
   // to relayout for each tick of the animation. We don't need anything of the
   // sort on Mac.
-}
-
-void BrowserWindowCocoa::SelectedTabExtensionShelfSizeChanged() {
-  NOTIMPLEMENTED();
 }
 
 void BrowserWindowCocoa::UpdateTitleBar() {
@@ -271,10 +278,6 @@ void BrowserWindowCocoa::ToggleBookmarkBar() {
   bookmark_utils::ToggleWhenVisible(browser_->profile());
 }
 
-void BrowserWindowCocoa::ToggleExtensionShelf() {
-  NOTIMPLEMENTED();
-}
-
 void BrowserWindowCocoa::AddFindBar(
     FindBarCocoaController* find_bar_cocoa_controller) {
   return [controller_ addFindBar:find_bar_cocoa_controller];
@@ -398,7 +401,11 @@ void BrowserWindowCocoa::ShowPageInfo(Profile* profile,
                                       const GURL& url,
                                       const NavigationEntry::SSLStatus& ssl,
                                       bool show_history) {
-  PageInfoWindowMac::ShowPageInfo(profile, url, ssl, show_history);
+  const CommandLine* command_line(CommandLine::ForCurrentProcess());
+  if (command_line->HasSwitch(switches::kEnableNewPageInfoBubble))
+    browser::ShowPageInfoBubble(window(), profile, url, ssl, show_history);
+  else
+    browser::ShowPageInfo(window(), profile, url, ssl, show_history);
 }
 
 void BrowserWindowCocoa::ShowAppMenu() {
@@ -553,6 +560,26 @@ void BrowserWindowCocoa::ToggleTabStripMode() {
   [controller_ toggleTabStripDisplayMode];
 }
 
+void BrowserWindowCocoa::OpenTabpose() {
+  [controller_ openTabpose];
+}
+
+void BrowserWindowCocoa::ShowMatchPreview() {
+  // TODO: implement me
+  NOTIMPLEMENTED();
+}
+
+void BrowserWindowCocoa::HideMatchPreview() {
+  // TODO: implement me
+  NOTIMPLEMENTED();
+}
+
+gfx::Rect BrowserWindowCocoa::GetMatchPreviewBounds() {
+  // TODO: implement me
+  NOTIMPLEMENTED();
+  return gfx::Rect();
+}
+
 void BrowserWindowCocoa::Observe(NotificationType type,
                                  const NotificationSource& source,
                                  const NotificationDetails& details) {
@@ -561,6 +588,10 @@ void BrowserWindowCocoa::Observe(NotificationType type,
     // Other windows hear about it from the notification.
     case NotificationType::BOOKMARK_BAR_VISIBILITY_PREF_CHANGED:
       [controller_ updateBookmarkBarVisibilityWithAnimation:YES];
+      break;
+    case NotificationType::SIDEBAR_CHANGED:
+      UpdateSidebarForContents(
+          Details<SidebarContainer>(details)->tab_contents());
       break;
     default:
       NOTREACHED();  // we don't ask for anything else!
@@ -577,4 +608,10 @@ void BrowserWindowCocoa::DestroyBrowser() {
 
 NSWindow* BrowserWindowCocoa::window() const {
   return [controller_ window];
+}
+
+void BrowserWindowCocoa::UpdateSidebarForContents(TabContents* tab_contents) {
+  if (tab_contents == browser_->tabstrip_model()->GetSelectedTabContents()) {
+    [controller_ updateSidebarForContents:tab_contents];
+  }
 }

@@ -12,13 +12,15 @@
 #include "chrome/browser/browser_process.h"
 #import "chrome/browser/cocoa/edit_search_engine_cocoa_controller.h"
 #import "chrome/browser/cocoa/window_size_autosaver.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/search_engines/template_url_table_model.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "third_party/GTM/AppKit/GTMUILocalizerAndLayoutTweaker.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 
 namespace {
 
@@ -50,8 +52,8 @@ void KeywordEditorModelObserver::OnTemplateURLModelChanged() {
 
 void KeywordEditorModelObserver::OnEditedKeyword(
     const TemplateURL* template_url,
-    const std::wstring& title,
-    const std::wstring& keyword,
+    const string16& title,
+    const string16& keyword,
     const std::string& url) {
   KeywordEditorController* controller = [controller_ controller];
   if (template_url) {
@@ -156,8 +158,7 @@ typedef std::map<Profile*,KeywordEditorCocoaController*> ProfileControllerMap;
       sizeSaver_.reset([[WindowSizeAutosaver alloc]
           initWithWindow:[self window]
              prefService:g_browser_process->local_state()
-                    path:prefs::kKeywordEditorWindowPlacement
-                   state:kSaveWindowRect]);
+                    path:prefs::kKeywordEditorWindowPlacement]);
     }
   }
   return self;

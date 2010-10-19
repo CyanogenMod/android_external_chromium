@@ -10,6 +10,7 @@
 
 #ifndef NET_DISK_CACHE_HISTOGRAM_MACROS_H_
 #define NET_DISK_CACHE_HISTOGRAM_MACROS_H_
+#pragma once
 
 // -----------------------------------------------------------------------------
 
@@ -31,6 +32,9 @@
 
 #define CACHE_HISTOGRAM_COUNTS_10000(name, sample) \
     CACHE_HISTOGRAM_CUSTOM_COUNTS(name, sample, 1, 10000, 50)
+
+#define CACHE_HISTOGRAM_COUNTS_50000(name, sample) \
+    CACHE_HISTOGRAM_CUSTOM_COUNTS(name, sample, 1, 50000000, 50)
 
 #define CACHE_HISTOGRAM_CUSTOM_TIMES(name, sample, min, max, bucket_count) \
     do { \

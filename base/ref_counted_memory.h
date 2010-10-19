@@ -1,9 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef BASE_REF_COUNTED_MEMORY_H_
 #define BASE_REF_COUNTED_MEMORY_H_
+#pragma once
 
 #include <vector>
 
@@ -26,8 +27,8 @@ class RefCountedMemory : public base::RefCountedThreadSafe<RefCountedMemory> {
 
  protected:
   friend class base::RefCountedThreadSafe<RefCountedMemory>;
-
-  virtual ~RefCountedMemory() {}
+  RefCountedMemory();
+  virtual ~RefCountedMemory();
 };
 
 // An implementation of RefCountedMemory, where the ref counting does not
@@ -39,8 +40,8 @@ class RefCountedStaticMemory : public RefCountedMemory {
   RefCountedStaticMemory(const unsigned char* data, size_t length)
       : data_(data), length_(length) {}
 
-  virtual const unsigned char* front() const { return data_; }
-  virtual size_t size() const { return length_; }
+  virtual const unsigned char* front() const;
+  virtual size_t size() const;
 
  private:
   const unsigned char* data_;
@@ -56,26 +57,21 @@ class RefCountedBytes : public RefCountedMemory {
   // Constructs a RefCountedBytes object by performing a swap. (To non
   // destructively build a RefCountedBytes, use the constructor that takes a
   // vector.)
-  static RefCountedBytes* TakeVector(std::vector<unsigned char>* to_destroy) {
-    RefCountedBytes* bytes = new RefCountedBytes;
-    bytes->data.swap(*to_destroy);
-    return bytes;
-  }
+  static RefCountedBytes* TakeVector(std::vector<unsigned char>* to_destroy);
 
-  RefCountedBytes() {}
+  RefCountedBytes();
 
   // Constructs a RefCountedBytes object by _copying_ from |initializer|.
-  RefCountedBytes(const std::vector<unsigned char>& initializer)
-      : data(initializer) {}
+  RefCountedBytes(const std::vector<unsigned char>& initializer);
 
-  virtual const unsigned char* front() const {
-    // STL will assert if we do front() on an empty vector, but calling code
-    // expects a NULL.
-    return size() ? &data.front() : NULL;
-  }
-  virtual size_t size() const { return data.size(); }
+  virtual const unsigned char* front() const;
+  virtual size_t size() const;
 
   std::vector<unsigned char> data;
+
+ protected:
+  friend class base::RefCountedThreadSafe<RefCountedBytes>;
+  virtual ~RefCountedBytes();
 
  private:
   DISALLOW_COPY_AND_ASSIGN(RefCountedBytes);

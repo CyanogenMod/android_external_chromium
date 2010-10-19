@@ -7,24 +7,25 @@
 #include <string>
 
 #include "app/resource_bundle.h"
+#include "base/command_line.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/histogram.h"
 #include "base/path_service.h"
 #include "base/process_util.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/thread.h"
 #include "base/time.h"
-#include "base/waitable_event.h"
 #include "build/build_config.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
-#include "chrome/browser/first_run.h"
+#include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/jankometer.h"
 #include "chrome/browser/metrics/metrics_service.h"
 #include "chrome/browser/plugin_process_host.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
@@ -32,6 +33,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/chrome_plugin_lib.h"
+#include "chrome/common/switch_utils.h"
 #include "net/predictor_api.h"
 
 #if defined(OS_WIN)
@@ -138,7 +140,7 @@ void Shutdown() {
 
   prefs->SavePersistentPrefs();
 
-#if defined(OS_WIN)
+#if defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
   // Cleanup any statics created by RLZ. Must be done before NotificationService
   // is destroyed.
   RLZTracker::CleanupRlz();
@@ -175,12 +177,14 @@ void Shutdown() {
     scoped_ptr<CommandLine> new_cl(new CommandLine(old_cl.GetProgram()));
     std::map<std::string, CommandLine::StringType> switches =
         old_cl.GetSwitches();
+    // Remove the switches that shouldn't persist across restart.
+    switches::RemoveSwitchesForAutostart(&switches);
     // Append the old switches to the new command line.
     for (std::map<std::string, CommandLine::StringType>::const_iterator i =
         switches.begin(); i != switches.end(); ++i) {
       CommandLine::StringType switch_value = i->second;
       if (!switch_value.empty())
-        new_cl->AppendSwitchWithValue(i->first, i->second);
+        new_cl->AppendSwitchNative(i->first, i->second);
       else
         new_cl->AppendSwitch(i->first);
     }
@@ -207,7 +211,8 @@ void Shutdown() {
     // and then write it to a file to be read at startup.
     // We can't use prefs since all services are shutdown at this point.
     TimeDelta shutdown_delta = Time::Now() - shutdown_started_;
-    std::string shutdown_ms = Int64ToString(shutdown_delta.InMilliseconds());
+    std::string shutdown_ms =
+        base::Int64ToString(shutdown_delta.InMilliseconds());
     int len = static_cast<int>(shutdown_ms.length()) + 1;
     FilePath shutdown_ms_file = GetShutdownMsPath();
     file_util::WriteFile(shutdown_ms_file, shutdown_ms.c_str(), len);
@@ -226,7 +231,7 @@ void ReadLastShutdownFile(
   std::string shutdown_ms_str;
   int64 shutdown_ms = 0;
   if (file_util::ReadFileToString(shutdown_ms_file, &shutdown_ms_str))
-    shutdown_ms = StringToInt64(shutdown_ms_str);
+    base::StringToInt64(shutdown_ms_str, &shutdown_ms);
   file_util::Delete(shutdown_ms_file, false);
 
   if (type == NOT_VALID || shutdown_ms == 0 || num_procs == 0)
@@ -285,6 +290,14 @@ void SetTryingToQuit(bool quitting) {
 
 bool IsTryingToQuit() {
   return g_trying_to_quit;
+}
+
+bool ShuttingDownWithoutClosingBrowsers() {
+#if defined(USE_X11)
+  if (GetShutdownType() == browser_shutdown::END_SESSION)
+    return true;
+#endif
+  return false;
 }
 
 }  // namespace browser_shutdown

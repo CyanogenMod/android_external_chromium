@@ -4,14 +4,21 @@
 
 #ifndef CHROME_BROWSER_COCOA_WRENCH_MENU_CONTROLLER_H_
 #define CHROME_BROWSER_COCOA_WRENCH_MENU_CONTROLLER_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
 #import "base/cocoa_protocols_mac.h"
+#include "base/scoped_ptr.h"
 #import "chrome/browser/cocoa/menu_controller.h"
 
+@class MenuTrackedRootView;
 @class ToolbarController;
 class WrenchMenuModel;
+
+namespace WrenchMenuControllerInternal {
+class ZoomLevelObserver;
+}  // namespace WrenchMenuControllerInternal
 
 // The Wrench menu has a creative layout, with buttons in menu items. There is
 // a cross-platform model for this special menu, but on the Mac it's easier to
@@ -21,15 +28,19 @@ class WrenchMenuModel;
 //
 // This object is instantiated in Toolbar.xib and is configured by the
 // ToolbarController.
-@interface WrenchMenuController : MenuController <NSMenuDelegate> {
-  IBOutlet NSView* editItem_;
-  IBOutlet NSSegmentedControl* editControl_;
+@interface WrenchMenuController : MenuController<NSMenuDelegate> {
+  IBOutlet MenuTrackedRootView* editItem_;
+  IBOutlet NSButton* editCut_;
+  IBOutlet NSButton* editCopy_;
+  IBOutlet NSButton* editPaste_;
 
-  IBOutlet NSView* zoomItem_;
+  IBOutlet MenuTrackedRootView* zoomItem_;
   IBOutlet NSButton* zoomPlus_;
   IBOutlet NSButton* zoomDisplay_;
   IBOutlet NSButton* zoomMinus_;
   IBOutlet NSButton* zoomFullScreen_;
+
+  scoped_ptr<WrenchMenuControllerInternal::ZoomLevelObserver> observer_;
 }
 
 // Designated initializer; called within the NIB.
@@ -41,6 +52,21 @@ class WrenchMenuModel;
 // NSCarbonMenuWindow; this screws up the typical |-commandDispatch:| system.
 - (IBAction)dispatchWrenchMenuCommand:(id)sender;
 
+// Returns the weak reference to the WrenchMenuModel.
+- (WrenchMenuModel*)wrenchMenuModel;
+
+@end
+
+////////////////////////////////////////////////////////////////////////////////
+
+@interface WrenchMenuController (UnitTesting)
+// |-dispatchWrenchMenuCommand:| calls this after it has determined the tag of
+// the sender. The default implementation executes the command on the outermost
+// run loop using |-performSelector...withDelay:|. This is not desirable in
+// unit tests because it's hard to test around run loops in a deterministic
+// manner. To avoid those headaches, tests should provide an alternative
+// implementation.
+- (void)dispatchCommandInternal:(NSInteger)tag;
 @end
 
 #endif  // CHROME_BROWSER_COCOA_WRENCH_MENU_CONTROLLER_H_

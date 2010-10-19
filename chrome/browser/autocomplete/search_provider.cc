@@ -5,18 +5,20 @@
 #include "chrome/browser/autocomplete/search_provider.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "app/l10n_util.h"
 #include "base/callback.h"
 #include "base/i18n/icu_string_conversions.h"
 #include "base/message_loop.h"
+#include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/keyword_provider.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/google_util.h"
+#include "chrome/browser/google/google_util.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/net/url_fixer_upper.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/json_value_serializer.h"
@@ -50,6 +52,14 @@ void SearchProvider::Providers::Set(const TemplateURL* default_provider,
   keyword_provider_ = keyword_provider;
   if (keyword_provider)
     cached_keyword_provider_ = *keyword_provider;
+}
+
+SearchProvider::SearchProvider(ACProviderListener* listener, Profile* profile)
+    : AutocompleteProvider(listener, profile, "Search"),
+      have_history_results_(false),
+      history_request_pending_(false),
+      suggest_results_pending_(0),
+      have_suggest_results_(false) {
 }
 
 void SearchProvider::Start(const AutocompleteInput& input,
@@ -196,6 +206,9 @@ void SearchProvider::OnURLFetchComplete(const URLFetcher* source,
   listener_->OnProviderUpdate(!suggest_results->empty());
 }
 
+SearchProvider::~SearchProvider() {
+}
+
 void SearchProvider::StartOrStopHistoryQuery(bool minimal_changes) {
   // For the minimal_changes case, if we finished the previous query and still
   // have its results, or are allowed to keep running it, just do that, rather
@@ -268,34 +281,44 @@ bool SearchProvider::IsQuerySuitableForSuggest() const {
       !profile_->GetPrefs()->GetBoolean(prefs::kSearchSuggestEnabled))
     return false;
 
-  // If the input type is URL, we take extra care so that private data in URL
+  // If the input type might be a URL, we take extra care so that private data
   // isn't sent to the server.
-  if (input_.type() == AutocompleteInput::URL) {
-    // Don't query the server for URLs that aren't http/https/ftp.  Sending
-    // things like file: and data: is both a waste of time and a disclosure of
-    // potentially private, local data.
-    if ((input_.scheme() != L"http") && (input_.scheme() != L"https") &&
-        (input_.scheme() != L"ftp"))
-      return false;
 
-    // Don't leak private data in URL
-    const url_parse::Parsed& parts = input_.parts();
+  // FORCED_QUERY means the user is explicitly asking us to search for this, so
+  // we assume it isn't a URL and/or there isn't private data.
+  if (input_.type() == AutocompleteInput::FORCED_QUERY)
+    return true;
 
-    // Don't send URLs with usernames, queries or refs.  Some of these are
-    // private, and the Suggest server is unlikely to have any useful results
-    // for any of them.
-    // Password is optional and may be omitted.  Checking username is
-    // sufficient.
-    if (parts.username.is_nonempty() || parts.query.is_nonempty() ||
-        parts.ref.is_nonempty())
-      return false;
-    // Don't send anything for https except hostname and port number.
-    // Hostname and port number are OK because they are visible when TCP
-    // connection is established and the Suggest server may provide some
-    // useful completed URL.
-    if (input_.scheme() == L"https" && parts.path.is_nonempty())
-      return false;
-  }
+  // Next we check the scheme.  If this is UNKNOWN/REQUESTED_URL/URL with a
+  // scheme that isn't http/https/ftp, we shouldn't send it.  Sending things
+  // like file: and data: is both a waste of time and a disclosure of
+  // potentially private, local data.  Other "schemes" may actually be
+  // usernames, and we don't want to send passwords.  If the scheme is OK, we
+  // still need to check other cases below.  If this is QUERY, then the presence
+  // of these schemes means the user explicitly typed one, and thus this is
+  // probably a URL that's being entered and happens to currently be invalid --
+  // in which case we again want to run our checks below.  Other QUERY cases are
+  // less likely to be URLs and thus we assume we're OK.
+  if ((input_.scheme() != L"http") && (input_.scheme() != L"https") &&
+      (input_.scheme() != L"ftp"))
+    return (input_.type() == AutocompleteInput::QUERY);
+
+  // Don't send URLs with usernames, queries or refs.  Some of these are
+  // private, and the Suggest server is unlikely to have any useful results
+  // for any of them.  Also don't send URLs with ports, as we may initially
+  // think that a username + password is a host + port (and we don't want to
+  // send usernames/passwords), and even if the port really is a port, the
+  // server is once again unlikely to have and useful results.
+  const url_parse::Parsed& parts = input_.parts();
+  if (parts.username.is_nonempty() || parts.port.is_nonempty() ||
+      parts.query.is_nonempty() || parts.ref.is_nonempty())
+    return false;
+
+  // Don't send anything for https except the hostname.  Hostnames are OK
+  // because they are visible when the TCP connection is established, but the
+  // specific path may reveal private information.
+  if ((input_.scheme() == L"https") && parts.path.is_nonempty())
+    return false;
 
   return true;
 }
@@ -321,7 +344,7 @@ void SearchProvider::StopSuggest() {
   have_suggest_results_ = false;
 }
 
-void SearchProvider::ScheduleHistoryQuery(TemplateURL::IDType search_id,
+void SearchProvider::ScheduleHistoryQuery(TemplateURLID search_id,
                                           const std::wstring& text) {
   DCHECK(!text.empty());
   HistoryService* const history_service =
@@ -386,10 +409,11 @@ bool SearchProvider::ParseSuggestResults(Value* root_val,
   ListValue* root_list = static_cast<ListValue*>(root_val);
 
   Value* query_val;
-  std::wstring query_str;
+  string16 query_str;
   Value* result_val;
   if ((root_list->GetSize() < 2) || !root_list->Get(0, &query_val) ||
-      !query_val->GetAsString(&query_str) || (query_str != input_text) ||
+      !query_val->GetAsString(&query_str) ||
+      (query_str != WideToUTF16Hack(input_text)) ||
       !root_list->Get(1, &result_val) || !result_val->IsType(Value::TYPE_LIST))
     return false;
 
@@ -417,7 +441,7 @@ bool SearchProvider::ParseSuggestResults(Value* root_val,
       DictionaryValue* dict_val = static_cast<DictionaryValue*>(optional_val);
 
       // Parse Google Suggest specific type extension.
-      static const std::wstring kGoogleSuggestType(L"google:suggesttype");
+      static const std::string kGoogleSuggestType("google:suggesttype");
       if (dict_val->HasKey(kGoogleSuggestType))
         dict_val->GetList(kGoogleSuggestType, &type_list);
     }
@@ -426,17 +450,23 @@ bool SearchProvider::ParseSuggestResults(Value* root_val,
   ListValue* result_list = static_cast<ListValue*>(result_val);
   for (size_t i = 0; i < result_list->GetSize(); ++i) {
     Value* suggestion_val;
-    std::wstring suggestion_str;
+    string16 suggestion_str;
     if (!result_list->Get(i, &suggestion_val) ||
         !suggestion_val->GetAsString(&suggestion_str))
       return false;
 
+    // Google search may return empty suggestions for weird input characters,
+    // they make no sense at all and can cause problem in our code.
+    // See http://crbug.com/56214
+    if (!suggestion_str.length())
+      continue;
+
     Value* type_val;
-    std::wstring type_str;
+    std::string type_str;
     if (type_list && type_list->Get(i, &type_val) &&
-        type_val->GetAsString(&type_str) && (type_str == L"NAVIGATION")) {
+        type_val->GetAsString(&type_str) && (type_str == "NAVIGATION")) {
       Value* site_val;
-      std::wstring site_name;
+      string16 site_name;
       NavigationResults& navigation_results =
           is_keyword ? keyword_navigation_results_ :
                        default_navigation_results_;
@@ -445,16 +475,18 @@ bool SearchProvider::ParseSuggestResults(Value* root_val,
           site_val->IsType(Value::TYPE_STRING) &&
           site_val->GetAsString(&site_name)) {
         // We can't blindly trust the URL coming from the server to be valid.
-        GURL result_url(URLFixerUpper::FixupURL(WideToUTF8(suggestion_str),
+        GURL result_url(URLFixerUpper::FixupURL(UTF16ToUTF8(suggestion_str),
                                                 std::string()));
-        if (result_url.is_valid())
-          navigation_results.push_back(NavigationResult(result_url, site_name));
+        if (result_url.is_valid()) {
+          navigation_results.push_back(NavigationResult(result_url,
+              UTF16ToWideHack(site_name)));
+        }
       }
     } else {
       // TODO(kochi): Currently we treat a calculator result as a query, but it
       // is better to have better presentation for caluculator results.
       if (suggest_results->size() < kMaxMatches)
-        suggest_results->push_back(suggestion_str);
+        suggest_results->push_back(UTF16ToWideHack(suggestion_str));
     }
   }
 
@@ -587,7 +619,8 @@ int SearchProvider::CalculateRelevanceForHistory(const Time& time,
   // points, while the relevance of a search two weeks ago is discounted about
   // 450 points.
   const double elapsed_time = std::max((Time::Now() - time).InSecondsF(), 0.);
-  const int score_discount = static_cast<int>(6.5 * pow(elapsed_time, 0.3));
+  const int score_discount =
+      static_cast<int>(6.5 * std::pow(elapsed_time, 0.3));
 
   // Don't let scores go below 0.  Negative relevance scores are meaningful in
   // a different way.
@@ -716,7 +749,7 @@ void SearchProvider::AddMatchToMap(const std::wstring& query_string,
   // NOTE: Keep this ToLower() call in sync with url_database.cc.
   const std::pair<MatchMap::iterator, bool> i = map->insert(
       std::pair<std::wstring, AutocompleteMatch>(
-      l10n_util::ToLower(query_string), match));
+      UTF16ToWide(l10n_util::ToLower(WideToUTF16(query_string))), match));
   // NOTE: We purposefully do a direct relevance comparison here instead of
   // using AutocompleteMatch::MoreRelevant(), so that we'll prefer "items added
   // first" rather than "items alphabetically first" when the scores are equal.

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/message_loop.h"
 #include "base/scoped_handle.h"
 #include "base/task.h"
+#include "base/utf_string_conversions.h"  // TODO(viettrungluu): delete me.
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
@@ -42,18 +43,8 @@ void SandboxedExtensionUnpacker::Start() {
   // file IO on.
   CHECK(ChromeThread::GetCurrentThreadIdentifier(&thread_identifier_));
 
-  // To understand crbug/35198, allow users who can reproduce the bug
-  // to loosen permissions on the scoped directory.
-  bool loosen_permissions = false;
-#if defined (OS_WIN)
-  loosen_permissions = CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kIssue35198Permission);
-  LOG(INFO) << "loosen_permissions = " << loosen_permissions;
-#endif
-
   // Create a temporary directory to work in.
-  if (!temp_dir_.CreateUniqueTempDirUnderPath(temp_path_,
-                                              loosen_permissions)) {
+  if (!temp_dir_.CreateUniqueTempDirUnderPath(temp_path_)) {
     ReportFailure("Could not create temporary directory.");
     return;
   }
@@ -61,15 +52,6 @@ void SandboxedExtensionUnpacker::Start() {
   // Initialize the path that will eventually contain the unpacked extension.
   extension_root_ = temp_dir_.path().AppendASCII(
       extension_filenames::kTempExtensionName);
-
-  // To understand crbug/35198, allow users who can reproduce the bug to
-  // create the unpack directory in the browser process.
-  bool crxdir_in_browser = CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kIssue35198CrxDirBrowser);
-  LOG(INFO) << "crxdir_in_browser = " << crxdir_in_browser;
-  if (crxdir_in_browser && !file_util::CreateDirectory(extension_root_)) {
-    LOG(ERROR) << "Failed to create directory " << extension_root_.value();
-  }
 
   // Extract the public key and validate the package.
   if (!ValidateSignature())
@@ -82,20 +64,6 @@ void SandboxedExtensionUnpacker::Start() {
     return;
   }
 
-  // The utility process will have access to the directory passed to
-  // SandboxedExtensionUnpacker.  That directory should not contain a
-  // symlink or NTFS junction, because when the path is used, following
-  // the link will cause file system access outside the sandbox path.
-  FilePath normalized_crx_path;
-  if (!file_util::NormalizeFilePath(temp_crx_path, &normalized_crx_path)) {
-    LOG(ERROR) << "Could not get the normalized path of "
-               << temp_crx_path.value();
-    normalized_crx_path = temp_crx_path;
-  } else {
-    LOG(INFO) << "RealFilePath: from " << temp_crx_path.value()
-              << " to " << normalized_crx_path.value();
-  }
-
   // If we are supposed to use a subprocess, kick off the subprocess.
   //
   // TODO(asargent) we shouldn't need to do this branch here - instead
@@ -103,15 +71,42 @@ void SandboxedExtensionUnpacker::Start() {
   bool use_utility_process = rdh_ &&
       !CommandLine::ForCurrentProcess()->HasSwitch(switches::kSingleProcess);
   if (use_utility_process) {
+    // The utility process will have access to the directory passed to
+    // SandboxedExtensionUnpacker.  That directory should not contain a
+    // symlink or NTFS reparse point.  When the path is used, following
+    // the link/reparse point will cause file system access outside the
+    // sandbox path, and the sandbox will deny the operation.
+    FilePath link_free_crx_path;
+    if (!file_util::NormalizeFilePath(temp_crx_path, &link_free_crx_path)) {
+      LOG(ERROR) << "Could not get the normalized path of "
+                 << temp_crx_path.value();
+#if defined (OS_WIN)
+      // On windows, it is possible to mount a disk without the root of that
+      // disk having a drive letter.  The sandbox does not support this.
+      // See crbug/49530 .
+      ReportFailure(
+          "Can not unpack extension.  To safely unpack an extension, "
+          "there must be a path to your profile directory that starts "
+          "with a drive letter and does not contain a junction, mount "
+          "point, or symlink.  No such path exists for your profile.");
+#else
+      ReportFailure(
+          "Can not unpack extension.  To safely unpack an extension, "
+          "there must be a path to your profile directory that does "
+          "not contain a symlink.  No such path exists for your profile.");
+#endif
+      return;
+    }
+
     ChromeThread::PostTask(
         ChromeThread::IO, FROM_HERE,
         NewRunnableMethod(
             this,
             &SandboxedExtensionUnpacker::StartProcessOnIOThread,
-            normalized_crx_path));
+            link_free_crx_path));
   } else {
     // Otherwise, unpack the extension in this process.
-    ExtensionUnpacker unpacker(normalized_crx_path);
+    ExtensionUnpacker unpacker(temp_crx_path);
     if (unpacker.Run() && unpacker.DumpImagesToFile() &&
         unpacker.DumpMessageCatalogsToFile()) {
       OnUnpackExtensionSucceeded(*unpacker.parsed_manifest());
@@ -218,6 +213,10 @@ bool SandboxedExtensionUnpacker::ValidateSignature() {
     ReportFailure("Excessively large key or signature");
     return false;
   }
+  if (header.key_size == 0) {
+    ReportFailure("Key length is zero");
+    return false;
+  }
 
   std::vector<uint8> key;
   key.resize(header.key_size);
@@ -236,18 +235,9 @@ bool SandboxedExtensionUnpacker::ValidateSignature() {
     return false;
   }
 
-  // Note: this structure is an ASN.1 which encodes the algorithm used
-  // with its parameters. This is defined in PKCS #1 v2.1 (RFC 3447).
-  // It is encoding: { OID sha1WithRSAEncryption      PARAMETERS NULL }
-  // TODO(aa): This needs to be factored away someplace common.
-  const uint8 signature_algorithm[15] = {
-    0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86,
-    0xf7, 0x0d, 0x01, 0x01, 0x05, 0x05, 0x00
-  };
-
   base::SignatureVerifier verifier;
-  if (!verifier.VerifyInit(signature_algorithm,
-                           sizeof(signature_algorithm),
+  if (!verifier.VerifyInit(extension_misc::kSignatureAlgorithm,
+                           sizeof(extension_misc::kSignatureAlgorithm),
                            &signature.front(),
                            signature.size(),
                            &key.front(),
@@ -387,7 +377,9 @@ bool SandboxedExtensionUnpacker::RewriteCatalogFiles() {
       return false;
     }
 
-    FilePath relative_path = FilePath::FromWStringHack(*key_it);
+    // TODO(viettrungluu): Fix the |FilePath::FromWStringHack(UTF8ToWide())|
+    // hack and remove the corresponding #include.
+    FilePath relative_path = FilePath::FromWStringHack(UTF8ToWide(*key_it));
     relative_path = relative_path.Append(Extension::kMessagesFilename);
     if (relative_path.IsAbsolute() || relative_path.ReferencesParent()) {
       ReportFailure("Invalid path for catalog.");

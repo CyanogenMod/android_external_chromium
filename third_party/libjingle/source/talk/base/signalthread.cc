@@ -40,17 +40,25 @@ SignalThread::SignalThread() : main_(Thread::Current()), state_(kInit) {
                                       &SignalThread::OnMainThreadDestroyed);
   refcount_ = 1;
   worker_.parent_ = this;
+  worker_.SetName("SignalThread", this);
 }
 
 SignalThread::~SignalThread() {
   ASSERT(refcount_ == 0);
 }
 
-void SignalThread::SetPriority(ThreadPriority priority) {
+bool SignalThread::SetName(const std::string& name, const void* obj) {
   EnterExit ee(this);
   ASSERT(main_->IsCurrent());
   ASSERT(kInit == state_);
-  worker_.SetPriority(priority);
+  return worker_.SetName(name, obj);
+}
+
+bool SignalThread::SetPriority(ThreadPriority priority) {
+  EnterExit ee(this);
+  ASSERT(main_->IsCurrent());
+  ASSERT(kInit == state_);
+  return worker_.SetPriority(priority);
 }
 
 void SignalThread::Start() {

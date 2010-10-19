@@ -10,7 +10,7 @@
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "chrome/common/render_messages.h"
+#include "chrome/common/render_messages_params.h"
 
 // A Task used with InvokeLater that we hold a pointer to in pending_paints_.
 // Instances are deleted by MessageLoop after it calls their Run method.
@@ -250,11 +250,28 @@ void RenderWidgetHelper::CreateNewWidget(int opener_id,
           popup_type));
 }
 
+void RenderWidgetHelper::CreateNewFullscreenWidget(
+    int opener_id, WebKit::WebPopupType popup_type, int* route_id) {
+  *route_id = GetNextRoutingID();
+  ChromeThread::PostTask(
+      ChromeThread::UI, FROM_HERE,
+      NewRunnableMethod(
+          this, &RenderWidgetHelper::OnCreateFullscreenWidgetOnUI,
+          opener_id, *route_id, popup_type));
+}
+
 void RenderWidgetHelper::OnCreateWidgetOnUI(
     int opener_id, int route_id, WebKit::WebPopupType popup_type) {
   RenderViewHost* host = RenderViewHost::FromID(render_process_id_, opener_id);
   if (host)
     host->CreateNewWidget(route_id, popup_type);
+}
+
+void RenderWidgetHelper::OnCreateFullscreenWidgetOnUI(
+    int opener_id, int route_id, WebKit::WebPopupType popup_type) {
+  RenderViewHost* host = RenderViewHost::FromID(render_process_id_, opener_id);
+  if (host)
+    host->CreateNewFullscreenWidget(route_id, popup_type);
 }
 
 #if defined(OS_MACOSX)
@@ -273,7 +290,7 @@ TransportDIB* RenderWidgetHelper::MapTransportDIB(TransportDIB::Id dib_id) {
 void RenderWidgetHelper::AllocTransportDIB(
     size_t size, bool cache_in_browser, TransportDIB::Handle* result) {
   scoped_ptr<base::SharedMemory> shared_memory(new base::SharedMemory());
-  if (!shared_memory->Create(L"", false /* read write */,
+  if (!shared_memory->Create("", false /* read write */,
                              false /* do not open existing */, size)) {
     result->fd = -1;
     result->auto_close = false;

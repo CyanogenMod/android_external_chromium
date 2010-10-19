@@ -13,6 +13,7 @@
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/accessibility_events.h"
 #include "chrome/browser/alternate_nav_url_fetcher.h"
@@ -23,7 +24,6 @@
 #include "chrome/browser/content_setting_bubble_model.h"
 #include "chrome/browser/content_setting_image_model.h"
 #include "chrome/browser/defaults.h"
-#include "chrome/browser/extensions/extension_accessibility_api_constants.h"
 #include "chrome/browser/extensions/extension_browser_event_router.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/extensions/extensions_service.h"
@@ -76,10 +76,10 @@ const int kFirstRunBubbleTopMargin = 5;
 // We don't want to edit control's text to be right against the edge,
 // as well the tab to search box and other widgets need to have the padding on
 // top and bottom to avoid drawing larger than the location bar space.
-const int kHboxBorder = 4;
+const int kHboxBorder = 2;
 
 // Padding between the elements in the bar.
-const int kInnerPadding = 4;
+const int kInnerPadding = 2;
 
 // Padding between the right of the star and the edge of the URL entry.
 const int kStarRightPadding = 2;
@@ -118,11 +118,6 @@ const GdkColor LocationBarViewGtk::kBackgroundColor =
 LocationBarViewGtk::LocationBarViewGtk(Browser* browser)
     : star_image_(NULL),
       starred_(false),
-      security_icon_event_box_(NULL),
-      ev_secure_icon_image_(NULL),
-      secure_icon_image_(NULL),
-      security_warning_icon_image_(NULL),
-      security_error_icon_image_(NULL),
       site_type_alignment_(NULL),
       site_type_event_box_(NULL),
       location_icon_image_(NULL),
@@ -209,7 +204,7 @@ void LocationBarViewGtk::Init(bool popup_window_mode) {
   GtkWidget* tab_to_search_hbox = gtk_hbox_new(FALSE, 0);
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   tab_to_search_magnifier_ = gtk_image_new_from_pixbuf(
-      rb.GetPixbufNamed(IDR_OMNIBOX_SEARCH));
+      rb.GetPixbufNamed(IDR_KEYWORD_SEARCH_MAGNIFIER));
   gtk_box_pack_start(GTK_BOX(tab_to_search_hbox), tab_to_search_magnifier_,
                      FALSE, FALSE, 0);
   gtk_util::CenterWidgetInHBox(tab_to_search_hbox, tab_to_search_label_hbox,
@@ -262,16 +257,16 @@ void LocationBarViewGtk::Init(bool popup_window_mode) {
   gtk_box_pack_end(GTK_BOX(entry_box_), tab_to_search_hint_, FALSE, FALSE, 0);
 
   // We don't show the star in popups, app windows, etc.
-  if (!ShouldOnlyShowLocation()) {
+  if (browser_defaults::bookmarks_enabled && !ShouldOnlyShowLocation()) {
     CreateStarButton();
     gtk_box_pack_end(GTK_BOX(hbox_.get()), star_.get(), FALSE, FALSE, 0);
   }
 
-  content_setting_hbox_.Own(gtk_hbox_new(FALSE, kInnerPadding));
+  content_setting_hbox_.Own(gtk_hbox_new(FALSE, kInnerPadding + 1));
   gtk_widget_set_name(content_setting_hbox_.get(),
                       "chrome-content-setting-hbox");
   gtk_box_pack_end(GTK_BOX(hbox_.get()), content_setting_hbox_.get(),
-                   FALSE, FALSE, 0);
+                   FALSE, FALSE, 1);
 
   for (int i = 0; i < CONTENT_SETTINGS_NUM_TYPES; ++i) {
     ContentSettingImageViewGtk* content_setting_view =
@@ -304,7 +299,11 @@ void LocationBarViewGtk::Init(bool popup_window_mode) {
 void LocationBarViewGtk::BuildSiteTypeArea() {
   location_icon_image_ = gtk_image_new();
   gtk_widget_set_name(location_icon_image_, "chrome-location-icon");
-  gtk_widget_show(location_icon_image_);
+
+  GtkWidget* icon_alignment = gtk_alignment_new(0, 0, 1, 1);
+  gtk_alignment_set_padding(GTK_ALIGNMENT(icon_alignment), 0, 0, 2, 0);
+  gtk_container_add(GTK_CONTAINER(icon_alignment), location_icon_image_);
+  gtk_widget_show_all(icon_alignment);
 
   security_info_label_ = gtk_label_new(NULL);
   gtk_label_set_ellipsize(GTK_LABEL(security_info_label_),
@@ -314,11 +313,11 @@ void LocationBarViewGtk::BuildSiteTypeArea() {
   gtk_widget_set_name(security_info_label_,
                       "chrome-location-bar-security-info-label");
 
-  GtkWidget* site_type_hbox = gtk_hbox_new(FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(site_type_hbox), location_icon_image_,
+  GtkWidget* site_type_hbox = gtk_hbox_new(FALSE, 2);
+  gtk_box_pack_start(GTK_BOX(site_type_hbox), icon_alignment,
                      FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(site_type_hbox), security_info_label_,
-                     FALSE, FALSE, kCornerSize);
+                     FALSE, FALSE, 1);
 
   site_type_event_box_ = gtk_event_box_new();
   gtk_widget_modify_bg(site_type_event_box_, GTK_STATE_NORMAL,
@@ -341,7 +340,7 @@ void LocationBarViewGtk::BuildSiteTypeArea() {
   // Put the event box in an alignment to get the padding correct.
   site_type_alignment_ = gtk_alignment_new(0, 0, 1, 1);
   gtk_alignment_set_padding(GTK_ALIGNMENT(site_type_alignment_),
-                            0, 0, 1, 0);
+                            1, 1, 0, 0);
   gtk_container_add(GTK_CONTAINER(site_type_alignment_),
                     site_type_event_box_);
   gtk_box_pack_start(GTK_BOX(hbox_.get()), site_type_alignment_,
@@ -408,6 +407,14 @@ GtkWidget* LocationBarViewGtk::GetPageActionWidget(
 }
 
 void LocationBarViewGtk::Update(const TabContents* contents) {
+  bool star_enabled = star_.get() && !toolbar_model_->input_in_progress();
+  command_updater_->UpdateCommandEnabled(IDC_BOOKMARK_PAGE, star_enabled);
+  if (star_.get()) {
+    if (star_enabled)
+      gtk_widget_show_all(star_.get());
+    else
+      gtk_widget_hide_all(star_.get());
+  }
   UpdateSiteTypeArea();
   UpdateContentSettingsIcons();
   UpdatePageActions();
@@ -537,6 +544,11 @@ void LocationBarViewGtk::ShowFirstRunBubble(FirstRun::BubbleType bubble_type) {
   MessageLoop::current()->PostTask(FROM_HERE, task);
 }
 
+void LocationBarViewGtk::SetSuggestedText(const string16& text) {
+  // TODO: implement me.
+  NOTIMPLEMENTED();
+}
+
 std::wstring LocationBarViewGtk::GetInputString() const {
   return location_input_;
 }
@@ -616,8 +628,10 @@ void LocationBarViewGtk::UpdatePageActions() {
   if (!page_action_views_.empty() && contents) {
     GURL url = GURL(WideToUTF8(toolbar_model_->GetText()));
 
-    for (size_t i = 0; i < page_action_views_.size(); i++)
-      page_action_views_[i]->UpdateVisibility(contents, url);
+    for (size_t i = 0; i < page_action_views_.size(); i++) {
+      page_action_views_[i]->UpdateVisibility(
+          toolbar_model_->input_in_progress() ? NULL : contents, url);
+    }
   }
 
   // If there are no visible page actions, hide the hbox too, so that it does
@@ -645,6 +659,18 @@ void LocationBarViewGtk::SaveStateToContents(TabContents* contents) {
 
 void LocationBarViewGtk::Revert() {
   location_entry_->RevertAll();
+}
+
+const AutocompleteEditView* LocationBarViewGtk::location_entry() const {
+  return location_entry_.get();
+}
+
+AutocompleteEditView* LocationBarViewGtk::location_entry() {
+  return location_entry_.get();
+}
+
+LocationBarTesting* LocationBarViewGtk::GetLocationBarForTesting() {
+  return this;
 }
 
 int LocationBarViewGtk::PageActionVisibleCount() {
@@ -724,8 +750,8 @@ void LocationBarViewGtk::Observe(NotificationType type,
                             &kHintTextColor);
 
     // Until we switch to vector graphics, force the font size of labels.
-    gtk_util::ForceFontSizePixels(security_info_label_,
-        browser_defaults::kAutocompleteEditFontPixelSize);
+    // 12.1px = 9pt @ 96dpi
+    gtk_util::ForceFontSizePixels(security_info_label_, 12.1);
     gtk_util::ForceFontSizePixels(tab_to_search_full_label_,
         browser_defaults::kAutocompleteEditFontPixelSize);
     gtk_util::ForceFontSizePixels(tab_to_search_partial_label_,
@@ -1005,8 +1031,8 @@ void LocationBarViewGtk::OnIconDragBegin(GtkWidget* sender,
   GdkPixbuf* pixbuf = gfx::GdkPixbufFromSkBitmap(&favicon);
   if (!pixbuf)
     return;
-  drag_icon_ = bookmark_utils::GetDragRepresentation(pixbuf, GetTitle(),
-                                                     theme_provider_);
+  drag_icon_ = bookmark_utils::GetDragRepresentation(pixbuf,
+      WideToUTF16(GetTitle()), theme_provider_);
   g_object_unref(pixbuf);
   gtk_drag_set_icon_widget(context, drag_icon_, 0, 0);
 }
@@ -1062,7 +1088,7 @@ void LocationBarViewGtk::UpdateStarIcon() {
 
   gtk_image_set_from_pixbuf(GTK_IMAGE(star_image_),
       theme_provider_->GetPixbufNamed(
-          starred_ ? IDR_OMNIBOX_STAR_LIT : IDR_OMNIBOX_STAR));
+          starred_ ? IDR_STAR_LIT : IDR_STAR));
 }
 
 bool LocationBarViewGtk::ShouldOnlyShowLocation() {
@@ -1269,15 +1295,14 @@ void LocationBarViewGtk::PageActionViewGtk::UpdateVisibility(
     TabContents* contents, GURL url) {
   // Save this off so we can pass it back to the extension when the action gets
   // executed. See PageActionImageView::OnMousePressed.
-  current_tab_id_ = ExtensionTabUtil::GetTabId(contents);
+  current_tab_id_ = contents ? ExtensionTabUtil::GetTabId(contents) : -1;
   current_url_ = url;
 
-  bool visible = preview_enabled_ ||
-                 page_action_->GetIsVisible(current_tab_id_);
+  bool visible = contents &&
+      (preview_enabled_ || page_action_->GetIsVisible(current_tab_id_));
   if (visible) {
     // Set the tooltip.
-    gtk_widget_set_tooltip_text(
-        event_box_.get(),
+    gtk_widget_set_tooltip_text(event_box_.get(),
         page_action_->GetTitle(current_tab_id_).c_str());
 
     // Set the image.
@@ -1305,19 +1330,15 @@ void LocationBarViewGtk::PageActionViewGtk::UpdateVisibility(
       // Otherwise look for a dynamically set index, or fall back to the
       // default path.
       int icon_index = page_action_->GetIconIndex(current_tab_id_);
-      std::string icon_path;
-      if (icon_index >= 0)
-        icon_path = page_action_->icon_paths()->at(icon_index);
-      else
-        icon_path = page_action_->default_icon_path();
-
+      std::string icon_path = (icon_index < 0) ?
+          page_action_->default_icon_path() :
+          page_action_->icon_paths()->at(icon_index);
       if (!icon_path.empty()) {
         PixbufMap::iterator iter = pixbufs_.find(icon_path);
         if (iter != pixbufs_.end())
           pixbuf = iter->second;
       }
     }
-
     // The pixbuf might not be loaded yet.
     if (pixbuf)
       gtk_image_set_from_pixbuf(GTK_IMAGE(image_.get()), pixbuf);

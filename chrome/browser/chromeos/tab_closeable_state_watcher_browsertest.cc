@@ -1,16 +1,18 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/chromeos/tab_closeable_state_watcher.h"
 
 #include "base/file_path.h"
-#include "base/logging.h"
 #include "chrome/browser/app_modal_dialog.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
+#include "chrome/browser/native_app_modal_dialog.h"
+#include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
@@ -36,7 +38,8 @@ class TabCloseableStateWatcherTest : public InProcessBrowserTest {
   // Wrapper for Browser::AddTabWithURL
   void AddTabWithURL(Browser* browser, const GURL& url) {
     browser->AddTabWithURL(url, GURL(), PageTransition::TYPED, 0,
-                           TabStripModel::ADD_SELECTED, NULL, std::string());
+                           TabStripModel::ADD_SELECTED, NULL, std::string(),
+                           &browser);
     // Wait for page to finish loading.
     ui_test_utils::WaitForNavigation(
         &browser->GetSelectedTabContents()->controller());
@@ -280,7 +283,7 @@ IN_PROC_BROWSER_TEST_F(TabCloseableStateWatcherTest,
   TabContents* tab_contents = browser()->GetSelectedTabContents();
   browser()->CloseWindow();
   AppModalDialog* confirm = ui_test_utils::WaitForAppModalDialog();
-  confirm->CancelWindow();
+  confirm->native_dialog()->CancelAppModalDialog();
   ui_test_utils::RunAllPendingInMessageLoop();
   EXPECT_EQ(1u, BrowserList::size());
   EXPECT_EQ(browser(), *(BrowserList::begin()));
@@ -290,7 +293,7 @@ IN_PROC_BROWSER_TEST_F(TabCloseableStateWatcherTest,
   // Close the browser.
   browser()->CloseWindow();
   confirm = ui_test_utils::WaitForAppModalDialog();
-  confirm->AcceptWindow();
+  confirm->native_dialog()->AcceptAppModalDialog();
   ui_test_utils::RunAllPendingInMessageLoop();
 }
 
@@ -306,7 +309,7 @@ IN_PROC_BROWSER_TEST_F(TabCloseableStateWatcherTest,
   // Close browser, click OK in BeforeUnload confirm dialog.
   browser()->CloseWindow();
   AppModalDialog* confirm = ui_test_utils::WaitForAppModalDialog();
-  confirm->AcceptWindow();
+  confirm->native_dialog()->AcceptAppModalDialog();
   NewTabObserver new_tab_observer(browser());
   EXPECT_EQ(1u, BrowserList::size());
   EXPECT_EQ(browser(), *(BrowserList::begin()));
@@ -315,4 +318,3 @@ IN_PROC_BROWSER_TEST_F(TabCloseableStateWatcherTest,
 }
 
 }  // namespace chromeos
-

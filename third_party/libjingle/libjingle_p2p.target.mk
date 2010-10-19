@@ -23,6 +23,7 @@ CFLAGS_Debug := -pthread \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -76,6 +77,7 @@ CFLAGS_Release := -pthread \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -118,6 +120,7 @@ OBJS := $(obj).target/$(TARGET)/third_party/libjingle/source/talk/p2p/base/const
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/p2p/base/rawtransportchannel.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/p2p/base/relayport.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/p2p/base/session.o \
+	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/p2p/base/sessiondescription.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/p2p/base/sessionmanager.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/p2p/base/sessionmessages.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/p2p/base/parsing.o \
@@ -160,11 +163,12 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.cc FORCE_DO_CMD
 # End of this set of suffix rules
 ### Rules for final target.
 LDFLAGS_Debug := -pthread \
-	-Wl,-z,noexecstack \
-	-rdynamic
+	-Wl,-z,noexecstack
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := 

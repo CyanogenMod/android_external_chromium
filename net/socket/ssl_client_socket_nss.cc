@@ -51,25 +51,33 @@
 #include <dlfcn.h>
 #endif
 #include <certdb.h>
+#include <hasht.h>
 #include <keyhi.h>
 #include <nspr.h>
 #include <nss.h>
+#include <pk11pub.h>
 #include <secerr.h>
+#include <sechash.h>
 #include <ssl.h>
 #include <sslerr.h>
-#include <pk11pub.h>
 
 #include "base/compiler_specific.h"
 #include "base/histogram.h"
 #include "base/logging.h"
 #include "base/nss_util.h"
 #include "base/singleton.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "net/base/address_list.h"
+#include "net/base/cert_status_flags.h"
 #include "net/base/cert_verifier.h"
+#include "net/base/dns_util.h"
+#include "net/base/dnsrr_resolver.h"
+#include "net/base/dnssec_chain_verifier.h"
 #include "net/base/io_buffer.h"
-#include "net/base/net_log.h"
 #include "net/base/net_errors.h"
+#include "net/base/net_log.h"
 #include "net/base/ssl_cert_request_info.h"
 #include "net/base/ssl_connection_status_flags.h"
 #include "net/base/ssl_info.h"
@@ -182,6 +190,11 @@ int MapNSPRError(PRErrorCode err) {
       return ERR_ADDRESS_UNREACHABLE;
     case PR_ADDRESS_NOT_AVAILABLE_ERROR:
       return ERR_ADDRESS_INVALID;
+    case PR_INVALID_ARGUMENT_ERROR:
+      return ERR_INVALID_ARGUMENT;
+
+    case SEC_ERROR_INVALID_ARGS:
+      return ERR_INVALID_ARGUMENT;
 
     case SSL_ERROR_SSL_DISABLED:
       return ERR_NO_SSL_VERSIONS_ENABLED;
@@ -198,6 +211,8 @@ int MapNSPRError(PRErrorCode err) {
       return ERR_SSL_BAD_RECORD_MAC_ALERT;
     case SSL_ERROR_UNSAFE_NEGOTIATION:
       return ERR_SSL_UNSAFE_NEGOTIATION;
+    case SSL_ERROR_WEAK_SERVER_KEY:
+      return ERR_SSL_WEAK_SERVER_EPHEMERAL_DH_KEY;
 
     default: {
       if (IS_SSL_ERROR(err)) {
@@ -271,6 +286,40 @@ bool IsProblematicComodoEVCACert(const CERTCertificate& cert) {
                 cert.serialNumber.len) == 0;
 }
 
+// This callback is intended to be used with CertFindChainInStore. In addition
+// to filtering by extended/enhanced key usage, we do not show expired
+// certificates and require digital signature usage in the key usage
+// extension.
+//
+// This matches our behavior on Mac OS X and that of NSS. It also matches the
+// default behavior of IE8. See http://support.microsoft.com/kb/890326 and
+// http://blogs.msdn.com/b/askie/archive/2009/06/09/my-expired-client-certificates-no-longer-display-when-connecting-to-my-web-server-using-ie8.aspx
+BOOL WINAPI ClientCertFindCallback(PCCERT_CONTEXT cert_context,
+                                   void* find_arg) {
+  LOG(INFO) << "Calling ClientCertFindCallback from _nss";
+  // Verify the certificate's KU is good.
+  BYTE key_usage;
+  if (CertGetIntendedKeyUsage(X509_ASN_ENCODING, cert_context->pCertInfo,
+                              &key_usage, 1)) {
+    if (!(key_usage & CERT_DIGITAL_SIGNATURE_KEY_USAGE))
+      return FALSE;
+  } else {
+    DWORD err = GetLastError();
+    // If |err| is non-zero, it's an actual error. Otherwise the extension
+    // just isn't present, and we treat it as if everything was allowed.
+    if (err) {
+      DLOG(ERROR) << "CertGetIntendedKeyUsage failed: " << err;
+      return FALSE;
+    }
+  }
+
+  // Verify the current time is within the certificate's validity period.
+  if (CertVerifyTimeValidity(NULL, cert_context->pCertInfo) != 0)
+    return FALSE;
+
+  return TRUE;
+}
+
 #endif
 
 }  // namespace
@@ -289,6 +338,7 @@ SSLClientSocketNSS::SSLClientSocketNSS(ClientSocketHandle* transport_socket,
           this, &SSLClientSocketNSS::BufferRecvComplete)),
       transport_send_busy_(false),
       transport_recv_busy_(false),
+      corked_(false),
       ALLOW_THIS_IN_INITIALIZER_LIST(handshake_io_callback_(
           this, &SSLClientSocketNSS::OnHandshakeIOComplete)),
       transport_(transport_socket),
@@ -303,6 +353,7 @@ SSLClientSocketNSS::SSLClientSocketNSS(ClientSocketHandle* transport_socket,
       client_auth_cert_needed_(false),
       handshake_callback_called_(false),
       completed_handshake_(false),
+      dnssec_provider_(NULL),
       next_handshake_state_(STATE_NONE),
       nss_fd_(NULL),
       nss_bufs_(NULL),
@@ -407,7 +458,7 @@ int SSLClientSocketNSS::InitializeSSLOptions() {
   /* Push SSL onto our fake I/O socket */
   nss_fd_ = SSL_ImportFD(NULL, nss_fd_);
   if (nss_fd_ == NULL) {
-      return ERR_OUT_OF_MEMORY;  // TODO(port): map NSPR/NSS error code.
+    return ERR_OUT_OF_MEMORY;  // TODO(port): map NSPR/NSS error code.
   }
   // TODO(port): set more ssl options!  Check errors!
 
@@ -415,11 +466,11 @@ int SSLClientSocketNSS::InitializeSSLOptions() {
 
   rv = SSL_OptionSet(nss_fd_, SSL_SECURITY, PR_TRUE);
   if (rv != SECSuccess)
-     return ERR_UNEXPECTED;
+    return ERR_UNEXPECTED;
 
   rv = SSL_OptionSet(nss_fd_, SSL_ENABLE_SSL2, ssl_config_.ssl2_enabled);
   if (rv != SECSuccess)
-     return ERR_UNEXPECTED;
+    return ERR_UNEXPECTED;
 
   // SNI is enabled automatically if TLS is enabled -- as long as
   // SSL_V2_COMPATIBLE_HELLO isn't.
@@ -459,13 +510,19 @@ int SSLClientSocketNSS::InitializeSSLOptions() {
 #endif
 
 #ifdef SSL_ENABLE_FALSE_START
-  rv = SSL_OptionSet(nss_fd_, SSL_ENABLE_FALSE_START, PR_TRUE);
+  rv = SSL_OptionSet(
+      nss_fd_, SSL_ENABLE_FALSE_START,
+      ssl_config_.false_start_enabled &&
+      !SSLConfigService::IsKnownFalseStartIncompatibleServer(hostname_));
   if (rv != SECSuccess)
-     LOG(INFO) << "SSL_ENABLE_FALSE_START failed.  Old system nss?";
+    LOG(INFO) << "SSL_ENABLE_FALSE_START failed.  Old system nss?";
 #endif
 
 #ifdef SSL_ENABLE_RENEGOTIATION
-  if (SSLConfigService::IsKnownStrictTLSServer(hostname_)) {
+  // Deliberately disable this check for now: http://crbug.com/55410
+  if (false &&
+      SSLConfigService::IsKnownStrictTLSServer(hostname_) &&
+      !ssl_config_.mitm_proxies_allowed) {
     rv = SSL_OptionSet(nss_fd_, SSL_REQUIRE_SAFE_NEGOTIATION, PR_TRUE);
     if (rv != SECSuccess)
        LOG(INFO) << "SSL_REQUIRE_SAFE_NEGOTIATION failed.";
@@ -478,7 +535,7 @@ int SSLClientSocketNSS::InitializeSSLOptions() {
     // http://extendedsubset.com/?p=8
 
     rv = SSL_OptionSet(nss_fd_, SSL_ENABLE_RENEGOTIATION,
-                       SSL_RENEGOTIATE_UNRESTRICTED);
+                       SSL_RENEGOTIATE_TRANSITIONAL);
   }
   if (rv != SECSuccess)
      LOG(INFO) << "SSL_ENABLE_RENEGOTIATION failed.";
@@ -519,8 +576,8 @@ int SSLClientSocketNSS::InitializeSSLOptions() {
   // rather than the destination server's address in that case.
   // TODO(wtc): port in |peer_address| is not the server's port when a proxy is
   // used.
-  std::string peer_id = StringPrintf("%s:%d", hostname_.c_str(),
-                                     peer_address.GetPort());
+  std::string peer_id = base::StringPrintf("%s:%d", hostname_.c_str(),
+                                           peer_address.GetPort());
   rv = SSL_SetSockPeerID(nss_fd_, const_cast<char*>(peer_id.c_str()));
   if (rv != SECSuccess)
     LOG(INFO) << "SSL_SetSockPeerID failed: peer_id=" << peer_id;
@@ -609,6 +666,30 @@ int SSLClientSocketNSS::GetPeerAddress(AddressList* address) const {
   return transport_->socket()->GetPeerAddress(address);
 }
 
+void SSLClientSocketNSS::SetSubresourceSpeculation() {
+  if (transport_.get() && transport_->socket()) {
+    transport_->socket()->SetSubresourceSpeculation();
+  } else {
+    NOTREACHED();
+  }
+}
+
+void SSLClientSocketNSS::SetOmniboxSpeculation() {
+  if (transport_.get() && transport_->socket()) {
+    transport_->socket()->SetOmniboxSpeculation();
+  } else {
+    NOTREACHED();
+  }
+}
+
+bool SSLClientSocketNSS::WasEverUsed() const {
+  if (transport_.get() && transport_->socket()) {
+    return transport_->socket()->WasEverUsed();
+  }
+  NOTREACHED();
+  return false;
+}
+
 int SSLClientSocketNSS::Read(IOBuffer* buf, int buf_len,
                              CompletionCallback* callback) {
   EnterFunction(buf_len);
@@ -647,6 +728,7 @@ int SSLClientSocketNSS::Write(IOBuffer* buf, int buf_len,
   user_write_buf_ = buf;
   user_write_buf_len_ = buf_len;
 
+  corked_ = false;
   int rv = DoWriteLoop(OK);
 
   if (rv == ERR_IO_PENDING) {
@@ -862,6 +944,10 @@ SSLClientSocketNSS::GetNextProto(std::string* proto) {
 #endif
 }
 
+void SSLClientSocketNSS::UseDNSSEC(DNSSECProvider* provider) {
+  dnssec_provider_ = provider;
+}
+
 void SSLClientSocketNSS::DoReadCallback(int rv) {
   EnterFunction(rv);
   DCHECK(rv != ERR_IO_PENDING);
@@ -1029,38 +1115,35 @@ bool SSLClientSocketNSS::DoTransportIO() {
 // > 0 for bytes transferred immediately,
 // < 0 for error (or the non-error ERR_IO_PENDING).
 int SSLClientSocketNSS::BufferSend(void) {
-  if (transport_send_busy_) return ERR_IO_PENDING;
+  if (transport_send_busy_)
+    return ERR_IO_PENDING;
 
-  int nsent = 0;
   EnterFunction("");
-  // nss_bufs_ is a circular buffer.  It may have two contiguous parts
-  // (before and after the wrap).  So this for loop needs two iterations.
-  for (int i = 0; i < 2; ++i) {
-    const char* buf;
-    int nb = memio_GetWriteParams(nss_bufs_, &buf);
-    if (!nb)
-      break;
+  const char* buf1;
+  const char* buf2;
+  unsigned int len1, len2;
+  memio_GetWriteParams(nss_bufs_, &buf1, &len1, &buf2, &len2);
+  const unsigned int len = len1 + len2;
 
-    scoped_refptr<IOBuffer> send_buffer = new IOBuffer(nb);
-    memcpy(send_buffer->data(), buf, nb);
-    int rv = transport_->socket()->Write(send_buffer, nb,
-                                         &buffer_send_callback_);
+  if (corked_ && len < kRecvBufferSize / 2)
+    return 0;
+
+  int rv = 0;
+  if (len) {
+    scoped_refptr<IOBuffer> send_buffer = new IOBuffer(len);
+    memcpy(send_buffer->data(), buf1, len1);
+    memcpy(send_buffer->data() + len1, buf2, len2);
+    rv = transport_->socket()->Write(send_buffer, len,
+                                     &buffer_send_callback_);
     if (rv == ERR_IO_PENDING) {
       transport_send_busy_ = true;
-      break;
     } else {
       memio_PutWriteResult(nss_bufs_, MapErrorToNSS(rv));
-      if (rv < 0) {
-        // Return the error even if the previous Write succeeded.
-        nsent = rv;
-        break;
-      }
-      nsent += rv;
     }
   }
 
-  LeaveFunction(nsent);
-  return nsent;
+  LeaveFunction(rv);
+  return rv;
 }
 
 void SSLClientSocketNSS::BufferSendComplete(int result) {
@@ -1131,6 +1214,12 @@ int SSLClientSocketNSS::DoHandshakeLoop(int last_io_result) {
       case STATE_HANDSHAKE:
         rv = DoHandshake();
         break;
+      case STATE_VERIFY_DNSSEC:
+        rv = DoVerifyDNSSEC(rv);
+        break;
+      case STATE_VERIFY_DNSSEC_COMPLETE:
+        rv = DoVerifyDNSSECComplete(rv);
+        break;
       case STATE_VERIFY_CERT:
         DCHECK(rv == OK);
         rv = DoVerifyCert(rv);
@@ -1140,7 +1229,7 @@ int SSLClientSocketNSS::DoHandshakeLoop(int last_io_result) {
         break;
       default:
         rv = ERR_UNEXPECTED;
-        NOTREACHED() << "unexpected state";
+        LOG(DFATAL) << "unexpected state " << state;
         break;
     }
 
@@ -1160,8 +1249,10 @@ int SSLClientSocketNSS::DoReadLoop(int result) {
   if (result < 0)
     return result;
 
-  if (!nss_bufs_)
+  if (!nss_bufs_) {
+    LOG(DFATAL) << "!nss_bufs_";
     return ERR_UNEXPECTED;
+  }
 
   bool network_moved;
   int rv;
@@ -1182,8 +1273,10 @@ int SSLClientSocketNSS::DoWriteLoop(int result) {
   if (result < 0)
     return result;
 
-  if (!nss_bufs_)
+  if (!nss_bufs_) {
+    LOG(DFATAL) << "!nss_bufs_";
     return ERR_UNEXPECTED;
+  }
 
   bool network_moved;
   int rv;
@@ -1206,6 +1299,23 @@ SECStatus SSLClientSocketNSS::OwnAuthCertHandler(void* arg,
                                                  PRFileDesc* socket,
                                                  PRBool checksig,
                                                  PRBool is_server) {
+#ifdef SSL_ENABLE_FALSE_START
+  // In the event that we are False Starting this connection, we wish to send
+  // out the Finished message and first application data record in the same
+  // packet. This prevents non-determinism when talking to False Start
+  // intolerant servers which, otherwise, might see the two messages in
+  // different reads or not, depending on network conditions.
+  PRBool false_start = 0;
+  SECStatus rv = SSL_OptionGet(socket, SSL_ENABLE_FALSE_START, &false_start);
+  if (rv != SECSuccess)
+    NOTREACHED();
+  if (false_start) {
+    SSLClientSocketNSS* that = reinterpret_cast<SSLClientSocketNSS*>(arg);
+    if (!that->handshake_callback_called_)
+      that->corked_ = true;
+  }
+#endif
+
   // Tell NSS to not verify the certificate.
   return SECSuccess;
 }
@@ -1255,6 +1365,7 @@ SECStatus SSLClientSocketNSS::ClientAuthHandler(
   find_by_issuer_para.pszUsageIdentifier = szOID_PKIX_KP_CLIENT_AUTH;
   find_by_issuer_para.cIssuer = ca_names->nnames;
   find_by_issuer_para.rgIssuer = ca_names->nnames ? &issuer_list[0] : NULL;
+  find_by_issuer_para.pfnFindCallback = ClientCertFindCallback;
 
   PCCERT_CHAIN_CONTEXT chain_context = NULL;
 
@@ -1335,16 +1446,14 @@ SECStatus SSLClientSocketNSS::ClientAuthHandler(
   // handshake by returning ERR_SSL_CLIENT_AUTH_CERT_NEEDED.
   return SECWouldBlock;
 #else
-  CERTCertificate* cert = NULL;
-  SECKEYPrivateKey* privkey = NULL;
   void* wincx  = SSL_RevealPinArg(socket);
 
   // Second pass: a client certificate should have been selected.
   if (that->ssl_config_.send_client_cert) {
     if (that->ssl_config_.client_cert) {
-      cert = CERT_DupCertificate(
+      CERTCertificate* cert = CERT_DupCertificate(
           that->ssl_config_.client_cert->os_cert_handle());
-      privkey = PK11_FindKeyByAnyCert(cert, wincx);
+      SECKEYPrivateKey* privkey = PK11_FindKeyByAnyCert(cert, wincx);
       if (privkey) {
         // TODO(jsorianopastor): We should wait for server certificate
         // verification before sending our credentials.  See
@@ -1359,33 +1468,32 @@ SECStatus SSLClientSocketNSS::ClientAuthHandler(
     return SECFailure;
   }
 
-  CERTCertNicknames* names = CERT_GetCertNicknames(
-      CERT_GetDefaultCertDB(), SEC_CERT_NICKNAMES_USER, wincx);
-  if (names) {
-    for (int i = 0; i < names->numnicknames; ++i) {
-      cert = CERT_FindUserCertByUsage(
-          CERT_GetDefaultCertDB(), names->nicknames[i],
-          certUsageSSLClient, PR_FALSE, wincx);
-      if (!cert)
+  // Iterate over all client certificates.
+  CERTCertList* client_certs = CERT_FindUserCertsByUsage(
+      CERT_GetDefaultCertDB(), certUsageSSLClient,
+      PR_FALSE, PR_FALSE, wincx);
+  if (client_certs) {
+    for (CERTCertListNode* node = CERT_LIST_HEAD(client_certs);
+         !CERT_LIST_END(node, client_certs);
+         node = CERT_LIST_NEXT(node)) {
+      // Only offer unexpired certificates.
+      if (CERT_CheckCertValidTimes(node->cert, PR_Now(), PR_TRUE) !=
+          secCertTimeValid)
         continue;
-      // Only check unexpired certs.
-      if (CERT_CheckCertValidTimes(cert, PR_Now(), PR_TRUE) ==
-          secCertTimeValid && (!ca_names->nnames ||
-          NSS_CmpCertChainWCANames(cert, ca_names) == SECSuccess)) {
-        privkey = PK11_FindKeyByAnyCert(cert, wincx);
-        if (privkey) {
-          X509Certificate* x509_cert = X509Certificate::CreateFromHandle(
-              cert, X509Certificate::SOURCE_LONE_CERT_IMPORT,
-              net::X509Certificate::OSCertHandles());
-          that->client_certs_.push_back(x509_cert);
-          CERT_DestroyCertificate(cert);
-          SECKEY_DestroyPrivateKey(privkey);
-          continue;
-        }
-      }
-      CERT_DestroyCertificate(cert);
+      // Filter by issuer.
+      //
+      // TODO(davidben): This does a binary comparison of the DER-encoded
+      // issuers. We should match according to RFC 5280 sec. 7.1. We should find
+      // an appropriate NSS function or add one if needbe.
+      if (ca_names->nnames &&
+          NSS_CmpCertChainWCANames(node->cert, ca_names) != SECSuccess)
+        continue;
+      X509Certificate* x509_cert = X509Certificate::CreateFromHandle(
+          node->cert, X509Certificate::SOURCE_LONE_CERT_IMPORT,
+          net::X509Certificate::OSCertHandles());
+      that->client_certs_.push_back(x509_cert);
     }
-    CERT_FreeNicknames(names);
+    CERT_DestroyCertList(client_certs);
   }
 
   // Tell NSS to suspend the client authentication.  We will then abort the
@@ -1427,7 +1535,7 @@ int SSLClientSocketNSS::DoHandshake() {
   } else if (rv == SECSuccess) {
     if (handshake_callback_called_) {
       // SSL handshake is completed.  Let's verify the certificate.
-      GotoState(STATE_VERIFY_CERT);
+      GotoState(STATE_VERIFY_DNSSEC);
       // Done!
     } else {
       // SSL_ForceHandshake returned SECSuccess prematurely.
@@ -1451,25 +1559,229 @@ int SSLClientSocketNSS::DoHandshake() {
   return net_error;
 }
 
+// DNSValidationResult enumerates the possible outcomes from processing a
+// set of DNS records.
+enum DNSValidationResult {
+  DNSVR_SUCCESS,   // the cert is immediately acceptable.
+  DNSVR_FAILURE,   // the cert is unconditionally rejected.
+  DNSVR_CONTINUE,  // perform CA validation as usual.
+};
+
+// VerifyTXTRecords processes the RRDATA for a number of DNS TXT records and
+// checks them against the given certificate.
+//   dnssec: if true then the TXT records are DNSSEC validated. In this case,
+//       DNSVR_SUCCESS may be returned.
+//    server_cert_nss: the certificate to validate
+//    rrdatas: the TXT records for the current domain.
+static DNSValidationResult VerifyTXTRecords(
+    bool dnssec,
+    CERTCertificate* server_cert_nss,
+    const std::vector<base::StringPiece>& rrdatas) {
+  bool found_well_formed_record = false;
+  bool matched_record = false;
+
+  for (std::vector<base::StringPiece>::const_iterator
+       i = rrdatas.begin(); i != rrdatas.end(); ++i) {
+    std::map<std::string, std::string> m(
+        DNSSECChainVerifier::ParseTLSTXTRecord(*i));
+    if (m.empty())
+      continue;
+
+    std::map<std::string, std::string>::const_iterator j;
+    j = m.find("v");
+    if (j == m.end() || j->second != "tls1")
+      continue;
+
+    j = m.find("ha");
+
+    HASH_HashType hash_algorithm;
+    unsigned hash_length;
+    if (j == m.end() || j->second == "sha1") {
+      hash_algorithm = HASH_AlgSHA1;
+      hash_length = SHA1_LENGTH;
+    } else if (j->second == "sha256") {
+      hash_algorithm = HASH_AlgSHA256;
+      hash_length = SHA256_LENGTH;
+    } else {
+      continue;
+    }
+
+    j = m.find("h");
+    if (j == m.end())
+      continue;
+
+    std::vector<uint8> given_hash;
+    if (!base::HexStringToBytes(j->second, &given_hash))
+      continue;
+
+    if (given_hash.size() != hash_length)
+      continue;
+
+    uint8 calculated_hash[SHA256_LENGTH];  // SHA256 is the largest.
+    SECStatus rv;
+
+    j = m.find("hr");
+    if (j == m.end() || j->second == "pubkey") {
+      rv = HASH_HashBuf(hash_algorithm, calculated_hash,
+                        server_cert_nss->derPublicKey.data,
+                        server_cert_nss->derPublicKey.len);
+    } else if (j->second == "cert") {
+      rv = HASH_HashBuf(hash_algorithm, calculated_hash,
+                        server_cert_nss->derCert.data,
+                        server_cert_nss->derCert.len);
+    } else {
+      continue;
+    }
+
+    if (rv != SECSuccess)
+      NOTREACHED();
+
+    found_well_formed_record = true;
+
+    if (memcmp(calculated_hash, &given_hash[0], hash_length) == 0) {
+      matched_record = true;
+      if (dnssec)
+        return DNSVR_SUCCESS;
+    }
+  }
+
+  if (found_well_formed_record && !matched_record)
+    return DNSVR_FAILURE;
+
+  return DNSVR_CONTINUE;
+}
+
+
+// CheckDNSSECChain tries to validate a DNSSEC chain embedded in
+// |server_cert_nss_|. It returns true iff a chain is found that proves the
+// value of a TXT record that contains a valid public key fingerprint.
+static DNSValidationResult CheckDNSSECChain(
+    const std::string& hostname,
+    CERTCertificate* server_cert_nss) {
+  if (!server_cert_nss)
+    return DNSVR_CONTINUE;
+
+  // CERT_FindCertExtensionByOID isn't exported so we have to install an OID,
+  // get a tag for it and find the extension by using that tag.
+  static SECOidTag dnssec_chain_tag;
+  static bool dnssec_chain_tag_valid;
+  if (!dnssec_chain_tag_valid) {
+    // It's harmless if multiple threads enter this block concurrently.
+    static const uint8 kDNSSECChainOID[] =
+        // 1.3.6.1.4.1.11129.13172
+        // (iso.org.dod.internet.private.enterprises.google.13172)
+        {0x2b, 0x06, 0x01, 0x04, 0x01, 0xd6, 0x79, 0xe6, 0x74};
+    SECOidData oid_data;
+    memset(&oid_data, 0, sizeof(oid_data));
+    oid_data.oid.data = const_cast<uint8*>(kDNSSECChainOID);
+    oid_data.oid.len = sizeof(kDNSSECChainOID);
+    oid_data.desc = "DNSSEC chain";
+    oid_data.supportedExtension = SUPPORTED_CERT_EXTENSION;
+    dnssec_chain_tag = SECOID_AddEntry(&oid_data);
+    DCHECK_NE(SEC_OID_UNKNOWN, dnssec_chain_tag);
+    dnssec_chain_tag_valid = true;
+  }
+
+  SECItem dnssec_embedded_chain;
+  SECStatus rv = CERT_FindCertExtension(server_cert_nss,
+      dnssec_chain_tag, &dnssec_embedded_chain);
+  if (rv != SECSuccess)
+    return DNSVR_CONTINUE;
+
+  base::StringPiece chain(
+      reinterpret_cast<char*>(dnssec_embedded_chain.data),
+      dnssec_embedded_chain.len);
+  std::string dns_hostname;
+  if (!DNSDomainFromDot(hostname, &dns_hostname))
+    return DNSVR_CONTINUE;
+  DNSSECChainVerifier verifier(dns_hostname, chain);
+  DNSSECChainVerifier::Error err = verifier.Verify();
+  if (err != DNSSECChainVerifier::OK) {
+    LOG(ERROR) << "DNSSEC chain verification failed: " << err;
+    return DNSVR_CONTINUE;
+  }
+
+  if (verifier.rrtype() != kDNS_TXT)
+    return DNSVR_CONTINUE;
+
+  DNSValidationResult r = VerifyTXTRecords(
+      true /* DNSSEC verified */, server_cert_nss, verifier.rrdatas());
+  SECITEM_FreeItem(&dnssec_embedded_chain, PR_FALSE);
+  return r;
+}
+
+int SSLClientSocketNSS::DoVerifyDNSSEC(int result) {
+  if (ssl_config_.dnssec_enabled) {
+    DNSValidationResult r = CheckDNSSECChain(hostname_, server_cert_nss_);
+    if (r == DNSVR_SUCCESS) {
+      server_cert_verify_result_.cert_status |= CERT_STATUS_IS_DNSSEC;
+      GotoState(STATE_VERIFY_CERT_COMPLETE);
+      return OK;
+    }
+  }
+
+  if (dnssec_provider_ == NULL) {
+    GotoState(STATE_VERIFY_CERT);
+    return OK;
+  }
+
+  GotoState(STATE_VERIFY_DNSSEC_COMPLETE);
+  RRResponse* response;
+  dnssec_wait_start_time_ = base::Time::Now();
+  return dnssec_provider_->GetDNSSECRecords(&response, &handshake_io_callback_);
+}
+
+int SSLClientSocketNSS::DoVerifyDNSSECComplete(int result) {
+  RRResponse* response;
+  int err = dnssec_provider_->GetDNSSECRecords(&response, NULL);
+  DCHECK_EQ(err, OK);
+
+  const base::TimeDelta elapsed = base::Time::Now() - dnssec_wait_start_time_;
+  HISTOGRAM_TIMES("Net.DNSSECWaitTime", elapsed);
+
+  GotoState(STATE_VERIFY_CERT);
+  if (!response || response->rrdatas.empty())
+    return OK;
+
+  std::vector<base::StringPiece> records;
+  records.resize(response->rrdatas.size());
+  for (unsigned i = 0; i < response->rrdatas.size(); i++)
+    records[i] = base::StringPiece(response->rrdatas[i]);
+  DNSValidationResult r =
+      VerifyTXTRecords(response->dnssec, server_cert_nss_, records);
+
+  if (!ssl_config_.dnssec_enabled) {
+    // If DNSSEC is not enabled we don't take any action based on the result,
+    // except to record the latency, above.
+    return OK;
+  }
+
+  switch (r) {
+    case DNSVR_FAILURE:
+      GotoState(STATE_VERIFY_CERT_COMPLETE);
+      server_cert_verify_result_.cert_status |= CERT_STATUS_NOT_IN_DNS;
+      return ERR_CERT_NOT_IN_DNS;
+    case DNSVR_CONTINUE:
+      GotoState(STATE_VERIFY_CERT);
+      break;
+    case DNSVR_SUCCESS:
+      server_cert_verify_result_.cert_status |= CERT_STATUS_IS_DNSSEC;
+      GotoState(STATE_VERIFY_CERT_COMPLETE);
+      break;
+    default:
+      NOTREACHED();
+      GotoState(STATE_VERIFY_CERT);
+  }
+
+  return OK;
+}
+
 int SSLClientSocketNSS::DoVerifyCert(int result) {
   DCHECK(server_cert_);
   GotoState(STATE_VERIFY_CERT_COMPLETE);
   int flags = 0;
 
-  /* Disable revocation checking for SPDY. This is a hack, but we ignore
-   * certificate errors for SPDY anyway so it's no loss in security. This lets
-   * us benchmark as if we had OCSP stapling.
-   *
-   * http://crbug.com/32020
-   */
-  unsigned char buf[255];
-  int state;
-  unsigned int len;
-  SECStatus rv = SSL_GetNextProto(nss_fd_, &state, buf, &len, sizeof(buf));
-  bool spdy = (rv == SECSuccess && state == SSL_NEXT_PROTO_NEGOTIATED &&
-              len == 4 && memcmp(buf, "spdy", 4) == 0);
-
-  if (ssl_config_.rev_checking_enabled && !spdy)
+  if (ssl_config_.rev_checking_enabled)
     flags |= X509Certificate::VERIFY_REV_CHECKING_ENABLED;
   if (ssl_config_.verify_ev_cert)
     flags |= X509Certificate::VERIFY_EV_CERT;
@@ -1482,7 +1794,6 @@ int SSLClientSocketNSS::DoVerifyCert(int result) {
 // Derived from AuthCertificateCallback() in
 // mozilla/source/security/manager/ssl/src/nsNSSCallbacks.cpp.
 int SSLClientSocketNSS::DoVerifyCertComplete(int result) {
-  DCHECK(verifier_.get());
   verifier_.reset();
 
   if (result == OK) {

@@ -11,9 +11,10 @@
 #include "base/message_loop.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
+#include "base/utf_string_conversions.h"
 #import "chrome/browser/cocoa/bubble_view.h"
 #include "gfx/point.h"
-#include "googleurl/src/gurl.h"
+#include "net/base/net_util.h"
 #import "third_party/GTM/AppKit/GTMNSAnimation+Duration.h"
 #import "third_party/GTM/AppKit/GTMNSBezierPath+RoundRect.h"
 #import "third_party/GTM/AppKit/GTMNSColor+Luminance.h"
@@ -23,7 +24,7 @@ namespace {
 const int kWindowHeight = 18;
 
 // The width of the bubble in relation to the width of the parent window.
-const double kWindowWidthPercent = 1.0 / 3.0;
+const CGFloat kWindowWidthPercent = 1.0 / 3.0;
 
 // How close the mouse can get to the infobubble before it starts sliding
 // off-screen.
@@ -50,6 +51,9 @@ const NSTimeInterval kHideFadeOutDurationSeconds = 0.200;
 // animation as quickly as possible.
 const NSTimeInterval kMinimumTimeInterval =
     std::numeric_limits<NSTimeInterval>::min();
+
+// How quickly the status bubble should expand, in seconds.
+const CGFloat kExpansionDuration = 0.125;
 
 }  // namespace
 
@@ -92,13 +96,15 @@ const NSTimeInterval kMinimumTimeInterval =
 
 StatusBubbleMac::StatusBubbleMac(NSWindow* parent, id delegate)
     : ALLOW_THIS_IN_INITIALIZER_LIST(timer_factory_(this)),
+      ALLOW_THIS_IN_INITIALIZER_LIST(expand_timer_factory_(this)),
       parent_(parent),
       delegate_(delegate),
       window_(nil),
       status_text_(nil),
       url_text_(nil),
       state_(kBubbleHidden),
-      immediate_(false) {
+      immediate_(false),
+      is_expanded_(false) {
 }
 
 StatusBubbleMac::~StatusBubbleMac() {
@@ -112,35 +118,70 @@ StatusBubbleMac::~StatusBubbleMac() {
   }
 }
 
-void StatusBubbleMac::SetStatus(const std::wstring& status) {
+void StatusBubbleMac::SetStatus(const string16& status) {
   Create();
 
   SetText(status, false);
 }
 
-void StatusBubbleMac::SetURL(const GURL& url, const std::wstring& languages) {
+void StatusBubbleMac::SetURL(const GURL& url, const string16& languages) {
+  url_ = url;
+  languages_ = languages;
+
   Create();
 
   NSRect frame = [window_ frame];
-  int text_width = static_cast<int>(frame.size.width -
+
+  // Reset frame size when bubble is hidden.
+  if (state_ == kBubbleHidden) {
+    is_expanded_ = false;
+    frame.size.width = NSWidth(CalculateWindowFrame(/*expand=*/false));
+    [window_ setFrame:frame display:NO];
+  }
+
+  int text_width = static_cast<int>(NSWidth(frame) -
                                     kBubbleViewTextPositionX -
                                     kTextPadding);
-  NSFont* font = [[window_ contentView] font];
-  gfx::Font font_chr =
-      gfx::Font::CreateFont(base::SysNSStringToWide([font fontName]),
-                            [font pointSize]);
 
-  std::wstring status = gfx::ElideUrl(url, font_chr, text_width, languages);
+  // Scale from view to window coordinates before eliding URL string.
+  NSSize scaled_width = NSMakeSize(text_width, 0);
+  scaled_width = [[parent_ contentView] convertSize:scaled_width fromView:nil];
+  text_width = static_cast<int>(scaled_width.width);
+  NSFont* font = [[window_ contentView] font];
+  gfx::Font font_chr(base::SysNSStringToWide([font fontName]),
+                     [font pointSize]);
+
+  string16 original_url_text = net::FormatUrl(url, UTF16ToUTF8(languages));
+  string16 status = WideToUTF16(gfx::ElideUrl(url, font_chr, text_width,
+      UTF16ToWideHack(languages)));
 
   SetText(status, true);
+
+  // In testing, don't use animation. When ExpandBubble is tested, it is
+  // called explicitly.
+  if (immediate_)
+    return;
+  else
+    CancelExpandTimer();
+
+  // If the bubble has been expanded, the user has already hovered over a link
+  // to trigger the expanded state.  Don't wait to change the bubble in this
+  // case -- immediately expand or contract to fit the URL.
+  if (is_expanded_ && !url.is_empty()) {
+    ExpandBubble();
+  } else if (original_url_text.length() > status.length()) {
+    MessageLoop::current()->PostDelayedTask(FROM_HERE,
+        expand_timer_factory_.NewRunnableMethod(
+            &StatusBubbleMac::ExpandBubble), kExpandHoverDelay);
+  }
 }
 
-void StatusBubbleMac::SetText(const std::wstring& text, bool is_url) {
+void StatusBubbleMac::SetText(const string16& text, bool is_url) {
   // The status bubble allows the status and URL strings to be set
   // independently.  Whichever was set non-empty most recently will be the
   // value displayed.  When both are empty, the status bubble hides.
 
-  NSString* text_ns = base::SysWideToNSString(text);
+  NSString* text_ns = base::SysUTF16ToNSString(text);
 
   NSString** main;
   NSString** backup;
@@ -178,6 +219,8 @@ void StatusBubbleMac::SetText(const std::wstring& text, bool is_url) {
 
 void StatusBubbleMac::Hide() {
   CancelTimer();
+  CancelExpandTimer();
+  is_expanded_ = false;
 
   bool fade_out = false;
   if (state_ == kBubbleHidingFadeOut || state_ == kBubbleShowingFadeIn) {
@@ -200,6 +243,17 @@ void StatusBubbleMac::Hide() {
     SetState(kBubbleHidden);
   }
 
+  // Stop any width animation and reset the bubble size.
+  if (!immediate_) {
+    [NSAnimationContext beginGrouping];
+    [[NSAnimationContext currentContext] setDuration:kMinimumTimeInterval];
+    [[window_ animator] setFrame:CalculateWindowFrame(/*expand=*/false)
+                         display:NO];
+    [NSAnimationContext endGrouping];
+  } else {
+    [window_ setFrame:CalculateWindowFrame(/*expand=*/false) display:NO];
+  }
+
   [status_text_ release];
   status_text_ = nil;
   [url_text_ release];
@@ -218,18 +272,16 @@ void StatusBubbleMac::MouseMoved(
   NSPoint cursor_location = [NSEvent mouseLocation];
   --cursor_location.y;  // docs say the y coord starts at 1 not 0; don't ask why
 
+  // Bubble's base frame in |parent_| coordinates.
+  NSRect baseFrame;
+  if ([delegate_ respondsToSelector:@selector(statusBubbleBaseFrame)])
+    baseFrame = [delegate_ statusBubbleBaseFrame];
+  else
+    baseFrame = [[parent_ contentView] frame];
+
   // Get the normal position of the frame.
   NSRect window_frame = [window_ frame];
-  window_frame.origin = [parent_ frame].origin;
-
-  bool isShelfVisible = false;
-
-  // Adjust the position to sit on top of download and extension shelves.
-  // |delegate_| can be nil during unit tests.
-  if ([delegate_ respondsToSelector:@selector(verticalOffsetForStatusBubble)]) {
-    window_frame.origin.y += [delegate_ verticalOffsetForStatusBubble];
-    isShelfVisible = [delegate_ verticalOffsetForStatusBubble] > 0;
-  }
+  window_frame.origin = [parent_ convertBaseToScreen:baseFrame.origin];
 
   // Get the cursor position relative to the popup.
   cursor_location.x -= NSMaxX(window_frame);
@@ -258,7 +310,11 @@ void StatusBubbleMac::MouseMoved(
       isOnScreen = false;
     }
 
-    if (isOnScreen && !isShelfVisible) {
+    // If something is shown below tab contents (devtools, download shelf etc.),
+    // adjust the position to sit on top of it.
+    bool isAnyShelfVisible = NSMinY(baseFrame) > 0;
+
+    if (isOnScreen && !isAnyShelfVisible) {
       // Cap the offset and change the visual presentation of the bubble
       // depending on where it ends up (so that rounded corners square off
       // and mate to the edges of the tab content).
@@ -275,12 +331,12 @@ void StatusBubbleMac::MouseMoved(
       }
       window_frame.origin.y -= offset;
     } else {
-      // The bubble will obscure the download shelf.  Move the bubble to the
-      // right and reset Y offset_ to zero.
+      // Cannot move the bubble down without obscuring other content.
+      // Move it to the right instead.
       [[window_ contentView] setCornerFlags:kRoundedTopLeftCorner];
 
       // Subtract border width + bubble width.
-      window_frame.origin.x += NSWidth([parent_ frame]) - NSWidth(window_frame);
+      window_frame.origin.x += NSWidth(baseFrame) - NSWidth(window_frame);
     }
   } else {
     [[window_ contentView] setCornerFlags:kRoundedTopRightCorner];
@@ -297,7 +353,7 @@ void StatusBubbleMac::Create() {
     return;
 
   // TODO(avi):fix this for RTL
-  NSRect window_rect = CalculateWindowFrame();
+  NSRect window_rect = CalculateWindowFrame(/*expand=*/false);
   // initWithContentRect has origin in screen coords and size in scaled window
   // coordinates.
   window_rect.size =
@@ -347,8 +403,10 @@ void StatusBubbleMac::Create() {
 void StatusBubbleMac::Attach() {
   // This method may be called several times during the process of creating or
   // showing a status bubble to attach the bubble to its parent window.
-  if (!is_attached())
+  if (!is_attached()) {
     [parent_ addChildWindow:window_ ordered:NSWindowAbove];
+    UpdateSizeAndPosition();
+  }
 }
 
 void StatusBubbleMac::Detach() {
@@ -532,11 +590,74 @@ void StatusBubbleMac::StartHiding() {
   // earlier request.
 }
 
+void StatusBubbleMac::CancelExpandTimer() {
+  DCHECK([NSThread isMainThread]);
+  expand_timer_factory_.RevokeAll();
+}
+
+void StatusBubbleMac::ExpandBubble() {
+  // Calculate the width available for expanded and standard bubbles.
+  NSRect window_frame = CalculateWindowFrame(/*expand=*/true);
+  CGFloat max_bubble_width = NSWidth(window_frame);
+  CGFloat standard_bubble_width =
+      NSWidth(CalculateWindowFrame(/*expand=*/false));
+
+  // Generate the URL string that fits in the expanded bubble.
+  NSFont* font = [[window_ contentView] font];
+  gfx::Font font_chr(base::SysNSStringToWide([font fontName]),
+      [font pointSize]);
+  string16 expanded_url = WideToUTF16(gfx::ElideUrl(url_, font_chr,
+      max_bubble_width, UTF16ToWide(languages_)));
+
+  // Scale width from gfx::Font in view coordinates to window coordinates.
+  int required_width_for_string =
+      font_chr.GetStringWidth(UTF16ToWide(expanded_url)) +
+          kTextPadding * 2 + kBubbleViewTextPositionX;
+  NSSize scaled_width = NSMakeSize(required_width_for_string, 0);
+  scaled_width = [[parent_ contentView] convertSize:scaled_width toView:nil];
+  required_width_for_string = scaled_width.width;
+
+  // The expanded width must be at least as wide as the standard width, but no
+  // wider than the maximum width for its parent frame.
+  int expanded_bubble_width =
+      std::max(standard_bubble_width,
+               std::min(max_bubble_width,
+                        static_cast<CGFloat>(required_width_for_string)));
+
+  SetText(expanded_url, true);
+  is_expanded_ = true;
+  window_frame.size.width = expanded_bubble_width;
+
+  // In testing, don't do any animation.
+  if (immediate_) {
+    [window_ setFrame:window_frame display:YES];
+    return;
+  }
+
+  NSRect actual_window_frame = [window_ frame];
+  // Adjust status bubble origin if bubble was moved to the right.
+  // TODO(alekseys): fix for RTL.
+  if (NSMinX(actual_window_frame) > NSMinX(window_frame)) {
+    actual_window_frame.origin.x =
+        NSMaxX(actual_window_frame) - NSWidth(window_frame);
+  }
+  actual_window_frame.size.width = NSWidth(window_frame);
+
+  // Do not expand if it's going to cover mouse location.
+  if (NSPointInRect([NSEvent mouseLocation], actual_window_frame))
+    return;
+
+  [NSAnimationContext beginGrouping];
+  [[NSAnimationContext currentContext] setDuration:kExpansionDuration];
+  [[window_ animator] setFrame:actual_window_frame display:YES];
+  [NSAnimationContext endGrouping];
+}
+
 void StatusBubbleMac::UpdateSizeAndPosition() {
   if (!window_)
     return;
 
-  [window_ setFrame:CalculateWindowFrame() display:YES];
+  [window_ setFrame:CalculateWindowFrame(/*expand=*/false) display:YES];
 }
 
 void StatusBubbleMac::SwitchParentWindow(NSWindow* parent) {
@@ -557,14 +678,26 @@ void StatusBubbleMac::SwitchParentWindow(NSWindow* parent) {
   UpdateSizeAndPosition();
 }
 
-NSRect StatusBubbleMac::CalculateWindowFrame() {
+NSRect StatusBubbleMac::CalculateWindowFrame(bool expanded_width) {
   DCHECK(parent_);
+
+  NSRect screenRect;
+  if ([delegate_ respondsToSelector:@selector(statusBubbleBaseFrame)]) {
+    screenRect = [delegate_ statusBubbleBaseFrame];
+    screenRect.origin = [parent_ convertBaseToScreen:screenRect.origin];
+  } else {
+    screenRect = [parent_ frame];
+  }
 
   NSSize size = NSMakeSize(0, kWindowHeight);
   size = [[parent_ contentView] convertSize:size toView:nil];
 
-  NSRect rect = [parent_ frame];
-  rect.size.height = size.height;
-  rect.size.width = static_cast<int>(kWindowWidthPercent * rect.size.width);
-  return rect;
+  if (expanded_width) {
+    size.width = screenRect.size.width;
+  } else {
+    size.width = kWindowWidthPercent * screenRect.size.width;
+  }
+
+  screenRect.size = size;
+  return screenRect;
 }

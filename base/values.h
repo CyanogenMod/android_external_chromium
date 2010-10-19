@@ -2,24 +2,25 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// This file specifies a recursive data storage class called Value
-// intended for storing setting and other persistable data.
-// It includes the ability to specify (recursive) lists and dictionaries, so
-// it's fairly expressive.  However, the API is optimized for the common case,
-// namely storing a hierarchical tree of simple values.  Given a
-// DictionaryValue root, you can easily do things like:
+// This file specifies a recursive data storage class called Value intended for
+// storing setting and other persistable data.  It includes the ability to
+// specify (recursive) lists and dictionaries, so it's fairly expressive.
+// However, the API is optimized for the common case, namely storing a
+// hierarchical tree of simple values.  Given a DictionaryValue root, you can
+// easily do things like:
 //
-// root->SetString(L"global.pages.homepage", L"http://goateleporter.com");
-// std::wstring homepage = L"http://google.com";  // default/fallback value
-// root->GetString(L"global.pages.homepage", &homepage);
+// root->SetString("global.pages.homepage", "http://goateleporter.com");
+// std::string homepage = "http://google.com";  // default/fallback value
+// root->GetString("global.pages.homepage", &homepage);
 //
-// where "global" and "pages" are also DictionaryValues, and "homepage"
-// is a string setting.  If some elements of the path didn't exist yet,
-// the SetString() method would create the missing elements and attach them
-// to root before attaching the homepage value.
+// where "global" and "pages" are also DictionaryValues, and "homepage" is a
+// string setting.  If some elements of the path didn't exist yet, the
+// SetString() method would create the missing elements and attach them to root
+// before attaching the homepage value.
 
 #ifndef BASE_VALUES_H_
 #define BASE_VALUES_H_
+#pragma once
 
 #include <iterator>
 #include <map>
@@ -38,7 +39,7 @@ class DictionaryValue;
 class ListValue;
 
 typedef std::vector<Value*> ValueVector;
-typedef std::map<std::wstring, Value*> ValueMap;
+typedef std::map<std::string, Value*> ValueMap;
 
 // The Value class is the base class for Values.  A Value can be
 // instantiated via the Create*Value() factory methods, or by directly
@@ -55,8 +56,7 @@ class Value {
   static Value* CreateIntegerValue(int in_value);
   static Value* CreateRealValue(double in_value);
   static Value* CreateStringValue(const std::string& in_value);
-  static Value* CreateStringValue(const std::wstring& in_value);
-  static Value* CreateStringValueFromUTF16(const string16& in_value);
+  static Value* CreateStringValue(const string16& in_value);
 
   // This one can return NULL if the input isn't valid.  If the return value
   // is non-null, the new object has taken ownership of the buffer pointer.
@@ -91,8 +91,7 @@ class Value {
   virtual bool GetAsInteger(int* out_value) const;
   virtual bool GetAsReal(double* out_value) const;
   virtual bool GetAsString(std::string* out_value) const;
-  virtual bool GetAsString(std::wstring* out_value) const;
-  virtual bool GetAsUTF16(string16* out_value) const;
+  virtual bool GetAsString(string16* out_value) const;
 
   // This creates a deep copy of the entire Value tree, and returns a pointer
   // to the copy.  The caller gets ownership of the copy, of course.
@@ -144,20 +143,14 @@ class StringValue : public Value {
   // Initializes a StringValue with a UTF-8 narrow character string.
   explicit StringValue(const std::string& in_value);
 
-  // Initializes a StringValue with a wide character string.
-  explicit StringValue(const std::wstring& in_value);
-
-#if !defined(WCHAR_T_IS_UTF16)
   // Initializes a StringValue with a string16.
   explicit StringValue(const string16& in_value);
-#endif
 
   ~StringValue();
 
   // Subclassed methods
   bool GetAsString(std::string* out_value) const;
-  bool GetAsString(std::wstring* out_value) const;
-  bool GetAsUTF16(string16* out_value) const;
+  bool GetAsString(string16* out_value) const;
   Value* DeepCopy() const;
   virtual bool Equals(const Value* other) const;
 
@@ -201,6 +194,9 @@ class BinaryValue: public Value {
   DISALLOW_COPY_AND_ASSIGN(BinaryValue);
 };
 
+// DictionaryValue provides a key-value dictionary with (optional) "path"
+// parsing for recursive access; see the comment at the top of the file. Keys
+// are |std::string|s and should be UTF-8 encoded.
 class DictionaryValue : public Value {
  public:
   DictionaryValue();
@@ -211,10 +207,7 @@ class DictionaryValue : public Value {
   virtual bool Equals(const Value* other) const;
 
   // Returns true if the current dictionary has a value for the given key.
-  bool HasKeyASCII(const std::string& key) const;
-  // Deprecated version of the above.  TODO: add a string16 version for Unicode.
-  // http://code.google.com/p/chromium/issues/detail?id=23581
-  bool HasKey(const std::wstring& key) const;
+  bool HasKey(const std::string& key) const;
 
   // Returns the number of Values in this dictionary.
   size_t size() const { return dictionary_.size(); }
@@ -234,20 +227,19 @@ class DictionaryValue : public Value {
   // to the path in that location.
   // Note that the dictionary takes ownership of the value referenced by
   // |in_value|, and therefore |in_value| must be non-NULL.
-  void Set(const std::wstring& path, Value* in_value);
+  void Set(const std::string& path, Value* in_value);
 
   // Convenience forms of Set().  These methods will replace any existing
   // value at that path, even if it has a different type.
-  void SetBoolean(const std::wstring& path, bool in_value);
-  void SetInteger(const std::wstring& path, int in_value);
-  void SetReal(const std::wstring& path, double in_value);
-  void SetString(const std::wstring& path, const std::string& in_value);
-  void SetString(const std::wstring& path, const std::wstring& in_value);
-  void SetStringFromUTF16(const std::wstring& path, const string16& in_value);
+  void SetBoolean(const std::string& path, bool in_value);
+  void SetInteger(const std::string& path, int in_value);
+  void SetReal(const std::string& path, double in_value);
+  void SetString(const std::string& path, const std::string& in_value);
+  void SetString(const std::string& path, const string16& in_value);
 
   // Like Set(), but without special treatment of '.'.  This allows e.g. URLs to
   // be used as paths.
-  void SetWithoutPathExpansion(const std::wstring& key, Value* in_value);
+  void SetWithoutPathExpansion(const std::string& key, Value* in_value);
 
   // Gets the Value associated with the given path starting from this object.
   // A path has the form "<key>" or "<key>.<key>.[...]", where "." indexes
@@ -256,41 +248,35 @@ class DictionaryValue : public Value {
   // through the |out_value| parameter, and the function will return true.
   // Otherwise, it will return false and |out_value| will be untouched.
   // Note that the dictionary always owns the value that's returned.
-  bool Get(const std::wstring& path, Value** out_value) const;
+  bool Get(const std::string& path, Value** out_value) const;
 
   // These are convenience forms of Get().  The value will be retrieved
   // and the return value will be true if the path is valid and the value at
   // the end of the path can be returned in the form specified.
-  bool GetBoolean(const std::wstring& path, bool* out_value) const;
-  bool GetInteger(const std::wstring& path, int* out_value) const;
-  bool GetReal(const std::wstring& path, double* out_value) const;
+  bool GetBoolean(const std::string& path, bool* out_value) const;
+  bool GetInteger(const std::string& path, int* out_value) const;
+  bool GetReal(const std::string& path, double* out_value) const;
+  bool GetString(const std::string& path, std::string* out_value) const;
   bool GetString(const std::string& path, string16* out_value) const;
   bool GetStringASCII(const std::string& path, std::string* out_value) const;
-  // TODO: deprecate wstring accessors.
-  // http://code.google.com/p/chromium/issues/detail?id=23581
-  bool GetString(const std::wstring& path, std::string* out_value) const;
-  bool GetString(const std::wstring& path, std::wstring* out_value) const;
-  bool GetStringAsUTF16(const std::wstring& path, string16* out_value) const;
-  bool GetBinary(const std::wstring& path, BinaryValue** out_value) const;
-  bool GetDictionary(const std::wstring& path,
+  bool GetBinary(const std::string& path, BinaryValue** out_value) const;
+  bool GetDictionary(const std::string& path,
                      DictionaryValue** out_value) const;
-  bool GetList(const std::wstring& path, ListValue** out_value) const;
+  bool GetList(const std::string& path, ListValue** out_value) const;
 
   // Like Get(), but without special treatment of '.'.  This allows e.g. URLs to
   // be used as paths.
-  bool GetWithoutPathExpansion(const std::wstring& key,
+  bool GetWithoutPathExpansion(const std::string& key,
                                Value** out_value) const;
-  bool GetIntegerWithoutPathExpansion(const std::wstring& path,
+  bool GetIntegerWithoutPathExpansion(const std::string& key,
                                       int* out_value) const;
-  bool GetStringWithoutPathExpansion(const std::wstring& path,
+  bool GetStringWithoutPathExpansion(const std::string& key,
                                      std::string* out_value) const;
-  bool GetStringWithoutPathExpansion(const std::wstring& path,
-                                     std::wstring* out_value) const;
-  bool GetStringAsUTF16WithoutPathExpansion(const std::wstring& path,
-                                            string16* out_value) const;
-  bool GetDictionaryWithoutPathExpansion(const std::wstring& path,
+  bool GetStringWithoutPathExpansion(const std::string& key,
+                                     string16* out_value) const;
+  bool GetDictionaryWithoutPathExpansion(const std::string& key,
                                          DictionaryValue** out_value) const;
-  bool GetListWithoutPathExpansion(const std::wstring& path,
+  bool GetListWithoutPathExpansion(const std::string& key,
                                    ListValue** out_value) const;
 
   // Removes the Value with the specified path from this dictionary (or one
@@ -299,11 +285,11 @@ class DictionaryValue : public Value {
   // passed out via out_value.  If |out_value| is NULL, the removed value will
   // be deleted.  This method returns true if |path| is a valid path; otherwise
   // it will return false and the DictionaryValue object will be unchanged.
-  bool Remove(const std::wstring& path, Value** out_value);
+  bool Remove(const std::string& path, Value** out_value);
 
   // Like Remove(), but without special treatment of '.'.  This allows e.g. URLs
   // to be used as paths.
-  bool RemoveWithoutPathExpansion(const std::wstring& key, Value** out_value);
+  bool RemoveWithoutPathExpansion(const std::string& key, Value** out_value);
 
   // Makes a copy of |this| but doesn't include empty dictionaries and lists in
   // the copy.  This never returns NULL, even if |this| itself is empty.
@@ -315,6 +301,16 @@ class DictionaryValue : public Value {
   // replaced.
   void MergeDictionary(const DictionaryValue* dictionary);
 
+  // Builds a vector containing all of the paths that are different between
+  // the dictionary and a second specified dictionary. These are paths of
+  // values that are either in one dictionary or the other but not both, OR
+  // paths that are present in both dictionaries but differ in value.
+  // Path strings are in ascending lexicographical order in the generated
+  // vector. |different_paths| is cleared before added any paths.
+  void GetDifferingPaths(
+      const DictionaryValue* other,
+      std::vector<std::string>* different_paths) const;
+
   // This class provides an iterator for the keys in the dictionary.
   // It can't be used to modify the dictionary.
   //
@@ -322,14 +318,14 @@ class DictionaryValue : public Value {
   // THE NORMAL XXX() APIs.  This makes sure things will work correctly if any
   // keys have '.'s in them.
   class key_iterator
-    : private std::iterator<std::input_iterator_tag, const std::wstring> {
+      : private std::iterator<std::input_iterator_tag, const std::string> {
    public:
     explicit key_iterator(ValueMap::const_iterator itr) { itr_ = itr; }
     key_iterator operator++() {
       ++itr_;
       return *this;
     }
-    const std::wstring& operator*() { return itr_->first; }
+    const std::string& operator*() { return itr_->first; }
     bool operator!=(const key_iterator& other) { return itr_ != other.itr_; }
     bool operator==(const key_iterator& other) { return itr_ == other.itr_; }
 
@@ -341,6 +337,17 @@ class DictionaryValue : public Value {
   key_iterator end_keys() const { return key_iterator(dictionary_.end()); }
 
  private:
+  // Does the actual heavy lifting for GetDifferingPaths.
+  // Returns true if a path is added to different_paths, otherwise false.
+  // The difference compuation is calculated recursively. The keys for
+  // dictionaries that are handled by recursive calls more shallow than
+  // the current one are concatenated and passed through to deeper calls in
+  // |path_prefix|.
+  bool GetDifferingPathsHelper(
+      const std::string& path_prefix,
+      const DictionaryValue* other,
+      std::vector<std::string>* different_paths) const;
+
   ValueMap dictionary_;
 
   DISALLOW_COPY_AND_ASSIGN(DictionaryValue);
@@ -384,8 +391,7 @@ class ListValue : public Value {
   bool GetInteger(size_t index, int* out_value) const;
   bool GetReal(size_t index, double* out_value) const;
   bool GetString(size_t index, std::string* out_value) const;
-  bool GetString(size_t index, std::wstring* out_value) const;
-  bool GetStringAsUTF16(size_t index, string16* out_value) const;
+  bool GetString(size_t index, string16* out_value) const;
   bool GetBinary(size_t index, BinaryValue** out_value) const;
   bool GetDictionary(size_t index, DictionaryValue** out_value) const;
   bool GetList(size_t index, ListValue** out_value) const;
@@ -411,6 +417,11 @@ class ListValue : public Value {
   // Insert a Value at index.
   // Returns true if successful, or false if the index was out of range.
   bool Insert(size_t index, Value* in_value);
+
+  // Swaps contents with the |other| list.
+  void Swap(ListValue* other) {
+    list_.swap(other->list_);
+  }
 
   // Iteration
   typedef ValueVector::iterator iterator;

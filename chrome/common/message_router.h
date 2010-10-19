@@ -4,6 +4,7 @@
 
 #ifndef CHROME_COMMON_MESSAGE_ROUTER_H__
 #define CHROME_COMMON_MESSAGE_ROUTER_H__
+#pragma once
 
 #include "base/id_map.h"
 #include "ipc/ipc_channel.h"
@@ -29,8 +30,8 @@
 class MessageRouter : public IPC::Channel::Listener,
                       public IPC::Message::Sender {
  public:
-  MessageRouter() {}
-  virtual ~MessageRouter() {}
+  MessageRouter();
+  virtual ~MessageRouter();
 
   // Implemented by subclasses to handle control messages
   virtual void OnControlMessageReceived(const IPC::Message& msg);

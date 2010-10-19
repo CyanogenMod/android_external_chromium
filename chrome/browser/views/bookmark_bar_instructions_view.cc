@@ -1,13 +1,12 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/views/bookmark_bar_instructions_view.h"
 
 #include "app/l10n_util.h"
-#include "app/resource_bundle.h"
-#include "chrome/browser/browser_theme_provider.h"
 #include "chrome/browser/defaults.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "grit/generated_resources.h"
 #include "views/controls/label.h"
 
@@ -75,7 +74,7 @@ void BookmarkBarInstructionsView::Layout() {
   }
 }
 
-void BookmarkBarInstructionsView::ThemeChanged() {
+void BookmarkBarInstructionsView::OnThemeChanged() {
   UpdateColors();
 }
 
@@ -86,14 +85,8 @@ void BookmarkBarInstructionsView::ViewHierarchyChanged(bool is_add,
     UpdateColors();
 }
 
-bool BookmarkBarInstructionsView::GetAccessibleRole(
-    AccessibilityTypes::Role* role) {
-  DCHECK(role);
-  if (!role)
-    return false;
-
-  *role = AccessibilityTypes::ROLE_GROUPING;
-  return true;
+AccessibilityTypes::Role BookmarkBarInstructionsView::GetAccessibleRole() {
+  return AccessibilityTypes::ROLE_GROUPING;
 }
 
 void BookmarkBarInstructionsView::LinkActivated(views::Link* source,

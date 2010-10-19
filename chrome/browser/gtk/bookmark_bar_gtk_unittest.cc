@@ -1,9 +1,11 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/gtk/bookmark_bar_gtk.h"
 
+#include "base/utf_string_conversions.h"
+#include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/gtk/tabstrip_origin_provider.h"
@@ -25,6 +27,9 @@ class BookmarkBarGtkUnittest : public ::testing::Test {
   BookmarkBarGtkUnittest()
       : ui_thread_(ChromeThread::UI, &message_loop_),
         file_thread_(ChromeThread::FILE, &message_loop_) {
+  }
+
+  virtual void SetUp() {
     profile_.reset(new TestingProfile());
     profile_->CreateBookmarkModel(true);
     profile_->BlockUntilBookmarkModelLoaded();
@@ -35,13 +40,22 @@ class BookmarkBarGtkUnittest : public ::testing::Test {
                                            origin_provider_.get()));
   }
 
+  virtual void TearDown() {
+    bookmark_bar_.reset();
+    origin_provider_.reset();
+    browser_.reset();
+    profile_.reset();
+    message_loop_.RunAllPending();
+  }
+
+  MessageLoopForUI message_loop_;
+  ChromeThread ui_thread_;
+  ChromeThread file_thread_;
+
   scoped_ptr<TestingProfile> profile_;
   scoped_ptr<Browser> browser_;
   scoped_ptr<TabstripOriginProvider> origin_provider_;
   scoped_ptr<BookmarkBarGtk> bookmark_bar_;
-  MessageLoopForUI message_loop_;
-  ChromeThread ui_thread_;
-  ChromeThread file_thread_;
 };
 
 TEST_F(BookmarkBarGtkUnittest, DisplaysHelpMessageOnEmpty) {
@@ -58,7 +72,7 @@ TEST_F(BookmarkBarGtkUnittest, HidesHelpMessageWithBookmark) {
 
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   model->AddURL(parent, parent->GetChildCount(),
-                L"title", GURL("http://one.com"));
+                ASCIIToUTF16("title"), GURL("http://one.com"));
 
   bookmark_bar_->Loaded(model);
   EXPECT_FALSE(bookmark_bar_->show_instructions_);
@@ -69,9 +83,9 @@ TEST_F(BookmarkBarGtkUnittest, BuildsButtons) {
 
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   model->AddURL(parent, parent->GetChildCount(),
-                L"title", GURL("http://one.com"));
+                ASCIIToUTF16("title"), GURL("http://one.com"));
   model->AddURL(parent, parent->GetChildCount(),
-                L"other", GURL("http://two.com"));
+                ASCIIToUTF16("other"), GURL("http://two.com"));
 
   bookmark_bar_->Loaded(model);
 

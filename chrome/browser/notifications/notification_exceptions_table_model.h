@@ -4,8 +4,9 @@
 
 #ifndef CHROME_BROWSER_NOTIFICATIONS_NOTIFICATION_EXCEPTIONS_TABLE_MODEL_H_
 #define CHROME_BROWSER_NOTIFICATIONS_NOTIFICATION_EXCEPTIONS_TABLE_MODEL_H_
+#pragma once
 
-#include <set>
+#include <string>
 #include <vector>
 
 #include "chrome/browser/notifications/desktop_notification_service.h"

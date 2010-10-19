@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CHROME_BROWSER_TAB_WINDOW_CONTROLLER_H_
-#define CHROME_BROWSER_TAB_WINDOW_CONTROLLER_H_
+#ifndef CHROME_BROWSER_COCOA_TAB_WINDOW_CONTROLLER_H_
+#define CHROME_BROWSER_COCOA_TAB_WINDOW_CONTROLLER_H_
+#pragma once
 
 // A class acting as the Objective-C window controller for a window that has
 // tabs which can be dragged around. Tabs can be re-arranged within the same
@@ -31,6 +32,7 @@
 #include "base/scoped_nsobject.h"
 
 @class FastResizeView;
+@class FocusTracker;
 @class TabStripView;
 @class TabView;
 
@@ -45,6 +47,7 @@
   NSView* cachedContentView_;  // Used during dragging for identifying which
                                // view is the proper content area in the overlay
                                // (weak)
+  scoped_nsobject<FocusTracker> focusBeforeOverlay_;
   scoped_nsobject<NSMutableSet> lockedTabs_;
   BOOL closeDeferred_;  // If YES, call performClose: in removeOverlay:.
   // Difference between height of window content area and height of the
@@ -171,4 +174,4 @@
 - (void)layoutSubviews;
 @end
 
-#endif  // CHROME_BROWSER_TAB_WINDOW_CONTROLLER_H_
+#endif  // CHROME_BROWSER_COCOA_TAB_WINDOW_CONTROLLER_H_

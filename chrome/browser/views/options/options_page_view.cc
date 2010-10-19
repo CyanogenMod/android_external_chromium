@@ -6,7 +6,7 @@
 
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/notification_service.h"
 #include "views/widget/widget.h"
 
@@ -36,8 +36,7 @@ void OptionsPageView::ViewHierarchyChanged(bool is_add,
   }
 }
 
-bool OptionsPageView::GetAccessibleRole(AccessibilityTypes::Role* role) {
-  *role = AccessibilityTypes::ROLE_PAGETAB;
-  return true;
+AccessibilityTypes::Role OptionsPageView::GetAccessibleRole() {
+  return AccessibilityTypes::ROLE_PAGETAB;
 }
 

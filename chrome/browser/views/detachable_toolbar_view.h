@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_DETACHABLE_TOOLBAR_VIEW_H_
 #define CHROME_BROWSER_VIEWS_DETACHABLE_TOOLBAR_VIEW_H_
+#pragma once
 
 #include "chrome/browser/views/accessible_toolbar_view.h"
 
@@ -28,10 +29,15 @@ class DetachableToolbarView : public AccessibleToolbarView {
   // Gets the current state of the resize animation (show/hide).
   virtual double GetAnimationValue() const = 0;
 
-  // Paint the background (including the theme image behind content area) when
-  // in bar/shelf is attached to the Chrome frame.
+  // Gets the current amount of overlap atop the browser toolbar.
+  virtual int GetToolbarOverlap() const = 0;
+
+  // Paints the background (including the theme image behind content area) when
+  // the bar/shelf is attached to the top toolbar.  |background_origin| is the
+  // origin to use for painting the theme image.
   static void PaintBackgroundAttachedMode(gfx::Canvas* canvas,
-                                          views::View* view);
+                                          views::View* view,
+                                          const gfx::Point& background_origin);
 
   // Calculate the rect for the content area of the bar/shelf. This is only
   // needed when the bar/shelf is detached from the Chrome frame (otherwise the

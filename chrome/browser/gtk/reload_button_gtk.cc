@@ -31,26 +31,22 @@ ReloadButtonGtk::ReloadButtonGtk(LocationBarViewGtk* location_bar,
       visible_mode_(MODE_RELOAD),
       theme_provider_(browser ?
                       GtkThemeProvider::GetFrom(browser->profile()) : NULL),
-      reload_(theme_provider_, IDR_RELOAD, IDR_RELOAD_P, IDR_RELOAD_H, 0,
-              IDR_BUTTON_MASK),
-      stop_(theme_provider_, IDR_STOP, IDR_STOP_P, IDR_STOP_H, 0,
-            IDR_BUTTON_MASK),
+      reload_(theme_provider_, IDR_RELOAD, IDR_RELOAD_P, IDR_RELOAD_H, 0),
+      stop_(theme_provider_, IDR_STOP, IDR_STOP_P, IDR_STOP_H, IDR_STOP_D),
       widget_(gtk_chrome_button_new()) {
-  gtk_widget_set_size_request(widget_.get(), reload_.Width(), reload_.Height());
+  gtk_widget_set_size_request(widget(), reload_.Width(), reload_.Height());
 
-  gtk_widget_set_app_paintable(widget_.get(), TRUE);
+  gtk_widget_set_app_paintable(widget(), TRUE);
 
-  g_signal_connect(widget_.get(), "expose-event",
-                   G_CALLBACK(OnExposeThunk), this);
-  g_signal_connect(widget_.get(), "leave-notify-event",
+  g_signal_connect(widget(), "clicked", G_CALLBACK(OnClickedThunk), this);
+  g_signal_connect(widget(), "expose-event", G_CALLBACK(OnExposeThunk), this);
+  g_signal_connect(widget(), "leave-notify-event",
                    G_CALLBACK(OnLeaveNotifyThunk), this);
-  g_signal_connect(widget_.get(), "clicked",
-                   G_CALLBACK(OnClickedThunk), this);
-  GTK_WIDGET_UNSET_FLAGS(widget_.get(), GTK_CAN_FOCUS);
+  GTK_WIDGET_UNSET_FLAGS(widget(), GTK_CAN_FOCUS);
 
-  gtk_widget_set_has_tooltip(widget_.get(), TRUE);
-  g_signal_connect(widget_.get(), "query-tooltip",
-                   G_CALLBACK(OnQueryTooltipThunk), this);
+  gtk_widget_set_has_tooltip(widget(), TRUE);
+  g_signal_connect(widget(), "query-tooltip", G_CALLBACK(OnQueryTooltipThunk),
+                   this);
 
   hover_controller_.Init(widget());
   gtk_util::SetButtonTriggersNavigation(widget());
@@ -78,8 +74,30 @@ void ReloadButtonGtk::ChangeMode(Mode mode, bool force) {
         !timer_running() : (visible_mode_ != MODE_STOP))) {
     timer_.Stop();
     visible_mode_ = mode;
-    gtk_widget_queue_draw(widget_.get());
 
+    stop_.set_paint_override(-1);
+    gtk_chrome_button_unset_paint_state(GTK_CHROME_BUTTON(widget_.get()));
+
+    UpdateThemeButtons();
+    gtk_widget_queue_draw(widget());
+  } else if (visible_mode_ != MODE_RELOAD) {
+    // If you read the views implementation of reload_button.cc, you'll see
+    // that instead of screwing with paint states, the views implementation
+    // just changes whether the view is enabled. We can't do that here because
+    // changing the widget state to GTK_STATE_INSENSITIVE will cause a cascade
+    // of messages on all its children and will also trigger a synthesized
+    // leave notification and prevent the real leave notification from turning
+    // the button back to normal. So instead, override the stop_ paint state
+    // for chrome-theme mode, and use this as a flag to discard click events.
+    stop_.set_paint_override(GTK_STATE_INSENSITIVE);
+
+    // Also set the gtk_chrome_button paint state to insensitive to hide
+    // the border drawn around the stop icon.
+    gtk_chrome_button_set_paint_state(GTK_CHROME_BUTTON(widget_.get()),
+                                      GTK_STATE_INSENSITIVE);
+
+    // If we're in GTK theme mode, we need to also render the correct icon for
+    // the stop/insensitive since we won't be using |stop_| to render the icon.
     UpdateThemeButtons();
   }
 }
@@ -97,7 +115,65 @@ void ReloadButtonGtk::Observe(NotificationType type,
 }
 
 void ReloadButtonGtk::OnButtonTimer() {
-  ChangeMode(intended_mode_, true);
+  ChangeMode(intended_mode_, false);
+}
+
+void ReloadButtonGtk::OnClicked(GtkWidget* sender) {
+  if (visible_mode_ == MODE_STOP) {
+    // The stop button is disabled because the user hovered over the button
+    // until the stop action is no longer selectable.
+    if (stop_.paint_override() == GTK_STATE_INSENSITIVE)
+      return;
+
+    if (browser_)
+      browser_->Stop();
+
+    // The user has clicked, so we can feel free to update the button,
+    // even if the mouse is still hovering.
+    ChangeMode(MODE_RELOAD, true);
+  } else if (!timer_running()) {
+    // Shift-clicking or Ctrl-clicking the reload button means we should ignore
+    // any cached content.
+    int command;
+    GdkModifierType modifier_state;
+    gtk_get_current_event_state(&modifier_state);
+    guint modifier_state_uint = modifier_state;
+    if (modifier_state_uint & (GDK_SHIFT_MASK | GDK_CONTROL_MASK)) {
+      command = IDC_RELOAD_IGNORING_CACHE;
+      // Mask off Shift and Control so they don't affect the disposition below.
+      modifier_state_uint &= ~(GDK_SHIFT_MASK | GDK_CONTROL_MASK);
+    } else {
+      command = IDC_RELOAD;
+    }
+
+    WindowOpenDisposition disposition =
+        event_utils::DispositionFromEventFlags(modifier_state_uint);
+    if (disposition == CURRENT_TAB) {
+      // Forcibly reset the location bar, since otherwise it won't discard any
+      // ongoing user edits, since it doesn't realize this is a user-initiated
+      // action.
+      location_bar_->Revert();
+    }
+
+    // Figure out the system double-click time.
+    if (button_delay_ == 0) {
+      GtkSettings* settings = gtk_settings_get_default();
+      g_object_get(G_OBJECT(settings), "gtk-double-click-time", &button_delay_,
+                   NULL);
+    }
+
+    // Start a timer - while this timer is running, the reload button cannot be
+    // changed to a stop button.  We do not set |intended_mode_| to MODE_STOP
+    // here as the browser will do that when it actually starts loading (which
+    // may happen synchronously, thus the need to do this before telling the
+    // browser to execute the reload command).
+    timer_.Stop();
+    timer_.Start(base::TimeDelta::FromMilliseconds(button_delay_), this,
+                 &ReloadButtonGtk::OnButtonTimer);
+
+    if (browser_)
+      browser_->ExecuteCommandWithDisposition(command, disposition);
+  }
 }
 
 gboolean ReloadButtonGtk::OnExpose(GtkWidget* widget,
@@ -112,61 +188,6 @@ gboolean ReloadButtonGtk::OnLeaveNotify(GtkWidget* widget,
                                         GdkEventCrossing* event) {
   ChangeMode(intended_mode_, true);
   return FALSE;
-}
-
-void ReloadButtonGtk::OnClicked(GtkWidget* sender) {
-  if (visible_mode_ == MODE_STOP) {
-    if (browser_)
-      browser_->Stop();
-
-    // The user has clicked, so we can feel free to update the button,
-    // even if the mouse is still hovering.
-    ChangeMode(MODE_RELOAD, true);
-  } else if (!timer_running()) {
-    // Shift-clicking or Ctrl-clicking the reload button means we should ignore
-    // any cached content.
-    int command;
-    GdkModifierType modifier_state;
-    gtk_get_current_event_state(&modifier_state);
-    guint modifier_state_uint = modifier_state;
-    if (modifier_state_uint & GDK_SHIFT_MASK) {
-      command = IDC_RELOAD_IGNORING_CACHE;
-      // Mask off shift so it isn't interpreted as affecting the disposition
-      // below.
-      modifier_state_uint &= ~GDK_SHIFT_MASK;
-    } else {
-      command = IDC_RELOAD;
-    }
-
-    WindowOpenDisposition disposition =
-        event_utils::DispositionFromEventFlags(modifier_state_uint);
-    if (disposition == CURRENT_TAB) {
-      // Forcibly reset the location bar, since otherwise it won't discard any
-      // ongoing user edits, since it doesn't realize this is a user-initiated
-      // action.
-      location_bar_->Revert();
-    }
-
-    if (browser_)
-      browser_->ExecuteCommandWithDisposition(command, disposition);
-
-    // Figure out the system double-click time.
-    if (button_delay_ == 0) {
-      GtkSettings* settings = gtk_settings_get_default();
-      g_object_get(G_OBJECT(settings), "gtk-double-click-time", &button_delay_,
-                   NULL);
-    }
-
-    // Stop the timer.
-    timer_.Stop();
-
-    // Start a timer - while this timer is running, the reload button cannot be
-    // changed to a stop button.  We do not set |intended_mode_| to MODE_STOP
-    // here as we want to wait for the browser to tell us that it has started
-    // loading (and this may occur only after some delay).
-    timer_.Start(base::TimeDelta::FromMilliseconds(button_delay_), this,
-                 &ReloadButtonGtk::OnButtonTimer);
-  }
 }
 
 gboolean ReloadButtonGtk::OnQueryTooltip(GtkWidget* sender,
@@ -188,31 +209,47 @@ void ReloadButtonGtk::UpdateThemeButtons() {
   bool use_gtk = theme_provider_ && theme_provider_->UseGtkTheme();
 
   if (use_gtk) {
-    GdkPixbuf* pixbuf = gtk_widget_render_icon(widget(),
-        (intended_mode_ == MODE_RELOAD) ? GTK_STOCK_REFRESH : GTK_STOCK_STOP,
-        GTK_ICON_SIZE_SMALL_TOOLBAR, NULL);
+    gtk_widget_ensure_style(widget());
+    GtkIconSet* icon_set = gtk_style_lookup_icon_set(
+        widget()->style,
+        (visible_mode_ == MODE_RELOAD) ? GTK_STOCK_REFRESH : GTK_STOCK_STOP);
+    if (icon_set) {
+      GtkStateType state = static_cast<GtkStateType>(
+          GTK_WIDGET_STATE(widget()));
+      if (visible_mode_ == MODE_STOP && stop_.paint_override() != -1)
+        state = static_cast<GtkStateType>(stop_.paint_override());
 
-    gtk_button_set_image(GTK_BUTTON(widget_.get()),
-                         gtk_image_new_from_pixbuf(pixbuf));
-    g_object_unref(pixbuf);
+      GdkPixbuf* pixbuf = gtk_icon_set_render_icon(
+          icon_set,
+          widget()->style,
+          gtk_widget_get_direction(widget()),
+          state,
+          GTK_ICON_SIZE_SMALL_TOOLBAR,
+          widget(),
+          NULL);
 
-    gtk_widget_set_size_request(widget_.get(), -1, -1);
+      gtk_button_set_image(GTK_BUTTON(widget()),
+                           gtk_image_new_from_pixbuf(pixbuf));
+      g_object_unref(pixbuf);
+    }
+
+    gtk_widget_set_size_request(widget(), -1, -1);
     GtkRequisition req;
     gtk_widget_size_request(widget(), &req);
     GtkButtonWidth = std::max(GtkButtonWidth, req.width);
-    gtk_widget_set_size_request(widget_.get(), GtkButtonWidth, -1);
+    gtk_widget_set_size_request(widget(), GtkButtonWidth, -1);
 
-    gtk_widget_set_app_paintable(widget_.get(), FALSE);
-    gtk_widget_set_double_buffered(widget_.get(), TRUE);
+    gtk_widget_set_app_paintable(widget(), FALSE);
+    gtk_widget_set_double_buffered(widget(), TRUE);
   } else {
-    gtk_widget_set_size_request(widget_.get(), reload_.Width(),
-                                reload_.Height());
+    gtk_button_set_image(GTK_BUTTON(widget()), NULL);
 
-    gtk_widget_set_app_paintable(widget_.get(), TRUE);
+    gtk_widget_set_size_request(widget(), reload_.Width(), reload_.Height());
+
+    gtk_widget_set_app_paintable(widget(), TRUE);
     // We effectively double-buffer by virtue of having only one image...
-    gtk_widget_set_double_buffered(widget_.get(), FALSE);
+    gtk_widget_set_double_buffered(widget(), FALSE);
   }
 
-  gtk_chrome_button_set_use_gtk_rendering(
-      GTK_CHROME_BUTTON(widget_.get()), use_gtk);
+  gtk_chrome_button_set_use_gtk_rendering(GTK_CHROME_BUTTON(widget()), use_gtk);
 }

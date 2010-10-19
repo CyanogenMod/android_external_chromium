@@ -5,7 +5,6 @@
 #include "chrome/browser/dom_ui/plugins_ui.h"
 
 #include <algorithm>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -20,10 +19,12 @@
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/plugin_updater.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/jstemplate_builder.h"
+#include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "grit/browser_resources.h"
@@ -64,42 +65,42 @@ void PluginsUIHTMLSource::StartDataRequest(const std::string& path,
                                            int request_id) {
   // Strings used in the JsTemplate file.
   DictionaryValue localized_strings;
-  localized_strings.SetString(L"pluginsTitle",
-      l10n_util::GetString(IDS_PLUGINS_TITLE));
-  localized_strings.SetString(L"pluginsDetailsModeLink",
-      l10n_util::GetString(IDS_PLUGINS_DETAILS_MODE_LINK));
-  localized_strings.SetString(L"pluginsNoneInstalled",
-      l10n_util::GetString(IDS_PLUGINS_NONE_INSTALLED));
-  localized_strings.SetString(L"pluginDisabled",
-      l10n_util::GetString(IDS_PLUGINS_DISABLED_PLUGIN));
-  localized_strings.SetString(L"pluginDisabledByPolicy",
-      l10n_util::GetString(IDS_PLUGINS_DISABLED_BY_POLICY_PLUGIN));
-  localized_strings.SetString(L"pluginCannotBeEnabledDueToPolicy",
-      l10n_util::GetString(IDS_PLUGINS_CANNOT_ENABLE_DUE_TO_POLICY));
-  localized_strings.SetString(L"pluginDownload",
-      l10n_util::GetString(IDS_PLUGINS_DOWNLOAD));
-  localized_strings.SetString(L"pluginName",
-      l10n_util::GetString(IDS_PLUGINS_NAME));
-  localized_strings.SetString(L"pluginPriority",
-      l10n_util::GetString(IDS_PLUGINS_PRIORITY));
-  localized_strings.SetString(L"pluginVersion",
-      l10n_util::GetString(IDS_PLUGINS_VERSION));
-  localized_strings.SetString(L"pluginDescription",
-      l10n_util::GetString(IDS_PLUGINS_DESCRIPTION));
-  localized_strings.SetString(L"pluginPath",
-      l10n_util::GetString(IDS_PLUGINS_PATH));
-  localized_strings.SetString(L"pluginMimeTypes",
-      l10n_util::GetString(IDS_PLUGINS_MIME_TYPES));
-  localized_strings.SetString(L"pluginMimeTypesMimeType",
-      l10n_util::GetString(IDS_PLUGINS_MIME_TYPES_MIME_TYPE));
-  localized_strings.SetString(L"pluginMimeTypesDescription",
-      l10n_util::GetString(IDS_PLUGINS_MIME_TYPES_DESCRIPTION));
-  localized_strings.SetString(L"pluginMimeTypesFileExtensions",
-      l10n_util::GetString(IDS_PLUGINS_MIME_TYPES_FILE_EXTENSIONS));
-  localized_strings.SetString(L"disable",
-      l10n_util::GetString(IDS_PLUGINS_DISABLE));
-  localized_strings.SetString(L"enable",
-      l10n_util::GetString(IDS_PLUGINS_ENABLE));
+  localized_strings.SetString("pluginsTitle",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_TITLE));
+  localized_strings.SetString("pluginsDetailsModeLink",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_DETAILS_MODE_LINK));
+  localized_strings.SetString("pluginsNoneInstalled",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_NONE_INSTALLED));
+  localized_strings.SetString("pluginDisabled",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_DISABLED_PLUGIN));
+  localized_strings.SetString("pluginDisabledByPolicy",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_DISABLED_BY_POLICY_PLUGIN));
+  localized_strings.SetString("pluginCannotBeEnabledDueToPolicy",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_CANNOT_ENABLE_DUE_TO_POLICY));
+  localized_strings.SetString("pluginDownload",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_DOWNLOAD));
+  localized_strings.SetString("pluginName",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_NAME));
+  localized_strings.SetString("pluginPriority",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_PRIORITY));
+  localized_strings.SetString("pluginVersion",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_VERSION));
+  localized_strings.SetString("pluginDescription",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_DESCRIPTION));
+  localized_strings.SetString("pluginPath",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_PATH));
+  localized_strings.SetString("pluginMimeTypes",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_MIME_TYPES));
+  localized_strings.SetString("pluginMimeTypesMimeType",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_MIME_TYPES_MIME_TYPE));
+  localized_strings.SetString("pluginMimeTypesDescription",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_MIME_TYPES_DESCRIPTION));
+  localized_strings.SetString("pluginMimeTypesFileExtensions",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_MIME_TYPES_FILE_EXTENSIONS));
+  localized_strings.SetString("disable",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_DISABLE));
+  localized_strings.SetString("enable",
+      l10n_util::GetStringUTF16(IDS_PLUGINS_ENABLE));
 
   ChromeURLDataManager::DataSource::SetFontAndTextDirection(&localized_strings);
 
@@ -128,42 +129,42 @@ void PluginsUIHTMLSource::StartDataRequest(const std::string& path,
 // TODO(viettrungluu): Make plugin list updates notify, and then observe
 // changes; maybe replumb plugin list through plugin service?
 // <http://crbug.com/39101>
-class PluginsDOMHandler : public DOMMessageHandler {
+class PluginsDOMHandler : public DOMMessageHandler,
+                          public NotificationObserver {
  public:
-  PluginsDOMHandler() {}
+  explicit PluginsDOMHandler();
   virtual ~PluginsDOMHandler() {}
 
   // DOMMessageHandler implementation.
   virtual void RegisterMessages();
 
   // Callback for the "requestPluginsData" message.
-  void HandleRequestPluginsData(const Value* value);
+  void HandleRequestPluginsData(const ListValue* args);
 
   // Callback for the "enablePlugin" message.
-  void HandleEnablePluginMessage(const Value* value);
+  void HandleEnablePluginMessage(const ListValue* args);
 
   // Callback for the "showTermsOfService" message. This really just opens a new
   // window with about:terms. Flash can't link directly to about:terms due to
   // the security model.
-  void HandleShowTermsOfServiceMessage(const Value* value);
+  void HandleShowTermsOfServiceMessage(const ListValue* args);
+
+  // NotificationObserver method overrides
+  void Observe(NotificationType type,
+               const NotificationSource& source,
+               const NotificationDetails& details);
 
  private:
-  // Creates a dictionary containing all the information about the given plugin;
-  // this is put into the list to "return" for the "requestPluginsData" message.
-  DictionaryValue* CreatePluginDetailValue(
-      const WebPluginInfo& plugin,
-      const std::set<string16>& plugin_blacklist_set);
-
-  // Creates a dictionary containing the important parts of the information
-  // about the given plugin; this is put into a list and saved in prefs.
-  DictionaryValue* CreatePluginSummaryValue(const WebPluginInfo& plugin);
-
-  // Update the user preferences to reflect the current (user-selected) state of
-  // plugins.
-  void UpdatePreferences();
+  NotificationRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(PluginsDOMHandler);
 };
+
+PluginsDOMHandler::PluginsDOMHandler() {
+  registrar_.Add(this,
+                 NotificationType::PLUGIN_ENABLE_STATUS_CHANGED,
+                 NotificationService::AllSources());
+}
 
 void PluginsDOMHandler::RegisterMessages() {
   dom_ui_->RegisterMessageCallback("requestPluginsData",
@@ -174,55 +175,62 @@ void PluginsDOMHandler::RegisterMessages() {
       NewCallback(this, &PluginsDOMHandler::HandleShowTermsOfServiceMessage));
 }
 
-void PluginsDOMHandler::HandleRequestPluginsData(const Value* value) {
-  DictionaryValue* results = new DictionaryValue();
-  results->Set(L"plugins", plugin_updater::GetPluginGroupsData());
-
-  dom_ui_->CallJavascriptFunction(L"returnPluginsData", *results);
+void PluginsDOMHandler::HandleRequestPluginsData(const ListValue* args) {
+  DictionaryValue results;
+  results.Set("plugins",
+              PluginUpdater::GetPluginUpdater()->GetPluginGroupsData());
+  dom_ui_->CallJavascriptFunction(L"returnPluginsData", results);
 }
 
-void PluginsDOMHandler::HandleEnablePluginMessage(const Value* value) {
+void PluginsDOMHandler::HandleEnablePluginMessage(const ListValue* args) {
   // Be robust in accepting badness since plug-ins display HTML (hence
   // JavaScript).
-  if (!value->IsType(Value::TYPE_LIST))
-    return;
-
-  const ListValue* list = static_cast<const ListValue*>(value);
-  if (list->GetSize() != 3)
+  if (args->GetSize() != 3)
     return;
 
   std::string enable_str;
   std::string is_group_str;
-  if (!list->GetString(1, &enable_str) || !list->GetString(2, &is_group_str))
+  if (!args->GetString(1, &enable_str) || !args->GetString(2, &is_group_str))
     return;
 
   if (is_group_str == "true") {
-    std::wstring group_name;
-    if (!list->GetString(0, &group_name))
+    string16 group_name;
+    if (!args->GetString(0, &group_name))
       return;
 
-    plugin_updater::EnablePluginGroup(enable_str == "true",
-                                      WideToUTF16(group_name));
+    PluginUpdater::GetPluginUpdater()->EnablePluginGroup(
+        enable_str == "true", group_name);
   } else {
     FilePath::StringType file_path;
-    if (!list->GetString(0, &file_path))
+    if (!args->GetString(0, &file_path))
       return;
 
-    plugin_updater::EnablePluginFile(enable_str == "true", file_path);
+    PluginUpdater::GetPluginUpdater()->EnablePluginFile(
+        enable_str == "true", file_path);
   }
 
   // TODO(viettrungluu): We might also want to ensure that the plugins
   // list is always written to prefs even when the user hasn't disabled a
   // plugin. <http://crbug.com/39101>
-  plugin_updater::UpdatePreferences(dom_ui_->GetProfile());
+  PluginUpdater::GetPluginUpdater()->UpdatePreferences(dom_ui_->GetProfile());
 }
 
-void PluginsDOMHandler::HandleShowTermsOfServiceMessage(const Value* value) {
+void PluginsDOMHandler::HandleShowTermsOfServiceMessage(const ListValue* args) {
   // Show it in a new browser window....
   Browser* browser = Browser::Create(dom_ui_->GetProfile());
   browser->OpenURL(GURL(chrome::kAboutTermsURL),
                    GURL(), NEW_FOREGROUND_TAB, PageTransition::LINK);
   browser->window()->Show();
+}
+
+void PluginsDOMHandler::Observe(NotificationType type,
+                                const NotificationSource& source,
+                                const NotificationDetails& details) {
+  DCHECK_EQ(NotificationType::PLUGIN_ENABLE_STATUS_CHANGED, type.value);
+  DictionaryValue results;
+  results.Set("plugins",
+              PluginUpdater::GetPluginUpdater()->GetPluginGroupsData());
+  dom_ui_->CallJavascriptFunction(L"returnPluginsData", results);
 }
 
 }  // namespace

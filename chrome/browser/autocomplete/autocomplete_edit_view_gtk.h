@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_EDIT_VIEW_GTK_H_
 #define CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_EDIT_VIEW_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -15,10 +16,10 @@
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/toolbar_model.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/owned_widget_gtk.h"
 #include "chrome/common/page_transition_types.h"
 #include "gfx/rect.h"
 #include "webkit/glue/window_open_disposition.h"
@@ -28,6 +29,11 @@ class AutocompleteEditModel;
 class AutocompletePopupView;
 class Profile;
 class TabContents;
+
+namespace gfx{
+class Font;
+}
+
 namespace views {
 class View;
 }
@@ -69,9 +75,17 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   // Initialize, create the underlying widgets, etc.
   void Init();
 
-  // Returns the width, in pixels, needed to display the current text. The
-  // returned value includes margins and borders.
+  // Returns the width in pixels needed to display the current text. The
+  // returned value includes margins.
   int TextWidth();
+
+  // Returns the width in pixels needed to display the text from one character
+  // before the caret to the end of the string. See comments in
+  // LocationBarView::Layout as to why this uses -1.
+  int WidthOfTextAfterCursor();
+
+  // Returns the font.
+  gfx::Font GetFont();
 
   // Implement the AutocompleteEditView interface.
   virtual AutocompleteEditModel* model() { return model_.get(); }
@@ -93,9 +107,7 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   virtual bool IsEditingOrEmpty() const;
   virtual int GetIcon() const;
 
-  virtual void SetUserText(const std::wstring& text) {
-    SetUserText(text, text, true);
-  }
+  virtual void SetUserText(const std::wstring& text);
   virtual void SetUserText(const std::wstring& text,
                            const std::wstring& display_text,
                            bool update_popup);
@@ -106,6 +118,8 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   virtual void SetForcedQuery();
 
   virtual bool IsSelectAll();
+  virtual void GetSelectionBounds(std::wstring::size_type* start,
+                                  std::wstring::size_type* end);
   virtual void SelectAll(bool reversed);
   virtual void RevertAll();
 

@@ -9,6 +9,7 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RENDER_VIEW_HOST_NOTIFICATION_TASK_H_
 #define CHROME_BROWSER_RENDERER_HOST_RENDER_VIEW_HOST_NOTIFICATION_TASK_H_
+#pragma once
 
 #include "base/callback.h"
 #include "base/task.h"
@@ -294,6 +295,21 @@ inline void CallRenderViewHostContentSettingsDelegate(int render_process_id,
                                                             render_view_id,
                                                             method,
                                                             MakeTuple(a, b, c));
+}
+
+template <typename Method, typename A, typename B, typename C, typename D>
+inline void CallRenderViewHostContentSettingsDelegate(int render_process_id,
+                                                      int render_view_id,
+                                                      Method method,
+                                                      const A& a,
+                                                      const B& b,
+                                                      const C& c,
+                                                      const D& d) {
+  internal::CallRenderViewHostContentSettingsDelegateHelper(
+      render_process_id,
+      render_view_id,
+      method,
+      MakeTuple(a, b, c, d));
 }
 
 // ----------------------------------------------------------------------------

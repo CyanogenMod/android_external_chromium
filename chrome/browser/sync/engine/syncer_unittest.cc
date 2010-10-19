@@ -10,10 +10,9 @@
 #include <set>
 #include <string>
 
-#include "base/at_exit.h"
-
 #include "base/callback.h"
 #include "base/scoped_ptr.h"
+#include "base/string_number_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/sync/engine/conflict_resolver.h"
 #include "chrome/browser/sync/engine/get_commit_ids_command.h"
@@ -169,7 +168,7 @@ class SyncerTest : public testing::Test,
         new MockConnectionManager(syncdb_.manager(), syncdb_.name()));
     EnableDatatype(syncable::BOOKMARKS);
     worker_ = new ModelSafeWorker();
-    context_.reset(new SyncSessionContext(mock_server_.get(), NULL,
+    context_.reset(new SyncSessionContext(mock_server_.get(),
         syncdb_.manager(), this));
     context_->set_account_name(syncdb_.name());
     ASSERT_FALSE(context_->syncer_event_channel());
@@ -4363,8 +4362,8 @@ TEST_F(SyncerTest, ClientTagClashWithinBatchOfUpdates) {
 
     Entry tag_a(&trans, GET_BY_CLIENT_TAG, "tag a");
     ASSERT_TRUE(tag_a.good());
-    ASSERT_TRUE(tag_a.Get(ID).ServerKnows());
-    ASSERT_TRUE(ids_.FromNumber(1) == tag_a.Get(ID));
+    EXPECT_TRUE(tag_a.Get(ID).ServerKnows());
+    EXPECT_EQ(ids_.FromNumber(1), tag_a.Get(ID));
     EXPECT_FALSE(tag_a.Get(IS_DEL));
     EXPECT_FALSE(tag_a.Get(IS_UNAPPLIED_UPDATE));
     EXPECT_FALSE(tag_a.Get(IS_UNSYNCED));
@@ -4374,8 +4373,8 @@ TEST_F(SyncerTest, ClientTagClashWithinBatchOfUpdates) {
 
     Entry tag_b(&trans, GET_BY_CLIENT_TAG, "tag b");
     ASSERT_TRUE(tag_b.good());
-    ASSERT_TRUE(tag_b.Get(ID).ServerKnows());
-    ASSERT_TRUE(ids_.FromNumber(101) == tag_b.Get(ID));
+    EXPECT_TRUE(tag_b.Get(ID).ServerKnows());
+    EXPECT_EQ(ids_.FromNumber(101), tag_b.Get(ID));
     EXPECT_FALSE(tag_b.Get(IS_DEL));
     EXPECT_FALSE(tag_b.Get(IS_UNAPPLIED_UPDATE));
     EXPECT_FALSE(tag_b.Get(IS_UNSYNCED));
@@ -4385,8 +4384,8 @@ TEST_F(SyncerTest, ClientTagClashWithinBatchOfUpdates) {
 
     Entry tag_c(&trans, GET_BY_CLIENT_TAG, "tag c");
     ASSERT_TRUE(tag_c.good());
-    ASSERT_TRUE(tag_c.Get(ID).ServerKnows());
-    ASSERT_TRUE(ids_.FromNumber(201) == tag_c.Get(ID));
+    EXPECT_TRUE(tag_c.Get(ID).ServerKnows());
+    EXPECT_EQ(ids_.FromNumber(201), tag_c.Get(ID));
     EXPECT_FALSE(tag_c.Get(IS_DEL));
     EXPECT_FALSE(tag_c.Get(IS_UNAPPLIED_UPDATE));
     EXPECT_FALSE(tag_c.Get(IS_UNSYNCED));
@@ -4982,7 +4981,7 @@ class SyncerPositionUpdateTest : public SyncerTest {
   }
 
   void AddRootItemWithPosition(int64 position) {
-    string id = string("ServerId") + Int64ToString(next_update_id_++);
+    string id = string("ServerId") + base::Int64ToString(next_update_id_++);
     string name = "my name is my id -- " + id;
     int revision = next_revision_++;
     mock_server_->AddUpdateDirectory(id, kRootId, name, revision, revision);

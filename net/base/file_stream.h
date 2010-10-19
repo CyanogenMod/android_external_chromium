@@ -1,6 +1,6 @@
-// Copyright (c) 2008 The Chromium Authors. All rights reserved.  Use of this
-// source code is governed by a BSD-style license that can be found in the
-// LICENSE file.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 // This file defines FileStream, a basic interface for reading and writing files
 // synchronously or asynchronously with support for seeking to an offset.
@@ -9,6 +9,7 @@
 
 #ifndef NET_BASE_FILE_STREAM_H_
 #define NET_BASE_FILE_STREAM_H_
+#pragma once
 
 #include "base/platform_file.h"
 #include "base/scoped_ptr.h"

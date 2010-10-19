@@ -1,13 +1,13 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_CHROMEOS_OPTIONS_WIFI_CONFIG_VIEW_H_
 #define CHROME_BROWSER_CHROMEOS_OPTIONS_WIFI_CONFIG_VIEW_H_
+#pragma once
 
 #include <string>
 
-#include "base/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/string16.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
@@ -18,6 +18,8 @@
 #include "views/controls/button/native_button.h"
 #include "views/controls/textfield/textfield.h"
 #include "views/view.h"
+
+class FilePath;
 
 namespace chromeos {
 
@@ -37,9 +39,7 @@ class WifiConfigView : public views::View,
   virtual void ContentsChanged(views::Textfield* sender,
                                const string16& new_contents);
   virtual bool HandleKeystroke(views::Textfield* sender,
-                               const views::Textfield::Keystroke& keystroke) {
-    return false;
-  }
+                               const views::Textfield::Keystroke& keystroke);
 
   // views::ButtonListener
   virtual void ButtonPressed(views::Button* sender, const views::Event& event);

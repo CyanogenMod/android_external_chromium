@@ -4,10 +4,12 @@
 
 #ifndef CHROME_BROWSER_CONTENT_SETTING_COMBO_MODEL_H_
 #define CHROME_BROWSER_CONTENT_SETTING_COMBO_MODEL_H_
+#pragma once
 
 #include "app/combobox_model.h"
 
 #include "base/basictypes.h"
+#include "base/string16.h"
 #include "chrome/common/content_settings.h"
 
 class ContentSettingComboModel : public ComboboxModel {
@@ -16,8 +18,7 @@ class ContentSettingComboModel : public ComboboxModel {
   virtual ~ContentSettingComboModel();
 
   virtual int GetItemCount();
-
-  virtual std::wstring GetItemAt(int index);
+  virtual string16 GetItemAt(int index);
 
   ContentSetting SettingForIndex(int index);
 

@@ -4,12 +4,14 @@
 
 #ifndef CHROME_BROWSER_GTK_MENU_GTK_H_
 #define CHROME_BROWSER_GTK_MENU_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
 #include <string>
 #include <vector>
 
+#include "app/gtk_signal.h"
 #include "base/task.h"
 #include "gfx/point.h"
 
@@ -62,7 +64,8 @@ class MenuGtk {
                                           const std::string& label);
   GtkWidget* AppendSeparator();
   GtkWidget* AppendMenuItem(int command_id, GtkWidget* menu_item);
-  GtkWidget* AppendMenuItemToMenu(int command_id,
+  GtkWidget* AppendMenuItemToMenu(int index,
+                                  menus::MenuModel* model,
                                   GtkWidget* menu_item,
                                   GtkWidget* menu,
                                   bool connect_to_activate);
@@ -81,6 +84,10 @@ class MenuGtk {
 
   // Displays the menu at the given coords. |point| is intentionally not const.
   void PopupAsContextAt(guint32 event_time, gfx::Point point);
+
+  // Displays the menu as a context menu for the passed status icon.
+  void PopupAsContextForStatusIcon(guint32 event_time, guint32 button,
+                                   GtkStatusIcon* icon);
 
   // Displays the menu following a keyboard event (such as selecting |widget|
   // and pressing "enter").
@@ -110,6 +117,9 @@ class MenuGtk {
 
   GtkWidget* widget() const { return menu_; }
 
+  // Updates all the enabled/checked states and the dynamic labels.
+  void UpdateMenu();
+
  private:
   // Builds a GtkImageMenuItem.
   GtkWidget* BuildMenuItemWithImage(const std::string& label,
@@ -123,26 +133,30 @@ class MenuGtk {
   GtkWidget* BuildButtomMenuItem(menus::ButtonMenuItemModel* model,
                                  GtkWidget* menu);
 
-  // Contains implementation for OnMenuShow.
-  void UpdateMenu();
-
   void ExecuteCommand(menus::MenuModel* model, int id);
 
   // Callback for when a menu item is clicked.
-  static void OnMenuItemActivated(GtkMenuItem* menuitem, MenuGtk* menu);
+  CHROMEGTK_CALLBACK_0(MenuGtk, void, OnMenuItemActivated);
 
   // Called when one of the buttons are pressed.
-  static void OnMenuButtonPressed(GtkMenuItem* menuitem, int command_id,
-                                  MenuGtk* menu);
+  CHROMEGTK_CALLBACK_1(MenuGtk, void, OnMenuButtonPressed, int);
 
-  // Sets the check mark and enabled/disabled state on our menu items.
-  static void SetMenuItemInfo(GtkWidget* widget, void* raw_menu);
+  // Called to maybe activate a button if that button isn't supposed to dismiss
+  // the menu.
+  CHROMEGTK_CALLBACK_1(MenuGtk, gboolean, OnMenuTryButtonPressed, int);
 
   // Updates all the menu items' state.
-  static void OnMenuShow(GtkWidget* widget, MenuGtk* menu);
+  CHROMEGTK_CALLBACK_0(MenuGtk, void, OnMenuShow);
 
   // Sets the activating widget back to a normal appearance.
-  static void OnMenuHidden(GtkWidget* widget, MenuGtk* menu);
+  CHROMEGTK_CALLBACK_0(MenuGtk, void, OnMenuHidden);
+
+  // Sets the enable/disabled state and dynamic labels on our menu items.
+  static void SetButtonItemInfo(GtkWidget* button, gpointer userdata);
+
+  // Sets the check mark, enabled/disabled state and dynamic labels on our menu
+  // items.
+  static void SetMenuItemInfo(GtkWidget* widget, void* raw_menu);
 
   // Queries this object about the menu state.
   MenuGtk::Delegate* delegate_;

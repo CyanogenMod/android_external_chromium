@@ -42,8 +42,7 @@
 
 namespace cricket {
 
-// XML elements and namespaces for XMPP stanzas used in session
-// description exchanges.
+// XML elements and namespaces for XMPP stanzas used in content exchanges.
 
 const std::string NS_SECURE_TUNNEL("http://www.google.com/talk/securetunnel");
 const buzz::QName QN_SECURE_TUNNEL_DESCRIPTION(NS_SECURE_TUNNEL,
@@ -53,18 +52,19 @@ const buzz::QName QN_SECURE_TUNNEL_CLIENT_CERT(NS_SECURE_TUNNEL,
                                                "client-cert");
 const buzz::QName QN_SECURE_TUNNEL_SERVER_CERT(NS_SECURE_TUNNEL,
                                                "server-cert");
+const std::string CN_SECURE_TUNNEL("securetunnel");
 
-// SecureTunnelSessionDescription
+// SecureTunnelContentDescription
 
-// TunnelSessionDescription is extended to hold string forms of the
+// TunnelContentDescription is extended to hold string forms of the
 // client and server certificate, PEM encoded.
 
-struct SecureTunnelSessionDescription : public SessionDescription {
+struct SecureTunnelContentDescription : public ContentDescription {
   std::string description;
   std::string client_pem_certificate;
   std::string server_pem_certificate;
 
-  SecureTunnelSessionDescription(const std::string& desc,
+  SecureTunnelContentDescription(const std::string& desc,
                                  const std::string& client_pem_cert,
                                  const std::string& server_pem_cert)
       : description(desc),
@@ -129,14 +129,25 @@ TunnelSession* SecureTunnelSessionClient::MakeTunnelSession(
   return new SecureTunnelSession(this, session, stream_thread, role);
 }
 
+const SecureTunnelContentDescription* FindSecureTunnelContent(
+    const cricket::SessionDescription* sdesc) {
+  const ContentInfo* cinfo = sdesc->FirstContentByType(NS_SECURE_TUNNEL);
+  if (cinfo == NULL)
+    return NULL;
+
+  return static_cast<const SecureTunnelContentDescription*>(
+      cinfo->description);
+}
+
 void SecureTunnelSessionClient::OnIncomingTunnel(const buzz::Jid &jid,
                                                  Session *session) {
-  const SecureTunnelSessionDescription *desc =
-      static_cast<const SecureTunnelSessionDescription*>(
-          session->remote_description());
+  const SecureTunnelContentDescription* content =
+      FindSecureTunnelContent(session->remote_description());
+  ASSERT(content != NULL);
+
   // Validate the certificate
   talk_base::scoped_ptr<talk_base::SSLCertificate> peer_cert(
-      ParseCertificate(desc->client_pem_certificate));
+      ParseCertificate(content->client_pem_certificate));
   if (peer_cert.get() == NULL) {
     LOG(LS_ERROR)
         << "Rejecting incoming secure tunnel with invalid cetificate";
@@ -146,11 +157,11 @@ void SecureTunnelSessionClient::OnIncomingTunnel(const buzz::Jid &jid,
   // If there were a convenient place we could have cached the
   // peer_cert so as not to have to parse it a second time when
   // configuring the tunnel.
-  SignalIncomingTunnel(this, jid, desc->description, session);
+  SignalIncomingTunnel(this, jid, content->description, session);
 }
 
 // The XML representation of a session initiation request (XMPP IQ),
-// containing the initiator's SecureTunnelSessionDescription,
+// containing the initiator's SecureTunnelContentDescription,
 // looks something like this:
 // <iq from="INITIATOR@gmail.com/pcpE101B7F4"
 //       to="RECIPIENT@gmail.com/pcp8B87F0A3"
@@ -194,84 +205,91 @@ void SecureTunnelSessionClient::OnIncomingTunnel(const buzz::Jid &jid,
 //   </session>
 // </iq>
 
-// The below methods deal with the <description> component.
 
-const SessionDescription* SecureTunnelSessionClient::CreateSessionDescription(
-    const buzz::XmlElement* element) {
-  // Parse the XML representation of a SecureSessionDescription. See
-  // example above.
-  const buzz::XmlElement* type_elem =
-      element->FirstNamed(QN_SECURE_TUNNEL_TYPE);
+bool SecureTunnelSessionClient::ParseContent(const buzz::XmlElement* elem,
+                                             const ContentDescription** content,
+                                             ParseError* error) {
+  const buzz::XmlElement* type_elem = elem->FirstNamed(QN_SECURE_TUNNEL_TYPE);
+
   if (type_elem == NULL)
     // Missing mandatory XML element.
-    return NULL;
+    return false;
+
   // Here we consider the certificate components to be optional. In
   // practice the client certificate is always present, and the server
   // certificate is initially missing from the session description
   // sent during session initiation. OnAccept() will enforce that we
   // have a certificate for our peer.
   const buzz::XmlElement* client_cert_elem =
-      element->FirstNamed(QN_SECURE_TUNNEL_CLIENT_CERT);
+      elem->FirstNamed(QN_SECURE_TUNNEL_CLIENT_CERT);
   const buzz::XmlElement* server_cert_elem =
-      element->FirstNamed(QN_SECURE_TUNNEL_SERVER_CERT);
-  return new SecureTunnelSessionDescription(
+      elem->FirstNamed(QN_SECURE_TUNNEL_SERVER_CERT);
+  *content = new SecureTunnelContentDescription(
       type_elem->BodyText(),
       client_cert_elem ? client_cert_elem->BodyText() : "",
       server_cert_elem ? server_cert_elem->BodyText() : "");
+  return true;
 }
 
-buzz::XmlElement* SecureTunnelSessionClient::TranslateSessionDescription(
-    const SessionDescription* description) {
-  // Generate an XML representation of a SecureSessionDescription. See
-  // example above.
-  const SecureTunnelSessionDescription* desc =
-      static_cast<const SecureTunnelSessionDescription*>(description);
+bool SecureTunnelSessionClient::WriteContent(
+    const ContentDescription* untyped_content,
+    buzz::XmlElement** elem, WriteError* error) {
+  const SecureTunnelContentDescription* content =
+      static_cast<const SecureTunnelContentDescription*>(untyped_content);
+
   buzz::XmlElement* root =
       new buzz::XmlElement(QN_SECURE_TUNNEL_DESCRIPTION, true);
   buzz::XmlElement* type_elem = new buzz::XmlElement(QN_SECURE_TUNNEL_TYPE);
-  type_elem->SetBodyText(desc->description);
+  type_elem->SetBodyText(content->description);
   root->AddElement(type_elem);
-  if (!desc->client_pem_certificate.empty()) {
+  if (!content->client_pem_certificate.empty()) {
     buzz::XmlElement* client_cert_elem =
         new buzz::XmlElement(QN_SECURE_TUNNEL_CLIENT_CERT);
-    client_cert_elem->SetBodyText(desc->client_pem_certificate);
+    client_cert_elem->SetBodyText(content->client_pem_certificate);
     root->AddElement(client_cert_elem);
   }
-  if (!desc->server_pem_certificate.empty()) {
+  if (!content->server_pem_certificate.empty()) {
     buzz::XmlElement* server_cert_elem =
         new buzz::XmlElement(QN_SECURE_TUNNEL_SERVER_CERT);
-    server_cert_elem->SetBodyText(desc->server_pem_certificate);
+    server_cert_elem->SetBodyText(content->server_pem_certificate);
     root->AddElement(server_cert_elem);
   }
-  return root;
+  *elem = root;
+  return true;
 }
 
-// Makes up a secure session description to be sent out when
-// initiating a session.
-SessionDescription*
-SecureTunnelSessionClient::CreateOutgoingSessionDescription(
+SessionDescription* NewSecureTunnelSessionDescription(
+    const ContentDescription* content) {
+  SessionDescription* sdesc = new SessionDescription();
+  sdesc->AddContent(CN_SECURE_TUNNEL, NS_SECURE_TUNNEL, content);
+  return sdesc;
+}
+
+SessionDescription* SecureTunnelSessionClient::CreateOffer(
     const buzz::Jid &jid, const std::string &description) {
   // We are the initiator so we are the client. Put our cert into the
   // description.
   std::string pem_cert = GetIdentity().certificate().ToPEMString();
-  return new SecureTunnelSessionDescription(description, pem_cert, "");
+  return NewSecureTunnelSessionDescription(
+      new SecureTunnelContentDescription(description, pem_cert, ""));
 }
 
-// Makes up a secure session description to be sent out when accepting
-// a session request.
-SessionDescription*
-SecureTunnelSessionClient::CreateOutgoingSessionDescription(Session *session) {
-  const SecureTunnelSessionDescription* in_desc =
-      static_cast<const SecureTunnelSessionDescription*>(
-          session->remote_description());
+SessionDescription* SecureTunnelSessionClient::CreateAnswer(
+    const SessionDescription* offer) {
+  const SecureTunnelContentDescription* offer_tunnel =
+      FindSecureTunnelContent(offer);
+  if (offer_tunnel == NULL)
+    return NULL;
+
   // We are accepting a session request. We need to add our cert, the
   // server cert, into the description. The client cert was validated
   // in OnIncomingTunnel().
-  ASSERT(!in_desc->client_pem_certificate.empty());
-  return new SecureTunnelSessionDescription(
-      in_desc->description,
-      in_desc->client_pem_certificate,
-      GetIdentity().certificate().ToPEMString());
+  ASSERT(!offer_tunnel->client_pem_certificate.empty());
+  return NewSecureTunnelSessionDescription(
+      new SecureTunnelContentDescription(
+          offer_tunnel->description,
+          offer_tunnel->client_pem_certificate,
+          GetIdentity().certificate().ToPEMString()));
 }
 
 // SecureTunnelSession
@@ -318,12 +336,13 @@ void SecureTunnelSession::OnAccept() {
   // connect the tunnel. First we must set the peer certificate.
   ASSERT(channel_ != NULL);
   ASSERT(session_ != NULL);
-  const SecureTunnelSessionDescription* remote_desc =
-      static_cast<const SecureTunnelSessionDescription*>
-      (session_->remote_description());
+  const SecureTunnelContentDescription* remote_tunnel =
+      FindSecureTunnelContent(session_->remote_description());
+  ASSERT(remote_tunnel != NULL);
+
   const std::string& cert_pem =
-      role_ == INITIATOR ? remote_desc->server_pem_certificate :
-                           remote_desc->client_pem_certificate;
+      role_ == INITIATOR ? remote_tunnel->server_pem_certificate :
+                           remote_tunnel->client_pem_certificate;
   talk_base::SSLCertificate* peer_cert =
       ParseCertificate(cert_pem);
   if (peer_cert == NULL) {

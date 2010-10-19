@@ -2,8 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "app/menus/simple_menu_model.h"
 #include "app/resource_bundle.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/views/status_icons/status_icon_win.h"
 #include "chrome/browser/views/status_icons/status_tray_win.h"
 #include "grit/browser_resources.h"
@@ -23,26 +25,31 @@ TEST(StatusTrayWinTest, CreateTray) {
   StatusTrayWin tray;
 }
 
-TEST(StatusTrayWinTest, CreateIcon) {
-  // Create an icon, set the images and tooltip, then shut it down.
+TEST(StatusTrayWinTest, CreateIconAndMenu) {
+  // Create an icon, set the images, tooltip, and context menu, then shut it
+  // down.
   StatusTrayWin tray;
-  StatusIcon* icon = tray.GetStatusIcon(ASCIIToUTF16("test"));
+  StatusIcon* icon = tray.CreateStatusIcon();
   SkBitmap* bitmap = ResourceBundle::GetSharedInstance().GetBitmapNamed(
       IDR_STATUS_TRAY_ICON);
   icon->SetImage(*bitmap);
   icon->SetPressedImage(*bitmap);
   icon->SetToolTip(ASCIIToUTF16("tool tip"));
+  menus::SimpleMenuModel* menu = new menus::SimpleMenuModel(NULL);
+  menu->AddItem(0, L"foo");
+  icon->SetContextMenu(menu);
 }
 
 TEST(StatusTrayWinTest, ClickOnIcon) {
   // Create an icon, send a fake click event, make sure observer is called.
   StatusTrayWin tray;
-  StatusIconWin* icon = static_cast<StatusIconWin*>(
-      tray.GetStatusIcon(ASCIIToUTF16("test")));
+  StatusIconWin* icon = static_cast<StatusIconWin*>(tray.CreateStatusIcon());
   MockStatusIconObserver observer;
   icon->AddObserver(&observer);
   EXPECT_CALL(observer, OnClicked());
   // Mimic a click.
   tray.WndProc(NULL, icon->message_id(), icon->icon_id(), WM_LBUTTONDOWN);
+  // Mimic a right-click - observer should not be called.
+  tray.WndProc(NULL, icon->message_id(), icon->icon_id(), WM_RBUTTONDOWN);
   icon->RemoveObserver(&observer);
 }

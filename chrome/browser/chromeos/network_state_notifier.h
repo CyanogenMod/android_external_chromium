@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_NETWORK_STATE_NOTIFIER_H_
 #define CHROME_BROWSER_CHROMEOS_NETWORK_STATE_NOTIFIER_H_
+#pragma once
 
 #include "chrome/browser/chromeos/cros/network_library.h"
 
@@ -60,7 +61,6 @@ class NetworkStateNotifier : public NetworkLibrary::Observer {
 
   // NetworkLibrary::Observer implementation.
   virtual void NetworkChanged(NetworkLibrary* cros);
-  virtual void NetworkTraffic(NetworkLibrary* cros, int traffic_type) {}
 
  private:
   friend struct DefaultSingletonTraits<NetworkStateNotifier>;

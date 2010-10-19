@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_TABS_TAB_STRIP_GTK_H_
 #define CHROME_BROWSER_GTK_TABS_TAB_STRIP_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 #include <vector>
@@ -12,12 +13,12 @@
 #include "base/basictypes.h"
 #include "base/task.h"
 #include "base/message_loop.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/gtk/tabstrip_origin_provider.h"
 #include "chrome/browser/gtk/tabs/tab_gtk.h"
 #include "chrome/browser/gtk/view_id_util.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/notification_observer.h"
-#include "chrome/common/owned_widget_gtk.h"
 #include "gfx/rect.h"
 
 class BrowserWindowGtk;
@@ -52,9 +53,6 @@ class TabStripGtk : public TabStripModelObserver,
 
   // Returns true if there is an active drag session.
   bool IsDragSessionActive() const { return drag_controller_.get() != NULL; }
-
-  // Cancels the current drag session, if any.
-  void CancelActiveDragSession();
 
   // Sets the bounds of the tabs.
   void Layout();
@@ -175,7 +173,7 @@ class TabStripGtk : public TabStripModelObserver,
   class DropInfo {
    public:
     DropInfo(int index, bool drop_before, bool point_down);
-    ~DropInfo();
+    virtual ~DropInfo();
 
     // TODO(jhawkins): Factor out this code into a TransparentContainer class.
 
@@ -309,8 +307,9 @@ class TabStripGtk : public TabStripModelObserver,
   // Returns the x-coordinate tabs start from.
   int tab_start_x() const;
 
-  // Perform an animated resize-relayout of the TabStrip immediately.
-  void ResizeLayoutTabs();
+  // Perform an animated resize-relayout of the TabStrip immediately. The
+  // value returned indicates whether a resize actually took place.
+  bool ResizeLayoutTabs();
 
   // Returns whether or not the cursor is currently in the "tab strip zone"
   // which is defined as the region above the TabStrip and a bit below it.

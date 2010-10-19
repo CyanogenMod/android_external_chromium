@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_CLEAR_BROWSING_DATA_H_
 #define CHROME_BROWSER_VIEWS_CLEAR_BROWSING_DATA_H_
+#pragma once
 
 #include "app/combobox_model.h"
 #include "chrome/browser/browsing_data_remover.h"
@@ -70,7 +71,7 @@ class ClearBrowsingDataView : public views::View,
 
   // Overridden from ComboboxModel:
   virtual int GetItemCount();
-  virtual std::wstring GetItemAt(int index);
+  virtual string16 GetItemAt(int index);
 
   // Overridden from views::Combobox::Listener:
   virtual void ItemChanged(views::Combobox* sender, int prev_index,

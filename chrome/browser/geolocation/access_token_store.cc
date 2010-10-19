@@ -4,11 +4,12 @@
 
 #include "chrome/browser/geolocation/access_token_store.h"
 
+#include "base/string_piece.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_thread.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
 #include "googleurl/src/gurl.h"
 
@@ -47,11 +48,11 @@ void ChromePrefsAccessTokenStore::LoadDictionaryStoreInUIThread(
   if (token_dictionary != NULL) {
     for (DictionaryValue::key_iterator it = token_dictionary->begin_keys();
         it != token_dictionary->end_keys(); ++it) {
-      GURL url(WideToUTF8(*it));
+      GURL url(*it);
       if (!url.is_valid())
         continue;
-      token_dictionary->GetStringAsUTF16WithoutPathExpansion(
-          *it, &access_token_set[url]);
+      token_dictionary->GetStringWithoutPathExpansion(*it,
+                                                      &access_token_set[url]);
     }
   }
   request->ForwardResultAsync(MakeTuple(access_token_set));
@@ -70,8 +71,7 @@ void SetAccessTokenOnUIThread(const GURL& server_url, const string16& token) {
       g_browser_process->local_state()->GetMutableDictionary(
           prefs::kGeolocationAccessToken);
   access_token_dictionary->SetWithoutPathExpansion(
-      UTF8ToWide(server_url.spec()),
-      Value::CreateStringValueFromUTF16(token));
+      server_url.spec(), Value::CreateStringValue(token));
 }
 
 void ChromePrefsAccessTokenStore::SaveAccessToken(

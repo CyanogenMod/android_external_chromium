@@ -1,11 +1,11 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/options_page_base.h"
 
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/notification_service.h"
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -32,5 +32,5 @@ void OptionsPageBase::Observe(NotificationType type,
                               const NotificationSource& source,
                               const NotificationDetails& details) {
   if (type == NotificationType::PREF_CHANGED)
-    NotifyPrefChanged(Details<std::wstring>(details).ptr());
+    NotifyPrefChanged(Details<std::string>(details).ptr());
 }

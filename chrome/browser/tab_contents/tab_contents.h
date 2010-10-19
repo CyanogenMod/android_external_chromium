@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_TAB_CONTENTS_H_
 #define CHROME_BROWSER_TAB_CONTENTS_TAB_CONTENTS_H_
+#pragma once
 
 #ifdef ANDROID
 #include "chrome/browser/profile.h"
@@ -39,7 +40,6 @@ private:
 
 #include <deque>
 #include <map>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -54,8 +54,8 @@ private:
 #include "chrome/browser/find_bar_controller.h"
 #include "chrome/browser/find_notification_details.h"
 #include "chrome/browser/jsmessage_box_client.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/browser/password_manager/password_manager_delegate.h"
-#include "chrome/browser/shell_dialogs.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/tab_contents/constrained_window.h"
 #include "chrome/browser/tab_contents/language_state.h"
@@ -75,15 +75,10 @@ private:
 
 namespace gfx {
 class Rect;
-class Size;
 }
 
-namespace views {
-class WindowDelegate;
-}
-
-namespace base {
-class WaitableEvent;
+namespace history {
+class HistoryAddPageArgs;
 }
 
 namespace printing {
@@ -100,11 +95,12 @@ struct PasswordForm;
 
 class AutocompleteHistoryManager;
 class AutoFillManager;
+class BlockedPluginManager;
 class BlockedPopupContainer;
 class DOMUI;
 class DownloadItem;
 class Extension;
-class GeolocationSettingsState;
+class FileSelectHelper;
 class InfoBarDelegate;
 class LoadNotificationDetails;
 class OmniboxSearchHint;
@@ -113,19 +109,17 @@ class PluginInstaller;
 class Profile;
 struct RendererPreferences;
 class RenderViewHost;
+class SessionStorageNamespace;
 class SiteInstance;
 class SkBitmap;
 class TabContents;
 class TabContentsDelegate;
-class TabContentsFactory;
 class TabContentsSSLHelper;
 class TabContentsView;
 class URLPattern;
-class URLRequestContextGetter;
 struct ThumbnailScore;
-struct ViewHostMsg_DidPrintPage_Params;
+struct ViewHostMsg_DomMessage_Params;
 struct ViewHostMsg_FrameNavigate_Params;
-struct ViewHostMsg_RunFileChooser_Params;
 struct WebPreferences;
 
 // Describes what goes in the main content area of a tab. TabContents is
@@ -136,7 +130,6 @@ class TabContents : public PageNavigator,
                     public RenderViewHostDelegate::BrowserIntegration,
                     public RenderViewHostDelegate::Resource,
                     public RenderViewHostManager::Delegate,
-                    public SelectFileDialog::Listener,
                     public JavaScriptMessageBoxClient,
                     public ImageLoadingTracker::Observer,
                     public PasswordManagerDelegate,
@@ -152,18 +145,21 @@ class TabContents : public PageNavigator,
     INVALIDATE_PAGE_ACTIONS    = 1 << 3,  // Page action icons have changed.
     INVALIDATE_BOOKMARK_BAR    = 1 << 4,  // State of ShouldShowBookmarkBar
                                           // changed.
-    INVALIDATE_EXTENSION_SHELF = 1 << 5,  // State of
-                                          // IsExtensionShelfAlwaysVisible
-                                          // changed.
-    INVALIDATE_TITLE           = 1 << 6,  // The title changed.
+    INVALIDATE_TITLE           = 1 << 5,  // The title changed.
   };
 
   // |base_tab_contents| is used if we want to size the new tab contents view
   // based on an existing tab contents view.  This can be NULL if not needed.
+  //
+  // The session storage namespace parameter allows multiple render views and
+  // tab contentses to share the same session storage (part of the WebStorage
+  // spec) space. This is useful when restoring tabs, but most callers should
+  // pass in NULL which will cause a new SessionStorageNamespace to be created.
   TabContents(Profile* profile,
               SiteInstance* site_instance,
               int routing_id,
-              const TabContents* base_tab_contents);
+              const TabContents* base_tab_contents,
+              SessionStorageNamespace* session_storage_namespace);
   virtual ~TabContents();
 
   static void RegisterUserPrefs(PrefService* prefs);
@@ -199,7 +195,7 @@ class TabContents : public PageNavigator,
   // Returns the PluginInstaller, creating it if necessary.
   PluginInstaller* GetPluginInstaller();
 
-  // Returns the TabContentsSSLHelper, creating if it necessary.
+  // Returns the TabContentsSSLHelper, creating it if necessary.
   TabContentsSSLHelper* GetSSLHelper();
 
   // Returns the SavePackage which manages the page saving job. May be NULL.
@@ -365,6 +361,9 @@ class TabContents : public PageNavigator,
   // to the foreground if necessary.
   void Activate();
 
+  // Deactivates this contents by deactivating its containing window.
+  void Deactivate();
+
   // TODO(brettw) document these.
   virtual void ShowContents();
   virtual void HideContents();
@@ -503,9 +502,6 @@ class TabContents : public PageNavigator,
 
   // Returns true if a Bookmark Bar should be shown for this tab.
   virtual bool ShouldShowBookmarkBar();
-
-  // Returns whether the extension shelf should be visible.
-  virtual bool IsExtensionShelfAlwaysVisible();
 
   // Notifies the delegate that a download is about to be started.
   // This notification is fired before a local temporary file has been created.
@@ -681,12 +677,6 @@ class TabContents : public PageNavigator,
   // times, subsequent calls are ignored.
   void OnCloseStarted();
 
-  // Getter/Setters for the url request context to be used for this tab.
-  void set_request_context(URLRequestContextGetter* context);
-  URLRequestContextGetter* request_context() const {
-    return request_context_.get();
-  }
-
   LanguageState& language_state() {
     return language_state_;
   }
@@ -710,9 +700,9 @@ class TabContents : public PageNavigator,
   }
   bool closed_by_user_gesture() const { return closed_by_user_gesture_; }
 
+  bool is_displaying_pdf_content() const { return displaying_pdf_content_; }
+
   // JavaScriptMessageBoxClient ------------------------------------------------
-  virtual std::wstring GetMessageBoxTitle(const GURL& frame_url,
-                                          bool is_alert);
   virtual gfx::NativeWindow GetMessageBoxRootWindow();
   virtual void OnMessageBoxClosed(IPC::Message* reply_msg,
                                   bool success,
@@ -742,11 +732,20 @@ class TabContents : public PageNavigator,
   virtual Profile* GetProfileForPasswordManager();
   virtual bool DidLastPageLoadEncounterSSLErrors();
 
+  // Updates history with the specified navigation. This is called by
+  // OnMsgNavigate to update history state.
+  void UpdateHistoryForNavigation(
+      scoped_refptr<history::HistoryAddPageArgs> add_page_args);
+
+  // Sends the page title to the history service. This is called when we receive
+  // the page title and we know we want to update history.
+  void UpdateHistoryPageTitle(const NavigationEntry& entry);
+
  private:
   friend class NavigationController;
   // Used to access the child_windows_ (ConstrainedWindowList) for testing
   // automation purposes.
-  friend class AutomationProvider;
+  friend class TestingAutomationProvider;
 
   FRIEND_TEST_ALL_PREFIXES(TabContentsTest, NoJSMessageOnInterstitials);
   FRIEND_TEST_ALL_PREFIXES(TabContentsTest, UpdateTitle);
@@ -768,7 +767,7 @@ class TabContents : public PageNavigator,
   // TODO(brettw) TestTabContents shouldn't exist!
   friend class TestTabContents;
 
-  // Used to access the UpdateHistoryForNavigation member function.
+  // Used to access the CreateHistoryAddPageArgs member function.
   friend class ExternalTabContainer;
 
   // Changes the IsLoading state and notifies delegate as needed
@@ -834,9 +833,10 @@ class TabContents : public PageNavigator,
   void UpdateMaxPageIDIfNecessary(SiteInstance* site_instance,
                                   RenderViewHost* rvh);
 
-  // Called by OnMsgNavigate to update history state. Overridden by subclasses
-  // that don't want to be added to history.
-  virtual void UpdateHistoryForNavigation(const GURL& virtual_url,
+  // Returns the history::HistoryAddPageArgs to use for adding a page to
+  // history.
+  scoped_refptr<history::HistoryAddPageArgs> CreateHistoryAddPageArgs(
+      const GURL& virtual_url,
       const NavigationController::LoadCommittedDetails& details,
       const ViewHostMsg_FrameNavigate_Params& params);
 
@@ -850,6 +850,12 @@ class TabContents : public PageNavigator,
   // different and was therefore updated.
   bool UpdateTitleForEntry(NavigationEntry* entry, const std::wstring& title);
 
+  // Causes the TabContents to navigate in the right renderer to |entry|, which
+  // must be already part of the entries in the navigation controller.
+  // This does not change the NavigationController state.
+  bool NavigateToEntry(const NavigationEntry& entry,
+                       NavigationController::ReloadType reload_type);
+
   // Misc non-view stuff -------------------------------------------------------
 
   // Helper functions for sending notifications.
@@ -861,8 +867,8 @@ class TabContents : public PageNavigator,
   void GenerateKeywordIfNecessary(
       const ViewHostMsg_FrameNavigate_Params& params);
 
-  // ContentBlockedDelegate::Delegate implementation.
-  virtual void OnContentSettingsChange();
+  // TabSpecificContentSettings::Delegate implementation.
+  virtual void OnContentSettingsAccessed(bool content_was_blocked);
 
   // RenderViewHostDelegate ----------------------------------------------------
 
@@ -880,6 +886,8 @@ class TabContents : public PageNavigator,
   virtual void OnDidGetApplicationInfo(
       int32 page_id,
       const webkit_glue::WebApplicationInfo& info);
+  virtual void OnDisabledOutdatedPlugin(const string16& name,
+                                        const GURL& update_url);
   virtual void OnPageContents(const GURL& url,
                               int renderer_process_id,
                               int32 page_id,
@@ -890,6 +898,7 @@ class TabContents : public PageNavigator,
                                 const std::string& original_lang,
                                 const std::string& translated_lang,
                                 TranslateErrors::Type error_type);
+  virtual void OnSetSuggestResult(int32 page_id, const std::string& result);
 
   // RenderViewHostDelegate::Resource implementation.
   virtual void DidStartProvisionalLoadForFrame(RenderViewHost* render_view_host,
@@ -930,7 +939,9 @@ class TabContents : public PageNavigator,
   virtual RenderViewHostDelegate::FavIcon* GetFavIconDelegate();
   virtual RenderViewHostDelegate::Autocomplete* GetAutocompleteDelegate();
   virtual RenderViewHostDelegate::AutoFill* GetAutoFillDelegate();
+  virtual RenderViewHostDelegate::BlockedPlugin* GetBlockedPluginDelegate();
   virtual RenderViewHostDelegate::SSL* GetSSLDelegate();
+  virtual RenderViewHostDelegate::FileSelect* GetFileSelectDelegate();
   virtual AutomationResourceRoutingDelegate*
       GetAutomationResourceRoutingDelegate();
   virtual TabContents* GetAsTabContents();
@@ -961,19 +972,17 @@ class TabContents : public PageNavigator,
   virtual void RequestMove(const gfx::Rect& new_bounds);
   virtual void DidStartLoading();
   virtual void DidStopLoading();
+  virtual void DocumentOnLoadCompletedInMainFrame(
+      RenderViewHost* render_view_host,
+      int32 page_id);
   virtual void RequestOpenURL(const GURL& url, const GURL& referrer,
                               WindowOpenDisposition disposition);
   virtual void DomOperationResponse(const std::string& json_string,
                                     int automation_id);
-  virtual void ProcessDOMUIMessage(const std::string& message,
-                                   const ListValue* content,
-                                   const GURL& source_url,
-                                   int request_id,
-                                   bool has_callback);
+  virtual void ProcessDOMUIMessage(const ViewHostMsg_DomMessage_Params& params);
   virtual void ProcessExternalHostMessage(const std::string& message,
                                           const std::string& origin,
                                           const std::string& target);
-  virtual void RunFileChooser(const ViewHostMsg_RunFileChooser_Params& params);
   virtual void RunJavaScriptMessage(const std::wstring& message,
                                     const std::wstring& default_prompt,
                                     const GURL& frame_url,
@@ -991,8 +1000,6 @@ class TabContents : public PageNavigator,
       const std::vector<webkit_glue::PasswordForm>& visible_forms);
   virtual void PageHasOSDD(RenderViewHost* render_view_host,
                            int32 page_id, const GURL& url, bool autodetected);
-  virtual ViewHostMsg_GetSearchProviderInstallState_Params
-      GetSearchProviderInstallState(const GURL& url);
   virtual GURL GetAlternateErrorPageURL() const;
   virtual RendererPreferences GetRendererPrefs(Profile* profile) const;
   virtual WebPreferences GetWebkitPrefs();
@@ -1009,13 +1016,7 @@ class TabContents : public PageNavigator,
   virtual bool IsExternalTabContainer() const;
   virtual void DidInsertCSS();
   virtual void FocusedNodeChanged();
-
-  // SelectFileDialog::Listener ------------------------------------------------
-
-  virtual void FileSelected(const FilePath& path, int index, void* params);
-  virtual void MultiFilesSelected(const std::vector<FilePath>& files,
-                                  void* params);
-  virtual void FileSelectionCanceled(void* params);
+  virtual void SetDisplayingPDFContent();
 
   // RenderViewHostManager::Delegate -------------------------------------------
 
@@ -1087,6 +1088,9 @@ class TabContents : public PageNavigator,
   // Registers and unregisters us for notifications.
   NotificationRegistrar registrar_;
 
+  // Registers and unregisters for pref notifications.
+  PrefChangeRegistrar pref_change_registrar_;
+
   // Handles print preview and print job for this contents.
   scoped_ptr<printing::PrintViewManager> printing_;
 
@@ -1108,14 +1112,17 @@ class TabContents : public PageNavigator,
   // TabContentsSSLHelper, lazily created.
   scoped_ptr<TabContentsSSLHelper> ssl_helper_;
 
+  // BlockedPluginManager, lazily created.
+  scoped_ptr<BlockedPluginManager> blocked_plugin_manager_;
+
+  // FileSelectHelper, lazily created.
+  scoped_ptr<FileSelectHelper> file_select_helper_;
+
   // Handles drag and drop event forwarding to extensions.
   BookmarkDrag* bookmark_drag_;
 
   // Handles downloading favicons.
   FavIconHelper fav_icon_helper_;
-
-  // Dialog box used for choosing files to upload from file form fields.
-  scoped_refptr<SelectFileDialog> select_file_dialog_;
 
   // Cached web app info data.
   webkit_glue::WebApplicationInfo web_app_info_;
@@ -1291,16 +1298,14 @@ class TabContents : public PageNavigator,
   // The time that we started to close the tab.
   base::TimeTicks tab_close_start_time_;
 
-  // Contextual information to be used for requests created here.
-  // Can be NULL in which case we defer to the request context from the
-  // profile
-  scoped_refptr<URLRequestContextGetter> request_context_;
-
   // Information about the language the page is in and has been translated to.
   LanguageState language_state_;
 
   // See description above setter.
   bool closed_by_user_gesture_;
+
+  // See description in RenderViewHostDelegate::SetDisplayingPDFContent.
+  bool displaying_pdf_content_;
 
   // ---------------------------------------------------------------------------
 

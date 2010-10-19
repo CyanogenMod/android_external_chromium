@@ -1,9 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_GTK_BROWSER_ACTIONS_TOOLBAR_GTK_H_
 #define CHROME_BROWSER_GTK_BROWSER_ACTIONS_TOOLBAR_GTK_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -15,11 +16,12 @@
 #include "base/linked_ptr.h"
 #include "base/task.h"
 #include "chrome/browser/extensions/extension_toolbar_model.h"
+#include "chrome/browser/gtk/custom_button.h"
 #include "chrome/browser/gtk/menu_gtk.h"
 #include "chrome/browser/gtk/overflow_button.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/owned_widget_gtk.h"
 
 class Browser;
 class BrowserActionButton;
@@ -33,12 +35,14 @@ typedef struct _GtkWidget GtkWidget;
 class BrowserActionsToolbarGtk : public ExtensionToolbarModel::Observer,
                                  public AnimationDelegate,
                                  public MenuGtk::Delegate,
-                                 public menus::SimpleMenuModel::Delegate {
+                                 public menus::SimpleMenuModel::Delegate,
+                                 public NotificationObserver {
  public:
   explicit BrowserActionsToolbarGtk(Browser* browser);
   virtual ~BrowserActionsToolbarGtk();
 
   GtkWidget* widget() { return hbox_.get(); }
+  GtkWidget* chevron() { return overflow_button_->widget(); }
 
   // Returns the widget in use by the BrowserActionButton corresponding to
   // |extension|. Used in positioning the ExtensionInstalledBubble for
@@ -54,6 +58,15 @@ class BrowserActionsToolbarGtk : public ExtensionToolbarModel::Observer,
 
   // Update the display of all buttons.
   void Update();
+
+  // NotificationObserver implementation.
+  void Observe(NotificationType type,
+               const NotificationSource& source,
+               const NotificationDetails& details);
+
+  bool animating() {
+    return resize_animation_.is_animating();
+  }
 
  private:
   friend class BrowserActionButton;
@@ -168,12 +181,16 @@ class BrowserActionsToolbarGtk : public ExtensionToolbarModel::Observer,
   // Contains the browser action buttons.
   OwnedWidgetGtk button_hbox_;
 
-  OverflowButton overflow_button_;
+  // The overflow button for chrome theme mode.
+  scoped_ptr<CustomDrawButton> overflow_button_;
+  // The separator just next to the overflow button. Only shown in GTK+ theme
+  // mode. In Chrome theme mode, the overflow button has a separator built in.
+  GtkWidget* separator_;
   scoped_ptr<MenuGtk> overflow_menu_;
   scoped_ptr<menus::SimpleMenuModel> overflow_menu_model_;
-
-  // The vertical separator between the overflow button and the page/app menus.
-  GtkWidget* separator_;
+  GtkWidget* overflow_area_;
+  // A widget for adding extra padding to the left of the overflow button.
+  GtkWidget* overflow_alignment_;
 
   // The button that is currently being dragged, or NULL.
   BrowserActionButton* drag_button_;
@@ -195,11 +212,9 @@ class BrowserActionsToolbarGtk : public ExtensionToolbarModel::Observer,
   // This is the width we were at when we started animating.
   int start_width_;
 
-  // We only draw the browser action gripper when the user is hovering over it
-  // or dragging it.
-  bool draw_gripper_;
-
   GtkSignalRegistrar signals_;
+
+  NotificationRegistrar registrar_;
 
   ScopedRunnableMethodFactory<BrowserActionsToolbarGtk> method_factory_;
 

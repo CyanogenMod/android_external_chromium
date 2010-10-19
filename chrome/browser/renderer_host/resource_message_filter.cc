@@ -16,16 +16,22 @@
 #include "base/process_util.h"
 #include "base/shared_memory.h"
 #include "base/thread.h"
+#include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/worker_pool.h"
 #include "chrome/browser/appcache/appcache_dispatcher_host.h"
+#include "chrome/browser/automation/automation_resource_message_filter.h"
 #include "chrome/browser/browser_about_handler.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/chrome_plugin_browsing_context.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/clipboard_dispatcher.h"
+#include "chrome/browser/device_orientation/dispatcher_host.h"
 #include "chrome/browser/download/download_file.h"
 #include "chrome/browser/extensions/extension_message_service.h"
+#include "chrome/browser/file_system/file_system_dispatcher_host.h"
+#include "chrome/browser/file_system/file_system_host_context.h"
 #include "chrome/browser/geolocation/geolocation_permission_context.h"
 #include "chrome/browser/geolocation/geolocation_dispatcher_host.h"
 #include "chrome/browser/gpu_process_host.h"
@@ -38,18 +44,23 @@
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
+#include "chrome/browser/plugin_updater.h"
 #include "chrome/browser/plugin_service.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/printing/printer_query.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/audio_renderer_host.h"
+#include "chrome/browser/renderer_host/blob_dispatcher_host.h"
 #include "chrome/browser/renderer_host/browser_render_process_host.h"
 #include "chrome/browser/renderer_host/database_dispatcher_host.h"
 #include "chrome/browser/renderer_host/render_view_host_notification_task.h"
 #include "chrome/browser/renderer_host/render_widget_helper.h"
+#include "chrome/browser/search_engines/search_provider_install_state_dispatcher_host.h"
+#include "chrome/browser/speech/speech_input_dispatcher_host.h"
 #include "chrome/browser/spellchecker_platform_engine.h"
-#include "chrome/browser/task_manager.h"
+#include "chrome/browser/task_manager/task_manager.h"
+#include "chrome/browser/ui_thread_helpers.h"
 #include "chrome/browser/worker_host/message_port_dispatcher.h"
 #include "chrome/browser/worker_host/worker_service.h"
 #include "chrome/common/child_process_host.h"
@@ -64,29 +75,38 @@
 #include "chrome/common/font_loader_mac.h"
 #endif
 #include "chrome/common/notification_service.h"
+#include "chrome/common/plugin_group.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/render_messages_params.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/worker_messages.h"
 #include "gfx/native_widget_types.h"
 #include "net/base/cookie_monster.h"
 #include "net/base/file_stream.h"
+#include "net/base/io_buffer.h"
 #include "net/base/keygen_handler.h"
 #include "net/base/load_flags.h"
 #include "net/base/mime_util.h"
 #include "net/base/net_errors.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/http/http_cache.h"
+#include "net/http/http_network_layer.h"
 #include "net/http/http_transaction_factory.h"
 #include "net/url_request/url_request_context.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebNotificationPresenter.h"
+#include "webkit/glue/context_menu.h"
 #include "webkit/glue/plugins/plugin_list.h"
 #include "webkit/glue/plugins/webplugin.h"
+#include "webkit/glue/webcookie.h"
 #include "webkit/glue/webkit_glue.h"
 
+using net::CookieStore;
 using WebKit::WebCache;
 
 namespace {
+
+const int kPluginsRefreshThresholdInSeconds = 3;
 
 // Context menus are somewhat complicated. We need to intercept them here on
 // the I/O thread to add any spelling suggestions to them. After that's done,
@@ -139,7 +159,6 @@ class WriteClipboardTask : public Task {
 void RenderParamsFromPrintSettings(const printing::PrintSettings& settings,
                                    ViewMsg_Print_Params* params) {
   DCHECK(params);
-#if defined(OS_WIN) || defined(OS_MACOSX)
   params->page_size = settings.page_setup_device_units().physical_size();
   params->printable_size.SetSize(
       settings.page_setup_device_units().content_area().width(),
@@ -156,120 +175,7 @@ void RenderParamsFromPrintSettings(const printing::PrintSettings& settings,
   // Always use an invalid cookie.
   params->document_cookie = 0;
   params->selection_only = settings.selection_only;
-#else
-  NOTIMPLEMENTED();
-#endif
 }
-
-class SetCookieCompletion : public net::CompletionCallback {
- public:
-  SetCookieCompletion(int render_process_id,
-                      int render_view_id,
-                      const GURL& url,
-                      const std::string& cookie_line,
-                      ChromeURLRequestContext* context)
-      : render_process_id_(render_process_id),
-        render_view_id_(render_view_id),
-        url_(url),
-        cookie_line_(cookie_line),
-        context_(context) {
-  }
-
-  virtual void RunWithParams(const Tuple1<int>& params) {
-    int result = params.a;
-    bool blocked_by_policy = true;
-    if (result == net::OK ||
-        result == net::OK_FOR_SESSION_ONLY) {
-      blocked_by_policy = false;
-      net::CookieOptions options;
-      if (result == net::OK_FOR_SESSION_ONLY)
-        options.set_force_session();
-      context_->cookie_store()->SetCookieWithOptions(url_, cookie_line_,
-                                                     options);
-    }
-    if (!context_->IsExternal()) {
-      CallRenderViewHostContentSettingsDelegate(
-          render_process_id_, render_view_id_,
-          &RenderViewHostDelegate::ContentSettings::OnCookieAccessed,
-          url_, cookie_line_, blocked_by_policy);
-    }
-    delete this;
-  }
-
- private:
-  int render_process_id_;
-  int render_view_id_;
-  GURL url_;
-  std::string cookie_line_;
-  scoped_refptr<ChromeURLRequestContext> context_;
-};
-
-class GetCookiesCompletion : public net::CompletionCallback {
- public:
-  GetCookiesCompletion(const GURL& url, IPC::Message* reply_msg,
-                       ResourceMessageFilter* filter,
-                       URLRequestContext* context)
-      : url_(url),
-        reply_msg_(reply_msg),
-        filter_(filter),
-        context_(context) {
-  }
-
-  virtual void RunWithParams(const Tuple1<int>& params) {
-    int result = params.a;
-    std::string cookies;
-    if (result == net::OK)
-      cookies = context_->cookie_store()->GetCookies(url_);
-    ViewHostMsg_GetCookies::WriteReplyParams(reply_msg_, cookies);
-    filter_->Send(reply_msg_);
-    delete this;
-  }
-
- private:
-  GURL url_;
-  IPC::Message* reply_msg_;
-  scoped_refptr<ResourceMessageFilter> filter_;
-  scoped_refptr<URLRequestContext> context_;
-};
-
-class GetRawCookiesCompletion : public net::CompletionCallback {
- public:
-  GetRawCookiesCompletion(const GURL& url, IPC::Message* reply_msg,
-                          ResourceMessageFilter* filter,
-                          URLRequestContext* context)
-      : url_(url),
-        reply_msg_(reply_msg),
-        filter_(filter),
-        context_(context) {
-  }
-
-  virtual void RunWithParams(const Tuple1<int>& params) {
-    // Ignore the policy result.  We only waited on the policy result so that
-    // any pending 'set-cookie' requests could be flushed.  The intent of
-    // querying the raw cookies is to reveal the contents of the cookie DB, so
-    // it important that we don't read the cookie db ahead of pending writes.
-
-    net::CookieMonster* cookie_monster =
-        context_->cookie_store()->GetCookieMonster();
-    net::CookieMonster::CookieList cookie_list =
-        cookie_monster->GetAllCookiesForURL(url_);
-
-    std::vector<webkit_glue::WebCookie> cookies;
-    for (size_t i = 0; i < cookie_list.size(); ++i) {
-      cookies.push_back(webkit_glue::WebCookie(cookie_list[i]));
-    }
-
-    ViewHostMsg_GetRawCookies::WriteReplyParams(reply_msg_, cookies);
-    filter_->Send(reply_msg_);
-    delete this;
-  }
-
- private:
-  GURL url_;
-  IPC::Message* reply_msg_;
-  scoped_refptr<ResourceMessageFilter> filter_;
-  scoped_refptr<URLRequestContext> context_;
-};
 
 class ClearCacheCompletion : public net::CompletionCallback {
  public:
@@ -291,12 +197,12 @@ class ClearCacheCompletion : public net::CompletionCallback {
 };
 
 void WriteFileSize(IPC::Message* reply_msg,
-                   const file_util::FileInfo& file_info) {
+                   const base::PlatformFileInfo& file_info) {
   ViewHostMsg_GetFileSize::WriteReplyParams(reply_msg, file_info.size);
 }
 
 void WriteFileModificationTime(IPC::Message* reply_msg,
-                               const file_util::FileInfo& file_info) {
+                               const base::PlatformFileInfo& file_info) {
   ViewHostMsg_GetFileModificationTime::WriteReplyParams(
       reply_msg, file_info.last_modified);
 }
@@ -310,8 +216,7 @@ ResourceMessageFilter::ResourceMessageFilter(
     PluginService* plugin_service,
     printing::PrintJobManager* print_job_manager,
     Profile* profile,
-    RenderWidgetHelper* render_widget_helper,
-    URLRequestContextGetter* request_context)
+    RenderWidgetHelper* render_widget_helper)
     : Receiver(RENDER_PROCESS, child_id),
       channel_(NULL),
       resource_dispatcher_host_(resource_dispatcher_host),
@@ -319,10 +224,8 @@ ResourceMessageFilter::ResourceMessageFilter(
       print_job_manager_(print_job_manager),
       profile_(profile),
       ALLOW_THIS_IN_INITIALIZER_LIST(resolve_proxy_msg_helper_(this, NULL)),
-      request_context_(request_context),
       media_request_context_(profile->GetRequestContextForMedia()),
       extensions_request_context_(profile->GetRequestContextForExtensions()),
-      extensions_message_service_(profile->GetExtensionMessageService()),
       render_widget_helper_(render_widget_helper),
       audio_renderer_host_(audio_renderer_host),
       appcache_dispatcher_host_(
@@ -330,7 +233,7 @@ ResourceMessageFilter::ResourceMessageFilter(
       ALLOW_THIS_IN_INITIALIZER_LIST(dom_storage_dispatcher_host_(
           new DOMStorageDispatcherHost(this, profile->GetWebKitContext()))),
       ALLOW_THIS_IN_INITIALIZER_LIST(indexed_db_dispatcher_host_(
-          new IndexedDBDispatcherHost(this, profile->GetWebKitContext()))),
+          new IndexedDBDispatcherHost(this, profile))),
       ALLOW_THIS_IN_INITIALIZER_LIST(db_dispatcher_host_(
           new DatabaseDispatcherHost(profile->GetDatabaseTracker(), this,
               profile->GetHostContentSettingsMap()))),
@@ -340,9 +243,25 @@ ResourceMessageFilter::ResourceMessageFilter(
       off_the_record_(profile->IsOffTheRecord()),
       next_route_id_callback_(NewCallbackWithReturnValue(
           render_widget_helper, &RenderWidgetHelper::GetNextRoutingID)),
+      ALLOW_THIS_IN_INITIALIZER_LIST(speech_input_dispatcher_host_(
+          new speech_input::SpeechInputDispatcherHost(this->id()))),
       ALLOW_THIS_IN_INITIALIZER_LIST(geolocation_dispatcher_host_(
           GeolocationDispatcherHost::New(
-              this->id(), profile->GetGeolocationPermissionContext()))) {
+              this->id(), profile->GetGeolocationPermissionContext()))),
+      ALLOW_THIS_IN_INITIALIZER_LIST(
+          search_provider_install_state_dispatcher_host_(
+              new SearchProviderInstallStateDispatcherHost(this, profile,
+                                                           child_id))),
+      ALLOW_THIS_IN_INITIALIZER_LIST(device_orientation_dispatcher_host_(
+          new device_orientation::DispatcherHost(this->id()))),
+      ALLOW_THIS_IN_INITIALIZER_LIST(file_system_dispatcher_host_(
+          new FileSystemDispatcherHost(this,
+              profile->GetFileSystemHostContext(),
+              profile->GetHostContentSettingsMap()))),
+      ALLOW_THIS_IN_INITIALIZER_LIST(blob_dispatcher_host_(
+          new BlobDispatcherHost(
+              this->id(), profile->GetBlobStorageContext()))) {
+  request_context_ = profile_->GetRequestContext();
   DCHECK(request_context_);
   DCHECK(media_request_context_);
   DCHECK(audio_renderer_host_.get());
@@ -370,6 +289,12 @@ ResourceMessageFilter::~ResourceMessageFilter() {
 
   // Shut down the database dispatcher host.
   db_dispatcher_host_->Shutdown();
+
+  // Shut down the async file_system dispatcher host.
+  file_system_dispatcher_host_->Shutdown();
+
+  // Shut down the blob dispatcher host.
+  blob_dispatcher_host_->Shutdown();
 
   // Let interested observers know we are being deleted.
   NotificationService::current()->Notify(
@@ -406,6 +331,7 @@ void ResourceMessageFilter::OnChannelConnected(int32 peer_pid) {
   dom_storage_dispatcher_host_->Init(id(), handle());
   indexed_db_dispatcher_host_->Init(id(), handle());
   db_dispatcher_host_->Init(handle());
+  file_system_dispatcher_host_->Init(handle());
 }
 
 void ResourceMessageFilter::OnChannelError() {
@@ -440,7 +366,13 @@ bool ResourceMessageFilter::OnMessageReceived(const IPC::Message& msg) {
       db_dispatcher_host_->OnMessageReceived(msg, &msg_is_ok) ||
       mp_dispatcher->OnMessageReceived(
           msg, this, next_route_id_callback(), &msg_is_ok) ||
-      geolocation_dispatcher_host_->OnMessageReceived(msg, &msg_is_ok);
+      geolocation_dispatcher_host_->OnMessageReceived(msg, &msg_is_ok) ||
+      speech_input_dispatcher_host_->OnMessageReceived(msg, &msg_is_ok) ||
+      search_provider_install_state_dispatcher_host_->OnMessageReceived(
+          msg, &msg_is_ok) ||
+      device_orientation_dispatcher_host_->OnMessageReceived(msg, &msg_is_ok) ||
+      file_system_dispatcher_host_->OnMessageReceived(msg, &msg_is_ok) ||
+      blob_dispatcher_host_->OnMessageReceived(msg, &msg_is_ok);
 
   if (!handled) {
     DCHECK(msg_is_ok);  // It should have been marked handled if it wasn't OK.
@@ -462,12 +394,13 @@ bool ResourceMessageFilter::OnMessageReceived(const IPC::Message& msg) {
 
       IPC_MESSAGE_HANDLER(ViewHostMsg_CreateWindow, OnMsgCreateWindow)
       IPC_MESSAGE_HANDLER(ViewHostMsg_CreateWidget, OnMsgCreateWidget)
+      IPC_MESSAGE_HANDLER(ViewHostMsg_CreateFullscreenWidget,
+                          OnMsgCreateFullscreenWidget)
       IPC_MESSAGE_HANDLER(ViewHostMsg_SetCookie, OnSetCookie)
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_GetCookies, OnGetCookies)
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_GetRawCookies,
                                       OnGetRawCookies)
       IPC_MESSAGE_HANDLER(ViewHostMsg_DeleteCookie, OnDeleteCookie)
-      IPC_MESSAGE_HANDLER(ViewHostMsg_GetCookiesEnabled, OnGetCookiesEnabled)
 #if defined(OS_MACOSX)
       IPC_MESSAGE_HANDLER(ViewHostMsg_LoadFont, OnLoadFont)
 #endif
@@ -475,7 +408,7 @@ bool ResourceMessageFilter::OnMessageReceived(const IPC::Message& msg) {
       IPC_MESSAGE_HANDLER(ViewHostMsg_PreCacheFont, OnPreCacheFont)
 #endif
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_GetPlugins, OnGetPlugins)
-      IPC_MESSAGE_HANDLER(ViewHostMsg_GetPluginPath, OnGetPluginPath)
+      IPC_MESSAGE_HANDLER(ViewHostMsg_GetPluginInfo, OnGetPluginInfo)
       IPC_MESSAGE_HANDLER(ViewHostMsg_DownloadUrl, OnDownloadUrl)
       IPC_MESSAGE_HANDLER_GENERIC(ViewHostMsg_ContextMenu,
                                   OnReceiveContextMenuMsg(msg))
@@ -560,10 +493,8 @@ bool ResourceMessageFilter::OnMessageReceived(const IPC::Message& msg) {
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_ResolveProxy, OnResolveProxy)
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_GetDefaultPrintSettings,
                                       OnGetDefaultPrintSettings)
-#if defined(OS_WIN) || defined(OS_MACOSX)
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_ScriptedPrint,
                                       OnScriptedPrint)
-#endif
 #if defined(OS_MACOSX)
       IPC_MESSAGE_HANDLER(ViewHostMsg_AllocTransportDIB,
                           OnAllocTransportDIB)
@@ -579,6 +510,7 @@ bool ResourceMessageFilter::OnMessageReceived(const IPC::Message& msg) {
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_ClearCache, OnClearCache)
       IPC_MESSAGE_HANDLER(ViewHostMsg_DidGenerateCacheableMetadata,
                           OnCacheableMetadataAvailable)
+      IPC_MESSAGE_HANDLER(ViewHostMsg_EnableSpdy, OnEnableSpdy)
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_GetFileSize, OnGetFileSize)
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_GetFileModificationTime,
                                       OnGetFileModificationTime)
@@ -593,6 +525,7 @@ bool ResourceMessageFilter::OnMessageReceived(const IPC::Message& msg) {
                           OnEstablishGpuChannel)
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_SynchronizeGpu,
                                       OnSynchronizeGpu)
+      IPC_MESSAGE_HANDLER(ViewHostMsg_AsyncOpenFile, OnAsyncOpenFile)
       IPC_MESSAGE_UNHANDLED(
           handled = false)
     IPC_END_MESSAGE_MAP_EX()
@@ -662,6 +595,12 @@ void ResourceMessageFilter::OnMsgCreateWidget(int opener_id,
   render_widget_helper_->CreateNewWidget(opener_id, popup_type, route_id);
 }
 
+void ResourceMessageFilter::OnMsgCreateFullscreenWidget(
+    int opener_id, WebKit::WebPopupType popup_type, int* route_id) {
+  render_widget_helper_->CreateNewFullscreenWidget(
+      opener_id, popup_type, route_id);
+}
+
 void ResourceMessageFilter::OnSetCookie(const IPC::Message& message,
                                         const GURL& url,
                                         const GURL& first_party_for_cookies,
@@ -669,16 +608,22 @@ void ResourceMessageFilter::OnSetCookie(const IPC::Message& message,
   ChromeURLRequestContext* context = GetRequestContextForURL(url);
 
   SetCookieCompletion* callback =
-      new SetCookieCompletion(id(), message.routing_id(), url, cookie, context);
+      new SetCookieCompletion(id(), message.routing_id(), url, cookie,
+                              context);
 
-  int policy = net::OK;
-  if (context->cookie_policy()) {
-    policy = context->cookie_policy()->CanSetCookie(
-        url, first_party_for_cookies, cookie, callback);
-    if (policy == net::ERR_IO_PENDING)
-      return;
+  // If this render view is associated with an automation channel, aka
+  // ChromeFrame then we need to set cookies in the external host.
+  if (!AutomationResourceMessageFilter::SetCookiesForUrl(url, cookie,
+                                                         callback)) {
+    int policy = net::OK;
+    if (context->cookie_policy()) {
+      policy = context->cookie_policy()->CanSetCookie(
+          url, first_party_for_cookies, cookie, callback);
+      if (policy == net::ERR_IO_PENDING)
+        return;
+    }
+    callback->Run(policy);
   }
-  callback->Run(policy);
 }
 
 void ResourceMessageFilter::OnGetCookies(const GURL& url,
@@ -687,18 +632,23 @@ void ResourceMessageFilter::OnGetCookies(const GURL& url,
   URLRequestContext* context = GetRequestContextForURL(url);
 
   GetCookiesCompletion* callback =
-      new GetCookiesCompletion(url, reply_msg, this, context);
+      new GetCookiesCompletion(id(), reply_msg->routing_id(), url, reply_msg,
+                               this, context, false);
 
-  int policy = net::OK;
-  if (context->cookie_policy()) {
-    policy = context->cookie_policy()->CanGetCookies(
-        url, first_party_for_cookies, callback);
-    if (policy == net::ERR_IO_PENDING) {
-      Send(new ViewMsg_SignalCookiePromptEvent());
-      return;
+  // If this render view is associated with an automation channel, aka
+  // ChromeFrame then we need to retrieve cookies from the external host.
+  if (!AutomationResourceMessageFilter::GetCookiesForUrl(url, callback)) {
+    int policy = net::OK;
+    if (context->cookie_policy()) {
+      policy = context->cookie_policy()->CanGetCookies(
+          url, first_party_for_cookies, callback);
+      if (policy == net::ERR_IO_PENDING) {
+        Send(new ViewMsg_SignalCookiePromptEvent());
+        return;
+      }
     }
+    callback->Run(policy);
   }
-  callback->Run(policy);
 }
 
 void ResourceMessageFilter::OnGetRawCookies(
@@ -721,8 +671,9 @@ void ResourceMessageFilter::OnGetRawCookies(
     return;
   }
 
-  GetRawCookiesCompletion* callback =
-      new GetRawCookiesCompletion(url, reply_msg, this, context);
+  GetCookiesCompletion* callback =
+      new GetCookiesCompletion(id(), reply_msg->routing_id(), url,
+                               reply_msg, this, context, true);
 
   // We check policy here to avoid sending back cookies that would not normally
   // be applied to outbound requests for the given URL.  Since this cookie info
@@ -743,13 +694,6 @@ void ResourceMessageFilter::OnDeleteCookie(const GURL& url,
                                            const std::string& cookie_name) {
   URLRequestContext* context = GetRequestContextForURL(url);
   context->cookie_store()->DeleteCookie(url, cookie_name);
-}
-
-void ResourceMessageFilter::OnGetCookiesEnabled(
-    const GURL& url,
-    const GURL& first_party_for_cookies,
-    bool* enabled) {
-  *enabled = GetRequestContextForURL(url)->AreCookiesEnabled();
 }
 
 #if defined(OS_MACOSX)
@@ -781,6 +725,22 @@ void ResourceMessageFilter::OnPreCacheFont(LOGFONT font) {
 
 void ResourceMessageFilter::OnGetPlugins(bool refresh,
                                          IPC::Message* reply_msg) {
+  // Don't refresh if the specified threshold has not been passed.  Note that
+  // this check is performed before off-loading to the file thread.  The reason
+  // we do this is that some pages tend to request that the list of plugins be
+  // refreshed at an excessive rate.  This instigates disk scanning, as the list
+  // is accumulated by doing multiple reads from disk.  This effect is
+  // multiplied when we have several pages requesting this operation.
+  if (refresh) {
+      const base::TimeDelta threshold = base::TimeDelta::FromSeconds(
+          kPluginsRefreshThresholdInSeconds);
+      const base::TimeTicks now = base::TimeTicks::Now();
+      if (now - last_plugin_refresh_time_ < threshold)
+        refresh = false;  // Ignore refresh request; threshold not exceeded yet.
+      else
+        last_plugin_refresh_time_ = now;
+  }
+
   ChromeThread::PostTask(
       ChromeThread::FILE, FROM_HERE,
       NewRunnableMethod(
@@ -799,18 +759,41 @@ void ResourceMessageFilter::OnGetPluginsOnFileThread(
       NewRunnableMethod(this, &ResourceMessageFilter::Send, reply_msg));
 }
 
-void ResourceMessageFilter::OnGetPluginPath(const GURL& url,
+void ResourceMessageFilter::OnGetPluginInfo(const GURL& url,
                                             const GURL& policy_url,
                                             const std::string& mime_type,
-                                            FilePath* filename,
-                                            std::string* url_mime_type) {
-  *filename = plugin_service_->GetPluginPath(
-      url, policy_url, mime_type, url_mime_type);
+                                            bool* found,
+                                            WebPluginInfo* info,
+                                            ContentSetting* setting,
+                                            std::string* actual_mime_type) {
+  bool allow_wildcard = true;
+  *found = NPAPI::PluginList::Singleton()->GetPluginInfo(url,
+                                                         mime_type,
+                                                         allow_wildcard,
+                                                         info,
+                                                         actual_mime_type);
+  if (*found) {
+    info->enabled = info->enabled &&
+        plugin_service_->PrivatePluginAllowedForURL(info->path, policy_url);
+    HostContentSettingsMap* map = profile_->GetHostContentSettingsMap();
+    scoped_ptr<PluginGroup> group(PluginGroup::CopyOrCreatePluginGroup(*info));
+    std::string resource = group->identifier();
+    *setting = map->GetNonDefaultContentSetting(
+        policy_url, CONTENT_SETTINGS_TYPE_PLUGINS, resource);
+    if (*setting == CONTENT_SETTING_DEFAULT) {
+      ContentSetting defaultContentSetting =
+          map->GetDefaultContentSetting(CONTENT_SETTINGS_TYPE_PLUGINS);
+      if (defaultContentSetting == CONTENT_SETTING_BLOCK ||
+          !map->GetBlockNonsandboxedPlugins()) {
+        *setting = defaultContentSetting;
+      }
+    }
+  }
 }
 
 void ResourceMessageFilter::OnOpenChannelToPlugin(const GURL& url,
                                                   const std::string& mime_type,
-                                                  const std::wstring& locale,
+                                                  const std::string& locale,
                                                   IPC::Message* reply_msg) {
   plugin_service_->OpenChannelToPlugin(
       this, url, mime_type, locale, reply_msg);
@@ -1052,7 +1035,7 @@ void ResourceMessageFilter::OnAllocateSharedMemoryBuffer(
     uint32 buffer_size,
     base::SharedMemoryHandle* handle) {
   base::SharedMemory shared_buf;
-  shared_buf.Create(L"", false, false, buffer_size);
+  shared_buf.Create("", false, false, buffer_size);
   if (!shared_buf.Map(buffer_size)) {
     *handle = base::SharedMemory::NULLHandle();
     NOTREACHED() << "Cannot map shared memory buffer";
@@ -1114,7 +1097,7 @@ void ResourceMessageFilter::OnV8HeapStatsOnUIThread(
 
 void ResourceMessageFilter::OnDidZoomURL(const GURL& url,
                                          int zoom_level) {
-  ChromeThread::PostTask(ChromeThread::UI, FROM_HERE,
+  ui_thread_helpers::PostTaskWhileRunningMenu(FROM_HERE,
       NewRunnableMethod(this,
                         &ResourceMessageFilter::UpdateHostZoomLevelsOnUIThread,
                         url, zoom_level));
@@ -1192,8 +1175,6 @@ void ResourceMessageFilter::OnGetDefaultPrintSettingsReply(
   }
 }
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
-
 void ResourceMessageFilter::OnScriptedPrint(
     const ViewHostMsg_ScriptedPrint_Params& params,
     IPC::Message* reply_msg) {
@@ -1243,8 +1224,6 @@ void ResourceMessageFilter::OnScriptedPrintReply(
     printer_query->StopWorker();
   }
 }
-
-#endif  // OS_WIN || OS_MACOSX
 
 // static
 Clipboard* ResourceMessageFilter::GetClipboard() {
@@ -1324,24 +1303,52 @@ void ResourceMessageFilter::OnOpenChannelToExtension(
     int routing_id, const std::string& source_extension_id,
     const std::string& target_extension_id,
     const std::string& channel_name, int* port_id) {
-  if (extensions_message_service_.get()) {
-    *port_id = extensions_message_service_->
-        OpenChannelToExtension(routing_id, source_extension_id,
-                               target_extension_id, channel_name, this);
-  } else {
-    *port_id = -1;
-  }
+  int port2_id;
+  ExtensionMessageService::AllocatePortIdPair(port_id, &port2_id);
+
+  ChromeThread::PostTask(
+      ChromeThread::UI, FROM_HERE,
+      NewRunnableMethod(
+          this, &ResourceMessageFilter::OpenChannelToExtensionOnUIThread,
+          id(), routing_id, port2_id, source_extension_id,
+          target_extension_id, channel_name));
+}
+
+void ResourceMessageFilter::OpenChannelToExtensionOnUIThread(
+    int source_process_id, int source_routing_id,
+    int receiver_port_id,
+    const std::string& source_extension_id,
+    const std::string& target_extension_id,
+    const std::string& channel_name) {
+  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  profile_->GetExtensionMessageService()->OpenChannelToExtension(
+      source_process_id, source_routing_id, receiver_port_id,
+      source_extension_id, target_extension_id, channel_name);
 }
 
 void ResourceMessageFilter::OnOpenChannelToTab(
     int routing_id, int tab_id, const std::string& extension_id,
     const std::string& channel_name, int* port_id) {
-  if (extensions_message_service_.get()) {
-    *port_id = extensions_message_service_->
-        OpenChannelToTab(routing_id, tab_id, extension_id, channel_name, this);
-  } else {
-    *port_id = -1;
-  }
+  int port2_id;
+  ExtensionMessageService::AllocatePortIdPair(port_id, &port2_id);
+
+  ChromeThread::PostTask(
+      ChromeThread::UI, FROM_HERE,
+      NewRunnableMethod(
+          this, &ResourceMessageFilter::OpenChannelToTabOnUIThread,
+          id(), routing_id, port2_id, tab_id, extension_id, channel_name));
+}
+
+void ResourceMessageFilter::OpenChannelToTabOnUIThread(
+    int source_process_id, int source_routing_id,
+    int receiver_port_id,
+    int tab_id,
+    const std::string& extension_id,
+    const std::string& channel_name) {
+  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  profile_->GetExtensionMessageService()->OpenChannelToTab(
+      source_process_id, source_routing_id, receiver_port_id,
+      tab_id, extension_id, channel_name);
 }
 
 bool ResourceMessageFilter::CheckBenchmarkingEnabled() const {
@@ -1428,11 +1435,21 @@ void ResourceMessageFilter::OnCacheableMetadataAvailable(
       url, base::Time::FromDoubleT(expected_response_time), buf, data.size());
 }
 
+// TODO(lzheng): This only enables spdy over ssl. Enable spdy for http
+// when needed.
+void ResourceMessageFilter::OnEnableSpdy(bool enable) {
+  if (enable) {
+    net::HttpNetworkLayer::EnableSpdy("npn,force-alt-protocols");
+  } else {
+    net::HttpNetworkLayer::EnableSpdy("npn-http");
+  }
+}
+
 void ResourceMessageFilter::OnGetFileSize(const FilePath& path,
                                           IPC::Message* reply_msg) {
   // Get file size only when the child process has been granted permission to
   // upload the file.
-  if (!ChildProcessSecurityPolicy::GetInstance()->CanUploadFile(id(), path)) {
+  if (!ChildProcessSecurityPolicy::GetInstance()->CanReadFile(id(), path)) {
     ViewHostMsg_GetFileSize::WriteReplyParams(
         reply_msg, static_cast<int64>(-1));
     Send(reply_msg);
@@ -1452,7 +1469,7 @@ void ResourceMessageFilter::OnGetFileModificationTime(const FilePath& path,
                                                       IPC::Message* reply_msg) {
   // Get file modification time only when the child process has been granted
   // permission to upload the file.
-  if (!ChildProcessSecurityPolicy::GetInstance()->CanUploadFile(id(), path)) {
+  if (!ChildProcessSecurityPolicy::GetInstance()->CanReadFile(id(), path)) {
     ViewHostMsg_GetFileModificationTime::WriteReplyParams(reply_msg,
                                                           base::Time());
     Send(reply_msg);
@@ -1474,7 +1491,7 @@ void ResourceMessageFilter::OnGetFileInfoOnFileThread(
     FileInfoWriteFunc write_func) {
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
 
-  file_util::FileInfo file_info;
+  base::PlatformFileInfo file_info;
   file_info.size = 0;
   file_util::GetFileInfo(path, &file_info);
 
@@ -1491,7 +1508,7 @@ void ResourceMessageFilter::OnOpenFile(const FilePath& path,
   // Open the file only when the child process has been granted permission to
   // upload the file.
   // TODO(jianli): Do we need separate permission to control opening the file?
-  if (!ChildProcessSecurityPolicy::GetInstance()->CanUploadFile(id(), path)) {
+  if (!ChildProcessSecurityPolicy::GetInstance()->CanReadFile(id(), path)) {
     ViewHostMsg_OpenFile::WriteReplyParams(
         reply_msg,
 #if defined(OS_WIN)
@@ -1523,7 +1540,7 @@ void ResourceMessageFilter::OnOpenFileOnFileThread(const FilePath& path,
       (mode == 0) ? (base::PLATFORM_FILE_OPEN | base::PLATFORM_FILE_READ)
                   : (base::PLATFORM_FILE_CREATE_ALWAYS |
                         base::PLATFORM_FILE_WRITE),
-      NULL);
+      NULL, NULL);
 
   base::PlatformFile target_file_handle;
 #if defined(OS_WIN)
@@ -1579,7 +1596,7 @@ void ResourceMessageFilter::OnKeygen(uint32 key_size_index,
            FROM_HERE,
            NewRunnableMethod(
                this, &ResourceMessageFilter::OnKeygenOnWorkerThread,
-               key_size_in_bits, challenge_string, reply_msg),
+               key_size_in_bits, challenge_string, url, reply_msg),
            true)) {
     NOTREACHED() << "Failed to dispatch keygen task to worker pool";
     ViewHostMsg_Keygen::WriteReplyParams(reply_msg, std::string());
@@ -1591,13 +1608,14 @@ void ResourceMessageFilter::OnKeygen(uint32 key_size_index,
 void ResourceMessageFilter::OnKeygenOnWorkerThread(
     int key_size_in_bits,
     const std::string& challenge_string,
+    const GURL& url,
     IPC::Message* reply_msg) {
   DCHECK(reply_msg);
   // Verify we are on a worker thread.
   DCHECK(!MessageLoop::current());
 
   // Generate a signed public key and challenge, then send it back.
-  net::KeygenHandler keygen_handler(key_size_in_bits, challenge_string);
+  net::KeygenHandler keygen_handler(key_size_in_bits, challenge_string, url);
 
   ViewHostMsg_Keygen::WriteReplyParams(
       reply_msg,
@@ -1676,4 +1694,148 @@ void ResourceMessageFilter::OnGetExtensionMessageBundleOnFileThread(
   ChromeThread::PostTask(
       ChromeThread::IO, FROM_HERE,
       NewRunnableMethod(this, &ResourceMessageFilter::Send, reply_msg));
+}
+
+void ResourceMessageFilter::OnAsyncOpenFile(const IPC::Message& msg,
+                                            const FilePath& path,
+                                            int flags,
+                                            int message_id) {
+  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+
+  if (!ChildProcessSecurityPolicy::GetInstance()->CanReadFile(id(), path)) {
+    IPC::Message* reply = new ViewMsg_AsyncOpenFile_ACK(
+        msg.routing_id(), base::PLATFORM_FILE_ERROR_ACCESS_DENIED,
+        IPC::InvalidPlatformFileForTransit(), message_id);
+    Send(reply);
+    return;
+  }
+
+  // TODO(dumi): update this check once we have a security attribute
+  // that allows renderers to modify files.
+  int allowed_flags =
+      base::PLATFORM_FILE_OPEN |
+      base::PLATFORM_FILE_READ |
+      base::PLATFORM_FILE_EXCLUSIVE_READ |
+      base::PLATFORM_FILE_ASYNC;
+  if (flags & ~allowed_flags) {
+    DLOG(ERROR) << "Bad flags in ViewMsgHost_AsyncOpenFile message: " << flags;
+    BrowserRenderProcessHost::BadMessageTerminateProcess(
+        ViewHostMsg_AsyncOpenFile::ID, handle());
+    return;
+  }
+
+  ChromeThread::PostTask(
+      ChromeThread::FILE, FROM_HERE, NewRunnableMethod(
+          this, &ResourceMessageFilter::AsyncOpenFileOnFileThread,
+          path, flags, message_id, msg.routing_id()));
+}
+
+void ResourceMessageFilter::AsyncOpenFileOnFileThread(const FilePath& path,
+                                                      int flags,
+                                                      int message_id,
+                                                      int routing_id) {
+  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  base::PlatformFileError error_code = base::PLATFORM_FILE_OK;
+  base::PlatformFile file = base::CreatePlatformFile(
+      path, flags, NULL, &error_code);
+  IPC::PlatformFileForTransit file_for_transit =
+      IPC::InvalidPlatformFileForTransit();
+  if (file != base::kInvalidPlatformFileValue) {
+#if defined(OS_WIN)
+    ::DuplicateHandle(::GetCurrentProcess(), file, handle(),
+                      &file_for_transit, 0, false, DUPLICATE_SAME_ACCESS);
+#else
+    file_for_transit = base::FileDescriptor(file, true);
+#endif
+  }
+
+  IPC::Message* reply = new ViewMsg_AsyncOpenFile_ACK(
+      routing_id, error_code, file_for_transit, message_id);
+  ChromeThread::PostTask(
+      ChromeThread::IO, FROM_HERE, NewRunnableMethod(
+          this, &ResourceMessageFilter::Send, reply));
+}
+
+SetCookieCompletion::SetCookieCompletion(int render_process_id,
+                                         int render_view_id,
+                                         const GURL& url,
+                                         const std::string& cookie_line,
+                                         ChromeURLRequestContext* context)
+    : render_process_id_(render_process_id),
+      render_view_id_(render_view_id),
+      url_(url),
+      cookie_line_(cookie_line),
+      context_(context) {
+}
+
+void SetCookieCompletion::RunWithParams(const Tuple1<int>& params) {
+  int result = params.a;
+  bool blocked_by_policy = true;
+  if (result == net::OK ||
+      result == net::OK_FOR_SESSION_ONLY) {
+    blocked_by_policy = false;
+    net::CookieOptions options;
+    if (result == net::OK_FOR_SESSION_ONLY)
+      options.set_force_session();
+    context_->cookie_store()->SetCookieWithOptions(url_, cookie_line_,
+                                                   options);
+  }
+  if (!context_->IsExternal()) {
+    CallRenderViewHostContentSettingsDelegate(
+        render_process_id_, render_view_id_,
+        &RenderViewHostDelegate::ContentSettings::OnCookieAccessed,
+        url_, cookie_line_, blocked_by_policy);
+  }
+  delete this;
+}
+
+GetCookiesCompletion::GetCookiesCompletion(int render_process_id,
+                                           int render_view_id,
+                                           const GURL& url,
+                                           IPC::Message* reply_msg,
+                                           ResourceMessageFilter* filter,
+                                           URLRequestContext* context,
+                                           bool raw_cookies)
+    : url_(url),
+      reply_msg_(reply_msg),
+      filter_(filter),
+      context_(context),
+      render_process_id_(render_process_id),
+      render_view_id_(render_view_id),
+      raw_cookies_(raw_cookies) {
+  set_cookie_store(context_->cookie_store());
+}
+
+void GetCookiesCompletion::RunWithParams(const Tuple1<int>& params) {
+  if (!raw_cookies_) {
+    int result = params.a;
+    std::string cookies;
+    if (result == net::OK)
+      cookies = cookie_store()->GetCookies(url_);
+    ViewHostMsg_GetCookies::WriteReplyParams(reply_msg_, cookies);
+    filter_->Send(reply_msg_);
+    delete this;
+  } else {
+    // Ignore the policy result.  We only waited on the policy result so that
+    // any pending 'set-cookie' requests could be flushed.  The intent of
+    // querying the raw cookies is to reveal the contents of the cookie DB, so
+    // it important that we don't read the cookie db ahead of pending writes.
+    net::CookieMonster* cookie_monster =
+        context_->cookie_store()->GetCookieMonster();
+    net::CookieMonster::CookieList cookie_list =
+        cookie_monster->GetAllCookiesForURL(url_);
+
+    std::vector<webkit_glue::WebCookie> cookies;
+    for (size_t i = 0; i < cookie_list.size(); ++i) {
+      cookies.push_back(webkit_glue::WebCookie(cookie_list[i]));
+    }
+
+    ViewHostMsg_GetRawCookies::WriteReplyParams(reply_msg_, cookies);
+    filter_->Send(reply_msg_);
+    delete this;
+  }
+}
+
+void GetCookiesCompletion::set_cookie_store(CookieStore* cookie_store) {
+  cookie_store_ = cookie_store;
 }

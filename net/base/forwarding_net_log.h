@@ -4,6 +4,7 @@
 
 #ifndef NET_BASE_FORWARDING_NET_LOG_H_
 #define NET_BASE_FORWARDING_NET_LOG_H_
+#pragma once
 
 #include "base/basictypes.h"
 #include "net/base/net_log.h"
@@ -38,7 +39,7 @@ class ForwardingNetLog : public NetLog {
                         EventPhase phase,
                         EventParameters* params);
   virtual uint32 NextID();
-  virtual bool HasListener() const;
+  virtual LogLevel GetLogLevel() const;
 
  private:
   class Core;

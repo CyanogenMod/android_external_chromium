@@ -4,6 +4,7 @@
 
 #ifndef BASE_SCOPED_TEMP_DIR_H_
 #define BASE_SCOPED_TEMP_DIR_H_
+#pragma once
 
 // An object representing a temporary / scratch directory that should be cleaned
 // up (recursively) when this object goes out of scope.  Note that since
@@ -18,7 +19,7 @@ class ScopedTempDir {
   // No directory is owned/created initially.
   ScopedTempDir();
 
-  // Recursively delete path_
+  // Recursively delete path.
   ~ScopedTempDir();
 
   // Creates a unique directory in TempPath, and takes ownership of it.
@@ -26,12 +27,14 @@ class ScopedTempDir {
   bool CreateUniqueTempDir();
 
   // Creates a unique directory under a given path, and takes ownership of it.
-  bool CreateUniqueTempDirUnderPath(const FilePath& path,
-                                    bool loose_permissions);
+  bool CreateUniqueTempDirUnderPath(const FilePath& path);
 
   // Takes ownership of directory at |path|, creating it if necessary.
   // Don't call multiple times unless Take() has been called first.
   bool Set(const FilePath& path);
+
+  // Deletes the temporary directory wrapped by this object.
+  void Delete();
 
   // Caller takes ownership of the temporary directory so it won't be destroyed
   // when this object goes out of scope.

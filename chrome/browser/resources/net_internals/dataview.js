@@ -8,20 +8,71 @@
  * to read format for bug reports.
  *
  *   - Has a button to generate a text report.
- *   - Has a button to generate a raw JSON dump (most useful for testing).
  *
+ *   - Shows how many events have been captured.
  *  @constructor
  */
-function DataView(mainBoxId, outputTextBoxId, exportTextButtonId) {
+function DataView(mainBoxId,
+                  outputTextBoxId,
+                  exportTextButtonId,
+                  securityStrippingCheckboxId,
+                  passivelyCapturedCountId,
+                  activelyCapturedCountId,
+                  deleteAllId) {
   DivView.call(this, mainBoxId);
 
   this.textPre_ = document.getElementById(outputTextBoxId);
-  var exportTextButton = document.getElementById(exportTextButtonId);
+  this.securityStrippingCheckbox_ =
+      document.getElementById(securityStrippingCheckboxId);
 
+  var exportTextButton = document.getElementById(exportTextButtonId);
   exportTextButton.onclick = this.onExportToText_.bind(this);
+
+  this.activelyCapturedCountBox_ =
+      document.getElementById(activelyCapturedCountId);
+  this.passivelyCapturedCountBox_ =
+      document.getElementById(passivelyCapturedCountId);
+  document.getElementById(deleteAllId).onclick =
+      g_browser.deleteAllEvents.bind(g_browser);
+
+  this.updateEventCounts_();
+
+  g_browser.addLogObserver(this);
 }
 
 inherits(DataView, DivView);
+
+/**
+ * Called whenever a new event is received.
+ */
+DataView.prototype.onLogEntryAdded = function(logEntry) {
+  this.updateEventCounts_();
+};
+
+/**
+ * Called whenever some log events are deleted.  |sourceIds| lists
+ * the source IDs of all deleted log entries.
+ */
+DataView.prototype.onLogEntriesDeleted = function(sourceIds) {
+  this.updateEventCounts_();
+};
+
+/**
+ * Called whenever all log events are deleted.
+ */
+DataView.prototype.onAllLogEntriesDeleted = function() {
+  this.updateEventCounts_();
+};
+
+/**
+ * Updates the counters showing how many events have been captured.
+ */
+DataView.prototype.updateEventCounts_ = function() {
+  this.activelyCapturedCountBox_.innerText =
+      g_browser.getNumActivelyCapturedEvents()
+  this.passivelyCapturedCountBox_.innerText =
+      g_browser.getNumPassivelyCapturedEvents();
+};
 
 /**
  * Presents the captured data as formatted text.
@@ -35,24 +86,38 @@ DataView.prototype.onExportToText_ = function() {
   text.push('Data exported on: ' + (new Date()).toLocaleString());
   text.push('');
   text.push('Number of passively captured events: ' +
-            g_browser.getAllPassivelyCapturedEvents().length);
+            g_browser.getNumPassivelyCapturedEvents());
   text.push('Number of actively captured events: ' +
-            g_browser.getAllActivelyCapturedEvents().length);
+            g_browser.getNumActivelyCapturedEvents());
   text.push('');
 
   text.push('Chrome version: ' + ClientInfo.version +
             ' (' + ClientInfo.official +
             ' ' + ClientInfo.cl +
             ') ' + ClientInfo.version_mod);
+  // Third value in first set of parentheses in user-agent string.
+  var platform = /\(.*?;.*?; (.*?);/.exec(navigator.userAgent);
+  if (platform)
+    text.push('Platform: ' + platform[1]);
   text.push('Command line: ' + ClientInfo.command_line);
 
   text.push('');
   text.push('----------------------------------------------');
-  text.push(' Proxy settings');
+  text.push(' Proxy settings (effective)');
   text.push('----------------------------------------------');
   text.push('');
 
-  text.push(g_browser.proxySettings_.currentData_);
+  text.push(proxySettingsToString(
+        g_browser.proxySettings_.currentData_.effective));
+
+  text.push('');
+  text.push('----------------------------------------------');
+  text.push(' Proxy settings (original)');
+  text.push('----------------------------------------------');
+  text.push('');
+
+  text.push(proxySettingsToString(
+        g_browser.proxySettings_.currentData_.original));
 
   text.push('');
   text.push('----------------------------------------------');
@@ -105,6 +170,8 @@ DataView.prototype.onExportToText_ = function() {
       }
 
       text.push('Valid until: ' + this.formatExpirationTime_(e.expiration));
+      var expirationDate = g_browser.convertTimeTicksToDate(e.expiration);
+      text.push('  (' + expirationDate.toLocaleString() + ')');
     }
   } else {
     text.push('');
@@ -113,11 +180,11 @@ DataView.prototype.onExportToText_ = function() {
 
   text.push('');
   text.push('----------------------------------------------');
-  text.push(' Requests');
+  text.push(' Events');
   text.push('----------------------------------------------');
   text.push('');
 
-  this.appendRequestsPrintedAsText_(text);
+  this.appendEventsPrintedAsText_(text);
 
   text.push('');
   text.push('----------------------------------------------');
@@ -129,27 +196,80 @@ DataView.prototype.onExportToText_ = function() {
   for (var statName in httpCacheStats)
     text.push(statName + ': ' + httpCacheStats[statName]);
 
+  text.push('');
+  text.push('----------------------------------------------');
+  text.push(' Socket pools');
+  text.push('----------------------------------------------');
+  text.push('');
+
+  this.appendSocketPoolsAsText_(text);
+
+  if (g_browser.isPlatformWindows()) {
+    text.push('');
+    text.push('----------------------------------------------');
+    text.push(' Winsock layered service providers');
+    text.push('----------------------------------------------');
+    text.push('');
+
+    var serviceProviders = g_browser.serviceProviders_.currentData_;
+    var layeredServiceProviders = serviceProviders.service_providers;
+    for (var i = 0; i < layeredServiceProviders.length; ++i) {
+      var provider = layeredServiceProviders[i];
+      text.push('name: ' + provider.name);
+      text.push('version: ' + provider.version);
+      text.push('type: ' +
+                ServiceProvidersView.getLayeredServiceProviderType(provider));
+      text.push('socket_type: ' +
+                ServiceProvidersView.getSocketType(provider));
+      text.push('socket_protocol: ' +
+                ServiceProvidersView.getProtocolType(provider));
+      text.push('path: ' + provider.path);
+      text.push('');
+    }
+
+    text.push('');
+    text.push('----------------------------------------------');
+    text.push(' Winsock namespace providers');
+    text.push('----------------------------------------------');
+    text.push('');
+
+    var namespaceProviders = serviceProviders.namespace_providers;
+    for (var i = 0; i < namespaceProviders.length; ++i) {
+      var provider = namespaceProviders[i];
+      text.push('name: ' + provider.name);
+      text.push('version: ' + provider.version);
+      text.push('type: ' +
+                ServiceProvidersView.getNamespaceProviderType(provider));
+      text.push('active: ' + provider.active);
+      text.push('');
+    }
+  }
+
   // Open a new window to display this text.
   this.setText_(text.join('\n'));
+
+  this.selectText_();
 };
 
-DataView.prototype.appendRequestsPrintedAsText_ = function(out) {
-  // Concatenate the passively captured events with the actively captured events
-  // into a single array.
-  var allEvents = g_browser.getAllPassivelyCapturedEvents().concat(
-      g_browser.getAllActivelyCapturedEvents());
+DataView.prototype.appendEventsPrintedAsText_ = function(out) {
+  var allEvents = g_browser.getAllCapturedEvents();
 
   // Group the events into buckets by source ID, and buckets by source type.
   var sourceIds = [];
   var sourceIdToEventList = {};
-  var sourceTypeToSourceIdList = {}
+  var sourceTypeToSourceIdList = {};
+
+  // Lists used for actual output.
+  var eventLists = [];
 
   for (var i = 0; i < allEvents.length; ++i) {
     var e = allEvents[i];
     var eventList = sourceIdToEventList[e.source.id];
     if (!eventList) {
       eventList = [];
-      sourceIdToEventList[e.source.id] = eventList;
+      eventLists.push(eventList);
+      if (e.source.type != LogSourceType.NONE)
+        sourceIdToEventList[e.source.id] = eventList;
 
       // Update sourceIds
       sourceIds.push(e.source.id);
@@ -166,18 +286,39 @@ DataView.prototype.appendRequestsPrintedAsText_ = function(out) {
   }
 
 
-  // For each source (ordered by when that source was first started).
-  for (var i = 0; i < sourceIds.length; ++i) {
-    var sourceId = sourceIds[i];
-    var eventList = sourceIdToEventList[sourceId];
+  // For each source or event without a source (ordered by when the first
+  // output event for that source happened).
+  for (var i = 0; i < eventLists.length; ++i) {
+    var eventList = eventLists[i];
+    var sourceId = eventList[0].source.id;
     var sourceType = eventList[0].source.type;
 
-    out.push('------------------------------');
-    out.push(getKeyWithValue(LogSourceType, sourceType) +
-             ' (id=' + sourceId + ')');
-    out.push('------------------------------');
+    var startDate = g_browser.convertTimeTicksToDate(eventList[0].time);
 
-    out.push(PrintSourceEntriesAsText(eventList));
+    out.push('------------------------------------------');
+    out.push(getKeyWithValue(LogSourceType, sourceType) +
+             ' (id=' + sourceId + ')' +
+             '  [start=' + startDate.toLocaleString() + ']');
+    out.push('------------------------------------------');
+
+    out.push(PrintSourceEntriesAsText(eventList,
+        this.securityStrippingCheckbox_.checked));
+  }
+};
+
+DataView.prototype.appendSocketPoolsAsText_ = function(text) {
+  var socketPools = SocketPoolWrapper.createArrayFrom(
+      g_browser.socketPoolInfo_.currentData_);
+  var tablePrinter = SocketPoolWrapper.createTablePrinter(socketPools);
+  text.push(tablePrinter.toText(2));
+
+  text.push('');
+
+  for (var i = 0; i < socketPools.length; ++i) {
+    if (socketPools[i].origPool.groups == undefined)
+      continue;
+    var groupTablePrinter = socketPools[i].createGroupTablePrinter();
+    text.push(groupTablePrinter.toText(2));
   }
 };
 
@@ -198,4 +339,14 @@ DataView.prototype.formatExpirationTime_ = function(timeTicks) {
   return 't=' + d.getTime() + (isExpired ? ' [EXPIRED]' : '');
 };
 
+/**
+ * Select all text from log dump.
+ */
+DataView.prototype.selectText_ = function() {
+  var selection = window.getSelection();
+  selection.removeAllRanges();
 
+  var range = document.createRange();
+  range.selectNodeContents(this.textPre_);
+  selection.addRange(range);
+};

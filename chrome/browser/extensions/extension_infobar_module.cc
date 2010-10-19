@@ -4,7 +4,9 @@
 
 #include "chrome/browser/extensions/extension_infobar_module.h"
 
-#include "app/l10n_util.h"
+#include "base/string_util.h"
+#include "base/string_number_conversions.h"
+#include "base/values.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_infobar_module_constants.h"
@@ -45,7 +47,7 @@ bool ShowInfoBarFunction::RunImpl() {
       NULL)) {
     error_ = ExtensionErrorUtils::FormatErrorMessage(
         extension_tabs_module_constants::kTabNotFoundError,
-        IntToString(tab_id));
+        base::IntToString(tab_id));
     return false;
   }
 

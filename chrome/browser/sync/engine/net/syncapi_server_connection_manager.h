@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_ENGINE_NET_SYNCAPI_SERVER_CONNECTION_MANAGER_H_
 #define CHROME_BROWSER_SYNC_ENGINE_NET_SYNCAPI_SERVER_CONNECTION_MANAGER_H_
+#pragma once
 
 #include <string>
 
@@ -50,10 +51,8 @@ class SyncAPIServerConnectionManager
                                  int port,
                                  bool use_ssl,
                                  const std::string& client_version,
-                                 const std::string& client_id,
                                  HttpPostProviderFactory* factory)
-      : ServerConnectionManager(server, port, use_ssl, client_version,
-                                client_id),
+      : ServerConnectionManager(server, port, use_ssl, client_version),
         post_provider_factory_(factory) {
     DCHECK(post_provider_factory_.get());
   }

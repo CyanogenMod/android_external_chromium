@@ -840,7 +840,7 @@ HttpAuthResult HttpAuthenticate(
     std::string dig_response = MD5(HA1 + ":" + middle + ":" + HA2);
 
 #if TEST_DIGEST
-    assert(strcmp(dig_response.c_str(), DIGEST_RESPONSE) == 0);
+    ASSERT(strcmp(dig_response.c_str(), DIGEST_RESPONSE) == 0);
 #endif
 
     std::stringstream ss;
@@ -1019,7 +1019,7 @@ HttpAuthResult HttpAuthenticate(
         return HAR_IGNORE;
       }
 
-      assert(!context);
+      ASSERT(!context);
       context = neg = new NegotiateAuthContext(auth_method, cred, ctx);
       neg->specified_credentials = specify_credentials;
       neg->steps = steps;

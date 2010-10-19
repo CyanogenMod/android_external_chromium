@@ -7,6 +7,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_COOKIES_API_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_COOKIES_API_H_
+#pragma once
 
 #include <string>
 
@@ -15,10 +16,12 @@
 #include "base/time.h"
 #include "chrome/browser/extensions/extension_function.h"
 #include "chrome/browser/net/chrome_cookie_notification_details.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/cookie_monster.h"
 
+class DictionaryValue;
 class URLRequestContextGetter;
 
 // Observes CookieMonster notifications and routes them as events to the
@@ -91,6 +94,7 @@ class CookiesFunction : public AsyncExtensionFunction {
 class GetCookieFunction : public CookiesFunction {
  public:
   GetCookieFunction();
+  ~GetCookieFunction();
   virtual bool RunImpl();
   DECLARE_EXTENSION_FUNCTION_NAME("cookies.get")
 
@@ -109,6 +113,7 @@ class GetCookieFunction : public CookiesFunction {
 class GetAllCookiesFunction : public CookiesFunction {
  public:
   GetAllCookiesFunction();
+  ~GetAllCookiesFunction();
   virtual bool RunImpl();
   DECLARE_EXTENSION_FUNCTION_NAME("cookies.getAll")
 
@@ -127,6 +132,7 @@ class GetAllCookiesFunction : public CookiesFunction {
 class SetCookieFunction : public CookiesFunction {
  public:
   SetCookieFunction();
+  ~SetCookieFunction();
   virtual bool RunImpl();
   DECLARE_EXTENSION_FUNCTION_NAME("cookies.set")
 
@@ -151,9 +157,7 @@ class RemoveCookieFunction : public CookiesFunction {
  public:
   virtual bool RunImpl();
   // RemoveCookieFunction is sync.
-  virtual void Run() {
-    SendResponse(RunImpl());
-  }
+  virtual void Run();
   DECLARE_EXTENSION_FUNCTION_NAME("cookies.remove")
 };
 
@@ -162,9 +166,7 @@ class GetAllCookieStoresFunction : public CookiesFunction {
  public:
   virtual bool RunImpl();
   // GetAllCookieStoresFunction is sync.
-  virtual void Run() {
-    SendResponse(RunImpl());
-  }
+  virtual void Run();
   DECLARE_EXTENSION_FUNCTION_NAME("cookies.getAllCookieStores")
 };
 

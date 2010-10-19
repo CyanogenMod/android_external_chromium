@@ -4,24 +4,21 @@
 
 #include "chrome/browser/gtk/browser_toolbar_gtk.h"
 
+#include <X11/XF86keysym.h>
 #include <gdk/gdkkeysyms.h>
 #include <gtk/gtk.h>
-#include <X11/XF86keysym.h>
 
 #include "app/gtk_dnd_util.h"
 #include "app/l10n_util.h"
 #include "app/menus/accelerator_gtk.h"
-#include "app/resource_bundle.h"
 #include "base/base_paths.h"
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
-#include "base/keyboard_codes_posix.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/singleton.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/browser.h"
-#include "chrome/browser/browser_theme_provider.h"
 #include "chrome/browser/encoding_menu_controller.h"
 #include "chrome/browser/gtk/accelerators_gtk.h"
 #include "chrome/browser/gtk/back_forward_button_gtk.h"
@@ -38,9 +35,10 @@
 #include "chrome/browser/gtk/tabs/tab_strip_gtk.h"
 #include "chrome/browser/gtk/view_id_util.h"
 #include "chrome/browser/net/url_fixer_upper.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/upgrade_detector.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_details.h"
@@ -57,27 +55,35 @@
 
 namespace {
 
+// Padding on left and right of the left toolbar buttons (back, forward, reload,
+// etc.).
+const int kToolbarLeftAreaPadding = 4;
+
 // Height of the toolbar in pixels (not counting padding).
 const int kToolbarHeight = 29;
 
 // Padding within the toolbar above the buttons and location bar.
-const int kTopPadding = 4;
+const int kTopBottomPadding = 3;
 
 // Height of the toolbar in pixels when we only show the location bar.
 const int kToolbarHeightLocationBarOnly = kToolbarHeight - 2;
 
 // Interior spacing between toolbar widgets.
-const int kToolbarWidgetSpacing = 2;
+const int kToolbarWidgetSpacing = 1;
 
 // Amount of rounding on top corners of toolbar. Only used in Gtk theme mode.
 const int kToolbarCornerSize = 3;
 
 // The offset in pixels of the upgrade dot on the app menu.
-const int kUpgradeDotOffset = 11;
+const int kUpgradeDotOffset = 6;
 
 // The duration of the upgrade notification animation (actually the duration
 // of a half-throb).
 const int kThrobDuration = 1000;
+
+void SetWidgetHeightRequest(GtkWidget* widget, gpointer user_data) {
+  gtk_widget_set_size_request(widget, -1, GPOINTER_TO_INT(user_data));
+}
 
 }  // namespace
 
@@ -108,7 +114,6 @@ BrowserToolbarGtk::BrowserToolbarGtk(Browser* browser, BrowserWindowGtk* window)
   upgrade_reminder_animation_.SetThrobDuration(kThrobDuration);
 
   ActiveWindowWatcherX::AddObserver(this);
-  MaybeShowUpgradeReminder();
 }
 
 BrowserToolbarGtk::~BrowserToolbarGtk() {
@@ -121,9 +126,7 @@ BrowserToolbarGtk::~BrowserToolbarGtk() {
 
   offscreen_entry_.Destroy();
 
-  app_menu_.reset();
-  app_menu_button_.Destroy();
-  app_menu_image_.Destroy();
+  wrench_menu_.reset();
 }
 
 void BrowserToolbarGtk::Init(Profile* profile,
@@ -153,35 +156,37 @@ void BrowserToolbarGtk::Init(Profile* profile,
   gtk_container_add(GTK_CONTAINER(event_box_), alignment_);
   gtk_container_add(GTK_CONTAINER(alignment_), toolbar_);
 
-  toolbar_left_ = gtk_hbox_new(FALSE, 0);
+  toolbar_left_ = gtk_hbox_new(FALSE, kToolbarWidgetSpacing);
 
-  GtkWidget* back_forward_hbox_ = gtk_hbox_new(FALSE, 0);
   back_.reset(new BackForwardButtonGtk(browser_, false));
   g_signal_connect(back_->widget(), "clicked",
                    G_CALLBACK(OnButtonClickThunk), this);
-  gtk_box_pack_start(GTK_BOX(back_forward_hbox_), back_->widget(), FALSE,
+  gtk_box_pack_start(GTK_BOX(toolbar_left_), back_->widget(), FALSE,
                      FALSE, 0);
 
   forward_.reset(new BackForwardButtonGtk(browser_, true));
   g_signal_connect(forward_->widget(), "clicked",
                    G_CALLBACK(OnButtonClickThunk), this);
-  gtk_box_pack_start(GTK_BOX(back_forward_hbox_), forward_->widget(), FALSE,
+  gtk_box_pack_start(GTK_BOX(toolbar_left_), forward_->widget(), FALSE,
                      FALSE, 0);
-
-  gtk_box_pack_start(GTK_BOX(toolbar_left_), back_forward_hbox_, FALSE,
-                     FALSE, kToolbarWidgetSpacing);
 
   reload_.reset(new ReloadButtonGtk(location_bar_.get(), browser_));
   gtk_box_pack_start(GTK_BOX(toolbar_left_), reload_->widget(), FALSE, FALSE,
                      0);
 
-  home_.reset(BuildToolbarButton(IDR_HOME, IDR_HOME_P, IDR_HOME_H, 0,
-                                 IDR_BUTTON_MASK,
-                                 l10n_util::GetStringUTF8(IDS_TOOLTIP_HOME),
-                                 GTK_STOCK_HOME, kToolbarWidgetSpacing));
+  home_.reset(new CustomDrawButton(GtkThemeProvider::GetFrom(profile_),
+      IDR_HOME, IDR_HOME_P, IDR_HOME_H, 0, GTK_STOCK_HOME,
+      GTK_ICON_SIZE_SMALL_TOOLBAR));
+  gtk_widget_set_tooltip_text(home_->widget(),
+      l10n_util::GetStringUTF8(IDS_TOOLTIP_HOME).c_str());
+  g_signal_connect(home_->widget(), "clicked",
+                   G_CALLBACK(OnButtonClickThunk), this);
+  gtk_box_pack_start(GTK_BOX(toolbar_left_), home_->widget(), FALSE, FALSE,
+                     kToolbarWidgetSpacing);
   gtk_util::SetButtonTriggersNavigation(home_->widget());
 
-  gtk_box_pack_start(GTK_BOX(toolbar_), toolbar_left_, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(toolbar_), toolbar_left_, FALSE, FALSE,
+                     kToolbarLeftAreaPadding);
 
   location_hbox_ = gtk_hbox_new(FALSE, 0);
   location_bar_->Init(ShouldOnlyShowLocation());
@@ -191,37 +196,43 @@ void BrowserToolbarGtk::Init(Profile* profile,
   g_signal_connect(location_hbox_, "expose-event",
                    G_CALLBACK(OnLocationHboxExposeThunk), this);
   gtk_box_pack_start(GTK_BOX(toolbar_), location_hbox_, TRUE, TRUE,
-      kToolbarWidgetSpacing + (ShouldOnlyShowLocation() ? 1 : 0));
-
-  toolbar_right_ = gtk_hbox_new(FALSE, 0);
+      ShouldOnlyShowLocation() ? 1 : 0);
 
   if (!ShouldOnlyShowLocation()) {
     actions_toolbar_.reset(new BrowserActionsToolbarGtk(browser_));
-    gtk_box_pack_start(GTK_BOX(toolbar_right_), actions_toolbar_->widget(),
+    gtk_box_pack_start(GTK_BOX(toolbar_), actions_toolbar_->widget(),
                        FALSE, FALSE, 0);
   }
 
-  // We need another hbox for the menu buttons so we can place them together,
-  // but still have some padding to their collective left/right.
-  GtkWidget* menus_hbox = gtk_hbox_new(FALSE, 0);
-  GtkWidget* chrome_menu = BuildToolbarMenuButton(
+  wrench_menu_image_ = gtk_image_new_from_pixbuf(
+      theme_provider_->GetRTLEnabledPixbufNamed(IDR_TOOLS));
+  wrench_menu_button_.reset(new CustomDrawButton(
+      GtkThemeProvider::GetFrom(profile_),
+      IDR_TOOLS, IDR_TOOLS_P, IDR_TOOLS_H, 0,
+      wrench_menu_image_));
+  GtkWidget* wrench_button = wrench_menu_button_->widget();
+
+  gtk_widget_set_tooltip_text(
+      wrench_button,
       l10n_util::GetStringFUTF8(IDS_APPMENU_TOOLTIP,
-          WideToUTF16(l10n_util::GetString(IDS_PRODUCT_NAME))),
-      &app_menu_button_);
-  app_menu_image_.Own(gtk_image_new_from_pixbuf(
-      theme_provider_->GetRTLEnabledPixbufNamed(IDR_TOOLS)));
-  gtk_container_add(GTK_CONTAINER(chrome_menu), app_menu_image_.get());
-  g_signal_connect_after(app_menu_image_.get(), "expose-event",
-                         G_CALLBACK(OnAppMenuImageExposeThunk), this);
+          l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)).c_str());
+  g_signal_connect(wrench_button, "button-press-event",
+                   G_CALLBACK(OnMenuButtonPressEventThunk), this);
+  GTK_WIDGET_UNSET_FLAGS(wrench_button, GTK_CAN_FOCUS);
 
-  app_menu_.reset(new MenuGtk(this, &wrench_menu_model_));
-  gtk_box_pack_start(GTK_BOX(menus_hbox), chrome_menu, FALSE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(toolbar_right_), menus_hbox, FALSE, FALSE,
-                     kToolbarWidgetSpacing);
-  g_signal_connect(app_menu_->widget(), "show",
-                   G_CALLBACK(OnAppMenuShowThunk), this);
+  // Put the wrench button in a box so that we can paint the update notification
+  // over it.
+  GtkWidget* wrench_box = gtk_alignment_new(0, 0, 1, 1);
+  g_signal_connect_after(wrench_box, "expose-event",
+                         G_CALLBACK(OnWrenchMenuButtonExposeThunk), this);
+  gtk_container_add(GTK_CONTAINER(wrench_box), wrench_button);
+  gtk_box_pack_start(GTK_BOX(toolbar_), wrench_box, FALSE, FALSE, 4);
 
-  gtk_box_pack_start(GTK_BOX(toolbar_), toolbar_right_, FALSE, FALSE, 0);
+  wrench_menu_.reset(new MenuGtk(this, &wrench_menu_model_));
+  g_signal_connect(wrench_menu_->widget(), "show",
+                   G_CALLBACK(OnWrenchMenuShowThunk), this);
+  registrar_.Add(this, NotificationType::ZOOM_LEVEL_CHANGED,
+                 Source<Profile>(browser_->profile()));
 
   if (ShouldOnlyShowLocation()) {
     gtk_widget_show(event_box_);
@@ -243,6 +254,8 @@ void BrowserToolbarGtk::Init(Profile* profile,
 
   SetViewIDs();
   theme_provider_->InitThemesFor(this);
+
+  MaybeShowUpgradeReminder();
 }
 
 void BrowserToolbarGtk::SetViewIDs() {
@@ -252,7 +265,7 @@ void BrowserToolbarGtk::SetViewIDs() {
   ViewIDUtil::SetID(reload_->widget(), VIEW_ID_RELOAD_BUTTON);
   ViewIDUtil::SetID(home_->widget(), VIEW_ID_HOME_BUTTON);
   ViewIDUtil::SetID(location_bar_->widget(), VIEW_ID_LOCATION_BAR);
-  ViewIDUtil::SetID(app_menu_button_.get(), VIEW_ID_APP_MENU);
+  ViewIDUtil::SetID(wrench_menu_button_->widget(), VIEW_ID_APP_MENU);
 }
 
 void BrowserToolbarGtk::Show() {
@@ -270,16 +283,15 @@ LocationBar* BrowserToolbarGtk::GetLocationBar() const {
 void BrowserToolbarGtk::UpdateForBookmarkBarVisibility(
     bool show_bottom_padding) {
   gtk_alignment_set_padding(GTK_ALIGNMENT(alignment_),
-      ShouldOnlyShowLocation() ? 0 : kTopPadding,
-      !show_bottom_padding || ShouldOnlyShowLocation() ? 0 : kTopPadding,
+      ShouldOnlyShowLocation() ? 0 : kTopBottomPadding,
+      !show_bottom_padding || ShouldOnlyShowLocation() ? 0 : kTopBottomPadding,
       0, 0);
 }
 
 void BrowserToolbarGtk::ShowAppMenu() {
-  app_menu_->Cancel();
-  gtk_chrome_button_set_paint_state(GTK_CHROME_BUTTON(app_menu_button_.get()),
-                                    GTK_STATE_ACTIVE);
-  app_menu_->PopupAsFromKeyEvent(app_menu_button_.get());
+  wrench_menu_->Cancel();
+  wrench_menu_button_->SetPaintOverride(GTK_STATE_ACTIVE);
+  wrench_menu_->PopupAsFromKeyEvent(wrench_menu_button_->widget());
 }
 
 // CommandUpdater::CommandObserver ---------------------------------------------
@@ -316,42 +328,24 @@ void BrowserToolbarGtk::StoppedShowing() {
   // Without these calls, the hover state can get stuck since the leave-notify
   // event is not sent when clicking a button brings up the menu.
   gtk_chrome_button_set_hover_state(
-      GTK_CHROME_BUTTON(app_menu_button_.get()), 0.0);
-  gtk_chrome_button_unset_paint_state(
-      GTK_CHROME_BUTTON(app_menu_button_.get()));
+      GTK_CHROME_BUTTON(wrench_menu_button_->widget()), 0.0);
+  wrench_menu_button_->UnsetPaintOverride();
 }
 
 GtkIconSet* BrowserToolbarGtk::GetIconSetForId(int idr) {
   return theme_provider_->GetIconSetForId(idr);
 }
 
-// menus::SimpleMenuModel::Delegate
-
-bool BrowserToolbarGtk::IsCommandIdEnabled(int id) const {
-  return browser_->command_updater()->IsCommandEnabled(id);
+// Always show images because we desire that the upgrade icon always show when
+// an upgrade is available regardless of the system setting.
+// TODO(estade): Currently we do not show any other icons in this
+// menu, even though arguably if the system preference is set to show icons,
+// we should show them for Quit, Save, Print, etc.
+bool BrowserToolbarGtk::AlwaysShowImages() {
+  return true;
 }
 
-bool BrowserToolbarGtk::IsCommandIdChecked(int id) const {
-  if (!profile_)
-    return false;
-
-  EncodingMenuController controller;
-  if (id == IDC_SHOW_BOOKMARK_BAR) {
-    return profile_->GetPrefs()->GetBoolean(prefs::kShowBookmarkBar);
-  } else if (controller.DoesCommandBelongToEncodingMenu(id)) {
-    TabContents* tab_contents = browser_->GetSelectedTabContents();
-    if (tab_contents) {
-      return controller.IsItemChecked(profile_, tab_contents->encoding(),
-                                      id);
-    }
-  }
-
-  return false;
-}
-
-void BrowserToolbarGtk::ExecuteCommand(int id) {
-  browser_->ExecuteCommand(id);
-}
+// menus::AcceleratorProvider
 
 bool BrowserToolbarGtk::GetAcceleratorForCommandId(
     int id,
@@ -369,27 +363,23 @@ void BrowserToolbarGtk::Observe(NotificationType type,
                                 const NotificationSource& source,
                                 const NotificationDetails& details) {
   if (type == NotificationType::PREF_CHANGED) {
-    NotifyPrefChanged(Details<std::wstring>(details).ptr());
+    NotifyPrefChanged(Details<std::string>(details).ptr());
   } else if (type == NotificationType::BROWSER_THEME_CHANGED) {
     // Update the spacing around the menu buttons
     bool use_gtk = theme_provider_->UseGtkTheme();
     int border = use_gtk ? 0 : 2;
     gtk_container_set_border_width(
-        GTK_CONTAINER(app_menu_button_.get()), border);
-
-    // Update the menu button image.
-    gtk_image_set_from_pixbuf(GTK_IMAGE(app_menu_image_.get()),
-        theme_provider_->GetRTLEnabledPixbufNamed(IDR_TOOLS));
+        GTK_CONTAINER(wrench_menu_button_->widget()), border);
 
     // Force the height of the toolbar so we get the right amount of padding
-    // above and below the location bar. We always force the size of the hboxes
+    // above and below the location bar. We always force the size of the widgets
     // to either side of the location box, but we only force the location box
     // size in chrome-theme mode because that's the only time we try to control
     // the font size.
     int toolbar_height = ShouldOnlyShowLocation() ?
                          kToolbarHeightLocationBarOnly : kToolbarHeight;
-    gtk_widget_set_size_request(toolbar_left_, -1, toolbar_height);
-    gtk_widget_set_size_request(toolbar_right_, -1, toolbar_height);
+    gtk_container_foreach(GTK_CONTAINER(toolbar_), SetWidgetHeightRequest,
+                          GINT_TO_POINTER(toolbar_height));
     gtk_widget_set_size_request(location_hbox_, -1,
                                 use_gtk ? -1 : toolbar_height);
 
@@ -398,9 +388,21 @@ void BrowserToolbarGtk::Observe(NotificationType type,
     // themes, we want to let the background show through the toolbar.
     gtk_event_box_set_visible_window(GTK_EVENT_BOX(event_box_), use_gtk);
 
+    if (use_gtk) {
+      // We need to manually update the icon if we are in GTK mode. (Note that
+      // we set the initial value in Init()).
+      gtk_image_set_from_pixbuf(
+          GTK_IMAGE(wrench_menu_image_),
+          theme_provider_->GetRTLEnabledPixbufNamed(IDR_TOOLS));
+    }
+
     UpdateRoundedness();
   } else if (type == NotificationType::UPGRADE_RECOMMENDED) {
     MaybeShowUpgradeReminder();
+  } else if (type == NotificationType::ZOOM_LEVEL_CHANGED) {
+    // If our zoom level changed, we need to tell the menu to update its state,
+    // since the menu could still be open.
+    wrench_menu_->UpdateMenu();
   } else {
     NOTREACHED();
   }
@@ -425,39 +427,6 @@ void BrowserToolbarGtk::UpdateTabContents(TabContents* contents,
 }
 
 // BrowserToolbarGtk, private --------------------------------------------------
-
-CustomDrawButton* BrowserToolbarGtk::BuildToolbarButton(
-    int normal_id, int active_id, int highlight_id, int depressed_id,
-    int background_id, const std::string& localized_tooltip,
-    const char* stock_id, int spacing) {
-  CustomDrawButton* button = new CustomDrawButton(
-      GtkThemeProvider::GetFrom(profile_),
-      normal_id, active_id, highlight_id, depressed_id, background_id, stock_id,
-      GTK_ICON_SIZE_SMALL_TOOLBAR);
-
-  gtk_widget_set_tooltip_text(button->widget(),
-                              localized_tooltip.c_str());
-  g_signal_connect(button->widget(), "clicked",
-                   G_CALLBACK(OnButtonClickThunk), this);
-
-  gtk_box_pack_start(GTK_BOX(toolbar_left_), button->widget(), FALSE, FALSE,
-                     spacing);
-  return button;
-}
-
-GtkWidget* BrowserToolbarGtk::BuildToolbarMenuButton(
-    const std::string& localized_tooltip,
-    OwnedWidgetGtk* owner) {
-  GtkWidget* button = theme_provider_->BuildChromeButton();
-  owner->Own(button);
-
-  gtk_widget_set_tooltip_text(button, localized_tooltip.c_str());
-  g_signal_connect(button, "button-press-event",
-                   G_CALLBACK(OnMenuButtonPressEventThunk), this);
-  GTK_WIDGET_UNSET_FLAGS(button, GTK_CAN_FOCUS);
-
-  return button;
-}
 
 void BrowserToolbarGtk::SetUpDragForHomeButton(bool enable) {
   if (enable) {
@@ -632,9 +601,8 @@ gboolean BrowserToolbarGtk::OnMenuButtonPressEvent(GtkWidget* button,
   if (event->button != 1)
     return FALSE;
 
-  gtk_chrome_button_set_paint_state(GTK_CHROME_BUTTON(button),
-                                    GTK_STATE_ACTIVE);
-  app_menu_->Popup(button, reinterpret_cast<GdkEvent*>(event));
+  wrench_menu_button_->SetPaintOverride(GTK_STATE_ACTIVE);
+  wrench_menu_->Popup(button, reinterpret_cast<GdkEvent*>(event));
 
   return TRUE;
 }
@@ -657,7 +625,7 @@ void BrowserToolbarGtk::OnDragDataReceived(GtkWidget* widget,
     home_page_.SetValue(url.spec());
 }
 
-void BrowserToolbarGtk::NotifyPrefChanged(const std::wstring* pref) {
+void BrowserToolbarGtk::NotifyPrefChanged(const std::string* pref) {
   if (!pref || *pref == prefs::kShowHomeButton) {
     if (show_home_button_.GetValue() && !ShouldOnlyShowLocation()) {
       gtk_widget_show(home_->widget());
@@ -691,13 +659,13 @@ bool BrowserToolbarGtk::ShouldOnlyShowLocation() const {
 
 void BrowserToolbarGtk::AnimationEnded(const Animation* animation) {
   DCHECK_EQ(animation, &upgrade_reminder_animation_);
-  gtk_widget_queue_draw(app_menu_image_.get());
+  gtk_widget_queue_draw(wrench_menu_button_->widget()->parent);
 }
 
 void BrowserToolbarGtk::AnimationProgressed(const Animation* animation) {
   DCHECK_EQ(animation, &upgrade_reminder_animation_);
   if (UpgradeAnimationIsFaded())
-    gtk_widget_queue_draw(app_menu_image_.get());
+    gtk_widget_queue_draw(wrench_menu_button_->widget()->parent);
 }
 
 void BrowserToolbarGtk::AnimationCanceled(const Animation* animation) {
@@ -708,15 +676,15 @@ void BrowserToolbarGtk::ActiveWindowChanged(GdkWindow* active_window) {
   MaybeShowUpgradeReminder();
 }
 
-void BrowserToolbarGtk::OnAppMenuShow(GtkWidget* sender) {
+void BrowserToolbarGtk::OnWrenchMenuShow(GtkWidget* sender) {
   if (upgrade_reminder_animation_.is_animating()) {
     upgrade_reminder_canceled_ = true;
     MaybeShowUpgradeReminder();
   }
 }
 
-gboolean BrowserToolbarGtk::OnAppMenuImageExpose(GtkWidget* sender,
-                                                 GdkEventExpose* expose) {
+gboolean BrowserToolbarGtk::OnWrenchMenuButtonExpose(GtkWidget* sender,
+                                                     GdkEventExpose* expose) {
   if (!Singleton<UpgradeDetector>::get()->notify_upgrade())
     return FALSE;
 
@@ -735,10 +703,11 @@ gboolean BrowserToolbarGtk::OnAppMenuImageExpose(GtkWidget* sender,
   int x_offset = base::i18n::IsRTL() ?
       sender->allocation.width - kUpgradeDotOffset - badge.width() :
       kUpgradeDotOffset;
+  int y_offset = sender->allocation.height / 2 + badge.height();
   canvas.DrawBitmapInt(
       badge,
       sender->allocation.x + x_offset,
-      sender->allocation.y + sender->allocation.height - badge.height());
+      sender->allocation.y + y_offset);
 
   return FALSE;
 }

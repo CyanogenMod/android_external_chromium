@@ -7,17 +7,15 @@
 
 #ifndef CHROME_BROWSER_PLUGIN_SERVICE_H_
 #define CHROME_BROWSER_PLUGIN_SERVICE_H_
+#pragma once
 
 #include <string>
-#include <vector>
 
 #include "base/basictypes.h"
 #include "base/file_path.h"
 #include "base/hash_tables.h"
-#include "base/ref_counted.h"
 #include "base/singleton.h"
 #include "base/waitable_event_watcher.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
@@ -61,7 +59,7 @@ class PluginService
   const FilePath& GetChromePluginDataDir();
 
   // Gets the browser's UI locale.
-  const std::wstring& GetUILocale();
+  const std::string& GetUILocale();
 
   // Returns the plugin process host corresponding to the plugin process that
   // has been started by this service. Returns NULL if no process has been
@@ -80,16 +78,12 @@ class PluginService
   void OpenChannelToPlugin(ResourceMessageFilter* renderer_msg_filter,
                            const GURL& url,
                            const std::string& mime_type,
-                           const std::wstring& locale,
+                           const std::string& locale,
                            IPC::Message* reply_msg);
 
-  // Get the path to the plugin specified.  policy_url is the URL of the page
-  // requesting the plugin, so we can verify whether the plugin is allowed
-  // on that page.
-  FilePath GetPluginPath(const GURL& url,
-                         const GURL& policy_url,
-                         const std::string& mime_type,
-                         std::string* actual_mime_type);
+  // Returns true if the given plugin is allowed to be used by a page with
+  // the given URL.
+  bool PrivatePluginAllowedForURL(const FilePath& plugin_path, const GURL& url);
 
   // The UI thread's message loop
   MessageLoop* main_message_loop() { return main_message_loop_; }
@@ -115,10 +109,6 @@ class PluginService
   virtual void Observe(NotificationType type, const NotificationSource& source,
                        const NotificationDetails& details);
 
-  // Returns true if the given plugin is allowed to be used by a page with
-  // the given URL.
-  bool PluginAllowedForURL(const FilePath& plugin_path, const GURL& url);
-
   void RegisterPepperPlugins();
 
   // mapping between plugin path and PluginProcessHost
@@ -135,7 +125,7 @@ class PluginService
   FilePath chrome_plugin_data_dir_;
 
   // The browser's UI locale.
-  const std::wstring ui_locale_;
+  const std::string ui_locale_;
 
   // Map of plugin paths to the origin they are restricted to.  Used for
   // extension-only plugins.

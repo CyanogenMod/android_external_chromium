@@ -1,18 +1,27 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "app/l10n_util.h"
+#include "base/file_util.h"
 #include "base/scoped_temp_dir.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
+#include "base/values.h"
+#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/history/top_sites.h"
-#include "chrome/common/chrome_paths.h"
+#include "chrome/browser/dom_ui/most_visited_handler.h"
 #include "chrome/browser/history/history_marshaling.h"
 #include "chrome/browser/history/top_sites_database.h"
 #include "chrome/browser/history/history_notifications.h"
+#include "chrome/common/chrome_paths.h"
 #include "chrome/test/testing_profile.h"
 #include "chrome/tools/profiles/thumbnail-inl.h"
 #include "gfx/codec/jpeg_codec.h"
 #include "googleurl/src/gurl.h"
+#include "grit/chromium_strings.h"
+#include "grit/generated_resources.h"
+#include "grit/locale_settings.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
@@ -38,6 +47,13 @@ class TopSitesTest : public testing::Test {
   RefCountedBytes* weewar_thumbnail() { return weewar_thumbnail_; }
   CancelableRequestConsumer* consumer() { return &consumer_; }
   size_t number_of_callbacks() {return number_of_callbacks_; }
+  // Prepopulated URLs - added at the back of TopSites.
+  GURL welcome_url() {
+    return GURL(l10n_util::GetStringUTF8(IDS_CHROME_WELCOME_URL));
+  }
+  GURL themes_url() {
+    return GURL(l10n_util::GetStringUTF8(IDS_THEMES_GALLERY_URL));
+  }
 
   virtual void SetUp() {
     profile_.reset(new TestingProfile);
@@ -61,12 +77,12 @@ class TopSitesTest : public testing::Test {
 
   virtual void TearDown() {
     profile_.reset();
-    top_sites_ = NULL;
+    TopSites::DeleteTopSites(top_sites_);
     EXPECT_TRUE(file_util::Delete(file_name_, false));
   }
 
   // Callback for TopSites::GetMostVisitedURLs.
-  void OnTopSitesAvailable(const history::MostVisitedURLList& data) {
+  void OnTopSitesAvailable(history::MostVisitedURLList data) {
     urls_ = data;
     number_of_callbacks_++;
   }
@@ -79,7 +95,6 @@ class TopSitesTest : public testing::Test {
   }
 
   void StoreMostVisited(std::vector<MostVisitedURL>* urls) {
-    AutoLock lock(top_sites_->lock_);  // The function asserts it's in the lock.
     top_sites_->StoreMostVisited(urls);
   }
 
@@ -90,6 +105,10 @@ class TopSitesTest : public testing::Test {
                               std::vector<size_t>* moved_urls)  {
     TopSites::DiffMostVisited(old_list, new_list,
                               added_urls, deleted_urls, moved_urls);
+  }
+
+  Lock& lock() {
+    return top_sites_->lock_;
   }
 
  private:
@@ -107,6 +126,7 @@ class TopSitesTest : public testing::Test {
 
   DISALLOW_COPY_AND_ASSIGN(TopSitesTest);
 };
+
 
 // A mockup of a HistoryService used for testing TopSites.
 class MockHistoryServiceImpl : public TopSites::MockHistoryService {
@@ -151,7 +171,7 @@ class MockHistoryServiceImpl : public TopSites::MockHistoryService {
     MostVisitedURLList::iterator pos = std::find(most_visited_urls_.begin(),
                                                  most_visited_urls_.end(),
                                                  mvu);
-    EXPECT_TRUE(pos != most_visited_urls_.end());
+    EXPECT_TRUE(pos != most_visited_urls_.end()) << url.spec();
     scoped_refptr<RefCountedBytes> thumbnail;
     callback->Run(index, thumbnail);
     delete callback;
@@ -175,14 +195,14 @@ class MockHistoryServiceImpl : public TopSites::MockHistoryService {
 class MockTopSitesDatabaseImpl : public TopSitesDatabase {
  public:
   virtual void GetPageThumbnails(MostVisitedURLList* urls,
-                                 std::map<GURL, TopSites::Images>* thumbnails) {
+                                 std::map<GURL, Images>* thumbnails) {
     // Return a copy of the vector.
     *urls = top_sites_list_;
     *thumbnails = thumbnails_map_;
   }
 
   virtual void SetPageThumbnail(const MostVisitedURL& url, int url_rank,
-                                const TopSites::Images& thumbnail) {
+                                const Images& thumbnail) {
     SetPageRank(url, url_rank);
     // Update thubmnail
     thumbnails_map_[url.url] = thumbnail;
@@ -216,8 +236,8 @@ class MockTopSitesDatabaseImpl : public TopSitesDatabase {
 
   // Get a thumbnail for a given page. Returns true iff we have the thumbnail.
   virtual bool GetPageThumbnail(const GURL& url,
-                                TopSites::Images* thumbnail) {
-    std::map<GURL, TopSites::Images>::const_iterator found =
+                                Images* thumbnail) {
+    std::map<GURL, Images>::const_iterator found =
         thumbnails_map_.find(url);
     if (found == thumbnails_map_.end())
       return false;  // No thumbnail for this URL.
@@ -242,7 +262,7 @@ class MockTopSitesDatabaseImpl : public TopSitesDatabase {
 
  private:
   MostVisitedURLList top_sites_list_;  // Keeps the URLs sorted by score (rank).
-  std::map<GURL, TopSites::Images> thumbnails_map_;
+  std::map<GURL, Images> thumbnails_map_;
 };
 
 
@@ -294,9 +314,9 @@ TEST_F(TopSitesTest, GetCanonicalURL) {
   AppendMostVisitedURL(&most_visited, news);
   StoreMostVisited(&most_visited);
 
-  // Random URLs not in the database shouldn't be reported as being in there.
+  // Random URLs not in the database are returned unchanged.
   GURL result = GetCanonicalURL(GURL("http://fark.com/"));
-  EXPECT_TRUE(result.is_empty());
+  EXPECT_EQ(GURL("http://fark.com/"), result);
 
   // Easy case, there are no redirects and the exact URL is stored.
   result = GetCanonicalURL(news);
@@ -395,6 +415,50 @@ TEST_F(TopSitesTest, SetPageThumbnail) {
   EXPECT_FALSE(top_sites().SetPageThumbnail(url1a, thumbnail, medium_score));
 }
 
+TEST_F(TopSitesTest, GetPageThumbnail) {
+  ChromeThread db_loop(ChromeThread::DB, MessageLoop::current());
+  MostVisitedURLList url_list;
+  MostVisitedURL url1 = {GURL("http://asdf.com")};
+  url1.redirects.push_back(url1.url);
+  url_list.push_back(url1);
+
+  MostVisitedURL url2 = {GURL("http://gmail.com")};
+  url2.redirects.push_back(url2.url);
+  url2.redirects.push_back(GURL("http://mail.google.com"));
+  url_list.push_back(url2);
+
+  top_sites().UpdateMostVisited(url_list);
+  MessageLoop::current()->RunAllPending();
+
+  // Create a dummy thumbnail.
+  SkBitmap thumbnail;
+  thumbnail.setConfig(SkBitmap::kARGB_8888_Config, 4, 4);
+  thumbnail.allocPixels();
+  thumbnail.eraseRGB(0x00, 0x00, 0x00);
+  ThumbnailScore score(0.5, true, true, base::Time::Now());
+
+  RefCountedBytes* result = NULL;
+  EXPECT_TRUE(top_sites().SetPageThumbnail(url1.url, thumbnail, score));
+  EXPECT_TRUE(top_sites().GetPageThumbnail(url1.url, &result));
+
+  EXPECT_TRUE(top_sites().SetPageThumbnail(GURL("http://gmail.com"),
+                                           thumbnail, score));
+  EXPECT_TRUE(top_sites().GetPageThumbnail(GURL("http://gmail.com"),
+                                           &result));
+  // Get a thumbnail via a redirect.
+  EXPECT_TRUE(top_sites().GetPageThumbnail(GURL("http://mail.google.com"),
+                                           &result));
+
+  EXPECT_TRUE(top_sites().SetPageThumbnail(GURL("http://mail.google.com"),
+                                           thumbnail, score));
+  EXPECT_TRUE(top_sites().GetPageThumbnail(url2.url, &result));
+
+  scoped_ptr<SkBitmap> out_bitmap(gfx::JPEGCodec::Decode(result->front(),
+                                                         result->size()));
+  EXPECT_EQ(0, memcmp(thumbnail.getPixels(), out_bitmap->getPixels(),
+                      thumbnail.getSize()));
+}
+
 TEST_F(TopSitesTest, GetMostVisited) {
   ChromeThread db_loop(ChromeThread::DB, MessageLoop::current());
   GURL news("http://news.google.com/");
@@ -411,9 +475,12 @@ TEST_F(TopSitesTest, GetMostVisited) {
       consumer(),
       NewCallback(static_cast<TopSitesTest*>(this),
                   &TopSitesTest::OnTopSitesAvailable));
-  ASSERT_EQ(2u, urls().size());
+  // 2 extra prepopulated URLs.
+  ASSERT_EQ(4u, urls().size());
   EXPECT_EQ(news, urls()[0].url);
   EXPECT_EQ(google, urls()[1].url);
+  EXPECT_EQ(welcome_url(), urls()[2].url);
+  EXPECT_EQ(themes_url(), urls()[3].url);
 }
 
 TEST_F(TopSitesTest, MockDatabase) {
@@ -432,7 +499,7 @@ TEST_F(TopSitesTest, MockDatabase) {
   url.url = asdf_url;
   url.title = asdf_title;
   url.redirects.push_back(url.url);
-  TopSites::Images thumbnail;
+  Images thumbnail;
   db->SetPageThumbnail(url, 0, thumbnail);
 
   top_sites().ReadDatabase();
@@ -441,9 +508,11 @@ TEST_F(TopSitesTest, MockDatabase) {
       consumer(),
       NewCallback(static_cast<TopSitesTest*>(this),
                   &TopSitesTest::OnTopSitesAvailable));
-  ASSERT_EQ(1u, urls().size());
+  ASSERT_EQ(3u, urls().size());
   EXPECT_EQ(asdf_url, urls()[0].url);
   EXPECT_EQ(asdf_title, urls()[0].title);
+  EXPECT_EQ(welcome_url(), urls()[1].url);
+  EXPECT_EQ(themes_url(), urls()[2].url);
 
   MostVisitedURL url2;
   url2.url = google_url;
@@ -459,11 +528,13 @@ TEST_F(TopSitesTest, MockDatabase) {
       consumer(),
       NewCallback(static_cast<TopSitesTest*>(this),
                   &TopSitesTest::OnTopSitesAvailable));
-  ASSERT_EQ(2u, urls().size());
+  ASSERT_EQ(4u, urls().size());
   EXPECT_EQ(google_url, urls()[0].url);
   EXPECT_EQ(google_title, urls()[0].title);
   EXPECT_EQ(asdf_url, urls()[1].url);
   EXPECT_EQ(asdf_title, urls()[1].title);
+  EXPECT_EQ(welcome_url(), urls()[2].url);
+  EXPECT_EQ(themes_url(), urls()[3].url);
 
   MockHistoryServiceImpl hs;
   // Add one old, one new URL to the history.
@@ -475,10 +546,10 @@ TEST_F(TopSitesTest, MockDatabase) {
   top_sites().StartQueryForMostVisited();
   MessageLoop::current()->RunAllPending();
 
-  std::map<GURL, TopSites::Images> thumbnails;
+  std::map<GURL, Images> thumbnails;
   MostVisitedURLList result;
   db->GetPageThumbnails(&result, &thumbnails);
-  ASSERT_EQ(2u, result.size());
+  ASSERT_EQ(4u, result.size());
   EXPECT_EQ(google_title, result[0].title);
   EXPECT_EQ(news_title, result[1].title);
 }
@@ -500,18 +571,18 @@ TEST_F(TopSitesTest, TopSitesDB) {
   url.url = asdf_url;
   url.title = asdf_title;
   url.redirects.push_back(url.url);
-  TopSites::Images thumbnail;
+  Images thumbnail;
   thumbnail.thumbnail = random_thumbnail();
   // Add asdf at rank 0.
   db.SetPageThumbnail(url, 0, thumbnail);
 
-  TopSites::Images result;
+  Images result;
   EXPECT_TRUE(db.GetPageThumbnail(url.url, &result));
   EXPECT_EQ(thumbnail.thumbnail->data.size(), result.thumbnail->data.size());
   EXPECT_TRUE(ThumbnailsAreEqual(thumbnail.thumbnail, result.thumbnail));
 
   MostVisitedURLList urls;
-  std::map<GURL, TopSites::Images> thumbnails;
+  std::map<GURL, Images> thumbnails;
   db.GetPageThumbnails(&urls, &thumbnails);
   ASSERT_EQ(1u, urls.size());
   EXPECT_EQ(asdf_url, urls[0].url);
@@ -587,7 +658,7 @@ TEST_F(TopSitesTest, RealDatabase) {
   url.url = asdf_url;
   url.title = asdf_title;
   url.redirects.push_back(url.url);
-  TopSites::Images thumbnail;
+  Images thumbnail;
   thumbnail.thumbnail = random_thumbnail();
   db->SetPageThumbnail(url, 0, thumbnail);
 
@@ -597,11 +668,13 @@ TEST_F(TopSitesTest, RealDatabase) {
       consumer(),
       NewCallback(static_cast<TopSitesTest*>(this),
                   &TopSitesTest::OnTopSitesAvailable));
-  ASSERT_EQ(1u, urls().size());
+  ASSERT_EQ(3u, urls().size());
   EXPECT_EQ(asdf_url, urls()[0].url);
   EXPECT_EQ(asdf_title, urls()[0].title);
+  EXPECT_EQ(welcome_url(), urls()[1].url);
+  EXPECT_EQ(themes_url(), urls()[2].url);
 
-  TopSites::Images img_result;
+  Images img_result;
   db->GetPageThumbnail(asdf_url, &img_result);
   EXPECT_TRUE(img_result.thumbnail != NULL);
   EXPECT_TRUE(ThumbnailsAreEqual(random_thumbnail(), img_result.thumbnail));
@@ -619,7 +692,7 @@ TEST_F(TopSitesTest, RealDatabase) {
   url2.redirects.push_back(google3_url);
 
   // Add new thumbnail at rank 0 and shift the other result to 1.
-  TopSites::Images g_thumbnail;
+  Images g_thumbnail;
   g_thumbnail.thumbnail = google_thumbnail();
   db->SetPageThumbnail(url2, 0, g_thumbnail);
 
@@ -629,7 +702,7 @@ TEST_F(TopSitesTest, RealDatabase) {
       consumer(),
       NewCallback(static_cast<TopSitesTest*>(this),
                   &TopSitesTest::OnTopSitesAvailable));
-  ASSERT_EQ(2u, urls().size());
+  ASSERT_EQ(4u, urls().size());
   EXPECT_EQ(google1_url, urls()[0].url);
   EXPECT_EQ(google_title, urls()[0].title);
   EXPECT_TRUE(top_sites().GetPageThumbnail(google1_url, &thumbnail_result));
@@ -641,6 +714,8 @@ TEST_F(TopSitesTest, RealDatabase) {
 
   EXPECT_EQ(asdf_url, urls()[1].url);
   EXPECT_EQ(asdf_title, urls()[1].title);
+  EXPECT_EQ(welcome_url(), urls()[2].url);
+  EXPECT_EQ(themes_url(), urls()[3].url);
 
   MockHistoryServiceImpl hs;
   // Add one old, one new URL to the history.
@@ -652,10 +727,10 @@ TEST_F(TopSitesTest, RealDatabase) {
   top_sites().StartQueryForMostVisited();
   MessageLoop::current()->RunAllPending();
 
-  std::map<GURL, TopSites::Images> thumbnails;
+  std::map<GURL, Images> thumbnails;
   MostVisitedURLList results;
   db->GetPageThumbnails(&results, &thumbnails);
-  ASSERT_EQ(2u, results.size());
+  ASSERT_EQ(4u, results.size());
   EXPECT_EQ(google_title, results[0].title);
   EXPECT_EQ(news_title, results[1].title);
 
@@ -673,7 +748,7 @@ TEST_F(TopSitesTest, RealDatabase) {
                                            *weewar_bitmap,
                                            medium_score));
   RefCountedBytes* out_1;
-  TopSites::Images out_2;
+  Images out_2;
   EXPECT_TRUE(top_sites().GetPageThumbnail(google1_url, &out_1));
 
   MessageLoop::current()->RunAllPending();
@@ -705,9 +780,7 @@ TEST_F(TopSitesTest, RealDatabase) {
   EXPECT_TRUE(high_score.Equals(out_2.thumbnail_score));
 }
 
-// This test has been crashing unit_tests on Mac 10.6.
-// See http://crbug.com/49799
-TEST_F(TopSitesTest, DISABLED_DeleteNotifications) {
+TEST_F(TopSitesTest, DeleteNotifications) {
   ChromeThread db_loop(ChromeThread::DB, MessageLoop::current());
   GURL google1_url("http://google.com");
   GURL google2_url("http://google.com/redirect");
@@ -731,35 +804,116 @@ TEST_F(TopSitesTest, DISABLED_DeleteNotifications) {
       consumer(),
       NewCallback(static_cast<TopSitesTest*>(this),
                   &TopSitesTest::OnTopSitesAvailable));
-  ASSERT_EQ(2u, urls().size());
+  // 2 extra prepopulated URLs.
+  ASSERT_EQ(4u, urls().size());
 
   hs.RemoveMostVisitedURL();
 
-  history::URLsDeletedDetails details;
-  details.all_history = false;
+  history::URLsDeletedDetails history_details;
+  history_details.all_history = false;
+  Details<URLsDeletedDetails> details(&history_details);
   top_sites().Observe(NotificationType::HISTORY_URLS_DELETED,
                       Source<Profile> (&profile()),
-                      (const NotificationDetails&)details);
+                      details);
   MessageLoop::current()->RunAllPending();
 
   top_sites().GetMostVisitedURLs(
       consumer(),
       NewCallback(static_cast<TopSitesTest*>(this),
                   &TopSitesTest::OnTopSitesAvailable));
-  ASSERT_EQ(1u, urls().size());
+  ASSERT_EQ(3u, urls().size());
   EXPECT_EQ(google_title, urls()[0].title);
+  EXPECT_EQ(welcome_url(), urls()[1].url);
+  EXPECT_EQ(themes_url(), urls()[2].url);
 
   hs.RemoveMostVisitedURL();
-  details.all_history = true;
+  history_details.all_history = true;
+  details = Details<HistoryDetails>(&history_details);
   top_sites().Observe(NotificationType::HISTORY_URLS_DELETED,
                       Source<Profile> (&profile()),
-                      (const NotificationDetails&)details);
+                      details);
   MessageLoop::current()->RunAllPending();
   top_sites().GetMostVisitedURLs(
       consumer(),
       NewCallback(static_cast<TopSitesTest*>(this),
                   &TopSitesTest::OnTopSitesAvailable));
-  ASSERT_EQ(0u, urls().size());
+  ASSERT_EQ(2u, urls().size());
+  EXPECT_EQ(welcome_url(), urls()[0].url);
+  EXPECT_EQ(themes_url(), urls()[1].url);
+}
+
+TEST_F(TopSitesTest, PinnedURLsDeleted) {
+  ChromeThread db_loop(ChromeThread::DB, MessageLoop::current());
+  GURL google1_url("http://google.com");
+  GURL google2_url("http://google.com/redirect");
+  GURL google3_url("http://www.google.com");
+  string16 google_title(ASCIIToUTF16("Google"));
+  GURL news_url("http://news.google.com");
+  string16 news_title(ASCIIToUTF16("Google News"));
+
+  MockHistoryServiceImpl hs;
+
+  top_sites().Init(file_name());
+
+  hs.AppendMockPage(google1_url, google_title);
+  hs.AppendMockPage(news_url, news_title);
+  top_sites().SetMockHistoryService(&hs);
+
+  top_sites().StartQueryForMostVisited();
+  MessageLoop::current()->RunAllPending();
+  top_sites().GetMostVisitedURLs(
+      consumer(),
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+  MessageLoop::current()->RunAllPending();
+  EXPECT_EQ(1u, number_of_callbacks());
+  // 2 extra prepopulated URLs.
+  ASSERT_EQ(4u, urls().size());
+
+  top_sites().AddPinnedURL(news_url, 3);
+  EXPECT_TRUE(top_sites().IsURLPinned(news_url));
+
+  hs.RemoveMostVisitedURL();
+  history::URLsDeletedDetails history_details;
+  history_details.all_history = false;
+  history_details.urls.insert(news_url);
+  Details<URLsDeletedDetails> details(&history_details);
+  top_sites().Observe(NotificationType::HISTORY_URLS_DELETED,
+                      Source<Profile> (&profile()),
+                      details);
+  MessageLoop::current()->RunAllPending();
+  top_sites().GetMostVisitedURLs(
+      consumer(),
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+  MessageLoop::current()->RunAllPending();
+  EXPECT_EQ(2u, number_of_callbacks());
+  ASSERT_EQ(3u, urls().size());
+  EXPECT_FALSE(top_sites().IsURLPinned(news_url));
+
+  hs.RemoveMostVisitedURL();
+  history_details.all_history = true;
+  details = Details<HistoryDetails>(&history_details);
+  top_sites().Observe(NotificationType::HISTORY_URLS_DELETED,
+                      Source<Profile> (&profile()),
+                      details);
+  MessageLoop::current()->RunAllPending();
+  top_sites().GetMostVisitedURLs(
+      consumer(),
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+  ASSERT_EQ(2u, urls().size());
+  MessageLoop::current()->RunAllPending();
+
+  top_sites().StartQueryForMostVisited();
+  MessageLoop::current()->RunAllPending();
+  top_sites().GetMostVisitedURLs(
+      consumer(),
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+  ASSERT_EQ(2u, urls().size());
+  EXPECT_EQ(welcome_url(), urls()[0].url);
+  EXPECT_EQ(themes_url(), urls()[1].url);
 }
 
 TEST_F(TopSitesTest, GetUpdateDelay) {
@@ -780,8 +934,6 @@ TEST_F(TopSitesTest, GetUpdateDelay) {
 TEST_F(TopSitesTest, Migration) {
   ChromeThread db_loop(ChromeThread::DB, MessageLoop::current());
   GURL google1_url("http://google.com");
-  GURL google2_url("http://google.com/redirect");
-  GURL google3_url("http://www.google.com");
   string16 google_title(ASCIIToUTF16("Google"));
   GURL news_url("http://news.google.com");
   string16 news_title(ASCIIToUTF16("Google News"));
@@ -793,6 +945,7 @@ TEST_F(TopSitesTest, Migration) {
   hs.AppendMockPage(google1_url, google_title);
   hs.AppendMockPage(news_url, news_title);
   top_sites().SetMockHistoryService(&hs);
+  MessageLoop::current()->RunAllPending();
 
   top_sites().StartMigration();
   EXPECT_TRUE(top_sites().migration_in_progress_);
@@ -837,9 +990,12 @@ TEST_F(TopSitesTest, QueueingRequestsForTopSites) {
 
   EXPECT_EQ(3u, number_of_callbacks());
 
-  ASSERT_EQ(2u, urls().size());
+  ASSERT_EQ(4u, urls().size());
   EXPECT_EQ("http://1.com/", urls()[0].url.spec());
   EXPECT_EQ("http://2.com/", urls()[1].url.spec());
+  EXPECT_EQ(welcome_url(), urls()[2].url);
+  EXPECT_EQ(themes_url(), urls()[3].url);
+
 
   url.url = GURL("http://3.com/");
   url.redirects.push_back(url.url);
@@ -854,13 +1010,17 @@ TEST_F(TopSitesTest, QueueingRequestsForTopSites) {
 
   EXPECT_EQ(4u, number_of_callbacks());
 
-  ASSERT_EQ(3u, urls().size());
+  ASSERT_EQ(5u, urls().size());
   EXPECT_EQ("http://1.com/", urls()[0].url.spec());
   EXPECT_EQ("http://2.com/", urls()[1].url.spec());
   EXPECT_EQ("http://3.com/", urls()[2].url.spec());
+  EXPECT_EQ(welcome_url(), urls()[3].url);
+  EXPECT_EQ(themes_url(), urls()[4].url);
+
 }
 
 TEST_F(TopSitesTest, CancelingRequestsForTopSites) {
+  ChromeThread db_loop(ChromeThread::DB, MessageLoop::current());
   CancelableRequestConsumer c1;
   CancelableRequestConsumer c2;
   top_sites().GetMostVisitedURLs(
@@ -895,11 +1055,13 @@ TEST_F(TopSitesTest, CancelingRequestsForTopSites) {
   pages.push_back(url);
 
   top_sites().OnTopSitesAvailable(0, pages);
+  MessageLoop::current()->RunAllPending();
 
   // 1 request was canceled.
   EXPECT_EQ(2u, number_of_callbacks());
 
-  ASSERT_EQ(2u, urls().size());
+  // 2 extra prepopulated URLs.
+  ASSERT_EQ(4u, urls().size());
   EXPECT_EQ("http://1.com/", urls()[0].url.spec());
   EXPECT_EQ("http://2.com/", urls()[1].url.spec());
 }
@@ -945,6 +1107,234 @@ TEST_F(TopSitesTest, AddTemporaryThumbnail) {
                                                          out->size()));
   EXPECT_EQ(0, memcmp(thumbnail.getPixels(), out_bitmap->getPixels(),
                       thumbnail.getSize()));
+}
+
+TEST_F(TopSitesTest, Blacklisting) {
+  ChromeThread db_loop(ChromeThread::DB, MessageLoop::current());
+  MostVisitedURLList pages;
+  MostVisitedURL url, url1;
+  url.url = GURL("http://bbc.com/");
+  url.redirects.push_back(url.url);
+  pages.push_back(url);
+  url1.url = GURL("http://google.com/");
+  url1.redirects.push_back(url1.url);
+  pages.push_back(url1);
+
+  CancelableRequestConsumer c;
+  top_sites().GetMostVisitedURLs(
+      &c,
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+  top_sites().OnTopSitesAvailable(0, pages);
+  MessageLoop::current()->RunAllPending();
+  {
+    Lock& l = lock();
+    AutoLock lock(l);  // IsBlacklisted must be in a lock.
+    EXPECT_FALSE(top_sites().IsBlacklisted(GURL("http://bbc.com/")));
+  }
+
+  EXPECT_EQ(1u, number_of_callbacks());
+
+  ASSERT_EQ(4u, urls().size());
+  EXPECT_EQ("http://bbc.com/", urls()[0].url.spec());
+  EXPECT_EQ("http://google.com/", urls()[1].url.spec());
+  EXPECT_EQ(welcome_url(), urls()[2].url);
+  EXPECT_EQ(themes_url(), urls()[3].url);
+  EXPECT_FALSE(top_sites().HasBlacklistedItems());
+
+  top_sites().AddBlacklistedURL(GURL("http://google.com/"));
+  EXPECT_TRUE(top_sites().HasBlacklistedItems());
+  {
+    Lock& l = lock();
+    AutoLock lock(l);  // IsBlacklisted must be in a lock.
+    EXPECT_TRUE(top_sites().IsBlacklisted(GURL("http://google.com/")));
+    EXPECT_FALSE(top_sites().IsBlacklisted(GURL("http://bbc.com/")));
+    EXPECT_FALSE(top_sites().IsBlacklisted(welcome_url()));
+  }
+
+  top_sites().GetMostVisitedURLs(
+      &c,
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+  MessageLoop::current()->RunAllPending();
+  EXPECT_EQ(2u, number_of_callbacks());
+  ASSERT_EQ(3u, urls().size());
+  EXPECT_EQ("http://bbc.com/", urls()[0].url.spec());
+  EXPECT_EQ(welcome_url(), urls()[1].url);
+  EXPECT_EQ(themes_url(), urls()[2].url);
+
+  top_sites().AddBlacklistedURL(welcome_url());
+  EXPECT_TRUE(top_sites().HasBlacklistedItems());
+  top_sites().GetMostVisitedURLs(
+      &c,
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+  ASSERT_EQ(2u, urls().size());
+  EXPECT_EQ("http://bbc.com/", urls()[0].url.spec());
+  EXPECT_EQ(themes_url(), urls()[1].url);
+
+  top_sites().RemoveBlacklistedURL(GURL("http://google.com/"));
+  EXPECT_TRUE(top_sites().HasBlacklistedItems());
+  {
+    Lock& l = lock();
+    AutoLock lock(l);  // IsBlacklisted must be in a lock.
+    EXPECT_FALSE(top_sites().IsBlacklisted(GURL("http://google.com/")));
+  }
+
+  top_sites().GetMostVisitedURLs(
+      &c,
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+  ASSERT_EQ(3u, urls().size());
+  EXPECT_EQ("http://bbc.com/", urls()[0].url.spec());
+  EXPECT_EQ("http://google.com/", urls()[1].url.spec());
+  EXPECT_EQ(themes_url(), urls()[2].url);
+
+  top_sites().ClearBlacklistedURLs();
+  EXPECT_FALSE(top_sites().HasBlacklistedItems());
+  top_sites().GetMostVisitedURLs(
+      &c,
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+  ASSERT_EQ(4u, urls().size());
+  EXPECT_EQ("http://bbc.com/", urls()[0].url.spec());
+  EXPECT_EQ("http://google.com/", urls()[1].url.spec());
+  EXPECT_EQ(welcome_url(), urls()[2].url);
+  EXPECT_EQ(themes_url(), urls()[3].url);
+}
+
+TEST_F(TopSitesTest, PinnedURLs) {
+  ChromeThread db_loop(ChromeThread::DB, MessageLoop::current());
+  MostVisitedURLList pages;
+  MostVisitedURL url, url1;
+  url.url = GURL("http://bbc.com/");
+  url.redirects.push_back(url.url);
+  pages.push_back(url);
+  url1.url = GURL("http://google.com/");
+  url1.redirects.push_back(url1.url);
+  pages.push_back(url1);
+
+  CancelableRequestConsumer c;
+  top_sites().GetMostVisitedURLs(
+      &c,
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+  top_sites().OnTopSitesAvailable(0, pages);
+  MessageLoop::current()->RunAllPending();
+  EXPECT_FALSE(top_sites().IsURLPinned(GURL("http://bbc.com/")));
+
+  ASSERT_EQ(4u, urls().size());
+  EXPECT_EQ("http://bbc.com/", urls()[0].url.spec());
+  EXPECT_EQ("http://google.com/", urls()[1].url.spec());
+  EXPECT_EQ(welcome_url(), urls()[2].url);
+  EXPECT_EQ(themes_url(), urls()[3].url);
+
+  top_sites().AddPinnedURL(GURL("http://google.com/"), 3);
+  EXPECT_FALSE(top_sites().IsURLPinned(GURL("http://bbc.com/")));
+  EXPECT_FALSE(top_sites().IsURLPinned(welcome_url()));
+
+  top_sites().GetMostVisitedURLs(
+      &c,
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+  EXPECT_EQ(2u, number_of_callbacks());
+  ASSERT_EQ(4u, urls().size());
+  EXPECT_EQ("http://bbc.com/", urls()[0].url.spec());
+  EXPECT_EQ(welcome_url(), urls()[1].url);
+  EXPECT_EQ(themes_url(), urls()[2].url);
+  EXPECT_EQ("http://google.com/", urls()[3].url.spec());
+
+  top_sites().RemovePinnedURL(GURL("http://google.com/"));
+  EXPECT_FALSE(top_sites().IsURLPinned(GURL("http://google.com/")));
+  top_sites().GetMostVisitedURLs(
+      &c,
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+
+  ASSERT_EQ(4u, urls().size());
+  EXPECT_EQ("http://bbc.com/", urls()[0].url.spec());
+  EXPECT_EQ("http://google.com/", urls()[1].url.spec());
+  EXPECT_EQ(welcome_url(), urls()[2].url);
+  EXPECT_EQ(themes_url(), urls()[3].url);
+
+  top_sites().AddPinnedURL(GURL("http://bbc.com"), 1);
+  top_sites().AddPinnedURL(themes_url(), 0);
+  top_sites().GetMostVisitedURLs(
+      &c,
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+
+  ASSERT_EQ(4u, urls().size());
+  EXPECT_EQ(themes_url(), urls()[0].url);
+  EXPECT_EQ("http://bbc.com/", urls()[1].url.spec());
+  EXPECT_EQ("http://google.com/", urls()[2].url.spec());
+  EXPECT_EQ(welcome_url(), urls()[3].url);
+
+  top_sites().RemovePinnedURL(GURL("http://bbc.com"));
+  top_sites().RemovePinnedURL(themes_url());
+
+  top_sites().AddPinnedURL(welcome_url(), 1);
+  top_sites().AddPinnedURL(GURL("http://bbc.com"), 3);
+
+  top_sites().GetMostVisitedURLs(
+      &c,
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+
+  ASSERT_EQ(4u, urls().size());
+  EXPECT_EQ("http://google.com/", urls()[0].url.spec());
+  EXPECT_EQ(welcome_url(), urls()[1].url);
+  EXPECT_EQ(themes_url(), urls()[2].url);
+  EXPECT_EQ("http://bbc.com/", urls()[3].url.spec());
+}
+
+TEST_F(TopSitesTest, BlacklistingAndPinnedURLs) {
+  ChromeThread db_loop(ChromeThread::DB, MessageLoop::current());
+  MostVisitedURLList pages;
+  CancelableRequestConsumer c;
+  top_sites().GetMostVisitedURLs(
+      &c,
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+  top_sites().OnTopSitesAvailable(0, pages);
+  MessageLoop::current()->RunAllPending();
+
+  ASSERT_EQ(2u, urls().size());
+  EXPECT_EQ(welcome_url(), urls()[0].url);
+  EXPECT_EQ(themes_url(), urls()[1].url);
+
+  top_sites().AddPinnedURL(themes_url(), 1);
+  top_sites().AddBlacklistedURL(welcome_url());
+
+  top_sites().GetMostVisitedURLs(
+      &c,
+      NewCallback(static_cast<TopSitesTest*>(this),
+                  &TopSitesTest::OnTopSitesAvailable));
+
+  ASSERT_EQ(2u, urls().size());
+  EXPECT_EQ(GURL(), urls()[0].url);
+  EXPECT_EQ(themes_url(), urls()[1].url);
+
+}
+
+TEST_F(TopSitesTest, AddPrepopulatedPages) {
+  MostVisitedURLList pages;
+  top_sites().AddPrepopulatedPages(&pages);
+  ASSERT_EQ(2u, pages.size());
+  EXPECT_EQ(welcome_url(), pages[0].url);
+  EXPECT_EQ(themes_url(), pages[1].url);
+
+  pages.clear();
+
+  MostVisitedURL url = {themes_url()};
+  pages.push_back(url);
+
+  top_sites().AddPrepopulatedPages(&pages);
+
+  // Themes URL is already in pages; should not be added twice.
+  ASSERT_EQ(2u, pages.size());
+  EXPECT_EQ(themes_url(), pages[0].url);
+  EXPECT_EQ(welcome_url(), pages[1].url);
 }
 
 }  // namespace history

@@ -14,7 +14,7 @@ found in the LICENSE file.
     <script src="testview.js"></script>
     <script src="main.js"></script>
     <script src="dnsview.js"></script>
-    <script src="requestsview.js"></script>
+    <script src="eventsview.js"></script>
     <script src="detailsview.js"></script>
     <script src="sourceentry.js"></script>
     <script src="resizableverticalsplitview.js"></script>
@@ -23,6 +23,9 @@ found in the LICENSE file.
     <script src="logviewpainter.js"></script>
     <script src="loggrouper.js"></script>
     <script src="proxyview.js"></script>
+    <script src="socketpoolwrapper.js"></script>
+    <script src="socketsview.js"></script>
+    <script src="serviceprovidersview.js"></script>
   </head>
   <body onload="onLoaded()">
     <!-- Tab switcher for main categories. -->
@@ -30,10 +33,12 @@ found in the LICENSE file.
       <ul>
         <li><a href="#data" id=dataTab>Data</a></li>
         <li><a href="#proxy" id=proxyTab>Proxy</a></li>
-        <li><a href="#requests" id=requestsTab>Requests</a></li>
+        <li><a href="#events" id=eventsTab>Events</a></li>
         <li><a href="#dns" id=dnsTab>DNS</a></li>
         <li><a href="#sockets" id=socketsTab>Sockets</a></li>
         <li><a href="#httpCache" id=httpCacheTab>HTTP Cache</a></li>
+        <!-- Tab is only shown on Windows -->
+        <li><a href="#serviceProviders" id=serviceProvidersTab style="display: none;">SPIs</a></li>
         <li><a href="#tests" id=testTab>Tests</a></li>
       </ul>
       <div style="clear: both;"></div>
@@ -42,9 +47,25 @@ found in the LICENSE file.
     <div id=proxyTabContent>
       <h4>
         Current proxy settings
-        <input type=button value="Reload settings" id=proxyReloadSettings />
+        <input type=button value="Re-apply settings" id=proxyReloadSettings />
       </h4>
-      <pre id=proxyCurrentConfig></pre>
+
+      <table><tr>
+
+      <td valign=top>
+      <h3>Effective settings</h3>
+      <pre id=proxyEffectiveSettings></pre>
+      </pre>
+      </td>
+
+      <td style='width: 30px'>&nbsp;</td>
+
+      <td valign=top>
+      <h3>Original settings</h3>
+      <pre id=proxyOriginalSettings></pre>
+      </td>
+
+      </tr></table>
 
       <h4>
         Proxies which have failed recently, and are marked as bad
@@ -87,8 +108,13 @@ found in the LICENSE file.
         </tbody>
       </table>
     </div>
-    <!-- Sections TODO -->
-    <div id=socketsTabContent>TODO: display socket information (outstanding connect jobs)</div>
+    <div id=socketsTabContent>
+      <h4>Socket pools</h4>
+      <div id=socketPoolDiv>
+      </div>
+      <div id=socketPoolGroupsDiv>
+      </div>
+    </div>
     <div id=httpCacheTabContent>
       <h4>Entries</h4>
       <a href="chrome://view-http-cache" target=_blank>Explore cache entries</a>
@@ -96,18 +122,100 @@ found in the LICENSE file.
       <h4>Statistics</h4>
       <div id=httpCacheStats>Nothing loaded yet.</div>
     </div>
+    <!-- Only shown on Windows -->
+    <div id=serviceProvidersTabContent style="display: none;">
+      <h4>Layered Service Providers</h4>
+      <table class="styledTable">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Version</th>
+            <th>Type</th>
+            <th>Socket Type</th>
+            <th>Protocol</th>
+            <th>Path</th>
+          </tr>
+        </thead>
+        <tbody id=serviceProvidersTbody>
+        </tbody>
+      </table>
+      <h4>Namespace Providers</h4>
+      <table class="styledTable">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Version</th>
+            <th>Namespace</th>
+            <th>Active</th>
+          </tr>
+        </thead>
+        <tbody id=namespaceProvidersTbody>
+        </tbody>
+      </table>
+    </div>
     <!-- Import/Export data -->
     <div id=dataTabContent>
 
+    <table width=100%>
+    <tr>
+    <td valign=top>
+      <h2>Dump data</h2>
+      <div style="margin: 8px">
+        <p>
+          <input id=securityStrippingCheckbox type=checkbox checked=yes>
+          Strip private information (cookies and credentials).
+        </p>
+        <p>
+          <a href="javascript:displayHelpForBugDump()">
+            Help: How to get data for bug reports?
+          </a>
+        </p>
+        <button id=exportToText class=bigButton>Dump to text</button>
+      </div>
+    </td>
+
+    <td align=right valign=top>
+      <div class="capturingBox">
+        <b>Capturing all events...</b>
+        <table style="margin: 8px">
+          <tr>
+            <td>Pasively captured:</td>
+            <td align=right id=passivelyCapturedCount></td>
+          </tr>
+          <tr>
+            <td>Actively captured:</td>
+            <td align=right id=activelyCapturedCount></td>
+          </tr>
+        </table>
+        <input type=button value="Delete all" id=dataViewDeleteAll />
+      </div>
+    </td>
+
+    </tr>
+    </table>
+
+    <pre id=exportedDataText></pre>
+    </div>
+
+<!-- START OF HELP TEXT -->
+<script>
+function displayHelpForBugDump() {
+  // We can't access the popups loaded from DOMUI pages, so we instead populate
+  // its contents using a data:URL. YUCK!
+  // TODO(eroman): do something less hacky, like exposing a new URL.
+  var helpContents =
+      document.getElementById('howtoDumpForBugsHelpContent').innerHTML;
+  window.open('data:text/html,' + encodeURIComponent(helpContents));
+}
+</script>
+<div id=howtoDumpForBugsHelpContent style="display: none">
 <h2>How to get data for bug reports</h2>
 
 <ol>
 <li>Reproduce the network problem.</li>
-<li>Click this button:
-  <button id=exportToText style="font-size: 110%"><b>Dump to text</b> </button>
-</li>
+<li>Click the <i>Dump to text</i> button in the <i>Data</i> tab.</li>
 
-<li>Copy-paste the data on this page to a text file.</li>
+<li>Copy-paste the resulting selected text to a file.</li>
 
 <li>Email the text file to the bug investigator,
   <b>along with an explanation of what went wrong.</b>
@@ -115,20 +223,6 @@ found in the LICENSE file.
 
 </ol>
 
-<script>
-function toggleMoreExplanation() {
-  var div = document.getElementById('moreExplanation');
-  var isToggled = div.style.display == '';
-  document.getElementById('moreExplanationIcon').innerText =
-      isToggled ? 'Show' : 'Hide';
-  setNodeDisplay(div, !isToggled);
-}
-</script>
-
-<a href="javascript:toggleMoreExplanation()">
-  <span id=moreExplanationIcon>Show</span> more explanation</a>
-
-<div style="display:none; margin-left: 15px;" id=moreExplanation>
 
 <ul>
 <li>The network log <b>may contain personally identifying information</b> like
@@ -136,8 +230,10 @@ function toggleMoreExplanation() {
 <ul>
 <li>You can edit the log to obscure information if you like, but sometimes it
   is relevant to the bug.</li>
+<li>If you choose not to have cookies removed from the log, you must toggle
+  the checkbox before clicking the button.</li>
 </ul>
-<li>Ideally you would have this tool running <b>before</b> you reproduce the 
+<li>Ideally you would have the tool running <b>before</b> you reproduce the 
   bug.
   If that isn't possible (perhaps the bug happens unpredictably), then the
   next best thing is to load chrome://net-internals/ <b>as soon as you can
@@ -147,22 +243,24 @@ function toggleMoreExplanation() {
 <h2>How it works</h2>
 
 <ul>
-<li>While this page is open, it will capture the network events that are
-  happening in Chrome. You can view that in real-time by going to the
-  <a href='#requests'>Requests</a> tab.</li>
-<li>Once you close this window, the data it had captured is discarded.</li>
-<li>Chrome keeps around a small buffer of network events for the
-  <b>most recent</b> requests. That way if you open chrome://net-internals/
-  <b>shortly after</b> encountering a problem, you can still find the relevant
-  data. </b>
-  These <b>passively captured</b> events are less accurate however, and will
+  <li>While the net-internals page is open, it will capture the network events
+  that are happening in Chrome. You can view that in real-time by going to
+  the <i>Events</i> tab.</li>
+  <li>Once you close the net-internals window, the data it had captured will be
+  discarded.</li>
+<li>Chrome keeps around a small buffer of the most recent network events
+  even when the net-internals window is not open. That way if you open
+  chrome://net-internals/ <b>shortly after</b> encountering a problem,
+  you may still find the relevant data.
+  These <i>passively captured</i> events are less accurate however, and will
   be prefixed in the log with <span style="font-family: monospace;">(P)</span>.
 </li>
 </ul>
+
+<button onclick='window.close()'>Close this popup</button>
+<!-- END OF HELP TEXT -->
 </div>
 
-       <pre id=exportedDataText></pre>
-    </div>
     <!-- Connection tests -->
     <div id=testTabContent>
       <p>Input a URL which failed to load, and then click the button to run some
@@ -174,7 +272,7 @@ function toggleMoreExplanation() {
       <div id=testSummary></div>
     </div>
 
-    <!-- ================= Requests view =================== -->
+    <!-- ================= Events view =================== -->
 
     <!-- Filter Box: This the top bar which contains the search box.  -->
     <div id=filterBox>
@@ -186,25 +284,25 @@ function toggleMoreExplanation() {
         </tr>
       </table>
     </div>
-    <!-- Requests Box: This the panel on the left which lists the requests -->
-    <div id=requestsBox>
-      <table id=requestsListTable cellspacing=0 cellpadding=0 width=100%>
+    <!-- Events Box: This the panel on the left which lists the sources -->
+    <div id=eventsBox>
+      <table id=eventsListTable cellspacing=0 cellpadding=0 width=100%>
         <thead>
           <tr>
             <td><input type=checkbox id=selectAll /></td>
-            <td>ID</td>
-            <td>Source</td>
-            <td width=99%>Description</td>
+            <td id=sortById>ID</td>
+            <td id=sortBySource>Source</td>
+            <td id=sortByDescription width=99%>Description</td>
           </tr>
         </thead>
-        <!-- Requests table body: This is where request rows go into -->
-        <tbody id=requestsListTableBody></tbody>
+        <!-- Events table body: This is where request rows go into -->
+        <tbody id=eventsListTableBody></tbody>
       </table>
     </div>
     <!-- Action Box: This is a button bar along the bottom -->
     <div id=actionBox>
-      <input type=button value="Stop capturing" onclick="alert('TODO')" />
       <input type=button value="Delete selected" id=deleteSelected />
+      <input type=button value="Delete all" id=deleteAll />
     </div>
     <!-- Splitter Box: This is a handle to resize the vertical divider -->
     <div id=splitterBox></div>

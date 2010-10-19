@@ -4,8 +4,7 @@
 
 #ifndef CHROME_BROWSER_WEBDATA_WEB_DATA_SERVICE_TEST_UTIL_H__
 #define CHROME_BROWSER_WEBDATA_WEB_DATA_SERVICE_TEST_UTIL_H__
-
-#include <vector>
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/message_loop.h"

@@ -4,21 +4,31 @@
 
 #include "net/socket/ssl_client_socket_pool.h"
 
+#include "base/values.h"
+#include "net/base/dnsrr_resolver.h"
+#include "net/base/dns_util.h"
 #include "net/base/net_errors.h"
+#include "net/base/ssl_cert_request_info.h"
+#include "net/http/http_proxy_client_socket.h"
+#include "net/http/http_proxy_client_socket_pool.h"
 #include "net/socket/client_socket_factory.h"
 #include "net/socket/client_socket_handle.h"
+#include "net/socket/socks_client_socket_pool.h"
+#include "net/socket/ssl_client_socket.h"
+#include "net/socket/tcp_client_socket_pool.h"
 
 namespace net {
 
 SSLSocketParams::SSLSocketParams(
     const scoped_refptr<TCPSocketParams>& tcp_params,
-    const scoped_refptr<HttpProxySocketParams>& http_proxy_params,
     const scoped_refptr<SOCKSSocketParams>& socks_params,
+    const scoped_refptr<HttpProxySocketParams>& http_proxy_params,
     ProxyServer::Scheme proxy,
     const std::string& hostname,
     const SSLConfig& ssl_config,
     int load_flags,
-    bool want_spdy)
+    bool force_spdy_over_ssl,
+    bool want_spdy_over_npn)
     : tcp_params_(tcp_params),
       http_proxy_params_(http_proxy_params),
       socks_params_(socks_params),
@@ -26,7 +36,11 @@ SSLSocketParams::SSLSocketParams(
       hostname_(hostname),
       ssl_config_(ssl_config),
       load_flags_(load_flags),
-      want_spdy_(want_spdy) {
+      force_spdy_over_ssl_(force_spdy_over_ssl),
+      want_spdy_over_npn_(want_spdy_over_npn),
+      dnssec_resolution_attempted_(false),
+      dnssec_resolution_complete_(false),
+      dnssec_resolution_callback_(NULL) {
   switch (proxy_) {
     case ProxyServer::SCHEME_DIRECT:
       DCHECK(tcp_params_.get() != NULL);
@@ -34,6 +48,7 @@ SSLSocketParams::SSLSocketParams(
       DCHECK(socks_params_.get() == NULL);
       break;
     case ProxyServer::SCHEME_HTTP:
+    case ProxyServer::SCHEME_HTTPS:
       DCHECK(tcp_params_.get() == NULL);
       DCHECK(http_proxy_params_.get() != NULL);
       DCHECK(socks_params_.get() == NULL);
@@ -52,6 +67,61 @@ SSLSocketParams::SSLSocketParams(
 
 SSLSocketParams::~SSLSocketParams() {}
 
+void SSLSocketParams::StartDNSSECResolution() {
+  dnssec_response_.reset(new RRResponse);
+  // We keep a reference to ourselves while the DNS resolution is underway.
+  // When it completes (in DNSSECResolutionComplete), we balance it out.
+  AddRef();
+
+  dnssec_resolution_attempted_ = true;
+  bool r = DnsRRResolver::Resolve(
+      hostname(), kDNS_TXT, DnsRRResolver::FLAG_WANT_DNSSEC,
+      NewCallback(this, &SSLSocketParams::DNSSECResolutionComplete),
+      dnssec_response_.get());
+  if (!r) {
+    dnssec_response_.reset();
+    dnssec_resolution_attempted_ = false;
+  }
+}
+
+void SSLSocketParams::DNSSECResolutionComplete(int rv) {
+  CompletionCallback* callback = NULL;
+  {
+    DCHECK(dnssec_resolution_attempted_);
+    DCHECK(!dnssec_resolution_complete_);
+
+    if (rv != OK)
+      dnssec_response_.reset();
+
+    dnssec_resolution_complete_ = true;
+    if (dnssec_resolution_callback_)
+      callback = dnssec_resolution_callback_;
+  }
+
+  if (callback)
+    callback->Run(OK);
+
+  Release();
+}
+
+int SSLSocketParams::GetDNSSECRecords(RRResponse** out,
+                                      CompletionCallback* callback) {
+  if (!dnssec_resolution_attempted_) {
+    *out = NULL;
+    return OK;
+  }
+
+  if (dnssec_resolution_complete_) {
+    *out = dnssec_response_.get();
+    return OK;
+  }
+
+  DCHECK(dnssec_resolution_callback_ == NULL);
+
+  dnssec_resolution_callback_ = callback;
+  return ERR_IO_PENDING;
+}
+
 // Timeout for the SSL handshake portion of the connect.
 static const int kSSLHandshakeTimeoutInSeconds = 30;
 
@@ -59,9 +129,9 @@ SSLConnectJob::SSLConnectJob(
     const std::string& group_name,
     const scoped_refptr<SSLSocketParams>& params,
     const base::TimeDelta& timeout_duration,
-    const scoped_refptr<TCPClientSocketPool>& tcp_pool,
-    const scoped_refptr<HttpProxyClientSocketPool>& http_proxy_pool,
-    const scoped_refptr<SOCKSClientSocketPool>& socks_pool,
+    TCPClientSocketPool* tcp_pool,
+    SOCKSClientSocketPool* socks_pool,
+    HttpProxyClientSocketPool* http_proxy_pool,
     ClientSocketFactory* client_socket_factory,
     const scoped_refptr<HostResolver>& host_resolver,
     Delegate* delegate,
@@ -70,8 +140,8 @@ SSLConnectJob::SSLConnectJob(
                  BoundNetLog::Make(net_log, NetLog::SOURCE_CONNECT_JOB)),
       params_(params),
       tcp_pool_(tcp_pool),
-      http_proxy_pool_(http_proxy_pool),
       socks_pool_(socks_pool),
+      http_proxy_pool_(http_proxy_pool),
       client_socket_factory_(client_socket_factory),
       resolver_(host_resolver),
       ALLOW_THIS_IN_INITIALIZER_LIST(
@@ -101,16 +171,12 @@ LoadState SSLConnectJob::GetLoadState() const {
 }
 
 int SSLConnectJob::ConnectInternal() {
-  DetermineFirstState();
-  return DoLoop(OK);
-}
-
-void SSLConnectJob::DetermineFirstState() {
   switch (params_->proxy()) {
     case ProxyServer::SCHEME_DIRECT:
       next_state_ = STATE_TCP_CONNECT;
       break;
     case ProxyServer::SCHEME_HTTP:
+    case ProxyServer::SCHEME_HTTPS:
       next_state_ = STATE_TUNNEL_CONNECT;
       break;
     case ProxyServer::SCHEME_SOCKS4:
@@ -121,6 +187,7 @@ void SSLConnectJob::DetermineFirstState() {
       NOTREACHED() << "unknown proxy type";
       break;
   }
+  return DoLoop(OK);
 }
 
 void SSLConnectJob::OnIOComplete(int result) {
@@ -176,7 +243,11 @@ int SSLConnectJob::DoLoop(int result) {
 }
 
 int SSLConnectJob::DoTCPConnect() {
-  DCHECK(tcp_pool_.get());
+  DCHECK(tcp_pool_);
+
+  if (SSLConfigService::dnssec_enabled())
+    params_->StartDNSSECResolution();
+
   next_state_ = STATE_TCP_CONNECT_COMPLETE;
   transport_socket_handle_.reset(new ClientSocketHandle());
   scoped_refptr<TCPSocketParams> tcp_params = params_->tcp_params();
@@ -193,7 +264,7 @@ int SSLConnectJob::DoTCPConnectComplete(int result) {
 }
 
 int SSLConnectJob::DoSOCKSConnect() {
-  DCHECK(socks_pool_.get());
+  DCHECK(socks_pool_);
   next_state_ = STATE_SOCKS_CONNECT_COMPLETE;
   transport_socket_handle_.reset(new ClientSocketHandle());
   scoped_refptr<SOCKSSocketParams> socks_params = params_->socks_params();
@@ -210,14 +281,15 @@ int SSLConnectJob::DoSOCKSConnectComplete(int result) {
 }
 
 int SSLConnectJob::DoTunnelConnect() {
-  DCHECK(http_proxy_pool_.get());
+  DCHECK(http_proxy_pool_);
   next_state_ = STATE_TUNNEL_CONNECT_COMPLETE;
+
   transport_socket_handle_.reset(new ClientSocketHandle());
   scoped_refptr<HttpProxySocketParams> http_proxy_params =
       params_->http_proxy_params();
   return transport_socket_handle_->Init(
       group_name(), http_proxy_params,
-      http_proxy_params->tcp_params()->destination().priority(), &callback_,
+      http_proxy_params->destination().priority(), &callback_,
       http_proxy_pool_, net_log());
 }
 
@@ -225,12 +297,6 @@ int SSLConnectJob::DoTunnelConnectComplete(int result) {
   ClientSocket* socket = transport_socket_handle_->socket();
   HttpProxyClientSocket* tunnel_socket =
       static_cast<HttpProxyClientSocket*>(socket);
-
-  if (result == ERR_RETRY_CONNECTION) {
-    DetermineFirstState();
-    transport_socket_handle_->socket()->Disconnect();
-    return OK;
-  }
 
   // Extract the information needed to prompt for the proxy authentication.
   // so that when ClientSocketPoolBaseHelper calls |GetAdditionalErrorState|,
@@ -241,19 +307,17 @@ int SSLConnectJob::DoTunnelConnectComplete(int result) {
   if (result < 0)
     return result;
 
-  if (tunnel_socket->NeedsRestartWithAuth()) {
-    // We must have gotten an 'idle' tunnel socket that is waiting for auth.
-    // The HttpAuthController should have new credentials, we just need
-    // to retry.
-    next_state_ = STATE_TUNNEL_CONNECT_COMPLETE;
-    return tunnel_socket->RestartWithAuth(&callback_);
-  }
-
   next_state_ = STATE_SSL_CONNECT;
   return result;
 }
 
 void SSLConnectJob::GetAdditionalErrorState(ClientSocketHandle * handle) {
+  // Headers in |error_response_info_| indicate a proxy tunnel setup
+  // problem. See DoTunnelConnectComplete.
+  if (error_response_info_.headers) {
+    handle->set_pending_http_proxy_connection(
+        transport_socket_handle_.release());
+  }
   handle->set_ssl_error_response_info(error_response_info_);
   if (!ssl_connect_start_time_.is_null())
     handle->set_is_ssl_error(true);
@@ -268,6 +332,8 @@ int SSLConnectJob::DoSSLConnect() {
   ssl_socket_.reset(client_socket_factory_->CreateSSLClientSocket(
         transport_socket_handle_.release(), params_->hostname(),
         params_->ssl_config()));
+  if (SSLConfigService::dnssec_enabled())
+    ssl_socket_->UseDNSSEC(params_.get());
   return ssl_socket_->Connect(&callback_);
 }
 
@@ -281,16 +347,25 @@ int SSLConnectJob::DoSSLConnectComplete(int result) {
   if (result == OK || IsCertificateError(result))
     status = ssl_socket_->GetNextProto(&proto);
 
-  bool using_spdy = false;
+  // If we want spdy over npn, make sure it succeeded.
   if (status == SSLClientSocket::kNextProtoNegotiated) {
-    ssl_socket_->setWasNpnNegotiated(true);
-    if (SSLClientSocket::NextProtoFromString(proto) ==
-        SSLClientSocket::kProtoSPDY1) {
-          using_spdy = true;
+    ssl_socket_->set_was_npn_negotiated(true);
+    SSLClientSocket::NextProto next_protocol =
+        SSLClientSocket::NextProtoFromString(proto);
+    // If we negotiated either version of SPDY, we must have
+    // advertised it, so allow it.
+    // TODO(mbelshe): verify it was a protocol we advertised?
+    if (next_protocol == SSLClientSocket::kProtoSPDY1 ||
+        next_protocol == SSLClientSocket::kProtoSPDY2) {
+      ssl_socket_->set_was_spdy_negotiated(true);
     }
   }
-  if (params_->want_spdy() && !using_spdy)
+  if (params_->want_spdy_over_npn() && !ssl_socket_->was_spdy_negotiated())
     return ERR_NPN_NEGOTIATION_FAILED;
+
+  // Spdy might be turned on by default, or it might be over npn.
+  bool using_spdy = params_->force_spdy_over_ssl() ||
+      params_->want_spdy_over_npn();
 
   if (result == OK ||
       ssl_socket_->IgnoreCertError(result, params_->load_flags())) {
@@ -326,21 +401,21 @@ ConnectJob* SSLClientSocketPool::SSLConnectJobFactory::NewConnectJob(
     const PoolBase::Request& request,
     ConnectJob::Delegate* delegate) const {
   return new SSLConnectJob(group_name, request.params(), ConnectionTimeout(),
-                           tcp_pool_, http_proxy_pool_, socks_pool_,
+                           tcp_pool_, socks_pool_, http_proxy_pool_,
                            client_socket_factory_, host_resolver_, delegate,
                            net_log_);
 }
 
 SSLClientSocketPool::SSLConnectJobFactory::SSLConnectJobFactory(
-    const scoped_refptr<TCPClientSocketPool>& tcp_pool,
-    const scoped_refptr<HttpProxyClientSocketPool>& http_proxy_pool,
-    const scoped_refptr<SOCKSClientSocketPool>& socks_pool,
+    TCPClientSocketPool* tcp_pool,
+    SOCKSClientSocketPool* socks_pool,
+    HttpProxyClientSocketPool* http_proxy_pool,
     ClientSocketFactory* client_socket_factory,
     HostResolver* host_resolver,
     NetLog* net_log)
     : tcp_pool_(tcp_pool),
-      http_proxy_pool_(http_proxy_pool),
       socks_pool_(socks_pool),
+      http_proxy_pool_(http_proxy_pool),
       client_socket_factory_(client_socket_factory),
       host_resolver_(host_resolver),
       net_log_(net_log) {
@@ -365,22 +440,33 @@ SSLClientSocketPool::SSLConnectJobFactory::SSLConnectJobFactory(
 SSLClientSocketPool::SSLClientSocketPool(
     int max_sockets,
     int max_sockets_per_group,
-    const scoped_refptr<ClientSocketPoolHistograms>& histograms,
+    ClientSocketPoolHistograms* histograms,
     const scoped_refptr<HostResolver>& host_resolver,
     ClientSocketFactory* client_socket_factory,
-    const scoped_refptr<TCPClientSocketPool>& tcp_pool,
-    const scoped_refptr<HttpProxyClientSocketPool>& http_proxy_pool,
-    const scoped_refptr<SOCKSClientSocketPool>& socks_pool,
+    TCPClientSocketPool* tcp_pool,
+    SOCKSClientSocketPool* socks_pool,
+    HttpProxyClientSocketPool* http_proxy_pool,
+    SSLConfigService* ssl_config_service,
     NetLog* net_log)
-    : base_(max_sockets, max_sockets_per_group, histograms,
+    : tcp_pool_(tcp_pool),
+      socks_pool_(socks_pool),
+      http_proxy_pool_(http_proxy_pool),
+      base_(max_sockets, max_sockets_per_group, histograms,
             base::TimeDelta::FromSeconds(
                 ClientSocketPool::unused_idle_socket_timeout()),
             base::TimeDelta::FromSeconds(kUsedIdleSocketTimeout),
-            new SSLConnectJobFactory(tcp_pool, http_proxy_pool, socks_pool,
+            new SSLConnectJobFactory(tcp_pool, socks_pool, http_proxy_pool,
                                      client_socket_factory, host_resolver,
-                                     net_log)) {}
+                                     net_log)),
+      ssl_config_service_(ssl_config_service) {
+  if (ssl_config_service_)
+    ssl_config_service_->AddObserver(this);
+}
 
-SSLClientSocketPool::~SSLClientSocketPool() {}
+SSLClientSocketPool::~SSLClientSocketPool() {
+  if (ssl_config_service_)
+    ssl_config_service_->RemoveObserver(this);
+}
 
 int SSLClientSocketPool::RequestSocket(const std::string& group_name,
                                        const void* socket_params,
@@ -421,6 +507,37 @@ int SSLClientSocketPool::IdleSocketCountInGroup(
 LoadState SSLClientSocketPool::GetLoadState(
     const std::string& group_name, const ClientSocketHandle* handle) const {
   return base_.GetLoadState(group_name, handle);
+}
+
+void SSLClientSocketPool::OnSSLConfigChanged() {
+  Flush();
+}
+
+DictionaryValue* SSLClientSocketPool::GetInfoAsValue(
+    const std::string& name,
+    const std::string& type,
+    bool include_nested_pools) const {
+  DictionaryValue* dict = base_.GetInfoAsValue(name, type);
+  if (include_nested_pools) {
+    ListValue* list = new ListValue();
+    if (tcp_pool_) {
+      list->Append(tcp_pool_->GetInfoAsValue("tcp_socket_pool",
+                                             "tcp_socket_pool",
+                                             false));
+    }
+    if (socks_pool_) {
+      list->Append(socks_pool_->GetInfoAsValue("socks_pool",
+                                               "socks_pool",
+                                               true));
+    }
+    if (http_proxy_pool_) {
+      list->Append(http_proxy_pool_->GetInfoAsValue("http_proxy_pool",
+                                                    "http_proxy_pool",
+                                                    true));
+    }
+    dict->Set("nested_pools", list);
+  }
+  return dict;
 }
 
 }  // namespace net

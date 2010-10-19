@@ -87,6 +87,16 @@ void WifiConfigView::ContentsChanged(views::Textfield* sender,
   UpdateCanLogin();
 }
 
+bool WifiConfigView::HandleKeystroke(
+    views::Textfield* sender,
+    const views::Textfield::Keystroke& keystroke) {
+  if (sender == passphrase_textfield_ &&
+      keystroke.GetKeyboardCode() == app::VKEY_RETURN) {
+    parent_->GetDialogClientView()->AcceptWindow();
+  }
+  return false;
+}
+
 void WifiConfigView::ButtonPressed(views::Button* sender,
                                    const views::Event& event) {
   if (sender == passphrase_visible_button_) {
@@ -124,7 +134,7 @@ bool WifiConfigView::Login() {
     CrosLibrary::Get()->GetNetworkLibrary()->ConnectToWifiNetwork(
         GetSSID(), GetPassphrase(),
         identity_string, certificate_path_,
-        autoconnect_checkbox_->checked());
+        autoconnect_checkbox_ ? autoconnect_checkbox_->checked() : true);
   } else {
     Save();
     CrosLibrary::Get()->GetNetworkLibrary()->ConnectToWifiNetwork(
@@ -139,10 +149,12 @@ bool WifiConfigView::Save() {
   if (!other_network_) {
     bool changed = false;
 
-    bool auto_connect = autoconnect_checkbox_->checked();
-    if (auto_connect != wifi_.auto_connect()) {
-      wifi_.set_auto_connect(auto_connect);
-      changed = true;
+    if (autoconnect_checkbox_) {
+      bool auto_connect = autoconnect_checkbox_->checked();
+      if (auto_connect != wifi_.auto_connect()) {
+        wifi_.set_auto_connect(auto_connect);
+        changed = true;
+      }
     }
 
     if (passphrase_textfield_) {
@@ -303,15 +315,34 @@ void WifiConfigView::Init() {
     layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
   }
 
+  // If there's an error, add an error message label.
+  // Right now, only displaying bad_passphrase and bad_wepkey errors.
+  if (wifi_.error() == ERROR_BAD_PASSPHRASE ||
+      wifi_.error() == ERROR_BAD_WEPKEY) {
+    layout->StartRow(0, column_view_set_id);
+    layout->SkipColumns(1);
+    int id = IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_BAD_PASSPHRASE;
+    if (wifi_.error() == ERROR_BAD_WEPKEY)
+      id = IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_BAD_WEPKEY;
+    views::Label* label_error = new views::Label(l10n_util::GetString(id));
+    label_error->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
+    label_error->SetColor(SK_ColorRED);
+    layout->AddView(label_error);
+    layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  }
+
   // Autoconnect checkbox
-  autoconnect_checkbox_ = new views::Checkbox(
-      l10n_util::GetString(IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_AUTO_CONNECT));
-  // For other network, default to autoconnect.
-  bool autoconnect = other_network_ || wifi_.auto_connect();
-  autoconnect_checkbox_->SetChecked(autoconnect);
-  layout->StartRow(0, column_view_set_id);
-  layout->AddView(autoconnect_checkbox_, 3, 1);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  // Only show if this network is already remembered (a favorite).
+  if (wifi_.favorite()) {
+    autoconnect_checkbox_ = new views::Checkbox(l10n_util::GetString(
+        IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_AUTO_CONNECT));
+    // For other network, default to autoconnect.
+    bool autoconnect = other_network_ || wifi_.auto_connect();
+    autoconnect_checkbox_->SetChecked(autoconnect);
+    layout->StartRow(0, column_view_set_id);
+    layout->AddView(autoconnect_checkbox_, 3, 1);
+    layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  }
 }
 
 }  // namespace chromeos

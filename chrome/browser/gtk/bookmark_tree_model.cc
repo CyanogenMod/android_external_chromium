@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,8 @@
 
 #include <gtk/gtk.h>
 
-#include "app/resource_bundle.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/gtk/bookmark_utils_gtk.h"
 #include "chrome/browser/gtk/gtk_theme_provider.h"
@@ -26,7 +26,8 @@ void AddSingleNodeToTreeStore(GtkTreeStore* store, const BookmarkNode* node,
   // differently).
   gtk_tree_store_set(store, iter,
       bookmark_utils::FOLDER_ICON, GtkThemeProvider::GetFolderIcon(true),
-      bookmark_utils::FOLDER_NAME, WideToUTF8(node->GetTitle()).c_str(),
+      bookmark_utils::FOLDER_NAME,
+      UTF16ToUTF8(node->GetTitle()).c_str(),
       bookmark_utils::ITEM_ID, node->id(),
       // We don't want to use node->is_folder() because that would let the
       // user edit "Bookmarks Bar" and "Other Bookmarks".
@@ -50,7 +51,7 @@ void RecursiveResolve(BookmarkModel* bb_model, const BookmarkNode* bb_node,
   if (gtk_tree_model_iter_children(tree_model, &child_iter, parent_iter)) {
     do {
       int64 id = bookmark_utils::GetIdFromTreeIter(tree_model, &child_iter);
-      std::wstring title =
+      string16 title =
           bookmark_utils::GetTitleFromTreeIter(tree_model, &child_iter);
       const BookmarkNode* child_bb_node = NULL;
       if (id == 0) {
@@ -212,13 +213,13 @@ int64 GetIdFromTreeIter(GtkTreeModel* model, GtkTreeIter* iter) {
   return ret_val;
 }
 
-std::wstring GetTitleFromTreeIter(GtkTreeModel* model, GtkTreeIter* iter) {
+string16 GetTitleFromTreeIter(GtkTreeModel* model, GtkTreeIter* iter) {
   GValue value = { 0, };
-  std::wstring ret_val;
+  string16 ret_val;
   gtk_tree_model_get_value(model, iter, FOLDER_NAME, &value);
   if (G_VALUE_HOLDS_STRING(&value)) {
     const gchar* utf8str = g_value_get_string(&value);
-    ret_val = UTF8ToWide(utf8str);
+    ret_val = UTF8ToUTF16(utf8str);
     g_value_unset(&value);
   } else {
     NOTREACHED() << "Impossible type mismatch";

@@ -18,6 +18,7 @@
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/extensions/extension.h"
+#include "chrome/common/notification_service.h"
 
 namespace keys = extension_accessibility_api_constants;
 
@@ -176,7 +177,7 @@ void ExtensionAccessibilityEventRouter::DispatchEvent(
     const std::string& json_args) {
   if (enabled_ && profile && profile->GetExtensionMessageService()) {
     profile->GetExtensionMessageService()->DispatchEventToRenderers(
-        event_name, json_args, profile->IsOffTheRecord(), GURL());
+        event_name, json_args, profile, GURL());
   }
 }
 

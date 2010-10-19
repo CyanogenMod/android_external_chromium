@@ -1,23 +1,21 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_TAB_CONTENTS_VIEW_MAC_H_
 #define CHROME_BROWSER_TAB_CONTENTS_TAB_CONTENTS_VIEW_MAC_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
 #include <string>
 
-#include "base/scoped_ptr.h"
 #include "base/scoped_nsobject.h"
 #include "chrome/browser/cocoa/base_view.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/common/notification_registrar.h"
 #include "gfx/size.h"
 
-class FilePath;
-class FindBarMac;
 @class FocusTracker;
 @class SadTabController;
 class SkBitmap;

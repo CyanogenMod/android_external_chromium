@@ -1,20 +1,19 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_BASE_TRANSPORT_SECURITY_STATE_H_
 #define NET_BASE_TRANSPORT_SECURITY_STATE_H_
+#pragma once
 
 #include <map>
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/gtest_prod_util.h"
 #include "base/lock.h"
 #include "base/ref_counted.h"
 #include "base/time.h"
-#include "testing/gtest/include/gtest/gtest_prod.h"
-
-class GURL;
 
 namespace net {
 
@@ -92,9 +91,9 @@ class TransportSecurityState :
 
  private:
   friend class base::RefCountedThreadSafe<TransportSecurityState>;
-  FRIEND_TEST(TransportSecurityStateTest, IsPreloaded);
+  FRIEND_TEST_ALL_PREFIXES(TransportSecurityStateTest, IsPreloaded);
 
-  ~TransportSecurityState() {}
+  ~TransportSecurityState();
 
   // If we have a callback configured, call it to let our serialiser know that
   // our state is dirty.
@@ -109,7 +108,7 @@ class TransportSecurityState :
   Delegate* delegate_;
 
   static std::string CanonicaliseHost(const std::string& host);
-  static bool isPreloadedSTS(const std::string& canonicalised_host,
+  static bool IsPreloadedSTS(const std::string& canonicalised_host,
                              bool* out_include_subdomains);
 
   DISALLOW_COPY_AND_ASSIGN(TransportSecurityState);

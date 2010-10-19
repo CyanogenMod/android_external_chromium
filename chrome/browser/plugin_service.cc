@@ -10,6 +10,7 @@
 #include "base/path_service.h"
 #include "base/string_util.h"
 #include "base/thread.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/waitable_event.h"
 #include "chrome/browser/browser_process.h"
@@ -18,7 +19,7 @@
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/plugin_process_host.h"
 #include "chrome/browser/plugin_updater.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/common/chrome_plugin_lib.h"
@@ -60,7 +61,12 @@ void PluginService::InitGlobalInstance(Profile* profile) {
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
 
   // We first group the plugins and then figure out which groups to disable.
-  plugin_updater::DisablePluginGroupsFromPrefs(profile);
+  PluginUpdater::GetPluginUpdater()->DisablePluginGroupsFromPrefs(profile);
+
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kDisableOutdatedPlugins)) {
+    PluginUpdater::GetPluginUpdater()->DisableOutdatedPluginGroups();
+  }
 
   // Have Chrome plugins write their data to the profile directory.
   GetInstance()->SetChromePluginDataDir(profile->GetPath());
@@ -79,7 +85,7 @@ void PluginService::EnableChromePlugins(bool enable) {
 PluginService::PluginService()
     : main_message_loop_(MessageLoop::current()),
       resource_dispatcher_host_(NULL),
-      ui_locale_(ASCIIToWide(g_browser_process->GetApplicationLocale())) {
+      ui_locale_(g_browser_process->GetApplicationLocale()) {
   RegisterPepperPlugins();
 
   // Have the NPAPI plugin list search for Chrome plugins as well.
@@ -104,8 +110,9 @@ PluginService::PluginService()
   }
 
 #ifndef DISABLE_NACL
-  if (command_line->HasSwitch(switches::kInternalNaCl))
+  if (command_line->HasSwitch(switches::kInternalNaCl)) {
     RegisterInternalNaClPlugin();
+  }
 #endif
 
   chrome::RegisterInternalGPUPlugin();
@@ -173,7 +180,7 @@ const FilePath& PluginService::GetChromePluginDataDir() {
   return chrome_plugin_data_dir_;
 }
 
-const std::wstring& PluginService::GetUILocale() {
+const std::string& PluginService::GetUILocale() {
   return ui_locale_;
 }
 
@@ -226,13 +233,16 @@ void PluginService::OpenChannelToPlugin(
     ResourceMessageFilter* renderer_msg_filter,
     const GURL& url,
     const std::string& mime_type,
-    const std::wstring& locale,
+    const std::string& locale,
     IPC::Message* reply_msg) {
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
-  // We don't need a policy URL here because that was already checked by a
-  // previous call to GetPluginPath.
-  GURL policy_url;
-  FilePath plugin_path = GetPluginPath(url, policy_url, mime_type, NULL);
+  bool allow_wildcard = true;
+  WebPluginInfo info;
+  FilePath plugin_path;
+  if (NPAPI::PluginList::Singleton()->GetPluginInfo(
+      url, mime_type, allow_wildcard, &info, NULL) && info.enabled) {
+    plugin_path = info.path;
+  }
   PluginProcessHost* plugin_host = FindOrStartPluginProcess(plugin_path);
   if (plugin_host) {
     plugin_host->OpenChannelToPlugin(renderer_msg_filter, mime_type, reply_msg);
@@ -240,21 +250,6 @@ void PluginService::OpenChannelToPlugin(
     PluginProcessHost::ReplyToRenderer(
         renderer_msg_filter, IPC::ChannelHandle(), WebPluginInfo(), reply_msg);
   }
-}
-
-FilePath PluginService::GetPluginPath(const GURL& url,
-                                      const GURL& policy_url,
-                                      const std::string& mime_type,
-                                      std::string* actual_mime_type) {
-  bool allow_wildcard = true;
-  WebPluginInfo info;
-  if (NPAPI::PluginList::Singleton()->GetPluginInfo(
-        url, mime_type, allow_wildcard, &info, actual_mime_type) &&
-      info.enabled && PluginAllowedForURL(info.path, policy_url)) {
-    return info.path;
-  }
-
-  return FilePath();
 }
 
 static void PurgePluginListCache(bool reload_pages) {
@@ -337,8 +332,8 @@ void PluginService::Observe(NotificationType type,
   }
 }
 
-bool PluginService::PluginAllowedForURL(const FilePath& plugin_path,
-                                        const GURL& url) {
+bool PluginService::PrivatePluginAllowedForURL(const FilePath& plugin_path,
+                                               const GURL& url) {
   if (url.is_empty())
     return true;  // Caller wants all plugins.
 

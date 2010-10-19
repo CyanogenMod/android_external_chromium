@@ -4,9 +4,7 @@
 
 #include "chrome/browser/gtk/download_item_gtk.h"
 
-#include "app/gtk_util.h"
 #include "app/l10n_util.h"
-#include "app/menus/simple_menu_model.h"
 #include "app/resource_bundle.h"
 #include "app/slide_animation.h"
 #include "app/text_elider.h"
@@ -15,6 +13,7 @@
 #include "base/histogram.h"
 #include "base/string_util.h"
 #include "base/time.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_item.h"
@@ -504,10 +503,11 @@ void DownloadItemGtk::LoadIcon() {
 }
 
 void DownloadItemGtk::UpdateTooltip() {
-  std::wstring elided_filename = gfx::ElideFilename(
+  string16 elided_filename = gfx::ElideFilename(
       get_download()->GetFileName(),
       gfx::Font(), kTooltipMaxWidth);
-  gtk_widget_set_tooltip_text(body_.get(), WideToUTF8(elided_filename).c_str());
+  gtk_widget_set_tooltip_text(body_.get(),
+                              UTF16ToUTF8(elided_filename).c_str());
 }
 
 void DownloadItemGtk::UpdateNameLabel() {
@@ -515,7 +515,7 @@ void DownloadItemGtk::UpdateNameLabel() {
   // use gfx::Font() to draw the text. This is why we need to add so
   // much padding when we set the size request. We need to either use gfx::Font
   // or somehow extend TextElider.
-  std::wstring elided_filename = gfx::ElideFilename(
+  string16 elided_filename = gfx::ElideFilename(
       get_download()->GetFileName(),
       gfx::Font(), kTextWidth);
 
@@ -524,7 +524,7 @@ void DownloadItemGtk::UpdateNameLabel() {
   gtk_util::SetLabelColor(name_label_, theme_provider_->UseGtkTheme() ?
                                        NULL : &color);
   gtk_label_set_text(GTK_LABEL(name_label_),
-                     WideToUTF8(elided_filename).c_str());
+                     UTF16ToUTF8(elided_filename).c_str());
 }
 
 void DownloadItemGtk::UpdateStatusLabel(const std::string& status_text) {
@@ -561,16 +561,17 @@ void DownloadItemGtk::UpdateDangerWarning() {
   if (dangerous_prompt_) {
     // We create |dangerous_warning| as a wide string so we can more easily
     // calculate its length in characters.
-    std::wstring dangerous_warning;
+    string16 dangerous_warning;
     if (get_download()->is_extension_install()) {
       dangerous_warning =
-          l10n_util::GetString(IDS_PROMPT_DANGEROUS_DOWNLOAD_EXTENSION);
+          l10n_util::GetStringUTF16(IDS_PROMPT_DANGEROUS_DOWNLOAD_EXTENSION);
     } else {
-      std::wstring elided_filename = gfx::ElideFilename(
+      string16 elided_filename = gfx::ElideFilename(
           get_download()->original_name(), gfx::Font(), kTextWidth);
 
       dangerous_warning =
-          l10n_util::GetStringF(IDS_PROMPT_DANGEROUS_DOWNLOAD, elided_filename);
+          l10n_util::GetStringFUTF16(IDS_PROMPT_DANGEROUS_DOWNLOAD,
+                                     elided_filename);
     }
 
     if (theme_provider_->UseGtkTheme()) {
@@ -590,7 +591,7 @@ void DownloadItemGtk::UpdateDangerWarning() {
     }
 
     gtk_label_set_text(GTK_LABEL(dangerous_label_),
-                       WideToUTF8(dangerous_warning).c_str());
+                       UTF16ToUTF8(dangerous_warning).c_str());
 
     // Until we switch to vector graphics, force the font size.
     gtk_util::ForceFontSizePixels(dangerous_label_, kTextSize);
@@ -781,15 +782,7 @@ gboolean DownloadItemGtk::OnExpose(GtkWidget* widget, GdkEventExpose* e) {
 void DownloadItemGtk::OnClick(GtkWidget* widget) {
   UMA_HISTOGRAM_LONG_TIMES("clickjacking.open_download",
                            base::Time::Now() - creation_time_);
-
-  DownloadItem* download = get_download();
-
-  if (download->state() == DownloadItem::IN_PROGRESS) {
-    download->set_open_when_complete(
-        !download->open_when_complete());
-  } else if (download->state() == DownloadItem::COMPLETE) {
-    download_util::OpenDownload(download);
-  }
+  get_download()->OpenDownload();
 }
 
 gboolean DownloadItemGtk::OnProgressAreaExpose(GtkWidget* widget,
@@ -858,7 +851,7 @@ gboolean DownloadItemGtk::OnDangerousPromptExpose(GtkWidget* widget,
 void DownloadItemGtk::OnDangerousAccept(GtkWidget* button) {
   UMA_HISTOGRAM_LONG_TIMES("clickjacking.save_download",
                            base::Time::Now() - creation_time_);
-  get_download()->manager()->DangerousDownloadValidated(get_download());
+  get_download()->DangerousDownloadValidated();
 }
 
 void DownloadItemGtk::OnDangerousDecline(GtkWidget* button) {

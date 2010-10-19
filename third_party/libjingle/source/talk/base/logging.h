@@ -28,7 +28,7 @@
 //   LOG(...) an ostream target that can be used to send formatted
 // output to a variety of logging targets, such as debugger console, stderr,
 // file, or any StreamInterface.
-//   The severity level passed as the first argument to the the LOGging
+//   The severity level passed as the first argument to the LOGging
 // functions is used as a filter, to limit the verbosity of the logging.
 //   Static members of LogMessage documented below are used to control the
 // verbosity and target of the output.

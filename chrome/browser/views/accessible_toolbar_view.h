@@ -4,10 +4,11 @@
 
 #ifndef CHROME_BROWSER_VIEWS_ACCESSIBLE_TOOLBAR_VIEW_H_
 #define CHROME_BROWSER_VIEWS_ACCESSIBLE_TOOLBAR_VIEW_H_
+#pragma once
 
 #include "base/hash_tables.h"
+#include "base/scoped_ptr.h"
 #include "base/task.h"
-#include "chrome/browser/views/accessibility_event_router_views.h"
 #include "views/focus/focus_manager.h"
 #include "views/view.h"
 
@@ -43,7 +44,7 @@ class AccessibleToolbarView : public views::View,
   virtual FocusTraversable* GetPaneFocusTraversable();
   virtual bool AcceleratorPressed(const views::Accelerator& accelerator);
   virtual void SetVisible(bool flag);
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
 
   // Overridden from views::FocusChangeListener:
   virtual void FocusWillChange(View* focused_before,
@@ -78,7 +79,7 @@ class AccessibleToolbarView : public views::View,
   // Our custom focus search implementation that traps focus in this
   // toolbar and traverses all views that are focusable for accessibility,
   // not just those that are normally focusable.
-  views::FocusSearch focus_search_;
+  scoped_ptr<views::FocusSearch> focus_search_;
 
   // Registered accelerators
   views::Accelerator home_key_;

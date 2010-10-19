@@ -4,13 +4,10 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_NEW_USER_VIEW_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_NEW_USER_VIEW_H_
+#pragma once
 
 #include <string>
-#include <vector>
 
-#include "base/gtest_prod_util.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
 #include "chrome/browser/chromeos/login/language_switch_menu.h"
 #include "views/accelerator.h"
 #include "views/controls/button/button.h"
@@ -54,10 +51,16 @@ class NewUserView : public views::View,
 
     // User started typing so clear all error messages.
     virtual void ClearErrors() = 0;
+
+    // User tries to navigate away from NewUserView pod.
+    virtual void NavigateAway() = 0;
   };
 
   // If |need_border| is true, RoundedRect border and background are required.
-  NewUserView(Delegate* delegate, bool need_border);
+  NewUserView(Delegate* delegate,
+              bool need_border,
+              bool need_browse_without_signin);
+
   virtual ~NewUserView();
 
   // Initialize view layout.
@@ -69,11 +72,17 @@ class NewUserView : public views::View,
   // Resets password text and sets the enabled state of the password.
   void ClearAndEnablePassword();
 
+  // Resets password and username text and focuses on username.
+  void ClearAndEnableFields();
+
   // Stops throbber shown during login.
   void StopThrobber();
 
   // Returns bounds of password field in screen coordinates.
   gfx::Rect GetPasswordBounds() const;
+
+  // Returns bounds of username field in screen coordinates.
+  gfx::Rect GetUsernameBounds() const;
 
   // Overridden from views::View:
   virtual gfx::Size GetPreferredSize();
@@ -92,7 +101,7 @@ class NewUserView : public views::View,
   virtual bool HandleKeystroke(views::Textfield* sender,
                                const views::Textfield::Keystroke& keystroke);
   virtual void ContentsChanged(views::Textfield* sender,
-                               const string16& new_contents) {}
+                               const string16& new_contents);
 
   // Overridden from views::ButtonListener.
   virtual void ButtonPressed(views::Button* sender, const views::Event& event);
@@ -104,12 +113,14 @@ class NewUserView : public views::View,
 
  protected:
   // views::View overrides:
-  virtual void ViewHierarchyChanged(bool is_add, views::View *parent,
+  virtual void ViewHierarchyChanged(bool is_add,
+                                    views::View *parent,
                                     views::View *child);
   virtual void NativeViewHierarchyChanged(bool attached,
                                           gfx::NativeView native_view,
                                           views::RootView* root_view);
-  virtual void LocaleChanged();
+  virtual void OnLocaleChanged();
+  void AddChildView(View* view);
 
  private:
   // Enables/disables input controls (textfields, buttons).
@@ -120,24 +131,33 @@ class NewUserView : public views::View,
   void InitLink(views::Link** link);
 
   // Delete and recreate native controls that fail to update preferred size
-  // after string update.
-  void RecreateNativeControls();
+  // after text/locale update.
+  void RecreatePeculiarControls();
+
+  // Enable or disable the |sign_in_button_| based on the contents of the
+  // |username_field_| and |password_field_|. If there is text in both the
+  // button is enabled, otherwise it's disabled.
+  void UpdateSignInButtonState();
 
   // Screen controls.
-  // NOTE: When adding new controls check RecreateNativeControls()
-  // that |sign_in_button_| is added with correct index.
+  // NOTE: sign_in_button_ and languages_menubutton_ are handled with
+  // special care: they are recreated on any text/locale change
+  // because they are not resized properly.
   views::Textfield* username_field_;
   views::Textfield* password_field_;
   views::Label* title_label_;
+  views::Label* title_hint_label_;
+  views::View* splitter_;
   views::NativeButton* sign_in_button_;
   views::Link* create_account_link_;
-  views::Link* cant_access_account_link_;
   views::Link* browse_without_signin_link_;
   views::MenuButton* languages_menubutton_;
   views::Throbber* throbber_;
 
-  views::Accelerator accel_focus_user_;
   views::Accelerator accel_focus_pass_;
+  views::Accelerator accel_focus_user_;
+  views::Accelerator accel_login_off_the_record_;
+  views::Accelerator accel_enable_accessibility_;
 
   // Notifications receiver.
   Delegate* delegate_;
@@ -155,6 +175,17 @@ class NewUserView : public views::View,
 
   // If true, this view needs RoundedRect border and background.
   bool need_border_;
+
+  // Whether browse without signin is needed.
+  bool need_browse_without_signin_;
+
+  // Whether create account link is needed. Set to false for now but we may
+  // need it back in near future.
+  bool need_create_account_;
+
+  // Ordinal position of controls inside view layout.
+  int languages_menubutton_order_;
+  int sign_in_button_order_;
 
   FRIEND_TEST_ALL_PREFIXES(LoginScreenTest, IncognitoLogin);
   friend class LoginScreenTest;

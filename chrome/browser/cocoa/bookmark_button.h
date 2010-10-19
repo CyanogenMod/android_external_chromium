@@ -40,6 +40,13 @@ class ThemeProvider;
 // Returns the top-level window for this button.
 - (NSWindow*)browserWindow;
 
+// Returns YES if the bookmark button can be dragged to the trash, NO otherwise.
+- (BOOL)canDragBookmarkButtonToTrash:(BookmarkButton*)button;
+
+// This is called after the user has dropped the bookmark button on the trash.
+// The delegate can use this event to delete the bookmark.
+- (void)didDragBookmarkToTrash:(BookmarkButton*)button;
+
 @end
 
 
@@ -180,6 +187,10 @@ class ThemeProvider;
   // different window), so there is no way to retrieve the same BWC object after
   // a drag.
   BrowserWindowController* visibilityDelegate_;  // weak
+
+  NSPoint dragMouseOffset_;
+  NSPoint dragEndScreenLocation_;
+  BOOL dragPending_;
 }
 
 @property(assign, nonatomic) NSObject<BookmarkButtonDelegate>* delegate;
@@ -198,6 +209,17 @@ class ThemeProvider;
 // http://crbug.com/35967
 - (BOOL)isEmpty;
 
+// Turn on or off pulsing of a bookmark button.
+// Triggered by the bookmark bubble.
+- (void)setIsContinuousPulsing:(BOOL)flag;
+
+// Return continuous pulse state.
+- (BOOL)isContinuousPulsing;
+
+// Return the location in screen coordinates where the remove animation should
+// be displayed.
+- (NSPoint)screenLocationForRemoveAnimation;
+
 @end  // @interface BookmarkButton
 
 
@@ -205,3 +227,17 @@ class ThemeProvider;
 - (void)beginDrag:(NSEvent*)event;
 @end
 
+namespace bookmark_button {
+
+// Notifications for pulsing of bookmarks.
+extern NSString* const kPulseBookmarkButtonNotification;
+
+// Key for userInfo dict of a kPulseBookmarkButtonNotification.
+// Value is a [NSValue valueWithPointer:]; pointer is a (const BookmarkNode*).
+extern NSString* const kBookmarkKey;
+
+// Key for userInfo dict of a kPulseBookmarkButtonNotification.
+// Value is a [NSNumber numberWithBool:] to turn pulsing on or off.
+extern NSString* const kBookmarkPulseFlagKey;
+
+};

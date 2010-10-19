@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
+#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/chrome_switches.h"
@@ -140,11 +141,11 @@ CPError CPB_GetCommandLineArgumentsCommon(const char* url,
     }
   }
 
-#if defined (OS_CHROMEOS)
-  std::wstring profile = cmd.GetSwitchValue(switches::kProfile);
+#if defined(OS_CHROMEOS)
+  FilePath profile = cmd.GetSwitchValuePath(switches::kLoginProfile);
   if (!profile.empty()) {
-    arguments_w += std::wstring(L"--") + ASCIIToWide(switches::kProfile) +
-                   L"=\"" + profile + L"\" ";
+    arguments_w += std::wstring(L"--") + ASCIIToWide(switches::kLoginProfile) +
+        L"=\"" + profile.ToWStringHack() + L"\" ";
   }
 #endif
 

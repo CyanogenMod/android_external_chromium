@@ -4,7 +4,10 @@
 
 #include "chrome/browser/extensions/extension_disabled_infobar_delegate.h"
 
+#include <string>
+
 #include "app/l10n_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
 #include "chrome/browser/extensions/extensions_service.h"
@@ -31,8 +34,8 @@ class ExtensionDisabledDialogDelegate
     install_ui_->ConfirmInstall(this, extension_);
   }
 
-  // ExtensionInstallUI::Delegate
-  virtual void InstallUIProceed(bool create_app_shortcut) {
+  // Overridden from ExtensionInstallUI::Delegate:
+  virtual void InstallUIProceed() {
     ExtensionPrefs* prefs = service_->extension_prefs();
     prefs->SetDidExtensionEscalatePermissions(extension_, false);
     service_->EnableExtension(extension_->id());
@@ -74,9 +77,9 @@ class ExtensionDisabledInfobarDelegate
   }
   virtual ~ExtensionDisabledInfobarDelegate() {
   }
-  virtual std::wstring GetMessageText() const {
-    return l10n_util::GetStringF(IDS_EXTENSION_DISABLED_INFOBAR_LABEL,
-                                 UTF8ToWide(extension_->name()));
+  virtual string16 GetMessageText() const {
+    return l10n_util::GetStringFUTF16(IDS_EXTENSION_DISABLED_INFOBAR_LABEL,
+                                      UTF8ToUTF16(extension_->name()));
   }
   virtual SkBitmap* GetIcon() const {
     return NULL;
@@ -84,9 +87,10 @@ class ExtensionDisabledInfobarDelegate
   virtual int GetButtons() const {
     return BUTTON_OK;
   }
-  virtual std::wstring GetButtonLabel(
+  virtual string16 GetButtonLabel(
       ConfirmInfoBarDelegate::InfoBarButton button) const {
-    return l10n_util::GetString(IDS_EXTENSION_DISABLED_INFOBAR_ENABLE_BUTTON);
+    return l10n_util::GetStringUTF16(
+        IDS_EXTENSION_DISABLED_INFOBAR_ENABLE_BUTTON);
   }
   virtual bool Accept() {
     // This object manages its own lifetime.

@@ -63,6 +63,7 @@
 #include "base/rand_util.h"
 #include "base/scoped_ptr.h"
 #include "base/sha2.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/time.h"
 #include "chrome/browser/safe_browsing/bloom_filter.h"
@@ -93,11 +94,11 @@ class ScopedPerfDatabase {
 };
 
 // Command line flags.
-const wchar_t kFilterVerbose[] = L"filter-verbose";
-const wchar_t kFilterStart[] = L"filter-start";
-const wchar_t kFilterSteps[] = L"filter-steps";
-const wchar_t kFilterCsv[] = L"filter-csv";
-const wchar_t kFilterNumChecks[] = L"filter-num-checks";
+const char kFilterVerbose[] = "filter-verbose";
+const char kFilterStart[] = "filter-start";
+const char kFilterSteps[] = "filter-steps";
+const char kFilterCsv[] = "filter-csv";
+const char kFilterNumChecks[] = "filter-num-checks";
 
 // Number of hash checks to make during performance testing.
 static const int kNumHashChecks = 10000000;
@@ -260,7 +261,7 @@ void CalculateBloomFilterFalsePositives(
     if (use_weights) {
       std::string::size_type pos = url.find_last_of(",");
       if (pos != std::string::npos) {
-        weight = StringToInt(std::string(url, pos + 1));
+        base::StringToInt(std::string(url, pos + 1), &weight);
         url = url.substr(0, pos);
       }
     }
@@ -312,16 +313,18 @@ TEST(SafeBrowsingBloomFilter, FalsePositives) {
   FilePath data_dir = GetFullDataPath();
   ASSERT_TRUE(ReadDatabase(data_dir, &prefix_list));
 
+  const CommandLine& cmd_line = *CommandLine::ForCurrentProcess();
+
   int start = BloomFilter::kBloomFilterSizeRatio;
-  if (CommandLine::ForCurrentProcess()->HasSwitch(kFilterStart)) {
-    start = StringToInt(
-        CommandLine::ForCurrentProcess()->GetSwitchValue(kFilterStart));
+  if (cmd_line.HasSwitch(kFilterStart)) {
+    ASSERT_TRUE(base::StringToInt(cmd_line.GetSwitchValueASCII(kFilterStart),
+                                  &start));
   }
 
   int steps = 1;
-  if (CommandLine::ForCurrentProcess()->HasSwitch(kFilterSteps)) {
-    steps = StringToInt(
-        CommandLine::ForCurrentProcess()->GetSwitchValue(kFilterSteps));
+  if (cmd_line.HasSwitch(kFilterSteps)) {
+    ASSERT_TRUE(base::StringToInt(cmd_line.GetSwitchValueASCII(kFilterSteps),
+                                  &steps));
   }
 
   int stop = start + steps;
@@ -338,10 +341,13 @@ TEST(SafeBrowsingBloomFilter, HashTime) {
   FilePath data_dir = GetFullDataPath();
   ASSERT_TRUE(ReadDatabase(data_dir, &prefix_list));
 
+  const CommandLine& cmd_line = *CommandLine::ForCurrentProcess();
+
   int num_checks = kNumHashChecks;
-  if (CommandLine::ForCurrentProcess()->HasSwitch(kFilterNumChecks)) {
-    num_checks = StringToInt(
-      CommandLine::ForCurrentProcess()->GetSwitchValue(kFilterNumChecks));
+  if (cmd_line.HasSwitch(kFilterNumChecks)) {
+    ASSERT_TRUE(
+        base::StringToInt(cmd_line.GetSwitchValueASCII(kFilterNumChecks),
+                          &num_checks));
   }
 
   // Populate the bloom filter and measure the time.

@@ -6,6 +6,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_NOTIFICATIONS_BALLOON_VIEW_H_
 #define CHROME_BROWSER_VIEWS_NOTIFICATIONS_BALLOON_VIEW_H_
+#pragma once
 
 #include "app/slide_animation.h"
 #include "base/basictypes.h"
@@ -38,7 +39,6 @@ class BalloonCollection;
 class NotificationDetails;
 class NotificationOptionsMenuModel;
 class NotificationSource;
-class SlideAnimation;
 
 // A balloon view is the UI component for a desktop notification toasts.
 // It draws a border, and within the border an HTML renderer.

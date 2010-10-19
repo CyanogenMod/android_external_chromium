@@ -7,11 +7,11 @@
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 
+#include "app/event_synthesis_gtk.h"
 #include "gfx/rect.h"
-#include "base/event_synthesis_gtk.h"
-#include "base/keyboard_code_conversion_gtk.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
+#include "chrome/browser/automation/ui_controls_internal.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/test/automation/automation_constants.h"
 
@@ -62,27 +62,6 @@ class EventWaiter : public MessageLoopForUI::Observer {
   int count_;
 };
 
-class ClickTask : public Task {
- public:
-  ClickTask(ui_controls::MouseButton button, int state, Task* followup)
-      : button_(button), state_(state), followup_(followup)  {
-  }
-
-  virtual ~ClickTask() {}
-
-  virtual void Run() {
-    if (followup_)
-      ui_controls::SendMouseEventsNotifyWhenDone(button_, state_, followup_);
-    else
-      ui_controls::SendMouseEvents(button_, state_);
-  }
-
- private:
-  ui_controls::MouseButton button_;
-  int state_;
-  Task* followup_;
-};
-
 void FakeAMouseMotionEvent(gint x, gint y) {
   GdkEvent* event = gdk_event_new(GDK_MOTION_NOTIFY);
 
@@ -117,7 +96,7 @@ void FakeAMouseMotionEvent(gint x, gint y) {
 namespace ui_controls {
 
 bool SendKeyPress(gfx::NativeWindow window,
-                  base::KeyboardCode key,
+                  app::KeyboardCode key,
                   bool control, bool shift, bool alt, bool command) {
   DCHECK(command == false);  // No command key on Linux
   GdkWindow* event_window = NULL;
@@ -145,7 +124,7 @@ bool SendKeyPress(gfx::NativeWindow window,
   }
 
   std::vector<GdkEvent*> events;
-  base::SynthesizeKeyPressEvents(event_window, key, control, shift, alt,
+  app::SynthesizeKeyPressEvents(event_window, key, control, shift, alt,
                                  &events);
   for (std::vector<GdkEvent*>::iterator iter = events.begin();
        iter != events.end(); ++iter) {
@@ -158,7 +137,7 @@ bool SendKeyPress(gfx::NativeWindow window,
 }
 
 bool SendKeyPressNotifyWhenDone(gfx::NativeWindow window,
-                                base::KeyboardCode key,
+                                app::KeyboardCode key,
                                 bool control, bool shift,
                                 bool alt, bool command,
                                 Task* task) {

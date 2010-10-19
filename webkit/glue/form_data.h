@@ -27,17 +27,17 @@ struct FormData {
   GURL origin;
   // The action target of the form.
   GURL action;
+  // true if this form was submitted by a user gesture and not javascript.
+  bool user_submitted;
   // A vector of all the input fields in the form.
   std::vector<FormField> fields;
 
+  FormData();
+  FormData(const FormData& data);
+  ~FormData();
+
   // Used by FormStructureTest.
-  inline bool operator==(const FormData& form) const {
-    return (name == form.name &&
-            StringToLowerASCII(method) == StringToLowerASCII(form.method) &&
-            origin == form.origin &&
-            action == form.action &&
-            fields == form.fields);
-  }
+  bool operator==(const FormData& form) const;
 };
 
 }  // namespace webkit_glue

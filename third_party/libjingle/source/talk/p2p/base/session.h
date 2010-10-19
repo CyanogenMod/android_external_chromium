@@ -36,7 +36,6 @@
 #include "talk/p2p/base/sessionmessages.h"
 #include "talk/p2p/base/sessionmanager.h"
 #include "talk/base/socketaddress.h"
-#include "talk/p2p/base/sessiondescription.h"
 #include "talk/p2p/base/sessionclient.h"
 #include "talk/p2p/base/sessionid.h"
 #include "talk/p2p/base/parsing.h"
@@ -144,33 +143,37 @@ class BaseSession : public sigslot::has_slots<>,
   sigslot::signal2<Session*, const std::string&> SignalChannelGone;
 
   // Returns the application-level description given by our client.
-  // If we are the recipient, this will be null until we send an accept.
-  const SessionDescription *local_description() const { return description_; }
-  bool set_local_description(const SessionDescription* description) {
-    if (description != description_) {
-      delete description_;
-      description_ = description;
+  // If we are the recipient, this will be NULL until we send an accept.
+  const SessionDescription* local_description() const {
+    return local_description_;
+  }
+  // Takes ownership of SessionDescription*
+  bool set_local_description(const SessionDescription* sdesc) {
+    if (sdesc != local_description_) {
+      delete local_description_;
+      local_description_ = sdesc;
     }
     return true;
   }
 
   // Returns the application-level description given by the other client.
-  // If we are the initiator, this will be null until we receive an accept.
-  const SessionDescription *remote_description() const {
+  // If we are the initiator, this will be NULL until we receive an accept.
+  const SessionDescription* remote_description() const {
     return remote_description_;
   }
-  bool set_remote_description(const SessionDescription* description) {
-    if (description != remote_description_) {
+  // Takes ownership of SessionDescription*
+  bool set_remote_description(const SessionDescription* sdesc) {
+    if (sdesc != remote_description_) {
       delete remote_description_;
-      remote_description_ = description;
+      remote_description_ = sdesc;
     }
     return true;
   }
 
-  // When we receive a session initiation from another client, we create a
-  // session in the RECEIVEDINITIATE state.  We respond by accepting,
-  // rejecting, or redirecting the session somewhere else.
-  virtual bool Accept(const SessionDescription *description) = 0;
+  // When we receive an initiate, we create a session in the
+  // RECEIVEDINITIATE state and respond by accepting or rejecting.
+  // Takes ownership of session description.
+  virtual bool Accept(const SessionDescription* sdesc) = 0;
   virtual bool Reject() = 0;
 
   // At any time, we may terminate an outstanding session.
@@ -185,21 +188,27 @@ class BaseSession : public sigslot::has_slots<>,
   // Returns the JID of the other peer in this session.
   const std::string &remote_name() const { return remote_name_; }
 
+  // Set the JID of the other peer in this session.
+  // Typically the remote_name_ is set when the session is initiated.
+  // However, sometimes (e.g when a proxy is used) the peer name is
+  // known after the BaseSession has been initiated and it must be updated
+  // explicitly.
+  void set_remote_name(const std::string& name) { remote_name_ = name; }
+
   // Holds the ID of this session, which should be unique across the world.
   const SessionID& id() const { return id_; }
 
  protected:
   State state_;
   Error error_;
-  // Descriptions also known as "apps".  See comment in
-  // constants.h about it.
-  const SessionDescription *description_;
-  const SessionDescription *remote_description_;
+  const SessionDescription* local_description_;
+  const SessionDescription* remote_description_;
   SessionID id_;
   // We don't use buzz::Jid because changing to buzz:Jid here has a
   // cascading effect that requires an enormous number places to
   // change to buzz::Jid as well.
   std::string name_;
+
   std::string remote_name_;
   talk_base::Thread *signaling_thread_;
 };
@@ -216,7 +225,7 @@ class Session : public BaseSession {
   }
 
   // Returns the XML namespace identifying the type of this session.
-  const std::string& session_type() const { return session_type_; }
+  const std::string& content_type() const { return content_type_; }
 
   // Returns the client that is handling the application data of this session.
   SessionClient* client() const { return client_; }
@@ -231,16 +240,14 @@ class Session : public BaseSession {
   // still in progress.
   Transport* transport() const { return transport_; }
 
-  // When a session was created by us, we are the initiator, and we send the
-  // initiate message when this method is invoked.  The extra_xml parameter is
-  // a list of elements that will get inserted inside <Session> ... </Session>
+  // Takes ownership of session description.
   bool Initiate(const std::string& to,
-                const SessionDescription *description);
+                const SessionDescription* sdesc);
 
-  // When we receive a session initiation from another client, we create a
-  // session in the RECEIVEDINITIATE state.  We respond by accepting,
-  // rejecting, or redirecting the session somewhere else.
-  virtual bool Accept(const SessionDescription *description);
+  // When we receive an initiate, we create a session in the
+  // RECEIVEDINITIATE state and respond by accepting or rejecting.
+  // Takes ownership of session description.
+  virtual bool Accept(const SessionDescription* sdesc);
   virtual bool Reject();
 
   // At any time, we may terminate an outstanding session.
@@ -254,7 +261,7 @@ class Session : public BaseSession {
 
   // Maps passed to serialization functions.
   TransportParserMap GetTransportParsers();
-  FormatParserMap GetFormatParsers();
+  ContentParserMap GetContentParsers();
 
   // Creates a new channel with the given name.  This method may be called
   // immediately after creating the session.  However, the actual
@@ -275,9 +282,7 @@ class Session : public BaseSession {
 
   SessionManager *session_manager_;
   bool initiator_;
-  // TODO(pthatcher): Support multiple session types and call them
-  // "format names".
-  std::string session_type_;
+  std::string content_type_;
   SessionClient* client_;
   // TODO(pthatcher): reenable redirect the Jingle way
   // std::string redirect_target_;
@@ -298,7 +303,7 @@ class Session : public BaseSession {
   Session(SessionManager *session_manager,
           const std::string& name,
           const SessionID& id,
-          const std::string& session_type,
+          const std::string& content_type,
           SessionClient* client);
   ~Session();
 
@@ -349,8 +354,8 @@ class Session : public BaseSession {
   void OnSignalingReady();
 
   // Send various kinds of session messages.
-  void SendInitiateMessage(const SessionDescription *description);
-  void SendAcceptMessage();
+  void SendInitiateMessage(const SessionDescription* sdesc);
+  void SendAcceptMessage(const SessionDescription* sdesc);
   void SendRejectMessage();
   void SendTerminateMessage();
   void SendTransportInfoMessage(const Candidates& candidates);
@@ -389,6 +394,7 @@ class Session : public BaseSession {
   bool OnInfoMessage(const SessionMessage& msg);
   bool OnTerminateMessage(const SessionMessage& msg, SessionError* error);
   bool OnTransportInfoMessage(const SessionMessage& msg, SessionError* error);
+  bool OnTransportAcceptMessage(const SessionMessage& msg, SessionError* error);
 
   // Verifies that we are in the appropriate state to receive this message.
   bool CheckState(State state, SessionError* error);

@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSIONS_SERVICE_UNITTEST_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSIONS_SERVICE_UNITTEST_H_
+#pragma once
 
 #include "base/file_path.h"
 #include "base/message_loop.h"
@@ -37,13 +38,13 @@ class ExtensionsServiceTestBase : public testing::Test {
 
  protected:
   ScopedTempDir temp_dir_;
-  scoped_ptr<PrefService> prefs_;
   scoped_ptr<Profile> profile_;
   FilePath extensions_install_dir_;
   scoped_refptr<ExtensionsService> service_;
   size_t total_successes_;
   MessageLoop loop_;
   ChromeThread ui_thread_;
+  ChromeThread db_thread_;
   ChromeThread webkit_thread_;
   ChromeThread file_thread_;
   ChromeThread io_thread_;

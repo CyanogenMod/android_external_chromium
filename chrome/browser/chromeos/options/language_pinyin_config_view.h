@@ -4,12 +4,13 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_OPTIONS_LANGUAGE_PINYIN_CONFIG_VIEW_H_
 #define CHROME_BROWSER_CHROMEOS_OPTIONS_LANGUAGE_PINYIN_CONFIG_VIEW_H_
+#pragma once
 
 #include <string>
 
 #include "chrome/browser/chromeos/cros/input_method_library.h"
 #include "chrome/browser/chromeos/language_preferences.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/views/options/options_page_view.h"
 #include "views/controls/button/checkbox.h"
 #include "views/controls/combobox/combobox.h"
@@ -64,12 +65,14 @@ class LanguagePinyinConfigView : public views::ButtonListener,
   // Updates the pinyin checkboxes.
   void NotifyPrefChanged();
 
-  BooleanPrefMember pinyin_boolean_prefs_[kNumPinyinBooleanPrefs];
+  BooleanPrefMember pinyin_boolean_prefs_[
+      language_prefs::kNumPinyinBooleanPrefs];
   // TODO(yusukes): Support integer prefs if needed.
   views::View* contents_;
 
   // A checkboxes for Pinyin.
-  views::Checkbox* pinyin_boolean_checkboxes_[kNumPinyinBooleanPrefs];
+  views::Checkbox* pinyin_boolean_checkboxes_[
+      language_prefs::kNumPinyinBooleanPrefs];
 
   struct DoublePinyinSchemaPrefAndAssociatedCombobox {
     IntegerPrefMember multiple_choice_pref;

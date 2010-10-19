@@ -19,16 +19,17 @@
 
 #ifndef NET_BASE_SDCH_MANAGER_H_
 #define NET_BASE_SDCH_MANAGER_H_
+#pragma once
 
 #include <map>
 #include <set>
 #include <string>
 
+#include "base/gtest_prod_util.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/time.h"
 #include "googleurl/src/gurl.h"
-#include "testing/gtest/include/gtest/gtest_prod.h"
 
 //------------------------------------------------------------------------------
 // Create a public interface to help us load SDCH dictionaries.
@@ -165,7 +166,7 @@ class SdchManager {
    private:
     friend class base::RefCounted<Dictionary>;
     friend class SdchManager;  // Only manager can construct an instance.
-    FRIEND_TEST(SdchFilterTest, PathMatch);
+    FRIEND_TEST_ALL_PREFIXES(SdchFilterTest, PathMatch);
 
     // Construct a vc-diff usable dictionary from the dictionary_text starting
     // at the given offset.  The supplied client_hash should be used to
@@ -174,7 +175,7 @@ class SdchManager {
                const std::string& client_hash, const GURL& url,
                const std::string& domain, const std::string& path,
                const base::Time& expiration, const std::set<int> ports);
-    ~Dictionary() {}
+    ~Dictionary();
 
     const GURL& url() const { return url_; }
     const std::string& client_hash() const { return client_hash_; }

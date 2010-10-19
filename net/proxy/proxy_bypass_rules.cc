@@ -4,7 +4,7 @@
 
 #include "net/proxy/proxy_bypass_rules.h"
 
-#include "base/logging.h"
+#include "base/string_number_conversions.h"
 #include "base/string_tokenizer.h"
 #include "base/string_util.h"
 #include "net/base/net_util.h"
@@ -32,8 +32,7 @@ class HostnamePatternRule : public ProxyBypassRules::Rule {
 
     // Note it is necessary to lower-case the host, since GURL uses capital
     // letters for percent-escaped characters.
-    return MatchPatternASCII(StringToLowerASCII(url.host()),
-                             hostname_pattern_);
+    return MatchPattern(StringToLowerASCII(url.host()), hostname_pattern_);
   }
 
   virtual std::string ToString() const {
@@ -123,7 +122,19 @@ bool IsIPAddress(const std::string& domain) {
 
 }  // namespace
 
+ProxyBypassRules::ProxyBypassRules() {
+}
+
+ProxyBypassRules::ProxyBypassRules(const ProxyBypassRules& rhs)
+    : rules_(rhs.rules_) {
+}
+
 ProxyBypassRules::~ProxyBypassRules() {
+}
+
+ProxyBypassRules& ProxyBypassRules::operator=(const ProxyBypassRules& rhs) {
+  rules_ = rhs.rules_;
+  return *this;
 }
 
 bool ProxyBypassRules::Matches(const GURL& url) const {
@@ -253,7 +264,7 @@ bool ProxyBypassRules::AddRuleFromStringInternal(
   host = raw;
   port = -1;
   if (pos_colon != std::string::npos) {
-    if (!StringToInt(raw.substr(pos_colon + 1), &port) ||
+    if (!base::StringToInt(raw.substr(pos_colon + 1), &port) ||
         (port < 0 || port > 0xFFFF)) {
       return false;  // Port was invalid.
     }

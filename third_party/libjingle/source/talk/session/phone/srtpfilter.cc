@@ -35,7 +35,7 @@
 #include "talk/base/base64.h"
 #include "talk/base/logging.h"
 
-// TODO(juberti):For the XCode build, we force SRTP (b/2500074)
+// TODO(juberti): For the XCode build, we force SRTP (b/2500074)
 #if defined(OSX) && !defined(HAVE_SRTP)
 #define HAVE_SRTP 1
 #endif
@@ -44,7 +44,11 @@
 // #define SRTP_DEBUG
 
 #ifdef HAVE_SRTP
+#ifdef SRTP_RELATIVE_PATH
+#include "srtp.h"  // NOLINT
+#else
 #include "third_party/libsrtp/include/srtp.h"
+#endif  // SRTP_RELATIVE_PATH
 #ifdef _DEBUG
 extern "C" debug_module_t mod_srtp;
 #endif
@@ -70,7 +74,7 @@ bool SrtpFilter::IsActive() const {
 }
 
 bool SrtpFilter::SetOffer(const std::vector<CryptoParams>& offer_params,
-                          DescriptionSource source) {
+                          ContentSource source) {
   bool ret = false;
   if (state_ == ST_INIT) {
     ret = StoreParams(offer_params, source);
@@ -81,10 +85,10 @@ bool SrtpFilter::SetOffer(const std::vector<CryptoParams>& offer_params,
 }
 
 bool SrtpFilter::SetAnswer(const std::vector<CryptoParams>& answer_params,
-                           DescriptionSource source) {
+                           ContentSource source) {
   bool ret = false;
-  if ((state_ == ST_SENTOFFER && source == DS_REMOTE) ||
-      (state_ == ST_RECEIVEDOFFER && source == DS_LOCAL)) {
+  if ((state_ == ST_SENTOFFER && source == CS_REMOTE) ||
+      (state_ == ST_RECEIVEDOFFER && source == CS_LOCAL)) {
     // If the answer requests crypto, finalize the parameters and apply them.
     // Otherwise, complete the negotiation of a unencrypted session.
     if (!answer_params.empty()) {
@@ -136,9 +140,9 @@ bool SrtpFilter::UnprotectRtcp(void* p, int in_len, int* out_len) {
 
 
 bool SrtpFilter::StoreParams(const std::vector<CryptoParams>& params,
-                             DescriptionSource source) {
+                             ContentSource source) {
   offer_params_ = params;
-  state_ = (source == DS_LOCAL) ? ST_SENTOFFER : ST_RECEIVEDOFFER;
+  state_ = (source == CS_LOCAL) ? ST_SENTOFFER : ST_RECEIVEDOFFER;
   return true;
 }
 
@@ -408,11 +412,13 @@ bool SrtpSession::SetRecv(const std::string& cs, const uint8* key, int len) {
   return SrtpNotAvailable(__FUNCTION__);
 }
 
-bool SrtpSession::ProtectRtp(void* data, int in_len, int max_len, int* out_len) {
+bool SrtpSession::ProtectRtp(void* data, int in_len, int max_len,
+                             int* out_len) {
   return SrtpNotAvailable(__FUNCTION__);
 }
 
-bool SrtpSession::ProtectRtcp(void* data, int in_len, int max_len, int* out_len) {
+bool SrtpSession::ProtectRtcp(void* data, int in_len, int max_len,
+                              int* out_len) {
   return SrtpNotAvailable(__FUNCTION__);
 }
 

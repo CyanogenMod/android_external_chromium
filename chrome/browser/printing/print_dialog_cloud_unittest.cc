@@ -9,9 +9,11 @@
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/weak_ptr.h"
 #include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/printing/cloud_print/cloud_print_url.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer.h"
@@ -152,13 +154,13 @@ class CloudPrintURLTest : public testing::Test {
 
 TEST_F(CloudPrintURLTest, CheckDefaultURLs) {
   std::string service_url =
-      internal_cloud_print_helpers::CloudPrintService(profile_.get()).
+      CloudPrintURL(profile_.get()).
       GetCloudPrintServiceURL().spec();
   EXPECT_THAT(service_url, HasSubstr("www.google.com"));
   EXPECT_THAT(service_url, HasSubstr("cloudprint"));
 
   std::string dialog_url =
-      internal_cloud_print_helpers::CloudPrintService(profile_.get()).
+      CloudPrintURL(profile_.get()).
       GetCloudPrintServiceDialogURL().spec();
   EXPECT_THAT(dialog_url, HasSubstr("www.google.com"));
   EXPECT_THAT(dialog_url, HasSubstr("/cloudprint/"));
@@ -168,7 +170,7 @@ TEST_F(CloudPrintURLTest, CheckDefaultURLs) {
 
   // Repeat to make sure there isn't a transient glitch.
   dialog_url =
-      internal_cloud_print_helpers::CloudPrintService(profile_.get()).
+      CloudPrintURL(profile_.get()).
       GetCloudPrintServiceDialogURL().spec();
   EXPECT_THAT(dialog_url, HasSubstr("www.google.com"));
   EXPECT_THAT(dialog_url, HasSubstr("/cloudprint/"));

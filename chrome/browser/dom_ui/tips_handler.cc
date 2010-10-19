@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,7 +21,7 @@
 DOMMessageHandler* TipsHandler::Attach(DOMUI* dom_ui) {
   dom_ui_ = dom_ui;
   tips_cache_ = dom_ui_->GetProfile()->GetPrefs()->
-      GetMutableDictionary(prefs::kNTPTipsCache);
+      GetMutableDictionary(prefs::kNTPWebResourceCache);
   return DOMMessageHandler::Attach(dom_ui);
 }
 
@@ -30,7 +30,7 @@ void TipsHandler::RegisterMessages() {
       NewCallback(this, &TipsHandler::HandleGetTips));
 }
 
-void TipsHandler::HandleGetTips(const Value* content) {
+void TipsHandler::HandleGetTips(const ListValue* args) {
   // List containing the tips to be displayed.
   ListValue list_value;
 
@@ -45,24 +45,14 @@ void TipsHandler::HandleGetTips(const Value* content) {
   // We need to check here because the new tab page calls for tips before
   // the tip service starts up.
   PrefService* current_prefs = dom_ui_->GetProfile()->GetPrefs();
-  if (current_prefs->HasPrefPath(prefs::kNTPTipsServer)) {
-    std::string server = current_prefs->GetString(prefs::kNTPTipsServer);
+  if (current_prefs->HasPrefPath(prefs::kNTPTipsResourceServer)) {
+    std::string server = current_prefs->GetString(
+        prefs::kNTPTipsResourceServer);
     std::string locale = g_browser_process->GetApplicationLocale();
     if (!EndsWith(server, locale, false)) {
       dom_ui_->CallJavascriptFunction(L"tips", list_value);
       return;
     }
-  }
-
-  // If the user has just started using Chrome with a fresh profile, send only
-  // the "Import bookmarks" promo until the user has either seen it five times
-  // or added or imported bookmarks.
-  if (current_prefs->GetInteger(prefs::kNTPPromoViewsRemaining) > 0) {
-    SendTip(WideToUTF8(l10n_util::GetStringF(IDS_IMPORT_BOOKMARKS_PROMO,
-        std::wstring(L"<button class='link'>"),
-        std::wstring(L"</button>"))),
-        L"set_promo_tip", 0);
-    return;
   }
 
   if (tips_cache_ != NULL && !tips_cache_->empty()) {
@@ -81,20 +71,19 @@ void TipsHandler::HandleGetTips(const Value* content) {
         bool value;
         if (pref && !pref->IsManaged() &&
             pref->GetValue()->GetAsBoolean(&value) && !value) {
-          SendTip(WideToUTF8(l10n_util::GetString(
-              IDS_NEW_TAB_MAKE_THIS_HOMEPAGE)), L"set_homepage_tip",
-              current_tip_index);
+          SendTip(l10n_util::GetStringUTF8(IDS_NEW_TAB_MAKE_THIS_HOMEPAGE),
+                  "set_homepage_tip", current_tip_index);
           return;
         }
       }
       if (wr_list->GetString(current_tip_index, &current_tip)) {
-        SendTip(current_tip, L"tip_html_text", current_tip_index + 1);
+        SendTip(current_tip, "tip_html_text", current_tip_index + 1);
       }
     }
   }
 }
 
-void TipsHandler::SendTip(std::string tip, std::wstring tip_type,
+void TipsHandler::SendTip(const std::string& tip, const std::string& tip_type,
                           int tip_index) {
   // List containing the tips to be displayed.
   ListValue list_value;
@@ -109,8 +98,8 @@ void TipsHandler::SendTip(std::string tip, std::wstring tip_type,
 
 // static
 void TipsHandler::RegisterUserPrefs(PrefService* prefs) {
-  prefs->RegisterDictionaryPref(prefs::kNTPTipsCache);
-  prefs->RegisterStringPref(prefs::kNTPTipsServer,
+  prefs->RegisterDictionaryPref(prefs::kNTPWebResourceCache);
+  prefs->RegisterStringPref(prefs::kNTPLogoResourceServer,
                             WebResourceService::kDefaultResourceServer);
 }
 

@@ -104,14 +104,14 @@ class SrtpFilter {
   // offer_params should contain a list of available parameters to use, or none,
   // if crypto is not desired. This must be called before SetAnswer.
   bool SetOffer(const std::vector<CryptoParams>& offer_params,
-                DescriptionSource source);
+                ContentSource source);
   // Indicates which crypto algorithms and keys were contained in the answer.
   // answer_params should contain the negotiated parameters, which may be none,
   // if crypto was not desired or could not be negotiated (and not required).
   // This must be called after SetOffer. If crypto negotiation completes
   // successfully, this will advance the filter to the active state.
   bool SetAnswer(const std::vector<CryptoParams>& answer_params,
-                 DescriptionSource source);
+                 ContentSource source);
 
   // Encrypts/signs an individual RTP/RTCP packet, in-place.
   // If an HMAC is used, this will increase the packet size.
@@ -124,7 +124,7 @@ class SrtpFilter {
 
  protected:
   bool StoreParams(const std::vector<CryptoParams>& offer_params,
-                   DescriptionSource source);
+                   ContentSource source);
   bool NegotiateParams(const std::vector<CryptoParams>& answer_params,
                        CryptoParams* selected_params);
   bool ApplyParams(const CryptoParams& send_params,

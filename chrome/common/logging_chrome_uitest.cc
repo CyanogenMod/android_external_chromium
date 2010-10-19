@@ -12,7 +12,7 @@
 
 #include "base/basictypes.h"
 #include "base/command_line.h"
-#include "base/env_var.h"
+#include "base/environment.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/env_vars.h"
 #include "chrome/common/logging_chrome.h"
@@ -25,18 +25,18 @@ class ChromeLoggingTest : public testing::Test {
   // Stores the current value of the log file name environment
   // variable and sets the variable to new_value.
   void SaveEnvironmentVariable(std::string new_value) {
-    scoped_ptr<base::EnvVarGetter> env(base::EnvVarGetter::Create());
-    if (!env->GetEnv(env_vars::kLogFileName, &environment_filename_))
+    scoped_ptr<base::Environment> env(base::Environment::Create());
+    if (!env->GetVar(env_vars::kLogFileName, &environment_filename_))
       environment_filename_ = "";
 
-    env->SetEnv(env_vars::kLogFileName, new_value);
+    env->SetVar(env_vars::kLogFileName, new_value);
   }
 
   // Restores the value of the log file nave environment variable
   // previously saved by SaveEnvironmentVariable().
   void RestoreEnvironmentVariable() {
-    scoped_ptr<base::EnvVarGetter> env(base::EnvVarGetter::Create());
-    env->SetEnv(env_vars::kLogFileName, environment_filename_);
+    scoped_ptr<base::Environment> env(base::Environment::Create());
+    env->SetVar(env_vars::kLogFileName, environment_filename_);
   }
 
  private:
@@ -130,9 +130,6 @@ class CheckFalseTest : public UITest {
 #elif defined(OS_MACOSX)
 // Crash service doesn't exist for the Mac yet: http://crbug.com/45243
 #define CheckFails DISABLED_CheckFails
-#elif defined(OS_LINUX)
-// TODO(phajdan) Fix this - http://crbug.com/49838
-#define CheckFails FAILS_CheckFails
 #endif
 // Launch the app in assertion test mode, then close the app.
 TEST_F(CheckFalseTest, CheckFails) {
@@ -183,7 +180,7 @@ TEST_F(RendererCrashTest, Crash) {
   } else {
     scoped_refptr<BrowserProxy> browser(automation()->GetBrowserWindow(0));
     ASSERT_TRUE(browser.get());
-    ASSERT_TRUE(browser->WaitForTabCountToBecome(1, action_max_timeout_ms()));
+    ASSERT_TRUE(browser->WaitForTabCountToBecome(1));
     expected_crashes_ = EXPECTED_CRASH_CRASHES;
   }
 }

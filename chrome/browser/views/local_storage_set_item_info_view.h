@@ -4,9 +4,9 @@
 
 #ifndef CHROME_BROWSER_VIEWS_LOCAL_STORAGE_SET_ITEM_INFO_VIEW_H_
 #define CHROME_BROWSER_VIEWS_LOCAL_STORAGE_SET_ITEM_INFO_VIEW_H_
+#pragma once
 
 #include <string>
-#include <vector>
 
 #include "base/string16.h"
 #include "views/view.h"

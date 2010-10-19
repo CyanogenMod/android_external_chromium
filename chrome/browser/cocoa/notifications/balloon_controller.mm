@@ -7,6 +7,8 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #import "base/cocoa_protocols_mac.h"
+#include "base/mac_util.h"
+#include "base/nsimage_cache_mac.h"
 #import "base/scoped_nsobject.h"
 #include "base/utf_string_conversions.h"
 #import "chrome/browser/cocoa/menu_controller.h"
@@ -24,16 +26,23 @@ namespace {
 // Margin, in pixels, between the notification frame and the contents
 // of the notification.
 const int kTopMargin = 1;
-const int kBottomMargin = 1;
-const int kLeftMargin = 1;
-const int kRightMargin = 1;
+const int kBottomMargin = 2;
+const int kLeftMargin = 2;
+const int kRightMargin = 2;
 
 }  // namespace
+
+@interface BalloonController (Private)
+- (void)updateTrackingRect;
+@end
 
 @implementation BalloonController
 
 - (id)initWithBalloon:(Balloon*)balloon {
-  if ((self = [super initWithWindowNibName:@"Notification"])) {
+  NSString* nibpath =
+      [mac_util::MainAppBundle() pathForResource:@"Notification"
+                                          ofType:@"nib"];
+  if ((self = [super initWithWindowNibPath:nibpath owner:self])) {
     balloon_ = balloon;
     [self initializeHost];
     menuModel_.reset(new NotificationOptionsMenuModel(balloon));
@@ -47,21 +56,66 @@ const int kRightMargin = 1;
   DCHECK([self window]);
   DCHECK_EQ(self, [[self window] delegate]);
 
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  NSImage* image = rb.GetNSImageNamed(IDR_BALLOON_WRENCH);
-  DCHECK(image);
-  [optionsButton_ setImage:image];
+  NSImage* image = nsimage_cache::ImageNamed(@"balloon_wrench.pdf");
+  [optionsButton_ setDefaultImage:image];
+  [optionsButton_ setDefaultOpacity:0.6];
+  [optionsButton_ setHoverImage:image];
+  [optionsButton_ setHoverOpacity:0.9];
+  [optionsButton_ setPressedImage:image];
+  [optionsButton_ setPressedOpacity:1.0];
+  [[optionsButton_ cell] setHighlightsBy:NSNoCellMask];
 
   NSString* sourceLabelText = l10n_util::GetNSStringF(
       IDS_NOTIFICATION_BALLOON_SOURCE_LABEL,
-      WideToUTF16(balloon_->notification().display_source()));
+      balloon_->notification().display_source());
   [originLabel_ setStringValue:sourceLabelText];
 
-  gfx::NativeView contents = htmlContents_->native_view();
-  [contents setFrame:NSMakeRect(kLeftMargin, kTopMargin, 0, 0)];
-  [[htmlContainer_ superview] addSubview:contents
-                              positioned:NSWindowBelow
-                              relativeTo:nil];
+  // This condition is false in unit tests which have no RVH.
+  if (htmlContents_.get()) {
+    gfx::NativeView contents = htmlContents_->native_view();
+    [contents setFrame:NSMakeRect(kLeftMargin, kTopMargin, 0, 0)];
+    [[htmlContainer_ superview] addSubview:contents
+                                positioned:NSWindowBelow
+                                relativeTo:nil];
+  }
+
+  // Use the standard close button for a utility window.
+  closeButton_ = [NSWindow standardWindowButton:NSWindowCloseButton
+                                   forStyleMask:NSUtilityWindowMask];
+  NSRect frame = [closeButton_ frame];
+  [closeButton_ setFrame:NSMakeRect(6, 1, frame.size.width, frame.size.height)];
+  [closeButton_ setTarget:self];
+  [closeButton_ setAction:@selector(closeButtonPressed:)];
+  [shelf_ addSubview:closeButton_];
+  [self updateTrackingRect];
+
+  // Set the initial position without animating (the balloon should not
+  // yet be visible).
+  DCHECK(![[self window] isVisible]);
+  NSRect balloon_frame = NSMakeRect(balloon_->GetPosition().x(),
+                                    balloon_->GetPosition().y(),
+                                    [self desiredTotalWidth],
+                                    [self desiredTotalHeight]);
+  [[self window] setFrame:balloon_frame
+                  display:NO];
+}
+
+- (void)updateTrackingRect {
+  if (closeButtonTrackingTag_)
+    [shelf_ removeTrackingRect:closeButtonTrackingTag_];
+
+  closeButtonTrackingTag_ = [shelf_ addTrackingRect:[closeButton_ frame]
+                                              owner:self
+                                           userData:nil
+                                       assumeInside:NO];
+}
+
+- (void) mouseEntered:(NSEvent*)event {
+  [[closeButton_ cell] setHighlighted:YES];
+}
+
+- (void) mouseExited:(NSEvent*)event {
+  [[closeButton_ cell] setHighlighted:NO];
 }
 
 - (IBAction)optionsButtonPressed:(id)sender {
@@ -81,12 +135,20 @@ const int kRightMargin = 1;
   [self close];
 }
 
+- (void)close {
+  if (closeButtonTrackingTag_)
+    [shelf_ removeTrackingRect:closeButtonTrackingTag_];
+
+  [super close];
+}
+
 - (void)closeBalloon:(bool)byUser {
   DCHECK(balloon_);
   [self close];
   if (htmlContents_.get())
     htmlContents_->Shutdown();
-  balloon_->OnClose(byUser);
+  if (balloon_)
+    balloon_->OnClose(byUser);
   balloon_ = NULL;
 }
 
@@ -104,10 +166,11 @@ const int kRightMargin = 1;
   int w = [self desiredTotalWidth];
   int h = [self desiredTotalHeight];
 
-  htmlContents_->UpdateActualSize(balloon_->content_size());
-  [[self window] setFrame:NSMakeRect(x, y, w, h)
-                  display:YES
-                  animate:YES];
+  if (htmlContents_.get())
+    htmlContents_->UpdateActualSize(balloon_->content_size());
+
+  [[[self window] animator] setFrame:NSMakeRect(x, y, w, h)
+                             display:YES];
 }
 
 // Returns the total width the view should be to accommodate the balloon.

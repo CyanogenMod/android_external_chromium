@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "base/histogram.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "chrome/browser/password_manager/password_manager.h"
 #include "chrome/browser/profile.h"
@@ -142,6 +143,10 @@ bool PasswordFormManager::IsNewLogin() {
 
 bool PasswordFormManager::HasValidPasswordForm() {
   DCHECK_EQ(state_, POST_MATCHING_PHASE);
+  // Non-HTML password forms (primarily HTTP and FTP autentication)
+  // do not contain username_element and password_element values.
+  if (observed_form_.scheme != PasswordForm::SCHEME_HTML)
+    return true;
   return !observed_form_.username_element.empty() &&
       !observed_form_.password_element.empty();
 }

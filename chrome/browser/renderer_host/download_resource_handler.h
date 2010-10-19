@@ -1,13 +1,13 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_DOWNLOAD_RESOURCE_HANDLER_H_
 #define CHROME_BROWSER_RENDERER_HOST_DOWNLOAD_RESOURCE_HANDLER_H_
+#pragma once
 
 #include <string>
 
-#include "base/file_path.h"
 #include "base/timer.h"
 #include "chrome/browser/download/download_file.h"
 #include "chrome/browser/renderer_host/global_request_id.h"
@@ -26,7 +26,7 @@ class DownloadResourceHandler : public ResourceHandler {
                           int render_view_id,
                           int request_id,
                           const GURL& url,
-                          DownloadFileManager* manager,
+                          DownloadFileManager* download_file_manager,
                           URLRequest* request,
                           bool save_as,
                           const DownloadSaveInfo& save_info);
@@ -65,7 +65,7 @@ class DownloadResourceHandler : public ResourceHandler {
   void CheckWriteProgress();
 
  private:
-  ~DownloadResourceHandler() {}
+  ~DownloadResourceHandler();
 
   void StartPauseTimer();
 
@@ -76,7 +76,7 @@ class DownloadResourceHandler : public ResourceHandler {
   std::string content_disposition_;
   GURL url_;
   int64 content_length_;
-  DownloadFileManager* download_manager_;
+  DownloadFileManager* download_file_manager_;
   URLRequest* request_;
   bool save_as_;  // Request was initiated via "Save As" by the user.
   DownloadSaveInfo save_info_;

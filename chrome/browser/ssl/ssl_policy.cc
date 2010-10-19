@@ -4,15 +4,13 @@
 
 #include "chrome/browser/ssl/ssl_policy.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/base_switches.h"
 #include "base/command_line.h"
-#include "base/i18n/rtl.h"
 #include "base/singleton.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
 #include "chrome/browser/cert_store.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -22,11 +20,10 @@
 #include "chrome/browser/ssl/ssl_request_info.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/browser/pref_service.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/time_format.h"
 #include "chrome/common/url_constants.h"
 #include "grit/browser_resources.h"
@@ -74,6 +71,7 @@ void SSLPolicy::OnCertError(SSLCertErrorHandler* handler) {
     case net::ERR_CERT_CONTAINS_ERRORS:
     case net::ERR_CERT_REVOKED:
     case net::ERR_CERT_INVALID:
+    case net::ERR_CERT_NOT_IN_DNS:
       OnCertErrorInternal(handler, SSLBlockingPage::ERROR_FATAL);
       break;
     default:

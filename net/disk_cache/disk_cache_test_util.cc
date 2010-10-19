@@ -65,7 +65,7 @@ bool CreateCacheTestFile(const FilePath& name) {
               base::PLATFORM_FILE_WRITE;
 
   scoped_refptr<disk_cache::File> file(new disk_cache::File(
-      base::CreatePlatformFile(name, flags, NULL)));
+      base::CreatePlatformFile(name, flags, NULL, NULL)));
   if (!file->IsValid())
     return false;
 
@@ -149,6 +149,9 @@ MessageLoopHelper::MessageLoopHelper()
   // Create a recurrent timer of 50 mS.
   timer_.Start(
       TimeDelta::FromMilliseconds(50), this, &MessageLoopHelper::TimerExpired);
+}
+
+MessageLoopHelper::~MessageLoopHelper() {
 }
 
 bool MessageLoopHelper::WaitUntilCacheIoFinished(int num_callbacks) {

@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_LOCATION_BAR_PAGE_ACTION_WITH_BADGE_VIEW_H_
 #define CHROME_BROWSER_VIEWS_LOCATION_BAR_PAGE_ACTION_WITH_BADGE_VIEW_H_
+#pragma once
 
 #include "gfx/size.h"
 #include "views/view.h"
@@ -19,7 +20,7 @@ class PageActionWithBadgeView : public views::View {
 
   PageActionImageView* image_view() { return image_view_; }
 
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
   virtual gfx::Size GetPreferredSize();
 
   void UpdateVisibility(TabContents* contents, const GURL& url);

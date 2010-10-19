@@ -4,14 +4,13 @@
 
 #ifndef CHROME_BROWSER_TABS_PINNED_TAB_CODEC_H_
 #define CHROME_BROWSER_TABS_PINNED_TAB_CODEC_H_
+#pragma once
 
-#include <string>
 #include <vector>
 
 #include "chrome/browser/browser_init.h"
 #include "googleurl/src/gurl.h"
 
-class Browser;
 class PrefService;
 class Profile;
 

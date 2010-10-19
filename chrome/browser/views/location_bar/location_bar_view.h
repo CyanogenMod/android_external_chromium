@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_LOCATION_BAR_LOCATION_BAR_VIEW_H_
 #define CHROME_BROWSER_VIEWS_LOCATION_BAR_LOCATION_BAR_VIEW_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -11,8 +12,9 @@
 #include "base/task.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/extensions/extension_context_menu_model.h"
-#include "chrome/browser/first_run.h"
+#include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/location_bar.h"
+#include "chrome/browser/search_engines/template_url_model_observer.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/toolbar_model.h"
 #include "chrome/browser/views/extensions/extension_popup.h"
@@ -29,7 +31,6 @@
 #include "chrome/browser/gtk/accessible_widget_helper_gtk.h"
 #endif
 
-class Browser;
 class CommandUpdater;
 class ContentSettingImageView;
 class EVBubbleView;
@@ -37,13 +38,16 @@ class ExtensionAction;
 class GURL;
 class KeywordHintView;
 class LocationIconView;
+class MatchPreview;
 class PageActionWithBadgeView;
 class Profile;
 class SelectedKeywordView;
 class StarView;
+class TemplateURLModel;
 
 namespace views {
 class HorizontalPainter;
+class Label;
 };
 
 /////////////////////////////////////////////////////////////////////////////
@@ -58,7 +62,8 @@ class LocationBarView : public LocationBar,
                         public LocationBarTesting,
                         public views::View,
                         public views::DragController,
-                        public AutocompleteEditController {
+                        public AutocompleteEditController,
+                        public TemplateURLModelObserver {
  public:
   // The location bar view's class name.
   static const char kViewClassName[];
@@ -67,6 +72,9 @@ class LocationBarView : public LocationBar,
    public:
     // Should return the current tab contents.
     virtual TabContents* GetTabContents() = 0;
+
+    // Returns the MatchPreview, or NULL if there isn't one.
+    virtual MatchPreview* GetMatchPreview() = 0;
 
     // Called by the location bar view when the user starts typing in the edit.
     // This forces our security style to be UNKNOWN for the duration of the
@@ -103,8 +111,8 @@ class LocationBarView : public LocationBar,
 
   void Init();
 
-  // Returns whether this instance has been initialized by callin Init. Init can
-  // only be called when the receiving instance is attached to a view container.
+  // True if this instance has been initialized by calling Init, which can only
+  // be called when the receiving instance is attached to a view container.
   bool IsInitialized() const;
 
   // Returns the appropriate color for the desired kind, based on the user's
@@ -167,6 +175,11 @@ class LocationBarView : public LocationBar,
 #endif
 
   // AutocompleteEditController
+  virtual void OnAutocompleteWillClosePopup();
+  virtual void OnAutocompleteLosingFocus(gfx::NativeView view_gaining_focus);
+  virtual void OnAutocompleteWillAccept();
+  virtual bool OnCommitSuggestedText(const std::wstring& typed_text);
+  virtual void OnPopupBoundsChanged(const gfx::Rect& bounds);
   virtual void OnAutocompleteAccept(const GURL& url,
                                     WindowOpenDisposition disposition,
                                     PageTransition::Type transition,
@@ -181,7 +194,7 @@ class LocationBarView : public LocationBar,
   // Overridden from views::View:
   virtual std::string GetClassName() const;
   virtual bool SkipDefaultKeyEventProcessing(const views::KeyEvent& e);
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
 
   // Overridden from views::DragController:
   virtual void WriteDragData(View* sender,
@@ -194,6 +207,7 @@ class LocationBarView : public LocationBar,
 
   // Overridden from LocationBar:
   virtual void ShowFirstRunBubble(FirstRun::BubbleType bubble_type);
+  virtual void SetSuggestedText(const string16& text);
   virtual std::wstring GetInputString() const;
   virtual WindowOpenDisposition GetWindowOpenDisposition() const;
   virtual PageTransition::Type GetPageTransition() const;
@@ -220,9 +234,22 @@ class LocationBarView : public LocationBar,
   virtual ExtensionAction* GetVisiblePageAction(size_t index);
   virtual void TestPageActionPressed(size_t index);
 
-  static const int kVertMargin;     // Space above and below the edit.
-  static const int kEdgeThickness;  // Unavailable space at horizontal edges.
-  static const int kItemPadding;    // Space between items within the bar.
+  // Overridden from TemplateURLModelObserver
+  virtual void OnTemplateURLModelChanged();
+
+  // Thickness of the left and right edges of the omnibox, in normal mode.
+  static const int kNormalHorizontalEdgeThickness;
+  // Thickness of the top and bottom edges of the omnibox.
+  static const int kVerticalEdgeThickness;
+  // Space between items in the location bar.
+  static const int kItemPadding;
+  // Space between items in the location bar when an extension keyword is
+  // showing.
+  static const int kExtensionItemPadding;
+  // Space between the edges and the items next to them.
+  static const int kEdgeItemPadding;
+  // Space between the edge and a bubble.
+  static const int kBubblePadding;
 
  protected:
   void Focus();
@@ -230,28 +257,36 @@ class LocationBarView : public LocationBar,
  private:
   typedef std::vector<ContentSettingImageView*> ContentSettingViews;
 
+  // Enumeration of what should happen to the match preview on focus lost.
+  enum MatchPreviewCommitType {
+    // The match preview should be committed immediately.
+    COMMIT_MATCH_PREVIEW_IMMEDIATELY,
+
+    // The match preview should be committed on mouse up.
+    COMMIT_MATCH_PREVIEW_ON_MOUSE_UP,
+
+    // The match preview should be reverted.
+    REVERT_MATCH_PREVIEW
+  };
+
   friend class PageActionImageView;
   friend class PageActionWithBadgeView;
   typedef std::vector<PageActionWithBadgeView*> PageActionViews;
-
-  // Returns the height in pixels of the margin at the top of the bar.
-  int TopMargin() const;
 
   // Returns the amount of horizontal space (in pixels) out of
   // |location_bar_width| that is not taken up by the actual text in
   // location_entry_.
   int AvailableWidth(int location_bar_width);
 
-  // Returns whether the |available_width| is large enough to contain a view
-  // with preferred width |pref_width| at its preferred size. If this returns
-  // true, the preferred size should be used. If this returns false, the
-  // minimum size of the view should be used.
-  bool UsePref(int pref_width, int available_width);
-
-  // If View fits in the specified region, it is made visible and the
-  // bounds are adjusted appropriately. If the View does not fit, it is
-  // made invisible.
-  void LayoutView(bool leading, views::View* view, int available_width,
+  // If |view| fits in |available_width|, it is made visible and positioned at
+  // the leading or trailing end of |bounds|, which are then shrunk
+  // appropriately.  Otherwise |view| is made invisible.
+  // Note: |view| is expected to have already been positioned and sized
+  // vertically.
+  void LayoutView(views::View* view,
+                  int padding,
+                  int available_width,
+                  bool leading,
                   gfx::Rect* bounds);
 
   // Update the visibility state of the Content Blocked icons to reflect what is
@@ -276,8 +311,9 @@ class LocationBarView : public LocationBar,
   // Helper to show the first run info bubble.
   void ShowFirstRunBubbleInternal(FirstRun::BubbleType bubble_type);
 
-  // Current browser. Not owned by us.
-  Browser* browser_;
+  // Returns what should happen to the MatchPreview as a result of focus being
+  // lost.
+  MatchPreviewCommitType GetCommitType(gfx::NativeView view_gaining_focus);
 
   // Current profile. Not owned by us.
   Profile* profile_;
@@ -332,6 +368,10 @@ class LocationBarView : public LocationBar,
   // Shown if the user has selected a keyword.
   SelectedKeywordView* selected_keyword_view_;
 
+  // View responsible for showing suggested text. This is NULL when there is no
+  // suggested text.
+  views::Label* suggested_text_view_;
+
   // Shown if the selected url has a corresponding keyword.
   KeywordHintView* keyword_hint_view_;
 
@@ -351,12 +391,23 @@ class LocationBarView : public LocationBar,
   // focused. Used when the toolbar is in full keyboard accessibility mode.
   bool show_focus_rect_;
 
+  // Whether bubble text is short or long.
+  FirstRun::BubbleType bubble_type_;
+
+  // This is in case we're destroyed before the model loads. We store the model
+  // because calling profile_->GetTemplateURLModel() in the destructor causes a
+  // crash.
+  TemplateURLModel* template_url_model_;
+
 #if defined(OS_LINUX)
   scoped_ptr<AccessibleWidgetHelper> accessible_widget_helper_;
 #endif
 
-  // Used to schedule a task for the first run info bubble.
-  ScopedRunnableMethodFactory<LocationBarView> first_run_bubble_;
+  // Should the match preview be updated? This is set to false in
+  // OnAutocompleteWillAccept and true in OnAutocompleteAccept. This is needed
+  // as prior to accepting an autocomplete suggestion the model is reverted
+  // which triggers resetting the match preview.
+  bool update_match_preview_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(LocationBarView);
 };

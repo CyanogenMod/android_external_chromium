@@ -4,6 +4,8 @@
 
 #include "chrome/browser/cocoa/tab_strip_model_observer_bridge.h"
 
+#include "chrome/browser/tabs/tab_strip_model.h"
+
 TabStripModelObserverBridge::TabStripModelObserverBridge(TabStripModel* model,
                                                          id controller)
     : controller_(controller), model_(model) {
@@ -98,4 +100,9 @@ void TabStripModelObserverBridge::TabMiniStateChanged(TabContents* contents,
 void TabStripModelObserverBridge::TabStripEmpty() {
   if ([controller_ respondsToSelector:@selector(tabStripEmpty)])
     [controller_ tabStripEmpty];
+}
+
+void TabStripModelObserverBridge::TabStripModelDeleted() {
+  if ([controller_ respondsToSelector:@selector(tabStripModelDeleted)])
+    [controller_ tabStripModelDeleted];
 }

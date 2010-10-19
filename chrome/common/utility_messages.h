@@ -1,18 +1,17 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_COMMON_UTILITY_MESSAGES_H_
 #define CHROME_COMMON_UTILITY_MESSAGES_H_
+#pragma once
 
 #include <string>
-#include <vector>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
-#include "base/values.h"
 #include "chrome/common/common_param_traits.h"
 #include "chrome/common/extensions/update_manifest.h"
+#include "chrome/common/indexed_db_param_traits.h"
 #include "ipc/ipc_message_utils.h"
 
 namespace IPC {
@@ -35,18 +34,18 @@ struct ParamTraits<UpdateManifest::Result> {
            ReadParam(m, iter, &p->package_hash) &&
            ReadParam(m, iter, &p->crx_url);
   }
-  static void Log(const param_type& p, std::wstring* l) {
-    l->append(L"(");
+  static void Log(const param_type& p, std::string* l) {
+    l->append("(");
     LogParam(p.extension_id, l);
-    l->append(L", ");
+    l->append(", ");
     LogParam(p.version, l);
-    l->append(L", ");
+    l->append(", ");
     LogParam(p.browser_min_version, l);
-    l->append(L", ");
+    l->append(", ");
     LogParam(p.package_hash, l);
-    l->append(L", ");
+    l->append(", ");
     LogParam(p.crx_url, l);
-    l->append(L")");
+    l->append(")");
   }
 };
 
@@ -61,12 +60,12 @@ struct ParamTraits<UpdateManifest::Results> {
     return ReadParam(m, iter, &p->list) &&
            ReadParam(m, iter, &p->daystart_elapsed_seconds);
   }
-  static void Log(const param_type& p, std::wstring* l) {
-    l->append(L"(");
+  static void Log(const param_type& p, std::string* l) {
+    l->append("(");
     LogParam(p.list, l);
-    l->append(L", ");
+    l->append(", ");
     LogParam(p.daystart_elapsed_seconds, l);
-    l->append(L")");
+    l->append(")");
   }
 };
 

@@ -7,20 +7,22 @@
 
 #ifndef CHROME_BROWSER_SYNC_NOTIFIER_CACHE_INVALIDATION_PACKET_HANDLER_H_
 #define CHROME_BROWSER_SYNC_NOTIFIER_CACHE_INVALIDATION_PACKET_HANDLER_H_
+#pragma once
 
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/scoped_callback_factory.h"
 #include "talk/xmpp/jid.h"
-
-namespace buzz {
-class XmppClient;
-}  // namespace buzz
 
 namespace invalidation {
 class InvalidationClient;
 class NetworkEndpoint;
 }  // namespace invalidation
+
+namespace talk_base {
+class Task;
+}  // namespace
 
 namespace sync_notifier {
 
@@ -33,7 +35,7 @@ class CacheInvalidationPacketHandler {
   // packets through something.  Does not take ownership of
   // |xmpp_client| or |invalidation_client|.
   CacheInvalidationPacketHandler(
-      buzz::XmppClient* xmpp_client,
+      talk_base::Task* base_task,
       invalidation::InvalidationClient* invalidation_client);
 
   // Makes the invalidation client passed into the constructor not
@@ -47,7 +49,10 @@ class CacheInvalidationPacketHandler {
 
   void HandleInboundPacket(const std::string& packet);
 
-  buzz::XmppClient* xmpp_client_;
+  base::ScopedCallbackFactory<CacheInvalidationPacketHandler>
+      scoped_callback_factory_;
+
+  talk_base::Task* base_task_;
   invalidation::InvalidationClient* invalidation_client_;
 
   // Parameters for sent messages.

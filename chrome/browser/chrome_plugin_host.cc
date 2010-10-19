@@ -16,8 +16,8 @@
 #include "base/perftimer.h"
 #include "base/singleton.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/chrome_plugin_browsing_context.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_ui/html_dialog_ui.h"
@@ -305,7 +305,7 @@ class ModelessHtmlDialogDelegate : public HtmlDialogUIDelegate {
     main_message_loop_->PostTask(FROM_HERE, NewRunnableMethod(
         this, &ModelessHtmlDialogDelegate::Show));
   }
-  ~ModelessHtmlDialogDelegate() {
+  virtual ~ModelessHtmlDialogDelegate() {
     DCHECK(ChromePluginLib::IsPluginThread());
   }
 
@@ -472,8 +472,8 @@ int STDCALL CPB_GetBrowsingContextInfo(
     PluginService* service = PluginService::GetInstance();
     if (!service)
       return CPERR_FAILURE;
-    const std::wstring& wretval = service->GetUILocale();
-    *static_cast<char**>(buf) = CPB_StringDup(CPB_Alloc, WideToUTF8(wretval));
+    const std::string& retval = service->GetUILocale();
+    *static_cast<char**>(buf) = CPB_StringDup(CPB_Alloc, retval);
     return CPERR_SUCCESS;
     }
   }

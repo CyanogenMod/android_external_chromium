@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_BROWSER_TOOLBAR_GTK_H_
 #define CHROME_BROWSER_GTK_BROWSER_TOOLBAR_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 #include <string>
@@ -11,17 +12,18 @@
 #include "app/active_window_watcher_x.h"
 #include "app/gtk_signal.h"
 #include "app/gtk_signal_registrar.h"
+#include "app/menus/accelerator.h"
 #include "app/menus/simple_menu_model.h"
 #include "app/throb_animation.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/gtk/custom_button.h"
 #include "chrome/browser/gtk/menu_gtk.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/wrench_menu_model.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/owned_widget_gtk.h"
 
 class BackForwardButtonGtk;
 class Browser;
@@ -39,7 +41,7 @@ class ToolbarModel;
 // View class that displays the GTK version of the toolbar and routes gtk
 // events back to the Browser.
 class BrowserToolbarGtk : public CommandUpdater::CommandObserver,
-                          public menus::SimpleMenuModel::Delegate,
+                          public menus::AcceleratorProvider,
                           public MenuGtk::Delegate,
                           public NotificationObserver,
                           public AnimationDelegate,
@@ -72,7 +74,7 @@ class BrowserToolbarGtk : public CommandUpdater::CommandObserver,
 
   ReloadButtonGtk* GetReloadButton() { return reload_.get(); }
 
-  GtkWidget* GetAppMenuButton() { return app_menu_button_.get(); }
+  GtkWidget* GetAppMenuButton() { return wrench_menu_button_->widget(); }
 
   BrowserActionsToolbarGtk* GetBrowserActionsToolbar() {
     return actions_toolbar_.get();
@@ -92,11 +94,9 @@ class BrowserToolbarGtk : public CommandUpdater::CommandObserver,
   // Overridden from MenuGtk::Delegate:
   virtual void StoppedShowing();
   virtual GtkIconSet* GetIconSetForId(int idr);
+  virtual bool AlwaysShowImages();
 
-  // Overridden from menus::SimpleMenuModel::Delegate:
-  virtual bool IsCommandIdEnabled(int id) const;
-  virtual bool IsCommandIdChecked(int id) const;
-  virtual void ExecuteCommand(int id);
+  // Overridden from menus::AcceleratorProvider:
   virtual bool GetAcceleratorForCommandId(int id,
                                           menus::Accelerator* accelerator);
 
@@ -120,23 +120,6 @@ class BrowserToolbarGtk : public CommandUpdater::CommandObserver,
   virtual void ActiveWindowChanged(GdkWindow* active_window);
 
  private:
-  // Builds a toolbar button with all the properties set.
-  // |spacing| is the width of padding (in pixels) on the left and right of the
-  // button.
-  CustomDrawButton* BuildToolbarButton(int normal_id,
-                                       int active_id,
-                                       int highlight_id,
-                                       int depressed_id,
-                                       int background_id,
-                                       const std::string& localized_tooltip,
-                                       const char* stock_id,
-                                       int spacing);
-
-  // Create a menu for the toolbar given the icon id and tooltip.  Returns the
-  // widget created.
-  GtkWidget* BuildToolbarMenuButton(const std::string& localized_tooltip,
-                                    OwnedWidgetGtk* owner);
-
   // Connect/Disconnect signals for dragging a url onto the home button.
   void SetUpDragForHomeButton(bool enable);
 
@@ -169,14 +152,14 @@ class BrowserToolbarGtk : public CommandUpdater::CommandObserver,
                        guint, guint);
 
   // Used to stop the upgrade notification animation.
-  CHROMEGTK_CALLBACK_0(BrowserToolbarGtk, void, OnAppMenuShow);
+  CHROMEGTK_CALLBACK_0(BrowserToolbarGtk, void, OnWrenchMenuShow);
 
   // Used to draw the upgrade notification badge.
-  CHROMEGTK_CALLBACK_1(BrowserToolbarGtk, gboolean, OnAppMenuImageExpose,
+  CHROMEGTK_CALLBACK_1(BrowserToolbarGtk, gboolean, OnWrenchMenuButtonExpose,
                        GdkEventExpose*);
 
   // Updates preference-dependent state.
-  void NotifyPrefChanged(const std::wstring* pref);
+  void NotifyPrefChanged(const std::string* pref);
 
   // Start the upgrade notification animation if we have detected an upgrade
   // and the current toolbar is focused.
@@ -206,7 +189,6 @@ class BrowserToolbarGtk : public CommandUpdater::CommandObserver,
   // set their minimum sizes independently of |location_hbox_| which needs to
   // grow/shrink in GTK+ mode.
   GtkWidget* toolbar_left_;
-  GtkWidget* toolbar_right_;
 
   // Contains all the widgets of the location bar.
   GtkWidget* location_hbox_;
@@ -219,18 +201,17 @@ class BrowserToolbarGtk : public CommandUpdater::CommandObserver,
   scoped_ptr<CustomDrawButton> home_;
   scoped_ptr<ReloadButtonGtk> reload_;
   scoped_ptr<BrowserActionsToolbarGtk> actions_toolbar_;
-  OwnedWidgetGtk app_menu_button_;
+  scoped_ptr<CustomDrawButton> wrench_menu_button_;
 
-  // Keep a pointer to the menu button image because we change it when the theme
-  // changes.
-  OwnedWidgetGtk app_menu_image_;
+  // The image shown in GTK+ mode in the wrench button.
+  GtkWidget* wrench_menu_image_;
 
   // The model that contains the security level, text, icon to display...
   ToolbarModel* model_;
 
   GtkThemeProvider* theme_provider_;
 
-  scoped_ptr<MenuGtk> app_menu_;
+  scoped_ptr<MenuGtk> wrench_menu_;
 
   WrenchMenuModel wrench_menu_model_;
 

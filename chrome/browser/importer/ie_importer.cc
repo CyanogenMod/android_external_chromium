@@ -21,13 +21,17 @@
 #include "base/file_util.h"
 #include "base/registry.h"
 #include "base/scoped_comptr_win.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/time.h"
+#include "base/values.h"
+#include "base/utf_string_conversions.h"
 #include "base/win_util.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/importer/importer_bridge.h"
 #include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/password_manager/ie7_password.h"
+#include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/time_format.h"
 #include "chrome/common/url_constants.h"
@@ -258,11 +262,13 @@ void IEImporter::ImportPasswordsIE7() {
   while (reg_iterator.Valid() && !cancelled()) {
     // Get the size of the encrypted data.
     DWORD value_len = 0;
-    if (key.ReadValue(reg_iterator.Name(), NULL, &value_len) && value_len) {
+    if (key.ReadValue(reg_iterator.Name(), NULL, &value_len, NULL) &&
+        value_len) {
       // Query the encrypted data.
       std::vector<unsigned char> value;
       value.resize(value_len);
-      if (key.ReadValue(reg_iterator.Name(), &value.front(), &value_len)) {
+      if (key.ReadValue(reg_iterator.Name(), &value.front(), &value_len,
+                        NULL)) {
         IE7PasswordInfo password_info;
         password_info.url_hash = reg_iterator.Name();
         password_info.encrypted_data = value;
@@ -329,7 +335,7 @@ void IEImporter::ImportHistory() {
     }
 
     if (!rows.empty() && !cancelled()) {
-      bridge_->SetHistoryItems(rows);
+      bridge_->SetHistoryItems(rows, history::SOURCE_IE_IMPORTED);
     }
   }
 }
@@ -461,7 +467,8 @@ bool IEImporter::GetFavoritesInfo(IEImporter::FavoritesInfo *info) {
     // The Link folder name is stored in the registry.
     DWORD buffer_length = sizeof(buffer);
     RegKey reg_key(HKEY_CURRENT_USER,
-                   L"Software\\Microsoft\\Internet Explorer\\Toolbar");
+                   L"Software\\Microsoft\\Internet Explorer\\Toolbar",
+                   KEY_READ);
     if (!reg_key.ReadValue(L"LinksFolderName", buffer, &buffer_length, NULL))
       return false;
     info->links_folder = buffer;
@@ -570,7 +577,7 @@ int IEImporter::CurrentIEVersion() const {
     wchar_t buffer[128];
     DWORD buffer_length = sizeof(buffer);
     RegKey reg_key(HKEY_LOCAL_MACHINE,
-                   L"Software\\Microsoft\\Internet Explorer");
+                   L"Software\\Microsoft\\Internet Explorer", KEY_READ);
     bool result = reg_key.ReadValue(L"Version", buffer, &buffer_length, NULL);
     version = (result ? _wtoi(buffer) : 0);
   }

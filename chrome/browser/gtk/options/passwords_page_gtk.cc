@@ -8,12 +8,13 @@
 
 #include "app/gtk_util.h"
 #include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/stl_util-inl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/gtk/gtk_tree.h"
 #include "chrome/browser/gtk/gtk_util.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/common/notification_details.h"
+#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "gfx/gtk_util.h"
@@ -41,6 +42,9 @@ enum {
 
 PasswordsPageGtk::PasswordsPageGtk(Profile* profile)
     : populater(this), password_showing_(false), profile_(profile) {
+  allow_show_passwords_.Init(prefs::kPasswordManagerAllowShowPasswords,
+                             profile->GetPrefs(),
+                             this);
 
   remove_button_ = gtk_button_new_with_label(
       l10n_util::GetStringUTF8(IDS_PASSWORDS_PAGE_VIEW_REMOVE_BUTTON).c_str());
@@ -53,28 +57,18 @@ PasswordsPageGtk::PasswordsPageGtk(Profile* profile)
   g_signal_connect(remove_all_button_, "clicked",
                    G_CALLBACK(OnRemoveAllButtonClickedThunk), this);
 
+  // We start with the "hide password" text but change it in the realize event.
   show_password_button_ = gtk_button_new_with_label(
       l10n_util::GetStringUTF8(IDS_PASSWORDS_PAGE_VIEW_HIDE_BUTTON).c_str());
-  GtkRequisition hide_size, show_size;
-  // Get the size request of the button with the "hide password" text.
-  gtk_widget_size_request(show_password_button_, &hide_size);
-  gtk_button_set_label(GTK_BUTTON(show_password_button_),
-      l10n_util::GetStringUTF8(IDS_PASSWORDS_PAGE_VIEW_SHOW_BUTTON).c_str());
-  // Get the size request of the button with the "show password" text.
-  gtk_widget_size_request(show_password_button_, &show_size);
-  // Determine the maximum width and height.
-  if (hide_size.width > show_size.width)
-    show_size.width = hide_size.width;
-  if (hide_size.height > show_size.height)
-    show_size.height = hide_size.height;
-  // Force the button to be large enough for both labels.
-  gtk_widget_set_size_request(show_password_button_, show_size.width,
-                              show_size.height);
+  gtk_widget_set_no_show_all(show_password_button_, true);
   gtk_widget_set_sensitive(show_password_button_, FALSE);
   g_signal_connect(show_password_button_, "clicked",
                    G_CALLBACK(OnShowPasswordButtonClickedThunk), this);
+  g_signal_connect(show_password_button_, "realize",
+                   G_CALLBACK(OnShowPasswordButtonRealizedThunk), this);
 
   password_ = gtk_label_new("");
+  gtk_widget_set_no_show_all(password_, true);
 
   GtkWidget* buttons = gtk_vbox_new(FALSE, gtk_util::kControlSpacing);
   gtk_box_pack_start(GTK_BOX(buttons), remove_button_, FALSE, FALSE, 0);
@@ -97,6 +91,9 @@ PasswordsPageGtk::PasswordsPageGtk(Profile* profile)
                                  gtk_util::kContentAreaBorder);
   gtk_box_pack_end(GTK_BOX(page_), buttons, FALSE, FALSE, 0);
   gtk_box_pack_end(GTK_BOX(page_), scroll_window, TRUE, TRUE, 0);
+
+  // Initialize UI state based on current preference values.
+  OnPrefChanged(prefs::kPasswordManagerAllowShowPasswords);
 }
 
 PasswordsPageGtk::~PasswordsPageGtk() {
@@ -155,8 +152,8 @@ PasswordStore* PasswordsPageGtk::GetPasswordStore() {
 
 void PasswordsPageGtk::SetPasswordList(
     const std::vector<webkit_glue::PasswordForm*>& result) {
-  std::wstring languages =
-      UTF8ToWide(profile_->GetPrefs()->GetString(prefs::kAcceptLanguages));
+  std::string languages =
+      profile_->GetPrefs()->GetString(prefs::kAcceptLanguages);
   gtk_list_store_clear(password_list_store_);
   STLDeleteElements(&password_list_);
   password_list_ = result;
@@ -164,10 +161,40 @@ void PasswordsPageGtk::SetPasswordList(
     GtkTreeIter iter;
     gtk_list_store_insert_with_values(password_list_store_, &iter, (gint) i,
         COL_SITE,
-        WideToUTF8(net::FormatUrl(result[i]->origin, languages)).c_str(),
+        UTF16ToUTF8(net::FormatUrl(result[i]->origin, languages)).c_str(),
         COL_USERNAME, UTF16ToUTF8(result[i]->username_value).c_str(), -1);
   }
   gtk_widget_set_sensitive(remove_all_button_, result.size() > 0);
+}
+
+void PasswordsPageGtk::HidePassword() {
+  password_showing_ = false;
+  gtk_label_set_text(GTK_LABEL(password_), "");
+  gtk_button_set_label(GTK_BUTTON(show_password_button_),
+      l10n_util::GetStringUTF8(IDS_PASSWORDS_PAGE_VIEW_SHOW_BUTTON).c_str());
+}
+
+void PasswordsPageGtk::Observe(NotificationType type,
+                               const NotificationSource& source,
+                               const NotificationDetails& details) {
+  DCHECK_EQ(NotificationType::PREF_CHANGED, type.value);
+  const std::string* pref_name = Details<std::string>(details).ptr();
+  OnPrefChanged(*pref_name);
+}
+
+void PasswordsPageGtk::OnPrefChanged(const std::string& pref_name) {
+  if (pref_name == prefs::kPasswordManagerAllowShowPasswords) {
+    if (allow_show_passwords_.GetValue()) {
+      gtk_widget_show(show_password_button_);
+      gtk_widget_show(password_);
+    } else {
+      HidePassword();
+      gtk_widget_hide(show_password_button_);
+      gtk_widget_hide(password_);
+    }
+  } else {
+    NOTREACHED();
+  }
 }
 
 void PasswordsPageGtk::OnRemoveButtonClicked(GtkWidget* widget) {
@@ -240,15 +267,13 @@ void PasswordsPageGtk::OnRemoveAllConfirmResponse(GtkWidget* confirm,
 }
 
 void PasswordsPageGtk::OnShowPasswordButtonClicked(GtkWidget* widget) {
-  password_showing_ = !password_showing_;
-  if (!password_showing_) {
+  if (password_showing_ || !allow_show_passwords_.GetValue()) {
     // Hide the password.
-    gtk_label_set_text(GTK_LABEL(password_), "");
-    gtk_button_set_label(GTK_BUTTON(show_password_button_),
-        l10n_util::GetStringUTF8(IDS_PASSWORDS_PAGE_VIEW_SHOW_BUTTON).c_str());
+    HidePassword();
     return;
   }
   // Show the password.
+  password_showing_ = true;
   GtkTreeIter iter;
   if (!gtk_tree_selection_get_selected(password_selection_,
                                        NULL, &iter)) {
@@ -266,12 +291,31 @@ void PasswordsPageGtk::OnShowPasswordButtonClicked(GtkWidget* widget) {
       l10n_util::GetStringUTF8(IDS_PASSWORDS_PAGE_VIEW_HIDE_BUTTON).c_str());
 }
 
-void PasswordsPageGtk::OnPasswordSelectionChanged(GtkTreeSelection* selection) {
-  // No matter how the selection changed, we want to hide the old password.
-  gtk_label_set_text(GTK_LABEL(password_), "");
+void PasswordsPageGtk::OnShowPasswordButtonRealized(GtkWidget* widget) {
+  // We have just realized the "show password" button, so we can now accurately
+  // find out how big it needs to be in order to accomodate both the "show" and
+  // "hide" labels. (This requires font information to work correctly.) The
+  // button starts with the "hide" label so we only have to change it once.
+  GtkRequisition hide_size, show_size;
+  // Get the size request of the button with the "hide password" text.
+  gtk_widget_size_request(show_password_button_, &hide_size);
   gtk_button_set_label(GTK_BUTTON(show_password_button_),
       l10n_util::GetStringUTF8(IDS_PASSWORDS_PAGE_VIEW_SHOW_BUTTON).c_str());
-  password_showing_ = false;
+  // Get the size request of the button with the "show password" text.
+  gtk_widget_size_request(show_password_button_, &show_size);
+  // Determine the maximum width and height.
+  if (hide_size.width > show_size.width)
+    show_size.width = hide_size.width;
+  if (hide_size.height > show_size.height)
+    show_size.height = hide_size.height;
+  // Force the button to be large enough for both labels.
+  gtk_widget_set_size_request(show_password_button_, show_size.width,
+                              show_size.height);
+}
+
+void PasswordsPageGtk::OnPasswordSelectionChanged(GtkTreeSelection* selection) {
+  // No matter how the selection changed, we want to hide the old password.
+  HidePassword();
 
   GtkTreeIter iter;
   if (!gtk_tree_selection_get_selected(selection, NULL, &iter)) {

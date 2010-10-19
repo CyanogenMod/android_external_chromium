@@ -4,11 +4,11 @@
 
 #include "chrome/browser/toolbar_model.h"
 
-#include "app/l10n_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/cert_store.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/ssl/ssl_error_info.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
@@ -33,13 +33,12 @@ ToolbarModel::~ToolbarModel() {
 // ToolbarModel Implementation.
 std::wstring ToolbarModel::GetText() const {
   GURL url(chrome::kAboutBlankURL);
-  std::wstring languages;  // Empty if we don't have a |navigation_controller|.
+  std::string languages;  // Empty if we don't have a |navigation_controller|.
 
   NavigationController* navigation_controller = GetNavigationController();
   if (navigation_controller) {
-    languages = UTF8ToWide(
-        navigation_controller->profile()->GetPrefs()->GetString(
-        prefs::kAcceptLanguages));
+    languages = navigation_controller->profile()->GetPrefs()->GetString(
+        prefs::kAcceptLanguages);
     NavigationEntry* entry = navigation_controller->GetActiveEntry();
     if (!navigation_controller->tab_contents()->ShouldDisplayURL()) {
       // Explicitly hide the URL for this tab.
@@ -54,8 +53,8 @@ std::wstring ToolbarModel::GetText() const {
   // and pastes it into another program, that program may think the URL ends at
   // the space.
   return AutocompleteInput::FormattedStringWithEquivalentMeaning(url,
-      net::FormatUrl(url, languages, net::kFormatUrlOmitAll,
-                     UnescapeRule::NORMAL, NULL, NULL, NULL));
+      UTF16ToWideHack(net::FormatUrl(url, languages, net::kFormatUrlOmitAll,
+                                     UnescapeRule::NORMAL, NULL, NULL, NULL)));
 }
 
 ToolbarModel::SecurityLevel ToolbarModel::GetSecurityLevel() const {

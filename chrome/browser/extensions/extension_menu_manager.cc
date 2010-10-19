@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "app/l10n_util.h"
 #include "base/logging.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
@@ -34,16 +35,6 @@ ExtensionMenuItem::ExtensionMenuItem(const Id& id,
 
 ExtensionMenuItem::~ExtensionMenuItem() {
   STLDeleteElements(&children_);
-}
-
-bool ExtensionMenuItem::RemoveChild(const Id& child_id) {
-  ExtensionMenuItem* child = ReleaseChild(child_id, true);
-  if (child) {
-    delete child;
-    return true;
-  } else {
-    return false;
-  }
 }
 
 ExtensionMenuItem* ExtensionMenuItem::ReleaseChild(const Id& child_id,
@@ -76,11 +67,16 @@ std::set<ExtensionMenuItem::Id> ExtensionMenuItem::RemoveAllDescendants() {
 }
 
 string16 ExtensionMenuItem::TitleWithReplacement(
-    const string16& selection) const {
+    const string16& selection, size_t max_length) const {
   string16 result = UTF8ToUTF16(title_);
   // TODO(asargent) - Change this to properly handle %% escaping so you can
   // put "%s" in titles that won't get substituted.
   ReplaceSubstringsAfterOffset(&result, 0, ASCIIToUTF16("%s"), selection);
+
+  if (result.length() > max_length) {
+    result = WideToUTF16(l10n_util::TruncateString(UTF16ToWideHack(result),
+                                                   max_length));
+  }
   return result;
 }
 
@@ -245,23 +241,40 @@ bool ExtensionMenuManager::RemoveContextMenuItem(
   }
 
   bool result = false;
+  std::set<ExtensionMenuItem::Id> items_removed;
   ExtensionMenuItem::List& list = i->second;
   ExtensionMenuItem::List::iterator j;
   for (j = list.begin(); j < list.end(); ++j) {
-    // See if the current item is a match, or if one of its children was.
+    // See if the current top-level item is a match.
     if ((*j)->id() == id) {
+      items_removed = (*j)->RemoveAllDescendants();
+      items_removed.insert(id);
       delete *j;
       list.erase(j);
-      items_by_id_.erase(id);
       result = true;
       break;
-    } else if ((*j)->RemoveChild(id)) {
-      items_by_id_.erase(id);
-      result = true;
-      break;
+    } else {
+      // See if the item to remove was found as a descendant of the current
+      // top-level item.
+      ExtensionMenuItem* child = (*j)->ReleaseChild(id, true /* recursive */);
+      if (child) {
+        items_removed = child->RemoveAllDescendants();
+        items_removed.insert(id);
+        delete child;
+        result = true;
+        break;
+      }
     }
   }
   DCHECK(result);  // The check at the very top should have prevented this.
+
+  // Clear entries from the items_by_id_ map.
+  std::set<ExtensionMenuItem::Id>::iterator removed_iter;
+  for (removed_iter = items_removed.begin();
+       removed_iter != items_removed.end();
+       ++removed_iter) {
+    items_by_id_.erase(*removed_iter);
+  }
 
   if (list.empty())
     icon_manager_.RemoveIcon(extension_id);
@@ -350,7 +363,7 @@ void ExtensionMenuManager::RadioItemSelected(ExtensionMenuItem* item) {
 }
 
 static void AddURLProperty(DictionaryValue* dictionary,
-                           const std::wstring& key, const GURL& url) {
+                           const std::string& key, const GURL& url) {
   if (!url.is_empty())
     dictionary->SetString(key, url.possibly_invalid_spec());
 }
@@ -374,32 +387,33 @@ void ExtensionMenuManager::ExecuteCommand(
   ListValue args;
 
   DictionaryValue* properties = new DictionaryValue();
-  properties->SetInteger(L"menuItemId", item->id().second);
+  properties->SetInteger("menuItemId", item->id().second);
   if (item->parent_id())
-    properties->SetInteger(L"parentMenuItemId", item->parent_id()->second);
+    properties->SetInteger("parentMenuItemId", item->parent_id()->second);
 
   switch (params.media_type) {
     case WebKit::WebContextMenuData::MediaTypeImage:
-      properties->SetString(L"mediaType", "IMAGE");
+      properties->SetString("mediaType", "image");
       break;
     case WebKit::WebContextMenuData::MediaTypeVideo:
-      properties->SetString(L"mediaType", "VIDEO");
+      properties->SetString("mediaType", "video");
       break;
     case WebKit::WebContextMenuData::MediaTypeAudio:
-      properties->SetString(L"mediaType", "AUDIO");
+      properties->SetString("mediaType", "audio");
       break;
     default:  {}  // Do nothing.
   }
 
-  AddURLProperty(properties, L"linkUrl", params.unfiltered_link_url);
-  AddURLProperty(properties, L"srcUrl", params.src_url);
-  AddURLProperty(properties, L"mainFrameUrl", params.page_url);
-  AddURLProperty(properties, L"frameUrl", params.frame_url);
+  AddURLProperty(properties, "linkUrl", params.unfiltered_link_url);
+  AddURLProperty(properties, "srcUrl", params.src_url);
+  AddURLProperty(properties, "pageUrl", params.page_url);
+  AddURLProperty(properties, "frameUrl", params.frame_url);
 
   if (params.selection_text.length() > 0)
-    properties->SetString(L"selectionText", params.selection_text);
+    properties->SetString("selectionText",
+                          WideToUTF16Hack(params.selection_text));
 
-  properties->SetBoolean(L"editable", params.is_editable);
+  properties->SetBoolean("editable", params.is_editable);
 
   args.Append(properties);
 
@@ -413,7 +427,7 @@ void ExtensionMenuManager::ExecuteCommand(
   if (item->type() == ExtensionMenuItem::CHECKBOX ||
       item->type() == ExtensionMenuItem::RADIO) {
     bool was_checked = item->checked();
-    properties->SetBoolean(L"wasChecked", was_checked);
+    properties->SetBoolean("wasChecked", was_checked);
 
     // RADIO items always get set to true when you click on them, but CHECKBOX
     // items get their state toggled.
@@ -421,14 +435,13 @@ void ExtensionMenuManager::ExecuteCommand(
         (item->type() == ExtensionMenuItem::RADIO) ? true : !was_checked;
 
     item->SetChecked(checked);
-    properties->SetBoolean(L"checked", item->checked());
+    properties->SetBoolean("checked", item->checked());
   }
 
   std::string json_args;
   base::JSONWriter::Write(&args, false, &json_args);
   std::string event_name = "contextMenus/" + item->extension_id();
-  service->DispatchEventToRenderers(event_name, json_args,
-                                    profile->IsOffTheRecord(), GURL());
+  service->DispatchEventToRenderers(event_name, json_args, profile, GURL());
 }
 
 void ExtensionMenuManager::Observe(NotificationType type,

@@ -4,15 +4,17 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_ACCESSIBILITY_API_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_ACCESSIBILITY_API_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/singleton.h"
+#include "base/values.h"
 #include "chrome/browser/accessibility_events.h"
 #include "chrome/browser/extensions/extension_function.h"
-#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
 // Observes the profile and routes accessibility notifications as events

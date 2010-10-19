@@ -8,9 +8,10 @@
 
 #include "base/base64.h"
 #include "base/callback.h"
+#include "base/compiler_specific.h"
 #include "base/logging.h"
 #include "base/rand_util.h"
-#include "base/string_util.h"
+#include "base/string_number_conversions.h"
 #include "chrome/browser/sync/sync_constants.h"
 #include "google/cacheinvalidation/invalidation-client.h"
 #include "jingle/notifier/listener/xml_element_util.h"
@@ -45,17 +46,17 @@ class CacheInvalidationListenTask : public buzz::XmppTask {
   virtual ~CacheInvalidationListenTask() {}
 
   virtual int ProcessStart() {
-    LOG(INFO) << "CacheInvalidationListenTask started";
+    VLOG(2) << "CacheInvalidationListenTask started";
     return STATE_RESPONSE;
   }
 
   virtual int ProcessResponse() {
     const buzz::XmlElement* stanza = NextStanza();
     if (stanza == NULL) {
-      LOG(INFO) << "CacheInvalidationListenTask blocked";
+      VLOG(2) << "CacheInvalidationListenTask blocked";
       return STATE_BLOCKED;
     }
-    LOG(INFO) << "CacheInvalidationListenTask response received";
+    VLOG(2) << "CacheInvalidationListenTask response received";
     std::string data;
     if (GetCacheInvalidationIqPacketData(stanza, &data)) {
       callback_->Run(data);
@@ -70,14 +71,14 @@ class CacheInvalidationListenTask : public buzz::XmppTask {
   }
 
   virtual bool HandleStanza(const buzz::XmlElement* stanza) {
-    LOG(INFO) << "Stanza received: "
+    VLOG(1) << "Stanza received: "
               << notifier::XmlElementToString(*stanza);
     if (IsValidCacheInvalidationIqPacket(stanza)) {
-      LOG(INFO) << "Queueing stanza";
+      VLOG(2) << "Queueing stanza";
       QueueStanza(stanza);
       return true;
     }
-    LOG(INFO) << "Stanza skipped";
+    VLOG(2) << "Stanza skipped";
     return false;
   }
 
@@ -127,10 +128,10 @@ class CacheInvalidationSendMessageTask : public buzz::XmppTask {
     scoped_ptr<buzz::XmlElement> stanza(
         MakeCacheInvalidationIqPacket(to_jid_, task_id(), msg_,
                                       seq_, sid_));
-    LOG(INFO) << "Sending message: "
+    VLOG(1) << "Sending message: "
               << notifier::XmlElementToString(*stanza.get());
     if (SendStanza(stanza.get()) != buzz::XMPP_RETURN_OK) {
-      LOG(INFO) << "Error when sending message";
+      VLOG(2) << "Error when sending message";
       return STATE_ERROR;
     }
     return STATE_RESPONSE;
@@ -139,23 +140,23 @@ class CacheInvalidationSendMessageTask : public buzz::XmppTask {
   virtual int ProcessResponse() {
     const buzz::XmlElement* stanza = NextStanza();
     if (stanza == NULL) {
-      LOG(INFO) << "CacheInvalidationSendMessageTask blocked...";
+      VLOG(2) << "CacheInvalidationSendMessageTask blocked...";
       return STATE_BLOCKED;
     }
-    LOG(INFO) << "CacheInvalidationSendMessageTask response received: "
+    VLOG(2) << "CacheInvalidationSendMessageTask response received: "
               << notifier::XmlElementToString(*stanza);
     // TODO(akalin): Handle errors here.
     return STATE_DONE;
   }
 
   virtual bool HandleStanza(const buzz::XmlElement* stanza) {
-    LOG(INFO) << "Stanza received: "
+    VLOG(1) << "Stanza received: "
               << notifier::XmlElementToString(*stanza);
     if (!MatchResponseIq(stanza, to_jid_, task_id())) {
-      LOG(INFO) << "Stanza skipped";
+      VLOG(2) << "Stanza skipped";
       return false;
     }
-    LOG(INFO) << "Queueing stanza";
+    VLOG(2) << "Queueing stanza";
     QueueStanza(stanza);
     return true;
   }
@@ -170,7 +171,7 @@ class CacheInvalidationSendMessageTask : public buzz::XmppTask {
     buzz::XmlElement* cache_invalidation_iq_packet =
         new buzz::XmlElement(kQnData, true);
     iq->AddElement(cache_invalidation_iq_packet);
-    cache_invalidation_iq_packet->SetAttr(kQnSeq, IntToString(seq));
+    cache_invalidation_iq_packet->SetAttr(kQnSeq, base::IntToString(seq));
     cache_invalidation_iq_packet->SetAttr(kQnSid, sid);
     cache_invalidation_iq_packet->SetAttr(kQnServiceUrl,
                                           browser_sync::kSyncServiceUrl);
@@ -188,32 +189,32 @@ class CacheInvalidationSendMessageTask : public buzz::XmppTask {
 
 std::string MakeSid() {
   uint64 sid = base::RandUint64();
-  return std::string("chrome-sync-") + Uint64ToString(sid);
+  return std::string("chrome-sync-") + base::Uint64ToString(sid);
 }
 
 }  // namespace
 
 CacheInvalidationPacketHandler::CacheInvalidationPacketHandler(
-    buzz::XmppClient* xmpp_client,
+    talk_base::Task* base_task,
     invalidation::InvalidationClient* invalidation_client)
-    : xmpp_client_(xmpp_client),
+    : scoped_callback_factory_(ALLOW_THIS_IN_INITIALIZER_LIST(this)),
+      base_task_(base_task),
       invalidation_client_(invalidation_client),
       seq_(0),
       sid_(MakeSid()) {
-  CHECK(xmpp_client_);
+  CHECK(base_task_);
   CHECK(invalidation_client_);
   invalidation::NetworkEndpoint* network_endpoint =
       invalidation_client_->network_endpoint();
   CHECK(network_endpoint);
   network_endpoint->RegisterOutboundListener(
-      invalidation::NewPermanentCallback(
-          this,
+      scoped_callback_factory_.NewCallback(
           &CacheInvalidationPacketHandler::HandleOutboundPacket));
-  // Owned by xmpp_client.
+  // Owned by base_task.
   CacheInvalidationListenTask* listen_task =
       new CacheInvalidationListenTask(
-          xmpp_client, NewCallback(
-              this, &CacheInvalidationPacketHandler::HandleInboundPacket));
+          base_task, scoped_callback_factory_.NewCallback(
+              &CacheInvalidationPacketHandler::HandleInboundPacket));
   listen_task->Start();
 }
 
@@ -235,9 +236,9 @@ void CacheInvalidationPacketHandler::HandleOutboundPacket(
                << message;
     return;
   }
-  // Owned by xmpp_client.
+  // Owned by base_task.
   CacheInvalidationSendMessageTask* send_message_task =
-      new CacheInvalidationSendMessageTask(xmpp_client_,
+      new CacheInvalidationSendMessageTask(base_task_,
                                            buzz::Jid(kBotJid),
                                            encoded_message,
                                            seq_, sid_);

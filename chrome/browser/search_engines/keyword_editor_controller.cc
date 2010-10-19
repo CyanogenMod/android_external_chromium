@@ -6,7 +6,7 @@
 
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
@@ -28,8 +28,8 @@ void KeywordEditorController::RegisterPrefs(PrefService* prefs) {
   prefs->RegisterDictionaryPref(prefs::kKeywordEditorWindowPlacement);
 }
 
-int KeywordEditorController::AddTemplateURL(const std::wstring& title,
-                                            const std::wstring& keyword,
+int KeywordEditorController::AddTemplateURL(const string16& title,
+                                            const string16& keyword,
                                             const std::string& url) {
   DCHECK(!url.empty());
 
@@ -37,8 +37,8 @@ int KeywordEditorController::AddTemplateURL(const std::wstring& title,
                             profile_);
 
   TemplateURL* template_url = new TemplateURL();
-  template_url->set_short_name(title);
-  template_url->set_keyword(keyword);
+  template_url->set_short_name(UTF16ToWideHack(title));
+  template_url->set_keyword(UTF16ToWideHack(keyword));
   template_url->SetURL(url, 0, 0);
 
   // There's a bug (1090726) in TableView with groups enabled such that newly
@@ -53,8 +53,8 @@ int KeywordEditorController::AddTemplateURL(const std::wstring& title,
 }
 
 void KeywordEditorController::ModifyTemplateURL(const TemplateURL* template_url,
-                                                const std::wstring& title,
-                                                const std::wstring& keyword,
+                                                const string16& title,
+                                                const string16& keyword,
                                                 const std::string& url) {
   const int index = table_model_->IndexOfTemplateURL(template_url);
   if (index == -1) {
@@ -64,8 +64,8 @@ void KeywordEditorController::ModifyTemplateURL(const TemplateURL* template_url,
   }
 
   // Don't do anything if the entry didn't change.
-  if (template_url->short_name() == title &&
-      template_url->keyword() == keyword &&
+  if (template_url->short_name() == UTF16ToWideHack(title) &&
+      template_url->keyword() == UTF16ToWideHack(keyword) &&
       ((url.empty() && !template_url->url()) ||
        (!url.empty() && template_url->url() &&
         template_url->url()->url() == url))) {
@@ -78,10 +78,16 @@ void KeywordEditorController::ModifyTemplateURL(const TemplateURL* template_url,
                             profile_);
 }
 
+bool KeywordEditorController::CanEdit(const TemplateURL* url) const {
+  return !url_model()->IsDefaultSearchManaged() ||
+      url != url_model()->GetDefaultSearchProvider();
+}
+
 bool KeywordEditorController::CanMakeDefault(const TemplateURL* url) const {
   return (url != url_model()->GetDefaultSearchProvider() &&
           url->url() &&
-          url->url()->SupportsReplacement());
+          url->url()->SupportsReplacement() &&
+          !url_model()->IsDefaultSearchManaged());
 }
 
 bool KeywordEditorController::CanRemove(const TemplateURL* url) const {

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,11 @@
 #include "app/theme_provider.h"
 #include "base/basictypes.h"
 #include "base/scoped_nsobject.h"
+#include "base/string16.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
+#include "base/utf_string_conversions.h"
+#include "chrome/browser/bookmarks/bookmark_model.h"
 #import "chrome/browser/cocoa/bookmark_bar_constants.h"
 #import "chrome/browser/cocoa/bookmark_bar_controller.h"
 #import "chrome/browser/cocoa/bookmark_bar_folder_window.h"
@@ -24,6 +27,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/model_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
 
@@ -316,7 +320,7 @@ class BookmarkBarControllerTest : public BookmarkBarControllerTestBase {
     BookmarkModel* model = helper_.profile()->GetBookmarkModel();
     const BookmarkNode* parent = model->GetBookmarkBarNode();
     const BookmarkNode* node = model->AddURL(parent, parent->GetChildCount(),
-                                             L"A title", gurl);
+                                             ASCIIToUTF16("A title"), gurl);
     [menu_ setRepresentedObject:[NSNumber numberWithLongLong:node->id()]];
     return menu_item_;
   }
@@ -512,7 +516,7 @@ TEST_F(BookmarkBarControllerTest, NoItemContainerGoesAway) {
 
   EXPECT_FALSE([noItemContainer isHidden]);
   const BookmarkNode* node = model->AddURL(bar, bar->GetChildCount(),
-                                           L"title",
+                                           ASCIIToUTF16("title"),
                                            GURL("http://www.google.com"));
   EXPECT_TRUE([noItemContainer isHidden]);
   model->Remove(bar, bar->IndexOfChild(node));
@@ -521,7 +525,7 @@ TEST_F(BookmarkBarControllerTest, NoItemContainerGoesAway) {
   // Now try it using a bookmark from the Other Bookmarks.
   const BookmarkNode* otherBookmarks = model->other_node();
   node = model->AddURL(otherBookmarks, otherBookmarks->GetChildCount(),
-                       L"TheOther",
+                       ASCIIToUTF16("TheOther"),
                        GURL("http://www.other.com"));
   EXPECT_FALSE([noItemContainer isHidden]);
   // Move it from Other Bookmarks to the bar.
@@ -541,14 +545,15 @@ TEST_F(BookmarkBarControllerTest, OffTheSideButtonHidden) {
   EXPECT_TRUE([bar_ offTheSideButtonIsHidden]);
 
   for (int i = 0; i < 2; i++) {
-    model->SetURLStarred(GURL("http://www.foo.com"), L"small", true);
+    model->SetURLStarred(GURL("http://www.foo.com"), ASCIIToUTF16("small"),
+                         true);
     EXPECT_TRUE([bar_ offTheSideButtonIsHidden]);
   }
 
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   for (int i = 0; i < 20; i++) {
     model->AddURL(parent, parent->GetChildCount(),
-                  L"super duper wide title",
+                  ASCIIToUTF16("super duper wide title"),
                   GURL("http://superfriends.hall-of-justice.edu"));
   }
   EXPECT_FALSE([bar_ offTheSideButtonIsHidden]);
@@ -592,8 +597,7 @@ TEST_F(BookmarkBarControllerTest, DeleteFromOffTheSideWhileItIsOpen) {
   for (int i = 0; i < 100; i++) {
     std::ostringstream title;
     title << "super duper wide title " << i;
-    model->AddURL(parent, parent->GetChildCount(),
-                  ASCIIToWide(title.str().c_str()),
+    model->AddURL(parent, parent->GetChildCount(), ASCIIToUTF16(title.str()),
                   GURL("http://superfriends.hall-of-justice.edu"));
   }
   EXPECT_FALSE([bar_ offTheSideButtonIsHidden]);
@@ -683,8 +687,9 @@ TEST_F(BookmarkBarControllerTest, MenuForFolderNode) {
 
   // Test two bookmarks.
   GURL gurl("http://www.foo.com");
-  model->SetURLStarred(gurl, L"small", true);
-  model->SetURLStarred(GURL("http://www.cnn.com"), L"bigger title", true);
+  model->SetURLStarred(gurl, ASCIIToUTF16("small"), true);
+  model->SetURLStarred(GURL("http://www.cnn.com"), ASCIIToUTF16("bigger title"),
+                       true);
   menu = [bar_ menuForFolderNode:model->GetBookmarkBarNode()];
   EXPECT_EQ([menu numberOfItems], 2);
   NSMenuItem *item = [menu itemWithTitle:@"bigger title"];
@@ -702,11 +707,11 @@ TEST_F(BookmarkBarControllerTest, MenuForFolderNode) {
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   const BookmarkNode* folder = model->AddGroup(parent,
                                                parent->GetChildCount(),
-                                               L"group");
+                                               ASCIIToUTF16("group"));
   model->AddURL(folder, folder->GetChildCount(),
-                L"f1", GURL("http://framma-lamma.com"));
+                ASCIIToUTF16("f1"), GURL("http://framma-lamma.com"));
   model->AddURL(folder, folder->GetChildCount(),
-                L"f2", GURL("http://framma-lamma-ding-dong.com"));
+                ASCIIToUTF16("f2"), GURL("http://framma-lamma-ding-dong.com"));
   menu = [bar_ menuForFolderNode:model->GetBookmarkBarNode()];
   EXPECT_EQ([menu numberOfItems], 3);
 
@@ -774,13 +779,13 @@ TEST_F(BookmarkBarControllerTest, TestAddRemoveAndClear) {
   // narrow.
   // TODO(viettrungluu): make the test independent of window/view size, font
   // metrics, button size and spacing, and everything else.
-  std::wstring title1(L"x");
+  string16 title1(ASCIIToUTF16("x"));
   model->SetURLStarred(gurl1, title1, true);
   EXPECT_EQ(1U, [[bar_ buttons] count]);
   EXPECT_EQ(1+initial_subview_count, [[buttonView subviews] count]);
 
   GURL gurl2("http://legion-of-doom.gov");
-  std::wstring title2(L"y");
+  string16 title2(ASCIIToUTF16("y"));
   model->SetURLStarred(gurl2, title2, true);
   EXPECT_EQ(2U, [[bar_ buttons] count]);
   EXPECT_EQ(2+initial_subview_count, [[buttonView subviews] count]);
@@ -815,7 +820,7 @@ TEST_F(BookmarkBarControllerTest, TestButtonLimits) {
   // Add one; make sure we see it.
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   model->AddURL(parent, parent->GetChildCount(),
-                L"title", GURL("http://www.google.com"));
+                ASCIIToUTF16("title"), GURL("http://www.google.com"));
   EXPECT_EQ(1U, [[bar_ buttons] count]);
 
   // Add 30 which we expect to be 'too many'.  Make sure we don't see
@@ -824,7 +829,7 @@ TEST_F(BookmarkBarControllerTest, TestButtonLimits) {
   EXPECT_EQ(0U, [[bar_ buttons] count]);
   for (int i=0; i<30; i++) {
     model->AddURL(parent, parent->GetChildCount(),
-                  L"title", GURL("http://www.google.com"));
+                  ASCIIToUTF16("title"), GURL("http://www.google.com"));
   }
   int count = [[bar_ buttons] count];
   EXPECT_LT(count, 30L);
@@ -833,7 +838,7 @@ TEST_F(BookmarkBarControllerTest, TestButtonLimits) {
   // would change) and make sure the count stays the same.
   for (int i=0; i<10; i++) {
     model->AddURL(parent, 0,  /* index is 0, so front, not end */
-                  L"title", GURL("http://www.google.com"));
+                  ASCIIToUTF16("title"), GURL("http://www.google.com"));
   }
 
   // Finally, grow the view and make sure the button count goes up.
@@ -871,11 +876,11 @@ TEST_F(BookmarkBarControllerTest, TestButtonMarch) {
 TEST_F(BookmarkBarControllerTest, CheckForGrowth) {
   BookmarkModel* model = helper_.profile()->GetBookmarkModel();
   GURL gurl1("http://www.google.com");
-  std::wstring title1(L"x");
+  string16 title1(ASCIIToUTF16("x"));
   model->SetURLStarred(gurl1, title1, true);
 
   GURL gurl2("http://www.google.com/blah");
-  std::wstring title2(L"y");
+  string16 title2(ASCIIToUTF16("y"));
   model->SetURLStarred(gurl2, title2, true);
 
   EXPECT_EQ(2U, [[bar_ buttons] count]);
@@ -904,7 +909,7 @@ TEST_F(BookmarkBarControllerTest, DeleteBookmark) {
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   for (unsigned int i = 0; i < arraysize(urls); i++) {
     model->AddURL(parent, parent->GetChildCount(),
-                  L"title", GURL(urls[i]));
+                  ASCIIToUTF16("title"), GURL(urls[i]));
   }
   EXPECT_EQ(3, parent->GetChildCount());
   const BookmarkNode* middle_node = parent->GetChild(1);
@@ -926,13 +931,13 @@ TEST_F(BookmarkBarControllerTest, Cell) {
 
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   model->AddURL(parent, parent->GetChildCount(),
-                L"supertitle",
+                ASCIIToUTF16("supertitle"),
                 GURL("http://superfriends.hall-of-justice.edu"));
   const BookmarkNode* node = parent->GetChild(0);
 
   NSCell* cell = [bar_ cellForBookmarkNode:node];
   EXPECT_TRUE(cell);
-  EXPECT_TRUE([[cell title] isEqual:@"supertitle"]);
+  EXPECT_NSEQ(@"supertitle", [cell title]);
   EXPECT_EQ(node, [[cell representedObject] pointerValue]);
   EXPECT_TRUE([cell menu]);
 
@@ -954,7 +959,7 @@ TEST_F(BookmarkBarControllerTest, Display) {
 TEST_F(BookmarkBarControllerTest, MiddleClick) {
   BookmarkModel* model = helper_.profile()->GetBookmarkModel();
   GURL gurl1("http://www.google.com/");
-  std::wstring title1(L"x");
+  string16 title1(ASCIIToUTF16("x"));
   model->SetURLStarred(gurl1, title1, true);
 
   EXPECT_EQ(1U, [[bar_ buttons] count]);
@@ -976,7 +981,7 @@ TEST_F(BookmarkBarControllerTest, HidesHelpMessageWithBookmark) {
 
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   model->AddURL(parent, parent->GetChildCount(),
-                L"title", GURL("http://one.com"));
+                ASCIIToUTF16("title"), GURL("http://one.com"));
 
   [bar_ loaded:model];
   EXPECT_TRUE([[[bar_ buttonView] noItemContainer] isHidden]);
@@ -987,7 +992,7 @@ TEST_F(BookmarkBarControllerTest, BookmarkButtonSizing) {
 
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   model->AddURL(parent, parent->GetChildCount(),
-                L"title", GURL("http://one.com"));
+                ASCIIToUTF16("title"), GURL("http://one.com"));
 
   [bar_ loaded:model];
 
@@ -1009,11 +1014,11 @@ TEST_F(BookmarkBarControllerTest, DropBookmarks) {
     "javascript:alert('lolwut')",
     "file://localhost/tmp/local-file.txt"  // As if dragged from the desktop.
   };
-  std::wstring titles[] = {
-    std::wstring(L"Philosophoraptor"),
-    std::wstring(L"Can't draw"),
-    std::wstring(L"Inspiration"),
-    std::wstring(L"Frum stuf")
+  const char* titles[] = {
+    "Philosophoraptor",
+    "Can't draw",
+    "Inspiration",
+    "Frum stuf"
   };
   EXPECT_EQ(arraysize(urls), arraysize(titles));
 
@@ -1021,7 +1026,7 @@ TEST_F(BookmarkBarControllerTest, DropBookmarks) {
   NSMutableArray* nstitles = [NSMutableArray array];
   for (size_t i = 0; i < arraysize(urls); ++i) {
     [nsurls addObject:base::SysUTF8ToNSString(urls[i])];
-    [nstitles addObject:base::SysWideToNSString(titles[i])];
+    [nstitles addObject:base::SysUTF8ToNSString(titles[i])];
   }
 
   BookmarkModel* model = helper_.profile()->GetBookmarkModel();
@@ -1039,18 +1044,18 @@ TEST_F(BookmarkBarControllerTest, DropBookmarks) {
       std::string my_string = parent->GetChild(i)->GetURL().spec();
       EXPECT_NE(gurl_string.find(my_string), std::string::npos);
     }
-    EXPECT_EQ(parent->GetChild(i)->GetTitle(), titles[i]);
+    EXPECT_EQ(parent->GetChild(i)->GetTitle(), ASCIIToUTF16(titles[i]));
   }
 }
 
 TEST_F(BookmarkBarControllerTest, TestButtonOrBar) {
   BookmarkModel* model = helper_.profile()->GetBookmarkModel();
   GURL gurl1("http://www.google.com");
-  std::wstring title1(L"x");
+  string16 title1(ASCIIToUTF16("x"));
   model->SetURLStarred(gurl1, title1, true);
 
   GURL gurl2("http://www.google.com/gurl_power");
-  std::wstring title2(L"gurl power");
+  string16 title2(ASCIIToUTF16("gurl power"));
   model->SetURLStarred(gurl2, title2, true);
 
   NSButton* first = [[bar_ buttons] objectAtIndex:0];
@@ -1078,7 +1083,7 @@ TEST_F(BookmarkBarControllerTest, TestMenuNodeAndDisable) {
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   const BookmarkNode* folder = model->AddGroup(parent,
                                                parent->GetChildCount(),
-                                               L"group");
+                                               ASCIIToUTF16("group"));
   NSButton* button = [[bar_ buttons] objectAtIndex:0];
   EXPECT_TRUE(button);
 
@@ -1095,7 +1100,7 @@ TEST_F(BookmarkBarControllerTest, TestMenuNodeAndDisable) {
 
   // Now add a child and make sure the item would be enabled.
   model->AddURL(folder, folder->GetChildCount(),
-                L"super duper wide title",
+                ASCIIToUTF16("super duper wide title"),
                 GURL("http://superfriends.hall-of-justice.edu"));
   EXPECT_TRUE([bar_ validateUserInterfaceItem:item]);
 }
@@ -1106,27 +1111,29 @@ TEST_F(BookmarkBarControllerTest, TestDragButton) {
   GURL gurls[] = { GURL("http://www.google.com/a"),
                    GURL("http://www.google.com/b"),
                    GURL("http://www.google.com/c") };
-  std::wstring titles[] = { L"a", L"b", L"c" };
+  string16 titles[] = { ASCIIToUTF16("a"),
+                        ASCIIToUTF16("b"),
+                        ASCIIToUTF16("c") };
   for (unsigned i = 0; i < arraysize(titles); i++) {
     model->SetURLStarred(gurls[i], titles[i], true);
   }
 
   EXPECT_EQ([[bar_ buttons] count], arraysize(titles));
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:0] title] isEqual:@"a"]);
+  EXPECT_NSEQ(@"a", [[[bar_ buttons] objectAtIndex:0] title]);
 
   [bar_ dragButton:[[bar_ buttons] objectAtIndex:2]
                 to:NSMakePoint(0, 0)
               copy:NO];
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:0] title] isEqual:@"c"]);
+  EXPECT_NSEQ(@"c", [[[bar_ buttons] objectAtIndex:0] title]);
   // Make sure a 'copy' did not happen.
   EXPECT_EQ([[bar_ buttons] count], arraysize(titles));
 
   [bar_ dragButton:[[bar_ buttons] objectAtIndex:1]
                 to:NSMakePoint(1000, 0)
               copy:NO];
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:0] title] isEqual:@"c"]);
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:1] title] isEqual:@"b"]);
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:2] title] isEqual:@"a"]);
+  EXPECT_NSEQ(@"c", [[[bar_ buttons] objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"b", [[[bar_ buttons] objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"a", [[[bar_ buttons] objectAtIndex:2] title]);
   EXPECT_EQ([[bar_ buttons] count], arraysize(titles));
 
   // A drop of the 1st between the next 2.
@@ -1135,9 +1142,9 @@ TEST_F(BookmarkBarControllerTest, TestDragButton) {
   [bar_ dragButton:[[bar_ buttons] objectAtIndex:0]
                 to:NSMakePoint(x, 0)
               copy:NO];
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:0] title] isEqual:@"b"]);
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:1] title] isEqual:@"c"]);
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:2] title] isEqual:@"a"]);
+  EXPECT_NSEQ(@"b", [[[bar_ buttons] objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"c", [[[bar_ buttons] objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"a", [[[bar_ buttons] objectAtIndex:2] title]);
   EXPECT_EQ([[bar_ buttons] count], arraysize(titles));
 
   // A drop on a non-folder button.  (Shouldn't try and go in it.)
@@ -1151,15 +1158,15 @@ TEST_F(BookmarkBarControllerTest, TestDragButton) {
   // A drop on a folder button.
   const BookmarkNode* folder = model->AddGroup(model->GetBookmarkBarNode(),
                                                0,
-                                               L"awesome group");
+                                               ASCIIToUTF16("awesome group"));
   DCHECK(folder);
-  model->AddURL(folder, 0, L"already", GURL("http://www.google.com"));
+  model->AddURL(folder, 0, ASCIIToUTF16("already"),
+                GURL("http://www.google.com"));
   EXPECT_EQ(arraysize(titles) + 1, [[bar_ buttons] count]);
   EXPECT_EQ(1, folder->GetChildCount());
   x = NSMidX([[[bar_ buttons] objectAtIndex:0] frame]);
   x += [[bar_ view] frame].origin.x;
-  std::wstring title = [[[bar_ buttons] objectAtIndex:2]
-                         bookmarkNode]->GetTitle();
+  string16 title = [[[bar_ buttons] objectAtIndex:2] bookmarkNode]->GetTitle();
   [bar_ dragButton:[[bar_ buttons] objectAtIndex:2]
                 to:NSMakePoint(x, 0)
               copy:NO];
@@ -1177,12 +1184,14 @@ TEST_F(BookmarkBarControllerTest, TestCopyButton) {
   GURL gurls[] = { GURL("http://www.google.com/a"),
                    GURL("http://www.google.com/b"),
                    GURL("http://www.google.com/c") };
-  std::wstring titles[] = { L"a", L"b", L"c" };
+  string16 titles[] = { ASCIIToUTF16("a"),
+                        ASCIIToUTF16("b"),
+                        ASCIIToUTF16("c") };
   for (unsigned i = 0; i < arraysize(titles); i++) {
     model->SetURLStarred(gurls[i], titles[i], true);
   }
   EXPECT_EQ([[bar_ buttons] count], arraysize(titles));
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:0] title] isEqual:@"a"]);
+  EXPECT_NSEQ(@"a", [[[bar_ buttons] objectAtIndex:0] title]);
 
   // Drag 'a' between 'b' and 'c'.
   CGFloat x = NSMinX([[[bar_ buttons] objectAtIndex:2] frame]);
@@ -1190,10 +1199,10 @@ TEST_F(BookmarkBarControllerTest, TestCopyButton) {
   [bar_ dragButton:[[bar_ buttons] objectAtIndex:0]
                 to:NSMakePoint(x, 0)
               copy:YES];
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:0] title] isEqual:@"a"]);
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:1] title] isEqual:@"b"]);
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:2] title] isEqual:@"a"]);
-  EXPECT_TRUE([[[[bar_ buttons] objectAtIndex:3] title] isEqual:@"c"]);
+  EXPECT_NSEQ(@"a", [[[bar_ buttons] objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"b", [[[bar_ buttons] objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"a", [[[bar_ buttons] objectAtIndex:2] title]);
+  EXPECT_NSEQ(@"c", [[[bar_ buttons] objectAtIndex:3] title]);
   EXPECT_EQ([[bar_ buttons] count], 4U);
 }
 
@@ -1201,7 +1210,7 @@ TEST_F(BookmarkBarControllerTest, TestCopyButton) {
 // buttons have the same colored text.  Repeat more than once.
 TEST_F(BookmarkBarControllerTest, TestThemedButton) {
   BookmarkModel* model = helper_.profile()->GetBookmarkModel();
-  model->SetURLStarred(GURL("http://www.foo.com"), L"small", true);
+  model->SetURLStarred(GURL("http://www.foo.com"), ASCIIToUTF16("small"), true);
   BookmarkButton* button = [[bar_ buttons] objectAtIndex:0];
   EXPECT_TRUE(button);
 
@@ -1213,12 +1222,12 @@ TEST_F(BookmarkBarControllerTest, TestThemedButton) {
     [bar_ updateTheme:&theme];
     NSAttributedString* astr = [button attributedTitle];
     EXPECT_TRUE(astr);
-    EXPECT_TRUE([[astr string] isEqual:@"small"]);
+    EXPECT_NSEQ(@"small", [astr string]);
     // Pick a char in the middle to test (index 3)
     NSDictionary* attributes = [astr attributesAtIndex:3 effectiveRange:NULL];
     NSColor* newColor =
         [attributes objectForKey:NSForegroundColorAttributeName];
-    EXPECT_TRUE([newColor isEqual:color]);
+    EXPECT_NSEQ(newColor, color);
   }
 }
 
@@ -1229,7 +1238,9 @@ TEST_F(BookmarkBarControllerTest, TestClearOnDealloc) {
   GURL gurls[] = { GURL("http://www.foo.com/"),
                    GURL("http://www.bar.com/"),
                    GURL("http://www.baz.com/") };
-  std::wstring titles[] = { L"foo", L"bar", L"baz" };
+  string16 titles[] = { ASCIIToUTF16("a"),
+                        ASCIIToUTF16("b"),
+                        ASCIIToUTF16("c") };
   for (size_t i = 0; i < arraysize(titles); i++)
     model->SetURLStarred(gurls[i], titles[i], true);
 
@@ -1263,10 +1274,11 @@ TEST_F(BookmarkBarControllerTest, TestFolders) {
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   const BookmarkNode* folder = model->AddGroup(parent,
                                                parent->GetChildCount(),
-                                               L"group");
+                                               ASCIIToUTF16("group"));
   model->AddURL(folder, folder->GetChildCount(),
-                L"f1", GURL("http://framma-lamma.com"));
-  folder = model->AddGroup(parent, parent->GetChildCount(), L"empty");
+                ASCIIToUTF16("f1"), GURL("http://framma-lamma.com"));
+  folder = model->AddGroup(parent, parent->GetChildCount(),
+                           ASCIIToUTF16("empty"));
 
   EXPECT_EQ([[bar_ buttons] count], 2U);
 
@@ -1301,17 +1313,17 @@ TEST_F(BookmarkBarControllerTest, TestFolders) {
 TEST_F(BookmarkBarControllerTest, TestFolderButtons) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2b ] 3b 4f:[ 4f1b 4f2b ] ");
+  const std::string model_string("1b 2f:[ 2f1b 2f2b ] 3b 4f:[ 4f1b 4f2b ] ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model and that we do not have a folder controller.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
   EXPECT_FALSE([bar_ folderController]);
 
   // Add a real bookmark so we can click on it.
   const BookmarkNode* folder = root->GetChild(3);
-  model.AddURL(folder, folder->GetChildCount(), L"CLICK ME",
+  model.AddURL(folder, folder->GetChildCount(), ASCIIToUTF16("CLICK ME"),
                GURL("http://www.google.com/"));
 
   // Click on a folder button.
@@ -1375,13 +1387,15 @@ TEST_F(BookmarkBarControllerTest, OffTheSideFolder) {
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   for (int x = 0; x < 30; x++) {
     model->AddURL(parent, parent->GetChildCount(),
-                  L"medium-size-title", GURL("http://framma-lamma.com"));
+                  ASCIIToUTF16("medium-size-title"),
+                  GURL("http://framma-lamma.com"));
   }
   // Add a couple more so we can delete one and make sure its button goes away.
   model->AddURL(parent, parent->GetChildCount(),
-                L"DELETE_ME", GURL("http://ashton-tate.com"));
+                ASCIIToUTF16("DELETE_ME"), GURL("http://ashton-tate.com"));
   model->AddURL(parent, parent->GetChildCount(),
-                L"medium-size-title", GURL("http://framma-lamma.com"));
+                ASCIIToUTF16("medium-size-title"),
+                GURL("http://framma-lamma.com"));
 
   // Should no longer be hidden.
   EXPECT_FALSE([bar_ offTheSideButtonIsHidden]);
@@ -1450,8 +1464,8 @@ TEST_F(BookmarkBarControllerTest, DropDestination) {
   // Make some buttons.
   BookmarkModel* model = helper_.profile()->GetBookmarkModel();
   const BookmarkNode* parent = model->GetBookmarkBarNode();
-  model->AddGroup(parent, parent->GetChildCount(), L"group 1");
-  model->AddGroup(parent, parent->GetChildCount(), L"group 2");
+  model->AddGroup(parent, parent->GetChildCount(), ASCIIToUTF16("group 1"));
+  model->AddGroup(parent, parent->GetChildCount(), ASCIIToUTF16("group 2"));
   EXPECT_EQ([[bar_ buttons] count], 2U);
 
   // Confirm "off to left" and "off to right" match nothing.
@@ -1492,7 +1506,7 @@ TEST_F(BookmarkBarControllerTest, NodeDeletedWhileMenuIsOpen) {
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   const BookmarkNode* initialNode = model->AddURL(
       parent, parent->GetChildCount(),
-      L"initial",
+      ASCIIToUTF16("initial"),
       GURL("http://www.google.com"));
 
   NSMenuItem* item = ItemForBookmarkBarMenu(initialNode);
@@ -1531,9 +1545,9 @@ TEST_F(BookmarkBarControllerTest, NodeDeletedWhileContextMenuIsOpen) {
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   const BookmarkNode* folder = model->AddGroup(parent,
                                                parent->GetChildCount(),
-                                               L"group");
+                                               ASCIIToUTF16("group"));
   const BookmarkNode* framma = model->AddURL(folder, folder->GetChildCount(),
-                                             L"f1",
+                                             ASCIIToUTF16("f1"),
                                              GURL("http://framma-lamma.com"));
 
   // Mock in a menu
@@ -1555,14 +1569,14 @@ TEST_F(BookmarkBarControllerTest, CloseFolderOnAnimate) {
   const BookmarkNode* parent = model->GetBookmarkBarNode();
   const BookmarkNode* folder = model->AddGroup(parent,
                                                parent->GetChildCount(),
-                                               L"group");
+                                               ASCIIToUTF16("group"));
   model->AddGroup(parent, parent->GetChildCount(),
-                  L"sibbling group");
-  model->AddURL(folder, folder->GetChildCount(), L"title a",
+                  ASCIIToUTF16("sibbling group"));
+  model->AddURL(folder, folder->GetChildCount(), ASCIIToUTF16("title a"),
                 GURL("http://www.google.com/a"));
   model->AddURL(folder, folder->GetChildCount(),
-                L"title super duper long long whoa momma title you betcha",
-                GURL("http://www.google.com/b"));
+      ASCIIToUTF16("title super duper long long whoa momma title you betcha"),
+      GURL("http://www.google.com/b"));
   BookmarkButton* button = [[bar_ buttons] objectAtIndex:0];
   EXPECT_FALSE([bar_ folderController]);
   [bar_ openBookmarkFolderFromButton:button];
@@ -1586,11 +1600,11 @@ TEST_F(BookmarkBarControllerTest, CloseFolderOnAnimate) {
 TEST_F(BookmarkBarControllerTest, MoveRemoveAddButtons) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2b ] 3b ");
+  const std::string model_string("1b 2f:[ 2f1b 2f2b ] 3b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Remember how many buttons are showing.
@@ -1599,40 +1613,40 @@ TEST_F(BookmarkBarControllerTest, MoveRemoveAddButtons) {
 
   // Move a button around a bit.
   [bar_ moveButtonFromIndex:0 toIndex:2];
-  EXPECT_TRUE([[[buttons objectAtIndex:0] title] isEqualToString:@"2f"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:1] title] isEqualToString:@"3b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:2] title] isEqualToString:@"1b"]);
+  EXPECT_NSEQ(@"2f", [[buttons objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"3b", [[buttons objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"1b", [[buttons objectAtIndex:2] title]);
   EXPECT_EQ(oldDisplayedButtons, [bar_ displayedButtonCount]);
   [bar_ moveButtonFromIndex:2 toIndex:0];
-  EXPECT_TRUE([[[buttons objectAtIndex:0] title] isEqualToString:@"1b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:1] title] isEqualToString:@"2f"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:2] title] isEqualToString:@"3b"]);
+  EXPECT_NSEQ(@"1b", [[buttons objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"2f", [[buttons objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"3b", [[buttons objectAtIndex:2] title]);
   EXPECT_EQ(oldDisplayedButtons, [bar_ displayedButtonCount]);
 
   // Add a couple of buttons.
   const BookmarkNode* parent = root->GetChild(1); // Purloin an existing node.
   const BookmarkNode* node = parent->GetChild(0);
   [bar_ addButtonForNode:node atIndex:0];
-  EXPECT_TRUE([[[buttons objectAtIndex:0] title] isEqualToString:@"2f1b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:1] title] isEqualToString:@"1b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:2] title] isEqualToString:@"2f"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:3] title] isEqualToString:@"3b"]);
+  EXPECT_NSEQ(@"2f1b", [[buttons objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"1b", [[buttons objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"2f", [[buttons objectAtIndex:2] title]);
+  EXPECT_NSEQ(@"3b", [[buttons objectAtIndex:3] title]);
   EXPECT_EQ(oldDisplayedButtons + 1, [bar_ displayedButtonCount]);
   node = parent->GetChild(1);
   [bar_ addButtonForNode:node atIndex:-1];
-  EXPECT_TRUE([[[buttons objectAtIndex:0] title] isEqualToString:@"2f1b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:1] title] isEqualToString:@"1b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:2] title] isEqualToString:@"2f"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:3] title] isEqualToString:@"3b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:4] title] isEqualToString:@"2f2b"]);
+  EXPECT_NSEQ(@"2f1b", [[buttons objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"1b", [[buttons objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"2f", [[buttons objectAtIndex:2] title]);
+  EXPECT_NSEQ(@"3b", [[buttons objectAtIndex:3] title]);
+  EXPECT_NSEQ(@"2f2b", [[buttons objectAtIndex:4] title]);
   EXPECT_EQ(oldDisplayedButtons + 2, [bar_ displayedButtonCount]);
 
   // Remove a couple of buttons.
   [bar_ removeButton:4 animate:NO];
   [bar_ removeButton:1 animate:NO];
-  EXPECT_TRUE([[[buttons objectAtIndex:0] title] isEqualToString:@"2f1b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:1] title] isEqualToString:@"2f"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:2] title] isEqualToString:@"3b"]);
+  EXPECT_NSEQ(@"2f1b", [[buttons objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"2f", [[buttons objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"3b", [[buttons objectAtIndex:2] title]);
   EXPECT_EQ(oldDisplayedButtons, [bar_ displayedButtonCount]);
 }
 
@@ -1677,15 +1691,16 @@ public:
     BookmarkModel* model = helper_.profile()->GetBookmarkModel();
     parent_ = model->GetBookmarkBarNode();
     // { one, { two-one, two-two }, three }
-    model->AddURL(parent_, parent_->GetChildCount(), L"title",
+    model->AddURL(parent_, parent_->GetChildCount(), ASCIIToUTF16("title"),
                   GURL("http://one.com"));
-    folder_ = model->AddGroup(parent_, parent_->GetChildCount(), L"group");
+    folder_ = model->AddGroup(parent_, parent_->GetChildCount(),
+                              ASCIIToUTF16("group"));
     model->AddURL(folder_, folder_->GetChildCount(),
-                  L"title", GURL("http://two-one.com"));
+                  ASCIIToUTF16("title"), GURL("http://two-one.com"));
     model->AddURL(folder_, folder_->GetChildCount(),
-                  L"title", GURL("http://two-two.com"));
+                  ASCIIToUTF16("title"), GURL("http://two-two.com"));
     model->AddURL(parent_, parent_->GetChildCount(),
-                  L"title", GURL("https://three.com"));
+                  ASCIIToUTF16("title"), GURL("https://three.com"));
   }
   const BookmarkNode* parent_;  // Weak
   const BookmarkNode* folder_;  // Weak
@@ -1837,7 +1852,7 @@ class BookmarkBarControllerDragDropTest : public BookmarkBarControllerTestBase {
 TEST_F(BookmarkBarControllerDragDropTest, DragMoveBarBookmarkToOffTheSide) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1bWithLongName 2fWithLongName:[ "
+  const std::string model_string("1bWithLongName 2fWithLongName:[ "
       "2f1bWithLongName 2f2fWithLongName:[ 2f2f1bWithLongName "
       "2f2f2bWithLongName 2f2f3bWithLongName 2f4b ] 2f3bWithLongName ] "
       "3bWithLongName 4bWithLongName 5bWithLongName 6bWithLongName "
@@ -1846,7 +1861,7 @@ TEST_F(BookmarkBarControllerDragDropTest, DragMoveBarBookmarkToOffTheSide) {
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Insure that the off-the-side is not showing.
@@ -1889,16 +1904,16 @@ TEST_F(BookmarkBarControllerDragDropTest, DragMoveBarBookmarkToOffTheSide) {
 TEST_F(BookmarkBarControllerDragDropTest, DragBookmarkData) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
                                   "2f3b ] 3b 4b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
   const BookmarkNode* other = model.other_node();
-  const std::wstring other_string(L"O1b O2b O3f:[ O3f1b O3f2f ] "
-                                  "O4f:[ O4f1b O4f2f ] 05b ");
+  const std::string other_string("O1b O2b O3f:[ O3f1b O3f2f ] "
+                                 "O4f:[ O4f1b O4f2f ] 05b ");
   model_test_utils::AddNodesFromModelString(model, other, other_string);
 
   // Validate initial model.
-  std::wstring actual = model_test_utils::ModelStringFromNode(root);
+  std::string actual = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actual);
   actual = model_test_utils::ModelStringFromNode(other);
   EXPECT_EQ(other_string, actual);
@@ -1920,8 +1935,8 @@ TEST_F(BookmarkBarControllerDragDropTest, DragBookmarkData) {
   int newChildCount = root->GetChildCount();
   EXPECT_EQ(oldChildCount + 1, newChildCount);
   // Verify the model.
-  const std::wstring expected(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
-                              "2f3b ] O3f:[ O3f1b O3f2f ] 3b 4b ");
+  const std::string expected("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
+                             "2f3b ] O3f:[ O3f1b O3f2f ] 3b 4b ");
   actual = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(expected, actual);
   oldChildCount = newChildCount;
@@ -1931,7 +1946,7 @@ TEST_F(BookmarkBarControllerDragDropTest, DragBookmarkData) {
   ASSERT_TRUE(targetButton);
   NSPoint targetPoint = [targetButton center];
   newNode = other->GetChild(2);  // Should be O4f.
-  EXPECT_EQ(newNode->GetTitle(), L"O4f");
+  EXPECT_EQ(newNode->GetTitle(), ASCIIToUTF16("O4f"));
   [bar_ setDragDataNode:newNode];
   [dragInfo setDropLocation:targetPoint];
   [bar_ dragBookmarkData:(id<NSDraggingInfo>)dragInfo.get()];
@@ -1939,9 +1954,9 @@ TEST_F(BookmarkBarControllerDragDropTest, DragBookmarkData) {
   newChildCount = root->GetChildCount();
   EXPECT_EQ(oldChildCount, newChildCount);
   // Verify the model.
-  const std::wstring expected1(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
-                               "2f3b O4f:[ O4f1b O4f2f ] ] O3f:[ O3f1b O3f2f ] "
-                               "3b 4b ");
+  const std::string expected1("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
+                              "2f3b O4f:[ O4f1b O4f2f ] ] O3f:[ O3f1b O3f2f ] "
+                              "3b 4b ");
   actual = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(expected1, actual);
 }
@@ -1949,12 +1964,12 @@ TEST_F(BookmarkBarControllerDragDropTest, DragBookmarkData) {
 TEST_F(BookmarkBarControllerDragDropTest, AddURLs) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
-                                  "2f3b ] 3b 4b ");
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
+                                 "2f3b ] 3b 4b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actual = model_test_utils::ModelStringFromNode(root);
+  std::string actual = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actual);
 
   // Remember the children.
@@ -1972,8 +1987,8 @@ TEST_F(BookmarkBarControllerDragDropTest, AddURLs) {
   int newChildCount = root->GetChildCount();
   EXPECT_EQ(oldChildCount + 2, newChildCount);
   // Verify the model.
-  const std::wstring expected(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
-                              "2f3b ] SiteA SiteB 3b 4b ");
+  const std::string expected("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
+                             "2f3b ] SiteA SiteB 3b 4b ");
   actual = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(expected, actual);
 }
@@ -1981,11 +1996,11 @@ TEST_F(BookmarkBarControllerDragDropTest, AddURLs) {
 TEST_F(BookmarkBarControllerDragDropTest, ControllerForNode) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2b ] 3b ");
+  const std::string model_string("1b 2f:[ 2f1b 2f2b ] 3b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Find the main bar controller.
@@ -1997,11 +2012,11 @@ TEST_F(BookmarkBarControllerDragDropTest, ControllerForNode) {
 TEST_F(BookmarkBarControllerDragDropTest, DropPositionIndicator) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2b 2f3b ] 3b 4b ");
+  const std::string model_string("1b 2f:[ 2f1b 2f2b 2f3b ] 3b 4b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModel = model_test_utils::ModelStringFromNode(root);
+  std::string actualModel = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModel);
 
   // Test a series of points starting at the right edge of the bar.
@@ -2024,6 +2039,74 @@ TEST_F(BookmarkBarControllerDragDropTest, DropPositionIndicator) {
   expected = NSMaxX([targetButton frame]) + xDelta;
   actual = [bar_ indicatorPosForDragToPoint:targetPoint];
   EXPECT_CGFLOAT_EQ(expected, actual);
+}
+
+TEST_F(BookmarkBarControllerDragDropTest, PulseButton) {
+  BookmarkModel* model = helper_.profile()->GetBookmarkModel();
+  const BookmarkNode* root = model->GetBookmarkBarNode();
+  GURL gurl("http://www.google.com");
+  const BookmarkNode* node = model->AddURL(root, root->GetChildCount(),
+                                           ASCIIToUTF16("title"), gurl);
+
+  BookmarkButton* button = [[bar_ buttons] objectAtIndex:0];
+  EXPECT_FALSE([button isContinuousPulsing]);
+
+  NSValue *value = [NSValue valueWithPointer:node];
+  NSDictionary *dict = [NSDictionary
+                         dictionaryWithObjectsAndKeys:value,
+                         bookmark_button::kBookmarkKey,
+                         [NSNumber numberWithBool:YES],
+                         bookmark_button::kBookmarkPulseFlagKey,
+                         nil];
+  [[NSNotificationCenter defaultCenter]
+        postNotificationName:bookmark_button::kPulseBookmarkButtonNotification
+                      object:nil
+                    userInfo:dict];
+  EXPECT_TRUE([button isContinuousPulsing]);
+
+  dict = [NSDictionary dictionaryWithObjectsAndKeys:value,
+                       bookmark_button::kBookmarkKey,
+                       [NSNumber numberWithBool:NO],
+                       bookmark_button::kBookmarkPulseFlagKey,
+                       nil];
+  [[NSNotificationCenter defaultCenter]
+        postNotificationName:bookmark_button::kPulseBookmarkButtonNotification
+                      object:nil
+                    userInfo:dict];
+  EXPECT_FALSE([button isContinuousPulsing]);
+}
+
+TEST_F(BookmarkBarControllerDragDropTest, DragBookmarkDataToTrash) {
+  BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
+  const BookmarkNode* root = model.GetBookmarkBarNode();
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
+                                  "2f3b ] 3b 4b ");
+  model_test_utils::AddNodesFromModelString(model, root, model_string);
+
+  // Validate initial model.
+  std::string actual = model_test_utils::ModelStringFromNode(root);
+  EXPECT_EQ(model_string, actual);
+
+  int oldChildCount = root->GetChildCount();
+
+  // Drag a button to the trash.
+  BookmarkButton* buttonToDelete = [bar_ buttonWithTitleEqualTo:@"3b"];
+  ASSERT_TRUE(buttonToDelete);
+  EXPECT_TRUE([bar_ canDragBookmarkButtonToTrash:buttonToDelete]);
+  [bar_ didDragBookmarkToTrash:buttonToDelete];
+
+  // There should be one less button in the bar.
+  int newChildCount = root->GetChildCount();
+  EXPECT_EQ(oldChildCount - 1, newChildCount);
+  // Verify the model.
+  const std::string expected("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
+                             "2f3b ] 4b ");
+  actual = model_test_utils::ModelStringFromNode(root);
+  EXPECT_EQ(expected, actual);
+
+  // Verify that the other bookmark folder can't be deleted.
+  BookmarkButton *otherButton = [bar_ otherBookmarksButton];
+  EXPECT_FALSE([bar_ canDragBookmarkButtonToTrash:otherButton]);
 }
 
 }  // namespace

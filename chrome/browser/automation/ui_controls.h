@@ -1,21 +1,20 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_AUTOMATION_UI_CONTROLS_H_
 #define CHROME_BROWSER_AUTOMATION_UI_CONTROLS_H_
+#pragma once
 
 #include "build/build_config.h"
-
-#include <string>
 
 #if defined(OS_WIN)
 #include <wtypes.h>
 #endif
 
+#include "app/keyboard_codes.h"
 #include "gfx/native_widget_types.h"
 #include "gfx/point.h"
-#include "base/keyboard_codes.h"
 
 #if defined(TOOLKIT_VIEWS)
 namespace views {
@@ -43,14 +42,17 @@ namespace ui_controls {
 // these functions, so passing NULL is ok.
 
 // Send a key press with/without modifier keys.
+//
+// If you're writing a test chances are you want the variant in ui_test_utils.
+// See it for details.
 bool SendKeyPress(gfx::NativeWindow window,
-                  base::KeyboardCode key,
+                  app::KeyboardCode key,
                   bool control,
                   bool shift,
                   bool alt,
                   bool command);
 bool SendKeyPressNotifyWhenDone(gfx::NativeWindow window,
-                                base::KeyboardCode key,
+                                app::KeyboardCode key,
                                 bool control,
                                 bool shift,
                                 bool alt,
@@ -89,7 +91,7 @@ void MoveMouseToCenterAndPress(
 #elif defined(TOOLKIT_GTK)
     GtkWidget* widget,
 #elif defined(OS_MACOSX)
-    NSWindow* window,
+    NSView* view,
 #endif
     MouseButton button,
     int state,

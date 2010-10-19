@@ -4,9 +4,11 @@
 
 #ifndef CHROME_COMMON_ABOUT_HANDLER_H__
 #define CHROME_COMMON_ABOUT_HANDLER_H__
+#pragma once
 
-#include "chrome/common/url_constants.h"
-#include "googleurl/src/gurl.h"
+#include <stddef.h>
+
+class GURL;
 
 namespace chrome_about_handler {
 

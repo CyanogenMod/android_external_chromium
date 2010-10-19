@@ -4,24 +4,62 @@
 
 #import "chrome/browser/cocoa/wrench_menu_controller.h"
 
+#include "app/l10n_util.h"
 #include "app/menus/menu_model.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_window.h"
+#import "chrome/browser/cocoa/menu_tracked_root_view.h"
 #import "chrome/browser/cocoa/toolbar_controller.h"
 #include "chrome/browser/wrench_menu_model.h"
+#include "chrome/common/notification_observer.h"
+#include "chrome/common/notification_service.h"
+#include "chrome/common/notification_source.h"
+#include "chrome/common/notification_type.h"
+#include "grit/chromium_strings.h"
+#include "grit/generated_resources.h"
 
 @interface WrenchMenuController (Private)
-- (WrenchMenuModel*)wrenchMenuModel;
 - (void)adjustPositioning;
-- (void)dispatchCommandInternal:(NSNumber*)tag;
+- (void)performCommandDispatch:(NSNumber*)tag;
+- (NSButton*)zoomDisplay;
 @end
+
+namespace WrenchMenuControllerInternal {
+
+class ZoomLevelObserver : public NotificationObserver {
+ public:
+  explicit ZoomLevelObserver(WrenchMenuController* controller)
+      : controller_(controller) {
+    registrar_.Add(this, NotificationType::ZOOM_LEVEL_CHANGED,
+                   NotificationService::AllSources());
+  }
+
+  void Observe(NotificationType type,
+               const NotificationSource& source,
+               const NotificationDetails& details) {
+    DCHECK_EQ(type.value, NotificationType::ZOOM_LEVEL_CHANGED);
+    WrenchMenuModel* wrenchMenuModel = [controller_ wrenchMenuModel];
+    wrenchMenuModel->UpdateZoomControls();
+    const string16 level =
+        wrenchMenuModel->GetLabelForCommandId(IDC_ZOOM_PERCENT_DISPLAY);
+    [[controller_ zoomDisplay] setTitle:SysUTF16ToNSString(level)];
+  }
+
+ private:
+  NotificationRegistrar registrar_;
+  WrenchMenuController* controller_;  // Weak; owns this.
+};
+
+}  // namespace WrenchMenuControllerInternal
 
 @implementation WrenchMenuController
 
 - (id)init {
-  self = [super init];
+  if ((self = [super init])) {
+    observer_.reset(new WrenchMenuControllerInternal::ZoomLevelObserver(self));
+  }
   return self;
 }
 
@@ -49,10 +87,12 @@
     case IDC_EDIT_MENU:
       DCHECK(editItem_);
       [customItem setView:editItem_];
+      [editItem_ setMenuItem:customItem];
       break;
     case IDC_ZOOM_MENU:
       DCHECK(zoomItem_);
       [customItem setView:zoomItem_];
+      [zoomItem_ setMenuItem:customItem];
       break;
     default:
       NOTREACHED();
@@ -75,6 +115,12 @@
       [self wrenchMenuModel]->GetLabelForCommandId(IDC_ZOOM_PERCENT_DISPLAY));
   [[zoomItem_ viewWithTag:IDC_ZOOM_PERCENT_DISPLAY] setTitle:title];
 
+  bool plusEnabled = [self wrenchMenuModel]->IsCommandIdEnabled(IDC_ZOOM_PLUS);
+  bool minusEnabled = [self wrenchMenuModel]->IsCommandIdEnabled(
+      IDC_ZOOM_MINUS);
+  [zoomPlus_ setEnabled:plusEnabled];
+  [zoomMinus_ setEnabled:minusEnabled];
+
   NSImage* icon = [self wrenchMenuModel]->browser()->window()->IsFullscreen() ?
       [NSImage imageNamed:NSImageNameExitFullScreenTemplate] :
           [NSImage imageNamed:NSImageNameEnterFullScreenTemplate];
@@ -87,27 +133,35 @@
 // NSCarbonMenuWindow; this screws up the typical |-commandDispatch:| system.
 - (IBAction)dispatchWrenchMenuCommand:(id)sender {
   NSInteger tag = [sender tag];
+  if (sender == zoomPlus_ || sender == zoomMinus_) {
+    // Do a direct dispatch rather than scheduling on the outermost run loop,
+    // which would not get hit until after the menu had closed.
+    [self performCommandDispatch:[NSNumber numberWithInt:tag]];
 
-  // NSSegmentedControls (used for the Edit item) need a little help to get the
-  // command_id of the pressed item.
-  if ([sender isKindOfClass:[NSSegmentedControl class]])
-    tag = [[sender cell] tagForSegment:[sender selectedSegment]];
+    // The zoom buttons should not close the menu if opened sticky.
+    if ([sender respondsToSelector:@selector(isTracking)] &&
+        [sender performSelector:@selector(isTracking)]) {
+      [menu_ cancelTracking];
+    }
+  } else {
+    // The custom views within the Wrench menu are abnormal and keep the menu
+    // open after a target-action.  Close the menu manually.
+    [menu_ cancelTracking];
+    [self dispatchCommandInternal:tag];
+  }
+}
 
-  // The custom views within the Wrench menu are abnormal and keep the menu open
-  // after a target-action. Close the menu manually.
-  // TODO(rsesek): It'd be great if the zoom buttons didn't have to close the
-  // menu. See http://crbug.com/48679 for more info.
-  [menu_ cancelTracking];
+- (void)dispatchCommandInternal:(NSInteger)tag {
   // Executing certain commands from the nested run loop of the menu can lead
   // to wonky behavior (e.g. http://crbug.com/49716). To avoid this, schedule
   // the dispatch on the outermost run loop.
-  [self performSelector:@selector(dispatchCommandInternal:)
+  [self performSelector:@selector(performCommandDispatch:)
              withObject:[NSNumber numberWithInt:tag]
              afterDelay:0.0];
 }
 
 // Used to perform the actual dispatch on the outermost runloop.
-- (void)dispatchCommandInternal:(NSNumber*)tag {
+- (void)performCommandDispatch:(NSNumber*)tag {
   [self wrenchMenuModel]->ExecuteCommand([tag intValue]);
 }
 
@@ -118,28 +172,48 @@
 // Fit the localized strings into the Cut/Copy/Paste control, then resize the
 // whole menu item accordingly.
 - (void)adjustPositioning {
+  const CGFloat kButtonPadding = 12;
+  CGFloat delta = 0;
+
+  // Go through the three buttons from right-to-left, adjusting the size to fit
+  // the localized strings while keeping them all aligned on their horizontal
+  // edges.
+  const size_t kAdjustViewCount = 3;
+  NSButton* views[kAdjustViewCount] = { editPaste_, editCopy_, editCut_ };
+  for (size_t i = 0; i < kAdjustViewCount; ++i) {
+    NSButton* button = views[i];
+    CGFloat originalWidth = NSWidth([button frame]);
+
+    // Do not let |-sizeToFit| change the height of the button.
+    NSSize size = [button frame].size;
+    [button sizeToFit];
+    size.width = [button frame].size.width + kButtonPadding;
+    [button setFrameSize:size];
+
+    CGFloat newWidth = size.width;
+    delta += newWidth - originalWidth;
+
+    NSRect frame = [button frame];
+    frame.origin.x -= delta;
+    [button setFrame:frame];
+  }
+
+  // Resize the menu item by the total amound the buttons changed so that the
+  // spacing between the buttons and the title remains the same.
   NSRect itemFrame = [editItem_ frame];
-  NSRect controlFrame = [editControl_ frame];
-
-  CGFloat originalControlWidth = NSWidth(controlFrame);
-  // Maintain the carefully pixel-pushed gap between the edge of the menu and
-  // the rightmost control.
-  CGFloat edge = NSWidth(itemFrame) -
-      (controlFrame.origin.x + originalControlWidth);
-
-  // Resize the edit segmented control to fit the localized strings.
-  [editControl_ sizeToFit];
-  controlFrame = [editControl_ frame];
-  CGFloat resizeAmount = NSWidth(controlFrame) - originalControlWidth;
-
-  // Adjust the size of the entire menu item to account for changes in the size
-  // of the segmented control.
-  itemFrame.size.width += resizeAmount;
+  itemFrame.size.width += delta;
   [editItem_ setFrame:itemFrame];
 
-  // Keep the spacing between the right edges of the menu and the control.
-  controlFrame.origin.x = NSWidth(itemFrame) - edge - NSWidth(controlFrame);
-  [editControl_ setFrame:controlFrame];
+  // Also resize the superview of the buttons, which is an NSView used to slide
+  // when the item title is too big and GTM resizes it.
+  NSRect parentFrame = [[editCut_ superview] frame];
+  parentFrame.size.width += delta;
+  parentFrame.origin.x -= delta;
+  [[editCut_ superview] setFrame:parentFrame];
+}
+
+- (NSButton*)zoomDisplay {
+  return zoomDisplay_;
 }
 
 @end  // @implementation WrenchMenuController

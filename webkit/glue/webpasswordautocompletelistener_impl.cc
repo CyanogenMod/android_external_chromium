@@ -59,15 +59,18 @@ void WebInputElementDelegate::RefreshAutofillPopup(
   if (webview) {
     std::vector<string16> names;
     std::vector<string16> labels;
+    std::vector<string16> icons;
     std::vector<int> unique_ids;
 
     for (size_t i = 0; i < suggestions.size(); ++i) {
       names.push_back(suggestions[i]);
       labels.push_back(string16());
+      icons.push_back(string16());
       unique_ids.push_back(0);
     }
 
-    webview->applyAutoFillSuggestions(element_, names, labels, unique_ids, -1);
+    webview->applyAutoFillSuggestions(
+        element_, names, labels, icons, unique_ids, -1);
   }
 }
 
@@ -78,6 +81,9 @@ WebPasswordAutocompleteListenerImpl::WebPasswordAutocompleteListenerImpl(
     : password_delegate_(password_delegate),
       username_delegate_(username_delegate),
       data_(data) {
+}
+
+WebPasswordAutocompleteListenerImpl::~WebPasswordAutocompleteListenerImpl() {
 }
 
 void WebPasswordAutocompleteListenerImpl::didBlurInputElement(

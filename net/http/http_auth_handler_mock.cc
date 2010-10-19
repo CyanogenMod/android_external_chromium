@@ -5,7 +5,9 @@
 #include "net/http/http_auth_handler_mock.h"
 
 #include "base/message_loop.h"
+#include "base/string_util.h"
 #include "net/base/net_errors.h"
+#include "net/http/http_request_info.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -76,12 +78,23 @@ bool HttpAuthHandlerMock::Init(HttpAuth::ChallengeTokenizer* challenge) {
   return true;
 }
 
-int HttpAuthHandlerMock::GenerateAuthTokenImpl(const std::wstring* username,
-                                               const std::wstring* password,
+HttpAuth::AuthorizationResult HttpAuthHandlerMock::HandleAnotherChallenge(
+    HttpAuth::ChallengeTokenizer* challenge) {
+  if (!is_connection_based())
+    return HttpAuth::AUTHORIZATION_RESULT_REJECT;
+  if (!challenge->valid() ||
+      !LowerCaseEqualsASCII(challenge->scheme(), "mock"))
+    return HttpAuth::AUTHORIZATION_RESULT_INVALID;
+  return HttpAuth::AUTHORIZATION_RESULT_ACCEPT;
+}
+
+int HttpAuthHandlerMock::GenerateAuthTokenImpl(const string16* username,
+                                               const string16* password,
                                                const HttpRequestInfo* request,
                                                CompletionCallback* callback,
                                                std::string* auth_token) {
   first_round_ = false;
+  request_url_ = request->url;
   if (generate_async_) {
     EXPECT_TRUE(user_callback_ == NULL);
     EXPECT_TRUE(auth_token_ == NULL);
@@ -118,6 +131,14 @@ void HttpAuthHandlerMock::OnGenerateAuthToken() {
   callback->Run(generate_rv_);
 }
 
+HttpAuthHandlerMock::Factory::Factory()
+    : do_init_from_challenge_(false) {
+  // TODO(cbentzel): Default do_init_from_challenge_ to true.
+}
+
+HttpAuthHandlerMock::Factory::~Factory() {
+}
+
 void HttpAuthHandlerMock::Factory::set_mock_handler(
     HttpAuthHandler* handler, HttpAuth::Target target) {
   EXPECT_TRUE(handlers_[target].get() == NULL);
@@ -134,7 +155,11 @@ int HttpAuthHandlerMock::Factory::CreateAuthHandler(
     scoped_ptr<HttpAuthHandler>* handler) {
   if (!handlers_[target].get())
     return ERR_UNEXPECTED;
-  handler->swap(handlers_[target]);
+  scoped_ptr<HttpAuthHandler> tmp_handler(handlers_[target].release());
+  if (do_init_from_challenge_ &&
+      !tmp_handler->InitFromChallenge(challenge, target, origin, net_log))
+    return ERR_INVALID_RESPONSE;
+  handler->swap(tmp_handler);
   return OK;
 }
 

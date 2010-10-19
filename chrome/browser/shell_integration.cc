@@ -7,6 +7,7 @@
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
+#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -30,21 +31,20 @@ std::string ShellIntegration::GetCommandLineArgumentsCommon(const GURL& url,
     }
   }
 
-#if defined (OS_CHROMEOS)
-  std::wstring profile = cmd.GetSwitchValue(switches::kProfile);
+#if defined(OS_CHROMEOS)
+  FilePath profile = cmd.GetSwitchValuePath(switches::kLoginProfile);
   if (!profile.empty()) {
-    arguments_w += std::wstring(L"--") + ASCIIToWide(switches::kProfile) +
-                   L"=\"" + profile + L"\" ";
+    arguments_w += std::wstring(L"--") + ASCIIToWide(switches::kLoginProfile) +
+        L"=\"" + profile.ToWStringHack() + L"\" ";
   }
 #endif
 
   // If |extension_app_id| is present, we use the kAppId switch rather than
   // the kApp switch (the launch url will be read from the extension app
   // during launch.
-  if (cmd.HasSwitch(switches::kEnableApps) && !extension_app_id.empty()) {
+  if (!cmd.HasSwitch(switches::kDisableApps) && !extension_app_id.empty()) {
     arguments_w += std::wstring(L"--") + ASCIIToWide(switches::kAppId) +
-        L"=\"" + ASCIIToWide(UTF16ToASCII(extension_app_id)) + L"\" --" +
-        ASCIIToWide(switches::kEnableApps);
+        L"=\"" + ASCIIToWide(UTF16ToASCII(extension_app_id));
   } else {
     // Use '--app=url' instead of just 'url' to launch the browser with minimal
     // chrome.

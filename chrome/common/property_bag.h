@@ -4,12 +4,14 @@
 
 #ifndef CHROME_COMMON_PROPERTY_BAG_H_
 #define CHROME_COMMON_PROPERTY_BAG_H_
+#pragma once
 
 #include <map>
 
 #include "base/basictypes.h"
-#include "base/linked_ptr.h"
 
+template <typename T>
+class linked_ptr;
 class PropertyAccessorBase;
 
 // A property bag holds a generalized list of arbitrary metadata called

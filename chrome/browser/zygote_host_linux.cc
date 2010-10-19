@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,13 +11,17 @@
 
 #include "base/command_line.h"
 #include "base/eintr_wrapper.h"
+#include "base/environment.h"
 #include "base/linux_util.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/pickle.h"
 #include "base/process_util.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/scoped_ptr.h"
 #include "base/unix_domain_socket_posix.h"
+#include "base/utf_string_conversions.h"
 
 #include "chrome/browser/renderer_host/render_sandbox_host_linux.h"
 #include "chrome/common/chrome_constants.h"
@@ -37,11 +41,12 @@ static void SaveSUIDUnsafeEnvironmentVariables() {
     if (!saved_envvar)
       continue;
 
-    const char* const value = getenv(envvar);
-    if (value)
-      setenv(saved_envvar, value, 1 /* overwrite */);
+    scoped_ptr<base::Environment> env(base::Environment::Create());
+    std::string value;
+    if (env->GetVar(envvar, &value))
+      env->SetVar(saved_envvar, value);
     else
-      unsetenv(saved_envvar);
+      env->UnSetVar(saved_envvar);
 
     free(saved_envvar);
   }
@@ -67,8 +72,7 @@ void ZygoteHost::Init(const std::string& sandbox_cmd) {
   CHECK(PathService::Get(base::FILE_EXE, &chrome_path));
   CommandLine cmd_line(chrome_path);
 
-  cmd_line.AppendSwitchWithValue(switches::kProcessType,
-                                 switches::kZygoteProcess);
+  cmd_line.AppendSwitchASCII(switches::kProcessType, switches::kZygoteProcess);
 
   int fds[2];
   CHECK(socketpair(PF_UNIX, SOCK_SEQPACKET, 0, fds) == 0);
@@ -77,40 +81,27 @@ void ZygoteHost::Init(const std::string& sandbox_cmd) {
 
   const CommandLine& browser_command_line = *CommandLine::ForCurrentProcess();
   if (browser_command_line.HasSwitch(switches::kZygoteCmdPrefix)) {
-    const std::wstring prefix =
-        browser_command_line.GetSwitchValue(switches::kZygoteCmdPrefix);
-    cmd_line.PrependWrapper(prefix);
+    cmd_line.PrependWrapper(
+        browser_command_line.GetSwitchValueNative(switches::kZygoteCmdPrefix));
   }
   // Append any switches from the browser process that need to be forwarded on
   // to the zygote/renderers.
   // Should this list be obtained from browser_render_process_host.cc?
-  if (browser_command_line.HasSwitch(switches::kAllowSandboxDebugging)) {
-    cmd_line.AppendSwitch(switches::kAllowSandboxDebugging);
-  }
-  if (browser_command_line.HasSwitch(switches::kLoggingLevel)) {
-    cmd_line.AppendSwitchWithValue(switches::kLoggingLevel,
-                                   browser_command_line.GetSwitchValueASCII(
-                                       switches::kLoggingLevel));
-  }
-  if (browser_command_line.HasSwitch(switches::kEnableLogging)) {
-    // Append with value to support --enable-logging=stderr.
-    cmd_line.AppendSwitchWithValue(switches::kEnableLogging,
-                                   browser_command_line.GetSwitchValueASCII(
-                                       switches::kEnableLogging));
-  }
-  if (browser_command_line.HasSwitch(switches::kUserDataDir)) {
-    // Append with value so logs go to the right file.
-    cmd_line.AppendSwitchWithValue(switches::kUserDataDir,
-                                   browser_command_line.GetSwitchValueASCII(
-                                       switches::kUserDataDir));
-  }
+  static const char* kForwardSwitches[] = {
+    switches::kAllowSandboxDebugging,
+    switches::kLoggingLevel,
+    switches::kEnableLogging,  // Support, e.g., --enable-logging=stderr.
+    switches::kUserDataDir,  // Make logs go to the right file.
+    // Load (in-process) Pepper plugins in-process in the zygote pre-sandbox.
+    switches::kRegisterPepperPlugins,
 #if defined(USE_SECCOMP_SANDBOX)
-  if (browser_command_line.HasSwitch(switches::kDisableSeccompSandbox))
-    cmd_line.AppendSwitch(switches::kDisableSeccompSandbox);
+    switches::kDisableSeccompSandbox,
 #else
-  if (browser_command_line.HasSwitch(switches::kEnableSeccompSandbox))
-    cmd_line.AppendSwitch(switches::kEnableSeccompSandbox);
+    switches::kEnableSeccompSandbox,
 #endif
+  };
+  cmd_line.CopySwitchesFrom(browser_command_line, kForwardSwitches,
+                            arraysize(kForwardSwitches));
 
   sandbox_binary_ = sandbox_cmd.c_str();
   struct stat st;
@@ -121,7 +112,7 @@ void ZygoteHost::Init(const std::string& sandbox_cmd) {
         (st.st_mode & S_ISUID) &&
         (st.st_mode & S_IXOTH)) {
       using_suid_sandbox_ = true;
-      cmd_line.PrependWrapper(ASCIIToWide(sandbox_binary_.c_str()));
+      cmd_line.PrependWrapper(sandbox_binary_);
 
       SaveSUIDUnsafeEnvironmentVariables();
     } else {
@@ -169,10 +160,10 @@ void ZygoteHost::Init(const std::string& sandbox_cmd) {
       std::vector<std::string> get_inode_cmdline;
       get_inode_cmdline.push_back(sandbox_binary_);
       get_inode_cmdline.push_back(base::kFindInodeSwitch);
-      get_inode_cmdline.push_back(Int64ToString(inode));
+      get_inode_cmdline.push_back(base::Int64ToString(inode));
       CommandLine get_inode_cmd(get_inode_cmdline);
       if (base::GetAppOutput(get_inode_cmd, &inode_output)) {
-        StringToInt(inode_output, &pid_);
+        base::StringToInt(inode_output, &pid_);
       }
     }
     CHECK(pid_ > 0) << "Did not find zygote process (using sandbox binary "
@@ -243,6 +234,8 @@ pid_t ZygoteHost::ForkRenderer(
 
     if (ReadReply(&pid, sizeof(pid)) != sizeof(pid))
       return base::kNullProcessHandle;
+    if (pid <= 0)
+      return base::kNullProcessHandle;
   }
 
   // 1) You can't change the oom_adj of a non-dumpable process (EPERM) unless
@@ -285,8 +278,8 @@ pid_t ZygoteHost::ForkRenderer(
 
     adj_oom_score_cmdline.push_back(sandbox_binary_);
     adj_oom_score_cmdline.push_back(base::kAdjustOOMScoreSwitch);
-    adj_oom_score_cmdline.push_back(Int64ToString(pid));
-    adj_oom_score_cmdline.push_back(IntToString(kRendererScore));
+    adj_oom_score_cmdline.push_back(base::Int64ToString(pid));
+    adj_oom_score_cmdline.push_back(base::IntToString(kRendererScore));
     CommandLine adj_oom_score_cmd(adj_oom_score_cmdline);
     if (base::LaunchApp(adj_oom_score_cmdline, dummy_map, false,
                         &sandbox_helper_process)) {

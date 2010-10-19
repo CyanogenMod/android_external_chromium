@@ -6,6 +6,8 @@ DEFS_Debug := '-DNO_HEAPCHECKER' \
 	'-DCHROMIUM_BUILD' \
 	'-DENABLE_REMOTING=1' \
 	'-DENABLE_GPU=1' \
+	'-DUNIT_TEST' \
+	'-DGTEST_HAS_RTTI=0' \
 	'-D__STDC_FORMAT_MACROS' \
 	'-DDYNAMIC_ANNOTATIONS_ENABLED=1' \
 	'-D_DEBUG'
@@ -19,6 +21,7 @@ CFLAGS_Debug := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -45,12 +48,16 @@ CFLAGS_CC_Debug := -fno-rtti \
 	-fno-threadsafe-statics \
 	-fvisibility-inlines-hidden
 
-INCS_Debug := -I.
+INCS_Debug := -I. \
+	-Itesting/gmock/include \
+	-Itesting/gtest/include
 
 DEFS_Release := '-DNO_HEAPCHECKER' \
 	'-DCHROMIUM_BUILD' \
 	'-DENABLE_REMOTING=1' \
 	'-DENABLE_GPU=1' \
+	'-DUNIT_TEST' \
+	'-DGTEST_HAS_RTTI=0' \
 	'-D__STDC_FORMAT_MACROS' \
 	'-DNDEBUG' \
 	'-DNVALGRIND' \
@@ -65,6 +72,7 @@ CFLAGS_Release := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -93,10 +101,14 @@ CFLAGS_CC_Release := -fno-rtti \
 	-fno-threadsafe-statics \
 	-fvisibility-inlines-hidden
 
-INCS_Release := -I.
+INCS_Release := -I. \
+	-Itesting/gmock/include \
+	-Itesting/gtest/include
 
-OBJS := $(obj).target/$(TARGET)/base/test/test_file_util_linux.o \
-	$(obj).target/$(TARGET)/base/test/test_file_util_posix.o
+OBJS := $(obj).target/$(TARGET)/base/test/multiprocess_test.o \
+	$(obj).target/$(TARGET)/base/test/test_file_util_linux.o \
+	$(obj).target/$(TARGET)/base/test/test_file_util_posix.o \
+	$(obj).target/$(TARGET)/base/test/test_suite.o
 
 # Add to the list of files we specially track dependencies for.
 all_deps += $(OBJS)
@@ -123,11 +135,12 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.cc FORCE_DO_CMD
 # End of this set of suffix rules
 ### Rules for final target.
 LDFLAGS_Debug := -pthread \
-	-Wl,-z,noexecstack \
-	-rdynamic
+	-Wl,-z,noexecstack
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := 

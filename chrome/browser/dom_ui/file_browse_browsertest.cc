@@ -2,10 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/file_path.h"
-#include "base/file_util.h"
 #include "base/task.h"
-#include "base/values.h"
 #include "base/path_service.h"
 #include "chrome/browser/dom_ui/dom_ui.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
@@ -16,6 +13,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
+#include "net/test/test_server.h"
 
 namespace {
 
@@ -105,9 +103,9 @@ class FileBrowseUiObserver : public NotificationObserver {
 };
 
 IN_PROC_BROWSER_TEST_F(FileBrowseBrowserTest, InputFileTriggerFileBrowse) {
-  HTTPTestServer* server = StartHTTPServer();
+  ASSERT_TRUE(test_server()->Start());
   ui_test_utils::NavigateToURL(browser(),
-                               server->TestServerPage("files/input_file.html"));
+                               test_server()->GetURL("files/input_file.html"));
 
   DOMElementProxyRef doc = ui_test_utils::GetActiveDOMDocument(browser());
 

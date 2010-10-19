@@ -6,6 +6,8 @@
 
 #include "base/scoped_nsobject.h"
 #include "base/sys_string_conversions.h"
+#include "base/utf_string_conversions.h"
+#include "chrome/browser/bookmarks/bookmark_model.h"
 #import "chrome/browser/cocoa/bookmark_all_tabs_controller.h"
 #include "chrome/browser/cocoa/browser_test_helper.h"
 #import "chrome/browser/cocoa/cocoa_test_helper.h"
@@ -22,11 +24,11 @@
       [self activeTabPairsVector];
   activeTabPairsVector->clear();
   activeTabPairsVector->push_back(
-      ActiveTabNameURLPair(L"at-0", GURL("http://at-0.com")));
+      ActiveTabNameURLPair(ASCIIToUTF16("at-0"), GURL("http://at-0.com")));
   activeTabPairsVector->push_back(
-      ActiveTabNameURLPair(L"at-1", GURL("http://at-1.com")));
+      ActiveTabNameURLPair(ASCIIToUTF16("at-1"), GURL("http://at-1.com")));
   activeTabPairsVector->push_back(
-      ActiveTabNameURLPair(L"at-2", GURL("http://at-2.com")));
+      ActiveTabNameURLPair(ASCIIToUTF16("at-2"), GURL("http://at-2.com")));
 }
 
 @end
@@ -41,10 +43,10 @@ class BookmarkAllTabsControllerTest : public CocoaTest {
   BookmarkAllTabsControllerTest() {
     BookmarkModel& model(*(helper_.profile()->GetBookmarkModel()));
     const BookmarkNode* root = model.GetBookmarkBarNode();
-    group_a_ = model.AddGroup(root, 0, L"a");
-    model.AddURL(group_a_, 0, L"a-0", GURL("http://a-0.com"));
-    model.AddURL(group_a_, 1, L"a-1", GURL("http://a-1.com"));
-    model.AddURL(group_a_, 2, L"a-2", GURL("http://a-2.com"));
+    group_a_ = model.AddGroup(root, 0, ASCIIToUTF16("a"));
+    model.AddURL(group_a_, 0, ASCIIToUTF16("a-0"), GURL("http://a-0.com"));
+    model.AddURL(group_a_, 1, ASCIIToUTF16("a-1"), GURL("http://a-1.com"));
+    model.AddURL(group_a_, 2, ASCIIToUTF16("a-2"), GURL("http://a-2.com"));
   }
 
   virtual BookmarkAllTabsControllerOverride* CreateController() {
@@ -75,6 +77,6 @@ TEST_F(BookmarkAllTabsControllerTest, BookmarkAllTabs) {
   [controller_ ok:nil];
   EXPECT_EQ(4, group_a_->GetChildCount());
   const BookmarkNode* folderChild = group_a_->GetChild(3);
-  EXPECT_EQ(folderChild->GetTitle(), L"ALL MY TABS");
+  EXPECT_EQ(folderChild->GetTitle(), ASCIIToUTF16("ALL MY TABS"));
   EXPECT_EQ(3, folderChild->GetChildCount());
 }

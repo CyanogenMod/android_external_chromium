@@ -11,11 +11,12 @@ extern "C" {
 
 #include "base/file_util.h"
 #include "base/file_path.h"
-#include "base/multiprocess_test.h"
+#include "base/test/multiprocess_test.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/common/sandbox_mac.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "testing/multiprocess_func_list.h"
 
 // Tests to exercise directory-access-related restrictions of Mac sandbox.
 
@@ -30,11 +31,12 @@ namespace {
 
 static const char* kSandboxAccessPathKey = "sandbox_dir";
 
-class MacDirAccessSandboxTest : public MultiProcessTest {
+class MacDirAccessSandboxTest : public base::MultiProcessTest {
  public:
-  bool CheckSandbox(std::string directory_to_try) {
+  bool CheckSandbox(const std::string& directory_to_try) {
     setenv(kSandboxAccessPathKey, directory_to_try.c_str(), 1);
-    base::ProcessHandle child_process = SpawnChild(L"mac_sandbox_path_access");
+    base::ProcessHandle child_process = SpawnChild("mac_sandbox_path_access",
+                                                   false);
     int code = -1;
     if (!base::WaitForExitCode(child_process, &code)) {
       LOG(WARNING) << "base::WaitForExitCode failed";
@@ -141,7 +143,8 @@ class ScopedDirectoryDelete {
 
 typedef scoped_ptr_malloc<FilePath, ScopedDirectoryDelete> ScopedDirectory;
 
-TEST_F(MacDirAccessSandboxTest, SandboxAccess) {
+// Crashy, http://crbug.com/56765.
+TEST_F(MacDirAccessSandboxTest, DISABLED_SandboxAccess) {
   FilePath tmp_dir;
   ASSERT_TRUE(file_util::CreateNewTempDirectory("", &tmp_dir));
   // This step is important on OS X since the sandbox only understands "real"

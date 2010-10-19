@@ -4,14 +4,17 @@
 
 #ifndef CHROME_BROWSER_COCOA_STATUS_BUBBLE_MAC_H_
 #define CHROME_BROWSER_COCOA_STATUS_BUBBLE_MAC_H_
+#pragma once
 
 #include <string>
 
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include "base/string16.h"
 #include "base/task.h"
 #include "chrome/browser/status_bubble.h"
+#include "googleurl/src/gurl.h"
 
 class GURL;
 class StatusBubbleMacTest;
@@ -33,8 +36,8 @@ class StatusBubbleMac : public StatusBubble {
   virtual ~StatusBubbleMac();
 
   // StatusBubble implementation.
-  virtual void SetStatus(const std::wstring& status);
-  virtual void SetURL(const GURL& url, const std::wstring& languages);
+  virtual void SetStatus(const string16& status);
+  virtual void SetURL(const GURL& url, const string16& languages);
   virtual void Hide();
   virtual void MouseMoved(const gfx::Point& location, bool left_content);
   virtual void UpdateDownloadShelfVisibility(bool visible);
@@ -53,6 +56,9 @@ class StatusBubbleMac : public StatusBubble {
   // delegate, which is an Objective-C object.
   void AnimationDidStop(CAAnimation* animation, bool finished);
 
+  // Expand the bubble to fit a URL too long for the standard bubble size.
+  void ExpandBubble();
+
  private:
   friend class StatusBubbleMacTest;
 
@@ -61,7 +67,7 @@ class StatusBubbleMac : public StatusBubble {
   void SetState(StatusBubbleState state);
 
   // Sets the bubble text for SetStatus and SetURL.
-  void SetText(const std::wstring& text, bool is_url);
+  void SetText(const string16& text, bool is_url);
 
   // Construct the window/widget if it does not already exist. (Safe to call if
   // it does.)
@@ -101,11 +107,18 @@ class StatusBubbleMac : public StatusBubble {
   void StartShowing();
   void StartHiding();
 
+  // Cancel the expansion timer.
+  void CancelExpandTimer();
+
   // The timer factory used for show and hide delay timers.
   ScopedRunnableMethodFactory<StatusBubbleMac> timer_factory_;
 
-  // Calculate the appropriate frame for the status bubble window.
-  NSRect CalculateWindowFrame();
+  // The timer factory used for the expansion delay timer.
+  ScopedRunnableMethodFactory<StatusBubbleMac> expand_timer_factory_;
+
+  // Calculate the appropriate frame for the status bubble window. If
+  // |expanded_width|, use entire width of parent frame.
+  NSRect CalculateWindowFrame(bool expanded_width);
 
   // The window we attach ourselves to.
   NSWindow* parent_;  // WEAK
@@ -131,17 +144,29 @@ class StatusBubbleMac : public StatusBubble {
   // true for testing.
   bool immediate_;
 
+  // True if the status bubble has been expanded. If the bubble is in the
+  // expanded state and encounters a new URL, change size immediately,
+  // with no hover delay.
+  bool is_expanded_;
+
+  // The original, non-elided URL.
+  GURL url_;
+
+  // Needs to be passed to ElideURL if the original URL string is wider than
+  // the standard bubble width.
+  string16 languages_;
+
   DISALLOW_COPY_AND_ASSIGN(StatusBubbleMac);
 };
 
 // Delegate interface
 @interface NSObject(StatusBubbleDelegate)
-// Called to query the delegate about the vertical offset (if any) that should
-// be applied to the StatusBubble's position.
-- (CGFloat)verticalOffsetForStatusBubble;
+// Called to query the delegate about the frame StatusBubble should position
+// itself in. Frame is returned in the parent window coordinates.
+- (NSRect)statusBubbleBaseFrame;
 
 // Called from SetState to notify the delegate of state changes.
 - (void)statusBubbleWillEnterState:(StatusBubbleMac::StatusBubbleState)state;
 @end
 
-#endif  // #ifndef CHROME_BROWSER_COCOA_STATUS_BUBBLE_MAC_H_
+#endif  // CHROME_BROWSER_COCOA_STATUS_BUBBLE_MAC_H_

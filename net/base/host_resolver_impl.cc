@@ -23,12 +23,15 @@
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/time.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/worker_pool.h"
 #include "net/base/address_list.h"
+#include "net/base/address_list_net_log_param.h"
+#include "net/base/host_port_pair.h"
 #include "net/base/host_resolver_proc.h"
-#include "net/base/net_log.h"
 #include "net/base/net_errors.h"
+#include "net/base/net_log.h"
 #include "net/base/net_util.h"
 
 #if defined(OS_WIN)
@@ -53,7 +56,8 @@ HostResolver* systemResolver = NULL;
 
 }  // anonymous namespace
 
-HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves) {
+HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
+                                       NetLog* net_log) {
   // Maximum of 50 concurrent threads.
   // TODO(eroman): Adjust this, do some A/B experiments.
 #ifdef ANDROID
@@ -73,8 +77,12 @@ HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves) {
 #else
   HostResolverImpl* resolver =
       new HostResolverImpl(NULL, CreateDefaultCache(),
+<<<<<<< HEAD
                            max_concurrent_resolves);
 #endif
+=======
+                           max_concurrent_resolves, net_log);
+>>>>>>> Chromium at release 7.0.540.0
 
   return systemResolver;
 }
@@ -99,21 +107,19 @@ static int ResolveAddrInfo(HostResolverProc* resolver_proc,
 // Extra parameters to attach to the NetLog when the resolve failed.
 class HostResolveFailedParams : public NetLog::EventParameters {
  public:
-  HostResolveFailedParams(int net_error, int os_error, bool was_from_cache)
+  HostResolveFailedParams(int net_error, int os_error)
       : net_error_(net_error),
-        os_error_(os_error),
-        was_from_cache_(was_from_cache) {
+        os_error_(os_error) {
   }
 
   virtual Value* ToValue() const {
     DictionaryValue* dict = new DictionaryValue();
-    dict->SetInteger(L"net_error", net_error_);
-    dict->SetBoolean(L"was_from_cache", was_from_cache_);
+    dict->SetInteger("net_error", net_error_);
 
     if (os_error_) {
-      dict->SetInteger(L"os_error", os_error_);
+      dict->SetInteger("os_error", os_error_);
 #if defined(OS_POSIX)
-      dict->SetString(L"os_error_string", gai_strerror(os_error_));
+      dict->SetString("os_error_string", gai_strerror(os_error_));
 #elif defined(OS_WIN)
       // Map the error code to a human-readable string.
       LPWSTR error_string = NULL;
@@ -125,7 +131,7 @@ class HostResolveFailedParams : public NetLog::EventParameters {
                                (LPWSTR)&error_string,
                                0,  // Buffer size.
                                0);  // Arguments (unused).
-      dict->SetString(L"os_error_string", error_string);
+      dict->SetString("os_error_string", WideToUTF8(error_string));
       LocalFree(error_string);
 #endif
     }
@@ -136,7 +142,52 @@ class HostResolveFailedParams : public NetLog::EventParameters {
  private:
   const int net_error_;
   const int os_error_;
-  const bool was_from_cache_;
+};
+
+// Parameters representing the information in a RequestInfo object, along with
+// the associated NetLog::Source.
+class RequestInfoParameters : public NetLog::EventParameters {
+ public:
+  RequestInfoParameters(const HostResolver::RequestInfo& info,
+                        const NetLog::Source& source)
+      : info_(info), source_(source) {}
+
+  virtual Value* ToValue() const {
+    DictionaryValue* dict = new DictionaryValue();
+    dict->SetString("host", info_.host_port_pair().ToString());
+    dict->SetInteger("address_family",
+                     static_cast<int>(info_.address_family()));
+    dict->SetBoolean("allow_cached_response", info_.allow_cached_response());
+    dict->SetBoolean("is_speculative", info_.is_speculative());
+    dict->SetInteger("priority", info_.priority());
+
+    if (source_.is_valid())
+      dict->Set("source_dependency", source_.ToValue());
+
+    return dict;
+  }
+
+ private:
+  const HostResolver::RequestInfo info_;
+  const NetLog::Source source_;
+};
+
+// Parameters associated with the creation of a HostResolveImpl::Job.
+class JobCreationParameters : public NetLog::EventParameters {
+ public:
+  JobCreationParameters(const std::string& host, const NetLog::Source& source)
+      : host_(host), source_(source) {}
+
+  virtual Value* ToValue() const {
+    DictionaryValue* dict = new DictionaryValue();
+    dict->SetString("host", host_);
+    dict->Set("source_dependency", source_.ToValue());
+    return dict;
+  }
+
+ private:
+  const std::string host_;
+  const NetLog::Source source_;
 };
 
 // Gets a list of the likely error codes that getaddrinfo() can return
@@ -190,12 +241,14 @@ std::vector<int> GetAllGetAddrinfoOSErrors() {
 
 class HostResolverImpl::Request {
  public:
-  Request(const BoundNetLog& net_log,
+  Request(const BoundNetLog& source_net_log,
+          const BoundNetLog& request_net_log,
           int id,
           const RequestInfo& info,
           CompletionCallback* callback,
           AddressList* addresses)
-      : net_log_(net_log),
+      : source_net_log_(source_net_log),
+        request_net_log_(request_net_log),
         id_(id),
         info_(info),
         job_(NULL),
@@ -223,7 +276,9 @@ class HostResolverImpl::Request {
   void OnComplete(int error, const AddressList& addrlist) {
     if (error == OK)
       addresses_->SetFrom(addrlist, port());
-    callback_->Run(error);
+    CompletionCallback* callback = callback_;
+    MarkAsCancelled();
+    callback->Run(error);
   }
 
   int port() const {
@@ -234,8 +289,12 @@ class HostResolverImpl::Request {
     return job_;
   }
 
-  const BoundNetLog& net_log() {
-    return net_log_;
+  const BoundNetLog& source_net_log() {
+    return source_net_log_;
+  }
+
+  const BoundNetLog& request_net_log() {
+    return request_net_log_;
   }
 
   int id() const {
@@ -247,7 +306,8 @@ class HostResolverImpl::Request {
   }
 
  private:
-  BoundNetLog net_log_;
+  BoundNetLog source_net_log_;
+  BoundNetLog request_net_log_;
 
   // Unique ID for this request. Used by observers to identify requests.
   int id_;
@@ -274,20 +334,33 @@ class HostResolverImpl::Request {
 class HostResolverImpl::Job
     : public base::RefCountedThreadSafe<HostResolverImpl::Job> {
  public:
-  Job(int id, HostResolverImpl* resolver, const Key& key)
-      : id_(id),
-        key_(key),
-        resolver_(resolver),
-        origin_loop_(MessageLoop::current()),
-        resolver_proc_(resolver->effective_resolver_proc()),
-        error_(OK),
-        os_error_(0),
-        had_non_speculative_request_(false) {
+  Job(int id,
+      HostResolverImpl* resolver,
+      const Key& key,
+      const BoundNetLog& source_net_log,
+      NetLog* net_log)
+     : id_(id),
+       key_(key),
+       resolver_(resolver),
+       origin_loop_(MessageLoop::current()),
+       resolver_proc_(resolver->effective_resolver_proc()),
+       error_(OK),
+       os_error_(0),
+       had_non_speculative_request_(false),
+       net_log_(BoundNetLog::Make(net_log,
+                                  NetLog::SOURCE_HOST_RESOLVER_IMPL_JOB)) {
+    net_log_.BeginEvent(NetLog::TYPE_HOST_RESOLVER_IMPL_JOB,
+            new JobCreationParameters(key.hostname,
+                                      source_net_log.source()));
   }
 
   // Attaches a request to this job. The job takes ownership of |req| and will
   // take care to delete it.
   void AddRequest(Request* req) {
+    req->request_net_log().BeginEvent(
+        NetLog::TYPE_HOST_RESOLVER_IMPL_JOB_ATTACH,
+        new NetLogSourceParameter("source_dependency", net_log_.source()));
+
     req->set_job(this);
     requests_.push_back(req);
 
@@ -315,6 +388,8 @@ class HostResolverImpl::Job
 
   // Cancels the current job. Callable from origin thread.
   void Cancel() {
+    net_log_.AddEvent(NetLog::TYPE_CANCELLED, NULL);
+
     HostResolver* resolver = resolver_;
     resolver_ = NULL;
 
@@ -324,6 +399,10 @@ class HostResolverImpl::Job
       AutoLock locked(origin_loop_lock_);
       origin_loop_ = NULL;
     }
+
+    // End here to prevent issues when a Job outlives the HostResolver that
+    // spawned it.
+    net_log_.EndEvent(NetLog::TYPE_HOST_RESOLVER_IMPL_JOB, NULL);
 
     // We will call HostResolverImpl::CancelRequest(Request*) on each one
     // in order to notify any observers.
@@ -426,6 +505,17 @@ class HostResolverImpl::Job
     if (was_cancelled())
       return;
 
+    scoped_refptr<NetLog::EventParameters> params;
+    if (error_ != OK) {
+      params = new HostResolveFailedParams(error_, os_error_);
+    } else {
+      params = new AddressListNetLogParam(results_);
+    }
+
+    // End here to prevent issues when a Job outlives the HostResolver that
+    // spawned it.
+    net_log_.EndEvent(NetLog::TYPE_HOST_RESOLVER_IMPL_JOB, params);
+
     DCHECK(!requests_.empty());
 
      // Use the port number of the first request.
@@ -469,6 +559,8 @@ class HostResolverImpl::Job
 
   // The time when the job was started.
   base::TimeTicks start_time_;
+
+  BoundNetLog net_log_;
 
   DISALLOW_COPY_AND_ASSIGN(Job);
 };
@@ -575,7 +667,8 @@ class HostResolverImpl::IPv6ProbeJob
 // and increasing for lower priorities.
 COMPILE_ASSERT(HIGHEST == 0u &&
                LOWEST > HIGHEST &&
-               NUM_PRIORITIES > LOWEST,
+               IDLE > LOWEST &&
+               NUM_PRIORITIES > IDLE,
                priority_indexes_incompatible);
 
 // JobPool contains all the information relating to queued requests, including
@@ -621,6 +714,10 @@ class HostResolverImpl::JobPool {
   // evicted from the queue, and returned. Otherwise returns NULL. The caller
   // is responsible for freeing the evicted request.
   Request* InsertPendingRequest(Request* req) {
+    req->request_net_log().BeginEvent(
+        NetLog::TYPE_HOST_RESOLVER_IMPL_JOB_POOL_QUEUE,
+        NULL);
+
     PendingRequestsQueue& q = pending_requests_[req->info().priority()];
     q.push_back(req);
 
@@ -633,6 +730,10 @@ class HostResolverImpl::JobPool {
         if (!q.empty()) {
           Request* req = q.front();
           q.pop_front();
+          req->request_net_log().AddEvent(
+              NetLog::TYPE_HOST_RESOLVER_IMPL_JOB_POOL_QUEUE_EVICTED, NULL);
+          req->request_net_log().EndEvent(
+              NetLog::TYPE_HOST_RESOLVER_IMPL_JOB_POOL_QUEUE, NULL);
           return req;
         }
       }
@@ -648,6 +749,8 @@ class HostResolverImpl::JobPool {
     PendingRequestsQueue::iterator it = std::find(q.begin(), q.end(), req);
     DCHECK(it != q.end());
     q.erase(it);
+    req->request_net_log().EndEvent(
+        NetLog::TYPE_HOST_RESOLVER_IMPL_JOB_POOL_QUEUE, NULL);
   }
 
   // Removes and returns the highest priority pending request.
@@ -659,6 +762,8 @@ class HostResolverImpl::JobPool {
       if (!q.empty()) {
         Request* req = q.front();
         q.pop_front();
+        req->request_net_log().EndEvent(
+            NetLog::TYPE_HOST_RESOLVER_IMPL_JOB_POOL_QUEUE, NULL);
         return req;
       }
     }
@@ -671,6 +776,10 @@ class HostResolverImpl::JobPool {
   void AdjustNumOutstandingJobs(int offset) {
     DCHECK(offset == 1 || (offset == -1 && num_outstanding_jobs_ > 0u));
     num_outstanding_jobs_ += offset;
+  }
+
+  void ResetNumOutstandingJobs() {
+    num_outstanding_jobs_ = 0;
   }
 
   // Returns true if a new job can be created for this pool.
@@ -722,7 +831,8 @@ class HostResolverImpl::JobPool {
 HostResolverImpl::HostResolverImpl(
     HostResolverProc* resolver_proc,
     HostCache* cache,
-    size_t max_jobs)
+    size_t max_jobs,
+    NetLog* net_log)
     : cache_(cache),
       max_jobs_(max_jobs),
       next_request_id_(0),
@@ -730,7 +840,9 @@ HostResolverImpl::HostResolverImpl(
       resolver_proc_(resolver_proc),
       default_address_family_(ADDRESS_FAMILY_UNSPECIFIED),
       shutdown_(false),
-      ipv6_probe_monitoring_(false) {
+      ipv6_probe_monitoring_(false),
+      additional_resolver_flags_(0),
+      net_log_(net_log) {
   DCHECK_GT(max_jobs, 0u);
 
   // It is cumbersome to expose all of the constraints in the constructor,
@@ -740,6 +852,10 @@ HostResolverImpl::HostResolverImpl(
 #if defined(OS_WIN)
   EnsureWinsockInit();
 #endif
+#if defined(OS_LINUX)
+  if (HaveOnlyLoopbackAddresses())
+    additional_resolver_flags_ |= HOST_RESOLVER_LOOPBACK_ONLY;
+#endif
   NetworkChangeNotifier::AddObserver(this);
 }
 
@@ -748,8 +864,7 @@ HostResolverImpl::~HostResolverImpl() {
   // requests, which will also be cancelled.
   DiscardIPv6ProbeJob();
 
-  for (JobMap::iterator it = jobs_.begin(); it != jobs_.end(); ++it)
-    it->second->Cancel();
+  CancelAllJobs();
 
   // In case we are being deleted during the processing of a callback.
   if (cur_completing_job_)
@@ -762,13 +877,11 @@ HostResolverImpl::~HostResolverImpl() {
     delete job_pools_[i];
 }
 
-// TODO(eroman): Don't create cache entries for hostnames which are simply IP
-// address literals.
 int HostResolverImpl::Resolve(const RequestInfo& info,
                               AddressList* addresses,
                               CompletionCallback* callback,
                               RequestHandle* out_req,
-                              const BoundNetLog& net_log) {
+                              const BoundNetLog& source_net_log) {
   DCHECK(CalledOnValidThread());
 
   if (shutdown_)
@@ -777,26 +890,54 @@ int HostResolverImpl::Resolve(const RequestInfo& info,
   // Choose a unique ID number for observers to see.
   int request_id = next_request_id_++;
 
+  // Make a log item for the request.
+  BoundNetLog request_net_log = BoundNetLog::Make(net_log_,
+      NetLog::SOURCE_HOST_RESOLVER_IMPL_REQUEST);
+
   // Update the net log and notify registered observers.
-  OnStartRequest(net_log, request_id, info);
+  OnStartRequest(source_net_log, request_net_log, request_id, info);
 
   // Build a key that identifies the request in the cache and in the
   // outstanding jobs map.
   Key key = GetEffectiveKeyForRequest(info);
+
+  // Check for IP literal.
+  IPAddressNumber ip_number;
+  if (ParseIPLiteralToNumber(info.hostname(), &ip_number)) {
+    DCHECK_EQ(key.host_resolver_flags &
+                  ~(HOST_RESOLVER_CANONNAME | HOST_RESOLVER_LOOPBACK_ONLY |
+                    HOST_RESOLVER_DEFAULT_FAMILY_SET_DUE_TO_NO_IPV6),
+              0) << " Unhandled flag";
+    bool ipv6_disabled = default_address_family_ == ADDRESS_FAMILY_IPV4 &&
+        !ipv6_probe_monitoring_;
+    int net_error = OK;
+    if (ip_number.size() == 16 && ipv6_disabled) {
+      net_error = ERR_NAME_NOT_RESOLVED;
+    } else {
+      AddressList result(ip_number, info.port(),
+                         (key.host_resolver_flags & HOST_RESOLVER_CANONNAME));
+      *addresses = result;
+    }
+    // Update the net log and notify registered observers.
+    OnFinishRequest(source_net_log, request_net_log, request_id, info,
+                    net_error, 0  /* os_error (unknown since from cache) */);
+    return net_error;
+  }
 
   // If we have an unexpired cache entry, use it.
   if (info.allow_cached_response() && cache_.get()) {
     const HostCache::Entry* cache_entry = cache_->Lookup(
         key, base::TimeTicks::Now());
     if (cache_entry) {
+      request_net_log.AddEvent(NetLog::TYPE_HOST_RESOLVER_IMPL_CACHE_HIT, NULL);
       int net_error = cache_entry->error;
       if (net_error == OK)
         addresses->SetFrom(cache_entry->addrlist, info.port());
 
       // Update the net log and notify registered observers.
-      OnFinishRequest(net_log, request_id, info, net_error,
-                      0,  /* os_error (unknown since from cache) */
-                      true  /* was_from_cache */);
+      OnFinishRequest(source_net_log, request_net_log, request_id, info,
+                      net_error,
+                      0  /* os_error (unknown since from cache) */);
 
       return net_error;
     }
@@ -819,15 +960,16 @@ int HostResolverImpl::Resolve(const RequestInfo& info,
       cache_->Set(key, error, addrlist, base::TimeTicks::Now());
 
     // Update the net log and notify registered observers.
-    OnFinishRequest(net_log, request_id, info, error, os_error,
-                    false /* was_from_cache */);
+    OnFinishRequest(source_net_log, request_net_log, request_id, info, error,
+                    os_error);
 
     return error;
   }
 
   // Create a handle for this request, and pass it back to the user if they
   // asked for it (out_req != NULL).
-  Request* req = new Request(net_log, request_id, info, callback, addresses);
+  Request* req = new Request(source_net_log, request_net_log, request_id, info,
+                             callback, addresses);
   if (out_req)
     *out_req = reinterpret_cast<RequestHandle>(req);
 
@@ -878,11 +1020,15 @@ void HostResolverImpl::CancelRequest(RequestHandle req_handle) {
     JobPool* pool = GetPoolForRequest(req);
     pool->RemovePendingRequest(req);
     request_deleter.reset(req);
+  } else {
+    req->request_net_log().EndEvent(
+        NetLog::TYPE_HOST_RESOLVER_IMPL_JOB_ATTACH, NULL);
   }
 
   // NULL out the fields of req, to mark it as cancelled.
   req->MarkAsCancelled();
-  OnCancelRequest(req->net_log(), req->id(), req->info());
+  OnCancelRequest(req->source_net_log(), req->request_net_log(), req->id(),
+                  req->info());
 }
 
 void HostResolverImpl::AddObserver(HostResolver::Observer* observer) {
@@ -917,13 +1063,12 @@ void HostResolverImpl::ProbeIPv6Support() {
 
 void HostResolverImpl::Shutdown() {
   DCHECK(CalledOnValidThread());
-  shutdown_ = true;
 
   // Cancel the outstanding jobs.
-  for (JobMap::iterator it = jobs_.begin(); it != jobs_.end(); ++it)
-    it->second->Cancel();
-  jobs_.clear();
+  CancelAllJobs();
   DiscardIPv6ProbeJob();
+
+  shutdown_ = true;
 }
 
 void HostResolverImpl::SetPoolConstraints(JobPoolIndex pool_index,
@@ -973,6 +1118,18 @@ void HostResolverImpl::OnJobComplete(Job* job,
   if (cache_.get())
     cache_->Set(job->key(), net_error, addrlist, base::TimeTicks::Now());
 
+  OnJobCompleteInternal(job, net_error, os_error, addrlist);
+}
+
+void HostResolverImpl::AbortJob(Job* job) {
+  OnJobCompleteInternal(job, ERR_ABORTED, 0 /* no os_error */, AddressList());
+}
+
+void HostResolverImpl::OnJobCompleteInternal(
+    Job* job,
+    int net_error,
+    int os_error,
+    const AddressList& addrlist) {
   // Make a note that we are executing within OnJobComplete() in case the
   // HostResolver is deleted by a callback invocation.
   DCHECK(!cur_completing_job_);
@@ -987,10 +1144,12 @@ void HostResolverImpl::OnJobComplete(Job* job,
     Request* req = *it;
     if (!req->was_cancelled()) {
       DCHECK_EQ(job, req->job());
+      req->request_net_log().EndEvent(
+          NetLog::TYPE_HOST_RESOLVER_IMPL_JOB_ATTACH, NULL);
 
       // Update the net log and notify registered observers.
-      OnFinishRequest(req->net_log(), req->id(), req->info(), net_error,
-                      os_error, false  /* was_from_cache */);
+      OnFinishRequest(req->source_net_log(), req->request_net_log(), req->id(),
+                      req->info(), net_error, os_error);
 
       req->OnComplete(net_error, addrlist);
 
@@ -1004,10 +1163,17 @@ void HostResolverImpl::OnJobComplete(Job* job,
   cur_completing_job_ = NULL;
 }
 
-void HostResolverImpl::OnStartRequest(const BoundNetLog& net_log,
+void HostResolverImpl::OnStartRequest(const BoundNetLog& source_net_log,
+                                      const BoundNetLog& request_net_log,
                                       int request_id,
                                       const RequestInfo& info) {
-  net_log.BeginEvent(NetLog::TYPE_HOST_RESOLVER_IMPL, NULL);
+  source_net_log.BeginEvent(
+      NetLog::TYPE_HOST_RESOLVER_IMPL,
+      new NetLogSourceParameter("source_dependency", request_net_log.source()));
+
+  request_net_log.BeginEvent(
+      NetLog::TYPE_HOST_RESOLVER_IMPL_REQUEST,
+      new RequestInfoParameters(info, source_net_log.source()));
 
   // Notify the observers of the start.
   if (!observers_.empty()) {
@@ -1018,12 +1184,12 @@ void HostResolverImpl::OnStartRequest(const BoundNetLog& net_log,
   }
 }
 
-void HostResolverImpl::OnFinishRequest(const BoundNetLog& net_log,
+void HostResolverImpl::OnFinishRequest(const BoundNetLog& source_net_log,
+                                       const BoundNetLog& request_net_log,
                                        int request_id,
                                        const RequestInfo& info,
                                        int net_error,
-                                       int os_error,
-                                       bool was_from_cache) {
+                                       int os_error) {
   bool was_resolved = net_error == OK;
 
   // Notify the observers of the completion.
@@ -1034,18 +1200,21 @@ void HostResolverImpl::OnFinishRequest(const BoundNetLog& net_log,
     }
   }
 
-  // Log some extra parameters on failure.
+  // Log some extra parameters on failure for synchronous requests.
   scoped_refptr<NetLog::EventParameters> params;
-  if (!was_resolved)
-    params = new HostResolveFailedParams(net_error, os_error, was_from_cache);
+  if (!was_resolved) {
+    params = new HostResolveFailedParams(net_error, os_error);
+  }
 
-  net_log.EndEvent(NetLog::TYPE_HOST_RESOLVER_IMPL, params);
+  request_net_log.EndEvent(NetLog::TYPE_HOST_RESOLVER_IMPL_REQUEST, params);
+  source_net_log.EndEvent(NetLog::TYPE_HOST_RESOLVER_IMPL, NULL);
 }
 
-void HostResolverImpl::OnCancelRequest(const BoundNetLog& net_log,
+void HostResolverImpl::OnCancelRequest(const BoundNetLog& source_net_log,
+                                       const BoundNetLog& request_net_log,
                                        int request_id,
                                        const RequestInfo& info) {
-  net_log.AddEvent(NetLog::TYPE_CANCELLED, NULL);
+  request_net_log.AddEvent(NetLog::TYPE_CANCELLED, NULL);
 
   // Notify the observers of the cancellation.
   if (!observers_.empty()) {
@@ -1055,7 +1224,8 @@ void HostResolverImpl::OnCancelRequest(const BoundNetLog& net_log,
     }
   }
 
-  net_log.EndEvent(NetLog::TYPE_HOST_RESOLVER_IMPL, NULL);
+  request_net_log.EndEvent(NetLog::TYPE_HOST_RESOLVER_IMPL_REQUEST, NULL);
+  source_net_log.EndEvent(NetLog::TYPE_HOST_RESOLVER_IMPL, NULL);
 }
 
 void HostResolverImpl::OnIPAddressChanged() {
@@ -1069,6 +1239,15 @@ void HostResolverImpl::OnIPAddressChanged() {
     ipv6_probe_job_ = new IPv6ProbeJob(this);
     ipv6_probe_job_->Start();
   }
+#if defined(OS_LINUX)
+  if (HaveOnlyLoopbackAddresses()) {
+    additional_resolver_flags_ |= HOST_RESOLVER_LOOPBACK_ONLY;
+  } else {
+    additional_resolver_flags_ &= ~HOST_RESOLVER_LOOPBACK_ONLY;
+  }
+#endif
+  AbortAllInProgressJobs();
+  // |this| may be deleted inside AbortAllInProgressJobs().
 }
 
 void HostResolverImpl::DiscardIPv6ProbeJob() {
@@ -1135,20 +1314,31 @@ void HostResolverImpl::ProcessQueuedRequests() {
 
 HostResolverImpl::Key HostResolverImpl::GetEffectiveKeyForRequest(
     const RequestInfo& info) const {
+  HostResolverFlags effective_flags =
+      info.host_resolver_flags() | additional_resolver_flags_;
   AddressFamily effective_address_family = info.address_family();
-  if (effective_address_family == ADDRESS_FAMILY_UNSPECIFIED)
+  if (effective_address_family == ADDRESS_FAMILY_UNSPECIFIED &&
+      default_address_family_ != ADDRESS_FAMILY_UNSPECIFIED) {
     effective_address_family = default_address_family_;
-  return Key(info.hostname(), effective_address_family,
-             info.host_resolver_flags());
+    if (ipv6_probe_monitoring_)
+      effective_flags |= HOST_RESOLVER_DEFAULT_FAMILY_SET_DUE_TO_NO_IPV6;
+  }
+  return Key(info.hostname(), effective_address_family, effective_flags);
 }
 
 HostResolverImpl::Job* HostResolverImpl::CreateAndStartJob(Request* req) {
   DCHECK(CanCreateJobForPool(*GetPoolForRequest(req)));
   Key key = GetEffectiveKeyForRequest(req->info());
-  scoped_refptr<Job> job = new Job(next_job_id_++, this, key);
+
+  req->request_net_log().AddEvent(NetLog::TYPE_HOST_RESOLVER_IMPL_CREATE_JOB,
+                                  NULL);
+
+  scoped_refptr<Job> job = new Job(next_job_id_++, this, key,
+                                   req->request_net_log(), net_log_);
   job->AddRequest(req);
   AddOutstandingJob(job);
   job->Start();
+
   return job.get();
 }
 
@@ -1161,9 +1351,9 @@ int HostResolverImpl::EnqueueRequest(JobPool* pool, Request* req) {
     Request* r = req_evicted_from_queue.get();
     int error = ERR_HOST_RESOLVER_QUEUE_TOO_LARGE;
 
-    OnFinishRequest(r->net_log(), r->id(), r->info(), error,
-                    0,  /* os_error (not applicable) */
-                    false  /* was_from_cache */);
+    OnFinishRequest(r->source_net_log(), r->request_net_log(), r->id(),
+                    r->info(), error,
+                    0  /* os_error (not applicable) */);
 
     if (r == req)
       return error;
@@ -1172,6 +1362,24 @@ int HostResolverImpl::EnqueueRequest(JobPool* pool, Request* req) {
   }
 
   return ERR_IO_PENDING;
+}
+
+void HostResolverImpl::CancelAllJobs() {
+  JobMap jobs;
+  jobs.swap(jobs_);
+  for (JobMap::iterator it = jobs.begin(); it != jobs.end(); ++it)
+    it->second->Cancel();
+}
+
+void HostResolverImpl::AbortAllInProgressJobs() {
+  for (size_t i = 0; i < arraysize(job_pools_); ++i)
+    job_pools_[i]->ResetNumOutstandingJobs();
+  JobMap jobs;
+  jobs.swap(jobs_);
+  for (JobMap::iterator it = jobs.begin(); it != jobs.end(); ++it) {
+    AbortJob(it->second);
+    it->second->Cancel();
+  }
 }
 
 }  // namespace net

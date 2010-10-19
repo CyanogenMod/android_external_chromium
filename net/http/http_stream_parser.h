@@ -4,21 +4,26 @@
 
 #ifndef NET_HTTP_HTTP_STREAM_PARSER_H_
 #define NET_HTTP_HTTP_STREAM_PARSER_H_
+#pragma once
 
 #include <string>
 
 #include "base/basictypes.h"
-#include "net/base/io_buffer.h"
+#include "net/base/completion_callback.h"
 #include "net/base/net_log.h"
 #include "net/base/upload_data_stream.h"
 #include "net/http/http_chunked_decoder.h"
-#include "net/http/http_response_info.h"
-#include "net/socket/client_socket_handle.h"
 
 namespace net {
 
 class ClientSocketHandle;
+class DrainableIOBuffer;
+class GrowableIOBuffer;
 struct HttpRequestInfo;
+class HttpResponseInfo;
+class IOBuffer;
+class SSLCertRequestInfo;
+class SSLInfo;
 
 class HttpStreamParser {
  public:
@@ -28,20 +33,22 @@ class HttpStreamParser {
   // buffer's offset will be set to the first free byte. |read_buffer| may
   // have its capacity changed.
   HttpStreamParser(ClientSocketHandle* connection,
+                   const HttpRequestInfo* request,
                    GrowableIOBuffer* read_buffer,
                    const BoundNetLog& net_log);
   ~HttpStreamParser();
 
   // These functions implement the interface described in HttpStream with
   // some additional functionality
-  int SendRequest(const HttpRequestInfo* request, const std::string& headers,
-                  UploadDataStream* request_body, HttpResponseInfo* response,
-                  CompletionCallback* callback);
+  int SendRequest(const std::string& headers, UploadDataStream* request_body,
+                  HttpResponseInfo* response, CompletionCallback* callback);
 
   int ReadResponseHeaders(CompletionCallback* callback);
 
   int ReadResponseBody(IOBuffer* buf, int buf_len,
                        CompletionCallback* callback);
+
+  void Close(bool not_reusable);
 
   uint64 GetUploadProgress() const;
 
@@ -52,6 +59,14 @@ class HttpStreamParser {
   bool CanFindEndOfResponse() const;
 
   bool IsMoreDataBuffered() const;
+
+  bool IsConnectionReused() const;
+
+  void SetConnectionReused();
+
+  void GetSSLInfo(SSLInfo* ssl_info);
+
+  void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info);
 
  private:
   // FOO_COMPLETE states implement the second half of potentially asynchronous
@@ -96,14 +111,15 @@ class HttpStreamParser {
   int DoReadBody();
   int DoReadBodyComplete(int result);
 
-  // Examines |read_buf_| to find the start and end of the headers. Return
-  // the offset for the end of the headers, or -1 if the complete headers
-  // were not found. If they are are found, parse them with
-  // DoParseResponseHeaders().
+  // Examines |read_buf_| to find the start and end of the headers. If they are
+  // found, parse them with DoParseResponseHeaders().  Return the offset for
+  // the end of the headers, or -1 if the complete headers were not found, or
+  // with a net::Error if we encountered an error during parsing.
   int ParseResponseHeaders();
 
-  // Parse the headers into response_.
-  void DoParseResponseHeaders(int end_of_header_offset);
+  // Parse the headers into response_.  Returns OK on success or a net::Error on
+  // failure.
+  int DoParseResponseHeaders(int end_of_header_offset);
 
   // Examine the parsed headers to try to determine the response body size.
   void CalculateResponseBodySize();

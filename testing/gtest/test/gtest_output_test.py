@@ -32,7 +32,7 @@
 """Tests the text output of Google C++ Testing Framework.
 
 SYNOPSIS
-       gtest_output_test.py --gtest_build_dir=BUILD/DIR --gengolden
+       gtest_output_test.py --build_dir=BUILD/DIR --gengolden
          # where BUILD/DIR contains the built gtest_output_test_ file.
        gtest_output_test.py --gengolden
        gtest_output_test.py
@@ -240,7 +240,7 @@ SUPPORTS_STACK_TRACES = False
 
 CAN_GENERATE_GOLDEN_FILE = (SUPPORTS_DEATH_TESTS and
                             SUPPORTS_TYPED_TESTS and
-                            SUPPORTS_THREADS)
+                            (SUPPORTS_THREADS or IS_WINDOWS))
 
 
 class GTestOutputTest(gtest_test_utils.TestCase):

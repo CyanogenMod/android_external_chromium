@@ -6,6 +6,7 @@
 
 #include "app/l10n_util.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/options/cellular_config_view.h"
 #include "chrome/browser/chromeos/options/ip_config_view.h"
 #include "chrome/browser/chromeos/options/wifi_config_view.h"
@@ -178,7 +179,7 @@ void NetworkConfigView::Init() {
   if (flags_ & FLAG_CELLULAR) {
     cellularconfig_view_ = new CellularConfigView(this, cellular_);
     tabs_->AddTab(
-        l10n_util::GetString(IDS_OPTIONS_SETTINGS_SECTION_TITLE_NETWORK_CONFIG),
+        l10n_util::GetString(IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_USAGE),
         cellularconfig_view_);
   }
   if (flags_ & FLAG_WIFI) {

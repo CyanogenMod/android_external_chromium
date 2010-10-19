@@ -1,9 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/debugger/inspectable_tab_proxy.h"
 
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
@@ -28,29 +29,16 @@ void DevToolsClientHostImpl::Close() {
 
 void DevToolsClientHostImpl::SendMessageToClient(
     const IPC::Message& msg) {
+  // TODO(prybin): Restore FrameNavigate.
   IPC_BEGIN_MESSAGE_MAP(DevToolsClientHostImpl, msg)
-    IPC_MESSAGE_HANDLER(DevToolsClientMsg_RpcMessage, OnRpcMessage);
+    IPC_MESSAGE_HANDLER(DevToolsClientMsg_DebuggerOutput, OnDebuggerOutput);
     IPC_MESSAGE_UNHANDLED_ERROR()
   IPC_END_MESSAGE_MAP()
 }
 
-void DevToolsClientHostImpl::OnRpcMessage(const DevToolsMessageData& data) {
-  static const std::string kDebuggerAgentDelegate = "DebuggerAgentDelegate";
-  static const std::string kToolsAgentDelegate = "ToolsAgentDelegate";
-  static const std::string kDebuggerOutput = "debuggerOutput";
-  static const std::string kFrameNavigate = "frameNavigate";
 
-  if (data.class_name == kDebuggerAgentDelegate &&
-      data.method_name == kDebuggerOutput) {
-    DebuggerOutput(data.arguments[0]);
-  } else if (data.class_name == kToolsAgentDelegate &&
-             data.method_name == kFrameNavigate) {
-    FrameNavigate(data.arguments[0]);
-  }
-}
-
-void DevToolsClientHostImpl::DebuggerOutput(const std::string& msg) {
-  service_->DebuggerOutput(id_, msg);
+void DevToolsClientHostImpl::OnDebuggerOutput(const std::string& data) {
+  service_->DebuggerOutput(id_, data);
 }
 
 void DevToolsClientHostImpl::FrameNavigate(const std::string& url) {
@@ -98,7 +86,7 @@ DevToolsClientHost* InspectableTabProxy::NewClientHost(
 void InspectableTabProxy::OnRemoteDebuggerDetached() {
   while (id_to_client_host_map_.size() > 0) {
     IdToClientHostMap::iterator it = id_to_client_host_map_.begin();
-    it->second->debugger_remote_service()->DetachFromTab(IntToString(it->first),
-                                                         NULL);
+    it->second->debugger_remote_service()->DetachFromTab(
+        base::IntToString(it->first), NULL);
   }
 }

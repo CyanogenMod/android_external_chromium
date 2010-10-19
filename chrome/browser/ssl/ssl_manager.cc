@@ -9,7 +9,7 @@
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/load_from_memory_cache_details.h"
 #include "chrome/browser/net/url_request_tracking.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/renderer_host/resource_request_details.h"
 #include "chrome/browser/ssl/ssl_cert_error_handler.h"
 #include "chrome/browser/ssl/ssl_policy.h"
@@ -75,12 +75,12 @@ bool SSLManager::DeserializeSecurityInfo(const std::string& state,
                                          int* cert_status,
                                          int* security_bits,
                                          int* ssl_connection_status) {
-  DCHECK(cert_id && cert_status && security_bits);
+  DCHECK(cert_id && cert_status && security_bits && ssl_connection_status);
   if (state.empty()) {
     // No SSL used.
     *cert_id = 0;
     *cert_status = 0;
-    *security_bits = -1;
+    *security_bits = 0;  // Not encrypted.
     *ssl_connection_status = 0;
     return false;
   }
@@ -139,7 +139,8 @@ void SSLManager::DidCommitProvisionalLoad(
   if (details->is_main_frame) {
     if (entry) {
       // Decode the security details.
-      int ssl_cert_id, ssl_cert_status, ssl_security_bits, ssl_connection_status;
+      int ssl_cert_id, ssl_cert_status, ssl_security_bits,
+          ssl_connection_status;
       DeserializeSecurityInfo(details->serialized_security_info,
                               &ssl_cert_id,
                               &ssl_cert_status,
@@ -154,7 +155,6 @@ void SSLManager::DidCommitProvisionalLoad(
       entry->ssl().set_security_bits(ssl_security_bits);
       entry->ssl().set_connection_status(ssl_connection_status);
     }
-    backend_.ShowPendingMessages();
   }
 
   UpdateEntry(entry);
@@ -181,8 +181,7 @@ void SSLManager::Observe(NotificationType type,
   // Dispatch by type.
   switch (type.value) {
     case NotificationType::FAIL_PROVISIONAL_LOAD_WITH_ERROR:
-      DidFailProvisionalLoadWithError(
-          Details<ProvisionalLoadDetails>(details).ptr());
+      // Do nothing.
       break;
     case NotificationType::RESOURCE_RESPONSE_STARTED:
       DidStartResourceResponse(Details<ResourceRequestDetails>(details).ptr());
@@ -222,18 +221,6 @@ void SSLManager::DidLoadFromMemoryCache(LoadFromMemoryCacheDetails* details) {
 
   // Simulate loading this resource through the usual path.
   policy()->OnRequestStarted(info.get());
-}
-
-void SSLManager::DidFailProvisionalLoadWithError(
-    ProvisionalLoadDetails* details) {
-  DCHECK(details);
-
-  // Ignore in-page navigations.
-  if (details->in_page_navigation())
-    return;
-
-  if (details->main_frame())
-    backend_.ClearPendingMessages();
 }
 
 void SSLManager::DidStartResourceResponse(ResourceRequestDetails* details) {

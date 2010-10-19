@@ -9,11 +9,9 @@
 
 #include "app/animation.h"
 #include "app/slide_animation.h"
-#include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/callback.h"
 #include "base/i18n/rtl.h"
-#include "base/keyboard_codes.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -97,27 +95,20 @@ class DockView : public views::View {
     SkBitmap* high_icon = rb.GetBitmapNamed(IDR_DOCK_HIGH);
     SkBitmap* wide_icon = rb.GetBitmapNamed(IDR_DOCK_WIDE);
 
+    canvas->Save();
     bool rtl_ui = base::i18n::IsRTL();
     if (rtl_ui) {
       // Flip canvas to draw the mirrored tab images for RTL UI.
-      canvas->Save();
       canvas->TranslateInt(width(), 0);
       canvas->ScaleInt(-1, 1);
     }
-    int x_of_active_tab = -1;
-    int x_of_inactive_tab = -1;
+    int x_of_active_tab = width() / 2 + kTabSpacing / 2;
+    int x_of_inactive_tab = width() / 2 - high_icon->width() - kTabSpacing / 2;
     switch (type_) {
       case DockInfo::LEFT_OF_WINDOW:
       case DockInfo::LEFT_HALF:
-        if (!rtl_ui) {
-          x_of_active_tab = width() / 2 - high_icon->width() - kTabSpacing / 2;
-          x_of_inactive_tab = width() / 2 + kTabSpacing / 2;
-        } else {
-          // Adjust x axis for RTL UI after flippping canvas.
-          x_of_active_tab = width() / 2 + kTabSpacing / 2;
-          x_of_inactive_tab = width() / 2 - high_icon->width() -
-                              kTabSpacing / 2;
-        }
+        if (!rtl_ui)
+          std::swap(x_of_active_tab, x_of_inactive_tab);
         canvas->DrawBitmapInt(*high_icon, x_of_active_tab,
                               (height() - high_icon->height()) / 2);
         if (type_ == DockInfo::LEFT_OF_WINDOW) {
@@ -129,15 +120,8 @@ class DockView : public views::View {
 
       case DockInfo::RIGHT_OF_WINDOW:
       case DockInfo::RIGHT_HALF:
-        if (!rtl_ui) {
-          x_of_active_tab = width() / 2 + kTabSpacing / 2;
-          x_of_inactive_tab = width() / 2 - high_icon->width() -
-                              kTabSpacing / 2;
-        } else {
-          // Adjust x axis for RTL UI after flippping canvas.
-          x_of_active_tab = width() / 2 - high_icon->width() - kTabSpacing / 2;
-          x_of_inactive_tab = width() / 2 + kTabSpacing / 2;
-        }
+        if (rtl_ui)
+          std::swap(x_of_active_tab, x_of_inactive_tab);
         canvas->DrawBitmapInt(*high_icon, x_of_active_tab,
                               (height() - high_icon->height()) / 2);
         if (type_ == DockInfo::RIGHT_OF_WINDOW) {
@@ -173,8 +157,7 @@ class DockView : public views::View {
         NOTREACHED();
         break;
     }
-    if (rtl_ui)
-      canvas->Restore();
+    canvas->Restore();
   }
 
  private:
@@ -446,6 +429,10 @@ void DraggedTabController::ActivateContents(TabContents* contents) {
   // Ignored.
 }
 
+void DraggedTabController::DeactivateContents(TabContents* contents) {
+  // Ignored.
+}
+
 void DraggedTabController::LoadingStateChanged(TabContents* source) {
   // It would be nice to respond to this message by changing the
   // screen shot in the dragged tab.
@@ -463,10 +450,6 @@ void DraggedTabController::MoveContents(TabContents* source,
                                         const gfx::Rect& pos) {
   // Theoretically could be called by a web page trying to move its
   // own window. Should be ignored since we're moving the window...
-}
-
-bool DraggedTabController::IsPopup(TabContents* source) {
-  return false;
 }
 
 void DraggedTabController::ToolbarSizeChanged(TabContents* source,
@@ -725,6 +708,8 @@ void DraggedTabController::MoveAttachedTab(const gfx::Point& screen_point) {
 
   attached_tab_->SchedulePaint();
   attached_tab_->SetX(dragged_view_point.x());
+  attached_tab_->SetX(
+      attached_tabstrip_->MirroredLeftPointForRect(attached_tab_->bounds()));
   attached_tab_->SetY(dragged_view_point.y());
   attached_tab_->SchedulePaint();
 }
@@ -1215,10 +1200,9 @@ void DraggedTabController::CompleteDrag() {
       }
     }
     // Compel the model to construct a new window for the detached TabContents.
-    gfx::Rect browser_rect = source_tabstrip_->GetWindow()->GetBounds();
-    gfx::Rect window_bounds(
-        GetWindowCreatePoint(),
-        gfx::Size(browser_rect.width(), browser_rect.height()));
+    views::Window* window = source_tabstrip_->GetWindow();
+    gfx::Rect window_bounds(window->GetNormalBounds());
+    window_bounds.set_origin(GetWindowCreatePoint());
     // When modifying the following if statement, please make sure not to
     // introduce issue listed in http://crbug.com/6223 comment #11.
     bool rtl_ui = base::i18n::IsRTL();
@@ -1230,7 +1214,7 @@ void DraggedTabController::CompleteDrag() {
     }
     Browser* new_browser =
         GetModel(source_tabstrip_)->delegate()->CreateNewStripWithContents(
-            dragged_contents_, window_bounds, dock_info_);
+        dragged_contents_, window_bounds, dock_info_, window->IsMaximized());
     TabStripModel* new_model = new_browser->tabstrip_model();
     new_model->SetTabPinned(new_model->GetIndexOfTabContents(dragged_contents_),
                             pinned_);

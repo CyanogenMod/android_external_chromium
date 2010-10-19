@@ -1,11 +1,11 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/command_line.h"
 #include "base/file_path.h"
 #include "base/scoped_ptr.h"
-#include "base/string_util.h"
+#include "base/string_number_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/common/chrome_paths.h"
@@ -16,7 +16,7 @@
 #include "chrome/test/ui/ui_test.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/net_util.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/test/test_server.h"
 
 namespace {
 
@@ -38,8 +38,8 @@ class SessionRestoreUITest : public UITest {
 
     clear_profile_ = false;
 
-    launch_arguments_.AppendSwitchWithValue(switches::kRestoreLastSession,
-                                            IntToWString(expected_tab_count));
+    launch_arguments_.AppendSwitchASCII(switches::kRestoreLastSession,
+                                        base::IntToString(expected_tab_count));
     UITest::SetUp();
   }
 
@@ -144,11 +144,11 @@ TEST_F(SessionRestoreUITest, RestoresForwardAndBackwardNavs) {
 // are given appropriate max page IDs, so that going back to a restored
 // cross-site page and then forward again works.  (Bug 1204135)
 TEST_F(SessionRestoreUITest, RestoresCrossSiteForwardAndBackwardNavs) {
-  const wchar_t kDocRoot[] = L"chrome/test/data";
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
-  GURL cross_site_url(server->TestServerPage("files/title2.html"));
+  net::TestServer test_server(net::TestServer::TYPE_HTTP,
+                              FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  ASSERT_TRUE(test_server.Start());
+
+  GURL cross_site_url(test_server.GetURL("files/title2.html"));
 
   // Visit URLs on different sites.
   NavigateToURL(url1_);
@@ -327,10 +327,10 @@ TEST_F(SessionRestoreUITest, NormalAndPopup) {
   }
 }
 
-#if defined(OS_MACOSX)
-// Fails an SQL assertion on Mac: http://crbug.com/45108
-#define DontRestoreWhileIncognito DISABLED_DontRestoreWhileIncognito
-#endif
+#if !defined(OS_MACOSX)
+// These tests don't apply to the Mac version; see
+// LaunchAnotherBrowserBlockUntilClosed for details.
+
 // Creates a browser, goes incognito, closes browser, launches and make sure
 // we don't restore.
 //
@@ -376,6 +376,38 @@ TEST_F(SessionRestoreUITest, DontRestoreWhileIncognito) {
   ASSERT_TRUE(url != url1_);
 }
 
+// Launches an app window, closes tabbed browser, launches and makes sure
+// we restore the tabbed browser url.
+TEST_F(SessionRestoreUITest,
+       FLAKY_RestoreAfterClosingTabbedBrowserWithAppAndLaunching) {
+  NavigateToURL(url1_);
+
+  // Launch an app.
+
+  bool include_testing_id_orig = include_testing_id_;
+  include_testing_id_ = false;
+  clear_profile_ = false;
+  CommandLine app_launch_arguments = launch_arguments_;
+  app_launch_arguments.AppendSwitchASCII(switches::kApp, url2_.spec());
+  LaunchAnotherBrowserBlockUntilClosed(app_launch_arguments);
+  ASSERT_TRUE(automation()->WaitForWindowCountToBecome(2));
+
+  // Close the first window. The only window left is the App window.
+  CloseWindow(0, 2);
+
+  // Restore the session, which should bring back the first window with url1_.
+  // First restore the settings so we can connect to the browser.
+  include_testing_id_ = include_testing_id_orig;
+  // Restore the session with 1 tab.
+  QuitBrowserAndRestore(1);
+
+  AssertOneWindowWithOneTab();
+
+  ASSERT_EQ(url1_, GetActiveTabURL());
+}
+
+#endif  // !OS_MACOSX
+
 // Creates two windows, closes one, restores, make sure only one window open.
 TEST_F(SessionRestoreUITest, TwoWindowsCloseOneRestoreOnlyOne) {
   NavigateToURL(url1_);
@@ -403,49 +435,19 @@ TEST_F(SessionRestoreUITest, TwoWindowsCloseOneRestoreOnlyOne) {
   ASSERT_EQ(url1_, GetActiveTabURL());
 }
 
-#if defined(OS_MACOSX)
-// Fails an SQL assertion on Mac: http://crbug.com/45108
-#define FLAKY_RestoreAfterClosingTabbedBrowserWithAppAndLaunching \
-    DISABLED_RestoreAfterClosingTabbedBrowserWithAppAndLaunching
+#if defined(OS_LINUX) || defined(OS_MACOSX)
+// Flaky, sometimes times out: http://crbug.com/52022
+#define MAYBE_ShareProcessesOnRestore FLAKY_ShareProcessesOnRestore
+#else
+#define MAYBE_ShareProcessesOnRestore ShareProcessesOnRestore
 #endif
-// Launches an app window, closes tabbed browser, launches and makes sure
-// we restore the tabbed browser url.
-TEST_F(SessionRestoreUITest,
-       FLAKY_RestoreAfterClosingTabbedBrowserWithAppAndLaunching) {
-  NavigateToURL(url1_);
-
-  // Launch an app.
-
-  bool include_testing_id_orig = include_testing_id_;
-  include_testing_id_ = false;
-  clear_profile_ = false;
-  CommandLine app_launch_arguments = launch_arguments_;
-  app_launch_arguments.AppendSwitchWithValue(switches::kApp,
-                                             UTF8ToWide(url2_.spec()));
-  LaunchAnotherBrowserBlockUntilClosed(app_launch_arguments);
-  ASSERT_TRUE(automation()->WaitForWindowCountToBecome(2));
-
-  // Close the first window. The only window left is the App window.
-  CloseWindow(0, 2);
-
-  // Restore the session, which should bring back the first window with url1_.
-  // First restore the settings so we can connect to the browser.
-  include_testing_id_ = include_testing_id_orig;
-  // Restore the session with 1 tab.
-  QuitBrowserAndRestore(1);
-
-  AssertOneWindowWithOneTab();
-
-  ASSERT_EQ(url1_, GetActiveTabURL());
-}
-
 // Make sure after a restore the number of processes matches that of the number
 // of processes running before the restore. This creates a new tab so that
 // we should have two new tabs running.  (This test will pass in both
 // process-per-site and process-per-site-instance, because we treat the new tab
 // as a special case in process-per-site-instance so that it only ever uses one
 // process.)
-TEST_F(SessionRestoreUITest, ShareProcessesOnRestore) {
+TEST_F(SessionRestoreUITest, MAYBE_ShareProcessesOnRestore) {
   if (in_process_renderer()) {
     // No point in running this test in single process mode.
     return;

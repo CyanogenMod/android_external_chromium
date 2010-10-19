@@ -21,11 +21,19 @@ to route both incoming and outgoing chats through this central roster.
   var centralRosterPort;
   var centralJidListenerPorts = [];
 
+  // Notify all port listeners of an event.
+  function forwardEventToPortListeners(evtType, chatJid) {
+    var listenerPort;
+    for (var portIndex in centralJidListenerPorts) {
+      listenerPort = centralJidListenerPorts[portIndex];
+      listenerPort.postMessage({eventType: evtType, jid: chatJid});
+    }
+  }
+
   // Notify all port listeners of updated central roster jid.
   function forwardCentralRosterJidToPortListeners() {
-    for (var listenerPort in centralJidListenerPorts) {
-      listenerPort.postMessage({jid: centralRosterJid});
-    }
+    forwardEventToPortListeners(
+        ChatBridgeEventTypes.CENTRAL_USER_UPDATE, centralRosterJid);
   }
 
   // Central roster jid changed. Notify all listeners.
@@ -53,9 +61,6 @@ to route both incoming and outgoing chats through this central roster.
           }
         }
       });
-      if (centralRosterJid) {
-        port.postMessage({jid: centralRosterJid});
-      }
     // New central jid broadcaster.
     // Add listener for jid changes, and track port for forwarding chats.
     } else if (port.name == 'centralJidBroadcaster') {
@@ -79,20 +84,32 @@ to route both incoming and outgoing chats through this central roster.
   });
 
   // Listen for requests from our content scripts.
-  chrome.extension.onRequest.addListener(function(request, sender) {
+  chrome.extension.onRequest.addListener(
+      function(request, sender, sendResponse) {
     switch (request.msg) {
+      case ChatBridgeEventTypes.CENTRAL_USER_WATCHER:
+        sendResponse({jid: centralRosterJid});
+        break;
       // For new initiated chats, forward to the central roster port.
       case ChatBridgeEventTypes.SHOW_CHAT:
       case ChatBridgeEventTypes.START_VIDEO:
       case ChatBridgeEventTypes.START_VOICE:
         if (centralRosterPort) {
           centralRosterPort.postMessage(
-              {chatType: request.msg, jid: request.jid});
+              {eventType: request.msg, jid: request.jid});
         } else {
           // We should not have been forwarded this message. Make sure our
           // listeners are updated with the current central roster jid.
           forwardCentralRosterJidToPortListeners();
         }
+        break;
+      case ChatBridgeEventTypes.OPENED_MOLE_INCOMING:
+        forwardEventToPortListeners(ChatBridgeEventTypes.OPENED_MOLE_OUTGOING,
+            request.jid);
+        break;
+      case ChatBridgeEventTypes.CLOSED_MOLE_INCOMING:
+        forwardEventToPortListeners(ChatBridgeEventTypes.CLOSED_MOLE_OUTGOING,
+            request.jid);
         break;
     }
   });

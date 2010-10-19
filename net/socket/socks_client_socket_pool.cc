@@ -5,6 +5,7 @@
 #include "net/socket/socks_client_socket_pool.h"
 
 #include "base/time.h"
+#include "base/values.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/net_errors.h"
 #include "net/socket/client_socket_factory.h"
@@ -12,6 +13,7 @@
 #include "net/socket/client_socket_pool_base.h"
 #include "net/socket/socks5_client_socket.h"
 #include "net/socket/socks_client_socket.h"
+#include "net/socket/tcp_client_socket_pool.h"
 
 namespace net {
 
@@ -22,7 +24,7 @@ SOCKSSocketParams::SOCKSSocketParams(
     RequestPriority priority,
     const GURL& referrer)
     : tcp_params_(proxy_server),
-      destination_(host_port_pair.host, host_port_pair.port),
+      destination_(host_port_pair),
       socks_v5_(socks_v5) {
   // The referrer is used by the DNS prefetch system to correlate resolutions
   // with the page that triggered them. It doesn't impact the actual addresses
@@ -41,7 +43,7 @@ SOCKSConnectJob::SOCKSConnectJob(
     const std::string& group_name,
     const scoped_refptr<SOCKSSocketParams>& socks_params,
     const base::TimeDelta& timeout_duration,
-    const scoped_refptr<TCPClientSocketPool>& tcp_pool,
+    TCPClientSocketPool* tcp_pool,
     const scoped_refptr<HostResolver>& host_resolver,
     Delegate* delegate,
     NetLog* net_log)
@@ -61,11 +63,11 @@ SOCKSConnectJob::~SOCKSConnectJob() {
 
 LoadState SOCKSConnectJob::GetLoadState() const {
   switch (next_state_) {
-    case kStateTCPConnect:
-    case kStateTCPConnectComplete:
+    case STATE_TCP_CONNECT:
+    case STATE_TCP_CONNECT_COMPLETE:
       return tcp_socket_handle_->GetLoadState();
-    case kStateSOCKSConnect:
-    case kStateSOCKSConnectComplete:
+    case STATE_SOCKS_CONNECT:
+    case STATE_SOCKS_CONNECT_COMPLETE:
       return LOAD_STATE_CONNECTING;
     default:
       NOTREACHED();
@@ -74,7 +76,7 @@ LoadState SOCKSConnectJob::GetLoadState() const {
 }
 
 int SOCKSConnectJob::ConnectInternal() {
-  next_state_ = kStateTCPConnect;
+  next_state_ = STATE_TCP_CONNECT;
   return DoLoop(OK);
 }
 
@@ -85,25 +87,25 @@ void SOCKSConnectJob::OnIOComplete(int result) {
 }
 
 int SOCKSConnectJob::DoLoop(int result) {
-  DCHECK_NE(next_state_, kStateNone);
+  DCHECK_NE(next_state_, STATE_NONE);
 
   int rv = result;
   do {
     State state = next_state_;
-    next_state_ = kStateNone;
+    next_state_ = STATE_NONE;
     switch (state) {
-      case kStateTCPConnect:
+      case STATE_TCP_CONNECT:
         DCHECK_EQ(OK, rv);
         rv = DoTCPConnect();
         break;
-      case kStateTCPConnectComplete:
+      case STATE_TCP_CONNECT_COMPLETE:
         rv = DoTCPConnectComplete(rv);
         break;
-      case kStateSOCKSConnect:
+      case STATE_SOCKS_CONNECT:
         DCHECK_EQ(OK, rv);
         rv = DoSOCKSConnect();
         break;
-      case kStateSOCKSConnectComplete:
+      case STATE_SOCKS_CONNECT_COMPLETE:
         rv = DoSOCKSConnectComplete(rv);
         break;
       default:
@@ -111,13 +113,13 @@ int SOCKSConnectJob::DoLoop(int result) {
         rv = ERR_FAILED;
         break;
     }
-  } while (rv != ERR_IO_PENDING && next_state_ != kStateNone);
+  } while (rv != ERR_IO_PENDING && next_state_ != STATE_NONE);
 
   return rv;
 }
 
 int SOCKSConnectJob::DoTCPConnect() {
-  next_state_ = kStateTCPConnectComplete;
+  next_state_ = STATE_TCP_CONNECT_COMPLETE;
   tcp_socket_handle_.reset(new ClientSocketHandle());
   return tcp_socket_handle_->Init(group_name(), socks_params_->tcp_params(),
                                   socks_params_->destination().priority(),
@@ -126,18 +128,18 @@ int SOCKSConnectJob::DoTCPConnect() {
 
 int SOCKSConnectJob::DoTCPConnectComplete(int result) {
   if (result != OK)
-    return result;
+    return ERR_PROXY_CONNECTION_FAILED;
 
   // Reset the timer to just the length of time allowed for SOCKS handshake
   // so that a fast TCP connection plus a slow SOCKS failure doesn't take
   // longer to timeout than it should.
   ResetTimer(base::TimeDelta::FromSeconds(kSOCKSConnectJobTimeoutInSeconds));
-  next_state_ = kStateSOCKSConnect;
+  next_state_ = STATE_SOCKS_CONNECT;
   return result;
 }
 
 int SOCKSConnectJob::DoSOCKSConnect() {
-  next_state_ = kStateSOCKSConnectComplete;
+  next_state_ = STATE_SOCKS_CONNECT_COMPLETE;
 
   // Add a SOCKS connection on top of the tcp socket.
   if (socks_params_->is_socks_v5()) {
@@ -178,11 +180,12 @@ SOCKSClientSocketPool::SOCKSConnectJobFactory::ConnectionTimeout() const {
 SOCKSClientSocketPool::SOCKSClientSocketPool(
     int max_sockets,
     int max_sockets_per_group,
-    const scoped_refptr<ClientSocketPoolHistograms>& histograms,
+    ClientSocketPoolHistograms* histograms,
     const scoped_refptr<HostResolver>& host_resolver,
-    const scoped_refptr<TCPClientSocketPool>& tcp_pool,
+    TCPClientSocketPool* tcp_pool,
     NetLog* net_log)
-    : base_(max_sockets, max_sockets_per_group, histograms,
+    : tcp_pool_(tcp_pool),
+      base_(max_sockets, max_sockets_per_group, histograms,
             base::TimeDelta::FromSeconds(
                 ClientSocketPool::unused_idle_socket_timeout()),
             base::TimeDelta::FromSeconds(kUsedIdleSocketTimeout),
@@ -230,6 +233,21 @@ int SOCKSClientSocketPool::IdleSocketCountInGroup(
 LoadState SOCKSClientSocketPool::GetLoadState(
     const std::string& group_name, const ClientSocketHandle* handle) const {
   return base_.GetLoadState(group_name, handle);
+}
+
+DictionaryValue* SOCKSClientSocketPool::GetInfoAsValue(
+    const std::string& name,
+    const std::string& type,
+    bool include_nested_pools) const {
+  DictionaryValue* dict = base_.GetInfoAsValue(name, type);
+  if (include_nested_pools) {
+    ListValue* list = new ListValue();
+    list->Append(tcp_pool_->GetInfoAsValue("tcp_socket_pool",
+                                           "tcp_socket_pool",
+                                           false));
+    dict->Set("nested_pools", list);
+  }
+  return dict;
 }
 
 }  // namespace net

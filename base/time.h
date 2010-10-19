@@ -21,6 +21,7 @@
 
 #ifndef BASE_TIME_H_
 #define BASE_TIME_H_
+#pragma once
 
 #include <time.h>
 
@@ -213,6 +214,11 @@ class Time {
     int second;        // Second within the current minute (0-59 plus leap
                        //   seconds which may take it up to 60).
     int millisecond;   // Milliseconds within the current second (0-999)
+
+    // A cursory test for whether the data members are within their
+    // respective ranges. A 'true' return value does not guarantee the
+    // Exploded value can be successfully converted to a Time value.
+    bool HasValidValues() const;
   };
 
   // Contains the NULL time. Use Time::Now() to get the current time.
@@ -223,6 +229,9 @@ class Time {
   bool is_null() const {
     return us_ == 0;
   }
+
+  // Returns the time for epoch in Unix-like system (Jan 1, 1970).
+  static Time UnixEpoch();
 
   // Returns the current time. Watch out, the system might adjust its clock
   // in which case time will actually go backwards. We don't guarantee that
@@ -243,6 +252,9 @@ class Time {
 
   // Converts time to/from a double which is the number of seconds since epoch
   // (Jan 1, 1970).  Webkit uses this format to represent time.
+  // Because WebKit initializes double time value to 0 to indicate "not
+  // initialized", we map it to empty Time object that also means "not
+  // initialized".
   static Time FromDoubleT(double dt);
   double ToDoubleT() const;
 
@@ -452,6 +464,15 @@ class TimeTicks {
   // resolution.  THIS CALL IS GENERALLY MUCH MORE EXPENSIVE THAN Now() AND
   // SHOULD ONLY BE USED WHEN IT IS REALLY NEEDED.
   static TimeTicks HighResNow();
+
+#if defined(OS_WIN)
+  // Get the absolute value of QPC time drift. For testing.
+  static int64 GetQPCDriftMicroseconds();
+
+  // Returns true if the high resolution clock is working on this system.
+  // This is only for testing.
+  static bool IsHighResClockWorking();
+#endif
 
   // Returns true if this object has not been initialized.
   bool is_null() const {

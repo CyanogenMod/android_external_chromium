@@ -20,8 +20,8 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/gtk/certificate_viewer.h"
 #include "chrome/browser/gtk/gtk_util.h"
-#include "chrome/browser/pref_member.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_member.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/third_party/mozilla_security_manager/nsNSSCertHelper.h"
@@ -49,7 +49,8 @@ std::string Stringize(char* nss_text) {
 
 class CertificatePage {
  public:
-  explicit CertificatePage(psm::CertType type);
+  explicit CertificatePage(net::CertType type);
+  virtual ~CertificatePage() {}
 
   void PopulateTree(CERTCertList* cert_list);
 
@@ -81,7 +82,7 @@ class CertificatePage {
                      GtkTreeSelection*);
   CHROMEGTK_CALLBACK_0(CertificatePage, void, OnViewClicked);
 
-  psm::CertType type_;
+  net::CertType type_;
 
   // The top-level widget of this page.
   GtkWidget* vbox_;
@@ -97,7 +98,7 @@ class CertificatePage {
 ////////////////////////////////////////////////////////////////////////////////
 // CertificatePage implementation.
 
-CertificatePage::CertificatePage(psm::CertType type) : type_(type) {
+CertificatePage::CertificatePage(net::CertType type) : type_(type) {
   vbox_ = gtk_vbox_new(FALSE, gtk_util::kControlSpacing);
   gtk_container_set_border_width(GTK_CONTAINER(vbox_),
                                  gtk_util::kContentAreaBorder);
@@ -110,7 +111,7 @@ CertificatePage::CertificatePage(psm::CertType type) : type_(type) {
     IDS_CERT_MANAGER_UNKNOWN_TREE_DESCRIPTION,
   };
   DCHECK_EQ(arraysize(kDescriptionIds),
-            static_cast<size_t>(psm::NUM_CERT_TYPES));
+            static_cast<size_t>(net::NUM_CERT_TYPES));
   GtkWidget* description_label = gtk_label_new(l10n_util::GetStringUTF8(
       kDescriptionIds[type]).c_str());
   gtk_util::LeftAlignMisc(description_label);
@@ -139,8 +140,8 @@ CertificatePage::CertificatePage(psm::CertType type) : type_(type) {
   gtk_tree_view_column_set_sort_column_id(name_col, CERT_NAME);
   gtk_tree_view_append_column(GTK_TREE_VIEW(tree_), name_col);
 
-  if (type == psm::USER_CERT || type == psm::CA_CERT ||
-      type == psm::UNKNOWN_CERT) {
+  if (type == net::USER_CERT || type == net::CA_CERT ||
+      type == net::UNKNOWN_CERT) {
     GtkTreeViewColumn* device_col = gtk_tree_view_column_new_with_attributes(
         l10n_util::GetStringUTF8(
             IDS_CERT_MANAGER_DEVICE_COLUMN_LABEL).c_str(),
@@ -151,7 +152,7 @@ CertificatePage::CertificatePage(psm::CertType type) : type_(type) {
     gtk_tree_view_append_column(GTK_TREE_VIEW(tree_), device_col);
   }
 
-  if (type == psm::USER_CERT) {
+  if (type == net::USER_CERT) {
     GtkTreeViewColumn* serial_col = gtk_tree_view_column_new_with_attributes(
         l10n_util::GetStringUTF8(
             IDS_CERT_MANAGER_SERIAL_NUMBER_COLUMN_LABEL).c_str(),
@@ -162,8 +163,8 @@ CertificatePage::CertificatePage(psm::CertType type) : type_(type) {
     gtk_tree_view_append_column(GTK_TREE_VIEW(tree_), serial_col);
   }
 
-  if (type == psm::USER_CERT || type == psm::EMAIL_CERT ||
-      type == psm::SERVER_CERT) {
+  if (type == net::USER_CERT || type == net::EMAIL_CERT ||
+      type == net::SERVER_CERT) {
     GtkTreeViewColumn* expires_col = gtk_tree_view_column_new_with_attributes(
         l10n_util::GetStringUTF8(
             IDS_CERT_MANAGER_EXPIRES_COLUMN_LABEL).c_str(),
@@ -174,7 +175,7 @@ CertificatePage::CertificatePage(psm::CertType type) : type_(type) {
     gtk_tree_view_append_column(GTK_TREE_VIEW(tree_), expires_col);
   }
 
-  if (type == psm::EMAIL_CERT) {
+  if (type == net::EMAIL_CERT) {
     GtkTreeViewColumn* addr_col = gtk_tree_view_column_new_with_attributes(
         l10n_util::GetStringUTF8(
             IDS_CERT_MANAGER_EMAIL_ADDRESS_COLUMN_LABEL).c_str(),
@@ -239,7 +240,7 @@ void CertificatePage::PopulateTree(CERTCertList* cert_list) {
        !CERT_LIST_END(node, cert_list);
        node = CERT_LIST_NEXT(node)) {
     CERTCertificate* cert = node->cert;
-    psm::CertType type = psm::GetCertType(cert);
+    net::CertType type = psm::GetCertType(cert);
     if (type == type_) {
       std::string org = Stringize(CERT_GetOrgName(&cert->subject));
       if (org.empty())
@@ -349,7 +350,7 @@ void CertificatePage::OnViewClicked(GtkWidget* button) {
 class CertificateManager {
  public:
   explicit CertificateManager(gfx::NativeWindow parent, Profile* profile);
-  ~CertificateManager();
+  virtual ~CertificateManager();
 
   // Shows the Tab corresponding to the specified |page|.
   void ShowCertificatePage(CertificateManagerPage page);
@@ -386,11 +387,11 @@ void OnDestroy(GtkDialog* dialog, CertificateManager* cert_manager) {
 
 CertificateManager::CertificateManager(gfx::NativeWindow parent,
                                        Profile* profile)
-    : user_page_(psm::USER_CERT),
-      email_page_(psm::EMAIL_CERT),
-      server_page_(psm::SERVER_CERT),
-      ca_page_(psm::CA_CERT),
-      unknown_page_(psm::UNKNOWN_CERT) {
+    : user_page_(net::USER_CERT),
+      email_page_(net::EMAIL_CERT),
+      server_page_(net::SERVER_CERT),
+      ca_page_(net::CA_CERT),
+      unknown_page_(net::UNKNOWN_CERT) {
   // We don't need to observe changes in this value.
   last_selected_page_.Init(prefs::kCertificateManagerWindowLastTabIndex,
                            profile->GetPrefs(), NULL);

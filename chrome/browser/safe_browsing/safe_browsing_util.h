@@ -6,6 +6,7 @@
 
 #ifndef CHROME_BROWSER_SAFE_BROWSING_SAFE_BROWSING_UTIL_H_
 #define CHROME_BROWSER_SAFE_BROWSING_SAFE_BROWSING_UTIL_H_
+#pragma once
 
 #include <cstring>
 #include <deque>
@@ -13,7 +14,6 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
 #include "chrome/browser/safe_browsing/chunk_range.h"
 
 class GURL;

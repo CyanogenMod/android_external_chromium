@@ -15,6 +15,7 @@
 
 #ifndef BASE_COMMAND_LINE_H_
 #define BASE_COMMAND_LINE_H_
+#pragma once
 
 #include "build/build_config.h"
 
@@ -23,10 +24,8 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
-#include "base/logging.h"
-#include "base/string_util.h"
 
+class FilePath;
 class InProcessBrowserTest;
 
 class CommandLine {
@@ -43,11 +42,7 @@ class CommandLine {
   // Initialize by parsing the given command-line string.
   // The program name is assumed to be the first item in the string.
   void ParseFromString(const std::wstring& command_line);
-  static CommandLine FromString(const std::wstring& command_line) {
-    CommandLine cmd;
-    cmd.ParseFromString(command_line);
-    return cmd;
-  }
+  static CommandLine FromString(const std::wstring& command_line);
 #elif defined(OS_POSIX)
   // The type of native command line arguments.
   typedef std::string StringType;
@@ -56,12 +51,8 @@ class CommandLine {
   void InitFromArgv(int argc, const char* const* argv);
   void InitFromArgv(const std::vector<std::string>& argv);
 
-  CommandLine(int argc, const char* const* argv) {
-    InitFromArgv(argc, argv);
-  }
-  explicit CommandLine(const std::vector<std::string>& argv) {
-    InitFromArgv(argv);
-  }
+  CommandLine(int argc, const char* const* argv);
+  explicit CommandLine(const std::vector<std::string>& argv);
 #endif
 
   // Construct a new, empty command line.
@@ -87,44 +78,22 @@ class CommandLine {
   // If Init is called only once, e.g. in main(), calling Reset() is not
   // necessary.
   static void Reset();
-  // The same function snuck into this class under two different names;
-  // this one remains for backwards compat with the older o3d build.
-  static void Terminate() { Reset(); }
 
   // Get the singleton CommandLine representing the current process's
   // command line.  Note: returned value is mutable, but not thread safe;
   // only mutate if you know what you're doing!
-  static CommandLine* ForCurrentProcess() {
-    DCHECK(current_process_commandline_);
-    return current_process_commandline_;
-  }
+  static CommandLine* ForCurrentProcess();
 
   // Returns true if this command line contains the given switch.
   // (Switch names are case-insensitive.)
   bool HasSwitch(const std::string& switch_string) const;
 
-  // Deprecated version of the above.
-  bool HasSwitch(const std::wstring& switch_string) const {
-    return HasSwitch(WideToASCII(switch_string));
-  }
-
   // Returns the value associated with the given switch.  If the
   // switch has no value or isn't present, this method returns
   // the empty string.
-  // TODO(evanm): move these into command_line.cpp once we've fixed the
-  // wstringness.
-  std::string GetSwitchValueASCII(const std::string& switch_string) const {
-    return WideToASCII(GetSwitchValue(switch_string));
-  }
-  FilePath GetSwitchValuePath(const std::string& switch_string) const {
-    return FilePath::FromWStringHack(GetSwitchValue(switch_string));
-  }
-
-  // Deprecated versions of the above.
-  std::wstring GetSwitchValue(const std::string& switch_string) const;
-  std::wstring GetSwitchValue(const std::wstring& switch_string) const {
-    return GetSwitchValue(WideToASCII(switch_string));
-  }
+  std::string GetSwitchValueASCII(const std::string& switch_string) const;
+  FilePath GetSwitchValuePath(const std::string& switch_string) const;
+  StringType GetSwitchValueNative(const std::string& switch_string) const;
 
   // Get the number of switches in this process.
   size_t GetSwitchCount() const { return switches_.size(); }
@@ -133,7 +102,7 @@ class CommandLine {
   typedef std::map<std::string, StringType> SwitchMap;
 
   // Get a copy of all switches, along with their values
-  SwitchMap GetSwitches() const {
+  const SwitchMap& GetSwitches() const {
     return switches_;
   }
 
@@ -156,48 +125,50 @@ class CommandLine {
 #endif
 
   // Returns the program part of the command line string (the first item).
-  FilePath GetProgram() const {
-    return FilePath::FromWStringHack(program());
-  }
+  FilePath GetProgram() const;
 
-  // Returns the program part of the command line string (the first item).
-  // Deprecated version of the above.
-  std::wstring program() const;
-
-  // Return a copy of the string prefixed with a switch prefix.
-  // Used internally.
-  static std::wstring PrefixedSwitchString(const std::string& switch_string);
-
-  // Return a copy of the string prefixed with a switch prefix,
-  // and appended with the given value. Used internally.
-  static std::wstring PrefixedSwitchStringWithValue(
-                        const std::string& switch_string,
-                        const std::wstring& value_string);
-
-  // Appends the given switch string (preceded by a space and a switch
-  // prefix) to the given string.
+  // Append a switch to the command line.
   void AppendSwitch(const std::string& switch_string);
 
-  // Appends the given switch string (preceded by a space and a switch
-  // prefix) to the given string, with the given value attached.
-  void AppendSwitchWithValue(const std::string& switch_string,
-                             const std::wstring& value_string);
-  void AppendSwitchWithValue(const std::string& switch_string,
-                             const std::string& value_string) {
-    AppendSwitchWithValue(switch_string, ASCIIToWide(value_string));
-  }
+  // Append a switch and value to the command line.
+  void AppendSwitchPath(const std::string& switch_string, const FilePath& path);
+  void AppendSwitchNative(const std::string& switch_string,
+                          const StringType& value);
+  void AppendSwitchASCII(const std::string& switch_string,
+                         const std::string& value);
 
-  // Append a loose value to the command line.
-  void AppendLooseValue(const std::wstring& value);
+  // Append an argument to the command line.
+  // Note on quoting: the argument will be quoted properly such that it is
+  // interpreted as one argument to the target command.
+  // AppendArg is primarily for ASCII; non-ASCII input will be
+  // interpreted as UTF-8.
+  void AppendArg(const std::string& value);
+  void AppendArgPath(const FilePath& value);
+  void AppendArgNative(const StringType& value);
 
   // Append the arguments from another command line to this one.
   // If |include_program| is true, include |other|'s program as well.
   void AppendArguments(const CommandLine& other,
                        bool include_program);
 
-  // On POSIX systems it's common to run processes via a wrapper (like
-  // "valgrind" or "gdb --args").
-  void PrependWrapper(const std::wstring& wrapper);
+  // Insert a command before the current command.  Common for debuggers,
+  // like "valgrind" or "gdb --args".
+  void PrependWrapper(const StringType& wrapper);
+
+  // Copy a set of switches (and their values, if any) from another command
+  // line.  Commonly used when launching a subprocess.
+  void CopySwitchesFrom(const CommandLine& source, const char* const switches[],
+                        size_t count);
+
+  // APIs that work with wstrings are deprecated.
+  // TODO(evanm): remove all of these.
+  std::wstring GetSwitchValue(const std::string& switch_string) const;
+  std::wstring GetSwitchValue(const std::wstring& switch_string) const;
+  std::wstring program() const;
+#if defined(OS_WIN)
+  // Deprecated on non-Windows.
+  bool HasSwitch(const std::wstring& switch_string) const;
+#endif
 
  private:
   friend class InProcessBrowserTest;
@@ -205,10 +176,7 @@ class CommandLine {
   CommandLine();
 
   // Used by InProcessBrowserTest.
-  static CommandLine* ForCurrentProcessMutable() {
-    DCHECK(current_process_commandline_);
-    return current_process_commandline_;
-  }
+  static CommandLine* ForCurrentProcessMutable();
 
   // The singleton CommandLine instance representing the current process's
   // command line.

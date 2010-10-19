@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_RENDER_VIEW_CONTEXT_MENU_H_
 #define CHROME_BROWSER_TAB_CONTENTS_RENDER_VIEW_CONTEXT_MENU_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -31,6 +32,9 @@ struct WebMediaPlayerAction;
 
 class RenderViewContextMenu : public menus::SimpleMenuModel::Delegate {
  public:
+  static const size_t kMaxExtensionItemTitleLength;
+  static const size_t kMaxSelectionTextLength;
+
   RenderViewContextMenu(TabContents* tab_contents,
                         const ContextMenuParams& params);
 
@@ -52,6 +56,7 @@ class RenderViewContextMenu : public menus::SimpleMenuModel::Delegate {
   virtual bool GetAcceleratorForCommandId(
       int command_id,
       menus::Accelerator* accelerator) = 0;
+  virtual void LookUpInDictionary();
 
   // Attempts to get an ExtensionMenuItem given the id of a context menu item.
   ExtensionMenuItem* GetExtensionMenuItem(int id) const;
@@ -72,7 +77,7 @@ class RenderViewContextMenu : public menus::SimpleMenuModel::Delegate {
 
  private:
   static bool IsDevToolsURL(const GURL& url);
-  static bool IsSyncResourcesURL(const GURL& url);
+  static bool IsInternalResourcesURL(const GURL& url);
   bool AppendCustomItems();
   void AppendDeveloperItems();
   void AppendLinkItems();

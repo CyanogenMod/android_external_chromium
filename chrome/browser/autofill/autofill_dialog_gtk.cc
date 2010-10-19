@@ -27,8 +27,8 @@
 #include "chrome/browser/gtk/gtk_tree.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/pref_member.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_member.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer.h"
@@ -234,7 +234,7 @@ void AutoFillDialog::Observe(NotificationType type,
                              const NotificationSource& source,
                              const NotificationDetails& details) {
   DCHECK_EQ(NotificationType::PREF_CHANGED, type.value);
-  const std::wstring* pref_name = Details<std::wstring>(details).ptr();
+  const std::string* pref_name = Details<std::string>(details).ptr();
   if (!pref_name || *pref_name == prefs::kAutoFillEnabled) {
     gtk_toggle_button_set_active(
           GTK_TOGGLE_BUTTON(form_autofill_enable_check_),
@@ -273,7 +273,7 @@ void AutoFillDialog::OnAutoFillCheckToggled(GtkWidget* widget) {
     UserMetrics::RecordAction(UserMetricsAction("Options_FormAutofill_Disable"),
                               profile_);
   }
-  enable_form_autofill_.SetValue(enabled);
+  enable_form_autofill_.SetValueIfNotManaged(enabled);
   profile_->GetPrefs()->ScheduleSavePersistentPrefs();
   UpdateWidgetState();
 }
@@ -376,7 +376,7 @@ void AutoFillDialog::LoadAutoFillData() {
     return;
   }
 
-  // Rebuild the underyling store.
+  // Rebuild the underlying store.
   gtk_list_store_clear(list_store_);
 
   GtkTreeIter iter;
@@ -442,7 +442,7 @@ void AutoFillDialog::LoadAutoFillData() {
 
 void AutoFillDialog::InitializeWidgets() {
   dialog_ = gtk_dialog_new_with_buttons(
-      l10n_util::GetStringUTF8(IDS_AUTOFILL_OPTIONS).c_str(),
+      l10n_util::GetStringUTF8(IDS_AUTOFILL_OPTIONS_TITLE).c_str(),
       // AutoFill dialog is shared between all browser windows.
       NULL,
       // Non-modal.
@@ -546,6 +546,8 @@ void AutoFillDialog::InitializeWidgets() {
 }
 
 void AutoFillDialog::UpdateWidgetState() {
+  gtk_widget_set_sensitive(form_autofill_enable_check_,
+                           !enable_form_autofill_.IsManaged());
   if (!personal_data_->IsDataLoaded() || !enable_form_autofill_.GetValue()) {
     gtk_widget_set_sensitive(add_address_button_, FALSE);
     gtk_widget_set_sensitive(add_credit_card_button_, FALSE);

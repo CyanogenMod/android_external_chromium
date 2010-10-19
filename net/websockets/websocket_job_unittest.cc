@@ -6,6 +6,8 @@
 #include <vector>
 
 #include "base/ref_counted.h"
+#include "base/string_split.h"
+#include "base/string_util.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/cookie_policy.h"
 #include "net/base/cookie_store.h"
@@ -35,7 +37,7 @@ class MockSocketStream : public SocketStream {
 
   virtual void Close() {}
   virtual void RestartWithAuth(
-      const std::wstring& username, std::wstring& password) {}
+      const string16& username, const string16& password) {}
   virtual void DetachDelegate() {
     delegate_ = NULL;
   }

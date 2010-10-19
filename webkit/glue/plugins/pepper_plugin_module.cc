@@ -12,46 +12,71 @@
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/time.h"
-#include "third_party/ppapi/c/ppb_buffer.h"
-#include "third_party/ppapi/c/ppb_core.h"
-#include "third_party/ppapi/c/ppb_device_context_2d.h"
-#include "third_party/ppapi/c/ppb_file_io.h"
-#include "third_party/ppapi/c/ppb_file_io_trusted.h"
-#include "third_party/ppapi/c/ppb_file_system.h"
-#include "third_party/ppapi/c/ppb_image_data.h"
-#include "third_party/ppapi/c/ppb_instance.h"
-#include "third_party/ppapi/c/ppb_find.h"
-#include "third_party/ppapi/c/ppb_font.h"
-#include "third_party/ppapi/c/ppb_scrollbar.h"
-#include "third_party/ppapi/c/ppb_testing.h"
-#include "third_party/ppapi/c/ppb_url_loader.h"
-#include "third_party/ppapi/c/ppb_url_request_info.h"
-#include "third_party/ppapi/c/ppb_url_response_info.h"
-#include "third_party/ppapi/c/ppb_var.h"
-#include "third_party/ppapi/c/ppb_widget.h"
-#include "third_party/ppapi/c/ppp.h"
-#include "third_party/ppapi/c/ppp_instance.h"
+#include "third_party/ppapi/c/dev/ppb_buffer_dev.h"
+#include "third_party/ppapi/c/dev/ppb_char_set_dev.h"
+#include "third_party/ppapi/c/dev/ppb_cursor_control_dev.h"
+#include "third_party/ppapi/c/dev/ppb_directory_reader_dev.h"
+#include "third_party/ppapi/c/dev/ppb_file_io_dev.h"
+#include "third_party/ppapi/c/dev/ppb_file_io_trusted_dev.h"
+#include "third_party/ppapi/c/dev/ppb_file_system_dev.h"
+#include "third_party/ppapi/c/dev/ppb_find_dev.h"
+#include "third_party/ppapi/c/dev/ppb_font_dev.h"
+#include "third_party/ppapi/c/dev/ppb_fullscreen_dev.h"
+#include "third_party/ppapi/c/dev/ppb_graphics_3d_dev.h"
+#include "third_party/ppapi/c/dev/ppb_opengles_dev.h"
+#include "third_party/ppapi/c/dev/ppb_scrollbar_dev.h"
+#include "third_party/ppapi/c/dev/ppb_testing_dev.h"
+#include "third_party/ppapi/c/dev/ppb_transport_dev.h"
+#include "third_party/ppapi/c/dev/ppb_url_loader_dev.h"
+#include "third_party/ppapi/c/dev/ppb_url_loader_trusted_dev.h"
+#include "third_party/ppapi/c/dev/ppb_url_request_info_dev.h"
+#include "third_party/ppapi/c/dev/ppb_url_response_info_dev.h"
+#include "third_party/ppapi/c/dev/ppb_url_util_dev.h"
+#include "third_party/ppapi/c/dev/ppb_video_decoder_dev.h"
+#include "third_party/ppapi/c/dev/ppb_widget_dev.h"
+#include "third_party/ppapi/c/trusted/ppb_image_data_trusted.h"
 #include "third_party/ppapi/c/pp_module.h"
 #include "third_party/ppapi/c/pp_resource.h"
 #include "third_party/ppapi/c/pp_var.h"
+#include "third_party/ppapi/c/ppb_core.h"
+#include "third_party/ppapi/c/ppb_graphics_2d.h"
+#include "third_party/ppapi/c/ppb_image_data.h"
+#include "third_party/ppapi/c/ppb_instance.h"
+#include "third_party/ppapi/c/ppb_var.h"
+#include "third_party/ppapi/c/ppp.h"
+#include "third_party/ppapi/c/ppp_instance.h"
+#include "webkit/glue/plugins/pepper_audio.h"
 #include "webkit/glue/plugins/pepper_buffer.h"
-#include "webkit/glue/plugins/pepper_device_context_2d.h"
+#include "webkit/glue/plugins/pepper_char_set.h"
+#include "webkit/glue/plugins/pepper_cursor_control.h"
 #include "webkit/glue/plugins/pepper_directory_reader.h"
+#include "webkit/glue/plugins/pepper_file_chooser.h"
 #include "webkit/glue/plugins/pepper_file_io.h"
 #include "webkit/glue/plugins/pepper_file_ref.h"
 #include "webkit/glue/plugins/pepper_file_system.h"
 #include "webkit/glue/plugins/pepper_font.h"
+#include "webkit/glue/plugins/pepper_graphics_2d.h"
 #include "webkit/glue/plugins/pepper_image_data.h"
 #include "webkit/glue/plugins/pepper_plugin_instance.h"
+#include "webkit/glue/plugins/pepper_plugin_object.h"
 #include "webkit/glue/plugins/pepper_private.h"
+#include "webkit/glue/plugins/pepper_private2.h"
 #include "webkit/glue/plugins/pepper_resource_tracker.h"
 #include "webkit/glue/plugins/pepper_scrollbar.h"
+#include "webkit/glue/plugins/pepper_transport.h"
 #include "webkit/glue/plugins/pepper_url_loader.h"
 #include "webkit/glue/plugins/pepper_url_request_info.h"
 #include "webkit/glue/plugins/pepper_url_response_info.h"
+#include "webkit/glue/plugins/pepper_url_util.h"
 #include "webkit/glue/plugins/pepper_var.h"
+#include "webkit/glue/plugins/pepper_video_decoder.h"
 #include "webkit/glue/plugins/pepper_widget.h"
 #include "webkit/glue/plugins/ppb_private.h"
+#include "webkit/glue/plugins/ppb_private2.h"
+
+#ifdef ENABLE_GPU
+#include "webkit/glue/plugins/pepper_graphics_3d.h"
+#endif  // ENABLE_GPU
 
 namespace pepper {
 
@@ -107,13 +132,18 @@ void CallOnMainThread(int delay_in_msec,
       delay_in_msec);
 }
 
+bool IsMainThread() {
+  return GetMainThreadMessageLoop()->BelongsToCurrentThread();
+}
+
 const PPB_Core core_interface = {
   &AddRefResource,
   &ReleaseResource,
   &MemAlloc,
   &MemFree,
   &GetTime,
-  &CallOnMainThread
+  &CallOnMainThread,
+  &IsMainThread
 };
 
 // PPB_Testing -----------------------------------------------------------------
@@ -121,8 +151,8 @@ const PPB_Core core_interface = {
 bool ReadImageData(PP_Resource device_context_2d,
                    PP_Resource image,
                    const PP_Point* top_left) {
-  scoped_refptr<DeviceContext2D> context(
-      Resource::GetAs<DeviceContext2D>(device_context_2d));
+  scoped_refptr<Graphics2D> context(
+      Resource::GetAs<Graphics2D>(device_context_2d));
   if (!context.get())
     return false;
   return context->ReadImageData(image, top_left);
@@ -136,13 +166,37 @@ void RunMessageLoop() {
 }
 
 void QuitMessageLoop() {
-  MessageLoop::current()->Quit();
+  MessageLoop::current()->QuitNow();
 }
 
-const PPB_Testing testing_interface = {
+uint32_t GetLiveObjectCount(PP_Module module_id) {
+  PluginModule* module = PluginModule::FromPPModule(module_id);
+  if (!module)
+    return static_cast<uint32_t>(-1);
+  return ResourceTracker::Get()->GetLiveObjectsForModule(module);
+}
+
+PP_Resource GetInaccessibleFileRef(PP_Module module_id) {
+  PluginModule* module = PluginModule::FromPPModule(module_id);
+  if (!module)
+    return static_cast<uint32_t>(-1);
+  return FileRef::GetInaccessibleFileRef(module)->GetReference();
+}
+
+PP_Resource GetNonexistentFileRef(PP_Module module_id) {
+  PluginModule* module = PluginModule::FromPPModule(module_id);
+  if (!module)
+    return static_cast<uint32_t>(-1);
+  return FileRef::GetNonexistentFileRef(module)->GetReference();
+}
+
+const PPB_Testing_Dev testing_interface = {
   &ReadImageData,
   &RunMessageLoop,
   &QuitMessageLoop,
+  &GetLiveObjectCount,
+  &GetInaccessibleFileRef,
+  &GetNonexistentFileRef
 };
 
 // GetInterface ----------------------------------------------------------------
@@ -151,46 +205,78 @@ const void* GetInterface(const char* name) {
   if (strcmp(name, PPB_CORE_INTERFACE) == 0)
     return &core_interface;
   if (strcmp(name, PPB_VAR_INTERFACE) == 0)
-    return GetVarInterface();
+    return Var::GetInterface();
   if (strcmp(name, PPB_INSTANCE_INTERFACE) == 0)
     return PluginInstance::GetInterface();
   if (strcmp(name, PPB_IMAGEDATA_INTERFACE) == 0)
     return ImageData::GetInterface();
-  if (strcmp(name, PPB_DEVICECONTEXT2D_INTERFACE) == 0)
-    return DeviceContext2D::GetInterface();
-  if (strcmp(name, PPB_URLLOADER_INTERFACE) == 0)
+  if (strcmp(name, PPB_IMAGEDATA_TRUSTED_INTERFACE) == 0)
+    return ImageData::GetTrustedInterface();
+  if (strcmp(name, PPB_AUDIO_CONFIG_DEV_INTERFACE) == 0)
+    return AudioConfig::GetInterface();
+  if (strcmp(name, PPB_AUDIO_DEV_INTERFACE) == 0)
+    return Audio::GetInterface();
+  if (strcmp(name, PPB_AUDIO_TRUSTED_DEV_INTERFACE) == 0)
+    return Audio::GetTrustedInterface();
+  if (strcmp(name, PPB_GRAPHICS_2D_INTERFACE) == 0)
+    return Graphics2D::GetInterface();
+#ifdef ENABLE_GPU
+  if (strcmp(name, PPB_GRAPHICS_3D_DEV_INTERFACE) == 0)
+    return Graphics3D::GetInterface();
+  if (strcmp(name, PPB_OPENGLES_DEV_INTERFACE) == 0)
+    return Graphics3D::GetOpenGLESInterface();
+#endif  // ENABLE_GPU
+  if (strcmp(name, PPB_TRANSPORT_DEV_INTERFACE) == 0)
+    return Transport::GetInterface();
+  if (strcmp(name, PPB_URLLOADER_DEV_INTERFACE) == 0)
     return URLLoader::GetInterface();
-  if (strcmp(name, PPB_URLREQUESTINFO_INTERFACE) == 0)
+  if (strcmp(name, PPB_URLLOADERTRUSTED_DEV_INTERFACE) == 0)
+    return URLLoader::GetTrustedInterface();
+  if (strcmp(name, PPB_URLREQUESTINFO_DEV_INTERFACE) == 0)
     return URLRequestInfo::GetInterface();
-  if (strcmp(name, PPB_URLRESPONSEINFO_INTERFACE) == 0)
+  if (strcmp(name, PPB_URLRESPONSEINFO_DEV_INTERFACE) == 0)
     return URLResponseInfo::GetInterface();
-  if (strcmp(name, PPB_BUFFER_INTERFACE) == 0)
+  if (strcmp(name, PPB_BUFFER_DEV_INTERFACE) == 0)
     return Buffer::GetInterface();
-  if (strcmp(name, PPB_FILEREF_INTERFACE) == 0)
+  if (strcmp(name, PPB_FILEREF_DEV_INTERFACE) == 0)
     return FileRef::GetInterface();
-  if (strcmp(name, PPB_FILEIO_INTERFACE) == 0)
+  if (strcmp(name, PPB_FILEIO_DEV_INTERFACE) == 0)
     return FileIO::GetInterface();
-  if (strcmp(name, PPB_FILEIOTRUSTED_INTERFACE) == 0)
+  if (strcmp(name, PPB_FILEIOTRUSTED_DEV_INTERFACE) == 0)
     return FileIO::GetTrustedInterface();
-  if (strcmp(name, PPB_FILESYSTEM_INTERFACE) == 0)
+  if (strcmp(name, PPB_FILESYSTEM_DEV_INTERFACE) == 0)
     return FileSystem::GetInterface();
-  if (strcmp(name, PPB_DIRECTORYREADER_INTERFACE) == 0)
+  if (strcmp(name, PPB_DIRECTORYREADER_DEV_INTERFACE) == 0)
     return DirectoryReader::GetInterface();
-  if (strcmp(name, PPB_WIDGET_INTERFACE) == 0)
+  if (strcmp(name, PPB_WIDGET_DEV_INTERFACE) == 0)
     return Widget::GetInterface();
-  if (strcmp(name, PPB_SCROLLBAR_INTERFACE) == 0)
+  if (strcmp(name, PPB_SCROLLBAR_DEV_INTERFACE) == 0)
     return Scrollbar::GetInterface();
-  if (strcmp(name, PPB_FONT_INTERFACE) == 0)
+  if (strcmp(name, PPB_FONT_DEV_INTERFACE) == 0)
     return Font::GetInterface();
-  if (strcmp(name, PPB_FIND_INTERFACE) == 0)
+  if (strcmp(name, PPB_FIND_DEV_INTERFACE) == 0)
     return PluginInstance::GetFindInterface();
+  if (strcmp(name, PPB_FULLSCREEN_DEV_INTERFACE) == 0)
+    return PluginInstance::GetFullscreenInterface();
+  if (strcmp(name, PPB_URLUTIL_DEV_INTERFACE) == 0)
+    return UrlUtil::GetInterface();
   if (strcmp(name, PPB_PRIVATE_INTERFACE) == 0)
     return Private::GetInterface();
+  if (strcmp(name, PPB_PRIVATE2_INTERFACE) == 0)
+    return Private2::GetInterface();
+  if (strcmp(name, PPB_FILECHOOSER_DEV_INTERFACE) == 0)
+    return FileChooser::GetInterface();
+  if (strcmp(name, PPB_VIDEODECODER_DEV_INTERFACE) == 0)
+    return VideoDecoder::GetInterface();
+  if (strcmp(name, PPB_CHAR_SET_DEV_INTERFACE) == 0)
+    return CharSet::GetInterface();
+  if (strcmp(name, PPB_CURSOR_CONTROL_DEV_INTERFACE) == 0)
+    return GetCursorControlInterface();
 
   // Only support the testing interface when the command line switch is
   // specified. This allows us to prevent people from (ab)using this interface
   // in production code.
-  if (strcmp(name, PPB_TESTING_INTERFACE) == 0) {
+  if (strcmp(name, PPB_TESTING_DEV_INTERFACE) == 0) {
     if (CommandLine::ForCurrentProcess()->HasSwitch("enable-pepper-testing"))
       return &testing_interface;
   }
@@ -207,6 +293,17 @@ PluginModule::PluginModule()
 }
 
 PluginModule::~PluginModule() {
+  // Free all the plugin objects. This will automatically clear the back-
+  // pointer from the NPObject so WebKit can't call into the plugin any more.
+  //
+  // Swap out the set so we can delete from it (the objects will try to
+  // unregister themselves inside the delete call).
+  PluginObjectSet plugin_object_copy;
+  live_plugin_objects_.swap(plugin_object_copy);
+  for (PluginObjectSet::iterator i = live_plugin_objects_.begin();
+       i != live_plugin_objects_.end(); ++i)
+    delete *i;
+
   // When the module is being deleted, there should be no more instances still
   // holding a reference to us.
   DCHECK(instances_.empty());
@@ -357,6 +454,46 @@ void PluginModule::InstanceCreated(PluginInstance* instance) {
 
 void PluginModule::InstanceDeleted(PluginInstance* instance) {
   instances_.erase(instance);
+}
+
+void PluginModule::AddNPObjectVar(ObjectVar* object_var) {
+  DCHECK(np_object_to_object_var_.find(object_var->np_object()) ==
+         np_object_to_object_var_.end()) << "ObjectVar already in map";
+  np_object_to_object_var_[object_var->np_object()] = object_var;
+}
+
+void PluginModule::RemoveNPObjectVar(ObjectVar* object_var) {
+  NPObjectToObjectVarMap::iterator found =
+      np_object_to_object_var_.find(object_var->np_object());
+  if (found == np_object_to_object_var_.end()) {
+    NOTREACHED() << "ObjectVar not registered.";
+    return;
+  }
+  if (found->second != object_var) {
+    NOTREACHED() << "ObjectVar doesn't match.";
+    return;
+  }
+  np_object_to_object_var_.erase(found);
+}
+
+ObjectVar* PluginModule::ObjectVarForNPObject(NPObject* np_object) const {
+  NPObjectToObjectVarMap::const_iterator found =
+      np_object_to_object_var_.find(np_object);
+  if (found == np_object_to_object_var_.end())
+    return NULL;
+  return found->second;
+}
+
+void PluginModule::AddPluginObject(PluginObject* plugin_object) {
+  DCHECK(live_plugin_objects_.find(plugin_object) ==
+         live_plugin_objects_.end());
+  live_plugin_objects_.insert(plugin_object);
+}
+
+void PluginModule::RemovePluginObject(PluginObject* plugin_object) {
+  // Don't actually verify that the object is in the set since during module
+  // deletion we'll be in the process of freeing them.
+  live_plugin_objects_.erase(plugin_object);
 }
 
 }  // namespace pepper

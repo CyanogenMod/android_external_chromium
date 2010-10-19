@@ -34,23 +34,19 @@
 
 #include "talk/xmllite/xmlelement.h"
 #include "talk/p2p/base/constants.h"
-// Needed to delete SessionInitiate.format.
-#include "talk/p2p/base/sessiondescription.h"
+#include "talk/p2p/base/sessiondescription.h"  // Needed to delete contents.
 
 namespace cricket {
 
 struct ParseError;
+struct WriteError;
 class Candidate;
-class FormatParser;
+class ContentParser;
 class TransportParser;
 
-// see comment in constants.h about FormatDescription and
-// SessionDescription being the same.  SessionDescription is the old
-// word.  FormatDescription is the new word.
-typedef SessionDescription FormatDescription;
 typedef std::vector<buzz::XmlElement*> XmlElements;
 typedef std::vector<Candidate> Candidates;
-typedef std::map<std::string, FormatParser*> FormatParserMap;
+typedef std::map<std::string, ContentParser*> ContentParserMap;
 typedef std::map<std::string, TransportParser*> TransportParserMap;
 
 enum ActionType {
@@ -95,53 +91,37 @@ struct SessionMessage {
   const buzz::XmlElement* stanza;
 };
 
-// These are different "action"s found in <jingle> or <session> The
-// Jingle specs allows actions to have multiple "contents", where each
-// content is a pair of format+transport.  our Sessions can only
-// handle one such content.  It will be a long time before we can
-// support multiple contents in the session.  So, our actions only
-// supports one.
-
-// TODO(pthatcher): switch to jingle-style contents (Session has
-// multiple Contents, which each are a pairs of (format, transport)
-
 struct SessionInitiate {
-  SessionInitiate() : format(NULL), owns_format(false)  {}
+  // Object will have ownership of contents.
+  SessionInitiate() : owns_contents(true)  {}
 
+  // Caller retains ownership of contents.
   SessionInitiate(const std::string& transport_name,
-                  const std::string& format_name,
-                  const FormatDescription* format) :
+                  const std::vector<ContentInfo>& contents) :
       transport_name(transport_name),
-      format_name(format_name), format(format), owns_format(false) {}
+      contents(contents), owns_contents(false) {}
 
   ~SessionInitiate() {
-    if (owns_format) {
-      delete format;
+    if (owns_contents) {
+      for (std::vector<ContentInfo>::iterator content = contents.begin();
+           content != contents.end(); content++) {
+        delete content->description;
+      }
     }
   }
 
-  // Object takes ownership of format.
-  void SetFormat(const std::string& format_name,
-                 const FormatDescription* format) {
-    this->format_name = format_name;
-    this->format = format;
-    this->owns_format = true;
-  }
-
-  // Caller takes ownership of format.
-  const FormatDescription* AdoptFormat() {
-    const FormatDescription* out = format;
-    format = NULL;
-    owns_format = false;
+  // Caller takes ownership of contents.
+  std::vector<ContentInfo> AdoptContents() {
+    std::vector<ContentInfo> out;
+    contents.swap(out);
     return out;
   }
 
   std::string transport_name;  // xmlns of <transport>
   // TODO(pthatcher): Jingle spec allows candidates to be in the
   // initiate.  We should support receiving them.
-  std::string format_name;  // xmlns of <description>
-  const FormatDescription* format;
-  bool owns_format;
+  std::vector<ContentInfo> contents;
+  bool owns_contents;
 };
 
 typedef SessionInitiate SessionAccept;
@@ -169,36 +149,40 @@ bool IsSessionMessage(const buzz::XmlElement* stanza);
 bool ParseSessionMessage(const buzz::XmlElement* stanza,
                          SessionMessage* msg,
                          ParseError* error);
-bool ParseFormatName(const buzz::XmlElement* action_elem,
-                     std::string* format_name,
-                     ParseError* error);
+bool ParseFirstContentType(const buzz::XmlElement* action_elem,
+                           std::string* content_type,
+                           ParseError* error);
 void WriteSessionMessage(const SessionMessage& msg,
                          const XmlElements& action_elems,
                          buzz::XmlElement* stanza);
 bool ParseSessionInitiate(const buzz::XmlElement* action_elem,
-                          const FormatParserMap& format_parsers,
+                          const ContentParserMap& content_parsers,
                           SessionInitiate* init, ParseError* error);
-void WriteSessionInitiate(const SessionInitiate& init,
-                          const FormatParserMap& format_parsers,
+bool WriteSessionInitiate(const SessionInitiate& init,
+                          const ContentParserMap& content_parsers,
                           SignalingProtocol protocol,
-                          XmlElements* elems);
+                          XmlElements* elems,
+                          WriteError* error);
 bool ParseSessionAccept(const buzz::XmlElement* action_elem,
-                        const FormatParserMap& format_parsers,
+                        const ContentParserMap& content_parsers,
                         SessionAccept* accept, ParseError* error);
-void WriteSessionAccept(const SessionAccept& accept,
-                        const FormatParserMap& format_parsers,
-                        XmlElements* elems);
+bool WriteSessionAccept(const SessionAccept& accept,
+                        const ContentParserMap& content_parsers,
+                        XmlElements* elems,
+                        WriteError* error);
 bool ParseSessionTerminate(const buzz::XmlElement* action_elem,
                            SessionTerminate* term, ParseError* error);
-void WriteSessionTerminate(const SessionAccept& term,
-                           XmlElements* elems);
+bool WriteSessionTerminate(const SessionAccept& term,
+                           XmlElements* elems,
+                           WriteError* error);
 bool ParseTransportInfo(const buzz::XmlElement* action_elem,
                         const TransportParserMap& trans_parsers,
                         TransportInfo* info, ParseError* error);
-void WriteTransportInfo(const TransportInfo& info,
+bool WriteTransportInfo(const TransportInfo& info,
                         const TransportParserMap& trans_parsers,
                         SignalingProtocol protocol,
-                        XmlElements* elems);
+                        XmlElements* elems,
+                        WriteError* error);
 }  // namespace cricket
 
 #endif  // TALK_P2P_BASE_SESSIONMESSAGES_H_

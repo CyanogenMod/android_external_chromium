@@ -5,6 +5,7 @@
 #include "chrome/browser/gtk/options/cookie_filter_page_gtk.h"
 
 #include "app/l10n_util.h"
+#include "base/command_line.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browsing_data_local_storage_helper.h"
 #include "chrome/browser/gtk/browser_window_gtk.h"
@@ -14,6 +15,7 @@
 #include "chrome/browser/gtk/options/cookies_view.h"
 #include "chrome/browser/host_content_settings_map.h"
 #include "chrome/browser/profile.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
@@ -48,7 +50,7 @@ CookieFilterPageGtk::CookieFilterPageGtk(Profile* profile)
 CookieFilterPageGtk::~CookieFilterPageGtk() {
 }
 
-void CookieFilterPageGtk::NotifyPrefChanged(const std::wstring* pref_name) {
+void CookieFilterPageGtk::NotifyPrefChanged(const std::string* pref_name) {
   initializing_ = true;
 
   if (!pref_name || *pref_name == prefs::kClearSiteDataOnExit) {
@@ -89,9 +91,11 @@ GtkWidget* CookieFilterPageGtk::InitCookieStoringGroup() {
   GtkWidget* radio_button = NULL;
   if (default_setting == CONTENT_SETTING_ALLOW) {
     radio_button = allow_radio_;
-  } else {
-    DCHECK(default_setting == CONTENT_SETTING_BLOCK);
+  } else if (default_setting == CONTENT_SETTING_BLOCK) {
     radio_button = block_radio_;
+  } else {
+    DCHECK(default_setting == CONTENT_SETTING_ASK);
+    radio_button = ask_every_time_radio_;
   }
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(radio_button), TRUE);
 
@@ -148,6 +152,8 @@ void CookieFilterPageGtk::OnCookiesAllowToggled(GtkWidget* toggle_button) {
   ContentSetting setting = CONTENT_SETTING_ALLOW;
   if (toggle_button == allow_radio_)
     setting = CONTENT_SETTING_ALLOW;
+  else if (toggle_button == ask_every_time_radio_)
+    setting = CONTENT_SETTING_ASK;
   else if (toggle_button == block_radio_)
     setting = CONTENT_SETTING_BLOCK;
 
@@ -187,12 +193,10 @@ void CookieFilterPageGtk::OnShowCookiesClicked(GtkWidget* button) {
   UserMetricsRecordAction(UserMetricsAction("Options_ShowCookies"), NULL);
   CookiesView::Show(GTK_WINDOW(gtk_widget_get_toplevel(button)),
                     profile(),
-                    new BrowsingDataDatabaseHelper(
-                        profile()),
-                    new BrowsingDataLocalStorageHelper(
-                        profile()),
-                    new BrowsingDataAppCacheHelper(
-                        profile()));
+                    new BrowsingDataDatabaseHelper(profile()),
+                    new BrowsingDataLocalStorageHelper(profile()),
+                    new BrowsingDataAppCacheHelper(profile()),
+                    BrowsingDataIndexedDBHelper::Create(profile()));
 }
 
 void CookieFilterPageGtk::OnFlashLinkClicked(GtkWidget* button) {

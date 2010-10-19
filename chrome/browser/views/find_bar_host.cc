@@ -4,8 +4,7 @@
 
 #include "chrome/browser/views/find_bar_host.h"
 
-#include "app/slide_animation.h"
-#include "base/keyboard_codes.h"
+#include "app/keyboard_codes.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/find_bar_controller.h"
@@ -41,16 +40,60 @@ FindBarHost::FindBarHost(BrowserView* browser_view)
 FindBarHost::~FindBarHost() {
 }
 
+bool FindBarHost::MaybeForwardKeystrokeToWebpage(
+    const views::Textfield::Keystroke& key_stroke) {
+  if (!ShouldForwardKeystrokeToWebpageNative(key_stroke)) {
+    // Native implementation says not to forward these events.
+    return false;
+  }
+
+  switch (key_stroke.GetKeyboardCode()) {
+    case app::VKEY_DOWN:
+    case app::VKEY_UP:
+    case app::VKEY_PRIOR:
+    case app::VKEY_NEXT:
+      break;
+    case app::VKEY_HOME:
+    case app::VKEY_END:
+      if (key_stroke.IsControlHeld())
+        break;
+    // Fall through.
+    default:
+      return false;
+  }
+
+  TabContents* contents = find_bar_controller_->tab_contents();
+  if (!contents)
+    return false;
+
+  RenderViewHost* render_view_host = contents->render_view_host();
+
+  // Make sure we don't have a text field element interfering with keyboard
+  // input. Otherwise Up and Down arrow key strokes get eaten. "Nom Nom Nom".
+  render_view_host->ClearFocusedNode();
+  NativeWebKeyboardEvent event = GetKeyboardEvent(contents, key_stroke);
+  render_view_host->ForwardKeyboardEvent(event);
+  return true;
+}
+
+FindBarController* FindBarHost::GetFindBarController() const {
+  return find_bar_controller_;
+}
+
+void FindBarHost::SetFindBarController(FindBarController* find_bar_controller) {
+  find_bar_controller_ = find_bar_controller;
+}
+
 void FindBarHost::Show(bool animate) {
   DropdownBarHost::Show(animate);
 }
 
-void FindBarHost::SetFocusAndSelection() {
-  DropdownBarHost::SetFocusAndSelection();
-}
-
 void FindBarHost::Hide(bool animate) {
   DropdownBarHost::Hide(animate);
+}
+
+void FindBarHost::SetFocusAndSelection() {
+  DropdownBarHost::SetFocusAndSelection();
 }
 
 void FindBarHost::ClearResults(const FindNotificationDetails& results) {
@@ -59,14 +102,6 @@ void FindBarHost::ClearResults(const FindNotificationDetails& results) {
 
 void FindBarHost::StopAnimation() {
   DropdownBarHost::StopAnimation();
-}
-
-void FindBarHost::SetFindText(const string16& find_text) {
-  find_bar_view()->SetFindText(find_text);
-}
-
-bool FindBarHost::IsFindBarVisible() {
-  return DropdownBarHost::IsVisible();
 }
 
 void FindBarHost::MoveWindowIfNecessary(const gfx::Rect& selection_rect,
@@ -86,15 +121,51 @@ void FindBarHost::MoveWindowIfNecessary(const gfx::Rect& selection_rect,
   view()->SchedulePaint();
 }
 
+void FindBarHost::SetFindText(const string16& find_text) {
+  find_bar_view()->SetFindText(find_text);
+}
+
+void FindBarHost::UpdateUIForFindResult(const FindNotificationDetails& result,
+                                       const string16& find_text) {
+  if (!find_text.empty())
+    find_bar_view()->UpdateForResult(result, find_text);
+
+  // We now need to check if the window is obscuring the search results.
+  if (!result.selection_rect().IsEmpty())
+    MoveWindowIfNecessary(result.selection_rect(), false);
+
+  // Once we find a match we no longer want to keep track of what had
+  // focus. EndFindSession will then set the focus to the page content.
+  if (result.number_of_matches() > 0)
+    ResetFocusTracker();
+}
+
+bool FindBarHost::IsFindBarVisible() {
+  return DropdownBarHost::IsVisible();
+}
+
+void FindBarHost::RestoreSavedFocus() {
+  if (focus_tracker() == NULL) {
+    // TODO(brettw) Focus() should be on TabContentsView.
+    find_bar_controller_->tab_contents()->Focus();
+  } else {
+    focus_tracker()->FocusLastFocusedExternalView();
+  }
+}
+
+FindBarTesting* FindBarHost::GetFindBarTesting() {
+  return this;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // FindBarWin, views::AcceleratorTarget implementation:
 
 bool FindBarHost::AcceleratorPressed(const views::Accelerator& accelerator) {
-  base::KeyboardCode key = accelerator.GetKeyCode();
-  if (key == base::VKEY_RETURN && accelerator.IsCtrlDown()) {
+  app::KeyboardCode key = accelerator.GetKeyCode();
+  if (key == app::VKEY_RETURN && accelerator.IsCtrlDown()) {
     // Ctrl+Enter closes the Find session and navigates any link that is active.
     find_bar_controller_->EndFindSession(FindBarController::kActivateSelection);
-  } else if (key == base::VKEY_ESCAPE) {
+  } else if (key == app::VKEY_ESCAPE) {
     // This will end the Find session and hide the window, causing it to loose
     // focus and in the process unregister us as the handler for the Escape
     // accelerator through the FocusWillChange event.
@@ -140,6 +211,9 @@ string16 FindBarHost::GetFindText() {
   return find_bar_view()->GetFindText();
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Overridden from DropdownBarHost:
+
 gfx::Rect FindBarHost::GetDialogPosition(gfx::Rect avoid_overlapping_rect) {
   // Find the area we have to work with (after accounting for scrollbars, etc).
   gfx::Rect widget_bounds;
@@ -153,8 +227,9 @@ gfx::Rect FindBarHost::GetDialogPosition(gfx::Rect avoid_overlapping_rect) {
   // Place the view in the top right corner of the widget boundaries (top left
   // for RTL languages).
   gfx::Rect view_location;
-  int x = base::i18n::IsRTL() ?
-      widget_bounds.x() : widget_bounds.width() - prefsize.width();
+  int x = widget_bounds.x();
+  if (!base::i18n::IsRTL())
+    x += widget_bounds.width() - prefsize.width();
   int y = widget_bounds.y();
   view_location.SetRect(x, y, prefsize.width(), prefsize.height());
 
@@ -202,82 +277,20 @@ void FindBarHost::RegisterAccelerators() {
   DropdownBarHost::RegisterAccelerators();
 
   // Register for Ctrl+Return.
-  views::Accelerator escape(base::VKEY_RETURN, false, true, false);
+  views::Accelerator escape(app::VKEY_RETURN, false, true, false);
   focus_manager()->RegisterAccelerator(escape, this);
 }
 
 void FindBarHost::UnregisterAccelerators() {
   // Unregister Ctrl+Return.
-  views::Accelerator escape(base::VKEY_RETURN, false, true, false);
+  views::Accelerator escape(app::VKEY_RETURN, false, true, false);
   focus_manager()->UnregisterAccelerator(escape, this);
 
   DropdownBarHost::UnregisterAccelerators();
 }
 
-void FindBarHost::RestoreSavedFocus() {
-  if (focus_tracker() == NULL) {
-    // TODO(brettw) Focus() should be on TabContentsView.
-    find_bar_controller_->tab_contents()->Focus();
-  } else {
-    focus_tracker()->FocusLastFocusedExternalView();
-  }
-}
-
-FindBarTesting* FindBarHost::GetFindBarTesting() {
-  return this;
-}
-
-void FindBarHost::UpdateUIForFindResult(const FindNotificationDetails& result,
-                                       const string16& find_text) {
-  if (!find_text.empty())
-    find_bar_view()->UpdateForResult(result, find_text);
-
-  // We now need to check if the window is obscuring the search results.
-  if (!result.selection_rect().IsEmpty())
-    MoveWindowIfNecessary(result.selection_rect(), false);
-
-  // Once we find a match we no longer want to keep track of what had
-  // focus. EndFindSession will then set the focus to the page content.
-  if (result.number_of_matches() > 0)
-    ResetFocusTracker();
-}
-
-
-bool FindBarHost::MaybeForwardKeystrokeToWebpage(
-    const views::Textfield::Keystroke& key_stroke) {
-  if (!ShouldForwardKeystrokeToWebpageNative(key_stroke)) {
-    // Native implementation says not to forward these events.
-    return false;
-  }
-
-  switch (key_stroke.GetKeyboardCode()) {
-    case base::VKEY_DOWN:
-    case base::VKEY_UP:
-    case base::VKEY_PRIOR:
-    case base::VKEY_NEXT:
-      break;
-    case base::VKEY_HOME:
-    case base::VKEY_END:
-      if (key_stroke.IsControlHeld())
-        break;
-    // Fall through.
-    default:
-      return false;
-  }
-
-  TabContents* contents = find_bar_controller_->tab_contents();
-  if (!contents)
-    return false;
-
-  RenderViewHost* render_view_host = contents->render_view_host();
-
-  // Make sure we don't have a text field element interfering with keyboard
-  // input. Otherwise Up and Down arrow key strokes get eaten. "Nom Nom Nom".
-  render_view_host->ClearFocusedNode();
-  NativeWebKeyboardEvent event = GetKeyboardEvent(contents, key_stroke);
-  render_view_host->ForwardKeyboardEvent(event);
-  return true;
-}
+////////////////////////////////////////////////////////////////////////////////
+// private:
 
 FindBarView* FindBarHost::find_bar_view() {
   return static_cast<FindBarView*>(view());

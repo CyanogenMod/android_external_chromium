@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_AUTOCOMPLETE_TEXT_FIELD_H_
 #define CHROME_BROWSER_COCOA_AUTOCOMPLETE_TEXT_FIELD_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
@@ -89,6 +90,9 @@ class AutocompleteTextFieldObserver {
 
   // Called whenever the autocomplete text field is losing focus.
   virtual void OnKillFocus() = 0;
+
+ protected:
+  virtual ~AutocompleteTextFieldObserver() {}
 };
 
 @interface AutocompleteTextField : StyledTextField<NSTextViewDelegate,

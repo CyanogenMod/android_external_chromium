@@ -4,30 +4,21 @@
 
 #ifndef CHROME_BROWSER_SSL_SSL_POLICY_BACKEND_H_
 #define CHROME_BROWSER_SSL_SSL_POLICY_BACKEND_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/string16.h"
 #include "net/base/x509_certificate.h"
 
 class NavigationController;
 class SSLHostState;
-class Task;
 
 class SSLPolicyBackend {
  public:
   explicit SSLPolicyBackend(NavigationController* controller);
-
-  // Ensure that the specified message is displayed to the user.  This will
-  // display an InfoBar at the top of the associated tab.
-  void ShowMessage(const std::wstring& msg);
-
-  // Same as ShowMessage but also contains a link that when clicked run the
-  // specified task.  The SSL Manager becomes the owner of the task.
-  void ShowMessageWithLink(const std::wstring& msg,
-                           const std::wstring& link_text,
-                           Task* task);
 
   // Records that a host has run insecure content.
   void HostRanInsecureContent(const std::string& host, int pid);
@@ -45,47 +36,9 @@ class SSLPolicyBackend {
   net::CertPolicy::Judgment QueryPolicy(
       net::X509Certificate* cert, const std::string& host);
 
-  // Shows the pending messages (in info-bars) if any.
-  void ShowPendingMessages();
-
-  // Clears any pending messages.
-  void ClearPendingMessages();
-
  private:
-  // SSLMessageInfo contains the information necessary for displaying a message
-  // in an info-bar.
-  struct SSLMessageInfo {
-   public:
-    explicit SSLMessageInfo(const std::wstring& text)
-        : message(text),
-          action(NULL) { }
-
-    SSLMessageInfo(const std::wstring& message,
-                   const std::wstring& link_text,
-                   Task* action)
-        : message(message), link_text(link_text), action(action) { }
-
-    // Overridden so that std::find works.
-    bool operator==(const std::wstring& other_message) const {
-      // We are uniquing SSLMessageInfo by their message only.
-      return message == other_message;
-    }
-
-    std::wstring message;
-    std::wstring link_text;
-    Task* action;
-  };
-
-  // The NavigationController that owns this SSLManager.  We are responsible
-  // for the security UI of this tab.
-  NavigationController* controller_;
-
   // SSL state specific for each host.
   SSLHostState* ssl_host_state_;
-
-  // The list of messages that should be displayed (in info bars) when the page
-  // currently loading had loaded.
-  std::vector<SSLMessageInfo> pending_messages_;
 
   DISALLOW_COPY_AND_ASSIGN(SSLPolicyBackend);
 };

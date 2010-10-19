@@ -31,6 +31,13 @@
 class ExtensionStartupTestBase : public InProcessBrowserTest {
  public:
   ExtensionStartupTestBase() : enable_extensions_(false) {
+#if defined(OS_CHROMEOS)
+    // Chromeos disallows extensions with NPAPI plug-ins, so it's count is one
+    // less
+    num_expected_extensions_ = 2;
+#else
+    num_expected_extensions_ = 3;
+#endif
   }
 
  protected:
@@ -60,9 +67,8 @@ class ExtensionStartupTestBase : public InProcessBrowserTest {
       command_line->AppendSwitch(switches::kDisableExtensions);
     }
 
-    if (!load_extension_.value().empty()) {
-      command_line->AppendSwitchWithValue(switches::kLoadExtension,
-                                          load_extension_.ToWStringHack());
+    if (!load_extension_.empty()) {
+      command_line->AppendSwitchPath(switches::kLoadExtension, load_extension_);
       command_line->AppendSwitch(switches::kDisableExtensionsFileAccessCheck);
     }
   }
@@ -82,8 +88,14 @@ class ExtensionStartupTestBase : public InProcessBrowserTest {
       ui_test_utils::WaitForNotification(NotificationType::EXTENSIONS_READY);
     ASSERT_TRUE(service->is_ready());
 
+    // Count the number of non-component extensions.
+    int found_extensions = 0;
+    for (size_t i = 0; i < service->extensions()->size(); i++)
+      if (service->extensions()->at(i)->location() != Extension::COMPONENT)
+        found_extensions++;
+
     ASSERT_EQ(static_cast<uint32>(num_expected_extensions),
-              service->extensions()->size());
+              static_cast<uint32>(found_extensions));
     ASSERT_EQ(expect_extensions_enabled, service->extensions_enabled());
 
     UserScriptMaster* master = browser()->profile()->GetUserScriptMaster();
@@ -125,6 +137,8 @@ class ExtensionStartupTestBase : public InProcessBrowserTest {
   FilePath user_scripts_dir_;
   bool enable_extensions_;
   FilePath load_extension_;
+
+  int num_expected_extensions_;
 };
 
 
@@ -140,7 +154,7 @@ class ExtensionsStartupTest : public ExtensionStartupTestBase {
 };
 
 IN_PROC_BROWSER_TEST_F(ExtensionsStartupTest, Test) {
-  WaitForServicesToStart(4, true);  // 1 component extension and 3 others.
+  WaitForServicesToStart(num_expected_extensions_, true);
   TestInjection(true, true);
 }
 
@@ -153,10 +167,12 @@ IN_PROC_BROWSER_TEST_F(ExtensionsStartupTest, Test) {
 // Tests that disallowing file access on an extension prevents it from injecting
 // script into a page with a file URL.
 IN_PROC_BROWSER_TEST_F(ExtensionsStartupTest, MAYBE_NoFileAccess) {
-  WaitForServicesToStart(4, true);  // 1 component extension and 3 others.
+  WaitForServicesToStart(num_expected_extensions_, true);
 
   ExtensionsService* service = browser()->profile()->GetExtensionsService();
   for (size_t i = 0; i < service->extensions()->size(); ++i) {
+    if (service->extensions()->at(i)->location() == Extension::COMPONENT)
+      continue;
     if (service->AllowFileAccess(service->extensions()->at(i))) {
       service->SetAllowFileAccess(service->extensions()->at(i), false);
       ui_test_utils::WaitForNotification(

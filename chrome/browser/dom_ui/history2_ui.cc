@@ -10,13 +10,16 @@
 #include "base/i18n/time_formatting.h"
 #include "base/message_loop.h"
 #include "base/singleton.h"
+#include "base/string16.h"
+#include "base/string_number_conversions.h"
 #include "base/string_piece.h"
-#include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "base/thread.h"
 #include "base/time.h"
 #include "base/values.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser.h"
+#include "chrome/browser/browser_list.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
 #include "chrome/browser/metrics/user_metrics.h"
@@ -54,40 +57,40 @@ void HistoryUIHTMLSource2::StartDataRequest(const std::string& path,
                                            bool is_off_the_record,
                                            int request_id) {
   DictionaryValue localized_strings;
-  localized_strings.SetString(L"loading",
-      l10n_util::GetString(IDS_HISTORY_LOADING));
-  localized_strings.SetString(L"title",
-      l10n_util::GetString(IDS_HISTORY_TITLE));
-  localized_strings.SetString(L"loading",
-      l10n_util::GetString(IDS_HISTORY_LOADING));
-  localized_strings.SetString(L"newest",
-      l10n_util::GetString(IDS_HISTORY_NEWEST));
-  localized_strings.SetString(L"newer",
-      l10n_util::GetString(IDS_HISTORY_NEWER));
-  localized_strings.SetString(L"older",
-      l10n_util::GetString(IDS_HISTORY_OLDER));
-  localized_strings.SetString(L"searchresultsfor",
-      l10n_util::GetString(IDS_HISTORY_SEARCHRESULTSFOR));
-  localized_strings.SetString(L"history",
-      l10n_util::GetString(IDS_HISTORY_BROWSERESULTS));
-  localized_strings.SetString(L"cont",
-      l10n_util::GetString(IDS_HISTORY_CONTINUED));
-  localized_strings.SetString(L"searchbutton",
-      l10n_util::GetString(IDS_HISTORY_SEARCH_BUTTON));
-  localized_strings.SetString(L"noresults",
-      l10n_util::GetString(IDS_HISTORY_NO_RESULTS));
-  localized_strings.SetString(L"noitems",
-      l10n_util::GetString(IDS_HISTORY_NO_ITEMS));
-  localized_strings.SetString(L"edithistory",
-      l10n_util::GetString(IDS_HISTORY_START_EDITING_HISTORY));
-  localized_strings.SetString(L"doneediting",
-      l10n_util::GetString(IDS_HISTORY_STOP_EDITING_HISTORY));
-  localized_strings.SetString(L"removeselected",
-      l10n_util::GetString(IDS_HISTORY_REMOVE_SELECTED_ITEMS));
-  localized_strings.SetString(L"clearallhistory",
-      l10n_util::GetString(IDS_HISTORY_OPEN_CLEAR_BROWSING_DATA_DIALOG));
-  localized_strings.SetString(L"deletewarning",
-      l10n_util::GetString(IDS_HISTORY_DELETE_PRIOR_VISITS_WARNING));
+  localized_strings.SetString("loading",
+      l10n_util::GetStringUTF16(IDS_HISTORY_LOADING));
+  localized_strings.SetString("title",
+      l10n_util::GetStringUTF16(IDS_HISTORY_TITLE));
+  localized_strings.SetString("loading",
+      l10n_util::GetStringUTF16(IDS_HISTORY_LOADING));
+  localized_strings.SetString("newest",
+      l10n_util::GetStringUTF16(IDS_HISTORY_NEWEST));
+  localized_strings.SetString("newer",
+      l10n_util::GetStringUTF16(IDS_HISTORY_NEWER));
+  localized_strings.SetString("older",
+      l10n_util::GetStringUTF16(IDS_HISTORY_OLDER));
+  localized_strings.SetString("searchresultsfor",
+      l10n_util::GetStringUTF16(IDS_HISTORY_SEARCHRESULTSFOR));
+  localized_strings.SetString("history",
+      l10n_util::GetStringUTF16(IDS_HISTORY_BROWSERESULTS));
+  localized_strings.SetString("cont",
+      l10n_util::GetStringUTF16(IDS_HISTORY_CONTINUED));
+  localized_strings.SetString("searchbutton",
+      l10n_util::GetStringUTF16(IDS_HISTORY_SEARCH_BUTTON));
+  localized_strings.SetString("noresults",
+      l10n_util::GetStringUTF16(IDS_HISTORY_NO_RESULTS));
+  localized_strings.SetString("noitems",
+      l10n_util::GetStringUTF16(IDS_HISTORY_NO_ITEMS));
+  localized_strings.SetString("edithistory",
+      l10n_util::GetStringUTF16(IDS_HISTORY_START_EDITING_HISTORY));
+  localized_strings.SetString("doneediting",
+      l10n_util::GetStringUTF16(IDS_HISTORY_STOP_EDITING_HISTORY));
+  localized_strings.SetString("removeselected",
+      l10n_util::GetStringUTF16(IDS_HISTORY_REMOVE_SELECTED_ITEMS));
+  localized_strings.SetString("clearallhistory",
+      l10n_util::GetStringUTF16(IDS_HISTORY_OPEN_CLEAR_BROWSING_DATA_DIALOG));
+  localized_strings.SetString("deletewarning",
+      l10n_util::GetStringUTF16(IDS_HISTORY_DELETE_PRIOR_VISITS_WARNING));
 
   SetFontAndTextDirection(&localized_strings);
 
@@ -144,13 +147,13 @@ void BrowsingHistoryHandler2::RegisterMessages() {
       NewCallback(this, &BrowsingHistoryHandler2::HandleClearBrowsingData));
 }
 
-void BrowsingHistoryHandler2::HandleGetHistory(const Value* value) {
+void BrowsingHistoryHandler2::HandleGetHistory(const ListValue* args) {
   // Anything in-flight is invalid.
   cancelable_search_consumer_.CancelAllRequests();
 
   // Get arguments (if any).
   int day = 0;
-  ExtractIntegerValue(value, &day);
+  ExtractIntegerValue(args, &day);
 
   // Set our query options.
   history::QueryOptions options;
@@ -170,14 +173,14 @@ void BrowsingHistoryHandler2::HandleGetHistory(const Value* value) {
       NewCallback(this, &BrowsingHistoryHandler2::QueryComplete));
 }
 
-void BrowsingHistoryHandler2::HandleSearchHistory(const Value* value) {
+void BrowsingHistoryHandler2::HandleSearchHistory(const ListValue* args) {
   // Anything in-flight is invalid.
   cancelable_search_consumer_.CancelAllRequests();
 
   // Get arguments (if any).
   int month = 0;
   string16 query;
-  ExtractSearchHistoryArguments(value, &month, &query);
+  ExtractSearchHistoryArguments(args, &month, &query);
 
   // Set the query ranges for the given month.
   history::QueryOptions options = CreateMonthQueryOptions(month);
@@ -195,17 +198,15 @@ void BrowsingHistoryHandler2::HandleSearchHistory(const Value* value) {
       NewCallback(this, &BrowsingHistoryHandler2::QueryComplete));
 }
 
-void BrowsingHistoryHandler2::HandleRemoveURLsOnOneDay(const Value* value) {
+void BrowsingHistoryHandler2::HandleRemoveURLsOnOneDay(const ListValue* args) {
   if (cancelable_delete_consumer_.HasPendingRequests()) {
     dom_ui_->CallJavascriptFunction(L"deleteFailed");
     return;
   }
 
-  DCHECK(value && value->GetType() == Value::TYPE_LIST);
-
   // Get day to delete data from.
   int visit_time = 0;
-  ExtractIntegerValue(value, &visit_time);
+  ExtractIntegerValue(args, &visit_time);
   base::Time::Exploded exploded;
   base::Time::FromTimeT(
       static_cast<time_t>(visit_time)).LocalExplode(&exploded);
@@ -215,14 +216,13 @@ void BrowsingHistoryHandler2::HandleRemoveURLsOnOneDay(const Value* value) {
 
   // Get URLs.
   std::set<GURL> urls;
-  const ListValue* list_value = static_cast<const ListValue*>(value);
-  for (ListValue::const_iterator v = list_value->begin() + 1;
-       v != list_value->end(); ++v) {
+  for (ListValue::const_iterator v = args->begin() + 1;
+       v != args->end(); ++v) {
     if ((*v)->GetType() != Value::TYPE_STRING)
       continue;
     const StringValue* string_value = static_cast<const StringValue*>(*v);
     string16 string16_value;
-    if (!string_value->GetAsUTF16(&string16_value))
+    if (!string_value->GetAsString(&string16_value))
       continue;
     urls.insert(GURL(string16_value));
   }
@@ -234,9 +234,12 @@ void BrowsingHistoryHandler2::HandleRemoveURLsOnOneDay(const Value* value) {
       NewCallback(this, &BrowsingHistoryHandler2::RemoveComplete));
 }
 
-void BrowsingHistoryHandler2::HandleClearBrowsingData(const Value* value) {
-  dom_ui_->tab_contents()->delegate()->GetBrowser()->
-      OpenClearBrowsingDataDialog();
+void BrowsingHistoryHandler2::HandleClearBrowsingData(const ListValue* args) {
+  // TODO(beng): This is an improper direct dependency on Browser. Route this
+  // through some sort of delegate.
+  Browser* browser = BrowserList::FindBrowserWithProfile(dom_ui_->GetProfile());
+  if (browser)
+    browser->OpenClearBrowsingDataDialog();
 }
 
 void BrowsingHistoryHandler2::QueryComplete(
@@ -252,7 +255,7 @@ void BrowsingHistoryHandler2::QueryComplete(
     SetURLAndTitle(page_value, page.title(), page.url());
 
     // Need to pass the time in epoch time (fastest JS conversion).
-    page_value->SetInteger(L"time",
+    page_value->SetInteger("time",
         static_cast<int>(page.visit_time().ToTimeT()));
 
     // Until we get some JS i18n infrastructure, we also need to
@@ -263,31 +266,33 @@ void BrowsingHistoryHandler2::QueryComplete(
     // and snippet, browse results need day and time information).
     if (search_text_.empty()) {
       // Figure out the relative date string.
-      std::wstring date_str = TimeFormat::RelativeDate(page.visit_time(),
-                                                       &midnight_today);
+      string16 date_str = TimeFormat::RelativeDate(page.visit_time(),
+                                                   &midnight_today);
       if (date_str.empty()) {
-        date_str = base::TimeFormatFriendlyDate(page.visit_time());
+        date_str =
+            WideToUTF16Hack(base::TimeFormatFriendlyDate(page.visit_time()));
       } else {
-        date_str = l10n_util::GetStringF(
+        date_str = l10n_util::GetStringFUTF16(
             IDS_HISTORY_DATE_WITH_RELATIVE_TIME,
-            date_str, base::TimeFormatFriendlyDate(page.visit_time()));
+            date_str,
+            WideToUTF16Hack(base::TimeFormatFriendlyDate(page.visit_time())));
       }
-      page_value->SetString(L"dateRelativeDay", date_str);
-      page_value->SetString(L"dateTimeOfDay",
-          base::TimeFormatTimeOfDay(page.visit_time()));
+      page_value->SetString("dateRelativeDay", date_str);
+      page_value->SetString("dateTimeOfDay",
+          WideToUTF16Hack(base::TimeFormatTimeOfDay(page.visit_time())));
     } else {
-      page_value->SetString(L"dateShort",
-          base::TimeFormatShortDate(page.visit_time()));
-      page_value->SetStringFromUTF16(L"snippet", page.snippet().text());
+      page_value->SetString("dateShort",
+          WideToUTF16Hack(base::TimeFormatShortDate(page.visit_time())));
+      page_value->SetString("snippet", page.snippet().text());
     }
-    page_value->SetBoolean(L"starred",
+    page_value->SetBoolean("starred",
         dom_ui_->GetProfile()->GetBookmarkModel()->IsBookmarked(page.url()));
     results_value.Append(page_value);
   }
 
   DictionaryValue info_value;
-  info_value.SetStringFromUTF16(L"term", search_text_);
-  info_value.SetBoolean(L"finished", results->reached_beginning());
+  info_value.SetString("term", search_text_);
+  info_value.SetBoolean("finished", results->reached_beginning());
 
   dom_ui_->CallJavascriptFunction(L"historyResult", info_value, results_value);
 }
@@ -297,32 +302,29 @@ void BrowsingHistoryHandler2::RemoveComplete() {
   dom_ui_->CallJavascriptFunction(L"deleteComplete");
 }
 
-void BrowsingHistoryHandler2::ExtractSearchHistoryArguments(const Value* value,
-                                                           int* month,
-                                                           string16* query) {
+void BrowsingHistoryHandler2::ExtractSearchHistoryArguments(
+    const ListValue* args,
+    int* month,
+    string16* query) {
   *month = 0;
+  Value* list_member;
 
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    Value* list_member;
+  // Get search string.
+  if (args->Get(0, &list_member) &&
+      list_member->GetType() == Value::TYPE_STRING) {
+    const StringValue* string_value =
+      static_cast<const StringValue*>(list_member);
+    string_value->GetAsString(query);
+  }
 
-    // Get search string.
-    if (list_value->Get(0, &list_member) &&
-        list_member->GetType() == Value::TYPE_STRING) {
-      const StringValue* string_value =
-        static_cast<const StringValue*>(list_member);
-      string_value->GetAsUTF16(query);
-    }
-
-    // Get search month.
-    if (list_value->Get(1, &list_member) &&
-        list_member->GetType() == Value::TYPE_STRING) {
-      const StringValue* string_value =
-        static_cast<const StringValue*>(list_member);
-      string16 string16_value;
-      string_value->GetAsUTF16(&string16_value);
-      *month = StringToInt(string16_value);
-    }
+  // Get search month.
+  if (args->Get(1, &list_member) &&
+      list_member->GetType() == Value::TYPE_STRING) {
+    const StringValue* string_value =
+      static_cast<const StringValue*>(list_member);
+    string16 string16_value;
+    string_value->GetAsString(&string16_value);
+    base::StringToInt(string16_value, month);
   }
 }
 

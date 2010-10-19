@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_HISTORY_TEXT_DATABASE_MANAGER_H_
 #define CHROME_BROWSER_HISTORY_TEXT_DATABASE_MANAGER_H_
+#pragma once
 
 #include <set>
 #include <vector>
@@ -275,7 +276,7 @@ class TextDatabaseManager {
   typedef OwningMRUCache<TextDatabase::DBIdent, TextDatabase*> DBCache;
   DBCache db_cache_;
 
-  // Tells us about the existance of database files on disk. All existing
+  // Tells us about the existence of database files on disk. All existing
   // databases will be in here, and non-existant ones will not, so we don't
   // have to check the disk every time.
   //

@@ -24,6 +24,7 @@ CFLAGS_Debug := -pthread \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-I/usr/include/nss \
 	-I/usr/include/nspr \
@@ -62,6 +63,7 @@ CFLAGS_Release := -pthread \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-I/usr/include/nss \
 	-I/usr/include/nspr \
@@ -83,8 +85,10 @@ INCS_Release := -Inet/third_party/nss/ssl/bodge
 OBJS := $(obj).target/$(TARGET)/net/third_party/nss/ssl/authcert.o \
 	$(obj).target/$(TARGET)/net/third_party/nss/ssl/cmpcert.o \
 	$(obj).target/$(TARGET)/net/third_party/nss/ssl/derive.o \
+	$(obj).target/$(TARGET)/net/third_party/nss/ssl/fnv1a64.o \
 	$(obj).target/$(TARGET)/net/third_party/nss/ssl/nsskea.o \
 	$(obj).target/$(TARGET)/net/third_party/nss/ssl/prelib.o \
+	$(obj).target/$(TARGET)/net/third_party/nss/ssl/snapstart.o \
 	$(obj).target/$(TARGET)/net/third_party/nss/ssl/ssl3con.o \
 	$(obj).target/$(TARGET)/net/third_party/nss/ssl/ssl3ecc.o \
 	$(obj).target/$(TARGET)/net/third_party/nss/ssl/ssl3ext.o \
@@ -133,11 +137,12 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.c FORCE_DO_CMD
 # End of this set of suffix rules
 ### Rules for final target.
 LDFLAGS_Debug := -pthread \
-	-Wl,-z,noexecstack \
-	-rdynamic
+	-Wl,-z,noexecstack
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := -lnss3 \

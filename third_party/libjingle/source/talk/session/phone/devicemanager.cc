@@ -94,7 +94,9 @@ class DeviceWatcher {
 #ifndef LINUX
 static bool ShouldDeviceBeIgnored(const std::string& device_name);
 #endif
+#ifndef OSX
 static bool GetVideoDevices(std::vector<Device>* out);
+#endif
 #if WIN32
 static const wchar_t kFriendlyName[] = L"FriendlyName";
 static const wchar_t kDevicePath[] = L"DevicePath";
@@ -103,8 +105,10 @@ static bool GetDevices(const CLSID& catid, std::vector<Device>* out);
 static bool GetCoreAudioDevices(bool input, std::vector<Device>* devs);
 static bool GetWaveDevices(bool input, std::vector<Device>* devs);
 #elif OSX
-static const UInt32 kAudioDeviceNameLength = 64;
 static const int kVideoDeviceOpenAttempts = 3;
+static const UInt32 kAudioDeviceNameLength = 64;
+// Obj-C function defined in devicemanager-mac.mm
+extern bool GetQTKitVideoDevices(std::vector<Device>* out);
 static bool GetAudioDeviceIDs(bool inputs, std::vector<AudioDeviceID>* out);
 static bool GetAudioDeviceName(AudioDeviceID id, bool input, std::string* out);
 #endif
@@ -177,9 +181,106 @@ bool DeviceManager::GetAudioOutputDevice(const std::string& name, Device* out) {
   return GetAudioDevice(false, name, out);
 }
 
-bool DeviceManager::GetVideoCaptureDevices(std::vector<Device>* devices) {
-  return GetVideoDevices(devices);
+#ifdef OSX
+static bool FilterDevice(const Device& d) {
+  return ShouldDeviceBeIgnored(d.name);
 }
+#endif
+
+bool DeviceManager::GetVideoCaptureDevices(std::vector<Device>* devices) {
+  devices->clear();
+#ifdef OSX
+  if (GetQTKitVideoDevices(devices)) {
+    // Now filter out any known incompatible devices
+    devices->erase(remove_if(devices->begin(), devices->end(), FilterDevice),
+                   devices->end());
+    return true;
+  }
+  return false;
+#else
+  return GetVideoDevices(devices);
+#endif
+}
+
+#ifdef OSX
+bool DeviceManager::QtKitToSgDevice(const std::string& qtkit_name,
+                                    Device* out) {
+  out->name.clear();
+
+  ComponentDescription only_vdig;
+  memset(&only_vdig, 0, sizeof(only_vdig));
+  only_vdig.componentType = videoDigitizerComponentType;
+  only_vdig.componentSubType = kAnyComponentSubType;
+  only_vdig.componentManufacturer = kAnyComponentManufacturer;
+
+  // Enumerate components (drivers).
+  Component component = 0;
+  while ((component = FindNextComponent(component, &only_vdig)) &&
+         out->name.empty()) {
+    // Get the name of the component and see if we want to open it.
+    Handle name_handle = NewHandle(0);
+    GetComponentInfo(component, NULL, name_handle, NULL, NULL);
+    Ptr name_ptr = *name_handle;
+    std::string comp_name(name_ptr + 1, static_cast<size_t>(*name_ptr));
+    DisposeHandle(name_handle);
+
+    if (!ShouldDeviceBeIgnored(comp_name)) {
+      // Try to open the component.
+      // DV Video will fail with err=-9408 (deviceCantMeetRequest)
+      // IIDC FireWire Video and USB Video Class Video will fail with err=704
+      // if no cameras are present, or there is contention for the camera.
+      // We can't tell the scenarios apart, so we will retry a few times if
+      // we get a 704 to make sure we detect the cam if one is really there.
+      int attempts = 0;
+      ComponentInstance vdig;
+      OSErr err;
+      do {
+        err = OpenAComponent(component, &vdig);
+        ++attempts;
+      } while (!vdig && err == 704 && attempts < kVideoDeviceOpenAttempts);
+
+      if (vdig) {
+        // We were able to open the component.
+        LOG(LS_INFO) << "Opened component \"" << comp_name
+                     << "\", tries=" << attempts;
+
+        // Enumerate cameras on the component.
+        // Note, that due to QT strangeness VDGetNumberOfInputs really returns
+        // the number of inputs minus one. If no inputs are available -1 is
+        // returned.
+        short num_inputs;  // NOLINT
+        VideoDigitizerError err = VDGetNumberOfInputs(vdig, &num_inputs);
+        if (err == 0 && num_inputs >= 0) {
+          LOG(LS_INFO) << "Found " << num_inputs + 1 << " webcams attached.";
+          Str255 pname;
+          for (int i = 0; i <= num_inputs; ++i) {
+            err = VDGetInputName(vdig, i, pname);
+            if (err == 0) {
+              // The format for camera ids is <component>:<camera index>.
+              char id_buf[256];
+              talk_base::sprintfn(id_buf, ARRAY_SIZE(id_buf), "%s:%d",
+                                  comp_name.c_str(), i);
+              std::string name(reinterpret_cast<const char*>(pname + 1),
+                               static_cast<size_t>(*pname)), id(id_buf);
+              LOG(LS_INFO) << "  Webcam " << i << ": " << name;
+              if (name == qtkit_name) {
+                out->name = name;
+                out->id = id;
+                break;
+              }
+            }
+          }
+        }
+        CloseComponent(vdig);
+      } else {
+        LOG(LS_INFO) << "Failed to open component \"" << comp_name
+                     << "\", err=" << err;
+      }
+    }
+  }
+  return !out->name.empty();
+}
+#endif
 
 bool DeviceManager::GetDefaultVideoCaptureDevice(Device* device) {
   bool ret = false;
@@ -396,10 +497,26 @@ bool GetDevices(const CLSID& catid, std::vector<Device>* devices) {
   return true;
 }
 
+HRESULT GetStringProp(IPropertyStore* bag, PROPERTYKEY key, std::string* out) {
+  out->clear();
+  PROPVARIANT var;
+  PropVariantInit(&var);
+
+  HRESULT hr = bag->GetValue(key, &var);
+  if (SUCCEEDED(hr)) {
+    if (var.pwszVal)
+      *out = talk_base::ToUtf8(var.pwszVal);
+    else
+      hr = E_FAIL;
+  }
+
+  PropVariantClear(&var);
+  return hr;
+}
+
 // Adapted from http://msdn.microsoft.com/en-us/library/dd370812(v=VS.85).aspx
 HRESULT CricketDeviceFromImmDevice(IMMDevice* device, Device* out) {
   CComPtr<IPropertyStore> props;
-  PROPVARIANT name, guid;
 
   HRESULT hr = device->OpenPropertyStore(STGM_READ, &props);
   if (FAILED(hr)) {
@@ -407,19 +524,16 @@ HRESULT CricketDeviceFromImmDevice(IMMDevice* device, Device* out) {
   }
 
   // Get the endpoint's name and id.
-  PropVariantInit(&name);
-  hr = props->GetValue(PKEY_Device_FriendlyName, &name);
+  std::string name, guid;
+  hr = GetStringProp(props, PKEY_Device_FriendlyName, &name);
   if (SUCCEEDED(hr)) {
-    PropVariantInit(&guid);
-    hr = props->GetValue(PKEY_AudioEndpoint_GUID, &guid);
+    hr = GetStringProp(props, PKEY_AudioEndpoint_GUID, &guid);
 
     if (SUCCEEDED(hr)) {
-      out->name = talk_base::ToUtf8(name.pwszVal);
-      out->id = talk_base::ToUtf8(guid.pwszVal);
+      out->name = name;
+      out->id = guid;
     }
-    PropVariantClear(&guid);
   }
-  PropVariantClear(&name);
   return hr;
 }
 
@@ -452,7 +566,9 @@ bool GetCoreAudioDevices(bool input, std::vector<Device>* devs) {
           if (SUCCEEDED(hr)) {
             devs->push_back(dev);
           } else {
-            break;
+            LOG(LS_WARNING) << "Unable to query IMM Device, skipping.  HR="
+                            << hr;
+            hr = S_FALSE;
           }
         }
       }
@@ -559,76 +675,6 @@ bool DeviceWatcher::OnMessage(UINT uMsg, WPARAM wParam, LPARAM lParam,
   return false;
 }
 #elif defined(OSX)
-static bool GetVideoDevices(std::vector<Device>* devices) {
-  ComponentDescription only_vdig;
-  memset(&only_vdig, 0, sizeof(only_vdig));
-  only_vdig.componentType = videoDigitizerComponentType;
-  only_vdig.componentSubType = kAnyComponentSubType;
-  only_vdig.componentManufacturer = kAnyComponentManufacturer;
-
-  // Enumerate components (drivers).
-  Component component = 0;
-  while ((component = FindNextComponent(component, &only_vdig))) {
-    // Get the name of the component and see if we want to open it.
-    Handle name_handle = NewHandle(0);
-    GetComponentInfo(component, NULL, name_handle, NULL, NULL);
-    Ptr name_ptr = *name_handle;
-    std::string comp_name(name_ptr + 1, static_cast<size_t>(*name_ptr));
-    DisposeHandle(name_handle);
-
-    if (!ShouldDeviceBeIgnored(comp_name)) {
-      // Try to open the component.
-      // DV Video will fail with err=-9408 (deviceCantMeetRequest)
-      // IIDC FireWire Video and USB Video Class Video will fail with err=704
-      // if no cameras are present, or there is contention for the camera.
-      // We can't tell the scenarios apart, so we will retry a few times if
-      // we get a 704 to make sure we detect the cam if one is really there.
-      int attempts = 0;
-      ComponentInstance vdig;
-      OSErr err;
-      do {
-        err = OpenAComponent(component, &vdig);
-        attempts++;
-      } while (!vdig && err == 704 && attempts < kVideoDeviceOpenAttempts);
-
-      if (vdig) {
-        // We were able to open the component.
-        LOG(LS_INFO) << "Opened component \"" << comp_name
-                     << "\", tries=" << attempts;
-
-        // Enumerate cameras on the component.
-        // Note, that due to QT strangeness VDGetNumberOfInputs really returns
-        // the number of inputs minus one. If no inputs are available -1 is
-        // returned.
-        short num_inputs;  // NOLINT
-        VideoDigitizerError err = VDGetNumberOfInputs(vdig, &num_inputs);
-        if (err == 0 && num_inputs >= 0) {
-          LOG(LS_INFO) << "Found " << num_inputs + 1 << " webcams attached.";
-          Str255 pname;
-          for (int i = 0; i <= num_inputs; ++i) {
-            err = VDGetInputName(vdig, i, pname);
-            if (err == 0) {
-              // The format for camera ids is <component>:<camera index>.
-              char id_buf[256];
-              talk_base::sprintfn(id_buf, ARRAY_SIZE(id_buf), "%s:%d",
-                                  comp_name.c_str(), i);
-              std::string name(reinterpret_cast<const char*>(pname + 1),
-                               static_cast<size_t>(*pname)), id(id_buf);
-              LOG(LS_INFO) << "  Webcam " << i << ": " << name;
-              devices->push_back(Device(name, id));
-            }
-          }
-        }
-        CloseComponent(vdig);
-      } else {
-        LOG(LS_INFO) << "Failed to open component \"" << comp_name
-                     << "\", err=" << err;
-      }
-    }
-  }
-  return true;
-}
-
 static bool GetAudioDeviceIDs(bool input,
                               std::vector<AudioDeviceID>* out_dev_ids) {
   UInt32 propsize;
@@ -856,18 +902,18 @@ static bool GetVideoDevices(std::vector<Device>* devices) {
 }
 #endif
 
-#ifndef LINUX
 // TODO(tommyw): Try to get hold of a copy of Final Cut to understand why we
 //               crash while scanning their components on OS X.
+#ifndef LINUX
 static bool ShouldDeviceBeIgnored(const std::string& device_name) {
   static const char* const kFilteredDevices[] =  {
       "Google Camera Adapter",   // Our own magiccams
 #ifdef WIN32
       "Asus virtual Camera",     // Bad Asus desktop virtual cam
       "Bluetooth Video",         // Bad Sony viao bluetooth sharing driver
-#endif
-#ifdef OSX
+#elif OSX
       "DVCPRO HD",               // Final cut
+      "Sonix SN9C201p",          // Crashes in OpenAComponent and CloseComponent
 #endif
   };
 

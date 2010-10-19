@@ -130,8 +130,8 @@ void CallClient::ParseLine(const std::string& line) {
         state = 1;
       }
     } else {
-      assert(state == 1);
-      assert(start >= 0);
+      ASSERT(state == 1);
+      ASSERT(start >= 0);
       if (isspace(line[index])) {
         std::string word(line, start, index - start);
         words.push_back(word);
@@ -163,9 +163,6 @@ void CallClient::ParseLine(const std::string& line) {
       call_->Mute(true);
     } else if ((words.size() == 1) && (words[0] == "unmute")) {
       call_->Mute(false);
-    } else if ((words.size() == 2) && (words[0] == "dtmf")) {
-      int ev = std::string("0123456789*#").find(words[1][0]);
-      call_->PressDTMF(ev);
     } else {
       console_->Print(CALL_COMMANDS);
     }
@@ -584,8 +581,8 @@ void CallClient::RemoveStream(uint32 audio_src_id, uint32 video_src_id) {
 }
 
 void CallClient::Accept() {
-  assert(call_ && incoming_call_);
-  assert(call_->sessions().size() == 1);
+  ASSERT(call_ && incoming_call_);
+  ASSERT(call_->sessions().size() == 1);
   call_->AcceptSession(call_->sessions()[0]);
   media_client_->SetFocus(call_);
   if (call_->video()) {
@@ -598,7 +595,7 @@ void CallClient::Accept() {
 }
 
 void CallClient::Reject() {
-  assert(call_ && incoming_call_);
+  ASSERT(call_ && incoming_call_);
   call_->RejectSession(call_->sessions()[0]);
   incoming_call_ = false;
 }

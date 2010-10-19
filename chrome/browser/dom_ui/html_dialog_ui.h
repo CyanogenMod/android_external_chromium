@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_DOM_UI_HTML_DIALOG_UI_H_
 #define CHROME_BROWSER_DOM_UI_HTML_DIALOG_UI_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -51,7 +52,7 @@ class HtmlDialogUIDelegate {
   virtual void OnCloseContents(TabContents* source, bool* out_close_dialog) = 0;
 
  protected:
-  ~HtmlDialogUIDelegate() {}
+  virtual ~HtmlDialogUIDelegate() {}
 };
 
 // Displays file URL contents inside a modal HTML dialog.
@@ -90,7 +91,7 @@ class HtmlDialogUI : public DOMUI {
   virtual void RenderViewCreated(RenderViewHost* render_view_host);
 
   // JS message handler.
-  void OnDialogClosed(const Value* content);
+  void OnDialogClosed(const ListValue* args);
 
   DISALLOW_COPY_AND_ASSIGN(HtmlDialogUI);
 };

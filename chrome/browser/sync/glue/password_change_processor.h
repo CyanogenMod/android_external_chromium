@@ -4,13 +4,11 @@
 
 #ifndef CHROME_BROWSER_SYNC_GLUE_PASSWORD_CHANGE_PROCESSOR_H_
 #define CHROME_BROWSER_SYNC_GLUE_PASSWORD_CHANGE_PROCESSOR_H_
+#pragma once
 
 #include "chrome/browser/sync/glue/change_processor.h"
 
-#include <vector>
-
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
 #include "chrome/browser/sync/glue/sync_backend_host.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"

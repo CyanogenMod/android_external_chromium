@@ -12,6 +12,7 @@
 #include "third_party/WebKit/WebKit/chromium/public/WebURLResponse.h"
 #include "webkit/glue/plugins/pepper_file_ref.h"
 #include "webkit/glue/plugins/pepper_var.h"
+#include "webkit/glue/webkit_glue.h"
 
 using WebKit::WebHTTPHeaderVisitor;
 using WebKit::WebString;
@@ -42,7 +43,7 @@ bool IsURLResponseInfo(PP_Resource resource) {
 }
 
 PP_Var GetProperty(PP_Resource response_id,
-                   PP_URLResponseProperty property) {
+                   PP_URLResponseProperty_Dev property) {
   scoped_refptr<URLResponseInfo> response(
       Resource::GetAs<URLResponseInfo>(response_id));
   if (!response)
@@ -65,7 +66,7 @@ PP_Resource GetBody(PP_Resource response_id) {
   return body->GetReference();
 }
 
-const PPB_URLResponseInfo ppb_urlresponseinfo = {
+const PPB_URLResponseInfo_Dev ppb_urlresponseinfo = {
   &IsURLResponseInfo,
   &GetProperty,
   &GetBody
@@ -82,18 +83,18 @@ URLResponseInfo::~URLResponseInfo() {
 }
 
 // static
-const PPB_URLResponseInfo* URLResponseInfo::GetInterface() {
+const PPB_URLResponseInfo_Dev* URLResponseInfo::GetInterface() {
   return &ppb_urlresponseinfo;
 }
 
-PP_Var URLResponseInfo::GetProperty(PP_URLResponseProperty property) {
+PP_Var URLResponseInfo::GetProperty(PP_URLResponseProperty_Dev property) {
   switch (property) {
     case PP_URLRESPONSEPROPERTY_URL:
-      return StringToPPVar(url_);
+      return StringVar::StringToPPVar(module(), url_);
     case PP_URLRESPONSEPROPERTY_STATUSCODE:
       return PP_MakeInt32(status_code_);
     case PP_URLRESPONSEPROPERTY_HEADERS:
-      return StringToPPVar(headers_);
+      return StringVar::StringToPPVar(module(), headers_);
     default:
       NOTIMPLEMENTED();  // TODO(darin): Implement me!
       return PP_MakeVoid();
@@ -107,6 +108,10 @@ bool URLResponseInfo::Initialize(const WebURLResponse& response) {
   HeaderFlattener flattener;
   response.visitHTTPHeaderFields(&flattener);
   headers_ = flattener.buffer();
+
+  WebString file_path = response.downloadFilePath();
+  if (!file_path.isEmpty())
+    body_ = new FileRef(module(), webkit_glue::WebStringToFilePath(file_path));
   return true;
 }
 

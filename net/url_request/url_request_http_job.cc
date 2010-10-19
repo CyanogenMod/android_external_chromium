@@ -14,6 +14,7 @@
 #include "base/string_util.h"
 #include "net/base/cert_status_flags.h"
 #include "net/base/cookie_policy.h"
+#include "net/base/cookie_store.h"
 #include "net/base/filter.h"
 #include "net/base/transport_security_state.h"
 #include "net/base/load_flags.h"
@@ -310,8 +311,8 @@ void URLRequestHttpJob::GetAuthChallengeInfo(
   *result = response_info_->auth_challenge;
 }
 
-void URLRequestHttpJob::SetAuth(const std::wstring& username,
-                                const std::wstring& password) {
+void URLRequestHttpJob::SetAuth(const string16& username,
+                                const string16& password) {
   DCHECK(transaction_.get());
 
   // Proxy gets set first, then WWW.
@@ -326,8 +327,8 @@ void URLRequestHttpJob::SetAuth(const std::wstring& username,
 }
 
 void URLRequestHttpJob::RestartTransactionWithAuth(
-    const std::wstring& username,
-    const std::wstring& password) {
+    const string16& username,
+    const string16& password) {
   username_ = username;
   password_ = password;
 
@@ -596,7 +597,7 @@ void URLRequestHttpJob::NotifyHeadersComplete() {
   // notified of the headers completion so that we can update the cookie store.
   if (transaction_->IsReadyToRestartForAuth()) {
     DCHECK(!response_info_->auth_challenge.get());
-    RestartTransactionWithAuth(std::wstring(), std::wstring());
+    RestartTransactionWithAuth(string16(), string16());
     return;
   }
 
@@ -796,8 +797,10 @@ void URLRequestHttpJob::FetchResponseCookies(
   std::string value;
 
   void* iter = NULL;
-  while (response_info->headers->EnumerateHeader(&iter, name, &value))
-    cookies->push_back(value);
+  while (response_info->headers->EnumerateHeader(&iter, name, &value)) {
+    if (!value.empty())
+      cookies->push_back(value);
+  }
 }
 
 class HTTPSProberDelegate : public net::HTTPSProberDelegate {

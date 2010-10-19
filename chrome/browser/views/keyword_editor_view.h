@@ -4,14 +4,14 @@
 
 #ifndef CHROME_BROWSER_VIEWS_KEYWORD_EDITOR_VIEW_H_
 #define CHROME_BROWSER_VIEWS_KEYWORD_EDITOR_VIEW_H_
+#pragma once
 
 #include <Windows.h>
-#include <map>
 
-#include "app/table_model.h"
+#include "base/string16.h"
 #include "chrome/browser/search_engines/edit_search_engine_controller.h"
 #include "chrome/browser/search_engines/keyword_editor_controller.h"
-#include "chrome/browser/search_engines/template_url_model.h"
+#include "chrome/browser/search_engines/template_url_model_observer.h"
 #include "views/controls/button/button.h"
 #include "views/controls/table/table_view_observer.h"
 #include "views/view.h"
@@ -28,8 +28,7 @@ class BorderView;
 
 class SearchEngineSelectionObserver;
 class SkBitmap;
-class TemplateURLModel;
-class TemplateURLTableModel;
+class TemplateURL;
 
 // KeywordEditorView allows the user to edit keywords.
 
@@ -57,8 +56,8 @@ class KeywordEditorView : public views::View,
   // Overridden from EditSearchEngineControllerDelegate.
   // Calls AddTemplateURL or ModifyTemplateURL as appropriate.
   virtual void OnEditedKeyword(const TemplateURL* template_url,
-                               const std::wstring& title,
-                               const std::wstring& keyword,
+                               const string16& title,
+                               const string16& keyword,
                                const std::string& url);
 
   // Overridden to invoke Layout.

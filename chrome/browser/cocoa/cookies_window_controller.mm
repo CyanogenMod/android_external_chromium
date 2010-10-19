@@ -9,7 +9,6 @@
 
 #include "app/l10n_util_mac.h"
 #include "app/resource_bundle.h"
-#import "base/i18n/time_formatting.h"
 #import "base/mac_util.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/browsing_data_remover.h"
@@ -67,35 +66,6 @@ void CookiesTreeModelObserverBridge::TreeNodesRemoved(TreeModel* model,
   NSMutableArray* cocoa_children = [cocoa_parent mutableChildren];
   for (int i = start + count - 1; i >= start; --i) {
     [cocoa_children removeObjectAtIndex:i];
-  }
-  [window_controller_ didChangeValueForKey:kCocoaTreeModel];
-}
-
-// Notification the children of |parent| have been reordered. Note, only
-// the direct children of |parent| have been reordered, not descendants.
-void CookiesTreeModelObserverBridge::TreeNodeChildrenReordered(TreeModel* model,
-    TreeModelNode* parent) {
-  // We're in for a major rebuild. Ignore this request.
-  if (batch_update_ || !HasCocoaModel())
-    return;
-
-  CocoaCookieTreeNode* cocoa_parent = FindCocoaNode(parent, nil);
-  NSMutableArray* cocoa_children = [cocoa_parent mutableChildren];
-
-  CookieTreeNode* cookie_parent = static_cast<CookieTreeNode*>(parent);
-  const int child_count = cookie_parent->GetChildCount();
-
-  [window_controller_ willChangeValueForKey:kCocoaTreeModel];
-  for (int i = 0; i < child_count; ++i) {
-    CookieTreeNode* swap_in = cookie_parent->GetChild(i);
-    for (int j = i; j < child_count; ++j) {
-      CocoaCookieTreeNode* child = [cocoa_children objectAtIndex:j];
-      TreeModelNode* swap_out = [child treeNode];
-      if (swap_in == swap_out) {
-        [cocoa_children exchangeObjectAtIndex:j withObjectAtIndex:i];
-        break;
-      }
-    }
   }
   [window_controller_ didChangeValueForKey:kCocoaTreeModel];
 }
@@ -195,7 +165,8 @@ bool CookiesTreeModelObserverBridge::HasCocoaModel() {
 - (id)initWithProfile:(Profile*)profile
        databaseHelper:(BrowsingDataDatabaseHelper*)databaseHelper
         storageHelper:(BrowsingDataLocalStorageHelper*)storageHelper
-       appcacheHelper:(BrowsingDataAppCacheHelper*)appcacheHelper {
+       appcacheHelper:(BrowsingDataAppCacheHelper*)appcacheHelper
+      indexedDBHelper:(BrowsingDataIndexedDBHelper*)indexedDBHelper {
   DCHECK(profile);
   NSString* nibpath = [mac_util::MainAppBundle() pathForResource:@"Cookies"
                                                           ofType:@"nib"];
@@ -204,6 +175,7 @@ bool CookiesTreeModelObserverBridge::HasCocoaModel() {
     databaseHelper_ = databaseHelper;
     storageHelper_ = storageHelper;
     appcacheHelper_ = appcacheHelper;
+    indexedDBHelper_ = indexedDBHelper;
 
     [self loadTreeModelFromProfile];
 
@@ -444,7 +416,11 @@ bool CookiesTreeModelObserverBridge::HasCocoaModel() {
 - (void)loadTreeModelFromProfile {
   treeModel_.reset(new CookiesTreeModel(
       profile_->GetRequestContext()->GetCookieStore()->GetCookieMonster(),
-      databaseHelper_, storageHelper_, appcacheHelper_));
+      databaseHelper_,
+      storageHelper_,
+      NULL,
+      appcacheHelper_,
+      indexedDBHelper_));
   modelObserver_.reset(new CookiesTreeModelObserverBridge(self));
   treeModel_->AddObserver(modelObserver_.get());
 

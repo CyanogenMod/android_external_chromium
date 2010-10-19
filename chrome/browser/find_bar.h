@@ -8,6 +8,7 @@
 
 #ifndef CHROME_BROWSER_FIND_BAR_H_
 #define CHROME_BROWSER_FIND_BAR_H_
+#pragma once
 
 #include "base/string16.h"
 #include "gfx/rect.h"
@@ -15,7 +16,6 @@
 class FindBarController;
 class FindBarTesting;
 class FindNotificationDetails;
-class TabContents;
 
 class FindBar {
  public:

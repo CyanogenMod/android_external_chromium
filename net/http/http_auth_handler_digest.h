@@ -4,12 +4,14 @@
 
 #ifndef NET_HTTP_HTTP_AUTH_HANDLER_DIGEST_H_
 #define NET_HTTP_HTTP_AUTH_HANDLER_DIGEST_H_
+#pragma once
 
+#include <string>
+
+#include "base/gtest_prod_util.h"
+#include "base/string16.h"
 #include "net/http/http_auth_handler.h"
 #include "net/http/http_auth_handler_factory.h"
-
-// This is needed for the FRIEND_TEST() macro.
-#include "testing/gtest/include/gtest/gtest_prod.h"
 
 namespace net {
 
@@ -30,21 +32,22 @@ class HttpAuthHandlerDigest : public HttpAuthHandler {
                                   scoped_ptr<HttpAuthHandler>* handler);
   };
 
- protected:
-  virtual bool Init(HttpAuth::ChallengeTokenizer* challenge) {
-    return ParseChallenge(challenge);
-  }
+  HttpAuth::AuthorizationResult HandleAnotherChallenge(
+      HttpAuth::ChallengeTokenizer* challenge);
 
-  virtual int GenerateAuthTokenImpl(const std::wstring* username,
-                                    const std::wstring* password,
+ protected:
+  virtual bool Init(HttpAuth::ChallengeTokenizer* challenge);
+
+  virtual int GenerateAuthTokenImpl(const string16* username,
+                                    const string16* password,
                                     const HttpRequestInfo* request,
                                     CompletionCallback* callback,
                                     std::string* auth_token);
 
  private:
-  FRIEND_TEST(HttpAuthHandlerDigestTest, ParseChallenge);
-  FRIEND_TEST(HttpAuthHandlerDigestTest, AssembleCredentials);
-  FRIEND_TEST(HttpNetworkTransactionTest, DigestPreAuthNonceCount);
+  FRIEND_TEST_ALL_PREFIXES(HttpAuthHandlerDigestTest, ParseChallenge);
+  FRIEND_TEST_ALL_PREFIXES(HttpAuthHandlerDigestTest, AssembleCredentials);
+  FRIEND_TEST_ALL_PREFIXES(HttpNetworkTransactionTest, DigestPreAuthNonceCount);
 
   // Possible values for the "algorithm" property.
   enum DigestAlgorithm {
@@ -68,9 +71,8 @@ class HttpAuthHandlerDigest : public HttpAuthHandler {
     QOP_AUTH_INT = 1 << 1,
   };
 
-  explicit HttpAuthHandlerDigest(int nonce_count) : nonce_count_(nonce_count) {}
-
-  ~HttpAuthHandlerDigest() {}
+  explicit HttpAuthHandlerDigest(int nonce_count);
+  ~HttpAuthHandlerDigest();
 
   // Parse the challenge, saving the results into this instance.
   // Returns true on success.
@@ -96,16 +98,16 @@ class HttpAuthHandlerDigest : public HttpAuthHandler {
   // Build up  the 'response' production.
   std::string AssembleResponseDigest(const std::string& method,
                                      const std::string& path,
-                                     const std::string& username,
-                                     const std::string& password,
+                                     const string16& username,
+                                     const string16& password,
                                      const std::string& cnonce,
                                      const std::string& nc) const;
 
   // Build up  the value for (Authorization/Proxy-Authorization).
   std::string AssembleCredentials(const std::string& method,
                                   const std::string& path,
-                                  const std::string& username,
-                                  const std::string& password,
+                                  const string16& username,
+                                  const string16& password,
                                   const std::string& cnonce,
                                   int nonce_count) const;
 
@@ -120,7 +122,7 @@ class HttpAuthHandlerDigest : public HttpAuthHandler {
   std::string opaque_;
   bool stale_;
   DigestAlgorithm algorithm_;
-  int qop_; // Bitfield of QualityOfProtection
+  int qop_;  // Bitfield of QualityOfProtection
 
   int nonce_count_;
 

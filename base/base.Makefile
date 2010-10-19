@@ -3,4 +3,4 @@
 export builddir_name ?= /usr/local/google/src/chromium-merge/src/base/out
 .PHONY: all
 all:
-	$(MAKE) -C .. symbolize xdg_mime base test_support_perf test_support_base base_i18n base_unittests
+	$(MAKE) -C .. xdg_mime symbolize base base_i18n test_support_perf test_support_base base_unittests

@@ -7,13 +7,16 @@
 #include "base/string_util.h"
 #include "base/scoped_temp_dir.h"
 #include "base/time.h"
+#include "base/utf_string_conversions.h"
 #include "base/waitable_event.h"
 #include "chrome/browser/password_manager/password_store_change.h"
 #include "chrome/browser/password_manager/password_store_default.h"
 #include "chrome/browser/password_manager/password_form_data.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/test/signaling_task.h"
 #include "chrome/test/testing_profile.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -39,17 +42,6 @@ class MockWebDataServiceConsumer : public WebDataServiceConsumer {
  public:
   MOCK_METHOD2(OnWebDataServiceRequestDone, void(WebDataService::Handle,
                                                  const WDTypedResult*));
-};
-
-class SignalingTask : public Task {
- public:
-  explicit SignalingTask(WaitableEvent* event) : event_(event) {
-  }
-  virtual void Run() {
-    event_->Signal();
-  }
- private:
-  WaitableEvent* event_;
 };
 
 class MockNotificationObserver : public NotificationObserver {
@@ -157,6 +149,63 @@ MATCHER(EmptyWDResult, "") {
       arg)->GetValue().empty();
 }
 
+TEST_F(PasswordStoreDefaultTest, NonASCIIData) {
+  // Prentend that the migration has already taken place.
+  profile_->GetPrefs()->RegisterBooleanPref(prefs::kLoginDatabaseMigrated,
+                                            true);
+
+  // Initializing the PasswordStore shouldn't trigger a migration.
+  scoped_refptr<PasswordStoreDefault> store(
+      new PasswordStoreDefault(login_db_.release(), profile_.get(),
+                               wds_.get()));
+  store->Init();
+
+  // Some non-ASCII password form data.
+  PasswordFormData form_data[] = {
+    { PasswordForm::SCHEME_HTML,
+      "http://foo.example.com",
+      "http://foo.example.com/origin",
+      "http://foo.example.com/action",
+      L"มีสีสัน",
+      L"お元気ですか?",
+      L"盆栽",
+      L"أحب كرة",
+      L"£éä국수çà",
+      true, false, 1 },
+  };
+
+  // Build the expected forms vector and add the forms to the store.
+  VectorOfForms expected_forms;
+  for (unsigned int i = 0; i < ARRAYSIZE_UNSAFE(form_data); ++i) {
+    PasswordForm* form = CreatePasswordFormFromData(form_data[i]);
+    expected_forms.push_back(form);
+    store->AddLogin(*form);
+  }
+
+  // The PasswordStore schedules tasks to run on the DB thread so we schedule
+  // yet another task to notify us that it's safe to carry on with the test.
+  WaitableEvent done(false, false);
+  ChromeThread::PostTask(ChromeThread::DB, FROM_HERE, new SignalingTask(&done));
+  done.Wait();
+
+  MockPasswordStoreConsumer consumer;
+
+  // Make sure we quit the MessageLoop even if the test fails.
+  ON_CALL(consumer, OnPasswordStoreRequestDone(_, _))
+      .WillByDefault(QuitUIMessageLoop());
+
+  // We expect to get the same data back, even though it's not all ASCII.
+  EXPECT_CALL(consumer,
+      OnPasswordStoreRequestDone(_,
+          ContainsAllPasswordForms(expected_forms)))
+      .WillOnce(DoAll(WithArg<1>(STLDeleteElements0()), QuitUIMessageLoop()));
+
+  store->GetAutofillableLogins(&consumer);
+  MessageLoop::current()->Run();
+
+  STLDeleteElements(&expected_forms);
+}
+
 TEST_F(PasswordStoreDefaultTest, Migration) {
   PasswordFormData autofillable_data[] = {
     { PasswordForm::SCHEME_HTML,
@@ -213,26 +262,18 @@ TEST_F(PasswordStoreDefaultTest, Migration) {
       false, false, 2 },
   };
 
+  // Build the expected forms vectors and populate the WDS with logins.
   VectorOfForms expected_autofillable;
   for (unsigned int i = 0; i < ARRAYSIZE_UNSAFE(autofillable_data); ++i) {
-    expected_autofillable.push_back(
-        CreatePasswordFormFromData(autofillable_data[i]));
+    PasswordForm* form = CreatePasswordFormFromData(autofillable_data[i]);
+    expected_autofillable.push_back(form);
+    wds_->AddLogin(*form);
   }
-
   VectorOfForms expected_blacklisted;
   for (unsigned int i = 0; i < ARRAYSIZE_UNSAFE(blacklisted_data); ++i) {
-    expected_blacklisted.push_back(
-        CreatePasswordFormFromData(blacklisted_data[i]));
-  }
-
-  // Populate the WDS with logins that should be migrated.
-  for (VectorOfForms::iterator it = expected_autofillable.begin();
-       it != expected_autofillable.end(); ++it) {
-    wds_->AddLogin(**it);
-  }
-  for (VectorOfForms::iterator it = expected_blacklisted.begin();
-       it != expected_blacklisted.end(); ++it) {
-    wds_->AddLogin(**it);
+    PasswordForm* form = CreatePasswordFormFromData(blacklisted_data[i]);
+    expected_blacklisted.push_back(form);
+    wds_->AddLogin(*form);
   }
 
   // The WDS schedules tasks to run on the DB thread so we schedule yet another
@@ -243,7 +284,8 @@ TEST_F(PasswordStoreDefaultTest, Migration) {
 
   // Initializing the PasswordStore should trigger a migration.
   scoped_refptr<PasswordStoreDefault> store(
-      new PasswordStoreDefault(login_db_.release(), profile_.get(), wds_.get()));
+      new PasswordStoreDefault(login_db_.release(),
+          profile_.get(), wds_.get()));
   store->Init();
 
   // Check that the migration preference has not been initialized;
@@ -333,16 +375,12 @@ TEST_F(PasswordStoreDefaultTest, MigrationAlreadyDone) {
       true, false, 1 },
   };
 
+  // Build the expected forms vector and populate the WDS with logins.
   VectorOfForms unexpected_autofillable;
   for (unsigned int i = 0; i < ARRAYSIZE_UNSAFE(wds_data); ++i) {
-    unexpected_autofillable.push_back(
-        CreatePasswordFormFromData(wds_data[i]));
-  }
-
-  // Populate the WDS with logins that should be migrated.
-  for (VectorOfForms::iterator it = unexpected_autofillable.begin();
-       it != unexpected_autofillable.end(); ++it) {
-    wds_->AddLogin(**it);
+    PasswordForm* form = CreatePasswordFormFromData(wds_data[i]);
+    unexpected_autofillable.push_back(form);
+    wds_->AddLogin(*form);
   }
 
   // The WDS schedules tasks to run on the DB thread so we schedule yet another

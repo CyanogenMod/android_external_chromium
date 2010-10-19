@@ -7,6 +7,7 @@
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
 #include "gfx/rect.h"
 #include "googleurl/src/gurl.h"
@@ -113,7 +114,7 @@ class MultiPartResponseClient : public WebURLLoaderClient {
     byte_range_lower_bound_ += data_size;
   }
 
-  virtual void didFinishLoading(WebURLLoader*) {}
+  virtual void didFinishLoading(WebURLLoader*, double finishTime) {}
   virtual void didFail(WebURLLoader*, const WebURLError&) {}
 
   void Clear() {
@@ -160,7 +161,7 @@ std::string GetAllHeaders(const WebURLResponse& response) {
     return result;
 
   // TODO(darin): Shouldn't we also report HTTP version numbers?
-  result = StringPrintf("HTTP %d ", response.httpStatusCode());
+  result = base::StringPrintf("HTTP %d ", response.httpStatusCode());
   result.append(status.utf8());
   result.append("\n");
 
@@ -340,6 +341,10 @@ bool WebPluginImpl::acceptsInputEvents() {
 
 bool WebPluginImpl::handleInputEvent(
     const WebInputEvent& event, WebCursorInfo& cursor_info) {
+  // Swallow context menu events in order to suppress the default context menu.
+  if (event.type == WebInputEvent::ContextMenu)
+    return true;
+
   return delegate_->HandleInputEvent(event, &cursor_info);
 }
 
@@ -913,7 +918,7 @@ void WebPluginImpl::didReceiveData(WebURLLoader* loader,
   }
 }
 
-void WebPluginImpl::didFinishLoading(WebURLLoader* loader) {
+void WebPluginImpl::didFinishLoading(WebURLLoader* loader, double finishTime) {
   ClientInfo* client_info = GetClientInfoFromLoader(loader);
   if (client_info && client_info->client) {
     MultiPartResponseHandlerMap::iterator index =

@@ -4,56 +4,62 @@
 
 #ifndef CHROME_BROWSER_BROWSER_H_
 #define CHROME_BROWSER_BROWSER_H_
+#pragma once
 
 #include <map>
 #include <set>
+#include <string>
 #include <vector>
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
+#include "base/string16.h"
+#include "base/task.h"
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/debugger/devtools_toggle_action.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/sessions/session_id.h"
-#include "chrome/browser/sessions/tab_restore_service.h"
+#include "chrome/browser/sessions/tab_restore_service_observer.h"
 #include "chrome/browser/shell_dialogs.h"
 #include "chrome/browser/sync/profile_sync_service_observer.h"
-#include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/tabs/tab_handler.h"
+#include "chrome/browser/tabs/tab_strip_model_delegate.h"   // TODO(beng): remove
+#include "chrome/browser/tabs/tab_strip_model_observer.h"   // TODO(beng): remove
+#include "chrome/browser/tab_contents/match_preview_delegate.h"
 #include "chrome/browser/tab_contents/page_navigator.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "chrome/browser/toolbar_model.h"
-#include "chrome/common/extensions/extension.h"
+#include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/page_transition_types.h"
 #include "chrome/common/page_zoom.h"
 #include "gfx/rect.h"
 
 class BrowserWindow;
-class DebuggerWindow;
 class Extension;
-class ExtensionShelfModel;
 class FindBarController;
-class GoButton;
-class LocationBar;
+class MatchPreview;
 class PrefService;
 class Profile;
+class SessionStorageNamespace;
 class SkBitmap;
 class StatusBubble;
 class TabNavigation;
+class TabStripModel;
 namespace gfx {
 class Point;
 }
 
-class Browser : public TabStripModelDelegate,
-                public TabStripModelObserver,
+class Browser : public TabHandlerDelegate,
                 public TabContentsDelegate,
                 public PageNavigator,
                 public CommandUpdater::CommandUpdaterDelegate,
                 public NotificationObserver,
                 public SelectFileDialog::Listener,
-                public TabRestoreService::Observer,
-                public ProfileSyncServiceObserver {
+                public TabRestoreServiceObserver,
+                public ProfileSyncServiceObserver,
+                public MatchPreviewDelegate {
  public:
   // If you change the values in this enum you'll need to update browser_proxy.
   // TODO(sky): move into a common place that is referenced by both ui_tests
@@ -65,12 +71,16 @@ class Browser : public TabStripModelDelegate,
     TYPE_APP = 4,
     // The new-style app created by installing a crx. This kinda needs to be
     // separate because we require larger icons and an application name that
-    // are found in the crx. If we ever decide to create this kind of app using
-    // some other system (eg some web standard), maybe we should generalize this
-    // name to TYPE_MULTITAB or something.
+    // are found in the crx. If we ever decide to create this kind of app
+    // using some other system (eg some web standard), maybe we should
+    // generalize this name to TYPE_MULTITAB or something.
     TYPE_EXTENSION_APP = 8,
     TYPE_APP_POPUP = TYPE_APP | TYPE_POPUP,
     TYPE_DEVTOOLS = TYPE_APP | 16,
+
+    // TODO(skerner): crbug/56776: Until the panel UI is complete on all
+    // platforms, apps that set app.launch.container = "panel" have type
+    // APP_POPUP.
     TYPE_APP_PANEL = TYPE_APP | 32,
     TYPE_ANY = TYPE_NORMAL |
                TYPE_POPUP |
@@ -89,8 +99,8 @@ class Browser : public TabStripModelDelegate,
     FEATURE_LOCATIONBAR = 8,
     FEATURE_BOOKMARKBAR = 16,
     FEATURE_INFOBAR = 32,
-    FEATURE_DOWNLOADSHELF = 64,
-    FEATURE_EXTENSIONSHELF = 128
+    FEATURE_SIDEBAR = 64,
+    FEATURE_DOWNLOADSHELF = 128
   };
 
   // Maximized state on creation.
@@ -121,11 +131,14 @@ class Browser : public TabStripModelDelegate,
   // Like Create, but creates a tabstrip-less popup window.
   static Browser* CreateForPopup(Profile* profile);
 
+  // Like Create, but creates a browser of the specified type.
+  static Browser* CreateForType(Type type, Profile* profile);
+
   // Like Create, but creates a toolbar-less "app" window for the specified
   // app. |app_name| is required and is used to identify the window to the
   // shell.  |extension| is optional. If supplied, we create a window with
   // a bigger icon and title text, that supports tabs.
-  static Browser* CreateForApp(const std::wstring& app_name,
+  static Browser* CreateForApp(const std::string& app_name,
                                Extension* extension,
                                Profile* profile,
                                bool is_panel);
@@ -160,6 +173,10 @@ class Browser : public TabStripModelDelegate,
   Profile* profile() const { return profile_; }
   const std::vector<std::wstring>& user_data_dir_profiles() const;
 
+  // Returns the MatchPreview or NULL if there is no MatchPreview for this
+  // Browser.
+  MatchPreview* match_preview() const { return match_preview_.get(); }
+
 #if defined(UNIT_TEST)
   // Sets the BrowserWindow. This is intended for testing and generally not
   // useful outside of testing. Use CreateBrowserWindow outside of testing, or
@@ -174,9 +191,6 @@ class Browser : public TabStripModelDelegate,
   ToolbarModel* toolbar_model() { return &toolbar_model_; }
   const SessionID& session_id() const { return session_id_; }
   CommandUpdater* command_updater() { return &command_updater_; }
-  ExtensionShelfModel* extension_shelf_model() {
-    return extension_shelf_model_.get();
-  }
 
   // Get the FindBarController for this browser, creating it if it does not
   // yet exist.
@@ -202,13 +216,6 @@ class Browser : public TabStripModelDelegate,
   // |profile|, that session is re-used.
   static void OpenURLOffTheRecord(Profile* profile, const GURL& url);
 
-  // Finds an app tab running a given app in a browser.
-  static TabContents* FindAppTab(Browser* browser, Extension* extension_app);
-
-  // Finds a browser running an app as an app window or panel.
-  static Browser* FindAppWindowOrPanel(Profile* profile,
-                                       Extension* extension_app);
-
   // Open an application specified by |app_id| in the appropriate launch
   // container.  Returns NULL if the app_id is invalid or if ExtensionsService
   // isn't ready/available.
@@ -217,29 +224,39 @@ class Browser : public TabStripModelDelegate,
 
   // Open |extension| in |container|.  Returns the TabContents* that was created
   // or NULL.
-  static TabContents* OpenApplication(Profile* profile,
-                                      Extension* extension,
-                                      Extension::LaunchContainer container);
+  static TabContents* OpenApplication(
+      Profile* profile,
+      Extension* extension,
+      extension_misc::LaunchContainer container);
 
   // Opens a new application window for the specified url. If |as_panel|
   // is true, the application will be opened as a Browser::Type::APP_PANEL in
   // app panel window, otherwise it will be opened as as either
   // Browser::Type::APP a.k.a. "thin frame" (if |extension| is NULL) or
   // Browser::Type::EXTENSION_APP (if |extension| is non-NULL).
+  // Returns the browser hosting for the TabContents via optional parameter,
+  // |browser|.
   static TabContents* OpenApplicationWindow(
       Profile* profile,
       Extension* extension,
-      Extension::LaunchContainer container,
-      const GURL& url);
+      extension_misc::LaunchContainer container,
+      const GURL& url,
+      Browser** browser);
 
   // Open an application for |extension| in a new application window or panel.
+  // Returns the browser hosting the TabContents via optional parameter,
+  // |browser|.
   static TabContents* OpenApplicationWindow(Profile* profile,
-                                            GURL& url);
+                                            GURL& url,
+                                            Browser** browser);
 
   // Open an application for |extension| in a new application tab.  Returns
   // NULL if there are no appropriate existing browser windows for |profile|.
+  // Returns the browser hosting the TabContents via optional parameter,
+  // |browser|.
   static TabContents* OpenApplicationTab(Profile* profile,
-                                         Extension* extension);
+                                         Extension* extension,
+                                         Browser** browser);
 
   // Opens a new window and opens the bookmark manager.
   static void OpenBookmarkManagerWindow(Profile* profile);
@@ -260,7 +277,7 @@ class Browser : public TabStripModelDelegate,
   // State Storage and Retrieval for UI ///////////////////////////////////////
 
   // Save and restore the window position.
-  std::wstring GetWindowPlacementKey() const;
+  std::string GetWindowPlacementKey() const;
   bool ShouldSaveWindowPlacement() const;
   void SaveWindowPlacement(const gfx::Rect& bounds, bool maximized);
   gfx::Rect GetSavedWindowBounds() const;
@@ -280,6 +297,10 @@ class Browser : public TabStripModelDelegate,
   // Gives beforeunload handlers the chance to cancel the close.
   bool ShouldCloseWindow();
 
+  bool IsAttemptingToCloseBrowser() const {
+    return is_attempting_to_close_browser_;
+  }
+
   // Invoked when the window containing us is closing. Performs the necessary
   // cleanup.
   void OnWindowClosing();
@@ -295,26 +316,17 @@ class Browser : public TabStripModelDelegate,
   // TabStripModel pass-thrus /////////////////////////////////////////////////
 
   TabStripModel* tabstrip_model() const {
-    return const_cast<TabStripModel*>(&tabstrip_model_);
+    // TODO(beng): remove this accessor. It violates google style.
+    return tab_handler_->GetTabStripModel();
   }
 
-  int tab_count() const { return tabstrip_model_.count(); }
-  int selected_index() const { return tabstrip_model_.selected_index(); }
-  int GetIndexOfController(const NavigationController* controller) const {
-    return tabstrip_model_.GetIndexOfController(controller);
-  }
-  TabContents* GetTabContentsAt(int index) const {
-    return tabstrip_model_.GetTabContentsAt(index);
-  }
-  TabContents* GetSelectedTabContents() const {
-    return tabstrip_model_.GetSelectedTabContents();
-  }
-  void SelectTabContentsAt(int index, bool user_gesture) {
-    tabstrip_model_.SelectTabContentsAt(index, user_gesture);
-  }
-  void CloseAllTabs() {
-    tabstrip_model_.CloseAllTabs();
-  }
+  int tab_count() const;
+  int selected_index() const;
+  int GetIndexOfController(const NavigationController* controller) const;
+  TabContents* GetTabContentsAt(int index) const;
+  TabContents* GetSelectedTabContents() const;
+  void SelectTabContentsAt(int index, bool user_gesture);
+  void CloseAllTabs();
 
   // Tab adding/showing functions /////////////////////////////////////////////
 
@@ -328,13 +340,17 @@ class Browser : public TabStripModelDelegate,
   // values defined by TabStripModel::AddTabTypes; see it for details. If
   // |instance| is not null, its process will be used to render the tab. If
   // |extension_app_id| is non-empty the new tab is an app tab.
+  // The returned tab may be hosted in a different browser.  |browser_used|
+  // will be assigned the browser that satisfied the add tab request.
+  // |browser_used| may be passed
   TabContents* AddTabWithURL(const GURL& url,
                              const GURL& referrer,
                              PageTransition::Type transition,
                              int index,
                              int add_types,
                              SiteInstance* instance,
-                             const std::string& extension_app_id);
+                             const std::string& extension_app_id,
+                             Browser** browser_used);
 
   // Add a new tab, given a TabContents. A TabContents appropriate to
   // display the last committed entry is created and returned.
@@ -354,7 +370,8 @@ class Browser : public TabStripModelDelegate,
                               const std::string& extension_app_id,
                               bool select,
                               bool pin,
-                              bool from_last_session);
+                              bool from_last_session,
+                              SessionStorageNamespace* storage_namespace);
   // Creates a new tab with the already-created TabContents 'new_contents'.
   // The window for the added contents will be reparented correctly when this
   // method returns.  If |disposition| is NEW_POPUP, |pos| should hold the
@@ -379,17 +396,14 @@ class Browser : public TabStripModelDelegate,
   // part of an animation.
   void ToolbarSizeChanged(bool is_animating);
 
-  // Notification that the extension shelf has changed size (as a result of
-  // becoming detached or attached).
-  void ExtensionShelfSizeChanged();
-
   // Replaces the state of the currently selected tab with the session
   // history restored from the SessionRestore system.
   void ReplaceRestoredTab(
       const std::vector<TabNavigation>& navigations,
       int selected_navigation,
       bool from_last_session,
-      const std::string& extension_app_id);
+      const std::string& extension_app_id,
+      SessionStorageNamespace* session_storage_namespace);
 
   // Navigate to an index in the tab history, opening a new tab depending on the
   // disposition.
@@ -432,6 +446,7 @@ class Browser : public TabStripModelDelegate,
   void CloseTab();
   void SelectNextTab();
   void SelectPreviousTab();
+  void OpenTabpose();
   void MoveTabNext();
   void MoveTabPrevious();
   void SelectNumberedTab(int index);
@@ -502,7 +517,6 @@ class Browser : public TabStripModelDelegate,
   void OpenBugReportDialog();
 
   void ToggleBookmarkBar();
-  void ToggleExtensionShelf();
 
   void OpenBookmarkManager();
   void ShowAppMenu();
@@ -511,12 +525,15 @@ class Browser : public TabStripModelDelegate,
   void ShowDownloadsTab();
   void ShowExtensionsTab();
   void ShowBrokenPageTab(TabContents* contents);
-  void ShowOptionsTab();
+  void ShowOptionsTab(const std::string& sub_page);
   void OpenClearBrowsingDataDialog();
   void OpenOptionsDialog();
   void OpenKeywordEditor();
   void OpenPasswordManager();
   void OpenSyncMyBookmarksDialog();
+#if defined(ENABLE_REMOTING)
+  void OpenRemotingSetupDialog();
+#endif
   void OpenImportSettingsDialog();
   void OpenAboutChromeDialog();
   void OpenUpdateChromeDialog();
@@ -525,9 +542,11 @@ class Browser : public TabStripModelDelegate,
   void OpenThemeGalleryTabAndActivate();
   void OpenAutoFillHelpTabAndActivate();
   void OpenPrivacyDashboardTabAndActivate();
+  void OpenSearchEngineOptionsDialog();
 #if defined(OS_CHROMEOS)
-  void OpenSystemOptionsDialog();
   void OpenInternetOptionsDialog();
+  void OpenLanguageOptionsDialog();
+  void OpenSystemOptionsDialog();
 #endif
 
   virtual void UpdateDownloadShelfVisibility(bool visible);
@@ -548,6 +567,9 @@ class Browser : public TabStripModelDelegate,
   static void RegisterPrefs(PrefService* prefs);
   static void RegisterUserPrefs(PrefService* prefs);
 
+  // Helper function to run unload listeners on a TabContents.
+  static bool RunUnloadEventsHelper(TabContents* contents);
+
   // Returns the Browser which contains the tab with the given
   // NavigationController, also filling in |index| (if valid) with the tab's
   // index in the tab strip.
@@ -555,6 +577,9 @@ class Browser : public TabStripModelDelegate,
   // This call is O(N) in the number of tabs.
   static Browser* GetBrowserForController(
       const NavigationController* controller, int* index);
+
+  // Retrieve the last active tabbed browser with a profile matching |profile|.
+  static Browser* GetTabbedBrowser(Profile* profile, bool match_incognito);
 
   // Retrieve the last active tabbed browser with a profile matching |profile|.
   // Creates a new Browser if none are available.
@@ -589,7 +614,7 @@ class Browser : public TabStripModelDelegate,
 
   // Interface implementations ////////////////////////////////////////////////
 
-  // Overridden from PageNavigator
+  // Overridden from PageNavigator:
   virtual void OpenURL(const GURL& url, const GURL& referrer,
                        WindowOpenDisposition disposition,
                        PageTransition::Type transition);
@@ -597,38 +622,21 @@ class Browser : public TabStripModelDelegate,
   // Overridden from CommandUpdater::CommandUpdaterDelegate:
   virtual void ExecuteCommand(int id);
 
-  // Helper function to run unload listeners on a TabContents.
-  static bool RunUnloadEventsHelper(TabContents* contents);
-
-  // TabRestoreService::Observer ///////////////////////////////////////////////
+  // Overridden from TabRestoreServiceObserver:
   virtual void TabRestoreServiceChanged(TabRestoreService* service);
   virtual void TabRestoreServiceDestroyed(TabRestoreService* service);
 
- private:
-  FRIEND_TEST_ALL_PREFIXES(BrowserTest, PinnedTabDisposition);
-  FRIEND_TEST_ALL_PREFIXES(BrowserTest, NoTabsInPopups);
-
-  // Used to describe why a tab is being detached. This is used by
-  // TabDetachedAtImpl.
-  enum DetachType {
-    // Result of TabDetachedAt.
-    DETACH_TYPE_DETACH,
-
-    // Result of TabReplacedAt.
-    DETACH_TYPE_REPLACE,
-
-    // Result of the tab strip not having any significant tabs.
-    DETACH_TYPE_EMPTY
-  };
-
-  bool IsPinned(TabContents* source);
+  // Overridden from TabHandlerDelegate:
+  virtual Profile* GetProfile() const;
+  virtual Browser* AsBrowser();
 
   // Overridden from TabStripModelDelegate:
   virtual TabContents* AddBlankTab(bool foreground);
   virtual TabContents* AddBlankTabAt(int index, bool foreground);
   virtual Browser* CreateNewStripWithContents(TabContents* detached_contents,
                                               const gfx::Rect& window_bounds,
-                                              const DockInfo& dock_info);
+                                              const DockInfo& dock_info,
+                                              bool maximize);
   virtual void ContinueDraggingDetachedTab(TabContents* contents,
                                            const gfx::Rect& window_bounds,
                                            const gfx::Rect& tab_bounds);
@@ -653,6 +661,7 @@ class Browser : public TabStripModelDelegate,
   virtual void ToggleUseVerticalTabs();
   virtual bool CanRestoreTab();
   virtual void RestoreTab();
+  virtual bool LargeIconsPermitted() const;
 
   // Overridden from TabStripModelObserver:
   virtual void TabInsertedAt(TabContents* contents,
@@ -674,6 +683,22 @@ class Browser : public TabStripModelDelegate,
   virtual void TabPinnedStateChanged(TabContents* contents, int index);
   virtual void TabStripEmpty();
 
+ private:
+  FRIEND_TEST_ALL_PREFIXES(BrowserTest, NoTabsInPopups);
+
+  // Used to describe why a tab is being detached. This is used by
+  // TabDetachedAtImpl.
+  enum DetachType {
+    // Result of TabDetachedAt.
+    DETACH_TYPE_DETACH,
+
+    // Result of TabReplacedAt.
+    DETACH_TYPE_REPLACE,
+
+    // Result of the tab strip not having any significant tabs.
+    DETACH_TYPE_EMPTY
+  };
+
   // Overridden from TabContentsDelegate:
   virtual void OpenURLFromTab(TabContents* source,
                               const GURL& url,
@@ -688,11 +713,12 @@ class Browser : public TabStripModelDelegate,
                               const gfx::Rect& initial_pos,
                               bool user_gesture);
   virtual void ActivateContents(TabContents* contents);
+  virtual void DeactivateContents(TabContents* contents);
   virtual void LoadingStateChanged(TabContents* source);
   virtual void CloseContents(TabContents* source);
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos);
   virtual void DetachContents(TabContents* source);
-  virtual bool IsPopup(TabContents* source);
+  virtual bool IsPopup(const TabContents* source) const;
   virtual bool CanReloadContents(TabContents* source) const;
   virtual void ToolbarSizeChanged(TabContents* source, bool is_animating);
   virtual void URLStarredChanged(TabContents* source, bool starred);
@@ -716,7 +742,7 @@ class Browser : public TabStripModelDelegate,
   virtual void SetFocusToLocationBar(bool select_all);
   virtual void RenderWidgetShowing();
   virtual int GetExtraRenderViewHeight() const;
-  virtual void OnStartDownload(DownloadItem* download);
+  virtual void OnStartDownload(DownloadItem* download, TabContents* tab);
   virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
                                         Profile* profile);
   virtual void ShowPageInfo(Profile* profile,
@@ -729,10 +755,12 @@ class Browser : public TabStripModelDelegate,
   virtual void ShowRepostFormWarningDialog(TabContents* tab_contents);
   virtual void ShowContentSettingsWindow(ContentSettingsType content_type);
   virtual void ShowCollectedCookiesDialog(TabContents* tab_contents);
-  virtual bool ShouldAddNavigationsToHistory() const;
+  virtual bool ShouldAddNavigationToHistory(
+      const history::HistoryAddPageArgs& add_page_args,
+      NavigationType::Type navigation_type);
   virtual void OnDidGetApplicationInfo(TabContents* tab_contents,
                                        int32 page_id);
-  virtual Browser* GetBrowser();
+  virtual void ContentTypeChanged(TabContents* source);
 
   // Overridden from SelectFileDialog::Listener:
   virtual void FileSelected(const FilePath& path, int index, void* params);
@@ -745,6 +773,13 @@ class Browser : public TabStripModelDelegate,
   // Overridden from ProfileSyncServiceObserver:
   virtual void OnStateChanged();
 
+  // Overriden from MatchPreviewDelegate:
+  virtual void ShowMatchPreview();
+  virtual void HideMatchPreview();
+  virtual void CommitMatchPreview(TabContents* preview_contents);
+  virtual void SetSuggestedText(const string16& text);
+  virtual gfx::Rect GetMatchPreviewBounds();
+
   // Command and state updating ///////////////////////////////////////////////
 
   // Initialize state for all browser commands.
@@ -752,6 +787,9 @@ class Browser : public TabStripModelDelegate,
 
   // Update commands whose state depends on the tab's state.
   void UpdateCommandsForTabState();
+
+  // Update zoom commands based on the tab's state
+  void UpdateZoomCommandsForTabState();
 
   // Ask the Reload/Stop button to change its icon, and update the Stop command
   // state.  |is_loading| is true if the current TabContents is loading.
@@ -787,6 +825,7 @@ class Browser : public TabStripModelDelegate,
   // TODO(beng): remove, and provide AutomationProvider a better way to access
   //             the LocationBarView's edit.
   friend class AutomationProvider;
+  friend class TestingAutomationProvider;
 
   // Returns the StatusBubble from the current toolbar. It is possible for
   // this to return NULL if called before the toolbar has initialized.
@@ -890,9 +929,9 @@ class Browser : public TabStripModelDelegate,
 
   // Create a preference dictionary for the provided application name. This is
   // done only once per application name / per session.
-  static void RegisterAppPrefs(const std::wstring& app_name);
+  static void RegisterAppPrefs(const std::string& app_name);
 
-  // Shared code between Reload() and ReloadAll().
+  // Shared code between Reload() and ReloadIgnoringCache().
   void ReloadInternal(WindowOpenDisposition disposition, bool ignore_cache);
 
   // Return true if the window dispositions means opening a new tab.
@@ -926,16 +965,9 @@ class Browser : public TabStripModelDelegate,
   // cancel closing of window.
   bool IsClosingPermitted();
 
-  // Calculate a new window open disposition for a navigation. The return
-  // value will usually be |original_disposition|, but for some pinned tab cases
-  // we change it to NEW_FOREGROUND_TAB so that the pinned tab feels more
-  // permanent.
-  static WindowOpenDisposition AdjustWindowOpenDispositionForTab(
-      bool is_pinned,
-      const GURL& url,
-      const GURL& referrer,
-      PageTransition::Type transition,
-      WindowOpenDisposition original_disposition);
+  // Commits the current match preview, returning true on success. This is
+  // intended for use from OpenCurrentURL.
+  bool OpenMatchPreview(WindowOpenDisposition disposition);
 
   // Data members /////////////////////////////////////////////////////////////
 
@@ -950,15 +982,15 @@ class Browser : public TabStripModelDelegate,
   // This Browser's window.
   BrowserWindow* window_;
 
-  // This Browser's TabStripModel.
-  TabStripModel tabstrip_model_;
+  // This Browser's current TabHandler.
+  scoped_ptr<TabHandler> tab_handler_;
 
   // The CommandUpdater that manages the browser window commands.
   CommandUpdater command_updater_;
 
   // An optional application name which is used to retrieve and save window
   // positions.
-  std::wstring app_name_;
+  std::string app_name_;
 
   // Unique identifier of this browser for session restore. This id is only
   // unique within the current session, and is not guaranteed to be unique
@@ -967,9 +999,6 @@ class Browser : public TabStripModelDelegate,
 
   // The model for the toolbar view.
   ToolbarModel toolbar_model_;
-
-  // The model for the extension shelf.
-  scoped_ptr<ExtensionShelfModel> extension_shelf_model_;
 
   // UI update coalescing and handling ////////////////////////////////////////
 
@@ -1064,6 +1093,8 @@ class Browser : public TabStripModelDelegate,
   // The profile's tab restore service. The service is owned by the profile,
   // and we install ourselves as an observer.
   TabRestoreService* tab_restore_service_;
+
+  scoped_ptr<MatchPreview> match_preview_;
 
   DISALLOW_COPY_AND_ASSIGN(Browser);
 };

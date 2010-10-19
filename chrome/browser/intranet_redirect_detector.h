@@ -4,12 +4,14 @@
 
 #ifndef CHROME_BROWSER_INTRANET_REDIRECT_DETECTOR_H_
 #define CHROME_BROWSER_INTRANET_REDIRECT_DETECTOR_H_
+#pragma once
 
 #include <set>
 #include <string>
 #include <vector>
 
 #include "chrome/common/net/url_fetcher.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/host_resolver_proc.h"

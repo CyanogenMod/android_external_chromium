@@ -59,6 +59,7 @@ below:
     <output filename="webkit_strings_es.rc" type="rc_all" lang="es" />
     <output filename="webkit_strings_es-419.rc" type="rc_all" lang="es-419" />
     <output filename="webkit_strings_et.rc" type="rc_all" lang="et" />
+    <output filename="webkit_strings_fa.rc" type="rc_all" lang="fa" />
     <output filename="webkit_strings_fi.rc" type="rc_all" lang="fi" />
     <output filename="webkit_strings_fil.rc" type="rc_all" lang="fil" />
     <output filename="webkit_strings_fr.rc" type="rc_all" lang="fr" />
@@ -113,6 +114,7 @@ below:
     <output filename="webkit_strings_es.pak" type="data_package" lang="es" />
     <output filename="webkit_strings_es-419.pak" type="data_package" lang="es-419" />
     <output filename="webkit_strings_et.pak" type="data_package" lang="et" />
+    <output filename="webkit_strings_fa.pak" type="data_package" lang="fa" />
     <output filename="webkit_strings_fi.pak" type="data_package" lang="fi" />
     <output filename="webkit_strings_fil.pak" type="data_package" lang="fil" />
     <output filename="webkit_strings_fr.pak" type="data_package" lang="fr" />
@@ -167,6 +169,7 @@ below:
     <file path="resources/webkit_strings_es.xtb" lang="es" />
     <file path="resources/webkit_strings_es-419.xtb" lang="es-419" />
     <file path="resources/webkit_strings_et.xtb" lang="et" />
+    <file path="resources/webkit_strings_fa.xtb" lang="fa" />
     <file path="resources/webkit_strings_fi.xtb" lang="fi" />
     <file path="resources/webkit_strings_fil.xtb" lang="fil" />
     <file path="resources/webkit_strings_fr.xtb" lang="fr" />
@@ -253,7 +256,7 @@ below:
       </message>
 
       <message name="IDS_AX_ROLE_WEB_AREA" desc="accessibility role description for web area">
-        web area
+        HTML content
       </message>
       <message name="IDS_AX_ROLE_LINK" desc="accessibility role description for link">
         link
@@ -358,6 +361,14 @@ below:
 
       <message name="IDS_PDF_NEED_PASSWORD" desc="A message asking the user for a password to open a PDF file.">
         This document is password protected.  Please enter a password.
+      </message>
+
+      <message name="IDS_PDF_PAGE_LOADING" desc="A message displayed on the PDF page while page is loading.">
+        Loading...
+      </message>
+
+      <message name="IDS_PDF_LOADING_PROGRESS" desc="A message displayed on the PDF control to indicate loading progress.">
+        Loading document: <ph name="PAGE_NUMBER">%d<ex>3</ex></ph>/<ph name="NUMBER_OF_PAGES">%d<ex>15</ex></ph> pages...
       </message>
     </messages>
   </release>

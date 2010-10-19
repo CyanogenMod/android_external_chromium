@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SAFE_BROWSING_PROTOCOL_MANAGER_H_
 #define CHROME_BROWSER_SAFE_BROWSING_PROTOCOL_MANAGER_H_
+#pragma once
 
 // A class that implements Chrome's interface with the SafeBrowsing protocol.
 // The SafeBrowsingProtocolManager handles formatting and making requests of,
@@ -26,8 +27,6 @@
 #include "chrome/browser/safe_browsing/safe_browsing_util.h"
 #include "chrome/common/net/url_fetcher.h"
 
-class Task;
-class Timer;
 class URLRequestStatus;
 
 #if defined(COMPILER_GCC)
@@ -69,7 +68,7 @@ class SafeBrowsingProtocolManager : public URLFetcher::Delegate {
                               const std::string& info_url_prefix,
                               const std::string& mackey_url_prefix,
                               bool disable_auto_update);
-  ~SafeBrowsingProtocolManager();
+  virtual ~SafeBrowsingProtocolManager();
 
   // Sets up the update schedule and internal state for making periodic requests
   // of the SafeBrowsing service.
@@ -112,7 +111,8 @@ class SafeBrowsingProtocolManager : public URLFetcher::Delegate {
   // Reports a malware resource to the SafeBrowsing service.
   void ReportMalware(const GURL& malware_url,
                      const GURL& page_url,
-                     const GURL& referrer_url);
+                     const GURL& referrer_url,
+                     bool is_subresource);
 
   // Setter for additional_query_. To make sure the additional_query_ won't
   // be changed in the middle of an update, caller (e.g.: SafeBrowsingService)
@@ -131,14 +131,15 @@ class SafeBrowsingProtocolManager : public URLFetcher::Delegate {
   // so are handled separately.
   enum SafeBrowsingRequestType {
     NO_REQUEST = 0,     // No requests in progress
-    UPDATE_REQUEST,   // Request for redirect URLs
+    UPDATE_REQUEST,     // Request for redirect URLs
     CHUNK_REQUEST,      // Request for a specific chunk
     GETKEY_REQUEST      // Update the client's MAC key
   };
 
   // Composes a URL using |prefix|, |method| (e.g.: gethash, download,
   // newkey, report), |client_name| and |version|. When not empty,
-  // |additional_query| is appended to the URL.
+  // |additional_query| is appended to the URL with an additional "&"
+  // in the front.
   static std::string ComposeUrl(const std::string& prefix,
                                 const std::string& method,
                                 const std::string& client_name,
@@ -155,7 +156,7 @@ class SafeBrowsingProtocolManager : public URLFetcher::Delegate {
   GURL MacKeyUrl() const;
   // Generates URL for reporting malware pages.
   GURL MalwareReportUrl(const GURL& malware_url, const GURL& page_url,
-                               const GURL& referrer_url) const;
+                        const GURL& referrer_url, bool is_subresource) const;
   // Composes a ChunkUrl based on input string.
   GURL NextChunkUrl(const std::string& input) const;
 

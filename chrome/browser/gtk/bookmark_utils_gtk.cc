@@ -8,7 +8,9 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/pickle.h"
+#include "base/string16.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_drag_data.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
@@ -36,9 +38,6 @@ const size_t kMaxCharsOnAButton = 15;
 const size_t kMaxTooltipTitleLength = 100;
 const size_t kMaxTooltipURLLength = 400;
 
-// Only used for the background of the drag widget.
-const GdkColor kBackgroundColor = GDK_COLOR_RGB(0xe6, 0xed, 0xf4);
-
 // Padding between the chrome button highlight border and the contents (favicon,
 // text).
 const int kButtonPaddingTop = 0;
@@ -51,7 +50,7 @@ void* AsVoid(const BookmarkNode* node) {
 }
 
 // Creates the widget hierarchy for a bookmark button.
-void PackButton(GdkPixbuf* pixbuf, const std::wstring& title, bool ellipsize,
+void PackButton(GdkPixbuf* pixbuf, const string16& title, bool ellipsize,
                 GtkThemeProvider* provider, GtkWidget* button) {
   GtkWidget* former_child = gtk_bin_get_child(GTK_BIN(button));
   if (former_child)
@@ -64,7 +63,7 @@ void PackButton(GdkPixbuf* pixbuf, const std::wstring& title, bool ellipsize,
   GtkWidget* box = gtk_hbox_new(FALSE, kBarButtonPadding);
   gtk_box_pack_start(GTK_BOX(box), image, FALSE, FALSE, 0);
 
-  std::string label_string = WideToUTF8(title);
+  std::string label_string = UTF16ToUTF8(title);
   if (!label_string.empty()) {
     GtkWidget* label = gtk_label_new(label_string.c_str());
     // Until we switch to vector graphics, force the font size.
@@ -99,11 +98,11 @@ const int kDragRepresentationWidth = 140;
 struct DragRepresentationData {
  public:
   GdkPixbuf* favicon;
-  std::wstring text;
+  string16 text;
   SkColor text_color;
 
   DragRepresentationData(GdkPixbuf* favicon,
-                         const std::wstring& text,
+                         const string16& text,
                          SkColor text_color)
       : favicon(favicon),
         text(text),
@@ -140,7 +139,7 @@ gboolean OnDragIconExpose(GtkWidget* sender,
   int text_width = sender->allocation.width - text_x;
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   const gfx::Font& base_font = rb.GetFont(ResourceBundle::BaseFont);
-  canvas.DrawStringInt(data->text,
+  canvas.DrawStringInt(UTF16ToWide(data->text),
                        base_font, data->text_color,
                        text_x, 0, text_width, sender->allocation.height);
 
@@ -179,7 +178,7 @@ GdkPixbuf* GetPixbufForNode(const BookmarkNode* node, BookmarkModel* model,
 }
 
 GtkWidget* GetDragRepresentation(GdkPixbuf* pixbuf,
-                                 const std::wstring& title,
+                                 const string16& title,
                                  GtkThemeProvider* provider) {
   GtkWidget* window = gtk_window_new(GTK_WINDOW_POPUP);
 
@@ -196,12 +195,12 @@ GtkWidget* GetDragRepresentation(GdkPixbuf* pixbuf,
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();
     const gfx::Font& base_font = rb.GetFont(ResourceBundle::BaseFont);
     gtk_widget_set_size_request(window, kDragRepresentationWidth,
-                                base_font.height());
+                                base_font.GetHeight());
   } else {
     if (!provider->UseGtkTheme()) {
-      // TODO(erg): Theme wise, which color should I be picking here?
-      // COLOR_BUTTON_BACKGROUND doesn't match the default theme!
-      gtk_widget_modify_bg(window, GTK_STATE_NORMAL, &kBackgroundColor);
+      GdkColor color = provider->GetGdkColor(
+          BrowserThemeProvider::COLOR_TOOLBAR);
+      gtk_widget_modify_bg(window, GTK_STATE_NORMAL, &color);
     }
     gtk_widget_realize(window);
 
@@ -231,8 +230,8 @@ void ConfigureButtonForNode(const BookmarkNode* node, BookmarkModel* model,
                             GtkWidget* button, GtkThemeProvider* provider) {
   GdkPixbuf* pixbuf = bookmark_utils::GetPixbufForNode(node, model,
                                                        provider->UseGtkTheme());
-  PackButton(pixbuf, node->GetTitle(), node != model->other_node(),
-             provider, button);
+  PackButton(pixbuf, node->GetTitle(), node != model->other_node(), provider,
+             button);
   g_object_unref(pixbuf);
 
   std::string tooltip = BuildTooltipFor(node);
@@ -245,7 +244,7 @@ void ConfigureButtonForNode(const BookmarkNode* node, BookmarkModel* model,
 
 std::string BuildTooltipFor(const BookmarkNode* node) {
   const std::string& url = node->GetURL().possibly_invalid_spec();
-  const std::string& title = WideToUTF8(node->GetTitle());
+  const std::string& title = UTF16ToUTF8(node->GetTitle());
 
   std::string truncated_url = WideToUTF8(l10n_util::TruncateString(
       UTF8ToWide(url), kMaxTooltipURLLength));
@@ -259,7 +258,7 @@ std::string BuildTooltipFor(const BookmarkNode* node) {
     return escaped_url;
   } else {
     std::string truncated_title = WideToUTF8(l10n_util::TruncateString(
-      node->GetTitle(), kMaxTooltipTitleLength));
+        UTF16ToWideHack(node->GetTitle()), kMaxTooltipTitleLength));
     gchar* escaped_title_cstr = g_markup_escape_text(truncated_title.c_str(),
                                                      truncated_title.size());
     std::string escaped_title(escaped_title_cstr);
@@ -327,8 +326,8 @@ void WriteBookmarksToSelection(const std::vector<const BookmarkNode*>& nodes,
     }
     case gtk_dnd_util::NETSCAPE_URL: {
       // _NETSCAPE_URL format is URL + \n + title.
-      std::string utf8_text = nodes[0]->GetURL().spec() + "\n" + UTF16ToUTF8(
-          nodes[0]->GetTitleAsString16());
+      std::string utf8_text = nodes[0]->GetURL().spec() + "\n" +
+          UTF16ToUTF8(nodes[0]->GetTitle());
       gtk_selection_data_set(selection_data,
                              selection_data->target,
                              kBitsInAByte,
@@ -407,7 +406,7 @@ bool CreateNewBookmarkFromNamedUrl(GtkSelectionData* selection_data,
   if (!gtk_dnd_util::ExtractNamedURL(selection_data, &url, &title))
     return false;
 
-  model->AddURL(parent, idx, UTF16ToWideHack(title), url);
+  model->AddURL(parent, idx, title, url);
   return true;
 }
 
@@ -417,7 +416,7 @@ bool CreateNewBookmarksFromURIList(GtkSelectionData* selection_data,
   gtk_dnd_util::ExtractURIList(selection_data, &urls);
   for (size_t i = 0; i < urls.size(); ++i) {
     std::string title = GetNameForURL(urls[i]);
-    model->AddURL(parent, idx++, UTF8ToWide(title), urls[i]);
+    model->AddURL(parent, idx++, UTF8ToUTF16(title), urls[i]);
   }
   return true;
 }

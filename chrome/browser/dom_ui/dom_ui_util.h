@@ -4,10 +4,12 @@
 
 #ifndef CHROME_BROWSER_DOM_UI_DOM_UI_UTIL_H_
 #define CHROME_BROWSER_DOM_UI_DOM_UI_UTIL_H_
+#pragma once
 
 #include <string>
 
-class Value;
+class ListValue;
+class SkBitmap;
 
 namespace dom_ui_util {
 
@@ -17,7 +19,7 @@ namespace dom_ui_util {
 // one entry in it, and that first entry must be a string, which is
 // returned.  The parameter is a Value for convenience.  Returns an
 // empty string on error or if the parameter is not a ListValue.
-std::string GetJsonResponseFromFirstArgumentInList(const Value* content);
+std::string GetJsonResponseFromFirstArgumentInList(const ListValue* args);
 
 // Convenience routine to get one of the response strings from an
 // argument list.  content must be a ListValue, with at least
@@ -26,8 +28,21 @@ std::string GetJsonResponseFromFirstArgumentInList(const Value* content);
 // which is returned.  The parameter is a Value for convenience.
 // Returns an empty string on error or if the parameter is not a
 // ListValue.
-std::string GetJsonResponseFromArgumentList(const Value* content,
+std::string GetJsonResponseFromArgumentList(const ListValue* args,
                                             size_t list_index);
+
+
+// Convenience routine to convert SkBitmap object to data url
+// so that it can be used in DOMUI.
+std::string GetImageDataUrl(const SkBitmap& bitmap);
+
+// Convenience routine to get data url that corresponds to given
+// resource_id as an image. This function does not check if the
+// resource for the |resource_id| is an image, therefore it is the
+// caller's responsibility to make sure the resource is indeed an
+// image. Returns empty string if a resource does not exist for given
+// |resource_id|.
+std::string GetImageDataUrlFromResource(int resource_id);
 
 }  // end of namespace
 

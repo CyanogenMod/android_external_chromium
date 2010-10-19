@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,20 @@
 #include <vector>
 
 #include "app/combobox_model.h"
+#include "app/l10n_util.h"
 #include "base/stl_util-inl.h"
+#include "base/string16.h"
+#include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/cros/system_library.h"
+#include "chrome/browser/chromeos/language_preferences.h"
+#include "chrome/browser/chromeos/options/language_config_util.h"
 #include "chrome/browser/chromeos/options/language_config_view.h"
 #include "chrome/browser/chromeos/options/options_window_view.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
@@ -121,14 +128,15 @@ class DateTimeSection : public SettingsPageSection,
       return static_cast<int>(timezones_.size());
     }
 
-    virtual std::wstring GetItemAt(int index) {
+    virtual string16 GetItemAt(int index) {
       icu::UnicodeString name;
       timezones_[index]->getDisplayName(name);
       std::wstring output;
       UTF16ToWide(name.getBuffer(), name.length(), &output);
       int hour_offset = timezones_[index]->getRawOffset() / 3600000;
-      return StringPrintf(hour_offset == 0 ? L"(GMT) " : (hour_offset > 0 ?
-          L"(GMT+%d) " : L"(GMT%d) "), hour_offset) + output;
+      return WideToUTF16Hack(
+          base::StringPrintf(hour_offset == 0 ? L"(GMT) " : (hour_offset > 0 ?
+          L"(GMT+%d) " : L"(GMT%d) "), hour_offset) + output);
     }
 
     virtual icu::TimeZone* GetTimeZoneAt(int index) {
@@ -211,7 +219,7 @@ class TouchpadSection : public SettingsPageSection,
  protected:
   // SettingsPageSection overrides:
   virtual void InitContents(GridLayout* layout);
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
 
  private:
   // The View that contains the contents of the section.
@@ -219,14 +227,10 @@ class TouchpadSection : public SettingsPageSection,
 
   // Controls for this section:
   views::Checkbox* enable_tap_to_click_checkbox_;
-  views::Checkbox* enable_vert_edge_scroll_checkbox_;
-  views::Slider* speed_factor_slider_;
   views::Slider* sensitivity_slider_;
 
   // Preferences for this section:
   BooleanPrefMember tap_to_click_enabled_;
-  BooleanPrefMember vert_edge_scroll_enabled_;
-  IntegerPrefMember speed_factor_;
   IntegerPrefMember sensitivity_;
 
   DISALLOW_COPY_AND_ASSIGN(TouchpadSection);
@@ -235,8 +239,6 @@ class TouchpadSection : public SettingsPageSection,
 TouchpadSection::TouchpadSection(Profile* profile)
     : SettingsPageSection(profile, IDS_OPTIONS_SETTINGS_SECTION_TITLE_TOUCHPAD),
       enable_tap_to_click_checkbox_(NULL),
-      enable_vert_edge_scroll_checkbox_(NULL),
-      speed_factor_slider_(NULL),
       sensitivity_slider_(NULL) {
 }
 
@@ -249,24 +251,11 @@ void TouchpadSection::ButtonPressed(
         UserMetricsAction("Options_TapToClickCheckbox_Disable"),
         profile()->GetPrefs());
     tap_to_click_enabled_.SetValue(enabled);
-  } else if (sender == enable_vert_edge_scroll_checkbox_) {
-    bool enabled = enable_vert_edge_scroll_checkbox_->checked();
-    UserMetricsRecordAction(enabled ?
-        UserMetricsAction("Options_VertEdgeScrollCheckbox_Enable") :
-        UserMetricsAction("Options_VertEdgeScrollCheckbox_Disable"),
-        profile()->GetPrefs());
-    vert_edge_scroll_enabled_.SetValue(enabled);
   }
 }
 
 void TouchpadSection::SliderValueChanged(views::Slider* sender) {
-  if (sender == speed_factor_slider_) {
-    double value = speed_factor_slider_->value();
-    UserMetricsRecordAction(
-        UserMetricsAction("Options_SpeedFactorSlider_Changed"),
-        profile()->GetPrefs());
-    speed_factor_.SetValue(value);
-  } else if (sender == sensitivity_slider_) {
+  if (sender == sensitivity_slider_) {
     double value = sensitivity_slider_->value();
     UserMetricsRecordAction(
         UserMetricsAction("Options_SensitivitySlider_Changed"),
@@ -280,18 +269,8 @@ void TouchpadSection::InitContents(GridLayout* layout) {
       IDS_OPTIONS_SETTINGS_TAP_TO_CLICK_ENABLED_DESCRIPTION));
   enable_tap_to_click_checkbox_->set_listener(this);
   enable_tap_to_click_checkbox_->SetMultiLine(true);
-  enable_vert_edge_scroll_checkbox_ = new views::Checkbox(l10n_util::GetString(
-      IDS_OPTIONS_SETTINGS_VERT_EDGE_SCROLL_ENABLED_DESCRIPTION));
-  enable_vert_edge_scroll_checkbox_->set_listener(this);
-  enable_vert_edge_scroll_checkbox_->SetMultiLine(true);
-  // Create speed factor slider with values between 1 and 10 step 1
-  speed_factor_slider_ = new views::Slider(1, 10, 1,
-      static_cast<views::Slider::StyleFlags>(
-          views::Slider::STYLE_DRAW_VALUE |
-          views::Slider::STYLE_UPDATE_ON_RELEASE),
-      this);
-  // Create sensitivity slider with values between 1 and 10 step 1
-  sensitivity_slider_ = new views::Slider(1, 10, 1,
+  // Create sensitivity slider with values between 1 and 5 step 1
+  sensitivity_slider_ = new views::Slider(1, 5, 1,
       static_cast<views::Slider::StyleFlags>(
           views::Slider::STYLE_DRAW_VALUE |
           views::Slider::STYLE_UPDATE_ON_RELEASE),
@@ -302,41 +281,21 @@ void TouchpadSection::InitContents(GridLayout* layout) {
       l10n_util::GetString(IDS_OPTIONS_SETTINGS_SENSITIVITY_DESCRIPTION)));
   layout->AddView(sensitivity_slider_);
   layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
-  layout->StartRow(0, double_column_view_set_id());
-  layout->AddView(new views::Label(
-      l10n_util::GetString(IDS_OPTIONS_SETTINGS_SPEED_FACTOR_DESCRIPTION)));
-  layout->AddView(speed_factor_slider_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
   layout->StartRow(0, single_column_view_set_id());
   layout->AddView(enable_tap_to_click_checkbox_);
-  layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
-  layout->StartRow(0, single_column_view_set_id());
-  layout->AddView(enable_vert_edge_scroll_checkbox_);
   layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
 
   // Init member prefs so we can update the controls if prefs change.
   tap_to_click_enabled_.Init(prefs::kTapToClickEnabled,
                              profile()->GetPrefs(), this);
-  vert_edge_scroll_enabled_.Init(prefs::kVertEdgeScrollEnabled,
-                                 profile()->GetPrefs(), this);
-  speed_factor_.Init(prefs::kTouchpadSpeedFactor,
-                     profile()->GetPrefs(), this);
   sensitivity_.Init(prefs::kTouchpadSensitivity,
                     profile()->GetPrefs(), this);
 }
 
-void TouchpadSection::NotifyPrefChanged(const std::wstring* pref_name) {
+void TouchpadSection::NotifyPrefChanged(const std::string* pref_name) {
   if (!pref_name || *pref_name == prefs::kTapToClickEnabled) {
     bool enabled =  tap_to_click_enabled_.GetValue();
     enable_tap_to_click_checkbox_->SetChecked(enabled);
-  }
-  if (!pref_name || *pref_name == prefs::kVertEdgeScrollEnabled) {
-    bool enabled =  vert_edge_scroll_enabled_.GetValue();
-    enable_vert_edge_scroll_checkbox_->SetChecked(enabled);
-  }
-  if (!pref_name || *pref_name == prefs::kTouchpadSpeedFactor) {
-    double value =  speed_factor_.GetValue();
-    speed_factor_slider_->SetValue(value);
   }
   if (!pref_name || *pref_name == prefs::kTouchpadSensitivity) {
     double value =  sensitivity_.GetValue();
@@ -349,7 +308,8 @@ void TouchpadSection::NotifyPrefChanged(const std::wstring* pref_name) {
 
 // TextInput section for text input settings.
 class LanguageSection : public SettingsPageSection,
-                        public views::ButtonListener {
+                        public views::ButtonListener,
+                        public views::Combobox::Listener {
  public:
   explicit LanguageSection(Profile* profile);
   virtual ~LanguageSection() {}
@@ -360,28 +320,58 @@ class LanguageSection : public SettingsPageSection,
   };
   // Overridden from SettingsPageSection:
   virtual void InitContents(GridLayout* layout);
+  void NotifyPrefChanged(const std::string* pref_name);
 
   // Overridden from views::ButtonListener:
   virtual void ButtonPressed(views::Button* sender,
                              const views::Event& event);
+
+  // Overridden from views::Combobox::Listener:
+  virtual void ItemChanged(views::Combobox* sender,
+                           int prev_index,
+                           int new_index);
+
+  IntegerPrefMember xkb_remap_search_key_pref_;
+  IntegerPrefMember xkb_remap_control_key_pref_;
+  IntegerPrefMember xkb_remap_alt_key_pref_;
+  views::Combobox* xkb_modifier_combobox_;
+  chromeos::LanguageComboboxModel<int> xkb_modifier_combobox_model_;
 
   DISALLOW_COPY_AND_ASSIGN(LanguageSection);
 };
 
 LanguageSection::LanguageSection(Profile* profile)
     : SettingsPageSection(profile,
-                          IDS_OPTIONS_SETTINGS_SECTION_TITLE_LANGUAGE) {
+                          IDS_OPTIONS_SETTINGS_SECTION_TITLE_LANGUAGE),
+      xkb_modifier_combobox_(NULL),
+      xkb_modifier_combobox_model_(
+          &language_prefs::kXkbModifierMultipleChoicePrefs) {
+  xkb_remap_search_key_pref_.Init(
+      prefs::kLanguageXkbRemapSearchKeyTo, profile->GetPrefs(), this);
+  xkb_remap_control_key_pref_.Init(
+      prefs::kLanguageXkbRemapControlKeyTo, profile->GetPrefs(), this);
+  xkb_remap_alt_key_pref_.Init(
+      prefs::kLanguageXkbRemapAltKeyTo, profile->GetPrefs(), this);
 }
 
 void LanguageSection::InitContents(GridLayout* layout) {
-  // Add the customize button.
-  layout->StartRow(0, single_column_view_set_id());
+  // Add the customize button and XKB combobox.
+  layout->StartRow(0, double_column_view_set_id());
   views::NativeButton* customize_languages_button = new views::NativeButton(
       this,
       l10n_util::GetString(IDS_OPTIONS_SETTINGS_LANGUAGES_CUSTOMIZE));
   customize_languages_button->set_tag(kCustomizeLanguagesButton);
+
+  xkb_modifier_combobox_ = new views::Combobox(&xkb_modifier_combobox_model_);
+  xkb_modifier_combobox_->set_listener(this);
+
+  // Initialize the combobox to what's saved in user preferences. Otherwise,
+  // ItemChanged() will be called with |new_index| == 0.
+  NotifyPrefChanged(NULL);
+
   layout->AddView(customize_languages_button, 1, 1,
                   GridLayout::LEADING, GridLayout::CENTER);
+  layout->AddView(xkb_modifier_combobox_);
   layout->AddPaddingRow(0, kUnrelatedControlVerticalSpacing);
 }
 
@@ -389,6 +379,59 @@ void LanguageSection::ButtonPressed(
     views::Button* sender, const views::Event& event) {
   if (sender->tag() == kCustomizeLanguagesButton) {
     LanguageConfigView::Show(profile(), GetOptionsViewParent());
+  }
+}
+
+void LanguageSection::ItemChanged(views::Combobox* sender,
+                                  int prev_index,
+                                  int new_index) {
+  LOG(INFO) << "Changing XKB modofier pref to " << new_index;
+  switch (new_index) {
+    default:
+      LOG(ERROR) << "Unexpected mapping: " << new_index;
+      /* fall through */
+    case language_prefs::kNoRemap:
+      xkb_remap_search_key_pref_.SetValue(kSearchKey);
+      xkb_remap_control_key_pref_.SetValue(kLeftControlKey);
+      xkb_remap_alt_key_pref_.SetValue(kLeftAltKey);
+      break;
+    case language_prefs::kSwapCtrlAndAlt:
+      xkb_remap_search_key_pref_.SetValue(kSearchKey);
+      xkb_remap_control_key_pref_.SetValue(kLeftAltKey);
+      xkb_remap_alt_key_pref_.SetValue(kLeftControlKey);
+      break;
+    case language_prefs::kSwapSearchAndCtrl:
+      xkb_remap_search_key_pref_.SetValue(kLeftControlKey);
+      xkb_remap_control_key_pref_.SetValue(kSearchKey);
+      xkb_remap_alt_key_pref_.SetValue(kLeftAltKey);
+      break;
+  }
+}
+
+void LanguageSection::NotifyPrefChanged(const std::string* pref_name) {
+  if (!pref_name || (*pref_name == prefs::kLanguageXkbRemapSearchKeyTo ||
+                     *pref_name == prefs::kLanguageXkbRemapControlKeyTo ||
+                     *pref_name == prefs::kLanguageXkbRemapAltKeyTo)) {
+    const int search_remap = xkb_remap_search_key_pref_.GetValue();
+    const int control_remap = xkb_remap_control_key_pref_.GetValue();
+    const int alt_remap = xkb_remap_alt_key_pref_.GetValue();
+    if ((search_remap == kSearchKey) &&
+        (control_remap == kLeftControlKey) &&
+        (alt_remap == kLeftAltKey)) {
+      xkb_modifier_combobox_->SetSelectedItem(language_prefs::kNoRemap);
+    } else if ((search_remap == kLeftControlKey) &&
+               (control_remap == kSearchKey) &&
+               (alt_remap == kLeftAltKey)) {
+      xkb_modifier_combobox_->SetSelectedItem(
+          language_prefs::kSwapSearchAndCtrl);
+    } else if ((search_remap == kSearchKey) &&
+               (control_remap == kLeftAltKey) &&
+               (alt_remap == kLeftControlKey)) {
+      xkb_modifier_combobox_->SetSelectedItem(language_prefs::kSwapCtrlAndAlt);
+    } else {
+      LOG(ERROR) << "Unexpected mapping. The prefs are updated by DOMUI?";
+      xkb_modifier_combobox_->SetSelectedItem(language_prefs::kNoRemap);
+    }
   }
 }
 
@@ -409,7 +452,7 @@ class AccessibilitySection : public SettingsPageSection,
 
   // Overridden from SettingsPageSection:
   virtual void InitContents(GridLayout* layout);
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
 
  private:
   // The View that contains the contents of the section.
@@ -454,7 +497,7 @@ void AccessibilitySection::ButtonPressed(
   }
 }
 
-void AccessibilitySection::NotifyPrefChanged(const std::wstring* pref_name) {
+void AccessibilitySection::NotifyPrefChanged(const std::string* pref_name) {
   if (!pref_name || *pref_name == prefs::kAccessibilityEnabled) {
     bool enabled = accessibility_enabled_.GetValue();
     accessibility_checkbox_->SetChecked(enabled);

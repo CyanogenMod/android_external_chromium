@@ -1,11 +1,13 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.  Use of this
-// source code is governed by a BSD-style license that can be found in the
-// LICENSE file.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #include "net/ftp/ftp_directory_listing_parser_windows.h"
 
 #include <vector>
 
+#include "base/string_number_conversions.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "net/ftp/ftp_util.h"
 
@@ -22,11 +24,11 @@ bool WindowsDateListingToTime(const std::vector<string16>& columns,
   SplitString(columns[0], '-', &date_parts);
   if (date_parts.size() != 3)
     return false;
-  if (!StringToInt(date_parts[0], &time_exploded.month))
+  if (!base::StringToInt(date_parts[0], &time_exploded.month))
     return false;
-  if (!StringToInt(date_parts[1], &time_exploded.day_of_month))
+  if (!base::StringToInt(date_parts[1], &time_exploded.day_of_month))
     return false;
-  if (!StringToInt(date_parts[2], &time_exploded.year))
+  if (!base::StringToInt(date_parts[2], &time_exploded.year))
     return false;
   if (time_exploded.year < 0)
     return false;
@@ -44,15 +46,22 @@ bool WindowsDateListingToTime(const std::vector<string16>& columns,
   SplitString(columns[1].substr(0, 5), ':', &time_parts);
   if (time_parts.size() != 2)
     return false;
-  if (!StringToInt(time_parts[0], &time_exploded.hour))
+  if (!base::StringToInt(time_parts[0], &time_exploded.hour))
     return false;
-  if (!StringToInt(time_parts[1], &time_exploded.minute))
+  if (!base::StringToInt(time_parts[1], &time_exploded.minute))
+    return false;
+  if (!time_exploded.HasValidValues())
     return false;
   string16 am_or_pm(columns[1].substr(5, 2));
-  if (EqualsASCII(am_or_pm, "PM"))
-    time_exploded.hour += 12;
-  else if (!EqualsASCII(am_or_pm, "AM"))
+  if (EqualsASCII(am_or_pm, "PM")) {
+    if (time_exploded.hour < 12)
+      time_exploded.hour += 12;
+  } else if (EqualsASCII(am_or_pm, "AM")) {
+    if (time_exploded.hour == 12)
+      time_exploded.hour = 0;
+  } else {
     return false;
+  }
 
   // We don't know the time zone of the server, so just use local time.
   *time = base::Time::FromLocalExploded(time_exploded);
@@ -84,7 +93,7 @@ bool FtpDirectoryListingParserWindows::ConsumeLine(const string16& line) {
     entry.size = -1;
   } else {
     entry.type = FtpDirectoryListingEntry::FILE;
-    if (!StringToInt64(columns[2], &entry.size))
+    if (!base::StringToInt64(columns[2], &entry.size))
       return false;
     if (entry.size < 0)
       return false;

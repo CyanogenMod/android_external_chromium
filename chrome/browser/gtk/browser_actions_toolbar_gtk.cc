@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "base/i18n/rtl.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/extensions/extension_browser_event_router.h"
 #include "chrome/browser/extensions/extension_context_menu_model.h"
@@ -33,24 +34,26 @@
 #include "gfx/canvas_skia_paint.h"
 #include "gfx/gtk_util.h"
 #include "grit/app_resources.h"
+#include "grit/theme_resources.h"
 
 namespace {
 
-// The size of each button on the toolbar.
-const int kButtonSize = 29;
+// The width of the browser action buttons.
+const int kButtonWidth = 27;
 
-// The padding between browser action buttons. Visually, the actual number of
-// "empty" (non-drawing) pixels is this value + 2 when adjacent browser icons
-// use their maximum allowed size.
-const int kButtonPadding = 3;
+// The padding between browser action buttons.
+const int kButtonPadding = 4;
 
 // The padding to the right of the browser action buttons (between the buttons
-// and the separator, or chevron if it's showing).
-const int kPaddingToRightOfButtons = 5;
+// and chevron if they are both showing).
+const int kButtonChevronPadding = 2;
 
 // The padding to the left, top and bottom of the browser actions toolbar
 // separator.
 const int kSeparatorPadding = 2;
+
+// Width of the invisible gripper for resizing the toolbar.
+const int kResizeGripperWidth = 4;
 
 const char* kDragTarget = "application/x-chrome-browseraction";
 
@@ -66,7 +69,7 @@ GtkTargetEntry GetDragTargetEntry() {
 // The minimum width in pixels of the button hbox if |icon_count| icons are
 // showing.
 gint WidthForIconCount(gint icon_count) {
-  return std::max((kButtonSize + kButtonPadding) * icon_count - kButtonPadding,
+  return std::max((kButtonWidth + kButtonPadding) * icon_count - kButtonPadding,
                   0);
 }
 
@@ -80,19 +83,26 @@ class BrowserActionButton : public NotificationObserver,
                             public MenuGtk::Delegate {
  public:
   BrowserActionButton(BrowserActionsToolbarGtk* toolbar,
-                      Extension* extension)
+                      Extension* extension,
+                      GtkThemeProvider* theme_provider)
       : toolbar_(toolbar),
         extension_(extension),
         image_(NULL),
         tracker_(this),
         tab_specific_icon_(NULL),
         default_icon_(NULL) {
-    button_.Own(
-        GtkThemeProvider::GetFrom(toolbar->profile_)->BuildChromeButton());
+    button_.reset(new CustomDrawButton(
+        theme_provider,
+        IDR_BROWSER_ACTION,
+        IDR_BROWSER_ACTION_P,
+        IDR_BROWSER_ACTION_H,
+        0,
+        NULL));
+    alignment_.Own(gtk_alignment_new(0, 0, 1, 1));
+    gtk_container_add(GTK_CONTAINER(alignment_.get()), button());
+    gtk_widget_show(button());
 
     DCHECK(extension_->browser_action());
-
-    gtk_widget_set_size_request(button_.get(), kButtonSize, kButtonSize);
 
     UpdateState();
 
@@ -106,14 +116,14 @@ class BrowserActionButton : public NotificationObserver,
                          ImageLoadingTracker::DONT_CACHE);
     }
 
-    signals_.Connect(button_.get(), "button-press-event",
+    signals_.Connect(button(), "button-press-event",
                      G_CALLBACK(OnButtonPress), this);
-    signals_.Connect(button_.get(), "clicked",
+    signals_.Connect(button(), "clicked",
                      G_CALLBACK(OnClicked), this);
-    signals_.ConnectAfter(button_.get(), "expose-event",
-                          G_CALLBACK(OnExposeEvent), this);
-    signals_.Connect(button_.get(), "drag-begin",
+    signals_.Connect(button(), "drag-begin",
                      G_CALLBACK(&OnDragBegin), this);
+    signals_.ConnectAfter(widget(), "expose-event",
+                          G_CALLBACK(OnExposeEvent), this);
 
     registrar_.Add(this, NotificationType::EXTENSION_BROWSER_ACTION_UPDATED,
                    Source<ExtensionAction>(extension->browser_action()));
@@ -126,10 +136,12 @@ class BrowserActionButton : public NotificationObserver,
     if (default_icon_)
       g_object_unref(default_icon_);
 
-    button_.Destroy();
+    alignment_.Destroy();
   }
 
-  GtkWidget* widget() { return button_.get(); }
+  GtkWidget* button() { return button_->widget(); }
+
+  GtkWidget* widget() { return alignment_.get(); }
 
   Extension* extension() { return extension_; }
 
@@ -161,9 +173,9 @@ class BrowserActionButton : public NotificationObserver,
 
     std::string tooltip = extension_->browser_action()->GetTitle(tab_id);
     if (tooltip.empty())
-      gtk_widget_set_has_tooltip(button_.get(), FALSE);
+      gtk_widget_set_has_tooltip(button(), FALSE);
     else
-      gtk_widget_set_tooltip_text(button_.get(), tooltip.c_str());
+      gtk_widget_set_tooltip_text(button(), tooltip.c_str());
 
     SkBitmap image = extension_->browser_action()->GetIcon(tab_id);
     if (!image.isNull()) {
@@ -175,7 +187,7 @@ class BrowserActionButton : public NotificationObserver,
     } else if (default_icon_) {
       SetImage(default_icon_);
     }
-    gtk_widget_queue_draw(button_.get());
+    gtk_widget_queue_draw(button());
   }
 
   SkBitmap GetIcon() {
@@ -199,7 +211,7 @@ class BrowserActionButton : public NotificationObserver,
  private:
   // MenuGtk::Delegate implementation.
   virtual void StoppedShowing() {
-    gtk_chrome_button_unset_paint_state(GTK_CHROME_BUTTON(button_.get()));
+    button_->UnsetPaintOverride();
 
     // If the context menu was showing for the overflow menu, re-assert the
     // grab that was shadowed.
@@ -243,7 +255,7 @@ class BrowserActionButton : public NotificationObserver,
   void SetImage(GdkPixbuf* image) {
     if (!image_) {
       image_ = gtk_image_new_from_pixbuf(image);
-      gtk_button_set_image(GTK_BUTTON(button_.get()), image_);
+      gtk_button_set_image(GTK_BUTTON(button()), image_);
     } else {
       gtk_image_set_from_pixbuf(GTK_IMAGE(image_), image);
     }
@@ -255,8 +267,7 @@ class BrowserActionButton : public NotificationObserver,
     if (event->button.button != 3)
       return FALSE;
 
-    gtk_chrome_button_set_paint_state(GTK_CHROME_BUTTON(action->button_.get()),
-                                      GTK_STATE_PRELIGHT);
+    action->button_->SetPaintOverride(GTK_STATE_ACTIVE);
     action->GetContextMenu()->Popup(widget, event);
 
     return TRUE;
@@ -303,8 +314,11 @@ class BrowserActionButton : public NotificationObserver,
   // The extension that contains this browser action.
   Extension* extension_;
 
-  // The gtk widget for this browser action.
-  OwnedWidgetGtk button_;
+  // The button for this browser action.
+  scoped_ptr<CustomDrawButton> button_;
+
+  // The top level widget (parent of |button_|).
+  OwnedWidgetGtk alignment_;
 
   // The one image subwidget in |button_|. We keep this out so we don't alter
   // the widget hierarchy while changing the button image because changing the
@@ -343,21 +357,27 @@ BrowserActionsToolbarGtk::BrowserActionsToolbarGtk(Browser* browser)
       model_(NULL),
       hbox_(gtk_hbox_new(FALSE, 0)),
       button_hbox_(gtk_chrome_shrinkable_hbox_new(TRUE, FALSE, kButtonPadding)),
-      overflow_button_(browser->profile()),
-      separator_(theme_provider_->CreateToolbarSeparator()),
       drag_button_(NULL),
       drop_index_(-1),
       resize_animation_(this),
       desired_width_(0),
       start_width_(0),
-      draw_gripper_(false),
       method_factory_(this) {
   ExtensionsService* extension_service = profile_->GetExtensionsService();
   // The |extension_service| can be NULL in Incognito.
   if (!extension_service)
     return;
 
+ overflow_button_.reset(new CustomDrawButton(
+      theme_provider_,
+      IDR_BROWSER_ACTIONS_OVERFLOW,
+      IDR_BROWSER_ACTIONS_OVERFLOW_P,
+      IDR_BROWSER_ACTIONS_OVERFLOW_H,
+      0,
+      gtk_arrow_new(GTK_ARROW_DOWN, GTK_SHADOW_NONE)));
+
   GtkWidget* gripper = gtk_button_new();
+  gtk_widget_set_size_request(gripper, kResizeGripperWidth, -1);
   GTK_WIDGET_UNSET_FLAGS(gripper, GTK_CAN_FOCUS);
   gtk_widget_add_events(gripper, GDK_POINTER_MOTION_MASK);
   signals_.Connect(gripper, "motion-notify-event",
@@ -372,19 +392,31 @@ BrowserActionsToolbarGtk::BrowserActionsToolbarGtk(Browser* browser)
                    G_CALLBACK(OnGripperButtonReleaseThunk), this);
   signals_.Connect(gripper, "button-press-event",
                    G_CALLBACK(OnGripperButtonPressThunk), this);
-  signals_.Connect(overflow_button_.widget(), "button-press-event",
+  signals_.Connect(chevron(), "button-press-event",
                    G_CALLBACK(OnOverflowButtonPressThunk), this);
 
-  // Add some blank space on the right of the browser action buttons.
-  GtkWidget* spacer = gtk_alignment_new(0, 0, 1, 1);
-  gtk_widget_set_size_request(spacer, kPaddingToRightOfButtons, -1);
+  // |overflow_alignment| adds padding to the right of the browser action
+  // buttons, but only appears when the overflow menu is showing.
+  overflow_alignment_ = gtk_alignment_new(0, 0, 1, 1);
+  gtk_container_add(GTK_CONTAINER(overflow_alignment_), chevron());
+
+  // |overflow_area_| holds the overflow chevron and the separator, which
+  // is only shown in GTK+ theme mode.
+  overflow_area_ = gtk_hbox_new(FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(overflow_area_), overflow_alignment_,
+                     FALSE, FALSE, 0);
+
+  separator_ = gtk_vseparator_new();
+  gtk_box_pack_start(GTK_BOX(overflow_area_), separator_,
+                     FALSE, FALSE, 0);
+  gtk_widget_set_no_show_all(separator_, TRUE);
+
+  gtk_widget_show_all(overflow_area_);
+  gtk_widget_set_no_show_all(overflow_area_, TRUE);
 
   gtk_box_pack_start(GTK_BOX(hbox_.get()), gripper, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(hbox_.get()), button_hbox_.get(), TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(hbox_.get()), spacer, FALSE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(hbox_.get()), overflow_button_.widget(),
-                     FALSE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(hbox_.get()), separator_, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(hbox_.get()), overflow_area_, FALSE, FALSE, 0);
 
   model_ = extension_service->toolbar_model();
   model_->AddObserver(this);
@@ -401,6 +433,11 @@ BrowserActionsToolbarGtk::BrowserActionsToolbarGtk(Browser* browser)
                    G_CALLBACK(OnHierarchyChangedThunk), this);
 
   ViewIDUtil::SetID(button_hbox_.get(), VIEW_ID_BROWSER_ACTION_TOOLBAR);
+
+  registrar_.Add(this,
+                 NotificationType::BROWSER_THEME_CHANGED,
+                 NotificationService::AllSources());
+  theme_provider_->InitThemesFor(this);
 }
 
 BrowserActionsToolbarGtk::~BrowserActionsToolbarGtk() {
@@ -423,6 +460,16 @@ void BrowserActionsToolbarGtk::Update() {
        iter != extension_button_map_.end(); ++iter) {
     iter->second->UpdateState();
   }
+}
+
+void BrowserActionsToolbarGtk::Observe(NotificationType type,
+                                       const NotificationSource& source,
+                                       const NotificationDetails& details) {
+  DCHECK(NotificationType::BROWSER_THEME_CHANGED == type);
+  if (theme_provider_->UseGtkTheme())
+    gtk_widget_show(separator_);
+  else
+    gtk_widget_hide(separator_);
 }
 
 void BrowserActionsToolbarGtk::SetupDrags() {
@@ -460,19 +507,19 @@ void BrowserActionsToolbarGtk::CreateButtonForExtension(Extension* extension,
 
   RemoveButtonForExtension(extension);
   linked_ptr<BrowserActionButton> button(
-      new BrowserActionButton(this, extension));
+      new BrowserActionButton(this, extension, theme_provider_));
   gtk_chrome_shrinkable_hbox_pack_start(
       GTK_CHROME_SHRINKABLE_HBOX(button_hbox_.get()), button->widget(), 0);
   gtk_box_reorder_child(GTK_BOX(button_hbox_.get()), button->widget(), index);
   extension_button_map_[extension->id()] = button;
 
   GtkTargetEntry drag_target = GetDragTargetEntry();
-  gtk_drag_source_set(button->widget(), GDK_BUTTON1_MASK, &drag_target, 1,
+  gtk_drag_source_set(button->button(), GDK_BUTTON1_MASK, &drag_target, 1,
                       GDK_ACTION_MOVE);
   // We ignore whether the drag was a "success" or "failure" in Gtk's opinion.
-  signals_.Connect(button->widget(), "drag-end",
+  signals_.Connect(button->button(), "drag-end",
                    G_CALLBACK(&OnDragEndThunk), this);
-  signals_.Connect(button->widget(), "drag-failed",
+  signals_.Connect(button->button(), "drag-failed",
                    G_CALLBACK(&OnDragFailedThunk), this);
 
   // Any time a browser action button is shown or hidden we have to update
@@ -541,7 +588,7 @@ void BrowserActionsToolbarGtk::BrowserActionAdded(Extension* extension,
     return;
 
   // Animate the addition if we are showing all browser action buttons.
-  if (!GTK_WIDGET_VISIBLE(overflow_button_.widget())) {
+  if (!GTK_WIDGET_VISIBLE(overflow_area_)) {
     AnimateToShowNIcons(button_count());
     model_->SetVisibleIconCount(button_count());
   }
@@ -557,7 +604,7 @@ void BrowserActionsToolbarGtk::BrowserActionRemoved(Extension* extension) {
 
   RemoveButtonForExtension(extension);
 
-  if (!GTK_WIDGET_VISIBLE(overflow_button_.widget())) {
+  if (!GTK_WIDGET_VISIBLE(overflow_area_)) {
     AnimateToShowNIcons(button_count());
     model_->SetVisibleIconCount(button_count());
   }
@@ -613,7 +660,7 @@ void BrowserActionsToolbarGtk::ExecuteCommand(int command_id) {
   if (browser_action->HasPopup(tab_id)) {
     ExtensionPopupGtk::Show(
         browser_action->GetPopupUrl(tab_id), browser(),
-        overflow_button_.widget(),
+        chevron(),
         false);
   } else {
     ExtensionBrowserEventRouter::GetInstance()->BrowserActionExecuted(
@@ -622,8 +669,7 @@ void BrowserActionsToolbarGtk::ExecuteCommand(int command_id) {
 }
 
 void BrowserActionsToolbarGtk::StoppedShowing() {
-  gtk_chrome_button_unset_paint_state(
-      GTK_CHROME_BUTTON(overflow_button_.widget()));
+  overflow_button_->UnsetPaintOverride();
 }
 
 void BrowserActionsToolbarGtk::DragStarted(BrowserActionButton* button,
@@ -648,15 +694,21 @@ void BrowserActionsToolbarGtk::UpdateChevronVisibility() {
   int showing_icon_count =
       gtk_chrome_shrinkable_hbox_get_visible_child_count(
           GTK_CHROME_SHRINKABLE_HBOX(button_hbox_.get()));
+  if (showing_icon_count == 0) {
+    gtk_alignment_set_padding(GTK_ALIGNMENT(overflow_alignment_), 0, 0, 0, 0);
+  } else {
+    gtk_alignment_set_padding(GTK_ALIGNMENT(overflow_alignment_), 0, 0,
+                              kButtonChevronPadding, 0);
+  }
 
   if (button_count() > showing_icon_count) {
-    if (!GTK_WIDGET_VISIBLE(overflow_button_.widget())) {
+    if (!GTK_WIDGET_VISIBLE(overflow_area_)) {
       if (drag_button_) {
         // During drags, when the overflow chevron shows for the first time,
         // take that much space away from |button_hbox_| to make the drag look
         // smoother.
         GtkRequisition req;
-        gtk_widget_size_request(overflow_button_.widget(), &req);
+        gtk_widget_size_request(chevron(), &req);
         gint overflow_width = req.width;
         gtk_widget_size_request(button_hbox_.get(), &req);
         gint button_hbox_width = req.width;
@@ -664,10 +716,10 @@ void BrowserActionsToolbarGtk::UpdateChevronVisibility() {
         gtk_widget_set_size_request(button_hbox_.get(), button_hbox_width, -1);
       }
 
-      gtk_widget_show(overflow_button_.widget());
+      gtk_widget_show(overflow_area_);
     }
   } else {
-    gtk_widget_hide(overflow_button_.widget());
+    gtk_widget_hide(overflow_area_);
   }
 }
 
@@ -680,7 +732,7 @@ gboolean BrowserActionsToolbarGtk::OnDragMotion(GtkWidget* widget,
 
   if (base::i18n::IsRTL())
     x = widget->allocation.width - x;
-  drop_index_ = x < kButtonSize ? 0 : x / (kButtonSize + kButtonPadding);
+  drop_index_ = x < kButtonWidth ? 0 : x / (kButtonWidth + kButtonPadding);
 
   // We will go ahead and reorder the child in order to provide visual feedback
   // to the user. We don't inform the model that it has moved until the drag
@@ -754,21 +806,6 @@ gboolean BrowserActionsToolbarGtk::OnGripperMotionNotify(
 
 gboolean BrowserActionsToolbarGtk::OnGripperExpose(GtkWidget* gripper,
                                                    GdkEventExpose* expose) {
-  if (!draw_gripper_)
-    return TRUE;
-
-  cairo_t* cr = gdk_cairo_create(GDK_DRAWABLE(expose->window));
-
-  CairoCachedSurface* surface = theme_provider_->GetSurfaceNamed(
-      IDR_RESIZE_GRIPPER, gripper);
-  gfx::Point center = gfx::Rect(gripper->allocation).CenterPoint();
-  center.Offset(-surface->Width() / 2, -surface->Height() / 2);
-  surface->SetSource(cr, center.x(), center.y());
-  gdk_cairo_rectangle(cr, &expose->area);
-  cairo_fill(cr);
-
-  cairo_destroy(cr);
-
   return TRUE;
 }
 
@@ -781,18 +818,13 @@ gboolean BrowserActionsToolbarGtk::OnGripperEnterNotify(
     GtkWidget* gripper, GdkEventCrossing* event) {
   gdk_window_set_cursor(gripper->window,
                         gtk_util::GetCursor(GDK_SB_H_DOUBLE_ARROW));
-  draw_gripper_ = true;
-
   return FALSE;
 }
 
 gboolean BrowserActionsToolbarGtk::OnGripperLeaveNotify(
     GtkWidget* gripper, GdkEventCrossing* event) {
-  if (!(event->state & GDK_BUTTON1_MASK)) {
+  if (!(event->state & GDK_BUTTON1_MASK))
     gdk_window_set_cursor(gripper->window, NULL);
-    draw_gripper_ = false;
-  }
-
   return FALSE;
 }
 
@@ -801,11 +833,8 @@ gboolean BrowserActionsToolbarGtk::OnGripperButtonRelease(
   gfx::Rect gripper_rect(0, 0,
                          gripper->allocation.width, gripper->allocation.height);
   gfx::Point release_point(event->x, event->y);
-  if (!gripper_rect.Contains(release_point)) {
+  if (!gripper_rect.Contains(release_point))
     gdk_window_set_cursor(gripper->window, NULL);
-    draw_gripper_ = false;
-    gtk_widget_queue_draw(gripper);
-  }
 
   // After the user resizes the toolbar, we want to smartly resize it to be
   // the perfect size to fit the buttons.
@@ -851,9 +880,8 @@ gboolean BrowserActionsToolbarGtk::OnOverflowButtonPress(
   signals_.Connect(overflow_menu_->widget(), "button-press-event",
                    G_CALLBACK(OnOverflowMenuButtonPressThunk), this);
 
-  gtk_chrome_button_set_paint_state(GTK_CHROME_BUTTON(overflow),
-                                    GTK_STATE_ACTIVE);
-  overflow_menu_->PopupAsFromKeyEvent(overflow);
+  overflow_button_->SetPaintOverride(GTK_STATE_ACTIVE);
+  overflow_menu_->PopupAsFromKeyEvent(chevron());
 
   return FALSE;
 }

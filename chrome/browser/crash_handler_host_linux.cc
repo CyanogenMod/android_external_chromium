@@ -20,6 +20,8 @@
 #include "base/path_service.h"
 #include "base/rand_util.h"
 #include "base/string_util.h"
+#include "base/task.h"
+#include "base/thread.h"
 #include "breakpad/src/client/linux/handler/exception_handler.h"
 #include "breakpad/src/client/linux/minidump_writer/linux_dumper.h"
 #include "breakpad/src/client/linux/minidump_writer/minidump_writer.h"
@@ -30,14 +32,27 @@
 
 using google_breakpad::ExceptionHandler;
 
+namespace {
+
+// Handles the crash dump and frees the allocated BreakpadInfo struct.
+void CrashDumpTask(BreakpadInfo* info) {
+  HandleCrashDump(*info);
+  delete[] info->filename;
+  delete[] info->process_type;
+  delete[] info->crash_url;
+  delete[] info->guid;
+  delete[] info->distro;
+  delete info;
+}
+
+}  // namespace
+
 // Since classes derived from CrashHandlerHostLinux are singletons, it's only
 // destroyed at the end of the processes lifetime, which is greater in span than
 // the lifetime of the IO message loop.
 DISABLE_RUNNABLE_METHOD_REFCOUNT(CrashHandlerHostLinux);
 
-CrashHandlerHostLinux::CrashHandlerHostLinux()
-    : process_socket_(-1),
-      browser_socket_(-1) {
+CrashHandlerHostLinux::CrashHandlerHostLinux() {
   int fds[2];
   // We use SOCK_SEQPACKET rather than SOCK_DGRAM to prevent the process from
   // sending datagrams to other sockets on the system. The sandbox may prevent
@@ -62,6 +77,9 @@ CrashHandlerHostLinux::CrashHandlerHostLinux()
 CrashHandlerHostLinux::~CrashHandlerHostLinux() {
   HANDLE_EINTR(close(process_socket_));
   HANDLE_EINTR(close(browser_socket_));
+
+  // If we are quitting and there are crash dumps in the queue, discard them.
+  uploader_thread_->message_loop()->QuitNow();
 }
 
 void CrashHandlerHostLinux::Init() {
@@ -71,6 +89,13 @@ void CrashHandlerHostLinux::Init() {
       MessageLoopForIO::WATCH_READ,
       &file_descriptor_watcher_, this));
   ml->AddDestructionObserver(this);
+}
+
+void CrashHandlerHostLinux::InitCrashUploaderThread() {
+  SetProcessType();
+  uploader_thread_.reset(
+      new base::Thread(std::string(process_type_ + "_crash_uploader").c_str()));
+  uploader_thread_->Start();
 }
 
 void CrashHandlerHostLinux::OnFileCanWriteWithoutBlocking(int fd) {
@@ -87,7 +112,7 @@ void CrashHandlerHostLinux::OnFileCanReadWithoutBlocking(int fd) {
 
   // The length of the control message:
   static const unsigned kControlMsgSize =
-      CMSG_SPACE(sizeof(int)) + CMSG_SPACE(sizeof(struct ucred));
+      CMSG_SPACE(2*sizeof(int)) + CMSG_SPACE(sizeof(struct ucred));
   // The length of the regular payload:
   static const unsigned kCrashContextSize =
       sizeof(ExceptionHandler::CrashContext);
@@ -95,24 +120,26 @@ void CrashHandlerHostLinux::OnFileCanReadWithoutBlocking(int fd) {
   struct msghdr msg = {0};
   struct iovec iov[6];
   char crash_context[kCrashContextSize];
-  char guid[kGuidSize + 1];
-  char crash_url[kMaxActiveURLSize + 1];
-  char distro[kDistroSize + 1];
+  char* guid = new char[kGuidSize + 1];
+  char* crash_url = new char[kMaxActiveURLSize + 1];
+  char* distro = new char[kDistroSize + 1];
   char* tid_buf_addr = NULL;
   int tid_fd = -1;
   char control[kControlMsgSize];
-  const ssize_t expected_msg_size = sizeof(crash_context) + sizeof(guid) +
-      sizeof(crash_url) + sizeof(distro) +
+  const ssize_t expected_msg_size = sizeof(crash_context) +
+      kGuidSize + 1 +
+      kMaxActiveURLSize + 1 +
+      kDistroSize + 1 +
       sizeof(tid_buf_addr) + sizeof(tid_fd);
 
   iov[0].iov_base = crash_context;
   iov[0].iov_len = sizeof(crash_context);
   iov[1].iov_base = guid;
-  iov[1].iov_len = sizeof(guid);
+  iov[1].iov_len = kGuidSize + 1;
   iov[2].iov_base = crash_url;
-  iov[2].iov_len = sizeof(crash_url);
+  iov[2].iov_len = kMaxActiveURLSize + 1;
   iov[3].iov_base = distro;
-  iov[3].iov_len = sizeof(distro);
+  iov[3].iov_len = kDistroSize + 1;
   iov[4].iov_base = &tid_buf_addr;
   iov[4].iov_len = sizeof(tid_buf_addr);
   iov[5].iov_base = &tid_fd;
@@ -144,6 +171,7 @@ void CrashHandlerHostLinux::OnFileCanReadWithoutBlocking(int fd) {
 
   // Walk the control payload an extract the file descriptor and validated pid.
   pid_t crashing_pid = -1;
+  int partner_fd = -1;
   int signal_fd = -1;
   for (struct cmsghdr *hdr = CMSG_FIRSTHDR(&msg); hdr;
        hdr = CMSG_NXTHDR(&msg, hdr)) {
@@ -154,16 +182,17 @@ void CrashHandlerHostLinux::OnFileCanReadWithoutBlocking(int fd) {
           (((uint8_t*)CMSG_DATA(hdr)) - (uint8_t*)hdr);
       DCHECK_EQ(len % sizeof(int), 0u);
       const unsigned num_fds = len / sizeof(int);
-      if (num_fds > 1 || num_fds == 0) {
+      if (num_fds != 2) {
         // A nasty process could try and send us too many descriptors and
         // force a leak.
-        LOG(ERROR) << "Death signal contained too many descriptors;"
+        LOG(ERROR) << "Death signal contained wrong number of descriptors;"
                    << " num_fds:" << num_fds;
         for (unsigned i = 0; i < num_fds; ++i)
           HANDLE_EINTR(close(reinterpret_cast<int*>(CMSG_DATA(hdr))[i]));
         return;
       } else {
-        signal_fd = reinterpret_cast<int*>(CMSG_DATA(hdr))[0];
+        partner_fd = reinterpret_cast<int*>(CMSG_DATA(hdr))[0];
+        signal_fd = reinterpret_cast<int*>(CMSG_DATA(hdr))[1];
       }
     } else if (hdr->cmsg_type == SCM_CREDENTIALS) {
       const struct ucred *cred =
@@ -172,10 +201,12 @@ void CrashHandlerHostLinux::OnFileCanReadWithoutBlocking(int fd) {
     }
   }
 
-  if (crashing_pid == -1 || signal_fd == -1) {
+  if (crashing_pid == -1 || partner_fd == -1 || signal_fd == -1) {
     LOG(ERROR) << "Death signal message didn't contain all expected control"
                << " messages";
-    if (signal_fd)
+    if (partner_fd >= 0)
+      HANDLE_EINTR(close(partner_fd));
+    if (signal_fd >= 0)
       HANDLE_EINTR(close(signal_fd));
     return;
   }
@@ -186,20 +217,27 @@ void CrashHandlerHostLinux::OnFileCanReadWithoutBlocking(int fd) {
   // In the future we can remove this workaround, but we have to wait a couple
   // of years to be sure that it's worked its way out into the world.
 
+  // The crashing process closes its copy of the signal_fd immediately after
+  // calling sendmsg(). We can thus not reliably look for with with
+  // FindProcessHoldingSocket(). But by necessity, it has to keep the
+  // partner_fd open until the crashdump is complete.
   uint64_t inode_number;
-  if (!base::FileDescriptorGetInode(&inode_number, signal_fd)) {
+  if (!base::FileDescriptorGetInode(&inode_number, partner_fd)) {
     LOG(WARNING) << "Failed to get inode number for passed socket";
+    HANDLE_EINTR(close(partner_fd));
     HANDLE_EINTR(close(signal_fd));
     return;
   }
+  HANDLE_EINTR(close(partner_fd));
 
   pid_t actual_crashing_pid = -1;
-  if (!base::FindProcessHoldingSocket(&actual_crashing_pid, inode_number - 1)) {
+  if (!base::FindProcessHoldingSocket(&actual_crashing_pid, inode_number)) {
     LOG(WARNING) << "Failed to find process holding other end of crash reply "
                     "socket";
     HANDLE_EINTR(close(signal_fd));
     return;
   }
+
   if (actual_crashing_pid != crashing_pid) {
     crashing_pid = actual_crashing_pid;
 
@@ -236,6 +274,7 @@ void CrashHandlerHostLinux::OnFileCanReadWithoutBlocking(int fd) {
 
   bool upload = true;
   FilePath dumps_path("/tmp");
+  PathService::Get(base::DIR_TEMP, &dumps_path);
   if (getenv(env_vars::kHeadless)) {
     upload = false;
     PathService::Get(chrome::DIR_CRASH_DUMPS, &dumps_path);
@@ -265,20 +304,57 @@ void CrashHandlerHostLinux::OnFileCanReadWithoutBlocking(int fd) {
   // Sanitize the string data a bit more
   guid[kGuidSize] = crash_url[kMaxActiveURLSize] = distro[kDistroSize] = 0;
 
-  BreakpadInfo info;
-  info.filename = minidump_filename.c_str();
-  info.process_type = process_type_.c_str();
-  info.process_type_length = process_type_.length();
-  info.crash_url = crash_url;
-  info.crash_url_length = strlen(crash_url);
-  info.guid = guid;
-  info.guid_length = strlen(guid);
-  info.distro = distro;
-  info.distro_length = strlen(distro);
-  info.upload = upload;
-  HandleCrashDump(info);
+  BreakpadInfo* info = new BreakpadInfo;
+
+  char* minidump_filename_str = new char[minidump_filename.length() + 1];
+  minidump_filename.copy(minidump_filename_str, minidump_filename.length());
+  minidump_filename_str[minidump_filename.length()] = '\0';
+  info->filename = minidump_filename_str;
+
+  info->process_type_length = process_type_.length();
+  char* process_type_str = new char[info->process_type_length + 1];
+  process_type_.copy(process_type_str, info->process_type_length);
+  process_type_str[info->process_type_length] = '\0';
+  info->process_type = process_type_str;
+
+  info->crash_url_length = strlen(crash_url);
+  info->crash_url = crash_url;
+
+  info->guid_length = strlen(guid);
+  info->guid = guid;
+
+  info->distro_length = strlen(distro);
+  info->distro = distro;
+
+  info->upload = upload;
+
+  uploader_thread_->message_loop()->PostTask(
+      FROM_HERE,
+      NewRunnableFunction(&CrashDumpTask, info));
 }
 
 void CrashHandlerHostLinux::WillDestroyCurrentMessageLoop() {
   file_descriptor_watcher_.StopWatchingFileDescriptor();
+}
+
+PluginCrashHandlerHostLinux::PluginCrashHandlerHostLinux() {
+  InitCrashUploaderThread();
+}
+
+PluginCrashHandlerHostLinux::~PluginCrashHandlerHostLinux() {
+}
+
+void PluginCrashHandlerHostLinux::SetProcessType() {
+  process_type_ = "plugin";
+}
+
+RendererCrashHandlerHostLinux::RendererCrashHandlerHostLinux() {
+  InitCrashUploaderThread();
+}
+
+RendererCrashHandlerHostLinux::~RendererCrashHandlerHostLinux() {
+}
+
+void RendererCrashHandlerHostLinux::SetProcessType() {
+  process_type_ = "renderer";
 }

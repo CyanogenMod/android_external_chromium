@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_LOCATION_BAR_STAR_VIEW_H_
 #define CHROME_BROWSER_VIEWS_LOCATION_BAR_STAR_VIEW_H_
+#pragma once
 
 #include "chrome/browser/views/info_bubble.h"
 #include "views/controls/image_view.h"
@@ -26,7 +27,7 @@ class StarView : public views::ImageView, public InfoBubbleDelegate {
 
  private:
   // views::ImageView overrides:
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
   virtual bool GetTooltipText(const gfx::Point& p, std::wstring* tooltip);
   virtual bool OnMousePressed(const views::MouseEvent& event);
   virtual void OnMouseReleased(const views::MouseEvent& event, bool canceled);

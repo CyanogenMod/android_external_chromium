@@ -4,6 +4,7 @@
 
 #ifndef CHROME_COMMON_NOTIFICATION_TYPE_H_
 #define CHROME_COMMON_NOTIFICATION_TYPE_H_
+#pragma once
 
 // This file describes various types used to describe and filter notifications
 // that pass through the NotificationService.
@@ -85,6 +86,10 @@ class NotificationType {
 
     // Other load-related (not from NavigationController) ----------------------
 
+    // Corresponds to ViewHostMsg_DocumentOnLoadCompletedInMainFrame. The source
+    // is the TabContents and the details the page_id.
+    LOAD_COMPLETED_MAIN_FRAME,
+
     // A content load is starting.  The source will be a
     // Source<NavigationController> corresponding to the tab in which the load
     // is occurring.  No details are expected for this notification.
@@ -98,9 +103,16 @@ class NotificationType {
 
     // A frame is staring a provisional load.  The source is a
     // Source<NavigationController> corresponding to the tab in which the load
-    // occurs.  Details is a bool specifying if the load occurs in the main
-    // frame (or a sub-frame if false).
+    // occurs.  Details is a ProvisionalLoadDetails object.
     FRAME_PROVISIONAL_LOAD_START,
+
+    // The provisional load for a frame was committed. The source is a
+    // NavigationController corresponding to the tab in which the load occured.
+    // Details is a ProvisionalLoadDetails object. In contrast to
+    // NAV_ENTRY_COMMITTED, this notification is sent when the load was
+    // committed, even if no navigation entry was committed (such as
+    // AUTO_SUBFRAME navigations).
+    FRAME_PROVISIONAL_LOAD_COMMITTED,
 
     // Content was loaded from an in-memory cache.  The source will be a
     // Source<NavigationController> corresponding to the tab in which the load
@@ -282,10 +294,6 @@ class NotificationType {
     // is the dialog.
     APP_MODAL_DIALOG_SHOWN,
 
-    // Sent after an application-modal dialog has been closed. The source
-    // is the dialog.
-    APP_MODAL_DIALOG_CLOSED,
-
     // Tabs --------------------------------------------------------------------
 
     // Sent when a tab is added to a TabContentsDelegate. The source is the
@@ -426,9 +434,9 @@ class NotificationType {
     // first RenderViewHost is set).
     RENDER_VIEW_HOST_CHANGED,
 
-    // Indicates that the render view host has received a new accessibility tree
-    // from the render view.  The source is the RenderViewHost, the details
-    // are not used.
+    // Indicates that the render view host has received an accessibility tree
+    // update, either partial or full, from the render view.  The source is the
+    // RenderViewHost, the details are not used.
     RENDER_VIEW_HOST_ACCESSIBILITY_TREE_UPDATED,
 
     // This is sent when a RenderWidgetHost is being destroyed. The source is
@@ -470,11 +478,6 @@ class NotificationType {
     // be shown changes. The source is the profile, and the details are
     // NoDetails.
     BOOKMARK_BAR_VISIBILITY_PREF_CHANGED,
-
-    // This is sent when the user's preference (for when the extension shelf
-    // should be shown) changes. The source is the profile, and the details are
-    // NoDetails.
-    EXTENSION_SHELF_VISIBILITY_PREF_CHANGED,
 
     // Sent just before the installation confirm dialog is shown. The source
     // is the ExtensionInstallUI, the details are NoDetails.
@@ -547,6 +550,14 @@ class NotificationType {
     // thread or the plugin thread. The source is the plugin that is disabling
     // interception.  No details are expected.
     CHROME_PLUGIN_UNLOADED,
+
+    // This is sent in the RenderView when previously blocked plugins on a page
+    // should be loaded. The source is the RenderView. No details are expected.
+    SHOULD_LOAD_PLUGINS,
+
+    // Sent by the PluginUpdater when there is a change of plugin
+    // enable/disable status.
+    PLUGIN_ENABLE_STATUS_CHANGED,
 
     // This is sent when a login prompt is shown.  The source is the
     // Source<NavigationController> for the tab in which the prompt is shown.
@@ -678,7 +689,7 @@ class NotificationType {
     WEB_APP_INSTALL_CHANGED,
 
     // This is sent to a pref observer when a pref is changed. The source is the
-    // PrefService and the details a std::wstring of the changed path.
+    // PrefService and the details a std::string of the changed path.
     PREF_CHANGED,
 
     // Sent when a default request context has been created, so calling
@@ -708,6 +719,9 @@ class NotificationType {
 
     // Sent by the autocomplete edit when it is destroyed.
     AUTOCOMPLETE_EDIT_DESTROYED,
+
+    // Sent by the autocomplete edit when it is focused.
+    AUTOCOMPLETE_EDIT_FOCUSED,
 
     // Sent when the main Google URL has been updated.  Some services cache
     // this value and need to update themselves when it changes.  See
@@ -783,6 +797,13 @@ class NotificationType {
     // details about why the install failed.
     EXTENSION_INSTALL_ERROR,
 
+    // Sent when a new extension is being uninstalled. When this notification
+    // is sent, the ExtensionsService still is tracking this extension (it has
+    // not been unloaded yet). This will be followed by an EXTENSION_UNLOADED
+    // or EXTENSION_UNLOADED_DISABLED when the extension is actually unloaded.
+    // The details are an Extension and the source is a Profile.
+    EXTENSION_UNINSTALLED,
+
     // Sent when an extension is unloaded. This happens when an extension is
     // uninstalled or disabled. The details are an Extension, and the source is
     // a Profile.
@@ -836,9 +857,6 @@ class NotificationType {
     // during browser shutdown.
     EXTENSION_PROCESS_TERMINATED,
 
-    // Sent when the contents or order of toolstrips in the shelf model change.
-    EXTENSION_SHELF_MODEL_CHANGED,
-
     // Sent when a background page is ready so other components can load.
     EXTENSION_BACKGROUND_PAGE_READY,
 
@@ -867,6 +885,12 @@ class NotificationType {
     EXTENSION_TEST_PASSED,
     EXTENSION_TEST_FAILED,
 
+    // Sent by extension test javascript code, typically in a browser test. The
+    // sender is a std::string representing the extension id, and the details
+    // are a std::string with some message. This is particularly useful when you
+    // want to have C++ code wait for javascript code to do something.
+    EXTENSION_TEST_MESSAGE,
+
     // Sent when an bookmarks extensions API function was successfully invoked.
     // The source is the id of the extension that invoked the function, and the
     // details are a pointer to the const BookmarksFunction in question.
@@ -881,11 +905,10 @@ class NotificationType {
     // session. The source is the profile.
     EXTENSION_OMNIBOX_INPUT_ENTERED,
 
-    // Debugging ---------------------------------------------------------------
-
-    // TODO(mpcomplete): Sent to diagnose a bug. Remove when fixed.
-    // http://code.google.com/p/chromium/issues/detail?id=21201
-    EXTENSION_PORT_DELETED_DEBUG,
+    // Sent when an extension changes a preference value. The source is the
+    // profile, and the details are an ExtensionPrefStore::ExtensionPrefDetails
+    // object.
+    EXTENSION_PREF_CHANGED,
 
     // Desktop Notifications ---------------------------------------------------
 
@@ -1005,22 +1028,80 @@ class NotificationType {
     // operations.
     SESSION_SERVICE_SAVED,
 
+    // A foreign session has been updated.  If a new tab page is open, the
+    // foreign session handler needs to update the new tab page's foreign
+    // session data.
+    FOREIGN_SESSION_UPDATED,
+
+    // A foreign session has been deleted.  If a new tab page is open, the
+    // foreign session handler needs to update the new tab page's foreign
+    // session data.
+    FOREIGN_SESSION_DELETED,
+
     // The syncer requires a passphrase to decrypt sensitive updates. This
     // notification is sent when the first sensitive data type is setup by the
     // user as well as anytime any the passphrase is changed in another synced
-    // client.
+    // client.  The source is the SyncBackendHost wanting a passphrase.  No
+    // details.
     SYNC_PASSPHRASE_REQUIRED,
 
     // Sent when the passphrase provided by the user is accepted. After this
     // notification is sent, updates to sensitive nodes are encrypted using the
-    // accepted passphrase.
+    // accepted passphrase.  The source is the SyncBackendHost that accepted
+    // the passphrase.  No details.
     SYNC_PASSPHRASE_ACCEPTED,
+
+    // Sent when the set of data types that should be synced has been modified
+    // externally (eg. by the dom_ui options screen).
+    // The source is the Profile, there are no details.
+    SYNC_DATA_TYPES_UPDATED,
 
     // Cookies -----------------------------------------------------------------
 
     // Sent when a cookie changes. The source is a Profile object, the details
     // are a ChromeCookieDetails object.
     COOKIE_CHANGED,
+
+    // Sidebar -----------------------------------------------------------------
+
+    // Sent when the sidebar state is changed.
+    // The source is a SidebarManager instance, the details are the changed
+    // SidebarContainer object.
+    SIDEBAR_CHANGED,
+
+    // Token Service -----------------------------------------------------------
+
+    // When the token service has a new token available for a service, one of
+    // these notifications is issued per new token.
+    // The source is a TokenService on the Profile. The details are a
+    // TokenAvailableDetails object.
+    TOKEN_AVAILABLE,
+
+    // When there aren't any additional tokens left to load, this notification
+    // is sent.
+    // The source is a TokenService on the profile. There are no details.
+    TOKEN_LOADING_FINISHED,
+
+    // If a token request failed, one of these is issued per failed request.
+    // The source is a TokenService on the Profile. The details are a
+    // TokenRequestFailedDetails object.
+    TOKEN_REQUEST_FAILED,
+
+    // When a service has a new token they got from a frontend that the
+    // TokenService should know about, fire this notification. The details
+    // are a TokenAvailableDetails object.
+    TOKEN_UPDATED,
+
+    // Sent when a user signs into Google services such as sync.
+    // The source is the SigninManager instance. The details are a
+    // GoogleServiceSignin object.
+    GOOGLE_SIGNIN_SUCCESSFUL,
+
+    // Sent when a user fails to sign into Google services such as sync.
+    // The source is the SigninManager instance. The details are a
+    // GoogleServiceAuthError object.
+    GOOGLE_SIGNIN_FAILED,
+
 
     // Misc --------------------------------------------------------------------
 
@@ -1054,6 +1135,19 @@ class NotificationType {
     // in chrome/browser/chromeos/network_state_notifier.h.
     // TODO(oshima): Port this to all platforms.
     NETWORK_STATE_CHANGED,
+
+    // Sent when an attempt to acquire the public key of the owner of a chromium
+    // os device has succeeded.
+    OWNER_KEY_FETCH_ATTEMPT_SUCCEEDED,
+
+    // Sent when an attempt to acquire the public key of the owner of a chromium
+    // os device has failed.
+    OWNER_KEY_FETCH_ATTEMPT_FAILED,
+
+    // This is sent to a ChromeOS settings observer when a system setting is
+    // changed. The source is the CrosSettings and the details a std::string of
+    // the changed setting.
+    SYSTEM_SETTING_CHANGED,
 #endif
 
     // Sent before the repost form warning is brought up.
@@ -1084,6 +1178,11 @@ class NotificationType {
     // change type (ADD, UPDATE, or REMOVE) as well as the
     // |webkit_glue::PasswordForm|s that were affected.
     LOGINS_CHANGED,
+
+    // Configuration Policy ----------------------------------------------------
+    // This notification is sent whenever the administrator changes policy.
+    // The detail of this notification is not used.
+    POLICY_CHANGED,
 
     // Count (must be last) ----------------------------------------------------
     // Used to determine the number of notification types.  Not valid as

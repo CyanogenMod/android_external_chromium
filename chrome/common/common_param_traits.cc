@@ -4,17 +4,21 @@
 
 #include "chrome/common/common_param_traits.h"
 
+#include "base/time.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/content_settings.h"
+#include "chrome/common/geoposition.h"
 #include "chrome/common/thumbnail_score.h"
 #include "gfx/rect.h"
 #include "googleurl/src/gurl.h"
+#include "net/base/upload_data.h"
 #include "printing/native_metafile.h"
 #include "printing/page_range.h"
 
 #ifndef EXCLUDE_SKIA_DEPENDENCIES
 #include "third_party/skia/include/core/SkBitmap.h"
 #endif
+#include "webkit/blob/blob_data.h"
 #include "webkit/glue/dom_operations.h"
 #include "webkit/glue/password_form.h"
 
@@ -93,8 +97,8 @@ bool ParamTraits<SkBitmap>::Read(const Message* m, void** iter, SkBitmap* r) {
   return bmp_data->InitSkBitmapFromData(r, variable_data, variable_data_size);
 }
 
-void ParamTraits<SkBitmap>::Log(const SkBitmap& p, std::wstring* l) {
-  l->append(StringPrintf(L"<SkBitmap>"));
+void ParamTraits<SkBitmap>::Log(const SkBitmap& p, std::string* l) {
+  l->append("<SkBitmap>");
 }
 
 #endif  // EXCLUDE_SKIA_DEPENDENCIES
@@ -114,8 +118,8 @@ bool ParamTraits<GURL>::Read(const Message* m, void** iter, GURL* p) {
   return true;
 }
 
-void ParamTraits<GURL>::Log(const GURL& p, std::wstring* l) {
-  l->append(UTF8ToWide(p.spec()));
+void ParamTraits<GURL>::Log(const GURL& p, std::string* l) {
+  l->append(p.spec());
 }
 
 void ParamTraits<gfx::Point>::Write(Message* m, const gfx::Point& p) {
@@ -134,8 +138,8 @@ bool ParamTraits<gfx::Point>::Read(const Message* m, void** iter,
   return true;
 }
 
-void ParamTraits<gfx::Point>::Log(const gfx::Point& p, std::wstring* l) {
-  l->append(StringPrintf(L"(%d, %d)", p.x(), p.y()));
+void ParamTraits<gfx::Point>::Log(const gfx::Point& p, std::string* l) {
+  l->append(StringPrintf("(%d, %d)", p.x(), p.y()));
 }
 
 
@@ -160,8 +164,8 @@ bool ParamTraits<gfx::Rect>::Read(const Message* m, void** iter, gfx::Rect* r) {
   return true;
 }
 
-void ParamTraits<gfx::Rect>::Log(const gfx::Rect& p, std::wstring* l) {
-  l->append(StringPrintf(L"(%d, %d, %d, %d)", p.x(), p.y(),
+void ParamTraits<gfx::Rect>::Log(const gfx::Rect& p, std::string* l) {
+  l->append(StringPrintf("(%d, %d, %d, %d)", p.x(), p.y(),
                          p.width(), p.height()));
 }
 
@@ -181,8 +185,8 @@ bool ParamTraits<gfx::Size>::Read(const Message* m, void** iter, gfx::Size* r) {
   return true;
 }
 
-void ParamTraits<gfx::Size>::Log(const gfx::Size& p, std::wstring* l) {
-  l->append(StringPrintf(L"(%d, %d)", p.width(), p.height()));
+void ParamTraits<gfx::Size>::Log(const gfx::Size& p, std::string* l) {
+  l->append(StringPrintf("(%d, %d)", p.width(), p.height()));
 }
 
 void ParamTraits<ContentSetting>::Write(Message* m, const param_type& p) {
@@ -200,7 +204,7 @@ bool ParamTraits<ContentSetting>::Read(const Message* m, void** iter,
   return true;
 }
 
-void ParamTraits<ContentSetting>::Log(const param_type& p, std::wstring* l) {
+void ParamTraits<ContentSetting>::Log(const param_type& p, std::string* l) {
   LogParam(static_cast<int>(p), l);
 }
 
@@ -220,8 +224,8 @@ bool ParamTraits<ContentSettings>::Read(
 }
 
 void ParamTraits<ContentSettings>::Log(
-    const ContentSettings& p, std::wstring* l) {
-  l->append(StringPrintf(L"<ContentSettings>"));
+    const ContentSettings& p, std::string* l) {
+  l->append("<ContentSettings>");
 }
 
 void ParamTraits<webkit_glue::WebApplicationInfo>::Write(
@@ -261,8 +265,8 @@ bool ParamTraits<webkit_glue::WebApplicationInfo>::Read(
 }
 
 void ParamTraits<webkit_glue::WebApplicationInfo>::Log(
-    const webkit_glue::WebApplicationInfo& p, std::wstring* l) {
-  l->append(L"<WebApplicationInfo>");
+    const webkit_glue::WebApplicationInfo& p, std::string* l) {
+  l->append("<WebApplicationInfo>");
 }
 
 void ParamTraits<URLRequestStatus>::Write(Message* m, const param_type& p) {
@@ -281,38 +285,229 @@ bool ParamTraits<URLRequestStatus>::Read(const Message* m, void** iter,
   return true;
 }
 
-void ParamTraits<URLRequestStatus>::Log(const param_type& p, std::wstring* l) {
-  std::wstring status;
+void ParamTraits<URLRequestStatus>::Log(const param_type& p, std::string* l) {
+  std::string status;
   switch (p.status()) {
     case URLRequestStatus::SUCCESS:
-      status = L"SUCCESS";
+      status = "SUCCESS";
       break;
     case URLRequestStatus::IO_PENDING:
-      status = L"IO_PENDING ";
+      status = "IO_PENDING ";
       break;
     case URLRequestStatus::HANDLED_EXTERNALLY:
-      status = L"HANDLED_EXTERNALLY";
+      status = "HANDLED_EXTERNALLY";
       break;
     case URLRequestStatus::CANCELED:
-      status = L"CANCELED";
+      status = "CANCELED";
       break;
     case URLRequestStatus::FAILED:
-      status = L"FAILED";
+      status = "FAILED";
       break;
     default:
-      status = L"UNKNOWN";
+      status = "UNKNOWN";
       break;
   }
   if (p.status() == URLRequestStatus::FAILED)
-    l->append(L"(");
+    l->append("(");
 
   LogParam(status, l);
 
   if (p.status() == URLRequestStatus::FAILED) {
-    l->append(L", ");
+    l->append(", ");
     LogParam(p.os_error(), l);
-    l->append(L")");
+    l->append(")");
   }
+}
+
+// Only the net::UploadData ParamTraits<> definition needs this definition, so
+// keep this in the implementation file so we can forward declare UploadData in
+// the header.
+template <>
+struct ParamTraits<net::UploadData::Element> {
+  typedef net::UploadData::Element param_type;
+  static void Write(Message* m, const param_type& p) {
+    WriteParam(m, static_cast<int>(p.type()));
+    if (p.type() == net::UploadData::TYPE_BYTES) {
+      m->WriteData(&p.bytes()[0], static_cast<int>(p.bytes().size()));
+    } else if (p.type() == net::UploadData::TYPE_FILE) {
+      WriteParam(m, p.file_path());
+      WriteParam(m, p.file_range_offset());
+      WriteParam(m, p.file_range_length());
+      WriteParam(m, p.expected_file_modification_time());
+    } else {
+      WriteParam(m, p.blob_url());
+    }
+  }
+  static bool Read(const Message* m, void** iter, param_type* r) {
+    int type;
+    if (!ReadParam(m, iter, &type))
+      return false;
+    if (type == net::UploadData::TYPE_BYTES) {
+      const char* data;
+      int len;
+      if (!m->ReadData(iter, &data, &len))
+        return false;
+      r->SetToBytes(data, len);
+    } else if (type == net::UploadData::TYPE_FILE) {
+      FilePath file_path;
+      uint64 offset, length;
+      base::Time expected_modification_time;
+      if (!ReadParam(m, iter, &file_path))
+        return false;
+      if (!ReadParam(m, iter, &offset))
+        return false;
+      if (!ReadParam(m, iter, &length))
+        return false;
+      if (!ReadParam(m, iter, &expected_modification_time))
+        return false;
+      r->SetToFilePathRange(file_path, offset, length,
+                            expected_modification_time);
+    } else {
+      DCHECK(type == net::UploadData::TYPE_BLOB);
+      GURL blob_url;
+      if (!ReadParam(m, iter, &blob_url))
+        return false;
+      r->SetToBlobUrl(blob_url);
+    }
+    return true;
+  }
+  static void Log(const param_type& p, std::string* l) {
+    l->append("<net::UploadData::Element>");
+  }
+};
+
+void ParamTraits<scoped_refptr<net::UploadData> >::Write(Message* m,
+                                                         const param_type& p) {
+  WriteParam(m, p.get() != NULL);
+  if (p) {
+    WriteParam(m, *p->elements());
+    WriteParam(m, p->identifier());
+  }
+}
+
+bool ParamTraits<scoped_refptr<net::UploadData> >::Read(const Message* m,
+                                                        void** iter,
+                                                        param_type* r) {
+  bool has_object;
+  if (!ReadParam(m, iter, &has_object))
+    return false;
+  if (!has_object)
+    return true;
+  std::vector<net::UploadData::Element> elements;
+  if (!ReadParam(m, iter, &elements))
+    return false;
+  int64 identifier;
+  if (!ReadParam(m, iter, &identifier))
+    return false;
+  *r = new net::UploadData;
+  (*r)->swap_elements(&elements);
+  (*r)->set_identifier(identifier);
+  return true;
+}
+
+void ParamTraits<scoped_refptr<net::UploadData> >::Log(const param_type& p,
+                                                       std::string* l) {
+  l->append("<net::UploadData>");
+}
+
+// Only the webkit_blob::BlobData ParamTraits<> definition needs this
+// definition, so keep this in the implementation file so we can forward declare
+// BlobData in the header.
+template <>
+struct ParamTraits<webkit_blob::BlobData::Item> {
+  typedef webkit_blob::BlobData::Item param_type;
+  static void Write(Message* m, const param_type& p) {
+    WriteParam(m, static_cast<int>(p.type()));
+    if (p.type() == webkit_blob::BlobData::TYPE_DATA) {
+      WriteParam(m, p.data());
+    } else if (p.type() == webkit_blob::BlobData::TYPE_FILE) {
+      WriteParam(m, p.file_path());
+      WriteParam(m, p.offset());
+      WriteParam(m, p.length());
+      WriteParam(m, p.expected_modification_time());
+    } else {
+      WriteParam(m, p.blob_url());
+      WriteParam(m, p.offset());
+      WriteParam(m, p.length());
+    }
+  }
+  static bool Read(const Message* m, void** iter, param_type* r) {
+    int type;
+    if (!ReadParam(m, iter, &type))
+      return false;
+    if (type == webkit_blob::BlobData::TYPE_DATA) {
+      std::string data;
+      if (!ReadParam(m, iter, &data))
+        return false;
+      r->SetToData(data);
+    } else if (type == webkit_blob::BlobData::TYPE_FILE) {
+      FilePath file_path;
+      uint64 offset, length;
+      base::Time expected_modification_time;
+      if (!ReadParam(m, iter, &file_path))
+        return false;
+      if (!ReadParam(m, iter, &offset))
+        return false;
+      if (!ReadParam(m, iter, &length))
+        return false;
+      if (!ReadParam(m, iter, &expected_modification_time))
+        return false;
+      r->SetToFile(file_path, offset, length, expected_modification_time);
+    } else {
+      DCHECK(type == webkit_blob::BlobData::TYPE_BLOB);
+      GURL blob_url;
+      uint64 offset, length;
+      if (!ReadParam(m, iter, &blob_url))
+        return false;
+      if (!ReadParam(m, iter, &offset))
+        return false;
+      if (!ReadParam(m, iter, &length))
+        return false;
+      r->SetToBlob(blob_url, offset, length);
+    }
+    return true;
+  }
+  static void Log(const param_type& p, std::string* l) {
+    l->append("<BlobData::Item>");
+  }
+};
+
+void ParamTraits<scoped_refptr<webkit_blob::BlobData> >::Write(
+    Message* m, const param_type& p) {
+  WriteParam(m, p.get() != NULL);
+  if (p) {
+    WriteParam(m, p->items());
+    WriteParam(m, p->content_type());
+    WriteParam(m, p->content_disposition());
+  }
+}
+
+bool ParamTraits<scoped_refptr<webkit_blob::BlobData> >::Read(
+    const Message* m, void** iter, param_type* r) {
+  bool has_object;
+  if (!ReadParam(m, iter, &has_object))
+    return false;
+  if (!has_object)
+    return true;
+  std::vector<webkit_blob::BlobData::Item> items;
+  if (!ReadParam(m, iter, &items))
+    return false;
+  std::string content_type;
+  if (!ReadParam(m, iter, &content_type))
+    return false;
+  std::string content_disposition;
+  if (!ReadParam(m, iter, &content_disposition))
+    return false;
+  *r = new webkit_blob::BlobData;
+  (*r)->swap_items(&items);
+  (*r)->set_content_type(content_type);
+  (*r)->set_content_disposition(content_disposition);
+  return true;
+}
+
+void ParamTraits<scoped_refptr<webkit_blob::BlobData> >::Log(
+    const param_type& p, std::string* l) {
+  l->append("<webkit_blob::BlobData>");
 }
 
 void ParamTraits<ThumbnailScore>::Write(Message* m, const param_type& p) {
@@ -340,30 +535,29 @@ bool ParamTraits<ThumbnailScore>::Read(const Message* m, void** iter,
   return true;
 }
 
-void ParamTraits<ThumbnailScore>::Log(const param_type& p, std::wstring* l) {
-  l->append(StringPrintf(L"(%f, %d, %d)",
+void ParamTraits<ThumbnailScore>::Log(const param_type& p, std::string* l) {
+  l->append(StringPrintf("(%f, %d, %d)",
                          p.boring_score, p.good_clipping, p.at_top));
 }
 
-void ParamTraits<Geoposition::ErrorCode>::Write(
-    Message* m, const Geoposition::ErrorCode& p) {
-  int error_code = p;
-  WriteParam(m, error_code);
-}
-
-bool ParamTraits<Geoposition::ErrorCode>::Read(
-      const Message* m, void** iter, Geoposition::ErrorCode* p) {
-  int error_code_param = 0;
-  bool ret = ReadParam(m, iter, &error_code_param);
-  *p = static_cast<Geoposition::ErrorCode>(error_code_param);
-  return ret;
-}
-
-void ParamTraits<Geoposition::ErrorCode>::Log(
-    const Geoposition::ErrorCode& p, std::wstring* l) {
-  int error_code = p;
-  l->append(StringPrintf(L"<Geoposition::ErrorCode>%d", error_code));
-}
+template <>
+struct ParamTraits<Geoposition::ErrorCode> {
+  typedef Geoposition::ErrorCode param_type;
+  static void Write(Message* m, const param_type& p) {
+    int error_code = p;
+    WriteParam(m, error_code);
+  }
+  static bool Read(const Message* m, void** iter, param_type* p) {
+    int error_code_param = 0;
+    bool ret = ReadParam(m, iter, &error_code_param);
+    *p = static_cast<Geoposition::ErrorCode>(error_code_param);
+    return ret;
+  }
+  static void Log(const param_type& p, std::string* l)  {
+    int error_code = p;
+    l->append(StringPrintf("<Geoposition::ErrorCode>%d", error_code));
+  }
+};
 
 void ParamTraits<Geoposition>::Write(Message* m, const Geoposition& p) {
   WriteParam(m, p.latitude);
@@ -393,18 +587,57 @@ bool ParamTraits<Geoposition>::Read(
   return ret;
 }
 
-void ParamTraits<Geoposition>::Log(const Geoposition& p, std::wstring* l) {
+void ParamTraits<Geoposition>::Log(const Geoposition& p, std::string* l) {
   l->append(
       StringPrintf(
-          L"<Geoposition>"
-          L"%.6f %.6f %.6f %.6f "
-          L"%.6f %.6f %.6f ",
+          "<Geoposition>"
+          "%.6f %.6f %.6f %.6f "
+          "%.6f %.6f %.6f ",
           p.latitude, p.longitude, p.accuracy, p.altitude,
           p.altitude_accuracy, p.speed, p.heading));
   LogParam(p.timestamp, l);
-  l->append(L" ");
-  l->append(UTF8ToWide(p.error_message));
+  l->append(" ");
+  l->append(p.error_message);
   LogParam(p.error_code, l);
+}
+
+void ParamTraits<webkit_glue::PasswordForm>::Write(Message* m,
+                                                   const param_type& p) {
+  WriteParam(m, p.signon_realm);
+  WriteParam(m, p.origin);
+  WriteParam(m, p.action);
+  WriteParam(m, p.submit_element);
+  WriteParam(m, p.username_element);
+  WriteParam(m, p.username_value);
+  WriteParam(m, p.password_element);
+  WriteParam(m, p.password_value);
+  WriteParam(m, p.old_password_element);
+  WriteParam(m, p.old_password_value);
+  WriteParam(m, p.ssl_valid);
+  WriteParam(m, p.preferred);
+  WriteParam(m, p.blacklisted_by_user);
+}
+
+bool ParamTraits<webkit_glue::PasswordForm>::Read(const Message* m, void** iter,
+                                                  param_type* p) {
+  return
+      ReadParam(m, iter, &p->signon_realm) &&
+      ReadParam(m, iter, &p->origin) &&
+      ReadParam(m, iter, &p->action) &&
+      ReadParam(m, iter, &p->submit_element) &&
+      ReadParam(m, iter, &p->username_element) &&
+      ReadParam(m, iter, &p->username_value) &&
+      ReadParam(m, iter, &p->password_element) &&
+      ReadParam(m, iter, &p->password_value) &&
+      ReadParam(m, iter, &p->old_password_element) &&
+      ReadParam(m, iter, &p->old_password_value) &&
+      ReadParam(m, iter, &p->ssl_valid) &&
+      ReadParam(m, iter, &p->preferred) &&
+      ReadParam(m, iter, &p->blacklisted_by_user);
+}
+void ParamTraits<webkit_glue::PasswordForm>::Log(const param_type& p,
+                                                 std::string* l) {
+  l->append("<PasswordForm>");
 }
 
 void ParamTraits<printing::PageRange>::Write(Message* m, const param_type& p) {
@@ -419,12 +652,12 @@ bool ParamTraits<printing::PageRange>::Read(
 }
 
 void ParamTraits<printing::PageRange>::Log(
-    const param_type& p, std::wstring* l) {
-  l->append(L"(");
+    const param_type& p, std::string* l) {
+  l->append("(");
   LogParam(p.to, l);
-  l->append(L", ");
+  l->append(", ");
   LogParam(p.from, l);
-  l->append(L")");
+  l->append(")");
 }
 
 void ParamTraits<printing::NativeMetafile>::Write(
@@ -451,8 +684,51 @@ bool ParamTraits<printing::NativeMetafile>::Read(
 }
 
 void ParamTraits<printing::NativeMetafile>::Log(
-    const param_type& p, std::wstring* l) {
-  l->append(StringPrintf(L"<printing::NativeMetafile>"));
+    const param_type& p, std::string* l) {
+  l->append("<printing::NativeMetafile>");
+}
+
+void ParamTraits<base::PlatformFileInfo>::Write(
+    Message* m, const param_type& p) {
+  WriteParam(m, p.size);
+  WriteParam(m, p.is_directory);
+  WriteParam(m, p.last_modified.ToDoubleT());
+  WriteParam(m, p.last_accessed.ToDoubleT());
+  WriteParam(m, p.creation_time.ToDoubleT());
+}
+
+bool ParamTraits<base::PlatformFileInfo>::Read(
+    const Message* m, void** iter, param_type* p) {
+  double last_modified;
+  double last_accessed;
+  double creation_time;
+  bool result =
+      ReadParam(m, iter, &p->size) &&
+      ReadParam(m, iter, &p->is_directory) &&
+      ReadParam(m, iter, &last_modified) &&
+      ReadParam(m, iter, &last_accessed) &&
+      ReadParam(m, iter, &creation_time);
+  if (result) {
+    p->last_modified = base::Time::FromDoubleT(last_modified);
+    p->last_accessed = base::Time::FromDoubleT(last_accessed);
+    p->creation_time = base::Time::FromDoubleT(creation_time);
+  }
+  return result;
+}
+
+void ParamTraits<base::PlatformFileInfo>::Log(
+    const param_type& p, std::string* l) {
+  l->append("(");
+  LogParam(p.size, l);
+  l->append(",");
+  LogParam(p.is_directory, l);
+  l->append(",");
+  LogParam(p.last_modified.ToDoubleT(), l);
+  l->append(",");
+  LogParam(p.last_accessed.ToDoubleT(), l);
+  l->append(",");
+  LogParam(p.creation_time.ToDoubleT(), l);
+  l->append(")");
 }
 
 }  // namespace IPC

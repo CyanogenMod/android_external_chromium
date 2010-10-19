@@ -1,9 +1,10 @@
-// Copyright (c) 2008 The Chromium Authors. All rights reserved.  Use of this
-// source code is governed by a BSD-style license that can be found in the
-// LICENSE file.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef NET_FTP_FTP_NETWORK_SESSION_H_
 #define NET_FTP_FTP_NETWORK_SESSION_H_
+#pragma once
 
 #include "base/ref_counted.h"
 #include "net/ftp/ftp_auth_cache.h"

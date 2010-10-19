@@ -5,6 +5,7 @@
 #include "chrome/browser/chromeos/login/account_screen.h"
 
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/chromeos/login/account_creation_view.h"
@@ -14,6 +15,7 @@
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "googleurl/src/gurl.h"
+#include "views/widget/widget_gtk.h"
 
 namespace chromeos {
 
@@ -128,6 +130,12 @@ void AccountScreen::NavigationStateChanged(const TabContents* source,
   }
 }
 
+void AccountScreen::HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {
+  views::Widget* widget = view()->GetWidget();
+  if (widget && event.os_event && !event.skip_in_browser)
+    static_cast<views::WidgetGtk*>(widget)->HandleKeyboardEvent(event.os_event);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // AccountScreen, WebPageDelegate implementation:
 void AccountScreen::OnPageLoaded() {
@@ -137,9 +145,7 @@ void AccountScreen::OnPageLoaded() {
   if (g_browser_process) {
     const std::string locale = g_browser_process->GetApplicationLocale();
     input_method::EnableInputMethods(
-        locale, input_method::kKeyboardLayoutsOnly, "");
-    // TODO(yusukes,suzhe): Change the 2nd argument to kAllInputMethods when
-    // crosbug.com/2670 is fixed.
+        locale, input_method::kAllInputMethods, "");
   }
   view()->ShowPageContent();
 }

@@ -4,14 +4,15 @@
 
 #ifndef CHROME_BROWSER_DOM_UI_FILEICON_SOURCE_H_
 #define CHROME_BROWSER_DOM_UI_FILEICON_SOURCE_H_
+#pragma once
 
 #include <string>
 
-#include "app/resource_bundle.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/icon_manager.h"
 
 class GURL;
+class RefCountedBytes;
 
 // FileIconSource is the gateway between network-level chrome:
 // requests for favicons and the history backend that serves these.

@@ -4,29 +4,27 @@
 
 #ifndef NET_URL_REQUEST_URL_REQUEST_UNITTEST_H_
 #define NET_URL_REQUEST_URL_REQUEST_UNITTEST_H_
+#pragma once
 
 #include <stdlib.h>
 
 #include <sstream>
 #include <string>
-#include <vector>
 
-#include "base/file_path.h"
-#include "base/file_util.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/process_util.h"
+#include "base/string_util.h"
+#include "base/string16.h"
 #include "base/thread.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
-#include "base/waitable_event.h"
 #include "net/base/cookie_monster.h"
 #include "net/base/cookie_policy.h"
 #include "net/base/host_resolver.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_test_constants.h"
 #include "net/base/ssl_config_service_defaults.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/ftp/ftp_network_layer.h"
@@ -39,11 +37,6 @@
 #include "net/proxy/proxy_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "googleurl/src/url_util.h"
-
-const int kHTTPDefaultPort = 1337;
-const int kFTPDefaultPort = 1338;
-
-const std::string kDefaultHostName("localhost");
 
 using base::TimeDelta;
 
@@ -132,14 +125,16 @@ class TestURLRequestContext : public URLRequestContext {
  public:
   TestURLRequestContext() {
     host_resolver_ =
-        net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism);
-    proxy_service_ = net::ProxyService::CreateNull();
+        net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism,
+                                      NULL);
+    proxy_service_ = net::ProxyService::CreateDirect();
     Init();
   }
 
   explicit TestURLRequestContext(const std::string& proxy) {
     host_resolver_ =
-        net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism);
+        net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism,
+                                      NULL);
     net::ProxyConfig proxy_config;
     proxy_config.proxy_rules().ParseFromString(proxy);
     proxy_service_ = net::ProxyService::CreateFixed(proxy_config);
@@ -161,7 +156,8 @@ class TestURLRequestContext : public URLRequestContext {
   void Init() {
     ftp_transaction_factory_ = new net::FtpNetworkLayer(host_resolver_);
     ssl_config_service_ = new net::SSLConfigServiceDefaults;
-    http_auth_handler_factory_ = net::HttpAuthHandlerFactory::CreateDefault();
+    http_auth_handler_factory_ = net::HttpAuthHandlerFactory::CreateDefault(
+        host_resolver_);
     http_transaction_factory_ = new net::HttpCache(
         net::HttpNetworkLayer::CreateFactory(host_resolver_,
                                              proxy_service_,
@@ -346,8 +342,8 @@ class TestDelegate : public URLRequest::Delegate {
   void set_allow_certificate_errors(bool val) {
     allow_certificate_errors_ = val;
   }
-  void set_username(const std::wstring& u) { username_ = u; }
-  void set_password(const std::wstring& p) { password_ = p; }
+  void set_username(const string16& u) { username_ = u; }
+  void set_password(const string16& p) { password_ = p; }
 
   // query state
   const std::string& data_received() const { return data_received_; }
@@ -376,8 +372,8 @@ class TestDelegate : public URLRequest::Delegate {
   bool quit_on_redirect_;
   bool allow_certificate_errors_;
 
-  std::wstring username_;
-  std::wstring password_;
+  string16 username_;
+  string16 password_;
 
   // tracks status of callbacks
   int response_started_count_;
@@ -393,381 +389,6 @@ class TestDelegate : public URLRequest::Delegate {
 
   // our read buffer
   scoped_refptr<net::IOBuffer> buf_;
-};
-
-//-----------------------------------------------------------------------------
-
-// This object bounds the lifetime of an external python-based HTTP/FTP server
-// that can provide various responses useful for testing.
-class BaseTestServer : public base::RefCounted<BaseTestServer> {
- protected:
-  BaseTestServer() {}
-  BaseTestServer(int connection_attempts, int connection_timeout)
-      : launcher_(connection_attempts, connection_timeout) {}
-
- public:
-  void set_forking(bool forking) {
-    launcher_.set_forking(forking);
-  }
-
-  // Used with e.g. HTTPTestServer::SendQuit()
-  bool WaitToFinish(int milliseconds) {
-    return launcher_.WaitToFinish(milliseconds);
-  }
-
-  bool Stop() {
-    return launcher_.Stop();
-  }
-
-  GURL TestServerPage(const std::string& base_address,
-      const std::string& path) {
-    return GURL(base_address + path);
-  }
-
-  GURL TestServerPage(const std::string& path) {
-    // TODO(phajdan.jr): Check for problems with IPv6.
-    return GURL(scheme_ + "://" + host_name_ + ":" + port_str_ + "/" + path);
-  }
-
-  GURL TestServerPage(const std::string& path,
-                      const std::string& user,
-                      const std::string& password) {
-    // TODO(phajdan.jr): Check for problems with IPv6.
-
-    if (password.empty())
-      return GURL(scheme_ + "://" + user + "@" +
-                  host_name_ + ":" + port_str_ + "/" + path);
-
-    return GURL(scheme_ + "://" + user + ":" + password +
-                "@" + host_name_ + ":" + port_str_ + "/" + path);
-  }
-
-  virtual bool MakeGETRequest(const std::string& page_name) = 0;
-
-  FilePath GetDataDirectory() {
-    return launcher_.GetDocumentRootPath();
-  }
-
- protected:
-  friend class base::RefCounted<BaseTestServer>;
-  virtual ~BaseTestServer() { }
-
-  bool Start(net::TestServerLauncher::Protocol protocol,
-             const std::string& host_name, int port,
-             const FilePath& document_root,
-             const FilePath& cert_path,
-             const std::wstring& file_root_url) {
-    if (!launcher_.Start(protocol,
-        host_name, port, document_root, cert_path, file_root_url))
-      return false;
-
-    if (protocol == net::TestServerLauncher::ProtoFTP)
-      scheme_ = "ftp";
-    else
-      scheme_ = "http";
-    if (!cert_path.empty())
-      scheme_.push_back('s');
-
-    host_name_ = host_name;
-    port_str_ = IntToString(port);
-    return true;
-  }
-
-  // Used by MakeGETRequest to implement sync load behavior.
-  class SyncTestDelegate : public TestDelegate {
-   public:
-    SyncTestDelegate() : event_(false, false), success_(false) {
-    }
-    virtual void OnResponseCompleted(URLRequest* request) {
-      MessageLoop::current()->DeleteSoon(FROM_HERE, request);
-      success_ = request->status().is_success();
-      event_.Signal();
-    }
-    bool Wait(int64 secs) {
-      TimeDelta td = TimeDelta::FromSeconds(secs);
-      if (event_.TimedWait(td))
-        return true;
-      return false;
-    }
-    bool did_succeed() const { return success_; }
-   private:
-    base::WaitableEvent event_;
-    bool success_;
-    DISALLOW_COPY_AND_ASSIGN(SyncTestDelegate);
-  };
-
-  net::TestServerLauncher launcher_;
-  std::string scheme_;
-  std::string host_name_;
-  std::string port_str_;
-};
-
-//-----------------------------------------------------------------------------
-
-// HTTP
-class HTTPTestServer : public BaseTestServer {
- protected:
-  explicit HTTPTestServer() : loop_(NULL) {
-  }
-
-  explicit HTTPTestServer(int connection_attempts, int connection_timeout)
-      : BaseTestServer(connection_attempts, connection_timeout), loop_(NULL) {
-  }
-
-  virtual ~HTTPTestServer() {}
-
- public:
-  // Creates and returns a new HTTPTestServer. If |loop| is non-null, requests
-  // are serviced on it, otherwise a new thread and message loop are created.
-  static scoped_refptr<HTTPTestServer> CreateServer(
-      const std::wstring& document_root,
-      MessageLoop* loop) {
-    return CreateServerWithFileRootURL(document_root, std::wstring(), loop);
-  }
-
-  static scoped_refptr<HTTPTestServer> CreateServer(
-      const std::wstring& document_root,
-      MessageLoop* loop,
-      int connection_attempts,
-      int connection_timeout) {
-    return CreateServerWithFileRootURL(document_root, std::wstring(), loop,
-                                       connection_attempts,
-                                       connection_timeout);
-  }
-
-  static scoped_refptr<HTTPTestServer> CreateServerWithFileRootURL(
-      const std::wstring& document_root,
-      const std::wstring& file_root_url,
-      MessageLoop* loop) {
-    return CreateServerWithFileRootURL(document_root, file_root_url, loop,
-                                       net::kDefaultTestConnectionAttempts,
-                                       net::kDefaultTestConnectionTimeout);
-  }
-
-  static scoped_refptr<HTTPTestServer> CreateForkingServer(
-      const std::wstring& document_root) {
-    scoped_refptr<HTTPTestServer> test_server =
-        new HTTPTestServer(net::kDefaultTestConnectionAttempts,
-                           net::kDefaultTestConnectionTimeout);
-    test_server->set_forking(true);
-    FilePath no_cert;
-    FilePath docroot = FilePath::FromWStringHack(document_root);
-    if (!StartTestServer(test_server.get(), docroot, no_cert, std::wstring()))
-      return NULL;
-    return test_server;
-  }
-
-  static scoped_refptr<HTTPTestServer> CreateServerWithFileRootURL(
-      const std::wstring& document_root,
-      const std::wstring& file_root_url,
-      MessageLoop* loop,
-      int connection_attempts,
-      int connection_timeout) {
-    scoped_refptr<HTTPTestServer> test_server =
-        new HTTPTestServer(connection_attempts, connection_timeout);
-    test_server->loop_ = loop;
-    FilePath no_cert;
-    FilePath docroot = FilePath::FromWStringHack(document_root);
-    if (!StartTestServer(test_server.get(), docroot, no_cert, file_root_url))
-      return NULL;
-    return test_server;
-  }
-
-  static bool StartTestServer(HTTPTestServer* server,
-                              const FilePath& document_root,
-                              const FilePath& cert_path,
-                              const std::wstring& file_root_url) {
-    return server->Start(net::TestServerLauncher::ProtoHTTP, kDefaultHostName,
-                         kHTTPDefaultPort, document_root, cert_path,
-                         file_root_url);
-  }
-
-  // A subclass may wish to send the request in a different manner
-  virtual bool MakeGETRequest(const std::string& page_name) {
-    const GURL& url = TestServerPage(page_name);
-
-    // Spin up a background thread for this request so that we have access to
-    // an IO message loop, and in cases where this thread already has an IO
-    // message loop, we also want to avoid spinning a nested message loop.
-    SyncTestDelegate d;
-    {
-      MessageLoop* loop = loop_;
-      scoped_ptr<base::Thread> io_thread;
-
-      if (!loop) {
-        io_thread.reset(new base::Thread("MakeGETRequest"));
-        base::Thread::Options options;
-        options.message_loop_type = MessageLoop::TYPE_IO;
-        io_thread->StartWithOptions(options);
-        loop = io_thread->message_loop();
-      }
-      loop->PostTask(FROM_HERE, NewRunnableFunction(
-            &HTTPTestServer::StartGETRequest, url, &d));
-
-      // Build bot wait for only 300 seconds we should ensure wait do not take
-      // more than 300 seconds
-      if (!d.Wait(250))
-        return false;
-    }
-    return d.did_succeed();
-  }
-
-  static void StartGETRequest(const GURL& url, URLRequest::Delegate* delegate) {
-    URLRequest* request = new URLRequest(url, delegate);
-    request->set_context(new TestURLRequestContext());
-    request->set_method("GET");
-    request->Start();
-    EXPECT_TRUE(request->is_pending());
-  }
-
-  // Some tests use browser javascript to fetch a 'kill' url that causes
-  // the server to exit by itself (rather than letting TestServerLauncher's
-  // destructor kill it).
-  // This method does the same thing so we can unit test that mechanism.
-  // You can then use WaitToFinish() to sleep until the server terminates.
-  void SendQuit() {
-    // Append the time to avoid problems where the kill page
-    // is being cached rather than being executed on the server
-    std::string page_name = StringPrintf("kill?%u",
-        static_cast<int>(base::Time::Now().ToInternalValue()));
-    int retry_count = 5;
-    while (retry_count > 0) {
-      bool r = MakeGETRequest(page_name);
-      // BUG #1048625 causes the kill GET to fail.  For now we just retry.
-      // Once the bug is fixed, we should remove the while loop and put back
-      // the following DCHECK.
-      // DCHECK(r);
-      if (r)
-        break;
-      retry_count--;
-    }
-    // Make sure we were successful in stopping the testserver.
-    DCHECK_GT(retry_count, 0);
-  }
-
-  virtual std::string scheme() { return "http"; }
-
- private:
-  // If non-null a background thread isn't created and instead this message loop
-  // is used.
-  MessageLoop* loop_;
-};
-
-//-----------------------------------------------------------------------------
-
-class HTTPSTestServer : public HTTPTestServer {
- protected:
-  explicit HTTPSTestServer() {
-  }
-
- public:
-  // Create a server with a valid certificate
-  // TODO(dkegel): HTTPSTestServer should not require an instance to specify
-  // stock test certificates
-  static scoped_refptr<HTTPSTestServer> CreateGoodServer(
-      const std::wstring& document_root) {
-    scoped_refptr<HTTPSTestServer> test_server = new HTTPSTestServer();
-    FilePath docroot = FilePath::FromWStringHack(document_root);
-    FilePath certpath = test_server->launcher_.GetOKCertPath();
-    if (!test_server->Start(net::TestServerLauncher::ProtoHTTP,
-        net::TestServerLauncher::kHostName,
-        net::TestServerLauncher::kOKHTTPSPort,
-        docroot, certpath, std::wstring())) {
-      return NULL;
-    }
-    return test_server;
-  }
-
-  // Create a server with an up to date certificate for the wrong hostname
-  // for this host
-  static scoped_refptr<HTTPSTestServer> CreateMismatchedServer(
-      const std::wstring& document_root) {
-    scoped_refptr<HTTPSTestServer> test_server = new HTTPSTestServer();
-    FilePath docroot = FilePath::FromWStringHack(document_root);
-    FilePath certpath = test_server->launcher_.GetOKCertPath();
-    if (!test_server->Start(net::TestServerLauncher::ProtoHTTP,
-        net::TestServerLauncher::kMismatchedHostName,
-        net::TestServerLauncher::kOKHTTPSPort,
-        docroot, certpath, std::wstring())) {
-      return NULL;
-    }
-    return test_server;
-  }
-
-  // Create a server with an expired certificate
-  static scoped_refptr<HTTPSTestServer> CreateExpiredServer(
-      const std::wstring& document_root) {
-    scoped_refptr<HTTPSTestServer> test_server = new HTTPSTestServer();
-    FilePath docroot = FilePath::FromWStringHack(document_root);
-    FilePath certpath = test_server->launcher_.GetExpiredCertPath();
-    if (!test_server->Start(net::TestServerLauncher::ProtoHTTP,
-        net::TestServerLauncher::kHostName,
-        net::TestServerLauncher::kBadHTTPSPort,
-        docroot, certpath, std::wstring())) {
-      return NULL;
-    }
-    return test_server;
-  }
-
-  // Create a server with an arbitrary certificate
-  static scoped_refptr<HTTPSTestServer> CreateServer(
-      const std::string& host_name, int port,
-      const std::wstring& document_root,
-      const std::wstring& cert_path) {
-    scoped_refptr<HTTPSTestServer> test_server = new HTTPSTestServer();
-    FilePath docroot = FilePath::FromWStringHack(document_root);
-    FilePath certpath = FilePath::FromWStringHack(cert_path);
-    if (!test_server->Start(net::TestServerLauncher::ProtoHTTP,
-        host_name, port, docroot, certpath, std::wstring())) {
-      return NULL;
-    }
-    return test_server;
-  }
-
- protected:
-  std::wstring cert_path_;
-
- private:
-  virtual ~HTTPSTestServer() {}
-};
-
-//-----------------------------------------------------------------------------
-
-class FTPTestServer : public BaseTestServer {
- public:
-  FTPTestServer() {
-  }
-
-  static scoped_refptr<FTPTestServer> CreateServer(
-      const std::wstring& document_root) {
-    scoped_refptr<FTPTestServer> test_server = new FTPTestServer();
-    FilePath docroot = FilePath::FromWStringHack(document_root);
-    FilePath no_cert;
-    if (!test_server->Start(net::TestServerLauncher::ProtoFTP,
-        kDefaultHostName, kFTPDefaultPort, docroot, no_cert, std::wstring())) {
-      return NULL;
-    }
-    return test_server;
-  }
-
-  virtual bool MakeGETRequest(const std::string& page_name) {
-    const GURL& url = TestServerPage(page_name);
-    TestDelegate d;
-    URLRequest request(url, &d);
-    request.set_context(new TestURLRequestContext());
-    request.set_method("GET");
-    request.Start();
-    EXPECT_TRUE(request.is_pending());
-
-    MessageLoop::current()->Run();
-    if (request.is_pending())
-      return false;
-
-    return true;
-  }
-
- private:
-  ~FTPTestServer() {}
 };
 
 #endif  // NET_URL_REQUEST_URL_REQUEST_UNITTEST_H_

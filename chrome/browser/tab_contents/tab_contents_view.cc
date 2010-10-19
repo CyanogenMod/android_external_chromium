@@ -34,7 +34,8 @@ void TabContentsView::CreateNewWindow(
       route_id,
       tab_contents_->profile(),
       tab_contents_->GetSiteInstance(),
-      DOMUIFactory::GetDOMUIType(tab_contents_->GetURL()),
+      DOMUIFactory::GetDOMUIType(tab_contents_->profile(),
+          tab_contents_->GetURL()),
       tab_contents_,
       window_container_type,
       frame_name);
@@ -46,6 +47,11 @@ void TabContentsView::CreateNewWindow(
 void TabContentsView::CreateNewWidget(int route_id,
                                       WebKit::WebPopupType popup_type) {
   CreateNewWidgetInternal(route_id, popup_type);
+}
+
+void TabContentsView::CreateNewFullscreenWidget(
+    int route_id, WebKit::WebPopupType popup_type) {
+  CreateNewFullscreenWidgetInternal(route_id, popup_type);
 }
 
 void TabContentsView::ShowCreatedWindow(int route_id,
@@ -66,6 +72,25 @@ void TabContentsView::ShowCreatedWidget(int route_id,
   ShowCreatedWidgetInternal(widget_host_view, initial_pos);
 }
 
+void TabContentsView::Activate() {
+  tab_contents_->Activate();
+}
+
+void TabContentsView::Deactivate() {
+  tab_contents_->Deactivate();
+}
+
+void TabContentsView::ShowCreatedFullscreenWidget(int route_id) {
+  RenderWidgetHostView* widget_host_view =
+      delegate_view_helper_.GetCreatedWidget(route_id);
+  ShowCreatedFullscreenWidgetInternal(widget_host_view);
+}
+
+void TabContentsView::LostCapture() {
+  if (tab_contents_->delegate())
+    tab_contents_->delegate()->LostCapture();
+}
+
 bool TabContentsView::PreHandleKeyboardEvent(
     const NativeWebKeyboardEvent& event, bool* is_keyboard_shortcut) {
   return tab_contents_->delegate() &&
@@ -83,10 +108,26 @@ void TabContentsView::HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {
     tab_contents_->delegate()->HandleKeyboardEvent(event);
 }
 
+void TabContentsView::HandleMouseUp() {
+  if (tab_contents_->delegate())
+    tab_contents_->delegate()->HandleMouseUp();
+}
+
+void TabContentsView::HandleMouseActivate() {
+  if (tab_contents_->delegate())
+    tab_contents_->delegate()->HandleMouseActivate();
+}
+
 RenderWidgetHostView* TabContentsView::CreateNewWidgetInternal(
     int route_id, WebKit::WebPopupType popup_type) {
   return delegate_view_helper_.CreateNewWidget(route_id, popup_type,
       tab_contents()->render_view_host()->process());
+}
+
+RenderWidgetHostView* TabContentsView::CreateNewFullscreenWidgetInternal(
+    int route_id, WebKit::WebPopupType popup_type) {
+  return delegate_view_helper_.CreateNewFullscreenWidget(
+      route_id, popup_type, tab_contents()->render_view_host()->process());
 }
 
 void TabContentsView::ShowCreatedWidgetInternal(
@@ -96,5 +137,14 @@ void TabContentsView::ShowCreatedWidgetInternal(
 
   widget_host_view->InitAsPopup(tab_contents_->GetRenderWidgetHostView(),
                                 initial_pos);
+  widget_host_view->GetRenderWidgetHost()->Init();
+}
+
+void TabContentsView::ShowCreatedFullscreenWidgetInternal(
+    RenderWidgetHostView* widget_host_view) {
+  if (tab_contents_->delegate())
+    tab_contents_->delegate()->RenderWidgetShowing();
+
+  widget_host_view->InitAsFullscreen(tab_contents_->GetRenderWidgetHostView());
   widget_host_view->GetRenderWidgetHost()->Init();
 }

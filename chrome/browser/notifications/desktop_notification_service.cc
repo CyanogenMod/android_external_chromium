@@ -6,6 +6,7 @@
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
+#include "base/histogram.h"
 #include "base/thread.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_child_process_host.h"
@@ -15,18 +16,19 @@
 #include "chrome/browser/notifications/notification_object_proxy.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/scoped_pref_update.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/site_instance.h"
-#include "chrome/browser/scoped_pref_update.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/worker_host/worker_process_host.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/render_messages_params.h"
 #include "chrome/common/url_constants.h"
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
@@ -117,7 +119,7 @@ class NotificationPermissionInfoBarDelegate : public ConfirmInfoBarDelegate {
  public:
   NotificationPermissionInfoBarDelegate(TabContents* contents,
                                         const GURL& origin,
-                                        const std::wstring& display_name,
+                                        const string16& display_name,
                                         int process_id,
                                         int route_id,
                                         int callback_context)
@@ -144,8 +146,9 @@ class NotificationPermissionInfoBarDelegate : public ConfirmInfoBarDelegate {
     delete this;
   }
 
-  virtual std::wstring GetMessageText() const {
-    return l10n_util::GetStringF(IDS_NOTIFICATION_PERMISSIONS, display_name_);
+  virtual string16 GetMessageText() const {
+    return l10n_util::GetStringFUTF16(IDS_NOTIFICATION_PERMISSIONS,
+                                      display_name_);
   }
 
   virtual SkBitmap* GetIcon() const {
@@ -157,10 +160,10 @@ class NotificationPermissionInfoBarDelegate : public ConfirmInfoBarDelegate {
     return BUTTON_OK | BUTTON_CANCEL | BUTTON_OK_DEFAULT;
   }
 
-  virtual std::wstring GetButtonLabel(InfoBarButton button) const {
+  virtual string16 GetButtonLabel(InfoBarButton button) const {
     return button == BUTTON_OK ?
-        l10n_util::GetString(IDS_NOTIFICATION_PERMISSION_YES) :
-        l10n_util::GetString(IDS_NOTIFICATION_PERMISSION_NO);
+        l10n_util::GetStringUTF16(IDS_NOTIFICATION_PERMISSION_YES) :
+        l10n_util::GetStringUTF16(IDS_NOTIFICATION_PERMISSION_NO);
   }
 
   virtual bool Accept() {
@@ -177,13 +180,16 @@ class NotificationPermissionInfoBarDelegate : public ConfirmInfoBarDelegate {
     return true;
   }
 
+  // Overridden from InfoBarDelegate:
+  virtual Type GetInfoBarType() { return PAGE_ACTION_TYPE; }
+
  private:
   // The origin we are asking for permissions on.
   GURL origin_;
 
   // The display name for the origin to be displayed.  Will be different from
   // origin_ for extensions.
-  std::wstring display_name_;
+  string16 display_name_;
 
   // The Profile that we restore sessions from.
   Profile* profile_;
@@ -204,6 +210,7 @@ DesktopNotificationService::DesktopNotificationService(Profile* profile,
     NotificationUIManager* ui_manager)
     : profile_(profile),
       ui_manager_(ui_manager) {
+  registrar_.Init(profile_->GetPrefs());
   InitPrefs();
   StartObserving();
 }
@@ -248,21 +255,15 @@ void DesktopNotificationService::InitPrefs() {
 
 void DesktopNotificationService::StartObserving() {
   if (!profile_->IsOffTheRecord()) {
-    PrefService* prefs = profile_->GetPrefs();
-    prefs->AddPrefObserver(prefs::kDesktopNotificationDefaultContentSetting,
-                           this);
-    prefs->AddPrefObserver(prefs::kDesktopNotificationAllowedOrigins, this);
-    prefs->AddPrefObserver(prefs::kDesktopNotificationDeniedOrigins, this);
+    registrar_.Add(prefs::kDesktopNotificationDefaultContentSetting, this);
+    registrar_.Add(prefs::kDesktopNotificationAllowedOrigins, this);
+    registrar_.Add(prefs::kDesktopNotificationDeniedOrigins, this);
   }
 }
 
 void DesktopNotificationService::StopObserving() {
   if (!profile_->IsOffTheRecord()) {
-    PrefService* prefs = profile_->GetPrefs();
-    prefs->RemovePrefObserver(prefs::kDesktopNotificationDefaultContentSetting,
-                              this);
-    prefs->RemovePrefObserver(prefs::kDesktopNotificationAllowedOrigins, this);
-    prefs->RemovePrefObserver(prefs::kDesktopNotificationDeniedOrigins, this);
+    registrar_.RemoveAll();
   }
 }
 
@@ -295,7 +296,7 @@ void DesktopNotificationService::Observe(NotificationType type,
                                          const NotificationDetails& details) {
   DCHECK(NotificationType::PREF_CHANGED == type);
   PrefService* prefs = profile_->GetPrefs();
-  std::wstring* name = Details<std::wstring>(details).ptr();
+  std::string* name = Details<std::string>(details).ptr();
 
   if (0 == name->compare(prefs::kDesktopNotificationAllowedOrigins)) {
     std::vector<GURL> allowed_origins(GetAllowedOrigins());
@@ -413,6 +414,13 @@ void DesktopNotificationService::SetDefaultContentSetting(
   // The cache is updated through the notification observer.
 }
 
+void DesktopNotificationService::ResetToDefaultContentSetting() {
+  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+
+  PrefService* prefs = profile_->GetPrefs();
+  prefs->ClearPref(prefs::kDesktopNotificationDefaultContentSetting);
+}
+
 std::vector<GURL> DesktopNotificationService::GetAllowedOrigins() {
   std::vector<GURL> allowed_origins;
   PrefService* prefs = profile_->GetPrefs();
@@ -514,10 +522,9 @@ void DesktopNotificationService::RequestPermission(
   ContentSetting setting = GetContentSetting(origin);
   if (setting == CONTENT_SETTING_ASK) {
     // Show an info bar requesting permission.
-    std::wstring display_name = DisplayNameForOrigin(origin);
-
     tab->AddInfoBar(new NotificationPermissionInfoBarDelegate(
-        tab, origin, display_name, process_id, route_id, callback_context));
+                        tab, origin, DisplayNameForOrigin(origin), process_id,
+                        route_id, callback_context));
   } else {
     // Notify renderer immediately.
     ChromeThread::PostTask(
@@ -538,7 +545,7 @@ bool DesktopNotificationService::CancelDesktopNotification(
       new NotificationObjectProxy(process_id, route_id, notification_id,
                                   false));
   // TODO(johnnyg): clean up this "empty" notification.
-  Notification notif(GURL(), GURL(), L"", ASCIIToUTF16(""), proxy);
+  Notification notif(GURL(), GURL(), string16(), string16(), proxy);
   return ui_manager_->Cancel(notif);
 }
 
@@ -561,13 +568,14 @@ bool DesktopNotificationService::ShowDesktopNotification(
         CreateDataUrl(params.icon_url, params.title, params.body,
                       params.direction));
   }
-  Notification notif(
-      origin, contents, DisplayNameForOrigin(origin), params.replace_id, proxy);
-  ShowNotification(notif);
+  Notification notification(
+      origin, contents, DisplayNameForOrigin(origin),
+      params.replace_id, proxy);
+  ShowNotification(notification);
   return true;
 }
 
-std::wstring DesktopNotificationService::DisplayNameForOrigin(
+string16 DesktopNotificationService::DisplayNameForOrigin(
     const GURL& origin) {
   // If the source is an extension, lookup the display name.
   if (origin.SchemeIs(chrome::kExtensionScheme)) {
@@ -575,8 +583,8 @@ std::wstring DesktopNotificationService::DisplayNameForOrigin(
     if (ext_service) {
       Extension* extension = ext_service->GetExtensionByURL(origin);
       if (extension)
-        return UTF8ToWide(extension->name());
+        return UTF8ToUTF16(extension->name());
     }
   }
-  return UTF8ToWide(origin.host());
+  return UTF8ToUTF16(origin.host());
 }

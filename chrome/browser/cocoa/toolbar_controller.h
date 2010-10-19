@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_TOOLBAR_CONTROLLER_H_
 #define CHROME_BROWSER_COCOA_TOOLBAR_CONTROLLER_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
@@ -13,7 +14,7 @@
 #import "chrome/browser/cocoa/delayedmenu_button.h"
 #import "chrome/browser/cocoa/url_drop_target.h"
 #import "chrome/browser/cocoa/view_resizer.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 
 @class AutocompleteTextField;
 @class AutocompleteTextFieldEditor;
@@ -27,8 +28,8 @@ class LocationBar;
 class LocationBarViewMac;
 @class MenuButton;
 namespace ToolbarControllerInternal {
-class MenuDelegate;
 class NotificationBridge;
+class WrenchAcceleratorDelegate;
 }  // namespace ToolbarControllerInternal
 class Profile;
 @class ReloadButton;
@@ -73,7 +74,8 @@ class WrenchMenuModel;
   // Lazily-instantiated model and delegate for the menu on the
   // wrench button.  Once visible, it will be non-null, but will not
   // reaped when the menu is hidden once it is initially shown.
-  scoped_ptr<ToolbarControllerInternal::MenuDelegate> menuDelegate_;
+  scoped_ptr<ToolbarControllerInternal::WrenchAcceleratorDelegate>
+      acceleratorDelegate_;
   scoped_ptr<WrenchMenuModel> wrenchMenuModel_;
 
   // Used for monitoring the optional toolbar button prefs.

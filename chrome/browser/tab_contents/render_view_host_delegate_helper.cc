@@ -6,14 +6,15 @@
 
 #include "base/command_line.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/background_contents_service.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/character_encoding.h"
 #include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
+#include "chrome/browser/renderer_host/render_widget_fullscreen_host.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/renderer_host/site_instance.h"
@@ -61,7 +62,10 @@ RenderViewHostDelegateViewHelper::MaybeCreateBackgroundContents(
     return NULL;
 
   // Passed all the checks, so this should be created as a BackgroundContents.
-  BackgroundContents* contents = new BackgroundContents(site, route_id);
+  BackgroundContents* contents = new BackgroundContents(
+      site,
+      route_id,
+      profile->GetBackgroundContentsService());
   string16 appid = ASCIIToUTF16(extension->id());
   BackgroundContentsOpenedDetails details = { contents, frame_name, appid };
   NotificationService::current()->Notify(
@@ -99,7 +103,8 @@ TabContents* RenderViewHostDelegateViewHelper::CreateNewWindow(
       new TabContents(profile,
                       site,
                       route_id,
-                      opener->GetAsTabContents());
+                      opener->GetAsTabContents(),
+                      NULL);
   new_contents->set_opener_dom_ui_type(domui_type);
   TabContentsView* new_view = new_contents->view();
 
@@ -121,6 +126,18 @@ RenderWidgetHostView* RenderViewHostDelegateViewHelper::CreateNewWidget(
   // Popups should not get activated.
   widget_view->set_popup_type(popup_type);
   // Save the created widget associated with the route so we can show it later.
+  pending_widget_views_[route_id] = widget_view;
+  return widget_view;
+}
+
+RenderWidgetHostView*
+RenderViewHostDelegateViewHelper::CreateNewFullscreenWidget(
+    int route_id, WebKit::WebPopupType popup_type, RenderProcessHost* process) {
+  RenderWidgetFullscreenHost* fullscreen_widget_host =
+      new RenderWidgetFullscreenHost(process, route_id);
+  RenderWidgetHostView* widget_view =
+      RenderWidgetHostView::CreateViewForWidget(fullscreen_widget_host);
+  widget_view->set_popup_type(popup_type);
   pending_widget_views_[route_id] = widget_view;
   return widget_view;
 }
@@ -222,7 +239,7 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
       std::string value;
       if (inspector_settings->GetStringWithoutPathExpansion(*iter, &value))
           web_prefs.inspector_settings.push_back(
-              std::make_pair(WideToUTF8(*iter), value));
+              std::make_pair(*iter, value));
     }
   }
   web_prefs.tabs_to_links = prefs->GetBoolean(prefs::kWebkitTabsToLinks);
@@ -259,7 +276,7 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
     web_prefs.databases_enabled =
         !command_line.HasSwitch(switches::kDisableDatabases);
     web_prefs.experimental_webgl_enabled =
-        command_line.HasSwitch(switches::kEnableExperimentalWebGL);
+        !command_line.HasSwitch(switches::kDisableExperimentalWebGL);
     web_prefs.site_specific_quirks_enabled =
         !command_line.HasSwitch(switches::kDisableSiteSpecificQuirks);
     web_prefs.allow_file_access_from_file_urls =
@@ -267,7 +284,9 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
     web_prefs.show_composited_layer_borders =
         command_line.HasSwitch(switches::kShowCompositedLayerBorders);
     web_prefs.accelerated_compositing_enabled =
-        command_line.HasSwitch(switches::kEnableAcceleratedCompositing);
+        !command_line.HasSwitch(switches::kDisableAcceleratedCompositing);
+    web_prefs.accelerated_2d_canvas_enabled =
+        command_line.HasSwitch(switches::kEnableAccelerated2dCanvas);
     web_prefs.memory_info_enabled =
         command_line.HasSwitch(switches::kEnableMemoryInfo);
     // The user stylesheet watcher may not exist in a testing profile.

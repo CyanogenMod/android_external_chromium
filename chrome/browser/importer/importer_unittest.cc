@@ -21,7 +21,9 @@
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/stl_util-inl.h"
+#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+#include "base/values.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/importer/importer.h"
@@ -257,12 +259,15 @@ class TestObserver : public ProfileWriter,
     ++password_count_;
   }
 
-  virtual void AddHistoryPage(const std::vector<history::URLRow>& page) {
+  virtual void AddHistoryPage(const std::vector<history::URLRow>& page,
+                              history::VisitSource visit_source) {
     // Importer should read the specified URL.
-    for (size_t i = 0; i < page.size(); ++i)
+    for (size_t i = 0; i < page.size(); ++i) {
       if (page[i].title() == kIEIdentifyTitle &&
           page[i].url() == GURL(kIEIdentifyUrl))
         ++history_count_;
+    }
+    EXPECT_EQ(history::SOURCE_IE_IMPORTED, visit_source);
   }
 
   virtual void AddBookmarkEntry(const std::vector<BookmarkEntry>& bookmark,
@@ -608,10 +613,12 @@ class FirefoxObserver : public ProfileWriter,
     ++password_count_;
   }
 
-  virtual void AddHistoryPage(const std::vector<history::URLRow>& page) {
+  virtual void AddHistoryPage(const std::vector<history::URLRow>& page,
+                              history::VisitSource visit_source) {
     ASSERT_EQ(1U, page.size());
     EXPECT_EQ("http://en-us.www.mozilla.com/", page[0].url().spec());
     EXPECT_EQ(ASCIIToUTF16("Firefox Updated"), page[0].title());
+    EXPECT_EQ(history::SOURCE_FIREFOX_IMPORTED, visit_source);
     ++history_count_;
   }
 
@@ -804,7 +811,8 @@ class Firefox3Observer : public ProfileWriter,
     ++password_count_;
   }
 
-  virtual void AddHistoryPage(const std::vector<history::URLRow>& page) {
+  virtual void AddHistoryPage(const std::vector<history::URLRow>& page,
+                              history::VisitSource visit_source) {
     ASSERT_EQ(3U, page.size());
     EXPECT_EQ("http://www.google.com/", page[0].url().spec());
     EXPECT_EQ(ASCIIToUTF16("Google"), page[0].title());
@@ -813,6 +821,7 @@ class Firefox3Observer : public ProfileWriter,
     EXPECT_EQ("http://www.cs.unc.edu/~jbs/resources/perl/perl-cgi/programs/form1-POST.html",
               page[2].url().spec());
     EXPECT_EQ(ASCIIToUTF16("example form (POST)"), page[2].title());
+    EXPECT_EQ(history::SOURCE_FIREFOX_IMPORTED, visit_source);
     ++history_count_;
   }
 

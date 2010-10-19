@@ -6,6 +6,7 @@
 
 #ifndef NET_DISK_CACHE_ERRORS_H__
 #define NET_DISK_CACHE_ERRORS_H__
+#pragma once
 
 namespace disk_cache {
 
@@ -22,7 +23,8 @@ enum {
   ERR_READ_FAILURE = -10,
   ERR_PREVIOUS_CRASH = -11,
   ERR_STORAGE_ERROR = -12,
-  ERR_INVALID_MASK = -13
+  ERR_INVALID_MASK = -13,
+  ERR_CACHE_DOOMED = -14  // Not really an error condition
 };
 
 }  // namespace disk_cache

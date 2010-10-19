@@ -1,17 +1,17 @@
 menu {
   display: none;
-  position: absolute;
+  position: fixed;
   border: 1px solid rgba(0, 0, 0, .50);
   -webkit-box-shadow: 0px 2px 4px rgba(0, 0, 0, .50);
   color: black;
   background: -webkit-gradient(linear, 0 0, 0 100%, from(#fff), to(#eee));
   left: 0;
   white-space: nowrap;
-  z-index: 2;
   padding: 8px 0;
   margin: 0;
   cursor: default;
   border-radius: 3px;
+  z-index: 3;
 }
 
 menu > * {
@@ -49,11 +49,28 @@ menu > [hidden] {
   display: none;
 }
 
-menu > [selected] {
+menu > :not(hr)[selected] {
   background-color: #dce5fa;
 }
 
-menu > [selected]:active {
+menu > :not(hr)[selected]:active {
   background-color: #426dc9;
   color: #fff;
+}
+
+menu > [checked]:before {
+  content: url("../images/checkbox_black.png");
+  width: 9px;
+  height: 9px;
+  display: inline-block;
+  vertical-align: 50%;
+  margin: 0 5px;
+}
+
+menu > [checked] {
+  -webkit-padding-start: 0;
+}
+
+menu > [selected][checked]:active:before {
+  content: url("../images/checkbox_white.png");
 }

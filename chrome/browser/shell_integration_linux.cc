@@ -15,7 +15,7 @@
 
 #include "base/command_line.h"
 #include "base/eintr_wrapper.h"
-#include "base/env_var.h"
+#include "base/environment.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/i18n/file_util_icu.h"
@@ -23,7 +23,9 @@
 #include "base/path_service.h"
 #include "base/process_util.h"
 #include "base/scoped_temp_dir.h"
+#include "base/string_number_conversions.h"
 #include "base/string_tokenizer.h"
+#include "base/string_util.h"
 #include "base/task.h"
 #include "base/thread.h"
 #include "base/utf_string_conversions.h"
@@ -37,20 +39,6 @@
 #include "googleurl/src/gurl.h"
 
 namespace {
-
-std::string GetDesktopName(base::EnvVarGetter* env_getter) {
-#if defined(GOOGLE_CHROME_BUILD)
-  return "google-chrome.desktop";
-#else  // CHROMIUM_BUILD
-  // Allow $CHROME_DESKTOP to override the built-in value, so that development
-  // versions can set themselves as the default without interfering with
-  // non-official, packaged versions using the built-in value.
-  std::string name;
-  if (env_getter->GetEnv("CHROME_DESKTOP", &name) && !name.empty())
-    return name;
-  return "chromium-browser.desktop";
-#endif
-}
 
 // Helper to launch xdg scripts. We don't want them to ask any questions on the
 // terminal etc.
@@ -111,7 +99,7 @@ std::string CreateShortcutIcon(
   argv.push_back("user");
 
   argv.push_back("--size");
-  argv.push_back(IntToString(shortcut_info.favicon.width()));
+  argv.push_back(base::IntToString(shortcut_info.favicon.width()));
 
   argv.push_back(temp_file_path.value());
   std::string icon_name = temp_file_path.BaseName().RemoveExtension().value();
@@ -191,6 +179,21 @@ void CreateShortcutInApplicationsMenu(const FilePath& shortcut_filename,
 
 }  // namespace
 
+// static
+std::string ShellIntegration::GetDesktopName(base::Environment* env) {
+#if defined(GOOGLE_CHROME_BUILD)
+  return "google-chrome.desktop";
+#else  // CHROMIUM_BUILD
+  // Allow $CHROME_DESKTOP to override the built-in value, so that development
+  // versions can set themselves as the default without interfering with
+  // non-official, packaged versions using the built-in value.
+  std::string name;
+  if (env->GetVar("CHROME_DESKTOP", &name) && !name.empty())
+    return name;
+  return "chromium-browser.desktop";
+#endif
+}
+
 // We delegate the difficulty of setting the default browser in Linux desktop
 // environments to a new xdg utility, xdg-settings. We have to include a copy of
 // it for this to work, obviously, but that's actually the suggested approach
@@ -198,13 +201,13 @@ void CreateShortcutInApplicationsMenu(const FilePath& shortcut_filename,
 
 // static
 bool ShellIntegration::SetAsDefaultBrowser() {
-  scoped_ptr<base::EnvVarGetter> env_getter(base::EnvVarGetter::Create());
+  scoped_ptr<base::Environment> env(base::Environment::Create());
 
   std::vector<std::string> argv;
   argv.push_back("xdg-settings");
   argv.push_back("set");
   argv.push_back("default-web-browser");
-  argv.push_back(GetDesktopName(env_getter.get()));
+  argv.push_back(GetDesktopName(env.get()));
   return LaunchXdgUtility(argv);
 }
 
@@ -212,13 +215,13 @@ bool ShellIntegration::SetAsDefaultBrowser() {
 ShellIntegration::DefaultBrowserState ShellIntegration::IsDefaultBrowser() {
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
 
-  scoped_ptr<base::EnvVarGetter> env_getter(base::EnvVarGetter::Create());
+  scoped_ptr<base::Environment> env(base::Environment::Create());
 
   std::vector<std::string> argv;
   argv.push_back("xdg-settings");
   argv.push_back("check");
   argv.push_back("default-web-browser");
-  argv.push_back(GetDesktopName(env_getter.get()));
+  argv.push_back(GetDesktopName(env.get()));
 
   std::string reply;
   if (!base::GetAppOutput(CommandLine(argv), &reply)) {
@@ -245,19 +248,19 @@ bool ShellIntegration::IsFirefoxDefaultBrowser() {
 
 // static
 bool ShellIntegration::GetDesktopShortcutTemplate(
-    base::EnvVarGetter* env_getter, std::string* output) {
+    base::Environment* env, std::string* output) {
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
 
   std::vector<FilePath> search_paths;
 
   std::string xdg_data_home;
-  if (env_getter->GetEnv("XDG_DATA_HOME", &xdg_data_home) &&
+  if (env->GetVar("XDG_DATA_HOME", &xdg_data_home) &&
       !xdg_data_home.empty()) {
     search_paths.push_back(FilePath(xdg_data_home));
   }
 
   std::string xdg_data_dirs;
-  if (env_getter->GetEnv("XDG_DATA_DIRS", &xdg_data_dirs) &&
+  if (env->GetVar("XDG_DATA_DIRS", &xdg_data_dirs) &&
       !xdg_data_dirs.empty()) {
     StringTokenizer tokenizer(xdg_data_dirs, ":");
     while (tokenizer.GetNext()) {
@@ -272,7 +275,7 @@ bool ShellIntegration::GetDesktopShortcutTemplate(
   search_paths.push_back(FilePath("/usr/share/applications"));
   search_paths.push_back(FilePath("/usr/local/share/applications"));
 
-  std::string template_filename(GetDesktopName(env_getter));
+  std::string template_filename(GetDesktopName(env));
   for (std::vector<FilePath>::const_iterator i = search_paths.begin();
        i != search_paths.end(); ++i) {
     FilePath path = (*i).Append(template_filename);
@@ -302,8 +305,8 @@ FilePath ShellIntegration::GetDesktopShortcutFilename(const GURL& url) {
   FilePath alternative_filepath(filepath.value() + ".desktop");
   for (size_t i = 1; i < 100; ++i) {
     if (file_util::PathExists(FilePath(alternative_filepath))) {
-      alternative_filepath = FilePath(filepath.value() + "_" + IntToString(i) +
-                                      ".desktop");
+      alternative_filepath = FilePath(
+          filepath.value() + "_" + base::IntToString(i) + ".desktop");
     } else {
       return FilePath(alternative_filepath).BaseName();
     }

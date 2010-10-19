@@ -13,7 +13,9 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/i18n/rtl.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/find_bar_controller.h"
 #include "chrome/browser/find_bar_state.h"
@@ -31,6 +33,7 @@
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/notification_service.h"
 #include "gfx/gtk_util.h"
 #include "grit/generated_resources.h"
@@ -240,7 +243,7 @@ void FindBarGtk::InitWidgets() {
 
   find_next_button_.reset(new CustomDrawButton(theme_provider_,
       IDR_FINDINPAGE_NEXT, IDR_FINDINPAGE_NEXT_H, IDR_FINDINPAGE_NEXT_H,
-      IDR_FINDINPAGE_NEXT_P, 0, GTK_STOCK_GO_DOWN, GTK_ICON_SIZE_MENU));
+      IDR_FINDINPAGE_NEXT_P, GTK_STOCK_GO_DOWN, GTK_ICON_SIZE_MENU));
   g_signal_connect(find_next_button_->widget(), "clicked",
                    G_CALLBACK(OnClicked), this);
   gtk_widget_set_tooltip_text(find_next_button_->widget(),
@@ -250,7 +253,7 @@ void FindBarGtk::InitWidgets() {
 
   find_previous_button_.reset(new CustomDrawButton(theme_provider_,
       IDR_FINDINPAGE_PREV, IDR_FINDINPAGE_PREV_H, IDR_FINDINPAGE_PREV_H,
-      IDR_FINDINPAGE_PREV_P, 0, GTK_STOCK_GO_UP, GTK_ICON_SIZE_MENU));
+      IDR_FINDINPAGE_PREV_P, GTK_STOCK_GO_UP, GTK_ICON_SIZE_MENU));
   g_signal_connect(find_previous_button_->widget(), "clicked",
                    G_CALLBACK(OnClicked), this);
   gtk_widget_set_tooltip_text(find_previous_button_->widget(),
@@ -306,6 +309,14 @@ void FindBarGtk::InitWidgets() {
   // We take care to avoid showing the slide animator widget.
   gtk_widget_show_all(container_);
   gtk_widget_show(widget());
+}
+
+FindBarController* FindBarGtk::GetFindBarController() const {
+  return find_bar_controller_;
+}
+
+void FindBarGtk::SetFindBarController(FindBarController* find_bar_controller) {
+  find_bar_controller_ = find_bar_controller;
 }
 
 void FindBarGtk::Show(bool animate) {
@@ -384,8 +395,8 @@ void FindBarGtk::UpdateUIForFindResult(const FindNotificationDetails& result,
   if (!find_text.empty() && have_valid_range) {
     gtk_label_set_text(GTK_LABEL(match_count_label_),
         l10n_util::GetStringFUTF8(IDS_FIND_IN_PAGE_COUNT,
-            IntToString16(result.active_match_ordinal()),
-            IntToString16(result.number_of_matches())).c_str());
+            base::IntToString16(result.active_match_ordinal()),
+            base::IntToString16(result.number_of_matches())).c_str());
     UpdateMatchLabelAppearance(result.number_of_matches() == 0 &&
                                result.final_update());
   } else {
@@ -866,10 +877,9 @@ gboolean FindBarGtk::OnExpose(GtkWidget* widget, GdkEventExpose* e,
     GtkAllocation border_allocation = bar->border_bin_->allocation;
 
     // Blit the left part of the background image once on the left.
-    bool rtl = base::i18n::IsRTL();
-    CairoCachedSurface* background_left = bar->theme_provider_->GetSurfaceNamed(
-        rtl ? IDR_FIND_BOX_BACKGROUND_LEFT_RTL : IDR_FIND_BOX_BACKGROUND_LEFT,
-        widget);
+    CairoCachedSurface* background_left =
+        bar->theme_provider_->GetRTLEnabledSurfaceNamed(
+        IDR_FIND_BOX_BACKGROUND_LEFT, widget);
     background_left->SetSource(cr, border_allocation.x, border_allocation.y);
     cairo_pattern_set_extend(cairo_get_source(cr), CAIRO_EXTEND_REPEAT);
     cairo_rectangle(cr, border_allocation.x, border_allocation.y,

@@ -2,12 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <vector>
+
 #include "app/message_box_flags.h"
 #include "base/logging.h"
-#include "chrome/browser/pref_service.h"
-#include "chrome/browser/pref_value_store.h"
+#include "base/utf_string_conversions.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/pref_value_store.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
+#include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/tab_contents/interstitial_page.h"
@@ -17,7 +21,9 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/render_messages_params.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/test/testing_pref_service.h"
 #include "chrome/test/testing_profile.h"
 #include "ipc/ipc_channel.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -38,6 +44,7 @@ static void InitNavigateParams(ViewHostMsg_FrameNavigate_Params* params,
   params->password_form = PasswordForm();
   params->security_info = std::string();
   params->gesture = NavigationGestureUser;
+  params->was_within_same_page = false;
   params->is_post = false;
 }
 
@@ -53,6 +60,9 @@ class TestInterstitialPage : public InterstitialPage {
    public:
     virtual void TestInterstitialPageDeleted(
         TestInterstitialPage* interstitial) = 0;
+
+   protected:
+    virtual ~Delegate() {}
   };
 
   // IMPORTANT NOTE: if you pass stack allocated values for |state| and
@@ -184,11 +194,10 @@ class TabContentsTest : public RenderViewHostTestHarness {
   // is not supposed to overwrite a profile if it's already created.
   virtual void SetUp() {
     TestingProfile* profile = new TestingProfile();
-    profile->CreateBookmarkModel(false);
     profile_.reset(profile);
 
     // Set some (WebKit) user preferences.
-    TestingPrefService* pref_services = profile->GetPrefs();
+    TestingPrefService* pref_services = profile->GetTestingPrefService();
 #if defined(TOOLKIT_USES_GTK)
     pref_services->SetUserPref(prefs::kUsesSystemTheme,
                                Value::CreateBooleanValue(false));
@@ -203,8 +212,8 @@ class TabContentsTest : public RenderViewHostTestHarness {
                                Value::CreateBooleanValue(true));
     pref_services->SetUserPref(prefs::kWebKitStandardFontIsSerif,
                                Value::CreateBooleanValue(true));
-    pref_services->SetUserPref(L"webkit.webprefs.foo",
-                               Value::CreateStringValue(L"bar"));
+    pref_services->SetUserPref("webkit.webprefs.foo",
+                               Value::CreateStringValue("bar"));
 
     RenderViewHostTestHarness::SetUp();
   }
@@ -758,7 +767,7 @@ TEST_F(TabContentsTest, WebKitPrefs) {
 #if defined(OS_MACOSX)
   const wchar_t kDefaultFont[] = L"Times";
 #elif defined(OS_CHROMEOS)
-  const wchar_t kDefaultFont[] = L"Ascender Serif";
+  const wchar_t kDefaultFont[] = L"Tinos";
 #else
   const wchar_t kDefaultFont[] = L"Times New Roman";
 #endif
@@ -1369,6 +1378,45 @@ TEST_F(TabContentsTest, NavigateBeforeInterstitialShows) {
   EXPECT_EQ(TestInterstitialPage::CANCELED, state);
 }
 
+// Test that a new request to show an interstitial while an interstitial is
+// pending does not cause problems. htp://crbug/29655 and htp://crbug/9442.
+TEST_F(TabContentsTest, TwoQuickInterstitials) {
+  GURL interstitial_url("http://interstitial");
+
+  // Show a first interstitial.
+  TestInterstitialPage::InterstitialState state1 =
+      TestInterstitialPage::UNDECIDED;
+  bool deleted1 = false;
+  TestInterstitialPage* interstitial1 =
+      new TestInterstitialPage(contents(), true, interstitial_url,
+                               &state1, &deleted1);
+  TestInterstitialPageStateGuard state_guard1(interstitial1);
+  interstitial1->Show();
+
+  // Show another interstitial on that same tab before the first one had time
+  // to load.
+  TestInterstitialPage::InterstitialState state2 =
+      TestInterstitialPage::UNDECIDED;
+  bool deleted2 = false;
+  TestInterstitialPage* interstitial2 =
+      new TestInterstitialPage(contents(), true, interstitial_url,
+                               &state2, &deleted2);
+  TestInterstitialPageStateGuard state_guard2(interstitial2);
+  interstitial2->Show();
+
+  // The first interstitial should have been closed and deleted.
+  EXPECT_TRUE(deleted1);
+  EXPECT_EQ(TestInterstitialPage::CANCELED, state1);
+
+  // The 2nd one should still be OK.
+  ASSERT_FALSE(deleted2);
+  EXPECT_EQ(TestInterstitialPage::UNDECIDED, state2);
+
+  // Make the interstitial navigation commit it should be showing.
+  interstitial2->TestDidNavigate(1, interstitial_url);
+  EXPECT_EQ(interstitial2, contents()->interstitial_page());
+}
+
 // Test showing an interstitial and have its renderer crash.
 TEST_F(TabContentsTest, InterstitialCrasher) {
   // Show an interstitial.
@@ -1473,4 +1521,93 @@ TEST_F(TabContentsTest, NoJSMessageOnInterstitials) {
       kGURL, MessageBoxFlags::kIsJavascriptAlert, dummy_message,
       &did_suppress_message);
   EXPECT_TRUE(did_suppress_message);
+}
+
+// Makes sure that if the source passed to CopyStateFromAndPrune has an
+// interstitial it isn't copied over to the destination.
+TEST_F(TabContentsTest, CopyStateFromAndPruneSourceInterstitial) {
+  // Navigate to a page.
+  GURL url1("http://www.google.com");
+  rvh()->SendNavigate(1, url1);
+  EXPECT_EQ(1, controller().entry_count());
+
+  // Initiate a browser navigation that will trigger the interstitial
+  controller().LoadURL(GURL("http://www.evil.com"), GURL(),
+                        PageTransition::TYPED);
+
+  // Show an interstitial.
+  TestInterstitialPage::InterstitialState state =
+      TestInterstitialPage::UNDECIDED;
+  bool deleted = false;
+  GURL url2("http://interstitial");
+  TestInterstitialPage* interstitial =
+      new TestInterstitialPage(contents(), true, url2, &state, &deleted);
+  TestInterstitialPageStateGuard state_guard(interstitial);
+  interstitial->Show();
+  interstitial->TestDidNavigate(1, url2);
+  EXPECT_TRUE(interstitial->is_showing());
+  EXPECT_EQ(2, controller().entry_count());
+
+  // Create another NavigationController.
+  GURL url3("http://foo2");
+  scoped_ptr<TestTabContents> other_contents(CreateTestTabContents());
+  NavigationController& other_controller = other_contents->controller();
+  other_contents->NavigateAndCommit(url3);
+  other_controller.CopyStateFromAndPrune(controller());
+
+  // The merged controller should only have two entries: url1 and url2.
+  ASSERT_EQ(2, other_controller.entry_count());
+  EXPECT_EQ(1, other_controller.GetCurrentEntryIndex());
+  EXPECT_EQ(url1, other_controller.GetEntryAtIndex(0)->url());
+  EXPECT_EQ(url3, other_controller.GetEntryAtIndex(1)->url());
+
+  // And the merged controller shouldn't be showing an interstitial.
+  EXPECT_FALSE(other_contents->showing_interstitial_page());
+}
+
+// Makes sure that CopyStateFromAndPrune does the right thing if the object
+// CopyStateFromAndPrune is invoked on is showing an interstitial.
+TEST_F(TabContentsTest, CopyStateFromAndPruneTargetInterstitial) {
+  // Navigate to a page.
+  GURL url1("http://www.google.com");
+  contents()->NavigateAndCommit(url1);
+
+  // Create another NavigationController.
+  scoped_ptr<TestTabContents> other_contents(CreateTestTabContents());
+  NavigationController& other_controller = other_contents->controller();
+
+  // Navigate it to url2.
+  GURL url2("http://foo2");
+  other_contents->NavigateAndCommit(url2);
+
+  // Show an interstitial.
+  TestInterstitialPage::InterstitialState state =
+      TestInterstitialPage::UNDECIDED;
+  bool deleted = false;
+  GURL url3("http://interstitial");
+  TestInterstitialPage* interstitial =
+      new TestInterstitialPage(other_contents.get(), true, url3, &state,
+                               &deleted);
+  TestInterstitialPageStateGuard state_guard(interstitial);
+  interstitial->Show();
+  interstitial->TestDidNavigate(1, url3);
+  EXPECT_TRUE(interstitial->is_showing());
+  EXPECT_EQ(2, other_controller.entry_count());
+
+  other_controller.CopyStateFromAndPrune(controller());
+
+  // The merged controller should only have two entries: url1 and url2.
+  ASSERT_EQ(2, other_controller.entry_count());
+  EXPECT_EQ(1, other_controller.GetCurrentEntryIndex());
+  EXPECT_EQ(url1, other_controller.GetEntryAtIndex(0)->url());
+  EXPECT_EQ(url3, other_controller.GetEntryAtIndex(1)->url());
+
+  // It should have a transient entry.
+  EXPECT_TRUE(other_controller.GetTransientEntry());
+
+  // And the interstitial should be showing.
+  EXPECT_TRUE(other_contents->showing_interstitial_page());
+
+  // And the interstitial should do a reload on don't proceed.
+  EXPECT_TRUE(other_contents->interstitial_page()->reload_on_dont_proceed());
 }

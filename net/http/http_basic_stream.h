@@ -8,30 +8,36 @@
 
 #ifndef NET_HTTP_HTTP_BASIC_STREAM_H_
 #define NET_HTTP_HTTP_BASIC_STREAM_H_
+#pragma once
 
 #include <string>
 
 #include "base/basictypes.h"
-#include "net/base/io_buffer.h"
+#include "base/scoped_ptr.h"
 #include "net/http/http_stream.h"
-#include "net/http/http_stream_parser.h"
 
 namespace net {
 
 class BoundNetLog;
 class ClientSocketHandle;
-struct HttpRequestInfo;
+class GrowableIOBuffer;
 class HttpResponseInfo;
+struct HttpRequestInfo;
+class HttpStreamParser;
+class IOBuffer;
 class UploadDataStream;
 
 class HttpBasicStream : public HttpStream {
  public:
-  HttpBasicStream(ClientSocketHandle* handle, const BoundNetLog& net_log);
+  explicit HttpBasicStream(ClientSocketHandle* connection);
   virtual ~HttpBasicStream();
 
   // HttpStream methods:
-  virtual int SendRequest(const HttpRequestInfo* request,
-                          const std::string& headers,
+  virtual int InitializeStream(const HttpRequestInfo* request_info,
+                               const BoundNetLog& net_log,
+                               CompletionCallback* callback);
+
+  virtual int SendRequest(const std::string& headers,
                           UploadDataStream* request_body,
                           HttpResponseInfo* response,
                           CompletionCallback* callback);
@@ -40,10 +46,12 @@ class HttpBasicStream : public HttpStream {
 
   virtual int ReadResponseHeaders(CompletionCallback* callback);
 
-  virtual HttpResponseInfo* GetResponseInfo() const;
+  virtual const HttpResponseInfo* GetResponseInfo() const;
 
   virtual int ReadResponseBody(IOBuffer* buf, int buf_len,
                                CompletionCallback* callback);
+
+  virtual void Close(bool not_reusable);
 
   virtual bool IsResponseBodyComplete() const;
 
@@ -51,10 +59,20 @@ class HttpBasicStream : public HttpStream {
 
   virtual bool IsMoreDataBuffered() const;
 
+  virtual bool IsConnectionReused() const;
+
+  virtual void SetConnectionReused();
+
+  virtual void GetSSLInfo(SSLInfo* ssl_info);
+
+  virtual void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info);
+
  private:
   scoped_refptr<GrowableIOBuffer> read_buf_;
 
   scoped_ptr<HttpStreamParser> parser_;
+
+  scoped_ptr<ClientSocketHandle> connection_;
 
   DISALLOW_COPY_AND_ASSIGN(HttpBasicStream);
 };

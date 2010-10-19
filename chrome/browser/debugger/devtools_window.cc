@@ -1,17 +1,22 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "app/l10n_util.h"
 #include "base/command_line.h"
+#include "base/json/json_writer.h"
+#include "base/string_number_conversions.h"
+#include "base/utf_string_conversions.h"
+#include "base/values.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_theme_provider.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/debugger/devtools_window.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/in_process_webkit/session_storage_namespace.h"
+#include "chrome/browser/load_notification_details.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
@@ -19,6 +24,7 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/common/bindings_policy.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -26,7 +32,7 @@
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
 
-const std::wstring DevToolsWindow::kDevToolsApp = L"DevToolsApp";
+const char DevToolsWindow::kDevToolsApp[] = "DevToolsApp";
 
 // static
 TabContents* DevToolsWindow::GetDevToolsContents(TabContents* inspected_tab) {
@@ -59,7 +65,7 @@ DevToolsWindow::DevToolsWindow(Profile* profile,
       is_loaded_(false),
       action_on_load_(DEVTOOLS_TOGGLE_ACTION_NONE) {
   // Create TabContents with devtools.
-  tab_contents_ = new TabContents(profile, NULL, MSG_ROUTING_NONE, NULL);
+  tab_contents_ = new TabContents(profile, NULL, MSG_ROUTING_NONE, NULL, NULL);
   tab_contents_->render_view_host()->AllowBindings(BindingsPolicy::DOM_UI);
   tab_contents_->controller().LoadURL(
       GetDevToolsUrl(), GURL(), PageTransition::START_PAGE);
@@ -133,13 +139,14 @@ void DevToolsWindow::Show(DevToolsToggleAction action) {
     }
   }
 
-  if (!browser_)
-    CreateDevToolsBrowser();
-
   // Avoid consecutive window switching if the devtools window has been opened
   // and the Inspect Element shortcut is pressed in the inspected tab.
   bool should_show_window =
       !browser_ || action != DEVTOOLS_TOGGLE_ACTION_INSPECT;
+
+  if (!browser_)
+    CreateDevToolsBrowser();
+
   if (should_show_window)
     browser_->window()->Show();
   SetAttachedWindow();
@@ -194,9 +201,9 @@ RenderViewHost* DevToolsWindow::GetRenderViewHost() {
 
 void DevToolsWindow::CreateDevToolsBrowser() {
   // TODO(pfeldman): Make browser's getter for this key static.
-  std::wstring wp_key = L"";
+  std::string wp_key;
   wp_key.append(prefs::kBrowserWindowPlacement);
-  wp_key.append(L"_");
+  wp_key.append("_");
   wp_key.append(kDevToolsApp);
 
   PrefService* prefs = g_browser_process->local_state();
@@ -207,12 +214,12 @@ void DevToolsWindow::CreateDevToolsBrowser() {
   const DictionaryValue* wp_pref = prefs->GetDictionary(wp_key.c_str());
   if (!wp_pref) {
     DictionaryValue* defaults = prefs->GetMutableDictionary(wp_key.c_str());
-    defaults->SetInteger(L"left", 100);
-    defaults->SetInteger(L"top", 100);
-    defaults->SetInteger(L"right", 740);
-    defaults->SetInteger(L"bottom", 740);
-    defaults->SetBoolean(L"maximized", false);
-    defaults->SetBoolean(L"always_on_top", false);
+    defaults->SetInteger("left", 100);
+    defaults->SetInteger("top", 100);
+    defaults->SetInteger("right", 740);
+    defaults->SetInteger("bottom", 740);
+    defaults->SetBoolean("maximized", false);
+    defaults->SetBoolean("always_on_top", false);
   }
 
   browser_ = Browser::CreateForDevTools(profile_);
@@ -242,14 +249,43 @@ void DevToolsWindow::SetAttachedWindow() {
                          L"WebInspector.setAttachedWindow(false);");
 }
 
+
+void DevToolsWindow::AddDevToolsExtensionsToClient() {
+  ListValue results;
+  const ExtensionsService* extension_service = tab_contents_->profile()->
+      GetOriginalProfile()->GetExtensionsService();
+  const ExtensionList* extensions = extension_service->extensions();
+
+  for (ExtensionList::const_iterator extension = extensions->begin();
+       extension != extensions->end(); ++extension) {
+    if ((*extension)->devtools_url().is_empty())
+      continue;
+    DictionaryValue* extension_info = new DictionaryValue();
+    extension_info->Set("startPage",
+        new StringValue((*extension)->devtools_url().spec()));
+    results.Append(extension_info);
+  }
+  CallClientFunction(L"WebInspector.addExtensions", results);
+}
+
+void DevToolsWindow::CallClientFunction(const std::wstring& function_name,
+                                         const Value& arg) {
+  std::string json;
+  base::JSONWriter::Write(&arg, false, &json);
+  std::wstring javascript = function_name + L"(" + UTF8ToWide(json) + L");";
+  tab_contents_->render_view_host()->
+      ExecuteJavascriptInWebFrame(L"", javascript);
+}
+
 void DevToolsWindow::Observe(NotificationType type,
                              const NotificationSource& source,
                              const NotificationDetails& details) {
-  if (type == NotificationType::LOAD_STOP) {
+  if (type == NotificationType::LOAD_STOP && !is_loaded_) {
     SetAttachedWindow();
     is_loaded_ = true;
     UpdateTheme();
     DoAction();
+    AddDevToolsExtensionsToClient();
   } else if (type == NotificationType::TAB_CLOSING) {
     if (Source<NavigationController>(source).ptr() ==
             &tab_contents_->controller()) {
@@ -296,7 +332,7 @@ std::string SkColorToRGBAString(SkColor color) {
   // locale specific formatters (e.g., use , instead of . in German).
   return StringPrintf("rgba(%d,%d,%d,%s)", SkColorGetR(color),
       SkColorGetG(color), SkColorGetB(color),
-      DoubleToString(SkColorGetA(color) / 255.0).c_str());
+      base::DoubleToString(SkColorGetA(color) / 255.0).c_str());
 }
 
 GURL DevToolsWindow::GetDevToolsUrl() {

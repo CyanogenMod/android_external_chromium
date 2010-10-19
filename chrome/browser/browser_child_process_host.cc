@@ -13,14 +13,16 @@
 #include "base/singleton.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
-#include "base/waitable_event.h"
+#include "chrome/app/breakpad_mac.h"
 #include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/common/child_process_logging.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/env_vars.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/plugin_messages.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/common/process_watcher.h"
 #include "chrome/common/result_codes.h"
 #include "chrome/installer/util/google_update_settings.h"
@@ -28,16 +30,6 @@
 #if defined(OS_LINUX)
 #include "base/linux_util.h"
 #endif  // OS_LINUX
-
-#if defined(OS_POSIX)
-// This is defined in chrome/browser/google_update_settings_posix.cc.  It's the
-// static string containing the user's unique GUID.  We send this in the crash
-// report.
-namespace google_update {
-extern std::string posix_guid;
-}  // namespace google_update
-#endif  // OS_POSIX
-
 
 namespace {
 
@@ -86,17 +78,15 @@ BrowserChildProcessHost::~BrowserChildProcessHost() {
 void BrowserChildProcessHost::SetCrashReporterCommandLine(
     CommandLine* command_line) {
 #if defined(USE_LINUX_BREAKPAD)
-  const bool unattended = (getenv(env_vars::kHeadless) != NULL);
-  if (unattended || GoogleUpdateSettings::GetCollectStatsConsent()) {
-    command_line->AppendSwitchWithValue(switches::kEnableCrashReporter,
-                                        ASCIIToWide(google_update::posix_guid +
-                                                    "," +
-                                                    base::GetLinuxDistro()));
+  if (IsCrashReporterEnabled()) {
+    command_line->AppendSwitchASCII(switches::kEnableCrashReporter,
+        child_process_logging::GetClientId() + "," + base::GetLinuxDistro());
   }
 #elif defined(OS_MACOSX)
-  if (GoogleUpdateSettings::GetCollectStatsConsent())
-    command_line->AppendSwitchWithValue(switches::kEnableCrashReporter,
-                                        ASCIIToWide(google_update::posix_guid));
+  if (IsCrashReporterEnabled()) {
+    command_line->AppendSwitchASCII(switches::kEnableCrashReporter,
+                                    child_process_logging::GetClientId());
+  }
 #endif  // OS_MACOSX
 }
 

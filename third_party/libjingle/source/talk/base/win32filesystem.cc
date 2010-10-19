@@ -87,6 +87,114 @@ FileStream *Win32Filesystem::OpenFile(const Pathname &filename,
   return fs;
 }
 
+bool Win32Filesystem::CreatePrivateFile(const Pathname &filename) {
+  // To make the file private to the current user, we first must construct a
+  // SECURITY_DESCRIPTOR specifying an ACL. This code is mostly based upon
+  // http://msdn.microsoft.com/en-us/library/ms707085%28VS.85%29.aspx
+
+  // Get the current process token.
+  HANDLE process_token = INVALID_HANDLE_VALUE;
+  if (!::OpenProcessToken(GetCurrentProcess(),
+                          TOKEN_QUERY,
+                          &process_token)) {
+    LOG_ERR(LS_ERROR) << "OpenProcessToken() failed";
+    return false;
+  }
+
+  // Get the size of its TOKEN_USER structure. Return value is not checked
+  // because we expect it to fail.
+  DWORD token_user_size = 0;
+  (void)::GetTokenInformation(process_token,
+                              TokenUser,
+                              NULL,
+                              0,
+                              &token_user_size);
+
+  // Get the TOKEN_USER structure.
+  scoped_array<char> token_user_bytes(new char[token_user_size]);
+  PTOKEN_USER token_user = reinterpret_cast<PTOKEN_USER>(
+      token_user_bytes.get());
+  memset(token_user, 0, token_user_size);
+  BOOL success = ::GetTokenInformation(process_token,
+                                       TokenUser,
+                                       token_user,
+                                       token_user_size,
+                                       &token_user_size);
+  // We're now done with this.
+  ::CloseHandle(process_token);
+  if (!success) {
+    LOG_ERR(LS_ERROR) << "GetTokenInformation() failed";
+    return false;
+  }
+
+  if (!IsValidSid(token_user->User.Sid)) {
+    LOG_ERR(LS_ERROR) << "Current process has invalid user SID";
+    return false;
+  }
+
+  // Compute size needed for an ACL that allows access to just this user.
+  int acl_size = sizeof(ACL) + sizeof(ACCESS_ALLOWED_ACE) - sizeof(DWORD) +
+      GetLengthSid(token_user->User.Sid);
+
+  // Allocate it.
+  scoped_array<char> acl_bytes(new char[acl_size]);
+  PACL acl = reinterpret_cast<PACL>(acl_bytes.get());
+  memset(acl, 0, acl_size);
+  if (!::InitializeAcl(acl, acl_size, ACL_REVISION)) {
+    LOG_ERR(LS_ERROR) << "InitializeAcl() failed";
+    return false;
+  }
+
+  // Allow access to only the current user.
+  if (!::AddAccessAllowedAce(acl,
+                             ACL_REVISION,
+                             GENERIC_READ | GENERIC_WRITE | STANDARD_RIGHTS_ALL,
+                             token_user->User.Sid)) {
+    LOG_ERR(LS_ERROR) << "AddAccessAllowedAce() failed";
+    return false;
+  }
+
+  // Now make the security descriptor.
+  SECURITY_DESCRIPTOR security_descriptor;
+  if (!::InitializeSecurityDescriptor(&security_descriptor,
+                                      SECURITY_DESCRIPTOR_REVISION)) {
+    LOG_ERR(LS_ERROR) << "InitializeSecurityDescriptor() failed";
+    return false;
+  }
+
+  // Put the ACL in it.
+  if (!::SetSecurityDescriptorDacl(&security_descriptor,
+                                   TRUE,
+                                   acl,
+                                   FALSE)) {
+    LOG_ERR(LS_ERROR) << "SetSecurityDescriptorDacl() failed";
+    return false;
+  }
+
+  // Finally create the file.
+  SECURITY_ATTRIBUTES security_attributes;
+  security_attributes.nLength = sizeof(security_attributes);
+  security_attributes.lpSecurityDescriptor = &security_descriptor;
+  security_attributes.bInheritHandle = FALSE;
+  HANDLE handle = ::CreateFile(
+      ToUtf16(filename.pathname()).c_str(),
+      GENERIC_READ | GENERIC_WRITE,
+      FILE_SHARE_DELETE | FILE_SHARE_READ | FILE_SHARE_WRITE,
+      &security_attributes,
+      CREATE_NEW,
+      0,
+      NULL);
+  if (INVALID_HANDLE_VALUE == handle) {
+    LOG_ERR(LS_ERROR) << "CreateFile() failed";
+    return false;
+  }
+  if (!::CloseHandle(handle)) {
+    LOG_ERR(LS_ERROR) << "CloseFile() failed";
+    // Continue.
+  }
+  return true;
+}
+
 bool Win32Filesystem::DeleteFile(const Pathname &filename) {
   LOG(LS_INFO) << "Deleting file " << filename.pathname();
   if (!IsFile(filename)) {

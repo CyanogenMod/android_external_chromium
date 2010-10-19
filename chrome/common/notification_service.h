@@ -8,12 +8,12 @@
 
 #ifndef CHROME_COMMON_NOTIFICATION_SERVICE_H_
 #define CHROME_COMMON_NOTIFICATION_SERVICE_H_
+#pragma once
 
 #include <map>
 
 #include "base/observer_list.h"
 #include "chrome/common/notification_details.h"
-#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 

@@ -6,11 +6,13 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_NOTIFICATIONS_BALLOON_VIEW_H_
 #define CHROME_BROWSER_CHROMEOS_NOTIFICATIONS_BALLOON_VIEW_H_
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/scoped_ptr.h"
 #include "base/task.h"
 #include "chrome/browser/notifications/balloon.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
 #include "gfx/path.h"
@@ -27,13 +29,13 @@ class TextButton;
 class WidgetGtk;
 }  // namespace views
 
-class BalloonViewHost;
 class Notification;
 class NotificationDetails;
 class NotificationSource;
 
 namespace chromeos {
 
+class BalloonViewHost;
 class NotificationControlView;
 
 // A balloon view is the UI component for a notification panel.
@@ -41,8 +43,8 @@ class BalloonViewImpl : public BalloonView,
                         public views::View,
                         public NotificationObserver {
  public:
-  BalloonViewImpl(bool sticky, bool controls);
-  ~BalloonViewImpl();
+  BalloonViewImpl(bool sticky, bool controls, bool dom_ui);
+  virtual ~BalloonViewImpl();
 
   // views::View interface.
   virtual void Layout();
@@ -122,6 +124,8 @@ class BalloonViewImpl : public BalloonView,
   bool controls_;
   // True if the notification is being closed.
   bool closed_;
+  // True to enable domui in the notification.
+  bool dom_ui_;
 
   DISALLOW_COPY_AND_ASSIGN(BalloonViewImpl);
 };

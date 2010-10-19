@@ -4,15 +4,16 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_OPTIONS_LANGUAGE_CONFIG_MODEL_H_
 #define CHROME_BROWSER_CHROMEOS_OPTIONS_LANGUAGE_CONFIG_MODEL_H_
+#pragma once
 
-#include <map>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "base/string16.h"
 #include "chrome/browser/language_combobox_model.h"
-#include "chrome/browser/pref_member.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_member.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/notification_service.h"
 #include "cros/chromeos_input_method.h"
@@ -21,13 +22,13 @@ namespace chromeos {
 
 // The combobox model is used for adding languages in the language config
 // view.
-class AddLanguageComboboxModel : public LanguageComboboxModel {
+class AddLanguageComboboxModel : public ::LanguageComboboxModel {
  public:
   AddLanguageComboboxModel(Profile* profile,
                            const std::vector<std::string>& locale_codes);
   // LanguageComboboxModel overrides.
   virtual int GetItemCount();
-  virtual std::wstring GetItemAt(int index);
+  virtual string16 GetItemAt(int index);
 
   // Converts the given index (index of the items in the combobox) to the
   // index of the internal language list. The returned index can be used

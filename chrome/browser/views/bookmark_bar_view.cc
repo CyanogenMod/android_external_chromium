@@ -15,20 +15,22 @@
 #include "app/text_elider.h"
 #include "base/i18n/rtl.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/browser.h"
-#include "chrome/browser/browser_theme_provider.h"
+#include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/tab_contents/page_navigator.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/view_ids.h"
 #include "chrome/browser/views/bookmark_context_menu.h"
 #include "chrome/browser/views/event_utils.h"
@@ -62,16 +64,17 @@ using views::View;
 
 // How much we want the bookmark bar to overlap the toolbar when in its
 // 'always shown' mode.
-static const double kToolbarOverlap = 4.0;
+static const int kToolbarOverlap = 3;
 
 // Margins around the content.
-static const int kTopMargin = 1;
+static const int kDetachedTopMargin = 1;  // When attached, we use 0 and let the
+                                          // toolbar above serve as the margin.
 static const int kBottomMargin = 2;
 static const int kLeftMargin = 1;
 static const int kRightMargin = 1;
 
 // Preferred height of the bookmarks bar.
-static const int kBarHeight = 29;
+static const int kBarHeight = 28;
 
 // Preferred height of the bookmarks bar when only shown on the new tab page.
 const int BookmarkBarView::kNewtabBarHeight = 57;
@@ -157,7 +160,8 @@ static std::wstring CreateToolTipForURLAndTitle(const gfx::Point& screen_loc,
     // the Unicode BiDi algorithm puts certain characters on the left by
     // default.
     std::wstring elided_url(gfx::ElideUrl(url, tt_font, max_width, languages));
-    base::i18n::GetDisplayStringInLTRDirectionality(&elided_url);
+    elided_url = UTF16ToWide(base::i18n::GetDisplayStringInLTRDirectionality(
+        WideToUTF16(elided_url)));
     result.append(elided_url);
   }
   return result;
@@ -338,11 +342,8 @@ class BookmarkBarView::ButtonSeparatorView : public views::View {
     return gfx::Size(kSeparatorWidth, 1);
   }
 
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role) {
-    DCHECK(role);
-
-    *role = AccessibilityTypes::ROLE_SEPARATOR;
-    return true;
+  virtual AccessibilityTypes::Role GetAccessibleRole() {
+    return AccessibilityTypes::ROLE_SEPARATOR;
   }
 
  private:
@@ -383,6 +384,7 @@ BookmarkBarView::BookmarkBarView(Profile* profile, Browser* browser)
       instructions_(NULL),
       bookmarks_separator_view_(NULL),
       browser_(browser),
+      infobar_visible_(false),
       throbbing_view_(NULL) {
   if (profile->GetProfileSyncService()) {
     // Obtain a pointer to the profile sync service and add our instance as an
@@ -395,10 +397,7 @@ BookmarkBarView::BookmarkBarView(Profile* profile, Browser* browser)
   Init();
   SetProfile(profile);
 
-  if (IsAlwaysShown())
-    size_animation_->Reset(1);
-  else
-    size_animation_->Reset(0);
+  size_animation_->Reset(IsAlwaysShown() ? 1 : 0);
 }
 
 BookmarkBarView::~BookmarkBarView() {
@@ -752,9 +751,19 @@ bool BookmarkBarView::OnNewTabPage() const {
           browser_->GetSelectedTabContents()->ShouldShowBookmarkBar());
 }
 
-int BookmarkBarView::GetToolbarOverlap(bool return_max) {
-  return static_cast<int>(kToolbarOverlap *
-      (return_max ? 1.0 : size_animation_->GetCurrentValue()));
+int BookmarkBarView::GetToolbarOverlap(bool return_max) const {
+  // When not on the New Tab Page, always overlap by the full amount.
+  if (return_max || !OnNewTabPage())
+    return kToolbarOverlap;
+  // When on the New Tab Page with an infobar, overlap by 0 whenever the infobar
+  // is above us (i.e. when we're detached), since drawing over the infobar
+  // looks weird.
+  if (IsDetached() && infobar_visible_)
+    return 0;
+  // When on the New Tab Page with no infobar, animate the overlap between the
+  // attached and detached states.
+  return static_cast<int>(static_cast<double>(kToolbarOverlap) *
+      size_animation_->GetCurrentValue());
 }
 
 void BookmarkBarView::AnimationProgressed(const Animation* animation) {
@@ -957,9 +966,11 @@ void BookmarkBarView::Loaded(BookmarkModel* model) {
 }
 
 void BookmarkBarView::BookmarkModelBeingDeleted(BookmarkModel* model) {
-  // The bookmark model should never be deleted before us. This code exists
+  // In normal shutdown The bookmark model should never be deleted before us.
+  // When X exits suddenly though, it can happen, This code exists
   // to check for regressions in shutdown code and not crash.
-  NOTREACHED();
+  if (!browser_shutdown::ShuttingDownWithoutClosingBrowsers())
+    NOTREACHED();
 
   // Do minimal cleanup, presumably we'll be deleted shortly.
   NotifyModelChanged();
@@ -1246,15 +1257,13 @@ void BookmarkBarView::ShowContextMenu(View* source,
 
 views::View* BookmarkBarView::CreateBookmarkButton(const BookmarkNode* node) {
   if (node->is_url()) {
-    BookmarkButton* button = new BookmarkButton(this,
-                                                node->GetURL(),
-                                                node->GetTitle(),
-                                                GetProfile());
+    BookmarkButton* button = new BookmarkButton(this, node->GetURL(),
+        UTF16ToWide(node->GetTitle()), GetProfile());
     ConfigureButton(node, button);
     return button;
   } else {
-    views::MenuButton* button =
-        new BookmarkFolderButton(this, node->GetTitle(), this, false);
+    views::MenuButton* button = new BookmarkFolderButton(this,
+        UTF16ToWide(node->GetTitle()), this, false);
     button->SetIcon(GetGroupIcon());
     ConfigureButton(node, button);
     return button;
@@ -1263,8 +1272,8 @@ views::View* BookmarkBarView::CreateBookmarkButton(const BookmarkNode* node) {
 
 void BookmarkBarView::ConfigureButton(const BookmarkNode* node,
                                       views::TextButton* button) {
-  button->SetText(node->GetTitle());
-  button->SetAccessibleName(node->GetTitle());
+  button->SetText(UTF16ToWide(node->GetTitle()));
+  button->SetAccessibleName(UTF16ToWide(node->GetTitle()));
   button->SetID(VIEW_ID_BOOKMARK_BAR_ELEMENT);
   // We don't always have a theme provider (ui tests, for example).
   if (GetThemeProvider()) {
@@ -1325,7 +1334,7 @@ void BookmarkBarView::Observe(NotificationType type,
   }
 }
 
-void BookmarkBarView::ThemeChanged() {
+void BookmarkBarView::OnThemeChanged() {
   UpdateColors();
 }
 
@@ -1569,9 +1578,10 @@ gfx::Size BookmarkBarView::LayoutItems(bool compute_bounds_only) {
     return prefsize;
 
   int x = kLeftMargin;
-  int y = kTopMargin;
+  int top_margin = IsDetached() ? kDetachedTopMargin : 0;
+  int y = top_margin;
   int width = View::width() - kRightMargin - kLeftMargin;
-  int height = View::height() - kTopMargin - kBottomMargin;
+  int height = View::height() - top_margin - kBottomMargin;
   int separator_margin = kSeparatorMargin;
 
   if (OnNewTabPage()) {
@@ -1652,9 +1662,9 @@ gfx::Size BookmarkBarView::LayoutItems(bool compute_bounds_only) {
   // Separator.
   if (!compute_bounds_only) {
     bookmarks_separator_view_->SetBounds(x,
-                                         y - kTopMargin,
+                                         y - top_margin,
                                          bookmarks_separator_pref.width(),
-                                         height + kTopMargin + kBottomMargin -
+                                         height + top_margin + kBottomMargin -
                                          separator_margin);
   }
 

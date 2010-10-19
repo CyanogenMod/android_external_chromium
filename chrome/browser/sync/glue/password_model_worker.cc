@@ -5,7 +5,6 @@
 #include "chrome/browser/sync/glue/password_model_worker.h"
 
 #include "base/callback.h"
-#include "base/logging.h"
 #include "base/ref_counted.h"
 #include "base/task.h"
 #include "base/waitable_event.h"
@@ -17,6 +16,7 @@ namespace browser_sync {
 
 PasswordModelWorker::PasswordModelWorker(PasswordStore* password_store)
   : password_store_(password_store) {
+  DCHECK(password_store);
 }
 
 void PasswordModelWorker::DoWorkAndWaitUntilDone(Callback0::Type* work) {

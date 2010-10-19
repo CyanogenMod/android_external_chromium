@@ -7,10 +7,10 @@
 
 #ifndef CHROME_BROWSER_SYNC_ENGINE_ALL_STATUS_H_
 #define CHROME_BROWSER_SYNC_ENGINE_ALL_STATUS_H_
+#pragma once
 
 #include <map>
 
-#include "base/atomicops.h"
 #include "base/lock.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/sync/util/channel.h"
@@ -86,13 +86,9 @@ class AllStatus : public ChannelEventHandler<SyncerEvent> {
     int64 updates_received;
   };
 
-  // Maximum interval for exponential backoff.
-  static const int kMaxBackoffSeconds;
-
   AllStatus();
   ~AllStatus();
 
-  void WatchConnectionManager(ServerConnectionManager* conn_mgr);
   void HandleServerConnectionEvent(const ServerConnectionEvent& event);
 
   void HandleAuthWatcherEvent(const AuthWatcherEvent& event);
@@ -108,12 +104,6 @@ class AllStatus : public ChannelEventHandler<SyncerEvent> {
 
   Status status() const;
 
-  // DDOS avoidance function.  The argument and return value is in seconds
-  static int GetRecommendedDelaySeconds(int base_delay_seconds);
-
-  // This uses AllStatus' max_consecutive_errors as the error count
-  int GetRecommendedDelay(int base_delay) const;
-
   void SetNotificationsEnabled(bool notifications_enabled);
 
   void IncrementNotificationsSent();
@@ -125,7 +115,6 @@ class AllStatus : public ChannelEventHandler<SyncerEvent> {
 
   // Examines syncer to calculate syncing and the unsynced count,
   // and returns a Status with new values.
-  Status CalcSyncing() const;
   Status CalcSyncing(const SyncerEvent& event) const;
   Status CreateBlankStatus() const;
 
@@ -134,7 +123,6 @@ class AllStatus : public ChannelEventHandler<SyncerEvent> {
 
   Status status_;
   Channel* const channel_;
-  scoped_ptr<EventListenerHookup> conn_mgr_hookup_;
   scoped_ptr<ChannelHookup<SyncerEvent> > syncer_thread_hookup_;
   scoped_ptr<EventListenerHookup> diskfull_hookup_;
   scoped_ptr<EventListenerHookup> talk_mediator_hookup_;

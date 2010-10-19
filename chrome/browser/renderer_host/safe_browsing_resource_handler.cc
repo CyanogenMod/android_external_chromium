@@ -5,6 +5,7 @@
 #include "chrome/browser/renderer_host/safe_browsing_resource_handler.h"
 
 #include "base/logging.h"
+#include "chrome/browser/renderer_host/global_request_id.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/renderer_host/resource_message_filter.h"
 #include "chrome/common/notification_service.h"
@@ -114,11 +115,7 @@ bool SafeBrowsingResourceHandler::OnWillRead(int request_id,
                                              int min_size) {
   CHECK(state_ == STATE_NONE);
   CHECK(defer_state_ == DEFERRED_NONE);
-  bool rv = next_handler_->OnWillRead(request_id, buf, buf_size, min_size);
-  // TODO(willchan): Remove after debugging bug 16371.
-  if (rv)
-    CHECK((*buf)->data());
-  return rv;
+  return next_handler_->OnWillRead(request_id, buf, buf_size, min_size);
 }
 
 bool SafeBrowsingResourceHandler::OnReadCompleted(int request_id,
@@ -173,12 +170,22 @@ void SafeBrowsingResourceHandler::StartDisplayingBlockingPage(
     SafeBrowsingService::UrlCheckResult result) {
   CHECK(state_ == STATE_NONE);
   CHECK(defer_state_ != DEFERRED_NONE);
+  CHECK(deferred_request_id_ != -1);
 
   state_ = STATE_DISPLAYING_BLOCKING_PAGE;
   AddRef();  // Balanced in OnBlockingPageComplete().
 
+  // Grab the original url of this request as well.
+  GURL original_url;
+  URLRequest* request = rdh_->GetURLRequest(
+      GlobalRequestID(render_process_host_id_, deferred_request_id_));
+  if (request)
+    original_url = request->original_url();
+  else
+    original_url = url;
+
   safe_browsing_->DisplayBlockingPage(
-      url, resource_type_, result, this, render_process_host_id_,
+      url, original_url, resource_type_, result, this, render_process_host_id_,
       render_view_id_);
 }
 

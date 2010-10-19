@@ -59,13 +59,13 @@ bool BadMessage(const buzz::QName type,
 
 BaseSession::BaseSession(talk_base::Thread *signaling_thread)
     : state_(STATE_INIT), error_(ERROR_NONE),
-      description_(NULL), remote_description_(NULL),
+      local_description_(NULL), remote_description_(NULL),
       signaling_thread_(signaling_thread) {
 }
 
 BaseSession::~BaseSession() {
   delete remote_description_;
-  delete description_;
+  delete local_description_;
 }
 
 void BaseSession::SetState(State state) {
@@ -121,7 +121,7 @@ void BaseSession::OnMessage(talk_base::Message *pmsg) {
 
 
 Session::Session(SessionManager *session_manager, const std::string& name,
-                 const SessionID& id, const std::string& session_type,
+                 const SessionID& id, const std::string& content_type,
                  SessionClient* client) :
     BaseSession(session_manager->signaling_thread()) {
   ASSERT(session_manager->signaling_thread()->IsCurrent());
@@ -129,7 +129,7 @@ Session::Session(SessionManager *session_manager, const std::string& name,
   session_manager_ = session_manager;
   name_ = name;
   id_ = id;
-  session_type_ = session_type;
+  content_type_ = content_type;
   client_ = client;
   error_ = ERROR_NONE;
   state_ = STATE_INIT;
@@ -158,7 +158,7 @@ Session::~Session() {
 }
 
 bool Session::Initiate(const std::string &to,
-                       const SessionDescription *description) {
+                       const SessionDescription* sdesc) {
   ASSERT(signaling_thread_->IsCurrent());
 
   // Only from STATE_INIT
@@ -168,9 +168,9 @@ bool Session::Initiate(const std::string &to,
   // Setup for signaling.
   remote_name_ = to;
   initiator_ = true;
-  set_local_description(description);
+  set_local_description(sdesc);
 
-  SendInitiateMessage(description);
+  SendInitiateMessage(sdesc);
   SetState(Session::STATE_SENTINITIATE);
 
   // We speculatively start attempting connection of the P2P transports.
@@ -178,7 +178,7 @@ bool Session::Initiate(const std::string &to,
   return true;
 }
 
-bool Session::Accept(const SessionDescription *description) {
+bool Session::Accept(const SessionDescription* sdesc) {
   ASSERT(signaling_thread_->IsCurrent());
 
   // Only if just received initiate
@@ -187,13 +187,13 @@ bool Session::Accept(const SessionDescription *description) {
 
   // Setup for signaling.
   initiator_ = false;
-  set_local_description(description);
+  set_local_description(sdesc);
 
   // Wait for ChooseTransport to complete
   if (!transport_negotiated_)
     return true;
 
-  SendAcceptMessage();
+  SendAcceptMessage(sdesc);
   SetState(Session::STATE_SENTACCEPT);
   return true;
 }
@@ -266,7 +266,7 @@ void Session::ConnectDefaultTransportChannels(Transport* transport) {
        iter != channels_.end();
        ++iter) {
     ASSERT(!transport->HasChannel(iter->first));
-    transport->CreateChannel(iter->first, session_type());
+    transport->CreateChannel(iter->first, content_type());
   }
   transport->ConnectChannels();
 }
@@ -281,7 +281,7 @@ void Session::ConnectTransportChannels(Transport* transport) {
     TransportChannelProxy* channel = iter->second;
     TransportChannelImpl* impl = transport->GetChannel(channel->name());
     if (impl == NULL)
-      impl = transport->CreateChannel(channel->name(), session_type());
+      impl = transport->CreateChannel(channel->name(), content_type());
     ASSERT(impl != NULL);
     channel->SetImplementation(impl);
   }
@@ -297,9 +297,9 @@ TransportParserMap Session::GetTransportParsers() {
   return parsers;
 }
 
-FormatParserMap Session::GetFormatParsers() {
-  FormatParserMap parsers;
-  parsers[session_type_] = client_;
+ContentParserMap Session::GetContentParsers() {
+  ContentParserMap parsers;
+  parsers[content_type_] = client_;
   return parsers;
 }
 
@@ -307,13 +307,20 @@ TransportChannel* Session::CreateChannel(const std::string& name) {
   ASSERT(channels_.find(name) == channels_.end());
   ASSERT(!transport_->HasChannel(name));
 
+  // We always create a proxy in case we need to change out the transport later.
   TransportChannelProxy* channel =
-      new TransportChannelProxy(name, session_type_);
+      new TransportChannelProxy(name, content_type_);
   channels_[name] = channel;
+
+  // If we've already decided on a transport, create the transport channel and
+  // tell the proxy to use it.
   if (transport_negotiated_) {
-    channel->SetImplementation(transport_->CreateChannel(name, session_type_));
+    channel->SetImplementation(transport_->CreateChannel(name, content_type_));
+  // If we're in the process of initiating the session, the transport will
+  // be trying to connect its channels, so just add a new transport channel.
+  // When we decide on a transport, we'll hook it up to the new proxy.
   } else if (state_ == STATE_SENTINITIATE) {
-    transport_->CreateChannel(name, session_type());
+    transport_->CreateChannel(name, content_type());
   }
   return channel;
 }
@@ -437,6 +444,9 @@ void Session::OnIncomingMessage(const SessionMessage& msg) {
     case ACTION_TRANSPORT_INFO:
       valid = OnTransportInfoMessage(msg, &error);
       break;
+    case ACTION_TRANSPORT_ACCEPT:
+      valid = OnTransportAcceptMessage(msg, &error);
+      break;
     default:
       valid = BadMessage(buzz::QN_STANZA_BAD_REQUEST,
                          "unknown session message type",
@@ -500,7 +510,7 @@ bool Session::OnInitiateMessage(const SessionMessage& msg,
     return false;
 
   SessionInitiate init;
-  if (!ParseSessionInitiate(msg.action_elem, GetFormatParsers(), &init, error))
+  if (!ParseSessionInitiate(msg.action_elem, GetContentParsers(), &init, error))
     return false;
 
   if (transport_->name() != init.transport_name)
@@ -510,17 +520,17 @@ bool Session::OnInitiateMessage(const SessionMessage& msg,
 
   initiator_ = false;
   remote_name_ = msg.from;
-  set_remote_description(init.AdoptFormat());
+  set_remote_description(new SessionDescription(init.AdoptContents()));
   SetState(STATE_RECEIVEDINITIATE);
 
-  // User of Session may listen to state change and call Reject().
+  // Users of Session may listen to state change and call Reject().
   if (state_ != STATE_SENTREJECT && !transport_negotiated_) {
     transport_negotiated_ = true;
     ConnectTransportChannels(transport_);
 
     // If the user wants to accept, allow that now
-    if (description_) {
-      Accept(description_);
+    if (local_description_) {
+      Accept(local_description_);
     }
   }
   return true;
@@ -531,11 +541,19 @@ bool Session::OnAcceptMessage(const SessionMessage& msg, SessionError* error) {
     return false;
 
   SessionAccept accept;
-  if (!ParseSessionAccept(msg.action_elem, GetFormatParsers(), &accept, error))
+  if (!ParseSessionAccept(msg.action_elem, GetContentParsers(), &accept, error))
     return false;
 
-  set_remote_description(accept.AdoptFormat());
+  set_remote_description(new SessionDescription(accept.AdoptContents()));
   SetState(STATE_RECEIVEDACCEPT);
+
+
+  // Users of Session may listen to state change and call Reject().
+  if (state_ != STATE_SENTREJECT && !transport_negotiated_) {
+    transport_negotiated_ = true;
+    ConnectTransportChannels(transport_);
+  }
+
   return true;
 }
 
@@ -563,6 +581,8 @@ bool Session::OnTerminateMessage(const SessionMessage& msg,
   if (term.debug_reason != buzz::STR_EMPTY) {
     LOG(LS_VERBOSE) << "Received error on call: " << term.debug_reason;
   }
+
+  SetState(STATE_RECEIVEDTERMINATE);
   return true;
 }
 
@@ -579,6 +599,13 @@ bool Session::OnTransportInfoMessage(const SessionMessage& msg,
       ConnectTransportChannels(transport_);
     }
   }
+  return true;
+}
+
+bool Session::OnTransportAcceptMessage(const SessionMessage& msg,
+                                       SessionError* error) {
+  // TODO(pthatcher): Currently here only for compatibility with
+  // Gingle 1.1 clients (notably, Google Voice).
   return true;
 }
 
@@ -614,21 +641,26 @@ void Session::OnMessage(talk_base::Message *pmsg) {
   }
 }
 
-void Session::SendInitiateMessage(const SessionDescription *description) {
-  SessionInitiate init(transport_->name(), session_type_, description);
+void Session::SendInitiateMessage(const SessionDescription* sdesc) {
+  SessionInitiate init(transport_->name(), sdesc->contents());
   XmlElements elems;
-  WriteSessionInitiate(init, GetFormatParsers(), current_protocol_, &elems);
+  // TODO(pthatcher): Handle write errors.
+  WriteError error;
+  WriteSessionInitiate(init, GetContentParsers(), current_protocol_,
+                       &elems, &error);
   SendMessage(ACTION_SESSION_INITIATE, elems);
 }
 
-void Session::SendAcceptMessage() {
+void Session::SendAcceptMessage(const SessionDescription* sdesc) {
   // TODO(pthatcher): When we support the Jingle standard, we need to
   // include at least an empty <transport> in the accept.
   std::string transport_name = "";
-  SessionAccept accept(transport_name, session_type_, description_);
+  SessionAccept accept(transport_name, sdesc->contents());
 
   XmlElements elems;
-  WriteSessionAccept(accept, GetFormatParsers(), &elems);
+  // TODO(pthatcher): Handle write errors.
+  WriteError error;
+  WriteSessionAccept(accept, GetContentParsers(), &elems, &error);
   SendMessage(ACTION_SESSION_ACCEPT, elems);
 }
 
@@ -645,7 +677,10 @@ void Session::SendTerminateMessage() {
 void Session::SendTransportInfoMessage(const Candidates& candidates) {
   TransportInfo info(transport_->name(), candidates);
   XmlElements elems;
-  WriteTransportInfo(info, GetTransportParsers(), current_protocol_, &elems);
+  // TODO(pthatcher): Handle write errors.
+  WriteError error;
+  WriteTransportInfo(info, GetTransportParsers(), current_protocol_,
+                     &elems, &error);
   SendMessage(ACTION_TRANSPORT_INFO, elems);
 }
 

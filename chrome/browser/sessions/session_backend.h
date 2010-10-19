@@ -1,9 +1,10 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_SESSIONS_SESSION_BACKEND_H_
 #define CHROME_BROWSER_SESSIONS_SESSION_BACKEND_H_
+#pragma once
 
 #include <vector>
 
@@ -11,9 +12,10 @@
 #include "base/scoped_ptr.h"
 #include "chrome/browser/sessions/base_session_service.h"
 #include "chrome/browser/sessions/session_command.h"
-#include "net/base/file_stream.h"
 
-class Pickle;
+namespace net {
+class FileStream;
+}
 
 // SessionBackend -------------------------------------------------------------
 
@@ -94,7 +96,7 @@ class SessionBackend : public base::RefCountedThreadSafe<SessionBackend> {
  private:
   friend class base::RefCountedThreadSafe<SessionBackend>;
 
-  ~SessionBackend() {}
+  ~SessionBackend();
 
   // If current_session_file_ is open, it is truncated so that it is essentially
   // empty (only contains the header). If current_session_file_ isn't open, it

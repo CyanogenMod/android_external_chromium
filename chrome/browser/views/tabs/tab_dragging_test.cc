@@ -30,14 +30,14 @@
 // Disabled on Toolkit views bot. See http://crbug.com/42614
 #define MAYBE_Tab1Tab3Escape DISABLED_Tab1Tab3Escape
 #else
-// Flaky, see http://crbug.com/21092.
-#define MAYBE_Tab1Tab3Escape FLAKY_Tab1Tab3Escape
+#define MAYBE_Tab1Tab3Escape Tab1Tab3Escape
 #endif
 
-// These tests fail on Linux. See http://crbug.com/10941
+// These tests fail on Linux because we haven't implemented all of tab dragging
+// (it's not needed on chromeos). See http://crbug.com/10941
 #if defined(OS_LINUX)
-#define MAYBE_Tab1Tab2 FAILS_Tab1Tab2
-#define MAYBE_Tab1Tab3 FAILS_Tab1Tab3
+#define MAYBE_Tab1Tab2 DISABLED_Tab1Tab2
+#define MAYBE_Tab1Tab3 DISABLED_Tab1Tab3
 #else
 #define MAYBE_Tab1Tab2 Tab1Tab2
 #define MAYBE_Tab1Tab3 Tab1Tab3
@@ -82,8 +82,7 @@ TEST_F(TabDraggingTest, MAYBE_Tab1Tab2) {
   ASSERT_TRUE(tab3.get());
 
   // Make sure 3 tabs are open.
-  ASSERT_TRUE(browser->WaitForTabCountToBecome(initial_tab_count + 2,
-                                               10000));
+  ASSERT_TRUE(browser->WaitForTabCountToBecome(initial_tab_count + 2));
 
   // Get bounds for the tabs.
   gfx::Rect bounds1;
@@ -181,8 +180,7 @@ TEST_F(TabDraggingTest, MAYBE_Tab1Tab3) {
   ASSERT_TRUE(tab3.get());
 
   // Make sure 3 tabs are open.
-  ASSERT_TRUE(browser->WaitForTabCountToBecome(initial_tab_count + 2,
-                                               10000));
+  ASSERT_TRUE(browser->WaitForTabCountToBecome(initial_tab_count + 2));
 
   // Get bounds for the tabs.
   gfx::Rect bounds1;
@@ -289,8 +287,7 @@ TEST_F(TabDraggingTest, MAYBE_Tab1Tab3Escape) {
   ASSERT_TRUE(tab3.get());
 
   // Make sure 3 tabs are open.
-  ASSERT_TRUE(browser->WaitForTabCountToBecome(initial_tab_count + 2,
-                                               10000));
+  ASSERT_TRUE(browser->WaitForTabCountToBecome(initial_tab_count + 2));
 
   // Get bounds for the tabs.
   gfx::Rect bounds1;
@@ -400,8 +397,7 @@ TEST_F(TabDraggingTest, MAYBE_Tab2OutOfTabStrip) {
   ASSERT_TRUE(tab3.get());
 
   // Make sure 3 tabs are opened.
-  ASSERT_TRUE(browser->WaitForTabCountToBecome(initial_tab_count + 2,
-                                               10000));
+  ASSERT_TRUE(browser->WaitForTabCountToBecome(initial_tab_count + 2));
 
   // Make sure all the tab URL specs are different.
   ASSERT_TRUE(tab1_url != tab2_url);

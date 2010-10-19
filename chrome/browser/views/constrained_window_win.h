@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_CONSTRAINED_WINDOW_WIN_H_
 #define CHROME_BROWSER_VIEWS_CONSTRAINED_WINDOW_WIN_H_
+#pragma once
 
 #include "chrome/browser/tab_contents/constrained_window.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
@@ -70,7 +71,6 @@ class ConstrainedWindowWin : public ConstrainedWindow,
   // Current display rectangle (relative to owner_'s visible area).
   gfx::Rect current_bounds_;
 
-  views::View* focused_view_;
   DISALLOW_COPY_AND_ASSIGN(ConstrainedWindowWin);
 };
 

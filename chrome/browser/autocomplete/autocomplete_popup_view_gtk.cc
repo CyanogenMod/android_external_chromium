@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <string>
 
-#include "app/resource_bundle.h"
 #include "base/basictypes.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
@@ -58,10 +57,10 @@ const int kIconWidth = 17;
 const int kIconTopPadding = 2;
 
 // Space between the left edge (including the border) and the text.
-const int kIconLeftPadding = 5 + kBorderThickness;
+const int kIconLeftPadding = 3 + kBorderThickness;
 
 // Space between the image and the text.
-const int kIconRightPadding = 7;
+const int kIconRightPadding = 5;
 
 // Space between the left edge (including the border) and the text.
 const int kIconAreaWidth =
@@ -75,11 +74,8 @@ const int kRightPadding = 3;
 // the total width.
 const float kContentWidthPercentage = 0.7;
 
-// How much to offset the popup from the bottom of the location bar in gtk mode.
-const int kGtkVerticalOffset = 3;
-
-// How much we shrink the popup on the left/right in gtk mode.
-const int kGtkHorizontalOffset = 1;
+// How much to offset the popup from the bottom of the location bar.
+const int kVerticalOffset = 3;
 
 // UTF-8 Left-to-right embedding.
 const char* kLRE = "\xe2\x80\xaa";
@@ -289,9 +285,9 @@ AutocompletePopupViewGtk::AutocompletePopupViewGtk(
   // plumb a gfx::Font through.  This is because popup windows have a
   // different font size, although we could just derive that font here.
   // For now, force the font size.
-  gfx::Font font = gfx::Font::CreateFont(
-      gfx::Font().FontName(), browser_defaults::kAutocompletePopupFontSize);
-  PangoFontDescription* pfd = gfx::Font::PangoFontFromGfxFont(font);
+  gfx::Font font(gfx::Font().GetFontName(),
+                 browser_defaults::kAutocompletePopupFontSize);
+  PangoFontDescription* pfd = font.GetNativeFont();
   pango_layout_set_font_description(layout_, pfd);
   pango_font_description_free(pfd);
 
@@ -370,6 +366,12 @@ AutocompletePopupModel* AutocompletePopupViewGtk::GetModel() {
   return model_.get();
 }
 
+int AutocompletePopupViewGtk::GetMaxYCoordinate() {
+  // TODO: implement if match preview pans out.
+  NOTIMPLEMENTED();
+  return 0;
+}
+
 void AutocompletePopupViewGtk::Observe(NotificationType type,
                                        const NotificationSource& source,
                                        const NotificationDetails& details) {
@@ -378,28 +380,17 @@ void AutocompletePopupViewGtk::Observe(NotificationType type,
   if (theme_provider_->UseGtkTheme()) {
     border_color_ = theme_provider_->GetBorderColor();
 
-    // Create a fake gtk table
-    GtkWidget* fake_tree = gtk_entry_new();
-    GtkStyle* style = gtk_rc_get_style(fake_tree);
+    gtk_util::GetTextColors(
+        &background_color_, &selected_background_color_,
+        &content_text_color_, &selected_content_text_color_);
 
-    background_color_ = style->base[GTK_STATE_NORMAL];
-    selected_background_color_ = style->base[GTK_STATE_SELECTED];
     hovered_background_color_ = gtk_util::AverageColors(
         background_color_, selected_background_color_);
-
-    content_text_color_ = style->text[GTK_STATE_NORMAL];
-    selected_content_text_color_ = style->text[GTK_STATE_SELECTED];
-    url_text_color_ =
-        NormalURLColor(style->text[GTK_STATE_NORMAL]);
-    url_selected_text_color_ =
-        SelectedURLColor(style->text[GTK_STATE_SELECTED],
-                         style->base[GTK_STATE_SELECTED]);
-
-    description_text_color_ = style->text[GTK_STATE_NORMAL];
-    description_selected_text_color_ = style->text[GTK_STATE_SELECTED];
-
-    g_object_ref_sink(fake_tree);
-    g_object_unref(fake_tree);
+    url_text_color_ = NormalURLColor(content_text_color_);
+    url_selected_text_color_ = SelectedURLColor(selected_content_text_color_,
+                                                selected_background_color_);
+    description_text_color_ = content_text_color_;
+    description_selected_text_color_ = selected_content_text_color_;
   } else {
     border_color_ = kBorderColor;
     background_color_ = kBackgroundColor;
@@ -422,27 +413,12 @@ void AutocompletePopupViewGtk::Show(size_t num_results) {
   gint origin_x, origin_y;
   gdk_window_get_origin(location_bar_->window, &origin_x, &origin_y);
   GtkAllocation allocation = location_bar_->allocation;
-  int vertical_offset = 0;
-  int horizontal_offset = 0;
-  if (theme_provider_->UseGtkTheme()) {
-    // Shrink the popup by 1 pixel on both sides in gtk mode. The darkest line
-    // is usually one pixel in, and is almost always +/-1 pixel from this,
-    // meaning the vertical offset will hide (hopefully) problems when this is
-    // wrong.
-    horizontal_offset = kGtkHorizontalOffset;
 
-    // We offset the the popup from the bottom of the location bar in gtk
-    // mode. The background color between the bottom of the location bar and
-    // the popup helps hide the fact that we can't really reliably match what
-    // the user would otherwise preceive as the left/right edges of the
-    // location bar.
-    vertical_offset = kGtkVerticalOffset;
-  }
-
+  int horizontal_offset = 1;
   gtk_window_move(GTK_WINDOW(window_),
       origin_x + allocation.x - kBorderThickness + horizontal_offset,
       origin_y + allocation.y + allocation.height - kBorderThickness - 1 +
-          vertical_offset);
+          kVerticalOffset);
   gtk_widget_set_size_request(window_,
       allocation.width + (kBorderThickness * 2) - (horizontal_offset * 2),
       (num_results * kHeightPerResult) + (kBorderThickness * 2));
@@ -587,17 +563,6 @@ gboolean AutocompletePopupViewGtk::HandleExpose(GtkWidget* widget,
 
   pango_layout_set_height(layout_, kHeightPerResult * PANGO_SCALE);
 
-  // An offset to align text in gtk mode. The hard coded constants in this file
-  // are all created for the chrome-theme. In an effort to make this look good
-  // on the majority of gtk themes, we shrink the popup by one pixel on each
-  // side and push it downwards a bit so there's space between the drawn
-  // location bar and the popup so we don't touch it (contrast with
-  // chrome-theme where that's exactly what we want). Because of that, we need
-  // to shift the content inside the popup by one pixel.
-  int gtk_offset = 0;
-  if (theme_provider_->UseGtkTheme())
-    gtk_offset = kGtkHorizontalOffset;
-
   for (size_t i = 0; i < result.size(); ++i) {
     gfx::Rect line_rect = GetRectForLine(i, window_rect.width());
     // Only repaint and layout damaged lines.
@@ -616,8 +581,8 @@ gboolean AutocompletePopupViewGtk::HandleExpose(GtkWidget* widget,
                          line_rect.width(), line_rect.height());
     }
 
-    int icon_start_x = ltr ? (kIconLeftPadding - gtk_offset) :
-        (line_rect.width() - kIconLeftPadding - kIconWidth + gtk_offset);
+    int icon_start_x = ltr ? kIconLeftPadding :
+        (line_rect.width() - kIconLeftPadding - kIconWidth);
     // Draw the icon for this result.
     DrawFullPixbuf(drawable, gc,
                    IconForMatch(match, is_selected),
@@ -652,8 +617,8 @@ gboolean AutocompletePopupViewGtk::HandleExpose(GtkWidget* widget,
         line_rect.y() + ((kHeightPerResult - actual_content_height) / 2));
 
     gdk_draw_layout(drawable, gc,
-                    ltr ? (kIconAreaWidth - gtk_offset) :
-                        (text_width - actual_content_width + gtk_offset),
+                    ltr ? kIconAreaWidth :
+                        (text_width - actual_content_width),
                     content_y, layout_);
 
     if (has_description) {
@@ -668,8 +633,8 @@ gboolean AutocompletePopupViewGtk::HandleExpose(GtkWidget* widget,
       gint actual_description_width;
       pango_layout_get_size(layout_, &actual_description_width, NULL);
       gdk_draw_layout(drawable, gc, ltr ?
-                          (kIconAreaWidth - gtk_offset + actual_content_width) :
-                          (text_width - actual_content_width + gtk_offset -
+                          (kIconAreaWidth + actual_content_width) :
+                          (text_width - actual_content_width -
                            (actual_description_width / PANGO_SCALE)),
                       content_y, layout_);
     }

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -32,7 +32,7 @@
       DCHECK_LE(newIndex, parent->GetChildCount());
     }
     if (node_) {
-      initialName_.reset([base::SysWideToNSString(node_->GetTitle()) retain]);
+      initialName_.reset([base::SysUTF16ToNSString(node_->GetTitle()) retain]);
     } else {
       NSString* newString =
         l10n_util::GetNSStringWithFixup(IDS_BOOMARK_EDITOR_NEW_FOLDER_NAME);
@@ -90,11 +90,11 @@
   NSString* name = [nameField_ stringValue];
   BookmarkModel* model = profile_->GetBookmarkModel();
   if (node_) {
-    model->SetTitle(node_, base::SysNSStringToWide(name));
+    model->SetTitle(node_, base::SysNSStringToUTF16(name));
   } else {
     model->AddGroup(parent_,
                     newIndex_,
-                    base::SysNSStringToWide(name));
+                    base::SysNSStringToUTF16(name));
   }
   [NSApp endSheet:[self window]];
 }

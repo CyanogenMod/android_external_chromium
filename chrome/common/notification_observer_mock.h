@@ -4,12 +4,14 @@
 
 #ifndef CHROME_COMMON_NOTIFICATION_OBSERVER_MOCK_H_
 #define CHROME_COMMON_NOTIFICATION_OBSERVER_MOCK_H_
+#pragma once
 
-#include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
 #include "testing/gmock/include/gmock/gmock.h"
+
+class NotificationDetails;
+class NotificationSource;
 
 class NotificationObserverMock : public NotificationObserver {
  public:

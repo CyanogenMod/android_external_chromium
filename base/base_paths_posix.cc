@@ -12,7 +12,7 @@
 #include <sys/sysctl.h>
 #endif
 
-#include "base/env_var.h"
+#include "base/environment.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/logging.h"
@@ -61,9 +61,9 @@ bool PathProviderPosix(int key, FilePath* result) {
     case base::DIR_SOURCE_ROOT: {
       // Allow passing this in the environment, for more flexibility in build
       // tree configurations (sub-project builds, gyp --output_dir, etc.)
-      scoped_ptr<base::EnvVarGetter> env(base::EnvVarGetter::Create());
+      scoped_ptr<base::Environment> env(base::Environment::Create());
       std::string cr_source_root;
-      if (env->GetEnv("CR_SOURCE_ROOT", &cr_source_root)) {
+      if (env->GetVar("CR_SOURCE_ROOT", &cr_source_root)) {
         path = FilePath(cr_source_root);
         if (file_util::PathExists(path.Append("base/base_paths_posix.cc"))) {
           *result = path;
@@ -104,11 +104,15 @@ bool PathProviderPosix(int key, FilePath* result) {
       return false;
     }
     case base::DIR_USER_CACHE:
+<<<<<<< HEAD
 #ifdef ANDROID
       NOTREACHED();
       return false;
 #else
       scoped_ptr<base::EnvVarGetter> env(base::EnvVarGetter::Create());
+=======
+      scoped_ptr<base::Environment> env(base::Environment::Create());
+>>>>>>> Chromium at release 7.0.540.0
       FilePath cache_dir(base::GetXDGDirectory(env.get(), "XDG_CACHE_HOME",
                                                ".cache"));
       *result = cache_dir;

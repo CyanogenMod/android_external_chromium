@@ -4,20 +4,22 @@
 
 #include "chrome/browser/possible_url_model.h"
 
-#include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "app/table_model_observer.h"
+#include "app/text_elider.h"
 #include "base/callback.h"
 #include "base/i18n/rtl.h"
+#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/favicon_service.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/pref_names.h"
 #include "gfx/codec/png_codec.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 
 using base::Time;
 using base::TimeDelta;
@@ -32,6 +34,20 @@ const int kPossibleURLTimeScope = 30;
 
 }  // anonymous namespace
 
+// Contains the data needed to show a result.
+struct PossibleURLModel::Result {
+  Result() : index(0) {}
+
+  GURL url;
+  // Index of this Result in results_. This is used as the key into
+  // fav_icon_map_ to lookup the favicon for the url, as well as the index
+  // into results_ when the favicon is received.
+  size_t index;
+  gfx::SortedDisplayURL display_url;
+  std::wstring title;
+};
+
+
 PossibleURLModel::PossibleURLModel()
     : profile_(NULL),
       observer_(NULL) {
@@ -39,6 +55,9 @@ PossibleURLModel::PossibleURLModel()
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();
     default_fav_icon = rb.GetBitmapNamed(IDR_DEFAULT_FAVICON);
   }
+}
+
+PossibleURLModel::~PossibleURLModel() {
 }
 
 void PossibleURLModel::Reload(Profile *profile) {
@@ -86,6 +105,10 @@ void PossibleURLModel::OnHistoryQueryComplete(HistoryService::Handle h,
     observer_->OnModelChanged();
 }
 
+int PossibleURLModel::RowCount() {
+  return static_cast<int>(results_.size());
+}
+
 const GURL& PossibleURLModel::GetURL(int row) {
   if (row < 0 || row >= RowCount()) {
     NOTREACHED();
@@ -121,10 +144,8 @@ std::wstring PossibleURLModel::GetText(int row, int col_id) {
 
   // TODO(brettw): this should probably pass the GURL up so the URL elider
   // can be used at a higher level when we know the width.
-  // Force URL to be LTR.
-  std::wstring url(UTF16ToWideHack(results_[row].display_url.display_url()));
-  base::i18n::GetDisplayStringInLTRDirectionality(&url);
-  return url;
+  string16 url = results_[row].display_url.display_url();
+  return UTF16ToWide(base::i18n::GetDisplayStringInLTRDirectionality(url));
 }
 
 SkBitmap PossibleURLModel::GetIcon(int row) {
@@ -184,4 +205,8 @@ void PossibleURLModel::OnFavIconAvailable(
         observer_->OnItemsChanged(static_cast<int>(index), 1);
     }
   }
+}
+
+void PossibleURLModel::SetObserver(TableModelObserver* observer) {
+  observer_ = observer;
 }

@@ -41,14 +41,14 @@ class P2PTransportChannel;
 // between the two sides of a session.
 class TransportChannel: public sigslot::has_slots<> {
  public:
-  TransportChannel(const std::string& name, const std::string &session_type)
-      : name_(name), session_type_(session_type),
+  TransportChannel(const std::string& name, const std::string &content_type)
+      : name_(name), content_type_(content_type),
         readable_(false), writable_(false) {}
   virtual ~TransportChannel() {}
 
   // Returns the name of this channel.
   const std::string& name() const { return name_; }
-  const std::string& session_type() const { return session_type_; }
+  const std::string& content_type() const { return content_type_; }
 
   // Returns the readable and states of this channel.  Each time one of these
   // states changes, a signal is raised.  These states are aggregated by the
@@ -98,7 +98,7 @@ class TransportChannel: public sigslot::has_slots<> {
 
  private:
   std::string name_;
-  std::string session_type_;
+  std::string content_type_;
   bool readable_;
   bool writable_;
 

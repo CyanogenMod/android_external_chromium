@@ -10,7 +10,7 @@
 #include "base/file_util.h"
 #include "base/mime_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/download/download_manager.h"
+#include "chrome/browser/download/download_util.h"
 #include "chrome/browser/download/drag_download_file.h"
 #include "chrome/browser/download/drag_download_util.h"
 #include "chrome/browser/gtk/gtk_util.h"
@@ -101,7 +101,9 @@ void TabContentsDragSource::StartDragging(const WebDropData& drop_data,
 
   drop_data_.reset(new WebDropData(drop_data));
 
-  if (!image.isNull())
+  // The image we get from WebKit makes heavy use of alpha-shading. This looks
+  // bad on non-compositing WMs. Fall back to the default drag icon.
+  if (!image.isNull() && gtk_util::IsScreenComposited())
     drag_pixbuf_ = gfx::GdkPixbufFromSkBitmap(&image);
   image_offset_ = image_offset;
 
@@ -294,11 +296,11 @@ void TabContentsDragSource::OnDragBegin(GtkWidget* sender,
     std::string content_disposition("attachment; filename=");
     content_disposition += download_file_name_.value();
     FilePath generated_download_file_name;
-    DownloadManager::GenerateFileName(download_url_,
-                                      content_disposition,
-                                      std::string(),
-                                      download_mime_type,
-                                      &generated_download_file_name);
+    download_util::GenerateFileName(download_url_,
+                                    content_disposition,
+                                    std::string(),
+                                    download_mime_type,
+                                    &generated_download_file_name);
 
     // Pass the file name to the drop target by setting the source window's
     // XdndDirectSave0 property.
@@ -319,10 +321,13 @@ void TabContentsDragSource::OnDragBegin(GtkWidget* sender,
                                 gdk_pixbuf_get_width(drag_pixbuf_),
                                 gdk_pixbuf_get_height(drag_pixbuf_));
 
-    GdkScreen* screen = gtk_widget_get_screen(drag_icon_);
-    GdkColormap* rgba = gdk_screen_get_rgba_colormap(screen);
-    if (rgba)
-      gtk_widget_set_colormap(drag_icon_, rgba);
+    // We only need to do this once.
+    if (!GTK_WIDGET_REALIZED(drag_icon_)) {
+      GdkScreen* screen = gtk_widget_get_screen(drag_icon_);
+      GdkColormap* rgba = gdk_screen_get_rgba_colormap(screen);
+      if (rgba)
+        gtk_widget_set_colormap(drag_icon_, rgba);
+    }
 
     gtk_drag_set_icon_widget(drag_context, drag_icon_,
                              image_offset_.x(), image_offset_.y());

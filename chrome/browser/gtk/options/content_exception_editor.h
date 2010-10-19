@@ -4,10 +4,9 @@
 
 #ifndef CHROME_BROWSER_GTK_OPTIONS_CONTENT_EXCEPTION_EDITOR_H_
 #define CHROME_BROWSER_GTK_OPTIONS_CONTENT_EXCEPTION_EDITOR_H_
+#pragma once
 
 #include <gtk/gtk.h>
-
-#include <string>
 
 #include "app/gtk_signal.h"
 #include "chrome/browser/content_exceptions_table_model.h"
@@ -42,6 +41,7 @@ class ContentExceptionEditor {
                          const HostContentSettingsMap::Pattern& pattern,
                          ContentSetting setting,
                          bool is_off_the_record);
+  virtual ~ContentExceptionEditor() {}
 
  private:
   // Returns true if we're adding a new item.

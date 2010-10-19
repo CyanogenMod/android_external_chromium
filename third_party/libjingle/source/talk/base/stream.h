@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2004--2005, Google Inc.
+ * Copyright 2004--2010, Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -67,7 +67,7 @@ class Thread;
 
 class StreamInterface : public MessageHandler {
  public:
-  virtual ~StreamInterface() { }
+  virtual ~StreamInterface();
 
   virtual StreamState GetState() const = 0;
 
@@ -223,7 +223,7 @@ class StreamInterface : public MessageHandler {
   StreamResult ReadLine(std::string *line);
 
  protected:
-  StreamInterface() { }
+  StreamInterface();
 
   // MessageHandler Interface
   virtual void OnMessage(Message* msg);
@@ -243,11 +243,7 @@ class StreamInterface : public MessageHandler {
 class StreamAdapterInterface : public StreamInterface,
                                public sigslot::has_slots<> {
  public:
-  explicit StreamAdapterInterface(StreamInterface* stream, bool owned = true)
-      : stream_(stream), owned_(owned) {
-    if (NULL != stream_)
-      stream_->SignalEvent.connect(this, &StreamAdapterInterface::OnEvent);
-  }
+  explicit StreamAdapterInterface(StreamInterface* stream, bool owned = true);
 
   // Core Stream Interface
   virtual StreamState GetState() const {
@@ -311,29 +307,12 @@ class StreamAdapterInterface : public StreamInterface,
     return stream_->ReserveSize(size);
   }
 
-  void Attach(StreamInterface* stream, bool owned = true) {
-    if (NULL != stream_)
-      stream_->SignalEvent.disconnect(this);
-    if (owned_)
-      delete stream_;
-    stream_ = stream;
-    owned_ = owned;
-    if (NULL != stream_)
-      stream_->SignalEvent.connect(this, &StreamAdapterInterface::OnEvent);
-  }
-  StreamInterface* Detach() {
-    if (NULL != stream_)
-      stream_->SignalEvent.disconnect(this);
-    StreamInterface* stream = stream_;
-    stream_ = NULL;
-    return stream;
-  }
+  void Attach(StreamInterface* stream, bool owned = true);
+  StreamInterface* Detach();
 
  protected:
-  virtual ~StreamAdapterInterface() {
-    if (owned_)
-      delete stream_;
-  }
+  virtual ~StreamAdapterInterface();
+
   // Note that the adapter presents itself as the origin of the stream events,
   // since users of the adapter may not recognize the adapted object.
   virtual void OnEvent(StreamInterface* stream, int events, int err) {
@@ -543,8 +522,8 @@ class MemoryStreamBase : public StreamInterface {
 class MemoryStream : public MemoryStreamBase {
  public:
   MemoryStream();
-  MemoryStream(const char* data);  // Calls SetData(data, strlen(data))
-  MemoryStream(const void* data, size_t length); // Calls SetData(data, length)
+  explicit MemoryStream(const char* data);  // Calls SetData(data, strlen(data))
+  MemoryStream(const void* data, size_t length);  // Calls SetData(data, length)
   virtual ~MemoryStream();
 
   void SetData(const void* data, size_t length);
@@ -560,6 +539,7 @@ class ExternalMemoryStream : public MemoryStreamBase {
  public:
   ExternalMemoryStream();
   ExternalMemoryStream(void* data, size_t length);
+  virtual ~ExternalMemoryStream();
 
   void SetData(void* data, size_t length);
 };
@@ -604,7 +584,7 @@ class FifoBuffer : public StreamInterface {
 ///////////////////////////////////////////////////////////////////////////////
 
 class LoggingAdapter : public StreamAdapterInterface {
-public:
+ public:
   LoggingAdapter(StreamInterface* stream, LoggingSeverity level,
                  const std::string& label, bool hex_mode = false);
 
@@ -633,9 +613,9 @@ public:
 ///////////////////////////////////////////////////////////////////////////////
 
 class StringStream : public StreamInterface {
-public:
-  StringStream(std::string& str);
-  StringStream(const std::string& str);
+ public:
+  explicit StringStream(std::string& str);
+  explicit StringStream(const std::string& str);
 
   virtual StreamState GetState() const;
   virtual StreamResult Read(void* buffer, size_t buffer_len,
@@ -649,7 +629,7 @@ public:
   virtual bool GetAvailable(size_t* size) const;
   virtual bool ReserveSize(size_t size);
 
-private:
+ private:
   std::string& str_;
   size_t read_pos_;
   bool read_only_;
@@ -674,19 +654,10 @@ class StreamReference : public StreamAdapterInterface {
   // Constructor for the first reference to a stream
   // Note: get more references through NewReference(). Use this
   // constructor only once on a given stream.
-  explicit StreamReference(StreamInterface* stream)
-      : StreamAdapterInterface(stream, false) {
-        // owner set to false so the destructor does not free the stream.
-    stream_ref_count_ = new StreamRefCount(stream);
-  }
+  explicit StreamReference(StreamInterface* stream);
   StreamInterface* GetStream() { return stream(); }
-  StreamInterface* NewReference() {
-    stream_ref_count_->AddReference();
-    return new StreamReference(stream_ref_count_, stream());
-  }
-  virtual ~StreamReference() {
-    stream_ref_count_->Release();
-  }
+  StreamInterface* NewReference();
+  virtual ~StreamReference();
 
  private:
   class StreamRefCount {
@@ -718,10 +689,8 @@ class StreamReference : public StreamAdapterInterface {
 
   // Constructor for adding references
   explicit StreamReference(StreamRefCount* stream_ref_count,
-                           StreamInterface* stream)
-      : StreamAdapterInterface(stream, false),
-        stream_ref_count_(stream_ref_count) {
-  }
+                           StreamInterface* stream);
+
   StreamRefCount* stream_ref_count_;
   DISALLOW_EVIL_CONSTRUCTORS(StreamReference);
 };
@@ -743,6 +712,6 @@ StreamResult Flow(StreamInterface* source,
 
 ///////////////////////////////////////////////////////////////////////////////
 
-} // namespace talk_base
+}  // namespace talk_base
 
 #endif  // TALK_BASE_STREAM_H__

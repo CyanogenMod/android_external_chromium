@@ -4,13 +4,14 @@
 
 #ifndef NET_BASE_NET_TEST_SUITE_H_
 #define NET_BASE_NET_TEST_SUITE_H_
+#pragma once
 
 #include "base/message_loop.h"
 #include "base/ref_counted.h"
 #include "base/test/test_suite.h"
 #include "net/base/mock_host_resolver.h"
 
-class NetTestSuite : public TestSuite {
+class NetTestSuite : public base::TestSuite {
  public:
   NetTestSuite(int argc, char** argv) : TestSuite(argc, argv) {
   }

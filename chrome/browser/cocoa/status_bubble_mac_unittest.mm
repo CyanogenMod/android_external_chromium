@@ -6,23 +6,50 @@
 
 #include "base/scoped_nsobject.h"
 #include "base/scoped_ptr.h"
+#include "base/utf_string_conversions.h"
 #import "chrome/browser/cocoa/bubble_view.h"
 #import "chrome/browser/cocoa/browser_test_helper.h"
 #import "chrome/browser/cocoa/cocoa_test_helper.h"
 #import "chrome/browser/cocoa/status_bubble_mac.h"
 #include "googleurl/src/gurl.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
 
 // The test delegate records all of the status bubble object's state
 // transitions.
 @interface StatusBubbleMacTestDelegate : NSObject {
  @private
+  NSWindow* window_;  // Weak.
+  NSPoint baseFrameOffset_;
   std::vector<StatusBubbleMac::StatusBubbleState> states_;
 }
+- (id)initWithWindow:(NSWindow*)window;
+- (void)forceBaseFrameOffset:(NSPoint)baseFrameOffset;
+- (NSRect)statusBubbleBaseFrame;
 - (void)statusBubbleWillEnterState:(StatusBubbleMac::StatusBubbleState)state;
 @end
 @implementation StatusBubbleMacTestDelegate
+- (id)initWithWindow:(NSWindow*)window {
+  if ((self = [super init])) {
+    window_ = window;
+    baseFrameOffset_ = NSMakePoint(0, 0);
+  }
+  return self;
+}
+- (void)forceBaseFrameOffset:(NSPoint)baseFrameOffset {
+  baseFrameOffset_ = baseFrameOffset;
+}
+- (NSRect)statusBubbleBaseFrame {
+  NSView* contentView = [window_ contentView];
+  NSRect baseFrame = [contentView convertRect:[contentView frame] toView:nil];
+  if (baseFrameOffset_.x > 0 || baseFrameOffset_.y > 0) {
+    baseFrame = NSOffsetRect(baseFrame, baseFrameOffset_.x, baseFrameOffset_.y);
+    baseFrame.size.width -= baseFrameOffset_.x;
+    baseFrame.size.height -= baseFrameOffset_.y;
+  }
+  return baseFrame;
+}
 - (void)statusBubbleWillEnterState:(StatusBubbleMac::StatusBubbleState)state {
   states_.push_back(state);
 }
@@ -50,7 +77,8 @@ class StatusBubbleMacTest : public CocoaTest {
     CocoaTest::SetUp();
     NSWindow* window = test_window();
     EXPECT_TRUE(window);
-    delegate_.reset([[StatusBubbleMacTestDelegate alloc] init]);
+    delegate_.reset(
+        [[StatusBubbleMacTestDelegate alloc] initWithWindow: window]);
     EXPECT_TRUE(delegate_.get());
     bubble_ = new StatusBubbleMacIgnoreMouseMoved(window, delegate_);
     EXPECT_TRUE(bubble_);
@@ -111,42 +139,42 @@ class StatusBubbleMacTest : public CocoaTest {
 };
 
 TEST_F(StatusBubbleMacTest, SetStatus) {
-  bubble_->SetStatus(L"");
-  bubble_->SetStatus(L"This is a test");
-  EXPECT_TRUE([GetText() isEqualToString:@"This is a test"]);
+  bubble_->SetStatus(string16());
+  bubble_->SetStatus(UTF8ToUTF16("This is a test"));
+  EXPECT_NSEQ(@"This is a test", GetText());
   EXPECT_TRUE(IsVisible());
 
   // Set the status to the exact same thing again
-  bubble_->SetStatus(L"This is a test");
-  EXPECT_TRUE([GetText() isEqualToString:@"This is a test"]);
+  bubble_->SetStatus(UTF8ToUTF16("This is a test"));
+  EXPECT_NSEQ(@"This is a test", GetText());
 
   // Hide it
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   EXPECT_FALSE(IsVisible());
 }
 
 TEST_F(StatusBubbleMacTest, SetURL) {
-  bubble_->SetURL(GURL(), L"");
+  bubble_->SetURL(GURL(), string16());
   EXPECT_FALSE(IsVisible());
-  bubble_->SetURL(GURL("bad url"), L"");
+  bubble_->SetURL(GURL("bad url"), string16());
   EXPECT_FALSE(IsVisible());
-  bubble_->SetURL(GURL("http://"), L"");
+  bubble_->SetURL(GURL("http://"), string16());
   EXPECT_TRUE(IsVisible());
-  EXPECT_TRUE([GetURLText() isEqualToString:@"http:"]);
-  bubble_->SetURL(GURL("about:blank"), L"");
+  EXPECT_NSEQ(@"http:", GetURLText());
+  bubble_->SetURL(GURL("about:blank"), string16());
   EXPECT_TRUE(IsVisible());
-  EXPECT_TRUE([GetURLText() isEqualToString:@"about:blank"]);
-  bubble_->SetURL(GURL("foopy://"), L"");
+  EXPECT_NSEQ(@"about:blank", GetURLText());
+  bubble_->SetURL(GURL("foopy://"), string16());
   EXPECT_TRUE(IsVisible());
-  EXPECT_TRUE([GetURLText() isEqualToString:@"foopy://"]);
-  bubble_->SetURL(GURL("http://www.cnn.com"), L"");
+  EXPECT_NSEQ(@"foopy://", GetURLText());
+  bubble_->SetURL(GURL("http://www.cnn.com"), string16());
   EXPECT_TRUE(IsVisible());
-  EXPECT_TRUE([GetURLText() isEqualToString:@"www.cnn.com"]);
+  EXPECT_NSEQ(@"www.cnn.com", GetURLText());
 }
 
 // Test hiding bubble that's already hidden.
 TEST_F(StatusBubbleMacTest, Hides) {
-  bubble_->SetStatus(L"Showing");
+  bubble_->SetStatus(UTF8ToUTF16("Showing"));
   EXPECT_TRUE(IsVisible());
   bubble_->Hide();
   EXPECT_FALSE(IsVisible());
@@ -157,27 +185,27 @@ TEST_F(StatusBubbleMacTest, Hides) {
 // Test the "main"/"backup" behavior in StatusBubbleMac::SetText().
 TEST_F(StatusBubbleMacTest, SetStatusAndURL) {
   EXPECT_FALSE(IsVisible());
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   EXPECT_TRUE(IsVisible());
-  EXPECT_TRUE([GetBubbleViewText() isEqualToString:@"Status"]);
-  bubble_->SetURL(GURL("http://www.nytimes.com"), L"");
+  EXPECT_NSEQ(@"Status", GetBubbleViewText());
+  bubble_->SetURL(GURL("http://www.nytimes.com"), string16());
   EXPECT_TRUE(IsVisible());
-  EXPECT_TRUE([GetBubbleViewText() isEqualToString:@"www.nytimes.com"]);
-  bubble_->SetURL(GURL(), L"");
+  EXPECT_NSEQ(@"www.nytimes.com", GetBubbleViewText());
+  bubble_->SetURL(GURL(), string16());
   EXPECT_TRUE(IsVisible());
-  EXPECT_TRUE([GetBubbleViewText() isEqualToString:@"Status"]);
-  bubble_->SetStatus(L"");
+  EXPECT_NSEQ(@"Status", GetBubbleViewText());
+  bubble_->SetStatus(string16());
   EXPECT_FALSE(IsVisible());
-  bubble_->SetURL(GURL("http://www.nytimes.com"), L"");
+  bubble_->SetURL(GURL("http://www.nytimes.com"), string16());
   EXPECT_TRUE(IsVisible());
-  EXPECT_TRUE([GetBubbleViewText() isEqualToString:@"www.nytimes.com"]);
-  bubble_->SetStatus(L"Status");
+  EXPECT_NSEQ(@"www.nytimes.com", GetBubbleViewText());
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   EXPECT_TRUE(IsVisible());
-  EXPECT_TRUE([GetBubbleViewText() isEqualToString:@"Status"]);
-  bubble_->SetStatus(L"");
+  EXPECT_NSEQ(@"Status", GetBubbleViewText());
+  bubble_->SetStatus(string16());
   EXPECT_TRUE(IsVisible());
-  EXPECT_TRUE([GetBubbleViewText() isEqualToString:@"www.nytimes.com"]);
-  bubble_->SetURL(GURL(), L"");
+  EXPECT_NSEQ(@"www.nytimes.com", GetBubbleViewText());
+  bubble_->SetURL(GURL(), string16());
   EXPECT_FALSE(IsVisible());
 }
 
@@ -193,7 +221,7 @@ TEST_F(StatusBubbleMacTest, StateTransitions) {
   States()->clear();
   EXPECT_TRUE(States()->empty());
 
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   EXPECT_FALSE(IsVisible());
   EXPECT_EQ(StatusBubbleMac::kBubbleHidden, GetState());
   EXPECT_TRUE(States()->empty());  // no change from initial kBubbleHidden state
@@ -201,7 +229,7 @@ TEST_F(StatusBubbleMacTest, StateTransitions) {
   // Next, a few ordinary cases
 
   // Test StartShowing from kBubbleHidden
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   EXPECT_TRUE(IsVisible());
   // Check GetState before checking States to make sure that all state
   // transitions have been flushed to States.
@@ -213,19 +241,19 @@ TEST_F(StatusBubbleMacTest, StateTransitions) {
 
   // Test StartShowing from kBubbleShown with the same message
   States()->clear();
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   EXPECT_TRUE(IsVisible());
   EXPECT_EQ(StatusBubbleMac::kBubbleShown, GetState());
   EXPECT_TRUE(States()->empty());
 
   // Test StartShowing from kBubbleShown with a different message
-  bubble_->SetStatus(L"New Status");
+  bubble_->SetStatus(UTF8ToUTF16("New Status"));
   EXPECT_TRUE(IsVisible());
   EXPECT_EQ(StatusBubbleMac::kBubbleShown, GetState());
   EXPECT_TRUE(States()->empty());
 
   // Test StartHiding from kBubbleShown
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   EXPECT_FALSE(IsVisible());
   // Check GetState before checking States to make sure that all state
   // transitions have been flushed to States.
@@ -237,7 +265,7 @@ TEST_F(StatusBubbleMacTest, StateTransitions) {
 
   // Test StartHiding from kBubbleHidden
   States()->clear();
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   EXPECT_FALSE(IsVisible());
   EXPECT_EQ(StatusBubbleMac::kBubbleHidden, GetState());
   EXPECT_TRUE(States()->empty());
@@ -245,101 +273,103 @@ TEST_F(StatusBubbleMacTest, StateTransitions) {
   // Now, the edge cases
 
   // Test StartShowing from kBubbleShowingTimer
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   SetState(StatusBubbleMac::kBubbleShowingTimer);
   [GetWindow() setAlphaValue:0.0];
   States()->clear();
   EXPECT_TRUE(States()->empty());
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   EXPECT_EQ(StatusBubbleMac::kBubbleShown, GetState());
   EXPECT_EQ(2u, States()->size());
   EXPECT_EQ(StatusBubbleMac::kBubbleShowingFadeIn, StateAt(0));
   EXPECT_EQ(StatusBubbleMac::kBubbleShown, StateAt(1));
 
   // Test StartShowing from kBubbleShowingFadeIn
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   SetState(StatusBubbleMac::kBubbleShowingFadeIn);
   [GetWindow() setAlphaValue:0.5];
   States()->clear();
   EXPECT_TRUE(States()->empty());
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   // The actual state values can't be tested in immediate_ mode because
   // the window wasn't actually fading in.  Without immediate_ mode,
   // expect kBubbleShown.
-  bubble_->SetStatus(L"");  // Go back to a deterministic state.
+  bubble_->SetStatus(string16());  // Go back to a deterministic state.
 
   // Test StartShowing from kBubbleHidingTimer
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   SetState(StatusBubbleMac::kBubbleHidingTimer);
   [GetWindow() setAlphaValue:1.0];
   States()->clear();
   EXPECT_TRUE(States()->empty());
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   EXPECT_EQ(StatusBubbleMac::kBubbleShown, GetState());
   EXPECT_EQ(1u, States()->size());
   EXPECT_EQ(StatusBubbleMac::kBubbleShown, StateAt(0));
 
   // Test StartShowing from kBubbleHidingFadeOut
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   SetState(StatusBubbleMac::kBubbleHidingFadeOut);
   [GetWindow() setAlphaValue:0.5];
   States()->clear();
   EXPECT_TRUE(States()->empty());
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   EXPECT_EQ(StatusBubbleMac::kBubbleShown, GetState());
   EXPECT_EQ(2u, States()->size());
   EXPECT_EQ(StatusBubbleMac::kBubbleShowingFadeIn, StateAt(0));
   EXPECT_EQ(StatusBubbleMac::kBubbleShown, StateAt(1));
 
   // Test StartHiding from kBubbleShowingTimer
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   SetState(StatusBubbleMac::kBubbleShowingTimer);
   [GetWindow() setAlphaValue:0.0];
   States()->clear();
   EXPECT_TRUE(States()->empty());
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   EXPECT_EQ(StatusBubbleMac::kBubbleHidden, GetState());
   EXPECT_EQ(1u, States()->size());
   EXPECT_EQ(StatusBubbleMac::kBubbleHidden, StateAt(0));
 
   // Test StartHiding from kBubbleShowingFadeIn
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   SetState(StatusBubbleMac::kBubbleShowingFadeIn);
   [GetWindow() setAlphaValue:0.5];
   States()->clear();
   EXPECT_TRUE(States()->empty());
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   EXPECT_EQ(StatusBubbleMac::kBubbleHidden, GetState());
   EXPECT_EQ(2u, States()->size());
   EXPECT_EQ(StatusBubbleMac::kBubbleHidingFadeOut, StateAt(0));
   EXPECT_EQ(StatusBubbleMac::kBubbleHidden, StateAt(1));
 
   // Test StartHiding from kBubbleHidingTimer
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   SetState(StatusBubbleMac::kBubbleHidingTimer);
   [GetWindow() setAlphaValue:1.0];
   States()->clear();
   EXPECT_TRUE(States()->empty());
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   // The actual state values can't be tested in immediate_ mode because
   // the timer wasn't actually running.  Without immediate_ mode, expect
   // kBubbleHidingFadeOut and kBubbleHidden.
-  bubble_->SetStatus(L"Status");  // Go back to a deterministic state.
+  // Go back to a deterministic state.
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
 
   // Test StartHiding from kBubbleHidingFadeOut
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   SetState(StatusBubbleMac::kBubbleHidingFadeOut);
   [GetWindow() setAlphaValue:0.5];
   States()->clear();
   EXPECT_TRUE(States()->empty());
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   // The actual state values can't be tested in immediate_ mode because
   // the window wasn't actually fading out.  Without immediate_ mode, expect
   // kBubbleHidden.
-  bubble_->SetStatus(L"Status");  // Go back to a deterministic state.
+  // Go back to a deterministic state.
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
 
   // Test Hide from kBubbleHidden
-  bubble_->SetStatus(L"");
+  bubble_->SetStatus(string16());
   EXPECT_EQ(StatusBubbleMac::kBubbleHidden, GetState());
   States()->clear();
   EXPECT_TRUE(States()->empty());
@@ -348,7 +378,7 @@ TEST_F(StatusBubbleMacTest, StateTransitions) {
   EXPECT_TRUE(States()->empty());
 
   // Test Hide from kBubbleShowingTimer
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   SetState(StatusBubbleMac::kBubbleShowingTimer);
   [GetWindow() setAlphaValue:0.0];
   States()->clear();
@@ -359,7 +389,7 @@ TEST_F(StatusBubbleMacTest, StateTransitions) {
   EXPECT_EQ(StatusBubbleMac::kBubbleHidden, StateAt(0));
 
   // Test Hide from kBubbleShowingFadeIn
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   SetState(StatusBubbleMac::kBubbleShowingFadeIn);
   [GetWindow() setAlphaValue:0.5];
   States()->clear();
@@ -371,7 +401,7 @@ TEST_F(StatusBubbleMacTest, StateTransitions) {
   EXPECT_EQ(StatusBubbleMac::kBubbleHidden, StateAt(1));
 
   // Test Hide from kBubbleShown
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   States()->clear();
   EXPECT_TRUE(States()->empty());
   bubble_->Hide();
@@ -380,7 +410,7 @@ TEST_F(StatusBubbleMacTest, StateTransitions) {
   EXPECT_EQ(StatusBubbleMac::kBubbleHidden, StateAt(0));
 
   // Test Hide from kBubbleHidingTimer
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   SetState(StatusBubbleMac::kBubbleHidingTimer);
   States()->clear();
   EXPECT_TRUE(States()->empty());
@@ -390,7 +420,7 @@ TEST_F(StatusBubbleMacTest, StateTransitions) {
   EXPECT_EQ(StatusBubbleMac::kBubbleHidden, StateAt(0));
 
   // Test Hide from kBubbleHidingFadeOut
-  bubble_->SetStatus(L"Status");
+  bubble_->SetStatus(UTF8ToUTF16("Status"));
   SetState(StatusBubbleMac::kBubbleHidingFadeOut);
   [GetWindow() setAlphaValue:0.5];
   States()->clear();
@@ -409,7 +439,7 @@ TEST_F(StatusBubbleMacTest, Delete) {
 
   // Create then delete while visible.
   bubble = new StatusBubbleMac(window, nil);
-  bubble->SetStatus(L"showing");
+  bubble->SetStatus(UTF8ToUTF16("showing"));
   delete bubble;
 }
 
@@ -422,7 +452,7 @@ TEST_F(StatusBubbleMacTest, UpdateSizeAndPosition) {
 
   // Create a status bubble (with contents) and call resize (without actually
   // resizing); the frame size shouldn't change.
-  bubble_->SetStatus(L"UpdateSizeAndPosition test");
+  bubble_->SetStatus(UTF8ToUTF16("UpdateSizeAndPosition test"));
   ASSERT_TRUE(GetWindow());
   NSRect rect_before = [GetWindow() frame];
   bubble_->UpdateSizeAndPosition();
@@ -458,3 +488,97 @@ TEST_F(StatusBubbleMacTest, UpdateSizeAndPosition) {
   EXPECT_NE(rect_before.size.width, rect_after.size.width);
   EXPECT_EQ(rect_before.size.height, rect_after.size.height);
 }
+
+TEST_F(StatusBubbleMacTest, MovingWindowUpdatesPosition) {
+  NSWindow* window = test_window();
+
+  // Show the bubble and make sure it has the same origin as |window|.
+  bubble_->SetStatus(UTF8ToUTF16("Showing"));
+  NSWindow* child = GetWindow();
+  EXPECT_TRUE(NSEqualPoints([window frame].origin, [child frame].origin));
+
+  // Hide the bubble, move the window, and show it again.
+  bubble_->Hide();
+  NSRect frame = [window frame];
+  frame.origin.x += 50;
+  [window setFrame:frame display:YES];
+  bubble_->SetStatus(UTF8ToUTF16("Reshowing"));
+
+  // The bubble should reattach in the correct location.
+  child = GetWindow();
+  EXPECT_TRUE(NSEqualPoints([window frame].origin, [child frame].origin));
+}
+
+TEST_F(StatusBubbleMacTest, StatuBubbleRespectsBaseFrameLimits) {
+  NSWindow* window = test_window();
+
+  // Show the bubble and make sure it has the same origin as |window|.
+  bubble_->SetStatus(UTF8ToUTF16("Showing"));
+  NSWindow* child = GetWindow();
+  EXPECT_TRUE(NSEqualPoints([window frame].origin, [child frame].origin));
+
+  // Hide the bubble, change base frame offset, and show it again.
+  bubble_->Hide();
+
+  NSPoint baseFrameOffset = NSMakePoint(0, [window frame].size.height / 3);
+  EXPECT_GT(baseFrameOffset.y, 0);
+  [delegate_ forceBaseFrameOffset:baseFrameOffset];
+
+  bubble_->SetStatus(UTF8ToUTF16("Reshowing"));
+
+  // The bubble should reattach in the correct location.
+  child = GetWindow();
+  NSPoint expectedOrigin = [window frame].origin;
+  expectedOrigin.x += baseFrameOffset.x;
+  expectedOrigin.y += baseFrameOffset.y;
+  EXPECT_TRUE(NSEqualPoints(expectedOrigin, [child frame].origin));
+}
+
+TEST_F(StatusBubbleMacTest, ExpandBubble) {
+  NSWindow* window = test_window();
+  ASSERT_TRUE(window);
+  NSRect window_frame = [window frame];
+  window_frame.size.width = 600.0;
+  [window setFrame:window_frame display:YES];
+
+  // Check basic expansion
+  bubble_->SetStatus(UTF8ToUTF16("Showing"));
+  EXPECT_TRUE(IsVisible());
+  bubble_->SetURL(GURL("http://www.battersbox.com/peter_paul_and_mary.html"),
+                  string16());
+  EXPECT_TRUE([GetURLText() hasSuffix:@"\u2026"]);
+  bubble_->ExpandBubble();
+  EXPECT_TRUE(IsVisible());
+  EXPECT_NSEQ(@"www.battersbox.com/peter_paul_and_mary.html", GetURLText());
+  bubble_->Hide();
+
+  // Make sure bubble resets after hide.
+  bubble_->SetStatus(UTF8ToUTF16("Showing"));
+  bubble_->SetURL(GURL("http://www.snickersnee.com/pioneer_fishstix.html"),
+                  string16());
+  EXPECT_TRUE([GetURLText() hasSuffix:@"\u2026"]);
+  // ...and that it expands again properly.
+  bubble_->ExpandBubble();
+  EXPECT_NSEQ(@"www.snickersnee.com/pioneer_fishstix.html", GetURLText());
+  // ...again, again!
+  bubble_->SetURL(GURL("http://www.battersbox.com/peter_paul_and_mary.html"),
+                  string16());
+  bubble_->ExpandBubble();
+  EXPECT_NSEQ(@"www.battersbox.com/peter_paul_and_mary.html", GetURLText());
+  bubble_->Hide();
+
+  window_frame = [window frame];
+  window_frame.size.width = 300.0;
+  [window setFrame:window_frame display:YES];
+
+  // Very long URL's will be cut off even in the expanded state.
+  bubble_->SetStatus(UTF8ToUTF16("Showing"));
+  const char veryLongUrl[] =
+      "http://www.diewahrscheinlichlaengstepralinederwelt.com/duuuuplo.html";
+  bubble_->SetURL(GURL(veryLongUrl), string16());
+  EXPECT_TRUE([GetURLText() hasSuffix:@"\u2026"]);
+  bubble_->ExpandBubble();
+  EXPECT_TRUE([GetURLText() hasSuffix:@"\u2026"]);
+}
+
+

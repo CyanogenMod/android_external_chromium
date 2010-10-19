@@ -4,6 +4,7 @@
 
 #include "chrome/browser/importer/firefox_proxy_settings.h"
 
+#include "base/file_path.h"
 #include "base/string_tokenizer.h"
 #include "base/string_util.h"
 #include "base/values.h"
@@ -12,18 +13,18 @@
 
 namespace {
 
-const wchar_t* const kNetworkProxyTypeKey = L"network.proxy.type";
+const char* const kNetworkProxyTypeKey = "network.proxy.type";
 const char* const kHTTPProxyKey = "network.proxy.http";
-const wchar_t* const kHTTPProxyPortKey = L"network.proxy.http_port";
+const char* const kHTTPProxyPortKey = "network.proxy.http_port";
 const char* const kSSLProxyKey = "network.proxy.ssl";
-const wchar_t* const kSSLProxyPortKey = L"network.proxy.ssl_port";
+const char* const kSSLProxyPortKey = "network.proxy.ssl_port";
 const char* const kFTPProxyKey = "network.proxy.ftp";
-const wchar_t* const kFTPProxyPortKey = L"network.proxy.ftp_port";
+const char* const kFTPProxyPortKey = "network.proxy.ftp_port";
 const char* const kGopherProxyKey = "network.proxy.gopher";
-const wchar_t* const kGopherProxyPortKey = L"network.proxy.gopher_port";
+const char* const kGopherProxyPortKey = "network.proxy.gopher_port";
 const char* const kSOCKSHostKey = "network.proxy.socks";
-const wchar_t* const kSOCKSHostPortKey = L"network.proxy.socks_port";
-const wchar_t* const kSOCKSVersionKey = L"network.proxy.socks_version";
+const char* const kSOCKSHostPortKey = "network.proxy.socks_port";
+const char* const kSOCKSVersionKey = "network.proxy.socks_version";
 const char* const kAutoconfigURL = "network.proxy.autoconfig_url";
 const char* const kNoProxyListKey = "network.proxy.no_proxies_on";
 const char* const kPrefFileName = "prefs.js";
@@ -127,32 +128,28 @@ bool FirefoxProxySettings::ToProxyConfig(net::ProxyConfig* config) {
   if (!http_proxy().empty()) {
     config->proxy_rules().proxy_for_http = net::ProxyServer(
         net::ProxyServer::SCHEME_HTTP,
-        http_proxy(),
-        http_proxy_port());
+        net::HostPortPair(http_proxy(), http_proxy_port()));
   }
 
   if (!ftp_proxy().empty()) {
     config->proxy_rules().proxy_for_ftp = net::ProxyServer(
         net::ProxyServer::SCHEME_HTTP,
-        ftp_proxy(),
-        ftp_proxy_port());
+        net::HostPortPair(ftp_proxy(), ftp_proxy_port()));
   }
 
   if (!ssl_proxy().empty()) {
     config->proxy_rules().proxy_for_https = net::ProxyServer(
         net::ProxyServer::SCHEME_HTTP,
-        ssl_proxy(),
-        ssl_proxy_port());
+        net::HostPortPair(ssl_proxy(), ssl_proxy_port()));
   }
 
   if (!socks_host().empty()) {
     net::ProxyServer::Scheme proxy_scheme = V5 == socks_version() ?
         net::ProxyServer::SCHEME_SOCKS5 : net::ProxyServer::SCHEME_SOCKS4;
 
-    config->proxy_rules().socks_proxy = net::ProxyServer(
+    config->proxy_rules().fallback_proxy = net::ProxyServer(
         proxy_scheme,
-        socks_host(),
-        socks_port());
+        net::HostPortPair(socks_host(), socks_port()));
   }
 
   config->proxy_rules().bypass_rules.ParseFromStringUsingSuffixMatching(

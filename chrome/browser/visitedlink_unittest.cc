@@ -19,6 +19,7 @@
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/renderer/visitedlink_slave.h"
+#include "chrome/test/testing_profile.h"
 #include "googleurl/src/gurl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -160,10 +161,10 @@ class VisitedLinkTest : public testing::Test {
 
   // testing::Test
   virtual void SetUp() {
-    PathService::Get(base::DIR_TEMP, &history_dir_);
-    history_dir_ = history_dir_.Append(FILE_PATH_LITERAL("VisitedLinkTest"));
-    file_util::Delete(history_dir_, true);
-    file_util::CreateDirectory(history_dir_);
+    ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
+
+    history_dir_ = temp_dir_.path().AppendASCII("VisitedLinkTest");
+    ASSERT_TRUE(file_util::CreateDirectory(history_dir_));
 
     visited_file_ = history_dir_.Append(FILE_PATH_LITERAL("VisitedLinks"));
     listener_.SetUp();
@@ -171,8 +172,9 @@ class VisitedLinkTest : public testing::Test {
 
   virtual void TearDown() {
     ClearDB();
-    file_util::Delete(history_dir_, true);
   }
+
+  ScopedTempDir temp_dir_;
 
   MessageLoop message_loop_;
   ChromeThread ui_thread_;
@@ -371,7 +373,7 @@ TEST_F(VisitedLinkTest, Rebuild) {
   // initialize the visited link DB.
   int history_count = g_test_count / 2;
   for (int i = 0; i < history_count; i++)
-    history_service_->AddPage(TestURL(i));
+    history_service_->AddPage(TestURL(i), history::SOURCE_BROWSED);
 
   // Initialize the visited link DB. Since the visited links file doesn't exist
   // and we don't suppress history rebuilding, this will load from history.
@@ -676,7 +678,7 @@ TEST_F(VisitedLinkEventsTest, Coalescense) {
 
 TEST_F(VisitedLinkRelayTest, Basics) {
   VisitedLinkMaster* master = profile_->GetVisitedLinkMaster();
-  rvh()->CreateRenderView(profile_->GetRequestContext(), string16());
+  rvh()->CreateRenderView(string16());
 
   // Add a few URLs.
   master->AddURL(GURL("http://acidtests.org/"));
@@ -700,7 +702,7 @@ TEST_F(VisitedLinkRelayTest, Basics) {
 
 TEST_F(VisitedLinkRelayTest, TabVisibility) {
   VisitedLinkMaster* master = profile_->GetVisitedLinkMaster();
-  rvh()->CreateRenderView(profile_->GetRequestContext(), string16());
+  rvh()->CreateRenderView(string16());
 
   // Simulate tab becoming inactive.
   rvh()->WasHidden();
@@ -763,7 +765,7 @@ TEST_F(VisitedLinkRelayTest, WebViewReadiness) {
   EXPECT_EQ(0, profile()->add_event_count());
   EXPECT_EQ(0, profile()->reset_event_count());
 
-  rvh()->CreateRenderView(profile_->GetRequestContext(), string16());
+  rvh()->CreateRenderView(string16());
 
   // We should now have just a reset event: adds are eaten up by a reset
   // that followed.

@@ -8,10 +8,12 @@
 #include "base/compiler_specific.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/importer/firefox_proxy_settings.h"
 #include "chrome/common/chrome_switches.h"
 #include "net/base/cookie_monster.h"
 #include "net/base/host_resolver_impl.h"
+#include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
 #include "net/base/ssl_config_service_defaults.h"
@@ -52,7 +54,8 @@ class ExperimentURLRequestContext : public URLRequestContext {
     // experiment being run.
     ftp_transaction_factory_ = new net::FtpNetworkLayer(host_resolver_);
     ssl_config_service_ = new net::SSLConfigServiceDefaults;
-    http_auth_handler_factory_ = net::HttpAuthHandlerFactory::CreateDefault();
+    http_auth_handler_factory_ = net::HttpAuthHandlerFactory::CreateDefault(
+        host_resolver_);
     http_transaction_factory_ = new net::HttpCache(
         net::HttpNetworkLayer::CreateFactory(host_resolver_, proxy_service_,
             ssl_config_service_, http_auth_handler_factory_, NULL, NULL),
@@ -80,7 +83,7 @@ class ExperimentURLRequestContext : public URLRequestContext {
     // Create a vanilla HostResolver that disables caching.
     const size_t kMaxJobs = 50u;
     scoped_refptr<net::HostResolverImpl> impl =
-        new net::HostResolverImpl(NULL, NULL, kMaxJobs);
+        new net::HostResolverImpl(NULL, NULL, kMaxJobs, NULL);
 
     *host_resolver = impl;
 
@@ -167,7 +170,8 @@ class ExperimentURLRequestContext : public URLRequestContext {
     return net::ERR_NOT_IMPLEMENTED;
 #else
     config_service->reset(
-        net::ProxyService::CreateSystemProxyConfigService(NULL, NULL));
+        net::ProxyService::CreateSystemProxyConfigService(
+            MessageLoop::current(), NULL));
     return net::OK;
 #endif
   }

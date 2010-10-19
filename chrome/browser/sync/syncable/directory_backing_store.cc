@@ -14,7 +14,11 @@
 
 #include "base/file_util.h"
 #include "base/hash_tables.h"
+#include "base/histogram.h"
 #include "base/logging.h"
+#include "base/stl_util-inl.h"
+#include "base/string_number_conversions.h"
+#include "base/string_util.h"
 #include "chrome/browser/sync/protocol/bookmark_specifics.pb.h"
 #include "chrome/browser/sync/protocol/service_constants.h"
 #include "chrome/browser/sync/protocol/sync.pb.h"
@@ -22,7 +26,7 @@
 #include "chrome/browser/sync/syncable/syncable_columns.h"
 #include "chrome/browser/sync/util/crypto_helpers.h"
 #include "chrome/common/sqlite_utils.h"
-#include "third_party/sqlite/preprocessed/sqlite3.h"
+#include "third_party/sqlite/sqlite3.h"
 
 // Sometimes threads contend on the DB lock itself, especially when one thread
 // is calling SaveChanges.  In the worst case scenario, the user can put his
@@ -183,6 +187,14 @@ bool DirectoryBackingStore::OpenAndConfigureHandleHelper(
     sqlite_utils::scoped_sqlite_db_ptr scoped_handle(*handle);
     sqlite3_busy_timeout(scoped_handle.get(), std::numeric_limits<int>::max());
     {
+      string integrity_error;
+      bool is_ok = CheckIntegrity(scoped_handle.get(), &integrity_error);
+      if (!is_ok) {
+        LOG(ERROR) << "Integrity check failed: " << integrity_error;
+        return false;
+      }
+    }
+    {
       SQLStatement statement;
       statement.prepare(scoped_handle.get(), "PRAGMA fullfsync = 1");
       if (SQLITE_DONE != statement.step()) {
@@ -214,35 +226,93 @@ bool DirectoryBackingStore::OpenAndConfigureHandleHelper(
   return false;
 }
 
+bool DirectoryBackingStore::CheckIntegrity(sqlite3* handle, string* error)
+    const {
+  SQLStatement statement;
+  statement.prepare(handle, "PRAGMA integrity_check(1)");
+  if (SQLITE_ROW != statement.step()) {
+    *error =  sqlite3_errmsg(handle);
+    return false;
+  }
+  string integrity_result = statement.column_text(0);
+  if (integrity_result != "ok") {
+    *error = integrity_result;
+    return false;
+  }
+  return true;
+}
+
+DirOpenResult DirectoryBackingStore::DoLoad(MetahandlesIndex* entry_bucket,
+    Directory::KernelLoadInfo* kernel_load_info) {
+  {
+    DirOpenResult result = InitializeTables();
+    if (result != OPENED)
+      return result;
+  }
+
+  if (!DropDeletedEntries())
+    return FAILED_DATABASE_CORRUPT;
+  if (!LoadEntries(entry_bucket))
+    return FAILED_DATABASE_CORRUPT;
+  if (!LoadInfo(kernel_load_info))
+    return FAILED_DATABASE_CORRUPT;
+
+  return OPENED;
+}
+
 DirOpenResult DirectoryBackingStore::Load(MetahandlesIndex* entry_bucket,
     Directory::KernelLoadInfo* kernel_load_info) {
+
+  // Open database handle.
   if (!BeginLoad())
     return FAILED_OPEN_DATABASE;
 
-  DirOpenResult result = InitializeTables();
-  if (OPENED != result)
-    return result;
+  // Load data from the database.
+  DirOpenResult result = DoLoad(entry_bucket, kernel_load_info);
 
-  if (!DropDeletedEntries() ||
-      !LoadEntries(entry_bucket) ||
-      !LoadInfo(kernel_load_info)) {
-    return FAILED_DATABASE_CORRUPT;
-  }
+  // Clean up partial results after failure.
+  if (result != OPENED)
+    STLDeleteElements(entry_bucket);
 
+  // Close database handle.
   EndLoad();
-  return OPENED;
+
+  return result;
 }
 
 bool DirectoryBackingStore::BeginLoad() {
   DCHECK(load_dbhandle_ == NULL);
   bool ret = OpenAndConfigureHandleHelper(&load_dbhandle_);
   if (ret)
-    return ret;
+    return true;
   // Something's gone wrong. Nuke the database and try again.
+  using ::operator<<;  // For string16.
   LOG(ERROR) << "Sync database " << backing_filepath_.value()
              << " corrupt. Deleting and recreating.";
   file_util::Delete(backing_filepath_, false);
-  return OpenAndConfigureHandleHelper(&load_dbhandle_);
+  bool failed_again = !OpenAndConfigureHandleHelper(&load_dbhandle_);
+
+  // Using failed_again here lets us distinguish from cases where corruption
+  // occurred even when re-opening a fresh directory (they'll go in a separate
+  // double weight histogram bucket).  Failing twice in a row means we disable
+  // sync, so it's useful to see this number separately.
+  int bucket = failed_again ? 2 : 1;
+#if defined(OS_WIN)
+  UMA_HISTOGRAM_COUNTS_100("Sync.DirectoryOpenFailedWin", bucket);
+#elif defined(OS_MACOSX)
+  UMA_HISTOGRAM_COUNTS_100("Sync.DirectoryOpenFailedMac", bucket);
+#else
+  UMA_HISTOGRAM_COUNTS_100("Sync.DirectoryOpenFailedNotWinMac", bucket);
+
+#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
+  UMA_HISTOGRAM_COUNTS_100("Sync.DirectoryOpenFailedLinux", bucket);
+#elif defined(OS_CHROMEOS)
+  UMA_HISTOGRAM_COUNTS_100("Sync.DirectoryOpenFailedCros", bucket);
+#else
+  UMA_HISTOGRAM_COUNTS_100("Sync.DirectoryOpenFailedOther", bucket);
+#endif  // OS_LINUX && !OS_CHROMEOS
+#endif  // OS_WIN
+  return !failed_again;
 }
 
 void DirectoryBackingStore::EndLoad() {
@@ -266,7 +336,7 @@ bool DirectoryBackingStore::DeleteEntries(const MetahandleSet& handles) {
        ++it) {
     if (it != handles.begin())
       query.append(",");
-    query.append(Int64ToString(*it));
+    query.append(base::Int64ToString(*it));
   }
   query.append(")");
   SQLStatement statement;
@@ -900,7 +970,7 @@ int DirectoryBackingStore::CreateTables() {
 
 sqlite3* DirectoryBackingStore::LazyGetSaveHandle() {
   if (!save_dbhandle_ && !OpenAndConfigureHandleHelper(&save_dbhandle_)) {
-    DCHECK(FALSE) << "Unable to open handle for saving";
+    NOTREACHED() << "Unable to open handle for saving";
     return NULL;
   }
   return save_dbhandle_;

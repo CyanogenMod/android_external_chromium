@@ -9,6 +9,7 @@
 
 #ifndef CHROME_COMMON_NET_URL_FETCHER_H_
 #define CHROME_COMMON_NET_URL_FETCHER_H_
+#pragma once
 
 #include <string>
 
@@ -73,11 +74,17 @@ class URLFetcher {
                                     int response_code,
                                     const ResponseCookies& cookies,
                                     const std::string& data) = 0;
+<<<<<<< HEAD
 #ifdef ANDROID
     // TODO: Upstream.
     virtual
 #endif
     ~Delegate() { }
+=======
+
+   protected:
+    virtual ~Delegate() {}
+>>>>>>> Chromium at release 7.0.540.0
   };
 
   // URLFetcher::Create uses the currently registered Factory to create the
@@ -88,11 +95,17 @@ class URLFetcher {
                                          const GURL& url,
                                          RequestType request_type,
                                          Delegate* d) = 0;
+<<<<<<< HEAD
 #ifdef ANDROID
     // TODO: Upstream
     virtual
 #endif
     ~Factory() { }
+=======
+
+   protected:
+    virtual ~Factory() {}
+>>>>>>> Chromium at release 7.0.540.0
   };
 
   // |url| is the URL to send the request to.
@@ -147,20 +160,29 @@ class URLFetcher {
 
   // Set the URLRequestContext on the request.  Must be called before the
   // request is started.
+<<<<<<< HEAD
 #ifdef ANDROID
   // TODO: Upstream.
   virtual
 #endif
   void set_request_context(URLRequestContextGetter* request_context_getter);
+=======
+  void set_request_context(
+      URLRequestContextGetter* request_context_getter);
+>>>>>>> Chromium at release 7.0.540.0
 
   // If |retry| is false, 5xx responses will be propagated to the observer,
   // if it is true URLFetcher will automatically re-execute the request,
   // after backoff_delay() elapses. URLFetcher has it set to true by default.
+<<<<<<< HEAD
 #ifdef ANDROID
   // TODO: Upstream.
   virtual
 #endif
   void set_automatcally_retry_on_5xx(bool retry);
+=======
+  void set_automatically_retry_on_5xx(bool retry);
+>>>>>>> Chromium at release 7.0.540.0
 
   // Returns the back-off delay before the request will be retried,
   // when a 5xx response was received.

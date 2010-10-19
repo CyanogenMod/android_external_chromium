@@ -4,10 +4,13 @@
 
 #include "net/http/http_auth_handler_digest.h"
 
+#include <string>
+
 #include "base/logging.h"
 #include "base/md5.h"
 #include "base/rand_util.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
@@ -85,9 +88,19 @@ std::string HttpAuthHandlerDigest::AlgorithmToString(int algorithm) {
   }
 }
 
+HttpAuthHandlerDigest::HttpAuthHandlerDigest(int nonce_count)
+    : stale_(false),
+      algorithm_(ALGORITHM_UNSPECIFIED),
+      qop_(0),
+      nonce_count_(nonce_count) {
+}
+
+HttpAuthHandlerDigest::~HttpAuthHandlerDigest() {
+}
+
 int HttpAuthHandlerDigest::GenerateAuthTokenImpl(
-    const std::wstring* username,
-    const std::wstring* password,
+    const string16* username,
+    const string16* password,
     const HttpRequestInfo* request,
     CompletionCallback* callback,
     std::string* auth_token) {
@@ -101,9 +114,8 @@ int HttpAuthHandlerDigest::GenerateAuthTokenImpl(
   GetRequestMethodAndPath(request, &method, &path);
 
   *auth_token = AssembleCredentials(method, path,
-                                    // TODO(eroman): is this the right encoding?
-                                    WideToUTF8(*username),
-                                    WideToUTF8(*password),
+                                    *username,
+                                    *password,
                                     cnonce, nonce_count_);
   return OK;
 }
@@ -128,12 +140,14 @@ void HttpAuthHandlerDigest::GetRequestMethodAndPath(
 std::string HttpAuthHandlerDigest::AssembleResponseDigest(
     const std::string& method,
     const std::string& path,
-    const std::string& username,
-    const std::string& password,
+    const string16& username,
+    const string16& password,
     const std::string& cnonce,
     const std::string& nc) const {
   // ha1 = MD5(A1)
-  std::string ha1 = MD5String(username + ":" + realm_ + ":" + password);
+  // TODO(eroman): is this the right encoding?
+  std::string ha1 = MD5String(UTF16ToUTF8(username) + ":" + realm_ + ":" +
+                              UTF16ToUTF8(password));
   if (algorithm_ == HttpAuthHandlerDigest::ALGORITHM_MD5_SESS)
     ha1 = MD5String(ha1 + ":" + nonce_ + ":" + cnonce);
 
@@ -152,15 +166,16 @@ std::string HttpAuthHandlerDigest::AssembleResponseDigest(
 std::string HttpAuthHandlerDigest::AssembleCredentials(
     const std::string& method,
     const std::string& path,
-    const std::string& username,
-    const std::string& password,
+    const string16& username,
+    const string16& password,
     const std::string& cnonce,
     int nonce_count) const {
   // the nonce-count is an 8 digit hex string.
-  std::string nc = StringPrintf("%08x", nonce_count);
+  std::string nc = base::StringPrintf("%08x", nonce_count);
 
-  std::string authorization = std::string("Digest username=") +
-                              HttpUtil::Quote(username);
+  // TODO(eroman): is this the right encoding?
+  std::string authorization = (std::string("Digest username=") +
+                               HttpUtil::Quote(UTF16ToUTF8(username)));
   authorization += ", realm=" + HttpUtil::Quote(realm_);
   authorization += ", nonce=" + HttpUtil::Quote(nonce_);
   authorization += ", uri=" + HttpUtil::Quote(path);
@@ -185,6 +200,31 @@ std::string HttpAuthHandlerDigest::AssembleCredentials(
   }
 
   return authorization;
+}
+
+bool HttpAuthHandlerDigest::Init(HttpAuth::ChallengeTokenizer* challenge) {
+  return ParseChallenge(challenge);
+}
+
+HttpAuth::AuthorizationResult HttpAuthHandlerDigest::HandleAnotherChallenge(
+    HttpAuth::ChallengeTokenizer* challenge) {
+  // Even though Digest is not connection based, a "second round" is parsed
+  // to differentiate between stale and rejected responses.
+  // Note that the state of the current handler is not mutated - this way if
+  // there is a rejection the realm hasn't changed.
+  if (!challenge->valid() ||
+      !LowerCaseEqualsASCII(challenge->scheme(), "digest"))
+    return HttpAuth::AUTHORIZATION_RESULT_INVALID;
+
+  // Try to find the "stale" value.
+  while (challenge->GetNext()) {
+    if (!LowerCaseEqualsASCII(challenge->name(), "stale"))
+      continue;
+    if (LowerCaseEqualsASCII(challenge->unquoted_value(), "true"))
+      return HttpAuth::AUTHORIZATION_RESULT_STALE;
+  }
+
+  return HttpAuth::AUTHORIZATION_RESULT_REJECT;
 }
 
 // The digest challenge header looks like:
@@ -217,9 +257,10 @@ bool HttpAuthHandlerDigest::ParseChallenge(
   qop_ = QOP_UNSPECIFIED;
   realm_ = nonce_ = domain_ = opaque_ = std::string();
 
+  // FAIL -- Couldn't match auth-scheme.
   if (!challenge->valid() ||
       !LowerCaseEqualsASCII(challenge->scheme(), "digest"))
-    return false; // FAIL -- Couldn't match auth-scheme.
+    return false;
 
   // Loop through all the properties.
   while (challenge->GetNext()) {
@@ -228,17 +269,18 @@ bool HttpAuthHandlerDigest::ParseChallenge(
       return false;
     }
 
+    // FAIL -- couldn't parse a property.
     if (!ParseChallengeProperty(challenge->name(), challenge->unquoted_value()))
-      return false; // FAIL -- couldn't parse a property.
+      return false;
   }
 
   // Check if tokenizer failed.
   if (!challenge->valid())
-    return false; // FAIL
+    return false;
 
   // Check that a minimum set of properties were provided.
   if (nonce_.empty())
-    return false; // FAIL
+    return false;
 
   return true;
 }
@@ -264,7 +306,7 @@ bool HttpAuthHandlerDigest::ParseChallengeProperty(const std::string& name,
       algorithm_ = ALGORITHM_MD5_SESS;
     } else {
       DLOG(INFO) << "Unknown value of algorithm";
-      return false; // FAIL -- unsupported value of algorithm.
+      return false;  // FAIL -- unsupported value of algorithm.
     }
   } else if (LowerCaseEqualsASCII(name, "qop")) {
     // Parse the comma separated list of qops.

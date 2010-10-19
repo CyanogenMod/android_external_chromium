@@ -5,6 +5,9 @@
 #include "net/http/http_auth_handler_negotiate.h"
 
 #include "base/logging.h"
+#include "base/string_util.h"
+#include "base/stringprintf.h"
+#include "base/utf_string_conversions.h"
 #include "net/base/address_family.h"
 #include "net/base/host_resolver.h"
 #include "net/base/net_errors.h"
@@ -44,8 +47,8 @@ HttpAuthHandlerNegotiate::~HttpAuthHandlerNegotiate() {
 }
 
 int HttpAuthHandlerNegotiate::GenerateAuthTokenImpl(
-    const std::wstring* username,
-    const std::wstring* password,
+    const string16* username,
+    const string16* password,
     const HttpRequestInfo* request,
     CompletionCallback* callback,
     std::string* auth_token) {
@@ -88,9 +91,18 @@ bool HttpAuthHandlerNegotiate::Init(HttpAuth::ChallengeTokenizer* challenge) {
   if (!AllowsDefaultCredentials())
     return false;
 #endif
+  if (CanDelegate())
+    auth_system_.Delegate();
   scheme_ = "negotiate";
   score_ = 4;
   properties_ = ENCRYPTS_IDENTITY | IS_CONNECTION_BASED;
+  HttpAuth::AuthorizationResult auth_result =
+      auth_system_.ParseChallenge(challenge);
+  return (auth_result == HttpAuth::AUTHORIZATION_RESULT_ACCEPT);
+}
+
+HttpAuth::AuthorizationResult HttpAuthHandlerNegotiate::HandleAnotherChallenge(
+    HttpAuth::ChallengeTokenizer* challenge) {
   return auth_system_.ParseChallenge(challenge);
 }
 
@@ -99,16 +111,21 @@ bool HttpAuthHandlerNegotiate::NeedsIdentity() {
   return auth_system_.NeedsIdentity();
 }
 
-bool HttpAuthHandlerNegotiate::IsFinalRound() {
-  return auth_system_.IsFinalRound();
-}
-
 bool HttpAuthHandlerNegotiate::AllowsDefaultCredentials() {
   if (target_ == HttpAuth::AUTH_PROXY)
     return true;
   if (!url_security_manager_)
     return false;
   return url_security_manager_->CanUseDefaultCredentials(origin_);
+}
+
+bool HttpAuthHandlerNegotiate::CanDelegate() const {
+  // TODO(cbentzel): Should delegation be allowed on proxies?
+  if (target_ == HttpAuth::AUTH_PROXY)
+    return false;
+  if (!url_security_manager_)
+    return false;
+  return url_security_manager_->CanDelegate(origin_);
 }
 
 std::wstring HttpAuthHandlerNegotiate::CreateSPN(
@@ -152,10 +169,11 @@ std::wstring HttpAuthHandlerNegotiate::CreateSPN(
   static const char kSpnSeparator = '@';
 #endif
   if (port != 80 && port != 443 && use_port_) {
-    return ASCIIToWide(StringPrintf("HTTP%c%s:%d", kSpnSeparator,
-                                    server.c_str(), port));
+    return ASCIIToWide(base::StringPrintf("HTTP%c%s:%d", kSpnSeparator,
+                                          server.c_str(), port));
   } else {
-    return ASCIIToWide(StringPrintf("HTTP%c%s", kSpnSeparator, server.c_str()));
+    return ASCIIToWide(base::StringPrintf("HTTP%c%s", kSpnSeparator,
+                                          server.c_str()));
   }
 }
 
@@ -193,12 +211,12 @@ int HttpAuthHandlerNegotiate::DoLoop(int result) {
 
 int HttpAuthHandlerNegotiate::DoResolveCanonicalName() {
   next_state_ = STATE_RESOLVE_CANONICAL_NAME_COMPLETE;
-  if (disable_cname_lookup_)
+  if (disable_cname_lookup_ || !resolver_)
     return OK;
 
   // TODO(cbentzel): Add reverse DNS lookup for numeric addresses.
   DCHECK(!single_resolve_.get());
-  HostResolver::RequestInfo info(origin_.host(), 0);
+  HostResolver::RequestInfo info(HostPortPair(origin_.host(), 0));
   info.set_host_resolver_flags(HOST_RESOLVER_CANONNAME);
   single_resolve_.reset(new SingleRequestHostResolver(resolver_));
   return single_resolve_->Resolve(info, &address_list_, &io_callback_,
@@ -223,8 +241,8 @@ int HttpAuthHandlerNegotiate::DoResolveCanonicalNameComplete(int rv) {
 
 int HttpAuthHandlerNegotiate::DoGenerateAuthToken() {
   next_state_ = STATE_GENERATE_AUTH_TOKEN_COMPLETE;
-  std::wstring* username = has_username_and_password_ ? &username_ : NULL;
-  std::wstring* password = has_username_and_password_ ? &password_ : NULL;
+  string16* username = has_username_and_password_ ? &username_ : NULL;
+  string16* password = has_username_and_password_ ? &password_ : NULL;
   // TODO(cbentzel): This should possibly be done async.
   return auth_system_.GenerateAuthToken(username, password, spn_, auth_token_);
 }

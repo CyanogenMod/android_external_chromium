@@ -4,6 +4,7 @@
 
 #ifndef NET_PROXY_PROXY_BYPASS_RULES_H_
 #define NET_PROXY_PROXY_BYPASS_RULES_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -42,8 +43,10 @@ class ProxyBypassRules {
   typedef std::vector<scoped_refptr<Rule> > RuleList;
 
   // Note: This class supports copy constructor and assignment.
-
+  ProxyBypassRules();
+  ProxyBypassRules(const ProxyBypassRules& rhs);
   ~ProxyBypassRules();
+  ProxyBypassRules& operator=(const ProxyBypassRules& rhs);
 
   // Returns the current list of rules.
   const RuleList& rules() const { return rules_; }

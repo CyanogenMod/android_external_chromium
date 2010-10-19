@@ -9,6 +9,9 @@
 
 #ifndef CHROME_BROWSER_BLOCKED_POPUP_CONTAINER_H_
 #define CHROME_BROWSER_BLOCKED_POPUP_CONTAINER_H_
+#pragma once
+
+#include <vector>
 
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 
@@ -57,8 +60,10 @@ class BlockedPopupContainer : public TabContentsDelegate {
                               const gfx::Rect& initial_position,
                               bool user_gesture);
 
-  // Ignore activation requests from the TabContents we're blocking.
+  // Ignore activation/deactivation requests from the TabContents we're
+  // blocking.
   virtual void ActivateContents(TabContents* contents) {}
+  virtual void DeactivateContents(TabContents* contents) {}
 
   // Ignored; BlockedPopupContainer doesn't display a throbber.
   virtual void LoadingStateChanged(TabContents* source) {}
@@ -70,7 +75,7 @@ class BlockedPopupContainer : public TabContentsDelegate {
   virtual void MoveContents(TabContents* source, const gfx::Rect& new_bounds);
 
   // Always returns true.
-  virtual bool IsPopup(TabContents* source);
+  virtual bool IsPopup(const TabContents* source) const;
 
   // Returns our |owner_|.
   virtual TabContents* GetConstrainingContents(TabContents* source);
@@ -90,15 +95,7 @@ class BlockedPopupContainer : public TabContentsDelegate {
   static const size_t kImpossibleNumberOfPopups;
 
  protected:
-  struct BlockedPopup {
-    BlockedPopup(TabContents* tab_contents,
-                 const gfx::Rect& bounds)
-        : tab_contents(tab_contents), bounds(bounds) {
-    }
-
-    TabContents* tab_contents;
-    gfx::Rect bounds;
-  };
+  struct BlockedPopup;
   typedef std::vector<BlockedPopup> BlockedPopups;
 
  private:

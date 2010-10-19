@@ -1,12 +1,12 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-
 #include "base/field_trial.h"
+
 #include "base/logging.h"
 #include "base/rand_util.h"
-#include "base/string_util.h"
+#include "base/stringprintf.h"
 
 using base::TimeTicks;
 
@@ -18,6 +18,8 @@ const int FieldTrial::kAllRemainingProbability = -2;
 
 // static
 const char FieldTrialList::kPersistentStringSeparator('/');
+
+static const char kHistogramFieldTrialSeparator('_');
 
 //------------------------------------------------------------------------------
 // FieldTrial methods and members.
@@ -47,7 +49,7 @@ int FieldTrial::AppendGroup(const std::string& name,
     // This is the group that crossed the random line, so we do the assignment.
     group_ = next_group_number_;
     if (name.empty())
-      StringAppendF(&group_name_, "_%d", group_);
+      base::StringAppendF(&group_name_, "%d", group_);
     else
       group_name_ = name;
   }
@@ -58,6 +60,7 @@ int FieldTrial::AppendGroup(const std::string& name,
 std::string FieldTrial::MakeName(const std::string& name_prefix,
                                  const std::string& trial_name) {
   std::string big_string(name_prefix);
+  big_string.append(1, kHistogramFieldTrialSeparator);
   return big_string.append(FieldTrialList::FindFullName(trial_name));
 }
 
@@ -135,6 +138,7 @@ void FieldTrialList::StatesToString(std::string* output) {
   if (!global_)
     return;
   DCHECK(output->empty());
+  AutoLock auto_lock(global_->lock_);
   for (RegistrationList::iterator it = global_->registered_.begin();
        it != global_->registered_.end(); ++it) {
     const std::string name = it->first;

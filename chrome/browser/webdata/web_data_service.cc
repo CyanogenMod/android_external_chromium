@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,6 +10,7 @@
 #include "base/thread.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/credit_card.h"
+#include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/webdata/autofill_change.h"
 #include "chrome/browser/webdata/autofill_entry.h"
 #include "chrome/browser/webdata/web_database.h"
@@ -20,6 +21,7 @@
 #include "chrome/common/notification_type.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 #include "webkit/glue/password_form.h"
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -31,6 +33,12 @@
 using base::Time;
 using webkit_glue::FormField;
 using webkit_glue::PasswordForm;
+
+WDAppImagesResult::WDAppImagesResult() : has_all_images(false) {
+}
+
+WDAppImagesResult::~WDAppImagesResult() {
+}
 
 WebDataService::WebDataService()
   : is_running_(false),
@@ -63,7 +71,7 @@ void WebDataService::CancelRequest(Handle h) {
   AutoLock l(pending_lock_);
   RequestMap::iterator i = pending_requests_.find(h);
   if (i == pending_requests_.end()) {
-    NOTREACHED() << "Canceling a nonexistant web data service request";
+    NOTREACHED() << "Canceling a nonexistent web data service request";
     return;
   }
   i->second->Cancel();
@@ -85,6 +93,9 @@ WebDatabase* WebDataService::GetDatabase() {
 //////////////////////////////////////////////////////////////////////////////
 
 void WebDataService::AddKeyword(const TemplateURL& url) {
+  // Ensure that the keyword is already generated (and cached) before caching
+  // the TemplateURL for use on another keyword.
+  url.EnsureKeyword();
   GenericRequest<TemplateURL>* request =
     new GenericRequest<TemplateURL>(this, GetNextRequestHandle(), NULL, url);
   RegisterRequest(request);
@@ -93,15 +104,18 @@ void WebDataService::AddKeyword(const TemplateURL& url) {
 }
 
 void WebDataService::RemoveKeyword(const TemplateURL& url) {
-  GenericRequest<TemplateURL::IDType>* request =
-      new GenericRequest<TemplateURL::IDType>(this, GetNextRequestHandle(),
-                                              NULL, url.id());
+  GenericRequest<TemplateURLID>* request =
+      new GenericRequest<TemplateURLID>(this, GetNextRequestHandle(),
+                                        NULL, url.id());
   RegisterRequest(request);
   ScheduleTask(
       NewRunnableMethod(this, &WebDataService::RemoveKeywordImpl, request));
 }
 
 void WebDataService::UpdateKeyword(const TemplateURL& url) {
+  // Ensure that the keyword is already generated (and cached) before caching
+  // the TemplateURL for use on another keyword.
+  url.EnsureKeyword();
   GenericRequest<TemplateURL>* request =
       new GenericRequest<TemplateURL>(this, GetNextRequestHandle(), NULL, url);
   RegisterRequest(request);
@@ -122,11 +136,11 @@ WebDataService::Handle WebDataService::GetKeywords(
 }
 
 void WebDataService::SetDefaultSearchProvider(const TemplateURL* url) {
-  GenericRequest<TemplateURL::IDType>* request =
-    new GenericRequest<TemplateURL::IDType>(this,
-                                            GetNextRequestHandle(),
-                                            NULL,
-                                            url ? url->id() : 0);
+  GenericRequest<TemplateURLID>* request =
+    new GenericRequest<TemplateURLID>(this,
+                                      GetNextRequestHandle(),
+                                      NULL,
+                                      url ? url->id() : 0);
   RegisterRequest(request);
   ScheduleTask(
       NewRunnableMethod(this, &WebDataService::SetDefaultSearchProviderImpl,
@@ -184,6 +198,46 @@ WebDataService::Handle WebDataService::GetWebAppImages(
       new GenericRequest<GURL>(this, GetNextRequestHandle(), consumer, app_url);
   RegisterRequest(request);
   ScheduleTask(NewRunnableMethod(this, &WebDataService::GetWebAppImagesImpl,
+                                 request));
+  return request->GetHandle();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// Token Service
+//
+////////////////////////////////////////////////////////////////////////////////
+
+void WebDataService::SetTokenForService(const std::string& service,
+                                        const std::string& token) {
+  GenericRequest2<std::string, std::string>* request =
+      new GenericRequest2<std::string, std::string>(
+          this, GetNextRequestHandle(), NULL, service, token);
+  RegisterRequest(request);
+  ScheduleTask(NewRunnableMethod(this, &WebDataService::SetTokenForServiceImpl,
+                                 request));
+}
+
+void WebDataService::RemoveAllTokens() {
+  GenericRequest<std::string>* request =
+      new GenericRequest<std::string>(
+          this, GetNextRequestHandle(), NULL, std::string());
+  RegisterRequest(request);
+  ScheduleTask(NewRunnableMethod(this,
+                                 &WebDataService::RemoveAllTokensImpl,
+                                 request));
+}
+
+// Null on failure. Success is WDResult<std::string>
+WebDataService::Handle WebDataService::GetAllTokens(
+    WebDataServiceConsumer* consumer) {
+
+  GenericRequest<std::string>* request =
+      new GenericRequest<std::string>(
+          this, GetNextRequestHandle(), consumer, std::string());
+  RegisterRequest(request);
+  ScheduleTask(NewRunnableMethod(this,
+                                 &WebDataService::GetAllTokensImpl,
                                  request));
   return request->GetHandle();
 }
@@ -495,13 +549,13 @@ void WebDataService::InitializeDatabaseIfNecessary() {
     return;
 
   // In the rare case where the db fails to initialize a dialog may get shown
-  // the blocks the caller, yet allows other messages through. For this reason
+  // that blocks the caller, yet allows other messages through. For this reason
   // we only set db_ to the created database if creation is successful. That
   // way other methods won't do anything as db_ is still NULL.
   WebDatabase* db = new WebDatabase();
   sql::InitStatus init_status = db->Init(path_);
   if (init_status != sql::INIT_OK) {
-    NOTREACHED() << "Cannot initialize the web database";
+    LOG(ERROR) << "Cannot initialize the web database: " << init_status;
     failed_init_ = true;
     delete db;
     if (main_loop_) {
@@ -582,7 +636,7 @@ void WebDataService::AddKeywordImpl(GenericRequest<TemplateURL>* request) {
 }
 
 void WebDataService::RemoveKeywordImpl(
-    GenericRequest<TemplateURL::IDType>* request) {
+    GenericRequest<TemplateURLID>* request) {
   InitializeDatabaseIfNecessary();
   if (db_ && !request->IsCancelled()) {
     DCHECK(request->GetArgument());
@@ -616,7 +670,7 @@ void WebDataService::GetKeywordsImpl(WebDataRequest* request) {
 }
 
 void WebDataService::SetDefaultSearchProviderImpl(
-    GenericRequest<TemplateURL::IDType>* request) {
+    GenericRequest<TemplateURLID>* request) {
   InitializeDatabaseIfNecessary();
   if (db_ && !request->IsCancelled()) {
     if (!db_->SetDefaultSearchProviderID(request->GetArgument()))
@@ -681,6 +735,49 @@ void WebDataService::GetWebAppImagesImpl(GenericRequest<GURL>* request) {
     db_->GetWebAppImages(request->GetArgument(), &result.images);
     request->SetResult(
         new WDResult<WDAppImagesResult>(WEB_APP_IMAGES, result));
+  }
+  request->RequestComplete();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// Token Service implementation.
+//
+////////////////////////////////////////////////////////////////////////////////
+
+// argument std::string is unused
+void WebDataService::RemoveAllTokensImpl(
+    GenericRequest<std::string>* request) {
+  InitializeDatabaseIfNecessary();
+  if (db_ && !request->IsCancelled()) {
+    if (db_->RemoveAllTokens()) {
+      ScheduleCommit();
+    }
+  }
+  request->RequestComplete();
+}
+
+void WebDataService::SetTokenForServiceImpl(
+    GenericRequest2<std::string, std::string>* request) {
+  InitializeDatabaseIfNecessary();
+  if (db_ && !request->IsCancelled()) {
+    if (db_->SetTokenForService(request->GetArgument1(),
+                                request->GetArgument2())) {
+      ScheduleCommit();
+    }
+  }
+  request->RequestComplete();
+}
+
+// argument is unused
+void WebDataService::GetAllTokensImpl(
+    GenericRequest<std::string>* request) {
+  InitializeDatabaseIfNecessary();
+  if (db_ && !request->IsCancelled()) {
+    std::map<std::string, std::string> map;
+    db_->GetAllTokens(&map);
+    request->SetResult(
+        new WDResult<std::map<std::string, std::string> >(TOKEN_RESULT, map));
   }
   request->RequestComplete();
 }

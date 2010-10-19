@@ -12,11 +12,10 @@
 #include "base/command_line.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/chromeos/frame/panel_browser_view.h"
-#include "chrome/browser/chromeos/options/language_config_view.h"
-#include "chrome/browser/chromeos/status/status_area_view.h"
 #include "chrome/browser/chromeos/status/language_menu_button.h"
 #include "chrome/browser/chromeos/status/network_menu_button.h"
 #include "chrome/browser/chromeos/status/status_area_button.h"
+#include "chrome/browser/chromeos/status/status_area_view.h"
 #include "chrome/browser/chromeos/view_ids.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
 #include "chrome/browser/views/app_launcher.h"
@@ -28,12 +27,11 @@
 #include "chrome/browser/views/theme_background.h"
 #include "chrome/browser/views/toolbar_view.h"
 #include "chrome/common/chrome_switches.h"
+#include "cros/chromeos_wm_ipc_enums.h"
 #include "gfx/canvas.h"
 #include "grit/generated_resources.h"
-#include "cros/chromeos_wm_ipc_enums.h"
 #include "views/controls/button/button.h"
 #include "views/controls/button/image_button.h"
-#include "views/controls/image_view.h"
 #include "views/controls/menu/menu_2.h"
 #include "views/screen.h"
 #include "views/widget/root_view.h"
@@ -41,15 +39,6 @@
 #include "views/window/window.h"
 
 namespace {
-
-// The OTR avatar ends 2 px above the bottom of the tabstrip (which, given the
-// way the tabstrip draws its bottom edge, will appear like a 1 px gap to the
-// user).
-const int kOTRBottomSpacing = 2;
-
-// There are 2 px on each side of the OTR avatar (between the frame border and
-// it on the left, and between it and the tabstrip on the right).
-const int kOTRSideSpacing = 2;
 
 // Amount to offset the toolbar by when vertical tabs are enabled.
 const int kVerticalTabStripToolbarOffset = 2;
@@ -83,9 +72,6 @@ class BrowserViewLayout : public ::BrowserViewLayout {
       case VIEW_ID_STATUS_AREA:
         status_area_ = static_cast<chromeos::StatusAreaView*>(view);
         break;
-      case VIEW_ID_OTR_AVATAR:
-        otr_avatar_icon_ = view;
-        break;
     }
   }
 
@@ -95,21 +81,20 @@ class BrowserViewLayout : public ::BrowserViewLayout {
   virtual int LayoutTabStrip() {
     if (browser_view_->IsFullscreen() || !browser_view_->IsTabStripVisible()) {
       status_area_->SetVisible(false);
-      otr_avatar_icon_->SetVisible(false);
       tabstrip_->SetVisible(false);
       tabstrip_->SetBounds(0, 0, 0, 0);
       return 0;
-    } else {
-      gfx::Rect layout_bounds =
-          browser_view_->frame()->GetBoundsForTabStrip(tabstrip_);
-      gfx::Point tabstrip_origin = layout_bounds.origin();
-      views::View::ConvertPointToView(browser_view_->GetParent(), browser_view_,
-                                      &tabstrip_origin);
-      layout_bounds.set_origin(tabstrip_origin);
-      if (browser_view_->UseVerticalTabs())
-        return LayoutTitlebarComponentsWithVerticalTabs(layout_bounds);
-      return LayoutTitlebarComponents(layout_bounds);
     }
+
+    gfx::Rect tabstrip_bounds(
+        browser_view_->frame()->GetBoundsForTabStrip(tabstrip_));
+    gfx::Point tabstrip_origin = tabstrip_bounds.origin();
+    views::View::ConvertPointToView(browser_view_->GetParent(), browser_view_,
+                                    &tabstrip_origin);
+    tabstrip_bounds.set_origin(tabstrip_origin);
+    return browser_view_->UseVerticalTabs() ?
+        LayoutTitlebarComponentsWithVerticalTabs(tabstrip_bounds) :
+        LayoutTitlebarComponents(tabstrip_bounds);
   }
 
   virtual int LayoutToolbar(int top) {
@@ -154,33 +139,20 @@ class BrowserViewLayout : public ::BrowserViewLayout {
     return false;
   }
 
-  // Positions the titlebar, toolbar, tabstrip, tabstrip and otr icon. This is
+  // Positions the titlebar, toolbar and tabstrip. This is
   // used when side tabs are enabled.
   int LayoutTitlebarComponentsWithVerticalTabs(const gfx::Rect& bounds) {
     if (bounds.IsEmpty())
       return 0;
 
     tabstrip_->SetVisible(true);
-    otr_avatar_icon_->SetVisible(browser_view_->ShouldShowOffTheRecordAvatar());
     status_area_->SetVisible(true);
 
     gfx::Size status_size = status_area_->GetPreferredSize();
     int status_height = status_size.height();
 
-    // Layout the otr icon.
     int status_x = bounds.x();
-    if (!otr_avatar_icon_->IsVisible()) {
-      otr_avatar_icon_->SetBounds(0, 0, 0, 0);
-    } else {
-      gfx::Size otr_size = otr_avatar_icon_->GetPreferredSize();
-
-      status_height = std::max(status_height, otr_size.height());
-      int y = bounds.bottom() - status_height;
-      otr_avatar_icon_->SetBounds(status_x, y, otr_size.width(), status_height);
-      status_x += otr_size.width();
-    }
-
-    // Layout the status area after the otr icon.
+    // Layout the status area.
     status_area_->SetBounds(status_x, bounds.bottom() - status_height,
                             status_size.width(), status_height);
 
@@ -211,66 +183,33 @@ class BrowserViewLayout : public ::BrowserViewLayout {
     return bounds.y() + toolbar_height;
   }
 
-  // Layouts components in the title bar area (given by
-  // |bounds|). These include the main menu, the otr avatar icon (in
-  // incognito window), the tabstrip and the the status area.
+  // Lays out tabstrip and status area in the title bar area (given by
+  // |bounds|).
   int LayoutTitlebarComponents(const gfx::Rect& bounds) {
-    if (bounds.IsEmpty()) {
+    if (bounds.IsEmpty())
       return 0;
-    }
-    tabstrip_->SetVisible(true);
-    otr_avatar_icon_->SetVisible(browser_view_->ShouldShowOffTheRecordAvatar());
-    status_area_->SetVisible(true);
 
-    int bottom = bounds.bottom();
+    tabstrip_->SetVisible(true);
+    status_area_->SetVisible(true);
 
     // Layout status area after tab strip.
     gfx::Size status_size = status_area_->GetPreferredSize();
-    status_area_->SetBounds(bounds.x() + bounds.width() - status_size.width(),
-                            bounds.y(), status_size.width(),
-                            status_size.height());
-    LayoutOTRAvatar(bounds);
-
-    int curx = bounds.x();
-    int remaining_width = std::max(
-        0,  // In case there is no space left.
-        otr_avatar_icon_->bounds().x() - curx);
-
-    tabstrip_->SetBounds(curx, bounds.y(), remaining_width, bounds.height());
-
-    gfx::Rect toolbar_bounds = browser_view_->GetToolbarBounds();
-    tabstrip_->SetBackgroundOffset(
-        gfx::Point(curx - toolbar_bounds.x(), bounds.y()));
-    return bottom;
+    status_area_->SetBounds(bounds.right() - status_size.width(), bounds.y(),
+                            status_size.width(), status_size.height());
+    tabstrip_->SetBounds(bounds.x(), bounds.y(),
+        std::max(0, status_area_->bounds().x() - bounds.x()),
+        bounds.height());
+    return bounds.bottom();
   }
-
-  // Layouts OTR avatar within the given |bounds|.
-  void LayoutOTRAvatar(const gfx::Rect& bounds) {
-    gfx::Rect status_bounds = status_area_->bounds();
-    if (!otr_avatar_icon_->IsVisible()) {
-      otr_avatar_icon_->SetBounds(status_bounds.x(), status_bounds.y(), 0, 0);
-    } else {
-      gfx::Size preferred_size = otr_avatar_icon_->GetPreferredSize();
-
-      int y = bounds.bottom() - preferred_size.height() - kOTRBottomSpacing;
-      int x = status_bounds.x() - kOTRSideSpacing - preferred_size.width();
-      otr_avatar_icon_->SetBounds(x, y, preferred_size.width(),
-                                  preferred_size.height());
-    }
-  }
-
 
   chromeos::StatusAreaView* status_area_;
-  views::View* otr_avatar_icon_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserViewLayout);
 };
 
 BrowserView::BrowserView(Browser* browser)
     : ::BrowserView(browser),
-      status_area_(NULL),
-      force_maximized_window_(false),
-      otr_avatar_icon_(new views::ImageView()) {
+      status_area_(NULL) {
 }
 
 BrowserView::~BrowserView() {
@@ -293,10 +232,6 @@ void BrowserView::Init() {
   // NonClientFrameView.
   BrowserFrameGtk* gtk_frame = static_cast<BrowserFrameGtk*>(frame());
   gtk_frame->GetNonClientView()->SetContextMenuController(this);
-
-  otr_avatar_icon_->SetImage(GetOTRAvatarIcon());
-  otr_avatar_icon_->SetID(VIEW_ID_OTR_AVATAR);
-  AddChildView(otr_avatar_icon_);
 
   // Make sure the window is set to the right type.
   std::vector<int> params;
@@ -331,11 +266,6 @@ void BrowserView::FocusChromeOSStatus() {
 
 views::LayoutManager* BrowserView::CreateLayoutManager() const {
   return new BrowserViewLayout();
-}
-
-void BrowserView::InitTabStrip(TabStripModel* tab_strip_model) {
-  ::BrowserView::InitTabStrip(tab_strip_model);
-  UpdateOTRBackground();
 }
 
 void BrowserView::ChildPreferredSizeChanged(View* child) {
@@ -394,8 +324,7 @@ void BrowserView::OpenButtonOptions(const views::View* button_view) const {
   if (button_view == status_area_->network_view()) {
     browser()->OpenInternetOptionsDialog();
   } else if (button_view == status_area_->language_view()) {
-    LanguageConfigView::Show(GetProfile(),
-                             frame()->GetWindow()->GetNativeWindow());
+    browser()->OpenLanguageOptionsDialog();
   } else {
     browser()->OpenSystemOptionsDialog();
   }
@@ -432,20 +361,15 @@ void BrowserView::InitSystemMenu() {
   system_menu_menu_.reset(new views::Menu2(system_menu_contents_.get()));
 }
 
-void BrowserView::UpdateOTRBackground() {
-  if (UseVerticalTabs())
-    otr_avatar_icon_->set_background(new ThemeBackground(this));
-  else
-    otr_avatar_icon_->set_background(NULL);
-}
-
 }  // namespace chromeos
 
 // static
 BrowserWindow* BrowserWindow::CreateBrowserWindow(Browser* browser) {
   // Create a browser view for chromeos.
   BrowserView* view;
-  if (browser->type() & Browser::TYPE_POPUP)
+  if ((browser->type() == Browser::TYPE_POPUP) ||
+      (browser->type() == Browser::TYPE_APP_POPUP) ||
+      (browser->type() == Browser::TYPE_APP_PANEL))
     view = new chromeos::PanelBrowserView(browser);
   else
     view = new chromeos::BrowserView(browser);

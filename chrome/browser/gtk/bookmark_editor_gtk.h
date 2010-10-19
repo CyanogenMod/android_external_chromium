@@ -1,15 +1,15 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_GTK_BOOKMARK_EDITOR_GTK_H_
 #define CHROME_BROWSER_GTK_BOOKMARK_EDITOR_GTK_H_
-
-#include <string>
+#pragma once
 
 #include "app/gtk_integers.h"
 #include "app/gtk_signal.h"
 #include "base/gtest_prod_util.h"
+#include "base/string16.h"
 #include "chrome/browser/bookmarks/bookmark_editor.h"
 #include "chrome/browser/bookmarks/bookmark_model_observer.h"
 
@@ -78,7 +78,7 @@ class BookmarkEditorGtk : public BookmarkEditor,
   GURL GetInputURL() const;
 
   // Returns the title the user has input.
-  std::wstring GetInputTitle() const;
+  string16 GetInputTitle() const;
 
   // Invokes ApplyEdits with the selected node.
   //

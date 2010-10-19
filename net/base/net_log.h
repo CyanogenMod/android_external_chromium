@@ -4,6 +4,7 @@
 
 #ifndef NET_BASE_NET_LOG_H_
 #define NET_BASE_NET_LOG_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -68,7 +69,10 @@ class NetLog {
 
     Source() : type(SOURCE_NONE), id(kInvalidId) {}
     Source(SourceType type, uint32 id) : type(type), id(id) {}
-    bool is_valid() { return id != kInvalidId; }
+    bool is_valid() const { return id != kInvalidId; }
+
+    // The caller takes ownership of the returned Value*.
+    Value* ToValue() const;
 
     SourceType type;
     uint32 id;
@@ -89,6 +93,15 @@ class NetLog {
 
    private:
     DISALLOW_COPY_AND_ASSIGN(EventParameters);
+  };
+
+  // Specifies the granularity of events that should be emitted to the log.
+  enum LogLevel {
+    // Log everything possible, even if it is slow and memory expensive.
+    LOG_ALL,
+
+    // Only log events which are cheap, and don't consume much memory.
+    LOG_BASIC,
   };
 
   NetLog() {}
@@ -113,14 +126,30 @@ class NetLog {
   // Returns a unique ID which can be used as a source ID.
   virtual uint32 NextID() = 0;
 
-  // Returns true if more complicated messages should be sent to the log.
-  virtual bool HasListener() const = 0;
+  // Returns the logging level for this NetLog. This is used to avoid computing
+  // and saving expensive log entries.
+  virtual LogLevel GetLogLevel() const = 0;
 
   // Returns a C-String symbolic name for |event_type|.
   static const char* EventTypeToString(EventType event_type);
 
   // Returns a list of all the available EventTypes.
   static std::vector<EventType> GetAllEventTypes();
+
+  // Returns a C-String symbolic name for |source_type|.
+  static const char* SourceTypeToString(SourceType source_type);
+
+  // Returns a C-String symbolic name for |event_phase|.
+  static const char* EventPhaseToString(EventPhase event_phase);
+
+  // Serializes the specified event to a DictionaryValue.
+  // If |use_strings| is true, uses strings rather than numeric ids.
+  static Value* EntryToDictionaryValue(net::NetLog::EventType type,
+                                       const base::TimeTicks& time,
+                                       const net::NetLog::Source& source,
+                                       net::NetLog::EventPhase phase,
+                                       net::NetLog::EventParameters* params,
+                                       bool use_strings);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(NetLog);
@@ -158,7 +187,10 @@ class BoundNetLog {
   void EndEvent(NetLog::EventType event_type,
                 const scoped_refptr<NetLog::EventParameters>& params) const;
 
-  bool HasListener() const;
+  NetLog::LogLevel GetLogLevel() const;
+
+  // Returns true if the log level is LOG_ALL.
+  bool IsLoggingAll() const;
 
   // Helper to create a BoundNetLog given a NetLog and a SourceType. Takes care
   // of creating a unique source ID, and handles the case of NULL net_log.
@@ -178,6 +210,7 @@ class NetLogStringParameter : public NetLog::EventParameters {
  public:
   // |name| must be a string literal.
   NetLogStringParameter(const char* name, const std::string& value);
+  virtual ~NetLogStringParameter();
 
   const std::string& value() const {
     return value_;

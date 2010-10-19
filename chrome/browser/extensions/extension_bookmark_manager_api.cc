@@ -8,7 +8,7 @@
 
 #include "app/l10n_util.h"
 #include "base/json/json_writer.h"
-#include "base/string_util.h"
+#include "base/string_number_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/bookmarks/bookmark_drag_data.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
@@ -35,7 +35,7 @@ const BookmarkNode* GetNodeFromArguments(BookmarkModel* model,
   if (!args->GetString(0, &id_string))
     return NULL;
   int64 id;
-  if (!StringToInt64(id_string, &id))
+  if (!base::StringToInt64(id_string, &id))
     return NULL;
   return model->GetNodeByID(id);
 }
@@ -58,7 +58,7 @@ bool GetNodesFromArguments(BookmarkModel* model, const ListValue* args,
     if (!ids->GetString(i, &id_string))
       return false;
     int64 id;
-    if (!StringToInt64(id_string, &id))
+    if (!base::StringToInt64(id_string, &id))
       return false;
     const BookmarkNode* node = model->GetNodeByID(id);
     if (!node)
@@ -77,10 +77,10 @@ void AddNodeToList(ListValue* list, const BookmarkNode& node) {
 
   // Add id and parentId so we can associate the data with existing nodes on the
   // client side.
-  std::string id_string = Int64ToString(node.id());
+  std::string id_string = base::Int64ToString(node.id());
   dict->SetString(keys::kIdKey, id_string);
 
-  std::string parent_id_string = Int64ToString(node.GetParent()->id());
+  std::string parent_id_string = base::Int64ToString(node.GetParent()->id());
   dict->SetString(keys::kParentIdKey, parent_id_string);
 
   if (node.is_url())
@@ -106,7 +106,7 @@ void AddElementToList(ListValue* list,
   if (element.is_url)
     dict->SetString(keys::kUrlKey, element.url.spec());
 
-  dict->SetString(keys::kTitleKey, UTF16ToWide(element.title));
+  dict->SetString(keys::kTitleKey, element.title);
 
   ListValue* children = new ListValue();
   for (size_t i = 0; i < element.children.size(); ++i)
@@ -161,7 +161,7 @@ void ExtensionBookmarkManagerEventRouter::DispatchEvent(const char* event_name,
   std::string json_args;
   base::JSONWriter::Write(args, false, &json_args);
   profile_->GetExtensionMessageService()->DispatchEventToRenderers(
-      event_name, json_args, profile_->IsOffTheRecord(), GURL());
+      event_name, json_args, profile_, GURL());
 }
 
 void ExtensionBookmarkManagerEventRouter::DispatchDragEvent(
@@ -268,66 +268,66 @@ bool SortChildrenBookmarkManagerFunction::RunImpl() {
 bool BookmarkManagerGetStringsFunction::RunImpl() {
   DictionaryValue* localized_strings = new DictionaryValue();
 
-  localized_strings->SetString(L"title",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_TITLE));
-  localized_strings->SetString(L"search_button",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_SEARCH_BUTTON));
-  localized_strings->SetString(L"show_in_folder",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_SHOW_IN_FOLDER));
-  localized_strings->SetString(L"sort",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_SORT));
-  localized_strings->SetString(L"organize_menu",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_ORGANIZE_MENU));
-  localized_strings->SetString(L"tools_menu",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_TOOLS_MENU));
-  localized_strings->SetString(L"import_menu",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_IMPORT_MENU));
-  localized_strings->SetString(L"export_menu",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_EXPORT_MENU));
-  localized_strings->SetString(L"rename_folder",
-      l10n_util::GetString(IDS_BOOKMARK_BAR_RENAME_FOLDER));
-  localized_strings->SetString(L"edit",
-      l10n_util::GetString(IDS_BOOKMARK_BAR_EDIT));
-  localized_strings->SetString(L"should_open_all",
-      l10n_util::GetString(IDS_BOOKMARK_BAR_SHOULD_OPEN_ALL));
-  localized_strings->SetString(L"open_incognito",
-      l10n_util::GetString(IDS_BOOMARK_BAR_OPEN_INCOGNITO));
-  localized_strings->SetString(L"open_in_new_tab",
-      l10n_util::GetString(IDS_BOOMARK_BAR_OPEN_IN_NEW_TAB));
-  localized_strings->SetString(L"open_in_new_window",
-      l10n_util::GetString(IDS_BOOMARK_BAR_OPEN_IN_NEW_WINDOW));
-  localized_strings->SetString(L"add_new_bookmark",
-      l10n_util::GetString(IDS_BOOMARK_BAR_ADD_NEW_BOOKMARK));
-  localized_strings->SetString(L"new_folder",
-      l10n_util::GetString(IDS_BOOMARK_BAR_NEW_FOLDER));
-  localized_strings->SetString(L"open_all",
-      l10n_util::GetString(IDS_BOOMARK_BAR_OPEN_ALL));
-  localized_strings->SetString(L"open_all_new_window",
-      l10n_util::GetString(IDS_BOOMARK_BAR_OPEN_ALL_NEW_WINDOW));
-  localized_strings->SetString(L"open_all_incognito",
-      l10n_util::GetString(IDS_BOOMARK_BAR_OPEN_ALL_INCOGNITO));
-  localized_strings->SetString(L"remove",
-      l10n_util::GetString(IDS_BOOKMARK_BAR_REMOVE));
-  localized_strings->SetString(L"copy",
-      l10n_util::GetString(IDS_CONTENT_CONTEXT_COPY));
-  localized_strings->SetString(L"cut",
-      l10n_util::GetString(IDS_CONTENT_CONTEXT_CUT));
-  localized_strings->SetString(L"paste",
-      l10n_util::GetString(IDS_CONTENT_CONTEXT_PASTE));
-  localized_strings->SetString(L"delete",
-      l10n_util::GetString(IDS_CONTENT_CONTEXT_DELETE));
-  localized_strings->SetString(L"new_folder_name",
-      l10n_util::GetString(IDS_BOOMARK_EDITOR_NEW_FOLDER_NAME));
-  localized_strings->SetString(L"name_input_placeholder",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_NAME_INPUT_PLACE_HOLDER));
-  localized_strings->SetString(L"url_input_placeholder",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_URL_INPUT_PLACE_HOLDER));
-  localized_strings->SetString(L"invalid_url",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_INVALID_URL));
-  localized_strings->SetString(L"recent",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_RECENT));
-  localized_strings->SetString(L"search",
-      l10n_util::GetString(IDS_BOOKMARK_MANAGER_SEARCH));
+  localized_strings->SetString("title",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_TITLE));
+  localized_strings->SetString("search_button",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_SEARCH_BUTTON));
+  localized_strings->SetString("show_in_folder",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_SHOW_IN_FOLDER));
+  localized_strings->SetString("sort",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_SORT));
+  localized_strings->SetString("organize_menu",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_ORGANIZE_MENU));
+  localized_strings->SetString("tools_menu",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_TOOLS_MENU));
+  localized_strings->SetString("import_menu",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_IMPORT_MENU));
+  localized_strings->SetString("export_menu",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_EXPORT_MENU));
+  localized_strings->SetString("rename_folder",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_BAR_RENAME_FOLDER));
+  localized_strings->SetString("edit",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_BAR_EDIT));
+  localized_strings->SetString("should_open_all",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_BAR_SHOULD_OPEN_ALL));
+  localized_strings->SetString("open_incognito",
+      l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_OPEN_INCOGNITO));
+  localized_strings->SetString("open_in_new_tab",
+      l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_OPEN_IN_NEW_TAB));
+  localized_strings->SetString("open_in_new_window",
+      l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_OPEN_IN_NEW_WINDOW));
+  localized_strings->SetString("add_new_bookmark",
+      l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_ADD_NEW_BOOKMARK));
+  localized_strings->SetString("new_folder",
+      l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_NEW_FOLDER));
+  localized_strings->SetString("open_all",
+      l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_OPEN_ALL));
+  localized_strings->SetString("open_all_new_window",
+      l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_OPEN_ALL_NEW_WINDOW));
+  localized_strings->SetString("open_all_incognito",
+      l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_OPEN_ALL_INCOGNITO));
+  localized_strings->SetString("remove",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_BAR_REMOVE));
+  localized_strings->SetString("copy",
+      l10n_util::GetStringUTF16(IDS_CONTENT_CONTEXT_COPY));
+  localized_strings->SetString("cut",
+      l10n_util::GetStringUTF16(IDS_CONTENT_CONTEXT_CUT));
+  localized_strings->SetString("paste",
+      l10n_util::GetStringUTF16(IDS_CONTENT_CONTEXT_PASTE));
+  localized_strings->SetString("delete",
+      l10n_util::GetStringUTF16(IDS_CONTENT_CONTEXT_DELETE));
+  localized_strings->SetString("new_folder_name",
+      l10n_util::GetStringUTF16(IDS_BOOMARK_EDITOR_NEW_FOLDER_NAME));
+  localized_strings->SetString("name_input_placeholder",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_NAME_INPUT_PLACE_HOLDER));
+  localized_strings->SetString("url_input_placeholder",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_URL_INPUT_PLACE_HOLDER));
+  localized_strings->SetString("invalid_url",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_INVALID_URL));
+  localized_strings->SetString("recent",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_RECENT));
+  localized_strings->SetString("search",
+      l10n_util::GetStringUTF16(IDS_BOOKMARK_MANAGER_SEARCH));
 
   ChromeURLDataManager::DataSource::SetFontAndTextDirection(localized_strings);
 
@@ -363,7 +363,7 @@ bool DropBookmarkManagerFunction::RunImpl() {
   std::string id_string;
   EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &id_string));
 
-  if (!StringToInt64(id_string, &id)) {
+  if (!base::StringToInt64(id_string, &id)) {
     error_ = keys::kInvalidIdError;
     return false;
   }
@@ -417,7 +417,7 @@ bool GetSubtreeBookmarkManagerFunction::RunImpl() {
   if (id_string == "") {
     node = model->root_node();
   } else {
-     if (!StringToInt64(id_string, &id)) {
+     if (!base::StringToInt64(id_string, &id)) {
       error_ = keys::kInvalidIdError;
       return false;
     }

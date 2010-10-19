@@ -7,9 +7,11 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 
+#include "base/values.h"
 #include "chrome/browser/extensions/extension_cookies_api_constants.h"
 #include "chrome/browser/extensions/extension_cookies_helpers.h"
 #include "chrome/test/testing_profile.h"
+#include "googleurl/src/gurl.h"
 
 namespace keys = extension_cookies_api_constants;
 
@@ -81,16 +83,16 @@ TEST_F(ExtensionCookiesTest, StoreIdProfileConversion) {
 
   EXPECT_EQ(std::string("1"),
             extension_cookies_helpers::GetStoreIdFromProfile(&otrProfile));
-  EXPECT_EQ(&profile,
+  EXPECT_EQ(NULL,
             extension_cookies_helpers::ChooseProfileFromStoreId(
                 "0", &otrProfile, true));
-  EXPECT_EQ(&profile,
+  EXPECT_EQ(NULL,
             extension_cookies_helpers::ChooseProfileFromStoreId(
                 "0", &otrProfile, false));
   EXPECT_EQ(&otrProfile,
             extension_cookies_helpers::ChooseProfileFromStoreId(
                 "1", &otrProfile, true));
-  EXPECT_EQ(NULL,
+  EXPECT_EQ(&otrProfile,
             extension_cookies_helpers::ChooseProfileFromStoreId(
                 "1", &otrProfile, false));
 }

@@ -1,19 +1,22 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/common/child_process.h"
 
-#include "app/l10n_util.h"
+#if defined(OS_POSIX)
+#include <signal.h>  // For SigUSR1Handler below.
+#endif
+
 #include "base/message_loop.h"
 #include "base/process_util.h"
-#include "base/string_util.h"
+#include "base/string_number_conversions.h"
+#include "base/thread.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/common/child_thread.h"
 #include "grit/chromium_strings.h"
 
 #if defined(OS_POSIX)
-#include <signal.h>
-
 static void SigUSR1Handler(int signal) { }
 #endif
 
@@ -45,6 +48,14 @@ ChildProcess::~ChildProcess() {
   child_process_ = NULL;
 }
 
+ChildThread* ChildProcess::main_thread() {
+  return main_thread_.get();
+}
+
+void ChildProcess::set_main_thread(ChildThread* thread) {
+  main_thread_.reset(thread);
+}
+
 void ChildProcess::AddRefProcess() {
   DCHECK(!main_thread_.get() ||  // null in unittests.
          MessageLoop::current() == main_thread_->message_loop());
@@ -70,28 +81,32 @@ base::WaitableEvent* ChildProcess::GetShutDownEvent() {
 
 void ChildProcess::WaitForDebugger(const std::wstring& label) {
 #if defined(OS_WIN)
-    std::wstring title = l10n_util::GetString(IDS_PRODUCT_NAME);
-    std::wstring message = label;
-    message += L" starting with pid: ";
-    message += IntToWString(base::GetCurrentProcId());
-    title += L" ";
-    title += label;  // makes attaching to process easier
-    ::MessageBox(NULL, message.c_str(), title.c_str(),
-                 MB_OK | MB_SETFOREGROUND);
+#if defined(GOOGLE_CHROME_BUILD)
+  std::wstring title = L"Google Chrome";
+#else  // CHROMIUM_BUILD
+  std::wstring title = L"Chromium";
+#endif  // CHROMIUM_BUILD
+  title += L" ";
+  title += label;  // makes attaching to process easier
+  std::wstring message = label;
+  message += L" starting with pid: ";
+  message += UTF8ToWide(base::IntToString(base::GetCurrentProcId()));
+  ::MessageBox(NULL, message.c_str(), title.c_str(),
+               MB_OK | MB_SETFOREGROUND);
 #elif defined(OS_POSIX)
-    // TODO(playmobil): In the long term, overriding this flag doesn't seem
-    // right, either use our own flag or open a dialog we can use.
-    // This is just to ease debugging in the interim.
-    LOG(WARNING) << label
-                 << " ("
-                 << getpid()
-                 << ") paused waiting for debugger to attach @ pid";
-    // Install a signal handler so that pause can be woken.
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = SigUSR1Handler;
-    sigaction(SIGUSR1, &sa, NULL);
+  // TODO(playmobil): In the long term, overriding this flag doesn't seem
+  // right, either use our own flag or open a dialog we can use.
+  // This is just to ease debugging in the interim.
+  LOG(WARNING) << label
+               << " ("
+               << getpid()
+               << ") paused waiting for debugger to attach @ pid";
+  // Install a signal handler so that pause can be woken.
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = SigUSR1Handler;
+  sigaction(SIGUSR1, &sa, NULL);
 
-    pause();
+  pause();
 #endif  // defined(OS_POSIX)
 }

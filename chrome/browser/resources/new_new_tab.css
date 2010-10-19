@@ -18,11 +18,19 @@ html[mode=app-launcher] {
 #main {
   -webkit-box-sizing: border-box;
   -webkit-transition: width .15s;
-  background: url(chrome://theme/IDR_PRODUCT_LOGO) no-repeat 0 6px;
   margin: 0 auto;
   min-height: 100%;
-  padding-bottom: 25px; /* Make room for the bottom positioned footer. */
-  position: relative;
+}
+
+body.loading #main {
+  /* We start out hidden to prevent glitchiness as the app and most visited
+  data flows in. */
+  visibility: hidden;
+}
+
+#main,
+.section,
+.maxiview {
   width: 920px;
 }
 
@@ -127,7 +135,7 @@ html[anim=false] *,
   background: no-repeat 0% 50%;
   padding: 2px;
   padding-left: 18px;
-  background-size: 16px;
+  background-size: 16px 16px;
   background-color: hsla(213, 63%, 93%, 0);
   display: block;
   line-height: 20px;
@@ -135,7 +143,6 @@ html[anim=false] *,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-decoration: none;
   font-size: 100%;
 }
 
@@ -182,7 +189,7 @@ html[dir=rtl] .item {
   pointer-events: none;
   border: 1px solid rgb(118, 118, 118);
   border-radius: 3px;
-  padding: 0px 3px;
+  padding: 0 3px;
   background: -webkit-gradient(linear, left top, left bottom,
                                from(white),
                                to(rgb(228, 229, 240)));
@@ -195,47 +202,15 @@ html[dir=rtl] .item {
   -webkit-box-orient: horizontal;
 }
 
-#recently-closed {
-  white-space: nowrap;
-  overflow-x: hidden;
-}
-
-#recently-closed > span > span  {
-  display: inline-block;
-  max-width: 114px; /* Selected so that we can fit 5 items in EN-US */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 100%;
-  margin: 0 10px;
-}
-
-#recently-closed > span,
-#recently-closed .nav {
-  max-width: none !important;
-}
-
-.nav > a {
-  /* no icon */
-  padding: 0;
-}
-
-.nav > a:after {
-  content: '\00bb'; /* raque gets flipped automatically in rtl */
-  font-size: 115%;
-  -webkit-padding-start: 2px;
-}
-
-#sync-status {
-  display: none;
+#sync-status > div {
   border-radius: 6px;
   padding: 5px 0;
-  margin: 10px 0;
+  margin: 10px 0 20px;
   white-space: nowrap;
   overflow-x: hidden;
 }
 
-#sync-status > * {
+#sync-status > div > * {
   display: inline-block;
   max-width: none;
   white-space: nowrap;
@@ -245,111 +220,42 @@ html[dir=rtl] .item {
   margin: 0 10px;
 }
 
-#set-as-home-page {
-  display: none;
-  margin: 10px 0;
-  text-align: center;
-}
-
-#top-bar {
-  display: -webkit-box;
-  -webkit-box-align: center;
-  min-height: 56px;
-}
-
-#tip-line {
-  -webkit-box-flex: 1;
-  -webkit-transition: opacity .15s;
-  -webkit-user-select: text;
-  border: 0;
-  cursor: text;
-  display: block;  /* Since we are reusing the section display logic we need
-                      to override the display for hidden tips. */
-  margin: 10px;
-  -webkit-margin-start: 50%;
-  text-align: end;
-}
-
-.notification.hidden,
-#tip-line.hidden,
-.notification-shown #tip-line {
+.notification.hidden {
   opacity: 0;
   pointer-events: none;
 }
 
-#tip-line a,
-#tip-line button {
-  /* We do not want a trailing single word from a link on the last line */
-  white-space: nowrap;
-  padding: 0;
-}
-
-#option-button {
-  -webkit-appearance: none;
-  background-color: transparent;
-  width: 19px;
-  height: 17px;
-  margin: 0;
-  border: 0;
-  padding: 0;
-  vertical-align: top;
-  -webkit-margin-start: 10px;
-  /* Do not show focus outline */
-  outline: none;
-  background-image: url(chrome://theme/IDR_NEWTAB_OPTION);
-}
-
-#option-button:hover,
-#option-button:focus {
-  background-image: url(chrome://theme/IDR_NEWTAB_OPTION_H);
-}
-
-#option-button:active,
-#option-button.open {
-  background-image: url(chrome://theme/IDR_NEWTAB_OPTION_P);
-}
-
-#option-menu {
-  right: 0;
-  left: auto;
-  min-width: 175px;
-}
-
-html[dir=rtl] #option-menu {
-  right: auto;
-  left: 0;
-}
-
-#option-menu > * {
-  /* Work around rendering bug. */
-  outline: 1px solid transparent;
-}
-
-#option-menu > [command=show]:before,
-#option-menu > [command=hide]:before {
-  -webkit-margin-start: -14px;
-  content: '\00a0'; /* non breaking space */
-  display: inline-block;
-  background-position: 0 50%;
-  background-repeat: no-repeat;
-  width: 14px;
-}
-
-html[dir=rtl] #option-menu > [command=show]:before,
-html[dir=rtl] #option-menu > [command=hide]:before {
-  background-position-x: 100%;
-}
-
-#option-menu > [command=hide]:before {
-  background-image: url('ntp/checkbox_black.png');
-}
-
-#option-menu > [selected][command=hide]:active:before {
-  background-image: url('ntp/checkbox_white.png');
+/**
+ * Unfortunately, there seems to be a bug in WebKit where this div doesn't
+ * immediately get layout. It still doesn't have it in 'load', but gains it
+ * sometime after.
+ *
+ * We detect this in the JS by looking for offsetWidth > 0, and when it occurs,
+ * remove the 'nolayout' class.
+ */
+#attribution.nolayout {
+  position: static;
+  visibility: hidden;
 }
 
 #attribution {
-  margin: 10px 0;
+  position: fixed;
+  right: 5px;
+  bottom: 5px;
+  text-align: end;
+}
+
+html[dir=rtl] #attribution {
+  left: 5px;
+  right: auto;
+}
+
+#attribution.obscured {
+  visibility: hidden;
+}
+
+html[hasattribution=false] #attribution > div {
+  display: none;
 }
 
 .sync-button {
@@ -364,101 +270,131 @@ html[dir=rtl] #option-menu > [command=hide]:before {
   font-family: inherit;
 }
 
-#apps-section {
-  padding: 10px 0px;
-  border-top: 0;
+.section {
+  position: fixed;
+  font-size: 92%;
 }
 
-#apps-launch-control {
-  margin-top: 10px;
-}
-
-#apps-launch-control input {
-  position: relative;
-  top: 1px;
-  margin-right: 0.2em;
-  margin-left: 1em;
-}
-
-#debug > h2 {
-  color: red;
-}
-
-#debug > div {
-  margin: 0;
+html[anim=true][enable-section-animations=true] .section {
+  -webkit-transition: top .15s;
 }
 
 .section.disabled {
   display: none !important;
 }
 
-.section + :not(.hidden) {
-  border-top: 0;
-}
-
-.section > div {
-  margin-bottom: 10px;
-}
-
 .section > h2 {
-  display: inline-block;
+  font-family: Helvetica, Arial, sans-serif;
+  font-size: 133%;
+  font-weight: normal;
   margin: 0;
-  font-size: 100%;
+  position: relative;
+}
+
+.section:not([noexpand]) > h2 {
   cursor: pointer;
-  margin-top: 10px;
-  margin-bottom: 10px;
 }
 
-.section > h2:hover {
-  text-decoration: underline;
+.section > h2 > .disclosure {
+  position: absolute;
+  left: -15px;
+  margin-top: 50%;
+  top: -5px;
 }
 
-.section.hidden {
-  display: inline;
-  border: 0;
+html[dir=rtl] .section > h2 > .disclosure {
+  left: auto;
+  right: -15px;
+  -webkit-transform: rotate(180deg);
 }
 
-.section.hidden > :not(h2) {
-  display: none !important;
+html[anim=true] .section > h2 > .disclosure {
+  -webkit-transition: -webkit-transform .15s;
 }
 
-.section > h2 {
-  margin-right: 5px;
+.section:not(.hidden) > h2 > .disclosure {
+  -webkit-transform:rotate(90deg);
+}
+
+.section > h2 .back {
+  position: absolute;
+  left: 0;
+  top: 0.56em;
+  width: 100%;
+  height: 1.5em;
+  z-index: 1;
+}
+
+.section > h2 span {
+  -webkit-padding-end: 0.30em;
+  position: relative;
+  z-index: 2;
+}
+
+.maxiview {
+  padding: 5px 0 30px;
+  position: absolute;
+  -webkit-mask-attachment: fixed;
+  opacity: 1;
+}
+
+.maxiview.hiding {
+  opacity: 0;
+}
+
+.maxiview.hidden {
+  display: none;
+}
+
+html[anim=true] .maxiview {
+  -webkit-transition: opacity .15s;
+}
+
+.section > .miniview {
+  display: none;
+  margin: 10px 0 30px;
+  white-space: nowrap;
+  overflow-x: hidden;
+}
+
+.section.hidden > * {
+  display: none;
+}
+
+.section.hidden > h2,
+.section.hidden > .miniview {
+  display: block;
 }
 
 .section.hidden > h2 {
-  margin-right: 0px;
+  margin-right: 0;
 }
 
-.section.hidden:last-child {
-  border-right: 0;
-}
-
-.section.hidden + .hidden > h2 {
-  padding-left: 5px;
-}
-
-.section:last-child {
-  border-bottom: 0;
-}
-
-.section .nav {
+.miniview > span  {
   display: inline-block;
+  max-width: 114px; /* Selected so that we can fit 5 items in EN-US */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 100%;
+  margin: 0 10px;
 }
 
-#apps {
-  margin-top: 10px;
+.miniview > span:first-child {
+  margin-left: 0;
 }
 
-.section > * {
-  font-size: 12px;
+.miniview > span:last-child {
+  margin-right: 0;
 }
 
 /* small */
 
 @media (max-width: 940px) {
 
-  #main {
+  #main,
+  .section,
+  .maxiview {
     width: 692px;
   }
 
@@ -477,23 +413,4 @@ html[dir=rtl] #option-menu > [command=hide]:before {
     margin-left: 10px;
     margin-right: 10px;
   }
-}
-
-#footer {
-  bottom: 0;
-  padding-bottom: 5px;
-  position: absolute;
-  text-align: end;
-  width: 100%;
-}
-
-#footer hr {
-  border: 0;
-  display: inline;
-  margin: 0;
-  padding: 0;
-}
-
-#footer hr:after {
-  content: "|";
 }

@@ -4,18 +4,19 @@
 
 #ifndef CHROME_BROWSER_GTK_SAD_TAB_GTK_H_
 #define CHROME_BROWSER_GTK_SAD_TAB_GTK_H_
+#pragma once
 
 typedef struct _GtkWidget GtkWidget;
 
 #include "app/gtk_signal.h"
-#include "chrome/common/owned_widget_gtk.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 
 class TabContents;
 
 class SadTabGtk {
  public:
   explicit SadTabGtk(TabContents* tab_contents);
-  ~SadTabGtk();
+  virtual ~SadTabGtk();
 
   GtkWidget* widget() const { return event_box_.get(); }
 

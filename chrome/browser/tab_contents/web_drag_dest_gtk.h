@@ -1,12 +1,12 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_WEB_DRAG_DEST_GTK_H_
 #define CHROME_BROWSER_TAB_CONTENTS_WEB_DRAG_DEST_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
-#include <vector>
 
 #include "app/gtk_signal.h"
 #include "base/scoped_ptr.h"
@@ -15,7 +15,6 @@
 #include "third_party/WebKit/WebKit/chromium/public/WebDragOperation.h"
 #include "webkit/glue/webdropdata.h"
 
-class BookmarkNode;
 class TabContents;
 
 // A helper class that handles DnD for drops in the renderer. In GTK parlance,
@@ -23,7 +22,7 @@ class TabContents;
 class WebDragDestGtk {
  public:
   WebDragDestGtk(TabContents* tab_contents, GtkWidget* widget);
-  ~WebDragDestGtk();
+  virtual ~WebDragDestGtk();
 
   // This is called when the renderer responds to a drag motion event. We must
   // update the system drag cursor.

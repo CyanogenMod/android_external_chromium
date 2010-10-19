@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,13 +8,13 @@
 #include <string>
 #include <vector>
 
+#include "base/string_util.h"
 #include "chrome/browser/sync/engine/syncer_proto_util.h"
 #include "chrome/browser/sync/engine/syncer_util.h"
 #include "chrome/browser/sync/protocol/bookmark_specifics.pb.h"
 #include "chrome/browser/sync/sessions/sync_session.h"
 #include "chrome/browser/sync/syncable/syncable.h"
 #include "chrome/browser/sync/syncable/syncable_changes_version.h"
-#include "chrome/browser/sync/util/sync_types.h"
 
 using std::set;
 using std::string;
@@ -47,7 +47,7 @@ void BuildCommitCommand::AddExtensionsActivityToMessage(
       session->extensions_activity();
   for (ExtensionsActivityMonitor::Records::const_iterator it = records.begin();
        it != records.end(); ++it) {
-    sync_pb::CommitMessage_ChromiumExtensionsActivity* activity_message =
+    sync_pb::ChromiumExtensionsActivity* activity_message =
         message->add_extensions_activity();
     activity_message->set_extension_id(it->second.extension_id);
     activity_message->set_bookmark_writes_since_last_commit(

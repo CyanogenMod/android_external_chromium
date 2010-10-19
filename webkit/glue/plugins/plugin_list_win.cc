@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,6 +14,8 @@
 #include "base/path_service.h"
 #include "base/registry.h"
 #include "base/scoped_ptr.h"
+#include "base/string_number_conversions.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "webkit/glue/plugins/plugin_constants_win.h"
 #include "webkit/glue/plugins/plugin_lib.h"
@@ -65,7 +67,7 @@ bool GetInstalledPath(const TCHAR* app, FilePath* out) {
   reg_path.append(L"\\");
   reg_path.append(app);
 
-  RegKey key(HKEY_LOCAL_MACHINE, reg_path.c_str());
+  RegKey key(HKEY_LOCAL_MACHINE, reg_path.c_str(), KEY_READ);
   std::wstring path;
   if (key.ReadValue(kRegistryPath, &path)) {
     *out = FilePath(path);
@@ -86,7 +88,7 @@ void GetPluginsInRegistryDirectory(
     std::wstring reg_path = registry_folder;
     reg_path.append(L"\\");
     reg_path.append(iter.Name());
-    RegKey key(root_key, reg_path.c_str());
+    RegKey key(root_key, reg_path.c_str(), KEY_READ);
 
     std::wstring path;
     if (key.ReadValue(kRegistryPath, &path))
@@ -313,8 +315,10 @@ bool IsNewerVersion(const std::wstring& a, const std::wstring& b) {
   if (a_ver.size() != b_ver.size())
     return false;
   for (size_t i = 0; i < a_ver.size(); i++) {
-    int cur_a = StringToInt(a_ver[i]);
-    int cur_b = StringToInt(b_ver[i]);
+    int cur_a, cur_b;
+    base::StringToInt(a_ver[i], &cur_a);
+    base::StringToInt(b_ver[i], &cur_b);
+
     if (cur_a > cur_b)
       return false;
     if (cur_a < cur_b)
@@ -370,9 +374,9 @@ bool PluginList::ShouldLoadPlugin(const WebPluginInfo& info,
     SplitString(info.version, '.', &ver);
     int major, minor, update;
     if (ver.size() == 4 &&
-        StringToInt(ver[0], &major) &&
-        StringToInt(ver[1], &minor) &&
-        StringToInt(ver[2], &update)) {
+        base::StringToInt(ver[0], &major) &&
+        base::StringToInt(ver[1], &minor) &&
+        base::StringToInt(ver[2], &update)) {
       if (major == 6 && minor == 0 && update < 120)
         return false;  // Java SE6 Update 11 or older.
     }

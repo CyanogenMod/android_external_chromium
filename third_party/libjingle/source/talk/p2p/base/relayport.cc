@@ -374,16 +374,6 @@ void RelayPort::OnReadPacket(
   }
 }
 
-void RelayPort::DisposeSocket(talk_base::AsyncPacketSocket * socket) {
-  // TODO(oja): Socket should be deleted by the RelayConnection destructor.
-  thread_->Dispose(socket);
-}
-
-void RelayPort::DisposeConnection(RelayConnection* connection) {
-  thread_->Dispose(connection);
-  DisposeSocket(connection->socket());
-}
-
 RelayConnection::RelayConnection(const ProtocolAddress* protocol_address,
                                  talk_base::AsyncPacketSocket* socket,
                                  talk_base::Thread* thread)
@@ -396,6 +386,7 @@ RelayConnection::RelayConnection(const ProtocolAddress* protocol_address,
 
 RelayConnection::~RelayConnection() {
   delete request_manager_;
+  delete socket_;
 }
 
 int RelayConnection::SetSocketOption(talk_base::Socket::Option opt,
@@ -456,7 +447,7 @@ void RelayEntry::Connect() {
 
   // Remove any previous connection.
   if (current_connection_) {
-    port()->DisposeConnection(current_connection_);
+    port()->thread()->Dispose(current_connection_);
     current_connection_ = NULL;
   }
 

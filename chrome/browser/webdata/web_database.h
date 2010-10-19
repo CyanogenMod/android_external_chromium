@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_WEBDATA_WEB_DATABASE_H_
 #define CHROME_BROWSER_WEBDATA_WEB_DATABASE_H_
+#pragma once
 
 #include <vector>
 
@@ -12,16 +13,18 @@
 #include "app/sql/meta_table.h"
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/search_engines/template_url.h"
-#include "third_party/skia/include/core/SkBitmap.h"
-#include "webkit/glue/form_field.h"
+#include "base/string16.h"
+#include "chrome/browser/search_engines/template_url_id.h"
 
 class AutofillChange;
 class AutofillEntry;
 class AutoFillProfile;
 class CreditCard;
 class FilePath;
+class GURL;
 class NotificationService;
+class SkBitmap;
+class TemplateURL;
 class WebDatabaseTest;
 
 namespace base {
@@ -29,6 +32,7 @@ class Time;
 }
 
 namespace webkit_glue {
+class FormField;
 struct PasswordForm;
 }
 
@@ -66,7 +70,7 @@ class WebDatabase {
 
   // Removes the specified keyword.
   // Returns true if successful.
-  bool RemoveKeyword(TemplateURL::IDType id);
+  bool RemoveKeyword(TemplateURLID id);
 
   // Loads the keywords into the specified vector. It's up to the caller to
   // delete the returned objects.
@@ -125,14 +129,14 @@ class WebDatabase {
 
   // Loads the complete list of password forms into the specified vector |forms|
   // if include_blacklisted is true, otherwise only loads those which are
-  // actually autofillable; i.e haven't been blacklisted by the user selecting
+  // actually autofill-able; i.e haven't been blacklisted by the user selecting
   // the 'Never for this site' button.
   bool GetAllLogins(std::vector<webkit_glue::PasswordForm*>* forms,
                     bool include_blacklisted);
 
   //////////////////////////////////////////////////////////////////////////////
   //
-  // Autofill
+  // AutoFill
   //
   //////////////////////////////////////////////////////////////////////////////
 
@@ -272,6 +276,26 @@ class WebDatabase {
 
   bool RemoveWebApp(const GURL& url);
 
+  //////////////////////////////////////////////////////////////////////////////
+  //
+  // Token Service
+  //
+  //////////////////////////////////////////////////////////////////////////////
+
+  // Remove all tokens previously set with SetTokenForService.
+  bool RemoveAllTokens();
+
+  // Retrieves all tokens previously set with SetTokenForService.
+  // Returns true if there were tokens and we decrypted them,
+  // false if there was a failure somehow
+  bool GetAllTokens(std::map<std::string, std::string>* tokens);
+
+  // Store a token in the token_service table. Stored encrypted. May cause
+  // a mac keychain popup.
+  // True if we encrypted a token and stored it, false otherwise.
+  bool SetTokenForService(const std::string& service,
+                          const std::string& token);
+
  private:
   FRIEND_TEST_ALL_PREFIXES(WebDatabaseTest, Autofill);
   FRIEND_TEST_ALL_PREFIXES(WebDatabaseTest, Autofill_AddChanges);
@@ -283,6 +307,8 @@ class WebDatabase {
   FRIEND_TEST_ALL_PREFIXES(WebDatabaseTest,
                            Autofill_GetAllAutofillEntries_TwoSame);
   FRIEND_TEST_ALL_PREFIXES(WebDatabaseTest, Autofill_UpdateDontReplace);
+  FRIEND_TEST_ALL_PREFIXES(WebDatabaseTest, Autofill_AddFormFieldValues);
+
   // Methods for adding autofill entries at a specified time.  For
   // testing only.
   bool AddFormFieldValuesTime(
@@ -308,6 +334,7 @@ class WebDatabase {
   bool InitAutofillDatesTable();
   bool InitAutoFillProfilesTable();
   bool InitCreditCardsTable();
+  bool InitTokenServiceTable();
   bool InitWebAppIconsTable();
   bool InitWebAppsTable();
 

@@ -4,6 +4,7 @@
 
 #ifndef NET_SOCKET_CLIENT_SOCKET_HANDLE_H_
 #define NET_SOCKET_CLIENT_SOCKET_HANDLE_H_
+#pragma once
 
 #include <string>
 
@@ -73,7 +74,7 @@ class ClientSocketHandle {
            const scoped_refptr<SocketParams>& socket_params,
            RequestPriority priority,
            CompletionCallback* callback,
-           const scoped_refptr<PoolType>& pool,
+           PoolType* pool,
            const BoundNetLog& net_log);
 
   // An initialized handle can be reset, which causes it to return to the
@@ -108,6 +109,9 @@ class ClientSocketHandle {
   void set_ssl_error_response_info(const HttpResponseInfo& ssl_error_state) {
     ssl_error_response_info_ = ssl_error_state;
   }
+  void set_pending_http_proxy_connection(ClientSocketHandle* connection) {
+    pending_http_proxy_connection_.reset(connection);
+  }
 
   // Only valid if there is no |socket_|.
   bool is_ssl_error() const {
@@ -119,6 +123,9 @@ class ClientSocketHandle {
   // the |cert_request_info| field is set.
   const HttpResponseInfo& ssl_error_response_info() const {
     return ssl_error_response_info_;
+  }
+  ClientSocketHandle* release_pending_http_proxy_connection() {
+    return pending_http_proxy_connection_.release();
   }
 
   // These may only be used if is_initialized() is true.
@@ -136,19 +143,6 @@ class ClientSocketHandle {
     } else {
       return UNUSED_IDLE;
     }
-  }
-  bool ShouldResendFailedRequest(int error) const {
-    // NOTE: we resend a request only if we reused a keep-alive connection.
-    // This automatically prevents an infinite resend loop because we'll run
-    // out of the cached keep-alive connections eventually.
-    if (  // We used a socket that was never idle.
-        reuse_type() == ClientSocketHandle::UNUSED ||
-        // We used an unused, idle socket and got a error that wasn't a TCP RST.
-        (reuse_type() == ClientSocketHandle::UNUSED_IDLE &&
-         (error != OK && error != ERR_CONNECTION_RESET))) {
-      return false;
-    }
-    return true;
   }
 
  private:
@@ -168,7 +162,7 @@ class ClientSocketHandle {
   void ResetErrorState();
 
   bool is_initialized_;
-  scoped_refptr<ClientSocketPool> pool_;
+  ClientSocketPool* pool_;
   scoped_ptr<ClientSocket> socket_;
   std::string group_name_;
   bool is_reused_;
@@ -178,6 +172,7 @@ class ClientSocketHandle {
   int pool_id_;  // See ClientSocketPool::ReleaseSocket() for an explanation.
   bool is_ssl_error_;
   HttpResponseInfo ssl_error_response_info_;
+  scoped_ptr<ClientSocketHandle> pending_http_proxy_connection_;
   base::TimeTicks init_time_;
   base::TimeDelta setup_time_;
 
@@ -192,7 +187,7 @@ int ClientSocketHandle::Init(const std::string& group_name,
                              const scoped_refptr<SocketParams>& socket_params,
                              RequestPriority priority,
                              CompletionCallback* callback,
-                             const scoped_refptr<PoolType>& pool,
+                             PoolType* pool,
                              const BoundNetLog& net_log) {
   requesting_source_ = net_log.source();
 

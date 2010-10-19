@@ -2,17 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/task_manager.h"
+#include "chrome/browser/task_manager/task_manager.h"
 
 #include "app/l10n_util.h"
 #include "app/table_model_observer.h"
+#include "base/command_line.h"
 #include "base/stats_table.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/memory_purger.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/views/browser_dialogs.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -80,63 +82,63 @@ int TaskManagerTableModel::RowCount() {
 std::wstring TaskManagerTableModel::GetText(int row, int col_id) {
   switch (col_id) {
     case IDS_TASK_MANAGER_PAGE_COLUMN:  // Process
-      return model_->GetResourceTitle(row);
+      return UTF16ToWide(model_->GetResourceTitle(row));
 
     case IDS_TASK_MANAGER_NET_COLUMN:  // Net
-      return model_->GetResourceNetworkUsage(row);
+      return UTF16ToWide(model_->GetResourceNetworkUsage(row));
 
     case IDS_TASK_MANAGER_CPU_COLUMN:  // CPU
       if (!model_->IsResourceFirstInGroup(row))
         return std::wstring();
-      return model_->GetResourceCPUUsage(row);
+      return UTF16ToWide(model_->GetResourceCPUUsage(row));
 
     case IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN:  // Memory
       if (!model_->IsResourceFirstInGroup(row))
         return std::wstring();
-      return model_->GetResourcePrivateMemory(row);
+      return UTF16ToWide(model_->GetResourcePrivateMemory(row));
 
     case IDS_TASK_MANAGER_SHARED_MEM_COLUMN:  // Memory
       if (!model_->IsResourceFirstInGroup(row))
         return std::wstring();
-      return model_->GetResourceSharedMemory(row);
+      return UTF16ToWide(model_->GetResourceSharedMemory(row));
 
     case IDS_TASK_MANAGER_PHYSICAL_MEM_COLUMN:  // Memory
       if (!model_->IsResourceFirstInGroup(row))
         return std::wstring();
-      return model_->GetResourcePhysicalMemory(row);
+      return UTF16ToWide(model_->GetResourcePhysicalMemory(row));
 
     case IDS_TASK_MANAGER_PROCESS_ID_COLUMN:
       if (!model_->IsResourceFirstInGroup(row))
         return std::wstring();
-      return model_->GetResourceProcessId(row);
+      return UTF16ToWide(model_->GetResourceProcessId(row));
 
     case IDS_TASK_MANAGER_GOATS_TELEPORTED_COLUMN:  // Goats Teleported!
-      return model_->GetResourceGoatsTeleported(row);
+      return UTF16ToWide(model_->GetResourceGoatsTeleported(row));
 
     case IDS_TASK_MANAGER_WEBCORE_IMAGE_CACHE_COLUMN:
       if (!model_->IsResourceFirstInGroup(row))
         return std::wstring();
-      return model_->GetResourceWebCoreImageCacheSize(row);
+      return UTF16ToWide(model_->GetResourceWebCoreImageCacheSize(row));
 
     case IDS_TASK_MANAGER_WEBCORE_SCRIPTS_CACHE_COLUMN:
       if (!model_->IsResourceFirstInGroup(row))
         return std::wstring();
-      return model_->GetResourceWebCoreScriptsCacheSize(row);
+      return UTF16ToWide(model_->GetResourceWebCoreScriptsCacheSize(row));
 
     case IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN:
       if (!model_->IsResourceFirstInGroup(row))
         return std::wstring();
-      return model_->GetResourceWebCoreCSSCacheSize(row);
+      return UTF16ToWide(model_->GetResourceWebCoreCSSCacheSize(row));
 
     case IDS_TASK_MANAGER_SQLITE_MEMORY_USED_COLUMN:
       if (!model_->IsResourceFirstInGroup(row))
         return std::wstring();
-      return model_->GetResourceSqliteMemoryUsed(row);
+      return UTF16ToWide(model_->GetResourceSqliteMemoryUsed(row));
 
     case IDS_TASK_MANAGER_JAVASCRIPT_MEMORY_ALLOCATED_COLUMN:
       if (!model_->IsResourceFirstInGroup(row))
         return std::wstring();
-      return model_->GetResourceV8MemoryAllocatedSize(row);
+      return UTF16ToWide(model_->GetResourceV8MemoryAllocatedSize(row));
 
     default:
       NOTREACHED();
@@ -220,7 +222,7 @@ class TaskManagerView : public views::View,
   // views::TableViewObserver implementation.
   virtual void OnSelectionChanged();
   virtual void OnDoubleClick();
-  virtual void OnKeyDown(base::KeyboardCode keycode);
+  virtual void OnKeyDown(app::KeyboardCode keycode);
 
   // views::LinkController implementation.
   virtual void LinkActivated(views::Link* source, int event_flags);
@@ -370,7 +372,7 @@ void TaskManagerView::Init() {
   }
   kill_button_ = new views::NativeButton(
       this, l10n_util::GetString(IDS_TASK_MANAGER_KILL));
-  kill_button_->AddAccelerator(views::Accelerator(base::VKEY_E,
+  kill_button_->AddAccelerator(views::Accelerator(app::VKEY_E,
                                                   false, false, false));
   kill_button_->SetAccessibleKeyboardShortcut(L"E");
   about_memory_link_ = new views::Link(
@@ -484,6 +486,11 @@ void TaskManagerView::Show() {
     instance_->InitAlwaysOnTopState();
     instance_->model_->StartUpdating();
     instance_->window()->Show();
+
+    // Set the initial focus to the list of tasks.
+    views::FocusManager* focus_manager = instance_->GetFocusManager();
+    if (focus_manager)
+      focus_manager->SetFocusedView(instance_->tab_table_);
   }
 }
 
@@ -533,8 +540,8 @@ bool TaskManagerView::ExecuteWindowsCommand(int command_id) {
     if (g_browser_process->local_state()) {
       DictionaryValue* window_preferences =
           g_browser_process->local_state()->GetMutableDictionary(
-              GetWindowName().c_str());
-      window_preferences->SetBoolean(L"always_on_top", is_always_on_top_);
+              WideToUTF8(GetWindowName()).c_str());
+      window_preferences->SetBoolean("always_on_top", is_always_on_top_);
     }
     return true;
   }
@@ -546,7 +553,7 @@ std::wstring TaskManagerView::GetWindowTitle() const {
 }
 
 std::wstring TaskManagerView::GetWindowName() const {
-  return prefs::kTaskManagerWindowPlacement;
+  return UTF8ToWide(prefs::kTaskManagerWindowPlacement);
 }
 
 int TaskManagerView::GetDialogButtons() const {
@@ -581,8 +588,8 @@ void TaskManagerView::OnDoubleClick() {
   ActivateFocusedTab();
 }
 
-void TaskManagerView::OnKeyDown(base::KeyboardCode keycode) {
-  if (keycode == base::VKEY_RETURN)
+void TaskManagerView::OnKeyDown(app::KeyboardCode keycode) {
+  if (keycode == app::VKEY_RETURN)
     ActivateFocusedTab();
 }
 
@@ -666,9 +673,10 @@ bool TaskManagerView::GetSavedAlwaysOnTopState(bool* always_on_top) const {
     return false;
 
   const DictionaryValue* dictionary =
-      g_browser_process->local_state()->GetDictionary(GetWindowName().c_str());
+      g_browser_process->local_state()->GetDictionary(
+          WideToUTF8(GetWindowName()).c_str());
   return dictionary &&
-      dictionary->GetBoolean(L"always_on_top", always_on_top) && always_on_top;
+      dictionary->GetBoolean("always_on_top", always_on_top) && always_on_top;
 }
 
 }  // namespace

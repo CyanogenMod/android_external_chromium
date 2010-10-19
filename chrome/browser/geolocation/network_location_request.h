@@ -4,10 +4,12 @@
 
 #ifndef CHROME_BROWSER_GEOLOCATION_NETWORK_LOCATION_REQUEST_H_
 #define CHROME_BROWSER_GEOLOCATION_NETWORK_LOCATION_REQUEST_H_
+#pragma once
 
 #include <string>
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
+#include "base/scoped_ptr.h"
 #include "chrome/browser/geolocation/device_data_provider.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "googleurl/src/gurl.h"
@@ -32,6 +34,7 @@ class NetworkLocationRequest : private URLFetcher::Delegate {
         const Geoposition& position,
         bool server_error,
         const string16& access_token,
+        const GatewayData& gateway_data,
         const RadioData& radio_data,
         const WifiData& wifi_data) = 0;
 
@@ -49,6 +52,7 @@ class NetworkLocationRequest : private URLFetcher::Delegate {
   // started. In all cases, any currently pending request will be canceled.
   bool MakeRequest(const std::string& host,
                    const string16& access_token,
+                   const GatewayData& gateway_data,
                    const RadioData& radio_data,
                    const WifiData& wifi_data,
                    const base::Time& timestamp);
@@ -72,6 +76,7 @@ class NetworkLocationRequest : private URLFetcher::Delegate {
 
   // Keep a copy of the data sent in the request, so we can refer back to it
   // when the response arrives.
+  GatewayData gateway_data_;
   RadioData radio_data_;
   WifiData wifi_data_;
   base::Time timestamp_;  // Timestamp of the above data, not of the request.

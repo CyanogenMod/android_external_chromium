@@ -4,11 +4,13 @@
 
 #ifndef CHROME_BROWSER_SEARCH_ENGINES_KEYWORD_EDITOR_CONTROLLER_H_
 #define CHROME_BROWSER_SEARCH_ENGINES_KEYWORD_EDITOR_CONTROLLER_H_
+#pragma once
 
 #include <string>
 
 #include "base/basictypes.h"
 #include "base/scoped_ptr.h"
+#include "base/string16.h"
 
 class PrefService;
 class Profile;
@@ -26,16 +28,19 @@ class KeywordEditorController {
   // Invoked when the user succesfully fills out the add keyword dialog.
   // Propagates the change to the TemplateURLModel and updates the table model.
   // Returns the index of the added URL.
-  int AddTemplateURL(const std::wstring& title,
-                     const std::wstring& keyword,
+  int AddTemplateURL(const string16& title,
+                     const string16& keyword,
                      const std::string& url);
 
   // Invoked when the user modifies a TemplateURL. Updates the TemplateURLModel
   // and table model appropriately.
   void ModifyTemplateURL(const TemplateURL* template_url,
-                         const std::wstring& title,
-                         const std::wstring& keyword,
+                         const string16& title,
+                         const string16& keyword,
                          const std::string& url);
+
+  // Return true if the given |url| can be edited.
+  bool CanEdit(const TemplateURL* url) const;
 
   // Return true if the given |url| can be made the default.
   bool CanMakeDefault(const TemplateURL* url) const;

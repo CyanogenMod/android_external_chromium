@@ -4,53 +4,48 @@
 
 #ifndef NET_BASE_NETWORK_CHANGE_NOTIFIER_MAC_H_
 #define NET_BASE_NETWORK_CHANGE_NOTIFIER_MAC_H_
+#pragma once
 
 #include <SystemConfiguration/SCDynamicStore.h>
 
 #include "base/basictypes.h"
-#include "base/message_loop.h"
-#include "base/scoped_cftyperef.h"
-#include "base/scoped_ptr.h"
 #include "net/base/network_change_notifier.h"
-
-namespace base {
-class Thread;
-}
+#include "net/base/network_config_watcher_mac.h"
 
 namespace net {
 
-class NetworkChangeNotifierMac : public MessageLoop::DestructionObserver,
-                                 public NetworkChangeNotifier {
+class NetworkChangeNotifierMac: public NetworkChangeNotifier {
  public:
   NetworkChangeNotifierMac();
-
- private:
   virtual ~NetworkChangeNotifierMac();
 
-  // Called back by OS.  Calls OnNetworkConfigChange().
-  static void DynamicStoreCallback(SCDynamicStoreRef /* store */,
-                                   CFArrayRef changed_keys,
-                                   void* config);
+ private:
+  // Forwarder just exists to keep the NetworkConfigWatcherMac API out of
+  // NetworkChangeNotifierMac's public API.
+  class Forwarder : public NetworkConfigWatcherMac::Delegate {
+   public:
+    explicit Forwarder(NetworkChangeNotifierMac* net_config_watcher)
+        : net_config_watcher_(net_config_watcher) {}
 
-  // MessageLoop::DestructionObserver:
-  virtual void WillDestroyCurrentMessageLoop();
+    // NetworkConfigWatcherMac::Delegate implementation:
+    virtual void SetDynamicStoreNotificationKeys(SCDynamicStoreRef store) {
+      net_config_watcher_->SetDynamicStoreNotificationKeys(store);
+    }
+    virtual void OnNetworkConfigChange(CFArrayRef changed_keys) {
+      net_config_watcher_->OnNetworkConfigChange(changed_keys);
+    }
 
-  // Called on the notifier thread to initialize the notification
-  // implementation.  The SystemConfiguration calls in this function can lead to
-  // contention early on, so we invoke this function later on in startup to keep
-  // it fast.
-  void Init();
+   private:
+    NetworkChangeNotifierMac* const net_config_watcher_;
+    DISALLOW_COPY_AND_ASSIGN(Forwarder);
+  };
 
-  // Called by DynamicStoreCallback() when something about the network config
-  // changes.
+  // NetworkConfigWatcherMac::Delegate implementation:
+  void SetDynamicStoreNotificationKeys(SCDynamicStoreRef store);
   void OnNetworkConfigChange(CFArrayRef changed_keys);
 
-  // The thread used to listen for notifications.  This relays the notification
-  // to the registered observers without posting back to the thread the object
-  // was created on.
-  scoped_ptr<base::Thread> notifier_thread_;
-
-  scoped_cftyperef<CFRunLoopSourceRef> run_loop_source_;
+  Forwarder forwarder_;
+  const NetworkConfigWatcherMac config_watcher_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkChangeNotifierMac);
 };

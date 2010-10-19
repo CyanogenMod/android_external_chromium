@@ -28,11 +28,6 @@ class SpdySessionPoolPeer {
 
 namespace {
 
-// Create a proxy service which fails on all requests (falls back to direct).
-ProxyService* CreateNullProxyService() {
-  return ProxyService::CreateNull();
-}
-
 class TestSpdyStreamDelegate : public SpdyStream::Delegate {
  public:
   TestSpdyStreamDelegate(SpdyStream* stream,
@@ -59,6 +54,7 @@ class TestSpdyStreamDelegate : public SpdyStream::Delegate {
     ADD_FAILURE() << "OnSendBodyComplete should not be called";
     return true;
   }
+
   virtual int OnResponseReceived(const spdy::SpdyHeaderBlock& response,
                                  base::Time response_time,
                                  int status) {
@@ -118,9 +114,11 @@ class SpdyStreamTest : public testing::Test {
   scoped_refptr<SpdySession> CreateSpdySession() {
     spdy::SpdyFramer::set_enable_compression_default(false);
     HostPortPair host_port_pair("www.google.com", 80);
+    HostPortProxyPair pair(host_port_pair, ProxyServer::Direct());
     scoped_refptr<SpdySession> session(
-        session_->spdy_session_pool()->Get(
-            host_port_pair, session_, BoundNetLog()));
+        session_->spdy_session_pool()->Get(pair,
+                                           session_->mutable_spdy_settings(),
+                                           BoundNetLog()));
     return session;
   }
 
@@ -141,7 +139,7 @@ TEST_F(SpdyStreamTest, SendDataAfterOpen) {
     spdy::SYN_STREAM,
     1,
     0,
-    SPDY_PRIORITY_LOWEST,
+    net::ConvertRequestPriorityToSpdyPriority(LOWEST),
     spdy::CONTROL_FLAG_NONE,
     false,
     spdy::INVALID,
@@ -187,7 +185,7 @@ TEST_F(SpdyStreamTest, SendDataAfterOpen) {
   MockConnect connect_data(false, OK);
   data->set_connect_data(connect_data);
 
-  session_deps.socket_factory.AddSocketDataProvider(data.get());
+  session_deps.socket_factory->AddSocketDataProvider(data.get());
   SpdySession::SetSSLMode(false);
 
   scoped_refptr<SpdySession> session(CreateSpdySession());
@@ -196,8 +194,12 @@ TEST_F(SpdyStreamTest, SendDataAfterOpen) {
   HostPortPair host_port_pair("www.google.com", 80);
   scoped_refptr<TCPSocketParams> tcp_params =
       new TCPSocketParams(host_port_pair, LOWEST, GURL(), false);
-  EXPECT_EQ(OK, session->Connect("spdy.www.google.com", tcp_params,
-                                 LOWEST));
+
+  scoped_ptr<ClientSocketHandle> connection(new ClientSocketHandle);
+  EXPECT_EQ(OK,
+            connection->Init(host_port_pair.ToString(), tcp_params, LOWEST,
+                             NULL, session_->tcp_socket_pool(), BoundNetLog()));
+  session->InitializeWithSocket(connection.release(), false, OK);
 
   scoped_refptr<SpdyStream> stream;
   ASSERT_EQ(
@@ -217,7 +219,7 @@ TEST_F(SpdyStreamTest, SendDataAfterOpen) {
   (*headers)["version"] = "HTTP/1.1";
   stream->set_spdy_headers(headers);
 
-  EXPECT_EQ(ERR_IO_PENDING, stream->DoSendRequest(true));
+  EXPECT_EQ(ERR_IO_PENDING, stream->SendRequest(true));
 
   EXPECT_EQ(OK, callback.WaitForResult());
 

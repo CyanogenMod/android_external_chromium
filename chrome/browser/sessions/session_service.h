@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SESSIONS_SESSION_SERVICE_H_
 #define CHROME_BROWSER_SESSIONS_SESSION_SERVICE_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -19,7 +20,6 @@
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
-class Browser;
 class NavigationController;
 class NavigationEntry;
 class Profile;

@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_GLUE_DATA_TYPE_MANAGER_MOCK_H__
 #define CHROME_BROWSER_SYNC_GLUE_DATA_TYPE_MANAGER_MOCK_H__
+#pragma once
 
 #include "chrome/browser/sync/glue/data_type_manager.h"
 #include "chrome/browser/sync/profile_sync_test_util.h"
@@ -12,11 +13,17 @@
 #include "chrome/common/notification_type.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
-ACTION_P2(NotifyWithResult, type, result) {
+ACTION_P3(NotifyFromDataTypeManagerWithResult, dtm, type, result) {
   NotificationService::current()->Notify(
       type,
-      NotificationService::AllSources(),
+      Source<browser_sync::DataTypeManager>(dtm),
       Details<browser_sync::DataTypeManager::ConfigureResult>(result));
+}
+
+ACTION_P2(NotifyFromDataTypeManager, dtm, type) {
+  NotificationService::current()->Notify(type,
+      Source<browser_sync::DataTypeManager>(dtm),
+      NotificationService::NoDetails());
 }
 
 namespace browser_sync {
@@ -29,9 +36,10 @@ class DataTypeManagerMock : public DataTypeManager {
     // detail.
     ON_CALL(*this, Configure(testing::_)).
         WillByDefault(testing::DoAll(
-            Notify(NotificationType::SYNC_CONFIGURE_START),
-            NotifyWithResult(NotificationType::SYNC_CONFIGURE_DONE,
-                             &result_)));
+            NotifyFromDataTypeManager(this,
+                NotificationType::SYNC_CONFIGURE_START),
+            NotifyFromDataTypeManagerWithResult
+                 (this, NotificationType::SYNC_CONFIGURE_DONE, &result_)));
   }
 
   MOCK_METHOD1(Configure, void(const TypeSet&));

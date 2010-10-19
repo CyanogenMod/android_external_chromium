@@ -5,19 +5,21 @@
 #include "chrome/browser/dom_ui/app_launcher_handler.h"
 
 #include "app/animation.h"
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
-#include "base/base64.h"
+#include "base/string_number_conversions.h"
+#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/app_launched_animation.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
+#include "chrome/common/extensions/extension_constants.h"
+#include "chrome/common/extensions/extension_icon_set.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
@@ -33,11 +35,20 @@ bool ExtractInt(const ListValue* list, size_t index, int* out_int) {
   std::string string_value;
 
   if (list->GetString(index, &string_value)) {
-    *out_int = StringToInt(string_value);
+    base::StringToInt(string_value, out_int);
     return true;
   }
 
   return false;
+}
+
+std::string GetIconURL(Extension* extension, Extension::Icons icon,
+                       const std::string& default_val) {
+  GURL url = extension->GetIconURL(icon, ExtensionIconSet::MATCH_EXACTLY);
+  if (!url.is_empty())
+    return url.spec();
+  else
+    return default_val;
 }
 
 }  // namespace
@@ -58,6 +69,8 @@ void AppLauncherHandler::RegisterMessages() {
       NewCallback(this, &AppLauncherHandler::HandleGetApps));
   dom_ui_->RegisterMessageCallback("launchApp",
       NewCallback(this, &AppLauncherHandler::HandleLaunchApp));
+  dom_ui_->RegisterMessageCallback("setLaunchType",
+      NewCallback(this, &AppLauncherHandler::HandleSetLaunchType));
   dom_ui_->RegisterMessageCallback("uninstallApp",
       NewCallback(this, &AppLauncherHandler::HandleUninstallApp));
 }
@@ -71,7 +84,15 @@ void AppLauncherHandler::Observe(NotificationType type,
       if (dom_ui_->tab_contents())
         HandleGetApps(NULL);
       break;
+    case NotificationType::PREF_CHANGED: {
+      if (!dom_ui_->tab_contents())
+        break;
 
+      DictionaryValue dictionary;
+      FillAppDictionary(&dictionary);
+      dom_ui_->CallJavascriptFunction(L"appsPrefChangeCallback", dictionary);
+      break;
+    }
     default:
       NOTREACHED();
   }
@@ -79,46 +100,44 @@ void AppLauncherHandler::Observe(NotificationType type,
 
 // static
 void AppLauncherHandler::CreateAppInfo(Extension* extension,
+                                       ExtensionPrefs* extension_prefs,
                                        DictionaryValue* value) {
   value->Clear();
-  value->SetString(L"id", extension->id());
-  value->SetString(L"name", extension->name());
-  value->SetString(L"description", extension->description());
-  value->SetString(L"launch_url", extension->GetFullLaunchURL().spec());
-  value->SetString(L"options_url", extension->options_url().spec());
-
-  FilePath relative_path =
-      extension->GetIconPath(Extension::EXTENSION_ICON_LARGE).relative_path();
-
-#if defined(OS_POSIX)
-  std::string path = relative_path.value();
-#elif defined(OS_WIN)
-  std::string path = WideToUTF8(relative_path.value());
-#endif  // OS_WIN
-
-  GURL icon_url = extension->GetResourceURL(path);
-  value->SetString(L"icon", icon_url.spec());
+  value->SetString("id", extension->id());
+  value->SetString("name", extension->name());
+  value->SetString("description", extension->description());
+  value->SetString("launch_url", extension->GetFullLaunchURL().spec());
+  value->SetString("options_url", extension->options_url().spec());
+  value->SetString("icon_big", GetIconURL(
+      extension, Extension::EXTENSION_ICON_LARGE,
+      "chrome://theme/IDR_APP_DEFAULT_ICON"));
+  value->SetString("icon_small", GetIconURL(
+      extension, Extension::EXTENSION_ICON_BITTY,
+      std::string("chrome://favicon/") + extension->GetFullLaunchURL().spec()));
+  value->SetInteger("launch_container", extension->launch_container());
+  value->SetInteger("launch_type",
+      extension_prefs->GetLaunchType(extension->id()));
 }
 
-void AppLauncherHandler::HandleGetApps(const Value* value) {
-  bool show_debug_link = CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kAppsDebug);
-
-  DictionaryValue dictionary;
-  dictionary.SetBoolean(L"showDebugLink", show_debug_link);
-
+void AppLauncherHandler::FillAppDictionary(DictionaryValue* dictionary) {
   ListValue* list = new ListValue();
   const ExtensionList* extensions = extensions_service_->extensions();
   for (ExtensionList::const_iterator it = extensions->begin();
        it != extensions->end(); ++it) {
-     if ((*it)->is_app()) {
-       DictionaryValue* app_info = new DictionaryValue();
-       CreateAppInfo(*it, app_info);
-       list->Append(app_info);
-     }
+    // Don't include the WebStore component app. The WebStore launcher
+    // gets special treatment in ntp/apps.js.
+    if ((*it)->is_app() && (*it)->id() != extension_misc::kWebStoreAppId) {
+      DictionaryValue* app_info = new DictionaryValue();
+      CreateAppInfo(*it, extensions_service_->extension_prefs(), app_info);
+      list->Append(app_info);
+    }
   }
+  dictionary->Set("apps", list);
+}
 
-  dictionary.Set(L"apps", list);
+void AppLauncherHandler::HandleGetApps(const ListValue* args) {
+  DictionaryValue dictionary;
+  FillAppDictionary(&dictionary);
   dom_ui_->CallJavascriptFunction(L"getAppsCallback", dictionary);
 
   // First time we get here we set up the observer so that we can tell update
@@ -129,28 +148,25 @@ void AppLauncherHandler::HandleGetApps(const Value* value) {
     registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
         NotificationService::AllSources());
   }
+  if (pref_change_registrar_.IsEmpty()) {
+    pref_change_registrar_.Init(
+        extensions_service_->extension_prefs()->pref_service());
+    pref_change_registrar_.Add(ExtensionPrefs::kExtensionsPref, this);
+  }
 }
 
-void AppLauncherHandler::HandleLaunchApp(const Value* value) {
-  if (!value->IsType(Value::TYPE_LIST)) {
-    NOTREACHED();
-    return;
-  }
-
+void AppLauncherHandler::HandleLaunchApp(const ListValue* args) {
   std::string extension_id;
-  std::string launch_container;
   int left = 0;
   int top = 0;
   int width = 0;
   int height = 0;
 
-  const ListValue* list = static_cast<const ListValue*>(value);
-  if (!list->GetString(0, &extension_id) ||
-      !list->GetString(1, &launch_container) ||
-      !ExtractInt(list, 2, &left) ||
-      !ExtractInt(list, 3, &top) ||
-      !ExtractInt(list, 4, &width) ||
-      !ExtractInt(list, 5, &height)) {
+  if (!args->GetString(0, &extension_id) ||
+      !ExtractInt(args, 1, &left) ||
+      !ExtractInt(args, 2, &top) ||
+      !ExtractInt(args, 3, &width) ||
+      !ExtractInt(args, 4, &height)) {
     NOTREACHED();
     return;
   }
@@ -162,27 +178,10 @@ void AppLauncherHandler::HandleLaunchApp(const Value* value) {
   dom_ui_->tab_contents()->GetContainerBounds(&tab_contents_bounds);
   rect.Offset(tab_contents_bounds.origin());
 
-  // Override the default launch container.
   Extension* extension =
       extensions_service_->GetExtensionById(extension_id, false);
   DCHECK(extension);
-
   Profile* profile = extensions_service_->profile();
-  if (launch_container.empty()) {
-    AnimateAppIcon(extension, rect);
-    Browser::OpenApplication(profile, extension_id);
-    return;
-  }
-
-  Extension::LaunchContainer container = extension->launch_container();
-  if (launch_container == "tab")
-    container = Extension::LAUNCH_TAB;
-  else if (launch_container == "panel")
-    container = Extension::LAUNCH_PANEL;
-  else if (launch_container == "window")
-    container = Extension::LAUNCH_WINDOW;
-  else
-    NOTREACHED() << "Unexpected launch container: " << launch_container << ".";
 
   // To give a more "launchy" experience when using the NTP launcher, we close
   // it automatically.
@@ -192,13 +191,31 @@ void AppLauncherHandler::HandleLaunchApp(const Value* value) {
     old_contents = browser->GetSelectedTabContents();
 
   AnimateAppIcon(extension, rect);
-  Browser::OpenApplication(profile, extension, container);
+  Browser::OpenApplication(profile, extension, extension->launch_container());
 
   if (old_contents &&
       old_contents->GetURL().GetOrigin() ==
           GURL(chrome::kChromeUINewTabURL).GetOrigin()) {
     browser->CloseTabContents(old_contents);
   }
+}
+
+void AppLauncherHandler::HandleSetLaunchType(const ListValue* args) {
+  std::string extension_id;
+  int launch_type;
+  if (!args->GetString(0, &extension_id) ||
+      !ExtractInt(args, 1, &launch_type)) {
+    NOTREACHED();
+    return;
+  }
+
+  Extension* extension =
+      extensions_service_->GetExtensionById(extension_id, false);
+  DCHECK(extension);
+
+  extensions_service_->extension_prefs()->SetLaunchType(
+      extension_id,
+      static_cast<ExtensionPrefs::LaunchType>(launch_type));
 }
 
 void AppLauncherHandler::AnimateAppIcon(Extension* extension,
@@ -214,23 +231,41 @@ void AppLauncherHandler::AnimateAppIcon(Extension* extension,
   }
 }
 
-void AppLauncherHandler::HandleUninstallApp(const Value* value) {
-  if (!value->IsType(Value::TYPE_LIST)) {
-    NOTREACHED();
+void AppLauncherHandler::HandleUninstallApp(const ListValue* args) {
+  std::string extension_id = WideToUTF8(ExtractStringValue(args));
+  Extension* extension = extensions_service_->GetExtensionById(
+      extension_id, false);
+  if (!extension)
     return;
-  }
 
-  std::string extension_id;
-  const ListValue* list = static_cast<const ListValue*>(value);
-  if (!list->GetString(0, &extension_id)) {
-    NOTREACHED();
-    return;
-  }
+  if (!extension_id_prompting_.empty())
+    return;  // Only one prompt at a time.
 
-  // Make sure that the extension exists.
+  extension_id_prompting_ = extension_id;
+  GetExtensionInstallUI()->ConfirmUninstall(this, extension);
+}
+
+ExtensionInstallUI* AppLauncherHandler::GetExtensionInstallUI() {
+  if (!install_ui_.get())
+    install_ui_.reset(new ExtensionInstallUI(dom_ui_->GetProfile()));
+  return install_ui_.get();
+}
+
+void AppLauncherHandler::InstallUIProceed() {
+  DCHECK(!extension_id_prompting_.empty());
+
+  // The extension can be uninstalled in another window while the UI was
+  // showing. Do nothing in that case.
   Extension* extension =
-      extensions_service_->GetExtensionById(extension_id, false);
-  DCHECK(extension);
+      extensions_service_->GetExtensionById(extension_id_prompting_, true);
+  if (!extension)
+    return;
 
-  extensions_service_->UninstallExtension(extension_id, false);
+  extensions_service_->UninstallExtension(extension_id_prompting_,
+                                          false /* external_uninstall */);
+  extension_id_prompting_ = "";
+}
+
+void AppLauncherHandler::InstallUIAbort() {
+  extension_id_prompting_ = "";
 }

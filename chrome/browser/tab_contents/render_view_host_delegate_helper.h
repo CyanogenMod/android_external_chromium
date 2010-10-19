@@ -1,14 +1,14 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_RENDER_VIEW_HOST_DELEGATE_HELPER_H_
 #define CHROME_BROWSER_TAB_CONTENTS_RENDER_VIEW_HOST_DELEGATE_HELPER_H_
+#pragma once
 
 #include <map>
 
 #include "base/basictypes.h"
-#include "base/waitable_event.h"
 #include "chrome/browser/dom_ui/dom_ui_factory.h"
 #include "chrome/common/window_container_type.h"
 #include "gfx/rect.h"
@@ -17,9 +17,6 @@
 #include "webkit/glue/window_open_disposition.h"
 
 class BackgroundContents;
-class Browser;
-class ExtensionsService;
-class PrefService;
 class Profile;
 class RenderProcessHost;
 class RenderViewHost;
@@ -34,6 +31,7 @@ class TabContents;
 class RenderViewHostDelegateViewHelper {
  public:
   RenderViewHostDelegateViewHelper() {}
+  virtual ~RenderViewHostDelegateViewHelper() {}
 
   // Creates a new renderer for window.open. This will either be a
   // BackgroundContents (if the window_container_type ==
@@ -53,6 +51,11 @@ class RenderViewHostDelegateViewHelper {
   virtual RenderWidgetHostView* CreateNewWidget(int route_id,
                                                 WebKit::WebPopupType popup_type,
                                                 RenderProcessHost* process);
+
+  virtual RenderWidgetHostView* CreateNewFullscreenWidget(
+      int route_id,
+      WebKit::WebPopupType popup_type,
+      RenderProcessHost* process);
 
   // Finds the new RenderWidgetHost and returns it. Note that this can only be
   // called once as this call also removes it from the internal map.

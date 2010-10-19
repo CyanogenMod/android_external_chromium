@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,12 +6,14 @@
 
 #include <gtk/gtk.h>
 
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/dom_ui/html_dialog_ui.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/gtk/tab_contents_container_gtk.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/common/native_web_keyboard_event.h"
 #include "ipc/ipc_message.h"
 
 // static
@@ -79,13 +81,14 @@ std::string HtmlDialogGtk::GetDialogArgs() const {
 }
 
 void HtmlDialogGtk::OnDialogClosed(const std::string& json_retval) {
-  DCHECK(delegate_);
   DCHECK(dialog_);
 
-  HtmlDialogUIDelegate* dialog_delegate = delegate_;
-  delegate_ = NULL;  // We will not communicate further with the delegate.
   Detach();
-  dialog_delegate->OnDialogClosed(json_retval);
+  if (delegate_) {
+    HtmlDialogUIDelegate* dialog_delegate = delegate_;
+    delegate_ = NULL;  // We will not communicate further with the delegate.
+    dialog_delegate->OnDialogClosed(json_retval);
+  }
   gtk_widget_destroy(dialog_);
   delete this;
 }
@@ -121,7 +124,7 @@ void HtmlDialogGtk::HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {
 
 void HtmlDialogGtk::InitDialog() {
   tab_contents_.reset(
-      new TabContents(profile(), NULL, MSG_ROUTING_NONE, NULL));
+      new TabContents(profile(), NULL, MSG_ROUTING_NONE, NULL, NULL));
   tab_contents_->set_delegate(this);
 
   // This must be done before loading the page; see the comments in
@@ -141,7 +144,7 @@ void HtmlDialogGtk::InitDialog() {
       flags,
       NULL);
 
-  g_signal_connect(dialog_, "response", G_CALLBACK(OnResponse), this);
+  g_signal_connect(dialog_, "response", G_CALLBACK(OnResponseThunk), this);
 
   tab_contents_container_.reset(new TabContentsContainerGtk(NULL));
   gtk_box_pack_start(GTK_BOX(GTK_DIALOG(dialog_)->vbox),
@@ -159,8 +162,6 @@ void HtmlDialogGtk::InitDialog() {
   gtk_widget_show_all(dialog_);
 }
 
-// static
-void HtmlDialogGtk::OnResponse(GtkWidget* widget, int response,
-                               HtmlDialogGtk* dialog) {
-  dialog->OnDialogClosed(std::string());
+void HtmlDialogGtk::OnResponse(GtkWidget* dialog, int response_id) {
+  OnDialogClosed(std::string());
 }

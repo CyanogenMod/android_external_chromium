@@ -45,14 +45,15 @@ class RawTransport: public Transport {
   virtual bool ParseCandidates(const buzz::XmlElement* elem,
                                Candidates* candidates,
                                ParseError* error);
-  virtual void WriteCandidates(const Candidates& candidates,
+  virtual bool WriteCandidates(const Candidates& candidates,
                                SignalingProtocol protocol,
-                               XmlElements* candidate_elems);
+                               XmlElements* candidate_elems,
+                               WriteError* error);
 
  protected:
   // Creates and destroys raw channels.
   virtual TransportChannelImpl* CreateTransportChannel(
-     const std::string& name, const std::string &session_type);
+     const std::string& name, const std::string &content_type);
   virtual void DestroyTransportChannel(TransportChannelImpl* channel);
 
  private:

@@ -4,6 +4,7 @@
 
 #ifndef NET_BASE_REQUEST_PRIORITY_H__
 #define NET_BASE_REQUEST_PRIORITY_H__
+#pragma once
 
 namespace net {
 
@@ -14,10 +15,10 @@ enum RequestPriority {
   MEDIUM,
   LOW,
   LOWEST,
+  IDLE,
   NUM_PRIORITIES,
 };
 
 }  // namespace net
 
 #endif  // NET_BASE_REQUEST_PRIORITY_H__
-

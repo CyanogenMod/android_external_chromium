@@ -81,10 +81,6 @@ class RelayPort : public Port {
   const ProtocolAddress * ServerAddress(size_t index) const;
   bool IsReady() { return ready_; }
 
-  // TODO(oja): Move these two methods to RelayEntry.
-  void DisposeSocket(talk_base::AsyncPacketSocket * socket);
-  void DisposeConnection(RelayConnection* connection);
-
   // Used for testing.
   sigslot::signal1<const ProtocolAddress*> SignalConnectFailure;
   sigslot::signal1<const ProtocolAddress*> SignalSoftTimeout;

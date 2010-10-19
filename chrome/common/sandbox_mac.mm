@@ -20,6 +20,7 @@ extern "C" {
 #include "base/scoped_cftyperef.h"
 #include "base/scoped_nsautorelease_pool.h"
 #include "base/string16.h"
+#include "base/string_util.h"
 #include "base/sys_info.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
@@ -255,7 +256,6 @@ bool EnableSandbox(SandboxProcessType sandbox_type,
   // TODO(jeremy): Look at using include syntax to unify common parts of sandbox
   // definition files.
   NSString* sandbox_config_filename = nil;
-  bool allow_nacl_lines = false;
   switch (sandbox_type) {
     case SANDBOX_TYPE_RENDERER:
       sandbox_config_filename = @"renderer";
@@ -266,24 +266,9 @@ bool EnableSandbox(SandboxProcessType sandbox_type,
     case SANDBOX_TYPE_UTILITY:
       sandbox_config_filename = @"utility";
       break;
-    case SANDBOX_TYPE_NACL_PLUGIN:
-      // The Native Client plugin is a standard renderer sandbox with some
-      // additional lines to support use of Unix sockets.
-      // TODO(msneck): Remove the use of Unix sockets from Native Client and
-      // then remove the associated rules from chrome/renderer/renderer.sb.
-      // See http://code.google.com/p/nativeclient/issues/detail?id=344
-      sandbox_config_filename = @"renderer";
-      allow_nacl_lines = true;
-      break;
     case SANDBOX_TYPE_NACL_LOADER:
       // The Native Client loader is used for safeguarding the user's
       // untrusted code within Native Client.
-      // TODO(msneck): Remove the use of Unix sockets from Native Client and
-      // then decide on an appropriate sandbox type for the untrusted code.
-      // This might simply mean removing the Unix socket rules from
-      // chrome/browser/nacl_loader.sb or it might mean sharing the
-      // sandbox configuration with SANDBOX_TYPE_WORKER.
-      // See http://code.google.com/p/nativeclient/issues/detail?id=344
       sandbox_config_filename = @"nacl_loader";
       break;
     default:
@@ -324,19 +309,34 @@ bool EnableSandbox(SandboxProcessType sandbox_type,
   sandbox_data =
       [common_sandbox_prefix_data stringByAppendingString:sandbox_data];
 
-  // Enable verbose logging if enabled on the command line.
-  // (see renderer.sb for details).
+  // Enable verbose logging if enabled on the command line. (See common.sb
+  // for details).
   const CommandLine *command_line = CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kEnableSandboxLogging)) {
+  bool enable_logging =
+      command_line->HasSwitch(switches::kEnableSandboxLogging);
+  if (enable_logging) {
     sandbox_data = [sandbox_data
         stringByReplacingOccurrencesOfString:@";ENABLE_LOGGING"
                                   withString:@""];
   }
 
-  // Enable Native Client lines if they are allowed.
-  if (allow_nacl_lines) {
+  // Get the OS version.
+  int32 major_version, minor_version, bugfix_version;
+  base::SysInfo::OperatingSystemVersionNumbers(&major_version,
+      &minor_version, &bugfix_version);
+  bool snow_leopard_or_higher =
+      (major_version > 10 || (major_version == 10 && minor_version >= 6));
+
+  // Without this, the sandbox will print a message to the system log every
+  // time it denies a request.  This floods the console with useless spew. The
+  // (with no-log) syntax is only supported on 10.6+
+  if (snow_leopard_or_higher && !enable_logging) {
     sandbox_data = [sandbox_data
-        stringByReplacingOccurrencesOfString:@";NACL"
+        stringByReplacingOccurrencesOfString:@"DISABLE_SANDBOX_DENIAL_LOGGING"
+                                  withString:@"(with no-log)"];
+  } else {
+    sandbox_data = [sandbox_data
+        stringByReplacingOccurrencesOfString:@"DISABLE_SANDBOX_DENIAL_LOGGING"
                                   withString:@""];
   }
 
@@ -365,11 +365,7 @@ bool EnableSandbox(SandboxProcessType sandbox_type,
 
   }
 
-  int32 major_version, minor_version, bugfix_version;
-  base::SysInfo::OperatingSystemVersionNumbers(&major_version,
-      &minor_version, &bugfix_version);
-
-  if (major_version > 10 || (major_version == 10 && minor_version >= 6)) {
+  if (snow_leopard_or_higher) {
     // 10.6-only Sandbox rules.
     sandbox_data = [sandbox_data
         stringByReplacingOccurrencesOfString:@";10.6_ONLY"

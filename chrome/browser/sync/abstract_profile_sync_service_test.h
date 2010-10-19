@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_ABSTRACT_PROFILE_SYNC_SERVICE_TEST_H_
 #define CHROME_BROWSER_SYNC_ABSTRACT_PROFILE_SYNC_SERVICE_TEST_H_
+#pragma once
 
 #include <string>
 
@@ -11,10 +12,12 @@
 #include "base/scoped_ptr.h"
 #include "base/task.h"
 #include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/net/gaia/token_service.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/autofill_model_associator.h"
 #include "chrome/browser/sync/glue/password_model_associator.h"
 #include "chrome/browser/sync/glue/preference_model_associator.h"
+#include "chrome/browser/sync/glue/session_model_associator.h"
 #include "chrome/browser/sync/glue/typed_url_model_associator.h"
 #include "chrome/browser/sync/profile_sync_factory_mock.h"
 #include "chrome/browser/sync/protocol/sync.pb.h"
@@ -32,7 +35,6 @@ using sync_api::UserShare;
 using syncable::BASE_VERSION;
 using syncable::CREATE;
 using syncable::DirectoryManager;
-using syncable::ID;
 using syncable::IS_DEL;
 using syncable::IS_DIR;
 using syncable::IS_UNAPPLIED_UPDATE;
@@ -47,16 +49,14 @@ using syncable::UNIQUE_SERVER_TAG;
 using syncable::UNITTEST;
 using syncable::WriteTransaction;
 
-class AbstractProfileSyncServiceTest : public testing::Test {
+class ProfileSyncServiceTestHelper {
  public:
-  AbstractProfileSyncServiceTest()
-      : ui_thread_(ChromeThread::UI, &message_loop_) {}
-
-  bool CreateRoot(ModelType model_type) {
-    UserShare* user_share = service_->backend()->GetUserShareHandle();
+  static bool CreateRoot(ModelType model_type, ProfileSyncService* service,
+                         TestIdFactory* ids) {
+    UserShare* user_share = service->backend()->GetUserShareHandle();
     DirectoryManager* dir_manager = user_share->dir_manager.get();
 
-    ScopedDirLookup dir(dir_manager, user_share->authenticated_name);
+    ScopedDirLookup dir(dir_manager, user_share->name);
     if (!dir.good())
       return false;
 
@@ -77,6 +77,9 @@ class AbstractProfileSyncServiceTest : public testing::Test {
       case syncable::TYPED_URLS:
         tag_name = browser_sync::kTypedUrlTag;
         break;
+      case syncable::SESSIONS:
+        tag_name = browser_sync::kSessionsTag;
+        break;
       default:
         return false;
     }
@@ -94,12 +97,23 @@ class AbstractProfileSyncServiceTest : public testing::Test {
     node.Put(SERVER_VERSION, 20);
     node.Put(BASE_VERSION, 20);
     node.Put(IS_DEL, false);
-    node.Put(ID, ids_.MakeServer(tag_name));
+    node.Put(syncable::ID, ids->MakeServer(tag_name));
     sync_pb::EntitySpecifics specifics;
     syncable::AddDefaultExtensionValue(model_type, &specifics);
     node.Put(SPECIFICS, specifics);
 
     return true;
+  }
+};
+
+class AbstractProfileSyncServiceTest : public testing::Test {
+ public:
+  AbstractProfileSyncServiceTest()
+      : ui_thread_(ChromeThread::UI, &message_loop_) {}
+
+  bool CreateRoot(ModelType model_type) {
+    return ProfileSyncServiceTestHelper::CreateRoot(model_type,
+                                                    service_.get(), &ids_);
   }
 
  protected:
@@ -107,6 +121,7 @@ class AbstractProfileSyncServiceTest : public testing::Test {
   MessageLoopForUI message_loop_;
   ChromeThread ui_thread_;
   ProfileSyncFactoryMock factory_;
+  TokenService token_service_;
   scoped_ptr<TestProfileSyncService> service_;
   TestIdFactory ids_;
 };

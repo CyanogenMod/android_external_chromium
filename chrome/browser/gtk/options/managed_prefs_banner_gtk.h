@@ -4,17 +4,16 @@
 
 #ifndef CHROME_BROWSER_GTK_OPTIONS_MANAGED_PREFS_BANNER_GTK_H_
 #define CHROME_BROWSER_GTK_OPTIONS_MANAGED_PREFS_BANNER_GTK_H_
-
-#include <set>
+#pragma once
 
 #include <gtk/gtk.h>
 
-#include "chrome/browser/managed_prefs_banner_base.h"
+#include "chrome/browser/policy/managed_prefs_banner_base.h"
 
 // Constructs and maintains a GTK widget displaying a warning banner. The banner
 // is displayed on the preferences dialog whenever there are options that are
 // not settable by the user due to policy.
-class ManagedPrefsBannerGtk : public ManagedPrefsBannerBase {
+class ManagedPrefsBannerGtk : public policy::ManagedPrefsBannerBase {
  public:
   ManagedPrefsBannerGtk(PrefService* prefs, OptionsPage page);
   virtual ~ManagedPrefsBannerGtk() { }

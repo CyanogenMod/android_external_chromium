@@ -7,12 +7,11 @@
 #include <string>
 
 #include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/stl_util-inl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/gtk/gtk_tree.h"
 #include "chrome/browser/gtk/gtk_util.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "gfx/gtk_util.h"
@@ -111,8 +110,8 @@ PasswordStore* PasswordsExceptionsPageGtk::GetPasswordStore() {
 
 void PasswordsExceptionsPageGtk::SetExceptionList(
     const std::vector<webkit_glue::PasswordForm*>& result) {
-  std::wstring languages = UTF8ToWide(
-      profile_->GetPrefs()->GetString(prefs::kAcceptLanguages));
+  std::string languages =
+      profile_->GetPrefs()->GetString(prefs::kAcceptLanguages);
   gtk_list_store_clear(exception_list_store_);
   STLDeleteElements(&exception_list_);
   exception_list_ = result;
@@ -120,7 +119,7 @@ void PasswordsExceptionsPageGtk::SetExceptionList(
     GtkTreeIter iter;
     gtk_list_store_insert_with_values(exception_list_store_, &iter, (gint) i,
         COL_SITE,
-        WideToUTF8(net::FormatUrl(result[i]->origin, languages)).c_str(), -1);
+        UTF16ToUTF8(net::FormatUrl(result[i]->origin, languages)).c_str(), -1);
   }
   gtk_widget_set_sensitive(remove_all_button_, result.size() > 0);
 }

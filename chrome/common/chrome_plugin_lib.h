@@ -4,8 +4,7 @@
 
 #ifndef CHROME_COMMON_CHROME_PLUGIN_LIB_H_
 #define CHROME_COMMON_CHROME_PLUGIN_LIB_H_
-
-#include <string>
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/file_path.h"

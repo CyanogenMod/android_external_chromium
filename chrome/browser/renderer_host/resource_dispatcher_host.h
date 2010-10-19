@@ -4,13 +4,14 @@
 
 // This is the browser side of the resource dispatcher, it receives requests
 // from the child process (i.e. [Renderer, Plugin, Worker]ProcessHost), and
-// dispatches them to URLRequests. It then fowards the messages from the
+// dispatches them to URLRequests. It then forwards the messages from the
 // URLRequests back to the correct process for handling.
 //
 // See http://dev.chromium.org/developers/design-documents/multi-process-resource-loading
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RESOURCE_DISPATCHER_HOST_H_
 #define CHROME_BROWSER_RENDERER_HOST_RESOURCE_DISPATCHER_HOST_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -18,9 +19,8 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/logging.h"
 #include "base/observer_list.h"
-#include "base/process.h"
+#include "base/scoped_ptr.h"
 #include "base/timer.h"
 #include "chrome/common/child_process_info.h"
 #include "chrome/browser/renderer_host/resource_queue.h"
@@ -46,6 +46,10 @@ struct DownloadSaveInfo;
 struct GlobalRequestID;
 struct ViewHostMsg_Resource_Request;
 struct ViewMsg_ClosePage_Params;
+
+namespace webkit_blob {
+class DeletableFileReference;
+}
 
 class ResourceDispatcherHost : public URLRequest::Delegate {
  public:
@@ -264,8 +268,22 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
   // messages sent.
   void DataReceivedACK(int process_unique_id, int request_id);
 
+  // Maintains a collection of temp files created in support of
+  // the download_to_file capability. Used to grant access to the
+  // child process and to defer deletion of the file until it's
+  // no longer needed.
+  void RegisterDownloadedTempFile(
+      int receiver_id, int request_id,
+      webkit_blob::DeletableFileReference* reference);
+  void UnregisterDownloadedTempFile(int receiver_id, int request_id);
+
   // Needed for the sync IPC message dispatcher macros.
   bool Send(IPC::Message* message);
+
+  // Controls if we launch or squash prefetch requests as they arrive
+  // from renderers.
+  static bool is_prefetch_enabled();
+  static void set_is_prefetch_enabled(bool value);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ResourceDispatcherHostTest,
@@ -392,11 +410,13 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
                     IPC::Message* sync_result,  // only valid for sync
                     int route_id);  // only valid for async
   void OnDataReceivedACK(int request_id);
+  void OnDataDownloadedACK(int request_id);
   void OnUploadProgressACK(int request_id);
   void OnCancelRequest(int request_id);
   void OnFollowRedirect(int request_id,
                         bool has_new_first_party_for_cookies,
                         const GURL& new_first_party_for_cookies);
+  void OnReleaseDownloadedFile(int request_id);
 
   ResourceHandler* CreateSafeBrowsingResourceHandler(
       ResourceHandler* handler, int child_id, int route_id,
@@ -426,6 +446,15 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
   static net::RequestPriority DetermineRequestPriority(ResourceType::Type type);
 
   PendingRequestList pending_requests_;
+
+  // Collection of temp files downloaded for child processes via
+  // the download_to_file mechanism. We avoid deleting them until
+  // the client no longer needs them.
+  typedef std::map<int, scoped_refptr<webkit_blob::DeletableFileReference> >
+      DeletableFilesMap;  // key is request id
+  typedef std::map<int, DeletableFilesMap>
+      RegisteredTempFiles;  // key is child process id
+  RegisteredTempFiles registered_temp_files_;
 
   // A timer that periodically calls UpdateLoadStates while pending_requests_
   // is not empty.
@@ -492,6 +521,8 @@ class ResourceDispatcherHost : public URLRequest::Delegate {
   // Used during IPC message dispatching so that the handlers can get a pointer
   // to the source of the message.
   Receiver* receiver_;
+
+  static bool is_prefetch_enabled_;
 
   DISALLOW_COPY_AND_ASSIGN(ResourceDispatcherHost);
 };

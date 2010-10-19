@@ -4,6 +4,7 @@
 
 #ifndef BASE_MESSAGE_PUMP_H_
 #define BASE_MESSAGE_PUMP_H_
+#pragma once
 
 #include "base/ref_counted.h"
 
@@ -39,7 +40,8 @@ class MessagePump : public RefCountedThreadSafe<MessagePump> {
     virtual bool DoIdleWork() = 0;
   };
 
-  virtual ~MessagePump() {}
+  MessagePump();
+  virtual ~MessagePump();
 
   // The Run method is called to enter the message pump's run loop.
   //

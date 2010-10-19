@@ -16,6 +16,7 @@
 //   400-499 Cache errors
 //   500-599 ?
 //   600-699 FTP errors
+//   700-799 Certificate manager errors
 //
 
 // An asynchronous IO operation is not yet complete.  This usually does not
@@ -167,10 +168,14 @@ NET_ERROR(PROXY_AUTH_REQUESTED, -127)
 // A known TLS strict server didn't offer the renegotiation extension.
 NET_ERROR(SSL_UNSAFE_NEGOTIATION, -128)
 
-// The socket is reporting that we tried to provide new credentials after a
-// a failed attempt on a connection without keep alive.  We need to
-// reestablish the transport socket in order to retry the authentication.
-NET_ERROR(RETRY_CONNECTION, -129)
+// The SSL server attempted to use a weak ephemeral Diffie-Hellman key.
+NET_ERROR(SSL_WEAK_SERVER_EPHEMERAL_DH_KEY, -129)
+
+// Could not create a TCP connection to the proxy server. An error occurred
+// either in resolving its name, or in connecting a socket to it.
+// Note that this does NOT include failures during the actual "CONNECT" method
+// of an HTTP proxy.
+NET_ERROR(PROXY_CONNECTION_FAILED, -130)
 
 // Certificate error codes
 //
@@ -260,13 +265,17 @@ NET_ERROR(CERT_INVALID, -207)
 // signature algorithm.
 NET_ERROR(CERT_WEAK_SIGNATURE_ALGORITHM, -208)
 
+// The domain has CERT records which are tagged as being an exclusive list of
+// valid fingerprints. But the certificate presented was not in this list.
+NET_ERROR(CERT_NOT_IN_DNS, -209)
+
 // Add new certificate error codes here.
 //
 // Update the value of CERT_END whenever you add a new certificate error
 // code.
 
 // The value immediately past the last certificate error code.
-NET_ERROR(CERT_END, -209)
+NET_ERROR(CERT_END, -210)
 
 // The URL is invalid.
 NET_ERROR(INVALID_URL, -300)
@@ -360,6 +369,22 @@ NET_ERROR(ENCODING_DETECTION_FAILED, -340)
 // (GSSAPI) No Kerberos credentials were available during HTTP Authentication.
 NET_ERROR(MISSING_AUTH_CREDENTIALS, -341)
 
+// An unexpected, but documented, SSPI or GSSAPI status code was returned.
+NET_ERROR(UNEXPECTED_SECURITY_LIBRARY_STATUS, -342)
+
+// The environment was not set up correctly for authentication (for
+// example, no KDC could be found or the principal is unknown.
+NET_ERROR(MISCONFIGURED_AUTH_ENVIRONMENT, -343)
+
+// An undocumented SSPI or GSSAPI status code was returned.
+NET_ERROR(UNDOCUMENTED_SECURITY_LIBRARY_STATUS, -344)
+
+// The HTTP response was too big to drain.
+NET_ERROR(RESPONSE_BODY_TOO_BIG_TO_DRAIN, -345)
+
+// The HTTP response was too big to drain.
+NET_ERROR(RESPONSE_HEADERS_MULTIPLE_CONTENT_LENGTH, -346)
+
 // The cache does not have the requested entry.
 NET_ERROR(CACHE_MISS, -400)
 
@@ -425,3 +450,20 @@ NET_ERROR(FTP_COMMAND_NOT_SUPPORTED, -606)
 // order.
 // FTP response code 503.
 NET_ERROR(FTP_BAD_COMMAND_SEQUENCE, -607)
+
+// PKCS #12 import failed due to incorrect password.
+NET_ERROR(PKCS12_IMPORT_BAD_PASSWORD, -701)
+
+// PKCS #12 import failed due to other error.
+NET_ERROR(PKCS12_IMPORT_FAILED, -702)
+
+// CA import failed - not a CA cert.
+NET_ERROR(IMPORT_CA_CERT_NOT_CA, -703)
+
+// Import failed - certificate already exists in database.
+// Note it's a little weird this is an error but reimporting a PKCS12 is ok
+// (no-op).  That's how mozilla does it, though.
+NET_ERROR(IMPORT_CERT_ALREADY_EXISTS, -704)
+
+// CA import failed due to some other error.
+NET_ERROR(IMPORT_CA_CERT_FAILED, -705)

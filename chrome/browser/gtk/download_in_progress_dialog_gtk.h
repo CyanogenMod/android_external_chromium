@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_DOWNLOAD_IN_PROGRESS_DIALOG_GTK_H_
 #define CHROME_BROWSER_GTK_DOWNLOAD_IN_PROGRESS_DIALOG_GTK_H_
+#pragma once
 
 #include "app/gtk_signal.h"
 #include "base/basictypes.h"
@@ -15,6 +16,9 @@ typedef struct _GtkWidget GtkWidget;
 class DownloadInProgressDialogGtk {
  public:
   explicit DownloadInProgressDialogGtk(Browser* browser);
+
+ protected:
+  virtual ~DownloadInProgressDialogGtk() {}
 
  private:
   CHROMEGTK_CALLBACK_1(DownloadInProgressDialogGtk, void, OnResponse, int);

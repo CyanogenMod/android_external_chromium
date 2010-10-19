@@ -2,6 +2,22 @@
 
 TOOLSET := target
 TARGET := net_base
+### Rules for action "ssl_false_start_blacklist":
+quiet_cmd_net_base_ssl_false_start_blacklist = ACTION Generating SSL False Start blacklist $@
+cmd_net_base_ssl_false_start_blacklist = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd net; mkdir -p $(obj)/gen/net/base; "$(builddir)/ssl_false_start_blacklist_process" base/ssl_false_start_blacklist.txt "$(obj)/gen/net/base/ssl_false_start_blacklist_data.cc"
+
+$(obj)/gen/net/base/ssl_false_start_blacklist_data.cc: obj := $(abs_obj)
+
+$(obj)/gen/net/base/ssl_false_start_blacklist_data.cc: builddir := $(abs_builddir)
+
+$(obj)/gen/net/base/ssl_false_start_blacklist_data.cc: TOOLSET := $(TOOLSET)
+$(obj)/gen/net/base/ssl_false_start_blacklist_data.cc: $(builddir)/ssl_false_start_blacklist_process net/base/ssl_false_start_blacklist.txt FORCE_DO_CMD
+	$(call do_cmd,net_base_ssl_false_start_blacklist)
+
+all_deps += $(obj)/gen/net/base/ssl_false_start_blacklist_data.cc
+action_net_base_ssl_false_start_blacklist_outputs := $(obj)/gen/net/base/ssl_false_start_blacklist_data.cc
+
+
 DEFS_Debug := '-DNO_HEAPCHECKER' \
 	'-DCHROMIUM_BUILD' \
 	'-DENABLE_REMOTING=1' \
@@ -21,6 +37,7 @@ CFLAGS_Debug := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -99,6 +116,7 @@ CFLAGS_Release := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -161,7 +179,9 @@ INCS_Release := -Ithird_party/icu/public/common \
 
 OBJS := $(obj).target/$(TARGET)/net/base/address_list.o \
 	$(obj).target/$(TARGET)/net/base/address_list_net_log_param.o \
+	$(obj).target/$(TARGET)/net/base/auth.o \
 	$(obj).target/$(TARGET)/net/base/capturing_net_log.o \
+	$(obj).target/$(TARGET)/net/base/cert_database.o \
 	$(obj).target/$(TARGET)/net/base/cert_database_nss.o \
 	$(obj).target/$(TARGET)/net/base/cert_status_flags.o \
 	$(obj).target/$(TARGET)/net/base/cert_verifier.o \
@@ -169,7 +189,11 @@ OBJS := $(obj).target/$(TARGET)/net/base/address_list.o \
 	$(obj).target/$(TARGET)/net/base/cookie_monster.o \
 	$(obj).target/$(TARGET)/net/base/data_url.o \
 	$(obj).target/$(TARGET)/net/base/directory_lister.o \
+	$(obj).target/$(TARGET)/net/base/dns_reload_timer.o \
+	$(obj).target/$(TARGET)/net/base/dnssec_chain_verifier.o \
+	$(obj).target/$(TARGET)/net/base/dnssec_keyset.o \
 	$(obj).target/$(TARGET)/net/base/dns_util.o \
+	$(obj).target/$(TARGET)/net/base/dnsrr_resolver.o \
 	$(obj).target/$(TARGET)/net/base/escape.o \
 	$(obj).target/$(TARGET)/net/base/ev_root_ca_metadata.o \
 	$(obj).target/$(TARGET)/net/base/file_stream_posix.o \
@@ -199,28 +223,39 @@ OBJS := $(obj).target/$(TARGET)/net/base/address_list.o \
 	$(obj).target/$(TARGET)/net/base/network_change_notifier_linux.o \
 	$(obj).target/$(TARGET)/net/base/network_change_notifier_netlink_linux.o \
 	$(obj).target/$(TARGET)/net/base/nss_memio.o \
+	$(obj).target/$(TARGET)/net/base/pem_tokenizer.o \
 	$(obj).target/$(TARGET)/net/base/platform_mime_util_linux.o \
 	$(obj).target/$(TARGET)/net/base/registry_controlled_domain.o \
 	$(obj).target/$(TARGET)/net/base/sdch_filter.o \
 	$(obj).target/$(TARGET)/net/base/sdch_manager.o \
+	$(obj).target/$(TARGET)/net/base/ssl_cert_request_info.o \
 	$(obj).target/$(TARGET)/net/base/ssl_cipher_suite_names.o \
 	$(obj).target/$(TARGET)/net/base/ssl_client_auth_cache.o \
 	$(obj).target/$(TARGET)/net/base/ssl_config_service.o \
+	$(obj).target/$(TARGET)/net/base/ssl_config_service_defaults.o \
+	$(obj).target/$(TARGET)/net/base/ssl_false_start_blacklist.o \
+	$(obj).target/$(TARGET)/net/base/ssl_info.o \
 	$(obj).target/$(TARGET)/net/base/static_cookie_policy.o \
 	$(obj).target/$(TARGET)/net/base/transport_security_state.o \
-	$(obj).target/$(TARGET)/net/base/telnet_server.o \
 	$(obj).target/$(TARGET)/net/base/upload_data.o \
 	$(obj).target/$(TARGET)/net/base/upload_data_stream.o \
 	$(obj).target/$(TARGET)/net/base/x509_certificate.o \
 	$(obj).target/$(TARGET)/net/base/x509_certificate_nss.o \
 	$(obj).target/$(TARGET)/net/base/x509_cert_types.o \
-	$(obj).target/$(TARGET)/net/third_party/mozilla_security_manager/nsKeygenHandler.o
+	$(obj).target/$(TARGET)/net/third_party/mozilla_security_manager/nsKeygenHandler.o \
+	$(obj).target/$(TARGET)/net/third_party/mozilla_security_manager/nsNSSCertificateDB.o \
+	$(obj).target/$(TARGET)/net/third_party/mozilla_security_manager/nsNSSCertTrust.o \
+	$(obj).target/$(TARGET)/net/third_party/mozilla_security_manager/nsPKCS12Blob.o \
+	$(obj).target/$(TARGET)/gen/net/base/ssl_false_start_blacklist_data.o
 
 # Add to the list of files we specially track dependencies for.
 all_deps += $(OBJS)
 
 # Make sure our dependencies are built before any of us.
-$(OBJS): | $(obj).target/net/net_resources.stamp
+$(OBJS): | $(obj).target/net/net_resources.stamp ssl_false_start_blacklist_process
+
+# Make sure our actions/rules run before any of us.
+$(OBJS): | $(action_net_base_ssl_false_start_blacklist_outputs)
 
 # CFLAGS et al overrides must be target-local.
 # See "Target-specific Variable Values" in the GNU Make manual.
@@ -261,12 +296,19 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.cpp FORCE_DO_CMD
 
 # End of this set of suffix rules
 ### Rules for final target.
+# Build our special outputs first.
+$(obj).target/net/libnet_base.a: | $(action_net_base_ssl_false_start_blacklist_outputs)
+
+# Preserve order dependency of special output on deps.
+$(action_net_base_ssl_false_start_blacklist_outputs): | $(obj).target/net/net_resources.stamp ssl_false_start_blacklist_process
+
 LDFLAGS_Debug := -pthread \
-	-Wl,-z,noexecstack \
-	-rdynamic
+	-Wl,-z,noexecstack
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := 

@@ -21,6 +21,7 @@ CFLAGS_Debug := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -75,6 +76,7 @@ CFLAGS_Release := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -115,7 +117,9 @@ OBJS := $(obj).target/$(TARGET)/net/base/cert_test_util.o \
 	$(obj).target/$(TARGET)/net/disk_cache/disk_cache_test_util.o \
 	$(obj).target/$(TARGET)/net/proxy/proxy_config_service_common_unittest.o \
 	$(obj).target/$(TARGET)/net/socket/socket_test_util.o \
-	$(obj).target/$(TARGET)/net/test/test_server.o
+	$(obj).target/$(TARGET)/net/test/python_utils.o \
+	$(obj).target/$(TARGET)/net/test/test_server.o \
+	$(obj).target/$(TARGET)/net/test/test_server_posix.o
 
 # Add to the list of files we specially track dependencies for.
 all_deps += $(OBJS)
@@ -145,11 +149,12 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.cc FORCE_DO_CMD
 # End of this set of suffix rules
 ### Rules for final target.
 LDFLAGS_Debug := -pthread \
-	-Wl,-z,noexecstack \
-	-rdynamic
+	-Wl,-z,noexecstack
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := 

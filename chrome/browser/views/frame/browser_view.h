@@ -4,9 +4,9 @@
 
 #ifndef CHROME_BROWSER_VIEWS_FRAME_BROWSER_VIEW_H_
 #define CHROME_BROWSER_VIEWS_FRAME_BROWSER_VIEW_H_
+#pragma once
 
 #include <map>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -16,13 +16,14 @@
 #include "build/build_config.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/tabs/tab_strip_model_observer.h"
 #include "chrome/browser/views/frame/browser_bubble_host.h"
 #include "chrome/browser/views/frame/browser_frame.h"
 #include "chrome/browser/views/infobars/infobar_container.h"
 #include "chrome/browser/views/tabs/tab_strip.h"
 #include "chrome/browser/views/tabs/base_tab_strip.h"
 #include "chrome/browser/views/unhandled_keyboard_event_handler.h"
+#include "chrome/common/notification_registrar.h"
 #include "gfx/native_widget_types.h"
 #include "views/window/client_view.h"
 #include "views/window/window_delegate.h"
@@ -42,9 +43,9 @@ class BookmarkBarView;
 class Browser;
 class BrowserBubble;
 class BrowserViewLayout;
+class ContentsContainer;
 class DownloadShelfView;
 class EncodingMenuModel;
-class ExtensionShelf;
 class FullscreenExitBubble;
 class HtmlDialogUIDelegate;
 class InfoBarContainer;
@@ -52,6 +53,7 @@ class LocationBarView;
 class SideTabStrip;
 class StatusBubbleViews;
 class TabContentsContainer;
+class TabStripModel;
 class ToolbarView;
 class ZoomMenuModel;
 
@@ -116,7 +118,10 @@ class BrowserView : public BrowserBubbleHost,
   // initiated.
   void WindowMoveOrResizeStarted();
 
-  // Returns the bounds of the toolbar, in BrowserView coordinates.
+  // Returns the apparent bounds of the toolbar, in BrowserView coordinates.
+  // These differ from |toolbar_.bounds()| in that they match where the toolbar
+  // background image is drawn -- slightly outside the "true" bounds
+  // horizontally, and, when using vertical tabs, behind the tab column.
   gfx::Rect GetToolbarBounds() const;
 
   // Returns the bounds of the content area, in the coordinates of the
@@ -140,18 +145,20 @@ class BrowserView : public BrowserBubbleHost,
   // avatar icon.
   int GetTabStripHeight() const;
 
-  // Returns the bounds of the TabStrip. Used by themed views to determine the
-  // offset of IDR_THEME_TOOLBAR.
-  gfx::Rect GetTabStripBounds() const;
+  // Takes some view's origin (relative to this BrowserView) and offsets it such
+  // that it can be used as the source origin for seamlessly tiling the toolbar
+  // background image over that view.
+  gfx::Point OffsetPointForToolbarBackgroundImage(
+      const gfx::Point& point) const;
+
+  // Returns the width of the currently displayed sidebar or 0.
+  int GetSidebarWidth() const;
 
   // Accessor for the TabStrip.
   BaseTabStrip* tabstrip() const { return tabstrip_; }
 
   // Accessor for the Toolbar.
   ToolbarView* toolbar() const { return toolbar_; }
-
-  // Accessor for the ExtensionShelf.
-  ExtensionShelf* extension_shelf() const { return extension_shelf_; }
 
   // Returns true if various window components are visible.
   bool IsTabStripVisible() const;
@@ -242,13 +249,13 @@ class BrowserView : public BrowserBubbleHost,
   virtual void SetBounds(const gfx::Rect& bounds);
   virtual void Close();
   virtual void Activate();
+  virtual void Deactivate();
   virtual bool IsActive() const;
   virtual void FlashFrame();
   virtual gfx::NativeWindow GetNativeHandle();
   virtual BrowserWindowTesting* GetBrowserWindowTesting();
   virtual StatusBubble* GetStatusBubble();
   virtual void SelectedTabToolbarSizeChanged(bool is_animating);
-  virtual void SelectedTabExtensionShelfSizeChanged();
   virtual void UpdateTitleBar();
   virtual void ShelfVisibilityChanged();
   virtual void UpdateDevTools();
@@ -276,7 +283,6 @@ class BrowserView : public BrowserBubbleHost,
   virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
                                       Profile* profile);
   virtual void ToggleBookmarkBar();
-  virtual void ToggleExtensionShelf();
   virtual views::Window* ShowAboutChromeDialog();
   virtual void ShowUpdateChromeDialog();
   virtual void ShowTaskManager();
@@ -315,11 +321,15 @@ class BrowserView : public BrowserBubbleHost,
   virtual void Copy();
   virtual void Paste();
   virtual void ToggleTabStripMode();
+  virtual void ShowMatchPreview();
+  virtual void HideMatchPreview();
+  virtual gfx::Rect GetMatchPreviewBounds();
 
   // Overridden from BrowserWindowTesting:
   virtual BookmarkBarView* GetBookmarkBarView() const;
   virtual LocationBarView* GetLocationBarView() const;
   virtual views::View* GetTabContentsContainerView() const;
+  virtual views::View* GetSidebarContainerView() const;
   virtual ToolbarView* GetToolbarView() const;
 
   // Overridden from NotificationObserver:
@@ -334,6 +344,10 @@ class BrowserView : public BrowserBubbleHost,
                              TabContents* new_contents,
                              int index,
                              bool user_gesture);
+  virtual void TabReplacedAt(TabContents* old_contents,
+                             TabContents* new_contents,
+                             int index,
+                             TabStripModelObserver::TabReplaceType type);
   virtual void TabStripEmpty();
 
   // Overridden from menus::SimpleMenuModel::Delegate:
@@ -350,6 +364,7 @@ class BrowserView : public BrowserBubbleHost,
   virtual bool CanMaximize() const;
   virtual bool IsModal() const;
   virtual std::wstring GetWindowTitle() const;
+  virtual std::wstring GetAccessibleWindowTitle() const;
   virtual views::View* GetInitiallyFocusedView();
   virtual bool ShouldShowWindowTitle() const;
   virtual SkBitmap GetWindowAppIcon();
@@ -393,7 +408,7 @@ class BrowserView : public BrowserBubbleHost,
                                     views::View* parent,
                                     views::View* child);
   virtual void ChildPreferredSizeChanged(View* child);
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
 
   // Factory Methods.
   // Returns a new LayoutManager for this browser view. A subclass may
@@ -433,6 +448,12 @@ class BrowserView : public BrowserBubbleHost,
   // type, and there should be a subsequent re-layout to show it.
   // |contents| can be NULL.
   bool MaybeShowInfoBar(TabContents* contents);
+
+  // Updates sidebar UI according to the current tab and sidebar state.
+  void UpdateSidebar();
+  // Displays active sidebar linked to the |tab_contents| or hides sidebar UI,
+  // if there's no such sidebar.
+  void UpdateSidebarForContents(TabContents* tab_contents);
 
   // Updated devtools window for given contents.
   void UpdateDevToolsForContents(TabContents* tab_contents);
@@ -476,8 +497,11 @@ class BrowserView : public BrowserBubbleHost,
   // Initialize the hung plugin detector.
   void InitHangMonitor();
 
-  // Initialize class statics.
-  static void InitClass();
+  // Invoked from TabSelectedAt or when the match preview is made active.  Is
+  // |change_tab_contents| is true, |new_contents| is added to the view
+  // hierarchy, if |change_tab_contents| is false, it's assumed |new_contents|
+  // has already been added to the view hierarchy.
+  void ProcessTabSelected(TabContents* new_contents, bool change_tab_contents);
 
   // Last focused view that issued a tab traversal.
   int last_focused_view_storage_id_;
@@ -487,6 +511,47 @@ class BrowserView : public BrowserBubbleHost,
 
   // The Browser object we are associated with.
   scoped_ptr<Browser> browser_;
+
+  // BrowserView layout (LTR one is pictured here).
+  //
+  // --------------------------------------------------------------------------
+  // |         | Tabs (1)                                                     |
+  // |         |--------------------------------------------------------------|
+  // |         | Navigation buttons, menus and the address bar (toolbar_)     |
+  // |         |--------------------------------------------------------------|
+  // |         | All infobars (infobar_container_) *                          |
+  // |         |--------------------------------------------------------------|
+  // |         | Bookmarks (bookmark_bar_view_) *                             |
+  // |         |--------------------------------------------------------------|
+  // |         |Page content (contents_)              ||                      |
+  // |         |--------------------------------------|| Sidebar content      |
+  // |         || contents_container_ and/or         ||| (sidebar_container_) |
+  // |         || preview_container_                 |||                      |
+  // |         ||                                    |(3)                     |
+  // | Tabs (2)||                                    |||                      |
+  // |         ||                                    |||                      |
+  // |         ||                                    |||                      |
+  // |         ||                                    |||                      |
+  // |         |--------------------------------------||                      |
+  // |         |==(4)=========================================================|
+  // |         |                                                              |
+  // |         |                                                              |
+  // |         | Debugger (devtools_container_)                               |
+  // |         |                                                              |
+  // |         |                                                              |
+  // |         |--------------------------------------------------------------|
+  // |         | Active downloads (download_shelf_)                           |
+  // --------------------------------------------------------------------------
+  //
+  // (1) - tabstrip_, default position
+  // (2) - tabstrip_, position when side tabs are enabled
+  // (3) - sidebar_split_
+  // (4) - contents_split_
+  //
+  // * - The bookmark bar and info bar are swapped when on the new tab page.
+  //     Additionally contents_ is positioned on top of the bookmark bar when
+  //     the bookmark bar is detached. This is done to allow the
+  //     preview_container_ to appear over the bookmark bar.
 
   // Tool/Info bars that we are currently showing. Used for layout.
   // active_bookmark_bar_ is either NULL, if the bookmark bar isn't showing,
@@ -508,11 +573,23 @@ class BrowserView : public BrowserBubbleHost,
   // The InfoBarContainer that contains InfoBars for the current tab.
   InfoBarContainer* infobar_container_;
 
+  // The view that contains sidebar for the current tab.
+  TabContentsContainer* sidebar_container_;
+
+  // Split view containing the contents container and sidebar container.
+  views::SingleSplitView* sidebar_split_;
+
   // The view that contains the selected TabContents.
   TabContentsContainer* contents_container_;
 
   // The view that contains devtools window for the selected TabContents.
   TabContentsContainer* devtools_container_;
+
+  // The view that contains the match preview TabContents.
+  TabContentsContainer* preview_container_;
+
+  // The view managing both the contents_container_ and preview_container_.
+  ContentsContainer* contents_;
 
   // Split view containing the contents container and devtools container.
   views::SingleSplitView* contents_split_;
@@ -568,12 +645,11 @@ class BrowserView : public BrowserBubbleHost,
   // The timer used to update frames for the Loading Animation.
   base::RepeatingTimer<BrowserView> loading_animation_timer_;
 
-  // A bottom bar for showing extensions.
-  ExtensionShelf* extension_shelf_;
-
   UnhandledKeyboardEventHandler unhandled_keyboard_event_handler_;
 
   scoped_ptr<AccessibleViewHelper> accessible_view_helper_;
+
+  NotificationRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserView);
 };

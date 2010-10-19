@@ -6,32 +6,39 @@
 
 #include "app/sql/connection.h"
 #include "app/sql/statement.h"
+#include "base/file_util.h"
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/automation/browser_proxy.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/test/test_server.h"
 
 namespace {
 
 class MultipartResponseUITest : public UITest {
 };
 
+// http://crbug.com/50060
+#if defined(OS_MACOSX)
+#define MAYBE_SingleVisit DISABLED_SingleVisit
+#else
+#define MAYBE_SingleVisit SingleVisit
+#endif
+
 #if defined(NDEBUG)
 // http://code.google.com/p/chromium/issues/detail?id=37746
 // Running this test only for release builds as it fails in debug test
 // runs
-TEST_F(MultipartResponseUITest, SingleVisit) {
+TEST_F(MultipartResponseUITest, MAYBE_SingleVisit) {
   // Make sure that visiting a multipart/x-mixed-replace site only
   // creates one entry in the visits table.
-  const wchar_t kDocRoot[] = L"chrome/test/data";
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  net::TestServer test_server(net::TestServer::TYPE_HTTP,
+                              FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  ASSERT_TRUE(test_server.Start());
 
   scoped_refptr<BrowserProxy> browser_proxy(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser_proxy.get());
   scoped_refptr<TabProxy> tab_proxy(browser_proxy->GetActiveTab());
   ASSERT_TRUE(tab_proxy.get());
-  NavigateToURL(server->TestServerPage("multipart"));
+  NavigateToURL(test_server.GetURL("multipart"));
   std::wstring title;
   EXPECT_TRUE(tab_proxy->GetTabTitle(&title));
   EXPECT_EQ(L"page 9", title);
@@ -47,7 +54,8 @@ TEST_F(MultipartResponseUITest, SingleVisit) {
   ASSERT_TRUE(db.Open(history));
   std::string query(
       "SELECT COUNT(1) FROM visits, urls WHERE visits.url = urls.id"
-      " AND urls.url LIKE 'http://localhost:%/multipart'");
+      " AND urls.url LIKE 'http://" +
+      test_server.host_port_pair().HostForURL() + ":%/multipart'");
   {
     sql::Statement statement(db.GetUniqueStatement(query.c_str()));
     EXPECT_TRUE(statement);

@@ -7,6 +7,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_NOTIFIER_CHROME_INVALIDATION_CLIENT_H_
 #define CHROME_BROWSER_SYNC_NOTIFIER_CHROME_INVALIDATION_CLIENT_H_
+#pragma once
 
 #include <string>
 
@@ -17,8 +18,8 @@
 #include "chrome/browser/sync/syncable/model_type.h"
 #include "google/cacheinvalidation/invalidation-client.h"
 
-namespace buzz {
-class XmppClient;
+namespace talk_base {
+class Task;
 }  // namespace
 
 namespace sync_notifier {
@@ -45,10 +46,10 @@ class ChromeInvalidationClient : public invalidation::InvalidationListener {
   // Calls Stop().
   virtual ~ChromeInvalidationClient();
 
-  // Does not take ownership of |listener| nor |xmpp_client|.
+  // Does not take ownership of |listener| nor |base_task|.
   void Start(
       const std::string& client_id, Listener* listener,
-      buzz::XmppClient* xmpp_client);
+      talk_base::Task* base_task);
 
   void Stop();
 

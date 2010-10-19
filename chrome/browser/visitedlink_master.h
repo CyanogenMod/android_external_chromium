@@ -4,12 +4,12 @@
 
 #ifndef CHROME_BROWSER_VISITEDLINK_MASTER_H__
 #define CHROME_BROWSER_VISITEDLINK_MASTER_H__
+#pragma once
 
 #if defined(OS_WIN)
 #include <windows.h>
 #endif
 #include <set>
-#include <string>
 #include <vector>
 
 #include "base/file_path.h"
@@ -20,7 +20,6 @@
 #include "chrome/common/visitedlink_common.h"
 
 class GURL;
-class MessageLoop;
 class Profile;
 
 // Controls the link coloring database. The master controls all writing to the

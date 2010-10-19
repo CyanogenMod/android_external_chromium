@@ -4,18 +4,22 @@
 
 #ifndef CHROME_COMMON_CHILD_THREAD_H_
 #define CHROME_COMMON_CHILD_THREAD_H_
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/scoped_ptr.h"
 #include "chrome/common/message_router.h"
-#include "chrome/common/resource_dispatcher.h"
-#include "ipc/ipc_sync_channel.h"
 #include "ipc/ipc_message.h"
+#include "webkit/glue/resource_loader_bridge.h"
 
+class FileSystemDispatcher;
+class MessageLoop;
 class NotificationService;
+class ResourceDispatcher;
 class SocketStreamDispatcher;
 
 namespace IPC {
+class SyncChannel;
 class SyncMessageFilter;
 }
 
@@ -45,19 +49,21 @@ class ChildThread : public IPC::Channel::Listener,
       int host_renderer_id,
       int host_render_view_id);
 
-  ResourceDispatcher* resource_dispatcher() {
-    return resource_dispatcher_.get();
-  }
+  ResourceDispatcher* resource_dispatcher();
 
   SocketStreamDispatcher* socket_stream_dispatcher() {
     return socket_stream_dispatcher_.get();
   }
 
+  FileSystemDispatcher* file_system_dispatcher() const {
+    return file_system_dispatcher_.get();
+  }
+
   // Safe to call on any thread, as long as it's guaranteed that the thread's
   // lifetime is less than the main thread.
-  IPC::SyncMessageFilter* sync_message_filter() { return sync_message_filter_; }
+  IPC::SyncMessageFilter* sync_message_filter();
 
-  MessageLoop* message_loop() { return message_loop_; }
+  MessageLoop* message_loop();
 
   // Returns the one child thread.
   static ChildThread* current();
@@ -116,6 +122,8 @@ class ChildThread : public IPC::Channel::Listener,
   MessageLoop* message_loop_;
 
   scoped_ptr<NotificationService> notification_service_;
+
+  scoped_ptr<FileSystemDispatcher> file_system_dispatcher_;
 
   DISALLOW_COPY_AND_ASSIGN(ChildThread);
 };

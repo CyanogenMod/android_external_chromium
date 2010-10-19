@@ -42,6 +42,7 @@
 #ifdef USE_TALK_SOUND
 #include "talk/sound/soundsystemfactory.h"
 #endif
+#include "talk/session/phone/videocommon.h"
 
 namespace cricket {
 
@@ -86,13 +87,6 @@ class MediaEngine {
   enum VideoOptions {
   };
 
-  enum CaptureResult {
-    CR_SUCCESS,
-    CR_PENDING,
-    CR_FAILURE,
-    CR_NO_DEVICE,
-  };
-
   virtual ~MediaEngine() {}
   static MediaEngine* Create(
 #ifdef USE_TALK_SOUND
@@ -124,8 +118,10 @@ class MediaEngine {
   virtual bool SetAudioOptions(int options) = 0;
   // Sets global video options. "options" are from VideoOptions, above.
   virtual bool SetVideoOptions(int options) = 0;
-  // Sets the default (maximum) codec/resolution to capture and encode video.
-  virtual bool SetDefaultVideoCodec(const VideoCodec& codec) = 0;
+  // Sets the default (maximum) codec/resolution and encoder option to capture
+  // and encode video.
+  virtual bool SetDefaultVideoEncoderConfig(const VideoEncoderConfig& config)
+      = 0;
 
   // Device selection
   // TODO(tschmelcher): Add method for selecting the soundclip device.
@@ -149,10 +145,9 @@ class MediaEngine {
   // Starts/stops local camera.
   virtual CaptureResult SetVideoCapture(bool capture) = 0;
 
-  // Codecs
-  virtual const std::vector<Codec>& codecs() = 0;
+  virtual const std::vector<AudioCodec>& audio_codecs() = 0;
   virtual const std::vector<VideoCodec>& video_codecs() = 0;
-  virtual bool FindCodec(const Codec &codec) = 0;
+  virtual bool FindAudioCodec(const AudioCodec &codec) = 0;
   virtual bool FindVideoCodec(const VideoCodec &codec) = 0;
 
   // Logging control
@@ -168,7 +163,9 @@ template<class VOICE, class VIDEO>
 class CompositeMediaEngine : public MediaEngine {
  public:
 #ifdef USE_TALK_SOUND
-  CompositeMediaEngine(SoundSystemFactory *factory) : voice_(factory) {}
+  explicit CompositeMediaEngine(SoundSystemFactory *factory)
+      : voice_(factory) {
+  }
 #endif
   CompositeMediaEngine() {}
   virtual bool Init() {
@@ -205,8 +202,8 @@ class CompositeMediaEngine : public MediaEngine {
   virtual bool SetVideoOptions(int o) {
     return video_.SetOptions(o);
   }
-  virtual bool SetDefaultVideoCodec(const VideoCodec& codec) {
-    return video_.SetDefaultCodec(codec);
+  virtual bool SetDefaultVideoEncoderConfig(const VideoEncoderConfig& config) {
+    return video_.SetDefaultEncoderConfig(config);
   }
 
   virtual bool SetSoundDevices(const Device* in_device,
@@ -230,18 +227,18 @@ class CompositeMediaEngine : public MediaEngine {
   virtual bool SetLocalRenderer(VideoRenderer* renderer) {
     return video_.SetLocalRenderer(renderer);
   }
-  virtual MediaEngine::CaptureResult SetVideoCapture(bool capture) {
+  virtual CaptureResult SetVideoCapture(bool capture) {
     return video_.SetCapture(capture);
   }
 
-  virtual const std::vector<Codec>& codecs() {
+  virtual const std::vector<AudioCodec>& audio_codecs() {
     return voice_.codecs();
   }
   virtual const std::vector<VideoCodec>& video_codecs() {
     return video_.codecs();
   }
 
-  virtual bool FindCodec(const Codec &codec) {
+  virtual bool FindAudioCodec(const AudioCodec &codec) {
     return voice_.FindCodec(codec);
   }
   virtual bool FindVideoCodec(const VideoCodec &codec) {
@@ -280,11 +277,11 @@ class NullVoiceEngine {
   bool SetOutputVolume(int level) { return true; }
   int GetInputLevel() { return 0; }
   bool SetLocalMonitor(bool enable) { return true; }
-  const std::vector<Codec>& codecs() { return codecs_; }
-  bool FindCodec(const Codec&) { return false; }
+  const std::vector<AudioCodec>& codecs() { return codecs_; }
+  bool FindCodec(const AudioCodec&) { return false; }
   void SetLogging(int min_sev, const char* filter) {}
  private:
-  std::vector<Codec> codecs_;
+  std::vector<AudioCodec> codecs_;
 };
 
 // NullVideoEngine can be used with CompositeMediaEngine in the case where only
@@ -298,12 +295,12 @@ class NullVideoEngine {
     return NULL;
   }
   bool SetOptions(int opts) { return true; }
-  bool SetDefaultCodec(const VideoCodec& codec) { return true; }
+  bool SetDefaultEncoderConfig(const VideoEncoderConfig& config) {
+    return true;
+  }
   bool SetCaptureDevice(const Device* cam_device) { return true; }
   bool SetLocalRenderer(VideoRenderer* renderer) { return true; }
-  MediaEngine::CaptureResult SetCapture(bool capture) {
-    return MediaEngine::CR_SUCCESS;
-  }
+  CaptureResult SetCapture(bool capture) { return CR_SUCCESS;  }
   const std::vector<VideoCodec>& codecs() { return codecs_; }
   bool FindCodec(const VideoCodec&) { return false; }
   void SetLogging(int min_sev, const char* filter) {}

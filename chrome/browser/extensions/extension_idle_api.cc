@@ -42,7 +42,7 @@ struct ExtensionIdlePollingData {
 static ExtensionIdlePollingData polling_data;
 
 // Forward declaration of utility methods.
-static const wchar_t* IdleStateToDescription(IdleState state);
+static const char* IdleStateToDescription(IdleState state);
 static StringValue* CreateIdleValue(IdleState idle_state);
 static int CheckThresholdBounds(int timeout);
 static IdleState CalculateIdleStateAndUpdateTimestamp(int threshold);
@@ -64,7 +64,7 @@ class ExtensionIdlePollingTask : public Task {
   DISALLOW_COPY_AND_ASSIGN(ExtensionIdlePollingTask);
 };
 
-const wchar_t* IdleStateToDescription(IdleState state) {
+const char* IdleStateToDescription(IdleState state) {
   if (IDLE_STATE_ACTIVE == state)
     return keys::kStateActive;
   if (IDLE_STATE_IDLE == state)
@@ -153,8 +153,5 @@ void ExtensionIdleEventRouter::OnIdleStateChange(Profile* profile,
   base::JSONWriter::Write(&args, false, &json_args);
 
   profile->GetExtensionMessageService()->DispatchEventToRenderers(
-      keys::kOnStateChanged,
-      json_args,
-      profile->IsOffTheRecord(),
-      GURL());
+      keys::kOnStateChanged, json_args, profile, GURL());
 }

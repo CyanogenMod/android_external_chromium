@@ -7,6 +7,7 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/i18n/rtl.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -266,7 +267,7 @@ void HungRendererDialogView::EndForTabContents(TabContents* contents) {
 // HungRendererDialogView, views::DialogDelegate implementation:
 
 std::wstring HungRendererDialogView::GetWindowTitle() const {
-  return l10n_util::GetString(IDS_PRODUCT_NAME);
+  return l10n_util::GetString(IDS_BROWSER_HANGMONITOR_RENDERER_TITLE);
 }
 
 void HungRendererDialogView::WindowClosing() {
@@ -317,9 +318,11 @@ views::View* HungRendererDialogView::GetContentsView() {
 void HungRendererDialogView::ButtonPressed(
     views::Button* sender, const views::Event& event) {
   if (sender == kill_button_) {
-    // Kill the process.
-    TerminateProcess(contents_->GetRenderProcessHost()->GetHandle(),
-                     ResultCodes::HUNG);
+    if (contents_ && contents_->GetRenderProcessHost()) {
+      // Kill the process.
+      TerminateProcess(contents_->GetRenderProcessHost()->GetHandle(),
+                       ResultCodes::HUNG);
+    }
   }
 }
 

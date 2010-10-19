@@ -4,9 +4,12 @@
 
 #ifndef CHROME_BROWSER_PRINTING_PRINT_VIEW_MANAGER_H_
 #define CHROME_BROWSER_PRINTING_PRINT_VIEW_MANAGER_H_
+#pragma once
 
 #include "base/ref_counted.h"
+#include "base/string16.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "printing/printed_pages_source.h"
 
@@ -37,7 +40,7 @@ class PrintViewManager : public NotificationObserver,
   bool OnRenderViewGone(RenderViewHost* render_view_host);
 
   // PrintedPagesSource implementation.
-  virtual std::wstring RenderSourceName();
+  virtual string16 RenderSourceName();
   virtual GURL RenderSourceUrl();
 
   // RenderViewHostDelegate::Printing implementation.

@@ -9,6 +9,8 @@
 #include "base/histogram.h"
 #include "base/i18n/rtl.h"
 #include "base/string_piece.h"
+#include "base/stringprintf.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/chrome_thread.h"
@@ -27,8 +29,8 @@ namespace {
 const int kMaxBlankPeriod = 3000;
 
 // A utility function to set the dictionary's value given by |resource_id|.
-void SetString(DictionaryValue* strings, const wchar_t* name, int resource_id) {
-  strings->SetString(name, l10n_util::GetString(resource_id));
+void SetString(DictionaryValue* strings, const char* name, int resource_id) {
+  strings->SetString(name, l10n_util::GetStringUTF16(resource_id));
 }
 
 }  // namespace
@@ -61,27 +63,28 @@ OfflineLoadPage::OfflineLoadPage(TabContents* tab_contents,
 
 std::string OfflineLoadPage::GetHTMLContents() {
   DictionaryValue strings;
-  SetString(&strings, L"headLine", IDS_OFFLINE_LOAD_HEADLINE);
-  SetString(&strings, L"description", IDS_OFFLINE_LOAD_DESCRIPTION);
-  SetString(&strings, L"load_button", IDS_OFFLINE_LOAD_BUTTON);
-  SetString(&strings, L"back_button", IDS_OFFLINE_BACK_BUTTON);
+  SetString(&strings, "headLine", IDS_OFFLINE_LOAD_HEADLINE);
+  SetString(&strings, "description", IDS_OFFLINE_LOAD_DESCRIPTION);
+  SetString(&strings, "load_button", IDS_OFFLINE_LOAD_BUTTON);
+  SetString(&strings, "back_button", IDS_OFFLINE_BACK_BUTTON);
 
   // TODO(oshima): tab()->GetTitle() always return url. This has to be
   // a cached title.
-  strings.SetString(L"title", UTF16ToWide(tab()->GetTitle()));
-  strings.SetString(L"textdirection", base::i18n::IsRTL() ? L"rtl" : L"ltr");
-  strings.SetString(L"display_go_back",
-                    tab()->controller().CanGoBack() ? L"inline" : L"none");
+  strings.SetString("title", tab()->GetTitle());
+  strings.SetString("textdirection", base::i18n::IsRTL() ? "rtl" : "ltr");
+  strings.SetString("display_go_back",
+                    tab()->controller().CanGoBack() ? "inline" : "none");
   int64 time_to_wait = std::max(
       static_cast<int64>(0),
       kMaxBlankPeriod -
           NetworkStateNotifier::GetOfflineDuration().InMilliseconds());
-  strings.SetString(L"on_load",
-                    StringPrintf(L"startTimer(%ld)", time_to_wait));
+  strings.SetString("on_load",
+                    WideToUTF16Hack(base::StringPrintf(L"startTimer(%ld)",
+                                                       time_to_wait)));
 
   // TODO(oshima): thumbnail is not working yet. fix this.
   const std::string url = "chrome://thumb/" + GetURL().spec();
-  strings.SetString(L"thumbnailUrl", "url(" + url + ")");
+  strings.SetString("thumbnailUrl", "url(" + url + ")");
 
   base::StringPiece html(
       ResourceBundle::GetSharedInstance().GetRawDataResource(

@@ -13,6 +13,7 @@
 #include "base/logging.h"
 #include "base/singleton.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
 
@@ -96,7 +97,7 @@ std::string DisplayStatus(OM_uint32 major_status,
                           OM_uint32 minor_status) {
   if (major_status == GSS_S_COMPLETE)
     return "OK";
-  return StringPrintf("0x%08X 0x%08X", major_status, minor_status);
+  return base::StringPrintf("0x%08X 0x%08X", major_status, minor_status);
 }
 
 std::string DisplayCode(GSSAPILibrary* gssapi_lib,
@@ -106,7 +107,7 @@ std::string DisplayCode(GSSAPILibrary* gssapi_lib,
   const size_t kMaxMsgLength = 4096;
   // msg_ctx needs to be outside the loop because it is invoked multiple times.
   OM_uint32 msg_ctx = 0;
-  std::string rv = StringPrintf("(0x%08X)", status);
+  std::string rv = base::StringPrintf("(0x%08X)", status);
 
   // This loop should continue iterating until msg_ctx is 0 after the first
   // iteration. To be cautious and prevent an infinite loop, it stops after
@@ -114,7 +115,7 @@ std::string DisplayCode(GSSAPILibrary* gssapi_lib,
   // individual message may exceed |kMaxMsgLength|, and the final result
   // will not exceed |kMaxMsgLength|*2-1.
   for (int i = 0; i < kMaxDisplayIterations && rv.size() < kMaxMsgLength;
-      ++i) {
+       ++i) {
     OM_uint32 min_stat;
     gss_buffer_desc_struct msg = GSS_C_EMPTY_BUFFER;
     OM_uint32 maj_stat =
@@ -125,8 +126,8 @@ std::string DisplayCode(GSSAPILibrary* gssapi_lib,
           static_cast<int>(kMaxMsgLength) :
           static_cast<int>(msg.length);
       if (msg_len > 0 && msg.value != NULL) {
-        rv += StringPrintf(" %.*s", msg_len,
-                           static_cast<char*>(msg.value));
+        rv += base::StringPrintf(" %.*s", msg_len,
+                                 static_cast<char*>(msg.value));
       }
     }
     gssapi_lib->release_buffer(&min_stat, &msg);
@@ -143,7 +144,8 @@ std::string DisplayExtendedStatus(GSSAPILibrary* gssapi_lib,
     return "OK";
   std::string major = DisplayCode(gssapi_lib, major_status, GSS_C_GSS_CODE);
   std::string minor = DisplayCode(gssapi_lib, minor_status, GSS_C_MECH_CODE);
-  return StringPrintf("Major: %s | Minor: %s", major.c_str(), minor.c_str());
+  return base::StringPrintf("Major: %s | Minor: %s", major.c_str(),
+                            minor.c_str());
 }
 
 // ScopedName releases a gss_name_t when it goes out of scope.
@@ -253,11 +255,11 @@ std::string DescribeOid(GSSAPILibrary* gssapi_lib, const gss_OID oid) {
       }
     }
     if (!str[str_length]) {
-      output += StringPrintf("\"%s\"", str);
+      output += base::StringPrintf("\"%s\"", str);
       return output;
     }
   }
-  output = StringPrintf("(%u) \"", byte_length);
+  output = base::StringPrintf("(%u) \"", byte_length);
   if (!oid->elements) {
     output += "<NULL>";
     return output;
@@ -267,7 +269,7 @@ std::string DescribeOid(GSSAPILibrary* gssapi_lib, const gss_OID oid) {
   // Don't print more than |kMaxCharsToPrint| characters.
   size_t i = 0;
   for ( ; (i < byte_length) && (i < kMaxCharsToPrint); ++i) {
-    output += StringPrintf("\\x%02X", elements[i]);
+    output += base::StringPrintf("\\x%02X", elements[i]);
   }
   if (i >= kMaxCharsToPrint)
     output += "...";
@@ -299,42 +301,6 @@ std::string DescribeOid(GSSAPILibrary* gssapi_lib, const gss_OID oid) {
   return output;
 }
 
-std::string DescribeBuffer(const gss_buffer_t buffer) {
-  if (!buffer)
-    return "<NULL>";
-  size_t length = buffer->length;
-  std::string output(StringPrintf("(%" PRIuS ") ", length));
-  if (!buffer->value) {
-    output += "<NULL>";
-    return output;
-  }
-  const char* value =
-      reinterpret_cast<const char*>(buffer->value);
-  bool is_printable = true;
-  for (size_t i = 0; i < length; ++i) {
-    if (!isprint(value[i])) {
-      // Allow the last character to be a '0'.
-      if ((i < (length - 1)) && !value[i])
-        continue;
-      is_printable = false;
-      break;
-    }
-  }
-  if (is_printable) {
-    output += "\"";
-    output += value;
-    output += "\"";
-  } else {
-    output += "[";
-    for (size_t i = 0; i < buffer->length; ++i) {
-      output += StringPrintf("\\x%02X", value[i] & 0x0FF);
-    }
-    output += "]";
-  }
-
-  return output;
-}
-
 std::string DescribeName(GSSAPILibrary* gssapi_lib, const gss_name_t name) {
   OM_uint32 major_status = 0;
   OM_uint32 minor_status = 0;
@@ -348,19 +314,19 @@ std::string DescribeName(GSSAPILibrary* gssapi_lib, const gss_name_t name) {
   ScopedBuffer scoped_output_name(&output_name_buffer, gssapi_lib);
   if (major_status != GSS_S_COMPLETE) {
     std::string error =
-        StringPrintf("Unable to describe name 0x%p, %s",
-                     name,
-                     DisplayExtendedStatus(gssapi_lib,
-                                           major_status,
-                                           minor_status).c_str());
+        base::StringPrintf("Unable to describe name 0x%p, %s",
+                           name,
+                           DisplayExtendedStatus(gssapi_lib,
+                                                 major_status,
+                                                 minor_status).c_str());
     return error;
   }
   int len = output_name_buffer.length;
-  std::string description =
-      StringPrintf("%*s (Type %s)",
-                   len,
-                   reinterpret_cast<const char*>(output_name_buffer.value),
-                   DescribeOid(gssapi_lib, output_name_type).c_str());
+  std::string description = base::StringPrintf(
+      "%*s (Type %s)",
+      len,
+      reinterpret_cast<const char*>(output_name_buffer.value),
+      DescribeOid(gssapi_lib, output_name_type).c_str());
   return description;
 }
 
@@ -388,32 +354,32 @@ std::string DescribeContext(GSSAPILibrary* gssapi_lib,
   ScopedName(targ_name, gssapi_lib);
   if (major_status != GSS_S_COMPLETE) {
     std::string error =
-        StringPrintf("Unable to describe context 0x%p, %s",
-                     context_handle,
-                     DisplayExtendedStatus(gssapi_lib,
-                                           major_status,
-                                           minor_status).c_str());
+        base::StringPrintf("Unable to describe context 0x%p, %s",
+                           context_handle,
+                           DisplayExtendedStatus(gssapi_lib,
+                                                 major_status,
+                                                 minor_status).c_str());
     return error;
   }
   std::string source(DescribeName(gssapi_lib, src_name));
   std::string target(DescribeName(gssapi_lib, targ_name));
-  std::string description = StringPrintf("Context 0x%p: "
-                                         "Source \"%s\", "
-                                         "Target \"%s\", "
-                                         "lifetime %d, "
-                                         "mechanism %s, "
-                                         "flags 0x%08X, "
-                                         "local %d, "
-                                         "open %d",
-                                         context_handle,
-                                         source.c_str(),
-                                         target.c_str(),
-                                         lifetime_rec,
-                                         DescribeOid(gssapi_lib,
-                                                     mech_type).c_str(),
-                                         ctx_flags,
-                                         locally_initiated,
-                                         open);
+  std::string description = base::StringPrintf("Context 0x%p: "
+                                               "Source \"%s\", "
+                                               "Target \"%s\", "
+                                                "lifetime %d, "
+                                                "mechanism %s, "
+                                                "flags 0x%08X, "
+                                                "local %d, "
+                                                "open %d",
+                                                context_handle,
+                                                source.c_str(),
+                                                target.c_str(),
+                                                lifetime_rec,
+                                                DescribeOid(gssapi_lib,
+                                                            mech_type).c_str(),
+                                                ctx_flags,
+                                                locally_initiated,
+                                                open);
   return description;
 }
 
@@ -482,26 +448,26 @@ base::NativeLibrary GSSAPISharedLibrary::LoadSharedLibrary() {
   return NULL;
 }
 
-#define BIND(lib, x) \
-  gss_##x##_type x = reinterpret_cast<gss_##x##_type>( \
-      base::GetFunctionPointerFromNativeLibrary(lib, "gss_" #x)); \
-  if (x == NULL) { \
-    LOG(WARNING) << "Unable to bind function \"" << "gss_" #x << "\""; \
-    return false; \
+#define BIND(lib, x)                                                    \
+  gss_##x##_type x = reinterpret_cast<gss_##x##_type>(                  \
+      base::GetFunctionPointerFromNativeLibrary(lib, "gss_" #x));       \
+  if (x == NULL) {                                                      \
+    LOG(WARNING) << "Unable to bind function \"" << "gss_" #x << "\"";  \
+    return false;                                                       \
   }
 
 bool GSSAPISharedLibrary::BindMethods(base::NativeLibrary lib) {
   DCHECK(lib != NULL);
 
-  BIND(lib, import_name)
-  BIND(lib, release_name)
-  BIND(lib, release_buffer)
-  BIND(lib, display_name)
-  BIND(lib, display_status)
-  BIND(lib, init_sec_context)
-  BIND(lib, wrap_size_limit)
-  BIND(lib, delete_sec_context)
-  BIND(lib, inquire_context)
+  BIND(lib, import_name);
+  BIND(lib, release_name);
+  BIND(lib, release_buffer);
+  BIND(lib, display_name);
+  BIND(lib, display_status);
+  BIND(lib, init_sec_context);
+  BIND(lib, wrap_size_limit);
+  BIND(lib, delete_sec_context);
+  BIND(lib, inquire_context);
 
   import_name_ = import_name;
   release_name_ = release_name;
@@ -638,14 +604,14 @@ OM_uint32 GSSAPISharedLibrary::inquire_context(
     int* open) {
   DCHECK(initialized_);
   return inquire_context_(minor_status,
-                         context_handle,
-                         src_name,
-                         targ_name,
-                         lifetime_rec,
-                         mech_type,
-                         ctx_flags,
-                         locally_initiated,
-                         open);
+                          context_handle,
+                          src_name,
+                          targ_name,
+                          lifetime_rec,
+                          mech_type,
+                          ctx_flags,
+                          locally_initiated,
+                          open);
 }
 GSSAPILibrary* GSSAPILibrary::GetDefault() {
   return Singleton<GSSAPISharedLibrary>::get();
@@ -677,7 +643,8 @@ HttpAuthGSSAPI::HttpAuthGSSAPI(GSSAPILibrary* library,
     : scheme_(scheme),
       gss_oid_(gss_oid),
       library_(library),
-      scoped_sec_context_(library) {
+      scoped_sec_context_(library),
+      can_delegate_(false) {
   DCHECK(library_);
 }
 
@@ -694,52 +661,54 @@ bool HttpAuthGSSAPI::NeedsIdentity() const {
   return decoded_server_auth_token_.empty();
 }
 
-bool HttpAuthGSSAPI::IsFinalRound() const {
-  return !NeedsIdentity();
+void HttpAuthGSSAPI::Delegate() {
+  can_delegate_ = true;
 }
 
-bool HttpAuthGSSAPI::ParseChallenge(HttpAuth::ChallengeTokenizer* tok) {
+HttpAuth::AuthorizationResult HttpAuthGSSAPI::ParseChallenge(
+    HttpAuth::ChallengeTokenizer* tok) {
   // Verify the challenge's auth-scheme.
   if (!tok->valid() ||
       !LowerCaseEqualsASCII(tok->scheme(), StringToLowerASCII(scheme_).c_str()))
-    return false;
+    return HttpAuth::AUTHORIZATION_RESULT_INVALID;
 
   tok->set_expect_base64_token(true);
   if (!tok->GetNext()) {
-    decoded_server_auth_token_.clear();
-    return true;
+    // If a context has already been established, an empty Negotiate challenge
+    // should be treated as a rejection of the current attempt.
+    if (scoped_sec_context_.get() != GSS_C_NO_CONTEXT)
+      return HttpAuth::AUTHORIZATION_RESULT_REJECT;
+    DCHECK(decoded_server_auth_token_.empty());
+    return HttpAuth::AUTHORIZATION_RESULT_ACCEPT;
+  } else {
+    // If a context has not already been established, additional tokens should
+    // not be present in the auth challenge.
+    if (scoped_sec_context_.get() == GSS_C_NO_CONTEXT)
+      return HttpAuth::AUTHORIZATION_RESULT_INVALID;
   }
 
+  // Make sure the additional token is base64 encoded.
   std::string encoded_auth_token = tok->value();
   std::string decoded_auth_token;
   bool base64_rv = base::Base64Decode(encoded_auth_token, &decoded_auth_token);
-  if (!base64_rv) {
-    LOG(ERROR) << "Base64 decoding of auth token failed.";
-    return false;
-  }
+  if (!base64_rv)
+    return HttpAuth::AUTHORIZATION_RESULT_INVALID;
   decoded_server_auth_token_ = decoded_auth_token;
-  return true;
+  return HttpAuth::AUTHORIZATION_RESULT_ACCEPT;
 }
 
-int HttpAuthGSSAPI::GenerateAuthToken(const std::wstring* username,
-                                      const std::wstring* password,
+int HttpAuthGSSAPI::GenerateAuthToken(const string16* username,
+                                      const string16* password,
                                       const std::wstring& spn,
                                       std::string* auth_token) {
   DCHECK(auth_token);
-  DCHECK((username == NULL) == (password == NULL));
-
-  if (!IsFinalRound()) {
-    int rv = OnFirstRound(username, password);
-    if (rv != OK)
-      return rv;
-  }
+  DCHECK(username == NULL && password == NULL);
 
   gss_buffer_desc input_token = GSS_C_EMPTY_BUFFER;
   input_token.length = decoded_server_auth_token_.length();
-  input_token.value =
-      (input_token.length > 0) ?
-          const_cast<char*>(decoded_server_auth_token_.data()) :
-          NULL;
+  input_token.value = (input_token.length > 0) ?
+      const_cast<char*>(decoded_server_auth_token_.data()) :
+      NULL;
   gss_buffer_desc output_token = GSS_C_EMPTY_BUFFER;
   ScopedBuffer scoped_output_token(&output_token, library_);
   int rv = GetNextSecurityToken(spn, &input_token, &output_token);
@@ -750,24 +719,107 @@ int HttpAuthGSSAPI::GenerateAuthToken(const std::wstring* username,
   std::string encode_input(static_cast<char*>(output_token.value),
                            output_token.length);
   std::string encode_output;
-  bool ok = base::Base64Encode(encode_input, &encode_output);
-  if (!ok)
-    return ERR_UNEXPECTED;
+  bool base64_rv = base::Base64Encode(encode_input, &encode_output);
+  if (!base64_rv) {
+    LOG(ERROR) << "Base64 encoding of auth token failed.";
+    return ERR_ENCODING_CONVERSION_FAILED;
+  }
   *auth_token = scheme_ + " " + encode_output;
   return OK;
 }
 
-int HttpAuthGSSAPI::OnFirstRound(const std::wstring* username,
-                                 const std::wstring* password) {
-  // TODO(cbentzel): Acquire credentials?
-  DCHECK((username == NULL) == (password == NULL));
-  username_.clear();
-  password_.clear();
-  if (username) {
-    username_ = *username;
-    password_ = *password;
+
+namespace {
+
+// GSSAPI status codes consist of a calling error (essentially, a programmer
+// bug), a routine error (defined by the RFC), and supplementary information,
+// all bitwise-or'ed together in different regions of the 32 bit return value.
+// This means a simple switch on the return codes is not sufficient.
+
+int MapImportNameStatusToError(OM_uint32 major_status) {
+  LOG(INFO) << "import_name returned 0x" << std::hex << major_status;
+  if (major_status == GSS_S_COMPLETE)
+    return OK;
+  if (GSS_CALLING_ERROR(major_status) != 0)
+    return ERR_UNEXPECTED;
+  OM_uint32 routine_error = GSS_ROUTINE_ERROR(major_status);
+  switch (routine_error) {
+    case GSS_S_FAILURE:
+      // Looking at the MIT Kerberos implementation, this typically is returned
+      // when memory allocation fails. However, the API does not guarantee
+      // that this is the case, so using ERR_UNEXPECTED rather than
+      // ERR_OUT_OF_MEMORY.
+      return ERR_UNEXPECTED_SECURITY_LIBRARY_STATUS;
+    case GSS_S_BAD_NAME:
+    case GSS_S_BAD_NAMETYPE:
+      return ERR_MALFORMED_IDENTITY;
+    case GSS_S_DEFECTIVE_TOKEN:
+      // Not mentioned in the API, but part of code.
+      return ERR_UNEXPECTED_SECURITY_LIBRARY_STATUS;
+    case GSS_S_BAD_MECH:
+      return ERR_UNSUPPORTED_AUTH_SCHEME;
+    default:
+      return ERR_UNDOCUMENTED_SECURITY_LIBRARY_STATUS;
   }
-  return OK;
+}
+
+int MapInitSecContextStatusToError(OM_uint32 major_status) {
+  LOG(INFO) << "init_sec_context returned 0x" << std::hex << major_status;
+  // Although GSS_S_CONTINUE_NEEDED is an additional bit, it seems like
+  // other code just checks if major_status is equivalent to it to indicate
+  // that there are no other errors included.
+  if (major_status == GSS_S_COMPLETE || major_status == GSS_S_CONTINUE_NEEDED)
+    return OK;
+  if (GSS_CALLING_ERROR(major_status) != 0)
+    return ERR_UNEXPECTED;
+  OM_uint32 routine_status = GSS_ROUTINE_ERROR(major_status);
+  switch (routine_status) {
+    case GSS_S_DEFECTIVE_TOKEN:
+      return ERR_INVALID_RESPONSE;
+    case GSS_S_DEFECTIVE_CREDENTIAL:
+      // Not expected since this implementation uses the default credential.
+      return ERR_UNEXPECTED_SECURITY_LIBRARY_STATUS;
+    case GSS_S_BAD_SIG:
+      // Probably won't happen, but it's a bad response.
+      return ERR_INVALID_RESPONSE;
+    case GSS_S_NO_CRED:
+      return ERR_INVALID_AUTH_CREDENTIALS;
+    case GSS_S_CREDENTIALS_EXPIRED:
+      return ERR_INVALID_AUTH_CREDENTIALS;
+    case GSS_S_BAD_BINDINGS:
+      // This only happens with mutual authentication.
+      return ERR_UNEXPECTED_SECURITY_LIBRARY_STATUS;
+    case GSS_S_NO_CONTEXT:
+      return ERR_UNEXPECTED_SECURITY_LIBRARY_STATUS;
+    case GSS_S_BAD_NAMETYPE:
+      return ERR_UNSUPPORTED_AUTH_SCHEME;
+    case GSS_S_BAD_NAME:
+      return ERR_UNSUPPORTED_AUTH_SCHEME;
+    case GSS_S_BAD_MECH:
+      return ERR_UNEXPECTED_SECURITY_LIBRARY_STATUS;
+    case GSS_S_FAILURE:
+      // This should be an "Unexpected Security Status" according to the
+      // GSSAPI documentation, but it's typically used to indicate that
+      // credentials are not correctly set up on a user machine, such
+      // as a missing credential cache or hitting this after calling
+      // kdestroy.
+      // TODO(cbentzel): Use minor code for even better mapping?
+      return ERR_MISSING_AUTH_CREDENTIALS;
+    default:
+      if (routine_status != 0)
+        return ERR_UNDOCUMENTED_SECURITY_LIBRARY_STATUS;
+      break;
+  }
+  OM_uint32 supplemental_status = GSS_SUPPLEMENTARY_INFO(major_status);
+  // Replays could indicate an attack.
+  if (supplemental_status & (GSS_S_DUPLICATE_TOKEN | GSS_S_OLD_TOKEN |
+                             GSS_S_UNSEQ_TOKEN | GSS_S_GAP_TOKEN))
+    return ERR_INVALID_RESPONSE;
+
+  // At this point, every documented status has been checked.
+  return ERR_UNDOCUMENTED_SECURITY_LIBRARY_STATUS;
+}
+
 }
 
 int HttpAuthGSSAPI::GetNextSecurityToken(const std::wstring& spn,
@@ -786,19 +838,22 @@ int HttpAuthGSSAPI::GetNextSecurityToken(const std::wstring& spn,
       &spn_buffer,
       CHROME_GSS_C_NT_HOSTBASED_SERVICE,
       &principal_name);
-  if (major_status != GSS_S_COMPLETE) {
+  int rv = MapImportNameStatusToError(major_status);
+  if (rv != OK) {
     LOG(ERROR) << "Problem importing name from "
                << "spn \"" << spn_principal << "\""
                << std::endl
                << DisplayExtendedStatus(library_,
                                         major_status,
                                         minor_status);
-    return ERR_UNEXPECTED;
+    return rv;
   }
   ScopedName scoped_name(principal_name, library_);
 
   // Continue creating a security context.
   OM_uint32 req_flags = 0;
+  if (can_delegate_)
+    req_flags |= GSS_C_DELEG_FLAG;
   major_status = library_->init_sec_context(
       &minor_status,
       GSS_C_NO_CREDENTIAL,
@@ -813,8 +868,8 @@ int HttpAuthGSSAPI::GetNextSecurityToken(const std::wstring& spn,
       out_token,
       NULL,  // ret flags
       NULL);
-  if (major_status != GSS_S_COMPLETE &&
-      major_status != GSS_S_CONTINUE_NEEDED) {
+  rv = MapInitSecContextStatusToError(major_status);
+  if (rv != OK) {
     LOG(ERROR) << "Problem initializing context. "
                << std::endl
                << DisplayExtendedStatus(library_,
@@ -822,7 +877,7 @@ int HttpAuthGSSAPI::GetNextSecurityToken(const std::wstring& spn,
                                         minor_status)
                << std::endl
                << DescribeContext(library_, scoped_sec_context_.get());
-    return ERR_MISSING_AUTH_CREDENTIALS;
+    return rv;
   }
 
   return OK;

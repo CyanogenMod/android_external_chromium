@@ -8,9 +8,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
-class TestCompletionCallback
-    : public CallbackRunner<Tuple1<const std::vector<
-          BrowsingDataLocalStorageHelper::LocalStorageInfo>& > > {
+class TestCompletionCallback {
  public:
   TestCompletionCallback()
       : have_result_(false) {
@@ -23,11 +21,10 @@ class TestCompletionCallback
     return result_;
   }
 
-  virtual void RunWithParams(
-      const Tuple1<const std::vector<
-          BrowsingDataLocalStorageHelper::LocalStorageInfo>& >& params) {
+  void callback(const std::vector<
+          BrowsingDataLocalStorageHelper::LocalStorageInfo>& info) {
     have_result_ = true;
-    result_ = params.a;
+    result_ = info;
   }
 
  private:
@@ -54,7 +51,8 @@ TEST(CannedBrowsingDataLocalStorageTest, AddLocalStorage) {
   helper->AddLocalStorage(origin2);
 
   TestCompletionCallback callback;
-  helper->StartFetching(&callback);
+  helper->StartFetching(
+      NewCallback(&callback, &TestCompletionCallback::callback));
   ASSERT_TRUE(callback.have_result());
 
   std::vector<BrowsingDataLocalStorageHelper::LocalStorageInfo> result =
@@ -78,7 +76,8 @@ TEST(CannedBrowsingDataLocalStorageTest, Unique) {
   helper->AddLocalStorage(origin);
 
   TestCompletionCallback callback;
-  helper->StartFetching(&callback);
+  helper->StartFetching(
+      NewCallback(&callback, &TestCompletionCallback::callback));
   ASSERT_TRUE(callback.have_result());
 
   std::vector<BrowsingDataLocalStorageHelper::LocalStorageInfo> result =
@@ -86,4 +85,19 @@ TEST(CannedBrowsingDataLocalStorageTest, Unique) {
 
   ASSERT_EQ(1u, result.size());
   EXPECT_EQ(FilePath(file).value(), result[0].file_path.BaseName().value());
+}
+
+TEST(CannedBrowsingDataLocalStorageTest, Empty) {
+  TestingProfile profile;
+
+  const GURL origin("http://host1:1/");
+
+  scoped_refptr<CannedBrowsingDataLocalStorageHelper> helper =
+      new CannedBrowsingDataLocalStorageHelper(&profile);
+
+  ASSERT_TRUE(helper->empty());
+  helper->AddLocalStorage(origin);
+  ASSERT_FALSE(helper->empty());
+  helper->Reset();
+  ASSERT_TRUE(helper->empty());
 }

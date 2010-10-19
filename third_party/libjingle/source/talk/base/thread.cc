@@ -25,24 +25,26 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifdef POSIX
+#include "talk/base/thread.h"
+
+#if defined(WIN32)
+#include <comdef.h>
+#elif defined(POSIX)
 #include <time.h>
 #endif
 
 #include "talk/base/common.h"
 #include "talk/base/logging.h"
-#include "talk/base/thread.h"
+#include "talk/base/stringutils.h"
 #include "talk/base/time.h"
 
-#if defined(OSX_USE_COCOA)
+#ifdef OSX_USE_COCOA
 #ifndef OSX
 #error OSX_USE_COCOA is defined but not OSX
 #endif
 #include "talk/base/maccocoathreadhelper.h"
 #include "talk/base/scoped_autorelease_pool.h"
 #endif
-
-#define MSDEV_SET_THREAD_NAME  0x406D1388
 
 namespace talk_base {
 
@@ -69,11 +71,10 @@ ThreadManager::~ThreadManager() {
   UnwrapCurrentThread();
   // Unwrap deletes main_thread_ automatically.
   pthread_key_delete(key_);
-
 }
 
 Thread *ThreadManager::CurrentThread() {
-  return (Thread *)pthread_getspecific(key_);
+  return static_cast<Thread *>(pthread_getspecific(key_));
 }
 
 void ThreadManager::SetCurrent(Thread *thread) {
@@ -95,7 +96,7 @@ ThreadManager::~ThreadManager() {
 }
 
 Thread *ThreadManager::CurrentThread() {
-  return (Thread *)TlsGetValue(key_);
+  return static_cast<Thread *>(TlsGetValue(key_));
 }
 
 void ThreadManager::SetCurrent(Thread *thread) {
@@ -148,13 +149,14 @@ void ThreadManager::Add(Thread *thread) {
 
 void ThreadManager::Remove(Thread *thread) {
   CritScope cs(&crit_);
-  threads_.erase(std::remove(threads_.begin(), threads_.end(), thread), threads_.end());
+  threads_.erase(std::remove(threads_.begin(), threads_.end(), thread),
+                 threads_.end());
 }
 
 void ThreadManager::StopAllThreads_() {
   // TODO: In order to properly implement, Threads need to be ref-counted.
   CritScope cs(&g_thmgr.crit_);
-  for (size_t i=0; i<g_thmgr.threads_.size(); ++i) {
+  for (size_t i = 0; i < g_thmgr.threads_.size(); ++i) {
     g_thmgr.threads_[i]->Stop();
   }
 }
@@ -174,6 +176,7 @@ Thread::Thread(SocketServer* ss)
 #endif
       owned_(true) {
   g_thmgr.Add(this);
+  SetName("Thread", this);  // default name
 }
 
 Thread::~Thread() {
@@ -202,10 +205,27 @@ bool Thread::SleepMs(int milliseconds) {
 #endif
 }
 
+bool Thread::SetName(const std::string& name, const void* obj) {
+  if (started_) return false;
+  name_ = name;
+  if (obj) {
+    char buf[16];
+    sprintfn(buf, sizeof(buf), " 0x%p", obj);
+    name_ += buf;
+  }
+  return true;
+}
+
+bool Thread::SetPriority(ThreadPriority priority) {
+  if (started_) return false;
+  priority_ = priority;
+  return true;
+}
+
 bool Thread::Start(Runnable* runnable) {
-  assert(owned_);
+  ASSERT(owned_);
   if (!owned_) return false;
-  assert(!started_);
+  ASSERT(!started_);
   if (started_) return false;
 
   ThreadInit* init = new ThreadInit;
@@ -288,40 +308,39 @@ void Thread::Join() {
 }
 
 #ifdef WIN32
-typedef struct tagTHREADNAME_INFO
-{
+// As seen on MSDN.
+// http://msdn.microsoft.com/en-us/library/xcb2z8hs(VS.71).aspx
+#define MSDEV_SET_THREAD_NAME  0x406D1388
+typedef struct tagTHREADNAME_INFO {
   DWORD dwType;
   LPCSTR szName;
   DWORD dwThreadID;
   DWORD dwFlags;
 } THREADNAME_INFO;
 
-void SetThreadName( DWORD dwThreadID, LPCSTR szThreadName)
-{
+void SetThreadName(DWORD dwThreadID, LPCSTR szThreadName) {
   THREADNAME_INFO info;
-  {
-    info.dwType = 0x1000;
-    info.szName = szThreadName;
-    info.dwThreadID = dwThreadID;
-    info.dwFlags = 0;
+  info.dwType = 0x1000;
+  info.szName = szThreadName;
+  info.dwThreadID = dwThreadID;
+  info.dwFlags = 0;
+
+  __try {
+    RaiseException(MSDEV_SET_THREAD_NAME, 0, sizeof(info) / sizeof(DWORD),
+                   reinterpret_cast<DWORD*>(&info));
   }
-  __try
-  {
-    RaiseException(MSDEV_SET_THREAD_NAME, 0, sizeof(info)/sizeof(DWORD), (DWORD*)&info );
-  }
-  __except(EXCEPTION_CONTINUE_EXECUTION)
-  {
+  __except(EXCEPTION_CONTINUE_EXECUTION) {
   }
 }
-#endif // WIN32
+#endif  // WIN32
 
 void* Thread::PreRun(void* pv) {
   ThreadInit* init = static_cast<ThreadInit*>(pv);
   ThreadManager::SetCurrent(init->thread);
-#if defined(WIN32) && defined(_DEBUG)
-  char buf[256];
-  _snprintf(buf, sizeof(buf), "Thread 0x%.8x", init->thread);
-  SetThreadName(GetCurrentThreadId(), buf);
+#if defined(WIN32)
+  SetThreadName(GetCurrentThreadId(), init->thread->name_.c_str());
+#elif defined(POSIX)
+  // TODO(juberti): See if naming exists for pthreads.
 #endif
 #ifdef OSX_USE_COCOA
   // Make sure the new thread has an autoreleasepool
@@ -492,4 +511,17 @@ AutoThread::~AutoThread() {
   }
 }
 
-} // namespace talk_base
+#ifdef WIN32
+void ComThread::Run() {
+  HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+  ASSERT(SUCCEEDED(hr));
+  if (SUCCEEDED(hr)) {
+    Thread::Run();
+    CoUninitialize();
+  } else {
+    LOG(LS_ERROR) << "CoInitialize failed, hr=" << hr;
+  }
+}
+#endif
+
+}  // namespace talk_base

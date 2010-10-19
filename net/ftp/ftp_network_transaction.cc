@@ -6,6 +6,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/histogram.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "net/base/connection_type_histograms.h"
@@ -212,8 +213,8 @@ int FtpNetworkTransaction::Start(const FtpRequestInfo* request_info,
   if (request_->url.has_username()) {
     GetIdentityFromURL(request_->url, &username_, &password_);
   } else {
-    username_ = L"anonymous";
-    password_ = L"chrome@example.com";
+    username_ = ASCIIToUTF16("anonymous");
+    password_ = ASCIIToUTF16("chrome@example.com");
   }
 
   DetectTypecode();
@@ -234,8 +235,8 @@ int FtpNetworkTransaction::Stop(int error) {
   return OK;
 }
 
-int FtpNetworkTransaction::RestartWithAuth(const std::wstring& username,
-                                           const std::wstring& password,
+int FtpNetworkTransaction::RestartWithAuth(const string16& username,
+                                           const string16& password,
                                            CompletionCallback* callback) {
   ResetStateForRestart();
 
@@ -610,13 +611,7 @@ int FtpNetworkTransaction::DoLoop(int result) {
 int FtpNetworkTransaction::DoCtrlResolveHost() {
   next_state_ = STATE_CTRL_RESOLVE_HOST_COMPLETE;
 
-  std::string host;
-  int port;
-
-  host = request_->url.HostNoBrackets();
-  port = request_->url.EffectiveIntPort();
-
-  HostResolver::RequestInfo info(host, port);
+  HostResolver::RequestInfo info(HostPortPair::FromURL(request_->url));
   // No known referrer.
   return resolver_.Resolve(info, &addresses_, &io_callback_, net_log_);
 }
@@ -630,7 +625,7 @@ int FtpNetworkTransaction::DoCtrlResolveHostComplete(int result) {
 int FtpNetworkTransaction::DoCtrlConnect() {
   next_state_ = STATE_CTRL_CONNECT_COMPLETE;
   ctrl_socket_.reset(socket_factory_->CreateTCPClientSocket(
-        addresses_, net_log_.net_log()));
+        addresses_, net_log_.net_log(), net_log_.source()));
   return ctrl_socket_->Connect(&io_callback_);
 }
 
@@ -653,7 +648,7 @@ int FtpNetworkTransaction::DoCtrlReadComplete(int result) {
     // Some servers (for example Pure-FTPd) apparently close the control
     // connection when anonymous login is not permitted. For more details
     // see http://crbug.com/25023.
-    if (command_sent_ == COMMAND_USER && username_ == L"anonymous")
+    if (command_sent_ == COMMAND_USER && username_ == ASCIIToUTF16("anonymous"))
       response_.needs_auth = true;
     return Stop(ERR_EMPTY_RESPONSE);
   }
@@ -700,7 +695,7 @@ int FtpNetworkTransaction::DoCtrlWriteComplete(int result) {
 
 // USER Command.
 int FtpNetworkTransaction::DoCtrlWriteUSER() {
-  std::string command = "USER " + WideToUTF8(username_);
+  std::string command = "USER " + UTF16ToUTF8(username_);
 
   if (!IsValidFTPCommandString(command))
     return Stop(ERR_MALFORMED_IDENTITY);
@@ -732,7 +727,7 @@ int FtpNetworkTransaction::ProcessResponseUSER(
 
 // PASS command.
 int FtpNetworkTransaction::DoCtrlWritePASS() {
-  std::string command = "PASS " + WideToUTF8(password_);
+  std::string command = "PASS " + UTF16ToUTF8(password_);
 
   if (!IsValidFTPCommandString(command))
     return Stop(ERR_MALFORMED_IDENTITY);
@@ -978,7 +973,7 @@ int FtpNetworkTransaction::ProcessResponseSIZE(
       if (response.lines.size() != 1)
         return Stop(ERR_INVALID_RESPONSE);
       int64 size;
-      if (!StringToInt64(response.lines[0], &size))
+      if (!base::StringToInt64(response.lines[0], &size))
         return Stop(ERR_INVALID_RESPONSE);
       if (size < 0)
         return Stop(ERR_INVALID_RESPONSE);
@@ -1182,12 +1177,27 @@ int FtpNetworkTransaction::DoDataConnect() {
     return Stop(rv);
   data_address.SetPort(data_connection_port_);
   data_socket_.reset(socket_factory_->CreateTCPClientSocket(
-        data_address, net_log_.net_log()));
+        data_address, net_log_.net_log(), net_log_.source()));
   return data_socket_->Connect(&io_callback_);
 }
 
 int FtpNetworkTransaction::DoDataConnectComplete(int result) {
+  if (result == ERR_CONNECTION_TIMED_OUT && use_epsv_) {
+    // It's possible we hit a broken server, sadly. Fall back to PASV.
+    // TODO(phajdan.jr): remember it for future transactions with this server.
+    // TODO(phajdan.jr): write a test for this code path.
+    use_epsv_ = false;
+    next_state_ = STATE_CTRL_WRITE_PASV;
+    return OK;
+  }
+
+  // Only record the connection error after we've applied all our fallbacks.
+  // We want to capture the final error, one we're not going to recover from.
   RecordDataConnectionError(result);
+
+  if (result != OK)
+    return Stop(result);
+
   next_state_ = STATE_CTRL_WRITE_SIZE;
   return OK;
 }

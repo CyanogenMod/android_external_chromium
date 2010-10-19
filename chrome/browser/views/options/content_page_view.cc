@@ -10,7 +10,6 @@
 #include <vssym32.h>
 
 #include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/string_util.h"
 #include "chrome/browser/autofill/autofill_dialog.h"
@@ -140,7 +139,7 @@ void ContentPageView::ButtonPressed(
               IDS_CONFIRM_STOP_SYNCING_DIALOG_HEIGHT_LINES)));
       return;
     } else {
-      sync_service_->EnableForUser(GetWindow()->GetNativeWindow());
+      sync_service_->ShowLoginDialog(GetWindow()->GetNativeWindow());
       ProfileSyncService::SyncEvent(ProfileSyncService::START_FROM_OPTIONS);
     }
   } else if (sender == sync_customize_button_) {
@@ -219,23 +218,32 @@ void ContentPageView::InitControlLayout() {
   // Init member prefs so we can update the controls if prefs change.
   ask_to_save_passwords_.Init(prefs::kPasswordManagerEnabled,
                               profile()->GetPrefs(), this);
+  form_autofill_enabled_.Init(prefs::kAutoFillEnabled,
+                              profile()->GetPrefs(), this);
   is_using_default_theme_.Init(prefs::kCurrentThemeID,
                                profile()->GetPrefs(), this);
-
-  // Disable UI elements that are managed via policy.
-  bool enablePasswordManagerElements = !ask_to_save_passwords_.IsManaged();
-  passwords_asktosave_radio_->SetEnabled(enablePasswordManagerElements);
-  passwords_neversave_radio_->SetEnabled(enablePasswordManagerElements);
-  show_passwords_button_->SetEnabled(enablePasswordManagerElements);
 }
 
-void ContentPageView::NotifyPrefChanged(const std::wstring* pref_name) {
+void ContentPageView::NotifyPrefChanged(const std::string* pref_name) {
   if (!pref_name || *pref_name == prefs::kPasswordManagerEnabled) {
     if (ask_to_save_passwords_.GetValue()) {
       passwords_asktosave_radio_->SetChecked(true);
     } else {
       passwords_neversave_radio_->SetChecked(true);
     }
+
+    // Disable UI elements that are managed via policy.
+    bool enablePasswordManagerElements = !ask_to_save_passwords_.IsManaged();
+    passwords_asktosave_radio_->SetEnabled(enablePasswordManagerElements);
+    passwords_neversave_radio_->SetEnabled(enablePasswordManagerElements);
+    show_passwords_button_->SetEnabled(enablePasswordManagerElements ||
+                                       ask_to_save_passwords_.GetValue());
+  }
+  if (!pref_name || *pref_name == prefs::kAutoFillEnabled) {
+    bool disabled_by_policy = form_autofill_enabled_.IsManaged() &&
+        !form_autofill_enabled_.GetValue();
+    change_autofill_settings_button_->SetEnabled(
+        !disabled_by_policy && profile()->GetPersonalDataManager());
   }
   if (!pref_name || *pref_name == prefs::kCurrentThemeID) {
     themes_reset_button_->SetEnabled(
@@ -312,9 +320,6 @@ void ContentPageView::InitPasswordSavingGroup() {
 void ContentPageView::InitFormAutofillGroup() {
   change_autofill_settings_button_ = new views::NativeButton(
       this, l10n_util::GetString(IDS_AUTOFILL_OPTIONS));
-  if (!profile()->GetPersonalDataManager())
-    change_autofill_settings_button_->SetEnabled(false);
-
 
   using views::GridLayout;
   using views::ColumnSet;
@@ -414,9 +419,6 @@ void ContentPageView::InitSyncGroup() {
   privacy_dashboard_link_->SetController(this);
   privacy_dashboard_link_->SetText(
       l10n_util::GetString(IDS_SYNC_PRIVACY_DASHBOARD_LINK_LABEL));
-  privacy_dashboard_link_->SetVisible(
-      CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kShowPrivacyDashboardLink));
 
   sync_start_stop_button_ = new views::NativeButton(this, std::wstring());
   sync_customize_button_ = new views::NativeButton(this, std::wstring());

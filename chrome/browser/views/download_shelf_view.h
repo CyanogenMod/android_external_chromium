@@ -1,14 +1,16 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_VIEWS_DOWNLOAD_SHELF_VIEW_H_
 #define CHROME_BROWSER_VIEWS_DOWNLOAD_SHELF_VIEW_H_
+#pragma once
 
 #include "app/slide_animation.h"
 #include "chrome/browser/download/download_shelf.h"
 #include "views/controls/button/button.h"
 #include "views/controls/link.h"
+#include "views/mouse_watcher.h"
 
 namespace views {
 class ImageButton;
@@ -27,14 +29,18 @@ class DownloadItemView;
 //
 // DownloadShelfView does not hold an infinite number of download views, rather
 // it'll automatically remove views once a certain point is reached.
-class DownloadShelfView : public DownloadShelf,
-                          public views::View,
+class DownloadShelfView : public AnimationDelegate,
+                          public DownloadShelf,
                           public views::ButtonListener,
                           public views::LinkController,
-                          public AnimationDelegate {
+                          public views::MouseWatcherListener,
+                          public views::View {
  public:
-  explicit DownloadShelfView(Browser* browser, BrowserView* parent);
+  DownloadShelfView(Browser* browser, BrowserView* parent);
   virtual ~DownloadShelfView();
+
+  // Sent from the DownloadItemView when the user opens an item.
+  void OpenedDownload(DownloadItemView* view);
 
   // Implementation of View.
   virtual gfx::Size GetPreferredSize();
@@ -62,6 +68,9 @@ class DownloadShelfView : public DownloadShelf,
   virtual void Close();
   virtual Browser* browser() const { return browser_; }
 
+  // Implementation of MouseWatcherDelegate.
+  virtual void MouseMovedOutOfView();
+
   // Removes a specified download view. The supplied view is deleted after
   // it's removed.
   void RemoveDownloadView(views::View* view);
@@ -84,10 +93,14 @@ class DownloadShelfView : public DownloadShelf,
   void UpdateButtonColors();
 
   // Overridden from views::View.
-  virtual void ThemeChanged();
+  virtual void OnThemeChanged();
 
   // Called when the "close shelf" animation ended.
   void Closed();
+
+  // Returns true if we can auto close. We can auto-close if all the items on
+  // the shelf have been opened.
+  bool CanAutoClose();
 
   // The browser for this shelf.
   Browser* browser_;
@@ -115,6 +128,8 @@ class DownloadShelfView : public DownloadShelf,
 
   // The window this shelf belongs to.
   BrowserView* parent_;
+
+  views::MouseWatcher mouse_watcher_;
 
   DISALLOW_COPY_AND_ASSIGN(DownloadShelfView);
 };

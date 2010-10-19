@@ -4,7 +4,6 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include "app/tree_model.h"
 #include "base/cocoa_protocols_mac.h"
 #include "base/scoped_nsobject.h"
 #include "base/scoped_ptr.h"
@@ -14,6 +13,7 @@
 #include "chrome/common/notification_registrar.h"
 
 @class CollectedCookiesWindowController;
+@class VerticalGradientView;
 class TabContents;
 
 // The constrained window delegate reponsible for managing the collected
@@ -74,8 +74,18 @@ class CollectedCookiesMac : public ConstrainedWindowMacDelegateCustomSheet,
   IBOutlet NSTreeController* blockedTreeController_;
   IBOutlet NSOutlineView* allowedOutlineView_;
   IBOutlet NSOutlineView* blockedOutlineView_;
+  IBOutlet VerticalGradientView* infoBar_;
+  IBOutlet NSImageView* infoBarIcon_;
+  IBOutlet NSTextField* infoBarText_;
+  IBOutlet NSSplitView* splitView_;
+  IBOutlet NSScrollView* lowerScrollView_;
+  IBOutlet NSTextField* blockedCookiesText_;
+
+  scoped_nsobject<NSViewAnimation> animation_;
 
   TabContents* tabContents_;  // weak
+
+  BOOL infoBarVisible_;
 }
 @property (readonly, nonatomic) NSTreeController* allowedTreeController;
 @property (readonly, nonatomic) NSTreeController* blockedTreeController;

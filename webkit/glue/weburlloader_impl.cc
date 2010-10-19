@@ -132,6 +132,8 @@ ResourceType::Type FromTargetType(WebURLRequest::TargetType type) {
       return ResourceType::WORKER;
     case WebURLRequest::TargetIsSharedWorker:
       return ResourceType::SHARED_WORKER;
+    case WebURLRequest::TargetIsPrefetch:
+      return ResourceType::PREFETCH;
     default:
       NOTREACHED();
       return ResourceType::SUB_RESOURCE;
@@ -182,6 +184,7 @@ void PopulateURLResponse(
   response->setWasFetchedViaProxy(info.was_fetched_via_proxy);
   response->setConnectionID(info.connection_id);
   response->setConnectionReused(info.connection_reused);
+  response->setDownloadFilePath(FilePathToWebString(info.download_file_path));
 
   WebURLLoadTiming timing;
   timing.initialize();
@@ -213,7 +216,7 @@ void PopulateURLResponse(
   // pass it to GetSuggestedFilename.
   std::string value;
   if (headers->EnumerateHeader(NULL, "content-disposition", &value)) {
-    response->setSuggestedFileName(webkit_glue::FilePathToWebString(
+    response->setSuggestedFileName(FilePathToWebString(
         net::GetSuggestedFilename(url, value, "", FilePath())));
   }
 
@@ -260,10 +263,13 @@ class WebURLLoaderImpl::Context : public base::RefCounted<Context>,
       GURL* new_first_party_for_cookies);
   virtual void OnReceivedResponse(
       const ResourceLoaderBridge::ResponseInfo& info, bool content_filtered);
+  virtual void OnDownloadedData(int len);
   virtual void OnReceivedData(const char* data, int len);
   virtual void OnReceivedCachedMetadata(const char* data, int len);
   virtual void OnCompletedRequest(
-      const URLRequestStatus& status, const std::string& security_info);
+      const URLRequestStatus& status,
+      const std::string& security_info,
+      const base::Time& completion_time);
   virtual GURL GetURLForDebugging() const;
 
  private:
@@ -278,6 +284,7 @@ class WebURLLoaderImpl::Context : public base::RefCounted<Context>,
   scoped_ptr<ResourceLoaderBridge> bridge_;
   scoped_ptr<FtpDirectoryListingResponseDelegate> ftp_listing_delegate_;
   scoped_ptr<MultipartResponseDelegate> multipart_delegate_;
+  scoped_ptr<ResourceLoaderBridge> completed_bridge_;
 
   // TODO(japhet): Storing this is a temporary hack for site isolation logging.
   WebURL response_url_;
@@ -384,7 +391,7 @@ void WebURLLoaderImpl::Context::Start(
   // TODO(brettw) this should take parameter encoding into account when
   // creating the GURLs.
 
-  webkit_glue::ResourceLoaderBridge::RequestInfo request_info;
+  ResourceLoaderBridge::RequestInfo request_info;
   request_info.method = method;
   request_info.url = url;
   request_info.first_party_for_cookies = request.firstPartyForCookies();
@@ -397,6 +404,7 @@ void WebURLLoaderImpl::Context::Start(
   request_info.request_type = FromTargetType(request.targetType());
   request_info.appcache_host_id = request.appCacheHostID();
   request_info.routing_id = request.requestorID();
+  request_info.download_to_file = request.downloadToFile();
   bridge_.reset(ResourceLoaderBridge::Create(request_info));
 
   if (!request.httpBody().isNull()) {
@@ -424,8 +432,11 @@ void WebURLLoaderImpl::Context::Start(
                 WebStringToFilePath(element.filePath),
                 static_cast<uint64>(element.fileStart),
                 static_cast<uint64>(element.fileLength),
-                base::Time::FromDoubleT(element.fileInfo.modificationTime));
+                base::Time::FromDoubleT(element.modificationTime));
           }
+          break;
+        case WebHTTPBody::Element::TypeBlob:
+          bridge_->AppendBlobToUpload(GURL(element.blobURL));
           break;
         default:
           NOTREACHED();
@@ -545,6 +556,11 @@ void WebURLLoaderImpl::Context::OnReceivedResponse(
   response_url_ = response.url();
 }
 
+void WebURLLoaderImpl::Context::OnDownloadedData(int len) {
+  if (client_)
+    client_->didDownloadData(loader_, len);
+}
+
 void WebURLLoaderImpl::Context::OnReceivedData(const char* data, int len) {
   if (!client_)
     return;
@@ -573,7 +589,8 @@ void WebURLLoaderImpl::Context::OnReceivedCachedMetadata(
 
 void WebURLLoaderImpl::Context::OnCompletedRequest(
     const URLRequestStatus& status,
-    const std::string& security_info) {
+    const std::string& security_info,
+    const base::Time& completion_time) {
   if (ftp_listing_delegate_.get()) {
     ftp_listing_delegate_->OnCompletedRequest();
     ftp_listing_delegate_.reset(NULL);
@@ -582,8 +599,10 @@ void WebURLLoaderImpl::Context::OnCompletedRequest(
     multipart_delegate_.reset(NULL);
   }
 
-  // Prevent any further IPC to the browser now that we're complete.
-  bridge_.reset();
+  // Prevent any further IPC to the browser now that we're complete, but
+  // don't delete it to keep any downloaded temp files alive.
+  DCHECK(!completed_bridge_.get());
+  completed_bridge_.swap(bridge_);
 
   if (client_) {
     if (status.status() != URLRequestStatus::SUCCESS) {
@@ -601,7 +620,7 @@ void WebURLLoaderImpl::Context::OnCompletedRequest(
       error.unreachableURL = request_.url();
       client_->didFail(loader_, error);
     } else {
-      client_->didFinishLoading(loader_);
+      client_->didFinishLoading(loader_, completion_time.ToDoubleT());
     }
   }
 
@@ -629,7 +648,7 @@ void WebURLLoaderImpl::Context::HandleDataURL() {
       OnReceivedData(data.data(), data.size());
   }
 
-  OnCompletedRequest(status, info.security_info);
+  OnCompletedRequest(status, info.security_info, base::Time::Now());
 }
 
 // WebURLLoaderImpl -----------------------------------------------------------

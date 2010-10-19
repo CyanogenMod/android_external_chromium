@@ -4,6 +4,7 @@
 
 #ifndef BASE_LOGGING_H_
 #define BASE_LOGGING_H_
+#pragma once
 
 #include <string>
 #include <cstring>
@@ -73,6 +74,39 @@
 //
 // which is syntactic sugar for {,D}LOG_IF(FATAL, assert fails) << assertion;
 //
+// There are "verbose level" logging macros.  They look like
+//
+//   VLOG(1) << "I'm printed when you run the program with --v=1 or more";
+//   VLOG(2) << "I'm printed when you run the program with --v=2 or more";
+//
+// These always log at the INFO log level (when they log at all).
+// The verbose logging can also be turned on module-by-module.  For instance,
+//    --vmodule=profile=2,icon_loader=1,browser_*=3 --v=0
+// will cause:
+//   a. VLOG(2) and lower messages to be printed from profile.{h,cc}
+//   b. VLOG(1) and lower messages to be printed from icon_loader.{h,cc}
+//   c. VLOG(3) and lower messages to be printed from files prefixed with
+//      "browser"
+//   d. VLOG(0) and lower messages to be printed from elsewhere
+//
+// The wildcarding functionality shown by (c) supports both '*' (match
+// 0 or more characters) and '?' (match any single character) wildcards.
+//
+// There's also VLOG_IS_ON(n) "verbose level" condition macro. To be used as
+//
+//   if (VLOG_IS_ON(2)) {
+//     // do some logging preparation and logging
+//     // that can't be accomplished with just VLOG(2) << ...;
+//   }
+//
+// There is also a VLOG_IF "verbose level" condition macro for sample
+// cases, when some extra computation and preparation for logs is not
+// needed.
+//
+//   VLOG_IF(1, (size > 1024))
+//      << "I'm printed when size is more than 1024 and when you run the "
+//         "program with --v=1 or more";
+//
 // We also override the standard 'assert' to use 'DLOG_ASSERT'.
 //
 // Lastly, there is:
@@ -125,6 +159,31 @@ enum LogLockingState { LOCK_LOG_FILE, DONT_LOCK_LOG_FILE };
 // Defaults to APPEND_TO_OLD_LOG_FILE.
 enum OldFileDeletionState { DELETE_OLD_LOG_FILE, APPEND_TO_OLD_LOG_FILE };
 
+// TODO(avi): do we want to do a unification of character types here?
+#if defined(OS_WIN)
+typedef wchar_t PathChar;
+#else
+typedef char PathChar;
+#endif
+
+// Define different names for the BaseInitLoggingImpl() function depending on
+// whether NDEBUG is defined or not so that we'll fail to link if someone tries
+// to compile logging.cc with NDEBUG but includes logging.h without defining it,
+// or vice versa.
+#if NDEBUG
+#define BaseInitLoggingImpl BaseInitLoggingImpl_built_with_NDEBUG
+#else
+#define BaseInitLoggingImpl BaseInitLoggingImpl_built_without_NDEBUG
+#endif
+
+// Implementation of the InitLogging() method declared below.  We use a
+// more-specific name so we can #define it above without affecting other code
+// that has named stuff "InitLogging".
+void BaseInitLoggingImpl(const PathChar* log_file,
+                         LoggingDestination logging_dest,
+                         LogLockingState lock_log,
+                         OldFileDeletionState delete_old);
+
 // Sets the log file name and other global logging state. Calling this function
 // is recommended, and is normally done at the beginning of application init.
 // If you don't call it, all the flags will be initialized to their default
@@ -135,14 +194,12 @@ enum OldFileDeletionState { DELETE_OLD_LOG_FILE, APPEND_TO_OLD_LOG_FILE };
 // The default log file is initialized to "debug.log" in the application
 // directory. You probably don't want this, especially since the program
 // directory may not be writable on an enduser's system.
-#if defined(OS_WIN)
-void InitLogging(const wchar_t* log_file, LoggingDestination logging_dest,
-                 LogLockingState lock_log, OldFileDeletionState delete_old);
-#elif defined(OS_POSIX)
-// TODO(avi): do we want to do a unification of character types here?
-void InitLogging(const char* log_file, LoggingDestination logging_dest,
-                 LogLockingState lock_log, OldFileDeletionState delete_old);
-#endif
+inline void InitLogging(const PathChar* log_file,
+                        LoggingDestination logging_dest,
+                        LogLockingState lock_log,
+                        OldFileDeletionState delete_old) {
+  BaseInitLoggingImpl(log_file, logging_dest, lock_log, delete_old);
+}
 
 // Sets the log level. Anything at or above this level will be written to the
 // log file/displayed to the user (if applicable). Anything below this level
@@ -153,6 +210,16 @@ void SetMinLogLevel(int level);
 // Gets the current log level.
 int GetMinLogLevel();
 
+// Gets the current vlog level for the given file (usually taken from
+// __FILE__).
+
+// Note that |N| is the size *with* the null terminator.
+int GetVlogLevelHelper(const char* file_start, size_t N);
+
+template <size_t N>
+int GetVlogLevel(const char (&file)[N]) {
+  return GetVlogLevelHelper(file, N);
+}
 // Sets the log filter prefix.  Any log message below LOG_ERROR severity that
 // doesn't start with this prefix with be silently ignored.  The filter defaults
 // to NULL (everything is logged) if this function is not called.  Messages
@@ -165,6 +232,11 @@ void SetLogFilterPrefix(const char* filter);
 // only.
 void SetLogItems(bool enable_process_id, bool enable_thread_id,
                  bool enable_timestamp, bool enable_tickcount);
+
+// Sets whether or not you'd like to see fatal debug messages popped up in
+// a dialog box or not.
+// Dialogs are not shown by default.
+void SetShowErrorDialogs(bool enable_dialogs);
 
 // Sets the Log Assert Handler that will be used to notify of check failures.
 // The default handler shows a dialog box and then terminate the process,
@@ -250,13 +322,25 @@ const LogSeverity LOG_DFATAL_LEVEL = LOG_FATAL;
 // impossible to stream something like a string directly to an unnamed
 // ostream. We employ a neat hack by calling the stream() member
 // function of LogMessage which seems to avoid the problem.
+//
+// We can't do any caching tricks with VLOG_IS_ON() like the
+// google-glog version since it requires GCC extensions.  This means
+// that using the v-logging functions in conjunction with --vmodule
+// may be slow.
+#define VLOG_IS_ON(verboselevel) \
+  (logging::GetVlogLevel(__FILE__) >= (verboselevel))
 
 #define LOG(severity) COMPACT_GOOGLE_LOG_ ## severity.stream()
 #define SYSLOG(severity) LOG(severity)
+#define VLOG(verboselevel) LOG_IF(INFO, VLOG_IS_ON(verboselevel))
+
+// TODO(akalin): Add more VLOG variants, e.g. VPLOG.
 
 #define LOG_IF(severity, condition) \
   !(condition) ? (void) 0 : logging::LogMessageVoidify() & LOG(severity)
 #define SYSLOG_IF(severity, condition) LOG_IF(severity, condition)
+#define VLOG_IF(verboselevel, condition) \
+  LOG_IF(INFO, (condition) && VLOG_IS_ON(verboselevel))
 
 #ifdef ANDROID
 #ifndef LOG_ASSERT

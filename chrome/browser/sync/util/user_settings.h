@@ -1,20 +1,20 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_SYNC_UTIL_USER_SETTINGS_H_
 #define CHROME_BROWSER_SYNC_UTIL_USER_SETTINGS_H_
+#pragma once
 
 #include <map>
-#include <set>
 #include <string>
 
-#include "base/file_path.h"
 #include "base/lock.h"
 #include "build/build_config.h"
-#include "chrome/browser/sync/util/sync_types.h"
 
 extern "C" struct sqlite3;
+
+class FilePath;
 
 namespace browser_sync {
 

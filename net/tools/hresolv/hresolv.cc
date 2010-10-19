@@ -28,10 +28,11 @@
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
+#include "base/string_number_conversions.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/thread.h"
 #include "base/time.h"
-#include "base/waitable_event.h"
 #include "net/base/address_list.h"
 #include "net/base/completion_callback.h"
 #include "net/base/host_resolver_impl.h"
@@ -133,28 +134,28 @@ std::string FormatAddrinfoDetails(const struct addrinfo& ai,
   std::string ai_addr = net::NetAddressToString(&ai);
   std::string ai_canonname;
   if (ai.ai_canonname) {
-    ai_canonname = StringPrintf("%s  ai_canonname: %s\n",
-                                indent,
-                                ai.ai_canonname);
+    ai_canonname = base::StringPrintf("%s  ai_canonname: %s\n",
+                                      indent,
+                                      ai.ai_canonname);
   }
-  return StringPrintf("%saddrinfo {\n"
-                      "%s  ai_flags: %s\n"
-                      "%s  ai_family: %s\n"
-                      "%s  ai_socktype: %s\n"
-                      "%s  ai_protocol: %s\n"
-                      "%s  ai_addrlen: %d\n"
-                      "%s  ai_addr: %s\n"
-                      "%s"
-                      "%s}\n",
-                      indent,
-                      indent, ai_flags.c_str(),
-                      indent, ai_family,
-                      indent, ai_socktype,
-                      indent, ai_protocol,
-                      indent, ai.ai_addrlen,
-                      indent, ai_addr.c_str(),
-                      ai_canonname.c_str(),
-                      indent);
+  return base::StringPrintf("%saddrinfo {\n"
+                            "%s  ai_flags: %s\n"
+                            "%s  ai_family: %s\n"
+                            "%s  ai_socktype: %s\n"
+                            "%s  ai_protocol: %s\n"
+                            "%s  ai_addrlen: %d\n"
+                            "%s  ai_addr: %s\n"
+                            "%s"
+                            "%s}\n",
+                            indent,
+                            indent, ai_flags.c_str(),
+                            indent, ai_family,
+                            indent, ai_socktype,
+                            indent, ai_protocol,
+                            indent, ai.ai_addrlen,
+                            indent, ai_addr.c_str(),
+                            ai_canonname.c_str(),
+                            indent);
 }
 
 std::string FormatAddressList(const net::AddressList& address_list,
@@ -190,7 +191,7 @@ class DelayedResolve : public base::RefCounted<DelayedResolve> {
 
   void Start() {
     net::CompletionCallback* callback = (is_async_) ? &io_callback_ : NULL;
-    net::HostResolver::RequestInfo request_info(host_, 80);
+    net::HostResolver::RequestInfo request_info(net::HostPortPair(host_, 80));
     int rv = resolver_->Resolve(request_info,
                                 &address_list_,
                                 callback,
@@ -324,7 +325,7 @@ bool ParseCommandLine(CommandLine* command_line, CommandLineOptions* options) {
   options->async = command_line->HasSwitch(kAsync);
   if (command_line->HasSwitch(kCacheSize)) {
     std::string cache_size = command_line->GetSwitchValueASCII(kCacheSize);
-    bool valid_size = StringToInt(cache_size, &options->cache_size);
+    bool valid_size = base::StringToInt(cache_size, &options->cache_size);
     if (valid_size) {
       valid_size = options->cache_size >= 0;
     }
@@ -336,7 +337,7 @@ bool ParseCommandLine(CommandLine* command_line, CommandLineOptions* options) {
 
   if (command_line->HasSwitch(kCacheTtl)) {
     std::string cache_ttl = command_line->GetSwitchValueASCII(kCacheTtl);
-    bool valid_ttl = StringToInt(cache_ttl, &options->cache_ttl);
+    bool valid_ttl = base::StringToInt(cache_ttl, &options->cache_ttl);
     if (valid_ttl) {
       valid_ttl = options->cache_ttl >= 0;
     }
@@ -400,7 +401,7 @@ bool ReadHostsAndTimesFromFile(const FilePath& path,
       }
       case 2: {
         int timestamp;
-        if (!StringToInt(tokens[1], &timestamp)) {
+        if (!base::StringToInt(tokens[1], &timestamp)) {
           // Unexpected value - keep going.
         }
         if (timestamp < previous_timestamp) {
@@ -451,7 +452,7 @@ int main(int argc, char** argv) {
       base::TimeDelta::FromSeconds(0));
 
   scoped_refptr<net::HostResolver> host_resolver(
-      new net::HostResolverImpl(NULL, cache, 100u));
+      new net::HostResolverImpl(NULL, cache, 100u, NULL));
   ResolverInvoker invoker(host_resolver.get());
   invoker.ResolveAll(hosts_and_times, options.async);
 

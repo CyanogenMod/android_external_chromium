@@ -41,7 +41,7 @@
  * ***** END LICENSE BLOCK ***** */
 
 /* TLS extension code moved here from ssl3ecc.c */
-/* $Id: ssl3ext.c,v 1.11 2010/02/03 02:38:20 wtc%google.com Exp $ */
+/* $Id: ssl3ext.c,v 1.14 2010/04/03 19:19:07 nelson%bolyard.com Exp $ */
 
 #include "nssrenam.h"
 #include "nss.h"
@@ -247,6 +247,7 @@ static const ssl3HelloExtensionHandler serverHelloHandlersTLS[] = {
     { ssl_session_ticket_xtn,     &ssl3_ClientHandleSessionTicketXtn },
     { ssl_renegotiation_info_xtn, &ssl3_HandleRenegotiationInfoXtn },
     { ssl_next_proto_neg_xtn,     &ssl3_ClientHandleNextProtoNegoXtn },
+    { ssl_snap_start_xtn,         &ssl3_ClientHandleSnapStartXtn },
     { -1, NULL }
 };
 
@@ -270,7 +271,9 @@ ssl3HelloExtensionSender clientHelloSendersTLS[SSL_MAX_EXTENSIONS] = {
     { ssl_ec_point_formats_xtn,   &ssl3_SendSupportedPointFormatsXtn },
 #endif
     { ssl_session_ticket_xtn,     &ssl3_SendSessionTicketXtn },
-    { ssl_next_proto_neg_xtn,     &ssl3_ClientSendNextProtoNegoXtn }
+    { ssl_next_proto_neg_xtn,     &ssl3_ClientSendNextProtoNegoXtn },
+    { ssl_snap_start_xtn,         &ssl3_SendSnapStartXtn }
+    /* NOTE: The Snap Start sender MUST be the last extension in the list. */
     /* any extra entries will appear as { 0, NULL }    */
 };
 
@@ -298,7 +301,7 @@ ssl3_ExtensionNegotiated(sslSocket *ss, PRUint16 ex_type) {
 	                          xtnData->numNegotiated, ex_type);
 }
 
-static PRBool
+PRBool
 ssl3_ClientExtensionAdvertised(sslSocket *ss, PRUint16 ex_type) {
     TLSExtensionData *xtnData = &ss->xtnData;
     return arrayContainsExtension(xtnData->advertised,
@@ -314,12 +317,14 @@ ssl3_SendServerNameXtn(sslSocket * ss, PRBool append,
                        PRUint32 maxBytes)
 {
     SECStatus rv;
+    if (!ss)
+    	return 0;
     if (!ss->sec.isServer) {
         PRUint32 len;
         PRNetAddr netAddr;
         
         /* must have a hostname */
-        if (!ss || !ss->url || !ss->url[0])
+        if (!ss->url || !ss->url[0])
             return 0;
         /* must not be an IPv4 or IPv6 address */
         if (PR_SUCCESS == PR_StringToNetAddr(ss->url, &netAddr)) {
@@ -513,6 +518,8 @@ ssl3_SendSessionTicketXtn(
 	    rv = ssl3_AppendHandshakeVariable(ss, session_ticket->ticket.data,
 		session_ticket->ticket.len, 2);
 	    ss->xtnData.ticketTimestampVerified = PR_FALSE;
+	    if (!ss->sec.isServer)
+		ss->xtnData.clientSentNonEmptySessionTicket = PR_TRUE;
 	} else {
 	    rv = ssl3_AppendHandshakeNumber(ss, 0, 2);
 	}
@@ -571,7 +578,7 @@ ssl3_ValidateNextProtoNego(const unsigned char* data, unsigned short length)
 
 SECStatus
 ssl3_ClientHandleNextProtoNegoXtn(sslSocket *ss, PRUint16 ex_type,
-                                 SECItem *data)
+                                  SECItem *data)
 {
     unsigned int i, j;
     SECStatus rv;
@@ -1019,7 +1026,7 @@ ssl3_ServerHandleSessionTicketXtn(sslSocket *ss, PRUint16 ex_type,
      * instead of terminating the current connection.
      */
     if (data->len == 0) {
-	ss->xtnData.emptySessionTicket = PR_TRUE;
+	ss->xtnData.serverReceivedEmptySessionTicket = PR_TRUE;
     } else {
 	int                    i;
 	SECItem                extension_data;
@@ -1621,8 +1628,8 @@ ssl3_HandleRenegotiationInfoXtn(sslSocket *ss, PRUint16 ex_type, SECItem *data)
 	data->data[0] != len  || (len && 
 	NSS_SecureMemcmp(ss->ssl3.hs.finishedMsgs.data,
 	                 data->data + 1, len))) {
-	/* Can we do this here? Or, must we arrange for the caller to do it? */
-	(void)SSL3_SendAlert(ss, alert_fatal, handshake_failure);
+	/* Can we do this here? Or, must we arrange for the caller to do it? */     
+	(void)SSL3_SendAlert(ss, alert_fatal, handshake_failure);                   
 	PORT_SetError(SSL_ERROR_BAD_HANDSHAKE_HASH_VALUE);
 	return SECFailure;
     }

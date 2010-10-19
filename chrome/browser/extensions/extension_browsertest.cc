@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/file_path.h"
 #include "base/path_service.h"
+#include "base/string_number_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/location_bar.h"
@@ -25,12 +26,11 @@
 #include "chrome/common/notification_type.h"
 #include "chrome/test/ui_test_utils.h"
 
-#if defined(OS_CHROMEOS)
-#include "chrome/common/chrome_switches.h"
-#endif
-
 ExtensionBrowserTest::ExtensionBrowserTest()
-    : target_page_action_count_(-1),
+    : loaded_(false),
+      installed_(false),
+      extension_installs_observed_(0),
+      target_page_action_count_(-1),
       target_visible_page_action_count_(-1) {
 }
 
@@ -44,21 +44,15 @@ void ExtensionBrowserTest::SetUpCommandLine(CommandLine* command_line) {
   PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir_);
   test_data_dir_ = test_data_dir_.AppendASCII("extensions");
 
-  // There are a number of tests that still use toolstrips.  Rather than
-  // selectively enabling each of them, enable toolstrips for all extension
-  // tests.
-  command_line->AppendSwitch(switches::kEnableExtensionToolstrips);
-
 #if defined(OS_CHROMEOS)
   // This makes sure that we create the Default profile first, with no
   // ExtensionsService and then the real profile with one, as we do when
   // running on chromeos.
-  command_line->AppendSwitchWithValue(
-      switches::kLoginUser, "TestUser@gmail.com");
-  command_line->AppendSwitchWithValue(switches::kLoginProfile, "user");
+  command_line->AppendSwitchASCII(switches::kLoginUser,
+                                  "TestUser@gmail.com");
+  command_line->AppendSwitchASCII(switches::kLoginProfile, "user");
   command_line->AppendSwitch(switches::kNoFirstRun);
 #endif
-
 }
 
 bool ExtensionBrowserTest::LoadExtensionImpl(const FilePath& path,
@@ -148,8 +142,9 @@ bool ExtensionBrowserTest::InstallOrUpdateExtension(const std::string& id,
 
   size_t num_after = service->extensions()->size();
   if (num_after != (num_before + expected_change)) {
-    std::cout << "Num extensions before: " << IntToString(num_before) << " "
-              << "num after: " << IntToString(num_after) << " "
+    std::cout << "Num extensions before: "
+              << base::IntToString(num_before) << " "
+              << "num after: " << base::IntToString(num_after) << " "
               << "Installed extensions follow:\n";
 
     for (size_t i = 0; i < service->extensions()->size(); ++i)
@@ -242,8 +237,6 @@ bool ExtensionBrowserTest::WaitForExtensionHostsToLoad() {
       iter = manager->begin();
     }
   }
-  LOG(INFO) << "All ExtensionHosts loaded";
-
   return true;
 }
 

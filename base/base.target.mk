@@ -20,6 +20,7 @@ CFLAGS_Debug := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -73,6 +74,7 @@ CFLAGS_Release := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -124,21 +126,27 @@ OBJS := $(obj).target/$(TARGET)/base/third_party/dmg_fp/dtoa.o \
 	$(obj).target/$(TARGET)/base/condition_variable_posix.o \
 	$(obj).target/$(TARGET)/base/debug_util.o \
 	$(obj).target/$(TARGET)/base/debug_util_posix.o \
-	$(obj).target/$(TARGET)/base/env_var.o \
-	$(obj).target/$(TARGET)/base/event_synthesis_gtk.o \
+	$(obj).target/$(TARGET)/base/environment.o \
 	$(obj).target/$(TARGET)/base/file_path.o \
 	$(obj).target/$(TARGET)/base/file_util.o \
+	$(obj).target/$(TARGET)/base/file_util_linux.o \
 	$(obj).target/$(TARGET)/base/file_util_posix.o \
+	$(obj).target/$(TARGET)/base/file_util_proxy.o \
 	$(obj).target/$(TARGET)/base/global_descriptors_posix.o \
 	$(obj).target/$(TARGET)/base/gtk_util.o \
 	$(obj).target/$(TARGET)/base/histogram.o \
+	$(obj).target/$(TARGET)/base/json/json_reader.o \
+	$(obj).target/$(TARGET)/base/json/json_writer.o \
+	$(obj).target/$(TARGET)/base/json/string_escape.o \
 	$(obj).target/$(TARGET)/base/lazy_instance.o \
 	$(obj).target/$(TARGET)/base/lock.o \
 	$(obj).target/$(TARGET)/base/lock_impl_posix.o \
 	$(obj).target/$(TARGET)/base/logging.o \
 	$(obj).target/$(TARGET)/base/memory_debug.o \
 	$(obj).target/$(TARGET)/base/message_loop.o \
+	$(obj).target/$(TARGET)/base/message_loop_proxy.o \
 	$(obj).target/$(TARGET)/base/message_loop_proxy_impl.o \
+	$(obj).target/$(TARGET)/base/message_pump.o \
 	$(obj).target/$(TARGET)/base/message_pump_default.o \
 	$(obj).target/$(TARGET)/base/mime_util_xdg.o \
 	$(obj).target/$(TARGET)/base/native_library_linux.o \
@@ -156,20 +164,26 @@ OBJS := $(obj).target/$(TARGET)/base/third_party/dmg_fp/dtoa.o \
 	$(obj).target/$(TARGET)/base/rand_util.o \
 	$(obj).target/$(TARGET)/base/rand_util_posix.o \
 	$(obj).target/$(TARGET)/base/ref_counted.o \
+	$(obj).target/$(TARGET)/base/ref_counted_memory.o \
 	$(obj).target/$(TARGET)/base/safe_strerror_posix.o \
 	$(obj).target/$(TARGET)/base/scoped_temp_dir.o \
 	$(obj).target/$(TARGET)/base/sha1_portable.o \
 	$(obj).target/$(TARGET)/base/shared_memory_posix.o \
 	$(obj).target/$(TARGET)/base/simple_thread.o \
+	$(obj).target/$(TARGET)/base/stats_counters.o \
 	$(obj).target/$(TARGET)/base/stats_table.o \
+	$(obj).target/$(TARGET)/base/string_number_conversions.o \
 	$(obj).target/$(TARGET)/base/string_piece.o \
 	$(obj).target/$(TARGET)/base/string_split.o \
 	$(obj).target/$(TARGET)/base/string_util.o \
+	$(obj).target/$(TARGET)/base/stringprintf.o \
 	$(obj).target/$(TARGET)/base/sys_info_linux.o \
 	$(obj).target/$(TARGET)/base/sys_info_posix.o \
 	$(obj).target/$(TARGET)/base/sys_string_conversions_linux.o \
 	$(obj).target/$(TARGET)/base/task.o \
+	$(obj).target/$(TARGET)/base/task_queue.o \
 	$(obj).target/$(TARGET)/base/thread.o \
+	$(obj).target/$(TARGET)/base/thread_checker.o \
 	$(obj).target/$(TARGET)/base/thread_collision_warner.o \
 	$(obj).target/$(TARGET)/base/thread_local_posix.o \
 	$(obj).target/$(TARGET)/base/thread_local_storage_posix.o \
@@ -183,6 +197,7 @@ OBJS := $(obj).target/$(TARGET)/base/third_party/dmg_fp/dtoa.o \
 	$(obj).target/$(TARGET)/base/utf_string_conversion_utils.o \
 	$(obj).target/$(TARGET)/base/utf_string_conversions.o \
 	$(obj).target/$(TARGET)/base/values.o \
+	$(obj).target/$(TARGET)/base/vlog.o \
 	$(obj).target/$(TARGET)/base/waitable_event_posix.o \
 	$(obj).target/$(TARGET)/base/waitable_event_watcher_posix.o \
 	$(obj).target/$(TARGET)/base/watchdog.o \
@@ -203,10 +218,6 @@ OBJS := $(obj).target/$(TARGET)/base/third_party/dmg_fp/dtoa.o \
 	$(obj).target/$(TARGET)/base/field_trial.o \
 	$(obj).target/$(TARGET)/base/file_descriptor_shuffle.o \
 	$(obj).target/$(TARGET)/base/hmac_nss.o \
-	$(obj).target/$(TARGET)/base/json/json_reader.o \
-	$(obj).target/$(TARGET)/base/json/json_writer.o \
-	$(obj).target/$(TARGET)/base/json/string_escape.o \
-	$(obj).target/$(TARGET)/base/keyboard_code_conversion_gtk.o \
 	$(obj).target/$(TARGET)/base/linux_util.o \
 	$(obj).target/$(TARGET)/base/md5.o \
 	$(obj).target/$(TARGET)/base/message_pump_glib.o \
@@ -256,11 +267,12 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.c FORCE_DO_CMD
 # End of this set of suffix rules
 ### Rules for final target.
 LDFLAGS_Debug := -pthread \
-	-Wl,-z,noexecstack \
-	-rdynamic
+	-Wl,-z,noexecstack
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := 

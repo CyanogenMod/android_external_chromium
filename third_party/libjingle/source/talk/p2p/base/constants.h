@@ -73,6 +73,7 @@ extern const std::string JINGLE_ACTION_SESSION_INFO;
 extern const std::string JINGLE_ACTION_SESSION_ACCEPT;
 extern const std::string JINGLE_ACTION_SESSION_TERMINATE;
 extern const std::string JINGLE_ACTION_TRANSPORT_INFO;
+extern const std::string JINGLE_ACTION_TRANSPORT_ACCEPT;
 
 extern const buzz::QName QN_GINGLE_SESSION;
 extern const std::string GINGLE_ACTION_INITIATE;
@@ -83,10 +84,8 @@ extern const std::string GINGLE_ACTION_TERMINATE;
 extern const std::string GINGLE_ACTION_CANDIDATES;
 
 
-// SessionFormats (aka Gingle <session><description>
-//                  or Jingle <content><description>)
-// For now, FormatDescription == SessionDescription
-// Long term, everything will be FormatDescription
+// Session Contents (aka Gingle <session><description>
+//                   or Jingle <content><description>)
 extern const std::string LN_DESCRIPTION;
 extern const std::string LN_PAYLOADTYPE;
 extern const buzz::QName QN_ID;
@@ -107,19 +106,28 @@ extern const std::string PAYLOADTYPE_PARAMETER_HEIGHT;
 extern const std::string PAYLOADTYPE_PARAMETER_WIDTH;
 extern const std::string PAYLOADTYPE_PARAMETER_FRAMERATE;
 
+// CN_ == "content name".  When we initiate a session, we choose the
+// name, and when we receive a Gingle session, we provide default
+// names (since Gingle has no content names).  But when we receive a
+// Jingle call, the content name can be anything, so don't rely on
+// these values being the same as the ones received.
+extern const std::string CN_AUDIO;
+extern const std::string CN_VIDEO;
+extern const std::string CN_OTHER;
+
 extern const std::string NS_JINGLE_AUDIO;
-extern const buzz::QName QN_JINGLE_AUDIO_FORMAT;
+extern const buzz::QName QN_JINGLE_AUDIO_CONTENT;
 extern const buzz::QName QN_JINGLE_AUDIO_PAYLOADTYPE;
 extern const std::string NS_JINGLE_VIDEO;
-extern const buzz::QName QN_JINGLE_VIDEO_FORMAT;
+extern const buzz::QName QN_JINGLE_VIDEO_CONTENT;
 extern const buzz::QName QN_JINGLE_VIDEO_PAYLOADTYPE;
 
 extern const std::string NS_GINGLE_AUDIO;
-extern const buzz::QName QN_GINGLE_AUDIO_FORMAT;
+extern const buzz::QName QN_GINGLE_AUDIO_CONTENT;
 extern const buzz::QName QN_GINGLE_AUDIO_PAYLOADTYPE;
 extern const buzz::QName QN_GINGLE_AUDIO_SRCID;
 extern const std::string NS_GINGLE_VIDEO;
-extern const buzz::QName QN_GINGLE_VIDEO_FORMAT;
+extern const buzz::QName QN_GINGLE_VIDEO_CONTENT;
 extern const buzz::QName QN_GINGLE_VIDEO_PAYLOADTYPE;
 extern const buzz::QName QN_GINGLE_VIDEO_SRCID;
 extern const buzz::QName QN_GINGLE_VIDEO_BANDWIDTH;

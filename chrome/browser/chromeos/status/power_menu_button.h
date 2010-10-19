@@ -4,12 +4,17 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_STATUS_POWER_MENU_BUTTON_H_
 #define CHROME_BROWSER_CHROMEOS_STATUS_POWER_MENU_BUTTON_H_
+#pragma once
 
 #include "app/menus/menu_model.h"
 #include "chrome/browser/chromeos/cros/power_library.h"
 #include "chrome/browser/chromeos/status/status_area_button.h"
 #include "views/controls/menu/menu_2.h"
 #include "views/controls/menu/view_menu_delegate.h"
+
+namespace base {
+class TimeDelta;
+}
 
 class SkBitmap;
 
@@ -63,17 +68,26 @@ class PowerMenuButton : public StatusAreaButton,
   // This method will draw the |icon| in the appropriate place on the |canvas|.
   void DrawPowerIcon(gfx::Canvas* canvas, SkBitmap icon);
 
-  // Update the power icon depending on the power status.
-  void UpdateIcon();
+  // Update the power icon and menu label info depending on the power status.
+  void UpdateIconAndLabelInfo();
 
   // The number of power images.
   static const int kNumPowerImages;
 
-  // The power menu.
-  views::Menu2 power_menu_;
+  // Stored data gathered from CrosLibrary::PowerLibrary.
+  bool battery_is_present_;
+  bool line_power_on_;
+  bool battery_fully_charged_;
+  double battery_percentage_;
+  base::TimeDelta battery_time_to_full_;
+  base::TimeDelta battery_time_to_empty_;
 
   // The currently showing icon bitmap id.
   int icon_id_;
+
+  // The power menu. This needs to be initialized last since it calls into
+  // GetLabelAt() during construction.
+  views::Menu2 power_menu_;
 
   DISALLOW_COPY_AND_ASSIGN(PowerMenuButton);
 };

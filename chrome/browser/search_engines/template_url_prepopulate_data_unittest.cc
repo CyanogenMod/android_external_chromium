@@ -1,8 +1,11 @@
 // Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+
+#include "base/file_util.h"
 #include "base/scoped_temp_dir.h"
 #include "base/scoped_vector.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_prepopulate_data.h"
 #include "chrome/common/pref_names.h"
@@ -92,6 +95,8 @@ TEST_F(TemplateURLPrepopulateDataTest, ProvidersFromPrefs) {
       "       \"favicon_url\":\"http://foi.com/favicon.ico\","
       "       \"suggest_url\":\"\","
       "       \"encoding\":\"UTF-8\","
+      "       \"search_engine_type\":1,"
+      "       \"logo_id\":0,"
       "       \"id\":1001"
       "     }"
       "   ]"
@@ -121,4 +126,7 @@ TEST_F(TemplateURLPrepopulateDataTest, ProvidersFromPrefs) {
   EXPECT_EQ("foi.com", t_urls[0]->GetFavIconURL().host());
   EXPECT_EQ(1u, t_urls[0]->input_encodings().size());
   EXPECT_EQ(1001, t_urls[0]->prepopulate_id());
+  EXPECT_EQ(TemplateURLPrepopulateData::SEARCH_ENGINE_GOOGLE,
+            t_urls[0]->search_engine_type());
+  EXPECT_EQ(0, t_urls[0]->logo_id());
 }

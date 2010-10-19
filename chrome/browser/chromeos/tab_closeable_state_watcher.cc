@@ -4,10 +4,14 @@
 
 #include "chrome/browser/chromeos/tab_closeable_state_watcher.h"
 
+#include "base/command_line.h"
+#include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 
@@ -63,7 +67,9 @@ void TabCloseableStateWatcher::TabStripWatcher::TabChangedAt(
 
 TabCloseableStateWatcher::TabCloseableStateWatcher()
     : can_close_tab_(true),
-      signing_off_(false) {
+      signing_off_(false),
+      bwsi_session_(
+          CommandLine::ForCurrentProcess()->HasSwitch(switches::kBWSI)) {
   BrowserList::AddObserver(this);
   notification_registrar_.Add(this, NotificationType::APP_EXITING,
       NotificationService::AllSources());
@@ -71,7 +77,8 @@ TabCloseableStateWatcher::TabCloseableStateWatcher()
 
 TabCloseableStateWatcher::~TabCloseableStateWatcher() {
   BrowserList::RemoveObserver(this);
-  DCHECK(tabstrip_watchers_.empty());
+  if (!browser_shutdown::ShuttingDownWithoutClosingBrowsers())
+    DCHECK(tabstrip_watchers_.empty());
 }
 
 bool TabCloseableStateWatcher::CanCloseTab(const Browser* browser) const {
@@ -183,7 +190,7 @@ void TabCloseableStateWatcher::CheckAndUpdateState(
   } else {  // There's only 1 normal browser.
     if (!browser_to_check)
       browser_to_check = tabstrip_watchers_[0]->browser();
-    if (browser_to_check->profile()->IsOffTheRecord()) {
+    if (browser_to_check->profile()->IsOffTheRecord() && !bwsi_session_) {
       new_can_close = true;
     } else {
       TabStripModel* tabstrip_model = browser_to_check->tabstrip_model();
@@ -232,8 +239,8 @@ bool TabCloseableStateWatcher::CanCloseBrowserImpl(const Browser* browser,
     return true;
 
   // If last normal browser is incognito, open a non-incognito window,
-  // and allow closing of incognito one.
-  if (browser->profile()->IsOffTheRecord()) {
+  // and allow closing of incognito one (if not BWSI).
+  if (browser->profile()->IsOffTheRecord() && !bwsi_session_) {
     *action_type = OPEN_WINDOW;
     return true;
   }

@@ -11,9 +11,11 @@
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/singleton.h"
+#include "base/values.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
+#include "chrome/browser/printing/cloud_print/cloud_print_url.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_paths.h"
@@ -22,6 +24,7 @@
 #include "chrome/test/ui_test_utils.h"
 #include "net/url_request/url_request_filter.h"
 #include "net/url_request/url_request_test_job.h"
+#include "net/url_request/url_request_unittest.h"
 
 namespace {
 
@@ -76,7 +79,10 @@ class SimpleTestJob : public URLRequestTestJob {
 
 class TestController {
  public:
-  TestController() : result_(false), use_delegate_(false) {}
+  TestController()
+      : result_(false),
+        use_delegate_(false),
+        delegate_(NULL) {}
   void set_result(bool value) {
     result_ = value;
   }
@@ -152,7 +158,7 @@ class PrintDialogCloudTest : public InProcessBrowserTest {
     if (!handler_added_) {
       URLRequestFilter* filter = URLRequestFilter::GetInstance();
       GURL cloud_print_service_url =
-          internal_cloud_print_helpers::CloudPrintService(browser()->profile()).
+          CloudPrintURL(browser()->profile()).
           GetCloudPrintServiceURL();
       scheme_ = cloud_print_service_url.scheme();
       host_name_ = cloud_print_service_url.host();
@@ -161,7 +167,7 @@ class PrintDialogCloudTest : public InProcessBrowserTest {
       handler_added_ = true;
 
       GURL cloud_print_dialog_url =
-          internal_cloud_print_helpers::CloudPrintService(browser()->profile()).
+          CloudPrintURL(browser()->profile()).
           GetCloudPrintServiceDialogURL();
       Singleton<TestController>()->set_expected_url(cloud_print_dialog_url);
       Singleton<TestController>()->set_delegate(&delegate_);

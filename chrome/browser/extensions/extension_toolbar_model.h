@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_TOOLBAR_MODEL_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_TOOLBAR_MODEL_H_
+#pragma once
 
 #include "base/observer_list.h"
 #include "chrome/common/extensions/extension.h"
@@ -18,6 +19,10 @@ class ExtensionToolbarModel : public NotificationObserver {
  public:
   explicit ExtensionToolbarModel(ExtensionsService* service);
   ~ExtensionToolbarModel();
+
+  // Notifies the toolbar model that the Profile that suplied its
+  // prefs is being destroyed.
+  void DestroyingProfile();
 
   // A class which is informed of changes to the model; represents the view of
   // MVC.
@@ -35,6 +40,9 @@ class ExtensionToolbarModel : public NotificationObserver {
 
     // Called when the model has finished loading.
     virtual void ModelLoaded() {}
+
+   protected:
+    virtual ~Observer() {}
   };
 
   // Functions called by the view.

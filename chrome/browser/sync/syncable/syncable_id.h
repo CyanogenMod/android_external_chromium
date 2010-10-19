@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_SYNCABLE_SYNCABLE_ID_H_
 #define CHROME_BROWSER_SYNC_SYNCABLE_SYNCABLE_ID_H_
+#pragma once
 
 #include <iosfwd>
 #include <limits>
@@ -12,7 +13,6 @@
 
 #include "base/hash_tables.h"
 #include "chrome/browser/sync/util/fast_dump.h"
-#include "chrome/browser/sync/util/sync_types.h"
 
 extern "C" {
 struct sqlite3;
@@ -28,11 +28,10 @@ class Id;
 class MockConnectionManager;
 class SQLStatement;
 
-std::ostream& operator << (std::ostream& out, const syncable::Id& id);
-browser_sync::FastDump& operator <<
-  (browser_sync::FastDump& out, const syncable::Id& id);
-
 namespace syncable {
+
+std::ostream& operator<<(std::ostream& out, const Id& id);
+browser_sync::FastDump& operator<<(browser_sync::FastDump& out, const Id& id);
 
 // For historical reasons, 3 concepts got everloaded into the Id:
 // 1. A unique, opaque identifier for the object.
@@ -49,10 +48,9 @@ class Id {
                          syncable::EntryKernel** kernel);
   friend struct syncable::IdRowTraits;
   friend int BindFields(const EntryKernel& entry, SQLStatement* statement);
-  friend std::ostream& ::operator << (std::ostream& out,
-                                      const syncable::Id& id);
-  friend browser_sync::FastDump& ::operator <<
-    (browser_sync::FastDump& out, const syncable::Id& id);
+  friend std::ostream& operator<<(std::ostream& out, const Id& id);
+  friend browser_sync::FastDump& operator<<
+    (browser_sync::FastDump& out, const Id& id);
   friend class MockConnectionManager;
   friend class SyncableIdTest;
  public:

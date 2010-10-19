@@ -9,12 +9,10 @@
 
 #ifndef NET_URL_REQUEST_URL_REQUEST_CONTEXT_H_
 #define NET_URL_REQUEST_URL_REQUEST_CONTEXT_H_
+#pragma once
 
 #include "base/non_thread_safe.h"
 #include "base/ref_counted.h"
-#include "base/string_util.h"
-#include "net/base/cookie_store.h"
-#include "net/base/host_resolver.h"
 #include "net/base/net_log.h"
 #include "net/base/ssl_config_service.h"
 #include "net/base/transport_security_state.h"
@@ -23,11 +21,13 @@
 
 namespace net {
 class CookiePolicy;
+class CookieStore;
 class FtpTransactionFactory;
+class HostResolver;
 class HttpAuthHandlerFactory;
 class HttpNetworkDelegate;
 class HttpTransactionFactory;
-class SocketStream;
+class SSLConfigService;
 }
 class URLRequest;
 
@@ -36,15 +36,7 @@ class URLRequestContext
     : public base::RefCountedThreadSafe<URLRequestContext>,
       public NonThreadSafe {
  public:
-  URLRequestContext()
-      : net_log_(NULL),
-        http_transaction_factory_(NULL),
-        ftp_transaction_factory_(NULL),
-        http_auth_handler_factory_(NULL),
-        network_delegate_(NULL),
-        cookie_policy_(NULL),
-        transport_security_state_(NULL) {
-  }
+  URLRequestContext();
 
   net::NetLog* net_log() const {
     return net_log_;
@@ -108,9 +100,7 @@ class URLRequestContext
   // Gets the UA string to use for the given URL.  Pass an invalid URL (such as
   // GURL()) to get the default UA string.  Subclasses should override this
   // method to provide a UA string.
-  virtual const std::string& GetUserAgent(const GURL& url) const {
-    return EmptyString();
-  }
+  virtual const std::string& GetUserAgent(const GURL& url) const;
 
   // In general, referrer_charset is not known when URLRequestContext is
   // constructed. So, we need a setter.
@@ -122,7 +112,7 @@ class URLRequestContext
  protected:
   friend class base::RefCountedThreadSafe<URLRequestContext>;
 
-  virtual ~URLRequestContext() {}
+  virtual ~URLRequestContext();
 
   // The following members are expected to be initialized and owned by
   // subclasses.

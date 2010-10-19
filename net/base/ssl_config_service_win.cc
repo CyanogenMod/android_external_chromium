@@ -75,6 +75,7 @@ bool SSLConfigServiceWin::GetSSLConfigNow(SSLConfig* config) {
   config->ssl2_enabled = ((protocols & SSL2) != 0);
   config->ssl3_enabled = ((protocols & SSL3) != 0);
   config->tls1_enabled = ((protocols & TLS1) != 0);
+  SSLConfigService::SetSSLConfigFlags(config);
 
   return true;
 }
@@ -106,7 +107,10 @@ void SSLConfigServiceWin::SetSSL2Enabled(bool enabled) {
 }
 
 void SSLConfigServiceWin::UpdateConfig(TimeTicks now) {
+  SSLConfig orig_config = config_info_;
   GetSSLConfigNow(&config_info_);
+  if (ever_updated_)
+    ProcessConfigUpdate(orig_config, config_info_);
   config_time_ = now;
   ever_updated_ = true;
 }

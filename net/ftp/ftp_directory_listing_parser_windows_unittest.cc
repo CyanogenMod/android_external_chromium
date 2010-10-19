@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/format_macros.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "net/ftp/ftp_directory_listing_parser_windows.h"
 
 namespace {
@@ -50,9 +51,16 @@ TEST_F(FtpDirectoryListingParserWindowsTest, Good) {
     { "11-02-09  05:32PM       <DIR>          My Directory",
       net::FtpDirectoryListingEntry::DIRECTORY, "My Directory", -1,
       2009, 11, 2, 17, 32 },
+    { "12-25-10  12:00AM       <DIR>          Christmas Midnight",
+      net::FtpDirectoryListingEntry::DIRECTORY, "Christmas Midnight", -1,
+      2010, 12, 25, 0, 0 },
+    { "12-25-10  12:00PM       <DIR>          Christmas Midday",
+      net::FtpDirectoryListingEntry::DIRECTORY, "Christmas Midday", -1,
+      2010, 12, 25, 12, 0 },
   };
   for (size_t i = 0; i < arraysize(good_cases); i++) {
-    SCOPED_TRACE(StringPrintf("Test[%" PRIuS "]: %s", i, good_cases[i].input));
+    SCOPED_TRACE(base::StringPrintf("Test[%" PRIuS "]: %s", i,
+                                    good_cases[i].input));
 
     net::FtpDirectoryListingParserWindows parser;
     RunSingleLineTestCase(&parser, good_cases[i]);
@@ -68,6 +76,11 @@ TEST_F(FtpDirectoryListingParserWindowsTest, Bad) {
     "11-FEB-09 05:32PM       <DIR>          NT",
     "11-02     05:32PM       <DIR>          NT",
     "11-02-09  05:32PM                 -1   NT",
+    "99-25-10  12:00AM                  0   months out of range",
+    "12-99-10  12:00AM                  0   days out of range",
+    "12-25-10  99:00AM                  0   hours out of range",
+    "12-25-10  12:99AM                  0   minutes out of range",
+    "12-25-10  12:00ZM                  0   what does ZM mean",
   };
   for (size_t i = 0; i < arraysize(bad_cases); i++) {
     net::FtpDirectoryListingParserWindows parser;

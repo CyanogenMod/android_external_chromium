@@ -4,8 +4,10 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_SITE_INSTANCE_H_
 #define CHROME_BROWSER_RENDERER_HOST_SITE_INSTANCE_H_
+#pragma once
 
 #include "chrome/browser/renderer_host/render_process_host.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 

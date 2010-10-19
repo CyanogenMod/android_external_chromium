@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 #include "base/logging.h"
 #include "base/platform_thread.h"
 #include "base/safe_strerror_posix.h"
-#include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 
 namespace base {
 
@@ -77,7 +77,7 @@ void SharedMemory::CloseHandle(const SharedMemoryHandle& handle) {
   close(handle.fd);
 }
 
-bool SharedMemory::Create(const std::wstring &name, bool read_only,
+bool SharedMemory::Create(const std::string& name, bool read_only,
                           bool open_existing, uint32 size) {
   read_only_ = read_only;
 
@@ -96,7 +96,7 @@ bool SharedMemory::Create(const std::wstring &name, bool read_only,
 // Our current implementation of shmem is with mmap()ing of files.
 // These files need to be deleted explicitly.
 // In practice this call is only needed for unit tests.
-bool SharedMemory::Delete(const std::wstring& name) {
+bool SharedMemory::Delete(const std::string& name) {
   FilePath path;
   if (!FilePathForMemoryName(name, &path))
     return false;
@@ -109,7 +109,7 @@ bool SharedMemory::Delete(const std::wstring& name) {
   return true;
 }
 
-bool SharedMemory::Open(const std::wstring &name, bool read_only) {
+bool SharedMemory::Open(const std::string& name, bool read_only) {
   read_only_ = read_only;
 
   int posix_flags = 0;
@@ -118,22 +118,21 @@ bool SharedMemory::Open(const std::wstring &name, bool read_only) {
   return CreateOrOpen(name, posix_flags, 0);
 }
 
-// For the given shmem named |memname|, return a filename to mmap()
+// For the given shmem named |mem_name|, return a filename to mmap()
 // (and possibly create).  Modifies |filename|.  Return false on
 // error, or true of we are happy.
-bool SharedMemory::FilePathForMemoryName(const std::wstring& memname,
+bool SharedMemory::FilePathForMemoryName(const std::string& mem_name,
                                          FilePath* path) {
   // mem_name will be used for a filename; make sure it doesn't
   // contain anything which will confuse us.
-  DCHECK(memname.find_first_of(L"/") == std::string::npos);
-  DCHECK(memname.find_first_of(L"\0") == std::string::npos);
+  DCHECK(mem_name.find('/') == std::string::npos);
+  DCHECK(mem_name.find('\0') == std::string::npos);
 
   FilePath temp_dir;
-  if (file_util::GetShmemTempDir(&temp_dir) == false)
+  if (!file_util::GetShmemTempDir(&temp_dir))
     return false;
 
-  *path = temp_dir.AppendASCII("com.google.chrome.shmem." +
-                               WideToASCII(memname));
+  *path = temp_dir.AppendASCII("com.google.chrome.shmem." + mem_name);
   return true;
 }
 
@@ -143,7 +142,7 @@ bool SharedMemory::FilePathForMemoryName(const std::wstring& memname,
 // we restart from a crash.  (That isn't a new problem, but it is a problem.)
 // In case we want to delete it later, it may be useful to save the value
 // of mem_filename after FilePathForMemoryName().
-bool SharedMemory::CreateOrOpen(const std::wstring &name,
+bool SharedMemory::CreateOrOpen(const std::string& name,
                                 int posix_flags, uint32 size) {
   DCHECK(mapped_file_ == -1);
 
@@ -151,7 +150,7 @@ bool SharedMemory::CreateOrOpen(const std::wstring &name,
   FILE *fp;
 
   FilePath path;
-  if (name == L"") {
+  if (name.empty()) {
     // It doesn't make sense to have a read-only private piece of shmem
     DCHECK(posix_flags & (O_RDWR | O_WRONLY));
 
@@ -162,7 +161,8 @@ bool SharedMemory::CreateOrOpen(const std::wstring &name,
     // Deleting the file prevents anyone else from mapping it in
     // (making it private), and prevents the need for cleanup (once
     // the last fd is closed, it is truly freed).
-    file_util::Delete(path, false);
+    if (fp)
+      file_util::Delete(path, false);
   } else {
     if (!FilePathForMemoryName(name, &path))
       return false;
@@ -190,9 +190,15 @@ bool SharedMemory::CreateOrOpen(const std::wstring &name,
   if (fp == NULL) {
     if (posix_flags & O_CREAT) {
 #if !defined(OS_MACOSX)
-      PLOG(FATAL) << "Creating shared memory in " << path.value() << " failed. "
-                  << "This is frequently caused by incorrect permissions on "
-                  << "/dev/shm.  Try 'sudo chmod 777 /dev/shm' to fix.";
+      PLOG(ERROR) << "Creating shared memory in " << path.value() << " failed";
+      FilePath dir = path.DirName();
+      if (access(dir.value().c_str(), W_OK | X_OK) < 0) {
+        PLOG(ERROR) << "Unable to access(W_OK|X_OK) " << dir.value();
+        if (dir.value() == "/dev/shm") {
+          LOG(FATAL) << "This is frequently caused by incorrect permissions on "
+                     << "/dev/shm.  Try 'sudo chmod 777 /dev/shm' to fix.";
+        }
+      }
 #else
       PLOG(ERROR) << "Creating shared memory in " << path.value() << " failed";
 #endif

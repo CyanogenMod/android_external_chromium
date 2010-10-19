@@ -4,11 +4,11 @@
 
 #ifndef CHROME_BROWSER_TRANSLATE_LANGUAGES_MENU_MODEL_H_
 #define CHROME_BROWSER_TRANSLATE_LANGUAGES_MENU_MODEL_H_
+#pragma once
 
 #include "app/menus/simple_menu_model.h"
 
 class TranslateInfoBarDelegate;
-class String16;
 
 // A menu model that builds the contents of the language menus in the translate
 // infobar. This menu has only one level (no submenus).

@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,10 @@
 #include "base/registry.h"
 #include "base/scoped_ptr.h"
 #include "base/stats_counters.h"
+#include "base/string_number_conversions.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/win_util.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebInputEvent.h"
@@ -264,7 +267,10 @@ WebPluginDelegateImpl::WebPluginDelegateImpl(
       user_gesture_msg_factory_(this),
       handle_event_depth_(0),
       mouse_hook_(NULL),
-      first_set_window_call_(true) {
+      first_set_window_call_(true),
+      plugin_has_focus_(false),
+      has_webkit_focus_(false),
+      containing_view_has_focus_(true) {
   memset(&window_, 0, sizeof(window_));
 
   const WebPluginInfo& plugin_info = instance_->plugin_lib()->plugin_info();
@@ -285,7 +291,8 @@ WebPluginDelegateImpl::WebPluginDelegateImpl(
     std::vector<std::wstring> version;
     SplitString(plugin_info.version, L'.', &version);
     if (version.size() > 0) {
-      int major = static_cast<int>(StringToInt64(version[0]));
+      int major;
+      base::StringToInt(version[0], &major);
       if (major >= 9) {
         quirks_ |= PLUGIN_QUIRK_DIE_AFTER_UNLOAD;
 
@@ -410,7 +417,8 @@ bool WebPluginDelegateImpl::PlatformInitialize() {
   if ((quirks_ & PLUGIN_QUIRK_PATCH_REGENUMKEYEXW) &&
       win_util::GetWinVersion() == win_util::WINVERSION_XP &&
       !RegKey().Open(HKEY_LOCAL_MACHINE,
-          L"SOFTWARE\\Microsoft\\MediaPlayer\\ShimInclusionList\\chrome.exe") &&
+          L"SOFTWARE\\Microsoft\\MediaPlayer\\ShimInclusionList\\chrome.exe",
+          KEY_READ) &&
       !g_iat_patch_reg_enum_key_ex_w.Pointer()->is_patched()) {
     g_iat_patch_reg_enum_key_ex_w.Pointer()->Patch(
         L"wmpdxm.dll", "advapi32.dll", "RegEnumKeyExW",
@@ -1048,7 +1056,7 @@ void WebPluginDelegateImpl::WindowlessSetWindow() {
   DCHECK(err == NPERR_NO_ERROR);
 }
 
-void WebPluginDelegateImpl::SetFocus(bool focused) {
+bool WebPluginDelegateImpl::PlatformSetPluginHasFocus(bool focused) {
   DCHECK(instance()->windowless());
 
   NPEvent focus_event;
@@ -1057,6 +1065,7 @@ void WebPluginDelegateImpl::SetFocus(bool focused) {
   focus_event.lParam = 0;
 
   instance()->NPP_HandleEvent(&focus_event);
+  return true;
 }
 
 static bool NPEventFromWebMouseEvent(const WebMouseEvent& event,
@@ -1187,7 +1196,7 @@ bool WebPluginDelegateImpl::PlatformHandleInputEvent(
       parent_thread_id_ = GetWindowThreadProcessId(parent_, NULL);
     HKL parent_layout = GetKeyboardLayout(parent_thread_id_);
     if (keyboard_layout_ != parent_layout) {
-      std::wstring layout_name(StringPrintf(L"%08x", parent_layout));
+      std::wstring layout_name(base::StringPrintf(L"%08x", parent_layout));
       LoadKeyboardLayout(layout_name.c_str(), KLF_ACTIVATE);
       keyboard_layout_ = parent_layout;
     }

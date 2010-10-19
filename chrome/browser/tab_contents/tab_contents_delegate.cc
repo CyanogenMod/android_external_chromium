@@ -4,11 +4,24 @@
 
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 
+#include "gfx/rect.h"
+
 void TabContentsDelegate::DetachContents(TabContents* source) {
+}
+
+bool TabContentsDelegate::IsPopup(const TabContents* source) const {
+  return false;
 }
 
 TabContents* TabContentsDelegate::GetConstrainingContents(TabContents* source) {
   return source;
+}
+
+bool TabContentsDelegate::ShouldFocusConstrainedWindow(TabContents* source) {
+  return true;
+}
+
+void TabContentsDelegate::WillShowConstrainedWindow(TabContents* source) {
 }
 
 void TabContentsDelegate::ContentsMouseEvent(
@@ -51,6 +64,10 @@ bool TabContentsDelegate::IsExternalTabContainer() const { return false; }
 
 void TabContentsDelegate::SetFocusToLocationBar(bool select_all) {}
 
+bool TabContentsDelegate::ShouldFocusPageAfterCrash() {
+  return true;
+}
+
 void TabContentsDelegate::RenderWidgetShowing() {}
 
 ExtensionFunctionDispatcher*
@@ -62,6 +79,9 @@ TabContentsDelegate::CreateExtensionFunctionDispatcher(
 
 bool TabContentsDelegate::TakeFocus(bool reverse) {
   return false;
+}
+
+void TabContentsDelegate::LostCapture() {
 }
 
 void TabContentsDelegate::SetTabContentBlocked(
@@ -79,7 +99,8 @@ bool TabContentsDelegate::CanDownload(int request_id) {
   return true;
 }
 
-void TabContentsDelegate::OnStartDownload(DownloadItem* download) {
+void TabContentsDelegate::OnStartDownload(DownloadItem* download,
+                                          TabContents* tab) {
 }
 
 bool TabContentsDelegate::HandleContextMenu(const ContextMenuParams& params) {
@@ -111,6 +132,12 @@ void TabContentsDelegate::HandleKeyboardEvent(
     const NativeWebKeyboardEvent& event) {
 }
 
+void TabContentsDelegate::HandleMouseUp() {
+}
+
+void TabContentsDelegate::HandleMouseActivate() {
+}
+
 void TabContentsDelegate::ShowRepostFormWarningDialog(
     TabContents* tab_contents) {
 }
@@ -127,16 +154,14 @@ bool TabContentsDelegate::OnGoToEntryOffset(int offset) {
   return true;
 }
 
-bool TabContentsDelegate::ShouldAddNavigationsToHistory() const {
+bool TabContentsDelegate::ShouldAddNavigationToHistory(
+    const history::HistoryAddPageArgs& add_page_args,
+    NavigationType::Type navigation_type) {
   return true;
 }
 
 void TabContentsDelegate::OnDidGetApplicationInfo(TabContents* tab_contents,
                                                   int32 page_id) {
-}
-
-Browser* TabContentsDelegate::GetBrowser() {
-  return NULL;
 }
 
 gfx::NativeWindow TabContentsDelegate::GetFrameNativeWindow() {
@@ -155,6 +180,13 @@ bool TabContentsDelegate::ShouldEnablePreferredSizeNotifications() {
 }
 
 void TabContentsDelegate::UpdatePreferredSize(const gfx::Size& pref_size) {
+}
+
+void TabContentsDelegate::ContentTypeChanged(TabContents* source) {
+}
+
+void TabContentsDelegate::OnSetSuggestResult(int32 page_id,
+                                             const std::string& result) {
 }
 
 TabContentsDelegate::~TabContentsDelegate() {

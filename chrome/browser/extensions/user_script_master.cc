@@ -1,4 +1,4 @@
-// Copyright (c) 2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -88,7 +88,7 @@ bool UserScriptMaster::ScriptReloader::ParseMetadataHeader(
 
       std::string value;
       if (GetDeclarationValue(line, kIncludeDeclaration, &value)) {
-        // We escape some characters that MatchPatternASCII() considers special.
+        // We escape some characters that MatchPattern() considers special.
         ReplaceSubstringsAfterOffset(&value, 0, "\\", "\\\\");
         ReplaceSubstringsAfterOffset(&value, 0, "?", "\\?");
         script->add_glob(value);
@@ -174,7 +174,6 @@ static bool LoadScriptContent(UserScript::File* script_file) {
     script_file->set_content(content);
   }
 
-  LOG(INFO) << "Loaded user script file: " << path.value();
   return true;
 }
 
@@ -254,7 +253,7 @@ static base::SharedMemory* Serialize(const UserScriptList& scripts) {
   // Create the shared memory object.
   scoped_ptr<base::SharedMemory> shared_memory(new base::SharedMemory());
 
-  if (!shared_memory->Create(std::wstring(),  // anonymous
+  if (!shared_memory->Create(std::string(),  // anonymous
                              false,  // read-only
                              false,  // open existing
                              pickle.size()))

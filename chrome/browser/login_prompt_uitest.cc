@@ -10,24 +10,24 @@
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/automation/browser_proxy.h"
 #include "chrome/test/ui/ui_test.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/test/test_server.h"
 
 using std::wstring;
 
 namespace {
 
-const wchar_t kDocRoot[] = L"chrome/test/data";
+const FilePath::CharType kDocRoot[] = FILE_PATH_LITERAL("chrome/test/data");
 
 }  // namespace
 
 class LoginPromptTest : public UITest {
  protected:
   LoginPromptTest()
-      : UITest(),
-        username_basic_(L"basicuser"),
+      : username_basic_(L"basicuser"),
         username_digest_(L"digestuser"),
         password_(L"secret"),
-        password_bad_(L"denyme") {
+        password_bad_(L"denyme"),
+        test_server_(net::TestServer::TYPE_HTTP, FilePath(kDocRoot)) {
   }
 
   void AppendTab(const GURL& url) {
@@ -41,6 +41,8 @@ class LoginPromptTest : public UITest {
   wstring username_digest_;
   wstring password_;
   wstring password_bad_;
+
+  net::TestServer test_server_;
 };
 
 wstring ExpectedTitleFromAuth(const wstring& username,
@@ -49,14 +51,21 @@ wstring ExpectedTitleFromAuth(const wstring& username,
   return username + L"/" + password;
 }
 
+// FLAKY: http://crbug.com/56670
+#if defined(OS_WIN)
+#define MAYBE_TestBasicAuth FLAKY_TestBasicAuth
+#elif defined(OS_LINUX)
+#define MAYBE_TestBasicAuth FLAKY_TestBasicAuth
+#else
+#define MAYBE_TestBasicAuth TestBasicAuth
+#endif
 // Test that "Basic" HTTP authentication works.
-TEST_F(LoginPromptTest, TestBasicAuth) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+TEST_F(LoginPromptTest, MAYBE_TestBasicAuth) {
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<TabProxy> tab(GetActiveTab());
   ASSERT_TRUE(tab.get());
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("auth-basic")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server_.GetURL("auth-basic")));
 
   EXPECT_TRUE(tab->NeedsAuth());
   EXPECT_FALSE(tab->SetAuth(username_basic_, password_bad_));
@@ -64,7 +73,7 @@ TEST_F(LoginPromptTest, TestBasicAuth) {
   EXPECT_TRUE(tab->CancelAuth());
   EXPECT_EQ(L"Denied: wrong password", GetActiveTabTitle());
 
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("auth-basic")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server_.GetURL("auth-basic")));
 
   EXPECT_TRUE(tab->NeedsAuth());
   EXPECT_TRUE(tab->SetAuth(username_basic_, password_));
@@ -72,21 +81,21 @@ TEST_F(LoginPromptTest, TestBasicAuth) {
             GetActiveTabTitle());
 }
 
+// FLAKY: http://crbug.com/56670
 // Test that "Digest" HTTP authentication works.
-TEST_F(LoginPromptTest, TestDigestAuth) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+TEST_F(LoginPromptTest, FLAKY_TestDigestAuth) {
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<TabProxy> tab(GetActiveTab());
   ASSERT_TRUE(tab.get());
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("auth-digest")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server_.GetURL("auth-digest")));
 
   EXPECT_TRUE(tab->NeedsAuth());
   EXPECT_FALSE(tab->SetAuth(username_digest_, password_bad_));
   EXPECT_TRUE(tab->CancelAuth());
   EXPECT_EQ(L"Denied: wrong password", GetActiveTabTitle());
 
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("auth-digest")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server_.GetURL("auth-digest")));
 
   EXPECT_TRUE(tab->NeedsAuth());
   EXPECT_TRUE(tab->SetAuth(username_digest_, password_));
@@ -96,19 +105,17 @@ TEST_F(LoginPromptTest, TestDigestAuth) {
 
 // Test that logging in on 2 tabs at once works.
 TEST_F(LoginPromptTest, TestTwoAuths) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
 
   scoped_refptr<TabProxy> basic_tab(GetActiveTab());
   ASSERT_TRUE(basic_tab.get());
-  ASSERT_TRUE(basic_tab->NavigateToURL(server->TestServerPage("auth-basic")));
+  ASSERT_TRUE(basic_tab->NavigateToURL(test_server_.GetURL("auth-basic")));
 
   AppendTab(GURL(chrome::kAboutBlankURL));
   scoped_refptr<TabProxy> digest_tab(GetActiveTab());
   ASSERT_TRUE(digest_tab.get());
   ASSERT_TRUE(
-      digest_tab->NavigateToURL(server->TestServerPage("auth-digest")));
+      digest_tab->NavigateToURL(test_server_.GetURL("auth-digest")));
 
   EXPECT_TRUE(basic_tab->NeedsAuth());
   EXPECT_TRUE(basic_tab->SetAuth(username_basic_, password_));
@@ -123,39 +130,46 @@ TEST_F(LoginPromptTest, TestTwoAuths) {
   EXPECT_EQ(ExpectedTitleFromAuth(username_digest_, password_), title);
 }
 
+// FLAKY: http://crbug.com/56670
+#if defined(OS_WIN)
+#define MAYBE_TestCancelAuth FLAKY_TestCancelAuth
+#elif defined(OS_LINUX)
+#define MAYBE_TestCancelAuth FLAKY_TestCancelAuth
+#else
+#define MAYBE_TestCancelAuth TestCancelAuth
+#endif
 // Test that cancelling authentication works.
-TEST_F(LoginPromptTest, TestCancelAuth) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+TEST_F(LoginPromptTest, MAYBE_TestCancelAuth) {
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<TabProxy> tab(GetActiveTab());
   ASSERT_TRUE(tab.get());
 
   // First navigate to a test server page so we have something to go back to.
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("a")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server_.GetURL("a")));
 
   // Navigating while auth is requested is the same as cancelling.
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("auth-basic")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server_.GetURL("auth-basic")));
   EXPECT_TRUE(tab->NeedsAuth());
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("b")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server_.GetURL("b")));
   EXPECT_FALSE(tab->NeedsAuth());
 
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("auth-basic")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server_.GetURL("auth-basic")));
   EXPECT_TRUE(tab->NeedsAuth());
   EXPECT_TRUE(tab->GoBack());  // should bring us back to 'a'
   EXPECT_FALSE(tab->NeedsAuth());
 
   // Now add a page and go back, so we have something to go forward to.
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("c")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server_.GetURL("c")));
   EXPECT_TRUE(tab->GoBack());  // should bring us back to 'a'
 
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("auth-basic")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server_.GetURL("auth-basic")));
   EXPECT_TRUE(tab->NeedsAuth());
   EXPECT_TRUE(tab->GoForward());  // should bring us to 'c'
   EXPECT_FALSE(tab->NeedsAuth());
 
   // Now test that cancelling works as expected.
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("auth-basic")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server_.GetURL("auth-basic")));
   EXPECT_TRUE(tab->NeedsAuth());
   EXPECT_TRUE(tab->CancelAuth());
   EXPECT_FALSE(tab->NeedsAuth());
@@ -163,23 +177,21 @@ TEST_F(LoginPromptTest, TestCancelAuth) {
 }
 
 // If multiple tabs are looking for the same auth, the user should only have to
-// enter it once (http://crbug.com/8914).
+// enter it once.
 TEST_F(LoginPromptTest, SupplyRedundantAuths) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
 
   scoped_refptr<TabProxy> basic_tab1(GetActiveTab());
   ASSERT_TRUE(basic_tab1.get());
   ASSERT_TRUE(
-      basic_tab1->NavigateToURL(server->TestServerPage("auth-basic/1")));
+      basic_tab1->NavigateToURL(test_server_.GetURL("auth-basic/1")));
   EXPECT_TRUE(basic_tab1->NeedsAuth());
 
   AppendTab(GURL(chrome::kAboutBlankURL));
   scoped_refptr<TabProxy> basic_tab2(GetActiveTab());
   ASSERT_TRUE(basic_tab2.get());
   ASSERT_TRUE(
-      basic_tab2->NavigateToURL(server->TestServerPage("auth-basic/2")));
+      basic_tab2->NavigateToURL(test_server_.GetURL("auth-basic/2")));
   EXPECT_TRUE(basic_tab2->NeedsAuth());
 
   // Set the auth in only one of the tabs (but wait for the other to load).
@@ -200,21 +212,19 @@ TEST_F(LoginPromptTest, SupplyRedundantAuths) {
 // If multiple tabs are looking for the same auth, and one is cancelled, the
 // other should be cancelled as well.
 TEST_F(LoginPromptTest, CancelRedundantAuths) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
 
   scoped_refptr<TabProxy> basic_tab1(GetActiveTab());
   ASSERT_TRUE(basic_tab1.get());
   ASSERT_TRUE(
-      basic_tab1->NavigateToURL(server->TestServerPage("auth-basic/1")));
+      basic_tab1->NavigateToURL(test_server_.GetURL("auth-basic/1")));
   EXPECT_TRUE(basic_tab1->NeedsAuth());
 
   AppendTab(GURL(chrome::kAboutBlankURL));
   scoped_refptr<TabProxy> basic_tab2(GetActiveTab());
   ASSERT_TRUE(basic_tab2.get());
   ASSERT_TRUE(
-      basic_tab2->NavigateToURL(server->TestServerPage("auth-basic/2")));
+      basic_tab2->NavigateToURL(test_server_.GetURL("auth-basic/2")));
   EXPECT_TRUE(basic_tab2->NeedsAuth());
 
   // Cancel the auth in only one of the tabs (but wait for the other to load).

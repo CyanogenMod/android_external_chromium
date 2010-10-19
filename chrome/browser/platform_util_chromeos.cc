@@ -7,19 +7,18 @@
 #include <gtk/gtk.h>
 
 #include "app/l10n_util.h"
-#include "app/gtk_util.h"
 #include "base/file_util.h"
 #include "base/process_util.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/browser_list.h"
+#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/dom_ui/filebrowse_ui.h"
+#include "chrome/browser/dom_ui/mediaplayer_ui.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/process_watcher.h"
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
-
-#include "chrome/browser/chrome_thread.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/dom_ui/filebrowse_ui.h"
-#include "chrome/browser/dom_ui/mediaplayer_ui.h"
 
 class Profile;
 
@@ -82,7 +81,7 @@ void OpenItem(const FilePath& full_path) {
     Browser* browser = BrowserList::GetLastActive();
     browser->AddTabWithURL(
         GURL(path), GURL(), PageTransition::LINK, -1,
-        TabStripModel::ADD_SELECTED, NULL, std::string());
+        TabStripModel::ADD_SELECTED, NULL, std::string(), NULL);
     return;
   }
   if (ext == ".avi" ||
@@ -115,7 +114,7 @@ static void OpenURL(const std::string& url) {
   Browser* browser = BrowserList::GetLastActive();
   browser->AddTabWithURL(
       GURL(url), GURL(), PageTransition::LINK, -1,
-      TabStripModel::ADD_SELECTED, NULL, std::string());
+      TabStripModel::ADD_SELECTED, NULL, std::string(), NULL);
 }
 
 void OpenExternal(const GURL& url) {

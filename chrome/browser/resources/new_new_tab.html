@@ -5,8 +5,9 @@
   hasattribution:hasattribution;
   anim:anim;
   syncispresent:syncispresent;
-  has_3d:has_3d">
-
+  customlogo:customlogo"
+  install-animation-enabled="true">
+<head>
 <meta charset="utf-8">
 <title i18n-content="title"></title>
 <script>
@@ -44,14 +45,11 @@ function registerCallback(name) {
 
 chrome.send('getMostVisited');
 chrome.send('getRecentlyClosedTabs');
-chrome.send('getTips');
 chrome.send('getApps');
 
 registerCallback('mostVisitedPages');
 registerCallback('recentlyClosedTabs');
 registerCallback('syncMessageChanged');
-registerCallback('tips');
-registerCallback('onHomePageSet');
 registerCallback('getAppsCallback');
 registerCallback('setShownSections');
 
@@ -70,11 +68,7 @@ registerCallback('setShownSections');
  */
 var Section = {
   THUMB: 1,
-  // LIST is no longer used
-  RECENT: 4,
-  TIPS: 8,
-  SYNC: 16,
-  DEBUG: 32
+  APPS: 64
 };
 
 var shownSections = templateData['shown_sections'];
@@ -90,13 +84,6 @@ function useSmallGrid() {
 
 function isRtl() {
   return templateData['textdirection'] == 'rtl';
-}
-
-// This will get overridden in new_new_tab.js
-function updateSimpleSection(id, section) {
-  // All sections start off shown.
-  if (!(shownSections & section))
-    document.getElementById(id).className += ' hidden';
 }
 
 // Parse any name value pairs passed through the URL hash.
@@ -126,88 +113,86 @@ if ('mode' in hashParams) {
 <body class="loading"
       i18n-values=".style.fontFamily:fontfamily;.style.fontSize:fontsize">
 
+<div id="attribution" class="attribution nolayout">
+  <div i18n-content="attributionintro"></div>
+  <img id="attribution-img">
+</div>
+
 <div id="main">
-
-  <div id=top-bar>
-    <div id="tip-line" class="section" section="TIPS"></div>
-    <input type="button" id="option-button"
-        i18n-values="title:pagedisplaytooltip">
-  </div>
-
-  <menu id="option-menu">
-    <div command="hide" section="TIPS" i18n-content="tips"></div>
-    <div command="hide" section="THUMB" i18n-content="mostvisited"></div>
-    <div command="hide" section="RECENT" i18n-content="recentlyclosed"></div>
-    <hr>
-    <div command="clear-all-blacklisted"
-         i18n-content="restorethumbnails"></div>
-  </menu>
 
   <div id="notification">
     <span>&nbsp;</span>
     <span class="link"><span class="link-color"></span></span>
   </div>
 
+  <div class="maxiview" id="apps-maxiview"></div>
+  <div class="maxiview" id="most-visited-maxiview"></div>
+
   <div class="sections">
-    <div class="section disabled" id="apps-section"></div>
-
-    <div id="most-visited-section" class="section" section="THUMB">
-      <h2 i18n-content="mostvisited"></h2>
-      <div id="most-visited"></div>
+    <!-- Start disabled. We only enable if we have at least one app. -->
+    <div id="apps" class="section disabled" section="APPS">
+      <h2>
+        <img class="disclosure" img src="ntp/ntp_disclosure_triangle.png">
+        <div class="back"></div>
+        <span i18n-content="apps"></span>
+      </h2>
+      <div class="miniview"></div>
     </div>
 
-    <div id="recently-closed" class="section" section="RECENT">
-      <h2 i18n-content="recentlyclosed"></h2>
-      <span class="nav"></span>
+    <div id="most-visited" class="section" section="THUMB">
+      <h2>
+        <img class="disclosure" src="ntp/ntp_disclosure_triangle.png">
+        <div class="back"></div>
+        <span i18n-content="mostvisited"></span>
+        <button id="most-visited-settings" i18n-content="restorethumbnails">
+        </button>
+      </h2>
+      <div class="miniview"></div>
     </div>
 
-    <div id="debug" class="section disabled" section="DEBUG">
-      <h2>Debug</h2>
-      <div id="apps-launch-control">
-        Open apps in:<label
-        ><input type="radio" name="launch-container-type" value=""
-            checked="true">Default</label
-        ><input type="radio" name="launch-container-type" value="tab"
-            >Tab</label
-        ><label><input type="radio" name="launch-container-type" value="window"
-            >Window</label
-        ><label><input type="radio" name="launch-container-type" value="panel"
-            >Panel</label>
+    <!-- Start this section disabled because it might not have data, and looks
+         silly without any. -->
+    <div id="recently-closed" class="section hidden disabled" section="RECENT"
+        noexpand="true">
+      <h2>
+        <div class="back"></div>
+        <span i18n-content="recentlyclosed"></span>
+      </h2>
+      <div class="miniview"></div>
+    </div>
+
+    <div id="sync-status" class="section disabled">
+      <div>
+        <h3></h3>
+        <span></span>
       </div>
     </div>
   </div>
-
-  <script>
-    updateSimpleSection('tip-line', Section.TIPS);
-    updateSimpleSection('recently-closed', Section.RECENT);
-    updateSimpleSection('most-visited-section', Section.THUMB);
-    updateSimpleSection('debug', Section.DEBUG);
-  </script>
-
-  <div id="sync-status">
-    <h2></h2>
-    <span></span>
-  </div>
-
-  <div id="attribution" class="attribution">
-    <div i18n-content="attributionintro"></div>
-    <img id="attribution-img">
-  </div>
-
-  <div id="footer">
-    <a href="chrome://history"><span class="link-color"
-                                     i18n-content="history"></span></a>
-    <hr>
-    <a href="chrome://downloads"><span class="link-color"
-                                       i18n-content="downloads"></span></a>
-    <hr>
-    <a i18n-values="href:helpurl"><span class="link-color"
-                                        i18n-content="help"></span></a>
-  </div>
-
 </div>  <!-- main -->
 
 <div class="window-menu" id="window-tooltip"></div>
+
+<command id="clear-all-blacklisted" i18n-values=".label:restorethumbnails">
+<command id="apps-launch-command">
+<command id="apps-options-command" i18n-values=".label:appoptions">
+<command id="apps-uninstall-command" i18n-values=".label:appuninstall">
+<command id="apps-launch-type-pinned" i18n-values=".label:applaunchtypepinned"
+    launch-type="0">
+<command id="apps-launch-type-regular" i18n-values=".label:applaunchtyperegular"
+    launch-type="1">
+<command id="apps-launch-type-fullscreen"
+    i18n-values=".label:applaunchtypefullscreen" launch-type="2">
+
+<menu id="app-context-menu">
+  <button class="default" command="#apps-launch-command"></button>
+  <hr>
+  <button command="#apps-launch-type-pinned" launch-type="0"></button>
+  <button command="#apps-launch-type-regular" launch-type="1"></button>
+  <button command="#apps-launch-type-fullscreen" launch-type="2"></button>
+  <hr>
+  <button command="#apps-options-command"></button>
+  <button command="#apps-uninstall-command"></button>
+</menu>
 
 </body>
 
@@ -218,8 +203,31 @@ i18nTemplate.process(document, templateData);
 <script src="shared/js/local_strings.js"></script>
 <script src="shared/js/class_list.js"></script>
 <script src="shared/js/parse_html_subset.js"></script>
+
+<script src="shared/js/cr.js"></script>
+<script src="shared/js/cr/ui.js"></script>
+<script src="shared/js/cr/ui/command.js"></script>
+<script src="shared/js/cr/ui/menu_item.js"></script>
+<script src="shared/js/cr/ui/menu.js"></script>
+<script src="shared/js/cr/ui/position_util.js"></script>
+<script src="shared/js/cr/ui/menu_button.js"></script>
+<script src="shared/js/cr/ui/context_menu_button.js"></script>
+<script src="shared/js/cr/ui/context_menu_handler.js"></script>
+
 <script src="ntp/util.js"></script>
 <script src="ntp/most_visited.js"></script>
 <script src="new_new_tab.js"></script>
 <script src="ntp/apps.js"></script>
+
+<script>
+cr.ui.decorate('menu', cr.ui.Menu);
+cr.ui.decorate('command', cr.ui.Command);
+cr.ui.decorate('button[menu]', cr.ui.MenuButton);
+</script>
+
+<script>
+  updateSimpleSection('apps', Section.APPS);
+  updateSimpleSection('most-visited', Section.THUMB);
+  layoutSections();
+</script>
 </html>

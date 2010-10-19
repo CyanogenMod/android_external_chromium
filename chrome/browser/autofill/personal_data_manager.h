@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_AUTOFILL_PERSONAL_DATA_MANAGER_H_
 #define CHROME_BROWSER_AUTOFILL_PERSONAL_DATA_MANAGER_H_
+#pragma once
 
 #include <set>
 #include <vector>
@@ -99,6 +100,24 @@ class PersonalDataManager
   // ID of newly-added profiles.
   void SetCreditCards(std::vector<CreditCard>* credit_cards);
 
+  // Adds |profile| to the web database.
+  void AddProfile(const AutoFillProfile& profile);
+
+  // Updates |profile| which already exists in the web database.
+  void UpdateProfile(const AutoFillProfile& profile);
+
+  // Removes the profile represented by |unique_id|.
+  void RemoveProfile(int unique_id);
+
+  // Adds |credit_card| to the web database.
+  void AddCreditCard(const CreditCard& credit_card);
+
+  // Updates |credit_card| which already exists in the web database.
+  void UpdateCreditCard(const CreditCard& credit_card);
+
+  // Removes the credit card represented by |unique_id|.
+  void RemoveCreditCard(int unique_id);
+
   // Gets the possible field types for the given text, determined by matching
   // the text with all known personal information and returning matching types.
   void GetPossibleFieldTypes(const string16& text,
@@ -166,8 +185,11 @@ class PersonalDataManager
   // Returns the profile of the tab contents.
   Profile* profile();
 
-  // This will create and reserve a new unique ID for a profile.
-  int CreateNextUniqueID(std::set<int>* unique_ids);
+  // This will create and reserve a new unique ID for the id pool |id_set|.
+  // The |id_set| is typically |unique_profile_ids_| or
+  // |unique_creditcard_ids_|.  The global pool |unique_ids_| is used to ensure
+  // uniqueness of ids across all pools.  The new (next) unique id is returned.
+  int CreateNextUniqueIDFor(std::set<int>* id_set);
 
   // Loads the saved profiles from the web database.
   virtual void LoadProfiles();
@@ -196,7 +218,6 @@ class PersonalDataManager
   // to the end of non-unique labels.
   // TODO(jhawkins): Create a new interface for labeled entities and turn these
   // two methods into one.
-  void SetUniqueProfileLabels(std::vector<AutoFillProfile>* profiles);
   void SetUniqueCreditCardLabels(std::vector<CreditCard>* credit_cards);
 
   // Saves |imported_profile_| to the WebDB if it exists.
@@ -215,6 +236,10 @@ class PersonalDataManager
   // The set of already created unique profile IDs, used to create a new unique
   // profile ID.
   std::set<int> unique_profile_ids_;
+
+  // The set of already created unique profile IDs for auxiliary profiles, used
+  // to create a new unique auxiliary profile ID.
+  std::set<int> unique_auxiliary_profile_ids_;
 
   // The set of already created unique credit card IDs, used to create a new
   // unique credit card ID.

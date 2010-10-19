@@ -7,10 +7,7 @@
 #include <gdk/gdkkeysyms.h>
 
 #include "app/gtk_dnd_util.h"
-#include "app/l10n_util.h"
 #include "app/menus/accelerator_gtk.h"
-#include "app/resource_bundle.h"
-#include "base/keyboard_codes_posix.h"
 #include "base/singleton.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"
@@ -155,7 +152,7 @@ TabGtk::TabGtk(TabDelegate* delegate)
                    G_CALLBACK(OnLeaveNotifyEventThunk), this);
   gtk_widget_add_events(event_box_,
         GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK |
-        GDK_LEAVE_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
+        GDK_ENTER_NOTIFY_MASK | GDK_LEAVE_NOTIFY_MASK);
   gtk_container_add(GTK_CONTAINER(event_box_), TabRendererGtk::widget());
   gtk_widget_show_all(event_box_);
 }

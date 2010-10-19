@@ -4,7 +4,6 @@
 
 #include "chrome/browser/sync/glue/history_model_worker.h"
 
-#include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/ref_counted.h"
 #include "base/task.h"
@@ -40,6 +39,9 @@ class WorkerTask : public HistoryDBTask {
 
 HistoryModelWorker::HistoryModelWorker(HistoryService* history_service)
   : history_service_(history_service) {
+}
+
+HistoryModelWorker::~HistoryModelWorker() {
 }
 
 void HistoryModelWorker::DoWorkAndWaitUntilDone(Callback0::Type* work) {

@@ -4,10 +4,13 @@
 
 #ifndef CHROME_BROWSER_GEOLOCATION_NETWORK_LOCATION_PROVIDER_H_
 #define CHROME_BROWSER_GEOLOCATION_NETWORK_LOCATION_PROVIDER_H_
+#pragma once
 
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/ref_counted.h"
+#include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/thread.h"
 #include "chrome/browser/geolocation/device_data_provider.h"
@@ -19,6 +22,7 @@ class URLFetcherProtectEntry;
 
 class NetworkLocationProvider
     : public LocationProviderBase,
+      public GatewayDataProvider::ListenerInterface,
       public RadioDataProvider::ListenerInterface,
       public WifiDataProvider::ListenerInterface,
       public NetworkLocationRequest::ListenerInterface {
@@ -49,6 +53,7 @@ class NetworkLocationProvider
   bool IsStarted() const;
 
   // DeviceDataProvider::ListenerInterface implementation.
+  virtual void DeviceDataUpdateAvailable(GatewayDataProvider* provider);
   virtual void DeviceDataUpdateAvailable(RadioDataProvider* provider);
   virtual void DeviceDataUpdateAvailable(WifiDataProvider* provider);
 
@@ -56,18 +61,22 @@ class NetworkLocationProvider
   virtual void LocationResponseAvailable(const Geoposition& position,
                                          bool server_error,
                                          const string16& access_token,
+                                         const GatewayData& gateway_data,
                                          const RadioData& radio_data,
                                          const WifiData& wifi_data);
 
   scoped_refptr<AccessTokenStore> access_token_store_;
 
   // The device data providers, acquired via global factories.
+  GatewayDataProvider* gateway_data_provider_;
   RadioDataProvider* radio_data_provider_;
   WifiDataProvider* wifi_data_provider_;
 
   // The radio and wifi data, flags to indicate if each data set is complete.
+  GatewayData gateway_data_;
   RadioData radio_data_;
   WifiData wifi_data_;
+  bool is_gateway_data_complete_;
   bool is_radio_data_complete_;
   bool is_wifi_data_complete_;
 

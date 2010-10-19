@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_BROWSER_DIALOGS_H_
 #define CHROME_BROWSER_VIEWS_BROWSER_DIALOGS_H_
+#pragma once
 
 #include <string>
 
@@ -43,6 +44,9 @@ namespace browser {
 void ShowBugReportView(views::Window* parent,
                        Profile* profile,
                        TabContents* tab);
+
+// Shows the "Report a problem with this page" page in a new tab
+void ShowHtmlBugReportView(views::Window* parent, Browser* browser);
 
 // Shows the "Clear browsing data" dialog box. See ClearBrowsingDataView.
 void ShowClearBrowsingDataView(gfx::NativeWindow parent,

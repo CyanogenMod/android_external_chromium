@@ -4,16 +4,21 @@
 
 #include "net/http/http_cache_transaction.h"
 
-#include "base/compiler_specific.h"
+#include "build/build_config.h"
 
 #if defined(OS_POSIX)
 #include <unistd.h>
 #endif
 
+#include <string>
+
+#include "base/compiler_specific.h"
+#include "base/field_trial.h"
 #include "base/histogram.h"
 #include "base/ref_counted.h"
 #include "base/string_util.h"
 #include "base/time.h"
+#include "net/base/cert_status_flags.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
@@ -223,8 +228,8 @@ int HttpCache::Transaction::RestartWithCertificate(
 }
 
 int HttpCache::Transaction::RestartWithAuth(
-    const std::wstring& username,
-    const std::wstring& password,
+    const string16& username,
+    const string16& password,
     CompletionCallback* callback) {
   DCHECK(auth_response_.headers);
   DCHECK(callback);
@@ -827,8 +832,19 @@ int HttpCache::Transaction::DoAddToEntry() {
 
 int HttpCache::Transaction::DoAddToEntryComplete(int result) {
   net_log_.EndEvent(NetLog::TYPE_HTTP_CACHE_WAITING, NULL);
-  UMA_HISTOGRAM_TIMES("HttpCache.EntryLockWait",
-                      base::TimeTicks::Now() - entry_lock_waiting_since_);
+
+  const base::TimeDelta entry_lock_wait =
+      base::TimeTicks::Now() - entry_lock_waiting_since_;
+  UMA_HISTOGRAM_TIMES("HttpCache.EntryLockWait", entry_lock_wait);
+  static const bool prefetching_fieldtrial =
+      FieldTrialList::Find("Prefetch") &&
+      !FieldTrialList::Find("Prefetch")->group_name().empty();
+  if (prefetching_fieldtrial) {
+    UMA_HISTOGRAM_TIMES(
+        FieldTrial::MakeName("HttpCache.EntryLockWait", "Prefetch"),
+        entry_lock_wait);
+  }
+
   entry_lock_waiting_since_ = base::TimeTicks();
   DCHECK(new_entry_);
   cache_pending_ = false;
@@ -1497,8 +1513,8 @@ int HttpCache::Transaction::RestartNetworkRequestWithCertificate(
 }
 
 int HttpCache::Transaction::RestartNetworkRequestWithAuth(
-    const std::wstring& username,
-    const std::wstring& password) {
+    const string16& username,
+    const string16& password) {
   DCHECK(mode_ & WRITE || mode_ == NONE);
   DCHECK(network_trans_.get());
   DCHECK_EQ(STATE_NONE, next_state_);

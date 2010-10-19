@@ -4,60 +4,49 @@
 
 #ifndef CHROME_BROWSER_USER_STYLE_SHEET_WATCHER_H_
 #define CHROME_BROWSER_USER_STYLE_SHEET_WATCHER_H_
+#pragma once
 
 #include "base/file_path.h"
-#include "base/logging.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/chrome_thread.h"
-#include "chrome/browser/file_watcher.h"
+#include "chrome/browser/file_path_watcher.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 
-// This loads the user style sheet on the file thread and sends a notification
-// when the style sheet is loaded.
+class UserStyleSheetLoader;
+
+// Watches the user style sheet file and triggers reloads on the file thread
+// whenever the file changes.
 class UserStyleSheetWatcher
     : public base::RefCountedThreadSafe<UserStyleSheetWatcher,
                                         ChromeThread::DeleteOnUIThread>,
-      public NotificationObserver,
-      public FileWatcher::Delegate {
+      public NotificationObserver {
  public:
   explicit UserStyleSheetWatcher(const FilePath& profile_path);
-  virtual ~UserStyleSheetWatcher() {}
+  virtual ~UserStyleSheetWatcher();
 
   void Init();
 
-  GURL user_style_sheet() const {
-    return user_style_sheet_;
-  }
+  GURL user_style_sheet() const;
 
   // NotificationObserver interface
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
-  // FileWatcher::Delegate interface
-  virtual void OnFileChanged(const FilePath& path);
-
  private:
-  // Load the user style sheet on the file thread and convert it to a
-  // base64 URL.  Posts the base64 URL back to the UI thread.
-  void LoadStyleSheet(const FilePath& profile_path);
-
-  void SetStyleSheet(const GURL& url);
-
   // The directory containing User StyleSheets/Custom.css.
   FilePath profile_path_;
 
-  // The user style sheet as a base64 data:// URL.
-  GURL user_style_sheet_;
+  // The loader object.
+  scoped_refptr<UserStyleSheetLoader> loader_;
 
   // Watches for changes to the css file so we can reload the style sheet.
-  scoped_ptr<FileWatcher> file_watcher_;
+  scoped_ptr<FilePathWatcher> file_watcher_;
 
   NotificationRegistrar registrar_;
-  bool has_loaded_;
 
   DISALLOW_COPY_AND_ASSIGN(UserStyleSheetWatcher);
 };

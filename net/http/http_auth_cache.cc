@@ -48,14 +48,14 @@ void CheckOriginIsValid(const GURL& origin) {
 
 // Functor used by remove_if.
 struct IsEnclosedBy {
-  IsEnclosedBy(const std::string& path) : path(path) { }
+  explicit IsEnclosedBy(const std::string& path) : path(path) { }
   bool operator() (const std::string& x) {
     return IsEnclosingPath(path, x);
   }
   const std::string& path;
 };
 
-} // namespace
+}  // namespace
 
 namespace net {
 
@@ -71,7 +71,7 @@ HttpAuthCache::Entry* HttpAuthCache::Lookup(const GURL& origin,
         it->scheme() == scheme)
       return &(*it);
   }
-  return NULL; // No realm entry found.
+  return NULL;  // No realm entry found.
 }
 
 // Performance: O(n*m), where n is the number of realm entries, m is the number
@@ -93,15 +93,15 @@ HttpAuthCache::Entry* HttpAuthCache::LookupByPath(const GURL& origin,
     if (it->origin() == origin && it->HasEnclosingPath(parent_dir))
       return &(*it);
   }
-  return NULL; // No entry found.
+  return NULL;  // No entry found.
 }
 
 HttpAuthCache::Entry* HttpAuthCache::Add(const GURL& origin,
                                          const std::string& realm,
                                          const std::string& scheme,
                                          const std::string& auth_challenge,
-                                         const std::wstring& username,
-                                         const std::wstring& password,
+                                         const string16& username,
+                                         const string16& password,
                                          const std::string& path) {
   CheckOriginIsValid(origin);
   CheckPathIsValid(path);
@@ -134,6 +134,10 @@ HttpAuthCache::Entry* HttpAuthCache::Add(const GURL& origin,
   return entry;
 }
 
+HttpAuthCache::Entry::Entry()
+    : nonce_count_(0) {
+}
+
 void HttpAuthCache::Entry::AddPath(const std::string& path) {
   std::string parent_dir = GetParentDirectory(path);
   if (!HasEnclosingPath(parent_dir)) {
@@ -162,11 +166,17 @@ bool HttpAuthCache::Entry::HasEnclosingPath(const std::string& dir) {
   return false;
 }
 
+void HttpAuthCache::Entry::UpdateStaleChallenge(
+    const std::string& auth_challenge) {
+  auth_challenge_ = auth_challenge;
+  nonce_count_ = 1;
+}
+
 bool HttpAuthCache::Remove(const GURL& origin,
                            const std::string& realm,
                            const std::string& scheme,
-                           const std::wstring& username,
-                           const std::wstring& password) {
+                           const string16& username,
+                           const string16& password) {
   for (EntryList::iterator it = entries_.begin(); it != entries_.end(); ++it) {
     if (it->origin() == origin && it->realm() == realm &&
         it->scheme() == scheme) {
@@ -180,4 +190,15 @@ bool HttpAuthCache::Remove(const GURL& origin,
   return false;
 }
 
-} // namespace net
+bool HttpAuthCache::UpdateStaleChallenge(const GURL& origin,
+                                         const std::string& realm,
+                                         const std::string& scheme,
+                                         const std::string& auth_challenge) {
+  HttpAuthCache::Entry* entry = Lookup(origin, realm, scheme);
+  if (!entry)
+    return false;
+  entry->UpdateStaleChallenge(auth_challenge);
+  return true;
+}
+
+}  // namespace net

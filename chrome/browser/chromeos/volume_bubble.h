@@ -4,8 +4,8 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_VOLUME_BUBBLE_H_
 #define CHROME_BROWSER_CHROMEOS_VOLUME_BUBBLE_H_
+#pragma once
 
-#include "app/active_window_watcher_x.h"
 #include "app/slide_animation.h"
 #include "base/singleton.h"
 #include "chrome/browser/views/info_bubble.h"

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,14 +9,16 @@
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "base/version.h"
 #include "chrome/common/json_value_serializer.h"
 
 // Constants for keeping track of extension preferences.
-const wchar_t kLocation[] = L"location";
-const wchar_t kState[] = L"state";
-const wchar_t kExternalCrx[] = L"external_crx";
-const wchar_t kExternalVersion[] = L"external_version";
+const char kLocation[] = "location";
+const char kState[] = "state";
+const char kExternalCrx[] = "external_crx";
+const char kExternalVersion[] = "external_version";
+const char kExternalUpdateUrl[] = "external_update_url";
 
 ExternalPrefExtensionProvider::ExternalPrefExtensionProvider() {
   FilePath json_file;
@@ -44,8 +46,8 @@ void ExternalPrefExtensionProvider::VisitRegisteredExtension(
     Visitor* visitor, const std::set<std::string>& ids_to_ignore) const {
   for (DictionaryValue::key_iterator i = prefs_->begin_keys();
        i != prefs_->end_keys(); ++i) {
-    const std::wstring& extension_id = *i;
-    if (ids_to_ignore.find(WideToASCII(extension_id)) != ids_to_ignore.end())
+    const std::string& extension_id = *i;
+    if (ids_to_ignore.find(extension_id) != ids_to_ignore.end())
       continue;
 
     DictionaryValue* extension;
@@ -54,40 +56,75 @@ void ExternalPrefExtensionProvider::VisitRegisteredExtension(
 
     FilePath::StringType external_crx;
     std::string external_version;
-    if (!extension->GetString(kExternalCrx, &external_crx) ||
-        !extension->GetString(kExternalVersion, &external_version)) {
+    std::string external_update_url;
+
+    bool has_external_crx = extension->GetString(kExternalCrx, &external_crx);
+    bool has_external_version = extension->GetString(kExternalVersion,
+                                                     &external_version);
+    bool has_external_update_url = extension->GetString(kExternalUpdateUrl,
+                                                        &external_update_url);
+    if (has_external_crx != has_external_version) {
       LOG(WARNING) << "Malformed extension dictionary for extension: "
-                   << extension_id.c_str();
+                   << extension_id.c_str() << ".  " << kExternalCrx
+                   << " and " << kExternalVersion << " must be used together.";
       continue;
     }
 
-    if (external_crx.find(FilePath::kParentDirectory) !=
-        base::StringPiece::npos) {
-      LOG(WARNING) << "Path traversal not allowed in path: "
-                   << external_crx.c_str();
+    if (has_external_crx == has_external_update_url) {
+      LOG(WARNING) << "Malformed extension dictionary for extension: "
+                   << extension_id.c_str() << ".  Exactly one of the "
+                   << "followng keys should be used: " << kExternalCrx
+                   << ", " << kExternalUpdateUrl << ".";
       continue;
     }
 
-    // See if it's an absolute path...
-    FilePath path(external_crx);
-    if (!path.IsAbsolute()) {
-      // Try path as relative path from external extension dir.
-      FilePath base_path;
-      PathService::Get(app::DIR_EXTERNAL_EXTENSIONS, &base_path);
-      path = base_path.Append(external_crx);
+    if (has_external_crx) {
+      if (external_crx.find(FilePath::kParentDirectory) !=
+          base::StringPiece::npos) {
+        LOG(WARNING) << "Path traversal not allowed in path: "
+                     << external_crx.c_str();
+        continue;
+      }
+
+      // If the path is relative, make it absolute.
+      FilePath path(external_crx);
+      if (!path.IsAbsolute()) {
+        // Try path as relative path from external extension dir.
+        FilePath base_path;
+        PathService::Get(app::DIR_EXTERNAL_EXTENSIONS, &base_path);
+        path = base_path.Append(external_crx);
+      }
+
+      scoped_ptr<Version> version;
+      version.reset(Version::GetVersionFromString(external_version));
+      if (!version.get()) {
+        LOG(ERROR) << "Malformed extension dictionary for extension: "
+                   << extension_id.c_str() << ".  Invalid version string \""
+                   << external_version << "\".";
+        continue;
+      }
+      visitor->OnExternalExtensionFileFound(extension_id, version.get(), path,
+                                            Extension::EXTERNAL_PREF);
+      continue;
     }
 
-    scoped_ptr<Version> version;
-    version.reset(Version::GetVersionFromString(external_version));
-    visitor->OnExternalExtensionFound(WideToASCII(extension_id), version.get(),
-                                      path, Extension::EXTERNAL_PREF);
+    DCHECK(has_external_update_url);  // Checking of keys above ensures this.
+    GURL update_url(external_update_url);
+    if (!update_url.is_valid()) {
+      LOG(WARNING) << "Malformed extension dictionary for extension: "
+                   << extension_id.c_str() << ".  " << kExternalUpdateUrl
+                   << " must be a valid URL.  Saw \"" << external_update_url
+                   << "\".";
+      continue;
+    }
+    visitor->OnExternalExtensionUpdateUrlFound(extension_id, update_url);
   }
 }
 
 Version* ExternalPrefExtensionProvider::RegisteredVersion(
     const std::string& id, Extension::Location* location) const {
   DictionaryValue* extension = NULL;
-  if (!prefs_->GetDictionary(ASCIIToWide(id), &extension))
+  if (!prefs_->GetDictionary(id, &extension))
     return NULL;
 
   std::string external_version;
@@ -105,11 +142,10 @@ void ExternalPrefExtensionProvider::SetPreferences(
   Value* extensions = serializer->Deserialize(NULL, &error_msg);
   scoped_ptr<DictionaryValue> dictionary(new DictionaryValue());
   if (!extensions) {
-    LOG(WARNING) << L"Unable to deserialize json data: "
-                 << error_msg;
+    LOG(WARNING) << "Unable to deserialize json data: " << error_msg;
   } else {
     if (!extensions->IsType(Value::TYPE_DICTIONARY)) {
-      NOTREACHED() << L"Invalid json data";
+      NOTREACHED() << "Invalid json data";
     } else {
       dictionary.reset(static_cast<DictionaryValue*>(extensions));
     }

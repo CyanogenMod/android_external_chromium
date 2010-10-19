@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_FIRST_RUN_DIALOG_H_
 #define CHROME_BROWSER_FIRST_RUN_DIALOG_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
@@ -12,14 +13,8 @@
 // us improve Chromium.
 @interface FirstRunDialogController : NSWindowController {
  @private
-  BOOL userDidCancel_;
   BOOL statsEnabled_;
-  BOOL statsCheckboxHidden_;
   BOOL makeDefaultBrowser_;
-  BOOL importBookmarks_;
-  int  browserImportSelectedIndex_;
-  NSArray* browserImportList_;
-  BOOL browserImportListHidden_;
 
   IBOutlet NSArray* objectsToSize_;
   IBOutlet NSButton* statsCheckbox_;
@@ -29,21 +24,12 @@
 // Called when the "Start Google Chrome" button is pressed.
 - (IBAction)ok:(id)sender;
 
-// Cancel button calls this.
-- (IBAction)cancel:(id)sender;
-
 // Called when the "Learn More" button is pressed.
 - (IBAction)learnMore:(id)sender;
 
 // Properties for bindings.
-@property(assign, nonatomic) BOOL userDidCancel;
 @property(assign, nonatomic) BOOL statsEnabled;
-@property(assign, nonatomic) BOOL statsCheckboxHidden;
 @property(assign, nonatomic) BOOL makeDefaultBrowser;
-@property(assign, nonatomic) BOOL importBookmarks;
-@property(assign, nonatomic) int browserImportSelectedIndex;
-@property(retain, nonatomic) NSArray* browserImportList;
-@property(assign, nonatomic) BOOL browserImportListHidden;
 
 @end
 

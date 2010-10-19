@@ -4,6 +4,7 @@
 
 #ifndef NET_URL_REQUEST_URL_REQUEST_DATA_JOB_H_
 #define NET_URL_REQUEST_URL_REQUEST_DATA_JOB_H_
+#pragma once
 
 #include <string>
 
@@ -23,7 +24,7 @@ class URLRequestDataJob : public URLRequestSimpleJob {
   static URLRequest::ProtocolFactory Factory;
 
  private:
-  ~URLRequestDataJob() {}
+  ~URLRequestDataJob();
 
   DISALLOW_COPY_AND_ASSIGN(URLRequestDataJob);
 };

@@ -9,17 +9,17 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "app/text_elider.h"
-#include "app/theme_provider.h"
 #include "base/callback.h"
 #include "base/file_path.h"
 #include "base/histogram.h"
 #include "base/i18n/rtl.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_theme_provider.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_util.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/views/download_shelf_view.h"
 #include "gfx/canvas_skia.h"
 #include "gfx/color_utils.h"
@@ -29,10 +29,6 @@
 #include "views/controls/menu/menu_2.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget.h"
-
-#if defined(OS_WIN)
-#include "app/win_util.h"
-#endif
 
 using base::TimeDelta;
 
@@ -132,7 +128,8 @@ DownloadItemView::DownloadItemView(DownloadItem* download,
     dangerous_download_label_sized_(false),
     disabled_while_opening_(false),
     creation_time_(base::Time::Now()),
-    ALLOW_THIS_IN_INITIALIZER_LIST(reenable_method_factory_(this)) {
+    ALLOW_THIS_IN_INITIALIZER_LIST(reenable_method_factory_(this)),
+    deleted_(NULL) {
   DCHECK(download_);
   download_->AddObserver(this);
 
@@ -215,8 +212,8 @@ DownloadItemView::DownloadItemView(DownloadItem* download,
   tooltip_text_ = download_->GetFileName().ToWStringHack();
 
   font_ = ResourceBundle::GetSharedInstance().GetFont(ResourceBundle::BaseFont);
-  box_height_ = std::max<int>(2 * kVerticalPadding + font_.height() +
-                                  kVerticalTextPadding + font_.height(),
+  box_height_ = std::max<int>(2 * kVerticalPadding + font_.GetHeight() +
+                                  kVerticalTextPadding + font_.GetHeight(),
                               2 * kVerticalPadding +
                                   normal_body_image_set_.top_left->height() +
                                   normal_body_image_set_.bottom_left->height());
@@ -289,7 +286,8 @@ DownloadItemView::DownloadItemView(DownloadItem* download,
     } else {
       ElideString(rootname, kFileNameMaxLength - extension.length(), &rootname);
       std::wstring filename = rootname + L"." + extension;
-      base::i18n::GetDisplayStringInLTRDirectionality(&filename);
+      filename = UTF16ToWide(base::i18n::GetDisplayStringInLTRDirectionality(
+          WideToUTF16(filename)));
       dangerous_download_label_ = new views::Label(
           l10n_util::GetStringF(IDS_PROMPT_DANGEROUS_DOWNLOAD, filename));
     }
@@ -311,6 +309,8 @@ DownloadItemView::~DownloadItemView() {
   icon_consumer_.CancelAllRequests();
   StopDownloadProgress();
   download_->RemoveObserver(this);
+  if (deleted_)
+    *deleted_ = true;
 }
 
 // Progress animation handlers.
@@ -393,6 +393,9 @@ void DownloadItemView::OnDownloadOpened(DownloadItem* download) {
       FROM_HERE,
       reenable_method_factory_.NewRunnableMethod(&DownloadItemView::Reenable),
       kDisabledOnOpenDuration);
+
+  // Notify our parent.
+  parent_->OpenedDownload(this);
 }
 
 // View overrides
@@ -433,7 +436,7 @@ void DownloadItemView::ButtonPressed(
     UMA_HISTOGRAM_LONG_TIMES("clickjacking.save_download",
                              base::Time::Now() - creation_time_);
     // This will change the state and notify us.
-    download_->manager()->DangerousDownloadValidated(download_);
+    download_->DangerousDownloadValidated();
   }
 }
 
@@ -488,7 +491,7 @@ void DownloadItemView::Paint(gfx::Canvas* canvas) {
       int mirrored_x = MirroredXWithWidthInsideView(
           download_util::kSmallProgressIconSize, kTextWidth);
       // Add font_.height() to compensate for title, which is drawn later.
-      int y = box_y_ + kVerticalPadding + font_.height() +
+      int y = box_y_ + kVerticalPadding + font_.GetHeight() +
               kVerticalTextPadding;
       SkColor file_name_color = GetThemeProvider()->GetColor(
           BrowserThemeProvider::COLOR_BOOKMARK_TEXT);
@@ -503,20 +506,19 @@ void DownloadItemView::Paint(gfx::Canvas* canvas) {
               static_cast<int>(kDownloadItemLuminanceMod *
                                SkColorGetB(file_name_color)));
       canvas->DrawStringInt(status_text_, font_, file_name_color,
-                            mirrored_x, y, kTextWidth, font_.height());
+                            mirrored_x, y, kTextWidth, font_.GetHeight());
     }
   }
 
   // Paint the background images.
   int x = kLeftPadding;
-  bool rtl_ui = base::i18n::IsRTL();
-  if (rtl_ui) {
+  canvas->Save();
+  if (base::i18n::IsRTL()) {
     // Since we do not have the mirrored images for
     // (hot_)body_image_set->top_left, (hot_)body_image_set->left,
     // (hot_)body_image_set->bottom_left, and drop_down_image_set,
     // for RTL UI, we flip the canvas to draw those images mirrored.
     // Consequently, we do not need to mirror the x-axis of those images.
-    canvas->Save();
     canvas->TranslateInt(width(), 0);
     canvas->ScaleInt(-1, 1);
   }
@@ -558,13 +560,6 @@ void DownloadItemView::Paint(gfx::Canvas* canvas) {
                  x, box_y_, box_height_,
                  hot_body_image_set_.top_right->width());
     canvas->Restore();
-    if (rtl_ui) {
-      canvas->Restore();
-      canvas->Save();
-      // Flip it for drawing drop-down images for RTL locales.
-      canvas->TranslateInt(width(), 0);
-      canvas->ScaleInt(-1, 1);
-    }
   }
 
   x += body_image_set->top_right->width();
@@ -592,18 +587,16 @@ void DownloadItemView::Paint(gfx::Canvas* canvas) {
     }
   }
 
-  if (rtl_ui) {
-    // Restore the canvas to avoid file name etc. text are drawn flipped.
-    // Consequently, the x-axis of following canvas->DrawXXX() method should be
-    // mirrored so the text and images are down in the right positions.
-    canvas->Restore();
-  }
+  // Restore the canvas to avoid file name etc. text are drawn flipped.
+  // Consequently, the x-axis of following canvas->DrawXXX() method should be
+  // mirrored so the text and images are down in the right positions.
+  canvas->Restore();
 
   // Print the text, left aligned and always print the file extension.
   // Last value of x was the end of the right image, just before the button.
   // Note that in dangerous mode we use a label (as the text is multi-line).
   if (!IsDangerousMode()) {
-    std::wstring filename;
+    string16 filename;
     if (!disabled_while_opening_) {
       filename = gfx::ElideFilename(download_->GetFileName(),
                                     font_, kTextWidth);
@@ -614,26 +607,27 @@ void DownloadItemView::Paint(gfx::Canvas* canvas) {
           l10n_util::GetStringF(IDS_DOWNLOAD_STATUS_OPENING, empty_string);
       int status_string_width = font_.GetStringWidth(status_string);
       // Then, elide the file name.
-      std::wstring filename_string =
+      string16 filename_string =
           gfx::ElideFilename(download_->GetFileName(), font_,
                              kTextWidth - status_string_width);
       // Last, concat the whole string.
-      filename = l10n_util::GetStringF(IDS_DOWNLOAD_STATUS_OPENING,
-                                       filename_string);
+      filename = l10n_util::GetStringFUTF16(IDS_DOWNLOAD_STATUS_OPENING,
+                                            filename_string);
     }
 
     int mirrored_x = MirroredXWithWidthInsideView(
         download_util::kSmallProgressIconSize, kTextWidth);
     SkColor file_name_color = GetThemeProvider()->GetColor(
         BrowserThemeProvider::COLOR_BOOKMARK_TEXT);
-    int y = box_y_ + (show_status_text_ ? kVerticalPadding :
-                                          (box_height_ - font_.height()) / 2);
+    int y =
+        box_y_ + (show_status_text_ ? kVerticalPadding :
+                                      (box_height_ - font_.GetHeight()) / 2);
 
     // Draw the file's name.
-    canvas->DrawStringInt(filename, font_,
+    canvas->DrawStringInt(UTF16ToWide(filename), font_,
                           IsEnabled() ? file_name_color :
                                         kFileNameDisabledColor,
-                          mirrored_x, y, kTextWidth, font_.height());
+                          mirrored_x, y, kTextWidth, font_.GetHeight());
   }
 
   // Paint the icon.
@@ -740,7 +734,7 @@ gfx::Size DownloadItemView::GetPreferredSize() {
   int width, height;
 
   // First, we set the height to the height of two rows or text plus margins.
-  height = 2 * kVerticalPadding + 2 * font_.height() + kVerticalTextPadding;
+  height = 2 * kVerticalPadding + 2 * font_.GetHeight() + kVerticalTextPadding;
   // Then we increase the size if the progress icon doesn't fit.
   height = std::max<int>(height, download_util::kSmallProgressIconSize);
 
@@ -819,7 +813,14 @@ bool DownloadItemView::OnMousePressed(const views::MouseEvent& event) {
 
     if (!context_menu_.get())
       context_menu_.reset(new DownloadShelfContextMenuWin(model_.get()));
+    // When we call the Run method on the menu, it runs an inner message loop
+    // that might causes us to be deleted.
+    bool deleted = false;
+    deleted_ = &deleted;
     context_menu_->Run(point);
+    if (deleted)
+      return true;  // We have been deleted! Don't access 'this'.
+    deleted_ = NULL;
 
     // If the menu action was to remove the download, this view will also be
     // invalid so we must not access 'this' in this case.
@@ -907,11 +908,7 @@ void DownloadItemView::OpenDownload() {
   // open downloads super quickly, we should be concerned about clickjacking.
   UMA_HISTOGRAM_LONG_TIMES("clickjacking.open_download",
                            base::Time::Now() - creation_time_);
-  if (download_->state() == DownloadItem::IN_PROGRESS) {
-    download_->set_open_when_complete(!download_->open_when_complete());
-  } else if (download_->state() == DownloadItem::COMPLETE) {
-    download_util::OpenDownload(download_);
-  }
+  download_->OpenDownload();
 }
 
 void DownloadItemView::OnExtractIconComplete(IconManager::Handle handle,

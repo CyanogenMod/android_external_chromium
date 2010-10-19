@@ -6,6 +6,7 @@
 
 #ifndef CHROME_COMMON_CHROME_CONSTANTS_H_
 #define CHROME_COMMON_CHROME_CONSTANTS_H_
+#pragma once
 
 #include "base/file_path.h"
 
@@ -33,6 +34,7 @@ extern const char    kStatsFilename[];
 extern const wchar_t kBrowserResourcesDll[];
 extern const wchar_t kNaClAppName[];
 extern const FilePath::CharType kExtensionFileExtension[];
+extern const FilePath::CharType kExtensionKeyFileExtension[];
 
 // filenames
 extern const FilePath::CharType kArchivedHistoryFilename[];
@@ -49,6 +51,7 @@ extern const FilePath::CharType kHistoryFilename[];
 extern const FilePath::CharType kLocalStateFilename[];
 extern const FilePath::CharType kPreferencesFilename[];
 extern const FilePath::CharType kSafeBrowsingFilename[];
+extern const FilePath::CharType kSingletonCookieFilename[];
 extern const FilePath::CharType kSingletonSocketFilename[];
 extern const FilePath::CharType kSingletonLockFilename[];
 extern const FilePath::CharType kThumbnailsFilename[];
@@ -89,6 +92,10 @@ extern const int kHistogramSynchronizerReservedSequenceNumber;
 extern const int kMaxSessionHistoryEntries;
 
 extern const wchar_t kChromiumRendererIdProperty[];
+
+// The language code used when the language of a page could not be detected.
+// (Matches what the CLD -Compact Language Detection- library reports.)
+extern const char* const kUnknownLanguageCode;
 
 }  // namespace chrome
 

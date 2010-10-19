@@ -7,13 +7,13 @@
 #include <string>
 #include <vector>
 
-#include "app/resource_bundle.h"
-#include "base/command_line.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/view_ids.h"
 #include "chrome/browser/views/dom_view.h"
 #include "chrome/browser/views/info_bubble.h"
@@ -40,20 +40,6 @@ const int kNavigationBarBorderThickness = 1;
 const double kAnimationSpeedPxPerMS = 1.5;
 
 const SkColor kBorderColor = SkColorSetRGB(205, 201, 201);
-
-// Command line switch for specifying url of the page.
-// TODO: nuke when we convert to the real app page. Also nuke code in
-// AddNewContents
-const wchar_t kURLSwitch[] = L"main-menu-url";
-
-// Returns the URL of the menu.
-static GURL GetMenuURL() {
-  std::wstring url_string =
-      CommandLine::ForCurrentProcess()->GetSwitchValue(kURLSwitch);
-  if (!url_string.empty())
-    return GURL(WideToUTF8(url_string));
-  return GURL(chrome::kChromeUIAppLauncherURL);
-}
 
 // Returns the location bar view of |browser|.
 static views::View* GetBrowserLocationBar(Browser* browser) {
@@ -100,6 +86,7 @@ class InfoBubbleContentsView : public views::View,
   // WARNING: this is not the TabContents of the bubble!  Use
   // GetBubbleTabContents() to get the bubble's TabContents.
   virtual TabContents* GetTabContents();
+  virtual MatchPreview* GetMatchPreview() { return NULL; }
   virtual void OnInputInProgress(bool in_progress) {}
 
   // CommandUpdater::CommandUpdaterDelegate implementation:
@@ -177,7 +164,7 @@ void InfoBubbleContentsView::ViewHierarchyChanged(
   // We make the AppLauncher the TabContents delegate so we get notifications
   // from the page to open links.
   dom_view_->tab_contents()->set_delegate(app_launcher_);
-  GURL url = GetMenuURL();
+  GURL url(chrome::kChromeUIAppLauncherURL);
   std::string ref = url.ref();
   if (!app_launcher_->hash_params().empty()) {
     if (!ref.empty())
@@ -222,10 +209,10 @@ void InfoBubbleContentsView::Layout() {
     return;
 
   gfx::Rect bounds = GetLocalBounds(false);
-  // The browser's location bar use a vertical padding that we need to take into
+  // The browser's location bar uses vertical padding that we need to take into
   // account to match its height.
-  int location_bar_height =
-      location_bar_->GetPreferredSize().height() - LocationBarView::kVertMargin;
+  int location_bar_height = location_bar_->GetPreferredSize().height() -
+      LocationBarView::kVerticalEdgeThickness;
   location_bar_->SetBounds(bounds.x(), bounds.y(), bounds.width(),
                            location_bar_height);
   int render_y = location_bar_->bounds().bottom() + kNavigationBarBottomPadding;
@@ -323,15 +310,6 @@ void AppLauncher::AddNewContents(TabContents* source,
                                  WindowOpenDisposition disposition,
                                  const gfx::Rect& initial_pos,
                                  bool user_gesture) {
-#if defined(OS_CHROMEOS)
-  // ChromeOS uses the kURLSwitch to specify a page that opens popups. We need
-  // to do this so the popups are opened when the user clicks on the page.
-  // TODO: nuke when convert to the real app page.
-  new_contents->set_delegate(NULL);
-  browser_->GetSelectedTabContents()->AddNewContents(
-      new_contents, disposition, initial_pos, user_gesture);
-  Hide();
-#endif
 }
 
 void AppLauncher::UpdatePreferredSize(const gfx::Size& pref_size) {
@@ -388,7 +366,7 @@ void AppLauncher::AddTabWithURL(const GURL& url,
   browser_->AddTabWithURL(
       url, GURL(), transition, -1,
       TabStripModel::ADD_SELECTED | TabStripModel::ADD_FORCE_INDEX, NULL,
-      std::string());
+      std::string(), NULL);
 }
 
 void AppLauncher::Resize(const gfx::Size& contents_size) {

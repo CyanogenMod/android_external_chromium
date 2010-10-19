@@ -4,12 +4,12 @@
 
 #ifndef CHROME_BROWSER_SYNC_SYNCABLE_SYNCABLE_H_
 #define CHROME_BROWSER_SYNC_SYNCABLE_SYNCABLE_H_
+#pragma once
 
 #include <algorithm>
 #include <bitset>
 #include <iosfwd>
 #include <limits>
-#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -29,7 +29,6 @@
 #include "chrome/browser/sync/syncable/model_type.h"
 #include "chrome/browser/sync/util/channel.h"
 #include "chrome/browser/sync/util/dbgq.h"
-#include "chrome/browser/sync/util/sync_types.h"
 #include "chrome/common/deprecated/event_sys.h"
 
 struct PurgeInfo;
@@ -42,11 +41,8 @@ class ReadNode;
 
 namespace syncable {
 class Entry;
-}
 
-std::ostream& operator<<(std::ostream& s, const syncable::Entry& e);
-
-namespace syncable {
+std::ostream& operator<<(std::ostream& s, const Entry& e);
 
 class DirectoryBackingStore;
 
@@ -343,7 +339,7 @@ struct EntryKernel {
 // A read-only meta entry.
 class Entry {
   friend class Directory;
-  friend std::ostream& ::operator << (std::ostream& s, const Entry& e);
+  friend std::ostream& operator << (std::ostream& s, const Entry& e);
 
  public:
   // After constructing, you must check good() to test whether the Get
@@ -425,7 +421,9 @@ class Entry {
   friend class sync_api::ReadNode;
   void* operator new(size_t size) { return (::operator new)(size); }
 
-  inline Entry(BaseTransaction* trans) : basetrans_(trans) { }
+  inline Entry(BaseTransaction* trans)
+      : basetrans_(trans),
+        kernel_(NULL) { }
 
  protected:
 
@@ -1055,6 +1053,8 @@ class BaseTransaction {
                   const char* source_file, int line, WriterTag writer);
 
   void UnlockAndLog(OriginalEntries* entries);
+  bool NotifyTransactionChangingAndEnding(OriginalEntries* entries);
+  virtual void NotifyTransactionComplete();
 
   Directory* const directory_;
   Directory::Kernel* const dirkernel_;  // for brevity

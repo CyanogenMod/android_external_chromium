@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_GPU_PLUGIN_CONTAINER_MAC_H_
 #define CHROME_BROWSER_RENDERER_HOST_GPU_PLUGIN_CONTAINER_MAC_H_
+#pragma once
 
 // The "GPU plugin" is currently implemented as a special kind of
 // NPAPI plugin to provide high-performance on-screen 3D rendering for
@@ -58,9 +59,12 @@ class AcceleratedSurfaceContainerMac {
                               int32 height,
                               TransportDIB::Handle transport_dib);
 
-  // Tells the accelerated surface container that it has moved relative to the
-  // origin of the window, for example because of a scroll event.
-  void MoveTo(const webkit_glue::WebPluginGeometry& geom);
+  // Tells the accelerated surface container that its geometry has changed,
+  // for example because of a scroll event. (Note that the container
+  // currently only pays attention to the clip width and height, since the
+  // view in which it is hosted is responsible for positioning it on the
+  // page.)
+  void SetGeometry(const webkit_glue::WebPluginGeometry& geom);
 
   // Draws this accelerated surface's contents, texture mapped onto a quad in
   // the given OpenGL context. TODO(kbr): figure out and define exactly how the
@@ -71,16 +75,17 @@ class AcceleratedSurfaceContainerMac {
   // time the drawing context has changed.
   void ForceTextureReload() { texture_needs_upload_ = true; }
 
+  // Notifies the surface that it was painted to.
+  void set_was_painted_to() { was_painted_to_ = true; }
+
+  // Returns if the surface should be shown.
+  bool should_be_visible() const { return visible_ && was_painted_to_; }
  private:
   // The manager of this accelerated surface container.
   AcceleratedSurfaceContainerManagerMac* manager_;
 
   // Whether this accelerated surface's content is supposed to be opaque.
   bool opaque_;
-
-  // The x and y coordinates of the plugin window on the web page.
-  int x_;
-  int y_;
 
   // The IOSurfaceRef, if any, that has been handed from the GPU
   // plugin process back to the browser process for drawing.
@@ -109,6 +114,17 @@ class AcceleratedSurfaceContainerMac {
 
   // True if we need to upload the texture again during the next draw.
   bool texture_needs_upload_;
+
+  // This may refer to an old version of the texture if the container is
+  // resized, for example.
+  GLuint texture_pending_deletion_;
+
+  // Stores if the plugin has a visible state.
+  bool visible_;
+
+  // Stores if the plugin's IOSurface has been swapped before. Used to not show
+  // it before it hasn't been painted to at least once.
+  bool was_painted_to_;
 
   // Releases the IOSurface reference, if any, retained by this object.
   void ReleaseIOSurface();

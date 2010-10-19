@@ -1,4 +1,4 @@
-// Copyright (c) 2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -13,6 +13,7 @@
 #include "base/process_util.h"
 #include "base/scoped_handle.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 
 #include "net/disk_cache/disk_format.h"
 
@@ -41,8 +42,8 @@ const char kUpgradeHelp[] =
     "executable should be compiled with version 5.2 being the current one.";
 
 // Folders to read and write cache files.
-const wchar_t kInputPath[] = L"input";
-const wchar_t kOutputPath[] = L"output";
+const char kInputPath[] = "input";
+const char kOutputPath[] = "output";
 
 // Dumps the file headers to stdout.
 const wchar_t kDumpHeaders[] = L"dump-headers";
@@ -84,9 +85,9 @@ int LaunchSlave(const CommandLine& command_line,
 
   std::wstring new_program;
   if (do_upgrade)
-    new_program = StringPrintf(L"%ls%d", L"dump_cache_", version);
+    new_program = base::StringPrintf(L"%ls%d", L"dump_cache_", version);
   else
-    new_program = StringPrintf(L"dump_cache");
+    new_program = base::StringPrintf(L"dump_cache");
 
   hacked_command_line.insert(to_remove, new_program);
 
@@ -95,7 +96,8 @@ int LaunchSlave(const CommandLine& command_line,
   if (do_upgrade || do_convert_to_text)
     new_command_line.AppendSwitch(kSlave);
 
-  new_command_line.AppendSwitchWithValue(kPipe, pipe_number);
+  // TODO(evanm): remove needless usage of wstring from here and elsewhere.
+  new_command_line.AppendSwitchASCII(kPipe, WideToASCII(pipe_number));
   if (!base::LaunchApp(new_command_line, false, false, NULL)) {
     printf("Unable to launch the needed version of this tool: %ls\n",
            new_program.c_str());
@@ -114,14 +116,19 @@ int main(int argc, const char* argv[]) {
   CommandLine::Init(argc, argv);
 
   const CommandLine& command_line = *CommandLine::ForCurrentProcess();
-  std::wstring input_path = command_line.GetSwitchValue(kInputPath);
+  std::wstring input_path = command_line.GetSwitchValueNative(kInputPath);
   if (input_path.empty())
     return Help();
 
   bool upgrade = false;
   bool slave_required = false;
   bool copy_to_text = false;
-  std::wstring output_path = command_line.GetSwitchValue(kOutputPath);
+  // TODO(evanm): port to FilePath.
+  std::wstring output_path = command_line.GetSwitchValueNative(kOutputPath);
+  // Make sure that output directory ends with a slash.
+  if (output_path.size() >= 1 && output_path[output_path.size() - 1] != '\\')
+    output_path.push_back('\\');
+
   if (command_line.HasSwitch(kUpgrade))
     upgrade = true;
   if (command_line.HasSwitch(kDumpToFiles))
@@ -145,7 +152,7 @@ int main(int argc, const char* argv[]) {
     slave_required = true;
   }
 
-  std::wstring pipe_number = command_line.GetSwitchValue(kPipe);
+  std::wstring pipe_number = command_line.GetSwitchValueNative(kPipe);
   if (command_line.HasSwitch(kSlave) && slave_required)
     return RunSlave(input_path, pipe_number);
 

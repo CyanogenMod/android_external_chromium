@@ -4,12 +4,14 @@
 
 #ifndef CHROME_COMMON_CHILD_PROCESS_H__
 #define CHROME_COMMON_CHILD_PROCESS_H__
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/scoped_ptr.h"
 #include "base/thread.h"
 #include "base/waitable_event.h"
-#include "chrome/common/child_thread.h"
+
+class ChildThread;
 
 // Base class for child processes of the browser process (i.e. renderer and
 // plugin host). This is a singleton object for each child process.
@@ -20,8 +22,8 @@ class ChildProcess {
   virtual ~ChildProcess();
 
   // Getter for the child process' main thread.
-  ChildThread* main_thread() { return main_thread_.get(); }
-  void set_main_thread(ChildThread* thread) { main_thread_.reset(thread); }
+  ChildThread* main_thread();
+  void set_main_thread(ChildThread* thread);
 
   MessageLoop* io_message_loop() { return io_thread_.message_loop(); }
 

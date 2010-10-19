@@ -8,13 +8,14 @@
 #include "chrome/browser/sync/glue/http_bridge.h"
 #include "chrome/common/net/test_url_fetcher_factory.h"
 #include "net/url_request/url_request_unittest.h"
+#include "net/test/test_server.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using browser_sync::HttpBridge;
 
 namespace {
 // TODO(timsteele): Should use PathService here. See Chromium Issue 3113.
-const wchar_t kDocRoot[] = L"chrome/test/data";
+const FilePath::CharType kDocRoot[] = FILE_PATH_LITERAL("chrome/test/data");
 }
 
 // Lazy getter for TestURLRequestContext instances.
@@ -38,7 +39,8 @@ class TestURLRequestContextGetter : public URLRequestContextGetter {
 class HttpBridgeTest : public testing::Test {
  public:
   HttpBridgeTest()
-      : fake_default_request_context_getter_(NULL),
+      : test_server_(net::TestServer::TYPE_HTTP, FilePath(kDocRoot)),
+        fake_default_request_context_getter_(NULL),
         io_thread_(ChromeThread::IO) {
   }
 
@@ -86,6 +88,8 @@ class HttpBridgeTest : public testing::Test {
   TestURLRequestContextGetter* GetTestRequestContextGetter() {
     return fake_default_request_context_getter_;
   }
+
+  net::TestServer test_server_;
 
  private:
   // A make-believe "default" request context, as would be returned by
@@ -174,14 +178,12 @@ TEST_F(HttpBridgeTest, TestMakeSynchronousPostShunted) {
 // Full round-trip test of the HttpBridge, using default UA string and
 // no request cookies.
 TEST_F(HttpBridgeTest, TestMakeSynchronousPostLiveWithPayload) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
 
   scoped_refptr<HttpBridge> http_bridge(BuildBridge());
 
   std::string payload = "this should be echoed back";
-  GURL echo = server->TestServerPage("echo");
+  GURL echo = test_server_.GetURL("echo");
   http_bridge->SetURL(echo.spec().c_str(), echo.IntPort());
   http_bridge->SetPostPayload("application/x-www-form-urlencoded",
                               payload.length() + 1, payload.c_str());
@@ -199,12 +201,11 @@ TEST_F(HttpBridgeTest, TestMakeSynchronousPostLiveWithPayload) {
 
 // Full round-trip test of the HttpBridge, using custom UA string
 TEST_F(HttpBridgeTest, TestMakeSynchronousPostLiveComprehensive) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<HttpBridge> http_bridge(BuildBridge());
 
-  GURL echo_header = server->TestServerPage("echoall");
+  GURL echo_header = test_server_.GetURL("echoall");
   http_bridge->SetUserAgent("bob");
   http_bridge->SetURL(echo_header.spec().c_str(), echo_header.IntPort());
 
@@ -227,12 +228,11 @@ TEST_F(HttpBridgeTest, TestMakeSynchronousPostLiveComprehensive) {
 }
 
 TEST_F(HttpBridgeTest, TestExtraRequestHeaders) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<HttpBridge> http_bridge(BuildBridge());
 
-  GURL echo_header = server->TestServerPage("echoall");
+  GURL echo_header = test_server_.GetURL("echoall");
 
   http_bridge->SetURL(echo_header.spec().c_str(), echo_header.IntPort());
   http_bridge->SetExtraRequestHeaders("test:fnord");
@@ -256,12 +256,11 @@ TEST_F(HttpBridgeTest, TestExtraRequestHeaders) {
 }
 
 TEST_F(HttpBridgeTest, TestResponseHeader) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<HttpBridge> http_bridge(BuildBridge());
 
-  GURL echo_header = server->TestServerPage("echoall");
+  GURL echo_header = test_server_.GetURL("echoall");
   http_bridge->SetURL(echo_header.spec().c_str(), echo_header.IntPort());
 
   std::string test_payload = "###TEST PAYLOAD###";

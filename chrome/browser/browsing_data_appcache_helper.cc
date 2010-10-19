@@ -118,19 +118,21 @@ void CannedBrowsingDataAppCacheHelper::AddAppCache(const GURL& manifest_url) {
       return;
   }
 
-  appcache_infos_.push_back(
-      appcache::AppCacheInfo(manifest_url,
-                             0,
-                             base::Time(),
-                             base::Time(),
-                             base::Time()));
+  appcache::AppCacheInfo info;
+  info.manifest_url = manifest_url;
+  appcache_infos_.push_back(info);
 }
 
 void CannedBrowsingDataAppCacheHelper::Reset() {
   info_collection_->infos_by_origin.clear();
 }
 
+bool CannedBrowsingDataAppCacheHelper::empty() const {
+  return info_collection_->infos_by_origin.empty();
+}
+
 void CannedBrowsingDataAppCacheHelper::StartFetching(
     Callback0::Type* completion_callback) {
   completion_callback->Run();
+  delete completion_callback;
 }

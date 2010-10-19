@@ -4,8 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_DOM_UI_LABS_HANDLER_H_
 #define CHROME_BROWSER_CHROMEOS_DOM_UI_LABS_HANDLER_H_
-
-#include <string>
+#pragma once
 
 #include "chrome/browser/dom_ui/options_ui.h"
 
@@ -19,7 +18,6 @@ class LabsHandler : public OptionsPageUIHandler {
   virtual void GetLocalizedValues(DictionaryValue* localized_strings);
 
  private:
-
   DISALLOW_COPY_AND_ASSIGN(LabsHandler);
 };
 

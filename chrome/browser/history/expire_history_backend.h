@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_HISTORY_EXPIRE_HISTORY_BACKEND_H_
 #define CHROME_BROWSER_HISTORY_EXPIRE_HISTORY_BACKEND_H_
+#pragma once
 
 #include <queue>
 #include <set>
@@ -105,6 +106,7 @@ class ExpireHistoryBackend {
   FRIEND_TEST_ALL_PREFIXES(ExpireHistoryTest, DeleteFaviconsIfPossible);
   FRIEND_TEST_ALL_PREFIXES(ExpireHistoryTest, ArchiveSomeOldHistory);
   FRIEND_TEST_ALL_PREFIXES(ExpireHistoryTest, ExpiringVisitsReader);
+  FRIEND_TEST_ALL_PREFIXES(ExpireHistoryTest, ArchiveSomeOldHistoryWithSource);
   friend class ::TestingProfile;
 
   struct DeleteDependencies;

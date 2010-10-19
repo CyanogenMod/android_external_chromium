@@ -4,12 +4,15 @@
 
 #ifndef CHROME_BROWSER_LANGUAGE_ORDER_TABLE_MODEL_H_
 #define CHROME_BROWSER_LANGUAGE_ORDER_TABLE_MODEL_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "app/table_model.h"
-#include "app/table_model_observer.h"
+#include "base/basictypes.h"
+
+class TableModelObserver;
 
 class LanguageOrderTableModel : public TableModel {
  public:

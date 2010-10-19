@@ -4,13 +4,14 @@
 
 #ifndef CHROME_BROWSER_DOM_UI_OPTIONS_UI_H_
 #define CHROME_BROWSER_DOM_UI_OPTIONS_UI_H_
+#pragma once
 
 #include <string>
-#include <vector>
 
 #include "base/scoped_ptr.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/dom_ui/dom_ui.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_type.h"
 
@@ -53,6 +54,9 @@ class OptionsPageUIHandler : public DOMMessageHandler,
   // Initialize the page.  Called once the DOM is available for manipulation.
   virtual void Initialize() {}
 
+  // Uninitializes the page.  Called just before the object is destructed.
+  virtual void Uninitialize() {}
+
   // DOMMessageHandler implementation.
   virtual void RegisterMessages() {}
 
@@ -61,8 +65,7 @@ class OptionsPageUIHandler : public DOMMessageHandler,
                        const NotificationSource& source,
                        const NotificationDetails& details) {}
 
-  void UserMetricsRecordAction(const UserMetricsAction& action,
-                               PrefService* prefs);
+  void UserMetricsRecordAction(const UserMetricsAction& action);
 
  protected:
   NotificationRegistrar registrar_;
@@ -74,7 +77,7 @@ class OptionsPageUIHandler : public DOMMessageHandler,
 class OptionsUI : public DOMUI {
  public:
   explicit OptionsUI(TabContents* contents);
-  virtual ~OptionsUI() {}
+  virtual ~OptionsUI();
 
   static RefCountedMemory* GetFaviconResourceBytes();
 

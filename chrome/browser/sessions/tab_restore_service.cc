@@ -17,9 +17,11 @@
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_command.h"
 #include "chrome/browser/sessions/session_types.h"
+#include "chrome/browser/sessions/tab_restore_service_observer.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/extension.h"
 
 using base::Time;
@@ -182,17 +184,18 @@ TabRestoreService::~TabRestoreService() {
   if (backend())
     Save();
 
-  FOR_EACH_OBSERVER(Observer, observer_list_, TabRestoreServiceDestroyed(this));
+  FOR_EACH_OBSERVER(TabRestoreServiceObserver, observer_list_,
+                    TabRestoreServiceDestroyed(this));
   STLDeleteElements(&entries_);
   STLDeleteElements(&staging_entries_);
   time_factory_ = NULL;
 }
 
-void TabRestoreService::AddObserver(Observer* observer) {
+void TabRestoreService::AddObserver(TabRestoreServiceObserver* observer) {
   observer_list_.AddObserver(observer);
 }
 
-void TabRestoreService::RemoveObserver(Observer* observer) {
+void TabRestoreService::RemoveObserver(TabRestoreServiceObserver* observer) {
   observer_list_.RemoveObserver(observer);
 }
 
@@ -318,6 +321,7 @@ void TabRestoreService::RestoreEntryById(Browser* browser,
   if (entry->type == TAB) {
     Tab* tab = static_cast<Tab*>(entry);
     browser = RestoreTab(*tab, browser, replace_existing_tab);
+    browser->window()->Show();
   } else if (entry->type == WINDOW) {
     Browser* current_browser = browser;
     Window* window = static_cast<Window*>(entry);
@@ -335,7 +339,8 @@ void TabRestoreService::RestoreEntryById(Browser* browser,
                                     tab.extension_app_id,
                                     (static_cast<int>(tab_i) ==
                                         window->selected_tab_index),
-                                    tab.pinned, tab.from_last_session);
+                                    tab.pinned, tab.from_last_session,
+                                    tab.session_storage_namespace);
         if (restored_tab)
           restored_tab->controller().LoadIfNecessary();
       }
@@ -473,6 +478,8 @@ void TabRestoreService::PopulateTab(Tab* tab,
   if (extension)
     tab->extension_app_id = extension->id();
 
+  tab->session_storage_namespace = controller->session_storage_namespace();
+
   // Browser may be NULL during unit tests.
   if (browser) {
     tab->browser_id = browser->session_id().id();
@@ -483,7 +490,8 @@ void TabRestoreService::PopulateTab(Tab* tab,
 }
 
 void TabRestoreService::NotifyTabsChanged() {
-  FOR_EACH_OBSERVER(Observer, observer_list_, TabRestoreServiceChanged(this));
+  FOR_EACH_OBSERVER(TabRestoreServiceObserver, observer_list_,
+                    TabRestoreServiceChanged(this));
 }
 
 void TabRestoreService::AddEntry(Entry* entry, bool notify, bool to_front) {
@@ -862,7 +870,8 @@ Browser* TabRestoreService::RestoreTab(const Tab& tab,
     browser->ReplaceRestoredTab(tab.navigations,
                                 tab.current_navigation_index,
                                 tab.from_last_session,
-                                tab.extension_app_id);
+                                tab.extension_app_id,
+                                tab.session_storage_namespace);
   } else {
     if (tab.has_browser())
       browser = BrowserList::FindBrowserWithID(tab.browser_id);
@@ -885,7 +894,8 @@ Browser* TabRestoreService::RestoreTab(const Tab& tab,
                             tab_index,
                             tab.current_navigation_index,
                             tab.extension_app_id,
-                            true, tab.pinned, tab.from_last_session);
+                            true, tab.pinned, tab.from_last_session,
+                            tab.session_storage_namespace);
   }
   return browser;
 }

@@ -17,7 +17,7 @@
 #include "chrome/browser/chromeos/options/options_window_view.h"
 #include "chrome/browser/chromeos/preferences.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/views/restart_message_box.h"
 #include "chrome/common/notification_type.h"
@@ -515,8 +515,7 @@ void LanguageConfigView::AddUiLanguageSection(const std::string& language_code,
       g_browser_process->GetApplicationLocale();
   const string16 language_name16 = l10n_util::GetDisplayNameForLocale(
       language_code, application_locale, true);
-  const std::wstring language_name
-      = input_method::MaybeRewriteLanguageName(UTF16ToWide(language_name16));
+  const std::wstring language_name = UTF16ToWide(language_name16);
   views::Label* language_name_label = new views::Label(language_name);
   language_name_label->SetFont(
       language_name_label->font().DeriveFont(0, gfx::Font::BOLD));

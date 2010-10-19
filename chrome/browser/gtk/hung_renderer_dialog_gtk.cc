@@ -9,6 +9,7 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/process_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
@@ -188,8 +189,10 @@ void HungRendererDialogGtk::OnDialogResponse(gint response_id) {
   switch (response_id) {
     case kKillPagesButtonResponse:
       // Kill the process.
-      base::KillProcess(contents_->GetRenderProcessHost()->GetHandle(),
-                        ResultCodes::HUNG, false);
+      if (contents_ && contents_->GetRenderProcessHost()) {
+        base::KillProcess(contents_->GetRenderProcessHost()->GetHandle(),
+                          ResultCodes::HUNG, false);
+      }
       break;
 
     case GTK_RESPONSE_OK:

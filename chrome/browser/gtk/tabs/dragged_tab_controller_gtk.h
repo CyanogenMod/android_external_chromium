@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_TABS_DRAGGED_TAB_CONTROLLER_GTK_H_
 #define CHROME_BROWSER_GTK_TABS_DRAGGED_TAB_CONTROLLER_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -14,6 +15,7 @@
 #include "base/timer.h"
 #include "chrome/browser/dock_info.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
 class DraggedTabGtk;
@@ -80,6 +82,7 @@ class DraggedTabControllerGtk : public NotificationObserver,
                               const gfx::Rect& initial_pos,
                               bool user_gesture);
   virtual void ActivateContents(TabContents* contents);
+  virtual void DeactivateContents(TabContents* contents);
   virtual void LoadingStateChanged(TabContents* source);
   virtual void CloseContents(TabContents* source);
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos);

@@ -43,36 +43,13 @@ const TestData kTestDataList[] = {
 
 }  // namespace
 
-// For Windows, This relies on the contents of the registry, so in theory it
-// might fail.
-TEST(URLSecurityManager, FLAKY_CreateNoWhitelist) {
-  scoped_ptr<URLSecurityManager> url_security_manager(
-      URLSecurityManager::Create(NULL));
-  ASSERT_TRUE(url_security_manager.get());
-
-  for (size_t i = 0; i < arraysize(kTestDataList); ++i) {
-    GURL gurl(kTestDataList[i].url);
-    bool can_use_default =
-        url_security_manager->CanUseDefaultCredentials(gurl);
-
-#if defined(OS_WIN)
-    EXPECT_EQ(kTestDataList[i].succeds_in_windows_default, can_use_default)
-        << " Run: " << i << " URL: '" << gurl << "'";
-#else
-    // No whitelist means nothing can use the default.
-    EXPECT_FALSE(can_use_default)
-        << " Run: " << i << " URL: '" << gurl << "'";
-#endif // OS_WIN
-  }
-}
-
-TEST(URLSecurityManager, CreateWhitelist) {
-  HttpAuthFilterWhitelist* auth_filter = new HttpAuthFilterWhitelist();
+TEST(URLSecurityManager, UseDefaultCredentials) {
+  HttpAuthFilterWhitelist* auth_filter = new HttpAuthFilterWhitelist(
+      kTestAuthWhitelist);
   ASSERT_TRUE(auth_filter);
-  auth_filter->SetWhitelist(kTestAuthWhitelist);
   // The URL security manager takes ownership of |auth_filter|.
   scoped_ptr<URLSecurityManager> url_security_manager(
-      URLSecurityManager::Create(auth_filter));
+      URLSecurityManager::Create(auth_filter, NULL));
   ASSERT_TRUE(url_security_manager.get());
 
   for (size_t i = 0; i < arraysize(kTestDataList); ++i) {
@@ -84,5 +61,36 @@ TEST(URLSecurityManager, CreateWhitelist) {
         << " Run: " << i << " URL: '" << gurl << "'";
   }
 }
+
+TEST(URLSecurityManager, CanDelegate) {
+  HttpAuthFilterWhitelist* auth_filter = new HttpAuthFilterWhitelist(
+      kTestAuthWhitelist);
+  ASSERT_TRUE(auth_filter);
+  // The URL security manager takes ownership of |auth_filter|.
+  scoped_ptr<URLSecurityManager> url_security_manager(
+      URLSecurityManager::Create(NULL, auth_filter));
+  ASSERT_TRUE(url_security_manager.get());
+
+  for (size_t i = 0; i < arraysize(kTestDataList); ++i) {
+    GURL gurl(kTestDataList[i].url);
+    bool can_delegate = url_security_manager->CanDelegate(gurl);
+    EXPECT_EQ(kTestDataList[i].succeeds_in_whitelist, can_delegate)
+        << " Run: " << i << " URL: '" << gurl << "'";
+  }
+}
+
+TEST(URLSecurityManager, CanDelegate_NoWhitelist) {
+  // Nothing can delegate in this case.
+  scoped_ptr<URLSecurityManager> url_security_manager(
+      URLSecurityManager::Create(NULL, NULL));
+  ASSERT_TRUE(url_security_manager.get());
+
+  for (size_t i = 0; i < arraysize(kTestDataList); ++i) {
+    GURL gurl(kTestDataList[i].url);
+    bool can_delegate = url_security_manager->CanDelegate(gurl);
+    EXPECT_EQ(false, can_delegate);
+  }
+}
+
 
 }  // namespace net

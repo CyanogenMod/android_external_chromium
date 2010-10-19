@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RESOURCE_MESSAGE_FILTER_H_
 #define CHROME_BROWSER_RENDERER_HOST_RESOURCE_MESSAGE_FILTER_H_
+#pragma once
 
 #if defined(OS_WIN)
 #include <windows.h>
@@ -23,7 +24,7 @@
 #include "build/build_config.h"
 #include "chrome/browser/net/resolve_proxy_msg_helper.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "chrome/common/window_container_type.h"
+#include "chrome/common/content_settings.h"
 #include "gfx/native_widget_types.h"
 #include "ipc/ipc_channel_proxy.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebCache.h"
@@ -31,10 +32,11 @@
 
 class AppCacheDispatcherHost;
 class AudioRendererHost;
+class BlobDispatcherHost;
 class ChromeURLRequestContext;
 class DatabaseDispatcherHost;
 class DOMStorageDispatcherHost;
-class ExtensionMessageService;
+class FileSystemDispatcherHost;
 struct FontDescriptor;
 class GeolocationDispatcherHost;
 class HostZoomMap;
@@ -42,22 +44,32 @@ class IndexedDBDispatcherHost;
 class NotificationsPrefsCache;
 class Profile;
 class RenderWidgetHelper;
+class SearchProviderInstallStateDispatcherHost;
 class URLRequestContextGetter;
 struct ViewHostMsg_CreateWindow_Params;
 struct ViewHostMsg_CreateWorker_Params;
 struct WebPluginInfo;
 
 namespace base {
+struct PlatformFileInfo;
 class SharedMemory;
 }
 
-namespace file_util {
-struct FileInfo;
+namespace device_orientation {
+class DispatcherHost;
+}
+
+namespace net {
+class CookieStore;
 }
 
 namespace printing {
 class PrinterQuery;
 class PrintJobManager;
+}
+
+namespace speech_input {
+class SpeechInputDispatcherHost;
 }
 
 namespace webkit_glue {
@@ -86,8 +98,7 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
                         PluginService* plugin_service,
                         printing::PrintJobManager* print_job_manager,
                         Profile* profile,
-                        RenderWidgetHelper* render_widget_helper,
-                        URLRequestContextGetter* request_context);
+                        RenderWidgetHelper* render_widget_helper);
 
   // IPC::ChannelProxy::MessageFilter methods:
   virtual void OnFilterAdded(IPC::Channel* channel);
@@ -120,7 +131,7 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
   friend class ChromeThread;
   friend class DeleteTask<ResourceMessageFilter>;
   typedef void (*FileInfoWriteFunc)(IPC::Message* reply_msg,
-                                    const file_util::FileInfo& file_info);
+                                    const base::PlatformFileInfo& file_info);
 
   virtual ~ResourceMessageFilter();
 
@@ -130,6 +141,9 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
   void OnMsgCreateWidget(int opener_id,
                          WebKit::WebPopupType popup_type,
                          int* route_id);
+  void OnMsgCreateFullscreenWidget(int opener_id,
+                                   WebKit::WebPopupType popup_type,
+                                   int* route_id);
   void OnSetCookie(const IPC::Message& message,
                    const GURL& url,
                    const GURL& first_party_for_cookies,
@@ -142,9 +156,6 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
                        IPC::Message* reply_msg);
   void OnDeleteCookie(const GURL& url,
                       const std::string& cookieName);
-  void OnGetCookiesEnabled(const GURL& url,
-                           const GURL& first_party_for_cookies,
-                           bool* enabled);
   void OnPluginFileDialog(const IPC::Message& msg,
                           bool multiple_files,
                           const std::wstring& title,
@@ -169,14 +180,16 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
 #endif
   void OnGetPlugins(bool refresh, IPC::Message* reply_msg);
   void OnGetPluginsOnFileThread(bool refresh, IPC::Message* reply_msg);
-  void OnGetPluginPath(const GURL& url,
+  void OnGetPluginInfo(const GURL& url,
                        const GURL& policy_url,
                        const std::string& mime_type,
-                       FilePath* filename,
+                       bool* found,
+                       WebPluginInfo* info,
+                       ContentSetting* setting,
                        std::string* actual_mime_type);
   void OnOpenChannelToPlugin(const GURL& url,
                              const std::string& mime_type,
-                             const std::wstring& locale,
+                             const std::string& locale,
                              IPC::Message* reply_msg);
   void OnLaunchNaCl(const std::wstring& url,
                     int channel_descriptor,
@@ -290,7 +303,7 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
   void OnGetDefaultPrintSettingsReply(
       scoped_refptr<printing::PrinterQuery> printer_query,
       IPC::Message* reply_msg);
-#if defined(OS_WIN) || defined(OS_MACOSX)
+
   // A javascript code requested to print the current page. The renderer host
   // have to show to the user the print dialog and returns the selected print
   // settings.
@@ -300,7 +313,7 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
       scoped_refptr<printing::PrinterQuery> printer_query,
       int routing_id,
       IPC::Message* reply_msg);
-#endif
+
   // Browser side transport DIB allocation
   void OnAllocTransportDIB(size_t size,
                            bool cache_in_browser,
@@ -311,9 +324,19 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
                                 const std::string& source_extension_id,
                                 const std::string& target_extension_id,
                                 const std::string& channel_name, int* port_id);
+  void OpenChannelToExtensionOnUIThread(int source_process_id,
+                                        int source_routing_id,
+                                        int receiver_port_id,
+                                        const std::string& source_extension_id,
+                                        const std::string& target_extension_id,
+                                        const std::string& channel_name);
   void OnOpenChannelToTab(int routing_id, int tab_id,
                           const std::string& extension_id,
                           const std::string& channel_name, int* port_id);
+  void OpenChannelToTabOnUIThread(int source_process_id, int source_routing_id,
+                                  int receiver_port_id,
+                                  int tab_id, const std::string& extension_id,
+                                  const std::string& channel_name);
 
   void OnCloseCurrentConnections();
   void OnSetCacheMode(bool enabled);
@@ -321,6 +344,7 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
   void OnCacheableMetadataAvailable(const GURL& url,
                                     double expected_response_time,
                                     const std::vector<char>& data);
+  void OnEnableSpdy(bool enable);
   void OnGetFileSize(const FilePath& path, IPC::Message* reply_msg);
   void OnGetFileModificationTime(const FilePath& path, IPC::Message* reply_msg);
   void OnGetFileInfoOnFileThread(const FilePath& path,
@@ -335,6 +359,7 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
   void OnKeygenOnWorkerThread(
       int key_size_in_bits,
       const std::string& challenge_string,
+      const GURL& url,
       IPC::Message* reply_msg);
   void OnGetExtensionMessageBundle(const std::string& extension_id,
                                    IPC::Message* reply_msg);
@@ -345,6 +370,15 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
       IPC::Message* reply_msg);
   void OnEstablishGpuChannel();
   void OnSynchronizeGpu(IPC::Message* reply);
+
+  void OnAsyncOpenFile(const IPC::Message& msg,
+                       const FilePath& path,
+                       int flags,
+                       int message_id);
+  void AsyncOpenFileOnFileThread(const FilePath& path,
+                                 int flags,
+                                 int message_id,
+                                 int routing_id);
 
 #if defined(USE_X11)
   void SendDelayedReply(IPC::Message* reply_msg);
@@ -404,9 +438,6 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
   // A request context that holds a cookie store for chrome-extension URLs.
   scoped_refptr<URLRequestContextGetter> extensions_request_context_;
 
-  // Used for routing extension messages.
-  scoped_refptr<ExtensionMessageService> extensions_message_service_;
-
   scoped_refptr<RenderWidgetHelper> render_widget_helper_;
 
   // Object that should take care of audio related resource requests.
@@ -436,13 +467,97 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
 
   bool cloud_print_enabled_;
 
+  base::TimeTicks last_plugin_refresh_time_;  // Initialized to 0.
+
   // A callback to create a routing id for the associated renderer process.
   scoped_ptr<CallbackWithReturnValue<int>::Type> next_route_id_callback_;
+
+  // Used to handle speech input related messages.
+  scoped_refptr<speech_input::SpeechInputDispatcherHost>
+      speech_input_dispatcher_host_;
 
   // Used to handle geolocation-related messages.
   scoped_refptr<GeolocationDispatcherHost> geolocation_dispatcher_host_;
 
+  // Used to handle search provider related messages.
+  scoped_ptr<SearchProviderInstallStateDispatcherHost>
+      search_provider_install_state_dispatcher_host_;
+
+  // Used to handle device orientation related messages.
+  scoped_refptr<device_orientation::DispatcherHost>
+      device_orientation_dispatcher_host_;
+
+  // Handles FileSystem API related messages
+  scoped_refptr<FileSystemDispatcherHost> file_system_dispatcher_host_;
+
+  // Handles blob related messages.
+  scoped_ptr<BlobDispatcherHost> blob_dispatcher_host_;
+
   DISALLOW_COPY_AND_ASSIGN(ResourceMessageFilter);
+};
+
+// These classes implement completion callbacks for getting and setting
+// cookies.
+class SetCookieCompletion : public net::CompletionCallback {
+ public:
+  SetCookieCompletion(int render_process_id,
+                      int render_view_id,
+                      const GURL& url,
+                      const std::string& cookie_line,
+                      ChromeURLRequestContext* context);
+
+  virtual void RunWithParams(const Tuple1<int>& params);
+
+  int render_process_id() const {
+    return render_process_id_;
+  }
+
+  int render_view_id() const {
+    return render_view_id_;
+  }
+
+ private:
+  int render_process_id_;
+  int render_view_id_;
+  GURL url_;
+  std::string cookie_line_;
+  scoped_refptr<ChromeURLRequestContext> context_;
+};
+
+class GetCookiesCompletion : public net::CompletionCallback {
+ public:
+  GetCookiesCompletion(int render_process_id,
+                       int render_view_id,
+                       const GURL& url, IPC::Message* reply_msg,
+                       ResourceMessageFilter* filter,
+                       URLRequestContext* context,
+                       bool raw_cookies);
+
+  virtual void RunWithParams(const Tuple1<int>& params);
+
+  int render_process_id() const {
+    return render_process_id_;
+  }
+
+  int render_view_id() const {
+    return render_view_id_;
+  }
+
+  void set_cookie_store(net::CookieStore* cookie_store);
+
+  net::CookieStore* cookie_store() {
+    return cookie_store_.get();
+  }
+
+ private:
+  GURL url_;
+  IPC::Message* reply_msg_;
+  scoped_refptr<ResourceMessageFilter> filter_;
+  scoped_refptr<URLRequestContext> context_;
+  int render_process_id_;
+  int render_view_id_;
+  bool raw_cookies_;
+  scoped_refptr<net::CookieStore> cookie_store_;
 };
 
 #endif  // CHROME_BROWSER_RENDERER_HOST_RESOURCE_MESSAGE_FILTER_H_

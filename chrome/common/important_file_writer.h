@@ -4,6 +4,7 @@
 
 #ifndef CHROME_COMMON_IMPORTANT_FILE_WRITER_H_
 #define CHROME_COMMON_IMPORTANT_FILE_WRITER_H_
+#pragma once
 
 #include <string>
 
@@ -61,7 +62,7 @@ class ImportantFileWriter : public NonThreadSafe {
   // of destruction.
   ~ImportantFileWriter();
 
-  FilePath path() const { return path_; }
+  const FilePath& path() const { return path_; }
 
   // Returns true if there is a scheduled write pending which has not yet
   // been started.

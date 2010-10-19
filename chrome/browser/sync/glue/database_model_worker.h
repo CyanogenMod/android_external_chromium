@@ -4,11 +4,14 @@
 
 #ifndef CHROME_BROWSER_SYNC_GLUE_DATABASE_MODEL_WORKER_H_
 #define CHROME_BROWSER_SYNC_GLUE_DATABASE_MODEL_WORKER_H_
+#pragma once
 
 #include "base/callback.h"
-#include "base/ref_counted.h"
-#include "base/waitable_event.h"
 #include "chrome/browser/sync/engine/model_safe_worker.h"
+
+namespace base {
+class WaitableEvent;
+}
 
 namespace browser_sync {
 

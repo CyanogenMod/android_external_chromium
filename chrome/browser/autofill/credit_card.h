@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_AUTOFILL_CREDIT_CARD_H_
 #define CHROME_BROWSER_AUTOFILL_CREDIT_CARD_H_
+#pragma once
 
 #include <vector>
 
@@ -38,12 +39,13 @@ class CreditCard : public FormGroup {
   // The last four digits of the credit card number.
   string16 LastFourDigits() const;
 
-  const string16& billing_address() const { return billing_address_; }
+  const string16& type() const { return type_; }
+  int billing_address_id() const { return billing_address_id_; }
   int unique_id() const { return unique_id_; }
 
   // The caller should verify that the corresponding AutoFillProfile exists.
-  void set_billing_address(const string16& address) {
-    billing_address_ = address;
+  void set_billing_address_id(int address_id) {
+    billing_address_id_ = address_id;
   }
   void set_unique_id(int id) { unique_id_ = id; }
 
@@ -78,7 +80,6 @@ class CreditCard : public FormGroup {
 
   const string16& number() const { return number_; }
   const string16& name_on_card() const { return name_on_card_; }
-  const string16& type() const { return type_; }
   const string16& last_four_digits() const { return last_four_digits_; }
   int expiration_month() const { return expiration_month_; }
   int expiration_year() const { return expiration_year_; }
@@ -118,10 +119,6 @@ class CreditCard : public FormGroup {
   // year.
   bool Is4DigitExpirationYear(const string16& text) const;
 
-  // Returns true if |text| matches the type of the card.  The comparison is
-  // case-insensitive.
-  bool IsCardType(const string16& text) const;
-
   // Converts |date| to an integer form.  Returns true if the conversion
   // succeeded.
   bool ConvertDate(const string16& date, int* num) const;
@@ -140,9 +137,9 @@ class CreditCard : public FormGroup {
   // This is the display name of the card set by the user, e.g., Amazon Visa.
   string16 label_;
 
-  // The billing address. This is the label of the AutoFillProfile that contains
-  // the corresponding billing address.
-  string16 billing_address_;
+  // The billing address. This is the unique ID of the AutoFillProfile that
+  // contains the corresponding billing address.
+  int billing_address_id_;
 
   // The unique ID of this credit card.
   int unique_id_;

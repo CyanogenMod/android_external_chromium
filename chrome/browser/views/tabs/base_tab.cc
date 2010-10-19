@@ -6,10 +6,10 @@
 
 #include <limits>
 
-#include "app/animation_container.h"
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "app/slide_animation.h"
+#include "app/theme_provider.h"
 #include "app/throb_animation.h"
 #include "base/command_line.h"
 #include "base/utf_string_conversions.h"
@@ -35,19 +35,6 @@ static const int kPulseDurationMs = 200;
 
 // How long the hover state takes.
 static const int kHoverDurationMs = 90;
-
-static SkBitmap* waiting_animation_frames = NULL;
-static SkBitmap* loading_animation_frames = NULL;
-static int loading_animation_frame_count = 0;
-static int waiting_animation_frame_count = 0;
-static int waiting_to_loading_frame_count_ratio = 0;
-
-// Close button images.
-static SkBitmap* close_button_n = NULL;
-static SkBitmap* close_button_h = NULL;
-static SkBitmap* close_button_p = NULL;
-
-static SkBitmap* crashed_fav_icon = NULL;
 
 namespace {
 
@@ -88,13 +75,6 @@ class TabCloseButton : public views::ImageButton {
 };
 
 }  // namespace
-
-// static
-int BaseTab::close_button_width_ = 0;
-// static
-int BaseTab::close_button_height_ = 0;
-// static
-int BaseTab::loading_animation_size_ = 0;
 
 // static
 gfx::Font* BaseTab::font_ = NULL;
@@ -154,17 +134,20 @@ BaseTab::BaseTab(TabController* controller)
   SetID(VIEW_ID_TAB);
 
   // Add the Close Button.
-  TabCloseButton* close_button = new TabCloseButton(this);
-  close_button_ = close_button;
-  close_button->SetImage(views::CustomButton::BS_NORMAL, close_button_n);
-  close_button->SetImage(views::CustomButton::BS_HOT, close_button_h);
-  close_button->SetImage(views::CustomButton::BS_PUSHED, close_button_p);
-  close_button->SetTooltipText(l10n_util::GetString(IDS_TOOLTIP_CLOSE_TAB));
-  close_button->SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_CLOSE));
+  close_button_ = new TabCloseButton(this);
+  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+  close_button_->SetImage(views::CustomButton::BS_NORMAL,
+                          rb.GetBitmapNamed(IDR_TAB_CLOSE));
+  close_button_->SetImage(views::CustomButton::BS_HOT,
+                          rb.GetBitmapNamed(IDR_TAB_CLOSE_H));
+  close_button_->SetImage(views::CustomButton::BS_PUSHED,
+                          rb.GetBitmapNamed(IDR_TAB_CLOSE_P));
+  close_button_->SetTooltipText(l10n_util::GetString(IDS_TOOLTIP_CLOSE_TAB));
+  close_button_->SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_CLOSE));
   // Disable animation so that the red danger sign shows up immediately
   // to help avoid mis-clicks.
-  close_button->SetAnimationDuration(0);
-  AddChildView(close_button);
+  close_button_->SetAnimationDuration(0);
+  AddChildView(close_button_);
 
   SetContextMenuController(this);
 }
@@ -321,11 +304,8 @@ bool BaseTab::GetTooltipText(const gfx::Point& p, std::wstring* tooltip) {
   return false;
 }
 
-bool BaseTab::GetAccessibleRole(AccessibilityTypes::Role* role) {
-  DCHECK(role);
-
-  *role = AccessibilityTypes::ROLE_PAGETAB;
-  return true;
+AccessibilityTypes::Role BaseTab::GetAccessibleRole() {
+  return AccessibilityTypes::ROLE_PAGETAB;
 }
 
 ThemeProvider* BaseTab::GetThemeProvider() {
@@ -335,6 +315,23 @@ ThemeProvider* BaseTab::GetThemeProvider() {
 
 void BaseTab::AdvanceLoadingAnimation(TabRendererData::NetworkState old_state,
                                       TabRendererData::NetworkState state) {
+  static bool initialized = false;
+  static int loading_animation_frame_count = 0;
+  static int waiting_animation_frame_count = 0;
+  static int waiting_to_loading_frame_count_ratio = 0;
+  if (!initialized) {
+    initialized = true;
+    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+    SkBitmap loading_animation(*rb.GetBitmapNamed(IDR_THROBBER));
+    loading_animation_frame_count =
+        loading_animation.width() / loading_animation.height();
+    SkBitmap waiting_animation(*rb.GetBitmapNamed(IDR_THROBBER_WAITING));
+    waiting_animation_frame_count =
+        waiting_animation.width() / waiting_animation.height();
+    waiting_to_loading_frame_count_ratio =
+        waiting_animation_frame_count / loading_animation_frame_count;
+  }
+
   // The waiting animation is the reverse of the loading animation, but at a
   // different rate - the following reverses and scales the animation_frame_
   // so that the frame is at an equivalent position when going from one
@@ -356,10 +353,8 @@ void BaseTab::AdvanceLoadingAnimation(TabRendererData::NetworkState old_state,
 
 void BaseTab::PaintIcon(gfx::Canvas* canvas, int x, int y) {
   if (base::i18n::IsRTL()) {
-    if (!data().favicon.isNull())
-      x = width() - x - data().favicon.width();
-    else
-      x = width() - x - kFavIconSize;
+    x = width() - x -
+        (data().favicon.isNull() ? kFavIconSize : data().favicon.width());
   }
 
   int favicon_x = x;
@@ -367,27 +362,26 @@ void BaseTab::PaintIcon(gfx::Canvas* canvas, int x, int y) {
     favicon_x += (data().favicon.width() - kFavIconSize) / 2;
 
   if (data().network_state != TabRendererData::NETWORK_STATE_NONE) {
-    SkBitmap* frames =
+    ThemeProvider* tp = GetThemeProvider();
+    SkBitmap frames(*tp->GetBitmapNamed(
         (data().network_state == TabRendererData::NETWORK_STATE_WAITING) ?
-        waiting_animation_frames : loading_animation_frames;
-    int image_size = frames->height();
+        IDR_THROBBER_WAITING : IDR_THROBBER));
+    int image_size = frames.height();
     int image_offset = loading_animation_frame_ * image_size;
     int dst_y = (height() - image_size) / 2;
-    canvas->DrawBitmapInt(*frames, image_offset, 0, image_size,
+    canvas->DrawBitmapInt(frames, image_offset, 0, image_size,
                           image_size, favicon_x, dst_y, image_size, image_size,
                           false);
   } else {
     canvas->Save();
     canvas->ClipRectInt(0, 0, width(), height());
     if (should_display_crashed_favicon_) {
-      canvas->DrawBitmapInt(*crashed_fav_icon, 0, 0,
-                            crashed_fav_icon->width(),
-                            crashed_fav_icon->height(),
-                            favicon_x,
-                            (height() - crashed_fav_icon->height()) / 2 +
-                                fav_icon_hiding_offset_,
-                            kFavIconSize, kFavIconSize,
-                            true);
+      ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+      SkBitmap crashed_fav_icon(*rb.GetBitmapNamed(IDR_SAD_FAVICON));
+      canvas->DrawBitmapInt(crashed_fav_icon, 0, 0, crashed_fav_icon.width(),
+          crashed_fav_icon.height(), favicon_x,
+          (height() - crashed_fav_icon.height()) / 2 + fav_icon_hiding_offset_,
+          kFavIconSize, kFavIconSize, true);
     } else {
       if (!data().favicon.isNull()) {
         // TODO(pkasting): Use code in tab_icon_view.cc:PaintIcon() (or switch
@@ -444,11 +438,6 @@ void BaseTab::ShowContextMenu(views::View* source,
     controller()->ShowContextMenu(this, p);
 }
 
-void BaseTab::ThemeChanged() {
-  views::View::ThemeChanged();
-  LoadThemeImages();
-}
-
 void BaseTab::SetFavIconHidingOffset(int offset) {
   fav_icon_hiding_offset_ = offset;
   SchedulePaint();
@@ -482,77 +471,10 @@ bool BaseTab::IsPerformingCrashAnimation() const {
 // static
 void BaseTab::InitResources() {
   static bool initialized = false;
-  if (initialized)
-    return;
-
-  initialized = true;
-
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-
-  crashed_fav_icon = rb.GetBitmapNamed(IDR_SAD_FAVICON);
-
-  close_button_n = rb.GetBitmapNamed(IDR_TAB_CLOSE);
-  close_button_h = rb.GetBitmapNamed(IDR_TAB_CLOSE_H);
-  close_button_p = rb.GetBitmapNamed(IDR_TAB_CLOSE_P);
-
-  close_button_width_ = close_button_n->width();
-  close_button_height_ = close_button_n->height();
-
-  // The loading animation image is a strip of states. Each state must be
-  // square, so the height must divide the width evenly.
-  loading_animation_frames = rb.GetBitmapNamed(IDR_THROBBER);
-  loading_animation_size_ = loading_animation_frames->height();
-  DCHECK(loading_animation_frames);
-  DCHECK(loading_animation_frames->width() %
-         loading_animation_frames->height() == 0);
-  loading_animation_frame_count =
-      loading_animation_frames->width() / loading_animation_frames->height();
-
-  // We get a DIV0 further down when the throbber is replaced by an image which
-  // is taller than wide. In this case we cannot deduce an animation sequence
-  // from it since we assume that each animation frame has the width of the
-  // image's height.
-  if (loading_animation_frame_count == 0) {
-#ifdef WIN32
-    // TODO(idanan): Remove this when we have a way to handle theme errors.
-    // See: http://code.google.com/p/chromium/issues/detail?id=12531 For now,
-    // this is Windows-specific because some users have downloaded a DLL from
-    // outside of Google to override the theme.
-    std::wstring text = l10n_util::GetString(IDS_RESOURCE_ERROR);
-    std::wstring caption = l10n_util::GetString(IDS_RESOURCE_ERROR_CAPTION);
-    UINT flags = MB_OK | MB_ICONWARNING | MB_TOPMOST;
-    win_util::MessageBox(NULL, text, caption, flags);
-#endif
-    CHECK(loading_animation_frame_count) <<
-        "Invalid throbber size. Width = " <<
-        loading_animation_frames->width() << ", height = " <<
-        loading_animation_frames->height();
+  if (!initialized) {
+    initialized = true;
+    font_ = new gfx::Font(
+        ResourceBundle::GetSharedInstance().GetFont(ResourceBundle::BaseFont));
+    font_height_ = font_->GetHeight();
   }
-
-  waiting_animation_frames = rb.GetBitmapNamed(IDR_THROBBER_WAITING);
-  DCHECK(waiting_animation_frames);
-  DCHECK(waiting_animation_frames->width() %
-         waiting_animation_frames->height() == 0);
-  waiting_animation_frame_count =
-      waiting_animation_frames->width() / waiting_animation_frames->height();
-
-  waiting_to_loading_frame_count_ratio =
-      waiting_animation_frame_count / loading_animation_frame_count;
-  // TODO(beng): eventually remove this when we have a proper themeing system.
-  //             themes not supporting IDR_THROBBER_WAITING are causing this
-  //             value to be 0 which causes DIV0 crashes. The value of 5
-  //             matches the current bitmaps in our source.
-  if (waiting_to_loading_frame_count_ratio == 0)
-    waiting_to_loading_frame_count_ratio = 5;
-
-  font_ = new gfx::Font(rb.GetFont(ResourceBundle::BaseFont));
-  font_height_ = font_->height();
-}
-
-// static
-void BaseTab::LoadThemeImages() {
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  loading_animation_frames = rb.GetBitmapNamed(IDR_THROBBER);
-  waiting_animation_frames = rb.GetBitmapNamed(IDR_THROBBER_WAITING);
-  loading_animation_size_ = loading_animation_frames->height();
 }

@@ -4,12 +4,13 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_OPTIONS_LANGUAGE_CHEWING_CONFIG_VIEW_H_
 #define CHROME_BROWSER_CHROMEOS_OPTIONS_LANGUAGE_CHEWING_CONFIG_VIEW_H_
+#pragma once
 
 #include <string>
 
 #include "chrome/browser/chromeos/cros/input_method_library.h"
 #include "chrome/browser/chromeos/language_preferences.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/views/options/options_page_view.h"
 #include "views/controls/button/checkbox.h"
 #include "views/controls/combobox/combobox.h"
@@ -69,20 +70,24 @@ class LanguageChewingConfigView : public views::ButtonListener,
   // Updates the chewing checkboxes.
   void NotifyPrefChanged();
 
-  BooleanPrefMember chewing_boolean_prefs_[kNumChewingBooleanPrefs];
-  IntegerPrefMember chewing_integer_prefs_[kNumChewingIntegerPrefs];
+  BooleanPrefMember chewing_boolean_prefs_[
+      language_prefs::kNumChewingBooleanPrefs];
+  IntegerPrefMember chewing_integer_prefs_[
+      language_prefs::kNumChewingIntegerPrefs];
   views::View* contents_;
 
   // Checkboxes for Chewing.
-  views::Checkbox* chewing_boolean_checkboxes_[kNumChewingBooleanPrefs];
+  views::Checkbox* chewing_boolean_checkboxes_[
+      language_prefs::kNumChewingBooleanPrefs];
 
-  views::Slider* chewing_integer_sliders_[kNumChewingIntegerPrefs];
+  views::Slider* chewing_integer_sliders_[
+      language_prefs::kNumChewingIntegerPrefs];
 
   struct ChewingPrefAndAssociatedCombobox {
     StringPrefMember multiple_choice_pref;
     LanguageComboboxModel<const char*>* combobox_model;
     LanguageCombobox* combobox;
-  } prefs_and_comboboxes_[kNumChewingMultipleChoicePrefs];
+  } prefs_and_comboboxes_[language_prefs::kNumChewingMultipleChoicePrefs];
 
   struct HsuSelKeyTypePrefAndAssociatedCombobox {
     IntegerPrefMember multiple_choice_pref;

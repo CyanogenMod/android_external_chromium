@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_EXTENSIONS_BROWSER_ACTION_BUTTON_H_
 #define CHROME_BROWSER_COCOA_EXTENSIONS_BROWSER_ACTION_BUTTON_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
@@ -24,8 +25,6 @@ extern NSString* const kBrowserActionButtonUpdatedNotification;
 extern NSString* const kBrowserActionButtonDraggingNotification;
 // Fired when the user drops the button.
 extern NSString* const kBrowserActionButtonDragEndNotification;
-
-extern const CGFloat kBrowserActionWidth;
 
 @interface BrowserActionButton : NSButton {
  @private
@@ -57,9 +56,10 @@ extern const CGFloat kBrowserActionWidth;
   BOOL dragCouldStart_;
 }
 
-- (id)initWithExtension:(Extension*)extension
-                profile:(Profile*)profile
-                  tabId:(int)tabId;
+- (id)initWithFrame:(NSRect)frame
+          extension:(Extension*)extension
+            profile:(Profile*)profile
+              tabId:(int)tabId;
 
 - (void)setFrame:(NSRect)frameRect animate:(BOOL)animate;
 

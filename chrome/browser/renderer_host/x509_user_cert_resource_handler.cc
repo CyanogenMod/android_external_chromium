@@ -7,7 +7,7 @@
 #include "base/string_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_thread.h"
-#include "chrome/browser/download/download_file.h"
+#include "chrome/browser/download/download_types.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
 #include "chrome/browser/ssl/ssl_add_cert_handler.h"
@@ -16,16 +16,22 @@
 #include "net/base/io_buffer.h"
 #include "net/base/mime_sniffer.h"
 #include "net/base/mime_util.h"
+#include "net/base/x509_certificate.h"
 #include "net/http/http_response_headers.h"
+#include "net/url_request/url_request.h"
+#include "net/url_request/url_request_status.h"
 
 X509UserCertResourceHandler::X509UserCertResourceHandler(
-    ResourceDispatcherHost* host, URLRequest* request)
+    ResourceDispatcherHost* host, URLRequest* request,
+    int render_process_host_id, int render_view_id)
     : host_(host),
       request_(request),
       content_length_(0),
       buffer_(new DownloadBuffer),
       read_buffer_(NULL),
-      resource_buffer_(NULL) {
+      resource_buffer_(NULL),
+      render_process_host_id_(render_process_host_id),
+      render_view_id_(render_view_id) {
 }
 
 bool X509UserCertResourceHandler::OnUploadProgress(int request_id,
@@ -101,11 +107,15 @@ bool X509UserCertResourceHandler::OnResponseCompleted(
       net::X509Certificate::CreateFromBytes(resource_buffer_->data(),
                                             content_length_);
   // The handler will run the UI and delete itself when it's finished.
-  new SSLAddCertHandler(request_, cert);
+  new SSLAddCertHandler(request_, cert, render_process_host_id_,
+                        render_view_id_);
   return true;
 }
 
 void X509UserCertResourceHandler::OnRequestClosed() {
+}
+
+X509UserCertResourceHandler::~X509UserCertResourceHandler() {
 }
 
 void X509UserCertResourceHandler::AssembleResource() {

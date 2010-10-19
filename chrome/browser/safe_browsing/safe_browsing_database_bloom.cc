@@ -11,13 +11,11 @@
 #include "base/process_util.h"
 #include "base/sha2.h"
 #include "base/stats_counters.h"
+#include "base/string_util.h"
 #include "chrome/browser/safe_browsing/bloom_filter.h"
 #include "chrome/common/sqlite_compiled_statement.h"
 #include "chrome/common/sqlite_utils.h"
 #include "googleurl/src/gurl.h"
-
-using base::Time;
-using base::TimeDelta;
 
 // Database version.  If this is different than what's stored on disk, the
 // database is reset.
@@ -25,11 +23,6 @@ static const int kDatabaseVersion = 6;
 
 // The maximum staleness for a cached entry.
 static const int kMaxStalenessMinutes = 45;
-
-// The bloom filter based file name suffix.
-static const FilePath::CharType kBloomFilterFileSuffix[] =
-    FILE_PATH_LITERAL(" Bloom");
-
 
 // Implementation --------------------------------------------------------------
 
@@ -47,8 +40,8 @@ SafeBrowsingDatabaseBloom::~SafeBrowsingDatabaseBloom() {
 void SafeBrowsingDatabaseBloom::Init(const FilePath& filename) {
   DCHECK(filename_.empty());  // Ensure we haven't been run before.
 
-  filename_ = FilePath(filename.value() + kBloomFilterFileSuffix);
-  bloom_filter_filename_ = BloomFilterFilename(filename_);
+  filename_ = FilePath(filename.value());
+  bloom_filter_filename_ = BloomFilterForFilename(filename_);
 
   // NOTE: There is no need to grab the lock in this function, since until it
   // returns, there are no pointers to this class on other threads.
@@ -92,7 +85,7 @@ bool SafeBrowsingDatabaseBloom::ContainsUrl(
     std::string* matching_list,
     std::vector<SBPrefix>* prefix_hits,
     std::vector<SBFullHashResult>* full_hits,
-    Time last_update) {
+    base::Time last_update) {
 
   // Clear the results first.
   matching_list->clear();
@@ -158,7 +151,7 @@ void SafeBrowsingDatabaseBloom::InsertChunks(const std::string& list_name,
   if (chunks.empty())
     return;
 
-  base::TimeTicks insert_start = base::TimeTicks::Now();
+  const base::TimeTicks insert_start = base::TimeTicks::Now();
 
   int list_id = safe_browsing_util::GetListId(list_name);
   ChunkType chunk_type = chunks.front().is_add ? ADD_CHUNK : SUB_CHUNK;
@@ -248,7 +241,7 @@ void SafeBrowsingDatabaseBloom::CacheHashResults(
     return;
   }
 
-  const Time now = Time::Now();
+  const base::Time now = base::Time::Now();
   for (std::vector<SBFullHashResult>::const_iterator it = full_hits.begin();
        it != full_hits.end(); ++it) {
     SBPrefix prefix = it->hash.prefix;
@@ -280,6 +273,14 @@ bool SafeBrowsingDatabaseBloom::UpdateStarted() {
   return true;
 }
 
+bool SafeBrowsingDatabaseBloom::UpdateStarted(
+    std::vector<SBListChunkRanges>* lists) {
+  bool ret = UpdateStarted();
+  if (ret)
+    GetListsInfo(lists);
+  return ret;
+}
+
 void SafeBrowsingDatabaseBloom::UpdateFinished(bool update_succeeded) {
   if (update_succeeded)
     BuildBloomFilter();
@@ -289,7 +290,10 @@ void SafeBrowsingDatabaseBloom::UpdateFinished(bool update_succeeded) {
   // We won't need the chunk caches until the next update (which will read them
   // from the database), so free their memory as they may contain thousands of
   // entries.
-  ClearUpdateCaches();
+  {
+    AutoLock lock(lookup_lock_);
+    ClearUpdateCaches();
+  }
 }
 
 bool SafeBrowsingDatabaseBloom::Open() {
@@ -481,7 +485,7 @@ void SafeBrowsingDatabaseBloom::BuildBloomFilter() {
   metric->GetIOCounters(&io_before);
 #endif
 
-  Time before = Time::Now();
+  base::Time before = base::Time::Now();
 
   // Get all the pending GetHash results and write them to disk.
   HashList pending_hashes;
@@ -560,7 +564,7 @@ void SafeBrowsingDatabaseBloom::BuildBloomFilter() {
     hash_cache_.swap(add_cache);
   }
 
-  TimeDelta bloom_gen = Time::Now() - before;
+  base::TimeDelta bloom_gen = base::Time::Now() - before;
 
   // Persist the bloom filter to disk.
   WriteBloomFilter();
@@ -596,10 +600,20 @@ void SafeBrowsingDatabaseBloom::BuildBloomFilter() {
 int SafeBrowsingDatabaseBloom::PairCompare(const void* arg1, const void* arg2) {
   const SBPair* p1 = reinterpret_cast<const SBPair*>(arg1);
   const SBPair* p2 = reinterpret_cast<const SBPair*>(arg2);
-  int delta = p1->chunk_id - p2->chunk_id;
-  if (delta == 0)
-    delta = p1->prefix - p2->prefix;
-  return delta;
+
+  if (p1->chunk_id < p2->chunk_id)
+    return -1;
+
+  if (p1->chunk_id > p2->chunk_id)
+    return 1;
+
+  if (p1->prefix < p2->prefix)
+    return -1;
+
+  if (p1->prefix > p2->prefix)
+    return 1;
+
+  return 0;
 }
 
 bool SafeBrowsingDatabaseBloom::BuildAddPrefixList(SBPair* adds) {
@@ -1007,11 +1021,12 @@ void SafeBrowsingDatabaseBloom::WriteFullHashList(const HashList& hash_list,
 void SafeBrowsingDatabaseBloom::GetCachedFullHashes(
     const std::vector<SBPrefix>* prefix_hits,
     std::vector<SBFullHashResult>* full_hits,
-    Time last_update) {
+    base::Time last_update) {
   DCHECK(prefix_hits && full_hits);
   lookup_lock_.AssertAcquired();
 
-  Time max_age = Time::Now() - TimeDelta::FromMinutes(kMaxStalenessMinutes);
+  const base::Time max_age =
+      base::Time::Now() - base::TimeDelta::FromMinutes(kMaxStalenessMinutes);
 
   for (std::vector<SBPrefix>::const_iterator it = prefix_hits->begin();
        it != prefix_hits->end(); ++it) {
@@ -1391,10 +1406,54 @@ bool SafeBrowsingDatabaseBloom::WriteChunkNumbers() {
 }
 
 void SafeBrowsingDatabaseBloom::ClearUpdateCaches() {
-  AutoLock lock(lookup_lock_);
+  lookup_lock_.AssertAcquired();
   add_del_cache_.clear();
   sub_del_cache_.clear();
   add_chunk_cache_.clear();
   sub_chunk_cache_.clear();
   prefix_miss_cache_.clear();
+}
+
+void SafeBrowsingDatabaseBloom::LoadBloomFilter() {
+  DCHECK(!bloom_filter_filename_.empty());
+
+  // If we're missing either of the database or filter files, we wait until the
+  // next update to generate a new filter.
+  // TODO(paulg): Investigate how often the filter file is missing and how
+  // expensive it would be to regenerate it.
+  int64 size_64;
+  if (!file_util::GetFileSize(filename_, &size_64) || size_64 == 0)
+    return;
+
+  if (!file_util::GetFileSize(bloom_filter_filename_, &size_64) ||
+      size_64 == 0) {
+    UMA_HISTOGRAM_COUNTS("SB2.FilterMissing", 1);
+    return;
+  }
+
+  // We have a bloom filter file, so use that as our filter.
+  const base::TimeTicks before = base::TimeTicks::Now();
+  bloom_filter_ = BloomFilter::LoadFile(bloom_filter_filename_);
+  SB_DLOG(INFO) << "SafeBrowsingDatabase read bloom filter in "
+                << (base::TimeTicks::Now() - before).InMilliseconds() << " ms";
+
+  if (!bloom_filter_.get())
+    UMA_HISTOGRAM_COUNTS("SB2.FilterReadFail", 1);
+}
+
+void SafeBrowsingDatabaseBloom::DeleteBloomFilter() {
+  file_util::Delete(bloom_filter_filename_, false);
+}
+
+void SafeBrowsingDatabaseBloom::WriteBloomFilter() {
+  if (!bloom_filter_.get())
+    return;
+
+  const base::TimeTicks before = base::TimeTicks::Now();
+  bool write_ok = bloom_filter_->WriteFile(bloom_filter_filename_);
+  SB_DLOG(INFO) << "SafeBrowsingDatabase wrote bloom filter in " <<
+      (base::TimeTicks::Now() - before).InMilliseconds() << " ms";
+
+  if (!write_ok)
+    UMA_HISTOGRAM_COUNTS("SB2.FilterWriteFail", 1);
 }

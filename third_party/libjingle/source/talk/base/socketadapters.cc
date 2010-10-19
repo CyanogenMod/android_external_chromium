@@ -563,8 +563,8 @@ void AsyncSocksProxySocket::ProcessInput(char* data, size_t* len) {
 
   if (state_ == SS_HELLO) {
     uint8 ver, method;
-    if (!response.ReadUInt8(ver) ||
-        !response.ReadUInt8(method))
+    if (!response.ReadUInt8(&ver) ||
+        !response.ReadUInt8(&method))
       return;
 
     if (ver != 5) {
@@ -582,8 +582,8 @@ void AsyncSocksProxySocket::ProcessInput(char* data, size_t* len) {
     }
   } else if (state_ == SS_AUTH) {
     uint8 ver, status;
-    if (!response.ReadUInt8(ver) ||
-        !response.ReadUInt8(status))
+    if (!response.ReadUInt8(&ver) ||
+        !response.ReadUInt8(&status))
       return;
 
     if ((ver != 1) || (status != 0)) {
@@ -594,10 +594,10 @@ void AsyncSocksProxySocket::ProcessInput(char* data, size_t* len) {
     SendConnect();
   } else if (state_ == SS_CONNECT) {
     uint8 ver, rep, rsv, atyp;
-    if (!response.ReadUInt8(ver) ||
-        !response.ReadUInt8(rep) ||
-        !response.ReadUInt8(rsv) ||
-        !response.ReadUInt8(atyp))
+    if (!response.ReadUInt8(&ver) ||
+        !response.ReadUInt8(&rep) ||
+        !response.ReadUInt8(&rsv) ||
+        !response.ReadUInt8(&atyp))
       return;
 
     if ((ver != 5) || (rep != 0)) {
@@ -608,22 +608,22 @@ void AsyncSocksProxySocket::ProcessInput(char* data, size_t* len) {
     uint16 port;
     if (atyp == 1) {
       uint32 addr;
-      if (!response.ReadUInt32(addr) ||
-          !response.ReadUInt16(port))
+      if (!response.ReadUInt32(&addr) ||
+          !response.ReadUInt16(&port))
         return;
       LOG(LS_VERBOSE) << "Bound on " << addr << ":" << port;
     } else if (atyp == 3) {
       uint8 len;
       std::string addr;
-      if (!response.ReadUInt8(len) ||
-          !response.ReadString(addr, len) ||
-          !response.ReadUInt16(port))
+      if (!response.ReadUInt8(&len) ||
+          !response.ReadString(&addr, len) ||
+          !response.ReadUInt16(&port))
         return;
       LOG(LS_VERBOSE) << "Bound on " << addr << ":" << port;
     } else if (atyp == 4) {
       std::string addr;
-      if (!response.ReadString(addr, 16) ||
-          !response.ReadUInt16(port))
+      if (!response.ReadString(&addr, 16) ||
+          !response.ReadUInt16(&port))
         return;
       LOG(LS_VERBOSE) << "Bound on <IPV6>:" << port;
     } else {
@@ -737,8 +737,8 @@ void AsyncSocksProxyServerSocket::DirectSend(const ByteBuffer& buf) {
 
 void AsyncSocksProxyServerSocket::HandleHello(ByteBuffer* request) {
   uint8 ver, num_methods;
-  if (!request->ReadUInt8(ver) ||
-      !request->ReadUInt8(num_methods)) {
+  if (!request->ReadUInt8(&ver) ||
+      !request->ReadUInt8(&num_methods)) {
     Error(0);
     return;
   }
@@ -750,7 +750,7 @@ void AsyncSocksProxyServerSocket::HandleHello(ByteBuffer* request) {
 
   // Handle either no-auth (0) or user/pass auth (2)
   uint8 method = 0xFF;
-  if (num_methods > 0 && !request->ReadUInt8(method)) {
+  if (num_methods > 0 && !request->ReadUInt8(&method)) {
     Error(0);
     return;
   }
@@ -776,11 +776,11 @@ void AsyncSocksProxyServerSocket::SendHelloReply(int method) {
 void AsyncSocksProxyServerSocket::HandleAuth(ByteBuffer* request) {
   uint8 ver, user_len, pass_len;
   std::string user, pass;
-  if (!request->ReadUInt8(ver) ||
-      !request->ReadUInt8(user_len) ||
-      !request->ReadString(user, user_len) ||
-      !request->ReadUInt8(pass_len) ||
-      !request->ReadString(pass, pass_len)) {
+  if (!request->ReadUInt8(&ver) ||
+      !request->ReadUInt8(&user_len) ||
+      !request->ReadString(&user, user_len) ||
+      !request->ReadUInt8(&pass_len) ||
+      !request->ReadString(&pass, pass_len)) {
     Error(0);
     return;
   }
@@ -801,12 +801,12 @@ void AsyncSocksProxyServerSocket::HandleConnect(ByteBuffer* request) {
   uint8 ver, command, reserved, addr_type;
   uint32 ip;
   uint16 port;
-  if (!request->ReadUInt8(ver) ||
-      !request->ReadUInt8(command) ||
-      !request->ReadUInt8(reserved) ||
-      !request->ReadUInt8(addr_type) ||
-      !request->ReadUInt32(ip) ||
-      !request->ReadUInt16(port)) {
+  if (!request->ReadUInt8(&ver) ||
+      !request->ReadUInt8(&command) ||
+      !request->ReadUInt8(&reserved) ||
+      !request->ReadUInt8(&addr_type) ||
+      !request->ReadUInt32(&ip) ||
+      !request->ReadUInt16(&port)) {
       Error(0);
       return;
   }

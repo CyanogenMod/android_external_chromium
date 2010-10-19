@@ -4,11 +4,11 @@
 
 #ifndef CHROME_BROWSER_COCOA_MENU_CONTROLLER_H_
 #define CHROME_BROWSER_COCOA_MENU_CONTROLLER_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
 #include "base/scoped_nsobject.h"
-#include "base/scoped_ptr.h"
 
 namespace menus {
 class MenuModel;

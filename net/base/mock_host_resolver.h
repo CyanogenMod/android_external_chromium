@@ -4,6 +4,7 @@
 
 #ifndef NET_BASE_MOCK_HOST_RESOLVER_H_
 #define NET_BASE_MOCK_HOST_RESOLVER_H_
+#pragma once
 
 #include <list>
 
@@ -57,6 +58,13 @@ class MockHostResolverBase : public HostResolver {
 
   // Resets the mock.
   void Reset(HostResolverProc* interceptor);
+
+  void SetPoolConstraints(HostResolverImpl::JobPoolIndex pool_index,
+                          size_t max_outstanding_jobs,
+                          size_t max_pending_requests) {
+    impl_->SetPoolConstraints(
+        pool_index, max_outstanding_jobs, max_pending_requests);
+  }
 
  protected:
   MockHostResolverBase(bool use_caching);

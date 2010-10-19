@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_WORKER_HOST_WORKER_PROCESS_HOST_H_
 #define CHROME_BROWSER_WORKER_HOST_WORKER_PROCESS_HOST_H_
+#pragma once
 
 #include <list>
 
@@ -17,9 +18,11 @@
 #include "ipc/ipc_channel.h"
 
 class AppCacheDispatcherHost;
+class BlobDispatcherHost;
 class ChromeURLRequestContext;
 class ChromeURLRequestContextGetter;
 class DatabaseDispatcherHost;
+class FileSystemDispatcherHost;
 namespace webkit_database {
 class DatabaseTracker;
 }  // namespace webkit_database
@@ -47,6 +50,7 @@ class WorkerProcessHost : public BrowserChildProcessHost {
                    int parent_appcache_host_id,
                    int64 main_resource_appcache_id,
                    ChromeURLRequestContext* request_context);
+    ~WorkerInstance();
 
     // Unique identifier for a worker client.
     typedef std::pair<IPC::Message::Sender*, int> SenderInfo;
@@ -193,6 +197,8 @@ class WorkerProcessHost : public BrowserChildProcessHost {
   scoped_refptr<ChromeURLRequestContext> request_context_;
   scoped_ptr<AppCacheDispatcherHost> appcache_dispatcher_host_;
   scoped_refptr<DatabaseDispatcherHost> db_dispatcher_host_;
+  scoped_ptr<BlobDispatcherHost> blob_dispatcher_host_;
+  scoped_refptr<FileSystemDispatcherHost> file_system_dispatcher_host_;
 
   // A callback to create a routing id for the associated worker process.
   scoped_ptr<CallbackWithReturnValue<int>::Type> next_route_id_callback_;

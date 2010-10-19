@@ -4,6 +4,7 @@
 
 #ifndef NET_PROXY_PROXY_CONFIG_SERVICE_FIXED_H_
 #define NET_PROXY_PROXY_CONFIG_SERVICE_FIXED_H_
+#pragma once
 
 #include "net/base/net_errors.h"
 #include "net/proxy/proxy_config.h"
@@ -17,9 +18,11 @@ class ProxyConfigServiceFixed : public ProxyConfigService {
   explicit ProxyConfigServiceFixed(const ProxyConfig& pc) : pc_(pc) {}
 
   // ProxyConfigService methods:
-  virtual int GetProxyConfig(ProxyConfig* config) {
+  virtual void AddObserver(Observer* observer) {}
+  virtual void RemoveObserver(Observer* observer) {}
+  virtual bool GetLatestProxyConfig(ProxyConfig* config) {
     *config = pc_;
-    return OK;
+    return true;
   }
 
  private:

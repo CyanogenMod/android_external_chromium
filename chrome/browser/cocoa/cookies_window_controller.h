@@ -4,7 +4,6 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include "app/tree_model.h"
 #include "base/cocoa_protocols_mac.h"
 #include "base/scoped_nsobject.h"
 #include "base/scoped_ptr.h"
@@ -15,6 +14,8 @@
 @class CookiesWindowController;
 @class CookieDetailsViewController;
 class Profile;
+class TreeModel;
+class TreeModelNode;
 
 namespace {
 class CookiesWindowControllerTest;
@@ -26,25 +27,17 @@ class CookiesTreeModelObserverBridge : public CookiesTreeModel::Observer {
  public:
   explicit CookiesTreeModelObserverBridge(CookiesWindowController* controller);
 
-  // Notification that nodes were added to the specified parent.
+  // Begin TreeModelObserver implementation.
   virtual void TreeNodesAdded(TreeModel* model,
                               TreeModelNode* parent,
                               int start,
                               int count);
-
-  // Notification that nodes were removed from the specified parent.
   virtual void TreeNodesRemoved(TreeModel* model,
                                 TreeModelNode* parent,
                                 int start,
                                 int count);
-
-  // Notification the children of |parent| have been reordered. Note, only
-  // the direct children of |parent| have been reordered, not descendants.
-  virtual void TreeNodeChildrenReordered(TreeModel* model,
-                                         TreeModelNode* parent);
-
-  // Notification that the contents of a node has changed.
   virtual void TreeNodeChanged(TreeModel* model, TreeModelNode* node);
+  // End TreeModelObserver implementation.
 
   virtual void TreeModelBeginBatch(CookiesTreeModel* model);
   virtual void TreeModelEndBatch(CookiesTreeModel* model);
@@ -110,6 +103,7 @@ class CookiesTreeModelObserverBridge : public CookiesTreeModel::Observer {
   BrowsingDataDatabaseHelper* databaseHelper_;  // weak
   BrowsingDataLocalStorageHelper* storageHelper_;  // weak
   BrowsingDataAppCacheHelper* appcacheHelper_;  // weak
+  BrowsingDataIndexedDBHelper* indexedDBHelper_;  // weak
 }
 @property (assign, nonatomic) BOOL removeButtonEnabled;
 @property (readonly, nonatomic) NSTreeController* treeController;
@@ -118,7 +112,8 @@ class CookiesTreeModelObserverBridge : public CookiesTreeModel::Observer {
 - (id)initWithProfile:(Profile*)profile
        databaseHelper:(BrowsingDataDatabaseHelper*)databaseHelper
         storageHelper:(BrowsingDataLocalStorageHelper*)storageHelper
-       appcacheHelper:(BrowsingDataAppCacheHelper*)appcacheHelper;
+       appcacheHelper:(BrowsingDataAppCacheHelper*)appcacheHelper
+      indexedDBHelper:(BrowsingDataIndexedDBHelper*)indexedDBHelper;
 
 // Shows the cookies window as a modal sheet attached to |window|.
 - (void)attachSheetTo:(NSWindow*)window;

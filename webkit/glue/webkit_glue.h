@@ -16,8 +16,10 @@
 
 #include "app/clipboard/clipboard.h"
 #include "base/file_path.h"
+#include "base/platform_file.h"
 #include "base/string16.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebCanvas.h"
+#include "third_party/WebKit/WebKit/chromium/public/WebFileError.h"
 
 class GURL;
 class SkBitmap;
@@ -42,7 +44,7 @@ namespace webkit_glue {
 
 //---- BEGIN FUNCTIONS IMPLEMENTED BY WEBKIT/GLUE -----------------------------
 
-void SetJavaScriptFlags(const std::wstring& flags);
+void SetJavaScriptFlags(const std::string& flags);
 
 // Turn on the logging for notImplemented() calls from WebCore.
 void EnableWebCoreNotImplementedLogging();
@@ -131,6 +133,10 @@ FilePath::StringType WebStringToFilePathString(const WebKit::WebString& str);
 WebKit::WebString FilePathStringToWebString(const FilePath::StringType& str);
 FilePath WebStringToFilePath(const WebKit::WebString& str);
 WebKit::WebString FilePathToWebString(const FilePath& file_path);
+
+// File error conversion
+WebKit::WebFileError PlatformFileErrorToWebFileError(
+    base::PlatformFileError error_code);
 
 // Returns a WebCanvas pointer associated with the given Skia canvas.
 WebKit::WebCanvas* ToWebCanvas(skia::PlatformCanvas*);
@@ -248,7 +254,7 @@ bool FindProxyForUrl(const GURL& url, std::string* proxy_list);
 
 // Returns the locale that this instance of webkit is running as.  This is of
 // the form language-country (e.g., en-US or pt-BR).
-std::wstring GetWebKitLocale();
+std::string GetWebKitLocale();
 
 // Close current connections.  Used for debugging.
 void CloseCurrentConnections();
@@ -264,6 +270,9 @@ std::string GetProductVersion();
 
 // Returns true if the embedder is running in single process mode.
 bool IsSingleProcess();
+
+// Enables/Disables Spdy for requests afterwards. Used for benchmarking.
+void EnableSpdy(bool enable);
 
 #if defined(OS_LINUX)
 // Return a read-only file descriptor to the font which best matches the given

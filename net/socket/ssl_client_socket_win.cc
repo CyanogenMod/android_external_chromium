@@ -5,12 +5,14 @@
 #include "net/socket/ssl_client_socket_win.h"
 
 #include <schnlsp.h>
+#include <map>
 
 #include "base/compiler_specific.h"
 #include "base/lock.h"
 #include "base/singleton.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "net/base/cert_verifier.h"
 #include "net/base/connection_type_histograms.h"
 #include "net/base/io_buffer.h"
@@ -61,6 +63,7 @@ static int MapSecurityError(SECURITY_STATUS err) {
       return ERR_SSL_VERSION_OR_CIPHER_MISMATCH;
     case SEC_E_INVALID_HANDLE:
     case SEC_E_INVALID_TOKEN:
+      LOG(ERROR) << "Unexpected error " << err;
       return ERR_UNEXPECTED;
     case SEC_E_OK:
       return OK;
@@ -253,6 +256,41 @@ static CredHandle* GetCredHandle(PCCERT_CONTEXT client_cert,
 
 //-----------------------------------------------------------------------------
 
+// This callback is intended to be used with CertFindChainInStore. In addition
+// to filtering by extended/enhanced key usage, we do not show expired
+// certificates and require digital signature usage in the key usage
+// extension.
+//
+// This matches our behavior on Mac OS X and that of NSS. It also matches the
+// default behavior of IE8. See http://support.microsoft.com/kb/890326 and
+// http://blogs.msdn.com/b/askie/archive/2009/06/09/my-expired-client-certificates-no-longer-display-when-connecting-to-my-web-server-using-ie8.aspx
+static BOOL WINAPI ClientCertFindCallback(PCCERT_CONTEXT cert_context,
+                                          void* find_arg) {
+  // Verify the certificate's KU is good.
+  BYTE key_usage;
+  if (CertGetIntendedKeyUsage(X509_ASN_ENCODING, cert_context->pCertInfo,
+                              &key_usage, 1)) {
+    if (!(key_usage & CERT_DIGITAL_SIGNATURE_KEY_USAGE))
+      return FALSE;
+  } else {
+    DWORD err = GetLastError();
+    // If |err| is non-zero, it's an actual error. Otherwise the extension
+    // just isn't present, and we treat it as if everything was allowed.
+    if (err) {
+      DLOG(ERROR) << "CertGetIntendedKeyUsage failed: " << err;
+      return FALSE;
+    }
+  }
+
+  // Verify the current time is within the certificate's validity period.
+  if (CertVerifyTimeValidity(NULL, cert_context->pCertInfo) != 0)
+    return FALSE;
+
+  return TRUE;
+}
+
+//-----------------------------------------------------------------------------
+
 // A memory certificate store for client certificates.  This allows us to
 // close the "MY" system certificate store when we finish searching for
 // client certificates.
@@ -353,6 +391,23 @@ void SSLClientSocketWin::GetSSLInfo(SSLInfo* ssl_info) {
     // normalized.
     ssl_info->security_bits = connection_info.dwCipherStrength;
   }
+  // SecPkgContext_CipherInfo comes from CNG and is available on Vista or
+  // later only.  On XP, the next QueryContextAttributes call fails with
+  // SEC_E_UNSUPPORTED_FUNCTION (0x80090302), so ssl_info->connection_status
+  // won't contain the cipher suite.  If this is a problem, we can build the
+  // cipher suite from the aiCipher, aiHash, and aiExch fields of
+  // SecPkgContext_ConnectionInfo based on Appendix C of RFC 5246.
+  SecPkgContext_CipherInfo cipher_info = { SECPKGCONTEXT_CIPHERINFO_V1 };
+  status = QueryContextAttributes(
+      &ctxt_, SECPKG_ATTR_CIPHER_INFO, &cipher_info);
+  if (status == SEC_E_OK) {
+    // TODO(wtc): find out what the cipher_info.dwBaseCipherSuite field is.
+    ssl_info->connection_status |=
+        (cipher_info.dwCipherSuite & SSL_CONNECTION_CIPHERSUITE_MASK) <<
+        SSL_CONNECTION_CIPHERSUITE_SHIFT;
+    // SChannel doesn't support TLS compression, so cipher_info doesn't have
+    // any field related to the compression method.
+  }
 
   if (ssl_config_.ssl3_fallback)
     ssl_info->connection_status |= SSL_CONNECTION_SSL3_FALLBACK;
@@ -391,6 +446,7 @@ void SSLClientSocketWin::GetSSLCertRequestInfo(
   find_by_issuer_para.pszUsageIdentifier = szOID_PKIX_KP_CLIENT_AUTH;
   find_by_issuer_para.cIssuer = issuer_list.cIssuers;
   find_by_issuer_para.rgIssuer = issuer_list.aIssuers;
+  find_by_issuer_para.pfnFindCallback = ClientCertFindCallback;
 
   PCCERT_CHAIN_CONTEXT chain_context = NULL;
 
@@ -516,7 +572,7 @@ int SSLClientSocketWin::InitializeSSLContext() {
       &out_flags,
       &expiry);
   if (status != SEC_I_CONTINUE_NEEDED) {
-    DLOG(ERROR) << "InitializeSecurityContext failed: " << status;
+    LOG(ERROR) << "InitializeSecurityContext failed: " << status;
     return MapSecurityError(status);
   }
 
@@ -573,6 +629,30 @@ bool SSLClientSocketWin::IsConnectedAndIdle() const {
 
 int SSLClientSocketWin::GetPeerAddress(AddressList* address) const {
   return transport_->socket()->GetPeerAddress(address);
+}
+
+void SSLClientSocketWin::SetSubresourceSpeculation() {
+  if (transport_.get() && transport_->socket()) {
+    transport_->socket()->SetSubresourceSpeculation();
+  } else {
+    NOTREACHED();
+  }
+}
+
+void SSLClientSocketWin::SetOmniboxSpeculation() {
+  if (transport_.get() && transport_->socket()) {
+    transport_->socket()->SetOmniboxSpeculation();
+  } else {
+    NOTREACHED();
+  }
+}
+
+bool SSLClientSocketWin::WasEverUsed() const {
+  if (transport_.get() && transport_->socket()) {
+    return transport_->socket()->WasEverUsed();
+  }
+  NOTREACHED();
+  return false;
 }
 
 int SSLClientSocketWin::Read(IOBuffer* buf, int buf_len,
@@ -735,7 +815,7 @@ int SSLClientSocketWin::DoLoop(int last_io_result) {
         return rv;
       default:
         rv = ERR_UNEXPECTED;
-        NOTREACHED() << "unexpected state";
+        LOG(DFATAL) << "unexpected state " << state;
         break;
     }
   } while (rv != ERR_IO_PENDING && next_state_ != STATE_NONE);
@@ -751,7 +831,7 @@ int SSLClientSocketWin::DoHandshakeRead() {
   int buf_len = kRecvBufferSize - bytes_received_;
 
   if (buf_len <= 0) {
-    NOTREACHED() << "Receive buffer is too small!";
+    LOG(DFATAL) << "Receive buffer is too small!";
     return ERR_UNEXPECTED;
   }
 
@@ -870,6 +950,7 @@ int SSLClientSocketWin::DidCallInitializeSecurityContext() {
   }
 
   if (FAILED(isc_status_)) {
+    LOG(ERROR) << "InitializeSecurityContext failed: " << isc_status_;
     int result = MapSecurityError(isc_status_);
     // We told Schannel to not verify the server certificate
     // (SCH_CRED_MANUAL_CRED_VALIDATION), so any certificate error returned by
@@ -944,8 +1025,10 @@ int SSLClientSocketWin::DoHandshakeWriteComplete(int result) {
     bool overflow = (bytes_sent_ > static_cast<int>(send_buffer_.cbBuffer));
     FreeSendBuffer();
     bytes_sent_ = 0;
-    if (overflow)  // Bug!
+    if (overflow) {  // Bug!
+      LOG(DFATAL) << "overflow";
       return ERR_UNEXPECTED;
+    }
     if (writing_first_token_) {
       writing_first_token_ = false;
       DCHECK(bytes_received_ == 0);
@@ -1106,6 +1189,7 @@ int SSLClientSocketWin::DoPayloadDecrypt() {
 
     if (status != SEC_E_OK && status != SEC_I_RENEGOTIATE) {
       DCHECK(status != SEC_E_MESSAGE_ALTERED);
+      LOG(ERROR) << "DecryptMessage failed: " << status;
       return MapSecurityError(status);
     }
 
@@ -1233,8 +1317,10 @@ int SSLClientSocketWin::DoPayloadEncrypt() {
 
   SECURITY_STATUS status = EncryptMessage(&ctxt_, 0, &buffer_desc, 0);
 
-  if (FAILED(status))
+  if (FAILED(status)) {
+    LOG(ERROR) << "EncryptMessage failed: " << status;
     return MapSecurityError(status);
+  }
 
   payload_send_buffer_len_ = buffers[0].cbBuffer +
                              buffers[1].cbBuffer +
@@ -1279,8 +1365,10 @@ int SSLClientSocketWin::DoPayloadWriteComplete(int result) {
     payload_send_buffer_.reset();
     payload_send_buffer_len_ = 0;
     bytes_sent_ = 0;
-    if (overflow)  // Bug!
+    if (overflow) {  // Bug!
+      LOG(DFATAL) << "overflow";
       return ERR_UNEXPECTED;
+    }
     // Done
     return user_write_buf_len_;
   }
@@ -1302,7 +1390,7 @@ int SSLClientSocketWin::DidCompleteHandshake() {
   SECURITY_STATUS status = QueryContextAttributes(
       &ctxt_, SECPKG_ATTR_STREAM_SIZES, &stream_sizes_);
   if (status != SEC_E_OK) {
-    DLOG(ERROR) << "QueryContextAttributes (stream sizes) failed: " << status;
+    LOG(ERROR) << "QueryContextAttributes (stream sizes) failed: " << status;
     return MapSecurityError(status);
   }
   DCHECK(!server_cert_ || renegotiating_);
@@ -1310,7 +1398,7 @@ int SSLClientSocketWin::DidCompleteHandshake() {
   status = QueryContextAttributes(
       &ctxt_, SECPKG_ATTR_REMOTE_CERT_CONTEXT, &server_cert_handle);
   if (status != SEC_E_OK) {
-    DLOG(ERROR) << "QueryContextAttributes (remote cert) failed: " << status;
+    LOG(ERROR) << "QueryContextAttributes (remote cert) failed: " << status;
     return MapSecurityError(status);
   }
   if (renegotiating_ &&

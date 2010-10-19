@@ -6,13 +6,14 @@
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
 #include "chrome/browser/geolocation/geolocation_dispatcher_host.h"
 #include "chrome/browser/geolocation/location_arbitrator.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -91,7 +92,7 @@ class GeolocationConfirmInfoBarDelegate : public ConfirmInfoBarDelegate {
       TabContents* tab_contents, GeolocationInfoBarQueueController* controller,
       int render_process_id, int render_view_id, int bridge_id,
       const GURL& requesting_frame_url,
-      const std::wstring& display_languages)
+      const std::string& display_languages)
       : ConfirmInfoBarDelegate(tab_contents),
         tab_contents_(tab_contents),
         controller_(controller),
@@ -112,20 +113,20 @@ class GeolocationConfirmInfoBarDelegate : public ConfirmInfoBarDelegate {
   virtual bool Accept() { return OnPermissionSet(true); }
   virtual bool Cancel() { return OnPermissionSet(false); }
   virtual int GetButtons() const { return BUTTON_OK | BUTTON_CANCEL; }
-  virtual std::wstring GetButtonLabel(InfoBarButton button) const {
+  virtual string16 GetButtonLabel(InfoBarButton button) const {
     switch (button) {
       case BUTTON_OK:
-        return l10n_util::GetString(IDS_GEOLOCATION_ALLOW_BUTTON);
+        return l10n_util::GetStringUTF16(IDS_GEOLOCATION_ALLOW_BUTTON);
       case BUTTON_CANCEL:
-        return l10n_util::GetString(IDS_GEOLOCATION_DENY_BUTTON);
+        return l10n_util::GetStringUTF16(IDS_GEOLOCATION_DENY_BUTTON);
       default:
         // All buttons are labeled above.
         NOTREACHED() << "Bad button id " << button;
-        return L"";
+        return string16();
     }
   }
-  virtual std::wstring GetMessageText() const {
-    return l10n_util::GetStringF(
+  virtual string16 GetMessageText() const {
+    return l10n_util::GetStringFUTF16(
         IDS_GEOLOCATION_INFOBAR_QUESTION,
         net::FormatUrl(requesting_frame_url_.GetOrigin(), display_languages_));
   }
@@ -133,8 +134,8 @@ class GeolocationConfirmInfoBarDelegate : public ConfirmInfoBarDelegate {
     return ResourceBundle::GetSharedInstance().GetBitmapNamed(
         IDR_GEOLOCATION_INFOBAR_ICON);
   }
-  virtual std::wstring GetLinkText() {
-    return l10n_util::GetString(IDS_LEARN_MORE);
+  virtual string16 GetLinkText() {
+    return l10n_util::GetStringUTF16(IDS_LEARN_MORE);
   }
   virtual bool LinkClicked(WindowOpenDisposition disposition) {
     // Ignore the click dispostion and always open in a new top level tab.
@@ -158,7 +159,7 @@ class GeolocationConfirmInfoBarDelegate : public ConfirmInfoBarDelegate {
   int render_view_id_;
   int bridge_id_;
   GURL requesting_frame_url_;
-  std::wstring display_languages_;
+  std::string display_languages_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(GeolocationConfirmInfoBarDelegate);
 };
@@ -205,6 +206,23 @@ GeolocationInfoBarQueueController::~GeolocationInfoBarQueueController() {
 void GeolocationInfoBarQueueController::CreateInfoBarRequest(
     int render_process_id, int render_view_id, int bridge_id,
     const GURL& requesting_frame, const GURL& embedder) {
+  // This makes sure that no duplicates are added to
+  // |pending_infobar_requests_| as an artificial permission request may
+  // already exist in the queue as per
+  // GeolocationPermissionContext::StartUpdatingRequested
+  // See http://crbug.com/51899 for more details.
+  // TODO(joth): Once we have CLIENT_BASED_GEOLOCATION and
+  // WTF_USE_PREEMPT_GEOLOCATION_PERMISSION set in WebKit we should be able to
+  // just use a DCHECK to check if a duplicate is attempting to be added.
+  PendingInfoBarRequests::iterator i = pending_infobar_requests_.begin();
+  while (i != pending_infobar_requests_.end()) {
+    if (i->Equals(render_process_id, render_view_id, bridge_id)) {
+      // The request already exists.
+      DCHECK(i->IsForPair(requesting_frame, embedder));
+      return;
+    }
+    ++i;
+  }
   PendingInfoBarRequest pending_infobar_request;
   pending_infobar_request.render_process_id = render_process_id;
   pending_infobar_request.render_view_id = render_view_id;
@@ -277,24 +295,28 @@ void GeolocationInfoBarQueueController::OnPermissionSet(
 
 void GeolocationInfoBarQueueController::ShowQueuedInfoBar(
     int render_process_id, int render_view_id) {
+  TabContents* tab_contents =
+      tab_util::GetTabContentsByID(render_process_id, render_view_id);
   for (PendingInfoBarRequests::iterator i = pending_infobar_requests_.begin();
-       i != pending_infobar_requests_.end(); ++i) {
-    if (i->IsForTab(render_process_id, render_view_id)) {
-      // Check if already displayed.
-      if (i->infobar_delegate)
-        break;
-      TabContents* tab_contents =
-          tab_util::GetTabContentsByID(render_process_id, render_view_id);
-      i->infobar_delegate =
-          new GeolocationConfirmInfoBarDelegate(
-              tab_contents, this,
-              render_process_id, render_view_id,
-              i->bridge_id, i->requesting_frame,
-              UTF8ToWide(profile_->GetPrefs()->GetString(
-                  prefs::kAcceptLanguages)));
-      tab_contents->AddInfoBar(i->infobar_delegate);
-      break;
+       i != pending_infobar_requests_.end();) {
+    if (!i->IsForTab(render_process_id, render_view_id)) {
+      ++i;
+      continue;
     }
+    if (!tab_contents) {
+      i = pending_infobar_requests_.erase(i);
+      continue;
+    }
+    // Check if already displayed.
+    if (i->infobar_delegate)
+      break;
+    i->infobar_delegate = new GeolocationConfirmInfoBarDelegate(
+        tab_contents, this,
+        render_process_id, render_view_id,
+        i->bridge_id, i->requesting_frame,
+        profile_->GetPrefs()->GetString(prefs::kAcceptLanguages));
+    tab_contents->AddInfoBar(i->infobar_delegate);
+    break;
   }
 }
 

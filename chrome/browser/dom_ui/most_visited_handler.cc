@@ -12,6 +12,8 @@
 #include "base/md5.h"
 #include "base/singleton.h"
 #include "base/scoped_vector.h"
+#include "base/string16.h"
+#include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/thread.h"
 #include "base/values.h"
@@ -20,19 +22,17 @@
 #include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
 #include "chrome/browser/dom_ui/dom_ui_thumbnail_source.h"
 #include "chrome/browser/dom_ui/new_tab_ui.h"
-#include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/google_util.h"
 #include "chrome/browser/history/page_usage_data.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/pref_names.h"
+#include "googleurl/src/gurl.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
@@ -45,22 +45,24 @@ const size_t kMostVisitedPages = 8;
 // The number of days of history we consider for most visited entries.
 const int kMostVisitedScope = 90;
 
-// Adds the fields in the page to the dictionary.
-void SetMostVisistedPage(DictionaryValue* dict,
-                         const MostVisitedHandler::MostVisitedPage& page) {
-  NewTabUI::SetURLTitleAndDirection(dict, WideToUTF16(page.title), page.url);
-  if (!page.favicon_url.is_empty())
-    dict->SetString(L"faviconUrl", page.favicon_url.spec());
-  if (!page.thumbnail_url.is_empty())
-    dict->SetString(L"thumbnailUrl", page.thumbnail_url.spec());
-}
-
 }  // namespace
+
+// This struct is used when getting the pre-populated pages in case the user
+// hasn't filled up his most visited pages.
+struct MostVisitedHandler::MostVisitedPage {
+  string16 title;
+  GURL url;
+  GURL thumbnail_url;
+  GURL favicon_url;
+};
 
 MostVisitedHandler::MostVisitedHandler()
     : url_blacklist_(NULL),
       pinned_urls_(NULL),
       got_first_most_visited_request_(false) {
+}
+
+MostVisitedHandler::~MostVisitedHandler() {
 }
 
 DOMMessageHandler* MostVisitedHandler::Attach(DOMUI* dom_ui) {
@@ -118,7 +120,7 @@ void MostVisitedHandler::RegisterMessages() {
       NewCallback(this, &MostVisitedHandler::HandleRemovePinnedURL));
 }
 
-void MostVisitedHandler::HandleGetMostVisited(const Value* value) {
+void MostVisitedHandler::HandleGetMostVisited(const ListValue* args) {
   if (!got_first_most_visited_request_) {
     // If our intial data is already here, return it.
     SendPagesValue();
@@ -128,28 +130,21 @@ void MostVisitedHandler::HandleGetMostVisited(const Value* value) {
   }
 }
 
-// Set a DictionaryValue |dict| from a MostVisitedURL.
-void SetDictionaryValue(const history::MostVisitedURL& url,
-                        DictionaryValue& dict) {
-  NewTabUI::SetURLTitleAndDirection(&dict, url.title, url.url);
-  dict.SetString(L"url", url.url.spec());
-  dict.SetString(L"faviconUrl", url.favicon_url.spec());
-  // TODO(Nik): Need thumbnailUrl?
-  // TODO(Nik): Add pinned and blacklisted URLs.
-  dict.SetBoolean(L"pinned", false);
-}
-
 void MostVisitedHandler::SendPagesValue() {
   if (pages_value_.get()) {
+    history::TopSites* ts = dom_ui_->GetProfile()->GetTopSites();
     FundamentalValue first_run(IsFirstRun());
+    FundamentalValue has_blacklisted_urls(ts->HasBlacklistedItems());
     dom_ui_->CallJavascriptFunction(L"mostVisitedPages",
-                                    *(pages_value_.get()), first_run);
+                                    *(pages_value_.get()),
+                                    first_run,
+                                    has_blacklisted_urls);
     pages_value_.reset();
   }
 }
 
 void MostVisitedHandler::StartQueryForMostVisited() {
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kTopSites)) {
+  if (history::TopSites::IsEnabled()) {
     // Use TopSites.
     history::TopSites* ts = dom_ui_->GetProfile()->GetTopSites();
     ts->GetMostVisitedURLs(
@@ -176,34 +171,17 @@ void MostVisitedHandler::StartQueryForMostVisited() {
   }
 }
 
-void MostVisitedHandler::HandleBlacklistURL(const Value* value) {
-  if (!value->IsType(Value::TYPE_LIST)) {
-    NOTREACHED();
-    return;
-  }
-  std::string url;
-  const ListValue* list = static_cast<const ListValue*>(value);
-  if (list->GetSize() == 0 || !list->GetString(0, &url)) {
-    NOTREACHED();
-    return;
-  }
+void MostVisitedHandler::HandleBlacklistURL(const ListValue* args) {
+  std::string url = WideToUTF8(ExtractStringValue(args));
   BlacklistURL(GURL(url));
 }
 
-void MostVisitedHandler::HandleRemoveURLsFromBlacklist(const Value* urls) {
-  if (!urls->IsType(Value::TYPE_LIST)) {
-    NOTREACHED();
-    return;
-  }
-  const ListValue* list = static_cast<const ListValue*>(urls);
-  if (list->GetSize() == 0) {
-    NOTREACHED();
-    return;
-  }
+void MostVisitedHandler::HandleRemoveURLsFromBlacklist(const ListValue* args) {
+  DCHECK(args->GetSize() != 0);
 
-  for (ListValue::const_iterator iter = list->begin();
-       iter != list->end(); ++iter) {
-    std::wstring url;
+  for (ListValue::const_iterator iter = args->begin();
+       iter != args->end(); ++iter) {
+    std::string url;
     bool r = (*iter)->GetAsString(&url);
     if (!r) {
       NOTREACHED();
@@ -211,58 +189,71 @@ void MostVisitedHandler::HandleRemoveURLsFromBlacklist(const Value* urls) {
     }
     UserMetrics::RecordAction(UserMetricsAction("MostVisited_UrlRemoved"),
                               dom_ui_->GetProfile());
-    r = url_blacklist_->Remove(GetDictionaryKeyForURL(WideToUTF8(url)), NULL);
+    if (history::TopSites::IsEnabled()) {
+      history::TopSites* ts = dom_ui_->GetProfile()->GetTopSites();
+      ts->RemoveBlacklistedURL(GURL(url));
+      return;
+    }
+
+    r = url_blacklist_->Remove(GetDictionaryKeyForURL(url), NULL);
     DCHECK(r) << "Unknown URL removed from the NTP Most Visited blacklist.";
   }
 }
 
-void MostVisitedHandler::HandleClearBlacklist(const Value* value) {
+void MostVisitedHandler::HandleClearBlacklist(const ListValue* args) {
   UserMetrics::RecordAction(UserMetricsAction("MostVisited_BlacklistCleared"),
                             dom_ui_->GetProfile());
+
+  if (history::TopSites::IsEnabled()) {
+    history::TopSites* ts = dom_ui_->GetProfile()->GetTopSites();
+    ts->ClearBlacklistedURLs();
+    return;
+  }
 
   url_blacklist_->Clear();
 }
 
-void MostVisitedHandler::HandleAddPinnedURL(const Value* value) {
-  if (!value->IsType(Value::TYPE_LIST)) {
-    NOTREACHED();
-    return;
-  }
-
-  const ListValue* list = static_cast<const ListValue*>(value);
-  DCHECK_EQ(5U, list->GetSize()) << "Wrong number of params to addPinnedURL";
+void MostVisitedHandler::HandleAddPinnedURL(const ListValue* args) {
+  DCHECK_EQ(5U, args->GetSize()) << "Wrong number of params to addPinnedURL";
   MostVisitedPage mvp;
   std::string tmp_string;
+  string16 tmp_string16;
   int index;
 
-  bool r = list->GetString(0, &tmp_string);
+  bool r = args->GetString(0, &tmp_string);
   DCHECK(r) << "Missing URL in addPinnedURL from the NTP Most Visited.";
   mvp.url = GURL(tmp_string);
 
-  r = list->GetString(1, &tmp_string);
+  r = args->GetString(1, &tmp_string16);
   DCHECK(r) << "Missing title in addPinnedURL from the NTP Most Visited.";
-  mvp.title = UTF8ToWide(tmp_string);
+  mvp.title = tmp_string16;
 
-  r = list->GetString(2, &tmp_string);
+  r = args->GetString(2, &tmp_string);
   DCHECK(r) << "Failed to read the favicon URL in addPinnedURL from the NTP "
             << "Most Visited.";
   if (!tmp_string.empty())
     mvp.favicon_url = GURL(tmp_string);
 
-  r = list->GetString(3, &tmp_string);
+  r = args->GetString(3, &tmp_string);
   DCHECK(r) << "Failed to read the thumbnail URL in addPinnedURL from the NTP "
             << "Most Visited.";
   if (!tmp_string.empty())
     mvp.thumbnail_url = GURL(tmp_string);
 
-  r = list->GetString(4, &tmp_string);
+  r = args->GetString(4, &tmp_string);
   DCHECK(r) << "Missing index in addPinnedURL from the NTP Most Visited.";
-  index = StringToInt(tmp_string);
+  base::StringToInt(tmp_string, &index);
 
   AddPinnedURL(mvp, index);
 }
 
 void MostVisitedHandler::AddPinnedURL(const MostVisitedPage& page, int index) {
+  if (history::TopSites::IsEnabled()) {
+    history::TopSites* ts = dom_ui_->GetProfile()->GetTopSites();
+    ts->AddPinnedURL(page.url, index);
+    return;
+  }
+
   // Remove any pinned URL at the given index.
   MostVisitedPage old_page;
   if (GetPinnedURLAtIndex(index, &old_page)) {
@@ -272,7 +263,7 @@ void MostVisitedHandler::AddPinnedURL(const MostVisitedPage& page, int index) {
   DictionaryValue* new_value = new DictionaryValue();
   SetMostVisistedPage(new_value, page);
 
-  new_value->SetInteger(L"index", index);
+  new_value->SetInteger("index", index);
   pinned_urls_->Set(GetDictionaryKeyForURL(page.url.spec()), new_value);
 
   // TODO(arv): Notify observers?
@@ -280,23 +271,19 @@ void MostVisitedHandler::AddPinnedURL(const MostVisitedPage& page, int index) {
   // Don't call HandleGetMostVisited. Let the client call this as needed.
 }
 
-void MostVisitedHandler::HandleRemovePinnedURL(const Value* value) {
-  if (!value->IsType(Value::TYPE_LIST)) {
-    NOTREACHED();
-    return;
-  }
-
-  const ListValue* list = static_cast<const ListValue*>(value);
-  std::string url;
-
-  bool r = list->GetString(0, &url);
-  DCHECK(r) << "Failed to read the URL to remove from the NTP Most Visited.";
-
+void MostVisitedHandler::HandleRemovePinnedURL(const ListValue* args) {
+  std::string url = WideToUTF8(ExtractStringValue(args));
   RemovePinnedURL(GURL(url));
 }
 
 void MostVisitedHandler::RemovePinnedURL(const GURL& url) {
-  const std::wstring key = GetDictionaryKeyForURL(url.spec());
+  if (history::TopSites::IsEnabled()) {
+    history::TopSites* ts = dom_ui_->GetProfile()->GetTopSites();
+    ts->RemovePinnedURL(url);
+    return;
+  }
+
+  const std::string key = GetDictionaryKeyForURL(url.spec());
   if (pinned_urls_->HasKey(key))
     pinned_urls_->Remove(key, NULL);
 
@@ -316,26 +303,27 @@ bool MostVisitedHandler::GetPinnedURLAtIndex(int index,
     Value* value;
     if (pinned_urls_->GetWithoutPathExpansion(*it, &value)) {
       if (!value->IsType(DictionaryValue::TYPE_DICTIONARY)) {
-        NOTREACHED();
+        // Moved on to TopSites and now going back.
+        pinned_urls_->Clear();
         return false;
       }
 
       int dict_index;
       DictionaryValue* dict = static_cast<DictionaryValue*>(value);
-      if (dict->GetInteger(L"index", &dict_index) && dict_index == index) {
+      if (dict->GetInteger("index", &dict_index) && dict_index == index) {
         // The favicon and thumbnail URLs may be empty.
         std::string tmp_string;
-        if (dict->GetString(L"faviconUrl", &tmp_string))
+        if (dict->GetString("faviconUrl", &tmp_string))
           page->favicon_url = GURL(tmp_string);
-        if (dict->GetString(L"thumbnailUrl", &tmp_string))
+        if (dict->GetString("thumbnailUrl", &tmp_string))
           page->thumbnail_url = GURL(tmp_string);
 
-        if (dict->GetString(L"url", &tmp_string))
+        if (dict->GetString("url", &tmp_string))
           page->url = GURL(tmp_string);
         else
           return false;
 
-        return dict->GetString(L"title", &page->title);
+        return dict->GetString("title", &page->title);
       }
     } else {
       NOTREACHED() << "DictionaryValue iterators are filthy liars.";
@@ -364,7 +352,6 @@ void MostVisitedHandler::SetPagesValue(std::vector<PageUsageData*>* data) {
   size_t pre_populated_index = 0;
   const std::vector<MostVisitedPage> pre_populated_pages =
       MostVisitedHandler::GetPrePopulatedPages();
-  bool add_chrome_store = !HasApps();
 
   while (output_index < kMostVisitedPages) {
     bool found = false;
@@ -384,17 +371,17 @@ void MostVisitedHandler::SetPagesValue(std::vector<PageUsageData*>* data) {
       mvp.url = page.GetURL();
 
       // Don't include blacklisted or pinned URLs.
-      std::wstring key = GetDictionaryKeyForURL(mvp.url.spec());
+      std::string key = GetDictionaryKeyForURL(mvp.url.spec());
       if (pinned_urls_->HasKey(key) || url_blacklist_->HasKey(key))
         continue;
 
-      mvp.title = UTF16ToWide(page.GetTitle());
+      mvp.title = page.GetTitle();
       found = true;
     }
 
     while (!found && pre_populated_index < pre_populated_pages.size()) {
       mvp = pre_populated_pages[pre_populated_index++];
-      std::wstring key = GetDictionaryKeyForURL(mvp.url.spec());
+      std::string key = GetDictionaryKeyForURL(mvp.url.spec());
       if (pinned_urls_->HasKey(key) || url_blacklist_->HasKey(key) ||
           seen_urls.find(mvp.url) != seen_urls.end())
         continue;
@@ -402,79 +389,64 @@ void MostVisitedHandler::SetPagesValue(std::vector<PageUsageData*>* data) {
       found = true;
     }
 
-    if (!found && add_chrome_store) {
-      mvp = GetChromeStorePage();
-      std::wstring key = GetDictionaryKeyForURL(mvp.url.spec());
-      if (!pinned_urls_->HasKey(key) && !url_blacklist_->HasKey(key) &&
-          seen_urls.find(mvp.url) == seen_urls.end()) {
-        found = true;
-      }
-      add_chrome_store = false;
-    }
-
     if (found) {
       // Add fillers as needed.
       while (pages_value_->GetSize() < output_index) {
         DictionaryValue* filler_value = new DictionaryValue();
-        filler_value->SetBoolean(L"filler", true);
+        filler_value->SetBoolean("filler", true);
         pages_value_->Append(filler_value);
       }
 
       DictionaryValue* page_value = new DictionaryValue();
       SetMostVisistedPage(page_value, mvp);
-      page_value->SetBoolean(L"pinned", pinned);
+      page_value->SetBoolean("pinned", pinned);
       pages_value_->Append(page_value);
       most_visited_urls_.push_back(mvp.url);
       seen_urls.insert(mvp.url);
     }
     output_index++;
   }
-
-  // If we still need to show the Chrome Store go backwards until we find a non
-  // pinned item we can replace.
-  if (add_chrome_store) {
-    MostVisitedPage chrome_store_page = GetChromeStorePage();
-    if (seen_urls.find(chrome_store_page.url) != seen_urls.end())
-      return;
-
-    std::wstring key = GetDictionaryKeyForURL(chrome_store_page.url.spec());
-    if (url_blacklist_->HasKey(key))
-      return;
-
-    for (int i = kMostVisitedPages - 1; i >= 0; --i) {
-      GURL url = most_visited_urls_[i];
-      std::wstring key = GetDictionaryKeyForURL(url.spec());
-      if (!pinned_urls_->HasKey(key)) {
-        // Not pinned, replace.
-        DictionaryValue* page_value = new DictionaryValue();
-        SetMostVisistedPage(page_value, chrome_store_page);
-        pages_value_->Set(i, page_value);
-        return;
-      }
-    }
-  }
 }
 
-// Converts a MostVisitedURLList into a vector of PageUsageData to be
-// sent to the Javascript side to the New Tab Page.
-// Caller takes ownership of the PageUsageData objects in the vector.
-// NOTE: this doesn't set the thumbnail and favicon, only URL and title.
-static void MakePageUsageDataVector(const history::MostVisitedURLList& data,
-                                    std::vector<PageUsageData*>* result) {
+void MostVisitedHandler::SetPagesValueFromTopSites(
+    const history::MostVisitedURLList& data) {
+  DCHECK(history::TopSites::IsEnabled());
+  pages_value_.reset(new ListValue);
   for (size_t i = 0; i < data.size(); i++) {
     const history::MostVisitedURL& url = data[i];
-    PageUsageData* pud = new PageUsageData(0);
-    pud->SetURL(url.url);
-    pud->SetTitle(url.title);
-    result->push_back(pud);
+    DictionaryValue* page_value = new DictionaryValue();
+    if (url.url.is_empty()) {
+      page_value->SetBoolean("filler", true);
+      pages_value_->Append(page_value);
+      continue;
+    }
+
+    NewTabUI::SetURLTitleAndDirection(page_value,
+                                      url.title,
+                                      url.url);
+    if (!url.favicon_url.is_empty())
+      page_value->SetString("faviconUrl", url.favicon_url.spec());
+
+    // Special case for prepopulated pages: thumbnailUrl is different from url.
+    if (url.url.spec() == l10n_util::GetStringUTF8(IDS_CHROME_WELCOME_URL)) {
+      page_value->SetString("thumbnailUrl",
+          "chrome://theme/IDR_NEWTAB_CHROME_WELCOME_PAGE_THUMBNAIL");
+    } else if (url.url.spec() ==
+               l10n_util::GetStringUTF8(IDS_THEMES_GALLERY_URL)) {
+      page_value->SetString("thumbnailUrl",
+          "chrome://theme/IDR_NEWTAB_THEMES_GALLERY_THUMBNAIL");
+    }
+
+    history::TopSites* ts = dom_ui_->GetProfile()->GetTopSites();
+    if (ts->IsURLPinned(url.url))
+      page_value->SetBoolean("pinned", true);
+    pages_value_->Append(page_value);
   }
 }
 
 void MostVisitedHandler::OnMostVisitedURLsAvailable(
-    const history::MostVisitedURLList& data) {
-  ScopedVector<PageUsageData> result;
-  MakePageUsageDataVector(data, &result.get());
-  SetPagesValue(&(result.get()));
+    history::MostVisitedURLList data) {
+  SetPagesValueFromTopSites(data);
   if (got_first_most_visited_request_) {
     SendPagesValue();
   }
@@ -491,6 +463,18 @@ bool MostVisitedHandler::IsFirstRun() {
 }
 
 // static
+void MostVisitedHandler::SetMostVisistedPage(
+    DictionaryValue* dict,
+    const MostVisitedHandler::MostVisitedPage& page) {
+  NewTabUI::SetURLTitleAndDirection(dict, page.title, page.url);
+  if (!page.favicon_url.is_empty())
+    dict->SetString("faviconUrl", page.favicon_url.spec());
+  if (!page.thumbnail_url.is_empty())
+    dict->SetString("thumbnailUrl", page.thumbnail_url.spec());
+}
+
+
+// static
 const std::vector<MostVisitedHandler::MostVisitedPage>&
     MostVisitedHandler::GetPrePopulatedPages() {
   // TODO(arv): This needs to get the data from some configurable place.
@@ -498,31 +482,21 @@ const std::vector<MostVisitedHandler::MostVisitedPage>&
   static std::vector<MostVisitedPage> pages;
   if (pages.empty()) {
     MostVisitedPage welcome_page = {
-        l10n_util::GetString(IDS_NEW_TAB_CHROME_WELCOME_PAGE_TITLE),
-        GURL(WideToUTF8(l10n_util::GetString(IDS_CHROME_WELCOME_URL))),
+        l10n_util::GetStringUTF16(IDS_NEW_TAB_CHROME_WELCOME_PAGE_TITLE),
+        GURL(l10n_util::GetStringUTF8(IDS_CHROME_WELCOME_URL)),
         GURL("chrome://theme/IDR_NEWTAB_CHROME_WELCOME_PAGE_THUMBNAIL"),
         GURL("chrome://theme/IDR_NEWTAB_CHROME_WELCOME_PAGE_FAVICON")};
     pages.push_back(welcome_page);
 
     MostVisitedPage gallery_page = {
-        l10n_util::GetString(IDS_NEW_TAB_THEMES_GALLERY_PAGE_TITLE),
-        GURL(WideToUTF8(l10n_util::GetString(IDS_THEMES_GALLERY_URL))),
+        l10n_util::GetStringUTF16(IDS_NEW_TAB_THEMES_GALLERY_PAGE_TITLE),
+        GURL(l10n_util::GetStringUTF8(IDS_THEMES_GALLERY_URL)),
         GURL("chrome://theme/IDR_NEWTAB_THEMES_GALLERY_THUMBNAIL"),
         GURL("chrome://theme/IDR_NEWTAB_THEMES_GALLERY_FAVICON")};
     pages.push_back(gallery_page);
   }
 
   return pages;
-}
-
-// static
-MostVisitedHandler::MostVisitedPage MostVisitedHandler::GetChromeStorePage() {
-  MostVisitedHandler::MostVisitedPage page = {
-      l10n_util::GetString(IDS_EXTENSION_WEB_STORE_TITLE),
-      google_util::AppendGoogleLocaleParam(GURL(Extension::ChromeStoreURL())),
-      GURL("chrome://theme/IDR_NEWTAB_CHROME_STORE_PAGE_THUMBNAIL"),
-      GURL("chrome://theme/IDR_NEWTAB_CHROME_STORE_PAGE_FAVICON")};
-  return page;
 }
 
 void MostVisitedHandler::Observe(NotificationType type,
@@ -538,29 +512,26 @@ void MostVisitedHandler::Observe(NotificationType type,
 }
 
 void MostVisitedHandler::BlacklistURL(const GURL& url) {
+  if (history::TopSites::IsEnabled()) {
+    history::TopSites* ts = dom_ui_->GetProfile()->GetTopSites();
+    ts->AddBlacklistedURL(url);
+    return;
+  }
+
   RemovePinnedURL(url);
 
-  std::wstring key = GetDictionaryKeyForURL(url.spec());
+  std::string key = GetDictionaryKeyForURL(url.spec());
   if (url_blacklist_->HasKey(key))
     return;
   url_blacklist_->SetBoolean(key, true);
 }
 
-std::wstring MostVisitedHandler::GetDictionaryKeyForURL(
-    const std::string& url) {
-  return ASCIIToWide(MD5String(url));
+std::string MostVisitedHandler::GetDictionaryKeyForURL(const std::string& url) {
+  return MD5String(url);
 }
 
 // static
 void MostVisitedHandler::RegisterUserPrefs(PrefService* prefs) {
   prefs->RegisterDictionaryPref(prefs::kNTPMostVisitedURLsBlacklist);
   prefs->RegisterDictionaryPref(prefs::kNTPMostVisitedPinnedURLs);
-}
-
-bool MostVisitedHandler::HasApps() const {
-  ExtensionsService* service = dom_ui_->GetProfile()->GetExtensionsService();
-  if (!service)
-    return false;
-
-  return service->HasApps();
 }

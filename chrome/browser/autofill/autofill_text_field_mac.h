@@ -4,12 +4,11 @@
 
 #ifndef CHROME_BROWSER_AUTOFILL_AUTOFILL_TEXT_FIELD_MAC_
 #define CHROME_BROWSER_AUTOFILL_AUTOFILL_TEXT_FIELD_MAC_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
 #import "base/scoped_nsobject.h"
-
-#define AUTOFILL_CC_TAG 22
 
 // Subclass of NSTextField with special abilities:
 // - automatically scrolls containing NSScrollView to visually reveal itself

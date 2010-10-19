@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_IMPORTER_FIREFOX3_IMPORTER_H_
 #define CHROME_BROWSER_IMPORTER_FIREFOX3_IMPORTER_H_
+#pragma once
 
 #include <map>
 #include <set>
@@ -18,12 +19,12 @@
 
 struct sqlite3;
 
-// Importer for Mozilla Firefox 3.
+// Importer for Mozilla Firefox 3 and later.
 // Firefox 3 stores its persistent information in a new system called places.
 // http://wiki.mozilla.org/Places
 class Firefox3Importer : public Importer {
  public:
-  Firefox3Importer() { }
+  Firefox3Importer();
 
   // Importer methods.
   virtual void StartImport(importer::ProfileInfo profile_info,
@@ -33,7 +34,7 @@ class Firefox3Importer : public Importer {
  private:
   typedef std::map<int64, std::set<GURL> > FaviconMap;
 
-  virtual ~Firefox3Importer() { }
+  virtual ~Firefox3Importer();
 
   void ImportBookmarks();
   void ImportPasswords();
@@ -80,6 +81,12 @@ class Firefox3Importer : public Importer {
 
   FilePath source_path_;
   FilePath app_path_;
+
+#if defined(OS_LINUX)
+  // Stored because we can only access it from the UI thread. Not usable
+  // in Mac because no access from out-of-process import.
+  std::string locale_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(Firefox3Importer);
 };

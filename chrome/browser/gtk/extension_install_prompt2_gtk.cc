@@ -4,9 +4,10 @@
 
 #include <gtk/gtk.h>
 
+#include "app/gtk_util.h"
 #include "app/l10n_util.h"
-#include "base/rand_util.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
@@ -21,7 +22,7 @@ class Profile;
 
 namespace {
 
-const int kRightColumnWidth = 290;
+const int kRightColumnMinWidth = 290;
 
 const int kImageSize = 69;
 
@@ -44,7 +45,7 @@ GtkWidget* MakeMarkupLabel(const char* format, const std::string& str) {
 void OnDialogResponse(GtkDialog* dialog, int response_id,
                       ExtensionInstallUI::Delegate* delegate) {
   if (response_id == GTK_RESPONSE_ACCEPT) {
-    delegate->InstallUIProceed(false);
+    delegate->InstallUIProceed();
   } else {
     delegate->InstallUIAbort();
   }
@@ -112,9 +113,9 @@ void ShowInstallPromptDialog2(GtkWindow* parent, SkBitmap* skia_icon,
                 IDS_EXTENSION_PROMPT2_WILL_HAVE_ACCESS_TO;
     GtkWidget* warning_label = gtk_label_new(l10n_util::GetStringUTF8(
         label).c_str());
-    gtk_label_set_line_wrap(GTK_LABEL(warning_label), TRUE);
-    gtk_widget_set_size_request(warning_label, kRightColumnWidth, -1);
     gtk_misc_set_alignment(GTK_MISC(warning_label), 0.0, 0.5);
+    gtk_util::SetLabelWidth(warning_label, kRightColumnMinWidth);
+
     gtk_box_pack_start(GTK_BOX(right_column_area), warning_label,
                        FALSE, FALSE, 0);
 

@@ -4,14 +4,19 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_SOCKET_STREAM_HOST_H_
 #define CHROME_BROWSER_RENDERER_HOST_SOCKET_STREAM_HOST_H_
+#pragma once
 
 #include <vector>
 
 #include "base/ref_counted.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
-#include "net/socket_stream/socket_stream_job.h"
+#include "net/socket_stream/socket_stream.h"
 
 class GURL;
+
+namespace net {
+class SocketStreamJob;
+}
 
 // Host of SocketStreamHandle.
 // Each SocketStreamHandle will have an unique socket_id assigned by

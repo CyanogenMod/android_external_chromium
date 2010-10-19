@@ -8,7 +8,8 @@
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/dom_ui/mediaplayer_ui.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -28,7 +29,7 @@ class MediaPlayerBrowserTest : public InProcessBrowserTest {
   bool IsPlayerVisible() {
     for (BrowserList::const_iterator it = BrowserList::begin();
          it != BrowserList::end(); ++it) {
-      if ((*it)->type() == Browser::TYPE_POPUP) {
+      if ((*it)->type() == Browser::TYPE_APP_PANEL) {
         const GURL& url =
             (*it)->GetTabContentsAt((*it)->selected_index())->GetURL();
 
@@ -44,7 +45,7 @@ class MediaPlayerBrowserTest : public InProcessBrowserTest {
   bool IsPlaylistVisible() {
     for (BrowserList::const_iterator it = BrowserList::begin();
          it != BrowserList::end(); ++it) {
-      if ((*it)->type() == Browser::TYPE_POPUP) {
+      if ((*it)->type() == Browser::TYPE_APP_PANEL) {
         const GURL& url =
             (*it)->GetTabContentsAt((*it)->selected_index())->GetURL();
 
@@ -60,7 +61,7 @@ class MediaPlayerBrowserTest : public InProcessBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(MediaPlayerBrowserTest, Popup) {
-  ASSERT_TRUE(StartHTTPServer());
+  ASSERT_TRUE(test_server()->Start());
   // Doing this so we have a valid profile.
   ui_test_utils::NavigateToURL(browser(),
                                GURL("chrome://downloads"));
@@ -78,7 +79,7 @@ IN_PROC_BROWSER_TEST_F(MediaPlayerBrowserTest, Popup) {
 }
 
 IN_PROC_BROWSER_TEST_F(MediaPlayerBrowserTest, PopupPlaylist) {
-  ASSERT_TRUE(StartHTTPServer());
+  ASSERT_TRUE(test_server()->Start());
   // Doing this so we have a valid profile.
   ui_test_utils::NavigateToURL(browser(),
                                GURL("chrome://downloads"));

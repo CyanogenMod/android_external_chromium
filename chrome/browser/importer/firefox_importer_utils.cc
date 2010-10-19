@@ -10,7 +10,9 @@
 
 #include "base/file_util.h"
 #include "base/logging.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
+#include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/search_engines/template_url.h"
@@ -51,7 +53,7 @@ FilePath GetFirefoxProfilePath() {
   FilePath source_path;
   for (int i = 0; ; ++i) {
     std::string current_profile = StringPrintf("Profile%d", i);
-    if (!root.HasKeyASCII(current_profile)) {
+    if (!root.HasKey(current_profile)) {
       // Profiles are continuously numbered. So we exit when we can't
       // find the i-th one.
       break;
@@ -132,35 +134,35 @@ void ParseProfileINI(const FilePath& file, DictionaryValue* root) {
 
   // Parses the file.
   root->Clear();
-  std::wstring current_section;
+  std::string current_section;
   for (size_t i = 0; i < lines.size(); ++i) {
-    std::wstring line = UTF8ToWide(lines[i]);
+    std::string line = lines[i];
     if (line.empty()) {
       // Skips the empty line.
       continue;
     }
-    if (line[0] == L'#' || line[0] == L';') {
+    if (line[0] == '#' || line[0] == ';') {
       // This line is a comment.
       continue;
     }
-    if (line[0] == L'[') {
+    if (line[0] == '[') {
       // It is a section header.
       current_section = line.substr(1);
-      size_t end = current_section.rfind(L']');
-      if (end != std::wstring::npos)
+      size_t end = current_section.rfind(']');
+      if (end != std::string::npos)
         current_section.erase(end);
     } else {
-      std::wstring key, value;
-      size_t equal = line.find(L'=');
-      if (equal != std::wstring::npos) {
+      std::string key, value;
+      size_t equal = line.find('=');
+      if (equal != std::string::npos) {
         key = line.substr(0, equal);
         value = line.substr(equal + 1);
         // Checks whether the section and key contain a '.' character.
         // Those sections and keys break DictionaryValue's path format,
         // so we discard them.
-        if (current_section.find(L'.') == std::wstring::npos &&
-            key.find(L'.') == std::wstring::npos)
-          root->SetString(current_section + L"." + key, value);
+        if (current_section.find('.') == std::string::npos &&
+            key.find('.') == std::string::npos)
+          root->SetString(current_section + "." + key, value);
       }
     }
   }
@@ -242,8 +244,7 @@ bool ReadPrefFile(const FilePath& path, std::string* content) {
   file_util::ReadFileToString(path, content);
 
   if (content->empty()) {
-    NOTREACHED() << "Firefox preference file " << path.value()
-                 << " is empty.";
+    LOG(WARNING) << "Firefox preference file " << path.value() << " is empty.";
     return false;
   }
 
@@ -268,7 +269,7 @@ std::string ReadBrowserConfigProp(const FilePath& app_path,
 
   if (start == std::string::npos ||
       stop == std::string::npos || (start == stop)) {
-    NOTREACHED() << "Firefox property " << pref_key << " could not be parsed.";
+    LOG(WARNING) << "Firefox property " << pref_key << " could not be parsed.";
     return "";
   }
 
@@ -281,30 +282,7 @@ std::string ReadPrefsJsValue(const FilePath& profile_path,
   if (!ReadPrefFile(profile_path.AppendASCII("prefs.js"), &content))
     return "";
 
-  // This file has the syntax: user_pref("key", value);
-  std::string search_for = std::string("user_pref(\"") + pref_key +
-                           std::string("\", ");
-  size_t prop_index = content.find(search_for);
-  if (prop_index == std::string::npos)
-    return "";
-
-  size_t start = prop_index + search_for.length();
-  size_t stop = std::string::npos;
-  if (start != std::string::npos)
-    stop = content.find(")", start + 1);
-
-  if (start == std::string::npos || stop == std::string::npos) {
-    NOTREACHED() << "Firefox property " << pref_key << " could not be parsed.";
-    return "";
-  }
-
-  // String values have double quotes we don't need to return to the caller.
-  if (content[start] == '\"' && content[stop - 1] == '\"') {
-    ++start;
-    --stop;
-  }
-
-  return content.substr(start, stop - start);
+  return GetPrefsJsValue(content, pref_key);
 }
 
 int GetFirefoxDefaultSearchEngineIndex(
@@ -316,8 +294,8 @@ int GetFirefoxDefaultSearchEngineIndex(
   if (search_engines.empty())
     return -1;
 
-  std::wstring default_se_name = UTF8ToWide(
-      ReadPrefsJsValue(profile_path, "browser.search.selectedEngine"));
+  std::string default_se_name =
+      ReadPrefsJsValue(profile_path, "browser.search.selectedEngine");
 
   if (default_se_name.empty()) {
     // browser.search.selectedEngine does not exist if the user has not changed
@@ -330,13 +308,13 @@ int GetFirefoxDefaultSearchEngineIndex(
   int default_se_index = -1;
   for (std::vector<TemplateURL*>::const_iterator iter = search_engines.begin();
        iter != search_engines.end(); ++iter) {
-    if (default_se_name == (*iter)->short_name()) {
+    if (default_se_name == WideToUTF8((*iter)->short_name())) {
       default_se_index = static_cast<int>(iter - search_engines.begin());
       break;
     }
   }
   if (default_se_index == -1) {
-    NOTREACHED() <<
+    LOG(WARNING) <<
         "Firefox default search engine not found in search engine list";
   }
 
@@ -419,7 +397,7 @@ bool ParsePrefFile(const FilePath& pref_file, DictionaryValue* prefs) {
     // Value could be a boolean.
     bool is_value_true = LowerCaseEqualsASCII(value, "true");
     if (is_value_true || LowerCaseEqualsASCII(value, "false")) {
-      prefs->SetBoolean(ASCIIToWide(key), is_value_true);
+      prefs->SetBoolean(key, is_value_true);
       continue;
     }
 
@@ -430,7 +408,7 @@ bool ParsePrefFile(const FilePath& pref_file, DictionaryValue* prefs) {
       // ValueString only accept valid UTF-8.  Simply ignore that entry if it is
       // not UTF-8.
       if (IsStringUTF8(value))
-        prefs->SetString(ASCIIToWide(key), value);
+        prefs->SetString(key, value);
       else
         LOG(INFO) << "Non UTF8 value for key " << key << ", ignored.";
       continue;
@@ -438,8 +416,8 @@ bool ParsePrefFile(const FilePath& pref_file, DictionaryValue* prefs) {
 
     // Or value could be an integer.
     int int_value = 0;
-    if (StringToInt(value, &int_value)) {
-      prefs->SetInteger(ASCIIToWide(key), int_value);
+    if (base::StringToInt(value, &int_value)) {
+      prefs->SetInteger(key, int_value);
       continue;
     }
 
@@ -447,4 +425,36 @@ bool ParsePrefFile(const FilePath& pref_file, DictionaryValue* prefs) {
           pref_file.value() << "' value is '" << value << "'.";
   }
   return true;
+}
+
+std::string GetPrefsJsValue(const std::string& content,
+                            const std::string& pref_key) {
+  // This file has the syntax: user_pref("key", value);
+  std::string search_for = std::string("user_pref(\"") + pref_key +
+                           std::string("\", ");
+  size_t prop_index = content.find(search_for);
+  if (prop_index == std::string::npos)
+    return "";
+
+  size_t start = prop_index + search_for.length();
+  size_t stop = std::string::npos;
+  if (start != std::string::npos) {
+    // Stop at the last ')' on this line.
+    stop = content.find("\n", start + 1);
+    stop = content.rfind(")", stop);
+  }
+
+  if (start == std::string::npos || stop == std::string::npos ||
+      stop < start) {
+    LOG(WARNING) << "Firefox property " << pref_key << " could not be parsed.";
+    return "";
+  }
+
+  // String values have double quotes we don't need to return to the caller.
+  if (content[start] == '\"' && content[stop - 1] == '\"') {
+    ++start;
+    --stop;
+  }
+
+  return content.substr(start, stop - start);
 }

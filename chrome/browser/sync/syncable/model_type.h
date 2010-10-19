@@ -8,6 +8,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_SYNCABLE_MODEL_TYPE_H_
 #define CHROME_BROWSER_SYNC_SYNCABLE_MODEL_TYPE_H_
+#pragma once
 
 #include <bitset>
 #include <set>
@@ -53,10 +54,14 @@ enum ModelType {
   THEMES,
   // A typed_url folder or a typed_url object.
   TYPED_URLS,
-  // A extension folder or a extension object.
+  // An extension folder or an extension object.
   EXTENSIONS,
   // An object represeting a set of Nigori keys.
   NIGORI,
+  // An object representing a browser session.
+  SESSIONS,
+  // An app folder or an app object.
+  APPS,
 
   MODEL_TYPE_COUNT,
 };

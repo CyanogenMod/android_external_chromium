@@ -6,6 +6,7 @@
 
 #include "base/scoped_ptr.h"
 #include "base/scoped_nsobject.h"
+#include "base/utf_string_conversions.h"
 #import "chrome/browser/cocoa/bookmark_model_observer_for_cocoa.h"
 #import "chrome/browser/cocoa/browser_test_helper.h"
 #import "chrome/browser/cocoa/cocoa_test_helper.h"
@@ -39,7 +40,7 @@ class BookmarkModelObserverForCocoaTest : public CocoaTest {
 TEST_F(BookmarkModelObserverForCocoaTest, TestCallback) {
   BookmarkModel* model = helper_.profile()->GetBookmarkModel();
   const BookmarkNode* node = model->AddURL(model->GetBookmarkBarNode(),
-                                           0, L"super",
+                                           0, ASCIIToUTF16("super"),
                                            GURL("http://www.google.com"));
 
   scoped_nsobject<ObserverPingTracker>
@@ -52,7 +53,7 @@ TEST_F(BookmarkModelObserverForCocoaTest, TestCallback) {
 
   EXPECT_EQ(0, pingCount.get()->pings);
 
-  model->SetTitle(node, L"duper");
+  model->SetTitle(node, ASCIIToUTF16("duper"));
   EXPECT_EQ(1, pingCount.get()->pings);
   model->SetURL(node, GURL("http://www.google.com/reader"));
   EXPECT_EQ(2, pingCount.get()->pings);

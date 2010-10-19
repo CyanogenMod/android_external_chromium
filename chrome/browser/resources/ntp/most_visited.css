@@ -1,10 +1,8 @@
 /* Most Visited */
 
-#most-visited {
+#most-visited-maxiview {
   position: relative;
-  padding: 0;
   height: 366px;
-  margin-top: -10px;
   -webkit-user-select: none;
 }
 
@@ -240,7 +238,7 @@ html[dir=rtl] .thumbnail-container > .title > div {
 }
 
 @media (max-width: 940px) {
-  #most-visited {
+  #most-visited-maxiview {
     height: 294px;
   }
 
@@ -257,4 +255,28 @@ html[dir=rtl] .thumbnail-container > .title > div {
   .thumbnail-wrapper {
     background-size: 150px 93px;
   }
+}
+
+#most-visited-settings {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  border: 0;
+  cursor: pointer;
+  font-size: 70%;
+  margin: 0;
+  padding: 0;
+  text-decoration: underline;
+  visibility: hidden;
+  -webkit-padding-start: 3px;
+  z-index: 3;
+}
+
+html[dir=rtl] #most-visited-settings {
+  left: 0;
+  right: auto;
+}
+
+#most-visited:not(.hidden) #most-visited-settings.has-blacklist {
+  visibility: visible;
 }

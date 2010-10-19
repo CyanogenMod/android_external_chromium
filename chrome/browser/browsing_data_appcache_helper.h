@@ -4,8 +4,7 @@
 
 #ifndef CHROME_BROWSER_BROWSING_DATA_APPCACHE_HELPER_H_
 #define CHROME_BROWSER_BROWSING_DATA_APPCACHE_HELPER_H_
-
-#include <string>
+#pragma once
 
 #include "base/scoped_ptr.h"
 #include "base/task.h"
@@ -63,6 +62,9 @@ class CannedBrowsingDataAppCacheHelper : public BrowsingDataAppCacheHelper {
 
   // Clears the list of canned caches.
   void Reset();
+
+  // True if no appcaches are currently stored.
+  bool empty() const;
 
   // BrowsingDataAppCacheHelper methods.
   virtual void StartFetching(Callback0::Type* completion_callback);

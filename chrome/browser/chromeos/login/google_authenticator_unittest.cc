@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/chromeos/login/google_authenticator.h"
+
 #include <string>
 #include <vector>
 
@@ -9,16 +11,16 @@
 #include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/chromeos/cros/mock_cryptohome_library.h"
 #include "chrome/browser/chromeos/cros/mock_library_loader.h"
 #include "chrome/browser/chromeos/login/client_login_response_handler.h"
-#include "chrome/browser/chromeos/login/google_authenticator.h"
 #include "chrome/browser/chromeos/login/issue_response_handler.h"
 #include "chrome/browser/chromeos/login/mock_auth_response_handler.h"
+#include "chrome/browser/chromeos/login/mock_url_fetchers.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/net/gaia/gaia_authenticator2_unittest.h"
 #include "chrome/common/net/url_fetcher.h"
@@ -43,7 +45,7 @@ class MockConsumer : public LoginStatusConsumer {
  public:
   MockConsumer() {}
   ~MockConsumer() {}
-  MOCK_METHOD1(OnLoginFailure, void(const std::string& error));
+  MOCK_METHOD1(OnLoginFailure, void(const LoginFailure& error));
   MOCK_METHOD2(OnLoginSuccess, void(const std::string& username,
       const GaiaAuthConsumer::ClientLoginResult& result));
   MOCK_METHOD0(OnOffTheRecordLoginSuccess, void(void));
@@ -133,6 +135,14 @@ class GoogleAuthenticatorTest : public ::testing::Test {
     auth->SetLocalaccount("");
   }
 
+  void CancelLogin(GoogleAuthenticator* auth) {
+    ChromeThread::PostTask(
+        ChromeThread::UI,
+        FROM_HERE,
+        NewRunnableMethod(auth,
+                          &GoogleAuthenticator::CancelClientLogin));
+  }
+
   unsigned char fake_hash_[32];
   std::string hash_ascii_;
   std::string username_;
@@ -162,51 +172,6 @@ TEST_F(GoogleAuthenticatorTest, SaltToAscii) {
   EXPECT_EQ("0a010000000000a0", auth->SaltAsAscii());
 }
 
-TEST_F(GoogleAuthenticatorTest, EmailAddressNoOp) {
-  const char lower_case[] = "user@what.com";
-  EXPECT_EQ(lower_case, GoogleAuthenticator::Canonicalize(lower_case));
-}
-
-TEST_F(GoogleAuthenticatorTest, EmailAddressIgnoreCaps) {
-  EXPECT_EQ(GoogleAuthenticator::Canonicalize("user@what.com"),
-            GoogleAuthenticator::Canonicalize("UsEr@what.com"));
-}
-
-TEST_F(GoogleAuthenticatorTest, EmailAddressIgnoreDomainCaps) {
-  EXPECT_EQ(GoogleAuthenticator::Canonicalize("user@what.com"),
-            GoogleAuthenticator::Canonicalize("UsEr@what.COM"));
-}
-
-TEST_F(GoogleAuthenticatorTest, EmailAddressIgnoreOneUsernameDot) {
-  EXPECT_EQ(GoogleAuthenticator::Canonicalize("us.er@what.com"),
-            GoogleAuthenticator::Canonicalize("UsEr@what.com"));
-}
-
-TEST_F(GoogleAuthenticatorTest, EmailAddressIgnoreManyUsernameDots) {
-  EXPECT_EQ(GoogleAuthenticator::Canonicalize("u.ser@what.com"),
-            GoogleAuthenticator::Canonicalize("Us.E.r@what.com"));
-}
-
-TEST_F(GoogleAuthenticatorTest, EmailAddressIgnoreConsecutiveUsernameDots) {
-  EXPECT_EQ(GoogleAuthenticator::Canonicalize("use.r@what.com"),
-            GoogleAuthenticator::Canonicalize("Us....E.r@what.com"));
-}
-
-TEST_F(GoogleAuthenticatorTest, EmailAddressDifferentOnesRejected) {
-  EXPECT_NE(GoogleAuthenticator::Canonicalize("who@what.com"),
-            GoogleAuthenticator::Canonicalize("Us....E.r@what.com"));
-}
-
-TEST_F(GoogleAuthenticatorTest, EmailAddressIgnorePlusSuffix) {
-  EXPECT_EQ(GoogleAuthenticator::Canonicalize("user+cc@what.com"),
-            GoogleAuthenticator::Canonicalize("user@what.com"));
-}
-
-TEST_F(GoogleAuthenticatorTest, EmailAddressIgnoreMultiPlusSuffix) {
-  EXPECT_EQ(GoogleAuthenticator::Canonicalize("user+cc+bcc@what.com"),
-            GoogleAuthenticator::Canonicalize("user@what.com"));
-}
-
 TEST_F(GoogleAuthenticatorTest, ReadLocalaccount) {
   FilePath tmp_file_path = FakeLocalaccountFile(bytes_as_ascii_);
 
@@ -218,7 +183,8 @@ TEST_F(GoogleAuthenticatorTest, ReadLocalaccount) {
 
 TEST_F(GoogleAuthenticatorTest, ReadLocalaccountTrailingWS) {
   FilePath tmp_file_path =
-      FakeLocalaccountFile(StringPrintf("%s\n", bytes_as_ascii_.c_str()));
+      FakeLocalaccountFile(base::StringPrintf("%s\n",
+                                              bytes_as_ascii_.c_str()));
 
   scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(NULL));
   ReadLocalaccountFile(auth.get(), tmp_file_path.BaseName().value());
@@ -352,15 +318,14 @@ TEST_F(GoogleAuthenticatorTest, LoginNetFailure) {
   MessageLoopForUI message_loop;
   ChromeThread ui_thread(ChromeThread::UI, &message_loop);
 
-  int error_no = net::ERR_CONNECTION_RESET;
-  std::string data(net::ErrorToString(error_no));
+  GoogleServiceAuthError error =
+      GoogleServiceAuthError::FromConnectionError(net::ERR_CONNECTION_RESET);
 
-  GaiaAuthConsumer::GaiaAuthError error;
-  error.code = GaiaAuthConsumer::NETWORK_ERROR;
-  error.network_error = error_no;
+  LoginFailure failure =
+      LoginFailure::FromNetworkAuthFailure(error);
 
   MockConsumer consumer;
-  EXPECT_CALL(consumer, OnLoginFailure(data))
+  EXPECT_CALL(consumer, OnLoginFailure(failure))
       .Times(1)
       .RetiresOnSaturation();
   EXPECT_CALL(*mock_library_, CheckKey(username_, hash_ascii_))
@@ -377,8 +342,8 @@ TEST_F(GoogleAuthenticatorTest, LoginDenied) {
   MessageLoopForUI message_loop;
   ChromeThread ui_thread(ChromeThread::UI, &message_loop);
 
-  GaiaAuthConsumer::GaiaAuthError error;
-  error.code = GaiaAuthConsumer::PERMISSION_DENIED;
+  GoogleServiceAuthError client_error(
+      GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS);
 
   MockConsumer consumer;
   EXPECT_CALL(consumer, OnLoginFailure(_))
@@ -387,7 +352,61 @@ TEST_F(GoogleAuthenticatorTest, LoginDenied) {
 
   scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
   PrepForLogin(auth.get());
-  auth->OnClientLoginFailure(error);
+  auth->OnClientLoginFailure(client_error);
+  message_loop.RunAllPending();
+}
+
+TEST_F(GoogleAuthenticatorTest, LoginAccountDisabled) {
+  MessageLoopForUI message_loop;
+  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+
+  GoogleServiceAuthError client_error(
+      GoogleServiceAuthError::ACCOUNT_DISABLED);
+
+  MockConsumer consumer;
+  EXPECT_CALL(consumer, OnLoginFailure(_))
+      .Times(1)
+      .RetiresOnSaturation();
+
+  scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
+  PrepForLogin(auth.get());
+  auth->OnClientLoginFailure(client_error);
+  message_loop.RunAllPending();
+}
+
+TEST_F(GoogleAuthenticatorTest, LoginAccountDeleted) {
+  MessageLoopForUI message_loop;
+  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+
+  GoogleServiceAuthError client_error(
+      GoogleServiceAuthError::ACCOUNT_DELETED);
+
+  MockConsumer consumer;
+  EXPECT_CALL(consumer, OnLoginFailure(_))
+      .Times(1)
+      .RetiresOnSaturation();
+
+  scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
+  PrepForLogin(auth.get());
+  auth->OnClientLoginFailure(client_error);
+  message_loop.RunAllPending();
+}
+
+TEST_F(GoogleAuthenticatorTest, LoginServiceUnavailable) {
+  MessageLoopForUI message_loop;
+  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+
+  GoogleServiceAuthError client_error(
+      GoogleServiceAuthError::SERVICE_UNAVAILABLE);
+
+  MockConsumer consumer;
+  EXPECT_CALL(consumer, OnLoginFailure(_))
+      .Times(1)
+      .RetiresOnSaturation();
+
+  scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
+  PrepForLogin(auth.get());
+  auth->OnClientLoginFailure(client_error);
   message_loop.RunAllPending();
 }
 
@@ -395,22 +414,22 @@ TEST_F(GoogleAuthenticatorTest, CaptchaErrorOutputted) {
   MessageLoopForUI message_loop;
   ChromeThread ui_thread(ChromeThread::UI, &message_loop);
 
-  // TODO(chron): Swap out this captcha passing for actual captcha parsing.
-  GaiaAuthConsumer::GaiaAuthError error;
-  error.code = GaiaAuthConsumer::PERMISSION_DENIED;
-  error.data = "Url=http://www.google.com/login/captcha\n"
-               "Error=CaptchaRequired\n"
-               "CaptchaToken=DQAAAGgA...dkI1LK9\n"
-               "CaptchaUrl=Captcha?ctoken=...\n";
+  GoogleServiceAuthError auth_error =
+      GoogleServiceAuthError::FromCaptchaChallenge(
+          "CCTOKEN",
+          GURL("http://www.google.com/accounts/Captcha?ctoken=CCTOKEN"),
+          GURL("http://www.google.com/login/captcha"));
+
+  LoginFailure failure = LoginFailure::FromNetworkAuthFailure(auth_error);
 
   MockConsumer consumer;
-  EXPECT_CALL(consumer, OnLoginFailure(error.data))
+  EXPECT_CALL(consumer, OnLoginFailure(failure))
       .Times(1)
       .RetiresOnSaturation();
 
   scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
   PrepForLogin(auth.get());
-  auth->OnClientLoginFailure(error);
+  auth->OnClientLoginFailure(auth_error);
   message_loop.RunAllPending();
 }
 
@@ -418,9 +437,8 @@ TEST_F(GoogleAuthenticatorTest, OfflineLogin) {
   MessageLoopForUI message_loop;
   ChromeThread ui_thread(ChromeThread::UI, &message_loop);
 
-  GaiaAuthConsumer::GaiaAuthError error;
-  error.code = GaiaAuthConsumer::NETWORK_ERROR;
-  error.network_error = net::ERR_CONNECTION_RESET;
+  GoogleServiceAuthError auth_error(
+      GoogleServiceAuthError::FromConnectionError(net::ERR_CONNECTION_RESET));
 
   MockConsumer consumer;
   EXPECT_CALL(consumer, OnLoginSuccess(username_, result_))
@@ -435,7 +453,7 @@ TEST_F(GoogleAuthenticatorTest, OfflineLogin) {
 
   scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
   PrepForLogin(auth.get());
-  auth->OnClientLoginFailure(error);
+  auth->OnClientLoginFailure(auth_error);
   message_loop.RunAllPending();
 }
 
@@ -473,19 +491,36 @@ TEST_F(GoogleAuthenticatorTest, CheckLocalaccount) {
   PrepForLogin(auth.get());
   auth->SetLocalaccount(username_);
 
-  auth->CheckLocalaccount(std::string());
+  auth->CheckLocalaccount(LoginFailure(LoginFailure::LOGIN_TIMED_OUT));
 }
 
+namespace {
+
 // Compatible with LoginStatusConsumer::OnLoginSuccess()
-static void Quit(const std::string& username,
-                 const GaiaAuthConsumer::ClientLoginResult& credentials) {
+static void OnSuccessQuit(
+    const std::string& username,
+    const GaiaAuthConsumer::ClientLoginResult& credentials) {
   MessageLoop::current()->Quit();
 }
+
+static void OnSuccessQuitAndFail(
+    const std::string& username,
+    const GaiaAuthConsumer::ClientLoginResult& credentials) {
+  ADD_FAILURE() << "Login should NOT have succeeded!";
+  MessageLoop::current()->Quit();
+}
+
 // Compatible with LoginStatusConsumer::OnLoginFailure()
-static void QuitAndFail(const std::string& error) {
+static void OnFailQuit(const LoginFailure& error) {
+  MessageLoop::current()->Quit();
+}
+
+static void OnFailQuitAndFail(const LoginFailure& error) {
   ADD_FAILURE() << "Login should have succeeded!";
   MessageLoop::current()->Quit();
 }
+
+}  // anonymous namespace
 
 TEST_F(GoogleAuthenticatorTest, LocalaccountLogin) {
   // This test checks the logic that governs asynchronously reading the
@@ -495,17 +530,15 @@ TEST_F(GoogleAuthenticatorTest, LocalaccountLogin) {
   ChromeThread ui_thread(ChromeThread::UI, &message_loop);
 
   MockConsumer consumer;
-  ON_CALL(consumer, OnLoginSuccess(username_, _))
-      .WillByDefault(Invoke(Quit));
   EXPECT_CALL(consumer, OnLoginSuccess(username_, _))
-      .Times(1)
+      .WillOnce(Invoke(OnSuccessQuit))
       .RetiresOnSaturation();
   EXPECT_CALL(*mock_library_, MountForBwsi(_))
       .WillOnce(Return(true))
       .RetiresOnSaturation();
   // Enable the test to terminate (and fail), even if the login fails.
   ON_CALL(consumer, OnLoginFailure(_))
-      .WillByDefault(Invoke(QuitAndFail));
+      .WillByDefault(Invoke(OnFailQuitAndFail));
 
   // Manually prep for login, so that localaccount isn't set for us.
   scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
@@ -518,7 +551,7 @@ TEST_F(GoogleAuthenticatorTest, LocalaccountLogin) {
       ChromeThread::UI, FROM_HERE,
       NewRunnableMethod(auth.get(),
                         &GoogleAuthenticator::CheckLocalaccount,
-                        std::string("fail")));
+                        LoginFailure(LoginFailure::LOGIN_TIMED_OUT)));
   message_loop.RunAllPending();
   // The foregoing has now rescheduled itself in a few ms because we don't
   // yet have the localaccount loaded off disk.
@@ -537,8 +570,6 @@ TEST_F(GoogleAuthenticatorTest, LocalaccountLogin) {
 TEST_F(GoogleAuthenticatorTest, FullLogin) {
   MessageLoopForUI message_loop;
   ChromeThread ui_thread(ChromeThread::UI, &message_loop);
-  GURL source(AuthResponseHandler::kTokenAuthUrl);
-  URLRequestStatus status(URLRequestStatus::SUCCESS, 0);
   chromeos::CryptohomeBlob salt_v(fake_hash_, fake_hash_ + sizeof(fake_hash_));
 
   MockConsumer consumer;
@@ -549,15 +580,13 @@ TEST_F(GoogleAuthenticatorTest, FullLogin) {
       .WillOnce(Return(true))
       .RetiresOnSaturation();
 
-  ON_CALL(*mock_library_, GetSystemSalt())
-      .WillByDefault(Return(salt_v));
   EXPECT_CALL(*mock_library_, GetSystemSalt())
-      .Times(1)
+      .WillOnce(Return(salt_v))
       .RetiresOnSaturation();
 
   TestingProfile profile;
 
-  MockFactory factory;
+  MockFactory<MockFetcher> factory;
   URLFetcher::set_factory(&factory);
 
   scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
@@ -566,6 +595,111 @@ TEST_F(GoogleAuthenticatorTest, FullLogin) {
 
   URLFetcher::set_factory(NULL);
   message_loop.RunAllPending();
+}
+
+TEST_F(GoogleAuthenticatorTest, CancelLogin) {
+  MessageLoop message_loop(MessageLoop::TYPE_UI);
+  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  chromeos::CryptohomeBlob salt_v(fake_hash_, fake_hash_ + sizeof(fake_hash_));
+
+  MockConsumer consumer;
+  // The expected case.
+  EXPECT_CALL(consumer, OnLoginFailure(_))
+      .WillOnce(Invoke(OnFailQuit))
+      .RetiresOnSaturation();
+
+  // A failure case, but we still want the test to finish gracefully.
+  ON_CALL(consumer, OnLoginSuccess(username_, _))
+      .WillByDefault(Invoke(OnSuccessQuitAndFail));
+
+  // Stuff we expect to happen along the way.
+  EXPECT_CALL(*mock_library_, GetSystemSalt())
+      .WillOnce(Return(salt_v))
+      .RetiresOnSaturation();
+  EXPECT_CALL(*mock_library_, CheckKey(username_, _))
+      .WillOnce(Return(false))
+      .RetiresOnSaturation();
+
+  TestingProfile profile;
+
+  // This is how we inject fake URLFetcher objects, with a factory.
+  // This factory creates fake URLFetchers that Start() a fake fetch attempt
+  // and then come back on the UI thread after a small delay.  They expect to
+  // be canceled before they come back, and the test will fail if they are not.
+  MockFactory<ExpectCanceledFetcher> factory;
+  URLFetcher::set_factory(&factory);
+
+  scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
+
+  // For when |auth| tries to load the localaccount file.
+  ChromeThread file_thread(ChromeThread::FILE);
+  file_thread.Start();
+
+  // Start an authentication attempt, which will kick off a URL "fetch" that
+  // we expect to cancel before it completes.
+  auth->AuthenticateToLogin(
+      &profile, username_, hash_ascii_, std::string(), std::string());
+
+  // Post a task to cancel the login attempt.
+  CancelLogin(auth.get());
+
+  URLFetcher::set_factory(NULL);
+
+  // Run the UI thread until we exit it gracefully.
+  message_loop.Run();
+}
+
+TEST_F(GoogleAuthenticatorTest, CancelLoginAlreadyGotLocalaccount) {
+  MessageLoop message_loop(MessageLoop::TYPE_UI);
+  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  chromeos::CryptohomeBlob salt_v(fake_hash_, fake_hash_ + sizeof(fake_hash_));
+
+  MockConsumer consumer;
+  // The expected case.
+  EXPECT_CALL(consumer, OnLoginFailure(_))
+      .WillOnce(Invoke(OnFailQuit))
+      .RetiresOnSaturation();
+
+  // A failure case, but we still want the test to finish gracefully.
+  ON_CALL(consumer, OnLoginSuccess(username_, _))
+      .WillByDefault(Invoke(OnSuccessQuitAndFail));
+
+  // Stuff we expect to happen along the way.
+  EXPECT_CALL(*mock_library_, GetSystemSalt())
+      .WillOnce(Return(salt_v))
+      .RetiresOnSaturation();
+  EXPECT_CALL(*mock_library_, CheckKey(username_, _))
+      .WillOnce(Return(false))
+      .RetiresOnSaturation();
+
+  TestingProfile profile;
+
+  // This is how we inject fake URLFetcher objects, with a factory.
+  // This factory creates fake URLFetchers that Start() a fake fetch attempt
+  // and then come back on the UI thread after a small delay.  They expect to
+  // be canceled before they come back, and the test will fail if they are not.
+  MockFactory<ExpectCanceledFetcher> factory;
+  URLFetcher::set_factory(&factory);
+
+  scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
+
+  // This time, instead of allowing |auth| to go get the localaccount file
+  // itself, we simulate the case where the file is already loaded, which
+  // happens when this isn't the first login since chrome started.
+  ReadLocalaccountFile(auth.get(), "");
+
+  // Start an authentication attempt, which will kick off a URL "fetch" that
+  // we expect to cancel before it completes.
+  auth->AuthenticateToLogin(
+      &profile, username_, hash_ascii_, std::string(), std::string());
+
+  // Post a task to cancel the login attempt.
+  CancelLogin(auth.get());
+
+  URLFetcher::set_factory(NULL);
+
+  // Run the UI thread until we exit it gracefully.
+  message_loop.Run();
 }
 
 }  // namespace chromeos

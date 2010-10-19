@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
@@ -165,8 +166,8 @@ PasswordForm* FormFromAttributes(GnomeKeyringAttributeList* attrs) {
   form->ssl_valid = uint_attr_map["ssl_valid"];
   form->preferred = uint_attr_map["preferred"];
   int64 date_created = 0;
-  bool date_ok = StringToInt64(string_attr_map["date_created"],
-                               &date_created);
+  bool date_ok = base::StringToInt64(string_attr_map["date_created"],
+                                     &date_created);
   DCHECK(date_ok);
   DCHECK_NE(date_created, 0);
   form->date_created = base::Time::FromTimeT(date_created);
@@ -321,7 +322,7 @@ void GKRMethod::AddLogin(const PasswordForm& form) {
       "signon_realm", form.signon_realm.c_str(),
       "ssl_valid", form.ssl_valid,
       "preferred", form.preferred,
-      "date_created", Int64ToString(form.date_created.ToTimeT()).c_str(),
+      "date_created", base::Int64ToString(form.date_created.ToTimeT()).c_str(),
       "blacklisted_by_user", form.blacklisted_by_user,
       "scheme", form.scheme,
       "application", GNOME_KEYRING_APPLICATION_CHROME,

@@ -4,6 +4,7 @@
 
 #ifndef NET_BASE_SSL_CERT_REQUEST_INFO_H_
 #define NET_BASE_SSL_CERT_REQUEST_INFO_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -19,6 +20,8 @@ class X509Certificate;
 class SSLCertRequestInfo
     : public base::RefCountedThreadSafe<SSLCertRequestInfo> {
  public:
+  SSLCertRequestInfo();
+
   // The host and port of the SSL server that requested client authentication.
   std::string host_and_port;
 
@@ -41,7 +44,7 @@ class SSLCertRequestInfo
  private:
   friend class base::RefCountedThreadSafe<SSLCertRequestInfo>;
 
-  ~SSLCertRequestInfo() {}
+  ~SSLCertRequestInfo();
 };
 
 }  // namespace net

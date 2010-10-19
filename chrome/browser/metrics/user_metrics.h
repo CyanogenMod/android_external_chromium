@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_METRICS_USER_METRICS_H_
 #define CHROME_BROWSER_METRICS_USER_METRICS_H_
+#pragma once
 
 #include <string>
 
@@ -31,9 +32,8 @@ class UserMetrics {
   //   not good: "SSLDialogShown", "PageLoaded", "DiskFull"
   // We use this to gather anonymized information about how users are
   // interacting with the browser.
-  // WARNING: Call this function exactly like this, with the string literal
-  // inline:
-  //   UserMetrics::RecordAction("foo bar", profile);
+  // WARNING: Call this function exactly like this:
+  //   UserMetrics::RecordAction(UserMetricsAction("foo bar"));
   // because otherwise our processing scripts won't pick up on new actions.
   //
   // For more complicated situations (like when there are many different
@@ -46,7 +46,8 @@ class UserMetrics {
   // This function has identical input and behavior to RecordAction, but is
   // not automatically found by the action-processing scripts.  It can be used
   // when it's a pain to enumerate all possible actions, but if you use this
-  // you need to also update the rules for extracting known actions.
+  // you need to also update the rules for extracting known actions in
+  // chrome/tools/extract_actions.py.
   static void RecordComputedAction(const std::string& action,
                                    Profile* profile);
 

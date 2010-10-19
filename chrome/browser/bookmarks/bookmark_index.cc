@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,13 +6,40 @@
 
 #include <algorithm>
 #include <iterator>
+#include <list>
 
 #include "app/l10n_util.h"
+#include "base/string16.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/history/history_database.h"
 #include "chrome/browser/history/query_parser.h"
 #include "chrome/browser/profile.h"
+
+// Used when finding the set of bookmarks that match a query. Each match
+// represents a set of terms (as an interator into the Index) matching the
+// query as well as the set of nodes that contain those terms in their titles.
+struct BookmarkIndex::Match {
+  // List of terms matching the query.
+  std::list<Index::const_iterator> terms;
+
+  // The set of nodes matching the terms. As an optimization this is empty
+  // when we match only one term, and is filled in when we get more than one
+  // term. We can do this as when we have only one matching term we know
+  // the set of matching nodes is terms.front()->second.
+  //
+  // Use nodes_begin() and nodes_end() to get an iterator over the set as
+  // it handles the necessary switching between nodes and terms.front().
+  NodeSet nodes;
+
+  // Returns an iterator to the beginning of the matching nodes. See
+  // description of nodes for why this should be used over nodes.begin().
+  NodeSet::const_iterator nodes_begin() const;
+
+  // Returns an iterator to the beginning of the matching nodes. See
+  // description of nodes for why this should be used over nodes.end().
+  NodeSet::const_iterator nodes_end() const;
+};
 
 BookmarkIndex::NodeSet::const_iterator
     BookmarkIndex::Match::nodes_begin() const {
@@ -23,10 +50,16 @@ BookmarkIndex::NodeSet::const_iterator BookmarkIndex::Match::nodes_end() const {
   return nodes.empty() ? terms.front()->second.end() : nodes.end();
 }
 
+BookmarkIndex::BookmarkIndex(Profile* profile) : profile_(profile) {
+}
+
+BookmarkIndex::~BookmarkIndex() {
+}
+
 void BookmarkIndex::Add(const BookmarkNode* node) {
   if (!node->is_url())
     return;
-  std::vector<std::wstring> terms = ExtractQueryWords(node->GetTitle());
+  std::vector<string16> terms = ExtractQueryWords(node->GetTitle());
   for (size_t i = 0; i < terms.size(); ++i)
     RegisterNode(terms[i], node);
 }
@@ -35,16 +68,16 @@ void BookmarkIndex::Remove(const BookmarkNode* node) {
   if (!node->is_url())
     return;
 
-  std::vector<std::wstring> terms = ExtractQueryWords(node->GetTitle());
+  std::vector<string16> terms = ExtractQueryWords(node->GetTitle());
   for (size_t i = 0; i < terms.size(); ++i)
     UnregisterNode(terms[i], node);
 }
 
 void BookmarkIndex::GetBookmarksWithTitlesMatching(
-    const std::wstring& query,
+    const string16& query,
     size_t max_count,
     std::vector<bookmark_utils::TitleMatch>* results) {
-  std::vector<std::wstring> terms = ExtractQueryWords(query);
+  std::vector<string16> terms = ExtractQueryWords(query);
   if (terms.empty())
     return;
 
@@ -62,7 +95,7 @@ void BookmarkIndex::GetBookmarksWithTitlesMatching(
   // matches and so this shouldn't be performance critical.
   QueryParser parser;
   ScopedVector<QueryNode> query_nodes;
-  parser.ParseQuery(WideToUTF16(query), &query_nodes.get());
+  parser.ParseQuery(query, &query_nodes.get());
 
   // The highest typed counts should be at the beginning of the results vector
   // so that the best matches will always be included in the results. The loop
@@ -115,21 +148,21 @@ void BookmarkIndex::AddMatchToResults(
   // of QueryParser may filter it out.  For example, the query
   // ["thi"] will match the bookmark titled [Thinking], but since
   // ["thi"] is quoted we don't want to do a prefix match.
-  if (parser->DoesQueryMatch(WideToUTF16(node->GetTitle()), query_nodes,
+  if (parser->DoesQueryMatch(node->GetTitle(), query_nodes,
                              &(title_match.match_positions))) {
     title_match.node = node;
     results->push_back(title_match);
   }
 }
 
-bool BookmarkIndex::GetBookmarksWithTitleMatchingTerm(const std::wstring& term,
+bool BookmarkIndex::GetBookmarksWithTitleMatchingTerm(const string16& term,
                                                       bool first_term,
                                                       Matches* matches) {
   Index::const_iterator i = index_.lower_bound(term);
   if (i == index_.end())
     return false;
 
-  if (!QueryParser::IsWordLongEnoughForPrefixSearch(WideToUTF16(term))) {
+  if (!QueryParser::IsWordLongEnoughForPrefixSearch(term)) {
     // Term is too short for prefix match, compare using exact match.
     if (i->first != term)
       return false;  // No bookmarks with this term.
@@ -204,28 +237,17 @@ void BookmarkIndex::CombineMatches(const Index::const_iterator& index_i,
   }
 }
 
-std::vector<std::wstring> BookmarkIndex::ExtractQueryWords(
-    const std::wstring& query) {
+std::vector<string16> BookmarkIndex::ExtractQueryWords(const string16& query) {
   std::vector<string16> terms;
   if (query.empty())
-    return std::vector<std::wstring>();
+    return std::vector<string16>();
   QueryParser parser;
   // TODO: use ICU normalization.
-  parser.ExtractQueryWords(l10n_util::ToLower(WideToUTF16(query)), &terms);
-
-  // TODO(brettw) just remove this and return |terms| when this is converted
-  // to string16.
-#if defined(WCHAR_T_IS_UTF32)
-  std::vector<std::wstring> wterms;
-  for (size_t i = 0; i < terms.size(); i++)
-    wterms.push_back(UTF16ToWide(terms[i]));
-  return wterms;
-#else
+  parser.ExtractQueryWords(l10n_util::ToLower(query), &terms);
   return terms;
-#endif
 }
 
-void BookmarkIndex::RegisterNode(const std::wstring& term,
+void BookmarkIndex::RegisterNode(const string16& term,
                                  const BookmarkNode* node) {
   if (std::find(index_[term].begin(), index_[term].end(), node) !=
       index_[term].end()) {
@@ -235,7 +257,7 @@ void BookmarkIndex::RegisterNode(const std::wstring& term,
   index_[term].insert(node);
 }
 
-void BookmarkIndex::UnregisterNode(const std::wstring& term,
+void BookmarkIndex::UnregisterNode(const string16& term,
                                    const BookmarkNode* node) {
   Index::iterator i = index_.find(term);
   if (i == index_.end()) {

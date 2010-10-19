@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_IMPORTER_IMPORTER_H_
 #define CHROME_BROWSER_IMPORTER_IMPORTER_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -13,16 +14,14 @@
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
-#include "base/time.h"
 #include "chrome/browser/bookmarks/bookmark_model_observer.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/importer/importer_list.h"
 #include "chrome/browser/importer/profile_writer.h"
 #include "chrome/browser/profile_import_process_host.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "gfx/native_widget_types.h"
-#include "googleurl/src/gurl.h"
 
 using importer::ImportItem;
 using importer::ProfileInfo;
@@ -30,6 +29,7 @@ using importer::ProfileInfo;
 class ExternalProcessImporterClient;
 class ImporterBridge;
 class InProcessImporterBridge;
+class GURL;
 class Profile;
 class Task;
 class TemplateURL;
@@ -345,8 +345,10 @@ class ExternalProcessImporterClient
   virtual void OnHistoryImportStart(size_t total_history_rows_count);
 
   // Called when a group of URLRows has been received.
+  // The source is passed with history::VisitSource type.
   virtual void OnHistoryImportGroup(
-      const std::vector<history::URLRow> &history_rows_group);
+      const std::vector<history::URLRow> &history_rows_group,
+      int visit_source);
 
   // Called when the home page has been received.
   virtual void OnHomePageImportReady(const GURL& home_page);

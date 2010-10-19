@@ -14,10 +14,12 @@
 
 #ifndef CHROME_BROWSER_AUTOCOMPLETE_KEYWORD_PROVIDER_H_
 #define CHROME_BROWSER_AUTOCOMPLETE_KEYWORD_PROVIDER_H_
+#pragma once
 
 #include <string>
 
 #include "chrome/browser/autocomplete/autocomplete.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
 class Profile;
@@ -46,9 +48,8 @@ class TemplateURLModel;
 // action "[keyword] %s".  If the user has typed a (possibly partial) keyword
 // but no search terms, the suggested result is shown greyed out, with
 // "<enter term(s)>" as the substituted input, and does nothing when selected.
-class KeywordProvider :
-    public AutocompleteProvider,
-    public NotificationObserver {
+class KeywordProvider : public AutocompleteProvider,
+                        public NotificationObserver {
  public:
   KeywordProvider(ACProviderListener* listener, Profile* profile);
   // For testing.
@@ -112,7 +113,7 @@ class KeywordProvider :
   // If |relevance| is negative, calculate a relevance based on heuristics.
   AutocompleteMatch CreateAutocompleteMatch(
       TemplateURLModel* model,
-      const std::wstring keyword,
+      const std::wstring& keyword,
       const AutocompleteInput& input,
       size_t prefix_length,
       const std::wstring& remaining_input,

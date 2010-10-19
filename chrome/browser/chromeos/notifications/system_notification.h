@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_NOTIFICATIONS_SYSTEM_NOTIFICATION_H_
 #define CHROME_BROWSER_CHROMEOS_NOTIFICATIONS_SYSTEM_NOTIFICATION_H_
+#pragma once
 
 #include <string>
 
@@ -29,12 +30,12 @@ class SystemNotification {
   SystemNotification(Profile* profile, std::string id, int icon_resource_id,
                      string16 title);
 
-  ~SystemNotification();
+  virtual ~SystemNotification();
 
   // Show will show or update the message for this notification
   // on a transition to urgent, the notification will be shown if it was
   // previously hidden or minimized by the user.
-  void Show(const string16& message, bool urgent);
+  void Show(const string16& message, bool urgent, bool sticky);
 
   // Hide will dismiss the notification, if the notification is already
   // hidden it does nothing
@@ -53,6 +54,7 @@ class SystemNotification {
     void Display() {}
     void Error() {}
     void Close(bool by_user) {}
+    void Click() {}
     std::string id() const { return id_; }
 
    private:
@@ -75,4 +77,3 @@ class SystemNotification {
 }  // namespace chromeos
 
 #endif  // CHROME_BROWSER_CHROMEOS_NOTIFICATIONS_SYSTEM_NOTIFICATION_H_
-

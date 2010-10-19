@@ -18,8 +18,8 @@
 #include "chrome/browser/gtk/options/advanced_page_gtk.h"
 #include "chrome/browser/gtk/options/content_page_gtk.h"
 #include "chrome/browser/gtk/options/general_page_gtk.h"
-#include "chrome/browser/pref_member.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_member.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/window_sizer.h"
 #include "chrome/common/notification_service.h"
@@ -98,8 +98,8 @@ OptionsWindowGtk::OptionsWindowGtk(Profile* profile)
 
   std::string dialog_name =
       l10n_util::GetStringFUTF8(
-          IDS_OPTIONS_DIALOG_TITLE,
-          WideToUTF16(l10n_util::GetString(IDS_PRODUCT_NAME)));
+          IDS_PREFERENCES_DIALOG_TITLE,
+          l10n_util::GetStringUTF16(IDS_PRODUCT_NAME));
   dialog_ = gtk_dialog_new_with_buttons(
       dialog_name.c_str(),
       // Prefs window is shared between all browser windows.

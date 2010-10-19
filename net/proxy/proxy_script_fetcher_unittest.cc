@@ -7,6 +7,7 @@
 #include "base/file_path.h"
 #include "base/compiler_specific.h"
 #include "base/path_service.h"
+#include "base/utf_string_conversions.h"
 #include "net/base/net_util.h"
 #include "net/base/ssl_config_service_defaults.h"
 #include "net/base/test_completion_callback.h"
@@ -20,7 +21,8 @@
 //   - Test canceling an outstanding request.
 //   - Test deleting ProxyScriptFetcher while a request is in progress.
 
-const wchar_t kDocRoot[] = L"net/data/proxy_script_fetcher_unittest";
+const FilePath::CharType kDocRoot[] =
+    FILE_PATH_LITERAL("net/data/proxy_script_fetcher_unittest");
 
 struct FetchResult {
   int code;
@@ -33,7 +35,8 @@ class RequestContext : public URLRequestContext {
   RequestContext() {
     net::ProxyConfig no_proxy;
     host_resolver_ =
-        net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism);
+        net::CreateSystemHostResolver(net::HostResolver::kDefaultParallelism,
+                                      NULL);
     proxy_service_ = net::ProxyService::CreateFixed(no_proxy);
     ssl_config_service_ = new net::SSLConfigServiceDefaults;
 
@@ -63,7 +66,15 @@ GURL GetTestFileUrl(const std::string& relpath) {
   return GURL(base_url.spec() + "/" + relpath);
 }
 
-typedef PlatformTest ProxyScriptFetcherTest;
+class ProxyScriptFetcherTest : public PlatformTest {
+ public:
+  ProxyScriptFetcherTest()
+      : test_server_(net::TestServer::TYPE_HTTP, FilePath(kDocRoot)) {
+  }
+
+ protected:
+  net::TestServer test_server_;
+};
 
 TEST_F(ProxyScriptFetcherTest, FileUrl) {
   scoped_refptr<URLRequestContext> context = new RequestContext;
@@ -93,15 +104,14 @@ TEST_F(ProxyScriptFetcherTest, FileUrl) {
 // Note that all mime types are allowed for PAC file, to be consistent
 // with other browsers.
 TEST_F(ProxyScriptFetcherTest, HttpMimeType) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<URLRequestContext> context = new RequestContext;
   scoped_ptr<ProxyScriptFetcher> pac_fetcher(
       ProxyScriptFetcher::Create(context));
 
   { // Fetch a PAC with mime type "text/plain"
-    GURL url = server->TestServerPage("files/pac.txt");
+    GURL url(test_server_.GetURL("files/pac.txt"));
     string16 text;
     TestCompletionCallback callback;
     int result = pac_fetcher->Fetch(url, &text, &callback);
@@ -110,7 +120,7 @@ TEST_F(ProxyScriptFetcherTest, HttpMimeType) {
     EXPECT_EQ(ASCIIToUTF16("-pac.txt-\n"), text);
   }
   { // Fetch a PAC with mime type "text/html"
-    GURL url = server->TestServerPage("files/pac.html");
+    GURL url(test_server_.GetURL("files/pac.html"));
     string16 text;
     TestCompletionCallback callback;
     int result = pac_fetcher->Fetch(url, &text, &callback);
@@ -119,7 +129,7 @@ TEST_F(ProxyScriptFetcherTest, HttpMimeType) {
     EXPECT_EQ(ASCIIToUTF16("-pac.html-\n"), text);
   }
   { // Fetch a PAC with mime type "application/x-ns-proxy-autoconfig"
-    GURL url = server->TestServerPage("files/pac.nsproxy");
+    GURL url(test_server_.GetURL("files/pac.nsproxy"));
     string16 text;
     TestCompletionCallback callback;
     int result = pac_fetcher->Fetch(url, &text, &callback);
@@ -130,15 +140,14 @@ TEST_F(ProxyScriptFetcherTest, HttpMimeType) {
 }
 
 TEST_F(ProxyScriptFetcherTest, HttpStatusCode) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<URLRequestContext> context = new RequestContext;
   scoped_ptr<ProxyScriptFetcher> pac_fetcher(
       ProxyScriptFetcher::Create(context));
 
   { // Fetch a PAC which gives a 500 -- FAIL
-    GURL url = server->TestServerPage("files/500.pac");
+    GURL url(test_server_.GetURL("files/500.pac"));
     string16 text;
     TestCompletionCallback callback;
     int result = pac_fetcher->Fetch(url, &text, &callback);
@@ -147,7 +156,7 @@ TEST_F(ProxyScriptFetcherTest, HttpStatusCode) {
     EXPECT_TRUE(text.empty());
   }
   { // Fetch a PAC which gives a 404 -- FAIL
-    GURL url = server->TestServerPage("files/404.pac");
+    GURL url(test_server_.GetURL("files/404.pac"));
     string16 text;
     TestCompletionCallback callback;
     int result = pac_fetcher->Fetch(url, &text, &callback);
@@ -158,16 +167,15 @@ TEST_F(ProxyScriptFetcherTest, HttpStatusCode) {
 }
 
 TEST_F(ProxyScriptFetcherTest, ContentDisposition) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<URLRequestContext> context = new RequestContext;
   scoped_ptr<ProxyScriptFetcher> pac_fetcher(
       ProxyScriptFetcher::Create(context));
 
   // Fetch PAC scripts via HTTP with a Content-Disposition header -- should
   // have no effect.
-  GURL url = server->TestServerPage("files/downloadable.pac");
+  GURL url(test_server_.GetURL("files/downloadable.pac"));
   string16 text;
   TestCompletionCallback callback;
   int result = pac_fetcher->Fetch(url, &text, &callback);
@@ -177,15 +185,14 @@ TEST_F(ProxyScriptFetcherTest, ContentDisposition) {
 }
 
 TEST_F(ProxyScriptFetcherTest, NoCache) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<URLRequestContext> context = new RequestContext;
   scoped_ptr<ProxyScriptFetcher> pac_fetcher(
       ProxyScriptFetcher::Create(context));
 
   // Fetch a PAC script whose HTTP headers make it cacheable for 1 hour.
-  GURL url = server->TestServerPage("files/cacheable_1hr.pac");
+  GURL url(test_server_.GetURL("files/cacheable_1hr.pac"));
   {
     string16 text;
     TestCompletionCallback callback;
@@ -196,8 +203,7 @@ TEST_F(ProxyScriptFetcherTest, NoCache) {
   }
 
   // Now kill the HTTP server.
-  EXPECT_TRUE(server->Stop());  // Verify it shutdown synchronously.
-  server = NULL;
+  ASSERT_TRUE(test_server_.Stop());
 
   // Try to fetch the file again -- if should fail, since the server is not
   // running anymore. (If it were instead being loaded from cache, we would
@@ -212,9 +218,8 @@ TEST_F(ProxyScriptFetcherTest, NoCache) {
 }
 
 TEST_F(ProxyScriptFetcherTest, TooLarge) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<URLRequestContext> context = new RequestContext;
   scoped_ptr<ProxyScriptFetcher> pac_fetcher(
       ProxyScriptFetcher::Create(context));
@@ -224,7 +229,7 @@ TEST_F(ProxyScriptFetcherTest, TooLarge) {
 
   // These two URLs are the same file, but are http:// vs file://
   GURL urls[] = {
-    server->TestServerPage("files/large-pac.nsproxy"),
+    test_server_.GetURL("files/large-pac.nsproxy"),
     GetTestFileUrl("large-pac.nsproxy")
   };
 
@@ -244,7 +249,7 @@ TEST_F(ProxyScriptFetcherTest, TooLarge) {
   ProxyScriptFetcher::SetSizeConstraintForUnittest(prev_size);
 
   { // Make sure we can still fetch regular URLs.
-    GURL url = server->TestServerPage("files/pac.nsproxy");
+    GURL url(test_server_.GetURL("files/pac.nsproxy"));
     string16 text;
     TestCompletionCallback callback;
     int result = pac_fetcher->Fetch(url, &text, &callback);
@@ -255,9 +260,8 @@ TEST_F(ProxyScriptFetcherTest, TooLarge) {
 }
 
 TEST_F(ProxyScriptFetcherTest, Hang) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<URLRequestContext> context = new RequestContext;
   scoped_ptr<ProxyScriptFetcher> pac_fetcher(
       ProxyScriptFetcher::Create(context));
@@ -268,7 +272,7 @@ TEST_F(ProxyScriptFetcherTest, Hang) {
 
   // Try fetching a URL which takes 1.2 seconds. We should abort the request
   // after 500 ms, and fail with a timeout error.
-  { GURL url = server->TestServerPage("slow/proxy.pac?1.2");
+  { GURL url(test_server_.GetURL("slow/proxy.pac?1.2"));
     string16 text;
     TestCompletionCallback callback;
     int result = pac_fetcher->Fetch(url, &text, &callback);
@@ -281,7 +285,7 @@ TEST_F(ProxyScriptFetcherTest, Hang) {
   ProxyScriptFetcher::SetTimeoutConstraintForUnittest(prev_timeout);
 
   { // Make sure we can still fetch regular URLs.
-    GURL url = server->TestServerPage("files/pac.nsproxy");
+    GURL url(test_server_.GetURL("files/pac.nsproxy"));
     string16 text;
     TestCompletionCallback callback;
     int result = pac_fetcher->Fetch(url, &text, &callback);
@@ -295,16 +299,15 @@ TEST_F(ProxyScriptFetcherTest, Hang) {
 // (like gzip, bzip, etc.), and apply any charset conversions to yield
 // UTF8.
 TEST_F(ProxyScriptFetcherTest, Encodings) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server_.Start());
+
   scoped_refptr<URLRequestContext> context = new RequestContext;
   scoped_ptr<ProxyScriptFetcher> pac_fetcher(
       ProxyScriptFetcher::Create(context));
 
   // Test a response that is gzip-encoded -- should get inflated.
   {
-    GURL url = server->TestServerPage("files/gzipped_pac");
+    GURL url(test_server_.GetURL("files/gzipped_pac"));
     string16 text;
     TestCompletionCallback callback;
     int result = pac_fetcher->Fetch(url, &text, &callback);
@@ -316,7 +319,7 @@ TEST_F(ProxyScriptFetcherTest, Encodings) {
   // Test a response that was served as UTF-16 (BE). It should
   // be converted to UTF8.
   {
-    GURL url = server->TestServerPage("files/utf16be_pac");
+    GURL url(test_server_.GetURL("files/utf16be_pac"));
     string16 text;
     TestCompletionCallback callback;
     int result = pac_fetcher->Fetch(url, &text, &callback);

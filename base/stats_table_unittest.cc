@@ -7,12 +7,14 @@
 #include <windows.h>
 #endif
 
-#include "base/multiprocess_test.h"
 #include "base/platform_thread.h"
 #include "base/simple_thread.h"
 #include "base/shared_memory.h"
 #include "base/stats_table.h"
 #include "base/stats_counters.h"
+#include "base/string_piece.h"
+#include "base/string_util.h"
+#include "base/test/multiprocess_test.h"
 #include "base/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/multiprocess_func_list.h"
@@ -21,9 +23,9 @@ namespace base {
 
 class StatsTableTest : public MultiProcessTest {
  public:
-  void DeleteShmem(std::string name) {
+  void DeleteShmem(const std::string& name) {
     base::SharedMemory mem;
-    mem.Delete(UTF8ToWide(name));
+    mem.Delete(name);
   }
 };
 
@@ -73,7 +75,7 @@ const std::string kCounterDecrement = "CounterDecrement";
 // decremented by even threads.
 const std::string kCounterMixed = "CounterMixed";
 // The number of thread loops that we will do.
-const int kThreadLoops = 1000;
+const int kThreadLoops = 100;
 
 class StatsTableThread : public base::SimpleThread {
  public:
@@ -188,7 +190,8 @@ MULTIPROCESS_TEST_MAIN(StatsTableMultipleProcessMain) {
 }
 
 // Create a few processes and have them poke on their counters.
-TEST_F(StatsTableTest, MultipleProcesses) {
+// This test is slow and flaky http://crbug.com/10611
+TEST_F(StatsTableTest, FLAKY_MultipleProcesses) {
   // Create a stats table.
   const int kMaxProcs = 20;
   const int kMaxCounter = 5;
@@ -204,7 +207,7 @@ TEST_F(StatsTableTest, MultipleProcesses) {
 
   // Spawn the processes.
   for (int16 index = 0; index < kMaxProcs; index++) {
-    procs[index] = this->SpawnChild(L"StatsTableMultipleProcessMain");
+    procs[index] = this->SpawnChild("StatsTableMultipleProcessMain", false);
     EXPECT_NE(base::kNullProcessHandle, procs[index]);
   }
 
@@ -316,17 +319,21 @@ TEST_F(StatsTableTest, StatsCounterTimer) {
   EXPECT_TRUE(bar.start_time().is_null());
   EXPECT_TRUE(bar.stop_time().is_null());
 
+  const int kRunMs = 100;
+
   // Do some timing.
   bar.Start();
-  PlatformThread::Sleep(500);
+  PlatformThread::Sleep(kRunMs);
   bar.Stop();
-  EXPECT_LE(500, table.GetCounterValue("t:bar"));
+  EXPECT_GT(table.GetCounterValue("t:bar"), 0);
+  EXPECT_LE(kRunMs, table.GetCounterValue("t:bar"));
 
   // Verify that timing again is additive.
   bar.Start();
-  PlatformThread::Sleep(500);
+  PlatformThread::Sleep(kRunMs);
   bar.Stop();
-  EXPECT_LE(1000, table.GetCounterValue("t:bar"));
+  EXPECT_GT(table.GetCounterValue("t:bar"), 0);
+  EXPECT_LE(kRunMs * 2, table.GetCounterValue("t:bar"));
 }
 
 // Test some basic StatsRate operations
@@ -345,19 +352,21 @@ TEST_F(StatsTableTest, StatsRate) {
   EXPECT_EQ(0, table.GetCounterValue("c:baz"));
   EXPECT_EQ(0, table.GetCounterValue("t:baz"));
 
+  const int kRunMs = 100;
+
   // Do some timing.
   baz.Start();
-  PlatformThread::Sleep(500);
+  PlatformThread::Sleep(kRunMs);
   baz.Stop();
   EXPECT_EQ(1, table.GetCounterValue("c:baz"));
-  EXPECT_LE(500, table.GetCounterValue("t:baz"));
+  EXPECT_LE(kRunMs, table.GetCounterValue("t:baz"));
 
   // Verify that timing again is additive.
   baz.Start();
-  PlatformThread::Sleep(500);
+  PlatformThread::Sleep(kRunMs);
   baz.Stop();
   EXPECT_EQ(2, table.GetCounterValue("c:baz"));
-  EXPECT_LE(1000, table.GetCounterValue("t:baz"));
+  EXPECT_LE(kRunMs * 2, table.GetCounterValue("t:baz"));
 }
 
 // Test some basic StatsScope operations
@@ -378,24 +387,26 @@ TEST_F(StatsTableTest, StatsScope) {
   EXPECT_EQ(0, table.GetCounterValue("t:bar"));
   EXPECT_EQ(0, table.GetCounterValue("c:bar"));
 
+  const int kRunMs = 100;
+
   // Try a scope.
   {
     StatsScope<StatsCounterTimer> timer(foo);
     StatsScope<StatsRate> timer2(bar);
-    PlatformThread::Sleep(500);
+    PlatformThread::Sleep(kRunMs);
   }
-  EXPECT_LE(500, table.GetCounterValue("t:foo"));
-  EXPECT_LE(500, table.GetCounterValue("t:bar"));
+  EXPECT_LE(kRunMs, table.GetCounterValue("t:foo"));
+  EXPECT_LE(kRunMs, table.GetCounterValue("t:bar"));
   EXPECT_EQ(1, table.GetCounterValue("c:bar"));
 
   // Try a second scope.
   {
     StatsScope<StatsCounterTimer> timer(foo);
     StatsScope<StatsRate> timer2(bar);
-    PlatformThread::Sleep(500);
+    PlatformThread::Sleep(kRunMs);
   }
-  EXPECT_LE(1000, table.GetCounterValue("t:foo"));
-  EXPECT_LE(1000, table.GetCounterValue("t:bar"));
+  EXPECT_LE(kRunMs * 2, table.GetCounterValue("t:foo"));
+  EXPECT_LE(kRunMs * 2, table.GetCounterValue("t:bar"));
   EXPECT_EQ(2, table.GetCounterValue("c:bar"));
 
   DeleteShmem(kTableName);

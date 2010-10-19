@@ -3,6 +3,8 @@
 // found in the LICENSE file.
 
 #include "base/ref_counted.h"
+#include "base/utf_string_conversions.h"
+#include "base/values.h"
 #import "chrome/browser/autofill/autofill_address_model_mac.h"
 #import "chrome/browser/autofill/autofill_address_sheet_controller_mac.h"
 #import "chrome/browser/autofill/autofill_credit_card_model_mac.h"
@@ -12,9 +14,10 @@
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/cocoa/browser_test_helper.h"
 #import "chrome/browser/cocoa/cocoa_test_helper.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/test/testing_pref_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -148,11 +151,8 @@ class AutoFillDialogControllerTest : public CocoaTest {
 
   void LoadDialog() {
     controller_ = [AutoFillDialogController
-        controllerWithObserver:&observer_
-                       profile:helper_.profile()
-               importedProfile:imported_profile_
-            importedCreditCard:imported_credit_card_];
-    [controller_ window];
+        controllerWithObserver:&observer_ profile:helper_.profile()];
+    [controller_ runModelessDialog];
   }
 
   std::vector<AutoFillProfile*>& profiles() {
@@ -172,69 +172,36 @@ class AutoFillDialogControllerTest : public CocoaTest {
   DISALLOW_COPY_AND_ASSIGN(AutoFillDialogControllerTest);
 };
 
-TEST_F(AutoFillDialogControllerTest, SaveButtonInformsObserver) {
+TEST_F(AutoFillDialogControllerTest, CloseButtonDoesNotInformObserver) {
   LoadDialog();
-  [controller_ save:nil];
-  ASSERT_TRUE(observer_.hit_);
-}
-
-TEST_F(AutoFillDialogControllerTest, CancelButtonDoesNotInformObserver) {
-  LoadDialog();
-  [controller_ cancel:nil];
+  [controller_ closeDialog];
   ASSERT_FALSE(observer_.hit_);
 }
 
-TEST_F(AutoFillDialogControllerTest, NoEditsGiveBackOriginalProfile) {
+TEST_F(AutoFillDialogControllerTest, NoEditsDoNotChangeObserverProfiles) {
   AutoFillProfile profile;
   profiles().push_back(&profile);
   LoadDialog();
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  // Should not hit our observer.
+  ASSERT_FALSE(observer_.hit_);
 
-  // Sizes should match.
-  ASSERT_EQ(observer_.profiles_.size(), profiles().size());
-
-  // Contents should match.
-  size_t i = 0;
-  size_t count = profiles().size();
-  for (i = 0; i < count; i++)
-    ASSERT_EQ(observer_.profiles_[i], *profiles()[i]);
-
-  // Contents should not match a different profile.
-  AutoFillProfile different_profile;
-  different_profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("joe"));
-  for (i = 0; i < count; i++)
-    ASSERT_NE(observer_.profiles_[i], different_profile);
+  // Observer should not have profiles.
+  ASSERT_EQ(0UL, observer_.profiles_.size());
 }
 
-TEST_F(AutoFillDialogControllerTest, NoEditsGiveBackOriginalCreditCard) {
+TEST_F(AutoFillDialogControllerTest, NoEditsDoNotChangeObserverCreditCards) {
   CreditCard credit_card(ASCIIToUTF16("myCC"), 345);
   credit_cards().push_back(&credit_card);
   LoadDialog();
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  // Should not hit our observer.
+  ASSERT_FALSE(observer_.hit_);
 
-  // Sizes should match.
-  ASSERT_EQ(observer_.credit_cards_.size(), credit_cards().size());
-
-  // Contents should match.  With the exception of the |unique_id|.
-  size_t i = 0;
-  size_t count = credit_cards().size();
-  for (i = 0; i < count; i++) {
-    credit_cards()[i]->set_unique_id(observer_.credit_cards_[i].unique_id());
-    ASSERT_EQ(observer_.credit_cards_[i], *credit_cards()[i]);
-  }
-
-  // Contents should not match a different profile.
-  CreditCard different_credit_card(ASCIIToUTF16("different"), 0);
-  different_credit_card.SetInfo(
-    AutoFillType(CREDIT_CARD_NUMBER), ASCIIToUTF16("1234"));
-  for (i = 0; i < count; i++)
-    ASSERT_NE(observer_.credit_cards_[i], different_credit_card);
+  // Observer should not have credit cards.
+  ASSERT_EQ(0UL, observer_.credit_cards_.size());
 }
 
 TEST_F(AutoFillDialogControllerTest, AutoFillDataMutation) {
@@ -243,20 +210,20 @@ TEST_F(AutoFillDialogControllerTest, AutoFillDataMutation) {
   profile.SetInfo(AutoFillType(NAME_MIDDLE), ASCIIToUTF16("C"));
   profile.SetInfo(AutoFillType(NAME_LAST), ASCIIToUTF16("Smith"));
   profile.SetInfo(AutoFillType(EMAIL_ADDRESS),
-      ASCIIToUTF16("john@chromium.org"));
+                  ASCIIToUTF16("john@chromium.org"));
   profile.SetInfo(AutoFillType(COMPANY_NAME), ASCIIToUTF16("Google Inc."));
   profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE1),
                   ASCIIToUTF16("1122 Mountain View Road"));
   profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE2), ASCIIToUTF16("Suite #1"));
   profile.SetInfo(AutoFillType(ADDRESS_HOME_CITY),
-      ASCIIToUTF16("Mountain View"));
+                  ASCIIToUTF16("Mountain View"));
   profile.SetInfo(AutoFillType(ADDRESS_HOME_STATE), ASCIIToUTF16("CA"));
   profile.SetInfo(AutoFillType(ADDRESS_HOME_ZIP), ASCIIToUTF16("94111"));
   profile.SetInfo(AutoFillType(ADDRESS_HOME_COUNTRY), ASCIIToUTF16("USA"));
-  profile.SetInfo(
-      AutoFillType(PHONE_HOME_WHOLE_NUMBER), ASCIIToUTF16("014155552258"));
-  profile.SetInfo(
-      AutoFillType(PHONE_FAX_WHOLE_NUMBER), ASCIIToUTF16("024087172258"));
+  profile.SetInfo(AutoFillType(PHONE_HOME_WHOLE_NUMBER),
+                  ASCIIToUTF16("014155552258"));
+  profile.SetInfo(AutoFillType(PHONE_FAX_WHOLE_NUMBER),
+                  ASCIIToUTF16("024087172258"));
   profiles().push_back(&profile);
 
   LoadDialog();
@@ -278,7 +245,7 @@ TEST_F(AutoFillDialogControllerTest, AutoFillDataMutation) {
   EXPECT_TRUE([[am faxWholeNumber] isEqualToString:@"024087172258"]);
 
   [sheet save:nil];
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
   ASSERT_TRUE(observer_.hit_);
   ASSERT_TRUE(observer_.profiles_.size() == 1);
@@ -293,11 +260,12 @@ TEST_F(AutoFillDialogControllerTest, AutoFillDataMutation) {
 TEST_F(AutoFillDialogControllerTest, CreditCardDataMutation) {
   CreditCard credit_card(ASCIIToUTF16("myCC"), 345);
   credit_card.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("DCH"));
-  credit_card.SetInfo(
-    AutoFillType(CREDIT_CARD_NUMBER), ASCIIToUTF16("1234 5678 9101 1121"));
+  credit_card.SetInfo(AutoFillType(CREDIT_CARD_NUMBER),
+                      ASCIIToUTF16("1234 5678 9101 1121"));
   credit_card.SetInfo(AutoFillType(CREDIT_CARD_EXP_MONTH), ASCIIToUTF16("01"));
-  credit_card.SetInfo(
-    AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR), ASCIIToUTF16("2012"));
+  credit_card.SetInfo(AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
+                      ASCIIToUTF16("2012"));
+  credit_card.set_billing_address_id(0);
   credit_cards().push_back(&credit_card);
 
   LoadDialog();
@@ -313,12 +281,18 @@ TEST_F(AutoFillDialogControllerTest, CreditCardDataMutation) {
   EXPECT_TRUE([[cm expirationMonth] isEqualToString:@"01"]);
   EXPECT_TRUE([[cm expirationYear] isEqualToString:@"2012"]);
 
+  // Check that user-visible text is obfuscated.
+  NSTextField* numberField = [sheet creditCardNumberField];
+  ASSERT_TRUE(numberField != nil);
+  EXPECT_TRUE([[numberField stringValue] isEqualToString:@"************1121"]);
+
   [sheet save:nil];
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
   ASSERT_TRUE(observer_.hit_);
   ASSERT_TRUE(observer_.credit_cards_.size() == 1);
 
+  // Don't compare unique ids.
   credit_cards()[0]->set_unique_id(observer_.credit_cards_[0].unique_id());
   ASSERT_EQ(observer_.credit_cards_[0], *credit_cards()[0]);
 }
@@ -331,23 +305,23 @@ TEST_F(AutoFillDialogControllerTest, TwoProfiles) {
   profile2.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Bob"));
   profiles().push_back(&profile2);
   LoadDialog();
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  // Should not hit our observer.
+  ASSERT_FALSE(observer_.hit_);
 
   // Sizes should match.  And should be 2.
-  ASSERT_EQ(observer_.profiles_.size(), profiles().size());
-  ASSERT_EQ(observer_.profiles_.size(), 2UL);
+  ASSERT_EQ([controller_ profiles].size(), profiles().size());
+  ASSERT_EQ([controller_ profiles].size(), 2UL);
 
   // Contents should match.  With the exception of the |unique_id|.
   for (size_t i = 0, count = profiles().size(); i < count; i++) {
-    profiles()[i]->set_unique_id(observer_.profiles_[i].unique_id());
+    profiles()[i]->set_unique_id([controller_ profiles][i].unique_id());
 
     // Do not compare labels.  Label is a derived field.
-    observer_.profiles_[i].set_label(string16());
+    [controller_ profiles][i].set_label(string16());
     profiles()[i]->set_label(string16());
-    ASSERT_EQ(observer_.profiles_[i], *profiles()[i]);
+    ASSERT_EQ([controller_ profiles][i], *profiles()[i]);
   }
 }
 
@@ -359,19 +333,19 @@ TEST_F(AutoFillDialogControllerTest, TwoCreditCards) {
   credit_card2.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("Bob"));
   credit_cards().push_back(&credit_card2);
   LoadDialog();
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  // Should not hit our observer.
+  ASSERT_FALSE(observer_.hit_);
 
   // Sizes should match.  And should be 2.
-  ASSERT_EQ(observer_.credit_cards_.size(), credit_cards().size());
-  ASSERT_EQ(observer_.credit_cards_.size(), 2UL);
+  ASSERT_EQ([controller_ creditCards].size(), credit_cards().size());
+  ASSERT_EQ([controller_ creditCards].size(), 2UL);
 
   // Contents should match.  With the exception of the |unique_id|.
   for (size_t i = 0, count = credit_cards().size(); i < count; i++) {
-    credit_cards()[i]->set_unique_id(observer_.credit_cards_[i].unique_id());
-    ASSERT_EQ(observer_.credit_cards_[i], *credit_cards()[i]);
+    credit_cards()[i]->set_unique_id([controller_ creditCards][i].unique_id());
+    ASSERT_EQ([controller_ creditCards][i], *credit_cards()[i]);
   }
 }
 
@@ -387,7 +361,7 @@ TEST_F(AutoFillDialogControllerTest, AddNewProfile) {
   ASSERT_TRUE(model != nil);
   [model setFullName:@"Don"];
   [sheet save:nil];
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
   // Should hit our observer.
   ASSERT_TRUE(observer_.hit_);
@@ -416,7 +390,7 @@ TEST_F(AutoFillDialogControllerTest, AddNewCreditCard) {
   ASSERT_TRUE(model != nil);
   [model setNameOnCard:@"Don"];
   [sheet save:nil];
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
   // Should hit our observer.
   ASSERT_TRUE(observer_.hit_);
@@ -428,6 +402,7 @@ TEST_F(AutoFillDialogControllerTest, AddNewCreditCard) {
   // New credit card should match.  Don't compare labels.
   CreditCard new_credit_card;
   new_credit_card.SetInfo(AutoFillType(CREDIT_CARD_NAME), ASCIIToUTF16("Don"));
+  new_credit_card.set_billing_address_id(0);
   observer_.credit_cards_[1].set_label(string16());
   ASSERT_EQ(observer_.credit_cards_[1], new_credit_card);
 }
@@ -441,18 +416,13 @@ TEST_F(AutoFillDialogControllerTest, AddNewEmptyProfile) {
   AutoFillAddressSheetController* sheet = [controller_ addressSheetController];
   ASSERT_TRUE(sheet != nil);
   [sheet save:nil];
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  // Should not hit our observer.
+  ASSERT_FALSE(observer_.hit_);
 
-  // Sizes should be same.  Empty profile should not be saved.
-  ASSERT_EQ(observer_.profiles_.size(), profiles().size());
-  ASSERT_EQ(observer_.profiles_.size(), 1UL);
-
-  // Profile should match original.
-  observer_.profiles_[0].set_label(string16());
-  ASSERT_EQ(observer_.profiles_[0], profile);
+  // Empty profile should not be saved.
+  ASSERT_EQ(0UL, observer_.profiles_.size());
 }
 
 TEST_F(AutoFillDialogControllerTest, AddNewEmptyCreditCard) {
@@ -465,18 +435,13 @@ TEST_F(AutoFillDialogControllerTest, AddNewEmptyCreditCard) {
       [controller_ creditCardSheetController];
   ASSERT_TRUE(sheet != nil);
   [sheet save:nil];
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
   // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  ASSERT_FALSE(observer_.hit_);
 
-  // Sizes should be same.  Empty credit card should not be saved.
-  ASSERT_EQ(observer_.credit_cards_.size(), credit_cards().size());
-  ASSERT_EQ(observer_.credit_cards_.size(), 1UL);
-
-  // Credit card should match original.
-  observer_.credit_cards_[0].set_label(string16());
-  ASSERT_EQ(observer_.credit_cards_[0], credit_card);
+  // Empty credit card should not be saved.
+  ASSERT_EQ(0UL, observer_.credit_cards_.size());
 }
 
 TEST_F(AutoFillDialogControllerTest, DeleteProfile) {
@@ -486,7 +451,7 @@ TEST_F(AutoFillDialogControllerTest, DeleteProfile) {
   LoadDialog();
   [controller_ selectAddressAtIndex:0];
   [controller_ deleteSelection:nil];
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
   // Should hit our observer.
   ASSERT_TRUE(observer_.hit_);
@@ -503,7 +468,7 @@ TEST_F(AutoFillDialogControllerTest, DeleteCreditCard) {
   LoadDialog();
   [controller_ selectCreditCardAtIndex:0];
   [controller_ deleteSelection:nil];
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
   // Should hit our observer.
   ASSERT_TRUE(observer_.hit_);
@@ -523,7 +488,7 @@ TEST_F(AutoFillDialogControllerTest, TwoProfilesDeleteOne) {
   LoadDialog();
   [controller_ selectAddressAtIndex:1];
   [controller_ deleteSelection:nil];
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
   // Should hit our observer.
   ASSERT_TRUE(observer_.hit_);
@@ -551,7 +516,7 @@ TEST_F(AutoFillDialogControllerTest, TwoCreditCardsDeleteOne) {
   LoadDialog();
   [controller_ selectCreditCardAtIndex:1];
   [controller_ deleteSelection:nil];
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
   // Should hit our observer.
   ASSERT_TRUE(observer_.hit_);
@@ -587,7 +552,7 @@ TEST_F(AutoFillDialogControllerTest, DeleteMultiple) {
   [controller_ deleteSelection:nil];
   [controller_ selectAddressAtIndex:0];
   ASSERT_TRUE([controller_ editButtonEnabled]);
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
   // Should hit our observer.
   ASSERT_TRUE(observer_.hit_);
@@ -616,10 +581,10 @@ TEST_F(AutoFillDialogControllerTest, DeleteMultiple) {
 // Auxilliary profiles are enabled by default.
 TEST_F(AutoFillDialogControllerTest, AuxiliaryProfilesTrue) {
   LoadDialog();
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  // Should not hit our observer.
+  ASSERT_FALSE(observer_.hit_);
 
   // Auxiliary profiles setting should be unchanged.
   ASSERT_TRUE(helper_.profile()->GetPrefs()->GetBoolean(
@@ -630,10 +595,10 @@ TEST_F(AutoFillDialogControllerTest, AuxiliaryProfilesFalse) {
   helper_.profile()->GetPrefs()->SetBoolean(
       prefs::kAutoFillAuxiliaryProfilesEnabled, false);
   LoadDialog();
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  // Should not hit our observer.
+  ASSERT_FALSE(observer_.hit_);
 
   // Auxiliary profiles setting should be unchanged.
   ASSERT_FALSE(helper_.profile()->GetPrefs()->GetBoolean(
@@ -645,10 +610,10 @@ TEST_F(AutoFillDialogControllerTest, AuxiliaryProfilesChanged) {
       prefs::kAutoFillAuxiliaryProfilesEnabled, false);
   LoadDialog();
   [controller_ setAuxiliaryEnabled:YES];
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  // Should not hit our observer.
+  ASSERT_FALSE(observer_.hit_);
 
   // Auxiliary profiles setting should be unchanged.
   ASSERT_TRUE(helper_.profile()->GetPrefs()->GetBoolean(
@@ -662,70 +627,37 @@ TEST_F(AutoFillDialogControllerTest, WaitForDataToLoad) {
   credit_cards().push_back(&credit_card);
   helper_.test_profile_->test_manager_->test_data_is_loaded_ = false;
   LoadDialog();
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  // Should not hit our observer.
+  ASSERT_FALSE(observer_.hit_);
 
   // Sizes should match.
-  ASSERT_EQ(observer_.profiles_.size(), profiles().size());
-  ASSERT_EQ(observer_.credit_cards_.size(), credit_cards().size());
+  ASSERT_EQ([controller_ profiles].size(), profiles().size());
+  ASSERT_EQ([controller_ creditCards].size(), credit_cards().size());
 
   // Contents should match.
   size_t i = 0;
   size_t count = profiles().size();
   for (i = 0; i < count; i++) {
     // Do not compare labels.  Label is a derived field.
-    observer_.profiles_[i].set_label(string16());
+    [controller_ profiles][i].set_label(string16());
     profiles()[i]->set_label(string16());
-    ASSERT_EQ(observer_.profiles_[i], *profiles()[i]);
+    ASSERT_EQ([controller_ profiles][i], *profiles()[i]);
   }
   count = credit_cards().size();
   for (i = 0; i < count; i++) {
-    ASSERT_EQ(observer_.credit_cards_[i], *credit_cards()[i]);
+    ASSERT_EQ([controller_ creditCards][i], *credit_cards()[i]);
   }
-}
-
-TEST_F(AutoFillDialogControllerTest, ImportedParameters) {
-  AutoFillProfile profile(ASCIIToUTF16("Home"), 0);
-  imported_profile_ = &profile;
-  CreditCard credit_card(ASCIIToUTF16("Mastercard"), 0);
-  imported_credit_card_ = &credit_card;
-
-  // Note: when the |imported_*| parameters are supplied the dialog should
-  // ignore any profile and credit card information in the
-  // |PersonalDataManager|.
-  AutoFillProfile profile_ignored(ASCIIToUTF16("Work"), 0);
-  profiles().push_back(&profile_ignored);
-  CreditCard credit_card_ignored(ASCIIToUTF16("Visa"), 0);
-  credit_cards().push_back(&credit_card_ignored);
-
-  LoadDialog();
-  [controller_ save:nil];
-
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
-
-  // Sizes should match.
-  ASSERT_EQ(1UL, observer_.profiles_.size());
-  ASSERT_EQ(1UL, observer_.credit_cards_.size());
-
-  // Do not compare labels.  Label is a derived field.
-  observer_.profiles_[0].set_label(string16());
-  profile.set_label(string16());
-
-  // Contents should match.
-  ASSERT_EQ(observer_.profiles_[0], profile);
-  ASSERT_EQ(observer_.credit_cards_[0], credit_card);
 }
 
 // AutoFill is enabled by default.
 TEST_F(AutoFillDialogControllerTest, AutoFillEnabledTrue) {
   LoadDialog();
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  // Should not hit our observer.
+  ASSERT_FALSE(observer_.hit_);
 
   // AutoFill enabled setting should be unchanged.
   ASSERT_TRUE(helper_.profile()->GetPrefs()->GetBoolean(
@@ -735,10 +667,10 @@ TEST_F(AutoFillDialogControllerTest, AutoFillEnabledTrue) {
 TEST_F(AutoFillDialogControllerTest, AutoFillEnabledFalse) {
   helper_.profile()->GetPrefs()->SetBoolean(prefs::kAutoFillEnabled, false);
   LoadDialog();
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  // Should not hit our observer.
+  ASSERT_FALSE(observer_.hit_);
 
   // AutoFill enabled setting should be unchanged.
   ASSERT_FALSE(helper_.profile()->GetPrefs()->GetBoolean(
@@ -750,14 +682,77 @@ TEST_F(AutoFillDialogControllerTest, AutoFillEnabledChanged) {
       prefs::kAutoFillAuxiliaryProfilesEnabled, false);
   LoadDialog();
   [controller_ setAutoFillEnabled:YES];
-  [controller_ save:nil];
+  [controller_ closeDialog];
 
-  // Should hit our observer.
-  ASSERT_TRUE(observer_.hit_);
+  // Should not hit our observer.
+  ASSERT_FALSE(observer_.hit_);
 
   // Auxiliary profiles setting should be unchanged.
   ASSERT_TRUE(helper_.profile()->GetPrefs()->GetBoolean(
       prefs::kAutoFillEnabled));
+}
+
+TEST_F(AutoFillDialogControllerTest, PolicyRefresh) {
+  LoadDialog();
+  ASSERT_FALSE([controller_ autoFillManaged]);
+
+  // Disable AutoFill through configuration policy.
+  helper_.profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kAutoFillEnabled, Value::CreateBooleanValue(false));
+  ASSERT_TRUE([controller_ autoFillManaged]);
+  ASSERT_FALSE([controller_ autoFillEnabled]);
+
+  // Enabling through policy should switch to enabled but not editable.
+  helper_.profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kAutoFillEnabled, Value::CreateBooleanValue(true));
+  ASSERT_TRUE([controller_ autoFillManaged]);
+  ASSERT_TRUE([controller_ autoFillEnabled]);
+
+  [controller_ closeDialog];
+}
+
+TEST_F(AutoFillDialogControllerTest, PolicyDisabledAndSave) {
+  // Disable AutoFill through configuration policy.
+  helper_.profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kAutoFillEnabled, Value::CreateBooleanValue(false));
+  helper_.profile()->GetPrefs()->SetBoolean(
+      prefs::kAutoFillAuxiliaryProfilesEnabled, false);
+  LoadDialog();
+
+  // Save should be disabled.
+  ASSERT_TRUE([controller_ autoFillManagedAndDisabled]);
+
+  [controller_ setAuxiliaryEnabled:YES];
+  [controller_ closeDialog];
+
+  // Observer should not have been called.
+  ASSERT_FALSE(observer_.hit_);
+
+  // Auxiliary profiles setting should be unchanged.
+  ASSERT_FALSE(helper_.profile()->GetPrefs()->GetBoolean(
+      prefs::kAutoFillAuxiliaryProfilesEnabled));
+}
+
+TEST_F(AutoFillDialogControllerTest, PolicyEnabledAndSave) {
+  // Enable AutoFill through configuration policy.
+  helper_.profile()->GetTestingPrefService()->SetManagedPref(
+      prefs::kAutoFillEnabled, Value::CreateBooleanValue(true));
+  helper_.profile()->GetPrefs()->SetBoolean(
+      prefs::kAutoFillAuxiliaryProfilesEnabled, false);
+  LoadDialog();
+
+  // Save should be enabled.
+  ASSERT_FALSE([controller_ autoFillManagedAndDisabled]);
+
+  [controller_ setAuxiliaryEnabled:YES];
+  [controller_ closeDialog];
+
+  // Observer should not have been notified.
+  ASSERT_FALSE(observer_.hit_);
+
+  // Auxiliary profiles setting should have been saved.
+  ASSERT_TRUE(helper_.profile()->GetPrefs()->GetBoolean(
+      prefs::kAutoFillAuxiliaryProfilesEnabled));
 }
 
 }  // namespace

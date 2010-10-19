@@ -14,6 +14,7 @@
 #include "chrome/browser/extensions/extension_page_actions_module_constants.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/notification_service.h"
@@ -68,7 +69,7 @@ static void DispatchEvent(Profile* profile,
                           const std::string json_args) {
   if (profile->GetExtensionMessageService()) {
     profile->GetExtensionMessageService()->DispatchEventToRenderers(
-        event_name, json_args, profile->IsOffTheRecord(), GURL());
+        event_name, json_args, profile, GURL());
   }
 }
 
@@ -133,7 +134,8 @@ void ExtensionBrowserEventRouter::Init(Profile* profile) {
 
 ExtensionBrowserEventRouter::ExtensionBrowserEventRouter()
     : initialized_(false),
-      focused_window_id_(extension_misc::kUnknownWindowId) { }
+      focused_window_id_(extension_misc::kUnknownWindowId),
+      profile_(NULL) { }
 
 void ExtensionBrowserEventRouter::OnBrowserAdded(const Browser* browser) {
   RegisterForBrowserNotifications(browser);
@@ -168,6 +170,14 @@ void ExtensionBrowserEventRouter::RegisterForTabNotifications(
   // a devtools TabContents that is opened in window, docked, then closed.
   registrar_.Add(this, NotificationType::TAB_CONTENTS_DESTROYED,
                  Source<TabContents>(contents));
+}
+
+void ExtensionBrowserEventRouter::UnregisterForTabNotifications(
+    TabContents* contents) {
+  registrar_.Remove(this, NotificationType::NAV_ENTRY_COMMITTED,
+      Source<NavigationController>(&contents->controller()));
+  registrar_.Remove(this, NotificationType::TAB_CONTENTS_DESTROYED,
+      Source<TabContents>(contents));
 }
 
 void ExtensionBrowserEventRouter::OnBrowserWindowReady(const Browser* browser) {
@@ -304,10 +314,7 @@ void ExtensionBrowserEventRouter::TabClosingAt(TabContents* contents,
   int removed_count = tab_entries_.erase(tab_id);
   DCHECK_GT(removed_count, 0);
 
-  registrar_.Remove(this, NotificationType::NAV_ENTRY_COMMITTED,
-      Source<NavigationController>(&contents->controller()));
-  registrar_.Remove(this, NotificationType::TAB_CONTENTS_DESTROYED,
-      Source<TabContents>(contents));
+  UnregisterForTabNotifications(contents);
 }
 
 void ExtensionBrowserEventRouter::TabSelectedAt(TabContents* old_contents,
@@ -419,9 +426,15 @@ void ExtensionBrowserEventRouter::TabChangedAt(TabContents* contents,
 
 void ExtensionBrowserEventRouter::TabReplacedAt(TabContents* old_contents,
                                                 TabContents* new_contents,
-                                                int index) {
-  // TODO: 32913, consider adding better notification for this event.
-  TabInsertedAt(new_contents, index, false);
+                                                int index,
+                                                TabReplaceType type) {
+  if (type == REPLACE_MATCH_PREVIEW) {
+    // The ids of the two tabs should remain the same:
+    DCHECK_EQ(old_contents->controller().session_id().id(),
+              new_contents->controller().session_id().id());
+    UnregisterForTabNotifications(old_contents);
+    RegisterForTabNotifications(new_contents);
+  }
 }
 
 void ExtensionBrowserEventRouter::TabStripEmpty() {}

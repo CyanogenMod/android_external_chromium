@@ -1,12 +1,15 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+//
+// Currently this file is only used for the uninstall prompt. The install prompt
+// code is in extension_install_prompt2_gtk.cc.
 
 #include <gtk/gtk.h>
 
 #include "app/l10n_util.h"
-#include "base/rand_util.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
@@ -20,27 +23,13 @@ class Profile;
 
 namespace {
 
-const int kRightColumnWidth = 290;
-
 // Left or right margin.
 const int kPanelHorizMargin = 13;
-
-GtkWidget* MakeMarkupLabel(const char* format, const std::string& str) {
-  GtkWidget* label = gtk_label_new(NULL);
-  char* markup = g_markup_printf_escaped(format, str.c_str());
-  gtk_label_set_markup(GTK_LABEL(label), markup);
-  g_free(markup);
-
-  // Left align it.
-  gtk_misc_set_alignment(GTK_MISC(label), 0.0, 0.5);
-
-  return label;
-}
 
 void OnDialogResponse(GtkDialog* dialog, int response_id,
                       ExtensionInstallUI::Delegate* delegate) {
   if (response_id == GTK_RESPONSE_ACCEPT) {
-    delegate->InstallUIProceed(false);
+    delegate->InstallUIProceed();
   } else {
     delegate->InstallUIAbort();
   }
@@ -51,7 +40,6 @@ void OnDialogResponse(GtkDialog* dialog, int response_id,
 void ShowInstallPromptDialog(GtkWindow* parent, SkBitmap* skia_icon,
                              Extension *extension,
                              ExtensionInstallUI::Delegate *delegate,
-                             const string16& warning_text,
                              ExtensionInstallUI::PromptType type) {
   // Build the dialog.
   int title_id = ExtensionInstallUI::kTitleIds[type];
@@ -85,20 +73,11 @@ void ShowInstallPromptDialog(GtkWindow* parent, SkBitmap* skia_icon,
   gtk_box_pack_start(GTK_BOX(icon_hbox), right_column_area, TRUE, TRUE, 0);
 
   int heading_id = ExtensionInstallUI::kHeadingIds[type];
-  std::string heading_text = WideToUTF8(l10n_util::GetStringF(
-      heading_id, UTF8ToWide(extension->name())));
-  GtkWidget* heading_label = MakeMarkupLabel("<span weight=\"bold\">%s</span>",
-                                             heading_text);
+  std::string heading_text = l10n_util::GetStringFUTF8(
+      heading_id, UTF8ToUTF16(extension->name()));
+  GtkWidget* heading_label = gtk_label_new(heading_text.c_str());
   gtk_misc_set_alignment(GTK_MISC(heading_label), 0.0, 0.5);
-  gtk_label_set_selectable(GTK_LABEL(heading_label), TRUE);
   gtk_box_pack_start(GTK_BOX(right_column_area), heading_label, TRUE, TRUE, 0);
-
-  GtkWidget* warning_label = gtk_label_new(UTF16ToUTF8(warning_text).c_str());
-  gtk_label_set_line_wrap(GTK_LABEL(warning_label), TRUE);
-  gtk_widget_set_size_request(warning_label, kRightColumnWidth, -1);
-  gtk_misc_set_alignment(GTK_MISC(warning_label), 0.0, 0.5);
-  gtk_label_set_selectable(GTK_LABEL(warning_label), TRUE);
-  gtk_box_pack_start(GTK_BOX(right_column_area), warning_label, TRUE, TRUE, 0);
 
   g_signal_connect(dialog, "response", G_CALLBACK(OnDialogResponse), delegate);
   gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
@@ -109,7 +88,7 @@ void ShowInstallPromptDialog(GtkWindow* parent, SkBitmap* skia_icon,
 
 void ExtensionInstallUI::ShowExtensionInstallUIPromptImpl(
     Profile* profile, Delegate* delegate, Extension* extension, SkBitmap* icon,
-    const string16& warning_text, ExtensionInstallUI::PromptType type) {
+    ExtensionInstallUI::PromptType type) {
   Browser* browser = BrowserList::GetLastActiveWithProfile(profile);
   if (!browser) {
     delegate->InstallUIAbort();
@@ -123,6 +102,6 @@ void ExtensionInstallUI::ShowExtensionInstallUIPromptImpl(
     return;
   }
 
-  ShowInstallPromptDialog(browser_window->window(), icon, extension,
-      delegate, warning_text, type);
+  ShowInstallPromptDialog(browser_window->window(), icon, extension, delegate,
+                          type);
 }

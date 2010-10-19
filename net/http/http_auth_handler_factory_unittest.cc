@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/scoped_ptr.h"
+#include "net/base/mock_host_resolver.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_auth_handler.h"
 #include "net/http/http_auth_handler_factory.h"
@@ -95,9 +96,10 @@ TEST(HttpAuthHandlerFactoryTest, RegistryFactory) {
 }
 
 TEST(HttpAuthHandlerFactoryTest, DefaultFactory) {
+  scoped_refptr<HostResolver> host_resolver(new MockHostResolver());
   URLSecurityManagerAllow url_security_manager;
   scoped_ptr<HttpAuthHandlerRegistryFactory> http_auth_handler_factory(
-      HttpAuthHandlerFactory::CreateDefault());
+      HttpAuthHandlerFactory::CreateDefault(host_resolver));
   http_auth_handler_factory->SetURLSecurityManager(
       "negotiate", &url_security_manager);
   GURL server_origin("http://www.example.com");
@@ -111,7 +113,7 @@ TEST(HttpAuthHandlerFactoryTest, DefaultFactory) {
         BoundNetLog(),
         &handler);
     EXPECT_EQ(OK, rv);
-    EXPECT_FALSE(handler.get() == NULL);
+    ASSERT_FALSE(handler.get() == NULL);
     EXPECT_STREQ("basic", handler->scheme().c_str());
     EXPECT_STREQ("FooBar", handler->realm().c_str());
     EXPECT_EQ(HttpAuth::AUTH_SERVER, handler->target());
@@ -138,7 +140,7 @@ TEST(HttpAuthHandlerFactoryTest, DefaultFactory) {
         BoundNetLog(),
         &handler);
     EXPECT_EQ(OK, rv);
-    EXPECT_FALSE(handler.get() == NULL);
+    ASSERT_FALSE(handler.get() == NULL);
     EXPECT_STREQ("digest", handler->scheme().c_str());
     EXPECT_STREQ("FooBar", handler->realm().c_str());
     EXPECT_EQ(HttpAuth::AUTH_PROXY, handler->target());
@@ -170,7 +172,7 @@ TEST(HttpAuthHandlerFactoryTest, DefaultFactory) {
         BoundNetLog(),
         &handler);
     EXPECT_EQ(OK, rv);
-    EXPECT_FALSE(handler.get() == NULL);
+    ASSERT_FALSE(handler.get() == NULL);
     EXPECT_STREQ("negotiate", handler->scheme().c_str());
     EXPECT_STREQ("", handler->realm().c_str());
     EXPECT_EQ(HttpAuth::AUTH_SERVER, handler->target());

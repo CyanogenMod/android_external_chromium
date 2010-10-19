@@ -21,6 +21,7 @@
 #if defined(OS_POSIX)
 #include "base/file_descriptor_posix.h"
 #endif
+#include "base/file_path.h"
 #include "base/platform_file.h"
 #include "base/ref_counted.h"
 #include "base/time.h"
@@ -31,8 +32,6 @@
 namespace net {
 class HttpResponseHeaders;
 }
-
-class FilePath;
 
 namespace webkit_glue {
 
@@ -84,6 +83,10 @@ class ResourceLoaderBridge {
 
     // Used to associated the bridge with a frame's network context.
     int routing_id;
+
+    // If true, then the response body will be downloaded to a file and the
+    // path to that file will be provided in ResponseInfo::download_file_path.
+    bool download_to_file;
   };
 
   // Structure containing timing information for the request. It addresses
@@ -114,12 +117,12 @@ class ResourceLoaderBridge {
     // The time that DNS lookup ended. For reused sockets this time is -1.
     int32 dns_end;
 
-    // The time that establishing connection started. For reused sockets
-    // this time is -1. Connect time includes dns time.
+    // The time that establishing connection started. Connect time includes
+    // DNS, blocking, TCP, TCP retries and SSL time.
     int32 connect_start;
 
-    // The time that establishing connection ended. For reused sockets this
-    // time is -1. Connect time includes dns time.
+    // The time that establishing connection ended. Connect time includes
+    // DNS, blocking, TCP, TCP retries and SSL time.
     int32 connect_end;
 
     // The time at which SSL handshake started. For non-HTTPS requests this
@@ -191,6 +194,11 @@ class ResourceLoaderBridge {
     // Tools.
     LoadTimingInfo load_timing;
 
+    // The path to a file that will contain the response body.  It may only
+    // contain a portion of the response body at the time that the ResponseInfo
+    // becomes available.
+    FilePath download_file_path;
+
     // True if the response was delivered using SPDY.
     bool was_fetched_via_spdy;
 
@@ -258,6 +266,12 @@ class ResourceLoaderBridge {
     virtual void OnReceivedResponse(const ResponseInfo& info,
                                     bool content_filtered) = 0;
 
+    // Called when a chunk of response data is downloaded.  This method may be
+    // called multiple times or not at all if an error occurs.  This method is
+    // only called if RequestInfo::download_to_file was set to true, and in
+    // that case, OnReceivedData will not be called.
+    virtual void OnDownloadedData(int len) = 0;
+
     // Called when a chunk of response data is available. This method may
     // be called multiple times or not at all if an error occurs.
     virtual void OnReceivedData(const char* data, int len) = 0;
@@ -269,7 +283,8 @@ class ResourceLoaderBridge {
     // Called when the response is complete.  This method signals completion of
     // the resource load.ff
     virtual void OnCompletedRequest(const URLRequestStatus& status,
-                                    const std::string& security_info) = 0;
+                                    const std::string& security_info,
+                                    const base::Time& completion_time) = 0;
 
     // Returns the URL of the request, which allows us to display it in
     // debugging situations.
@@ -303,6 +318,10 @@ class ResourceLoaderBridge {
       uint64 offset,
       uint64 length,
       const base::Time& expected_modification_time) = 0;
+
+  // Call this method before calling Start() to append the contents of a blob
+  // to the request body.  May only be used with HTTP(S) POST requests.
+  virtual void AppendBlobToUpload(const GURL& blob_url) = 0;
 
   // Call this method before calling Start() to assign an upload identifier to
   // this request.  This is used to enable caching of POST responses.  A value

@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_TRANSLATE_INFOBAR_BASE_H_
 #define CHROME_BROWSER_COCOA_TRANSLATE_INFOBAR_BASE_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 #import "chrome/browser/cocoa/infobar_controller.h"
@@ -58,7 +59,10 @@ void AddMenuItem(NSMenu *menu, id target, SEL selector, NSString* title,
   scoped_nsobject<NSPopUpButton> toLanguagePopUp_;
   scoped_nsobject<NSPopUpButton> optionsPopUp_;
   scoped_nsobject<NSButton> showOriginalButton_;
-  scoped_nsobject<NSButton> tryAgainButton_;
+  // This is the button used in the translate message infobar.  It can either be
+  // a "Try Again" button, or a "Show Original" button in the case that the
+  // page was translated from an unknown language.
+  scoped_nsobject<NSButton> translateMessageButton_;
 
   // In the current locale, are the "from" and "to" language popup menu
   // flipped from what they'd appear in English.
@@ -128,6 +132,9 @@ void AddMenuItem(NSMenu *menu, id target, SEL selector, NSString* title,
 // to be empty.
 - (void)rebuildOptionsMenu:(BOOL)hideTitle;
 
+// Whether or not this infobar should show the options popup.
+- (BOOL)shouldShowOptionsPopUp;
+
 @end // TranslateInfoBarControllerBase (ProtectedAPI)
 
 #pragma mark TestingAPI
@@ -146,8 +153,9 @@ void AddMenuItem(NSMenu *menu, id target, SEL selector, NSString* title,
 // Returns the underlying options menu.
 - (NSMenu*)optionsMenu;
 
-// Returns the "try again" button.
-- (NSButton*)tryAgainButton;
+// Returns |translateMessageButton_|, see declaration of member
+// variable for a full description.
+- (NSButton*)translateMessageButton;
 
 @end // TranslateInfoBarControllerBase (TestingAPI)
 

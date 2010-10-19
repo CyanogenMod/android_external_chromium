@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_FAVICON_SERVICE_H__
 #define CHROME_BROWSER_FAVICON_SERVICE_H__
+#pragma once
 
 #include <vector>
 
@@ -89,7 +90,7 @@ class FaviconService : public CancelableRequestProvider,
  private:
   friend class base::RefCountedThreadSafe<FaviconService>;
 
-  ~FaviconService() {}
+  ~FaviconService();
 
   Profile* profile_;
 

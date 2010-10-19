@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_WEB_APPLICATIONS_WEB_APP_H_
 #define CHROME_BROWSER_WEB_APPLICATIONS_WEB_APP_H_
+#pragma once
 
 #include <vector>
 
@@ -21,7 +22,7 @@ namespace web_app {
 // Compute a deterministic name based on the URL. We use this pseudo name
 // as a key to store window location per application URLs in Browser and
 // as app id for BrowserWindow, shortcut and jump list.
-std::wstring GenerateApplicationNameFromURL(const GURL& url);
+std::string GenerateApplicationNameFromURL(const GURL& url);
 
 // Callback after user dismisses CreateShortcutView. "true" indicates
 // shortcut is created successfully. Otherwise, it is false.

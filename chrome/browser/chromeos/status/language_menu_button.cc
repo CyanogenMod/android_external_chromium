@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
@@ -15,10 +16,12 @@
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
+#include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/chromeos/status/status_area_host.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
+#include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 
@@ -71,7 +74,6 @@ enum {
 // input method list to avoid conflict.
 const int kRadioGroupLanguage = 1 << 16;
 const int kRadioGroupNone = -1;
-const wchar_t kSpacer[] = L"MMM";
 
 // A mapping from an input method id to a text for the language indicator. The
 // mapping is necessary since some input methods belong to the same language.
@@ -91,13 +93,9 @@ const struct {
   // For traditional Chinese input methods
   { "chewing", "\xe9\x85\xb7" },  // U+9177
   { "m17n:zh:cangjie", "\xe5\x80\x89" },  // U+5009
-  // TODO(yusukes): Add m17n:zh:quick if there's a good Hanzi character for it.
-
-  // Handle "m17n:t" input methods here since ICU is not able to handle the
-  // language code "t". Note: most users use either latn-pre or latn-post
-  // methods, not both. The same is true for mozc/mozc-jp.
-  { "m17n:t:latn-pre", "LAT" },
-  { "m17n:t:latn-post", "LAT" },
+  { "m17n:zh:quick", "\xe9\x80\x9f" },  // U+901F
+  // For Hangul input method.
+  { "hangul", "\xed\x95\x9c" },  // U+D55C
 };
 const size_t kMappingFromIdToIndicatorTextLen =
     ARRAYSIZE_UNSAFE(kMappingFromIdToIndicatorText);
@@ -126,7 +124,7 @@ namespace chromeos {
 // LanguageMenuButton
 
 LanguageMenuButton::LanguageMenuButton(StatusAreaHost* host)
-    : MenuButton(NULL, std::wstring(), this, false),
+    : StatusAreaButton(this),
       input_method_descriptors_(CrosLibrary::Get()->GetInputMethodLibrary()->
                                 GetActiveInputMethods()),
       model_(NULL),
@@ -139,15 +137,16 @@ LanguageMenuButton::LanguageMenuButton(StatusAreaHost* host)
   DCHECK(input_method_descriptors_.get() &&
          !input_method_descriptors_->empty());
   set_border(NULL);
+  set_use_menu_button_paint(true);
   SetFont(ResourceBundle::GetSharedInstance().GetFont(
       ResourceBundle::BaseFont).DeriveFont(1, gfx::Font::BOLD));
   SetEnabledColor(0xB3FFFFFF);  // White with 70% Alpha
   SetDisabledColor(0x00FFFFFF);  // White with 00% Alpha (invisible)
-  SetShowHighlighted(false);
+  SetShowMultipleIconStates(false);
+  set_alignment(TextButton::ALIGN_CENTER);
+
   // Update the model
   RebuildModel();
-  // Grab the real estate.
-  UpdateIndicator(kSpacer, L"" /* no tooltip */);
 
   // Draw the default indicator "US". The default indicator "US" is used when
   // |pref_service| is not available (for example, unit tests) or |pref_service|
@@ -325,12 +324,7 @@ string16 LanguageMenuButton::GetLabelAt(int index) const {
 
   std::wstring name;
   if (IndexIsInInputMethodList(index)) {
-    const std::string language_code =
-        input_method::GetLanguageCodeFromDescriptor(
-            input_method_descriptors_->at(index));
-    bool need_method_name = (need_method_name_.count(language_code) > 0);
-    name = GetTextForMenu(input_method_descriptors_->at(index),
-                          need_method_name);
+    name = GetTextForMenu(input_method_descriptors_->at(index));
   } else if (GetPropertyIndex(index, &index)) {
     const ImePropertyList& property_list
         = CrosLibrary::Get()->GetInputMethodLibrary()->current_ime_properties();
@@ -398,6 +392,22 @@ void LanguageMenuButton::RunMenu(views::View* source, const gfx::Point& pt) {
                                   GetActiveInputMethods());
   RebuildModel();
   language_menu_.Rebuild();
+
+  // Disallow the menu widget to grab the keyboard focus. This is necessary to
+  // enable users to change status of an input method (e.g. change the input
+  // mode from Japanese Hiragana to Japanese Katakana) without discarding a
+  // preedit string. See crosbug.com/5796 for details. Note that menus other
+  // than this one should not call the Gtk+ API since it is a special API only
+  // for a menu related to IME/keyboard. See the Gtk+ API reference at:
+  // http://library.gnome.org/devel/gtk/stable/GtkMenuShell.html
+  gfx::NativeMenu native_menu = language_menu_.GetNativeMenu();
+  if (native_menu) {
+    gtk_menu_shell_set_take_focus(GTK_MENU_SHELL(native_menu), FALSE);
+  } else {
+    LOG(ERROR)
+        << "Can't call gtk_menu_shell_set_take_focus since NativeMenu is NULL";
+  }
+
   language_menu_.UpdateStates();
   language_menu_.RunMenuAt(pt, views::Menu2::ALIGN_TOPRIGHT);
 }
@@ -428,7 +438,7 @@ void LanguageMenuButton::InputMethodChanged(InputMethodLibrary* obj) {
     // buttun for the login screen is destroyed.
     if (!logged_in_ && g_browser_process && g_browser_process->local_state()) {
         g_browser_process->local_state()->SetString(
-            kPreferredKeyboardLayout, current_input_method.id);
+            language_prefs::kPreferredKeyboardLayout, current_input_method.id);
         g_browser_process->local_state()->SavePersistentPrefs();
     }
   }
@@ -446,7 +456,8 @@ void LanguageMenuButton::ImePropertiesChanged(InputMethodLibrary* obj) {
 ////////////////////////////////////////////////////////////////////////////////
 // views::View implementation:
 
-void LanguageMenuButton::LocaleChanged() {
+void LanguageMenuButton::OnLocaleChanged() {
+  input_method::OnLocaleChanged();
   const InputMethodDescriptor& input_method =
       CrosLibrary::Get()->GetInputMethodLibrary()->current_input_method();
   UpdateIndicatorFromInputMethod(input_method);
@@ -474,15 +485,13 @@ void LanguageMenuButton::UpdateIndicator(
     SetTooltipText(tooltip);
   }
   SetText(name);
-  set_alignment(TextButton::ALIGN_RIGHT);
   SchedulePaint();
 }
 
 void LanguageMenuButton::UpdateIndicatorFromInputMethod(
     const InputMethodDescriptor& input_method) {
   const std::wstring name = GetTextForIndicator(input_method);
-  const std::wstring tooltip =
-      GetTextForMenu(input_method, true /* add_method_name */);
+  const std::wstring tooltip = GetTextForMenu(input_method);
   UpdateIndicator(name, tooltip);
 }
 
@@ -492,26 +501,14 @@ void LanguageMenuButton::RebuildModel() {
   // Indicates if separator's needed before each section.
   bool need_separator = false;
 
-  need_method_name_.clear();
-  std::set<std::string> languages_seen;
   if (!input_method_descriptors_->empty()) {
     // We "abuse" the command_id and group_id arguments of AddRadioItem method.
     // A COMMAND_ID_XXX enum value is passed as command_id, and array index of
     // |input_method_descriptors_| or |property_list| is passed as group_id.
     for (size_t i = 0; i < input_method_descriptors_->size(); ++i) {
       model_->AddRadioItem(COMMAND_ID_INPUT_METHODS, dummy_label, i);
-
-      const std::string language_code
-          = input_method::GetLanguageCodeFromDescriptor(
-              input_method_descriptors_->at(i));
-      // If there is more than one input method for this language, then we need
-      // to display the method name.
-      if (languages_seen.find(language_code) == languages_seen.end()) {
-        languages_seen.insert(language_code);
-      } else {
-        need_method_name_.insert(language_code);
-      }
     }
+
     need_separator = true;
   }
 
@@ -634,31 +631,33 @@ std::wstring LanguageMenuButton::GetTextForIndicator(
 }
 
 std::wstring LanguageMenuButton::GetTextForMenu(
-    const InputMethodDescriptor& input_method, bool add_method_name) {
+    const InputMethodDescriptor& input_method) {
+  // We don't show language here.  Name of keyboard layout or input method
+  // usually imply (or explicitly include) its language.
+
+  // Special case for Dutch, French and German: these languages have multiple
+  // keyboard layouts and share the same laout of keyboard (Belgian). We need to
+  // show explicitly the language for the layout.
+  // For Arabic and Hindi: they share "Standard Input Method".
   const std::string language_code
       = input_method::GetLanguageCodeFromDescriptor(input_method);
-
   std::wstring text;
-  if (language_code == "t") {
-    text = UTF8ToWide(input_method.display_name);
+  if (language_code == "ar" ||
+      language_code == "hi" ||
+      language_code == "nl" ||
+      language_code == "fr" ||
+      language_code == "de") {
+    text = GetLanguageName(language_code) + L" - ";
   }
+  text += input_method::GetString(input_method.display_name);
 
-  // For the drop-down menu and tooltip, we'll show language names like
-  // "Chinese (Simplified)" and "Japanese", instead of input method names
-  // like "Pinyin" and "Mozc".
-  if (text.empty()) {
-    text = GetLanguageName(language_code);
-    if (add_method_name) {
-      text += L" - ";
-      text += input_method::GetString(input_method.display_name);
-    }
-  }
   DCHECK(!text.empty());
   return text;
 }
 
 void LanguageMenuButton::RegisterPrefs(PrefService* local_state) {
-  local_state->RegisterStringPref(kPreferredKeyboardLayout, "");
+  local_state->RegisterStringPref(language_prefs::kPreferredKeyboardLayout,
+                                  "");
 }
 
 void LanguageMenuButton::Observe(NotificationType type,

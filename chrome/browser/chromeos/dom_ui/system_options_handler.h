@@ -4,15 +4,14 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_DOM_UI_SYSTEM_OPTIONS_HANDLER_H_
 #define CHROME_BROWSER_CHROMEOS_DOM_UI_SYSTEM_OPTIONS_HANDLER_H_
+#pragma once
 
-#include <string>
-#include <vector>
+#include "chrome/browser/chromeos/dom_ui/cros_options_page_ui_handler.h"
 
-#include "chrome/browser/dom_ui/options_ui.h"
-#include "third_party/icu/public/i18n/unicode/timezone.h"
+class DictionaryValue;
 
 // ChromeOS system options page UI handler.
-class SystemOptionsHandler : public OptionsPageUIHandler {
+class SystemOptionsHandler : public chromeos::CrosOptionsPageUIHandler {
  public:
   SystemOptionsHandler();
   virtual ~SystemOptionsHandler();
@@ -21,18 +20,6 @@ class SystemOptionsHandler : public OptionsPageUIHandler {
   virtual void GetLocalizedValues(DictionaryValue* localized_strings);
 
  private:
-  // Creates the map of timezones used by the options page.
-  ListValue* GetTimezoneList();
-
-  // Gets timezone name.
-  std::wstring GetTimezoneName(const icu::TimeZone* timezone);
-
-  // Gets timezone ID which is also used as timezone pref value.
-  std::wstring GetTimezoneID(const icu::TimeZone* timezone);
-
-  // Timezones.
-  std::vector<icu::TimeZone*> timezones_;
-
   DISALLOW_COPY_AND_ASSIGN(SystemOptionsHandler);
 };
 

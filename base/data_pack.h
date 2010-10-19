@@ -8,17 +8,18 @@
 
 #ifndef BASE_DATA_PACK_H_
 #define BASE_DATA_PACK_H_
+#pragma once
 
 #include <map>
 
 #include "base/basictypes.h"
-#include "base/ref_counted_memory.h"
 #include "base/scoped_ptr.h"
 
 namespace file_util {
   class MemoryMappedFile;
 }
 class FilePath;
+class RefCountedStaticMemory;
 
 namespace base {
 

@@ -6,17 +6,17 @@
 
 #include "app/l10n_util_mac.h"
 #include "app/resource_bundle.h"
-#include "base/i18n/rtl.h"
 #include "base/nsimage_cache_mac.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/alternate_nav_url_fetcher.h"
 #import "chrome/browser/app_controller_mac.h"
 #import "chrome/browser/autocomplete/autocomplete_edit_view_mac.h"
 #include "chrome/browser/browser_list.h"
-#import "chrome/browser/cocoa/content_blocked_bubble_controller.h"
+#import "chrome/browser/cocoa/content_setting_bubble_cocoa.h"
 #include "chrome/browser/cocoa/event_utils.h"
 #import "chrome/browser/cocoa/extensions/extension_action_context_menu.h"
 #import "chrome/browser/cocoa/extensions/extension_popup_controller.h"
@@ -33,6 +33,7 @@
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/content_setting_image_model.h"
 #include "chrome/browser/content_setting_bubble_model.h"
+#include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/extension_browser_event_router.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
@@ -51,6 +52,7 @@
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "skia/ext/skia_utils_mac.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 
 
 // TODO(shess): This code is mostly copied from the gtk
@@ -69,12 +71,14 @@ LocationBarViewMac::LocationBarViewMac(
       disposition_(CURRENT_TAB),
       location_icon_decoration_(new LocationIconDecoration(this)),
       selected_keyword_decoration_(
-          new SelectedKeywordDecoration([field_ font])),
+          new SelectedKeywordDecoration(
+              AutocompleteEditViewMac::GetFieldFont())),
       ev_bubble_decoration_(
           new EVBubbleDecoration(location_icon_decoration_.get(),
-                                 [field_ font])),
+                                 AutocompleteEditViewMac::GetFieldFont())),
       star_decoration_(new StarDecoration(command_updater)),
-      keyword_hint_decoration_(new KeywordHintDecoration([field_ font])),
+      keyword_hint_decoration_(
+          new KeywordHintDecoration(AutocompleteEditViewMac::GetFieldFont())),
       profile_(profile),
       browser_(browser),
       toolbar_model_(toolbar_model),
@@ -120,6 +124,11 @@ std::wstring LocationBarViewMac::GetInputString() const {
   return location_input_;
 }
 
+void LocationBarViewMac::SetSuggestedText(const string16& text) {
+  // TODO: implement me.
+  NOTIMPLEMENTED();
+}
+
 WindowOpenDisposition LocationBarViewMac::GetWindowOpenDisposition() const {
   return disposition_;
 }
@@ -143,9 +152,10 @@ void LocationBarViewMac::FocusSearch() {
 }
 
 void LocationBarViewMac::UpdateContentSettingsIcons() {
-  RefreshContentSettingsDecorations();
-  [field_ updateCursorAndToolTipRects];
-  [field_ setNeedsDisplay:YES];
+  if (RefreshContentSettingsDecorations()) {
+    [field_ updateCursorAndToolTipRects];
+    [field_ setNeedsDisplay:YES];
+  }
 }
 
 void LocationBarViewMac::UpdatePageActions() {
@@ -179,6 +189,10 @@ void LocationBarViewMac::SaveStateToContents(TabContents* contents) {
 
 void LocationBarViewMac::Update(const TabContents* contents,
                                 bool should_restore_state) {
+  bool star_enabled = browser_defaults::bookmarks_enabled &&
+      [field_ isEditable] && !toolbar_model_->input_in_progress();
+  command_updater_->UpdateCommandEnabled(IDC_BOOKMARK_PAGE, star_enabled);
+  star_decoration_->SetVisible(star_enabled);
   RefreshPageActionDecorations();
   RefreshContentSettingsDecorations();
   // AutocompleteEditView restores state if the tab is non-NULL.
@@ -283,6 +297,8 @@ PageActionDecoration* LocationBarViewMac::GetPageActionDecoration(
     if (page_action_decorations_[i]->page_action() == page_action)
       return page_action_decorations_[i];
   }
+  // If |page_action| is the browser action of an extension, no element in
+  // |page_action_decorations_| will match.
   NOTREACHED();
   return NULL;
 }
@@ -322,6 +338,19 @@ NSPoint LocationBarViewMac::GetPageActionBubblePoint(
   return [field_ convertPoint:bubble_point toView:nil];
 }
 
+NSRect LocationBarViewMac::GetBlockedPopupRect() const {
+  const size_t kPopupIndex = CONTENT_SETTINGS_TYPE_POPUPS;
+  const LocationBarDecoration* decoration =
+      content_setting_decorations_[kPopupIndex];
+  if (!decoration || !decoration->IsVisible())
+    return NSZeroRect;
+
+  AutocompleteTextFieldCell* cell = [field_ cell];
+  const NSRect frame = [cell frameForDecoration:decoration
+                                        inFrame:[field_ bounds]];
+  return [field_ convertRect:frame toView:nil];
+}
+
 ExtensionAction* LocationBarViewMac::GetPageAction(size_t index) {
   if (index < page_action_decorations_.size())
     return page_action_decorations_[index]->page_action();
@@ -352,7 +381,8 @@ void LocationBarViewMac::TestPageActionPressed(size_t index) {
 
 void LocationBarViewMac::SetEditable(bool editable) {
   [field_ setEditable:editable ? YES : NO];
-  star_decoration_->SetVisible(editable);
+  star_decoration_->SetVisible(browser_defaults::bookmarks_enabled &&
+      editable && !toolbar_model_->input_in_progress());
   UpdatePageActions();
   Layout();
 }
@@ -415,13 +445,16 @@ void LocationBarViewMac::PostNotification(NSString* notification) {
                                         object:[NSValue valueWithPointer:this]];
 }
 
-void LocationBarViewMac::RefreshContentSettingsDecorations() {
+bool LocationBarViewMac::RefreshContentSettingsDecorations() {
   const bool input_in_progress = toolbar_model_->input_in_progress();
   const TabContents* tab_contents =
       input_in_progress ? NULL : browser_->GetSelectedTabContents();
+  bool icons_updated = false;
   for (size_t i = 0; i < content_setting_decorations_.size(); ++i) {
-    content_setting_decorations_[i]->UpdateFromTabContents(tab_contents);
+    icons_updated |=
+        content_setting_decorations_[i]->UpdateFromTabContents(tab_contents);
   }
+  return icons_updated;
 }
 
 void LocationBarViewMac::DeletePageActionDecorations() {
@@ -468,8 +501,10 @@ void LocationBarViewMac::RefreshPageActionDecorations() {
     return;
 
   GURL url = GURL(WideToUTF8(toolbar_model_->GetText()));
-  for (size_t i = 0; i < page_action_decorations_.size(); ++i)
-    page_action_decorations_[i]->UpdateVisibility(contents, url);
+  for (size_t i = 0; i < page_action_decorations_.size(); ++i) {
+    page_action_decorations_[i]->UpdateVisibility(
+        toolbar_model_->input_in_progress() ? NULL : contents, url);
+  }
 }
 
 // TODO(shess): This function should over time grow to closely match
@@ -526,7 +561,7 @@ void LocationBarViewMac::Layout() {
     ev_bubble_decoration_->SetVisible(true);
 
     std::wstring label(toolbar_model_->GetEVCertName());
-    ev_bubble_decoration_->SetLabel(base::SysWideToNSString(label));
+    ev_bubble_decoration_->SetFullLabel(base::SysWideToNSString(label));
   } else if (!keyword.empty() && is_keyword_hint) {
     keyword_hint_decoration_->SetKeyword(short_name, is_extension_keyword);
     keyword_hint_decoration_->SetVisible(true);

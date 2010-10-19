@@ -4,6 +4,8 @@
 
 #include "net/http/http_auth_handler_negotiate.h"
 
+#include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "net/base/mock_host_resolver.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
@@ -50,7 +52,7 @@ class HttpAuthHandlerNegotiateTest : public PlatformTest {
         L"Negotiate", SEC_E_OK, security_package_.get());
 #elif defined(OS_POSIX)
     // Copied from an actual transaction!
-    const char kAuthResponse[] =
+    static const char kAuthResponse[] =
         "\x60\x82\x02\xCA\x06\x09\x2A\x86\x48\x86\xF7\x12\x01\x02\x02\x01"
         "\x00\x6E\x82\x02\xB9\x30\x82\x02\xB5\xA0\x03\x02\x01\x05\xA1\x03"
         "\x02\x01\x0E\xA2\x07\x03\x05\x00\x00\x00\x00\x00\xA3\x82\x01\xC1"
@@ -225,9 +227,7 @@ TEST_F(HttpAuthHandlerNegotiateTest, DisableCname) {
   TestCompletionCallback callback;
   HttpRequestInfo request_info;
   std::string token;
-  std::wstring username = L"foo";
-  std::wstring password = L"bar";
-  EXPECT_EQ(OK, auth_handler->GenerateAuthToken(&username, &password,
+  EXPECT_EQ(OK, auth_handler->GenerateAuthToken(NULL, NULL,
                                                 &request_info,
                                                 &callback, &token));
 #if defined(OS_WIN)
@@ -246,9 +246,7 @@ TEST_F(HttpAuthHandlerNegotiateTest, DisableCnameStandardPort) {
   TestCompletionCallback callback;
   HttpRequestInfo request_info;
   std::string token;
-  std::wstring username = L"foo";
-  std::wstring password = L"bar";
-  EXPECT_EQ(OK, auth_handler->GenerateAuthToken(&username, &password,
+  EXPECT_EQ(OK, auth_handler->GenerateAuthToken(NULL, NULL,
                                                 &request_info,
                                                 &callback, &token));
 #if defined(OS_WIN)
@@ -267,9 +265,7 @@ TEST_F(HttpAuthHandlerNegotiateTest, DisableCnameNonstandardPort) {
   TestCompletionCallback callback;
   HttpRequestInfo request_info;
   std::string token;
-  std::wstring username = L"foo";
-  std::wstring password = L"bar";
-  EXPECT_EQ(OK, auth_handler->GenerateAuthToken(&username, &password,
+  EXPECT_EQ(OK, auth_handler->GenerateAuthToken(NULL, NULL,
                                                 &request_info,
                                                 &callback, &token));
 #if defined(OS_WIN)
@@ -288,9 +284,7 @@ TEST_F(HttpAuthHandlerNegotiateTest, CnameSync) {
   TestCompletionCallback callback;
   HttpRequestInfo request_info;
   std::string token;
-  std::wstring username = L"foo";
-  std::wstring password = L"bar";
-  EXPECT_EQ(OK, auth_handler->GenerateAuthToken(&username, &password,
+  EXPECT_EQ(OK, auth_handler->GenerateAuthToken(NULL, NULL,
                                                 &request_info,
                                                 &callback, &token));
 #if defined(OS_WIN)
@@ -309,10 +303,8 @@ TEST_F(HttpAuthHandlerNegotiateTest, CnameAsync) {
   TestCompletionCallback callback;
   HttpRequestInfo request_info;
   std::string token;
-  std::wstring username = L"foo";
-  std::wstring password = L"bar";
   EXPECT_EQ(ERR_IO_PENDING, auth_handler->GenerateAuthToken(
-      &username, &password, &request_info, &callback, &token));
+      NULL, NULL, &request_info, &callback, &token));
   EXPECT_EQ(OK, callback.WaitForResult());
 #if defined(OS_WIN)
   EXPECT_EQ(L"HTTP/canonical.example.com", auth_handler->spn());

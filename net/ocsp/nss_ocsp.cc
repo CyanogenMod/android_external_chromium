@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -19,6 +19,8 @@
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/singleton.h"
+#include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/thread.h"
 #include "base/time.h"
 #include "googleurl/src/gurl.h"
@@ -447,11 +449,11 @@ class OCSPServerSession {
 
     // TODO(ukai): If |host| is an IPv6 literal, we need to quote it with
     //  square brackets [].
-    std::string url_string(StringPrintf("%s://%s:%d%s",
-                                        http_protocol_variant,
-                                        host_.c_str(),
-                                        port_,
-                                        path_and_query_string));
+    std::string url_string(base::StringPrintf("%s://%s:%d%s",
+                                              http_protocol_variant,
+                                              host_.c_str(),
+                                              port_,
+                                              path_and_query_string));
     LOG(INFO) << "URL [" << url_string << "]";
     GURL url(url_string);
     return new OCSPRequestSession(

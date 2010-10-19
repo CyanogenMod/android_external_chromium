@@ -10,14 +10,12 @@
 using WebKit::WebIDBKey;
 
 IndexedDBKey::IndexedDBKey()
-    : type_(WebIDBKey::InvalidType) {
+    : type_(WebIDBKey::InvalidType),
+      number_(0) {
 }
 
-IndexedDBKey::IndexedDBKey(const WebIDBKey& key)
-    : type_(key.type()),
-      string_(key.type() == WebIDBKey::StringType
-              ? static_cast<string16>(key.string()) : string16()),
-      number_(key.type() == WebIDBKey::NumberType ? key.number() : 0) {
+IndexedDBKey::IndexedDBKey(const WebIDBKey& key) {
+  Set(key);
 }
 
 void IndexedDBKey::SetNull() {
@@ -36,6 +34,13 @@ void IndexedDBKey::Set(const string16& string) {
 void IndexedDBKey::Set(int32_t number) {
   type_ = WebIDBKey::NumberType;
   number_ = number;
+}
+
+void IndexedDBKey::Set(const WebIDBKey& key) {
+  type_ = key.type();
+  string_ = key.type() == WebIDBKey::StringType ?
+                static_cast<string16>(key.string()) : string16();
+  number_ = key.type() == WebIDBKey::NumberType ? key.number() : 0;
 }
 
 IndexedDBKey::operator WebIDBKey() const {

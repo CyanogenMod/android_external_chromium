@@ -6,7 +6,9 @@
 
 #include "base/callback.h"
 #include "base/format_macros.h"
+#include "base/message_loop.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "media/base/filters.h"
 #include "media/base/mock_filter_host.h"
 #include "media/base/mock_filters.h"
@@ -51,7 +53,7 @@ ACTION_P(RequestCanceled, loader) {
   URLRequestStatus status;
   status.set_status(URLRequestStatus::CANCELED);
   status.set_os_error(net::ERR_ABORTED);
-  loader->OnCompletedRequest(status, "");
+  loader->OnCompletedRequest(status, "", base::Time());
 }
 
 class BufferedResourceLoaderTest : public testing::Test {
@@ -98,9 +100,9 @@ class BufferedResourceLoaderTest : public testing::Test {
   void FullResponse(int64 instance_size) {
     EXPECT_CALL(*this, StartCallback(net::OK));
     ResourceLoaderBridge::ResponseInfo info;
-    std::string header = StringPrintf("HTTP/1.1 200 OK\n"
-                                      "Content-Length: %" PRId64,
-                                      instance_size);
+    std::string header = base::StringPrintf("HTTP/1.1 200 OK\n"
+                                            "Content-Length: %" PRId64,
+                                            instance_size);
     replace(header.begin(), header.end(), '\n', '\0');
     info.headers = new net::HttpResponseHeaders(header);
     info.content_length = instance_size;
@@ -115,12 +117,12 @@ class BufferedResourceLoaderTest : public testing::Test {
     EXPECT_CALL(*this, StartCallback(net::OK));
     int64 content_length = last_position - first_position + 1;
     ResourceLoaderBridge::ResponseInfo info;
-    std::string header = StringPrintf("HTTP/1.1 206 Partial Content\n"
-                                      "Content-Range: bytes "
-                                      "%" PRId64 "-%" PRId64 "/%" PRId64,
-                                      first_position,
-                                      last_position,
-                                      instance_size);
+    std::string header = base::StringPrintf("HTTP/1.1 206 Partial Content\n"
+                                            "Content-Range: bytes "
+                                            "%" PRId64 "-%" PRId64 "/%" PRId64,
+                                            first_position,
+                                            last_position,
+                                            instance_size);
     replace(header.begin(), header.end(), '\n', '\0');
     info.headers = new net::HttpResponseHeaders(header);
     info.content_length = content_length;
@@ -267,9 +269,9 @@ TEST_F(BufferedResourceLoaderTest, InvalidPartialResponse) {
       .WillOnce(Invoke(this, &BufferedResourceLoaderTest::ReleaseBridge));
 
   ResourceLoaderBridge::ResponseInfo info;
-  std::string header = StringPrintf("HTTP/1.1 206 Partial Content\n"
-                                    "Content-Range: bytes %d-%d/%d",
-                                    1, 10, 1024);
+  std::string header = base::StringPrintf("HTTP/1.1 206 Partial Content\n"
+                                          "Content-Range: bytes %d-%d/%d",
+                                          1, 10, 1024);
   replace(header.begin(), header.end(), '\n', '\0');
   info.headers = new net::HttpResponseHeaders(header);
   info.content_length = 10;
@@ -315,7 +317,7 @@ TEST_F(BufferedResourceLoaderTest, BufferAndRead) {
       .WillOnce(Invoke(this, &BufferedResourceLoaderTest::ReleaseBridge));
   URLRequestStatus status;
   status.set_status(URLRequestStatus::SUCCESS);
-  loader_->OnCompletedRequest(status, "");
+  loader_->OnCompletedRequest(status, "", base::Time());
 
   // Try to read 10 from position 25 will just return with 5 bytes.
   EXPECT_CALL(*this, ReadCallback(5));
@@ -361,7 +363,7 @@ TEST_F(BufferedResourceLoaderTest, ReadOutsideBuffer) {
       .WillOnce(Invoke(this, &BufferedResourceLoaderTest::ReleaseBridge));
   URLRequestStatus status;
   status.set_status(URLRequestStatus::SUCCESS);
-  loader_->OnCompletedRequest(status, "");
+  loader_->OnCompletedRequest(status, "", base::Time());
 }
 
 TEST_F(BufferedResourceLoaderTest, RequestFailedWhenRead) {
@@ -379,7 +381,7 @@ TEST_F(BufferedResourceLoaderTest, RequestFailedWhenRead) {
       .WillOnce(Invoke(this, &BufferedResourceLoaderTest::ReleaseBridge));
   URLRequestStatus status;
   status.set_status(URLRequestStatus::FAILED);
-  loader_->OnCompletedRequest(status, "");
+  loader_->OnCompletedRequest(status, "", base::Time());
 }
 
 // Tests the logic of caching data to disk when media is paused.

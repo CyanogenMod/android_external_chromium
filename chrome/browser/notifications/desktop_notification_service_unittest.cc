@@ -7,9 +7,9 @@
 #include "base/ref_counted.h"
 #include "base/waitable_event.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/scoped_pref_update.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
-#include "chrome/browser/scoped_pref_update.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/testing_profile.h"
 #include "grit/generated_resources.h"
@@ -24,7 +24,8 @@ class ThreadProxy : public base::RefCountedThreadSafe<ThreadProxy> {
  public:
   ThreadProxy()
       : io_event_(false, false),
-        ui_event_(false, false) {
+        ui_event_(false, false),
+        permission_(0) {
     // The current message loop was already initalized by the test superclass.
     ui_thread_.reset(
         new ChromeThread(ChromeThread::UI, MessageLoop::current()));

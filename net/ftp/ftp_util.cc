@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/string_number_conversions.h"
 #include "base/string_tokenizer.h"
 #include "base/string_util.h"
 #include "base/time.h"
@@ -155,19 +156,27 @@ bool FtpUtil::LsDateListingToTime(const string16& month, const string16& day,
   if (!ThreeLetterMonthToNumber(month, &time_exploded.month))
     return false;
 
-  if (!StringToInt(day, &time_exploded.day_of_month))
+  if (!base::StringToInt(day, &time_exploded.day_of_month))
     return false;
 
-  if (!StringToInt(rest, &time_exploded.year)) {
-    // Maybe it's time. Does it look like time (MM:HH)?
-    if (rest.length() != 5 || rest[2] != ':')
-      return false;
+  if (!base::StringToInt(rest, &time_exploded.year)) {
+    // Maybe it's time. Does it look like time (HH:MM)?
+    if (rest.length() == 5 && rest[2] == ':') {
+      if (!base::StringToInt(rest.substr(0, 2), &time_exploded.hour))
+        return false;
 
-    if (!StringToInt(rest.substr(0, 2), &time_exploded.hour))
-      return false;
+      if (!base::StringToInt(rest.substr(3, 2), &time_exploded.minute))
+        return false;
+    } else if (rest.length() == 4 && rest[1] == ':') {
+      // Sometimes it's just H:MM.
+      if (!base::StringToInt(rest.substr(0, 1), &time_exploded.hour))
+        return false;
 
-    if (!StringToInt(rest.substr(3, 2), &time_exploded.minute))
+      if (!base::StringToInt(rest.substr(2, 2), &time_exploded.minute))
+        return false;
+    } else {
       return false;
+    }
 
     // Guess the year.
     base::Time::Exploded current_exploded;

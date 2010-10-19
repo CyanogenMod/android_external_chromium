@@ -68,7 +68,7 @@ class P2PTransportChannel : public TransportChannelImpl,
     public talk_base::MessageHandler {
  public:
   P2PTransportChannel(const std::string &name,
-                      const std::string &session_type,
+                      const std::string &content_type,
                       P2PTransport* transport,
                       PortAllocator *allocator);
   virtual ~P2PTransportChannel();

@@ -20,6 +20,7 @@ CFLAGS_Debug := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -69,6 +70,7 @@ CFLAGS_Release := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -101,7 +103,8 @@ INCS_Release := -Ithird_party/icu/public/common \
 	-Ithird_party/icu/public/i18n \
 	-I.
 
-OBJS := $(obj).target/$(TARGET)/base/i18n/file_util_icu.o \
+OBJS := $(obj).target/$(TARGET)/base/i18n/char_iterator.o \
+	$(obj).target/$(TARGET)/base/i18n/file_util_icu.o \
 	$(obj).target/$(TARGET)/base/i18n/icu_encoding_detection.o \
 	$(obj).target/$(TARGET)/base/i18n/icu_string_conversions.o \
 	$(obj).target/$(TARGET)/base/i18n/icu_util.o \
@@ -135,11 +138,12 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.cc FORCE_DO_CMD
 # End of this set of suffix rules
 ### Rules for final target.
 LDFLAGS_Debug := -pthread \
-	-Wl,-z,noexecstack \
-	-rdynamic
+	-Wl,-z,noexecstack
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := 

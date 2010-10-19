@@ -47,7 +47,9 @@
 namespace cricket {
 
 class Call;
-class MediaSessionDescription;
+class SessionDescription;
+typedef std::vector<AudioCodec> AudioCodecs;
+typedef std::vector<VideoCodec> VideoCodecs;
 
 class MediaSessionClient: public SessionClient, public sigslot::has_slots<> {
  public:
@@ -98,19 +100,22 @@ class MediaSessionClient: public SessionClient, public sigslot::has_slots<> {
   sigslot::signal1<Call *> SignalCallDestroy;
   sigslot::repeater0<> SignalDevicesChange;
 
-  MediaSessionDescription* CreateOfferSessionDescription(bool video = false);
-  MediaSessionDescription* CreateAcceptSessionDescription(
-      const SessionDescription* offer);
+  SessionDescription* CreateOffer(bool video = false, bool set_ssrc = false);
+  SessionDescription* CreateAnswer(const SessionDescription* offer);
 
  private:
   void Construct();
   void OnSessionCreate(Session *session, bool received_initiate);
   void OnSessionState(BaseSession *session, BaseSession::State state);
   void OnSessionDestroy(Session *session);
-  virtual const FormatDescription* ParseFormat(const buzz::XmlElement* element);
-  virtual buzz::XmlElement* WriteFormat(const FormatDescription* format);
+  virtual bool ParseContent(const buzz::XmlElement* elem,
+                            const ContentDescription** content,
+                            ParseError* error);
+  virtual bool WriteContent(const ContentDescription* content,
+                            buzz::XmlElement** elem,
+                            WriteError* error);
   Session *CreateSession(Call *call);
-  static bool ParseAudioCodec(const buzz::XmlElement* element, Codec* out);
+  static bool ParseAudioCodec(const buzz::XmlElement* element, AudioCodec* out);
   static bool ParseVideoCodec(const buzz::XmlElement* element, VideoCodec* out);
 
 
@@ -125,87 +130,86 @@ class MediaSessionClient: public SessionClient, public sigslot::has_slots<> {
   friend class Call;
 };
 
-// Parameters for a voice and/or video session.
-class MediaSessionDescription : public SessionDescription {
+enum MediaType {
+  MEDIA_TYPE_AUDIO,
+  MEDIA_TYPE_VIDEO
+};
+
+class MediaContentDescription : public ContentDescription {
  public:
-  // Base class with common options.
-  struct Content {
-    Content() : ssrc_(0), ssrc_set_(false), rtcp_mux_(false),
-                rtp_headers_disabled_(false) {}
+  MediaContentDescription() : ssrc_(0), ssrc_set_(false), rtcp_mux_(false),
+                              rtp_headers_disabled_(false) {}
 
-    uint32 ssrc() const { return ssrc_; }
-    bool ssrc_set() const { return ssrc_set_; }
-    void set_ssrc(uint32 ssrc) {
-      ssrc_ = ssrc;
-      ssrc_set_ = true;
-    }
+  virtual MediaType type() const = 0;
 
-    bool rtcp_mux() const { return rtcp_mux_; }
-    void set_rtcp_mux(bool mux) { rtcp_mux_ = mux; }
-
-    bool rtp_headers_disabled() const {
-      return rtp_headers_disabled_;
-    }
-    void set_rtp_headers_disabled(bool disable) {
-      rtp_headers_disabled_ = disable;
-    }
-
-    const std::vector<CryptoParams>& cryptos() const { return cryptos_; }
-    void AddCrypto(const CryptoParams& params) {
-      cryptos_.push_back(params);
-    }
-
-    template <class T> struct PreferenceSort {
-      bool operator()(T a, T b) { return a.preference > b.preference; }
-    };
-
-    uint32 ssrc_;
-    bool ssrc_set_;
-    bool rtcp_mux_;
-    bool rtp_headers_disabled_;
-    std::vector<CryptoParams> cryptos_;
-  };
-  // Voice-specific options.
-  struct VoiceContent : public Content {
-    const std::vector<Codec>& codecs() const { return codecs_; }
-    void AddCodec(const Codec& codec) {
-      codecs_.push_back(codec);
-    }
-    void SortCodecs() {
-      std::sort(codecs_.begin(), codecs_.end(), PreferenceSort<Codec>());
-    }
-    std::vector<Codec> codecs_;
-  };
-  // Video-specific options.
-  struct VideoContent : public Content {
-    const std::vector<VideoCodec>& codecs() const { return codecs_; }
-    void AddCodec(const VideoCodec& codec) {
-      codecs_.push_back(codec);
-    }
-    void SortCodecs() {
-      std::sort(codecs_.begin(), codecs_.end(), PreferenceSort<VideoCodec>());
-    }
-    std::vector<VideoCodec> codecs_;
-  };
-
-  const VoiceContent& voice() const { return voice_; }
-  VoiceContent& voice() { return voice_; }
-  const VideoContent& video() const { return video_; }
-  VideoContent& video() { return video_; }
-
-  void Sort() {
-    voice_.SortCodecs();
-    video_.SortCodecs();
+  uint32 ssrc() const { return ssrc_; }
+  bool ssrc_set() const { return ssrc_set_; }
+  void set_ssrc(uint32 ssrc) {
+    ssrc_ = ssrc;
+    ssrc_set_ = true;
   }
+
+  bool rtcp_mux() const { return rtcp_mux_; }
+  void set_rtcp_mux(bool mux) { rtcp_mux_ = mux; }
+
+  bool rtp_headers_disabled() const {
+    return rtp_headers_disabled_;
+  }
+  void set_rtp_headers_disabled(bool disable) {
+    rtp_headers_disabled_ = disable;
+  }
+
+  const std::vector<CryptoParams>& cryptos() const { return cryptos_; }
+  void AddCrypto(const CryptoParams& params) {
+    cryptos_.push_back(params);
+  }
+
+  uint32 ssrc_;
+  bool ssrc_set_;
+  bool rtcp_mux_;
+  bool rtp_headers_disabled_;
+  std::vector<CryptoParams> cryptos_;
+};
+
+template <class C>
+class MediaContentDescriptionImpl : public MediaContentDescription {
+ public:
+  struct PreferenceSort {
+    bool operator()(C a, C b) { return a.preference > b.preference; }
+  };
+
+  const std::vector<C>& codecs() const { return codecs_; }
+  void AddCodec(const C& codec) {
+    codecs_.push_back(codec);
+  }
+  void SortCodecs() {
+    std::sort(codecs_.begin(), codecs_.end(), PreferenceSort());
+  }
+
+ private:
+  std::vector<C> codecs_;
+};
+
+class AudioContentDescription : public MediaContentDescriptionImpl<AudioCodec> {
+ public:
+  virtual MediaType type() const { return MEDIA_TYPE_AUDIO; }
 
   const std::string &lang() const { return lang_; }
   void set_lang(const std::string &lang) { lang_ = lang; }
 
  private:
-  VoiceContent voice_;
-  VideoContent video_;
   std::string lang_;
 };
+
+class VideoContentDescription : public MediaContentDescriptionImpl<VideoCodec> {
+ public:
+  virtual MediaType type() const { return MEDIA_TYPE_VIDEO; }
+};
+
+// Convenience functions.
+const ContentInfo* GetFirstAudioContent(const SessionDescription* sdesc);
+const ContentInfo* GetFirstVideoContent(const SessionDescription* sdesc);
+
 
 }  // namespace cricket
 

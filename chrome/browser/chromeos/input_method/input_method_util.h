@@ -4,7 +4,9 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_INPUT_METHOD_INPUT_METHOD_UTIL_H_
 #define CHROME_BROWSER_CHROMEOS_INPUT_METHOD_INPUT_METHOD_UTIL_H_
+#pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -14,8 +16,8 @@
 namespace chromeos {
 namespace input_method {
 
-// The list of language that do not have associated input methods. For
-// these languages, we associate input methods here.
+// The list of language that do not have associated input methods in IBus.
+// For these languages, we associate input methods here.
 const struct ExtraLanguage {
   const char* language_code;
   const char* input_method_id;
@@ -74,12 +76,6 @@ std::string GetLanguageCodeFromDescriptor(
 // "pinyin"            => ""
 std::string GetKeyboardLayoutName(const std::string& input_method_id);
 
-// Rewrites the language name and returns the modified version if
-// necessary. Otherwise, returns the given language name as is.
-// In particular, this rewrites the special language name used for input
-// methods that don't fall under any other languages.
-std::wstring MaybeRewriteLanguageName(const std::wstring& language_name);
-
 // Converts an input method ID to a language code of the IME. Returns "Eng"
 // when |input_method_id| is unknown.
 // Example: "hangul" => "ko"
@@ -95,9 +91,16 @@ std::string GetInputMethodDisplayNameFromId(const std::string& input_method_id);
 // Converts a language code to a language display name, using the
 // current application locale. MaybeRewriteLanguageName() is called
 // internally.
-// Examples: "fr"    => "French"
+// Examples: "fi"    => "Finnish"
 //           "en-US" => "English (United States)"
 std::wstring GetLanguageDisplayNameFromCode(const std::string& language_code);
+
+// Converts a language code to a language native display name.
+// MaybeRewriteLanguageName() is called internally.
+// Examples: "fi"    => "suomi" (rather than Finnish)
+//           "en-US" => "English (United States)"
+std::wstring GetLanguageNativeDisplayNameFromCode(
+    const std::string& language_code);
 
 // Sorts the given language codes by their corresponding language names,
 // using the unicode string comparator. Uses unstable sorting.
@@ -106,15 +109,6 @@ void SortLanguageCodesByNames(std::vector<std::string>* language_codes);
 // Sorts the given input method ids by their corresponding language names,
 // using the unicode string comparator. Uses stable sorting.
 void SortInputMethodIdsByNames(std::vector<std::string>* input_method_ids);
-
-// Reorders the given input method ids for the language code. For
-// example, if |language_codes| is "fr" and |input_method_ids| contains
-// ["xkb:be::fra", and "xkb:fr::fra"], the list is reordered to
-// ["xkb:fr::fra", and "xkb:be::fra"], so that French keyboard layout
-// comes before Belgian keyboard layout.
-void ReorderInputMethodIdsForLanguageCode(
-    const std::string& language_code,
-    std::vector<std::string>* input_method_ids);
 
 enum InputMethodType {
   kKeyboardLayoutsOnly,
@@ -155,6 +149,8 @@ bool GetInputMethodIdsFromLanguageCodeInternal(
     const std::string& normalized_language_code,
     InputMethodType type,
     std::vector<std::string>* out_input_method_ids);
+
+void OnLocaleChanged();
 
 }  // namespace input_method
 }  // namespace chromeos

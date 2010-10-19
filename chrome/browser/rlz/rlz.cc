@@ -19,9 +19,11 @@
 #include "base/string_util.h"
 #include "base/task.h"
 #include "base/thread.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/profile_manager.h"
+#include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/env_vars.h"
@@ -164,8 +166,8 @@ class DelayedInitTask : public Task {
     // For organic brandcodes do not use rlz at all. Empty brandcode usually
     // means a chromium install. This is ok.
     std::wstring brand;
-    GoogleUpdateSettings::GetBrand(&brand);
-    if (GoogleUpdateSettings::IsOrganic(brand))
+    if (!GoogleUpdateSettings::GetBrand(&brand) || brand.empty() ||
+        GoogleUpdateSettings::IsOrganic(brand))
       return;
 
     // Do the initial event recording if is the first run or if we have an

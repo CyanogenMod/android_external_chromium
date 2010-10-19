@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_PRINTING_PRINT_JOB_WORKER_H__
 #define CHROME_BROWSER_PRINTING_PRINT_JOB_WORKER_H__
+#pragma once
 
 #include "base/task.h"
 #include "base/thread.h"
@@ -80,12 +81,17 @@ class PrintJobWorker : public base::Thread {
   // context.
   void OnFailure();
 
-#if defined(OS_MACOSX)
+#if defined(OS_MACOSX) || defined(USE_X11)
   // Asks the user for print settings. Must be called on the UI thread.
-  // Mac-only since Windows can display UI from non-main threads.
+  // Mac and Linux-only since Windows can display UI from non-main threads.
   void GetSettingsWithUI(gfx::NativeView parent_view,
                          int document_page_count,
                          bool has_selection);
+
+  // The callback used by PrintingContext::GetSettingsWithUI() to notify this
+  // object that the print settings are set.  This is needed in order to bounce
+  // back into the IO thread for GetSettingsDone().
+  void GetSettingsWithUIDone(PrintingContext::Result result);
 #endif
 
   // Reports settings back to owner_.

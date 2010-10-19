@@ -67,6 +67,7 @@ class XmlElement;
 namespace cricket {
 
 struct ParseError;
+struct WriteError;
 class PortAllocator;
 class SessionManager;
 class Session;
@@ -82,14 +83,13 @@ typedef std::vector<Candidate> Candidates;
 // Create/Translate.
 class TransportParser {
  public:
-  // see comment in parsing.h about parsing and unparsing function
-  // signatures
   virtual bool ParseCandidates(const buzz::XmlElement* elem,
                                Candidates* candidates,
                                ParseError* error) = 0;
-  virtual void WriteCandidates(const Candidates& candidates,
+  virtual bool WriteCandidates(const Candidates& candidates,
                                SignalingProtocol protocol,
-                               XmlElements* candidate_elems) = 0;
+                               XmlElements* candidate_elems,
+                               WriteError* error) = 0;
   virtual ~TransportParser() {}
 };
 
@@ -124,7 +124,7 @@ class Transport : public talk_base::MessageHandler, public sigslot::has_slots<>,
 
   // Create, destroy, and lookup the channels of this type by their names.
   TransportChannelImpl* CreateChannel(const std::string& name,
-                                      const std::string& session_type);
+                                      const std::string& content_type);
   // Note: GetChannel may lead to race conditions, since the mutex is not held
   // after the pointer is returned.
   TransportChannelImpl* GetChannel(const std::string& name);
@@ -184,7 +184,7 @@ class Transport : public talk_base::MessageHandler, public sigslot::has_slots<>,
   // These are called by Create/DestroyChannel above in order to create or
   // destroy the appropriate type of channel.
   virtual TransportChannelImpl* CreateTransportChannel(
-      const std::string& name, const std::string &session_type) = 0;
+      const std::string& name, const std::string &content_type) = 0;
   virtual void DestroyTransportChannel(TransportChannelImpl* channel) = 0;
 
   // Informs the subclass that we received the signaling ready message.
@@ -221,7 +221,7 @@ class Transport : public talk_base::MessageHandler, public sigslot::has_slots<>,
   // particular thread (s = signaling, w = worker).  The above methods post or
   // send a message to invoke this version.
   TransportChannelImpl* CreateChannel_w(const std::string& name,
-                                        const std::string& session_type);
+                                        const std::string& content_type);
   void DestroyChannel_w(const std::string& name);
   void ConnectChannels_w();
   void ResetChannels_w();

@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_WIN_H_
 #define CHROME_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_WIN_H_
+#pragma once
 
 #include <atlbase.h>
 #include <atlapp.h>
@@ -18,6 +19,7 @@
 #include "chrome/browser/browser_accessibility_manager_win.h"
 #include "chrome/browser/ime_input.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "webkit/glue/webcursor.h"
 
@@ -119,6 +121,7 @@ class RenderWidgetHostViewWin
   // Implementation of RenderWidgetHostView:
   virtual void InitAsPopup(RenderWidgetHostView* parent_host_view,
                            const gfx::Rect& pos);
+  virtual void InitAsFullscreen(RenderWidgetHostView* parent_host_view);
   virtual RenderWidgetHost* GetRenderWidgetHost() const;
   virtual void DidBecomeSelected();
   virtual void WasHidden();
@@ -150,10 +153,8 @@ class RenderWidgetHostViewWin
   virtual void SetBackground(const SkBitmap& background);
   virtual bool ContainsNativeView(gfx::NativeView native_view) const;
   virtual void SetVisuallyDeemphasized(bool deemphasized);
-  virtual void UpdateAccessibilityTree(
-      const webkit_glue::WebAccessibility& tree);
-  virtual void OnAccessibilityFocusChange(int acc_obj_id);
-  virtual void OnAccessibilityObjectStateChange(int acc_obj_id);
+  virtual void OnAccessibilityNotifications(
+      const std::vector<ViewHostMsg_AccessibilityNotification_Params>& params);
 
   // Implementation of NotificationObserver:
   virtual void Observe(NotificationType type,
@@ -194,7 +195,10 @@ class RenderWidgetHostViewWin
       UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
   LRESULT OnWheelEvent(
       UINT message, WPARAM wparam, LPARAM lparam, BOOL& handled);
-  LRESULT OnMouseActivate(UINT, WPARAM, LPARAM, BOOL& handled);
+  LRESULT OnMouseActivate(UINT message,
+                          WPARAM wparam,
+                          LPARAM lparam,
+                          BOOL& handled);
   // Handle MSAA requests for accessibility information.
   LRESULT OnGetObject(UINT message, WPARAM wparam, LPARAM lparam,
                       BOOL& handled);
@@ -253,9 +257,6 @@ class RenderWidgetHostViewWin
 
   // Whether the window should be activated.
   bool IsActivatable() const;
-
-  // MSAA IAccessible returned while page contents is loading.
-  ScopedComPtr<IAccessible> loading_accessible_;
 
   // The associated Model.
   RenderWidgetHost* render_widget_host_;

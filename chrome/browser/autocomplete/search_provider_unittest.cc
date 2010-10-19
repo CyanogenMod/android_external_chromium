@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -100,7 +100,7 @@ void SearchProviderTest::SetUp() {
   default_t_url_->SetSuggestionsURL("http://defaultturl2/{searchTerms}", 0, 0);
   turl_model->Add(default_t_url_);
   turl_model->SetDefaultSearchProvider(default_t_url_);
-  TemplateURL::IDType default_provider_id = default_t_url_->id();
+  TemplateURLID default_provider_id = default_t_url_->id();
   ASSERT_NE(0, default_provider_id);
 
   // Add url1, with search term term1_.
@@ -109,7 +109,8 @@ void SearchProviderTest::SetUp() {
   term1_url_ = GURL(default_t_url_->url()->ReplaceSearchTerms(
       *default_t_url_, UTF16ToWide(term1_), 0, std::wstring()));
   history->AddPageWithDetails(term1_url_, string16(), 1, 1,
-                              base::Time::Now(), false);
+                              base::Time::Now(), false,
+                              history::SOURCE_BROWSED);
   history->SetKeywordSearchTermsForURL(term1_url_, default_t_url_->id(),
                                        term1_);
 
@@ -126,7 +127,8 @@ void SearchProviderTest::SetUp() {
   keyword_url_ = GURL(keyword_t_url_->url()->ReplaceSearchTerms(
       *keyword_t_url_, UTF16ToWide(keyword_term_), 0, std::wstring()));
   history->AddPageWithDetails(keyword_url_, string16(), 1, 1,
-                              base::Time::Now(), false);
+                              base::Time::Now(), false,
+                              history::SOURCE_BROWSED);
   history->SetKeywordSearchTermsForURL(keyword_url_, keyword_t_url_->id(),
                                        keyword_term_);
 
@@ -136,7 +138,6 @@ void SearchProviderTest::SetUp() {
 }
 
 void SearchProviderTest::OnProviderUpdate(bool updated_matches) {
-  SearchProvider::set_query_suggest_immediately(false);
   if (quit_when_done_ && provider_->done()) {
     quit_when_done_ = false;
     message_loop_.Quit();
@@ -268,4 +269,31 @@ TEST_F(SearchProviderTest, QueryKeywordProvider) {
   // The fill into edit should contain the keyword.
   EXPECT_EQ(keyword_t_url_->keyword() + L" " + UTF16ToWide(keyword_term_),
             match.fill_into_edit);
+}
+
+TEST_F(SearchProviderTest, DontSendPrivateDataToSuggest) {
+  // None of the following input strings should be sent to the suggest server,
+  // because they may contain private data.
+  const char* inputs[] = {
+    "username:password",
+    "http://username:password",
+    "https://username:password",
+    "username:password@hostname",
+    "http://username:password@hostname/",
+    "file://filename",
+    "data://data",
+    "unknownscheme:anything",
+    "http://hostname/?query=q",
+    "http://hostname/path#ref",
+    "https://hostname/path",
+  };
+
+  for (size_t i = 0; i < arraysize(inputs); ++i) {
+    QueryForInput(ASCIIToUTF16(inputs[i]));
+    // Make sure the default providers suggest service was not queried.
+    ASSERT_TRUE(test_factory_.GetFetcherByID(
+        SearchProvider::kDefaultProviderURLFetcherID) == NULL);
+    // Run till the history results complete.
+    RunTillProviderDone();
+  }
 }

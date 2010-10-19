@@ -6,13 +6,18 @@
 
 #include "base/shared_memory.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
-#include "chrome/common/render_messages.h"
 
 using base::Time;
 using base::TimeDelta;
 
 // The amount of time we wait to accumulate visited link additions.
 static const int kCommitIntervalMs = 100;
+
+VisitedLinkEventListener::VisitedLinkEventListener() {
+}
+
+VisitedLinkEventListener::~VisitedLinkEventListener() {
+}
 
 void VisitedLinkEventListener::NewTable(base::SharedMemory* table_memory) {
   if (!table_memory)

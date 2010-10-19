@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,8 +7,18 @@
 
 #include "base/command_line.h"
 #include "base/basictypes.h"
-#include "base/string_util.h"
+#include "base/file_path.h"
+#include "base/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+// To test Windows quoting behavior, we use a string that has some backslashes
+// and quotes.
+// Consider the command-line argument: q\"bs1\bs2\\bs3q\\\"
+// Here it is with C-style escapes.
+#define TRICKY_QUOTED L"q\\\"bs1\\bs2\\\\bs3q\\\\\\\""
+// It should be parsed by Windows as: q"bs1\bs2\\bs3q\"
+// Here that is with C-style escapes.
+#define TRICKY L"q\"bs1\\bs2\\\\bs3q\\\""
 
 TEST(CommandLineTest, CommandLineConstructor) {
 #if defined(OS_WIN)
@@ -17,6 +27,7 @@ TEST(CommandLineTest, CommandLineConstructor) {
                      L"--other-switches=\"--dog=canine --cat=feline\" "
                      L"-spaetzle=Crepe   -=loosevalue  flan "
                      L"--input-translation=\"45\"--output-rotation "
+                     L"--quotes=" TRICKY_QUOTED L" "
                      L"-- -- --not-a-switch "
                      L"\"in the time of submarines...\"");
   EXPECT_FALSE(cl.command_line_string().empty());
@@ -50,6 +61,9 @@ TEST(CommandLineTest, CommandLineConstructor) {
 #endif
   EXPECT_TRUE(cl.HasSwitch("other-switches"));
   EXPECT_TRUE(cl.HasSwitch("input-translation"));
+#if defined(OS_WIN)
+  EXPECT_TRUE(cl.HasSwitch("quotes"));
+#endif
 
   EXPECT_EQ("Crepe", cl.GetSwitchValueASCII("spaetzle"));
   EXPECT_EQ("", cl.GetSwitchValueASCII("Foo"));
@@ -58,6 +72,9 @@ TEST(CommandLineTest, CommandLineConstructor) {
   EXPECT_EQ("--dog=canine --cat=feline", cl.GetSwitchValueASCII(
       "other-switches"));
   EXPECT_EQ("45--output-rotation", cl.GetSwitchValueASCII("input-translation"));
+#if defined(OS_WIN)
+  EXPECT_EQ(TRICKY, cl.GetSwitchValueNative("quotes"));
+#endif
 
   const std::vector<CommandLine::StringType>& args = cl.args();
   ASSERT_EQ(5U, args.size());
@@ -100,24 +117,39 @@ TEST(CommandLineTest, EmptyString) {
 TEST(CommandLineTest, AppendSwitches) {
   std::string switch1 = "switch1";
   std::string switch2 = "switch2";
-  std::wstring value = L"value";
+  std::string value = "value";
   std::string switch3 = "switch3";
-  std::wstring value3 = L"a value with spaces";
+  std::string value3 = "a value with spaces";
   std::string switch4 = "switch4";
-  std::wstring value4 = L"\"a value with quotes\"";
+  std::string value4 = "\"a value with quotes\"";
+  std::string switch5 = "quotes";
+  std::string value5 = WideToUTF8(TRICKY);
 
   CommandLine cl(FilePath(FILE_PATH_LITERAL("Program")));
 
   cl.AppendSwitch(switch1);
-  cl.AppendSwitchWithValue(switch2, value);
-  cl.AppendSwitchWithValue(switch3, value3);
-  cl.AppendSwitchWithValue(switch4, value4);
+  cl.AppendSwitchASCII(switch2, value);
+  cl.AppendSwitchASCII(switch3, value3);
+  cl.AppendSwitchASCII(switch4, value4);
+  cl.AppendSwitchASCII(switch5, value5);
 
   EXPECT_TRUE(cl.HasSwitch(switch1));
   EXPECT_TRUE(cl.HasSwitch(switch2));
-  EXPECT_EQ(value, cl.GetSwitchValue(switch2));
+  EXPECT_EQ(value, cl.GetSwitchValueASCII(switch2));
   EXPECT_TRUE(cl.HasSwitch(switch3));
-  EXPECT_EQ(value3, cl.GetSwitchValue(switch3));
+  EXPECT_EQ(value3, cl.GetSwitchValueASCII(switch3));
   EXPECT_TRUE(cl.HasSwitch(switch4));
-  EXPECT_EQ(value4, cl.GetSwitchValue(switch4));
+  EXPECT_EQ(value4, cl.GetSwitchValueASCII(switch4));
+  EXPECT_TRUE(cl.HasSwitch(switch5));
+  EXPECT_EQ(value5, cl.GetSwitchValueASCII(switch5));
+
+#if defined(OS_WIN)
+  EXPECT_EQ(L"\"Program\" "
+            L"--switch1 "
+            L"--switch2=value "
+            L"--switch3=\"a value with spaces\" "
+            L"--switch4=\"\\\"a value with quotes\\\"\" "
+            L"--quotes=\"" TRICKY_QUOTED L"\"",
+            cl.command_line_string());
+#endif
 }

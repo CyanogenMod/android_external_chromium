@@ -17,12 +17,14 @@
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/browser/chromeos/login/authentication_notification_details.h"
+#include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/login/message_bubble.h"
 #include "chrome/browser/chromeos/login/screen_observer.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/profile_manager.h"
 #include "chrome/common/notification_service.h"
+#include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 
 namespace chromeos {
@@ -41,7 +43,7 @@ LoginScreen::~LoginScreen() {
 }
 
 NewUserView* LoginScreen::AllocateView() {
-  return new NewUserView(this, true);
+  return new NewUserView(this, true, true);
 }
 
 void LoginScreen::OnLogin(const std::string& username,
@@ -73,7 +75,8 @@ void LoginScreen::ClearErrors() {
     bubble_->Close();
 }
 
-void LoginScreen::OnLoginFailure(const std::string& error) {
+void LoginScreen::OnLoginFailure(const LoginFailure& failure) {
+  const std::string error = failure.GetErrorString();
   LOG(INFO) << "LoginManagerView: OnLoginFailure() " << error;
   NetworkLibrary* network = CrosLibrary::Get()->GetNetworkLibrary();
 
@@ -84,7 +87,7 @@ void LoginScreen::OnLoginFailure(const std::string& error) {
   } else if (!network->Connected()) {
     ShowError(IDS_LOGIN_ERROR_OFFLINE_FAILED_NETWORK_NOT_CONNECTED, error);
   } else {
-    ShowError(IDS_LOGIN_ERROR_AUTHENTICATING, error);
+    ShowError(IDS_LOGIN_ERROR_AUTHENTICATING_NEW, error);
   }
 
   view()->ClearAndEnablePassword();
@@ -100,28 +103,32 @@ void LoginScreen::OnLoginSuccess(const std::string& username,
 
 void LoginScreen::OnOffTheRecordLoginSuccess() {
   delegate()->GetObserver(this)->OnExit(ScreenObserver::LOGIN_GUEST_SELECTED);
-  AppendStartUrlToCmdline();
-  LoginUtils::Get()->CompleteOffTheRecordLogin();
+}
+
+void LoginScreen::OnHelpLinkActivated() {
+  AddStartUrl(GetAccountRecoveryHelpUrl());
+  OnLoginOffTheRecord();
 }
 
 void LoginScreen::AppendStartUrlToCmdline() {
-  if (start_url_.is_valid()) {
-    CommandLine::ForCurrentProcess()->AppendLooseValue(
-        UTF8ToWide(start_url_.spec()));
-  }
+  if (start_url_.is_valid())
+    CommandLine::ForCurrentProcess()->AppendArg(start_url_.spec());
 }
 
 void LoginScreen::ShowError(int error_id, const std::string& details) {
   ClearErrors();
   std::wstring error_text = l10n_util::GetString(error_id);
-  if (!details.empty())
-    error_text += L"\n" + ASCIIToWide(details);
+  // TODO(dpolukhin): show detailed error info. |details| string contains
+  // low level error info that is not localized and even is not user friendly.
+  // For now just ignore it because error_text contains all required information
+  // for end users, developers can see details string in Chrome logs.
   bubble_ = MessageBubble::Show(
       view()->GetWidget(),
       view()->GetPasswordBounds(),
       BubbleBorder::LEFT_TOP,
       ResourceBundle::GetSharedInstance().GetBitmapNamed(IDR_WARNING),
       error_text,
+      l10n_util::GetString(IDS_CANT_ACCESS_ACCOUNT_BUTTON),
       this);
 }
 

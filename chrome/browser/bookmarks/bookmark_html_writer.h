@@ -4,20 +4,18 @@
 
 #ifndef CHROME_BROWSER_BOOKMARKS_BOOKMARK_HTML_WRITER_H_
 #define CHROME_BROWSER_BOOKMARKS_BOOKMARK_HTML_WRITER_H_
+#pragma once
 
 #include <list>
 #include <map>
 #include <string>
 
 #include "base/ref_counted.h"
-#include "base/values.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/common/notification_registrar.h"
 #include "net/base/file_stream.h"
 
-class BookmarkModel;
 class BookmarkNode;
-class DictionaryValue;
 class FilePath;
 class GURL;
 class Profile;

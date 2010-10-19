@@ -1,12 +1,14 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/autocomplete/history_contents_provider.h"
+#include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/test/testing_profile.h"
@@ -71,7 +73,8 @@ class HistoryContentsProviderTest : public testing::Test,
       Time t = Time::Now() - TimeDelta::FromDays(arraysize(test_entries) + i);
 
       history_service->AddPage(url, t, id_scope, i, GURL(),
-          PageTransition::LINK, history::RedirectList(), false);
+                               PageTransition::LINK, history::RedirectList(),
+                               history::SOURCE_BROWSED, false);
       history_service->SetPageTitle(url, UTF8ToUTF16(test_entries[i].title));
       history_service->SetPageContents(url, UTF8ToUTF16(test_entries[i].body));
     }
@@ -155,7 +158,8 @@ TEST_F(HistoryContentsProviderTest, Bookmarks) {
 
   // Add a bookmark.
   GURL bookmark_url("http://www.google.com/4");
-  profile()->GetBookmarkModel()->SetURLStarred(bookmark_url, L"bar", true);
+  profile()->GetBookmarkModel()->SetURLStarred(bookmark_url,
+                                               ASCIIToUTF16("bar"), true);
 
   // Ask for synchronous. This should only get the bookmark.
   AutocompleteInput sync_input(L"bar", std::wstring(), true, false, true);

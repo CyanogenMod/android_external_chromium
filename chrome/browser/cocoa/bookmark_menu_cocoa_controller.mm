@@ -6,6 +6,7 @@
 
 #include "app/text_elider.h"
 #include "base/sys_string_conversions.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"  // IDC_BOOKMARK_MENU
 #import "chrome/browser/app_controller_mac.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
@@ -28,10 +29,9 @@ const NSUInteger kMaximumMenuPixelsWide = 300;
 
 + (NSString*)menuTitleForNode:(const BookmarkNode*)node {
   NSFont* nsfont = [NSFont menuBarFontOfSize:0];  // 0 means "default"
-  gfx::Font font = gfx::Font::CreateFont(base::SysNSStringToWide([nsfont
-                                                                   fontName]),
-                                         (int)[nsfont pointSize]);
-  std::wstring title = gfx::ElideText(node->GetTitle(),
+  gfx::Font font(base::SysNSStringToWide([nsfont fontName]),
+                 static_cast<int>([nsfont pointSize]));
+  std::wstring title = gfx::ElideText(UTF16ToWideHack(node->GetTitle()),
                                       font,
                                       kMaximumMenuPixelsWide,
                                       false);
@@ -74,8 +74,9 @@ const NSUInteger kMaximumMenuPixelsWide = 300;
 
 // Open the URL of the given BookmarkNode in the current tab.
 - (void)openURLForNode:(const BookmarkNode*)node {
-  Browser* browser =
-      Browser::GetOrCreateTabbedBrowser(bridge_->GetProfile());
+  Browser* browser = Browser::GetTabbedBrowser(bridge_->GetProfile(), true);
+  if (!browser)
+    browser = Browser::Create(bridge_->GetProfile());
   WindowOpenDisposition disposition =
       event_utils::WindowOpenDispositionFromNSEvent([NSApp currentEvent]);
   browser->OpenURL(node->GetURL(), GURL(), disposition,

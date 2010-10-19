@@ -11,6 +11,8 @@
 #include "chrome/browser/automation/automation_provider.h"
 #include "chrome/browser/automation/automation_provider_json.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
+#include "chrome/browser/browser.h"
+#include "chrome/browser/browser_list.h"
 #include "chrome/browser/dom_operation_notification_details.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/save_package.h"
@@ -21,8 +23,11 @@
 #include "chrome/browser/metrics/metric_event_duration_details.h"
 #include "chrome/browser/printing/print_job.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/translate/page_translated_details.h"
+#include "chrome/browser/translate/translate_infobar_delegate.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/test/automation/automation_constants.h"
@@ -98,17 +103,17 @@ DictionaryValue* InitialLoadObserver::GetTimingInformation() const {
     DictionaryValue* item = new DictionaryValue;
     base::TimeDelta delta_start = it->second.start_time() - init_time_;
 
-    item->SetReal(L"load_start_ms", delta_start.InMillisecondsF());
+    item->SetReal("load_start_ms", delta_start.InMillisecondsF());
     if (it->second.stop_time().is_null()) {
-      item->Set(L"load_stop_ms", Value::CreateNullValue());
+      item->Set("load_stop_ms", Value::CreateNullValue());
     } else {
       base::TimeDelta delta_stop = it->second.stop_time() - init_time_;
-      item->SetReal(L"load_stop_ms", delta_stop.InMillisecondsF());
+      item->SetReal("load_stop_ms", delta_stop.InMillisecondsF());
     }
     items->Append(item);
   }
   DictionaryValue* return_value = new DictionaryValue;
-  return_value->Set(L"tabs", items);
+  return_value->Set("tabs", items);
   return return_value;
 }
 
@@ -336,6 +341,49 @@ void TabClosedNotificationObserver::ObserveTab(
 void TabClosedNotificationObserver::set_for_browser_command(
     bool for_browser_command) {
   for_browser_command_ = for_browser_command;
+}
+
+TabCountChangeObserver::TabCountChangeObserver(AutomationProvider* automation,
+                                               Browser* browser,
+                                               IPC::Message* reply_message,
+                                               int target_tab_count)
+    : automation_(automation),
+      reply_message_(reply_message),
+      tab_strip_model_(browser->tabstrip_model()),
+      target_tab_count_(target_tab_count) {
+  tab_strip_model_->AddObserver(this);
+  CheckTabCount();
+}
+
+TabCountChangeObserver::~TabCountChangeObserver() {
+  tab_strip_model_->RemoveObserver(this);
+}
+
+void TabCountChangeObserver::TabInsertedAt(TabContents* contents,
+                                           int index,
+                                           bool foreground) {
+  CheckTabCount();
+}
+
+void TabCountChangeObserver::TabClosingAt(TabContents* contents, int index) {
+  CheckTabCount();
+}
+
+void TabCountChangeObserver::TabStripModelDeleted() {
+  AutomationMsg_WaitForTabCountToBecome::WriteReplyParams(reply_message_,
+                                                          false);
+  automation_->Send(reply_message_);
+  delete this;
+}
+
+void TabCountChangeObserver::CheckTabCount() {
+  if (tab_strip_model_->count() != target_tab_count_)
+    return;
+
+  AutomationMsg_WaitForTabCountToBecome::WriteReplyParams(reply_message_,
+                                                          true);
+  automation_->Send(reply_message_);
+  delete this;
 }
 
 bool DidExtensionHostsStopLoading(ExtensionProcessManager* manager) {
@@ -758,6 +806,7 @@ void ExecuteBrowserCommandObserver::Observe(
 ExecuteBrowserCommandObserver::ExecuteBrowserCommandObserver(
     AutomationProvider* automation, IPC::Message* reply_message)
     : automation_(automation),
+      notification_type_(NotificationType::ALL),
       reply_message_(reply_message) {
 }
 
@@ -928,6 +977,117 @@ void MetricEventDurationObserver::Observe(NotificationType type,
       metric_event_duration->duration_ms;
 }
 
+PageTranslatedObserver::PageTranslatedObserver(AutomationProvider* automation,
+                                               IPC::Message* reply_message,
+                                               TabContents* tab_contents)
+  : automation_(automation),
+    reply_message_(reply_message) {
+  registrar_.Add(this, NotificationType::PAGE_TRANSLATED,
+                 Source<TabContents>(tab_contents));
+}
+
+void PageTranslatedObserver::Observe(NotificationType type,
+                                     const NotificationSource& source,
+                                     const NotificationDetails& details) {
+  DCHECK(type == NotificationType::PAGE_TRANSLATED);
+  AutomationJSONReply reply(automation_, reply_message_);
+
+  PageTranslatedDetails* translated_details =
+      Details<PageTranslatedDetails>(details).ptr();
+  scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
+  return_value->SetBoolean(
+      "translation_success",
+      translated_details->error_type == TranslateErrors::NONE);
+  reply.SendSuccess(return_value.get());
+  delete this;
+}
+
+TabLanguageDeterminedObserver::TabLanguageDeterminedObserver(
+    AutomationProvider* automation, IPC::Message* reply_message,
+    TabContents* tab_contents, TranslateInfoBarDelegate* translate_bar)
+  : automation_(automation),
+    reply_message_(reply_message),
+    tab_contents_(tab_contents),
+    translate_bar_(translate_bar) {
+  registrar_.Add(this, NotificationType::TAB_LANGUAGE_DETERMINED,
+                 Source<TabContents>(tab_contents));
+}
+
+void TabLanguageDeterminedObserver::Observe(
+    NotificationType type, const NotificationSource& source,
+    const NotificationDetails& details) {
+  DCHECK(type == NotificationType::TAB_LANGUAGE_DETERMINED);
+
+  scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
+  return_value->SetBoolean("page_translated",
+                           tab_contents_->language_state().IsPageTranslated());
+  return_value->SetBoolean(
+      "can_translate_page", TranslatePrefs::CanTranslate(
+          automation_->profile()->GetPrefs(),
+          tab_contents_->language_state().original_language(),
+          tab_contents_->GetURL()));
+  return_value->SetString(
+      "original_language",
+      tab_contents_->language_state().original_language());
+  if (translate_bar_) {
+    DictionaryValue* bar_info = new DictionaryValue;
+    std::map<TranslateInfoBarDelegate::Type, std::string> type_to_string;
+    type_to_string[TranslateInfoBarDelegate::BEFORE_TRANSLATE] =
+        "BEFORE_TRANSLATE";
+    type_to_string[TranslateInfoBarDelegate::TRANSLATING] =
+        "TRANSLATING";
+    type_to_string[TranslateInfoBarDelegate::AFTER_TRANSLATE] =
+        "AFTER_TRANSLATE";
+    type_to_string[TranslateInfoBarDelegate::TRANSLATION_ERROR] =
+        "TRANSLATION_ERROR";
+
+    bar_info->SetBoolean("always_translate_lang_button_showing",
+                         translate_bar_->ShouldShowAlwaysTranslateButton());
+    bar_info->SetBoolean("never_translate_lang_button_showing",
+                         translate_bar_->ShouldShowNeverTranslateButton());
+    bar_info->SetString("bar_state", type_to_string[translate_bar_->type()]);
+    bar_info->SetString("target_lang_code",
+                        translate_bar_->GetTargetLanguageCode());
+    bar_info->SetString("original_lang_code",
+                        translate_bar_->GetOriginalLanguageCode());
+    return_value->Set("translate_bar", bar_info);
+  }
+  AutomationJSONReply(automation_, reply_message_)
+      .SendSuccess(return_value.get());
+  delete this;
+}
+
+InfoBarCountObserver::InfoBarCountObserver(AutomationProvider* automation,
+                                           IPC::Message* reply_message,
+                                           TabContents* tab_contents,
+                                           int target_count)
+    : automation_(automation),
+      reply_message_(reply_message),
+      tab_contents_(tab_contents),
+      target_count_(target_count) {
+  Source<TabContents> source(tab_contents);
+  registrar_.Add(this, NotificationType::TAB_CONTENTS_INFOBAR_ADDED, source);
+  registrar_.Add(this, NotificationType::TAB_CONTENTS_INFOBAR_REMOVED, source);
+  CheckCount();
+}
+
+void InfoBarCountObserver::Observe(NotificationType type,
+                                   const NotificationSource& source,
+                                   const NotificationDetails& details) {
+  DCHECK(type == NotificationType::TAB_CONTENTS_INFOBAR_ADDED ||
+         type == NotificationType::TAB_CONTENTS_INFOBAR_REMOVED);
+  CheckCount();
+}
+
+void InfoBarCountObserver::CheckCount() {
+  if (tab_contents_->infobar_delegate_count() != target_count_)
+    return;
+
+  AutomationMsg_WaitForInfoBarCount::WriteReplyParams(reply_message_, true);
+  automation_->Send(reply_message_);
+  delete this;
+}
+
 #if defined(OS_CHROMEOS)
 LoginManagerObserver::LoginManagerObserver(
     AutomationProvider* automation,
@@ -951,7 +1111,8 @@ void LoginManagerObserver::Observe(NotificationType type,
 }
 #endif
 
-AutomationProviderBookmarkModelObserver::AutomationProviderBookmarkModelObserver(
+AutomationProviderBookmarkModelObserver::
+AutomationProviderBookmarkModelObserver(
     AutomationProvider* provider,
     IPC::Message* reply_message,
     BookmarkModel* model) {
@@ -961,7 +1122,8 @@ AutomationProviderBookmarkModelObserver::AutomationProviderBookmarkModelObserver
   model_->AddObserver(this);
 }
 
-AutomationProviderBookmarkModelObserver::~AutomationProviderBookmarkModelObserver() {
+AutomationProviderBookmarkModelObserver::
+~AutomationProviderBookmarkModelObserver() {
   model_->RemoveObserver(this);
 }
 
@@ -981,6 +1143,49 @@ void AutomationProviderDownloadItemObserver::OnDownloadFileCompleted(
   }
 }
 
+void AutomationProviderDownloadUpdatedObserver::OnDownloadUpdated(
+    DownloadItem* download) {
+  // If this observer is watching for open, only send the reply if the download
+  // has been auto-opened.
+  if (wait_for_open_ && !download->auto_opened())
+    return;
+
+  download->RemoveObserver(this);
+  scoped_ptr<DictionaryValue> return_value(
+      provider_->GetDictionaryFromDownloadItem(download));
+  AutomationJSONReply(provider_, reply_message_).SendSuccess(
+      return_value.get());
+  delete this;
+}
+
+void AutomationProviderDownloadUpdatedObserver::OnDownloadOpened(
+    DownloadItem* download) {
+  download->RemoveObserver(this);
+  scoped_ptr<DictionaryValue> return_value(
+      provider_->GetDictionaryFromDownloadItem(download));
+  AutomationJSONReply(provider_, reply_message_).SendSuccess(
+      return_value.get());
+  delete this;
+}
+
+void AutomationProviderDownloadModelChangedObserver::ModelChanged() {
+  AutomationJSONReply(provider_, reply_message_).SendSuccess(NULL);
+  download_manager_->RemoveObserver(this);
+  delete this;
+}
+
+void AutomationProviderSearchEngineObserver::OnTemplateURLModelChanged() {
+  TemplateURLModel* url_model = provider_->profile()->GetTemplateURLModel();
+  scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
+  return_value->Set("search_engines",
+                    provider_->ExtractSearchEngineInfo(url_model));
+
+  url_model->RemoveObserver(this);
+  AutomationJSONReply(provider_, reply_message_).SendSuccess(
+      return_value.get());
+  delete this;
+}
+
 void AutomationProviderHistoryObserver::HistoryQueryComplete(
     HistoryService::Handle request_handle,
     history::QueryResults* results) {
@@ -990,18 +1195,18 @@ void AutomationProviderHistoryObserver::HistoryQueryComplete(
   for (size_t i = 0; i < results->size(); ++i) {
     DictionaryValue* page_value = new DictionaryValue;
     history::URLResult const &page = (*results)[i];
-    page_value->SetStringFromUTF16(L"title", page.title());
-    page_value->SetString(L"url", page.url().spec());
-    page_value->SetReal(L"time",
+    page_value->SetString("title", page.title());
+    page_value->SetString("url", page.url().spec());
+    page_value->SetReal("time",
                         static_cast<double>(page.visit_time().ToDoubleT()));
-    page_value->SetStringFromUTF16(L"snippet", page.snippet().text());
+    page_value->SetString("snippet", page.snippet().text());
     page_value->SetBoolean(
-        L"starred",
+        "starred",
         provider_->profile()->GetBookmarkModel()->IsBookmarked(page.url()));
     history_list->Append(page_value);
   }
 
-  return_value->Set(L"history", history_list);
+  return_value->Set("history", history_list);
   // Return history info.
   AutomationJSONReply reply(provider_, reply_message_);
   reply.SendSuccess(return_value.get());
@@ -1023,17 +1228,24 @@ void AutomationProviderGetPasswordsObserver::OnPasswordStoreRequestDone(
           result.begin(); it != result.end(); ++it) {
     DictionaryValue* password_val = new DictionaryValue;
     webkit_glue::PasswordForm* password_form = *it;
-    password_val->SetStringFromUTF16(L"username",
-                                     password_form->username_value);
-    password_val->SetStringFromUTF16(L"password",
-                                     password_form->password_value);
+    password_val->SetString("username_value", password_form->username_value);
+    password_val->SetString("password_value", password_form->password_value);
+    password_val->SetString("signon_realm", password_form->signon_realm);
     password_val->SetReal(
-        L"time", static_cast<double>(
-            password_form->date_created.ToDoubleT()));
+        "time", static_cast<double>(password_form->date_created.ToDoubleT()));
+    password_val->SetString("origin_url", password_form->origin.spec());
+    password_val->SetString("username_element",
+                            password_form->username_element);
+    password_val->SetString("password_element",
+                            password_form->password_element);
+    password_val->SetString("submit_element",
+                                     password_form->submit_element);
+    password_val->SetString("action_target", password_form->action.spec());
+    password_val->SetBoolean("blacklist", password_form->blacklisted_by_user);
     passwords->Append(password_val);
   }
 
-  return_value->Set(L"passwords", passwords);
+  return_value->Set("passwords", passwords);
   AutomationJSONReply(provider_, reply_message_).SendSuccess(
       return_value.get());
   delete this;
@@ -1097,38 +1309,24 @@ void SavePackageNotificationObserver::Observe(
   }
 }
 
-WaitForInfobarCountObserver::WaitForInfobarCountObserver(
+AutocompleteEditFocusedObserver::AutocompleteEditFocusedObserver(
     AutomationProvider* automation,
-    IPC::Message* reply_message,
-    TabContents* tab_contents,
-    int count)
-  : automation_(automation),
-    reply_message_(reply_message),
-    tab_contents_(tab_contents),
-    count_(count) {
-  if (tab_contents->infobar_delegate_count() == count) {
-    ConditionMet();
-    return;
-  }
-  registrar_.Add(this, NotificationType::TAB_CONTENTS_INFOBAR_ADDED,
-                 Source<TabContents>(tab_contents_));
-  registrar_.Add(this, NotificationType::TAB_CONTENTS_INFOBAR_REMOVED,
-                 Source<TabContents>(tab_contents_));
+    AutocompleteEditModel* autocomplete_edit,
+    IPC::Message* reply_message)
+    : automation_(automation),
+      reply_message_(reply_message),
+      autocomplete_edit_model_(autocomplete_edit) {
+  Source<AutocompleteEditModel> source(autocomplete_edit);
+  registrar_.Add(this, NotificationType::AUTOCOMPLETE_EDIT_FOCUSED, source);
 }
 
-void WaitForInfobarCountObserver::Observe(
+void AutocompleteEditFocusedObserver::Observe(
     NotificationType type,
     const NotificationSource& source,
     const NotificationDetails& details) {
-  DCHECK(type == NotificationType::TAB_CONTENTS_INFOBAR_ADDED ||
-         type == NotificationType::TAB_CONTENTS_INFOBAR_REMOVED);
-  if (tab_contents_->infobar_delegate_count() == count_) {
-    ConditionMet();
-  }
-}
-
-void WaitForInfobarCountObserver::ConditionMet() {
-  registrar_.RemoveAll();
-  AutomationJSONReply(automation_, reply_message_).SendSuccess(NULL);
+  DCHECK(type == NotificationType::AUTOCOMPLETE_EDIT_FOCUSED);
+  AutomationMsg_WaitForAutocompleteEditFocus::WriteReplyParams(
+      reply_message_, true);
+  automation_->Send(reply_message_);
   delete this;
 }

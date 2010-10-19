@@ -6,15 +6,19 @@
 
 #ifndef CHROME_BROWSER_NET_SQLITE_PERSISTENT_COOKIE_STORE_H_
 #define CHROME_BROWSER_NET_SQLITE_PERSISTENT_COOKIE_STORE_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
-#include "app/sql/connection.h"
 #include "app/sql/meta_table.h"
 #include "base/file_path.h"
 #include "base/ref_counted.h"
 #include "net/base/cookie_monster.h"
+
+namespace sql {
+class Connection;
+}
 
 class FilePath;
 
@@ -24,10 +28,9 @@ class SQLitePersistentCookieStore
   explicit SQLitePersistentCookieStore(const FilePath& path);
   ~SQLitePersistentCookieStore();
 
-  virtual bool Load(std::vector<net::CookieMonster::KeyedCanonicalCookie>*);
+  virtual bool Load(std::vector<net::CookieMonster::CanonicalCookie*>*);
 
-  virtual void AddCookie(const std::string&,
-                         const net::CookieMonster::CanonicalCookie&);
+  virtual void AddCookie(const net::CookieMonster::CanonicalCookie&);
   virtual void UpdateCookieAccessTime(
       const net::CookieMonster::CanonicalCookie&);
   virtual void DeleteCookie(const net::CookieMonster::CanonicalCookie&);

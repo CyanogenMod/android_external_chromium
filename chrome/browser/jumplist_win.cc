@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -255,7 +255,7 @@ bool CreateIconFile(const SkBitmap& bitmap,
 
   // Create an icon file from the favicon attached to the given |page|, and
   // save it as the temporary file.
-  if (!IconUtil::CreateIconFileFromSkBitmap(bitmap, path.value()))
+  if (!IconUtil::CreateIconFileFromSkBitmap(bitmap, path))
     return false;
 
   // Add this icon file to the list and return its absolute path.
@@ -359,7 +359,7 @@ HRESULT UpdateTaskCategory(ScopedComPtr<ICustomDestinationList> list,
   // this item.
   scoped_refptr<ShellLinkItem> incognito(new ShellLinkItem);
   incognito->SetArguments(
-      CommandLine::PrefixedSwitchString(switches::kIncognito));
+      ASCIIToWide(std::string("--") + switches::kIncognito));
   std::wstring incognito_title(l10n_util::GetString(IDS_NEW_INCOGNITO_WINDOW));
   ReplaceSubstringsAfterOffset(&incognito_title, 0, L"&", L"");
   incognito->SetTitle(incognito_title);
@@ -422,10 +422,10 @@ bool UpdateJumpList(const wchar_t* app_id,
 
   // Retrieve the command-line switches of this process.
   CommandLine command_line(CommandLine::ARGUMENTS_ONLY);
-  std::wstring user_data_dir = CommandLine::ForCurrentProcess()->
-      GetSwitchValue(switches::kUserDataDir);
+  FilePath user_data_dir = CommandLine::ForCurrentProcess()->
+      GetSwitchValuePath(switches::kUserDataDir);
   if (!user_data_dir.empty())
-    command_line.AppendSwitchWithValue(switches::kUserDataDir, user_data_dir);
+    command_line.AppendSwitchPath(switches::kUserDataDir, user_data_dir);
 
   std::wstring chrome_switches = command_line.command_line_string();
 

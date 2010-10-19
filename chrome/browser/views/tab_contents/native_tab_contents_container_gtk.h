@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_TAB_CONTENTS_NATIVE_TAB_CONTENTS_CONTAINER_GTK_H_
 #define CHROME_BROWSER_VIEWS_TAB_CONTENTS_NATIVE_TAB_CONTENTS_CONTAINER_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -32,7 +33,7 @@ class NativeTabContentsContainerGtk : public NativeTabContentsContainer,
   virtual void Focus();
   virtual void RequestFocus();
   virtual void AboutToRequestFocusFromTabTraversal(bool reverse);
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
 
  private:
   TabContentsContainer* container_;

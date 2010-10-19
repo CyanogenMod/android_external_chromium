@@ -36,7 +36,7 @@
  * the terms of any one of the MPL, the GPL or the LGPL.
  *
  * ***** END LICENSE BLOCK ***** */
-/* $Id: ssl.h,v 1.36 2010/02/10 18:07:21 wtc%google.com Exp $ */
+/* $Id: ssl.h,v 1.38 2010/02/17 02:29:07 wtc%google.com Exp $ */
 
 #ifndef __ssl_h_
 #define __ssl_h_
@@ -123,14 +123,14 @@ SSL_IMPORT PRFileDesc *SSL_ImportFD(PRFileDesc *model, PRFileDesc *fd);
 #define SSL_ENABLE_DEFLATE             19 /* Enable TLS compression with    */
                                           /* DEFLATE (off by default)       */
 #define SSL_ENABLE_RENEGOTIATION       20 /* Values below (default: never)  */
-#define SSL_REQUIRE_SAFE_NEGOTIATION   21 /* Peer must send Signalling      */
+#define SSL_REQUIRE_SAFE_NEGOTIATION   21 /* Peer must send Signaling       */
 					  /* Cipher Suite Value (SCSV) or   */
                                           /* Renegotiation  Info (RI)       */
 					  /* extension in ALL handshakes.   */
                                           /* default: off                   */
-#define SSL_ENABLE_FALSE_START	       22 /* Enable SSL false start (off by */
-					  /* default, applies only to       */
-					  /* clients). False start is a     */
+#define SSL_ENABLE_FALSE_START         22 /* Enable SSL false start (off by */
+                                          /* default, applies only to       */
+                                          /* clients). False start is a     */
 /* mode where an SSL client will start sending application data before      */
 /* verifying the server's Finished message. This means that we could end up */
 /* sending data to an imposter. However, the data will be encrypted and     */
@@ -139,6 +139,15 @@ SSL_IMPORT PRFileDesc *SSL_ImportFD(PRFileDesc *model, PRFileDesc *fd);
 /* occur on RSA or DH ciphersuites where the cipher's key length is >= 80   */
 /* bits. The advantage of False Start is that it saves a round trip for     */
 /* client-speaks-first protocols when performing a full handshake.          */
+#define SSL_ENABLE_SNAP_START          23 /* Enable SSL snap start (off by  */
+                                          /* default, applies only to       */
+                                          /* clients). Snap start is a way  */
+/* of performing TLS handshakes with no round trips. The client's entire    */
+/* handshake is included in the first handshake message, along with         */
+/* optional application data. In order to do this, information from a       */
+/* previous connection to the same server is required. See                  */
+/* SSL_GetPredictedServerHelloData, SSL_SetPredictedPeerCertificates and    */
+/* SSL_SetSnapStartApplicationData.                                         */
 
 #ifdef SSL_DEPRECATED_FUNCTION 
 /* Old deprecated function names */
@@ -207,9 +216,11 @@ SSL_IMPORT SECStatus SSL_CipherPolicyGet(PRInt32 cipher, PRInt32 *policy);
 /* Only renegotiate if the peer's hello bears the TLS renegotiation_info   */
 /* extension. This is safe renegotiation.                                  */
 #define SSL_RENEGOTIATE_REQUIRES_XTN ((PRBool)2) 
-/* Disallow all renegotiation in server sockets only, but allow clients    */
+/* Disallow unsafe renegotiation in server sockets only, but allow clients */
 /* to continue to renegotiate with vulnerable servers.                     */
-#define SSL_RENEGOTIATE_CLIENT_ONLY  ((PRBool)3)
+/* This value should only be used during the transition period when few    */
+/* servers have been upgraded.                                             */
+#define SSL_RENEGOTIATE_TRANSITIONAL ((PRBool)3)
 
 /*
 ** Reset the handshake state for fd. This will make the complete SSL
@@ -372,6 +383,49 @@ SSL_IMPORT SECStatus SSL_SetPKCS11PinArg(PRFileDesc *fd, void *a);
 typedef SECStatus (PR_CALLBACK *SSLBadCertHandler)(void *arg, PRFileDesc *fd);
 SSL_IMPORT SECStatus SSL_BadCertHook(PRFileDesc *fd, SSLBadCertHandler f, 
 				     void *arg);
+
+/*
+** Set the predicted chain of certificates for the peer. This is used for the
+** TLS Snap Start extension. Note that the SSL_ENABLE_SNAP_START option must
+** be set for this to occur.
+**
+** This function takes a reference to each of the given certificates.
+*/
+SSL_IMPORT SECStatus SSL_SetPredictedPeerCertificates(
+	PRFileDesc *fd, CERTCertificate **certs,
+	unsigned int numCerts);
+
+/*
+** Get the data needed to predict the server's hello message in the future. On
+** return, |*data| will either be NULL (in which case no data is available and
+** |*data_len| will be zero) or it will point to a buffer within the internal
+** data of |fd| and |*data_len| will contain the number of bytes available. If
+** non-NULL, |*data| will persist at least until the next handshake on |fd|.
+*/
+SSL_IMPORT SECStatus SSL_GetPredictedServerHelloData(
+	PRFileDesc *fd, const unsigned char **data,
+	unsigned int *data_len);
+
+/*
+** Set the predicted server hello data. This is used for the TLS Snap Start
+** extension. Note that the SSL_ENABLE_SNAP_START option must be set for this
+** to occur.
+*/
+SSL_IMPORT SECStatus SSL_SetPredictedServerHelloData(
+	PRFileDesc *fd, const unsigned char *data, unsigned int data_len);
+
+/* Set the application data which will be transmitted in a Snap Start
+** handshake. If the Snap Start handshake fails, this data will be
+* retransmitted automatically. */
+SSL_IMPORT SECStatus SSL_SetSnapStartApplicationData(
+	PRFileDesc *fd, const unsigned char *data, unsigned int data_len);
+
+/* Get the result of a Snap Start handshake. It's valid to call then even if
+** SSL_ENABLE_SNAP_START hasn't been set, although the result will always be
+** SSL_SNAP_START_NONE.
+*/
+SSL_IMPORT SECStatus SSL_GetSnapStartResult(PRFileDesc* socket,
+                                            SSLSnapStartResult* result);
 
 /*
 ** Configure SSL socket for running a secure server. Needs the

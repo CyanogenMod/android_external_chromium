@@ -7,6 +7,7 @@
 #include "base/command_line.h"
 #include "base/message_loop.h"
 #include "base/message_loop_proxy.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_thread.h"
@@ -39,6 +40,10 @@
 #include "net/ocsp/nss_ocsp.h"
 #endif
 
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/proxy_config_service.h"
+#endif  // defined(OS_CHROMEOS)
+
 namespace {
 
 // ----------------------------------------------------------------------------
@@ -57,22 +62,27 @@ void CheckCurrentlyOnMainThread() {
 // Helper methods to initialize proxy
 // ----------------------------------------------------------------------------
 
-net::ProxyConfigService* CreateProxyConfigService(
-    const PrefService* pref_service) {
+net::ProxyConfigService* CreateProxyConfigService(Profile* profile) {
   // The linux gconf-based proxy settings getter relies on being initialized
   // from the UI thread.
   CheckCurrentlyOnMainThread();
 
-  scoped_ptr<net::ProxyConfig> proxy_config(CreateProxyConfig(pref_service));
+  scoped_ptr<net::ProxyConfig> proxy_config(CreateProxyConfig(
+      profile->GetPrefs()));
 
   if (!proxy_config.get()) {
     // Use system settings.
     // TODO(port): the IO and FILE message loops are only used by Linux.  Can
     // that code be moved to chrome/browser instead of being in net, so that it
     // can use ChromeThread instead of raw MessageLoop pointers? See bug 25354.
+#if defined(OS_CHROMEOS)
+    return new chromeos::ProxyConfigService(
+        profile->GetChromeOSProxyConfigServiceImpl());
+#else
     return net::ProxyService::CreateSystemProxyConfigService(
         g_browser_process->io_thread()->message_loop(),
         g_browser_process->file_thread()->message_loop());
+#endif  // defined(OS_CHROMEOS)
   }
 
   // Otherwise use the fixed settings from the command line.
@@ -105,7 +115,7 @@ net::ProxyService* CreateProxyService(
 
     // Parse the switch (it should be a positive integer formatted as decimal).
     int n;
-    if (StringToInt(s, &n) && n > 0) {
+    if (base::StringToInt(s, &n) && n > 0) {
       num_pac_threads = static_cast<size_t>(n);
     } else {
       LOG(ERROR) << "Invalid switch for number of PAC threads: " << s;
@@ -224,7 +234,7 @@ class FactoryForOriginal : public ChromeURLRequestContextFactory {
         // We need to initialize the ProxyConfigService from the UI thread
         // because on linux it relies on initializing things through gconf,
         // and needs to be on the main thread.
-        proxy_config_service_(CreateProxyConfigService(profile->GetPrefs())) {
+        proxy_config_service_(CreateProxyConfigService(profile)) {
   }
 
   virtual ChromeURLRequestContext* Create();
@@ -301,9 +311,7 @@ ChromeURLRequestContext* FactoryForOriginal::Create() {
   context->set_cookie_policy(
       new ChromeCookiePolicy(host_content_settings_map_));
 
-  // Create a new AppCacheService.
-  context->set_appcache_service(
-      new ChromeAppCacheService(profile_dir_path_, context));
+  appcache_service_->set_request_context(context);
 
 #if defined(USE_NSS)
   // TODO(ukai): find a better way to set the URLRequestContext for OCSP.
@@ -317,15 +325,18 @@ ChromeURLRequestContext* FactoryForOriginal::Create() {
 // Factory that creates the ChromeURLRequestContext for extensions.
 class FactoryForExtensions : public ChromeURLRequestContextFactory {
  public:
-  FactoryForExtensions(Profile* profile, const FilePath& cookie_store_path)
+  FactoryForExtensions(Profile* profile, const FilePath& cookie_store_path,
+                       bool incognito)
       : ChromeURLRequestContextFactory(profile),
-        cookie_store_path_(cookie_store_path) {
+        cookie_store_path_(cookie_store_path),
+        incognito_(incognito) {
   }
 
   virtual ChromeURLRequestContext* Create();
 
  private:
   FilePath cookie_store_path_;
+  bool incognito_;
 };
 
 ChromeURLRequestContext* FactoryForExtensions::Create() {
@@ -334,11 +345,14 @@ ChromeURLRequestContext* FactoryForExtensions::Create() {
 
   IOThread::Globals* io_thread_globals = io_thread()->globals();
 
-  // All we care about for extensions is the cookie store.
-  DCHECK(!cookie_store_path_.empty());
+  // All we care about for extensions is the cookie store. For incognito, we
+  // use a non-persistent cookie store.
+  scoped_refptr<SQLitePersistentCookieStore> cookie_db = NULL;
+  if (!incognito_) {
+    DCHECK(!cookie_store_path_.empty());
+    cookie_db = new SQLitePersistentCookieStore(cookie_store_path_);
+  }
 
-  scoped_refptr<SQLitePersistentCookieStore> cookie_db =
-      new SQLitePersistentCookieStore(cookie_store_path_);
   net::CookieMonster* cookie_monster =
       new net::CookieMonster(cookie_db.get(), NULL);
 
@@ -409,9 +423,7 @@ ChromeURLRequestContext* FactoryForOffTheRecord::Create() {
   context->set_ftp_transaction_factory(
       new net::FtpNetworkLayer(context->host_resolver()));
 
-  // Create a separate AppCacheService for OTR mode.
-  context->set_appcache_service(
-      new ChromeAppCacheService(profile_dir_path_, context));
+  appcache_service_->set_request_context(context);
 
   context->set_net_log(io_thread_globals->net_log.get());
   return context;
@@ -500,9 +512,7 @@ ChromeURLRequestContext* FactoryForMedia::Create() {
     cache->set_enable_range_support(false);
 
   context->set_http_transaction_factory(cache);
-
-  // Use the same appcache service as the profile's main context.
-  context->set_appcache_service(main_context->appcache_service());
+  context->set_net_log(io_thread_globals->net_log.get());
 
   return context;
 }
@@ -516,8 +526,7 @@ ChromeURLRequestContext* FactoryForMedia::Create() {
 ChromeURLRequestContextGetter::ChromeURLRequestContextGetter(
     Profile* profile,
     ChromeURLRequestContextFactory* factory)
-  : prefs_(NULL),
-    factory_(factory),
+  : factory_(factory),
     url_request_context_(NULL) {
   DCHECK(factory);
 
@@ -529,7 +538,7 @@ ChromeURLRequestContextGetter::ChromeURLRequestContextGetter(
 ChromeURLRequestContextGetter::~ChromeURLRequestContextGetter() {
   CheckCurrentlyOnIOThread();
 
-  DCHECK(!prefs_) << "Probably didn't call CleanupOnUIThread";
+  DCHECK(registrar_.IsEmpty()) << "Probably didn't call CleanupOnUIThread";
 
   // Either we already transformed the factory into a URLRequestContext, or
   // we still have a pending factory.
@@ -620,7 +629,7 @@ ChromeURLRequestContextGetter::CreateOriginalForExtensions(
   DCHECK(!profile->IsOffTheRecord());
   return new ChromeURLRequestContextGetter(
       profile,
-      new FactoryForExtensions(profile, cookie_store_path));
+      new FactoryForExtensions(profile, cookie_store_path, false));
 }
 
 // static
@@ -631,15 +640,19 @@ ChromeURLRequestContextGetter::CreateOffTheRecord(Profile* profile) {
       profile, new FactoryForOffTheRecord(profile));
 }
 
+// static
+ChromeURLRequestContextGetter*
+ChromeURLRequestContextGetter::CreateOffTheRecordForExtensions(
+    Profile* profile) {
+  DCHECK(profile->IsOffTheRecord());
+  return new ChromeURLRequestContextGetter(
+      profile, new FactoryForExtensions(profile, FilePath(), true));
+}
+
 void ChromeURLRequestContextGetter::CleanupOnUIThread() {
   CheckCurrentlyOnMainThread();
-
-  if (prefs_) {
-    // Unregister for pref notifications.
-    prefs_->RemovePrefObserver(prefs::kAcceptLanguages, this);
-    prefs_->RemovePrefObserver(prefs::kDefaultCharset, this);
-    prefs_ = NULL;
-  }
+  // Unregister for pref notifications.
+  registrar_.RemoveAll();
 }
 
 void ChromeURLRequestContextGetter::OnNewExtensions(
@@ -661,7 +674,7 @@ void ChromeURLRequestContextGetter::Observe(
   CheckCurrentlyOnMainThread();
 
   if (NotificationType::PREF_CHANGED == type) {
-    std::wstring* pref_name_in = Details<std::wstring>(details).ptr();
+    std::string* pref_name_in = Details<std::string>(details).ptr();
     PrefService* prefs = Source<PrefService>(source).ptr();
     DCHECK(pref_name_in && prefs);
     if (*pref_name_in == prefs::kAcceptLanguages) {
@@ -691,10 +704,9 @@ void ChromeURLRequestContextGetter::Observe(
 void ChromeURLRequestContextGetter::RegisterPrefsObserver(Profile* profile) {
   CheckCurrentlyOnMainThread();
 
-  prefs_ = profile->GetPrefs();
-
-  prefs_->AddPrefObserver(prefs::kAcceptLanguages, this);
-  prefs_->AddPrefObserver(prefs::kDefaultCharset, this);
+  registrar_.Init(profile->GetPrefs());
+  registrar_.Add(prefs::kAcceptLanguages, this);
+  registrar_.Add(prefs::kDefaultCharset, this);
 }
 
 // static
@@ -732,7 +744,9 @@ void ChromeURLRequestContextGetter::GetCookieStoreAsyncHelper(
 // ChromeURLRequestContext
 // ----------------------------------------------------------------------------
 
-ChromeURLRequestContext::ChromeURLRequestContext() {
+ChromeURLRequestContext::ChromeURLRequestContext()
+    : is_media_(false),
+      is_off_the_record_(false) {
   CheckCurrentlyOnIOThread();
 }
 
@@ -787,12 +801,35 @@ FilePath ChromeURLRequestContext::GetPathForExtension(const std::string& id) {
     return FilePath();
 }
 
+bool ChromeURLRequestContext::ExtensionHasWebExtent(const std::string& id) {
+  ExtensionInfoMap::iterator iter = extension_info_.find(id);
+  return iter != extension_info_.end() && !iter->second->extent.is_empty();
+}
+
+bool ChromeURLRequestContext::ExtensionCanLoadInIncognito(
+    const std::string& id) {
+  ExtensionInfoMap::iterator iter = extension_info_.find(id);
+  // Only split-mode extensions can load in incognito profiles.
+  return iter != extension_info_.end() && iter->second->incognito_split_mode;
+}
+
 std::string ChromeURLRequestContext::GetDefaultLocaleForExtension(
     const std::string& id) {
   ExtensionInfoMap::iterator iter = extension_info_.find(id);
   std::string result;
   if (iter != extension_info_.end())
     result = iter->second->default_locale;
+
+  return result;
+}
+
+ExtensionExtent
+    ChromeURLRequestContext::GetEffectiveHostPermissionsForExtension(
+        const std::string& id) {
+  ExtensionInfoMap::iterator iter = extension_info_.find(id);
+  ExtensionExtent result;
+  if (iter != extension_info_.end())
+    result = iter->second->effective_host_permissions;
 
   return result;
 }
@@ -817,10 +854,21 @@ bool ChromeURLRequestContext::CheckURLAccessToExtensionPermission(
   if (info == extension_info_.end())
     return false;
 
-  std::vector<std::string>& api_permissions = info->second->api_permissions;
-  return std::find(api_permissions.begin(),
-                   api_permissions.end(),
-                   permission_name) != api_permissions.end();
+  std::set<std::string>& api_permissions = info->second->api_permissions;
+  return api_permissions.count(permission_name) != 0;
+}
+
+bool ChromeURLRequestContext::URLIsForExtensionIcon(const GURL& url) {
+  DCHECK(url.SchemeIs(chrome::kExtensionScheme));
+
+  ExtensionInfoMap::iterator iter = extension_info_.find(url.host());
+  if (iter == extension_info_.end())
+    return false;
+
+  std::string path = url.path();
+  DCHECK(path.length() > 0 && path[0] == '/');
+  path = path.substr(1);
+  return iter->second->icons.ContainsPath(path);
 }
 
 const std::string& ChromeURLRequestContext::GetUserAgent(
@@ -830,24 +878,25 @@ const std::string& ChromeURLRequestContext::GetUserAgent(
 
 void ChromeURLRequestContext::OnNewExtensions(const std::string& id,
                                               ExtensionInfo* info) {
-  if (!is_off_the_record_)
-    extension_info_[id] = linked_ptr<ExtensionInfo>(info);
+  extension_info_[id] = linked_ptr<ExtensionInfo>(info);
 }
 
 void ChromeURLRequestContext::OnUnloadedExtension(const std::string& id) {
   CheckCurrentlyOnIOThread();
-  if (is_off_the_record_)
-    return;
   ExtensionInfoMap::iterator iter = extension_info_.find(id);
-  DCHECK(iter != extension_info_.end());
-  extension_info_.erase(iter);
+  if (iter != extension_info_.end()) {
+    extension_info_.erase(iter);
+  } else {
+    // NOTE: This can currently happen if we receive multiple unload
+    // notifications, e.g. setting incognito-enabled state for a
+    // disabled extension (e.g., via sync).  See
+    // http://code.google.com/p/chromium/issues/detail?id=50582 .
+    NOTREACHED() << id;
+  }
 }
 
-bool ChromeURLRequestContext::AreCookiesEnabled() const {
-  ContentSetting setting =
-      host_content_settings_map_->GetDefaultContentSetting(
-          CONTENT_SETTINGS_TYPE_COOKIES);
-  return setting != CONTENT_SETTING_BLOCK;
+bool ChromeURLRequestContext::IsExternal() const {
+  return false;
 }
 
 ChromeURLRequestContext::ChromeURLRequestContext(
@@ -885,6 +934,8 @@ ChromeURLRequestContext::ChromeURLRequestContext(
   host_zoom_map_ = other->host_zoom_map_;
   is_media_ = other->is_media_;
   is_off_the_record_ = other->is_off_the_record_;
+  blob_storage_context_ = other->blob_storage_context_;
+  file_system_host_context_ = other->file_system_host_context_;
 }
 
 void ChromeURLRequestContext::OnAcceptLanguageChange(
@@ -953,8 +1004,11 @@ ChromeURLRequestContextFactory::ChromeURLRequestContextFactory(Profile* profile)
                   (*iter)->name(),
                   (*iter)->path(),
                   (*iter)->default_locale(),
+                  (*iter)->incognito_split_mode(),
                   (*iter)->web_extent(),
-                  (*iter)->api_permissions()));
+                  (*iter)->GetEffectiveHostPermissions(),
+                  (*iter)->api_permissions(),
+                  (*iter)->icons()));
     }
   }
 
@@ -962,12 +1016,12 @@ ChromeURLRequestContextFactory::ChromeURLRequestContextFactory(Profile* profile)
     user_script_dir_path_ = profile->GetUserScriptMaster()->user_script_dir();
 
   ssl_config_service_ = profile->GetSSLConfigService();
-
   profile_dir_path_ = profile->GetPath();
-
   cookie_monster_delegate_ = new ChromeCookieMonsterDelegate(profile);
-
+  appcache_service_ = profile->GetAppCacheService();
   database_tracker_ = profile->GetDatabaseTracker();
+  blob_storage_context_ = profile->GetBlobStorageContext();
+  file_system_host_context_ = profile->GetFileSystemHostContext();
 }
 
 ChromeURLRequestContextFactory::~ChromeURLRequestContextFactory() {
@@ -990,14 +1044,17 @@ void ChromeURLRequestContextFactory::ApplyProfileParametersToContext(
   context->set_transport_security_state(
       transport_security_state_);
   context->set_ssl_config_service(ssl_config_service_);
+  context->set_appcache_service(appcache_service_);
   context->set_database_tracker(database_tracker_);
+  context->set_blob_storage_context(blob_storage_context_);
+  context->set_file_system_host_context(file_system_host_context_);
 }
 
 // ----------------------------------------------------------------------------
 
 net::ProxyConfig* CreateProxyConfig(const PrefService* pref_service) {
   // Scan for all "enable" type proxy switches.
-  static const wchar_t* proxy_prefs[] = {
+  static const char* proxy_prefs[] = {
     prefs::kProxyPacUrl,
     prefs::kProxyServer,
     prefs::kProxyBypassList,

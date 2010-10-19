@@ -15,6 +15,7 @@
 #include "base/scoped_variant_win.h"
 #include "base/string_util.h"
 #include "base/time.h"
+#include "base/utf_string_conversions.h"
 #include "googleurl/src/gurl.h"
 
 namespace {
@@ -119,7 +120,10 @@ void HistoryPublisher::PublishDataToIndexers(const PageData& page_data)
   ScopedBstr url(ASCIIToWide(page_data.url.spec()).c_str());
   ScopedBstr html(page_data.html);
   ScopedBstr title(page_data.title);
-  ScopedBstr format(ASCIIToWide(page_data.thumbnail_format).c_str());
+  // Don't send a NULL string through ASCIIToWide.
+  ScopedBstr format(page_data.thumbnail_format ?
+      ASCIIToWide(page_data.thumbnail_format).c_str() :
+      NULL);
   ScopedVariant psa(thumbnail_arr.m_psa);
   for (size_t i = 0; i < indexers_.size(); ++i) {
     indexers_[i]->SendPageData(time, url, html, title, format, psa);

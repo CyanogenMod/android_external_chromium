@@ -7,6 +7,7 @@
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/sha1.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "build/build_config.h"
 
@@ -121,6 +122,8 @@ void PluginList::GetPluginDirectories(std::vector<FilePath>* plugin_dirs) {
   PathService::Get(base::DIR_EXE, &dir);
   plugin_dirs->push_back(dir.Append("plugins"));
 
+  // Chrome OS only loads plugins from /opt/google/chrome/plugins.
+#if !defined(OS_CHROMEOS)
   // Mozilla code to reference:
   // http://mxr.mozilla.org/firefox/ident?i=NS_APP_PLUGINS_DIR_LIST
   // and tens of accompanying files (mxr is very helpful).
@@ -156,7 +159,8 @@ void PluginList::GetPluginDirectories(std::vector<FilePath>* plugin_dirs) {
   plugin_dirs->push_back(FilePath("/usr/lib64/mozilla/plugins"));
   plugin_dirs->push_back(FilePath("/usr/lib64/firefox/plugins"));
   plugin_dirs->push_back(FilePath("/usr/lib64/xulrunner-addons/plugins"));
-#endif
+#endif  // defined(ARCH_CPU_64_BITS)
+#endif  // !defined(OS_CHROMEOS)
 }
 
 void PluginList::LoadPluginsFromDir(const FilePath& dir_path,
@@ -183,18 +187,18 @@ void PluginList::LoadPluginsFromDir(const FilePath& dir_path,
     // symlinks.
     FilePath orig_path = path;
     file_util::AbsolutePath(&path);
-    LOG_IF(INFO, PluginList::DebugPluginLoading())
+    LOG_IF(ERROR, PluginList::DebugPluginLoading())
         << "Resolved " << orig_path.value() << " -> " << path.value();
 
     if (visited_plugins->find(path) != visited_plugins->end()) {
-      LOG_IF(INFO, PluginList::DebugPluginLoading())
+      LOG_IF(ERROR, PluginList::DebugPluginLoading())
           << "Skipping duplicate instance of " << path.value();
       continue;
     }
     visited_plugins->insert(path);
 
     if (IsBlacklistedPlugin(path)) {
-      LOG_IF(INFO, PluginList::DebugPluginLoading())
+      LOG_IF(ERROR, PluginList::DebugPluginLoading())
           << "Skipping blacklisted plugin " << path.value();
       continue;
     }
@@ -209,14 +213,15 @@ void PluginList::LoadPluginsFromDir(const FilePath& dir_path,
         // Go back to the old path.
         path = orig_path;
       } else {
-        LOG(ERROR) << "Flash misbehaves when used from a directory containing "
-                   << kNetscapeInPath << ", so skipping " << orig_path.value();
+        LOG_IF(ERROR, PluginList::DebugPluginLoading())
+            << "Flash misbehaves when used from a directory containing "
+            << kNetscapeInPath << ", so skipping " << orig_path.value();
         continue;
       }
     }
 
     // Get mtime.
-    file_util::FileInfo info;
+    base::PlatformFileInfo info;
     if (!file_util::GetFileInfo(path, &info))
       continue;
 
@@ -232,14 +237,13 @@ void PluginList::LoadPluginsFromDir(const FilePath& dir_path,
   }
 }
 
-
 bool PluginList::ShouldLoadPlugin(const WebPluginInfo& info,
                                   std::vector<WebPluginInfo>* plugins) {
-  LOG_IF(INFO, PluginList::DebugPluginLoading())
+  LOG_IF(ERROR, PluginList::DebugPluginLoading())
       << "Considering " << info.path.value() << " (" << info.name << ")";
 
   if (IsUndesirablePlugin(info)) {
-    LOG_IF(INFO, PluginList::DebugPluginLoading())
+    LOG_IF(ERROR, PluginList::DebugPluginLoading())
         << info.path.value() << " is undesirable.";
 
     // See if we have a better version of this plugin.
@@ -248,7 +252,7 @@ bool PluginList::ShouldLoadPlugin(const WebPluginInfo& info,
           !IsUndesirablePlugin(plugins->at(i))) {
         // Skip the current undesirable one so we can use the better one
         // we just found.
-        LOG_IF(INFO, PluginList::DebugPluginLoading())
+        LOG_IF(ERROR, PluginList::DebugPluginLoading())
             << "Skipping " << info.path.value() << ", preferring "
             << plugins->at(i).path.value();
         return false;

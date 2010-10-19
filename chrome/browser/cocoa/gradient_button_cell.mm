@@ -6,9 +6,9 @@
 
 #include "base/logging.h"
 #import "base/scoped_nsobject.h"
-#import "chrome/browser/browser_theme_provider.h"
 #import "chrome/browser/cocoa/image_utils.h"
 #import "chrome/browser/cocoa/themed_window.h"
+#import "chrome/browser/themes/browser_theme_provider.h"
 #include "grit/theme_resources.h"
 #import "third_party/GTM/AppKit/GTMNSColor+Luminance.h"
 
@@ -27,13 +27,187 @@
                    innerFrame:(NSRect*)returnInnerFrame
                     innerPath:(NSBezierPath**)returnInnerPath
                      clipPath:(NSBezierPath**)returnClipPath;
+
+
 @end
 
+
 static const NSTimeInterval kAnimationShowDuration = 0.2;
+
+// Note: due to a bug (?), drawWithFrame:inView: does not call
+// drawBorderAndFillForTheme::::: unless the mouse is inside.  The net
+// effect is that our "fade out" when the mouse leaves becaumes
+// instantaneous.  When I "fixed" it things looked horrible; the
+// hover-overed bookmark button would stay highlit for 0.4 seconds
+// which felt like latency/lag.  I'm leaving the "bug" in place for
+// now so we don't suck.  -jrg
 static const NSTimeInterval kAnimationHideDuration = 0.4;
 
+static const NSTimeInterval kAnimationContinuousCycleDuration = 0.4;
+
 @implementation GradientButtonCell
+
 @synthesize hoverAlpha = hoverAlpha_;
+
+// For nib instantiations
+- (id)initWithCoder:(NSCoder*)decoder {
+  if ((self = [super initWithCoder:decoder])) {
+    [self sharedInit];
+  }
+  return self;
+}
+
+// For programmatic instantiations
+- (id)initTextCell:(NSString*)string {
+  if ((self = [super initTextCell:string])) {
+    [self sharedInit];
+  }
+  return self;
+}
+
+- (void)dealloc {
+  if (trackingArea_) {
+    [[self controlView] removeTrackingArea:trackingArea_];
+    trackingArea_.reset();
+  }
+  [super dealloc];
+}
+
+// Return YES if we are pulsing (towards another state or continuously).
+- (BOOL)pulsing {
+  if ((pulseState_ == gradient_button_cell::kPulsingOn) ||
+      (pulseState_ == gradient_button_cell::kPulsingOff) ||
+      (pulseState_ == gradient_button_cell::kPulsingContinuous))
+    return YES;
+  return NO;
+}
+
+// Perform one pulse step when animating a pulse.
+- (void)performOnePulseStep {
+  NSTimeInterval thisUpdate = [NSDate timeIntervalSinceReferenceDate];
+  NSTimeInterval elapsed = thisUpdate - lastHoverUpdate_;
+  CGFloat opacity = [self hoverAlpha];
+
+  // Update opacity based on state.
+  // Adjust state if we have finished.
+  switch (pulseState_) {
+  case gradient_button_cell::kPulsingOn:
+    opacity += elapsed / kAnimationShowDuration;
+    if (opacity > 1.0) {
+      [self setPulseState:gradient_button_cell::kPulsedOn];
+      return;
+    }
+    break;
+  case gradient_button_cell::kPulsingOff:
+    opacity -= elapsed / kAnimationHideDuration;
+    if (opacity < 0.0) {
+      [self setPulseState:gradient_button_cell::kPulsedOff];
+      return;
+    }
+    break;
+  case gradient_button_cell::kPulsingContinuous:
+    opacity += elapsed / kAnimationContinuousCycleDuration * pulseMultiplier_;
+    if (opacity > 1.0) {
+      opacity = 1.0;
+      pulseMultiplier_ *= -1.0;
+    } else if (opacity < 0.0) {
+      opacity = 0.0;
+      pulseMultiplier_ *= -1.0;
+    }
+    outerStrokeAlphaMult_ = opacity;
+    break;
+  default:
+    NOTREACHED() << "unknown pulse state";
+  }
+
+  // Update our control.
+  lastHoverUpdate_ = thisUpdate;
+  [self setHoverAlpha:opacity];
+  [[self controlView] setNeedsDisplay:YES];
+
+  // If our state needs it, keep going.
+  if ([self pulsing]) {
+    [self performSelector:_cmd withObject:nil afterDelay:0.02];
+  }
+}
+
+- (gradient_button_cell::PulseState)pulseState {
+  return pulseState_;
+}
+
+// Set the pulsing state.  This can either set the pulse to on or off
+// immediately (e.g. kPulsedOn, kPulsedOff) or initiate an animated
+// state change.
+- (void)setPulseState:(gradient_button_cell::PulseState)pstate {
+  pulseState_ = pstate;
+  pulseMultiplier_ = 0.0;
+  [NSObject cancelPreviousPerformRequestsWithTarget:self];
+  lastHoverUpdate_ = [NSDate timeIntervalSinceReferenceDate];
+
+  switch (pstate) {
+  case gradient_button_cell::kPulsedOn:
+  case gradient_button_cell::kPulsedOff:
+    outerStrokeAlphaMult_ = 1.0;
+    [self setHoverAlpha:((pulseState_ == gradient_button_cell::kPulsedOn) ?
+                         1.0 : 0.0)];
+    [[self controlView] setNeedsDisplay:YES];
+    break;
+  case gradient_button_cell::kPulsingOn:
+  case gradient_button_cell::kPulsingOff:
+    outerStrokeAlphaMult_ = 1.0;
+    // Set initial value then engage timer.
+    [self setHoverAlpha:((pulseState_ == gradient_button_cell::kPulsingOn) ?
+                         0.0 : 1.0)];
+    [self performOnePulseStep];
+    break;
+  case gradient_button_cell::kPulsingContinuous:
+    // Semantics of continuous pulsing are that we pulse independent
+    // of mouse position.
+    pulseMultiplier_ = 1.0;
+    [self performOnePulseStep];
+    break;
+  default:
+    CHECK(0);
+    break;
+  }
+}
+
+- (void)safelyStopPulsing {
+  [NSObject cancelPreviousPerformRequestsWithTarget:self];
+}
+
+- (void)setIsContinuousPulsing:(BOOL)continuous {
+  if (!continuous && pulseState_ != gradient_button_cell::kPulsingContinuous)
+    return;
+  if (continuous) {
+    [self setPulseState:gradient_button_cell::kPulsingContinuous];
+  } else {
+    [self setPulseState:(isMouseInside_ ? gradient_button_cell::kPulsedOn :
+                         gradient_button_cell::kPulsedOff)];
+  }
+}
+
+- (BOOL)isContinuousPulsing {
+  return (pulseState_ == gradient_button_cell::kPulsingContinuous) ?
+      YES : NO;
+}
+
+#if 1
+// If we are not continuously pulsing, perform a pulse animation to
+// reflect our new state.
+- (void)setMouseInside:(BOOL)flag animate:(BOOL)animated {
+  isMouseInside_ = flag;
+  if (pulseState_ != gradient_button_cell::kPulsingContinuous) {
+    if (animated) {
+      [self setPulseState:(isMouseInside_ ? gradient_button_cell::kPulsingOn :
+                           gradient_button_cell::kPulsingOff)];
+    } else {
+      [self setPulseState:(isMouseInside_ ? gradient_button_cell::kPulsedOn :
+                           gradient_button_cell::kPulsedOff)];
+    }
+  }
+}
+#else
 
 - (void)adjustHoverValue {
   NSTimeInterval thisUpdate = [NSDate timeIntervalSinceReferenceDate];
@@ -72,29 +246,9 @@ static const NSTimeInterval kAnimationHideDuration = 0.4;
   [[self controlView] setNeedsDisplay:YES];
 }
 
-// For nib instantiations
-- (id)initWithCoder:(NSCoder*)decoder {
-  if ((self = [super initWithCoder:decoder])) {
-    [self sharedInit];
-  }
-  return self;
-}
 
-// For programmatic instantiations
-- (id)initTextCell:(NSString*)string {
-  if ((self = [super initTextCell:string])) {
-    [self sharedInit];
-  }
-  return self;
-}
 
-- (void)dealloc {
-  if (trackingArea_) {
-    [[self controlView] removeTrackingArea:trackingArea_];
-    trackingArea_.reset();
-  }
-  [super dealloc];
-}
+#endif
 
 - (NSGradient*)gradientForHoverAlpha:(CGFloat)hoverAlpha
                             isThemed:(BOOL)themed {
@@ -121,6 +275,9 @@ static const NSTimeInterval kAnimationHideDuration = 0.4;
 
 - (void)sharedInit {
   shouldTheme_ = YES;
+  pulseState_ = gradient_button_cell::kPulsedOff;
+  pulseMultiplier_ = 1.0;
+  outerStrokeAlphaMult_ = 1.0;
   gradient_.reset([[self gradientForHoverAlpha:0.0 isThemed:NO] retain]);
 }
 
@@ -283,12 +440,15 @@ static const NSTimeInterval kAnimationHideDuration = 0.4;
   // Draw the outer stroke.
   NSColor* strokeColor = nil;
   if (showClickedGradient) {
-    strokeColor = [NSColor colorWithCalibratedWhite:0.0 alpha:0.3];
+    strokeColor = [NSColor
+                    colorWithCalibratedWhite:0.0
+                                       alpha:0.3 * outerStrokeAlphaMult_];
   } else {
     strokeColor = themeProvider ? themeProvider->GetNSColor(
         active ? BrowserThemeProvider::COLOR_TOOLBAR_BUTTON_STROKE :
                  BrowserThemeProvider::COLOR_TOOLBAR_BUTTON_STROKE_INACTIVE,
-        true) : [NSColor colorWithCalibratedWhite:0.0 alpha:0.6];
+        true) : [NSColor colorWithCalibratedWhite:0.0
+                                            alpha:0.6 * outerStrokeAlphaMult_];
   }
   [strokeColor setStroke];
 
@@ -357,23 +517,36 @@ static const NSTimeInterval kAnimationHideDuration = 0.4;
                     innerPath:&innerPath
                      clipPath:NULL];
 
-  BOOL pressed = [self isHighlighted];
+  BOOL pressed = ([((NSControl*)[self controlView]) isEnabled] &&
+                  [self isHighlighted]);
   NSWindow* window = [controlView window];
   ThemeProvider* themeProvider = [window themeProvider];
   BOOL active = [window isKeyWindow] || [window isMainWindow];
 
-  // Stroke the borders and appropriate fill gradient. If we're borderless,
-  // the only time we want to draw the inner gradient is if we're highlighted.
+  // Stroke the borders and appropriate fill gradient. If we're borderless, the
+  // only time we want to draw the inner gradient is if we're highlighted or if
+  // we're the first responder (when "Full Keyboard Access" is turned on).
   if (([self isBordered] && ![self showsBorderOnlyWhileMouseInside]) ||
       pressed ||
-      [self isMouseInside]) {
+      [self isMouseInside] ||
+      [self isContinuousPulsing] ||
+      [self showsFirstResponder]) {
+
+    // When pulsing we want the bookmark to stand out a little more.
+    BOOL showClickedGradient = pressed ||
+        (pulseState_ == gradient_button_cell::kPulsingContinuous);
+
+    // When first responder, turn the hover alpha all the way up.
+    CGFloat hoverAlpha = [self hoverAlpha];
+    if ([self showsFirstResponder])
+      hoverAlpha = 1.0;
 
     [self drawBorderAndFillForTheme:themeProvider
                         controlView:controlView
                           innerPath:innerPath
-                showClickedGradient:pressed
+                showClickedGradient:showClickedGradient
               showHighlightGradient:[self isHighlighted]
-                         hoverAlpha:[self hoverAlpha]
+                         hoverAlpha:hoverAlpha
                              active:active
                           cellFrame:cellFrame
                     defaultGradient:nil];
@@ -405,18 +578,18 @@ static const NSTimeInterval kAnimationHideDuration = 0.4;
     CGContextRef context =
         (CGContextRef)([[NSGraphicsContext currentContext] graphicsPort]);
 
-    ThemeProvider* themeProvider = [[controlView window] themeProvider];
+    BrowserThemeProvider* themeProvider = static_cast<BrowserThemeProvider*>(
+        [[controlView window] themeProvider]);
     NSColor* color = themeProvider ?
         themeProvider->GetNSColorTint(BrowserThemeProvider::TINT_BUTTONS,
                                       true) :
         [NSColor blackColor];
 
-    if (isTemplate) {
+    if (isTemplate && themeProvider && themeProvider->UsingDefaultTheme()) {
       scoped_nsobject<NSShadow> shadow([[NSShadow alloc] init]);
-      NSColor* shadowColor = [color gtm_legibleTextColor];
-      shadowColor = [shadowColor colorWithAlphaComponent:0.25];
-      [shadow.get() setShadowColor:shadowColor];
-      [shadow.get() setShadowOffset:NSMakeSize(0, -1.0)];
+      [shadow.get() setShadowColor:themeProvider->GetNSColor(
+          BrowserThemeProvider::COLOR_TOOLBAR_BEZEL, true)];
+      [shadow.get() setShadowOffset:NSMakeSize(0.0, -1.0)];
       [shadow setShadowBlurRadius:1.0];
       [shadow set];
     }
@@ -430,18 +603,16 @@ static const NSTimeInterval kAnimationHideDuration = 0.4;
                    operation:NSCompositeSourceOver
                     fraction:[self isEnabled] ? 1.0 : 0.5
                 neverFlipped:YES];
-    if (isTemplate) {
-      if (color) {
-        [color set];
-        NSRectFillUsingOperation(cellFrame, NSCompositeSourceAtop);
-      }
+    if (isTemplate && color) {
+      [color set];
+      NSRectFillUsingOperation(cellFrame, NSCompositeSourceAtop);
     }
     CGContextEndTransparencyLayer(context);
 
     [NSGraphicsContext restoreGraphicsState];
   } else {
-    // NSCell draws these uncentered for some reason, probably because of the
-    // of control in the xib
+    // NSCell draws these off-center for some reason, probably because of the
+    // positioning of the control in the xib.
     [super drawInteriorWithFrame:NSOffsetRect(cellFrame, 0, 1)
                           inView:controlView];
   }
@@ -455,6 +626,80 @@ static const NSTimeInterval kAnimationHideDuration = 0.4;
                      fraction:[self isEnabled] ? 1.0 : 0.5
                  neverFlipped:YES];
   }
+}
+
+// Overriden from NSButtonCell so we can display a nice fadeout effect for
+// button titles that overflow.
+// This method is copied in the most part from GTMFadeTruncatingTextFieldCell,
+// the only difference is that here we draw the text ourselves rather than
+// calling the super to do the work.
+// We can't use GTMFadeTruncatingTextFieldCell because there's no easy way to
+// get it to work with NSButtonCell.
+// TODO(jeremy): Move this to GTM.
+- (NSRect)drawTitle:(NSAttributedString *)title
+          withFrame:(NSRect)cellFrame
+             inView:(NSView *)controlView {
+  NSSize size = [title size];
+
+  // Don't complicate drawing unless we need to clip
+  if (floor(size.width) <= NSWidth(cellFrame)) {
+    return [super drawTitle:title withFrame:cellFrame inView:controlView];
+  }
+
+  // Gradient is about twice our line height long.
+  CGFloat gradientWidth = MIN(size.height * 2, NSWidth(cellFrame) / 4);
+
+  NSRect solidPart, gradientPart;
+  NSDivideRect(cellFrame, &gradientPart, &solidPart, gradientWidth, NSMaxXEdge);
+
+  // Draw non-gradient part without transparency layer, as light text on a dark
+  // background looks bad with a gradient layer.
+  [[NSGraphicsContext currentContext] saveGraphicsState];
+  [NSBezierPath clipRect:solidPart];
+
+  // 11 is the magic number needed to make this match the native NSButtonCell's
+  // label display.
+  CGFloat textLeft = [[self image] size].width + 11;
+
+  // For some reason, the height of cellFrame as passed in is totally bogus.
+  // For vertical centering purposes, we need the bounds of the containing
+  // view.
+  NSRect buttonFrame = [[self controlView] frame];
+
+  // Off-by-one to match native NSButtonCell's version.
+  NSPoint textOffset = NSMakePoint(textLeft,
+                        (NSHeight(buttonFrame) - size.height)/2 + 1);
+  [title drawAtPoint:textOffset];
+  [[NSGraphicsContext currentContext] restoreGraphicsState];
+
+  // Draw the gradient part with a transparency layer. This makes the text look
+  // suboptimal, but since it fades out, that's ok.
+  [[NSGraphicsContext currentContext] saveGraphicsState];
+  [NSBezierPath clipRect:gradientPart];
+  CGContextRef context = static_cast<CGContextRef>(
+      [[NSGraphicsContext currentContext] graphicsPort]);
+  CGContextBeginTransparencyLayerWithRect(context,
+                                          NSRectToCGRect(gradientPart), 0);
+  [title drawAtPoint:textOffset];
+
+  // TODO(alcor): switch this to GTMLinearRGBShading if we ever need on 10.4
+  NSColor *color = [NSColor textColor]; //[self textColor];
+  NSColor *alphaColor = [color colorWithAlphaComponent:0.0];
+  NSGradient *mask = [[NSGradient alloc] initWithStartingColor:color
+                                                   endingColor:alphaColor];
+
+  // Draw the gradient mask
+  CGContextSetBlendMode(context, kCGBlendModeDestinationIn);
+  [mask drawFromPoint:NSMakePoint(NSMaxX(cellFrame) - gradientWidth,
+                                  NSMinY(cellFrame))
+              toPoint:NSMakePoint(NSMaxX(cellFrame),
+                                  NSMinY(cellFrame))
+              options:NSGradientDrawsBeforeStartingLocation];
+  [mask release];
+  CGContextEndTransparencyLayer(context);
+  [[NSGraphicsContext currentContext] restoreGraphicsState];
+
+  return cellFrame;
 }
 
 - (NSBezierPath*)clipPathForFrame:(NSRect)cellFrame

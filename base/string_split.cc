@@ -4,7 +4,56 @@
 
 #include "base/string_split.h"
 
+#include "base/logging.h"
 #include "base/string_util.h"
+#include "base/third_party/icu/icu_utf.h"
+#include "base/utf_string_conversions.h"
+
+template<typename STR>
+static void SplitStringT(const STR& str,
+                         const typename STR::value_type s,
+                         bool trim_whitespace,
+                         std::vector<STR>* r) {
+  size_t last = 0;
+  size_t i;
+  size_t c = str.size();
+  for (i = 0; i <= c; ++i) {
+    if (i == c || str[i] == s) {
+      size_t len = i - last;
+      STR tmp = str.substr(last, len);
+      if (trim_whitespace) {
+        STR t_tmp;
+        TrimWhitespace(tmp, TRIM_ALL, &t_tmp);
+        r->push_back(t_tmp);
+      } else {
+        r->push_back(tmp);
+      }
+      last = i + 1;
+    }
+  }
+}
+
+void SplitString(const std::wstring& str,
+                 wchar_t c,
+                 std::vector<std::wstring>* r) {
+  SplitStringT(str, c, true, r);
+}
+
+#if !defined(WCHAR_T_IS_UTF16)
+void SplitString(const string16& str,
+                 char16 c,
+                 std::vector<string16>* r) {
+  DCHECK(CBU16_IS_SINGLE(c));
+  SplitStringT(str, c, true, r);
+}
+#endif
+
+void SplitString(const std::string& str,
+                 char c,
+                 std::vector<std::string>* r) {
+  DCHECK(c >= 0 && c < 0x7F);
+  SplitStringT(str, c, true, r);
+}
 
 namespace base {
 
@@ -68,6 +117,63 @@ bool SplitStringIntoKeyValuePairs(
     kv_pairs->push_back(make_pair(key, value.empty()? "" : value[0]));
   }
   return success;
+}
+
+template <typename STR>
+static void SplitStringUsingSubstrT(const STR& str,
+                                    const STR& s,
+                                    std::vector<STR>* r) {
+  typename STR::size_type begin_index = 0;
+  while (true) {
+    const typename STR::size_type end_index = str.find(s, begin_index);
+    if (end_index == STR::npos) {
+      const STR term = str.substr(begin_index);
+      STR tmp;
+      TrimWhitespace(term, TRIM_ALL, &tmp);
+      r->push_back(tmp);
+      return;
+    }
+    const STR term = str.substr(begin_index, end_index - begin_index);
+    STR tmp;
+    TrimWhitespace(term, TRIM_ALL, &tmp);
+    r->push_back(tmp);
+    begin_index = end_index + s.size();
+  }
+}
+
+void SplitStringUsingSubstr(const string16& str,
+                            const string16& s,
+                            std::vector<string16>* r) {
+  SplitStringUsingSubstrT(str, s, r);
+}
+
+void SplitStringUsingSubstr(const std::string& str,
+                            const std::string& s,
+                            std::vector<std::string>* r) {
+  SplitStringUsingSubstrT(str, s, r);
+}
+
+void SplitStringDontTrim(const std::wstring& str,
+                         wchar_t c,
+                         std::vector<std::wstring>* r) {
+  SplitStringT(str, c, false, r);
+}
+
+#if !defined(WCHAR_T_IS_UTF16)
+void SplitStringDontTrim(const string16& str,
+                         char16 c,
+                         std::vector<string16>* r) {
+  DCHECK(CBU16_IS_SINGLE(c));
+  SplitStringT(str, c, false, r);
+}
+#endif
+
+void SplitStringDontTrim(const std::string& str,
+                         char c,
+                         std::vector<std::string>* r) {
+  DCHECK(IsStringUTF8(str));
+  DCHECK(c >= 0 && c < 0x7F);
+  SplitStringT(str, c, false, r);
 }
 
 }  // namespace base

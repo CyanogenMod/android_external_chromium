@@ -4,11 +4,11 @@
 
 #ifndef NET_HTTP_HTTP_AUTH_HANDLER_NEGOTIATE_H_
 #define NET_HTTP_HTTP_AUTH_HANDLER_NEGOTIATE_H_
+#pragma once
 
 #include <string>
 
-#include "build/build_config.h"
-
+#include "base/string16.h"
 #include "build/build_config.h"
 #include "net/base/address_list.h"
 #include "net/http/http_auth_handler.h"
@@ -107,9 +107,10 @@ class HttpAuthHandlerNegotiate : public HttpAuthHandler {
 
   virtual bool NeedsIdentity();
 
-  virtual bool IsFinalRound();
-
   virtual bool AllowsDefaultCredentials();
+
+  virtual HttpAuth::AuthorizationResult HandleAnotherChallenge(
+      HttpAuth::ChallengeTokenizer* challenge);
 
   // These are public for unit tests
   std::wstring CreateSPN(const AddressList& address_list, const GURL& orign);
@@ -118,8 +119,8 @@ class HttpAuthHandlerNegotiate : public HttpAuthHandler {
  protected:
   virtual bool Init(HttpAuth::ChallengeTokenizer* challenge);
 
-  virtual int GenerateAuthTokenImpl(const std::wstring* username,
-                                    const std::wstring* password,
+  virtual int GenerateAuthTokenImpl(const string16* username,
+                                    const string16* password,
                                     const HttpRequestInfo* request,
                                     CompletionCallback* callback,
                                     std::string* auth_token);
@@ -141,6 +142,7 @@ class HttpAuthHandlerNegotiate : public HttpAuthHandler {
   int DoResolveCanonicalNameComplete(int rv);
   int DoGenerateAuthToken();
   int DoGenerateAuthTokenComplete(int rv);
+  bool CanDelegate() const;
 
   AuthSystem auth_system_;
   bool disable_cname_lookup_;
@@ -155,8 +157,8 @@ class HttpAuthHandlerNegotiate : public HttpAuthHandler {
   // Things which should be consistent after first call to GenerateAuthToken.
   bool already_called_;
   bool has_username_and_password_;
-  std::wstring username_;
-  std::wstring password_;
+  string16 username_;
+  string16 password_;
   std::wstring spn_;
 
   // Things which vary each round.
@@ -165,7 +167,7 @@ class HttpAuthHandlerNegotiate : public HttpAuthHandler {
 
   State next_state_;
 
-  URLSecurityManager* url_security_manager_;
+  const URLSecurityManager* url_security_manager_;
 };
 
 }  // namespace net

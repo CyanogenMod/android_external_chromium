@@ -4,13 +4,12 @@
 
 #ifndef CHROME_BROWSER_AUTOFILL_AUTOFILL_CC_INFOBAR_DELEGATE_H_
 #define CHROME_BROWSER_AUTOFILL_AUTOFILL_CC_INFOBAR_DELEGATE_H_
+#pragma once
 
-#include <string>
-
+#include "base/string16.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 
 class AutoFillManager;
-class Browser;
 class SkBitmap;
 class TabContents;
 
@@ -25,14 +24,14 @@ class AutoFillCCInfoBarDelegate : public ConfirmInfoBarDelegate {
   virtual bool ShouldExpire(
      const NavigationController::LoadCommittedDetails& details) const;
   virtual void InfoBarClosed();
-  virtual std::wstring GetMessageText() const;
+  virtual string16 GetMessageText() const;
   virtual SkBitmap* GetIcon() const;
   virtual int GetButtons() const;
-  virtual std::wstring GetButtonLabel(
+  virtual string16 GetButtonLabel(
      ConfirmInfoBarDelegate::InfoBarButton button) const;
   virtual bool Accept();
   virtual bool Cancel();
-  virtual std::wstring GetLinkText();
+  virtual string16 GetLinkText();
   virtual bool LinkClicked(WindowOpenDisposition disposition);
 
 #if defined(OS_WIN)
@@ -40,14 +39,9 @@ class AutoFillCCInfoBarDelegate : public ConfirmInfoBarDelegate {
   virtual InfoBar* CreateInfoBar();
 #endif  // defined(OS_WIN)
 
-  virtual Type GetInfoBarType() {
-    return PAGE_ACTION_TYPE;
-  }
+  virtual Type GetInfoBarType();
 
  private:
-  // The browser.
-  Browser* browser_;
-
   // The AutoFillManager that initiated this InfoBar.
   AutoFillManager* host_;
 

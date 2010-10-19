@@ -4,12 +4,17 @@
 
 #include "chrome/browser/views/html_dialog_view.h"
 
-#include "base/keyboard_codes.h"
+#include "app/keyboard_codes.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/common/native_web_keyboard_event.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
+
+#if defined(OS_LINUX)
+#include "views/window/window_gtk.h"
+#endif
 
 namespace browser {
 
@@ -50,7 +55,7 @@ gfx::Size HtmlDialogView::GetPreferredSize() {
 
 bool HtmlDialogView::AcceleratorPressed(const views::Accelerator& accelerator) {
   // Pressing ESC closes the dialog.
-  DCHECK_EQ(base::VKEY_ESCAPE, accelerator.GetKeyCode());
+  DCHECK_EQ(app::VKEY_ESCAPE, accelerator.GetKeyCode());
   OnDialogClosed(std::string());
   return true;
 }
@@ -129,10 +134,12 @@ std::string HtmlDialogView::GetDialogArgs() const {
 }
 
 void HtmlDialogView::OnDialogClosed(const std::string& json_retval) {
-  HtmlDialogUIDelegate* dialog_delegate = delegate_;
-  delegate_ = NULL;  // We will not communicate further with the delegate.
   HtmlDialogTabContentsDelegate::Detach();
-  dialog_delegate->OnDialogClosed(json_retval);
+  if (delegate_) {
+    HtmlDialogUIDelegate* dialog_delegate = delegate_;
+    delegate_ = NULL;  // We will not communicate further with the delegate.
+    dialog_delegate->OnDialogClosed(json_retval);
+  }
   window()->Close();
 }
 
@@ -165,6 +172,10 @@ void HtmlDialogView::HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {
   // This allows stuff like F10, etc to work correctly.
   DefWindowProc(event.os_event.hwnd, event.os_event.message,
                   event.os_event.wParam, event.os_event.lParam);
+#elif defined(OS_LINUX)
+  views::WindowGtk* window_gtk = static_cast<views::WindowGtk*>(window());
+  if (event.os_event && !event.skip_in_browser)
+    window_gtk->HandleKeyboardEvent(event.os_event);
 #endif
 }
 
@@ -190,7 +201,7 @@ void HtmlDialogView::InitDialog() {
                                                   this);
 
   // Pressing the ESC key will close the dialog.
-  AddAccelerator(views::Accelerator(base::VKEY_ESCAPE, false, false, false));
+  AddAccelerator(views::Accelerator(app::VKEY_ESCAPE, false, false, false));
 
   DOMView::LoadURL(GetDialogContentURL());
 }

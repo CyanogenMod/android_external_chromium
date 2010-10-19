@@ -1,28 +1,24 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_BROWSER_INIT_H_
 #define CHROME_BROWSER_BROWSER_INIT_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "googleurl/src/gurl.h"
 
 class Browser;
 class CommandLine;
 class GURL;
-class PrefService;
 class Profile;
 class TabContents;
-#if defined(OS_CHROMEOS)
-namespace chromeos {
-class ServicesCustomizationDocument;
-}
-#endif
 
 // class containing helpers for BrowserMain to spin up a new instance and
 // initialize the profile.
@@ -39,22 +35,21 @@ class BrowserInit {
 
   // This function is equivalent to ProcessCommandLine but should only be
   // called during actual process startup.
-  bool Start(const CommandLine& cmd_line, const std::wstring& cur_dir,
+  bool Start(const CommandLine& cmd_line, const FilePath& cur_dir,
              Profile* profile, int* return_code) {
     return ProcessCmdLineImpl(cmd_line, cur_dir, true, profile, return_code,
                               this);
   }
 
-  // This function performs command-line handling and is invoked when
-  // process starts as well as when we get a start request from another
-  // process (via the WM_COPYDATA message). |command_line| holds the command
-  // line we need to process - either from this process or from some other one
-  // (if |process_startup| is true and we are being called from
-  //  ProcessSingleton::OnCopyData).
+  // This function performs command-line handling and is invoked when process
+  // starts as well as when we get a start request from another process (via the
+  // WM_COPYDATA message). |command_line| holds the command line we need to
+  // process - either from this process or from some other one (if
+  // |process_startup| is true and we are being called from
+  // ProcessSingleton::OnCopyData).
   static bool ProcessCommandLine(const CommandLine& cmd_line,
-                                 const std::wstring& cur_dir,
-                                 bool process_startup, Profile* profile,
-                                 int* return_code) {
+                                 const FilePath& cur_dir, bool process_startup,
+                                 Profile* profile, int* return_code) {
     return ProcessCmdLineImpl(cmd_line, cur_dir, process_startup, profile,
                               return_code, NULL);
   }
@@ -67,21 +62,13 @@ class BrowserInit {
   // Returns true if the browser is coming up.
   static bool InProcessStartup();
 
-  // Launches a browser window associated with |profile|. |command_line|
-  // should be the command line passed to this process. |cur_dir| can be
-  // the null string, which implies that the directory of the executable.
-  // should be used. |process_startup| indicates whether this is the
-  // first browser.
+  // Launches a browser window associated with |profile|. |command_line| should
+  // be the command line passed to this process. |cur_dir| can be empty, which
+  // implies that the directory of the executable should be used.
+  // |process_startup| indicates whether this is the first browser.
   bool LaunchBrowser(const CommandLine& command_line, Profile* profile,
-                     const std::wstring& cur_dir, bool process_startup,
+                     const FilePath& cur_dir, bool process_startup,
                      int* return_code);
-
-#if defined(OS_CHROMEOS)
-  // Processes the OEM services customization document and modifies browser
-  // settings like initial startup page, web apps and extentions.
-  bool ApplyServicesCustomization(
-      const chromeos::ServicesCustomizationDocument* customization);
-#endif
 
   // LaunchWithProfile ---------------------------------------------------------
   //
@@ -112,12 +99,10 @@ class BrowserInit {
     // and thus no access to distribution-specific first-run behaviors. The
     // second one is always called when the browser starts even if it is not
     // the first run.
-    LaunchWithProfile(const std::wstring& cur_dir,
-                      const CommandLine& command_line);
-    LaunchWithProfile(const std::wstring& cur_dir,
-                      const CommandLine& command_line,
+    LaunchWithProfile(const FilePath& cur_dir, const CommandLine& command_line);
+    LaunchWithProfile(const FilePath& cur_dir, const CommandLine& command_line,
                       BrowserInit* browser_init);
-    ~LaunchWithProfile() { }
+    ~LaunchWithProfile();
 
     // Creates the necessary windows for startup. Returns true on success,
     // false on failure. process_startup is true if Chrome is just
@@ -193,7 +178,7 @@ class BrowserInit {
     // previously instructed not to do so) and warns the user if it is not.
     void CheckDefaultBrowser(Profile* profile);
 
-    std::wstring cur_dir_;
+    const FilePath cur_dir_;
     const CommandLine& command_line_;
     Profile* profile_;
     BrowserInit* browser_init_;
@@ -202,9 +187,9 @@ class BrowserInit {
 
  private:
   static bool ProcessCmdLineImpl(const CommandLine& command_line,
-                                 const std::wstring& cur_dir,
-                                 bool process_startup, Profile* profile,
-                                 int* return_code, BrowserInit* browser_init);
+                                 const FilePath& cur_dir, bool process_startup,
+                                 Profile* profile, int* return_code,
+                                 BrowserInit* browser_init);
 
   // Additional tabs to open during first run.
   std::vector<GURL> first_run_tabs_;

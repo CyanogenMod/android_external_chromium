@@ -32,14 +32,14 @@ namespace cricket {
 
 static const int kMaxStaticPayloadId = 95;
 
-bool Codec::Matches(int payload, const std::string& nm) const {
+bool AudioCodec::Matches(int payload, const std::string& nm) const {
   return (id <= kMaxStaticPayloadId && id == payload) ||
       (id > kMaxStaticPayloadId && name == nm);
 }
 
-std::string Codec::ToString() const {
+std::string AudioCodec::ToString() const {
   std::ostringstream os;
-  os << "Codec[" << id << ":" << name << ":" << clockrate << ":" << bitrate
+  os << "AudioCodec[" << id << ":" << name << ":" << clockrate << ":" << bitrate
      << ":" << channels << ":" << preference << "]";
   return os.str();
 }

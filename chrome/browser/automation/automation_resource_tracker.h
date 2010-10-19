@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_AUTOMATION_AUTOMATION_RESOURCE_TRACKER_H__
 #define CHROME_BROWSER_AUTOMATION_AUTOMATION_RESOURCE_TRACKER_H__
+#pragma once
 
 #include <map>
 
@@ -31,10 +32,8 @@ struct AutomationResourceTraits<T*> {
 // of AutomationResourceTracker to live in a .cc file.
 class AutomationResourceTrackerImpl {
  public:
-  explicit AutomationResourceTrackerImpl(IPC::Message::Sender* sender)
-    : sender_(sender) {}
-
-  virtual ~AutomationResourceTrackerImpl() {}
+  explicit AutomationResourceTrackerImpl(IPC::Message::Sender* sender);
+  virtual ~AutomationResourceTrackerImpl();
 
   // These need to be implemented in AutomationResourceTracker,
   // since it needs to call the subclass's type-specific notification

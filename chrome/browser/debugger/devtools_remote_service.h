@@ -1,11 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_DEBUGGER_DEVTOOLS_REMOTE_SERVICE_H_
 #define CHROME_BROWSER_DEBUGGER_DEVTOOLS_REMOTE_SERVICE_H_
-
-#include <string>
+#pragma once
 
 #include "base/basictypes.h"
 #include "chrome/browser/debugger/devtools_remote.h"
@@ -17,9 +16,9 @@ class Value;
 
 // Contains constants for DevToolsRemoteService tool protocol commands.
 struct DevToolsRemoteServiceCommand {
-  static const std::string kPing;
-  static const std::string kVersion;
-  static const std::string kListTabs;
+  static const char kPing[];
+  static const char kVersion[];
+  static const char kListTabs[];
 };
 
 // Handles Chrome remote debugger protocol service commands.
@@ -31,7 +30,7 @@ class DevToolsRemoteService : public DevToolsRemoteListener {
   virtual void HandleMessage(const DevToolsRemoteMessage& message);
   virtual void OnConnectionLost() {}
 
-  static const std::string kToolName;
+  static const char kToolName[];
 
  private:
   // Operation result returned in the "result" field.
@@ -41,9 +40,6 @@ class DevToolsRemoteService : public DevToolsRemoteListener {
   };
   virtual ~DevToolsRemoteService();
   void ProcessJson(DictionaryValue* json, const DevToolsRemoteMessage& message);
-  static const std::wstring kCommandWide;
-  static const std::wstring kDataWide;
-  static const std::wstring kResultWide;
   DevToolsProtocolHandler* delegate_;
   DISALLOW_COPY_AND_ASSIGN(DevToolsRemoteService);
 };

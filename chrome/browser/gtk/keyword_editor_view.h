@@ -4,14 +4,17 @@
 
 #ifndef CHROME_BROWSER_GTK_KEYWORD_EDITOR_VIEW_H_
 #define CHROME_BROWSER_GTK_KEYWORD_EDITOR_VIEW_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
 #include "app/table_model_observer.h"
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
+#include "base/scoped_ptr.h"
+#include "base/string16.h"
 #include "chrome/browser/search_engines/edit_search_engine_controller.h"
-#include "chrome/browser/search_engines/template_url_model.h"
+#include "chrome/browser/search_engines/template_url_model_observer.h"
 
 class AccessibleWidgetHelper;
 class KeywordEditorController;
@@ -29,8 +32,8 @@ class KeywordEditorView : public TableModelObserver,
 
   // Overriden from EditSearchEngineControllerDelegate.
   virtual void OnEditedKeyword(const TemplateURL* template_url,
-                               const std::wstring& title,
-                               const std::wstring& keyword,
+                               const string16& title,
+                               const string16& keyword,
                                const std::string& url);
  private:
   // Column ids for |list_store_|.

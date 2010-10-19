@@ -164,9 +164,12 @@
 #endif
 
 #include "base/base64.h"
+#include "base/command_line.h"
 #include "base/histogram.h"
 #include "base/md5.h"
+#include "base/string_number_conversions.h"
 #include "base/thread.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_list.h"
@@ -175,7 +178,7 @@
 #include "chrome/browser/memory_details.h"
 #include "chrome/browser/metrics/histogram_synchronizer.h"
 #include "chrome/browser/metrics/metrics_log.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/search_engines/template_url_model.h"
@@ -199,10 +202,9 @@
 #endif
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/system_library.h"
 #include "chrome/browser/chromeos/external_metrics.h"
-
-static const char kHardwareClassTool[] = "/usr/bin/hardware_class";
-static const char kUnknownHardwareClass[] = "unknown";
 #endif
 
 namespace {
@@ -215,7 +217,7 @@ MetricsService::LogRecallStatus MakeRecallStatusHistogram(
 
 // TODO(ziadh): Remove this when done with experiment.
 void MakeStoreStatusHistogram(MetricsService::LogStoreStatus status) {
-  UMA_HISTOGRAM_ENUMERATION("PrefService.PersistentLogStore", status,
+  UMA_HISTOGRAM_ENUMERATION("PrefService.PersistentLogStore2", status,
                             MetricsService::END_STORE_STATUS);
 }
 }  // namespace
@@ -366,7 +368,9 @@ class MetricsService::InitTask : public Task {
     NPAPI::PluginList::Singleton()->GetPlugins(false, &plugins);
     std::string hardware_class;  // Empty string by default.
 #if defined(OS_CHROMEOS)
-    hardware_class = MetricsService::GetHardwareClass();
+    chromeos::SystemLibrary* system_library =
+      chromeos::CrosLibrary::Get()->GetSystemLibrary();
+    system_library->GetMachineStatistic("hardware_class", &hardware_class);
 #endif  // OS_CHROMEOS
     callback_loop_->PostTask(FROM_HERE, new InitTaskComplete(
         hardware_class, plugins));
@@ -514,7 +518,7 @@ void MetricsService::SetRecording(bool enabled) {
 
         // Might as well make a note of how long this ID has existed
         pref->SetString(prefs::kMetricsClientIDTimestamp,
-                        Int64ToString(Time::Now().ToTimeT()));
+                        base::Int64ToString(Time::Now().ToTimeT()));
       }
     }
     child_process_logging::SetClientId(client_id_);
@@ -653,7 +657,7 @@ void MetricsService::Observe(NotificationType type,
       break;
     }
     default:
-      LOG(DFATAL);
+      NOTREACHED();
       break;
   }
 
@@ -858,7 +862,7 @@ void MetricsService::ScheduleNextStateSave() {
 void MetricsService::SaveLocalState() {
   PrefService* pref = g_browser_process->local_state();
   if (!pref) {
-    LOG(DFATAL);
+    NOTREACHED();
     return;
   }
 
@@ -1149,7 +1153,7 @@ void MetricsService::MakePendingLog() {
       break;
 
     default:
-      LOG(DFATAL);
+      NOTREACHED();
       return;
   }
 
@@ -1304,6 +1308,7 @@ void MetricsService::StoreUnsentLogsHelper(
   MD5Final(&digest, &ctx);
   list->Append(Value::CreateStringValue(MD5DigestToBase16(digest)));
   DCHECK(list->GetSize() >= 3);  // Minimum of 3 elements (size, data, hash).
+  MakeStoreStatusHistogram(STORE_SUCCESS);
 }
 
 void MetricsService::StoreUnsentLogs() {
@@ -1380,7 +1385,7 @@ static const char* StatusToString(const URLRequestStatus& status) {
       return "FAILED";
 
     default:
-      LOG(DFATAL);
+      NOTREACHED();
       return "Unknown";
   }
 }
@@ -1442,7 +1447,7 @@ void MetricsService::OnURLFetchComplete(const URLFetcher* source,
         break;
 
       default:
-        LOG(DFATAL);
+        NOTREACHED();
         break;
     }
 
@@ -1684,7 +1689,7 @@ void MetricsService::LogWindowChange(NotificationType type,
       break;
 
     default:
-      LOG(DFATAL);
+      NOTREACHED();
       return;
   }
 
@@ -1712,14 +1717,14 @@ void MetricsService::LogLoadComplete(NotificationType type,
                                 load_details->load_time());
 }
 
-void MetricsService::IncrementPrefValue(const wchar_t* path) {
+void MetricsService::IncrementPrefValue(const char* path) {
   PrefService* pref = g_browser_process->local_state();
   DCHECK(pref);
   int value = pref->GetInteger(path);
   pref->SetInteger(path, value + 1);
 }
 
-void MetricsService::IncrementLongPrefsValue(const wchar_t* path) {
+void MetricsService::IncrementLongPrefsValue(const char* path) {
   PrefService* pref = g_browser_process->local_state();
   DCHECK(pref);
   int64 value = pref->GetInt64(path);
@@ -1778,7 +1783,7 @@ void MetricsService::LogChildProcessChange(
       break;
 
     default:
-      LOG(DFATAL) << "Unexpected notification type " << type.value;
+      NOTREACHED() << "Unexpected notification type " << type.value;
       return;
   }
 }
@@ -1796,8 +1801,8 @@ static void CountBookmarks(const BookmarkNode* node,
 }
 
 void MetricsService::LogBookmarks(const BookmarkNode* node,
-                                  const wchar_t* num_bookmarks_key,
-                                  const wchar_t* num_folders_key) {
+                                  const char* num_bookmarks_key,
+                                  const char* num_folders_key) {
   DCHECK(node);
   int num_bookmarks = 0;
   int num_folders = 0;
@@ -1838,23 +1843,25 @@ void MetricsService::RecordPluginChanges(PrefService* pref) {
   for (ListValue::iterator value_iter = plugins->begin();
        value_iter != plugins->end(); ++value_iter) {
     if (!(*value_iter)->IsType(Value::TYPE_DICTIONARY)) {
-      LOG(DFATAL);
+      NOTREACHED();
       continue;
     }
 
     DictionaryValue* plugin_dict = static_cast<DictionaryValue*>(*value_iter);
-    std::wstring plugin_name;
+    std::string plugin_name;
     plugin_dict->GetString(prefs::kStabilityPluginName, &plugin_name);
     if (plugin_name.empty()) {
-      LOG(DFATAL);
+      NOTREACHED();
       continue;
     }
 
-    if (child_process_stats_buffer_.find(plugin_name) ==
+    // TODO(viettrungluu): remove conversions
+    if (child_process_stats_buffer_.find(UTF8ToWide(plugin_name)) ==
         child_process_stats_buffer_.end())
       continue;
 
-    ChildProcessStats stats = child_process_stats_buffer_[plugin_name];
+    ChildProcessStats stats =
+        child_process_stats_buffer_[UTF8ToWide(plugin_name)];
     if (stats.process_launches) {
       int launches = 0;
       plugin_dict->GetInteger(prefs::kStabilityPluginLaunches, &launches);
@@ -1874,7 +1881,7 @@ void MetricsService::RecordPluginChanges(PrefService* pref) {
       plugin_dict->SetInteger(prefs::kStabilityPluginInstances, instances);
     }
 
-    child_process_stats_buffer_.erase(plugin_name);
+    child_process_stats_buffer_.erase(UTF8ToWide(plugin_name));
   }
 
   // Now go through and add dictionaries for plugins that didn't already have
@@ -1888,7 +1895,8 @@ void MetricsService::RecordPluginChanges(PrefService* pref) {
     if (ChildProcessInfo::PLUGIN_PROCESS != stats.process_type)
       continue;
 
-    std::wstring plugin_name = cache_iter->first;
+    // TODO(viettrungluu): remove conversion
+    std::string plugin_name = WideToUTF8(cache_iter->first);
 
     DictionaryValue* plugin_dict = new DictionaryValue;
 
@@ -1913,7 +1921,7 @@ bool MetricsService::CanLogNotification(NotificationType type,
   return !BrowserList::IsOffTheRecordSessionActive();
 }
 
-void MetricsService::RecordBooleanPrefValue(const wchar_t* path, bool value) {
+void MetricsService::RecordBooleanPrefValue(const char* path, bool value) {
   DCHECK(IsSingleThreaded());
 
   PrefService* pref = g_browser_process->local_state();
@@ -1937,20 +1945,6 @@ static bool IsSingleThreaded() {
 }
 
 #if defined(OS_CHROMEOS)
-// static
-std::string MetricsService::GetHardwareClass() {
-  DCHECK(!ChromeThread::CurrentlyOn(ChromeThread::UI));
-  std::string hardware_class;
-  FilePath tool(kHardwareClassTool);
-  CommandLine command(tool);
-  if (base::GetAppOutput(command, &hardware_class)) {
-    TrimWhitespaceASCII(hardware_class, TRIM_ALL, &hardware_class);
-  } else {
-    hardware_class = kUnknownHardwareClass;
-  }
-  return hardware_class;
-}
-
 void MetricsService::StartExternalMetrics() {
   external_metrics_ = new chromeos::ExternalMetrics;
   external_metrics_->Start();

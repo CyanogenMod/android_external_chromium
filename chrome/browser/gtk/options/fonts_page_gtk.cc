@@ -5,7 +5,7 @@
 #include "chrome/browser/gtk/options/fonts_page_gtk.h"
 
 #include "app/l10n_util.h"
-#include "app/l10n_util_collator.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/default_encoding_combo_model.h"
 #include "chrome/browser/gtk/gtk_util.h"
@@ -22,8 +22,8 @@ std::string MakeFontName(std::string family_name, int pixel_size) {
   // The given font might not be available (the default fonts we use are not
   // installed by default on some distros).  So figure out which font we are
   // actually falling back to and display that.  (See crbug.com/31381.)
-  std::wstring actual_family_name = gfx::Font::CreateFont(
-      UTF8ToWide(family_name), pixel_size).FontName();
+  std::wstring actual_family_name = gfx::Font(
+      UTF8ToWide(family_name), pixel_size).GetFontName();
   std::string fontname;
   // TODO(mattm): We can pass in the size in pixels (px), and the font button
   // actually honors it, but when you open the selector it interprets it as
@@ -116,11 +116,11 @@ void FontsPageGtk::InitDefaultEncodingComboBox() {
   for (int i = 0; i < default_encoding_combobox_model_->GetItemCount(); ++i) {
     gtk_combo_box_append_text(
         GTK_COMBO_BOX(default_encoding_combobox_),
-        WideToUTF8(default_encoding_combobox_model_->GetItemAt(i)).c_str());
+        UTF16ToUTF8(default_encoding_combobox_model_->GetItemAt(i)).c_str());
   }
 }
 
-void FontsPageGtk::NotifyPrefChanged(const std::wstring* pref_name) {
+void FontsPageGtk::NotifyPrefChanged(const std::string* pref_name) {
   if (!pref_name || *pref_name == prefs::kWebKitSerifFontFamily ||
       *pref_name == prefs::kWebKitDefaultFontSize) {
     gtk_font_button_set_font_name(GTK_FONT_BUTTON(serif_font_button_),

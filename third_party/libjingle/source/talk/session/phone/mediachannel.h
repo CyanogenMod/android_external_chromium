@@ -28,12 +28,12 @@
 #ifndef TALK_SESSION_PHONE_MEDIACHANNEL_H_
 #define TALK_SESSION_PHONE_MEDIACHANNEL_H_
 
+#include <string>
 #include <vector>
 
 #include "talk/base/basictypes.h"
 #include "talk/base/sigslot.h"
 #include "talk/base/socket.h"
-#include "talk/base/windowpicker.h"
 #include "talk/session/phone/codec.h"
 // TODO(juberti): re-evaluate this include
 #include "talk/session/phone/audiomonitor.h"
@@ -81,6 +81,8 @@ class MediaChannel : public sigslot::has_slots<> {
   virtual void OnRtcpReceived(const void *data, int len) = 0;
   // Sets the SSRC to be used for outgoing data.
   virtual void SetSendSsrc(uint32 id) = 0;
+  // Set the CNAME of RTCP
+  virtual bool SetRtcpCName(const std::string& cname) = 0;
   // Mutes the channel.
   virtual bool Mute(bool on) = 0;
 
@@ -119,9 +121,9 @@ class VoiceMediaChannel : public MediaChannel {
   VoiceMediaChannel() {}
   virtual ~VoiceMediaChannel() {}
   // Sets the codecs/payload types to be used for incoming media.
-  virtual bool SetRecvCodecs(const std::vector<Codec>& codecs) = 0;
+  virtual bool SetRecvCodecs(const std::vector<AudioCodec>& codecs) = 0;
   // Sets the codecs/payload types to be used for outgoing media.
-  virtual bool SetSendCodecs(const std::vector<Codec>& codecs) = 0;
+  virtual bool SetSendCodecs(const std::vector<AudioCodec>& codecs) = 0;
   // Starts or stops playout of received audio.
   virtual bool SetPlayout(bool playout) = 0;
   // Starts or stops sending (and potentially capture) of local audio.
@@ -144,7 +146,7 @@ class VoiceMediaChannel : public MediaChannel {
   virtual bool GetStats(VoiceMediaInfo* info) = 0;
 };
 
-// Represents a (decoded) video frame, in YUV420 (a.k.a. I420) format.
+// Represents a YUV420 (a.k.a. I420) video frame.
 class VideoFrame {
   friend class flute::MagicCamVideoRenderer;
 
@@ -170,6 +172,13 @@ class VideoFrame {
   virtual size_t GetPixelWidth() const = 0;
   virtual size_t GetPixelHeight() const = 0;
 
+  // TODO(whyuan): Add a fourcc format here and probably combine VideoFrame
+  // with CapturedFrame.
+  virtual int64 GetElapsedTime() const = 0;
+  virtual int64 GetTimeStamp() const = 0;
+  virtual void SetElapsedTime(int64 elapsed_time) = 0;
+  virtual void SetTimeStamp(int64 time_stamp) = 0;
+
   // Writes the frame into the given frame buffer, provided that it is of
   // sufficient size. Returns the frame's actual size, regardless of whether
   // it was written or not (like snprintf). If there is insufficient space,
@@ -184,34 +193,37 @@ class VideoFrame {
                                     size_t size, size_t pitch_rgb) const = 0;
 
   // Writes the frame into the given planes, stretched to the given width and
-  // height.
-  // "interpolate" controls whether to interpolate or just take the
-  // nearest-point.
+  // height. The parameter "interpolate" controls whether to interpolate or just
+  // take the nearest-point. The parameter "crop" controls whether to crop this
+  // frame to the aspect ratio of the given dimensions before stretching.
   virtual void StretchToPlanes(uint8 *y, uint8 *u, uint8 *v,
                                int32 pitchY, int32 pitchU, int32 pitchV,
                                size_t width, size_t height,
-                               bool interpolate) const = 0;
+                               bool interpolate, bool crop) const = 0;
 
-  // Writes the frame into the given frame buffer, stretched to the given
-  // width and height, provided that it is of sufficient size. Returns the
-  // frame's actual size, regardless of whether it was written or not
-  // (like snprintf). If there is insufficient space, nothing is written.
+  // Writes the frame into the given frame buffer, stretched to the given width
+  // and height, provided that it is of sufficient size. Returns the frame's
+  // actual size, regardless of whether it was written or not (like snprintf).
+  // If there is insufficient space, nothing is written. The parameter
   // "interpolate" controls whether to interpolate or just take the
-  // nearest-point.
+  // nearest-point. The parameter "crop" controls whether to crop this frame to
+  // the aspect ratio of the given dimensions before stretching.
   virtual size_t StretchToBuffer(size_t w, size_t h, uint8 *buffer, size_t size,
-                                 bool interpolate) const = 0;
+                                 bool interpolate, bool crop) const = 0;
 
   // Writes the frame into the target VideoFrame, stretched to the size of that
-  // frame.
-  // "interpolate" controls whether to interpolate or just take the
-  // nearest-point.
-  virtual void StretchToFrame(VideoFrame *target, bool interpolate) const = 0;
+  // frame. The parameter "interpolate" controls whether to interpolate or just
+  // take the nearest-point. The parameter "crop" controls whether to crop this
+  // frame to the aspect ratio of the target frame before stretching.
+  virtual void StretchToFrame(VideoFrame *target, bool interpolate,
+                              bool crop) const = 0;
 
   // Stretches the frame to the given size, creating a new VideoFrame object to
-  // hold it.
-  // "interpolate" controls whether to interpolate or just take the
-  // nearest-point.
-  virtual VideoFrame *Stretch(size_t w, size_t h, bool interpolate) const = 0;
+  // hold it. The parameter "interpolate" controls whether to interpolate or
+  // just take the nearest-point. The parameter "crop" controls whether to crop
+  // this frame to the aspect ratio of the given dimensions before stretching.
+  virtual VideoFrame *Stretch(size_t w, size_t h, bool interpolate,
+                              bool crop) const = 0;
 
   // Size of an I420 image of given dimensions when stored as a frame buffer.
   static size_t SizeOf(size_t w, size_t h) {
@@ -242,6 +254,10 @@ class NullVideoFrame : public VideoFrame {
 
   virtual size_t GetPixelWidth() const { return 1; }
   virtual size_t GetPixelHeight() const { return 1; }
+  virtual int64 GetElapsedTime() const { return 0; }
+  virtual int64 GetTimeStamp() const { return 0; }
+  virtual void SetElapsedTime(int64 elapsed_time) {}
+  virtual void SetTimeStamp(int64 time_stamp) {}
 
   virtual size_t CopyToBuffer(uint8 *buffer, size_t size) const {
     return 0;
@@ -255,22 +271,25 @@ class NullVideoFrame : public VideoFrame {
   virtual void StretchToPlanes(uint8 *y, uint8 *u, uint8 *v,
                                int32 pitchY, int32 pitchU, int32 pitchV,
                                size_t width, size_t height,
-                               bool interpolate) const {
+                               bool interpolate, bool crop) const {
   }
 
   virtual size_t StretchToBuffer(size_t w, size_t h, uint8 *buffer, size_t size,
-                                 bool interpolate) const {
+                                 bool interpolate, bool crop) const {
     return 0;
   }
 
-  virtual void StretchToFrame(VideoFrame *target, bool interpolate) const {
+  virtual void StretchToFrame(VideoFrame *target, bool interpolate,
+                              bool crop) const {
   }
 
-  virtual VideoFrame *Stretch(size_t w, size_t h, bool interpolate) const {
+  virtual VideoFrame *Stretch(size_t w, size_t h, bool interpolate,
+                              bool crop) const {
     return NULL;
   }
 };
 
+// Abstract interface for rendering VideoFrames.
 class VideoRenderer {
  public:
   virtual ~VideoRenderer() {}
@@ -278,6 +297,17 @@ class VideoRenderer {
   virtual bool SetSize(int width, int height, int reserved) = 0;
   // Called when a new frame is available for display.
   virtual bool RenderFrame(const VideoFrame *frame) = 0;
+};
+
+// Simple implementation for use in tests.
+class NullVideoRenderer : public VideoRenderer {
+  virtual bool SetSize(int width, int height, int reserved) {
+    return true;
+  }
+  // Called when a new frame is available for display.
+  virtual bool RenderFrame(const VideoFrame *frame) {
+    return true;
+  }
 };
 
 class VideoMediaChannel : public MediaChannel {
@@ -299,8 +329,6 @@ class VideoMediaChannel : public MediaChannel {
   // Sets the renderer object to be used for the specified stream.
   // If SSRC is 0, the renderer is used for the 'default' stream.
   virtual bool SetRenderer(uint32 ssrc, VideoRenderer* renderer) = 0;
-  virtual bool AddScreencast(uint32 ssrc, talk_base::WindowId id) = 0;
-  virtual bool RemoveScreencast(uint32 ssrc) = 0;
   // Gets quality stats for the channel.
   virtual bool GetStats(VideoMediaInfo* info) = 0;
  protected:

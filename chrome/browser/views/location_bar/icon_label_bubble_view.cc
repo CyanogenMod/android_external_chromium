@@ -10,19 +10,18 @@
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
 
-// Amount to offset the image.
-static const int kImageOffset = 1;
-
-// Amount to offset the label from the image.
-static const int kLabelOffset = 3;
+// Amount of padding at the edges of the bubble.
+static const int kBubbleOuterPadding =
+    LocationBarView::kEdgeItemPadding - LocationBarView::kBubblePadding;
 
 // Amount of padding after the label.
-static const int kLabelPadding = 4;
+static const int kLabelPadding = 5;
 
 IconLabelBubbleView::IconLabelBubbleView(const int background_images[],
                                          int contained_image,
                                          const SkColor& color)
-    : background_painter_(background_images) {
+    : background_painter_(background_images),
+      item_padding_(LocationBarView::kItemPadding) {
   image_ = new views::ImageView();
   AddChildView(image_);
   image_->SetImage(
@@ -48,10 +47,7 @@ void IconLabelBubbleView::SetImage(const SkBitmap& bitmap) {
 }
 
 void IconLabelBubbleView::Paint(gfx::Canvas* canvas) {
-  int y_offset = (GetParent()->height() - height()) / 2;
-  canvas->TranslateInt(0, y_offset);
   background_painter_.Paint(width(), height(), canvas);
-  canvas->TranslateInt(0, -y_offset);
 }
 
 gfx::Size IconLabelBubbleView::GetPreferredSize() {
@@ -61,12 +57,12 @@ gfx::Size IconLabelBubbleView::GetPreferredSize() {
 }
 
 void IconLabelBubbleView::Layout() {
-  image_->SetBounds(kImageOffset, 0, image_->GetPreferredSize().width(),
+  image_->SetBounds(kBubbleOuterPadding, 0, image_->GetPreferredSize().width(),
                     height());
   const int label_height = label_->GetPreferredSize().height();
-  label_->SetBounds(image_->x() + image_->width() + kLabelOffset,
-                    (height() - label_height) / 2, width() - GetNonLabelWidth(),
-                    label_height);
+  label_->SetBounds(image_->x() + image_->width() +
+      item_padding_ , (height() - label_height) / 2,
+      width() - GetNonLabelWidth(), label_height);
 }
 
 void IconLabelBubbleView::SetElideInMiddle(bool elide_in_middle) {
@@ -78,6 +74,6 @@ gfx::Size IconLabelBubbleView::GetNonLabelSize() {
 }
 
 int IconLabelBubbleView::GetNonLabelWidth() {
-  return kImageOffset + image_->GetPreferredSize().width() + kLabelOffset +
-      kLabelPadding;
+  return kBubbleOuterPadding + image_->GetPreferredSize().width() +
+      item_padding_ + kBubbleOuterPadding;
 }

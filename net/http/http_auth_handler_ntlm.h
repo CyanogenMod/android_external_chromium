@@ -4,6 +4,7 @@
 
 #ifndef NET_HTTP_HTTP_AUTH_HANDLER_NTLM_H_
 #define NET_HTTP_HTTP_AUTH_HANDLER_NTLM_H_
+#pragma once
 
 #include "build/build_config.h"
 
@@ -107,17 +108,16 @@ class HttpAuthHandlerNTLM : public HttpAuthHandler {
 
   virtual bool NeedsIdentity();
 
-  virtual bool IsFinalRound();
-
   virtual bool AllowsDefaultCredentials();
 
- protected:
-  virtual bool Init(HttpAuth::ChallengeTokenizer* tok) {
-    return ParseChallenge(tok);
-  }
+  virtual HttpAuth::AuthorizationResult HandleAnotherChallenge(
+      HttpAuth::ChallengeTokenizer* challenge);
 
-  virtual int GenerateAuthTokenImpl(const std::wstring* username,
-                                    const std::wstring* password,
+ protected:
+  virtual bool Init(HttpAuth::ChallengeTokenizer* tok);
+
+  virtual int GenerateAuthTokenImpl(const string16* username,
+                                    const string16* password,
                                     const HttpRequestInfo* request,
                                     CompletionCallback* callback,
                                     std::string* auth_token);
@@ -137,8 +137,8 @@ class HttpAuthHandlerNTLM : public HttpAuthHandler {
 #endif
 
   // Parse the challenge, saving the results into this instance.
-  // Returns true on success.
-  bool ParseChallenge(HttpAuth::ChallengeTokenizer* tok);
+  HttpAuth::AuthorizationResult ParseChallenge(
+      HttpAuth::ChallengeTokenizer* tok, bool initial_challenge);
 
   // Given an input token received from the server, generate the next output
   // token to be sent to the server.

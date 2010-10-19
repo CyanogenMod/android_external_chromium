@@ -8,6 +8,7 @@
 
 #include "app/x11_util.h"
 #include "base/string16.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/chromeos/drop_shadow_label.h"
@@ -42,9 +43,9 @@ namespace {
 // given value (well, unless the font at size 1 is taller than the
 // given value).
 Font FindFontThisHigh(int pixels, Font base) {
-  Font font = Font::CreateFont(base.FontName(), 1);
+  Font font(base.GetFontName(), 1);
   Font last_font = font;
-  while (font.height() < pixels) {
+  while (font.GetHeight() < pixels) {
     last_font = font;
     font = font.DeriveFont(1, Font::BOLD);
   }

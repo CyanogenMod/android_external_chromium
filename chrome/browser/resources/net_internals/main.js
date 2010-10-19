@@ -24,30 +24,35 @@ var g_browser = null;
 function onLoaded() {
   g_browser = new BrowserBridge();
 
-  // Create the view which displays requests lists, and lets you select, filter
+  // Create the view which displays events lists, and lets you select, filter
   // and delete them.
-  var requestsView = new RequestsView('requestsListTableBody',
-                                      'filterInput',
-                                      'filterCount',
-                                      'deleteSelected',
-                                      'selectAll',
+  var eventsView = new EventsView('eventsListTableBody',
+                                  'filterInput',
+                                  'filterCount',
+                                  'deleteSelected',
+                                  'deleteAll',
+                                  'selectAll',
+                                  'sortById',
+                                  'sortBySource',
+                                  'sortByDescription',
 
-                                      // IDs for the details view.
-                                      "detailsTabHandles",
-                                      "detailsLogTab",
-                                      "detailsTimelineTab",
-                                      "detailsLogBox",
-                                      "detailsTimelineBox",
+                                  // IDs for the details view.
+                                  "detailsTabHandles",
+                                  "detailsLogTab",
+                                  "detailsTimelineTab",
+                                  "detailsLogBox",
+                                  "detailsTimelineBox",
 
-                                      // IDs for the layout boxes.
-                                      "filterBox",
-                                      "requestsBox",
-                                      "actionBox",
-                                      "splitterBox");
+                                  // IDs for the layout boxes.
+                                  "filterBox",
+                                  "eventsBox",
+                                  "actionBox",
+                                  "splitterBox");
 
   // Create a view which will display info on the proxy setup.
   var proxyView = new ProxyView("proxyTabContent",
-                                "proxyCurrentConfig",
+                                "proxyOriginalSettings",
+                                "proxyEffectiveSettings",
                                 "proxyReloadSettings",
                                 "badProxiesTableBody",
                                 "clearBadProxies");
@@ -63,7 +68,10 @@ function onLoaded() {
   // Create a view which will display import/export options to control the
   // captured data.
   var dataView = new DataView("dataTabContent", "exportedDataText",
-                              "exportToText");
+                              "exportToText", "securityStrippingCheckbox",
+                              "passivelyCapturedCount",
+                              "activelyCapturedCount",
+                              "dataViewDeleteAll");
 
   // Create a view which will display the results and controls for connection
   // tests.
@@ -73,18 +81,32 @@ function onLoaded() {
   var httpCacheView = new HttpCacheView("httpCacheTabContent",
                                         "httpCacheStats");
 
+  var socketsView = new SocketsView("socketsTabContent",
+                                    "socketPoolDiv",
+                                    "socketPoolGroupsDiv");
+
+
+  var serviceView;
+  if (g_browser.isPlatformWindows()) {
+    serviceView = new ServiceProvidersView("serviceProvidersTab",
+                                           "serviceProvidersTabContent",
+                                           "serviceProvidersTbody",
+                                           "namespaceProvidersTbody");
+  }
+
   // Create a view which lets you tab between the different sub-views.
   var categoryTabSwitcher =
       new TabSwitcherView(new DivView('categoryTabHandles'));
 
   // Populate the main tabs.
-  categoryTabSwitcher.addTab('requestsTab', requestsView, false);
+  categoryTabSwitcher.addTab('eventsTab', eventsView, false);
   categoryTabSwitcher.addTab('proxyTab', proxyView, false);
   categoryTabSwitcher.addTab('dnsTab', dnsView, false);
-  categoryTabSwitcher.addTab('socketsTab', new DivView('socketsTabContent'),
-                             false);
+  categoryTabSwitcher.addTab('socketsTab', socketsView, false);
   categoryTabSwitcher.addTab('httpCacheTab', httpCacheView, false);
   categoryTabSwitcher.addTab('dataTab', dataView, false);
+  if (g_browser.isPlatformWindows())
+    categoryTabSwitcher.addTab('serviceProvidersTab', serviceView, false);
   categoryTabSwitcher.addTab('testTab', testView, false);
 
   // Build a map from the anchor name of each tab handle to its "tab ID".
@@ -132,12 +154,16 @@ function BrowserBridge() {
   this.httpCacheInfo_ = new PollableDataHelper('onHttpCacheInfoChanged');
   this.hostResolverCache_ =
       new PollableDataHelper('onHostResolverCacheChanged');
+  this.socketPoolInfo_ = new PollableDataHelper('onSocketPoolInfoChanged');
+  this.serviceProviders_ = new PollableDataHelper('onServiceProvidersChanged');
 
   // Cache of the data received.
-  // TODO(eroman): the controls to clear data in the "Requests" tab should be
-  //               affecting this as well.
-  this.passivelyCapturedEvents_ = [];
-  this.activelyCapturedEvents_ = [];
+  this.numPassivelyCapturedEvents_ = 0;
+  this.capturedEvents_ = [];
+
+  // Next unique id to be assigned to a log entry without a source.
+  // Needed to simplify deletion, identify associated GUI elements, etc.
+  this.nextSourcelessEventId_ = -1;
 }
 
 /**
@@ -157,6 +183,10 @@ BrowserBridge.prototype.sendReady = function() {
   // the observers.
   window.setInterval(
       this.doPolling_.bind(this), BrowserBridge.POLL_INTERVAL_MS);
+};
+
+BrowserBridge.prototype.isPlatformWindows = function() {
+  return /Win/.test(navigator.platform);
 };
 
 BrowserBridge.prototype.sendGetProxySettings = function() {
@@ -194,13 +224,28 @@ BrowserBridge.prototype.sendGetHttpCacheInfo = function() {
   chrome.send('getHttpCacheInfo');
 };
 
+BrowserBridge.prototype.sendGetSocketPoolInfo = function() {
+  chrome.send('getSocketPoolInfo');
+};
+
+BrowserBridge.prototype.sendGetServiceProviders = function() {
+  chrome.send('getServiceProviders');
+};
+
 //------------------------------------------------------------------------------
 // Messages received from the browser
 //------------------------------------------------------------------------------
 
 BrowserBridge.prototype.receivedLogEntry = function(logEntry) {
-  if (!logEntry.wasPassivelyCaptured)
-    this.activelyCapturedEvents_.push(logEntry);
+  // Silently drop entries received before ready to receive them.
+  if (!this.areLogTypesReady_())
+    return;
+  // Assign unique ID, if needed.
+  if (logEntry.source.id == 0) {
+    logEntry.source.id = this.nextSourcelessEventId_;
+    --this.nextSourcelessEventId_;
+  }
+  this.capturedEvents_.push(logEntry);
   for (var i = 0; i < this.logObservers_.length; ++i)
     this.logObservers_[i].onLogEntryAdded(logEntry);
 };
@@ -249,9 +294,16 @@ function(hostResolverCache) {
   this.hostResolverCache_.update(hostResolverCache);
 };
 
+BrowserBridge.prototype.receivedSocketPoolInfo = function(socketPoolInfo) {
+  this.socketPoolInfo_.update(socketPoolInfo);
+};
+
+BrowserBridge.prototype.receivedServiceProviders = function(serviceProviders) {
+  this.serviceProviders_.update(serviceProviders);
+};
+
 BrowserBridge.prototype.receivedPassiveLogEntries = function(entries) {
-  this.passivelyCapturedEvents_ =
-      this.passivelyCapturedEvents_.concat(entries);
+  this.numPassivelyCapturedEvents_ += entries.length;
   for (var i = 0; i < entries.length; ++i) {
     var entry = entries[i];
     entry.wasPassivelyCaptured = true;
@@ -290,6 +342,12 @@ BrowserBridge.prototype.receivedHttpCacheInfo = function(info) {
   this.httpCacheInfo_.update(info);
 };
 
+BrowserBridge.prototype.areLogTypesReady_ = function() {
+  return (LogEventType  != null &&
+          LogEventPhase != null &&
+          LogSourceType != null);
+}
+
 //------------------------------------------------------------------------------
 
 /**
@@ -308,7 +366,17 @@ BrowserBridge.prototype.addLogObserver = function(observer) {
  *
  *   observer.onProxySettingsChanged(proxySettings)
  *
- * |proxySettings| is a formatted string describing the settings.
+ * |proxySettings| is a dictionary with (up to) two properties:
+ *
+ *   "original"  -- The settings that chrome was configured to use
+ *                  (i.e. system settings.)
+ *   "effective" -- The "effective" proxy settings that chrome is using.
+ *                  (decides between the manual/automatic modes of the
+ *                  fetched settings).
+ *
+ * Each of these two configurations is formatted as a string, and may be
+ * omitted if not yet initialized.
+ *
  * TODO(eroman): send a dictionary instead.
  */
 BrowserBridge.prototype.addProxySettingsObserver = function(observer) {
@@ -338,6 +406,26 @@ BrowserBridge.prototype.addBadProxiesObsever = function(observer) {
  */
 BrowserBridge.prototype.addHostResolverCacheObserver = function(observer) {
   this.hostResolverCache_.addObserver(observer);
+};
+
+/**
+ * Adds a listener of the socket pool. |observer| will be called back
+ * when data is received, through:
+ *
+ *   observer.onSocketPoolInfoChanged(socketPoolInfo)
+ */
+BrowserBridge.prototype.addSocketPoolInfoObserver = function(observer) {
+  this.socketPoolInfo_.addObserver(observer);
+};
+
+/**
+ * Adds a listener of the service providers info. |observer| will be called
+ * back when data is received, through:
+ *
+ *   observer.onServiceProvidersChanged(serviceProviders)
+ */
+BrowserBridge.prototype.addServiceProvidersObserver = function(observer) {
+  this.serviceProviders_.addObserver(observer);
 };
 
 /**
@@ -380,19 +468,60 @@ BrowserBridge.prototype.convertTimeTicksToDate = function(timeTicks) {
 };
 
 /**
- * Returns a list of all the events that were captured while we were
- * listening for events.
+ * Returns a list of all captured events.
  */
-BrowserBridge.prototype.getAllActivelyCapturedEvents = function() {
-  return this.activelyCapturedEvents_;
+BrowserBridge.prototype.getAllCapturedEvents = function() {
+  return this.capturedEvents_;
 };
 
 /**
- * Returns a list of all the events that were captured passively by the
+ * Returns the number of events that were captured while we were
+ * listening for events.
+ */
+BrowserBridge.prototype.getNumActivelyCapturedEvents = function() {
+  return this.capturedEvents_.length - this.numPassivelyCapturedEvents_;
+};
+
+/**
+ * Returns the number of events that were captured passively by the
  * browser prior to when the net-internals page was started.
  */
-BrowserBridge.prototype.getAllPassivelyCapturedEvents = function() {
-  return this.passivelyCapturedEvents_;
+BrowserBridge.prototype.getNumPassivelyCapturedEvents = function() {
+  return this.numPassivelyCapturedEvents_;
+};
+
+/**
+ * Deletes captured events with source IDs in |sourceIds|.
+ */
+BrowserBridge.prototype.deleteEventsBySourceId = function(sourceIds) {
+  var sourceIdDict = {};
+  for (var i = 0; i < sourceIds.length; i++)
+    sourceIdDict[sourceIds[i]] = true;
+
+  var newEventList = [];
+  for (var i = 0; i < this.capturedEvents_.length; ++i) {
+    var id = this.capturedEvents_[i].source.id;
+    if (id in sourceIdDict) {
+      if (this.capturedEvents_[i].wasPassivelyCaptured)
+        --this.numPassivelyCapturedEvents_;
+      continue;
+    }
+    newEventList.push(this.capturedEvents_[i]);
+  }
+  this.capturedEvents_ = newEventList;
+
+  for (var i = 0; i < this.logObservers_.length; ++i)
+    this.logObservers_[i].onLogEntriesDeleted(sourceIds);
+};
+
+/**
+ * Deletes all captured events.
+ */
+BrowserBridge.prototype.deleteAllEvents = function() {
+  this.capturedEvents_ = [];
+  this.numPassivelyCapturedEvents_ = 0;
+  for (var i = 0; i < this.logObservers_.length; ++i)
+    this.logObservers_[i].onAllLogEntriesDeleted();
 };
 
 BrowserBridge.prototype.doPolling_ = function() {
@@ -403,6 +532,9 @@ BrowserBridge.prototype.doPolling_ = function() {
   this.sendGetBadProxies();
   this.sendGetHostResolverCache();
   this.sendGetHttpCacheInfo();
+  this.sendGetSocketPoolInfo();
+  if (this.isPlatformWindows())
+    this.sendGetServiceProviders();
 };
 
 /**

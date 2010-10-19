@@ -4,13 +4,15 @@
 
 #ifndef CHROME_BROWSER_GTK_TAB_CONTENTS_CONTAINER_GTK_H_
 #define CHROME_BROWSER_GTK_TAB_CONTENTS_CONTAINER_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
 #include "base/basictypes.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/gtk/view_id_util.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/owned_widget_gtk.h"
 
 class RenderViewHost;
 class StatusBubbleGtk;

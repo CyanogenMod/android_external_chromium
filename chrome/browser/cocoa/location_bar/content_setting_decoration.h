@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_LOCATION_BAR_CONTENT_SETTING_DECORATION_H_
 #define CHROME_BROWSER_COCOA_LOCATION_BAR_CONTENT_SETTING_DECORATION_H_
+#pragma once
 
 #include "base/scoped_ptr.h"
 #import "chrome/browser/cocoa/location_bar/image_decoration.h"
@@ -25,7 +26,8 @@ class ContentSettingDecoration : public ImageDecoration {
   virtual ~ContentSettingDecoration();
 
   // Updates the image and visibility state based on the supplied TabContents.
-  void UpdateFromTabContents(const TabContents* tab_contents);
+  // Returns true if the decoration's visible state changed.
+  bool UpdateFromTabContents(const TabContents* tab_contents);
 
   // Overridden from |LocationBarDecoration|
   virtual bool AcceptsMousePress() { return true; }
@@ -33,6 +35,11 @@ class ContentSettingDecoration : public ImageDecoration {
   virtual NSString* GetToolTip();
 
  private:
+  // Helper to get where the bubble point should land.  Similar to
+  // |PageActionDecoration| or |StarDecoration| (|LocationBarViewMac|
+  // calls those).
+  NSPoint GetBubblePointInFrame(NSRect frame);
+
   void SetToolTip(NSString* tooltip);
 
   scoped_ptr<ContentSettingImageModel> content_setting_image_model_;

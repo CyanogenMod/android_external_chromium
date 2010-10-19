@@ -5,7 +5,6 @@
 #include "chrome/browser/notifications/balloon_host.h"
 
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/in_process_webkit/webkit_context.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/notifications/balloon.h"
 #include "chrome/browser/profile.h"
@@ -23,7 +22,8 @@ BalloonHost::BalloonHost(Balloon* balloon)
     : render_view_host_(NULL),
       balloon_(balloon),
       initialized_(false),
-      should_notify_on_disconnect_(false) {
+      should_notify_on_disconnect_(false),
+      enable_dom_ui_(false) {
   DCHECK(balloon_);
 
   // If the notification is for an extension URL, make sure to use the extension
@@ -76,14 +76,10 @@ void BalloonHost::RenderViewGone(RenderViewHost* render_view_host) {
   Close(render_view_host);
 }
 
-void BalloonHost::ProcessDOMUIMessage(const std::string& message,
-                                      const ListValue* content,
-                                      const GURL& source_url,
-                                      int request_id,
-                                      bool has_callback) {
+void BalloonHost::ProcessDOMUIMessage(
+    const ViewHostMsg_DomMessage_Params& params) {
   if (extension_function_dispatcher_.get()) {
-    extension_function_dispatcher_->HandleRequest(
-        message, content, source_url, request_id, has_callback);
+    extension_function_dispatcher_->HandleRequest(params);
   }
 }
 
@@ -97,7 +93,8 @@ void BalloonHost::CreateNewWindow(
       route_id,
       balloon_->profile(),
       site_instance_.get(),
-      DOMUIFactory::GetDOMUIType(balloon_->notification().content_url()),
+      DOMUIFactory::GetDOMUIType(balloon_->profile(),
+          balloon_->notification().content_url()),
       this,
       window_container_type,
       frame_name);
@@ -125,6 +122,10 @@ void BalloonHost::UpdatePreferredSize(const gfx::Size& new_size) {
   balloon_->SetContentPreferredSize(new_size);
 }
 
+void BalloonHost::HandleMouseDown() {
+  balloon_->OnClick();
+}
+
 RendererPreferences BalloonHost::GetRendererPrefs(Profile* profile) const {
   RendererPreferences preferences;
   renderer_preferences_util::UpdateFromSystemSettings(&preferences, profile);
@@ -133,11 +134,8 @@ RendererPreferences BalloonHost::GetRendererPrefs(Profile* profile) const {
 
 void BalloonHost::Init() {
   DCHECK(!render_view_host_) << "BalloonViewHost already initialized.";
-  int64 session_storage_namespace_id = balloon_->profile()->GetWebKitContext()->
-      dom_storage_context()->AllocateSessionStorageNamespaceId();
-  RenderViewHost* rvh = new RenderViewHost(site_instance_.get(),
-                                           this, MSG_ROUTING_NONE,
-                                           session_storage_namespace_id);
+  RenderViewHost* rvh = new RenderViewHost(
+      site_instance_.get(), this, MSG_ROUTING_NONE, NULL);
   if (GetProfile()->GetExtensionsService()) {
     extension_function_dispatcher_.reset(
         ExtensionFunctionDispatcher::Create(
@@ -146,6 +144,8 @@ void BalloonHost::Init() {
   if (extension_function_dispatcher_.get()) {
     rvh->AllowBindings(BindingsPolicy::EXTENSION);
     rvh->set_is_extension_process(true);
+  } else if (enable_dom_ui_) {
+    rvh->AllowBindings(BindingsPolicy::DOM_UI);
   }
 
   // Do platform-specific initialization.
@@ -154,10 +154,16 @@ void BalloonHost::Init() {
   DCHECK(render_widget_host_view());
 
   rvh->set_view(render_widget_host_view());
-  rvh->CreateRenderView(GetProfile()->GetRequestContext(), string16());
+  rvh->CreateRenderView(string16());
   rvh->NavigateToURL(balloon_->notification().content_url());
 
   initialized_ = true;
+}
+
+void BalloonHost::EnableDOMUI() {
+  DCHECK(render_view_host_ == NULL) <<
+      "EnableDOMUI has to be called before a renderer is created.";
+  enable_dom_ui_ = true;
 }
 
 void BalloonHost::NotifyDisconnect() {

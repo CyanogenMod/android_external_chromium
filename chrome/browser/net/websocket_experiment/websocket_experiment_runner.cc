@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,8 +9,10 @@
 #include "base/field_trial.h"
 #include "base/message_loop.h"
 #include "base/task.h"
+#include "base/string_util.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/common/chrome_switches.h"
+#include "net/base/host_resolver.h"
 #include "net/base/net_errors.h"
 #include "net/websockets/websocket.h"
 
@@ -27,7 +29,7 @@ void WebSocketExperimentRunner::Start() {
   DCHECK(!runner.get());
 
   scoped_refptr<FieldTrial> trial = new FieldTrial("WebSocketExperiment", 1000);
-  trial->AppendGroup("_active", 5);  // 0.5% in _active group.
+  trial->AppendGroup("active", 5);  // 0.5% in active group.
 
   bool run_experiment = (trial->group() != FieldTrial::kNotParticipating);
 #ifndef NDEBUG
@@ -170,7 +172,7 @@ void WebSocketExperimentRunner::InitConfig() {
 void WebSocketExperimentRunner::DoLoop() {
   if (next_state_ == STATE_NONE) {
     if (task_.get()) {
-      AddRef();  // Release in OnTaskCompleted.
+      AddRef();  // Release in OnTaskCompleted after Cancelled.
       task_->Cancel();
     }
     return;
@@ -213,7 +215,7 @@ void WebSocketExperimentRunner::DoLoop() {
 }
 
 void WebSocketExperimentRunner::OnTaskCompleted(int result) {
-  if (result == net::ERR_ABORTED) {
+  if (next_state_ == STATE_NONE) {
     task_.reset();
     // Task is Canceled.
     DLOG(INFO) << "WebSocketExperiment Task is canceled.";

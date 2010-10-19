@@ -3,4 +3,4 @@
 export builddir_name ?= /usr/local/google/src/chromium-merge/src/net/out
 .PHONY: all
 all:
-	$(MAKE) -C .. net_resources net_base tld_cleanup net hresolv net_test_support fetch_client http_listen_socket fetch_server run_testserver net_perftests crash_cache net_unittests stress_cache
+	$(MAKE) -C .. ssl_false_start_blacklist_process net_resources tld_cleanup net_base hresolv dnssec_chain_verify net net_test_support http_listen_socket fetch_server fetch_client net_unittests net_perftests run_testserver stress_cache crash_cache

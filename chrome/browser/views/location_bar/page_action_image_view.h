@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_LOCATION_BAR_PAGE_ACTION_IMAGE_VIEW_H_
 #define CHROME_BROWSER_VIEWS_LOCATION_BAR_PAGE_ACTION_IMAGE_VIEW_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -40,7 +41,7 @@ class PageActionImageView : public views::ImageView,
   }
 
   // Overridden from view.
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
   virtual bool OnMousePressed(const views::MouseEvent& event);
   virtual void OnMouseReleased(const views::MouseEvent& event, bool canceled);
   virtual bool OnKeyPressed(const views::KeyEvent& e);

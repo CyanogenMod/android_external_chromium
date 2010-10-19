@@ -4,9 +4,9 @@
 
 #ifndef CHROME_BROWSER_SYNC_ENGINE_APPLY_UPDATES_COMMAND_H_
 #define CHROME_BROWSER_SYNC_ENGINE_APPLY_UPDATES_COMMAND_H_
+#pragma once
 
 #include "chrome/browser/sync/engine/model_changing_syncer_command.h"
-#include "chrome/browser/sync/util/sync_types.h"
 
 namespace syncable {
 class WriteTransaction;

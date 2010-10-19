@@ -8,7 +8,9 @@
 
 #include <vector>
 
+#include "base/logging.h"
 #include "base/command_line.h"
+#include "base/histogram.h"
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
 #include "base/shared_memory.h"
@@ -16,6 +18,7 @@
 #include "base/time.h"
 #include "chrome/browser/cert_store.h"
 #include "chrome/browser/child_process_security_policy.h"
+#include "chrome/browser/chrome_blob_storage_context.h"
 #include "chrome/browser/cross_site_request_manager.h"
 #include "chrome/browser/download/download_file_manager.h"
 #include "chrome/browser/download/download_manager.h"
@@ -34,6 +37,7 @@
 #include "chrome/browser/renderer_host/cross_site_resource_handler.h"
 #include "chrome/browser/renderer_host/download_resource_handler.h"
 #include "chrome/browser/renderer_host/global_request_id.h"
+#include "chrome/browser/renderer_host/redirect_to_file_resource_handler.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/renderer_host/render_view_host_notification_task.h"
@@ -51,6 +55,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/render_messages_params.h"
 #include "chrome/common/url_constants.h"
 #include "net/base/auth.h"
 #include "net/base/cert_status_flags.h"
@@ -59,10 +64,14 @@
 #include "net/base/net_errors.h"
 #include "net/base/request_priority.h"
 #include "net/base/ssl_cert_request_info.h"
+#include "net/base/upload_data.h"
+#include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 #include "webkit/appcache/appcache_interceptor.h"
 #include "webkit/appcache/appcache_interfaces.h"
+#include "webkit/blob/blob_storage_controller.h"
+#include "webkit/blob/deletable_file_reference.h"
 
 // TODO(oshima): Enable this for other platforms.
 #if defined(OS_CHROMEOS)
@@ -81,6 +90,7 @@
 using base::Time;
 using base::TimeDelta;
 using base::TimeTicks;
+using webkit_blob::DeletableFileReference;
 
 // ----------------------------------------------------------------------------
 
@@ -124,6 +134,10 @@ bool ShouldServiceRequest(ChildProcessInfo::ProcessType process_type,
   if (process_type == ChildProcessInfo::PLUGIN_PROCESS)
     return true;
 
+  if (request_data.resource_type == ResourceType::PREFETCH &&
+      !ResourceDispatcherHost::is_prefetch_enabled())
+    return false;
+
   ChildProcessSecurityPolicy* policy =
       ChildProcessSecurityPolicy::GetInstance();
 
@@ -141,7 +155,7 @@ bool ShouldServiceRequest(ChildProcessInfo::ProcessType process_type,
     std::vector<net::UploadData::Element>::const_iterator iter;
     for (iter = uploads->begin(); iter != uploads->end(); ++iter) {
       if (iter->type() == net::UploadData::TYPE_FILE &&
-          !policy->CanUploadFile(child_id, iter->file_path())) {
+          !policy->CanReadFile(child_id, iter->file_path())) {
         NOTREACHED() << "Denied unauthorized upload of "
                      << iter->file_path().value();
         return false;
@@ -309,7 +323,10 @@ bool ResourceDispatcherHost::OnMessageReceived(const IPC::Message& message,
   IPC_BEGIN_MESSAGE_MAP_EX(ResourceDispatcherHost, message, *message_was_ok)
     IPC_MESSAGE_HANDLER(ViewHostMsg_RequestResource, OnRequestResource)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_SyncLoad, OnSyncLoad)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_ReleaseDownloadedFile,
+                        OnReleaseDownloadedFile)
     IPC_MESSAGE_HANDLER(ViewHostMsg_DataReceived_ACK, OnDataReceivedACK)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_DataDownloaded_ACK, OnDataDownloadedACK)
     IPC_MESSAGE_HANDLER(ViewHostMsg_UploadProgress_ACK, OnUploadProgressACK)
     IPC_MESSAGE_HANDLER(ViewHostMsg_CancelRequest, OnCancelRequest)
     IPC_MESSAGE_HANDLER(ViewHostMsg_FollowRedirect, OnFollowRedirect)
@@ -362,6 +379,12 @@ void ResourceDispatcherHost::BeginRequest(
     }
   }
 
+  // Might need to resolve the blob references in the upload data.
+  if (request_data.upload_data && context) {
+    context->blob_storage_context()->controller()->
+        ResolveBlobReferencesInUploadData(request_data.upload_data.get());
+  }
+
   if (is_shutdown_ ||
       !ShouldServiceRequest(process_type, child_id, request_data)) {
     URLRequestStatus status(URLRequestStatus::FAILED, net::ERR_ABORTED);
@@ -376,8 +399,8 @@ void ResourceDispatcherHost::BeginRequest(
           route_id,
           request_id,
           status,
-          std::string()));  // No security info needed, connection was not
-                            // established.
+          std::string(),   // No security info needed, connection was not
+          base::Time()));  // established.
     }
     return;
   }
@@ -391,7 +414,11 @@ void ResourceDispatcherHost::BeginRequest(
   // Construct the event handler.
   scoped_refptr<ResourceHandler> handler;
   if (sync_result) {
-    handler = new SyncResourceHandler(receiver_, request_data.url, sync_result);
+    handler = new SyncResourceHandler(receiver_,
+                                      child_id,
+                                      request_data.url,
+                                      sync_result,
+                                      this);
   } else {
     handler = new AsyncResourceHandler(receiver_,
                                        child_id,
@@ -400,6 +427,10 @@ void ResourceDispatcherHost::BeginRequest(
                                        request_data.url,
                                        this);
   }
+
+  // The RedirectToFileResourceHandler depends on being next in the chain.
+  if (request_data.download_to_file)
+    handler = new RedirectToFileResourceHandler(handler, child_id, this);
 
   if (HandleExternalProtocol(request_id, child_id, route_id,
                              request_data.url, request_data.resource_type,
@@ -421,8 +452,11 @@ void ResourceDispatcherHost::BeginRequest(
   // EV certificate verification could be expensive.  We don't want to spend
   // time performing EV certificate verification on all resources because
   // EV status is irrelevant to sub-frames and sub-resources.
-  if (request_data.resource_type == ResourceType::MAIN_FRAME)
-    load_flags |= net::LOAD_VERIFY_EV_CERT;
+  if (request_data.resource_type == ResourceType::MAIN_FRAME) {
+    load_flags |= net::LOAD_VERIFY_EV_CERT | net::LOAD_MAIN_FRAME;
+  } else if (request_data.resource_type == ResourceType::SUB_FRAME) {
+    load_flags |= net::LOAD_SUB_FRAME;
+  }
   request->set_load_flags(load_flags);
   request->set_context(context);
   request->set_priority(DetermineRequestPriority(request_data.resource_type));
@@ -489,12 +523,27 @@ void ResourceDispatcherHost::BeginRequest(
   chrome_browser_net::SetOriginProcessUniqueIDForRequest(
       request_data.origin_child_id, request);
 
+  if (request->url().SchemeIs(chrome::kBlobScheme) && context) {
+    // Hang on to a reference to ensure the blob is not released prior
+    // to the job being started.
+    webkit_blob::BlobStorageController* controller =
+        context->blob_storage_context()->controller();
+    extra_info->set_requested_blob_data(
+        controller->GetBlobDataFromUrl(request->url()));
+  }
+
   // Have the appcache associate its extra info with the request.
   appcache::AppCacheInterceptor::SetExtraRequestInfo(
       request, context ? context->appcache_service() : NULL, child_id,
       request_data.appcache_host_id, request_data.resource_type);
 
   BeginRequestInternal(request);
+}
+
+void ResourceDispatcherHost::OnReleaseDownloadedFile(int request_id) {
+  DCHECK(pending_requests_.end() ==
+         pending_requests_.find(GlobalRequestID(receiver_->id(), request_id)));
+  UnregisterDownloadedTempFile(receiver_->id(), request_id);
 }
 
 void ResourceDispatcherHost::OnDataReceivedACK(int request_id) {
@@ -522,6 +571,28 @@ void ResourceDispatcherHost::DataReceivedACK(int child_id,
     // Resume the request.
     PauseRequest(child_id, request_id, false);
   }
+}
+
+void ResourceDispatcherHost::OnDataDownloadedACK(int request_id) {
+  // TODO(michaeln): maybe throttle DataDownloaded messages
+}
+
+void ResourceDispatcherHost::RegisterDownloadedTempFile(
+    int receiver_id, int request_id, DeletableFileReference* reference) {
+  // Note: receiver_id is the child_id is the render_process_id...
+  registered_temp_files_[receiver_id][request_id] = reference;
+  ChildProcessSecurityPolicy::GetInstance()->GrantReadFile(
+      receiver_id, reference->path());
+}
+
+void ResourceDispatcherHost::UnregisterDownloadedTempFile(
+    int receiver_id, int request_id) {
+  DeletableFilesMap& map = registered_temp_files_[receiver_id];
+  DeletableFilesMap::iterator found = map.find(request_id);
+  if (found == map.end())
+    return;
+  map.erase(found);
+  // TODO(michaeln): Revoke access to this file.
 }
 
 bool ResourceDispatcherHost::Send(IPC::Message* message) {
@@ -819,6 +890,7 @@ int ResourceDispatcherHost::GetOutstandingRequestsMemoryCost(
 void ResourceDispatcherHost::CancelRequestsForProcess(int child_id) {
   socket_stream_dispatcher_host_->CancelRequestsForProcess(child_id);
   CancelRequestsForRoute(child_id, -1 /* cancel all */);
+  registered_temp_files_.erase(child_id);
 }
 
 void ResourceDispatcherHost::CancelRequestsForRoute(int child_id,
@@ -1770,8 +1842,9 @@ bool ResourceDispatcherHost::IsResourceDispatcherHostMessage(
     case ViewHostMsg_CancelRequest::ID:
     case ViewHostMsg_FollowRedirect::ID:
     case ViewHostMsg_ClosePage_ACK::ID:
+    case ViewHostMsg_ReleaseDownloadedFile::ID:
     case ViewHostMsg_DataReceived_ACK::ID:
-    case ViewHostMsg_DownloadProgress_ACK::ID:
+    case ViewHostMsg_DataDownloaded_ACK::ID:
     case ViewHostMsg_UploadProgress_ACK::ID:
     case ViewHostMsg_SyncLoad::ID:
       return true;
@@ -1830,11 +1903,16 @@ net::RequestPriority ResourceDispatcherHost::DetermineRequestPriority(
     case ResourceType::SHARED_WORKER:
       return net::LOW;
 
-    // Images are the lowest priority because they typically do not block
+    // Images are the "lowest" priority because they typically do not block
     // downloads or rendering and most pages have some useful content without
     // them.
     case ResourceType::IMAGE:
       return net::LOWEST;
+
+    // Prefetches are at a lower priority than even LOWEST, since they
+    // are not even required for rendering of the current page.
+    case ResourceType::PREFETCH:
+      return net::IDLE;
 
     default:
       // When new resource types are added, their priority must be considered.
@@ -1842,3 +1920,16 @@ net::RequestPriority ResourceDispatcherHost::DetermineRequestPriority(
       return net::LOW;
   }
 }
+
+// static
+bool ResourceDispatcherHost::is_prefetch_enabled() {
+  return is_prefetch_enabled_;
+}
+
+// static
+void ResourceDispatcherHost::set_is_prefetch_enabled(bool value) {
+  is_prefetch_enabled_ = value;
+}
+
+// static
+bool ResourceDispatcherHost::is_prefetch_enabled_ = false;

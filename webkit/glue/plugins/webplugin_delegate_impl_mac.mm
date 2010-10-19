@@ -12,11 +12,11 @@
 #include <set>
 
 #include "base/file_util.h"
-#include "base/lazy_instance.h"
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
 #include "base/stats_counters.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebInputEvent.h"
 #include "webkit/glue/plugins/plugin_instance.h"
 #include "webkit/glue/plugins/plugin_lib.h"
@@ -258,16 +258,16 @@ WebPluginDelegateImpl::WebPluginDelegateImpl(
       layer_(nil),
       surface_(NULL),
       renderer_(nil),
-      plugin_has_focus_(false),
-      has_webkit_focus_(false),
-      containing_view_has_focus_(false),
       containing_window_has_focus_(false),
       initial_window_focus_(false),
       container_is_visible_(false),
       have_called_set_window_(false),
       external_drag_tracker_(new ExternalDragTracker()),
       handle_event_depth_(0),
-      first_set_window_call_(true) {
+      first_set_window_call_(true),
+      plugin_has_focus_(false),
+      has_webkit_focus_(false),
+      containing_view_has_focus_(true) {
   memset(&window_, 0, sizeof(window_));
 #ifndef NP_NO_CARBON
   memset(&np_cg_context_, 0, sizeof(np_cg_context_));
@@ -385,12 +385,6 @@ bool WebPluginDelegateImpl::PlatformInitialize() {
       break;
   }
 
-  // TODO(stuartmorgan): We need real plugin container visibility information
-  // when the plugin is initialized; for now, assume it's visible.
-  // None of the calls SetContainerVisibility would make are useful at this
-  // point, so we just set the initial state directly.
-  container_is_visible_ = true;
-
   // Let the WebPlugin know that we are windowless (unless this is a
   // Core Animation plugin, in which case BindFakePluginWindowHandle will take
   // care of setting up the appropriate window handle).
@@ -472,15 +466,6 @@ void WebPluginDelegateImpl::Print(CGContextRef context) {
   NOTIMPLEMENTED();
 }
 
-void WebPluginDelegateImpl::SetFocus(bool focused) {
-  // This is called when internal WebKit focus (the focused element on the page)
-  // changes, but plugins need to know about actual first responder status, so
-  // we have an extra layer of focus tracking.
-  has_webkit_focus_ = focused;
-  if (containing_view_has_focus_)
-    SetPluginHasFocus(focused);
-}
-
 bool WebPluginDelegateImpl::PlatformHandleInputEvent(
     const WebInputEvent& event, WebCursorInfo* cursor_info) {
   DCHECK(cursor_info != NULL);
@@ -497,12 +482,6 @@ bool WebPluginDelegateImpl::PlatformHandleInputEvent(
 
   if (WebInputEvent::isMouseEventType(event.type) ||
       event.type == WebInputEvent::MouseWheel) {
-    // Ideally we would compute the content origin from the web event using the
-    // code below as a safety net for missed content area location changes.
-    // Because of <http://crbug.com/9996>, however, only globalX/Y are right if
-    // the page has been zoomed, so for now the coordinates we get aren't
-    // trustworthy enough to use for corrections.
-#if PLUGIN_SCALING_FIXED
     // Check our plugin location before we send the event to the plugin, just
     // in case we somehow missed a plugin frame change.
     const WebMouseEvent* mouse_event =
@@ -517,7 +496,6 @@ bool WebPluginDelegateImpl::PlatformHandleInputEvent(
                     << content_origin;
       SetContentAreaOrigin(content_origin);
     }
-#endif
 
     current_windowless_cursor_.GetCursorInfo(cursor_info);
   }
@@ -592,25 +570,6 @@ bool WebPluginDelegateImpl::PlatformHandleInputEvent(
       return false;
     }
   }
-
-#ifndef PLUGIN_SCALING_FIXED
-  // Because of <http://crbug.com/9996>, the non-global coordinates we get for
-  // zoomed pages are wrong. As a temporary hack around that bug, override the
-  // coordinates we are given with ones computed based on our knowledge of where
-  // the plugin is on screen. We only need to do this for Cocoa, since Carbon
-  // only uses the global coordinates.
-  if (instance()->event_model() == NPEventModelCocoa &&
-      (WebInputEvent::isMouseEventType(event.type) ||
-       event.type == WebInputEvent::MouseWheel)) {
-    const WebMouseEvent* mouse_event =
-        static_cast<const WebMouseEvent*>(&event);
-    NPCocoaEvent* cocoa_event = static_cast<NPCocoaEvent*>(plugin_event);
-    cocoa_event->data.mouse.pluginX =
-        mouse_event->globalX - content_area_origin_.x() - window_rect_.x();
-    cocoa_event->data.mouse.pluginY =
-        mouse_event->globalY - content_area_origin_.y() - window_rect_.y();
-  }
-#endif
 
   // Send the plugin the event.
   scoped_ptr<NPAPI::ScopedCurrentPluginEvent> event_scope(NULL);
@@ -855,13 +814,9 @@ void WebPluginDelegateImpl::SetWindowHasFocus(bool has_focus) {
   }
 }
 
-void WebPluginDelegateImpl::SetPluginHasFocus(bool has_focus) {
+bool WebPluginDelegateImpl::PlatformSetPluginHasFocus(bool focused) {
   if (!have_called_set_window_)
-    return;
-
-  if (has_focus == plugin_has_focus_)
-    return;
-  plugin_has_focus_ = has_focus;
+    return false;
 
   ScopedActiveDelegate active_delegate(this);
 
@@ -869,7 +824,7 @@ void WebPluginDelegateImpl::SetPluginHasFocus(bool has_focus) {
 #ifndef NP_NO_CARBON
     case NPEventModelCarbon: {
       NPEvent focus_event = { 0 };
-      if (plugin_has_focus_)
+      if (focused)
         focus_event.what = NPEventType_GetFocusEvent;
       else
         focus_event.what = NPEventType_LoseFocusEvent;
@@ -882,16 +837,12 @@ void WebPluginDelegateImpl::SetPluginHasFocus(bool has_focus) {
       NPCocoaEvent focus_event;
       memset(&focus_event, 0, sizeof(focus_event));
       focus_event.type = NPCocoaEventFocusChanged;
-      focus_event.data.focus.hasFocus = plugin_has_focus_;
+      focus_event.data.focus.hasFocus = focused;
       instance()->NPP_HandleEvent(&focus_event);
       break;
     }
   }
-}
-
-void WebPluginDelegateImpl::SetContentAreaHasFocus(bool has_focus) {
-  containing_view_has_focus_ = has_focus;
-  SetPluginHasFocus(containing_view_has_focus_ && has_webkit_focus_);
+  return true;
 }
 
 void WebPluginDelegateImpl::SetContainerVisibility(bool is_visible) {
@@ -925,8 +876,8 @@ void WebPluginDelegateImpl::SetContainerVisibility(bool is_visible) {
     instance()->webplugin()->InvalidateRect(gfx::Rect());
 }
 
-void WebPluginDelegateImpl::WindowFrameChanged(gfx::Rect window_frame,
-                                               gfx::Rect view_frame) {
+void WebPluginDelegateImpl::WindowFrameChanged(const gfx::Rect& window_frame,
+                                               const gfx::Rect& view_frame) {
   instance()->set_window_frame(window_frame);
   SetContentAreaOrigin(gfx::Point(view_frame.x(), view_frame.y()));
 }

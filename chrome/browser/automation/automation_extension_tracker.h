@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_AUTOMATION_AUTOMATION_EXTENSION_TRACKER_H_
 #define CHROME_BROWSER_AUTOMATION_AUTOMATION_EXTENSION_TRACKER_H_
+#pragma once
 
 #include "chrome/browser/automation/automation_resource_tracker.h"
 
@@ -13,7 +14,7 @@ class Extension;
 class AutomationExtensionTracker
     : public AutomationResourceTracker<Extension*> {
  public:
-  AutomationExtensionTracker(IPC::Message::Sender* automation);
+  explicit AutomationExtensionTracker(IPC::Message::Sender* automation);
 
   virtual ~AutomationExtensionTracker();
 
@@ -22,10 +23,10 @@ class AutomationExtensionTracker
   // extension, is the one who sends the notification about extension
   // uninstalls. Instead of using this method, one observer is added for all
   // extensions in the constructor.
-  virtual void AddObserver(Extension* resource) {}
+  virtual void AddObserver(Extension* resource);
 
   // See related comment above as to why this method is empty.
-  virtual void RemoveObserver(Extension* resource) {}
+  virtual void RemoveObserver(Extension* resource);
 
   // Overriding AutomationResourceTracker Observe. AutomationResourceTracker's
   // Observe expects the NotificationSource to be the object that is closing.

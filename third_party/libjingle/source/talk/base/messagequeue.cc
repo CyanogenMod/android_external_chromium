@@ -73,12 +73,25 @@ void MessageQueueManager::Add(MessageQueue *message_queue) {
 
 void MessageQueueManager::Remove(MessageQueue *message_queue) {
   ASSERT(!crit_.CurrentThreadIsOwner());  // See note above.
-  CritScope cs(&crit_);
-  std::vector<MessageQueue *>::iterator iter;
-  iter = std::find(message_queues_.begin(), message_queues_.end(),
-                   message_queue);
-  if (iter != message_queues_.end())
-    message_queues_.erase(iter);
+  // If this is the last MessageQueue, destroy the manager as well so that
+  // we don't leak this object at program shutdown. As mentioned above, this is
+  // not thread-safe, but this should only happen at program termination (when
+  // the ThreadManager is destroyed, and threads are no longer active).
+  bool destroy = false;
+  {
+    CritScope cs(&crit_);
+    std::vector<MessageQueue *>::iterator iter;
+    iter = std::find(message_queues_.begin(), message_queues_.end(),
+                     message_queue);
+    if (iter != message_queues_.end()) {
+      message_queues_.erase(iter);      
+    }
+    destroy = message_queues_.empty();
+  }
+  if (destroy) {
+    instance_ = NULL;
+    delete this;    
+  }
 }
 
 void MessageQueueManager::Clear(MessageHandler *handler) {

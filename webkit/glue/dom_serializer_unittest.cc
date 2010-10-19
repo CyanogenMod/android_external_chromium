@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/hash_tables.h"
+#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "net/base/net_util.h"
 #include "net/url_request/url_request_context.h"
@@ -582,6 +583,7 @@ TEST_F(DomSerializerTests, SerializeHTMLDOMWithEntitiesInText) {
 
 // Test situation of html entities in attribute value when serializing
 // HTML DOM.
+// This test started to fail at WebKit r65388. See http://crbug.com/52279.
 TEST_F(DomSerializerTests, SerializeHTMLDOMWithEntitiesInAttributeValue) {
   FilePath page_file_path = data_dir_;
   page_file_path = page_file_path.AppendASCII(
@@ -631,6 +633,7 @@ TEST_F(DomSerializerTests, SerializeHTMLDOMWithEntitiesInAttributeValue) {
 }
 
 // Test situation of non-standard HTML entities when serializing HTML DOM.
+// This test started to fail at WebKit r65351. See http://crbug.com/52279.
 TEST_F(DomSerializerTests, SerializeHTMLDOMWithNonStandardEntities) {
   // Make a test file URL and load it.
   FilePath page_file_path = data_dir_;
@@ -644,7 +647,7 @@ TEST_F(DomSerializerTests, SerializeHTMLDOMWithNonStandardEntities) {
   WebDocument doc = web_frame->document();
   ASSERT_TRUE(doc.isHTMLDocument());
   WebElement body_element = doc.body();
-  // Unescaped string for "&percnt;&nsup;&supl;&apos;".
+  // Unescaped string for "&percnt;&nsup;&sup1;&apos;".
   static const wchar_t parsed_value[] = {
     '%', 0x2285, 0x00b9, '\'', 0
   };
@@ -661,7 +664,7 @@ TEST_F(DomSerializerTests, SerializeHTMLDOMWithNonStandardEntities) {
   // Confirm that the serialized string has no non-standard HTML entities.
   ASSERT_EQ(std::string::npos, serialized_contents.find("&percnt;"));
   ASSERT_EQ(std::string::npos, serialized_contents.find("&nsup;"));
-  ASSERT_EQ(std::string::npos, serialized_contents.find("&supl;"));
+  ASSERT_EQ(std::string::npos, serialized_contents.find("&sup1;"));
   ASSERT_EQ(std::string::npos, serialized_contents.find("&apos;"));
 }
 

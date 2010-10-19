@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_CONSTRAINED_WINDOW_H_
 #define CHROME_BROWSER_TAB_CONTENTS_CONSTRAINED_WINDOW_H_
+#pragma once
 
 #include "build/build_config.h"
 
@@ -53,6 +54,9 @@ class ConstrainedWindow {
 
   // Sets focus on the Constrained Window.
   virtual void FocusConstrainedWindow() {}
+
+ protected:
+  virtual ~ConstrainedWindow() {}
 };
 
 #endif  // CHROME_BROWSER_TAB_CONTENTS_CONSTRAINED_WINDOW_H_

@@ -38,11 +38,8 @@ namespace cricket {
 // We decided "bool Parse(in, out*, error*)" is generally the best
 // parse signature.  "out Parse(in)" doesn't allow for errors.
 // "error* Parse(in, out*)" doesn't allow flexible memory management.
-// If a function can't return an error (common for unparsing), "void
-// Parse(in, out*)" is acceptable.
 
-// The common error class for parsing and unparsing actions,
-// transports, and payloads.
+// The error type for parsing.
 struct ParseError {
  public:
   // explains the error
@@ -61,7 +58,16 @@ struct ParseError {
   }
 };
 
+// The error type for writing.
+struct WriteError {
+  std::string text;
+};
+
+// Convenience method for returning a message when parsing fails.
 bool BadParse(const std::string& text, ParseError* err);
+
+// Convenience method for returning a message when writing fails.
+bool BadWrite(const std::string& text, WriteError* error);
 
 // helper XML functions
 std::string GetXmlAttr(const buzz::XmlElement* elem,
@@ -84,7 +90,7 @@ bool RequireXmlAttr(const buzz::XmlElement* elem,
                     ParseError* error);
 void AddXmlChildren(buzz::XmlElement* parent,
                     const std::vector<buzz::XmlElement*>& children);
-void CopyXmlChildren(buzz::XmlElement* source, buzz::XmlElement* dest);
+void CopyXmlChildren(const buzz::XmlElement* source, buzz::XmlElement* dest);
 std::vector<buzz::XmlElement*> CopyOfXmlChildren(const buzz::XmlElement* elem);
 
 }  // namespace cricket

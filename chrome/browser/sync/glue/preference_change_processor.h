@@ -1,14 +1,15 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_SYNC_GLUE_PREFERENCE_CHANGE_PROCESSOR_H_
 #define CHROME_BROWSER_SYNC_GLUE_PREFERENCE_CHANGE_PROCESSOR_H_
+#pragma once
 
 #include <string>
 
-#include "base/scoped_ptr.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/change_processor.h"
 #include "chrome/browser/sync/glue/sync_backend_host.h"
@@ -46,7 +47,7 @@ class PreferenceChangeProcessor : public ChangeProcessor,
   virtual void StopImpl();
 
  private:
-  Value* ReadPreference(sync_api::ReadNode* node, std::wstring* name);
+  Value* ReadPreference(sync_api::ReadNode* node, std::string* name);
 
   void StartObserving();
   void StopObserving();
@@ -56,6 +57,11 @@ class PreferenceChangeProcessor : public ChangeProcessor,
 
   // The two models should be associated according to this ModelAssociator.
   PreferenceModelAssociator* model_associator_;
+
+  // Whether we are currently processing a preference change notification.
+  bool processing_pref_change_;
+
+  PrefChangeRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(PreferenceChangeProcessor);
 };

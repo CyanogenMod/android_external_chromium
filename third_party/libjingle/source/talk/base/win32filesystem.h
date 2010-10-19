@@ -37,7 +37,11 @@ class Win32Filesystem : public FilesystemInterface {
   // Opens a file. Returns an open StreamInterface if function succeeds. Otherwise,
   // returns NULL.
   virtual FileStream *OpenFile(const Pathname &filename, 
-			    const std::string &mode);
+                               const std::string &mode);
+
+  // Atomically creates an empty file accessible only to the current user if one
+  // does not already exist at the given path, otherwise fails.
+  virtual bool CreatePrivateFile(const Pathname &filename);
 
   // This will attempt to delete the path located at filename.
   // If the path points to a folder, it will fail with VERIFY

@@ -31,19 +31,33 @@ all_deps += $(builddir)/pyproto/sync_pb/encryption_pb2.py $(obj)/gen/protoc_out/
 cmd_sync_proto_genproto_1 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./encryption$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
 quiet_cmd_sync_proto_genproto_1 = RULE sync_proto_genproto_1 $@
 
+$(builddir)/pyproto/sync_pb/app_specifics_pb2.py: obj := $(abs_obj)
+
+$(builddir)/pyproto/sync_pb/app_specifics_pb2.py: builddir := $(abs_builddir)
+
+$(builddir)/pyproto/sync_pb/app_specifics_pb2.py: TOOLSET := $(TOOLSET)
+$(builddir)/pyproto/sync_pb/app_specifics_pb2.py: chrome/browser/sync/protocol/app_specifics.proto $(builddir)/protoc FORCE_DO_CMD
+	$(call do_cmd,sync_proto_genproto_2)
+$(obj)/gen/protoc_out/chrome/browser/sync/protocol/app_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/app_specifics.pb.cc: $(builddir)/pyproto/sync_pb/app_specifics_pb2.py
+$(obj)/gen/protoc_out/chrome/browser/sync/protocol/app_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/app_specifics.pb.cc: ;
+
+all_deps += $(builddir)/pyproto/sync_pb/app_specifics_pb2.py $(obj)/gen/protoc_out/chrome/browser/sync/protocol/app_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/app_specifics.pb.cc
+cmd_sync_proto_genproto_2 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./app_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
+quiet_cmd_sync_proto_genproto_2 = RULE sync_proto_genproto_2 $@
+
 $(builddir)/pyproto/sync_pb/autofill_specifics_pb2.py: obj := $(abs_obj)
 
 $(builddir)/pyproto/sync_pb/autofill_specifics_pb2.py: builddir := $(abs_builddir)
 
 $(builddir)/pyproto/sync_pb/autofill_specifics_pb2.py: TOOLSET := $(TOOLSET)
 $(builddir)/pyproto/sync_pb/autofill_specifics_pb2.py: chrome/browser/sync/protocol/autofill_specifics.proto $(builddir)/protoc FORCE_DO_CMD
-	$(call do_cmd,sync_proto_genproto_2)
+	$(call do_cmd,sync_proto_genproto_3)
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/autofill_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/autofill_specifics.pb.cc: $(builddir)/pyproto/sync_pb/autofill_specifics_pb2.py
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/autofill_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/autofill_specifics.pb.cc: ;
 
 all_deps += $(builddir)/pyproto/sync_pb/autofill_specifics_pb2.py $(obj)/gen/protoc_out/chrome/browser/sync/protocol/autofill_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/autofill_specifics.pb.cc
-cmd_sync_proto_genproto_2 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./autofill_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
-quiet_cmd_sync_proto_genproto_2 = RULE sync_proto_genproto_2 $@
+cmd_sync_proto_genproto_3 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./autofill_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
+quiet_cmd_sync_proto_genproto_3 = RULE sync_proto_genproto_3 $@
 
 $(builddir)/pyproto/sync_pb/bookmark_specifics_pb2.py: obj := $(abs_obj)
 
@@ -51,13 +65,13 @@ $(builddir)/pyproto/sync_pb/bookmark_specifics_pb2.py: builddir := $(abs_builddi
 
 $(builddir)/pyproto/sync_pb/bookmark_specifics_pb2.py: TOOLSET := $(TOOLSET)
 $(builddir)/pyproto/sync_pb/bookmark_specifics_pb2.py: chrome/browser/sync/protocol/bookmark_specifics.proto $(builddir)/protoc FORCE_DO_CMD
-	$(call do_cmd,sync_proto_genproto_3)
+	$(call do_cmd,sync_proto_genproto_4)
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/bookmark_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/bookmark_specifics.pb.cc: $(builddir)/pyproto/sync_pb/bookmark_specifics_pb2.py
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/bookmark_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/bookmark_specifics.pb.cc: ;
 
 all_deps += $(builddir)/pyproto/sync_pb/bookmark_specifics_pb2.py $(obj)/gen/protoc_out/chrome/browser/sync/protocol/bookmark_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/bookmark_specifics.pb.cc
-cmd_sync_proto_genproto_3 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./bookmark_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
-quiet_cmd_sync_proto_genproto_3 = RULE sync_proto_genproto_3 $@
+cmd_sync_proto_genproto_4 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./bookmark_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
+quiet_cmd_sync_proto_genproto_4 = RULE sync_proto_genproto_4 $@
 
 $(builddir)/pyproto/sync_pb/extension_specifics_pb2.py: obj := $(abs_obj)
 
@@ -65,13 +79,13 @@ $(builddir)/pyproto/sync_pb/extension_specifics_pb2.py: builddir := $(abs_buildd
 
 $(builddir)/pyproto/sync_pb/extension_specifics_pb2.py: TOOLSET := $(TOOLSET)
 $(builddir)/pyproto/sync_pb/extension_specifics_pb2.py: chrome/browser/sync/protocol/extension_specifics.proto $(builddir)/protoc FORCE_DO_CMD
-	$(call do_cmd,sync_proto_genproto_4)
+	$(call do_cmd,sync_proto_genproto_5)
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/extension_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/extension_specifics.pb.cc: $(builddir)/pyproto/sync_pb/extension_specifics_pb2.py
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/extension_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/extension_specifics.pb.cc: ;
 
 all_deps += $(builddir)/pyproto/sync_pb/extension_specifics_pb2.py $(obj)/gen/protoc_out/chrome/browser/sync/protocol/extension_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/extension_specifics.pb.cc
-cmd_sync_proto_genproto_4 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./extension_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
-quiet_cmd_sync_proto_genproto_4 = RULE sync_proto_genproto_4 $@
+cmd_sync_proto_genproto_5 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./extension_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
+quiet_cmd_sync_proto_genproto_5 = RULE sync_proto_genproto_5 $@
 
 $(builddir)/pyproto/sync_pb/nigori_specifics_pb2.py: obj := $(abs_obj)
 
@@ -79,13 +93,13 @@ $(builddir)/pyproto/sync_pb/nigori_specifics_pb2.py: builddir := $(abs_builddir)
 
 $(builddir)/pyproto/sync_pb/nigori_specifics_pb2.py: TOOLSET := $(TOOLSET)
 $(builddir)/pyproto/sync_pb/nigori_specifics_pb2.py: chrome/browser/sync/protocol/nigori_specifics.proto $(builddir)/protoc FORCE_DO_CMD
-	$(call do_cmd,sync_proto_genproto_5)
+	$(call do_cmd,sync_proto_genproto_6)
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/nigori_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/nigori_specifics.pb.cc: $(builddir)/pyproto/sync_pb/nigori_specifics_pb2.py
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/nigori_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/nigori_specifics.pb.cc: ;
 
 all_deps += $(builddir)/pyproto/sync_pb/nigori_specifics_pb2.py $(obj)/gen/protoc_out/chrome/browser/sync/protocol/nigori_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/nigori_specifics.pb.cc
-cmd_sync_proto_genproto_5 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./nigori_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
-quiet_cmd_sync_proto_genproto_5 = RULE sync_proto_genproto_5 $@
+cmd_sync_proto_genproto_6 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./nigori_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
+quiet_cmd_sync_proto_genproto_6 = RULE sync_proto_genproto_6 $@
 
 $(builddir)/pyproto/sync_pb/password_specifics_pb2.py: obj := $(abs_obj)
 
@@ -93,13 +107,13 @@ $(builddir)/pyproto/sync_pb/password_specifics_pb2.py: builddir := $(abs_builddi
 
 $(builddir)/pyproto/sync_pb/password_specifics_pb2.py: TOOLSET := $(TOOLSET)
 $(builddir)/pyproto/sync_pb/password_specifics_pb2.py: chrome/browser/sync/protocol/password_specifics.proto $(builddir)/protoc FORCE_DO_CMD
-	$(call do_cmd,sync_proto_genproto_6)
+	$(call do_cmd,sync_proto_genproto_7)
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/password_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/password_specifics.pb.cc: $(builddir)/pyproto/sync_pb/password_specifics_pb2.py
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/password_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/password_specifics.pb.cc: ;
 
 all_deps += $(builddir)/pyproto/sync_pb/password_specifics_pb2.py $(obj)/gen/protoc_out/chrome/browser/sync/protocol/password_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/password_specifics.pb.cc
-cmd_sync_proto_genproto_6 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./password_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
-quiet_cmd_sync_proto_genproto_6 = RULE sync_proto_genproto_6 $@
+cmd_sync_proto_genproto_7 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./password_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
+quiet_cmd_sync_proto_genproto_7 = RULE sync_proto_genproto_7 $@
 
 $(builddir)/pyproto/sync_pb/preference_specifics_pb2.py: obj := $(abs_obj)
 
@@ -107,13 +121,41 @@ $(builddir)/pyproto/sync_pb/preference_specifics_pb2.py: builddir := $(abs_build
 
 $(builddir)/pyproto/sync_pb/preference_specifics_pb2.py: TOOLSET := $(TOOLSET)
 $(builddir)/pyproto/sync_pb/preference_specifics_pb2.py: chrome/browser/sync/protocol/preference_specifics.proto $(builddir)/protoc FORCE_DO_CMD
-	$(call do_cmd,sync_proto_genproto_7)
+	$(call do_cmd,sync_proto_genproto_8)
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/preference_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/preference_specifics.pb.cc: $(builddir)/pyproto/sync_pb/preference_specifics_pb2.py
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/preference_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/preference_specifics.pb.cc: ;
 
 all_deps += $(builddir)/pyproto/sync_pb/preference_specifics_pb2.py $(obj)/gen/protoc_out/chrome/browser/sync/protocol/preference_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/preference_specifics.pb.cc
-cmd_sync_proto_genproto_7 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./preference_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
-quiet_cmd_sync_proto_genproto_7 = RULE sync_proto_genproto_7 $@
+cmd_sync_proto_genproto_8 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./preference_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
+quiet_cmd_sync_proto_genproto_8 = RULE sync_proto_genproto_8 $@
+
+$(builddir)/pyproto/sync_pb/session_specifics_pb2.py: obj := $(abs_obj)
+
+$(builddir)/pyproto/sync_pb/session_specifics_pb2.py: builddir := $(abs_builddir)
+
+$(builddir)/pyproto/sync_pb/session_specifics_pb2.py: TOOLSET := $(TOOLSET)
+$(builddir)/pyproto/sync_pb/session_specifics_pb2.py: chrome/browser/sync/protocol/session_specifics.proto $(builddir)/protoc FORCE_DO_CMD
+	$(call do_cmd,sync_proto_genproto_9)
+$(obj)/gen/protoc_out/chrome/browser/sync/protocol/session_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/session_specifics.pb.cc: $(builddir)/pyproto/sync_pb/session_specifics_pb2.py
+$(obj)/gen/protoc_out/chrome/browser/sync/protocol/session_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/session_specifics.pb.cc: ;
+
+all_deps += $(builddir)/pyproto/sync_pb/session_specifics_pb2.py $(obj)/gen/protoc_out/chrome/browser/sync/protocol/session_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/session_specifics.pb.cc
+cmd_sync_proto_genproto_9 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./session_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
+quiet_cmd_sync_proto_genproto_9 = RULE sync_proto_genproto_9 $@
+
+$(builddir)/pyproto/sync_pb/test_pb2.py: obj := $(abs_obj)
+
+$(builddir)/pyproto/sync_pb/test_pb2.py: builddir := $(abs_builddir)
+
+$(builddir)/pyproto/sync_pb/test_pb2.py: TOOLSET := $(TOOLSET)
+$(builddir)/pyproto/sync_pb/test_pb2.py: chrome/browser/sync/protocol/test.proto $(builddir)/protoc FORCE_DO_CMD
+	$(call do_cmd,sync_proto_genproto_10)
+$(obj)/gen/protoc_out/chrome/browser/sync/protocol/test.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/test.pb.cc: $(builddir)/pyproto/sync_pb/test_pb2.py
+$(obj)/gen/protoc_out/chrome/browser/sync/protocol/test.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/test.pb.cc: ;
+
+all_deps += $(builddir)/pyproto/sync_pb/test_pb2.py $(obj)/gen/protoc_out/chrome/browser/sync/protocol/test.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/test.pb.cc
+cmd_sync_proto_genproto_10 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./test$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
+quiet_cmd_sync_proto_genproto_10 = RULE sync_proto_genproto_10 $@
 
 $(builddir)/pyproto/sync_pb/theme_specifics_pb2.py: obj := $(abs_obj)
 
@@ -121,13 +163,13 @@ $(builddir)/pyproto/sync_pb/theme_specifics_pb2.py: builddir := $(abs_builddir)
 
 $(builddir)/pyproto/sync_pb/theme_specifics_pb2.py: TOOLSET := $(TOOLSET)
 $(builddir)/pyproto/sync_pb/theme_specifics_pb2.py: chrome/browser/sync/protocol/theme_specifics.proto $(builddir)/protoc FORCE_DO_CMD
-	$(call do_cmd,sync_proto_genproto_8)
+	$(call do_cmd,sync_proto_genproto_11)
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/theme_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/theme_specifics.pb.cc: $(builddir)/pyproto/sync_pb/theme_specifics_pb2.py
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/theme_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/theme_specifics.pb.cc: ;
 
 all_deps += $(builddir)/pyproto/sync_pb/theme_specifics_pb2.py $(obj)/gen/protoc_out/chrome/browser/sync/protocol/theme_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/theme_specifics.pb.cc
-cmd_sync_proto_genproto_8 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./theme_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
-quiet_cmd_sync_proto_genproto_8 = RULE sync_proto_genproto_8 $@
+cmd_sync_proto_genproto_11 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./theme_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
+quiet_cmd_sync_proto_genproto_11 = RULE sync_proto_genproto_11 $@
 
 $(builddir)/pyproto/sync_pb/typed_url_specifics_pb2.py: obj := $(abs_obj)
 
@@ -135,13 +177,13 @@ $(builddir)/pyproto/sync_pb/typed_url_specifics_pb2.py: builddir := $(abs_buildd
 
 $(builddir)/pyproto/sync_pb/typed_url_specifics_pb2.py: TOOLSET := $(TOOLSET)
 $(builddir)/pyproto/sync_pb/typed_url_specifics_pb2.py: chrome/browser/sync/protocol/typed_url_specifics.proto $(builddir)/protoc FORCE_DO_CMD
-	$(call do_cmd,sync_proto_genproto_9)
+	$(call do_cmd,sync_proto_genproto_12)
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/typed_url_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/typed_url_specifics.pb.cc: $(builddir)/pyproto/sync_pb/typed_url_specifics_pb2.py
 $(obj)/gen/protoc_out/chrome/browser/sync/protocol/typed_url_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/typed_url_specifics.pb.cc: ;
 
 all_deps += $(builddir)/pyproto/sync_pb/typed_url_specifics_pb2.py $(obj)/gen/protoc_out/chrome/browser/sync/protocol/typed_url_specifics.pb.h $(obj)/gen/protoc_out/chrome/browser/sync/protocol/typed_url_specifics.pb.cc
-cmd_sync_proto_genproto_9 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./typed_url_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
-quiet_cmd_sync_proto_genproto_9 = RULE sync_proto_genproto_9 $@
+cmd_sync_proto_genproto_12 = export LD_LIBRARY_PATH=$(builddir)/lib.host:$(builddir)/lib.target:$$LD_LIBRARY_PATH; cd chrome/browser/sync/protocol; mkdir -p $(obj)/gen/protoc_out/chrome/browser/sync/protocol $(builddir)/pyproto/sync_pb; "$(builddir)/protoc" "--proto_path=." "./typed_url_specifics$(suffix $<)" "--cpp_out=$(obj)/gen/protoc_out/chrome/browser/sync/protocol" "--python_out=$(builddir)/pyproto/sync_pb"
+quiet_cmd_sync_proto_genproto_12 = RULE sync_proto_genproto_12 $@
 
 rule_sync_proto_genproto_outputs := $(builddir)/pyproto/sync_pb/sync_pb2.py \
 	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/sync.pb.h \
@@ -149,6 +191,9 @@ rule_sync_proto_genproto_outputs := $(builddir)/pyproto/sync_pb/sync_pb2.py \
 	$(builddir)/pyproto/sync_pb/encryption_pb2.py \
 	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/encryption.pb.h \
 	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/encryption.pb.cc \
+	$(builddir)/pyproto/sync_pb/app_specifics_pb2.py \
+	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/app_specifics.pb.h \
+	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/app_specifics.pb.cc \
 	$(builddir)/pyproto/sync_pb/autofill_specifics_pb2.py \
 	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/autofill_specifics.pb.h \
 	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/autofill_specifics.pb.cc \
@@ -167,6 +212,12 @@ rule_sync_proto_genproto_outputs := $(builddir)/pyproto/sync_pb/sync_pb2.py \
 	$(builddir)/pyproto/sync_pb/preference_specifics_pb2.py \
 	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/preference_specifics.pb.h \
 	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/preference_specifics.pb.cc \
+	$(builddir)/pyproto/sync_pb/session_specifics_pb2.py \
+	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/session_specifics.pb.h \
+	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/session_specifics.pb.cc \
+	$(builddir)/pyproto/sync_pb/test_pb2.py \
+	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/test.pb.h \
+	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/test.pb.cc \
 	$(builddir)/pyproto/sync_pb/theme_specifics_pb2.py \
 	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/theme_specifics.pb.h \
 	$(obj)/gen/protoc_out/chrome/browser/sync/protocol/theme_specifics.pb.cc \
@@ -195,6 +246,7 @@ CFLAGS_Debug := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-O0 \
 	-g
@@ -227,6 +279,7 @@ CFLAGS_Release := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-O2 \
 	-fno-ident \

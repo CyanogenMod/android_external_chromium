@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,6 +9,7 @@
 #include "base/format_macros.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 
 using base::TimeDelta;
 
@@ -53,10 +54,12 @@ void DeathData::AddDeathData(const DeathData& other) {
 void DeathData::Write(std::string* output) const {
   if (!count_)
     return;
-  if (1 == count_)
-    StringAppendF(output, "(1)Life in %dms ", AverageMsDuration());
-  else
-    StringAppendF(output, "(%d)Lives %dms/life ", count_, AverageMsDuration());
+  if (1 == count_) {
+    base::StringAppendF(output, "(1)Life in %dms ", AverageMsDuration());
+  } else {
+    base::StringAppendF(output, "(%d)Lives %dms/life ",
+                        count_, AverageMsDuration());
+  }
 }
 
 void DeathData::Clear() {
@@ -87,6 +90,8 @@ Lock ThreadData::list_lock_;
 ThreadData::Status ThreadData::status_ = ThreadData::UNINITIALIZED;
 
 ThreadData::ThreadData() : next_(NULL), message_loop_(MessageLoop::current()) {}
+
+ThreadData::~ThreadData() {}
 
 // static
 ThreadData* ThreadData::current() {
@@ -336,6 +341,73 @@ void ThreadData::Reset() {
 }
 
 #ifdef OS_WIN
+// A class used to count down which is accessed by several threads.  This is
+// used to make sure RunOnAllThreads() actually runs a task on the expected
+// count of threads.
+class ThreadData::ThreadSafeDownCounter {
+ public:
+  // Constructor sets the count, once and for all.
+  explicit ThreadSafeDownCounter(size_t count);
+
+  // Decrement the count, and return true if we hit zero.  Also delete this
+  // instance automatically when we hit zero.
+  bool LastCaller();
+
+ private:
+  size_t remaining_count_;
+  Lock lock_;  // protect access to remaining_count_.
+};
+
+ThreadData::ThreadSafeDownCounter::ThreadSafeDownCounter(size_t count)
+    : remaining_count_(count) {
+  DCHECK_GT(remaining_count_, 0u);
+}
+
+bool ThreadData::ThreadSafeDownCounter::LastCaller() {
+  {
+    AutoLock lock(lock_);
+    if (--remaining_count_)
+      return false;
+  }  // Release lock, so we can delete everything in this instance.
+  delete this;
+  return true;
+}
+
+// A Task class that runs a static method supplied, and checks to see if this
+// is the last tasks instance (on last thread) that will run the method.
+// IF this is the last run, then the supplied event is signalled.
+class ThreadData::RunTheStatic : public Task {
+ public:
+  typedef void (*FunctionPointer)();
+  RunTheStatic(FunctionPointer function,
+               HANDLE completion_handle,
+               ThreadSafeDownCounter* counter);
+  // Run the supplied static method, and optionally set the event.
+  void Run();
+
+ private:
+  FunctionPointer function_;
+  HANDLE completion_handle_;
+  // Make sure enough tasks are called before completion is signaled.
+  ThreadSafeDownCounter* counter_;
+
+  DISALLOW_COPY_AND_ASSIGN(RunTheStatic);
+};
+
+ThreadData::RunTheStatic::RunTheStatic(FunctionPointer function,
+                                       HANDLE completion_handle,
+                                       ThreadSafeDownCounter* counter)
+    : function_(function),
+      completion_handle_(completion_handle),
+      counter_(counter) {
+}
+
+void ThreadData::RunTheStatic::Run() {
+  function_();
+  if (counter_->LastCaller())
+    SetEvent(completion_handle_);
+}
+
 // TODO(jar): This should use condition variables, and be cross platform.
 void ThreadData::RunOnAllThreads(void (*function)()) {
   ThreadData* list = first();  // Get existing list.
@@ -445,41 +517,6 @@ void ThreadData::ShutdownDisablingFurtherTracking() {
     return;
 }
 
-
-//------------------------------------------------------------------------------
-
-ThreadData::ThreadSafeDownCounter::ThreadSafeDownCounter(size_t count)
-    : remaining_count_(count) {
-  DCHECK_GT(remaining_count_, 0u);
-}
-
-bool ThreadData::ThreadSafeDownCounter::LastCaller() {
-  {
-    AutoLock lock(lock_);
-    if (--remaining_count_)
-      return false;
-  }  // Release lock, so we can delete everything in this instance.
-  delete this;
-  return true;
-}
-
-//------------------------------------------------------------------------------
-#ifdef OS_WIN
-ThreadData::RunTheStatic::RunTheStatic(FunctionPointer function,
-                                       HANDLE completion_handle,
-                                       ThreadSafeDownCounter* counter)
-    : function_(function),
-      completion_handle_(completion_handle),
-      counter_(counter) {
-}
-
-void ThreadData::RunTheStatic::Run() {
-  function_();
-  if (counter_->LastCaller())
-    SetEvent(completion_handle_);
-}
-#endif
-
 //------------------------------------------------------------------------------
 // Individual 3-tuple of birth (place and thread) along with death thread, and
 // the accumulated stats for instances (DeathData).
@@ -506,9 +543,9 @@ const std::string Snapshot::DeathThreadName() const {
 
 void Snapshot::Write(std::string* output) const {
   death_data_.Write(output);
-  StringAppendF(output, "%s->%s ",
-                birth_->birth_thread()->ThreadName().c_str(),
-                death_thread_->ThreadName().c_str());
+  base::StringAppendF(output, "%s->%s ",
+                      birth_->birth_thread()->ThreadName().c_str(),
+                      death_thread_->ThreadName().c_str());
   birth_->location().Write(true, true, output);
 }
 
@@ -547,6 +584,9 @@ DataCollector::DataCollector() {
        thread_data = thread_data->next()) {
     Append(*thread_data);
   }
+}
+
+DataCollector::~DataCollector() {
 }
 
 void DataCollector::Append(const ThreadData& thread_data) {
@@ -592,6 +632,13 @@ void DataCollector::AddListOfLivingObjects() {
 //------------------------------------------------------------------------------
 // Aggregation
 
+Aggregation::Aggregation()
+    : birth_count_(0) {
+}
+
+Aggregation::~Aggregation() {
+}
+
 void Aggregation::AddDeathSnapshot(const Snapshot& snapshot) {
   AddBirth(snapshot.birth());
   death_threads_[snapshot.death_thread()]++;
@@ -616,33 +663,37 @@ void Aggregation::Write(std::string* output) const {
   if (locations_.size() == 1) {
     locations_.begin()->first.Write(true, true, output);
   } else {
-    StringAppendF(output, "%" PRIuS " Locations. ", locations_.size());
-    if (birth_files_.size() > 1)
-      StringAppendF(output, "%" PRIuS " Files. ", birth_files_.size());
-    else
-      StringAppendF(output, "All born in %s. ",
-                    birth_files_.begin()->first.c_str());
+    base::StringAppendF(output, "%" PRIuS " Locations. ", locations_.size());
+    if (birth_files_.size() > 1) {
+      base::StringAppendF(output, "%" PRIuS " Files. ", birth_files_.size());
+    } else {
+      base::StringAppendF(output, "All born in %s. ",
+                          birth_files_.begin()->first.c_str());
+    }
   }
 
-  if (birth_threads_.size() > 1)
-    StringAppendF(output, "%" PRIuS " BirthingThreads. ",
-                  birth_threads_.size());
-  else
-    StringAppendF(output, "All born on %s. ",
-                  birth_threads_.begin()->first->ThreadName().c_str());
+  if (birth_threads_.size() > 1) {
+    base::StringAppendF(output, "%" PRIuS " BirthingThreads. ",
+                        birth_threads_.size());
+  } else {
+    base::StringAppendF(output, "All born on %s. ",
+                        birth_threads_.begin()->first->ThreadName().c_str());
+  }
 
   if (death_threads_.size() > 1) {
-    StringAppendF(output, "%" PRIuS " DeathThreads. ", death_threads_.size());
+    base::StringAppendF(output, "%" PRIuS " DeathThreads. ",
+                        death_threads_.size());
   } else {
-    if (death_threads_.begin()->first)
-      StringAppendF(output, "All deleted on %s. ",
-                  death_threads_.begin()->first->ThreadName().c_str());
-    else
+    if (death_threads_.begin()->first) {
+      base::StringAppendF(output, "All deleted on %s. ",
+                          death_threads_.begin()->first->ThreadName().c_str());
+    } else {
       output->append("All these objects are still alive.");
+    }
   }
 
   if (birth_count_ > 1)
-    StringAppendF(output, "Births=%d ", birth_count_);
+    base::StringAppendF(output, "Births=%d ", birth_count_);
 
   DeathData::Write(output);
 }
@@ -937,23 +988,24 @@ bool Comparator::WriteSortGrouping(const Snapshot& sample,
   bool wrote_data = false;
   switch (selector_) {
     case BIRTH_THREAD:
-      StringAppendF(output, "All new on %s ",
-                    sample.birth_thread()->ThreadName().c_str());
+      base::StringAppendF(output, "All new on %s ",
+                          sample.birth_thread()->ThreadName().c_str());
       wrote_data = true;
       break;
 
     case DEATH_THREAD:
-      if (sample.death_thread())
-        StringAppendF(output, "All deleted on %s ",
-                      sample.DeathThreadName().c_str());
-      else
+      if (sample.death_thread()) {
+        base::StringAppendF(output, "All deleted on %s ",
+                            sample.DeathThreadName().c_str());
+      } else {
         output->append("All still alive ");
+      }
       wrote_data = true;
       break;
 
     case BIRTH_FILE:
-      StringAppendF(output, "All born in %s ",
-                    sample.location().file_name());
+      base::StringAppendF(output, "All born in %s ",
+                          sample.location().file_name());
       break;
 
     case BIRTH_FUNCTION:
@@ -976,11 +1028,11 @@ void Comparator::WriteSnapshot(const Snapshot& sample,
   sample.death_data().Write(output);
   if (!(combined_selectors_ & BIRTH_THREAD) ||
       !(combined_selectors_ & DEATH_THREAD))
-    StringAppendF(output, "%s->%s ",
-                  (combined_selectors_ & BIRTH_THREAD) ? "*" :
-                    sample.birth().birth_thread()->ThreadName().c_str(),
-                  (combined_selectors_ & DEATH_THREAD) ? "*" :
-                    sample.DeathThreadName().c_str());
+    base::StringAppendF(output, "%s->%s ",
+                        (combined_selectors_ & BIRTH_THREAD) ? "*" :
+                          sample.birth().birth_thread()->ThreadName().c_str(),
+                        (combined_selectors_ & DEATH_THREAD) ? "*" :
+                          sample.DeathThreadName().c_str());
   sample.birth().location().Write(!(combined_selectors_ & BIRTH_FILE),
                                   !(combined_selectors_ & BIRTH_FUNCTION),
                                   output);

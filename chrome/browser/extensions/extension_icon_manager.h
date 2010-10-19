@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_ICON_MANAGER_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_ICON_MANAGER_H_
+#pragma once
 
 #include <map>
 #include <set>
@@ -11,6 +12,7 @@
 
 #include "base/basictypes.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
+#include "gfx/insets.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 class Extension;
@@ -18,6 +20,7 @@ class Extension;
 class ExtensionIconManager : public ImageLoadingTracker::Observer {
  public:
   ExtensionIconManager();
+  virtual ~ExtensionIconManager();
 
   // Start loading the icon for the given extension.
   void LoadIcon(Extension* extension);
@@ -35,6 +38,7 @@ class ExtensionIconManager : public ImageLoadingTracker::Observer {
                              int index);
 
   void set_monochrome(bool value) { monochrome_ = value; }
+  void set_padding(const gfx::Insets& value) { padding_ = value; }
 
  private:
   // Makes sure we've done one-time initialization of the default extension icon
@@ -59,6 +63,9 @@ class ExtensionIconManager : public ImageLoadingTracker::Observer {
 
   // If true, we will desaturate the icons to make them monochromatic.
   bool monochrome_;
+
+  // Specifies the amount of empty padding to place around the icon.
+  gfx::Insets padding_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionIconManager);
 };

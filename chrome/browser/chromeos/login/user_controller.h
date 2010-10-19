@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_USER_CONTROLLER_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_USER_CONTROLLER_H_
+#pragma once
 
 #include <string>
 
@@ -26,6 +27,7 @@ class WidgetGtk;
 namespace chromeos {
 
 class UserView;
+class ExistingUserView;
 
 // UserController manages the set of windows needed to login a single existing
 // user or first time login for a new user. ExistingUserController creates
@@ -55,8 +57,8 @@ class UserController : public views::ButtonListener,
     virtual ~Delegate() {}
   };
 
-  // Creates a UserController representing the guest (other user) login.
-  explicit UserController(Delegate* delegate);
+  // Creates a UserController representing new user or bwsi login.
+  UserController(Delegate* delegate, bool is_bwsi);
 
   // Creates a UserController for the specified user.
   UserController(Delegate* delegate, const UserManager::User& user);
@@ -66,7 +68,7 @@ class UserController : public views::ButtonListener,
   // Initializes the UserController, creating the set of windows/controls.
   // |index| is the index of this user, and |total_user_count| the total
   // number of users.
-  void Init(int index, int total_user_count);
+  void Init(int index, int total_user_count, bool need_browse_without_signin);
 
   // Update border window parameters to notify window manager about new numbers.
   // |index| of this user and |total_user_count| of users.
@@ -74,7 +76,9 @@ class UserController : public views::ButtonListener,
 
   int user_index() const { return user_index_; }
   bool is_user_selected() const { return is_user_selected_; }
-  bool is_guest() const { return is_guest_; }
+  bool is_new_user() const { return is_new_user_; }
+  bool is_bwsi() const { return is_bwsi_; }
+  NewUserView* new_user_view() const { return new_user_view_; }
 
   const UserManager::User& user() const { return user_; }
 
@@ -84,7 +88,11 @@ class UserController : public views::ButtonListener,
   // Resets password text and sets the enabled state of the password.
   void ClearAndEnablePassword();
 
+  // Called when user view is activated (OnUserSelected).
+  void ClearAndEnableFields();
+
   // Returns bounds of password field in screen coordinates.
+  // For new user it returns username coordinates.
   gfx::Rect GetScreenBounds() const;
 
   // Get widget that contains all controls.
@@ -97,7 +105,7 @@ class UserController : public views::ButtonListener,
 
   // Textfield::Controller:
   virtual void ContentsChanged(views::Textfield* sender,
-                               const string16& new_contents) {}
+                               const string16& new_contents);
   virtual bool HandleKeystroke(views::Textfield* sender,
                                const views::Textfield::Keystroke& keystroke);
 
@@ -118,13 +126,14 @@ class UserController : public views::ButtonListener,
     delegate_->AddStartUrl(start_url);
   }
   virtual void ClearErrors();
+  virtual void NavigateAway();
 
   // UserView::Delegate implementation:
   virtual void OnRemoveUser();
-  virtual void OnChangePhoto();
 
-  // Selects user entry with specified |index|.
-  void SelectUser(int index);
+  // Selects user entry with specified |index|, |is_click| is true if the entry
+  // was selected by mouse click.
+  void SelectUser(int index, bool is_click);
 
   // Sets focus on password field.
   void FocusPasswordField();
@@ -145,7 +154,9 @@ class UserController : public views::ButtonListener,
                             const gfx::Rect& bounds,
                             chromeos::WmIpcWindowType type,
                             views::View* contents_view);
-  views::WidgetGtk* CreateControlsWindow(int index, int* height);
+  views::WidgetGtk* CreateControlsWindow(int index,
+                                         int* height,
+                                         bool need_browse_without_signin);
   views::WidgetGtk* CreateImageWindow(int index);
   views::WidgetGtk* CreateLabelWindow(int index, WmIpcWindowType type);
   void CreateBorderWindow(int index, int total_user_count, int controls_height);
@@ -159,29 +170,33 @@ class UserController : public views::ButtonListener,
   // Sets the enabled state of the password field to |enable|.
   void SetPasswordEnabled(bool enable);
 
+  // Returns tooltip text for user name.
+  std::wstring GetNameTooltip() const;
+
+  // Enable or disable the 'Submit' button based on the contents of
+  // |password_field_|. Enabled if there is text, otherwise disabled.
+  void UpdateSubmitButtonState();
+
   // User index within all the users.
   int user_index_;
 
   // Is this user selected now?
   bool is_user_selected_;
 
-  // Is this the guest user?
-  const bool is_guest_;
+  // Is this the new user pod?
+  const bool is_new_user_;
+
+  // Is this the bwsi pod?
+  const bool is_bwsi_;
 
   // Should we show tooltips above user image and label to help distinguish
   // users with the same display name.
   bool show_name_tooltip_;
 
-  // If is_guest_ is false, this is the user being shown.
+  // If is_new_user_ and is_bwsi_ are false, this is the user being shown.
   UserManager::User user_;
 
   Delegate* delegate_;
-
-  // For editing the password.
-  views::Textfield* password_field_;
-
-  // Button to start login.
-  views::NativeButton* submit_button_;
 
   // A window is used to represent the individual chunks.
   views::WidgetGtk* controls_window_;
@@ -195,6 +210,9 @@ class UserController : public views::ButtonListener,
 
   // View that is used for new user login.
   NewUserView* new_user_view_;
+
+  // View that is used for existing user login.
+  ExistingUserView* existing_user_view_;
 
   // Views that show display name of the user.
   views::Label* label_view_;

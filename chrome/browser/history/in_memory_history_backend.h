@@ -12,12 +12,12 @@
 
 #ifndef CHROME_BROWSER_HISTORY_IN_MEMORY_HISTORY_BACKEND_H_
 #define CHROME_BROWSER_HISTORY_IN_MEMORY_HISTORY_BACKEND_H_
-
-#include <string>
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
 class FilePath;
@@ -28,6 +28,7 @@ namespace history {
 
 class InMemoryDatabase;
 class InMemoryURLIndex;
+class URLDatabase;
 struct URLsDeletedDetails;
 struct URLsModifiedDetails;
 
@@ -37,7 +38,7 @@ class InMemoryHistoryBackend : public NotificationObserver {
   ~InMemoryHistoryBackend();
 
   // Initializes with data from the given history database.
-  bool Init(const FilePath& history_filename);
+  bool Init(const FilePath& history_filename, URLDatabase* db);
 
   // Does initialization work when this object is attached to the history
   // system on the main thread. The argument is the profile with which the

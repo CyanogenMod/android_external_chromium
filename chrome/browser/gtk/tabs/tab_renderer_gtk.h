@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_TABS_TAB_RENDERER_GTK_H_
 #define CHROME_BROWSER_GTK_TABS_TAB_RENDERER_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 #include <map>
@@ -12,10 +13,11 @@
 #include "app/gtk_signal.h"
 #include "app/slide_animation.h"
 #include "base/basictypes.h"
+#include "base/scoped_ptr.h"
 #include "base/string16.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/owned_widget_gtk.h"
 #include "gfx/canvas.h"
 #include "gfx/font.h"
 #include "gfx/rect.h"

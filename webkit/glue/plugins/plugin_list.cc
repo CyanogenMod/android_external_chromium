@@ -9,9 +9,9 @@
 #include "base/command_line.h"
 #include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "base/time.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/mime_util.h"
 #include "webkit/glue/plugins/plugin_constants_win.h"
@@ -45,8 +45,11 @@ void PluginList::RefreshPlugins() {
 }
 
 void PluginList::AddExtraPluginPath(const FilePath& plugin_path) {
+  // Chrome OS only loads plugins from /opt/google/chrome/plugins.
+#if !defined(OS_CHROMEOS)
   AutoLock lock(lock_);
   extra_plugin_paths_.push_back(plugin_path);
+#endif
 }
 
 void PluginList::RemoveExtraPluginPath(const FilePath& plugin_path) {
@@ -59,8 +62,11 @@ void PluginList::RemoveExtraPluginPath(const FilePath& plugin_path) {
 }
 
 void PluginList::AddExtraPluginDir(const FilePath& plugin_dir) {
+  // Chrome OS only loads plugins from /opt/google/chrome/plugins.
+#if !defined(OS_CHROMEOS)
   AutoLock lock(lock_);
   extra_plugin_dirs_.push_back(plugin_dir);
+#endif
 }
 
 void PluginList::RegisterInternalPlugin(const PluginVersionInfo& info) {
@@ -108,8 +114,11 @@ bool PluginList::CreateWebPluginInfo(const PluginVersionInfo& pvi,
 
   info->mime_types.clear();
 
-  if (mime_types.empty())
+  if (mime_types.empty()) {
+    LOG_IF(ERROR, PluginList::DebugPluginLoading())
+        << "Plugin " << pvi.product_name << " has no MIME types, skipping";
     return false;
+  }
 
   info->name = WideToUTF16(pvi.product_name);
   info->desc = WideToUTF16(pvi.file_description);
@@ -168,8 +177,6 @@ void PluginList::LoadPlugins(bool refresh) {
     internal_plugins = internal_plugins_;
   }
 
-  base::TimeTicks start_time = base::TimeTicks::Now();
-
   std::vector<WebPluginInfo> new_plugins;
   std::set<FilePath> visited_plugins;
 
@@ -209,10 +216,6 @@ void PluginList::LoadPlugins(bool refresh) {
   if (webkit_glue::IsDefaultPluginEnabled())
     LoadPlugin(FilePath(kDefaultPluginLibraryName), &new_plugins);
 
-  base::TimeTicks end_time = base::TimeTicks::Now();
-  base::TimeDelta elapsed = end_time - start_time;
-  DLOG(INFO) << "Loaded plugin list in " << elapsed.InMilliseconds() << " ms.";
-
   // Only update the data now since loading plugins can take a while.
   AutoLock lock(lock_);
 
@@ -230,6 +233,9 @@ void PluginList::LoadPlugins(bool refresh) {
 
 void PluginList::LoadPlugin(const FilePath& path,
                             std::vector<WebPluginInfo>* plugins) {
+  LOG_IF(ERROR, PluginList::DebugPluginLoading())
+      << "Loading plugin " << path.value();
+
   WebPluginInfo plugin_info;
   const PluginEntryPoints* entry_points;
 

@@ -4,9 +4,9 @@
 
 #ifndef NET_SOCKET_CLIENT_SOCKET_POOL_H_
 #define NET_SOCKET_CLIENT_SOCKET_POOL_H_
+#pragma once
 
 #include <deque>
-#include <map>
 #include <string>
 
 #include "base/basictypes.h"
@@ -18,6 +18,8 @@
 #include "net/base/load_states.h"
 #include "net/base/request_priority.h"
 
+class DictionaryValue;
+
 namespace net {
 
 class ClientSocket;
@@ -27,7 +29,7 @@ class ClientSocketPoolHistograms;
 // A ClientSocketPool is used to restrict the number of sockets open at a time.
 // It also maintains a list of idle persistent sockets.
 //
-class ClientSocketPool : public base::RefCounted<ClientSocketPool> {
+class ClientSocketPool {
  public:
   // Requests a connected socket for a group_name.
   //
@@ -87,7 +89,7 @@ class ClientSocketPool : public base::RefCounted<ClientSocketPool> {
   // This flushes all state from the ClientSocketPool.  This means that all
   // idle and connecting sockets are discarded.  Active sockets being
   // held by ClientSocketPool clients will be discarded when released back to
-  // the pool.
+  // the pool.  Does not flush any pools wrapped by |this|.
   virtual void Flush() = 0;
 
   // Called to close any idle connections held by the connection manager.
@@ -103,12 +105,20 @@ class ClientSocketPool : public base::RefCounted<ClientSocketPool> {
   virtual LoadState GetLoadState(const std::string& group_name,
                                  const ClientSocketHandle* handle) const = 0;
 
+  // Retrieves information on the current state of the pool as a
+  // DictionaryValue.  Caller takes possession of the returned value.
+  // If |include_nested_pools| is true, the states of any nested
+  // ClientSocketPools will be included.
+  virtual DictionaryValue* GetInfoAsValue(const std::string& name,
+                                          const std::string& type,
+                                          bool include_nested_pools) const = 0;
+
   // Returns the maximum amount of time to wait before retrying a connect.
   static const int kMaxConnectRetryIntervalMs = 250;
 
   // The set of histograms specific to this pool.  We can't use the standard
   // UMA_HISTOGRAM_* macros because they are callsite static.
-  virtual scoped_refptr<ClientSocketPoolHistograms> histograms() const = 0;
+  virtual ClientSocketPoolHistograms* histograms() const = 0;
 
   static int unused_idle_socket_timeout();
   static void set_unused_idle_socket_timeout(int timeout);
@@ -121,8 +131,6 @@ class ClientSocketPool : public base::RefCounted<ClientSocketPool> {
   virtual base::TimeDelta ConnectionTimeout() const = 0;
 
  private:
-  friend class base::RefCounted<ClientSocketPool>;
-
   DISALLOW_COPY_AND_ASSIGN(ClientSocketPool);
 };
 

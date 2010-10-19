@@ -2,16 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/env_var.h"
+#include "base/environment.h"
 #include "base/message_loop.h"
 #include "base/process_util.h"
 #include "base/scoped_ptr.h"
 #include "base/sync_socket.h"
-#include "base/waitable_event.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/renderer_host/audio_renderer_host.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/render_messages_params.h"
 #include "ipc/ipc_message_utils.h"
+#include "media/audio/audio_manager.h"
 #include "media/audio/fake_audio_output_stream.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -29,8 +30,8 @@ static const int kRouteId = 200;
 static const int kStreamId = 50;
 
 static bool IsRunningHeadless() {
-  scoped_ptr<base::EnvVarGetter> env(base::EnvVarGetter::Create());
-  if (env->HasEnv("CHROME_HEADLESS"))
+  scoped_ptr<base::Environment> env(base::Environment::Create());
+  if (env->HasVar("CHROME_HEADLESS"))
     return true;
   return false;
 }
@@ -44,9 +45,9 @@ class MockAudioRendererHost : public AudioRendererHost {
   }
 
   // A list of mock methods.
-  MOCK_METHOD4(OnRequestPacket,
+  MOCK_METHOD3(OnRequestPacket,
                void(int routing_id, int stream_id,
-                    uint32 bytes_in_buffer, int64 message_timestamp));
+                    AudioBuffersState buffers_state));
   MOCK_METHOD3(OnStreamCreated,
                void(int routing_id, int stream_id, int length));
   MOCK_METHOD3(OnLowLatencyStreamCreated,
@@ -89,9 +90,8 @@ class MockAudioRendererHost : public AudioRendererHost {
 
   // These handler methods do minimal things and delegate to the mock methods.
   void OnRequestPacket(const IPC::Message& msg, int stream_id,
-                       uint32 bytes_in_buffer, int64 message_timestamp) {
-    OnRequestPacket(msg.routing_id(), stream_id, bytes_in_buffer,
-                    message_timestamp);
+                       AudioBuffersState buffers_state) {
+    OnRequestPacket(msg.routing_id(), stream_id, buffers_state);
   }
 
   void OnStreamCreated(const IPC::Message& msg, int stream_id,
@@ -192,7 +192,7 @@ class AudioRendererHostTest : public testing::Test {
     host_ = NULL;
 
     // We need to continue running message_loop_ to complete all destructions.
-    message_loop_->RunAllPending();
+    SyncWithAudioThread();
 
     io_thread_.reset();
   }
@@ -204,7 +204,7 @@ class AudioRendererHostTest : public testing::Test {
                 OnStreamCreated(kRouteId, kStreamId, _));
 
     // 2. First packet request will arrive.
-    EXPECT_CALL(*host_, OnRequestPacket(kRouteId, kStreamId, _, _))
+    EXPECT_CALL(*host_, OnRequestPacket(kRouteId, kStreamId, _))
         .WillOnce(QuitMessageLoop(message_loop_.get()));
 
     IPC::Message msg;
@@ -212,12 +212,12 @@ class AudioRendererHostTest : public testing::Test {
 
     ViewHostMsg_Audio_CreateStream_Params params;
     if (mock_stream_)
-      params.format = AudioManager::AUDIO_MOCK;
+      params.params.format = AudioParameters::AUDIO_MOCK;
     else
-      params.format = AudioManager::AUDIO_PCM_LINEAR;
-    params.channels = 2;
-    params.sample_rate = AudioManager::kAudioCDSampleRate;
-    params.bits_per_sample = 16;
+      params.params.format = AudioParameters::AUDIO_PCM_LINEAR;
+    params.params.channels = 2;
+    params.params.sample_rate = AudioParameters::kAudioCDSampleRate;
+    params.params.bits_per_sample = 16;
     params.packet_size = 0;
 
     // Send a create stream message to the audio output stream and wait until
@@ -238,12 +238,12 @@ class AudioRendererHostTest : public testing::Test {
 
     ViewHostMsg_Audio_CreateStream_Params params;
     if (mock_stream_)
-      params.format = AudioManager::AUDIO_MOCK;
+      params.params.format = AudioParameters::AUDIO_MOCK;
     else
-      params.format = AudioManager::AUDIO_PCM_LINEAR;
-    params.channels = 2;
-    params.sample_rate = AudioManager::kAudioCDSampleRate;
-    params.bits_per_sample = 16;
+      params.params.format = AudioParameters::AUDIO_PCM_LINEAR;
+    params.params.channels = 2;
+    params.params.sample_rate = AudioParameters::kAudioCDSampleRate;
+    params.params.bits_per_sample = 16;
     params.packet_size = 0;
 
     // Send a create stream message to the audio output stream and wait until
@@ -289,7 +289,7 @@ class AudioRendererHostTest : public testing::Test {
   }
 
   void NotifyPacketReady() {
-    EXPECT_CALL(*host_, OnRequestPacket(kRouteId, kStreamId, _, _))
+    EXPECT_CALL(*host_, OnRequestPacket(kRouteId, kStreamId, _))
         .WillOnce(QuitMessageLoop(message_loop_.get()));
 
     IPC::Message msg;
@@ -309,15 +309,36 @@ class AudioRendererHostTest : public testing::Test {
     CHECK(controller) << "AudioOutputController not found";
 
     // Expect an error signal sent through IPC.
-    EXPECT_CALL(*host_, OnStreamError(kRouteId, kStreamId))
-        .WillOnce(QuitMessageLoop(message_loop_.get()));
+    EXPECT_CALL(*host_, OnStreamError(kRouteId, kStreamId));
 
     // Simulate an error sent from the audio device.
     host_->OnError(controller, 0);
-    message_loop_->Run();
+    SyncWithAudioThread();
 
     // Expect the audio stream record is removed.
     EXPECT_EQ(0u, host_->audio_entries_.size());
+  }
+
+  // Called on the audio thread.
+  static void PostQuitMessageLoop(MessageLoop* message_loop) {
+    message_loop->PostTask(FROM_HERE, new MessageLoop::QuitTask());
+  }
+
+  // Called on the main thread.
+  static void PostQuitOnAudioThread(MessageLoop* message_loop) {
+    AudioManager::GetAudioManager()->GetMessageLoop()->PostTask(
+        FROM_HERE, NewRunnableFunction(&PostQuitMessageLoop, message_loop));
+  }
+
+  // SyncWithAudioThread() waits until all pending tasks on the audio thread
+  // are executed while also processing pending task in message_loop_ on the
+  // current thread. It is used to synchronize with the audio thread when we are
+  // closing an audio stream.
+  void SyncWithAudioThread() {
+    message_loop_->PostTask(
+        FROM_HERE, NewRunnableFunction(&PostQuitOnAudioThread,
+                                       message_loop_.get()));
+    message_loop_->Run();
   }
 
   MessageLoop* message_loop() { return message_loop_.get(); }

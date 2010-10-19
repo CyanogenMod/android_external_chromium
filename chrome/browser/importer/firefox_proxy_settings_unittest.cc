@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <sstream>
-
 #include "testing/gtest/include/gtest/gtest.h"
 
 #include "base/file_path.h"
@@ -56,26 +54,15 @@ TEST_F(FirefoxProxySettingsTest, TestParse) {
   net::ProxyConfig config;
   EXPECT_TRUE(settings.ToProxyConfig(&config));
 
-  // Pretty-print |config| to a string (easy way to define the expectations).
-  std::ostringstream stream;
-  stream << config;
-  std::string pretty_printed_config = stream.str();
-
-  EXPECT_EQ(
-      "Automatic settings:\n"
-      "  Auto-detect: No\n"
-      "  Custom PAC script: [None]\n"
-      "Manual settings:\n"
-      "  Proxy server: \n"
-      "    HTTP: http_proxy:1111\n"
-      "    HTTPS: ssl_proxy:2222\n"
-      "    FTP: ftp_proxy:3333\n"
-      "    SOCKS: socks4://socks_host:5555\n"
-      "  Bypass list: \n"
-      "    *localhost\n"
-      "    127.0.0.1\n"
-      "    *noproxy.com",
-      pretty_printed_config);
+  {
+    net::ProxyConfig expected_config;
+    expected_config.proxy_rules().ParseFromString("http=http_proxy:1111; "
+                                                  "https=ssl_proxy:2222; "
+                                                  "ftp=ftp_proxy:3333; "
+                                                  "socks=socks_host:5555");
+    expected_config.proxy_rules().bypass_rules.ParseFromString(
+        "*localhost,  127.0.0.1, *noproxy.com");
+  }
 }
 
 TEST_F(FirefoxProxySettingsTest, TestParseAutoConfigUrl) {
@@ -108,17 +95,6 @@ TEST_F(FirefoxProxySettingsTest, TestParseAutoConfigUrl) {
   net::ProxyConfig config;
   EXPECT_TRUE(settings.ToProxyConfig(&config));
 
-  // Pretty-print |config| to a string (easy way to define the expectations).
-  std::ostringstream stream;
-  stream << config;
-  std::string pretty_printed_config = stream.str();
-
-  EXPECT_EQ(
-      "Automatic settings:\n"
-      "  Auto-detect: No\n"
-      "  Custom PAC script: http://custom-pac-url/\n"
-      "Manual settings:\n"
-      "  Proxy server: [None]\n"
-      "  Bypass list: [None]",
-      pretty_printed_config);
+  EXPECT_TRUE(config.Equals(net::ProxyConfig::CreateFromCustomPacURL(
+      GURL("http://custom-pac-url/"))));
 }

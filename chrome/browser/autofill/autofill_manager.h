@@ -4,10 +4,13 @@
 
 #ifndef CHROME_BROWSER_AUTOFILL_AUTOFILL_MANAGER_H_
 #define CHROME_BROWSER_AUTOFILL_AUTOFILL_MANAGER_H_
+#pragma once
 
 #include <vector>
 #include <string>
+#include <list>
 
+#include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
 #include "base/scoped_vector.h"
 #include "chrome/browser/autofill/autofill_dialog.h"
@@ -51,6 +54,9 @@ class AutoFillManager :
   // Registers our Enable/Disable AutoFill pref.
   static void RegisterUserPrefs(PrefService* prefs);
 
+  // Returns the TabContents hosting this AutoFillManager.
+  TabContents* tab_contents() const { return tab_contents_; }
+
   // RenderViewHostDelegate::AutoFill implementation:
   virtual void FormSubmitted(const webkit_glue::FormData& form);
   virtual void FormsSeen(const std::vector<webkit_glue::FormData>& forms);
@@ -59,8 +65,6 @@ class AutoFillManager :
                                       const webkit_glue::FormField& field);
   virtual bool FillAutoFillFormData(int query_id,
                                     const webkit_glue::FormData& form,
-                                    const string16& value,
-                                    const string16& label,
                                     int unique_id);
   virtual void ShowAutoFillDialog();
 
@@ -97,6 +101,7 @@ class AutoFillManager :
   AutoFillManager();
   AutoFillManager(TabContents* tab_contents,
                   PersonalDataManager* personal_data);
+
   void set_personal_data_manager(PersonalDataManager* personal_data) {
     personal_data_ = personal_data;
   }
@@ -105,7 +110,7 @@ class AutoFillManager :
   // Returns a list of values from the stored profiles that match |type| and the
   // value of |field| and returns the labels of the matching profiles. |labels|
   // is filled with the Profile label and possibly the last four digits of a
-  // corresponding credit card: 'Home; 1258' - Home is the Profile label and
+  // corresponding credit card: 'Home; *1258' - Home is the Profile label and
   // 1258 is the last four digits of the credit card. If |include_cc_labels| is
   // true, check for billing fields and append CC digits to the labels;
   // otherwise, regular profiles are returned for billing address fields.
@@ -115,6 +120,7 @@ class AutoFillManager :
                              bool include_cc_labels,
                              std::vector<string16>* values,
                              std::vector<string16>* labels,
+                             std::vector<string16>* icons,
                              std::vector<int>* unique_ids);
 
   // Same as GetProfileSuggestions, but the list of stored profiles is limited
@@ -124,6 +130,7 @@ class AutoFillManager :
                                     AutoFillType type,
                                     std::vector<string16>* values,
                                     std::vector<string16>* labels,
+                                    std::vector<string16>* icons,
                                     std::vector<int>* unique_ids);
 
   // Returns a list of values from the stored credit cards that match |type| and
@@ -133,6 +140,7 @@ class AutoFillManager :
                                 AutoFillType type,
                                 std::vector<string16>* values,
                                 std::vector<string16>* labels,
+                                std::vector<string16>* icons,
                                 std::vector<int>* unique_ids);
 
   // Set |field| argument's value based on |type| and contents of the
@@ -142,6 +150,12 @@ class AutoFillManager :
   void FillBillingFormField(const CreditCard* credit_card,
                             AutoFillType type,
                             webkit_glue::FormField* field);
+
+  // Set |field| argument's value based on |type| and contents of the
+  // |credit_card|.
+  void FillCreditCardFormField(const CreditCard* credit_card,
+                               AutoFillType type,
+                               webkit_glue::FormField* field);
 
   // Set |field| argument's value based on |type| and contents of the |profile|.
   void FillFormField(const AutoFillProfile* profile,
@@ -163,6 +177,16 @@ class AutoFillManager :
   // Parses the forms using heuristic matching and querying the AutoFill server.
   void ParseForms(const std::vector<webkit_glue::FormData>& forms);
 
+  // Methods for packing and unpacking credit card and profile IDs for sending
+  // and receiving to and from the renderer process.
+  static int PackIDs(int cc_id, int profile_id);
+  static void UnpackIDs(int id, int* cc_id, int* profile_id);
+
+  // The following function is meant to be called from unit-test only.
+  void set_disable_download_manager_requests(bool value) {
+    disable_download_manager_requests_ = value;
+  }
+
   // The TabContents hosting this AutoFillManager.
   // Weak reference.
   // May not be NULL.
@@ -174,8 +198,14 @@ class AutoFillManager :
   // May be NULL.  NULL indicates OTR.
   PersonalDataManager* personal_data_;
 
+  std::list<std::string> autofilled_forms_signatures_;
   // Handles queries and uploads to AutoFill servers.
   AutoFillDownloadManager download_manager_;
+
+  // Should be set to true in AutoFillManagerTest and other tests, false in
+  // AutoFillDownloadManagerTest and in non-test environment. Is false by
+  // default.
+  bool disable_download_manager_requests_;
 
   // Our copy of the form data.
   ScopedVector<FormStructure> form_structures_;
@@ -185,8 +215,18 @@ class AutoFillManager :
 
 #ifndef ANDROID
   // The InfoBar that asks for permission to store credit card information.
+<<<<<<< HEAD
   scoped_ptr<AutoFillCCInfoBarDelegate> cc_infobar_;
 #endif
+=======
+  // Deletes itself when closed.
+  AutoFillCCInfoBarDelegate* cc_infobar_;
+
+  friend class TestAutoFillManager;
+  FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillCreditCardForm);
+  FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillNonBillingFormSemicolon);
+  FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillBillFormSemicolon);
+>>>>>>> Chromium at release 7.0.540.0
 
   DISALLOW_COPY_AND_ASSIGN(AutoFillManager);
 };

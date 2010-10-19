@@ -4,15 +4,16 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_LOGIN_SCREEN_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_LOGIN_SCREEN_H_
+#pragma once
 
 #include <string>
 
 #include "base/ref_counted.h"
 #include "chrome/browser/chromeos/login/authenticator.h"
 #include "chrome/browser/chromeos/login/login_status_consumer.h"
+#include "chrome/browser/chromeos/login/message_bubble.h"
 #include "chrome/browser/chromeos/login/new_user_view.h"
 #include "chrome/browser/chromeos/login/view_screen.h"
-#include "chrome/browser/views/info_bubble.h"
 
 namespace chromeos {
 
@@ -21,7 +22,7 @@ class MessageBubble;
 class LoginScreen : public ViewScreen<NewUserView>,
                     public NewUserView::Delegate,
                     public LoginStatusConsumer,
-                    public InfoBubbleDelegate {
+                    public MessageBubbleDelegate {
  public:
   explicit LoginScreen(WizardScreenDelegate* delegate);
   virtual ~LoginScreen();
@@ -37,9 +38,10 @@ class LoginScreen : public ViewScreen<NewUserView>,
   virtual void OnCreateAccount();
   virtual void AddStartUrl(const GURL& start_url) { start_url_ = start_url; }
   virtual void ClearErrors();
+  virtual void NavigateAway() {}
 
   // Overridden from LoginStatusConsumer.
-  virtual void OnLoginFailure(const std::string& error);
+  virtual void OnLoginFailure(const LoginFailure& error);
   virtual void OnLoginSuccess(const std::string& username,
       const GaiaAuthConsumer::ClientLoginResult& credentials);
   virtual void OnOffTheRecordLoginSuccess();
@@ -51,6 +53,7 @@ class LoginScreen : public ViewScreen<NewUserView>,
   }
   virtual bool CloseOnEscape() { return true; }
   virtual bool FadeInOnShow() { return false; }
+  virtual void OnHelpLinkActivated();
 
  private:
   // ViewScreen<NewUserView>:

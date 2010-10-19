@@ -395,7 +395,7 @@ class BookmarkEditorBaseControllerBridge : public BookmarkModelObserver {
   for (int i = 0; i < childCount; ++i) {
     const BookmarkNode* childNode = node->GetChild(i);
     if (childNode->type() != BookmarkNode::URL) {
-      NSString* childName = base::SysWideToNSString(childNode->GetTitle());
+      NSString* childName = base::SysUTF16ToNSString(childNode->GetTitle());
       NSMutableArray* children = [self addChildFoldersFromNode:childNode];
       BookmarkFolderInfo* folderInfo =
           [BookmarkFolderInfo bookmarkFolderInfoWithFolderName:childName
@@ -463,7 +463,7 @@ class BookmarkEditorBaseControllerBridge : public BookmarkModelObserver {
       BookmarkModel* model = [self bookmarkModel];
       const BookmarkNode* newFolder =
       model->AddGroup(parentNode, i,
-                      base::SysNSStringToWide([subFolderInfo folderName]));
+                      base::SysNSStringToUTF16([subFolderInfo folderName]));
       // Update our dictionary with the actual folder node just created.
       [subFolderInfo setFolderNode:newFolder];
       [subFolderInfo setNewFolder:NO];

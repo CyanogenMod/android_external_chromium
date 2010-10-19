@@ -4,15 +4,17 @@
 
 #ifndef CHROME_COMMON_IPC_TEST_SINK_H_
 #define CHROME_COMMON_IPC_TEST_SINK_H_
+#pragma once
 
 #include <utility>
 #include <vector>
 
 #include "base/basictypes.h"
 #include "ipc/ipc_channel.h"
-#include "ipc/ipc_message.h"
 
 namespace IPC {
+
+class Message;
 
 // This test sink provides a "sink" for IPC messages that are sent. It allows
 // the caller to query messages received in various different ways.  It is

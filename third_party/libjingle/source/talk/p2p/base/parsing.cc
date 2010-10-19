@@ -33,7 +33,16 @@
 namespace cricket {
 
 bool BadParse(const std::string& text, ParseError* err) {
-  err->text = text;
+  if (err != NULL) {
+    err->text = text;
+  }
+  return false;
+}
+
+bool BadWrite(const std::string& text, WriteError* err) {
+  if (err != NULL) {
+    err->text = text;
+  }
   return false;
 }
 
@@ -113,8 +122,8 @@ void AddXmlChildren(buzz::XmlElement* parent,
   }
 }
 
-void CopyXmlChildren(buzz::XmlElement* source, buzz::XmlElement* dest) {
-  for (buzz::XmlElement* child = source->FirstElement();
+void CopyXmlChildren(const buzz::XmlElement* source, buzz::XmlElement* dest) {
+  for (const buzz::XmlElement* child = source->FirstElement();
        child != NULL;
        child = child->NextElement()) {
     dest->AddElement(new buzz::XmlElement(*child));

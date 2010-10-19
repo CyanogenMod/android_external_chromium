@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_LOGIN_HTML_DIALOG_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_LOGIN_HTML_DIALOG_H_
+#pragma once
 
 #include <string>
 
@@ -34,6 +35,11 @@ class LoginHtmlDialog : public HtmlDialogUIDelegate {
   // Shows created dialog.
   void Show();
 
+  // Overrides default width/height for dialog.
+  void SetDialogSize(int width, int height);
+
+  void set_url(const GURL& url) { url_ = url; }
+
  protected:
   // HtmlDialogUIDelegate implementation.
   virtual bool IsDialogModal() const { return true; }
@@ -53,6 +59,10 @@ class LoginHtmlDialog : public HtmlDialogUIDelegate {
   gfx::NativeWindow parent_window_;
   std::wstring title_;
   GURL url_;
+
+  // Dialog display size.
+  int width_;
+  int height_;
 
   DISALLOW_COPY_AND_ASSIGN(LoginHtmlDialog);
 };

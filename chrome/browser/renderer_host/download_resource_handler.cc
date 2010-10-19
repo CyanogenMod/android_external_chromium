@@ -8,11 +8,12 @@
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_file_manager.h"
-#include "chrome/browser/history/download_types.h"
+#include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/renderer_host/global_request_id.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/common/resource_response.h"
 #include "net/base/io_buffer.h"
+#include "net/http/http_response_headers.h"
 #include "net/url_request/url_request_context.h"
 
 DownloadResourceHandler::DownloadResourceHandler(
@@ -21,7 +22,7 @@ DownloadResourceHandler::DownloadResourceHandler(
     int render_view_id,
     int request_id,
     const GURL& url,
-    DownloadFileManager* manager,
+    DownloadFileManager* download_file_manager,
     URLRequest* request,
     bool save_as,
     const DownloadSaveInfo& save_info)
@@ -30,7 +31,7 @@ DownloadResourceHandler::DownloadResourceHandler(
       render_view_id_(render_view_id),
       url_(url),
       content_length_(0),
-      download_manager_(manager),
+      download_file_manager_(download_file_manager),
       request_(request),
       save_as_(save_as),
       save_info_(save_info),
@@ -63,8 +64,8 @@ bool DownloadResourceHandler::OnResponseStarted(int request_id,
   set_content_disposition(content_disposition);
   set_content_length(response->response_head.content_length);
 
-  download_id_ = download_manager_->GetNextId();
-  // |download_manager_| consumes (deletes):
+  download_id_ = download_file_manager_->GetNextId();
+  // |download_file_manager_| consumes (deletes):
   DownloadCreateInfo* info = new DownloadCreateInfo;
   info->url = url_;
   info->referrer_url = GURL(request_->referrer());
@@ -91,9 +92,14 @@ bool DownloadResourceHandler::OnResponseStarted(int request_id,
   info->referrer_charset = request_->context()->referrer_charset();
   info->save_info = save_info_;
   ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE,
+      ChromeThread::UI, FROM_HERE,
       NewRunnableMethod(
-          download_manager_, &DownloadFileManager::StartDownload, info));
+          download_file_manager_, &DownloadFileManager::StartDownload, info));
+
+  // We can't start saving the data before we create the file on disk.
+  // The request will be un-paused in DownloadFileManager::CreateDownloadFile.
+  rdh_->PauseRequest(global_id_.child_id, global_id_.request_id, true);
+
   return true;
 }
 
@@ -113,8 +119,6 @@ bool DownloadResourceHandler::OnWillRead(int request_id, net::IOBuffer** buf,
     read_buffer_ = new net::IOBuffer(*buf_size);
   }
   *buf = read_buffer_.get();
-  // TODO(willchan): Remove after debugging bug 16371.
-  CHECK(read_buffer_->data());
   return true;
 }
 
@@ -133,7 +137,7 @@ bool DownloadResourceHandler::OnReadCompleted(int request_id, int* bytes_read) {
   if (need_update) {
     ChromeThread::PostTask(
         ChromeThread::FILE, FROM_HERE,
-        NewRunnableMethod(download_manager_,
+        NewRunnableMethod(download_file_manager_,
                           &DownloadFileManager::UpdateDownload,
                           download_id_,
                           buffer_));
@@ -153,8 +157,8 @@ bool DownloadResourceHandler::OnResponseCompleted(
     const std::string& security_info) {
   ChromeThread::PostTask(
       ChromeThread::FILE, FROM_HERE,
-      NewRunnableMethod(download_manager_,
-                        &DownloadFileManager::DownloadFinished,
+      NewRunnableMethod(download_file_manager_,
+                        &DownloadFileManager::OnResponseCompleted,
                         download_id_,
                         buffer_));
   read_buffer_ = NULL;
@@ -202,6 +206,9 @@ void DownloadResourceHandler::CheckWriteProgress() {
                        should_pause);
     is_paused_ = should_pause;
   }
+}
+
+DownloadResourceHandler::~DownloadResourceHandler() {
 }
 
 void DownloadResourceHandler::StartPauseTimer() {

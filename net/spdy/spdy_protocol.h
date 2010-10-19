@@ -6,6 +6,7 @@
 
 #ifndef NET_SPDY_SPDY_PROTOCOL_H_
 #define NET_SPDY_SPDY_PROTOCOL_H_
+#pragma once
 
 #ifdef WIN32
 #include <winsock2.h>
@@ -118,8 +119,8 @@
 
 namespace spdy {
 
-// This implementation of Spdy is version 1.
-const int kSpdyProtocolVersion = 1;
+// The SPDY version of this implementation.
+const int kSpdyProtocolVersion = 2;
 
 // Default initial window size.
 const int kInitialWindowSize = 64 * 1024;
@@ -188,7 +189,8 @@ enum SpdyStatusCodes {
   CANCEL = 5,
   INTERNAL_ERROR = 6,
   FLOW_CONTROL_ERROR = 7,
-  NUM_STATUS_CODES = 8
+  INVALID_ASSOCIATED_STREAM = 8,
+  NUM_STATUS_CODES = 9
 };
 
 // A SPDY stream id is a 31 bit entity.

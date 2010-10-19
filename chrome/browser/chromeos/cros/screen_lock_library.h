@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_CROS_SCREEN_LOCK_LIBRARY_H_
 #define CHROME_BROWSER_CHROMEOS_CROS_SCREEN_LOCK_LIBRARY_H_
+#pragma once
 
 #include "base/observer_list.h"
 #include "cros/chromeos_screen_lock.h"
@@ -34,48 +35,10 @@ class ScreenLockLibrary {
   virtual void NotifyScreenUnlockRequested() = 0;
   // Notifies PowerManager that screen is unlocked.
   virtual void NotifyScreenUnlockCompleted() = 0;
-};
 
-// This class handles the interaction with the ChromeOS screen lock APIs.
-class ScreenLockLibraryImpl : public ScreenLockLibrary {
- public:
-  ScreenLockLibraryImpl();
-  virtual ~ScreenLockLibraryImpl();
-
-  // ScreenLockLibrary implementations:
-  virtual void AddObserver(Observer* observer);
-  virtual void RemoveObserver(Observer* observer);
-  virtual void NotifyScreenLockRequested();
-  virtual void NotifyScreenLockCompleted();
-  virtual void NotifyScreenUnlockRequested();
-  virtual void NotifyScreenUnlockCompleted();
-
- private:
-  // This method is called when PowerManager requests to lock the screen.
-  // This method is called on a background thread.
-  static void ScreenLockedHandler(void* object, ScreenLockEvent event);
-
-  // This methods starts the monitoring of screen lock request.
-  void Init();
-
-  // Called by the handler to notify the screen lock request from
-  // SessionManager.
-  void LockScreen();
-
-  // Called by the handler to notify the screen unlock request from
-  // SessionManager.
-  void UnlockScreen();
-
-  // Called by the handler to notify the screen unlock request has been
-  // failed.
-  void UnlockScreenFailed();
-
-  ObserverList<Observer> observers_;
-
-  // A reference to the screen lock api
-  chromeos::ScreenLockConnection screen_lock_connection_;
-
-  DISALLOW_COPY_AND_ASSIGN(ScreenLockLibraryImpl);
+  // Factory function, creates a new instance and returns ownership.
+  // For normal usage, access the singleton via CrosLibrary::Get().
+  static ScreenLockLibrary* GetImpl(bool stub);
 };
 
 }  // namespace chromeos

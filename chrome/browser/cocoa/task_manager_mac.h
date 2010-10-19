@@ -4,18 +4,25 @@
 
 #ifndef CHROME_BROWSER_COCOA_TASK_MANAGER_MAC_H_
 #define CHROME_BROWSER_COCOA_TASK_MANAGER_MAC_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
+#include <vector>
+
+#include "base/cocoa_protocols_mac.h"
 #include "base/scoped_nsobject.h"
 #include "chrome/browser/cocoa/table_row_nsimage_cache.h"
-#include "chrome/browser/task_manager.h"
+#include "chrome/browser/task_manager/task_manager.h"
 
 @class WindowSizeAutosaver;
+class SkBitmap;
 class TaskManagerMac;
 
 // This class is responsible for loading the task manager window and for
 // managing it.
-@interface TaskManagerWindowController : NSWindowController {
+@interface TaskManagerWindowController :
+  NSWindowController<NSTableViewDataSource,
+                     NSTableViewDelegate> {
  @private
   IBOutlet NSTableView* tableView_;
   IBOutlet NSButton* endProcessButton_;
@@ -24,6 +31,14 @@ class TaskManagerMac;
   TaskManagerModel* model_;  // weak
 
   scoped_nsobject<WindowSizeAutosaver> size_saver_;
+
+  // These contain a permutation of [0..|model_->ResourceCount() - 1|]. Used to
+  // implement sorting.
+  std::vector<int> viewToModelMap_;
+  std::vector<int> modelToViewMap_;
+
+  // Descriptor of the current sort column.
+  scoped_nsobject<NSSortDescriptor> currentSortDescriptor_;
 }
 
 // Creates and shows the task manager's window.
@@ -42,11 +57,15 @@ class TaskManagerMac;
 - (void)selectDoubleClickedTab:(id)sender;
 @end
 
+@interface TaskManagerWindowController (TestingAPI)
+- (NSTableView*)tableView;
+@end
+
 // This class listens to task changed events sent by chrome.
 class TaskManagerMac : public TaskManagerModelObserver,
                        public TableRowNSImageCache::Table {
  public:
-  TaskManagerMac();
+  TaskManagerMac(TaskManager* task_manager);
   virtual ~TaskManagerMac();
 
   // TaskManagerModelObserver
@@ -60,8 +79,8 @@ class TaskManagerMac : public TaskManagerModelObserver,
   void WindowWasClosed();
 
   // TableRowNSImageCache::Table
-  virtual int RowCount() const { return model_->ResourceCount(); }
-  virtual SkBitmap GetIcon(int r) const { return model_->GetResourceIcon(r); }
+  virtual int RowCount() const;
+  virtual SkBitmap GetIcon(int r) const;
 
   // Creates the task manager if it doesn't exist; otherwise, it activates the
   // existing task manager window.
@@ -73,9 +92,11 @@ class TaskManagerMac : public TaskManagerModelObserver,
   // Lazily converts the image at the given row and caches it in |icon_cache_|.
   NSImage* GetImageForRow(int row);
 
+  // Returns the cocoa object. Used for testing.
+  TaskManagerWindowController* cocoa_controller() { return window_controller_; }
  private:
   // The task manager.
-   TaskManager* const task_manager_;  // weak
+  TaskManager* const task_manager_;  // weak
 
   // Our model.
   TaskManagerModel* const model_;  // weak

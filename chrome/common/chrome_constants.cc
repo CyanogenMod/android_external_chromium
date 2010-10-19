@@ -71,7 +71,8 @@ const wchar_t kTestingInterfaceDLL[] = L"testing_interface.dll";
 const wchar_t kNotSignedInProfile[] = L"Default";
 const wchar_t kNotSignedInID[] = L"not-signed-in";
 const wchar_t kBrowserResourcesDll[] = L"chrome.dll";
-const FilePath::CharType kExtensionFileExtension[] = FPL("crx");
+const FilePath::CharType kExtensionFileExtension[] = FPL(".crx");
+const FilePath::CharType kExtensionKeyFileExtension[] = FPL(".pem");
 
 // filenames
 const FilePath::CharType kArchivedHistoryFilename[] = FPL("Archived History");
@@ -88,9 +89,8 @@ const FilePath::CharType kFaviconsFilename[] = FPL("Favicons");
 const FilePath::CharType kHistoryFilename[] = FPL("History");
 const FilePath::CharType kLocalStateFilename[] = FPL("Local State");
 const FilePath::CharType kPreferencesFilename[] = FPL("Preferences");
-const FilePath::CharType kSafeBrowsingFilename[] = FPL("Safe Browsing");
-// WARNING: SingletonSocket can't contain spaces, because otherwise
-// chrome_process_util_linux would be broken.
+const FilePath::CharType kSafeBrowsingFilename[] = FPL("Safe Browsing Bloom");
+const FilePath::CharType kSingletonCookieFilename[] = FPL("SingletonCookie");
 const FilePath::CharType kSingletonSocketFilename[] = FPL("SingletonSocket");
 const FilePath::CharType kSingletonLockFilename[] = FPL("SingletonLock");
 const FilePath::CharType kThumbnailsFilename[] = FPL("Thumbnails");
@@ -133,6 +133,8 @@ const int kHistogramSynchronizerReservedSequenceNumber = 0;
 const int kMaxSessionHistoryEntries = 50;
 
 const wchar_t kChromiumRendererIdProperty[] = L"ChromiumRendererId";
+
+const char* const kUnknownLanguageCode = "und";
 
 }  // namespace chrome
 

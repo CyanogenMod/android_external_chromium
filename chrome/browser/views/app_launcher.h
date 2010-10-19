@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_APP_LAUNCHER_H_
 #define CHROME_BROWSER_VIEWS_APP_LAUNCHER_H_
+#pragma once
 
 #include <string>
 
@@ -85,10 +86,10 @@ class AppLauncher : public AnimationDelegate,
                               const gfx::Rect& initial_pos,
                               bool user_gesture);
   virtual void ActivateContents(TabContents* contents) {}
+  virtual void DeactivateContents(TabContents* contents) {}
   virtual void LoadingStateChanged(TabContents* source) {}
   virtual void CloseContents(TabContents* source) {}
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos) {}
-  virtual bool IsPopup(TabContents* source) { return false; }
   virtual void ToolbarSizeChanged(TabContents* source, bool is_animating) {}
   virtual void URLStarredChanged(TabContents* source, bool starred) {}
   virtual void UpdateTargetURL(TabContents* source, const GURL& url) {}

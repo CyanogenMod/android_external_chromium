@@ -6,6 +6,7 @@
 
 #include "base/message_loop.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/extensions/extension_accessibility_api.h"
 #include "chrome/browser/views/accessibility_event_router_views.h"
 #include "chrome/browser/views/accessible_view_helper.h"
@@ -15,6 +16,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "views/controls/button/native_button.h"
 #include "views/grid_layout.h"
+#include "views/views_delegate.h"
 #include "views/widget/root_view.h"
 #include "views/window/window.h"
 
@@ -26,10 +28,54 @@
 
 #if defined(TOOLKIT_VIEWS)
 
+class AccessibilityViewsDelegate : public views::ViewsDelegate {
+ public:
+  AccessibilityViewsDelegate() {}
+  virtual ~AccessibilityViewsDelegate() {}
+
+  // Overridden from views::ViewsDelegate:
+  virtual Clipboard* GetClipboard() const { return NULL; }
+  virtual void SaveWindowPlacement(const std::wstring& window_name,
+                                   const gfx::Rect& bounds,
+                                   bool maximized) {
+  }
+  virtual bool GetSavedWindowBounds(const std::wstring& window_name,
+                                    gfx::Rect* bounds) const {
+    return false;
+  }
+  virtual bool GetSavedMaximizedState(const std::wstring& window_name,
+                                      bool* maximized) const {
+    return false;
+  }
+  virtual void NotifyAccessibilityEvent(
+      views::View* view, AccessibilityTypes::Event event_type) {
+    AccessibilityEventRouterViews::GetInstance()->HandleAccessibilityEvent(
+        view, event_type);
+  }
+#if defined(OS_WIN)
+  virtual HICON GetDefaultWindowIcon() const {
+    return NULL;
+  }
+#endif
+  virtual void AddRef() {}
+  virtual void ReleaseRef() {}
+
+  DISALLOW_COPY_AND_ASSIGN(AccessibilityViewsDelegate);
+};
+
 class AccessibilityEventRouterViewsTest
     : public testing::Test,
       public NotificationObserver {
  public:
+  virtual void SetUp() {
+    views::ViewsDelegate::views_delegate = new AccessibilityViewsDelegate();
+  }
+
+  virtual void TearDown() {
+    delete views::ViewsDelegate::views_delegate;
+    views::ViewsDelegate::views_delegate = NULL;
+  }
+
   views::Widget* CreateWidget() {
 #if defined(OS_WIN)
     return new views::WidgetWin();
@@ -37,6 +83,7 @@ class AccessibilityEventRouterViewsTest
     return new views::WidgetGtk(views::WidgetGtk::TYPE_WINDOW);
 #endif
   }
+
  protected:
   // Implement NotificationObserver::Observe and store information about a
   // ACCESSIBILITY_CONTROL_FOCUSED event.
@@ -55,8 +102,7 @@ class AccessibilityEventRouterViewsTest
   std::string last_control_name_;
 };
 
-// Temporarily disabled due to http://crbug.com/48717
-TEST_F(AccessibilityEventRouterViewsTest, DISABLED_TestFocusNotification) {
+TEST_F(AccessibilityEventRouterViewsTest, TestFocusNotification) {
   const char kButton1ASCII[] = "Button1";
   const char kButton2ASCII[] = "Button2";
   const char kButton3ASCII[] = "Button3";

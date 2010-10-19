@@ -6,15 +6,19 @@
 
 #include <algorithm>
 #include <map>
+#include <vector>
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/i18n/rtl.h"
+#include "base/rand_util.h"
 #include "base/time.h"
 #include "chrome/browser/options_window.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/search_engines/template_url.h"
+#include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/search_engines/template_url_prepopulate_data.h"
+#include "gfx/canvas.h"
 #include "gfx/font.h"
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
@@ -35,9 +39,6 @@ using TemplateURLPrepopulateData::SearchEngineType;
 
 namespace {
 
-// Represents an id for which we have no logo.
-const int kNoLogo = -1;
-
 // Size to scale logos down to if showing 4 instead of 3 choices. Logo images
 // are all originally sized at 180 x 120 pixels, with the logo text baseline
 // located 74 pixels beneath the top of the image.
@@ -47,54 +48,6 @@ const int kSmallLogoHeight = 88;
 // Used to pad text label height so it fits nicely in view.
 const int kLabelPadding = 25;
 
-int GetSearchEngineLogo(const TemplateURL* template_url) {
-  typedef std::map<SearchEngineType, int> LogoMap;
-  static LogoMap type_to_logo;
-  if (type_to_logo.empty()) {
-    type_to_logo.insert(std::make_pair<SearchEngineType, int>(
-        TemplateURLPrepopulateData::SEARCH_ENGINE_GOOGLE,
-        IDR_SEARCH_ENGINE_LOGO_GOOGLE));
-    type_to_logo.insert(std::make_pair<SearchEngineType, int>(
-        TemplateURLPrepopulateData::SEARCH_ENGINE_YAHOO,
-        IDR_SEARCH_ENGINE_LOGO_YAHOO));
-    type_to_logo.insert(std::make_pair<SearchEngineType, int>(
-        TemplateURLPrepopulateData::SEARCH_ENGINE_YAHOOJP,
-        IDR_SEARCH_ENGINE_LOGO_YAHOOJP));
-    type_to_logo.insert(std::make_pair<SearchEngineType, int>(
-        TemplateURLPrepopulateData::SEARCH_ENGINE_BING,
-        IDR_SEARCH_ENGINE_LOGO_BING));
-    type_to_logo.insert(std::make_pair<SearchEngineType, int>(
-        TemplateURLPrepopulateData::SEARCH_ENGINE_ASK,
-        IDR_SEARCH_ENGINE_LOGO_ASK));
-    type_to_logo.insert(std::make_pair<SearchEngineType, int>(
-        TemplateURLPrepopulateData::SEARCH_ENGINE_YANDEX,
-        IDR_SEARCH_ENGINE_LOGO_YANDEX));
-    type_to_logo.insert(std::make_pair<SearchEngineType, int>(
-        TemplateURLPrepopulateData::SEARCH_ENGINE_SEZNAM,
-        IDR_SEARCH_ENGINE_LOGO_SEZNAM));
-    type_to_logo.insert(std::make_pair<SearchEngineType, int>(
-        TemplateURLPrepopulateData::SEARCH_ENGINE_CENTRUM,
-        IDR_SEARCH_ENGINE_LOGO_CENTRUMCZ));
-    type_to_logo.insert(std::make_pair<SearchEngineType, int>(
-        TemplateURLPrepopulateData::SEARCH_ENGINE_NETSPRINT,
-        IDR_SEARCH_ENGINE_LOGO_NETSPRINT));
-    type_to_logo.insert(std::make_pair<SearchEngineType, int>(
-        TemplateURLPrepopulateData::SEARCH_ENGINE_VIRGILIO,
-        IDR_SEARCH_ENGINE_LOGO_VIRGILIO));
-    type_to_logo.insert(std::make_pair<SearchEngineType, int>(
-        TemplateURLPrepopulateData::SEARCH_ENGINE_MAILRU,
-        IDR_SEARCH_ENGINE_LOGO_MAILRU));
-  }
-
-  LogoMap::iterator logo = type_to_logo.find(
-      TemplateURLPrepopulateData::GetSearchEngineType(template_url));
-  if (logo != type_to_logo.end())
-    return logo->second;
-
-  // Logo does not exist:
-  return kNoLogo;
-}
-
 }  // namespace
 
 SearchEngineChoice::SearchEngineChoice(views::ButtonListener* listener,
@@ -102,13 +55,14 @@ SearchEngineChoice::SearchEngineChoice(views::ButtonListener* listener,
                                        bool use_small_logos)
     : NativeButton(listener, l10n_util::GetString(IDS_FR_SEARCH_CHOOSE)),
       is_image_label_(false),
-      search_engine_(search_engine) {
+      search_engine_(search_engine),
+      slot_(0) {
   bool use_images = false;
 #if defined(GOOGLE_CHROME_BUILD)
   use_images = true;
 #endif
-  int logo_id = GetSearchEngineLogo(search_engine_);
-  if (use_images && logo_id != kNoLogo) {
+  int logo_id = search_engine_->logo_id();
+  if (use_images && logo_id > 0) {
     is_image_label_ = true;
     views::ImageView* logo_image = new views::ImageView();
     SkBitmap* logo_bmp =
@@ -192,6 +146,16 @@ void FirstRunSearchEngineView::ButtonPressed(views::Button* sender,
   MessageLoop::current()->Quit();
 }
 
+void FirstRunSearchEngineView::Paint(gfx::Canvas* canvas) {
+  // Fill in behind the background image with the standard gray toolbar color.
+  canvas->FillRectInt(SkColorSetRGB(237, 238, 237), 0, 0, width(),
+                      background_image_->height());
+  // The rest of the dialog background should be white.
+  DCHECK(height() > background_image_->height());
+  canvas->FillRectInt(SK_ColorWHITE, 0, background_image_->height(), width(),
+                      height() - background_image_->height());
+}
+
 void FirstRunSearchEngineView::OnTemplateURLModelChanged() {
   using views::ImageView;
 
@@ -204,10 +168,12 @@ void FirstRunSearchEngineView::OnTemplateURLModelChanged() {
   std::vector<const TemplateURL*> template_urls =
       search_engines_model_->GetTemplateURLs();
 
-  // If we have fewer than three search engines, signal that the search engine
-  // experiment is over, leaving imported default search engine setting intact.
-  if (template_urls.size() < 3)
+  // If we have fewer than two search engines, end search engine dialog
+  // immediately, leaving imported default search engine setting intact.
+  if (template_urls.size() < 2) {
+    MessageLoop::current()->Quit();
     return;
+  }
 
   std::vector<const TemplateURL*>::iterator search_engine_iter;
 
@@ -235,9 +201,12 @@ void FirstRunSearchEngineView::OnTemplateURLModelChanged() {
   }
 
   // Now that we know what size the logos should be, create new search engine
-  // choices for the view:
+  // choices for the view.  If there are 2 search engines, only show 2
+  // choices; for 3 or more, show 3 (unless the default is not one of the
+  // top 3, in which case show 4).
   for (search_engine_iter = template_urls.begin();
-       search_engine_iter < template_urls.begin() + 3;
+       search_engine_iter < template_urls.begin() +
+           (template_urls.size() < 3 ? 2 : 3);
        ++search_engine_iter) {
     // Push first three engines into buttons:
     SearchEngineChoice* choice = new SearchEngineChoice(this,
@@ -255,10 +224,9 @@ void FirstRunSearchEngineView::OnTemplateURLModelChanged() {
 
   // Randomize order of logos if option has been set.
   if (randomize_) {
-    int seed = static_cast<int>(Time::Now().ToInternalValue());
-    srand(seed);
     std::random_shuffle(search_engine_choices_.begin(),
-                        search_engine_choices_.end());
+                        search_engine_choices_.end(),
+                        base::RandGenerator);
     // Assign to each choice the position in which it is shown on the screen.
     std::vector<SearchEngineChoice*>::iterator it;
     int slot = 0;
@@ -290,12 +258,16 @@ void FirstRunSearchEngineView::SetupControls() {
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   background_image_ = new views::ImageView();
   background_image_->SetImage(rb.GetBitmapNamed(IDR_SEARCH_ENGINE_DIALOG_TOP));
-  background_image_->SetHorizontalAlignment(ImageView::TRAILING);
+  background_image_->EnableCanvasFlippingForRTLUI(true);
+  if (text_direction_is_rtl_) {
+    background_image_->SetHorizontalAlignment(ImageView::LEADING);
+  } else {
+    background_image_->SetHorizontalAlignment(ImageView::TRAILING);
+  }
+
   AddChildView(background_image_);
 
   int label_width = GetPreferredSize().width() - 2 * kPanelHorizMargin;
-
-  set_background(Background::CreateSolidBackground(SK_ColorWHITE));
 
   // Add title and text asking the user to choose a search engine:
   title_label_ = new Label(l10n_util::GetString(
@@ -386,8 +358,10 @@ void FirstRunSearchEngineView::Layout() {
 
     next_h_space = search_engine_choices_[1]->GetView()->x() + logo_width +
                    logo_padding;
-    search_engine_choices_[2]->SetChoiceViewBounds(
-        next_h_space, next_v_space, logo_width, logo_height);
+    if (num_choices > 2) {
+      search_engine_choices_[2]->SetChoiceViewBounds(
+          next_h_space, next_v_space, logo_width, logo_height);
+    }
 
     if (num_choices > 3) {
       next_h_space = search_engine_choices_[2]->GetView()->x() + logo_width +
@@ -410,8 +384,10 @@ void FirstRunSearchEngineView::Layout() {
     search_engine_choices_[1]->SetBounds(next_h_space, next_v_space,
                                          button_width, button_height);
     next_h_space = search_engine_choices_[1]->x() + logo_width + logo_padding;
-    search_engine_choices_[2]->SetBounds(next_h_space, next_v_space,
-                                         button_width, button_height);
+    if (num_choices > 2) {
+      search_engine_choices_[2]->SetBounds(next_h_space, next_v_space,
+                                           button_width, button_height);
+    }
 
     if (num_choices > 3) {
       next_h_space = search_engine_choices_[2]->x() + logo_width +

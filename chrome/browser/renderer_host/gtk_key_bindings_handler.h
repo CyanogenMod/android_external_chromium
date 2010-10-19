@@ -4,13 +4,14 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_GTK_KEY_BINDINGS_HANDLER_H_
 #define CHROME_BROWSER_RENDERER_HOST_GTK_KEY_BINDINGS_HANDLER_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
 #include <string>
 
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/common/edit_command.h"
-#include "chrome/common/owned_widget_gtk.h"
 
 struct NativeWebKeyboardEvent;
 

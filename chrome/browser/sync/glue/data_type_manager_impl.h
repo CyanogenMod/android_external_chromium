@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_GLUE_DATA_TYPE_MANAGER_IMPL_H__
 #define CHROME_BROWSER_SYNC_GLUE_DATA_TYPE_MANAGER_IMPL_H__
+#pragma once
 
 #include "chrome/browser/sync/glue/data_type_manager.h"
 
@@ -11,7 +12,6 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
 #include "base/task.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"

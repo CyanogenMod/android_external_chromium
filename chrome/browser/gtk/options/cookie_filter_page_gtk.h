@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_OPTIONS_COOKIE_FILTER_PAGE_GTK_H_
 #define CHROME_BROWSER_GTK_OPTIONS_COOKIE_FILTER_PAGE_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -11,7 +12,7 @@
 
 #include "app/gtk_signal.h"
 #include "chrome/browser/options_page_base.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 
 class Profile;
 
@@ -29,7 +30,7 @@ class CookieFilterPageGtk : public OptionsPageBase {
 
  private:
   // Overridden from OptionsPageBase
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
   virtual void HighlightGroup(OptionsGroup highlight_group);
 
   CHROMEGTK_CALLBACK_0(CookieFilterPageGtk, void, OnCookiesAllowToggled);
@@ -43,6 +44,7 @@ class CookieFilterPageGtk : public OptionsPageBase {
 
   // Widgets of the cookie storing group
   GtkWidget* allow_radio_;
+  GtkWidget* ask_every_time_radio_;
   GtkWidget* block_radio_;
 
   GtkWidget* exceptions_button_;

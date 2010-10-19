@@ -4,12 +4,14 @@
 
 #ifndef NET_URL_REQUEST_URL_REQUEST_JOB_H_
 #define NET_URL_REQUEST_URL_REQUEST_JOB_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
+#include "base/string16.h"
 #include "base/time.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/filter.h"
@@ -170,8 +172,8 @@ class URLRequestJob : public base::RefCountedThreadSafe<URLRequestJob>,
       scoped_refptr<net::AuthChallengeInfo>* auth_info);
 
   // Resend the request with authentication credentials.
-  virtual void SetAuth(const std::wstring& username,
-                       const std::wstring& password);
+  virtual void SetAuth(const string16& username,
+                       const string16& password);
 
   // Display the error page without asking for credentials again.
   virtual void CancelAuth();

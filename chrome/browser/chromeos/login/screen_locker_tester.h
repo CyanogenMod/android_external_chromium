@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_SCREEN_LOCKER_TESTER_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_SCREEN_LOCKER_TESTER_H_
+#pragma once
 
 #include "base/basictypes.h"
 
@@ -37,6 +38,8 @@ class ScreenLockerTester {
 
   // Returns the widget for screen locker window.
   views::Widget* GetWidget();
+
+  views::Widget* GetChildWidget();
 
  private:
   friend class chromeos::ScreenLocker;

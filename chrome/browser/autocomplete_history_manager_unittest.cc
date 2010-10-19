@@ -7,6 +7,7 @@
 #include "base/ref_counted.h"
 #include "base/string16.h"
 #include "base/task.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete_history_manager.h"
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/test/testing_profile.h"
@@ -50,6 +51,7 @@ TEST_F(AutocompleteHistoryManagerTest, CreditCardNumberValue) {
   form.method = ASCIIToUTF16("POST");
   form.origin = GURL("http://myform.com/form.html");
   form.action = GURL("http://myform.com/submit.html");
+  form.user_submitted = true;
 
   // Valid Visa credit card number pulled from the paypal help site.
   webkit_glue::FormField valid_cc(ASCIIToUTF16("Credit Card"),
@@ -72,6 +74,7 @@ TEST_F(AutocompleteHistoryManagerTest, NonCreditCardNumberValue) {
   form.method = ASCIIToUTF16("POST");
   form.origin = GURL("http://myform.com/form.html");
   form.action = GURL("http://myform.com/submit.html");
+  form.user_submitted = true;
 
   // Invalid credit card number.
   webkit_glue::FormField invalid_cc(ASCIIToUTF16("Credit Card"),
@@ -92,6 +95,7 @@ TEST_F(AutocompleteHistoryManagerTest, SSNValue) {
   form.method = ASCIIToUTF16("POST");
   form.origin = GURL("http://myform.com/form.html");
   form.action = GURL("http://myform.com/submit.html");
+  form.user_submitted = true;
 
   webkit_glue::FormField ssn(ASCIIToUTF16("Social Security Number"),
                              ASCIIToUTF16("ssn"),

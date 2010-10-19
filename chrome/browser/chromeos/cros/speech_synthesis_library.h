@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_CROS_SPEECH_SYNTHESIS_LIBRARY_H_
 #define CHROME_BROWSER_CHROMEOS_CROS_SPEECH_SYNTHESIS_LIBRARY_H_
+#pragma once
 
 #include "base/singleton.h"
 
@@ -26,23 +27,10 @@ class SpeechSynthesisLibrary {
   // Starts the speech synthesis service and indicates through a callback if
   // it started successfully.
   virtual void InitTts(InitStatusCallback) = 0;
-};
 
-// This class handles the interaction with the ChromeOS login library APIs.
-class SpeechSynthesisLibraryImpl : public SpeechSynthesisLibrary {
- public:
-  SpeechSynthesisLibraryImpl() {}
-  virtual ~SpeechSynthesisLibraryImpl() {}
-
-  // SpeechSynthesisLibrary overrides.
-  virtual bool Speak(const char* text);
-  virtual bool SetSpeakProperties(const char* props);
-  virtual bool StopSpeaking();
-  virtual bool IsSpeaking();
-  virtual void InitTts(InitStatusCallback);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SpeechSynthesisLibraryImpl);
+  // Factory function, creates a new instance and returns ownership.
+  // For normal usage, access the singleton via CrosLibrary::Get().
+  static SpeechSynthesisLibrary* GetImpl(bool stub);
 };
 
 }  // namespace chromeos

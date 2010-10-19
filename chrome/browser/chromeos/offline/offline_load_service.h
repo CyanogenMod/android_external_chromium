@@ -4,13 +4,14 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_OFFLINE_OFFLINE_LOAD_SERVICE_H_
 #define CHROME_BROWSER_CHROMEOS_OFFLINE_OFFLINE_LOAD_SERVICE_H_
+#pragma once
 
 #include <tr1/unordered_set>
 
 #include "base/ref_counted.h"
 #include "chrome/common/notification_observer.h"
-#include "chrome/common/notification_type.h"
 #include "chrome/common/notification_registrar.h"
+#include "chrome/common/notification_type.h"
 
 class GURL;
 class NavigationController;

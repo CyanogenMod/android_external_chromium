@@ -11,9 +11,9 @@
 
 #ifndef CHROME_BROWSER_GEOLOCATION_GEOLOCATION_CONTENT_SETTINGS_MAP_H_
 #define CHROME_BROWSER_GEOLOCATION_GEOLOCATION_CONTENT_SETTINGS_MAP_H_
+#pragma once
 
 #include <map>
-#include <string>
 
 #include "base/basictypes.h"
 #include "base/ref_counted.h"

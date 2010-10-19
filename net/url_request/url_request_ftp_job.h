@@ -1,12 +1,14 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_URL_REQUEST_URL_REQUEST_FTP_JOB_H_
 #define NET_URL_REQUEST_URL_REQUEST_FTP_JOB_H_
+#pragma once
 
 #include <string>
 
+#include "base/string16.h"
 #include "net/base/auth.h"
 #include "net/base/completion_callback.h"
 #include "net/ftp/ftp_request_info.h"
@@ -14,10 +16,6 @@
 #include "net/url_request/url_request_job.h"
 
 class URLRequestContext;
-
-namespace net {
-struct list_state;
-}
 
 // A URLRequestJob subclass that is built on top of FtpTransaction. It
 // provides an implementation for FTP.
@@ -41,8 +39,8 @@ class URLRequestFtpJob : public URLRequestJob {
   virtual bool NeedsAuth();
   virtual void GetAuthChallengeInfo(
       scoped_refptr<net::AuthChallengeInfo>* auth_info);
-  virtual void SetAuth(const std::wstring& username,
-                       const std::wstring& password);
+  virtual void SetAuth(const string16& username,
+                       const string16& password);
   virtual void CancelAuth();
 
   // TODO(ibrar):  Yet to give another look at this function.

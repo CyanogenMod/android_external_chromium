@@ -4,6 +4,7 @@
 
 #ifndef NET_URL_REQUEST_URL_REQUEST_FILE_DIR_JOB_H__
 #define NET_URL_REQUEST_URL_REQUEST_FILE_DIR_JOB_H__
+#pragma once
 
 #include <string>
 
@@ -27,7 +28,8 @@ class URLRequestFileDirJob
   virtual bool GetCharset(std::string* charset);
 
   // DirectoryLister::DirectoryListerDelegate methods:
-  virtual void OnListFile(const file_util::FileEnumerator::FindInfo& data);
+  virtual void OnListFile(
+      const net::DirectoryLister::DirectoryListerData& data);
   virtual void OnListDone(int error);
 
   bool list_complete() const { return list_complete_; }

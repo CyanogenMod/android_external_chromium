@@ -1,11 +1,11 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_SYNC_SYNCABLE_DIRECTORY_BACKING_STORE_H_
 #define CHROME_BROWSER_SYNC_SYNCABLE_DIRECTORY_BACKING_STORE_H_
+#pragma once
 
-#include <set>
 #include <string>
 
 #include "base/file_path.h"
@@ -122,6 +122,8 @@ class DirectoryBackingStore {
   // Initialize and destroy load_dbhandle_.  Broken out for testing.
   bool BeginLoad();
   void EndLoad();
+  DirOpenResult DoLoad(MetahandlesIndex* entry_bucket,
+      Directory::KernelLoadInfo* kernel_load_info);
 
   // Close save_dbhandle_.  Broken out for testing.
   void EndSave();
@@ -142,6 +144,11 @@ class DirectoryBackingStore {
   // ID, rather than the enum value.
   static ModelType ModelIdToModelTypeEnum(const string& model_id);
   static string ModelTypeEnumToModelId(ModelType model_type);
+
+  // Runs an integrity check on the current database.  If the
+  // integrity check fails, false is returned and error is populated
+  // with an error message.
+  bool CheckIntegrity(sqlite3* handle, string* error) const;
 
   // Migration utilities.
   bool AddColumn(const ColumnSpec* column);

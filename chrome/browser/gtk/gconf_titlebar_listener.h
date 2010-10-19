@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_GCONF_TITLEBAR_LISTENER_H_
 #define CHROME_BROWSER_GTK_GCONF_TITLEBAR_LISTENER_H_
+#pragma once
 
 #include <gconf/gconf-client.h>
 #include <gtk/gtk.h>
@@ -30,6 +31,9 @@ class GConfTitlebarListener {
   // Removes |titlebar| from the list of objects observing button order change
   // notifications.
   void RemoveObserver(BrowserTitlebar* titlebar);
+
+ protected:
+  virtual ~GConfTitlebarListener() {}
 
  private:
   // Private constructor to enforce singleton access.

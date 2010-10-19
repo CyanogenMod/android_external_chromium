@@ -1,13 +1,14 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef BASE_I18N_WORD_ITERATOR_H_
 #define BASE_I18N_WORD_ITERATOR_H_
+#pragma once
 
-#include <string>
 #include <vector>
 
+#include "unicode/ubrk.h"
 #include "unicode/uchar.h"
 
 #include "base/basictypes.h"
@@ -68,7 +69,7 @@ class WordIterator {
 
  private:
   // ICU iterator.
-  void* iter_;
+  UBreakIterator* iter_;
 #if !defined(WCHAR_T_IS_UTF16)
   std::vector<UChar> chars_;
 #endif

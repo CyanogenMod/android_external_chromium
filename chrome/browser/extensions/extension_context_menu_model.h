@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_CONTEXT_MENU_MODEL_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_CONTEXT_MENU_MODEL_H_
+#pragma once
 
 #include "app/menus/simple_menu_model.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
@@ -27,6 +28,9 @@ class ExtensionContextMenuModel
     // Called when the user selects the menu item which requests that the
     // popup be shown and inspected.
     virtual void InspectPopup(ExtensionAction* action) = 0;
+
+   protected:
+    virtual ~PopupDelegate() {}
   };
 
   // Creates a menu model for the given extension action. If
@@ -46,7 +50,7 @@ class ExtensionContextMenuModel
   virtual void ExecuteCommand(int command_id);
 
   // ExtensionInstallUI::Delegate overrides.
-  virtual void InstallUIProceed(bool create_app);
+  virtual void InstallUIProceed();
   virtual void InstallUIAbort();
 
  private:

@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,11 +14,11 @@
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/string_util.h"
-#include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/language_combobox_model.h"
 #include "chrome/browser/language_order_table_model.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/shell_dialogs.h"
 #include "chrome/browser/views/restart_message_box.h"
@@ -142,8 +142,8 @@ void AddLanguageWindowView::Layout() {
 gfx::Size AddLanguageWindowView::GetPreferredSize() {
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   const gfx::Font& font = rb.GetFont(ResourceBundle::BaseFont);
-  return gfx::Size(font.ave_char_width() * kDefaultWindowWidthChars,
-                   font.height() * kDefaultWindowHeightLines);
+  return gfx::Size(font.GetAverageCharacterWidth() * kDefaultWindowWidthChars,
+                   font.GetHeight() * kDefaultWindowHeightLines);
 }
 
 void AddLanguageWindowView::ViewHierarchyChanged(bool is_add,
@@ -398,7 +398,7 @@ void LanguagesPageView::InitControlLayout() {
                             profile()->GetPrefs(), this);
 }
 
-void LanguagesPageView::NotifyPrefChanged(const std::wstring* pref_name) {
+void LanguagesPageView::NotifyPrefChanged(const std::string* pref_name) {
   if (!pref_name || *pref_name == prefs::kAcceptLanguages) {
     language_order_table_model_->SetAcceptLanguagesString(
         accept_languages_.GetValue());

@@ -22,6 +22,7 @@ CFLAGS_Debug := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -78,6 +79,7 @@ CFLAGS_Release := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -116,10 +118,13 @@ INCS_Release := -I. \
 	-Itesting/gtest/include
 
 OBJS := $(obj).target/$(TARGET)/net/base/address_list_unittest.o \
+	$(obj).target/$(TARGET)/net/base/cert_database_nss_unittest.o \
 	$(obj).target/$(TARGET)/net/base/cookie_monster_unittest.o \
 	$(obj).target/$(TARGET)/net/base/data_url_unittest.o \
 	$(obj).target/$(TARGET)/net/base/directory_lister_unittest.o \
+	$(obj).target/$(TARGET)/net/base/dnssec_unittest.o \
 	$(obj).target/$(TARGET)/net/base/dns_util_unittest.o \
+	$(obj).target/$(TARGET)/net/base/dnsrr_resolver_unittest.o \
 	$(obj).target/$(TARGET)/net/base/escape_unittest.o \
 	$(obj).target/$(TARGET)/net/base/file_stream_unittest.o \
 	$(obj).target/$(TARGET)/net/base/filter_unittest.o \
@@ -134,13 +139,15 @@ OBJS := $(obj).target/$(TARGET)/net/base/address_list_unittest.o \
 	$(obj).target/$(TARGET)/net/base/mime_sniffer_unittest.o \
 	$(obj).target/$(TARGET)/net/base/mime_util_unittest.o \
 	$(obj).target/$(TARGET)/net/base/net_util_unittest.o \
+	$(obj).target/$(TARGET)/net/base/pem_tokenizer_unittest.o \
 	$(obj).target/$(TARGET)/net/base/registry_controlled_domain_unittest.o \
 	$(obj).target/$(TARGET)/net/base/run_all_unittests.o \
 	$(obj).target/$(TARGET)/net/base/ssl_cipher_suite_names_unittest.o \
 	$(obj).target/$(TARGET)/net/base/ssl_client_auth_cache_unittest.o \
+	$(obj).target/$(TARGET)/net/base/ssl_config_service_unittest.o \
+	$(obj).target/$(TARGET)/net/base/ssl_false_start_blacklist_unittest.o \
 	$(obj).target/$(TARGET)/net/base/static_cookie_policy_unittest.o \
 	$(obj).target/$(TARGET)/net/base/transport_security_state_unittest.o \
-	$(obj).target/$(TARGET)/net/base/telnet_server_unittest.o \
 	$(obj).target/$(TARGET)/net/base/test_completion_callback_unittest.o \
 	$(obj).target/$(TARGET)/net/base/upload_data_stream_unittest.o \
 	$(obj).target/$(TARGET)/net/base/x509_certificate_unittest.o \
@@ -182,6 +189,7 @@ OBJS := $(obj).target/$(TARGET)/net/base/address_list_unittest.o \
 	$(obj).target/$(TARGET)/net/http/http_network_transaction_unittest.o \
 	$(obj).target/$(TARGET)/net/http/http_proxy_client_socket_pool_unittest.o \
 	$(obj).target/$(TARGET)/net/http/http_request_headers_unittest.o \
+	$(obj).target/$(TARGET)/net/http/http_response_body_drainer_unittest.o \
 	$(obj).target/$(TARGET)/net/http/http_response_headers_unittest.o \
 	$(obj).target/$(TARGET)/net/http/http_transaction_unittest.o \
 	$(obj).target/$(TARGET)/net/http/http_util_unittest.o \
@@ -208,7 +216,6 @@ OBJS := $(obj).target/$(TARGET)/net/base/address_list_unittest.o \
 	$(obj).target/$(TARGET)/net/socket/ssl_client_socket_pool_unittest.o \
 	$(obj).target/$(TARGET)/net/socket/tcp_client_socket_pool_unittest.o \
 	$(obj).target/$(TARGET)/net/socket/tcp_client_socket_unittest.o \
-	$(obj).target/$(TARGET)/net/socket/tcp_pinger_unittest.o \
 	$(obj).target/$(TARGET)/net/socket_stream/socket_stream_metrics_unittest.o \
 	$(obj).target/$(TARGET)/net/socket_stream/socket_stream_unittest.o \
 	$(obj).target/$(TARGET)/net/spdy/spdy_framer_test.o \
@@ -218,8 +225,11 @@ OBJS := $(obj).target/$(TARGET)/net/base/address_list_unittest.o \
 	$(obj).target/$(TARGET)/net/spdy/spdy_session_unittest.o \
 	$(obj).target/$(TARGET)/net/spdy/spdy_stream_unittest.o \
 	$(obj).target/$(TARGET)/net/spdy/spdy_test_util.o \
+	$(obj).target/$(TARGET)/net/test/python_utils_unittest.o \
 	$(obj).target/$(TARGET)/net/tools/dump_cache/url_to_filename_encoder.o \
 	$(obj).target/$(TARGET)/net/tools/dump_cache/url_to_filename_encoder_unittest.o \
+	$(obj).target/$(TARGET)/net/tools/dump_cache/url_utilities.o \
+	$(obj).target/$(TARGET)/net/tools/dump_cache/url_utilities_unittest.o \
 	$(obj).target/$(TARGET)/net/url_request/url_request_job_tracker_unittest.o \
 	$(obj).target/$(TARGET)/net/url_request/url_request_unittest.o \
 	$(obj).target/$(TARGET)/net/url_request/view_cache_helper_unittest.o \
@@ -235,7 +245,7 @@ OBJS := $(obj).target/$(TARGET)/net/base/address_list_unittest.o \
 all_deps += $(OBJS)
 
 # Make sure our dependencies are built before any of us.
-$(OBJS): | $(obj).target/net/libnet.a $(obj).target/net/libnet_test_support.a $(obj).target/base/libbase.a $(obj).target/base/libbase_i18n.a $(obj).target/testing/libgmock.a $(obj).target/testing/libgtest.a $(obj).target/third_party/zlib/libzlib.a $(obj).target/base/allocator/liballocator.a $(obj).target/third_party/modp_b64/libmodp_b64.a $(obj).target/base/third_party/dynamic_annotations/libdynamic_annotations.a $(obj).target/base/libsymbolize.a $(obj).target/net/third_party/nss/libssl.a $(obj).target/base/libxdg_mime.a $(obj).target/third_party/libevent/libevent.a $(obj).target/third_party/icu/libicui18n.a $(obj).target/third_party/icu/libicuuc.a $(obj).target/third_party/icu/libicudata.a $(obj).target/build/temp_gyp/libgoogleurl.a $(obj).target/sdch/libsdch.a $(obj).target/net/libnet_base.a $(obj).target/v8/tools/gyp/libv8_snapshot.a $(obj).target/v8/tools/gyp/libv8_base.a
+$(OBJS): | $(obj).target/net/libnet.a $(obj).target/net/libnet_test_support.a $(obj).target/base/libbase.a $(obj).target/base/libbase_i18n.a $(obj).target/base/libtest_support_base.a $(obj).target/testing/libgmock.a $(obj).target/testing/libgtest.a $(obj).target/third_party/zlib/libzlib.a $(obj).target/base/allocator/liballocator.a $(obj).target/third_party/modp_b64/libmodp_b64.a $(obj).target/base/third_party/dynamic_annotations/libdynamic_annotations.a $(obj).target/base/libsymbolize.a $(obj).target/net/third_party/nss/libssl.a $(obj).target/base/libxdg_mime.a $(obj).target/third_party/libevent/libevent.a $(obj).target/third_party/icu/libicui18n.a $(obj).target/third_party/icu/libicuuc.a $(obj).target/third_party/icu/libicudata.a $(obj).target/build/temp_gyp/libgoogleurl.a $(obj).target/sdch/libsdch.a $(obj).target/net/libnet_base.a $(obj).target/v8/tools/gyp/libv8_snapshot.a $(obj).target/v8/tools/gyp/libv8_base.a
 
 # CFLAGS et al overrides must be target-local.
 # See "Target-specific Variable Values" in the GNU Make manual.
@@ -262,14 +272,15 @@ LDFLAGS_Debug := -pthread \
 	-Wl,-z,noexecstack \
 	-Wl,-uIsHeapProfilerRunning,-uProfilerStart \
 	-Wl,-u_Z21InitialMallocHook_NewPKvj,-u_Z22InitialMallocHook_MMapPKvS0_jiiix,-u_Z22InitialMallocHook_SbrkPKvi \
-	-Wl,-u_Z21InitialMallocHook_NewPKvm,-u_Z22InitialMallocHook_MMapPKvS0_miiil,-u_Z22InitialMallocHook_SbrkPKvl \
-	-rdynamic
+	-Wl,-u_Z21InitialMallocHook_NewPKvm,-u_Z22InitialMallocHook_MMapPKvS0_miiil,-u_Z22InitialMallocHook_SbrkPKvl
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
 	-Wl,-uIsHeapProfilerRunning,-uProfilerStart \
 	-Wl,-u_Z21InitialMallocHook_NewPKvj,-u_Z22InitialMallocHook_MMapPKvS0_jiiix,-u_Z22InitialMallocHook_SbrkPKvi \
 	-Wl,-u_Z21InitialMallocHook_NewPKvm,-u_Z22InitialMallocHook_MMapPKvS0_miiil,-u_Z22InitialMallocHook_SbrkPKvl \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := -lrt \
@@ -298,12 +309,13 @@ LIBS := -lrt \
 	-lnspr4 \
 	-lpthread \
 	-lz \
-	-lgconf-2
+	-lgconf-2 \
+	-lresolv
 
 $(builddir)/net_unittests: GYP_LDFLAGS := $(LDFLAGS_$(BUILDTYPE))
 $(builddir)/net_unittests: LIBS := $(LIBS)
 $(builddir)/net_unittests: TOOLSET := $(TOOLSET)
-$(builddir)/net_unittests: $(OBJS) $(obj).target/net/libnet.a $(obj).target/net/libnet_test_support.a $(obj).target/base/libbase.a $(obj).target/base/libbase_i18n.a $(obj).target/testing/libgmock.a $(obj).target/testing/libgtest.a $(obj).target/third_party/zlib/libzlib.a $(obj).target/base/allocator/liballocator.a $(obj).target/third_party/modp_b64/libmodp_b64.a $(obj).target/base/third_party/dynamic_annotations/libdynamic_annotations.a $(obj).target/base/libsymbolize.a $(obj).target/net/third_party/nss/libssl.a $(obj).target/base/libxdg_mime.a $(obj).target/third_party/libevent/libevent.a $(obj).target/third_party/icu/libicui18n.a $(obj).target/third_party/icu/libicuuc.a $(obj).target/third_party/icu/libicudata.a $(obj).target/build/temp_gyp/libgoogleurl.a $(obj).target/sdch/libsdch.a $(obj).target/net/libnet_base.a $(obj).target/v8/tools/gyp/libv8_snapshot.a $(obj).target/v8/tools/gyp/libv8_base.a FORCE_DO_CMD
+$(builddir)/net_unittests: $(OBJS) $(obj).target/net/libnet.a $(obj).target/net/libnet_test_support.a $(obj).target/base/libbase.a $(obj).target/base/libbase_i18n.a $(obj).target/base/libtest_support_base.a $(obj).target/testing/libgmock.a $(obj).target/testing/libgtest.a $(obj).target/third_party/zlib/libzlib.a $(obj).target/base/allocator/liballocator.a $(obj).target/third_party/modp_b64/libmodp_b64.a $(obj).target/base/third_party/dynamic_annotations/libdynamic_annotations.a $(obj).target/base/libsymbolize.a $(obj).target/net/third_party/nss/libssl.a $(obj).target/base/libxdg_mime.a $(obj).target/third_party/libevent/libevent.a $(obj).target/third_party/icu/libicui18n.a $(obj).target/third_party/icu/libicuuc.a $(obj).target/third_party/icu/libicudata.a $(obj).target/build/temp_gyp/libgoogleurl.a $(obj).target/sdch/libsdch.a $(obj).target/net/libnet_base.a $(obj).target/v8/tools/gyp/libv8_snapshot.a $(obj).target/v8/tools/gyp/libv8_base.a FORCE_DO_CMD
 	$(call do_cmd,link)
 
 all_deps += $(builddir)/net_unittests

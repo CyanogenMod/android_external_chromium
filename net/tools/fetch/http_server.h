@@ -4,8 +4,10 @@
 
 #ifndef NET_BASE_TOOLS_HTTP_SERVER_H_
 #define NET_BASE_TOOLS_HTTP_SERVER_H_
+#pragma once
 
 #include "base/basictypes.h"
+#include "base/scoped_ptr.h"
 #include "net/tools/fetch/http_session.h"
 
 // Implements a simple, single-threaded HttpServer.

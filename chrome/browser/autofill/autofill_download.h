@@ -4,14 +4,13 @@
 
 #ifndef CHROME_BROWSER_AUTOFILL_AUTOFILL_DOWNLOAD_H_
 #define CHROME_BROWSER_AUTOFILL_AUTOFILL_DOWNLOAD_H_
+#pragma once
 
 #include <map>
 #include <vector>
 #include <string>
 
-#include "base/scoped_ptr.h"
 #include "base/scoped_vector.h"
-#include "base/string16.h"
 #include "base/time.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/field_types.h"

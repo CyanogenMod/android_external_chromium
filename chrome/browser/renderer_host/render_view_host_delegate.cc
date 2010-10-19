@@ -6,12 +6,13 @@
 
 #include "base/singleton.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/render_messages_params.h"
 #include "chrome/common/renderer_preferences.h"
 #include "gfx/rect.h"
 #include "googleurl/src/gurl.h"
 #include "webkit/glue/webpreferences.h"
 
-#if defined(OS_LINUX)
+#if defined(TOOLKIT_USES_GTK)
 #include "chrome/browser/gtk/gtk_util.h"
 #endif
 
@@ -68,8 +69,18 @@ RenderViewHostDelegate::GetBookmarkDragDelegate() {
   return NULL;
 }
 
+RenderViewHostDelegate::BlockedPlugin*
+RenderViewHostDelegate::GetBlockedPluginDelegate() {
+  return NULL;
+}
+
 RenderViewHostDelegate::SSL*
 RenderViewHostDelegate::GetSSLDelegate() {
+  return NULL;
+}
+
+RenderViewHostDelegate::FileSelect*
+RenderViewHostDelegate::GetFileSelectDelegate() {
   return NULL;
 }
 
@@ -88,11 +99,6 @@ TabContents* RenderViewHostDelegate::GetAsTabContents() {
 
 GURL RenderViewHostDelegate::GetAlternateErrorPageURL() const {
   return GURL();
-}
-
-ViewHostMsg_GetSearchProviderInstallState_Params
-RenderViewHostDelegate::GetSearchProviderInstallState(const GURL& url) {
-  return ViewHostMsg_GetSearchProviderInstallState_Params::Denied();
 }
 
 WebPreferences RenderViewHostDelegate::GetWebkitPrefs() {

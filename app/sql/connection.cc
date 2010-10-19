@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,11 +11,43 @@
 #include "base/logging.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+<<<<<<< HEAD
 #ifdef ANDROID
 #include "sqlite3.h"
 #else
 #include "third_party/sqlite/preprocessed/sqlite3.h"
 #endif
+=======
+#include "third_party/sqlite/sqlite3.h"
+
+namespace {
+
+// Spin for up to a second waiting for the lock to clear when setting
+// up the database.
+// TODO(shess): Better story on this.  http://crbug.com/56559
+const base::TimeDelta kBusyTimeout = base::TimeDelta::FromSeconds(1);
+
+class ScopedBusyTimeout {
+ public:
+  explicit ScopedBusyTimeout(sqlite3* db)
+      : db_(db) {
+  }
+  ~ScopedBusyTimeout() {
+    sqlite3_busy_timeout(db_, 0);
+  }
+
+  int SetTimeout(base::TimeDelta timeout) {
+    DCHECK_LT(timeout.InMilliseconds(), INT_MAX);
+    return sqlite3_busy_timeout(db_,
+                                static_cast<int>(timeout.InMilliseconds()));
+  }
+
+ private:
+  sqlite3* db_;
+};
+
+}  // namespace
+>>>>>>> Chromium at release 7.0.540.0
 
 namespace sql {
 
@@ -23,6 +55,12 @@ bool StatementID::operator<(const StatementID& other) const {
   if (number_ != other.number_)
     return number_ < other.number_;
   return strcmp(str_, other.str_) < 0;
+}
+
+ErrorDelegate::ErrorDelegate() {
+}
+
+ErrorDelegate::~ErrorDelegate() {
 }
 
 Connection::StatementRef::StatementRef()
@@ -135,7 +173,7 @@ bool Connection::BeginTransaction() {
 
 void Connection::RollbackTransaction() {
   if (!transaction_nesting_) {
-    NOTREACHED() << "Rolling back a nonexistant transaction";
+    NOTREACHED() << "Rolling back a nonexistent transaction";
     return;
   }
 
@@ -152,7 +190,7 @@ void Connection::RollbackTransaction() {
 
 bool Connection::CommitTransaction() {
   if (!transaction_nesting_) {
-    NOTREACHED() << "Rolling back a nonexistant transaction";
+    NOTREACHED() << "Rolling back a nonexistent transaction";
     return false;
   }
   transaction_nesting_--;
@@ -176,6 +214,15 @@ bool Connection::CommitTransaction() {
 bool Connection::Execute(const char* sql) {
   if (!db_)
     return false;
+  return sqlite3_exec(db_, sql, NULL, NULL, NULL) == SQLITE_OK;
+}
+
+bool Connection::ExecuteWithTimeout(const char* sql, base::TimeDelta timeout) {
+  if (!db_)
+    return false;
+
+  ScopedBusyTimeout busy_timeout(db_);
+  busy_timeout.SetTimeout(timeout);
   return sqlite3_exec(db_, sql, NULL, NULL, NULL) == SQLITE_OK;
 }
 
@@ -271,6 +318,17 @@ int Connection::GetErrorCode() const {
   return sqlite3_errcode(db_);
 }
 
+int Connection::GetLastErrno() const {
+  if (!db_)
+    return -1;
+
+  int err = 0;
+  if (SQLITE_OK != sqlite3_file_control(db_, NULL, SQLITE_LAST_ERRNO, &err))
+    return -2;
+
+  return err;
+}
+
 const char* Connection::GetErrorMessage() const {
   if (!db_)
     return "sql::Connection has no connection.";
@@ -290,19 +348,44 @@ bool Connection::OpenInternal(const std::string& file_name) {
     return false;
   }
 
+  // Enable extended result codes to provide more color on I/O errors.
+  // Not having extended result codes is not a fatal problem, as
+  // Chromium code does not attempt to handle I/O errors anyhow.  The
+  // current implementation always returns SQLITE_OK, the DCHECK is to
+  // quickly notify someone if SQLite changes.
+  err = sqlite3_extended_result_codes(db_, 1);
+  DCHECK_EQ(err, SQLITE_OK) << "Could not enable extended result codes";
+
+  // If indicated, lock up the database before doing anything else, so
+  // that the following code doesn't have to deal with locking.
+  // TODO(shess): This code is brittle.  Find the cases where code
+  // doesn't request |exclusive_locking_| and audit that it does the
+  // right thing with SQLITE_BUSY, and that it doesn't make
+  // assumptions about who might change things in the database.
+  // http://crbug.com/56559
+  if (exclusive_locking_) {
+    // TODO(shess): This should probably be a full CHECK().  Code
+    // which requests exclusive locking but doesn't get it is almost
+    // certain to be ill-tested.
+    if (!Execute("PRAGMA locking_mode=EXCLUSIVE"))
+      NOTREACHED() << "Could not set locking mode: " << GetErrorMessage();
+  }
+
   if (page_size_ != 0) {
-    if (!Execute(StringPrintf("PRAGMA page_size=%d", page_size_).c_str()))
-      NOTREACHED() << "Could not set page size";
+    // Enforce SQLite restrictions on |page_size_|.
+    DCHECK(!(page_size_ & (page_size_ - 1)))
+        << " page_size_ " << page_size_ << " is not a power of two.";
+    static const int kSqliteMaxPageSize = 32768;  // from sqliteLimit.h
+    DCHECK_LE(page_size_, kSqliteMaxPageSize);
+    const std::string sql = StringPrintf("PRAGMA page_size=%d", page_size_);
+    if (!ExecuteWithTimeout(sql.c_str(), kBusyTimeout))
+      NOTREACHED() << "Could not set page size: " << GetErrorMessage();
   }
 
   if (cache_size_ != 0) {
-    if (!Execute(StringPrintf("PRAGMA cache_size=%d", cache_size_).c_str()))
-      NOTREACHED() << "Could not set page size";
-  }
-
-  if (exclusive_locking_) {
-    if (!Execute("PRAGMA locking_mode=EXCLUSIVE"))
-      NOTREACHED() << "Could not set locking mode.";
+    const std::string sql = StringPrintf("PRAGMA cache_size=%d", cache_size_);
+    if (!ExecuteWithTimeout(sql.c_str(), kBusyTimeout))
+      NOTREACHED() << "Could not set cache size: " << GetErrorMessage();
   }
 
   return true;

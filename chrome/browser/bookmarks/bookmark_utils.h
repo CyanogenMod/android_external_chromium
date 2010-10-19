@@ -4,10 +4,12 @@
 
 #ifndef CHROME_BROWSER_BOOKMARKS_BOOKMARK_UTILS_H_
 #define CHROME_BROWSER_BOOKMARKS_BOOKMARK_UTILS_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
+#include "base/string16.h"
 #include "chrome/browser/bookmarks/bookmark_drag_data.h"
 #include "chrome/browser/bookmarks/bookmark_editor.h"
 #include "chrome/browser/history/snippet.h"
@@ -145,16 +147,16 @@ bool MoreRecentlyAdded(const BookmarkNode* n1, const BookmarkNode* n2);
 // the text |text|.  |languages| is user's accept-language setting to decode
 // IDN.
 void GetBookmarksContainingText(BookmarkModel* model,
-                                const std::wstring& text,
+                                const string16& text,
                                 size_t max_count,
-                                const std::wstring& languages,
+                                const std::string& languages,
                                 std::vector<const BookmarkNode*>* nodes);
 
 // Returns true if |node|'s url or title contains the string |text|.
 // |languages| is user's accept-language setting to decode IDN.
 bool DoesBookmarkContainText(const BookmarkNode* node,
-                             const std::wstring& text,
-                             const std::wstring& languages);
+                             const string16& text,
+                             const std::string& languages);
 
 // Modifies a bookmark node (assuming that there's no magic that needs to be
 // done regarding moving from one folder to another).  If a new node is
@@ -164,7 +166,7 @@ const BookmarkNode* ApplyEditsWithNoGroupChange(
     BookmarkModel* model,
     const BookmarkNode* parent,
     const BookmarkEditor::EditDetails& details,
-    const std::wstring& new_title,
+    const string16& new_title,
     const GURL& new_url);
 
 // Modifies a bookmark node assuming that the parent of the node may have
@@ -175,7 +177,7 @@ const BookmarkNode* ApplyEditsWithPossibleGroupChange(
     BookmarkModel* model,
     const BookmarkNode* new_parent,
     const BookmarkEditor::EditDetails& details,
-    const std::wstring& new_title,
+    const string16& new_title,
     const GURL& new_url);
 
 // Toggles whether the bookmark bar is shown only on the new tab page or on
@@ -188,12 +190,12 @@ void RegisterUserPrefs(PrefService* prefs);
 // Fills in the URL and title for a bookmark of |tab_contents|.
 void GetURLAndTitleToBookmark(TabContents* tab_contents,
                               GURL* url,
-                              std::wstring* title);
+                              string16* title);
 
 // Returns, by reference in |urls|, the url and title pairs for each open
 // tab in browser.
 void GetURLsForOpenTabs(Browser* browser,
-                        std::vector<std::pair<GURL, std::wstring> >* urls);
+                        std::vector<std::pair<GURL, string16> >* urls);
 
 // Returns the parent for newly created folders/bookmarks. If |selection| has
 // one element and it is a folder, |selection[0]| is returned, otherwise

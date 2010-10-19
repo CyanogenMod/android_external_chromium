@@ -4,16 +4,23 @@
 
 #ifndef CHROME_BROWSER_SPELLCHECK_HOST_OBSERVER_H_
 #define CHROME_BROWSER_SPELLCHECK_HOST_OBSERVER_H_
+#pragma once
 
 // Observer for the SpellCheckHost.
 class SpellCheckHostObserver {
  public:
   // Invoked on the UI thread when SpellCheckHost is initialized.
   virtual void SpellCheckHostInitialized() = 0;
+<<<<<<< HEAD
 #ifdef ANDROID
   // TODO: Upstream
   virtual ~SpellCheckHostObserver() { }
 #endif
+=======
+
+ protected:
+  virtual ~SpellCheckHostObserver() {}
+>>>>>>> Chromium at release 7.0.540.0
 };
 
 #endif  // CHROME_BROWSER_SPELLCHECK_HOST_OBSERVER_H_

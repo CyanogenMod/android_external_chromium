@@ -251,7 +251,8 @@ TEST_F(TraceEventTest, TraceLog) {
   PlayLog();
 }
 
-TEST_F(TraceEventTest, Macros) {
+// Marked flaky per http://crbug.com/52388
+TEST_F(TraceEventTest, FLAKY_Macros) {
   ExpectPlayLog();
 
   // The events should arrive in the same sequence as the expects.

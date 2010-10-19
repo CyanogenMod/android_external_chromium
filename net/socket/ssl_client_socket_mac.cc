@@ -591,6 +591,30 @@ int SSLClientSocketMac::GetPeerAddress(AddressList* address) const {
   return transport_->socket()->GetPeerAddress(address);
 }
 
+void SSLClientSocketMac::SetSubresourceSpeculation() {
+  if (transport_.get() && transport_->socket()) {
+    transport_->socket()->SetSubresourceSpeculation();
+  } else {
+    NOTREACHED();
+  }
+}
+
+void SSLClientSocketMac::SetOmniboxSpeculation() {
+  if (transport_.get() && transport_->socket()) {
+    transport_->socket()->SetOmniboxSpeculation();
+  } else {
+    NOTREACHED();
+  }
+}
+
+bool SSLClientSocketMac::WasEverUsed() const {
+  if (transport_.get() && transport_->socket()) {
+    return transport_->socket()->WasEverUsed();
+  }
+  NOTREACHED();
+  return false;
+}
+
 int SSLClientSocketMac::Read(IOBuffer* buf, int buf_len,
                              CompletionCallback* callback) {
   DCHECK(completed_handshake_);
@@ -653,8 +677,12 @@ void SSLClientSocketMac::GetSSLInfo(SSLInfo* ssl_info) {
   // security info
   SSLCipherSuite suite;
   OSStatus status = SSLGetNegotiatedCipher(ssl_context_, &suite);
-  if (!status)
+  if (!status) {
     ssl_info->security_bits = KeySizeOfCipherSuite(suite);
+    ssl_info->connection_status |=
+        (suite & SSL_CONNECTION_CIPHERSUITE_MASK) <<
+        SSL_CONNECTION_CIPHERSUITE_SHIFT;
+  }
 
   if (ssl_config_.ssl3_fallback)
     ssl_info->connection_status |= SSL_CONNECTION_SSL3_FALLBACK;
@@ -782,17 +810,21 @@ int SSLClientSocketMac::InitializeSSLContext() {
   if (status)
     return NetErrorFromOSStatus(status);
 
+  // It is tricky to handle client cert request over renegotiation due to bugs
+  // in Secure Transport.  From Ken McLeod on apple-cdsa:
+  // http://lists.apple.com/archives/apple-cdsa/2010/Feb/msg00058.html
+  //   A possible workaround would be to set the
+  //   kSSLSessionOptionBreakOnCertRequested option initially, then if you get
+  //   that status, ask for a client cert, abort the connection yourself and
+  //   retry it (this time calling SSLSetCertificate before the handshake
+  //   starts, and *not* setting the kSSLSessionOptionBreakOnCertRequested
+  //   option.)
   if (ssl_config_.send_client_cert) {
-    // Provide the client cert up-front if we have one, even though we'll get
-    // notified later when the server requests it, and set it again; this is
-    // seemingly redundant but works around a problem with SecureTransport
-    // and provides correct behavior on both 10.5 and 10.6:
-    // http://lists.apple.com/archives/apple-cdsa/2010/Feb/msg00058.html
-    // http://code.google.com/p/chromium/issues/detail?id=38905
     SSL_LOG << "Setting client cert in advance because send_client_cert is set";
     status = SetClientCert();
     if (status)
       return NetErrorFromOSStatus(status);
+    return OK;
   }
 
   status = EnableBreakOnAuth(true);
@@ -1089,11 +1121,8 @@ int SSLClientSocketMac::DoHandshakeFinish() {
       break;
     case errSSLClientCertRequested:
       SSL_LOG << "Server requested client cert (DoHandshakeFinish)";
-      if (!ssl_config_.send_client_cert)
-        return ERR_SSL_CLIENT_AUTH_CERT_NEEDED;
-      // (We already called SetClientCert during InitializeSSLContext.)
-      status = noErr;
-      next_handshake_state_ = STATE_HANDSHAKE_FINISH;
+      DCHECK(!ssl_config_.send_client_cert);
+      return ERR_SSL_CLIENT_AUTH_CERT_NEEDED;
       break;
     case errSSLClosedGraceful:
       return ERR_SSL_PROTOCOL_ERROR;
@@ -1128,16 +1157,7 @@ int SSLClientSocketMac::DoHandshakeFinish() {
 }
 
 void SSLClientSocketMac::HandshakeFinished() {
-  // After the handshake's finished, disable breaking on server or client
-  // auth. Otherwise it might be triggered during a subsequent renegotiation,
-  // and SecureTransport doesn't handle that very well (there's usually no way
-  // to proceed without aborting the connection, at least not on 10.5.)
   SSL_LOG << "HandshakeFinished()";
-  OSStatus status = EnableBreakOnAuth(false);
-  if (status != noErr)
-    SSL_LOG << "EnableBreakOnAuth failed: " << status;
-  // Note- this will actually always return an error, up through OS 10.6.3,
-  // because the option can't be changed after the context opens.
 }
 
 int SSLClientSocketMac::DoPayloadRead() {
@@ -1167,14 +1187,7 @@ int SSLClientSocketMac::DoPayloadRead() {
     case errSSLClientCertRequested:
       // Server wants to renegotiate, probably to ask for a client cert,
       // but SecureTransport doesn't support renegotiation so we have to close.
-      if (ssl_config_.send_client_cert) {
-        // We already gave SecureTransport a client cert. At this point there's
-        // nothing we can do; the renegotiation will fail regardless, due to
-        // bugs in Apple's SecureTransport library.
-        SSL_LOG << "Server renegotiating (status=" << status
-                << "), but I've already set a client cert. Fatal error.";
-        return ERR_SSL_PROTOCOL_ERROR;
-      }
+      DCHECK(!ssl_config_.send_client_cert);
       // Tell my caller the server wants a client cert so it can reconnect.
       SSL_LOG << "Server renegotiating; assuming it wants a client cert...";
       return ERR_SSL_CLIENT_AUTH_CERT_NEEDED;

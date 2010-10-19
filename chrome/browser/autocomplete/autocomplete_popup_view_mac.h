@@ -4,11 +4,11 @@
 
 #ifndef CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_POPUP_VIEW_MAC_H_
 #define CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_POPUP_VIEW_MAC_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
 #include <string>
-#include <map>
 
 #include "base/basictypes.h"
 #include "base/scoped_ptr.h"
@@ -23,7 +23,6 @@ class AutocompleteEditModel;
 class AutocompleteEditViewMac;
 @class NSImage;
 class Profile;
-class SkBitmap;
 
 // Implements AutocompletePopupView using a raw NSWindow containing an
 // NSTableView.
@@ -63,6 +62,9 @@ class AutocompletePopupViewMac : public AutocompletePopupView {
   }
   virtual void UpdatePopupAppearance();
 
+  // Set |line| to be selected.
+  void SetSelectedLine(size_t line);
+
   // This is only called by model in SetSelectedLine() after updating
   // everything.  Popup should already be visible.
   virtual void PaintUpdatesNow();
@@ -71,6 +73,8 @@ class AutocompletePopupViewMac : public AutocompletePopupView {
 
   // Returns the popup's model.
   virtual AutocompletePopupModel* GetModel();
+
+  virtual int GetMaxYCoordinate();
 
   // Opens the URL corresponding to the given |row|.  If |force_background| is
   // true, forces the URL to open in a background tab.  Otherwise, determines

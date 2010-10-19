@@ -5,9 +5,6 @@
 #include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/file_path.h"
-#if defined(OS_WIN)
-#include "base/win_util.h"
-#endif
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -19,7 +16,7 @@
 #include "chrome/test/ui/ui_test.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/net_util.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/test/test_server.h"
 
 // http://code.google.com/p/chromium/issues/detail?id=14774
 #if (defined(OS_WIN) || defined(OS_CHROMEOS)) && !defined(NDEBUG)
@@ -457,13 +454,19 @@ TEST_F(TabRestoreUITest, FLAKY_RestoreIntoSameWindow) {
 
 // Tests that a duplicate history entry is not created when we restore a page
 // to an existing SiteInstance.  (Bug 1230446)
-TEST_F(TabRestoreUITest, RestoreWithExistingSiteInstance) {
-  const wchar_t kDocRoot[] = L"chrome/test/data";
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
-  GURL http_url1(server->TestServerPage("files/title1.html"));
-  GURL http_url2(server->TestServerPage("files/title2.html"));
+#if defined(OS_WIN)
+// http://crbug.com/55380 - NavigateToURL to making this flaky
+#define MAYBE_RestoreWithExistingSiteInstance FLAKY_RestoreWithExistingSiteInstance
+#else
+#define MAYBE_RestoreWithExistingSiteInstance RestoreWithExistingSiteInstance
+#endif
+TEST_F(TabRestoreUITest, MAYBE_RestoreWithExistingSiteInstance) {
+  net::TestServer test_server(net::TestServer::TYPE_HTTP,
+                              FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  ASSERT_TRUE(test_server.Start());
+
+  GURL http_url1(test_server.GetURL("files/title1.html"));
+  GURL http_url2(test_server.GetURL("files/title2.html"));
 
   scoped_refptr<BrowserProxy> browser_proxy(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser_proxy.get());
@@ -504,13 +507,14 @@ TEST_F(TabRestoreUITest, RestoreWithExistingSiteInstance) {
 // Tests that the SiteInstances used for entries in a restored tab's history
 // are given appropriate max page IDs, even if the renderer for the entry
 // already exists.  (Bug 1204135)
-TEST_F(TabRestoreUITest, RestoreCrossSiteWithExistingSiteInstance) {
-  const wchar_t kDocRoot[] = L"chrome/test/data";
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
-  GURL http_url1(server->TestServerPage("files/title1.html"));
-  GURL http_url2(server->TestServerPage("files/title2.html"));
+// http://crbug.com/55380 - NavigateToURL to making this flaky on all platforms
+TEST_F(TabRestoreUITest, FLAKY_RestoreCrossSiteWithExistingSiteInstance) {
+  net::TestServer test_server(net::TestServer::TYPE_HTTP,
+                              FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  ASSERT_TRUE(test_server.Start());
+
+  GURL http_url1(test_server.GetURL("files/title1.html"));
+  GURL http_url2(test_server.GetURL("files/title2.html"));
 
   scoped_refptr<BrowserProxy> browser_proxy(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser_proxy.get());
@@ -571,14 +575,12 @@ TEST_F(TabRestoreUITest, MAYBE_RestoreWindow) {
   int initial_tab_count;
   ASSERT_TRUE(browser_proxy->GetTabCount(&initial_tab_count));
   ASSERT_TRUE(browser_proxy->AppendTab(url1_));
-  ASSERT_TRUE(browser_proxy->WaitForTabCountToBecome(initial_tab_count + 1,
-                                                     action_max_timeout_ms()));
+  ASSERT_TRUE(browser_proxy->WaitForTabCountToBecome(initial_tab_count + 1));
   scoped_refptr<TabProxy> new_tab(browser_proxy->GetTab(initial_tab_count));
   ASSERT_TRUE(new_tab.get());
   ASSERT_EQ(AUTOMATION_MSG_NAVIGATION_SUCCESS, new_tab->NavigateToURL(url1_));
   ASSERT_TRUE(browser_proxy->AppendTab(url2_));
-  ASSERT_TRUE(browser_proxy->WaitForTabCountToBecome(initial_tab_count + 2,
-                                                     action_max_timeout_ms()));
+  ASSERT_TRUE(browser_proxy->WaitForTabCountToBecome(initial_tab_count + 2));
   new_tab = browser_proxy->GetTab(initial_tab_count + 1);
   ASSERT_TRUE(new_tab.get());
   ASSERT_EQ(AUTOMATION_MSG_NAVIGATION_SUCCESS, new_tab->NavigateToURL(url2_));
@@ -647,11 +649,11 @@ TEST_F(TabRestoreUITest, RestoreTabWithSpecialURL) {
 // Restore tab with special URL in its navigation history, go back to that
 // entry and see that it loads properly. See http://crbug.com/31905
 TEST_F(TabRestoreUITest, RestoreTabWithSpecialURLOnBack) {
-  const wchar_t kDocRoot[] = L"chrome/test/data";
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(server.get());
-  const GURL http_url(server->TestServerPage("files/title1.html"));
+  net::TestServer test_server(net::TestServer::TYPE_HTTP,
+                              FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  ASSERT_TRUE(test_server.Start());
+
+  const GURL http_url(test_server.GetURL("files/title1.html"));
 
   scoped_refptr<BrowserProxy> browser(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser.get());

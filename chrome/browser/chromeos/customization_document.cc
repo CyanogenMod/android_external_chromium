@@ -6,33 +6,32 @@
 
 #include <string>
 
-#include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/json/json_reader.h"
 #include "base/logging.h"
-#include "base/string_util.h"
+#include "base/string_number_conversions.h"
 #include "base/values.h"
 
 // Manifest attributes names.
 
 namespace {
 
-const wchar_t kVersionAttr[] = L"version";
-const wchar_t kProductSkuAttr[] = L"product_sku";
-const wchar_t kInitialLocaleAttr[] = L"initial_locale";
-const wchar_t kInitialTimezoneAttr[] = L"initial_timezone";
-const wchar_t kBackgroundColorAttr[] = L"background_color";
-const wchar_t kRegistrationUrlAttr[] = L"registration_url";
-const wchar_t kSetupContentAttr[] = L"setup_content";
-const wchar_t kContentLocaleAttr[] = L"content_locale";
-const wchar_t kHelpPageAttr[] = L"help_page";
-const wchar_t kEulaPageAttr[] = L"eula_page";
-const wchar_t kAppMenuAttr[] = L"app_menu";
-const wchar_t kInitialStartPageAttr[] = L"initial_start_page";
-const wchar_t kSectionTitleAttr[] = L"section_title";
-const wchar_t kWebAppsAttr[] = L"web_apps";
-const wchar_t kSupportPageAttr[] = L"support_page";
-const wchar_t kExtensionsAttr[] = L"extensions";
+const char kVersionAttr[] = "version";
+const char kProductSkuAttr[] = "product_sku";
+const char kInitialLocaleAttr[] = "initial_locale";
+const char kInitialTimezoneAttr[] = "initial_timezone";
+const char kBackgroundColorAttr[] = "background_color";
+const char kRegistrationUrlAttr[] = "registration_url";
+const char kSetupContentAttr[] = "setup_content";
+const char kContentLocaleAttr[] = "content_locale";
+const char kHelpPageAttr[] = "help_page";
+const char kEulaPageAttr[] = "eula_page";
+const char kAppMenuAttr[] = "app_menu";
+const char kInitialStartPageAttr[] = "initial_start_page";
+const char kSectionTitleAttr[] = "section_title";
+const char kWebAppsAttr[] = "web_apps";
+const char kSupportPageAttr[] = "support_page";
+const char kExtensionsAttr[] = "extensions";
 
 const char kAcceptedManifestVersion[] = "1.0";
 
@@ -72,6 +71,16 @@ bool CustomizationDocument::ParseFromJsonValue(const DictionaryValue* root) {
 
 // StartupCustomizationDocument implementation.
 
+bool StartupCustomizationDocument::LoadManifestFromFile(
+    const FilePath& manifest_path) {
+  if (CustomizationDocument::LoadManifestFromFile(manifest_path)) {
+    manifest_path_ = manifest_path;
+    return true;
+  } else {
+    return false;
+  }
+}
+
 bool StartupCustomizationDocument::ParseFromJsonValue(
     const DictionaryValue* root) {
   if (!CustomizationDocument::ParseFromJsonValue(root))
@@ -93,8 +102,9 @@ bool StartupCustomizationDocument::ParseFromJsonValue(
   root->GetString(kBackgroundColorAttr, &background_color_string);
   if (!background_color_string.empty()) {
     if (background_color_string[0] == '#') {
-      background_color_ = static_cast<SkColor>(
-          0xff000000 | HexStringToInt(background_color_string.substr(1)));
+      int background_int;
+      base::HexStringToInt(background_color_string.substr(1), &background_int);
+      background_color_ = static_cast<SkColor>(0xff000000 | background_int);
     } else {
       // Literal color constants are not supported yet.
       return false;
@@ -128,14 +138,14 @@ bool StartupCustomizationDocument::ParseFromJsonValue(
   return true;
 }
 
-const StartupCustomizationDocument::SetupContent*
-    StartupCustomizationDocument::GetSetupContent(
-        const std::string& locale) const {
+FilePath StartupCustomizationDocument::GetSetupPagePath(
+    const std::string& locale, std::string SetupContent::* page_path) const {
   SetupContentMap::const_iterator content_iter = setup_content_.find(locale);
   if (content_iter != setup_content_.end()) {
-    return &content_iter->second;
+    return manifest_path_.DirName().Append(content_iter->second.*page_path);
+  } else {
+    return FilePath();
   }
-  return NULL;
 }
 
 // ServicesCustomizationDocument implementation.

@@ -4,9 +4,10 @@
 
 #include "chrome/browser/views/bookmark_bubble_view.h"
 
+#include "app/keyboard_codes.h"
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
-#include "base/keyboard_codes.h"
+#include "base/string16.h"
 #include "base/string_util.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/bookmarks/bookmark_editor.h"
@@ -128,7 +129,7 @@ void BookmarkBubbleView::DidChangeBounds(const gfx::Rect& previous,
 void BookmarkBubbleView::BubbleShown() {
   DCHECK(GetWidget());
   GetFocusManager()->RegisterAccelerator(
-      views::Accelerator(base::VKEY_RETURN, false, false, false), this);
+      views::Accelerator(app::VKEY_RETURN, false, false, false), this);
 
   title_tf_->RequestFocus();
   title_tf_->SelectAll();
@@ -136,7 +137,7 @@ void BookmarkBubbleView::BubbleShown() {
 
 bool BookmarkBubbleView::AcceleratorPressed(
     const views::Accelerator& accelerator) {
-  if (accelerator.GetKeyCode() != base::VKEY_RETURN)
+  if (accelerator.GetKeyCode() != app::VKEY_RETURN)
     return false;
 
   if (edit_button_->HasFocus())
@@ -245,7 +246,7 @@ void BookmarkBubbleView::Init() {
   layout->AddView(
       new Label(l10n_util::GetString(IDS_BOOMARK_BUBBLE_TITLE_TEXT)));
   title_tf_ = new views::Textfield();
-  title_tf_->SetText(WideToUTF16(GetTitle()));
+  title_tf_->SetText(GetTitle());
   layout->AddView(title_tf_);
 
   layout->AddPaddingRow(0, kRelatedControlSmallVerticalSpacing);
@@ -260,7 +261,7 @@ void BookmarkBubbleView::Init() {
   layout->AddView(close_button_);
 }
 
-std::wstring BookmarkBubbleView::GetTitle() {
+string16 BookmarkBubbleView::GetTitle() {
   BookmarkModel* bookmark_model= profile_->GetBookmarkModel();
   const BookmarkNode* node =
       bookmark_model->GetMostRecentlyAddedNodeForURL(url_);
@@ -268,7 +269,7 @@ std::wstring BookmarkBubbleView::GetTitle() {
     return node->GetTitle();
   else
     NOTREACHED();
-  return std::wstring();
+  return string16();
 }
 
 void BookmarkBubbleView::ButtonPressed(
@@ -390,7 +391,7 @@ void BookmarkBubbleView::ApplyEdits() {
   BookmarkModel* model = profile_->GetBookmarkModel();
   const BookmarkNode* node = model->GetMostRecentlyAddedNodeForURL(url_);
   if (node) {
-    const std::wstring new_title = UTF16ToWide(title_tf_->text());
+    const string16 new_title = title_tf_->text();
     if (new_title != node->GetTitle()) {
       model->SetTitle(node, new_title);
       UserMetrics::RecordAction(

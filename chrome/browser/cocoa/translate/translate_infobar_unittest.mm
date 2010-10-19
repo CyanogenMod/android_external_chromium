@@ -6,6 +6,7 @@
 
 #import "base/scoped_nsobject.h"
 #import "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #import "chrome/app/chrome_dll_resource.h"  // For translate menu command ids.
 #import "chrome/browser/cocoa/browser_test_helper.h"
 #import "chrome/browser/cocoa/cocoa_test_helper.h"
@@ -66,15 +67,22 @@ class MockTranslateInfoBarDelegate : public TranslateInfoBarDelegate {
 
 class TranslationInfoBarTest : public CocoaTest {
  public:
+  BrowserTestHelper browser_helper_;
+  scoped_ptr<TabContents> tab_contents;
   scoped_ptr<MockTranslateInfoBarDelegate> infobar_delegate;
   scoped_nsobject<TranslateInfoBarControllerBase> infobar_controller;
-  BrowserTestHelper browser_helper_;
 
  public:
   // Each test gets a single Mock translate delegate for the lifetime of
   // the test.
   virtual void SetUp() {
     CocoaTest::SetUp();
+   tab_contents.reset(
+        new TabContents(browser_helper_.profile(),
+                        NULL,
+                        MSG_ROUTING_NONE,
+                        NULL,
+                        NULL));
     CreateInfoBar();
   }
 
@@ -83,13 +91,6 @@ class TranslationInfoBarTest : public CocoaTest {
   }
 
   void CreateInfoBar(TranslateInfoBarDelegate::Type type) {
-    SiteInstance* instance =
-        SiteInstance::CreateSiteInstance(browser_helper_.profile());
-    scoped_ptr<TabContents> tab_contents(
-        new TabContents(browser_helper_.profile(),
-                        instance,
-                        MSG_ROUTING_NONE,
-                        NULL));
     TranslateErrors::Type error = TranslateErrors::NONE;
     if (type == TranslateInfoBarDelegate::TRANSLATION_ERROR)
       error = TranslateErrors::NETWORK;
@@ -155,7 +156,8 @@ TEST_F(TranslationInfoBarTest, OptionsMenuItemsHookedUp) {
   // that the target on that is setup correctly.
   for (NSUInteger i = 1; i < [optionsMenuItems count]; ++i) {
     NSMenuItem* item = [optionsMenuItems objectAtIndex:i];
-    EXPECT_EQ([item target], infobar_controller.get());
+    if (![item isSeparatorItem])
+      EXPECT_EQ([item target], infobar_controller.get());
   }
   NSMenuItem* alwaysTranslateLanguateItem = [optionsMenuItems objectAtIndex:1];
   NSMenuItem* neverTranslateLanguateItem = [optionsMenuItems objectAtIndex:2];

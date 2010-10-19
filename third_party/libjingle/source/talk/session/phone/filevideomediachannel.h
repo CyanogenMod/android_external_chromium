@@ -74,6 +74,7 @@ class FileVideoMediaChannel : public VideoMediaChannel {
   virtual bool RemoveScreencast(uint32 ssrc) { return true; }
   virtual bool SetSend(bool send) { return true; }
   virtual void SetSendSsrc(uint32 id) {}
+  virtual bool SetRtcpCName(const std::string& cname) { return true; }
   virtual bool SetMaxSendBandwidth(int max_bandwidth) { return false; }
   virtual bool AddStream(uint32 ssrc, uint32 voice_ssrc) { return false; }
   virtual bool RemoveStream(uint32 ssrc) { return false; }

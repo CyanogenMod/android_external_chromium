@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_ENGINE_GET_COMMIT_IDS_COMMAND_H_
 #define CHROME_BROWSER_SYNC_ENGINE_GET_COMMIT_IDS_COMMAND_H_
+#pragma once
 
 #include <utility>
 #include <vector>
@@ -12,7 +13,6 @@
 #include "chrome/browser/sync/engine/syncer_util.h"
 #include "chrome/browser/sync/sessions/ordered_commit_set.h"
 #include "chrome/browser/sync/sessions/sync_session.h"
-#include "chrome/browser/sync/util/sync_types.h"
 
 using std::pair;
 using std::vector;

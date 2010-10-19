@@ -4,10 +4,12 @@
 
 #ifndef NET_PROXY_MOCK_PROXY_RESOLVER_H_
 #define NET_PROXY_MOCK_PROXY_RESOLVER_H_
+#pragma once
 
 #include <vector>
 
 #include "base/logging.h"
+#include "base/scoped_ptr.h"
 #include "base/message_loop.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/net_errors.h"

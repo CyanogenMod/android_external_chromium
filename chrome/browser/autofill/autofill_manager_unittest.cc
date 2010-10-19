@@ -9,12 +9,13 @@
 #include "base/scoped_vector.h"
 #include "base/string16.h"
 #include "base/tuple.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_common_unittest.h"
 #include "chrome/browser/autofill/autofill_manager.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/credit_card.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/browser/tab_contents/test_tab_contents.h"
@@ -28,9 +29,8 @@
 
 using webkit_glue::FormData;
 
-namespace {
-
-typedef Tuple4<int,
+typedef Tuple5<int,
+               std::vector<string16>,
                std::vector<string16>,
                std::vector<string16>,
                std::vector<int> > AutoFillParam;
@@ -44,6 +44,7 @@ class TestPersonalDataManager : public PersonalDataManager {
 
   virtual void InitializeIfNeeded() {}
   virtual void SaveImportedFormData() {}
+  virtual bool IsDataLoaded() const { return true; }
 
   AutoFillProfile* GetLabeledProfile(const char* label) {
     for (std::vector<AutoFillProfile *>::iterator it = web_profiles_.begin();
@@ -87,18 +88,18 @@ class TestPersonalDataManager : public PersonalDataManager {
     CreditCard* credit_card = new CreditCard;
     autofill_unittest::SetCreditCardInfo(credit_card, "First", "Elvis Presley",
                                          "Visa", "1234567890123456", "04",
-                                         "2012", "Home");
+                                         "2012", 1);
     credit_card->set_unique_id(4);
     credit_cards->push_back(credit_card);
     credit_card = new CreditCard;
     autofill_unittest::SetCreditCardInfo(credit_card, "Second", "Buddy Holly",
                                          "Mastercard", "0987654321098765", "10",
-                                         "2014", "");
+                                         "2014", 2);
     credit_card->set_unique_id(5);
     credit_cards->push_back(credit_card);
     credit_card = new CreditCard;
     autofill_unittest::SetCreditCardInfo(credit_card, "Empty", "", "", "", "",
-                                         "", "");
+                                         "", 3);
     credit_card->set_unique_id(6);
     credit_cards->push_back(credit_card);
   }
@@ -108,10 +109,14 @@ class TestPersonalDataManager : public PersonalDataManager {
 
 class TestAutoFillManager : public AutoFillManager {
  public:
-  explicit TestAutoFillManager(TabContents* tab_contents)
+  TestAutoFillManager(TabContents* tab_contents,
+                      TestPersonalDataManager* personal_manager)
       : AutoFillManager(tab_contents, NULL) {
-    test_personal_data_ = new TestPersonalDataManager();
-    set_personal_data_manager(test_personal_data_.get());
+    test_personal_data_ = personal_manager;
+    set_personal_data_manager(personal_manager);
+    // Download manager requests are disabled for purposes of this unit-test.
+    // These request are tested in autofill_download_unittest.cc.
+    set_disable_download_manager_requests(true);
   }
 
   virtual bool IsAutoFillEnabled() const { return true; }
@@ -125,7 +130,7 @@ class TestAutoFillManager : public AutoFillManager {
   }
 
  private:
-  scoped_refptr<TestPersonalDataManager> test_personal_data_;
+  TestPersonalDataManager* test_personal_data_;
 
   DISALLOW_COPY_AND_ASSIGN(TestAutoFillManager);
 };
@@ -135,6 +140,7 @@ void CreateTestFormData(FormData* form) {
   form->method = ASCIIToUTF16("POST");
   form->origin = GURL("http://myform.com/form.html");
   form->action = GURL("http://myform.com/submit.html");
+  form->user_submitted = true;
 
   webkit_glue::FormField field;
   autofill_unittest::CreateTestFormField(
@@ -177,6 +183,7 @@ void CreateTestFormDataBilling(FormData* form) {
   form->method = ASCIIToUTF16("POST");
   form->origin = GURL("https://myform.com/form.html");
   form->action = GURL("https://myform.com/submit.html");
+  form->user_submitted = true;
 
   webkit_glue::FormField field;
   autofill_unittest::CreateTestFormField(
@@ -229,10 +236,18 @@ void CreateTestFormDataBilling(FormData* form) {
 class AutoFillManagerTest : public RenderViewHostTestHarness {
  public:
   AutoFillManagerTest() {}
+  virtual ~AutoFillManagerTest() {
+    // Order of destruction is important as AutoFillManager relies on
+    // PersonalDataManager to be around when it gets destroyed.
+    autofill_manager_.reset(NULL);
+    test_personal_data_ = NULL;
+  }
 
   virtual void SetUp() {
     RenderViewHostTestHarness::SetUp();
-    autofill_manager_.reset(new TestAutoFillManager(contents()));
+    test_personal_data_ = new TestPersonalDataManager();
+    autofill_manager_.reset(new TestAutoFillManager(contents(),
+                                                    test_personal_data_.get()));
   }
 
   Profile* profile() { return contents()->profile(); }
@@ -274,6 +289,7 @@ class AutoFillManagerTest : public RenderViewHostTestHarness {
 
  protected:
   scoped_ptr<TestAutoFillManager> autofill_manager_;
+  scoped_refptr<TestPersonalDataManager> test_personal_data_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(AutoFillManagerTest);
@@ -387,12 +403,12 @@ TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsEmptyValue) {
   EXPECT_EQ(ASCIIToUTF16("************8765"), values[4]);
   EXPECT_EQ(ASCIIToUTF16("************8765"), values[5]);
   ASSERT_EQ(6U, labels.size());
-  EXPECT_EQ(ASCIIToUTF16("Home; 3456"), labels[0]);
-  EXPECT_EQ(ASCIIToUTF16("Work; 3456"), labels[1]);
-  EXPECT_EQ(ASCIIToUTF16("Empty; 3456"), labels[2]);
-  EXPECT_EQ(ASCIIToUTF16("Home; 8765"), labels[3]);
-  EXPECT_EQ(ASCIIToUTF16("Work; 8765"), labels[4]);
-  EXPECT_EQ(ASCIIToUTF16("Empty; 8765"), labels[5]);
+  EXPECT_EQ(ASCIIToUTF16("Elvis Aaron Presley; *3456"), labels[0]);
+  EXPECT_EQ(ASCIIToUTF16("Charles Hardin Holley; *3456"), labels[1]);
+  EXPECT_EQ(ASCIIToUTF16("*3456"), labels[2]);
+  EXPECT_EQ(ASCIIToUTF16("Elvis Aaron Presley; *8765"), labels[3]);
+  EXPECT_EQ(ASCIIToUTF16("Charles Hardin Holley; *8765"), labels[4]);
+  EXPECT_EQ(ASCIIToUTF16("*8765"), labels[5]);
 }
 
 TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsMatchCharacter) {
@@ -428,9 +444,9 @@ TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsMatchCharacter) {
   EXPECT_EQ(ASCIIToUTF16("************3456"), values[1]);
   EXPECT_EQ(ASCIIToUTF16("************3456"), values[2]);
   ASSERT_EQ(3U, labels.size());
-  EXPECT_EQ(ASCIIToUTF16("Home; 3456"), labels[0]);
-  EXPECT_EQ(ASCIIToUTF16("Work; 3456"), labels[1]);
-  EXPECT_EQ(ASCIIToUTF16("Empty; 3456"), labels[2]);
+  EXPECT_EQ(ASCIIToUTF16("Elvis Aaron Presley; *3456"), labels[0]);
+  EXPECT_EQ(ASCIIToUTF16("Charles Hardin Holley; *3456"), labels[1]);
+  EXPECT_EQ(ASCIIToUTF16("*3456"), labels[2]);
 }
 
 TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsNonCCNumber) {
@@ -469,12 +485,12 @@ TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsNonCCNumber) {
   EXPECT_EQ(ASCIIToUTF16("Buddy Holly"), values[4]);
   EXPECT_EQ(ASCIIToUTF16("Buddy Holly"), values[5]);
   ASSERT_EQ(6U, labels.size());
-  EXPECT_EQ(ASCIIToUTF16("Home; 3456"), labels[0]);
-  EXPECT_EQ(ASCIIToUTF16("Work; 3456"), labels[1]);
-  EXPECT_EQ(ASCIIToUTF16("Empty; 3456"), labels[2]);
-  EXPECT_EQ(ASCIIToUTF16("Home; 8765"), labels[3]);
-  EXPECT_EQ(ASCIIToUTF16("Work; 8765"), labels[4]);
-  EXPECT_EQ(ASCIIToUTF16("Empty; 8765"), labels[5]);
+  EXPECT_EQ(ASCIIToUTF16("Elvis Aaron Presley; *3456"), labels[0]);
+  EXPECT_EQ(ASCIIToUTF16("Charles Hardin Holley; *3456"), labels[1]);
+  EXPECT_EQ(ASCIIToUTF16("*3456"), labels[2]);
+  EXPECT_EQ(ASCIIToUTF16("Elvis Aaron Presley; *8765"), labels[3]);
+  EXPECT_EQ(ASCIIToUTF16("Charles Hardin Holley; *8765"), labels[4]);
+  EXPECT_EQ(ASCIIToUTF16("*8765"), labels[5]);
 }
 
 TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsSemicolon) {
@@ -524,14 +540,14 @@ TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsSemicolon) {
   EXPECT_EQ(ASCIIToUTF16("Buddy Holly"), values[6]);
   EXPECT_EQ(ASCIIToUTF16("Buddy Holly"), values[7]);
   ASSERT_EQ(8U, labels.size());
-  EXPECT_EQ(ASCIIToUTF16("Home; 3456"), labels[0]);
-  EXPECT_EQ(ASCIIToUTF16("Work; 3456"), labels[1]);
-  EXPECT_EQ(ASCIIToUTF16("Empty; 3456"), labels[2]);
-  EXPECT_EQ(ASCIIToUTF16("Home; 8765; 3456"), labels[3]);
-  EXPECT_EQ(ASCIIToUTF16("Home; 8765"), labels[4]);
-  EXPECT_EQ(ASCIIToUTF16("Work; 8765"), labels[5]);
-  EXPECT_EQ(ASCIIToUTF16("Empty; 8765"), labels[6]);
-  EXPECT_EQ(ASCIIToUTF16("Home; 8765; 8765"), labels[7]);
+  EXPECT_EQ(ASCIIToUTF16("Elvis Aaron Presley; *3456"), labels[0]);
+  EXPECT_EQ(ASCIIToUTF16("Charles Hardin Holley; *3456"), labels[1]);
+  EXPECT_EQ(ASCIIToUTF16("*3456"), labels[2]);
+  EXPECT_EQ(ASCIIToUTF16("Joe Ely; *3456"), labels[3]);
+  EXPECT_EQ(ASCIIToUTF16("Elvis Aaron Presley; *8765"), labels[4]);
+  EXPECT_EQ(ASCIIToUTF16("Charles Hardin Holley; *8765"), labels[5]);
+  EXPECT_EQ(ASCIIToUTF16("*8765"), labels[6]);
+  EXPECT_EQ(ASCIIToUTF16("Joe Ely; *8765"), labels[7]);
 }
 
 TEST_F(AutoFillManagerTest, GetCreditCardSuggestionsNonHTTPS) {
@@ -646,28 +662,33 @@ TEST_F(AutoFillManagerTest, GetFieldSuggestionsForAutocompleteOnly) {
   // The page ID sent to the AutoFillManager from the RenderView, used to send
   // an IPC message back to the renderer.
   const int kPageID = 1;
-  const int kAlternatePageID = 0;
 
   webkit_glue::FormField field;
   autofill_unittest::CreateTestFormField(
-      "First Name", "firstname", "", "text", &field);
-  EXPECT_TRUE(autofill_manager_->GetAutoFillSuggestions(kPageID, true, field));
+      "Some Field", "somefield", "", "text", &field);
+  EXPECT_FALSE(autofill_manager_->GetAutoFillSuggestions(kPageID, true, field));
 
   // No suggestions provided, so send an empty vector as the results.
   // This triggers the combined message send.
   // In this case, we're simulating a cancel of Autocomplete with a different
   // page ID and an empty vector of suggestions.
-  rvh()->AutocompleteSuggestionsReturned(kAlternatePageID,
-                                         std::vector<string16>());
+  std::vector<string16> suggestions;
+  suggestions.push_back(ASCIIToUTF16("one"));
+  suggestions.push_back(ASCIIToUTF16("two"));
+  rvh()->AutocompleteSuggestionsReturned(kPageID, suggestions);
 
   // Test that we sent the right message to the renderer.
   int page_id = 0;
   std::vector<string16> values;
   std::vector<string16> labels;
   EXPECT_TRUE(GetAutoFillSuggestionsMessage(&page_id, &values, &labels));
-  EXPECT_EQ(kAlternatePageID, page_id);
-  ASSERT_EQ(0U, values.size());
-  ASSERT_EQ(0U, labels.size());
+  EXPECT_EQ(kPageID, page_id);
+  ASSERT_EQ(2U, values.size());
+  ASSERT_EQ(2U, labels.size());
+  EXPECT_EQ(ASCIIToUTF16("one"), values[0]);
+  EXPECT_EQ(string16(), labels[0]);
+  EXPECT_EQ(ASCIIToUTF16("two"), values[1]);
+  EXPECT_EQ(string16(), labels[1]);
 }
 
 TEST_F(AutoFillManagerTest, GetFieldSuggestionsWithDuplicateValues) {
@@ -712,6 +733,42 @@ TEST_F(AutoFillManagerTest, GetFieldSuggestionsWithDuplicateValues) {
   EXPECT_EQ(string16(), labels[1]);
 }
 
+TEST_F(AutoFillManagerTest, GetBillingSuggestionsAddress1) {
+  FormData form;
+  CreateTestFormDataBilling(&form);
+
+  // Set up our FormStructures.
+  std::vector<FormData> forms;
+  forms.push_back(form);
+  autofill_manager_->FormsSeen(forms);
+
+  // The page ID sent to the AutoFillManager from the RenderView, used to send
+  // an IPC message back to the renderer.
+  const int kPageID = 1;
+
+  webkit_glue::FormField field;
+  autofill_unittest::CreateTestFormField(
+      "Address Line 1", "billingAddr1", "", "text", &field);
+  EXPECT_TRUE(autofill_manager_->GetAutoFillSuggestions(kPageID, false, field));
+
+  // No suggestions provided, so send an empty vector as the results.
+  // This triggers the combined message send.
+  rvh()->AutocompleteSuggestionsReturned(kPageID, std::vector<string16>());
+
+  // Test that we sent the right message to the renderer.
+  int page_id = 0;
+  std::vector<string16> values;
+  std::vector<string16> labels;
+  EXPECT_TRUE(GetAutoFillSuggestionsMessage(&page_id, &values, &labels));
+  EXPECT_EQ(kPageID, page_id);
+  ASSERT_EQ(2U, values.size());
+  EXPECT_EQ(ASCIIToUTF16("3734 Elvis Presley Blvd."), values[0]);
+  EXPECT_EQ(ASCIIToUTF16("123 Apple St."), values[1]);
+  ASSERT_EQ(2U, labels.size());
+  EXPECT_EQ(ASCIIToUTF16("Elvis Aaron Presley; *3456"), labels[0]);
+  EXPECT_EQ(ASCIIToUTF16("Charles Hardin Holley; *8765"), labels[1]);
+}
+
 TEST_F(AutoFillManagerTest, FillCreditCardForm) {
   FormData form;
   CreateTestFormDataBilling(&form);
@@ -724,12 +781,8 @@ TEST_F(AutoFillManagerTest, FillCreditCardForm) {
   // The page ID sent to the AutoFillManager from the RenderView, used to send
   // an IPC message back to the renderer.
   const int kPageID = 1;
-  EXPECT_TRUE(
-      autofill_manager_->FillAutoFillFormData(kPageID,
-                                              form,
-                                              string16(),
-                                              ASCIIToUTF16("Home; 3456"),
-                                              1));
+  EXPECT_TRUE(autofill_manager_->FillAutoFillFormData(
+      kPageID, form, AutoFillManager::PackIDs(4, 1)));
 
   int page_id = 0;
   FormData results;
@@ -797,7 +850,7 @@ TEST_F(AutoFillManagerTest, FillNonBillingFormSemicolon) {
                                     "916 16th St.", "Apt. 6", "Lubbock",
                                     "Texas", "79401", "USA",
                                     "12345678901", "");
-  profile->set_unique_id(6);
+  profile->set_unique_id(7);
   autofill_manager_->AddProfile(profile);
 
   FormData form;
@@ -811,12 +864,8 @@ TEST_F(AutoFillManagerTest, FillNonBillingFormSemicolon) {
   // The page ID sent to the AutoFillManager from the RenderView, used to send
   // an IPC message back to the renderer.
   const int kPageID = 1;
-  EXPECT_TRUE(
-      autofill_manager_->FillAutoFillFormData(kPageID,
-                                              form,
-                                              string16(),
-                                              ASCIIToUTF16("Home; 8765"),
-                                              6));
+  EXPECT_TRUE(autofill_manager_->FillAutoFillFormData(
+      kPageID, form, AutoFillManager::PackIDs(4, 7)));
 
   int page_id = 0;
   FormData results;
@@ -871,7 +920,7 @@ TEST_F(AutoFillManagerTest, FillBillFormSemicolon) {
                                     "916 16th St.", "Apt. 6", "Lubbock",
                                     "Texas", "79401", "USA",
                                     "12345678901", "");
-  profile->set_unique_id(6);
+  profile->set_unique_id(7);
   autofill_manager_->AddProfile(profile);
 
   FormData form;
@@ -886,7 +935,7 @@ TEST_F(AutoFillManagerTest, FillBillFormSemicolon) {
   // an IPC message back to the renderer.
   const int kPageID = 1;
   EXPECT_TRUE(autofill_manager_->FillAutoFillFormData(
-      kPageID, form, string16(), ASCIIToUTF16("Home; 8765; 3456"), 6));
+      kPageID, form, AutoFillManager::PackIDs(4, 7)));
 
   int page_id = 0;
   FormData results;
@@ -953,6 +1002,7 @@ TEST_F(AutoFillManagerTest, FillPhoneNumber) {
   form.method = ASCIIToUTF16("POST");
   form.origin = GURL("http://myform.com/phone_form.html");
   form.action = GURL("http://myform.com/phone_submit.html");
+  form.user_submitted = true;
 
   webkit_glue::FormField field;
 
@@ -998,8 +1048,6 @@ TEST_F(AutoFillManagerTest, FillPhoneNumber) {
     EXPECT_TRUE(
         autofill_manager_->FillAutoFillFormData(page_id,
                                                 form,
-                                                ASCIIToUTF16(test_data),
-                                                ASCIIToUTF16("Work"),
                                                 work_profile->unique_id()));
     page_id = 0;
     FormData results;
@@ -1024,6 +1072,7 @@ TEST_F(AutoFillManagerTest, FormChangesRemoveField) {
   form.method = ASCIIToUTF16("POST");
   form.origin = GURL("http://myform.com/form.html");
   form.action = GURL("http://myform.com/submit.html");
+  form.user_submitted = true;
 
   webkit_glue::FormField field;
   autofill_unittest::CreateTestFormField(
@@ -1054,11 +1103,7 @@ TEST_F(AutoFillManagerTest, FormChangesRemoveField) {
   // The page ID sent to the AutoFillManager from the RenderView, used to send
   // an IPC message back to the renderer.
   const int kPageID = 1;
-  EXPECT_TRUE(autofill_manager_->FillAutoFillFormData(kPageID,
-                                                      form,
-                                                      ASCIIToUTF16("Elvis"),
-                                                      ASCIIToUTF16("Home"),
-                                                      1));
+  EXPECT_TRUE(autofill_manager_->FillAutoFillFormData(kPageID, form, 1));
 
   int page_id = 0;
   FormData results;
@@ -1067,6 +1112,7 @@ TEST_F(AutoFillManagerTest, FormChangesRemoveField) {
   EXPECT_EQ(ASCIIToUTF16("POST"), results.method);
   EXPECT_EQ(GURL("http://myform.com/form.html"), results.origin);
   EXPECT_EQ(GURL("http://myform.com/submit.html"), results.action);
+  EXPECT_TRUE(results.user_submitted);
   ASSERT_EQ(4U, results.fields.size());
 
   autofill_unittest::CreateTestFormField(
@@ -1089,6 +1135,7 @@ TEST_F(AutoFillManagerTest, FormChangesAddField) {
   form.method = ASCIIToUTF16("POST");
   form.origin = GURL("http://myform.com/form.html");
   form.action = GURL("http://myform.com/submit.html");
+  form.user_submitted = true;
 
   webkit_glue::FormField field;
   autofill_unittest::CreateTestFormField(
@@ -1119,11 +1166,7 @@ TEST_F(AutoFillManagerTest, FormChangesAddField) {
   // The page ID sent to the AutoFillManager from the RenderView, used to send
   // an IPC message back to the renderer.
   const int kPageID = 1;
-  EXPECT_TRUE(autofill_manager_->FillAutoFillFormData(kPageID,
-                                                      form,
-                                                      ASCIIToUTF16("Elvis"),
-                                                      ASCIIToUTF16("Home"),
-                                                      1));
+  EXPECT_TRUE(autofill_manager_->FillAutoFillFormData(kPageID, form, 1));
 
   int page_id = 0;
   FormData results;
@@ -1132,6 +1175,7 @@ TEST_F(AutoFillManagerTest, FormChangesAddField) {
   EXPECT_EQ(ASCIIToUTF16("POST"), results.method);
   EXPECT_EQ(GURL("http://myform.com/form.html"), results.origin);
   EXPECT_EQ(GURL("http://myform.com/submit.html"), results.action);
+  EXPECT_TRUE(results.user_submitted);
   ASSERT_EQ(5U, results.fields.size());
 
   autofill_unittest::CreateTestFormField(
@@ -1157,6 +1201,7 @@ TEST_F(AutoFillManagerTest, HiddenFields) {
   form.method = ASCIIToUTF16("POST");
   form.origin = GURL("http://myform.com/form.html");
   form.action = GURL("http://myform.com/submit.html");
+  form.user_submitted = true;
 
   webkit_glue::FormField field;
   autofill_unittest::CreateTestFormField(
@@ -1181,4 +1226,27 @@ TEST_F(AutoFillManagerTest, HiddenFields) {
   // fields.  Need to query the PDM.
 }
 
-}  // namespace
+// Checks that resetting the auxiliary profile enabled preference does the right
+// thing on all platforms.
+TEST_F(AutoFillManagerTest, AuxiliaryProfilesReset) {
+#if defined(OS_MACOSX)
+  // Auxiliary profiles is implemented on Mac only.  It enables Mac Address
+  // Book integration.
+  ASSERT_TRUE(profile()->GetPrefs()->GetBoolean(
+      prefs::kAutoFillAuxiliaryProfilesEnabled));
+  profile()->GetPrefs()->SetBoolean(
+      prefs::kAutoFillAuxiliaryProfilesEnabled, false);
+  profile()->GetPrefs()->ClearPref(prefs::kAutoFillAuxiliaryProfilesEnabled);
+  ASSERT_TRUE(profile()->GetPrefs()->GetBoolean(
+      prefs::kAutoFillAuxiliaryProfilesEnabled));
+#else
+  ASSERT_FALSE(profile()->GetPrefs()->GetBoolean(
+      prefs::kAutoFillAuxiliaryProfilesEnabled));
+  profile()->GetPrefs()->SetBoolean(
+      prefs::kAutoFillAuxiliaryProfilesEnabled, true);
+  profile()->GetPrefs()->ClearPref(prefs::kAutoFillAuxiliaryProfilesEnabled);
+  ASSERT_FALSE(profile()->GetPrefs()->GetBoolean(
+      prefs::kAutoFillAuxiliaryProfilesEnabled));
+#endif
+}
+

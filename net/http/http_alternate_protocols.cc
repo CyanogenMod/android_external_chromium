@@ -12,37 +12,47 @@ namespace net {
 const char HttpAlternateProtocols::kHeader[] = "Alternate-Protocol";
 const char* const HttpAlternateProtocols::kProtocolStrings[] = {
   "npn-spdy/1",
+  "npn-spdy/2",
 };
+
+// static
+HttpAlternateProtocols::PortProtocolPair*
+    HttpAlternateProtocols::forced_alternate_protocol_ = NULL;
 
 HttpAlternateProtocols::HttpAlternateProtocols() {}
 HttpAlternateProtocols::~HttpAlternateProtocols() {}
 
 bool HttpAlternateProtocols::HasAlternateProtocolFor(
     const HostPortPair& http_host_port_pair) const {
-  return ContainsKey(protocol_map_, http_host_port_pair);
+  return ContainsKey(protocol_map_, http_host_port_pair) ||
+      forced_alternate_protocol_;
 }
 
 bool HttpAlternateProtocols::HasAlternateProtocolFor(
     const std::string& host, uint16 port) const {
-  struct HostPortPair http_host_port_pair;
-  http_host_port_pair.host = host;
-  http_host_port_pair.port = port;
+  HostPortPair http_host_port_pair(host, port);
   return HasAlternateProtocolFor(http_host_port_pair);
 }
 
 HttpAlternateProtocols::PortProtocolPair
 HttpAlternateProtocols::GetAlternateProtocolFor(
     const HostPortPair& http_host_port_pair) const {
-  DCHECK(ContainsKey(protocol_map_, http_host_port_pair));
-  return protocol_map_.find(http_host_port_pair)->second;
+  DCHECK(HasAlternateProtocolFor(http_host_port_pair));
+
+  // First check the map.
+  ProtocolMap::const_iterator it = protocol_map_.find(http_host_port_pair);
+  if (it != protocol_map_.end())
+    return it->second;
+
+  // We must be forcing an alternate.
+  DCHECK(forced_alternate_protocol_);
+  return *forced_alternate_protocol_;
 }
 
 HttpAlternateProtocols::PortProtocolPair
 HttpAlternateProtocols::GetAlternateProtocolFor(
     const std::string& host, uint16 port) const {
-  struct HostPortPair http_host_port_pair;
-  http_host_port_pair.host = host;
-  http_host_port_pair.port = port;
+  HostPortPair http_host_port_pair(host, port);
   return GetAlternateProtocolFor(http_host_port_pair);
 }
 
@@ -84,6 +94,21 @@ void HttpAlternateProtocols::SetAlternateProtocolFor(
 void HttpAlternateProtocols::MarkBrokenAlternateProtocolFor(
     const HostPortPair& http_host_port_pair) {
   protocol_map_[http_host_port_pair].protocol = BROKEN;
+}
+
+// static
+void HttpAlternateProtocols::ForceAlternateProtocol(
+    const PortProtocolPair& pair) {
+  // Note: we're going to leak this.
+  if (forced_alternate_protocol_)
+    delete forced_alternate_protocol_;
+  forced_alternate_protocol_ = new PortProtocolPair(pair);
+}
+
+// static
+void HttpAlternateProtocols::DisableForcedAlternateProtocol() {
+  delete forced_alternate_protocol_;
+  forced_alternate_protocol_ = NULL;
 }
 
 }  // namespace net

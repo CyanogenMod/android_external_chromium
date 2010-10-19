@@ -27,6 +27,7 @@
 #include "chrome/browser/sync/protocol/typed_url_specifics.pb.h"
 #include "chrome/browser/sync/syncable/directory_manager.h"
 #include "chrome/browser/sync/test_profile_sync_service.h"
+#include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/test/profile_mock.h"
 #include "chrome/test/sync/engine/test_id_factory.h"
@@ -51,7 +52,6 @@ using sync_api::UserShare;
 using syncable::BASE_VERSION;
 using syncable::CREATE;
 using syncable::DirectoryManager;
-using syncable::ID;
 using syncable::IS_DEL;
 using syncable::IS_DIR;
 using syncable::IS_UNAPPLIED_UPDATE;
@@ -79,8 +79,9 @@ class HistoryBackendMock : public HistoryBackend {
   MOCK_METHOD2(GetVisitsForURL, bool(history::URLID id,
                                      history::VisitVector* visits));
   MOCK_METHOD2(UpdateURL, bool(history::URLID id, const history::URLRow& url));
-  MOCK_METHOD2(AddVisits, bool(const GURL& url,
-                               const std::vector<base::Time>& visits));
+  MOCK_METHOD3(AddVisits, bool(const GURL& url,
+                               const std::vector<base::Time>& visits,
+                               history::VisitSource visit_source));
   MOCK_METHOD1(RemoveVisits, bool(const history::VisitVector& visits));
   MOCK_METHOD2(GetURL, bool(const GURL& url_id, history::URLRow* url_row));
   MOCK_METHOD2(SetPageTitle, void(const GURL& url, const std::wstring& title));
@@ -153,7 +154,7 @@ class ProfileSyncServiceTypedUrlTest : public AbstractProfileSyncServiceTest {
   void StartSyncService(Task* task) {
     if (!service_.get()) {
       service_.reset(
-          new TestProfileSyncService(&factory_, &profile_, false, false,
+          new TestProfileSyncService(&factory_, &profile_, "test", false,
                                      task));
       TypedUrlDataTypeController* data_type_controller =
           new TypedUrlDataTypeController(&factory_,
@@ -170,10 +171,20 @@ class ProfileSyncServiceTypedUrlTest : public AbstractProfileSyncServiceTest {
       EXPECT_CALL(profile_, GetHistoryServiceWithoutCreating()).
           WillRepeatedly(Return(history_service_.get()));
 
+      EXPECT_CALL(profile_, GetPasswordStore(_)).
+          WillOnce(Return(static_cast<PasswordStore*>(NULL)));
+
       EXPECT_CALL(profile_, GetHistoryService(_)).
           WillRepeatedly(Return(history_service_.get()));
 
+      token_service_.IssueAuthTokenForTest(
+          GaiaConstants::kSyncService, "token");
+
+      EXPECT_CALL(profile_, GetTokenService()).
+          WillRepeatedly(Return(&token_service_));
+
       service_->RegisterDataTypeController(data_type_controller);
+
       service_->Initialize();
       MessageLoop::current()->Run();
     }
@@ -338,8 +349,8 @@ TEST_F(ProfileSyncServiceTypedUrlTest, HasNativeHasSyncNoMerge) {
       WillOnce(DoAll(SetArgumentPointee<0>(native_entries), Return(true)));
   EXPECT_CALL((*history_backend_.get()), GetVisitsForURL(_, _)).
       WillRepeatedly(DoAll(SetArgumentPointee<1>(native_visits), Return(true)));
-  EXPECT_CALL((*history_backend_.get()), AddVisits(_, _)).
-      WillRepeatedly(Return(true));
+  EXPECT_CALL((*history_backend_.get()),
+      AddVisits(_, _, history::SOURCE_SYNCED)).WillRepeatedly(Return(true));
 
   std::vector<history::URLRow> sync_entries;
   sync_entries.push_back(sync_entry);
@@ -383,8 +394,8 @@ TEST_F(ProfileSyncServiceTypedUrlTest, HasNativeHasSyncMerge) {
       WillOnce(DoAll(SetArgumentPointee<0>(native_entries), Return(true)));
   EXPECT_CALL((*history_backend_.get()), GetVisitsForURL(_, _)).
       WillRepeatedly(DoAll(SetArgumentPointee<1>(native_visits), Return(true)));
-  EXPECT_CALL((*history_backend_.get()), AddVisits(_, _)).
-      WillRepeatedly(Return(true));
+  EXPECT_CALL((*history_backend_.get()),
+      AddVisits(_, _, history::SOURCE_SYNCED)). WillRepeatedly(Return(true));
 
   std::vector<history::URLRow> sync_entries;
   sync_entries.push_back(sync_entry);

@@ -1,17 +1,20 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "base/win_util.h"
 
+#include <aclapi.h>
 #include <propvarutil.h>
 #include <sddl.h>
+#include <shlobj.h>
 
 #include "base/logging.h"
 #include "base/registry.h"
 #include "base/scoped_handle.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 
 namespace win_util {
 
@@ -350,7 +353,8 @@ std::wstring GetClassName(HWND window) {
 
 bool UserAccountControlIsEnabled() {
   RegKey key(HKEY_LOCAL_MACHINE,
-      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System");
+      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System",
+      KEY_READ);
   DWORD uac_enabled;
   if (!key.ReadValueDW(L"EnableLUA", &uac_enabled))
     return true;
@@ -372,21 +376,13 @@ std::wstring FormatMessage(unsigned messageid) {
     LocalFree(reinterpret_cast<HLOCAL>(string_buffer));
   } else {
     // The formating failed. simply convert the message value into a string.
-    SStringPrintf(&formatted_string, L"message number %d", messageid);
+    base::SStringPrintf(&formatted_string, L"message number %d", messageid);
   }
   return formatted_string;
 }
 
 std::wstring FormatLastWin32Error() {
   return FormatMessage(GetLastError());
-}
-
-WORD KeyboardCodeToWin(base::KeyboardCode keycode) {
-  return static_cast<WORD>(keycode);
-}
-
-base::KeyboardCode WinToKeyboardCode(WORD keycode) {
-  return static_cast<base::KeyboardCode>(keycode);
 }
 
 bool SetAppIdForPropertyStore(IPropertyStore* property_store,
@@ -409,6 +405,20 @@ bool SetAppIdForPropertyStore(IPropertyStore* property_store,
 
   PropVariantClear(&property_value);
   return SUCCEEDED(result);
+}
+
+static const char16 kAutoRunKeyPath[] =
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+bool AddCommandToAutoRun(HKEY root_key, const string16& name,
+                         const string16& command) {
+  RegKey autorun_key(root_key, kAutoRunKeyPath, KEY_SET_VALUE);
+  return autorun_key.WriteValue(name.c_str(), command.c_str());
+}
+
+bool RemoveCommandFromAutoRun(HKEY root_key, const string16& name) {
+  RegKey autorun_key(root_key, kAutoRunKeyPath, KEY_SET_VALUE);
+  return autorun_key.DeleteValue(name.c_str());
 }
 
 }  // namespace win_util

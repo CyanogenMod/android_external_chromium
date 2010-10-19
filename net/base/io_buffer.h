@@ -4,6 +4,7 @@
 
 #ifndef NET_BASE_IO_BUFFER_H_
 #define NET_BASE_IO_BUFFER_H_
+#pragma once
 
 #include <string>
 
@@ -45,7 +46,7 @@ class IOBufferWithSize : public IOBuffer {
   int size() const { return size_; }
 
  private:
-  ~IOBufferWithSize() {}
+  virtual ~IOBufferWithSize();
 
   int size_;
 };
@@ -59,7 +60,7 @@ class StringIOBuffer : public IOBuffer {
   int size() const { return string_data_.size(); }
 
  private:
-  ~StringIOBuffer();
+  virtual ~StringIOBuffer();
 
   std::string string_data_;
 };
@@ -87,7 +88,7 @@ class DrainableIOBuffer : public IOBuffer {
   int size() const { return size_; }
 
  private:
-  ~DrainableIOBuffer();
+  virtual ~DrainableIOBuffer();
 
   scoped_refptr<IOBuffer> base_;
   int size_;
@@ -111,7 +112,7 @@ class GrowableIOBuffer : public IOBuffer {
   char* StartOfBuffer();
 
  private:
-  ~GrowableIOBuffer();
+  virtual ~GrowableIOBuffer();
 
   scoped_ptr_malloc<char> real_data_;
   int capacity_;
@@ -131,7 +132,7 @@ class PickledIOBuffer : public IOBuffer {
   void Done();
 
  private:
-  ~PickledIOBuffer();
+  virtual ~PickledIOBuffer();
 
   Pickle pickle_;
 };
@@ -146,7 +147,7 @@ class WrappedIOBuffer : public IOBuffer {
   explicit WrappedIOBuffer(const char* data);
 
  protected:
-  ~WrappedIOBuffer();
+  virtual ~WrappedIOBuffer();
 };
 
 }  // namespace net

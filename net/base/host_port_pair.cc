@@ -3,19 +3,34 @@
 // found in the LICENSE file.
 
 #include "net/base/host_port_pair.h"
+
 #include "base/string_util.h"
+#include "base/stringprintf.h"
+#include "googleurl/src/gurl.h"
 
 namespace net {
 
-HostPortPair::HostPortPair() : port(0) {}
+HostPortPair::HostPortPair() : port_(0) {}
 HostPortPair::HostPortPair(const std::string& in_host, uint16 in_port)
-    : host(in_host), port(in_port) {}
+    : host_(in_host), port_(in_port) {}
+
+// static
+HostPortPair HostPortPair::FromURL(const GURL& url) {
+  return HostPortPair(url.HostNoBrackets(), url.EffectiveIntPort());
+}
 
 std::string HostPortPair::ToString() const {
+  return base::StringPrintf("%s:%u", HostForURL().c_str(), port_);
+}
+
+std::string HostPortPair::HostForURL() const {
   // Check to see if the host is an IPv6 address.  If so, added brackets.
-  if (host.find(':') != std::string::npos)
-    return StringPrintf("[%s]:%u", host.c_str(), port);
-  return StringPrintf("%s:%u", host.c_str(), port);
+  if (host_.find(':') != std::string::npos) {
+    DCHECK_NE(host_[0], '[');
+    return base::StringPrintf("[%s]", host_.c_str());
+  }
+
+  return host_;
 }
 
 }  // namespace net

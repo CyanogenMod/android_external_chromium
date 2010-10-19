@@ -2,8 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <ostream>
-
 #include "net/proxy/proxy_config.h"
 #include "net/proxy/proxy_config_service_common_unittest.h"
 #include "net/proxy/proxy_info.h"
@@ -106,7 +104,7 @@ TEST(ProxyConfigTest, ParseProxyRules) {
     const char* proxy_for_http;
     const char* proxy_for_https;
     const char* proxy_for_ftp;
-    const char* socks_proxy;
+    const char* fallback_proxy;
   } tests[] = {
     // One HTTP proxy for all schemes.
     {
@@ -248,188 +246,8 @@ TEST(ProxyConfigTest, ParseProxyRules) {
                             config.proxy_rules().proxy_for_https);
     ExpectProxyServerEquals(tests[i].proxy_for_ftp,
                             config.proxy_rules().proxy_for_ftp);
-    ExpectProxyServerEquals(tests[i].socks_proxy,
-                            config.proxy_rules().socks_proxy);
-  }
-}
-
-std::string ProxyConfigToString(const ProxyConfig& config) {
-  std::ostringstream stream;
-  stream << config;
-  return stream.str();
-}
-
-TEST(ProxyConfigTest, ToString) {
-  // Manual proxy.
-  {
-    ProxyConfig config;
-    config.set_auto_detect(false);
-    config.proxy_rules().ParseFromString("http://single-proxy:81");
-
-    EXPECT_EQ("Automatic settings:\n"
-              "  Auto-detect: No\n"
-              "  Custom PAC script: [None]\n"
-              "Manual settings:\n"
-              "  Proxy server: single-proxy:81\n"
-              "  Bypass list: [None]",
-              ProxyConfigToString(config));
-  }
-
-  // Autodetect + custom PAC + manual proxy.
-  {
-    ProxyConfig config;
-    config.set_auto_detect(true);
-    config.set_pac_url(GURL("http://custom/pac.js"));
-    config.proxy_rules().ParseFromString("http://single-proxy:81");
-
-    EXPECT_EQ("Automatic settings:\n"
-              "  Auto-detect: Yes\n"
-              "  Custom PAC script: http://custom/pac.js\n"
-              "Manual settings:\n"
-              "  Proxy server: single-proxy:81\n"
-              "  Bypass list: [None]",
-              ProxyConfigToString(config));
-  }
-
-  // Manual proxy with bypass list + bypass local.
-  {
-    ProxyConfig config;
-    config.set_auto_detect(false);
-    config.proxy_rules().ParseFromString("http://single-proxy:81");
-    config.proxy_rules().bypass_rules.AddRuleFromString("google.com");
-    config.proxy_rules().bypass_rules.AddRuleFromString("bypass2.net:1730");
-    config.proxy_rules().bypass_rules.AddRuleToBypassLocal();
-
-    EXPECT_EQ("Automatic settings:\n"
-              "  Auto-detect: No\n"
-              "  Custom PAC script: [None]\n"
-              "Manual settings:\n"
-              "  Proxy server: single-proxy:81\n"
-              "  Bypass list: \n"
-              "    google.com\n"
-              "    bypass2.net:1730\n"
-              "    <local>",
-              ProxyConfigToString(config));
-  }
-
-  // Proxy-per scheme (HTTP and HTTPS)
-  {
-    ProxyConfig config;
-    config.set_auto_detect(false);
-    config.proxy_rules().ParseFromString(
-        "http=proxy-for-http:1801; https=proxy-for-https:1802");
-
-    EXPECT_EQ("Automatic settings:\n"
-              "  Auto-detect: No\n"
-              "  Custom PAC script: [None]\n"
-              "Manual settings:\n"
-              "  Proxy server: \n"
-              "    HTTP: proxy-for-http:1801\n"
-              "    HTTPS: proxy-for-https:1802\n"
-              "  Bypass list: [None]",
-              ProxyConfigToString(config));
-  }
-
-  // Proxy-per scheme (HTTP and SOCKS)
-  {
-    ProxyConfig config;
-    config.set_auto_detect(false);
-    config.proxy_rules().ParseFromString(
-        "http=http://proxy-for-http:1801; socks=socks-server:6083");
-
-    EXPECT_EQ("Automatic settings:\n"
-              "  Auto-detect: No\n"
-              "  Custom PAC script: [None]\n"
-              "Manual settings:\n"
-              "  Proxy server: \n"
-              "    HTTP: proxy-for-http:1801\n"
-              "    SOCKS: socks4://socks-server:6083\n"
-              "  Bypass list: [None]",
-              ProxyConfigToString(config));
-  }
-
-  // No proxy.
-  {
-    ProxyConfig config;
-    config.set_auto_detect(false);
-
-    EXPECT_EQ("Automatic settings:\n"
-              "  Auto-detect: No\n"
-              "  Custom PAC script: [None]\n"
-              "Manual settings:\n"
-              "  Proxy server: [None]\n"
-              "  Bypass list: [None]",
-              ProxyConfigToString(config));
-  }
-
-  // Manual proxy with bypass list + bypass local, list reversed.
-  {
-    ProxyConfig config;
-    config.set_auto_detect(false);
-    config.proxy_rules().ParseFromString("http://single-proxy:81");
-    config.proxy_rules().bypass_rules.AddRuleFromString("google.com");
-    config.proxy_rules().bypass_rules.AddRuleFromString("bypass2.net:1730");
-    config.proxy_rules().bypass_rules.AddRuleToBypassLocal();
-    config.proxy_rules().reverse_bypass = true;
-
-    EXPECT_EQ("Automatic settings:\n"
-              "  Auto-detect: No\n"
-              "  Custom PAC script: [None]\n"
-              "Manual settings:\n"
-              "  Proxy server: single-proxy:81\n"
-              "  Only use proxy for: \n"
-              "    google.com\n"
-              "    bypass2.net:1730\n"
-              "    <local>",
-              ProxyConfigToString(config));
-  }
-}
-
-TEST(ProxyConfigTest, MayRequirePACResolver) {
-  {
-    ProxyConfig config;
-    EXPECT_FALSE(config.MayRequirePACResolver());
-  }
-  {
-    ProxyConfig config;
-    config.set_auto_detect(true);
-    EXPECT_TRUE(config.MayRequirePACResolver());
-  }
-  {
-    ProxyConfig config;
-    config.set_pac_url(GURL("http://custom/pac.js"));
-    EXPECT_TRUE(config.MayRequirePACResolver());
-  }
-  {
-    ProxyConfig config;
-    config.set_pac_url(GURL("notvalid"));
-    EXPECT_FALSE(config.MayRequirePACResolver());
-  }
-}
-
-TEST(ProxyConfigTest, ReversedBypassList) {
-  {
-    ProxyConfig config;
-    config.set_auto_detect(false);
-    config.proxy_rules().ParseFromString("http://single-proxy:81");
-    config.proxy_rules().bypass_rules.AddRuleFromString("google.com");
-    config.proxy_rules().bypass_rules.AddRuleFromString("bypass2.net:1730");
-    config.proxy_rules().bypass_rules.AddRuleToBypassLocal();
-    config.proxy_rules().reverse_bypass = true;
-
-    ProxyInfo info[3];
-    GURL url0("http://google.com");
-    GURL url1("http://www.webkit.com");
-    GURL url2("http://bypass2.net:1730");
-
-    config.proxy_rules().Apply(url0, &info[0]);
-    EXPECT_EQ("single-proxy:81", info[0].proxy_server().ToURI());
-
-    config.proxy_rules().Apply(url1, &info[1]);
-    EXPECT_TRUE(info[1].is_direct());
-
-    config.proxy_rules().Apply(url2, &info[2]);
-    EXPECT_EQ("single-proxy:81", info[2].proxy_server().ToURI());
+    ExpectProxyServerEquals(tests[i].fallback_proxy,
+                            config.proxy_rules().fallback_proxy);
   }
 }
 

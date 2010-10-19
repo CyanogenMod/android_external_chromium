@@ -4,9 +4,11 @@
 
 #ifndef CHROME_BROWSER_AUTOFILL_AUTOFILL_CC_INFOBAR_H_
 #define CHROME_BROWSER_AUTOFILL_AUTOFILL_CC_INFOBAR_H_
+#pragma once
 
 class InfoBar;
 class ConfirmInfoBarDelegate;
+
 InfoBar* CreateAutofillCcInfoBar(ConfirmInfoBarDelegate* delegate);
 
 #endif  // CHROME_BROWSER_AUTOFILL_AUTOFILL_CC_INFOBAR_H_

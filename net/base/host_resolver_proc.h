@@ -4,6 +4,7 @@
 
 #ifndef NET_BASE_HOST_RESOLVER_PROC_H_
 #define NET_BASE_HOST_RESOLVER_PROC_H_
+#pragma once
 
 #include <string>
 
@@ -38,7 +39,7 @@ class HostResolverProc : public base::RefCountedThreadSafe<HostResolverProc> {
  protected:
   friend class base::RefCountedThreadSafe<HostResolverProc>;
 
-  virtual ~HostResolverProc() {}
+  virtual ~HostResolverProc();
 
   // Asks the fallback procedure (if set) to do the resolve.
   int ResolveUsingPrevious(const std::string& host,

@@ -1,11 +1,13 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/automation/automation_provider.h"
 
+#include "app/keyboard_codes.h"
 #include "base/json/json_reader.h"
-#include "base/keyboard_codes.h"
+#include "base/trace_event.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/automation/automation_browser_tracker.h"
 #include "chrome/browser/automation/automation_extension_function.h"
 #include "chrome/browser/automation/automation_tab_tracker.h"
@@ -20,7 +22,9 @@
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/views/bookmark_bar_view.h"
+#include "chrome/common/page_zoom.h"
 #include "chrome/test/automation/automation_messages.h"
+#include "views/focus/accelerator_handler.h"
 #include "views/widget/root_view.h"
 #include "views/widget/widget_win.h"
 #include "views/window/window.h"
@@ -68,22 +72,6 @@ BOOL CALLBACK EnumThreadWndProc(HWND hwnd, LPARAM l_param) {
     return FALSE;
   }
   return TRUE;
-}
-
-void AutomationProvider::GetActiveWindow(int* handle) {
-  HWND window = GetForegroundWindow();
-
-  // Let's make sure this window belongs to our process.
-  if (EnumThreadWindows(::GetCurrentThreadId(),
-                        EnumThreadWndProc,
-                        reinterpret_cast<LPARAM>(window))) {
-    // We enumerated all the windows and did not find the foreground window,
-    // it is not our window, ignore it.
-    *handle = 0;
-    return;
-  }
-
-  *handle = window_tracker_->Add(window);
 }
 
 // This task enqueues a mouse event on the event loop, so that the view
@@ -212,15 +200,23 @@ void AutomationProvider::WindowSimulateDrag(int handle,
     MoveMouse(end);
 
     if (press_escape_en_route) {
-      // Press Escape.
-      ui_controls::SendKeyPress(window, base::VKEY_ESCAPE,
-                               ((flags & views::Event::EF_CONTROL_DOWN)
-                                == views::Event::EF_CONTROL_DOWN),
-                               ((flags & views::Event::EF_SHIFT_DOWN) ==
-                                views::Event::EF_SHIFT_DOWN),
-                               ((flags & views::Event::EF_ALT_DOWN) ==
-                                views::Event::EF_ALT_DOWN),
-                                false);
+      // Press Escape, making sure we wait until chrome processes the escape.
+      // TODO(phajdan.jr): make this use ui_test_utils::SendKeyPressSync.
+      ui_controls::SendKeyPressNotifyWhenDone(
+          window, app::VKEY_ESCAPE,
+          ((flags & views::Event::EF_CONTROL_DOWN) ==
+           views::Event::EF_CONTROL_DOWN),
+          ((flags & views::Event::EF_SHIFT_DOWN) ==
+           views::Event::EF_SHIFT_DOWN),
+          ((flags & views::Event::EF_ALT_DOWN) == views::Event::EF_ALT_DOWN),
+          false,
+          new MessageLoop::QuitTask());
+      MessageLoopForUI* loop = MessageLoopForUI::current();
+      bool did_allow_task_nesting = loop->NestableTasksAllowed();
+      loop->SetNestableTasksAllowed(true);
+      views::AcceleratorHandler handler;
+      loop->Run(&handler);
+      loop->SetNestableTasksAllowed(did_allow_task_nesting);
     }
     SendMessage(top_level_hwnd, up_message, wparam_flags,
                 MAKELPARAM(end.x, end.y));
@@ -230,60 +226,6 @@ void AutomationProvider::WindowSimulateDrag(int handle,
   } else {
     AutomationMsg_WindowDrag::WriteReplyParams(reply_message, false);
     Send(reply_message);
-  }
-}
-
-void AutomationProvider::GetWindowBounds(int handle, gfx::Rect* bounds,
-                                         bool* success) {
-  *success = false;
-  HWND hwnd = window_tracker_->GetResource(handle);
-  if (hwnd) {
-    *success = true;
-    WINDOWPLACEMENT window_placement;
-    GetWindowPlacement(hwnd, &window_placement);
-    *bounds = window_placement.rcNormalPosition;
-  }
-}
-
-void AutomationProvider::SetWindowBounds(int handle, const gfx::Rect& bounds,
-                                         bool* success) {
-  *success = false;
-  if (window_tracker_->ContainsHandle(handle)) {
-    HWND hwnd = window_tracker_->GetResource(handle);
-    if (::MoveWindow(hwnd, bounds.x(), bounds.y(), bounds.width(),
-                     bounds.height(), true)) {
-      *success = true;
-    }
-  }
-}
-
-void AutomationProvider::SetWindowVisible(int handle, bool visible,
-                                          bool* result) {
-  if (window_tracker_->ContainsHandle(handle)) {
-    HWND hwnd = window_tracker_->GetResource(handle);
-    ::ShowWindow(hwnd, visible ? SW_SHOW : SW_HIDE);
-    *result = true;
-  } else {
-    *result = false;
-  }
-}
-
-void AutomationProvider::ActivateWindow(int handle) {
-  if (window_tracker_->ContainsHandle(handle)) {
-    ::SetActiveWindow(window_tracker_->GetResource(handle));
-  }
-}
-
-void AutomationProvider::IsWindowMaximized(int handle, bool* is_maximized,
-                                           bool* success) {
-  *success = false;
-
-  HWND hwnd = window_tracker_->GetResource(handle);
-  if (hwnd) {
-    *success = true;
-    WINDOWPLACEMENT window_placement;
-    GetWindowPlacement(hwnd, &window_placement);
-    *is_maximized = (window_placement.showCmd == SW_MAXIMIZE);
   }
 }
 
@@ -300,6 +242,8 @@ void AutomationProvider::CreateExternalTab(
     const IPC::ExternalTabSettings& settings,
     gfx::NativeWindow* tab_container_window, gfx::NativeWindow* tab_window,
     int* tab_handle) {
+  TRACE_EVENT_BEGIN("AutomationProvider::CreateExternalTab", 0, "");
+
   *tab_handle = 0;
   *tab_container_window = NULL;
   *tab_window = NULL;
@@ -324,6 +268,8 @@ void AutomationProvider::CreateExternalTab(
   } else {
     external_tab_container->Uninitialize();
   }
+
+  TRACE_EVENT_END("AutomationProvider::CreateExternalTab", 0, "");
 }
 
 bool AutomationProvider::AddExternalTab(ExternalTabContainer* external_tab) {
@@ -432,6 +378,8 @@ void AutomationProvider::ConnectExternalTab(
     gfx::NativeWindow* tab_container_window,
     gfx::NativeWindow* tab_window,
     int* tab_handle) {
+  TRACE_EVENT_BEGIN("AutomationProvider::ConnectExternalTab", 0, "");
+
   *tab_handle = 0;
   *tab_container_window = NULL;
   *tab_window = NULL;
@@ -454,16 +402,8 @@ void AutomationProvider::ConnectExternalTab(
   } else {
     external_tab_container->Uninitialize();
   }
-}
 
-void AutomationProvider::TerminateSession(int handle, bool* success) {
-  *success = false;
-
-  if (browser_tracker_->ContainsHandle(handle)) {
-    Browser* browser = browser_tracker_->GetResource(handle);
-    HWND window = browser->window()->GetNativeHandle();
-    *success = (::PostMessageW(window, WM_ENDSESSION, 0, 0) == TRUE);
-  }
+  TRACE_EVENT_END("AutomationProvider::ConnectExternalTab", 0, "");
 }
 
 void AutomationProvider::SetEnableExtensionAutomation(
@@ -489,14 +429,6 @@ void AutomationProvider::OnBrowserMoved(int tab_handle) {
     DLOG(WARNING) <<
       "AutomationProvider::OnBrowserMoved called with invalid tab handle.";
   }
-}
-
-void AutomationProvider::GetWindowTitle(int handle, string16* text) {
-  gfx::NativeWindow window = window_tracker_->GetResource(handle);
-  std::wstring result;
-  int length = ::GetWindowTextLength(window) + 1;
-  ::GetWindowText(window, WriteInto(&result, length), length);
-  text->assign(WideToUTF16(result));
 }
 
 void AutomationProvider::OnMessageFromExternalHost(int handle,
@@ -564,7 +496,7 @@ bool AutomationProvider::InterceptBrowserEventMessageFromExternalHost(
 
   if (profile()->GetExtensionMessageService()) {
     profile()->GetExtensionMessageService()->DispatchEventToRenderers(
-        event_name, json_args, profile()->IsOffTheRecord(), GURL());
+        event_name, json_args, profile(), GURL());
   }
 
   return true;
@@ -595,11 +527,19 @@ void AutomationProvider::NavigateExternalTabAtIndex(
 }
 
 void AutomationProvider::OnRunUnloadHandlers(
-    int handle, gfx::NativeWindow notification_window,
-    int notification_message) {
+    int handle, IPC::Message* reply_message) {
   ExternalTabContainer* external_tab = GetExternalTabForHandle(handle);
   if (external_tab) {
-    external_tab->RunUnloadHandlers(notification_window, notification_message);
+    external_tab->RunUnloadHandlers(reply_message);
   }
 }
 
+void AutomationProvider::OnSetZoomLevel(int handle, int zoom_level) {
+  if (tab_tracker_->ContainsHandle(handle)) {
+    NavigationController* tab = tab_tracker_->GetResource(handle);
+    if (tab->tab_contents() && tab->tab_contents()->render_view_host()) {
+      tab->tab_contents()->render_view_host()->Zoom(
+          static_cast<PageZoom::Function>(zoom_level));
+    }
+  }
+}

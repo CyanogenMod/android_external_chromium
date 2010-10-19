@@ -7,11 +7,11 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/net/ssl_config_service_manager.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/browser/pref_service.h"
 #include "net/base/ssl_config_service.h"
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -48,7 +48,9 @@ void SSLConfigServicePref::GetSSLConfig(net::SSLConfig* config) {
 
 void SSLConfigServicePref::SetNewSSLConfig(
     const net::SSLConfig& new_config) {
+  net::SSLConfig orig_config = cached_config_;
   cached_config_ = new_config;
+  ProcessConfigUpdate(orig_config, new_config);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -145,6 +147,7 @@ void SSLConfigServiceManagerPref::GetSSLConfigFromPrefs(
   config->ssl2_enabled = ssl2_enabled_.GetValue();
   config->ssl3_enabled = ssl3_enabled_.GetValue();
   config->tls1_enabled = tls1_enabled_.GetValue();
+  SSLConfigServicePref::SetSSLConfigFlags(config);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

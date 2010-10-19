@@ -9,7 +9,7 @@
 #include "base/stl_util-inl.h"
 #include "base/values.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/first_run.h"
+#include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/importer/firefox2_importer.h"
 #include "chrome/browser/importer/firefox3_importer.h"
 #include "chrome/browser/importer/firefox_importer_utils.h"
@@ -19,7 +19,6 @@
 #include "grit/generated_resources.h"
 
 #if defined(OS_WIN)
-#include "app/win_util.h"
 #include "chrome/browser/importer/ie_importer.h"
 #include "chrome/browser/password_manager/ie7_password.h"
 #endif
@@ -130,12 +129,12 @@ void ImporterList::DetectFirefoxProfiles() {
 #if defined(OS_WIN)
   version = GetCurrentFirefoxMajorVersionFromRegistry();
 #endif
-  if (version != 2 && version != 3)
+  if (version < 2)
     GetFirefoxVersionAndPathFromProfile(profile_path, &version, &app_path);
 
   if (version == 2) {
     firefox_type = importer::FIREFOX2;
-  } else if (version == 3) {
+  } else if (version >= 3) {
     firefox_type = importer::FIREFOX3;
   } else {
     // Ignores other versions of firefox.

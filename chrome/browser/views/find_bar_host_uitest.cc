@@ -6,7 +6,7 @@
 #include "chrome/test/automation/browser_proxy.h"
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/ui/ui_test.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/test/test_server.h"
 
 class FindInPageControllerTest : public UITest {
  public:
@@ -25,11 +25,11 @@ const std::string kSimplePage = "404_is_enough_for_us.html";
 // The find window should not change its location just because we open and close
 // a new tab.
 TEST_F(FindInPageControllerTest, FindMovesOnTabClose_Issue1343052) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(L"chrome/test/data", NULL);
-  ASSERT_TRUE(NULL != server.get());
+  net::TestServer test_server(net::TestServer::TYPE_HTTP,
+                              FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  ASSERT_TRUE(test_server.Start());
 
-  GURL url = server->TestServerPage(kSimplePage);
+  GURL url = test_server.GetURL(kSimplePage);
   scoped_refptr<TabProxy> tabA(GetActiveTab());
   ASSERT_TRUE(tabA.get());
   ASSERT_TRUE(tabA->NavigateToURL(url));

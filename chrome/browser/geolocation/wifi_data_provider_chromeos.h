@@ -4,12 +4,13 @@
 
 #ifndef CHROME_BROWSER_GEOLOCATION_WIFI_DATA_PROVIDER_CHROMEOS_H_
 #define CHROME_BROWSER_GEOLOCATION_WIFI_DATA_PROVIDER_CHROMEOS_H_
+#pragma once
 
 #include "chrome/browser/geolocation/wifi_data_provider_common.h"
 
-#include "base/scoped_ptr.h"
-
-namespace chromeos { class NetworkLibrary; }
+namespace chromeos {
+class NetworkLibrary;
+}
 
 class WifiDataProviderChromeOs : public WifiDataProviderCommon {
  public:
@@ -24,8 +25,6 @@ class WifiDataProviderChromeOs : public WifiDataProviderCommon {
   // WifiDataProviderCommon
   virtual WlanApiInterface* NewWlanApi();
   virtual PollingPolicyInterface* NewPollingPolicy();
-
-  scoped_ptr<chromeos::NetworkLibrary> network_library_;
 
   DISALLOW_COPY_AND_ASSIGN(WifiDataProviderChromeOs);
 };

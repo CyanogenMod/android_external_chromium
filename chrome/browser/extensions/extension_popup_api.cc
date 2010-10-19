@@ -6,6 +6,8 @@
 
 #include "base/json/json_writer.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
+#include "base/values.h"
 #include "chrome/browser/extensions/extension_dom_ui.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_message_service.h"
@@ -45,17 +47,16 @@ const char kBadAnchorArgument[] = "Invalid anchor argument.";
 const char kInvalidURLError[] = "Invalid URL.";
 const char kNotAnExtension[] = "Not an extension view.";
 const char kPopupsDisallowed[] =
-    "Popups are only supported from toolstrip or tab-contents views.";
+    "Popups are only supported from tab-contents views.";
 
 // Keys.
-const wchar_t kUrlKey[] = L"url";
-const wchar_t kWidthKey[] = L"width";
-const wchar_t kHeightKey[] = L"height";
-const wchar_t kTopKey[] = L"top";
-const wchar_t kLeftKey[] = L"left";
-const wchar_t kGiveFocusKey[] = L"giveFocus";
-const wchar_t kDomAnchorKey[] = L"domAnchor";
-const wchar_t kBorderStyleKey[] = L"borderStyle";
+const char kWidthKey[] = "width";
+const char kHeightKey[] = "height";
+const char kTopKey[] = "top";
+const char kLeftKey[] = "left";
+const char kGiveFocusKey[] = "giveFocus";
+const char kDomAnchorKey[] = "domAnchor";
+const char kBorderStyleKey[] = "borderStyle";
 
 // chrome enumeration values
 const char kRectangleChrome[] = "rectangle";
@@ -165,6 +166,15 @@ class ExtensionPopupHost : public ExtensionPopup::Observer,
         GetRoutingFromDispatcher(dispatcher_);
     if (router)
       router->RegisterRenderViewHost(host->render_view_host());
+
+    // Extension hosts created for popup contents exist in the same tab
+    // contents as the ExtensionFunctionDispatcher that requested the popup.
+    // For example, '_blank' link navigation should be routed through the tab
+    // contents that requested the popup.
+    if (dispatcher_ && dispatcher_->delegate()) {
+      host->set_associated_tab_contents(
+          dispatcher_->delegate()->associated_tab_contents());
+    }
   }
 
   virtual void ExtensionPopupResized(ExtensionPopup* popup) {
@@ -356,12 +366,11 @@ void PopupShowFunction::Run() {
 }
 
 bool PopupShowFunction::RunImpl() {
-  // Popups may only be displayed from TAB_CONTENTS and EXTENSION_TOOLSTRIP
-  // views.
+  // Popups may only be displayed from TAB_CONTENTS and EXTENSION_INFOBAR.
   ViewType::Type view_type =
       dispatcher()->render_view_host()->delegate()->GetRenderViewType();
-  if (ViewType::EXTENSION_TOOLSTRIP != view_type &&
-      ViewType::TAB_CONTENTS != view_type) {
+  if (ViewType::TAB_CONTENTS != view_type &&
+      ViewType::EXTENSION_INFOBAR != view_type) {
     error_ = kPopupsDisallowed;
     return false;
   }
@@ -444,11 +453,7 @@ bool PopupShowFunction::RunImpl() {
     window = GetCurrentBrowser()->window()->GetNativeHandle();
 
 #if defined(TOOLKIT_VIEWS)
-  // Pop-up from extension views (ExtensionShelf, etc.), and drop-down when
-  // in a TabContents view.
-  BubbleBorder::ArrowLocation arrow_location =
-      view_type == ViewType::TAB_CONTENTS ?
-          BubbleBorder::TOP_LEFT : BubbleBorder::BOTTOM_LEFT;
+  BubbleBorder::ArrowLocation arrow_location = BubbleBorder::TOP_LEFT;
 
   // ExtensionPopupHost manages it's own lifetime.
   ExtensionPopupHost* popup_host = new ExtensionPopupHost(dispatcher());
@@ -468,6 +473,7 @@ bool PopupShowFunction::RunImpl() {
   popup_->set_close_on_lost_focus(false);
   popup_host->set_popup(popup_);
 #endif  // defined(TOOLKIT_VIEWS)
+
   return true;
 }
 
@@ -498,13 +504,10 @@ void PopupShowFunction::Observe(NotificationType type,
 // static
 void PopupEventRouter::OnPopupClosed(Profile* profile,
                                      int routing_id) {
-  std::string full_event_name = StringPrintf(
+  std::string full_event_name = base::StringPrintf(
       extension_popup_module_events::kOnPopupClosed,
       routing_id);
 
   profile->GetExtensionMessageService()->DispatchEventToRenderers(
-      full_event_name,
-      base::JSONWriter::kEmptyArray,
-      profile->IsOffTheRecord(),
-      GURL());
+      full_event_name, base::JSONWriter::kEmptyArray, profile, GURL());
 }

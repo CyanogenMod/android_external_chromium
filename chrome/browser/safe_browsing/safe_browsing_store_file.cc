@@ -5,6 +5,7 @@
 #include "chrome/browser/safe_browsing/safe_browsing_store_file.h"
 
 #include "base/callback.h"
+#include "base/histogram.h"
 #include "base/md5.h"
 
 // TODO(shess): Remove after migration.
@@ -108,39 +109,6 @@ bool WriteVector(const std::vector<T>& values, FILE* fp, MD5Context* context) {
   return WriteArray(ptr, values.size(), fp, context);
 }
 
-// Remove deleted items (|chunk_id| in |del_set|) from the vector
-// starting at |offset| running to |end()|.
-template <class T>
-void RemoveDeleted(std::vector<T>* vec, size_t offset,
-                   const base::hash_set<int32>& del_set) {
-  DCHECK(vec);
-
-  // Scan through the items read, dropping the items in |del_set|.
-  typename std::vector<T>::iterator add_iter = vec->begin() + offset;
-  for (typename std::vector<T>::iterator iter = add_iter;
-       iter != vec->end(); ++iter) {
-    if (del_set.count(iter->chunk_id) == 0) {
-      *add_iter = *iter;
-      ++add_iter;
-    }
-  }
-  vec->erase(add_iter, vec->end());
-}
-
-// Combine |ReadToVector()| and |RemoveDeleted()|.  Returns true on
-// success.
-template <class T>
-bool ReadToVectorAndDelete(std::vector<T>* values, size_t count,
-                           FILE* fp, MD5Context* context,
-                           const base::hash_set<int32>& del_set) {
-  const size_t original_size = values->size();
-  if (!ReadToVector(values, count, fp, context))
-    return false;
-
-  RemoveDeleted(values, original_size, del_set);
-  return true;
-}
-
 // Read an array of |count| integers and add them to |values|.
 // Returns true on success.
 bool ReadToChunkSet(std::set<int32>* values, size_t count,
@@ -176,6 +144,29 @@ void DeleteChunksFromSet(const base::hash_set<int32>& deleted,
     if (deleted.count(*prev) > 0)
       chunks->erase(prev);
   }
+}
+
+// Sanity-check the header against the file's size to make sure our
+// vectors aren't gigantic.  This doubles as a cheap way to detect
+// corruption without having to checksum the entire file.
+bool FileHeaderSanityCheck(const FilePath& filename,
+                           const FileHeader& header) {
+  int64 size = 0;
+  if (!file_util::GetFileSize(filename, &size))
+    return false;
+
+  int64 expected_size = sizeof(FileHeader);
+  expected_size += header.add_chunk_count * sizeof(int32);
+  expected_size += header.sub_chunk_count * sizeof(int32);
+  expected_size += header.add_prefix_count * sizeof(SBAddPrefix);
+  expected_size += header.sub_prefix_count * sizeof(SBSubPrefix);
+  expected_size += header.add_hash_count * sizeof(SBAddFullHash);
+  expected_size += header.sub_hash_count * sizeof(SBSubFullHash);
+  expected_size += sizeof(MD5Digest);
+  if (size != expected_size)
+    return false;
+
+  return true;
 }
 
 }  // namespace
@@ -227,6 +218,35 @@ void SafeBrowsingStoreFile::Init(const FilePath& filename,
                                  Callback0::Type* corruption_callback) {
   filename_ = filename;
   corruption_callback_.reset(corruption_callback);
+}
+
+bool SafeBrowsingStoreFile::BeginChunk() {
+  return ClearChunkBuffers();
+}
+
+bool SafeBrowsingStoreFile::WriteAddPrefix(int32 chunk_id, SBPrefix prefix) {
+  add_prefixes_.push_back(SBAddPrefix(chunk_id, prefix));
+  return true;
+}
+
+bool SafeBrowsingStoreFile::WriteAddHash(int32 chunk_id,
+                                         base::Time receive_time,
+                                         SBFullHash full_hash) {
+  add_hashes_.push_back(SBAddFullHash(chunk_id, receive_time, full_hash));
+  return true;
+}
+
+bool SafeBrowsingStoreFile::WriteSubPrefix(int32 chunk_id,
+                                           int32 add_chunk_id,
+                                           SBPrefix prefix) {
+  sub_prefixes_.push_back(SBSubPrefix(chunk_id, add_chunk_id, prefix));
+  return true;
+}
+
+bool SafeBrowsingStoreFile::WriteSubHash(int32 chunk_id, int32 add_chunk_id,
+                                         SBFullHash full_hash) {
+  sub_hashes_.push_back(SBSubFullHash(chunk_id, add_chunk_id, full_hash));
+  return true;
 }
 
 bool SafeBrowsingStoreFile::OnCorruptDatabase() {
@@ -311,24 +331,9 @@ bool SafeBrowsingStoreFile::BeginUpdate() {
     return true;
   }
 
-  // Check that the file size makes sense given the header.  This is a
-  // cheap way to protect against header corruption while deferring
-  // the checksum calculation until the end of the update.
   // TODO(shess): Under POSIX it is possible that this could size a
   // file different from the file which was opened.
-  int64 size = 0;
-  if (!file_util::GetFileSize(filename_, &size))
-    return OnCorruptDatabase();
-
-  int64 expected_size = sizeof(FileHeader);
-  expected_size += header.add_chunk_count * sizeof(int32);
-  expected_size += header.sub_chunk_count * sizeof(int32);
-  expected_size += header.add_prefix_count * sizeof(SBAddPrefix);
-  expected_size += header.sub_prefix_count * sizeof(SBSubPrefix);
-  expected_size += header.add_hash_count * sizeof(SBAddFullHash);
-  expected_size += header.sub_hash_count * sizeof(SBSubFullHash);
-  expected_size += sizeof(MD5Digest);
-  if (size != expected_size)
+  if (!FileHeaderSanityCheck(filename_, header))
     return OnCorruptDatabase();
 
   // Pull in the chunks-seen data for purposes of implementing
@@ -422,6 +427,9 @@ bool SafeBrowsingStoreFile::DoUpdate(
     if (header.magic != kFileMagic || header.version != kFileVersion)
       return OnCorruptDatabase();
 
+    if (!FileHeaderSanityCheck(filename_, header))
+      return OnCorruptDatabase();
+
     // Re-read the chunks-seen data to get to the later data in the
     // file and calculate the checksum.  No new elements should be
     // added to the sets.
@@ -431,14 +439,14 @@ bool SafeBrowsingStoreFile::DoUpdate(
                         file_.get(), &context))
       return OnCorruptDatabase();
 
-    if (!ReadToVectorAndDelete(&add_prefixes, header.add_prefix_count,
-                               file_.get(), &context, add_del_cache_) ||
-        !ReadToVectorAndDelete(&sub_prefixes, header.sub_prefix_count,
-                               file_.get(), &context, sub_del_cache_) ||
-        !ReadToVectorAndDelete(&add_full_hashes, header.add_hash_count,
-                               file_.get(), &context, add_del_cache_) ||
-        !ReadToVectorAndDelete(&sub_full_hashes, header.sub_hash_count,
-                               file_.get(), &context, sub_del_cache_))
+    if (!ReadToVector(&add_prefixes, header.add_prefix_count,
+                      file_.get(), &context) ||
+        !ReadToVector(&sub_prefixes, header.sub_prefix_count,
+                      file_.get(), &context) ||
+        !ReadToVector(&add_full_hashes, header.add_hash_count,
+                      file_.get(), &context) ||
+        !ReadToVector(&sub_full_hashes, header.sub_hash_count,
+                      file_.get(), &context))
       return OnCorruptDatabase();
 
     // Calculate the digest to this point.
@@ -461,11 +469,30 @@ bool SafeBrowsingStoreFile::DoUpdate(
   if (!FileRewind(new_file_.get()))
     return false;
 
+  // Get chunk file's size for validating counts.
+  int64 size = 0;
+  if (!file_util::GetFileSize(TemporaryFileForFilename(filename_), &size))
+    return OnCorruptDatabase();
+
   // Append the accumulated chunks onto the vectors read from |file_|.
   for (int i = 0; i < chunks_written_; ++i) {
     ChunkHeader header;
 
+    int64 ofs = ftell(new_file_.get());
+    if (ofs == -1)
+      return false;
+
     if (!ReadArray(&header, 1, new_file_.get(), NULL))
+      return false;
+
+    // As a safety measure, make sure that the header describes a sane
+    // chunk, given the remaining file size.
+    int64 expected_size = ofs + sizeof(ChunkHeader);
+    expected_size += header.add_prefix_count * sizeof(SBAddPrefix);
+    expected_size += header.sub_prefix_count * sizeof(SBSubPrefix);
+    expected_size += header.add_hash_count * sizeof(SBAddFullHash);
+    expected_size += header.sub_hash_count * sizeof(SBSubFullHash);
+    if (expected_size > size)
       return false;
 
     // TODO(shess): If the vectors were kept sorted, then this code
@@ -475,27 +502,25 @@ bool SafeBrowsingStoreFile::DoUpdate(
     // some sort of recursive binary merge might be in order (merge
     // chunks pairwise, merge those chunks pairwise, and so on, then
     // merge the result with the main list).
-    if (!ReadToVectorAndDelete(&add_prefixes, header.add_prefix_count,
-                               new_file_.get(), NULL, add_del_cache_) ||
-        !ReadToVectorAndDelete(&sub_prefixes, header.sub_prefix_count,
-                               new_file_.get(), NULL, sub_del_cache_) ||
-        !ReadToVectorAndDelete(&add_full_hashes, header.add_hash_count,
-                               new_file_.get(), NULL, add_del_cache_) ||
-        !ReadToVectorAndDelete(&sub_full_hashes, header.sub_hash_count,
-                               new_file_.get(), NULL, sub_del_cache_))
+    if (!ReadToVector(&add_prefixes, header.add_prefix_count,
+                      new_file_.get(), NULL) ||
+        !ReadToVector(&sub_prefixes, header.sub_prefix_count,
+                      new_file_.get(), NULL) ||
+        !ReadToVector(&add_full_hashes, header.add_hash_count,
+                      new_file_.get(), NULL) ||
+        !ReadToVector(&sub_full_hashes, header.sub_hash_count,
+                      new_file_.get(), NULL))
       return false;
   }
 
-  // Append items from |pending_adds| which haven't been deleted.
-  for (std::vector<SBAddFullHash>::const_iterator iter = pending_adds.begin();
-       iter != pending_adds.end(); ++iter) {
-    if (add_del_cache_.count(iter->chunk_id) == 0)
-      add_full_hashes.push_back(*iter);
-  }
+  // Append items from |pending_adds|.
+  add_full_hashes.insert(add_full_hashes.end(),
+                         pending_adds.begin(), pending_adds.end());
 
-  // Knock the subs from the adds.
+  // Knock the subs from the adds and process deleted chunks.
   SBProcessSubs(&add_prefixes, &sub_prefixes,
-                &add_full_hashes, &sub_full_hashes);
+                &add_full_hashes, &sub_full_hashes,
+                add_del_cache_, sub_del_cache_);
 
   // We no longer need to track deleted chunks.
   DeleteChunksFromSet(add_del_cache_, &add_chunks_cache_);
@@ -557,6 +582,10 @@ bool SafeBrowsingStoreFile::DoUpdate(
   if (!file_util::Move(new_filename, filename_))
     return false;
 
+  // Record counts before swapping to caller.
+  UMA_HISTOGRAM_COUNTS("SB2.AddPrefixes", add_prefixes.size());
+  UMA_HISTOGRAM_COUNTS("SB2.SubPrefixes", sub_prefixes.size());
+
   // Pass the resulting data off to the caller.
   add_prefixes_result->swap(add_prefixes);
   add_full_hashes_result->swap(add_full_hashes);
@@ -586,4 +615,38 @@ bool SafeBrowsingStoreFile::FinishUpdate(
 bool SafeBrowsingStoreFile::CancelUpdate() {
   old_store_.reset();
   return Close();
+}
+
+void SafeBrowsingStoreFile::SetAddChunk(int32 chunk_id) {
+  add_chunks_cache_.insert(chunk_id);
+}
+
+bool SafeBrowsingStoreFile::CheckAddChunk(int32 chunk_id) {
+  return add_chunks_cache_.count(chunk_id) > 0;
+}
+
+void SafeBrowsingStoreFile::GetAddChunks(std::vector<int32>* out) {
+  out->clear();
+  out->insert(out->end(), add_chunks_cache_.begin(), add_chunks_cache_.end());
+}
+
+void SafeBrowsingStoreFile::SetSubChunk(int32 chunk_id) {
+  sub_chunks_cache_.insert(chunk_id);
+}
+
+bool SafeBrowsingStoreFile::CheckSubChunk(int32 chunk_id) {
+  return sub_chunks_cache_.count(chunk_id) > 0;
+}
+
+void SafeBrowsingStoreFile::GetSubChunks(std::vector<int32>* out) {
+  out->clear();
+  out->insert(out->end(), sub_chunks_cache_.begin(), sub_chunks_cache_.end());
+}
+
+void SafeBrowsingStoreFile::DeleteAddChunk(int32 chunk_id) {
+  add_del_cache_.insert(chunk_id);
+}
+
+void SafeBrowsingStoreFile::DeleteSubChunk(int32 chunk_id) {
+  sub_del_cache_.insert(chunk_id);
 }

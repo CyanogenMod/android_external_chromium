@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_TAB_SPECIFIC_CONTENT_SETTINGS_H_
 #define CHROME_BROWSER_TAB_CONTENTS_TAB_SPECIFIC_CONTENT_SETTINGS_H_
+#pragma once
 
 #include "base/basictypes.h"
 #include "chrome/browser/geolocation/geolocation_settings_state.h"
@@ -14,6 +15,7 @@
 
 class CannedBrowsingDataAppCacheHelper;
 class CannedBrowsingDataDatabaseHelper;
+class CannedBrowsingDataIndexedDBHelper;
 class CannedBrowsingDataLocalStorageHelper;
 class CookiesTreeModel;
 class Profile;
@@ -27,9 +29,12 @@ class TabSpecificContentSettings
  public:
   class Delegate {
    public:
-    // Invoked when content settings managed by the TabSpecificContentSettings
-    // object change.
-    virtual void OnContentSettingsChange() = 0;
+    // Invoked when content settings for resources in the tab contents
+    // associated with this TabSpecificContentSettings object were accessed.
+    // |content_was_blocked| is true, if a content settings type was blocked
+    // (as opposed to just accessed). Currently, this parameter is checked in
+    // unit tests only.
+    virtual void OnContentSettingsAccessed(bool content_was_blocked) = 0;
 
     virtual ~Delegate() {}
   };
@@ -38,8 +43,15 @@ class TabSpecificContentSettings
 
   virtual ~TabSpecificContentSettings() {}
 
-  // Resets the |content_blocked_| array and stored cookies.
-  void ClearBlockedContentSettings();
+  // Resets the |content_blocked_| and |content_accessed_| arrays, except for
+  // CONTENT_SETTINGS_TYPE_COOKIES related information.
+  void ClearBlockedContentSettingsExceptForCookies();
+
+  // Resets all cookies related information.
+  void ClearCookieSpecificContentSettings();
+
+  // Clears the Geolocation settings.
+  void ClearGeolocationContentSettings();
 
   // Changes the |content_blocked_| entry for popups.
   void SetPopupsBlocked(bool blocked);
@@ -51,6 +63,13 @@ class TabSpecificContentSettings
   // Returns whether a particular kind of content has been blocked for this
   // page.
   bool IsContentBlocked(ContentSettingsType content_type) const;
+
+  // Returns whether a particular kind of content has been accessed. Currently
+  // only tracks cookies.
+  bool IsContentAccessed(ContentSettingsType content_type) const;
+
+  const std::set<std::string>& BlockedResourcesForType(
+      ContentSettingsType content_type) const;
 
   // Returns the GeolocationSettingsState that controls the
   // geolocation API usage on this page.
@@ -64,12 +83,24 @@ class TabSpecificContentSettings
   // Returns a CookiesTreeModel object for the recoreded blocked cookies.
   CookiesTreeModel* GetBlockedCookiesTreeModel();
 
+  bool load_plugins_link_enabled() { return load_plugins_link_enabled_; }
+  void set_load_plugins_link_enabled(bool enabled) {
+    load_plugins_link_enabled_ = enabled;
+  }
+
   // RenderViewHostDelegate::ContentSettings implementation.
-  virtual void OnContentBlocked(ContentSettingsType type);
+  virtual void OnContentBlocked(ContentSettingsType type,
+                                const std::string& resource_identifier);
   virtual void OnCookieAccessed(const GURL& url,
                                 const std::string& cookie_line,
                                 bool blocked_by_policy);
-  virtual void OnLocalStorageAccessed(const GURL& url, bool blocked_by_policy);
+  virtual void OnIndexedDBAccessed(const GURL& url,
+                                   const string16& name,
+                                   const string16& description,
+                                   bool blocked_by_policy);
+  virtual void OnLocalStorageAccessed(const GURL& url,
+                                      DOMStorageType storage_type,
+                                      bool blocked_by_policy);
   virtual void OnWebDatabaseAccessed(const GURL& url,
                                      const string16& name,
                                      const string16& display_name,
@@ -96,11 +127,19 @@ class TabSpecificContentSettings
     CannedBrowsingDataDatabaseHelper* databases() const {
       return databases_;
     }
+    CannedBrowsingDataIndexedDBHelper* indexed_dbs() const {
+      return indexed_dbs_;
+    }
     CannedBrowsingDataLocalStorageHelper* local_storages() const {
       return local_storages_;
     }
+    CannedBrowsingDataLocalStorageHelper* session_storages() const {
+      return session_storages_;
+    }
 
     CookiesTreeModel* GetCookiesTreeModel();
+
+    bool empty() const;
 
    private:
     DISALLOW_COPY_AND_ASSIGN(LocalSharedObjectsContainer);
@@ -108,11 +147,26 @@ class TabSpecificContentSettings
     scoped_refptr<net::CookieMonster> cookies_;
     scoped_refptr<CannedBrowsingDataAppCacheHelper> appcaches_;
     scoped_refptr<CannedBrowsingDataDatabaseHelper> databases_;
+    scoped_refptr<CannedBrowsingDataIndexedDBHelper> indexed_dbs_;
     scoped_refptr<CannedBrowsingDataLocalStorageHelper> local_storages_;
+    scoped_refptr<CannedBrowsingDataLocalStorageHelper> session_storages_;
   };
+
+  void AddBlockedResource(ContentSettingsType content_type,
+                          const std::string& resource_identifier);
+
+  void OnContentAccessed(ContentSettingsType type);
 
   // Stores which content setting types actually have blocked content.
   bool content_blocked_[CONTENT_SETTINGS_NUM_TYPES];
+
+  // Stores which content setting types actually were accessed.
+  bool content_accessed_[CONTENT_SETTINGS_NUM_TYPES];
+
+  // Stores the blocked resources for each content type.
+  // Currently only used for plugins.
+  scoped_ptr<std::set<std::string> >
+      blocked_resources_[CONTENT_SETTINGS_NUM_TYPES];
 
   // Stores the blocked/allowed cookies.
   LocalSharedObjectsContainer allowed_local_shared_objects_;
@@ -120,6 +174,9 @@ class TabSpecificContentSettings
 
   // Manages information about Geolocation API usage in this page.
   GeolocationSettingsState geolocation_settings_state_;
+
+  // Stores whether the user can load blocked plugins on this page.
+  bool load_plugins_link_enabled_;
 
   Delegate* delegate_;
 

@@ -8,8 +8,10 @@
  *               the old net-internals is replaced.
  */
 
+// TODO(eroman): these functions should use lower-case names.
 var PaintLogView;
 var PrintSourceEntriesAsText;
+var proxySettingsToString;
 
 // Start of anonymous namespace.
 (function() {
@@ -33,8 +35,15 @@ function addSourceEntry_(node, sourceEntry) {
 
   addTextNode(nobr, sourceEntry.getDescription());
 
+  var p2 = addNode(div, 'p');
+  var nobr2 = addNode(p2, 'nobr');
+
+  var logEntries = sourceEntry.getLogEntries();
+  var startDate = g_browser.convertTimeTicksToDate(logEntries[0].time);
+  addTextNode(nobr2, 'Start Time: ' + startDate.toLocaleString());
+
   var pre = addNode(div, 'pre');
-  addTextNode(pre, PrintSourceEntriesAsText(sourceEntry.getLogEntries()));
+  addTextNode(pre, PrintSourceEntriesAsText(logEntries, false));
 }
 
 function canCollapseBeginWithEnd(beginEntry) {
@@ -48,8 +57,13 @@ function canCollapseBeginWithEnd(beginEntry) {
              beginEntry.end.orig.wasPassivelyCaptured;
 }
 
-PrintSourceEntriesAsText = function(sourceEntries) {
+PrintSourceEntriesAsText = function(sourceEntries, doSecurityStripping) {
   var entries = LogGroupEntry.createArrayFrom(sourceEntries);
+  if (entries.length == 0)
+    return '';
+
+  var startDate = g_browser.convertTimeTicksToDate(entries[0].orig.time);
+  var startTime = startDate.getTime();
 
   var tablePrinter = new TablePrinter();
 
@@ -66,10 +80,13 @@ PrintSourceEntriesAsText = function(sourceEntries) {
     tablePrinter.addCell(entry.orig.wasPassivelyCaptured ? '(P) ' : '');
 
     tablePrinter.addCell('t=');
-    var tCell = tablePrinter.addCell(
-        g_browser.convertTimeTicksToDate(entry.orig.time).getTime());
+    var date = g_browser.convertTimeTicksToDate(entry.orig.time) ;
+    var tCell = tablePrinter.addCell(date.getTime());
     tCell.alignRight = true;
-    tablePrinter.addCell('  ');
+    tablePrinter.addCell(' [st=');
+    var stCell = tablePrinter.addCell(date.getTime() - startTime);
+    stCell.alignRight = true;
+    tablePrinter.addCell('] ');
 
     var indentationStr = makeRepeatedString(' ', entry.getDepth() * 3);
     var mainCell =
@@ -95,13 +112,16 @@ PrintSourceEntriesAsText = function(sourceEntries) {
     // Output the extra parameters.
     if (entry.orig.params != undefined) {
       // Add a continuation row for each line of text from the extra parameters.
-      var extraParamsText = getTextForExtraParams(entry.orig);
+      var extraParamsText = getTextForExtraParams(entry.orig,
+                                                  doSecurityStripping);
       var extraParamsTextLines = extraParamsText.split('\n');
 
       for (var j = 0; j < extraParamsTextLines.length; ++j) {
         tablePrinter.addRow();
         tablePrinter.addCell('');  // Empty passive annotation.
         tablePrinter.addCell('');  // No t=.
+        tablePrinter.addCell('');
+        tablePrinter.addCell('');  // No st=.
         tablePrinter.addCell('');
         tablePrinter.addCell('  ');
 
@@ -113,24 +133,32 @@ PrintSourceEntriesAsText = function(sourceEntries) {
   }
 
   // Format the table for fixed-width text.
-  return tablePrinter.toText();
+  return tablePrinter.toText(0);
 }
 
-function getTextForExtraParams(entry) {
+function getTextForExtraParams(entry, doSecurityStripping) {
   // Format the extra parameters (use a custom formatter for certain types,
   // but default to displaying as JSON).
   switch (entry.type) {
     case LogEventType.HTTP_TRANSACTION_SEND_REQUEST_HEADERS:
     case LogEventType.HTTP_TRANSACTION_SEND_TUNNEL_HEADERS:
-      return getTextForRequestHeadersExtraParam(entry);
+      return getTextForRequestHeadersExtraParam(entry, doSecurityStripping);
 
     case LogEventType.HTTP_TRANSACTION_READ_RESPONSE_HEADERS:
     case LogEventType.HTTP_TRANSACTION_READ_TUNNEL_RESPONSE_HEADERS:
-      return getTextForResponseHeadersExtraParam(entry);
+      return getTextForResponseHeadersExtraParam(entry, doSecurityStripping);
+
+    case LogEventType.PROXY_CONFIG_CHANGED:
+      return getTextForProxyConfigChangedExtraParam(entry);
 
     default:
       var out = [];
       for (var k in entry.params) {
+        if (k == 'headers' && entry.params[k] instanceof Array) {
+          out.push(getTextForResponseHeadersExtraParam(entry,
+                                                       doSecurityStripping));
+          continue;
+        }
         var value = entry.params[k];
         var paramStr = ' --> ' + k + ' = ' + JSON.stringify(value);
 
@@ -194,17 +222,77 @@ function indentLines(start, lines) {
   return start + lines.join('\n' + makeRepeatedString(' ', start.length));
 }
 
-function getTextForRequestHeadersExtraParam(entry) {
+/**
+ * Removes a cookie or unencrypted login information from a single HTTP header
+ * line, if present, and returns the modified line.  Otherwise, just returns
+ * the original line.
+ */
+function stripCookieOrLoginInfo(line) {
+  var patterns = [
+      // Cookie patterns
+      /^set-cookie:/i,
+      /^set-cookie2:/i,
+      /^cookie:/i,
+
+      // Unencrypted authentication patterns
+      /^authorization: \S*/i,
+      /^proxy-authorization: \S*/i];
+
+  for (var i = 0; i < patterns.length; i++) {
+    var match = patterns[i].exec(line);
+    if (match != null)
+      return match + " [value was stripped]";
+  }
+  return line;
+}
+
+/**
+ * Removes all cookie and unencrypted login text from a list of HTTP
+ * header lines.
+ */
+function stripCookiesAndLoginInfo(headers) {
+  return headers.map(stripCookieOrLoginInfo);
+}
+
+function getTextForRequestHeadersExtraParam(entry, doSecurityStripping) {
   var params = entry.params;
 
   // Strip the trailing CRLF that params.line contains.
   var lineWithoutCRLF = params.line.replace(/\r\n$/g, '');
 
-  return indentLines(' --> ', [lineWithoutCRLF].concat(params.headers));
+  var headers = params.headers;
+  if (doSecurityStripping)
+    headers = stripCookiesAndLoginInfo(headers);
+
+  return indentLines(' --> ', [lineWithoutCRLF].concat(headers));
 }
 
-function getTextForResponseHeadersExtraParam(entry) {
-  return indentLines(' --> ', entry.params.headers);
+function getTextForResponseHeadersExtraParam(entry, doSecurityStripping) {
+  var headers = entry.params.headers;
+  if (doSecurityStripping)
+    headers = stripCookiesAndLoginInfo(headers);
+  return indentLines(' --> ', headers);
+}
+
+function getTextForProxyConfigChangedExtraParam(entry) {
+  var params = entry.params;
+  var out = '';
+  var indentation = '        ';
+
+  if (params.old_config) {
+    var oldConfigString = proxySettingsToString(params.old_config);
+    // The previous configuration may not be present in the case of
+    // the initial proxy settings fetch.
+    out += ' --> old_config =\n' +
+           indentLines(indentation, oldConfigString.split('\n'));
+    out += '\n';
+  }
+
+  var newConfigString = proxySettingsToString(params.new_config);
+  out += ' --> new_config =\n' +
+         indentLines(indentation, newConfigString.split('\n'));
+
+  return out;
 }
 
 function getTextForEvent(entry) {
@@ -224,6 +312,72 @@ function getTextForEvent(entry) {
   text += getKeyWithValue(LogEventType, entry.orig.type);
   return text;
 }
+
+proxySettingsToString = function(config) {
+  if (!config)
+    return '';
+
+  // The proxy settings specify up to three major fallback choices
+  // (auto-detect, custom pac url, or manual settings).
+  // We enumerate these to a list so we can later number them.
+  var modes = [];
+
+  // Output any automatic settings.
+  if (config.auto_detect)
+    modes.push(['Auto-detect']);
+  if (config.pac_url)
+    modes.push(['PAC script: ' + config.pac_url]);
+
+  // Output any manual settings.
+  if (config.single_proxy || config.proxy_per_scheme) {
+    var lines = [];
+
+    if (config.single_proxy) {
+      lines.push('Proxy server: ' + config.single_proxy);
+    } else if (config.proxy_per_scheme) {
+      for (var urlScheme in config.proxy_per_scheme) {
+        if (urlScheme != 'fallback') {
+          lines.push('Proxy server for ' + urlScheme.toUpperCase() + ': ' +
+                     config.proxy_per_scheme[urlScheme]);
+        }
+      }
+      if (config.proxy_per_scheme.fallback) {
+        lines.push('Proxy server for everything else: ' +
+                   config.proxy_per_scheme.fallback);
+      }
+    }
+
+    // Output any proxy bypass rules.
+    if (config.bypass_list) {
+      if (config.reverse_bypass) {
+        lines.push('Reversed bypass list: ');
+      } else {
+        lines.push('Bypass list: ');
+      }
+
+      for (var i = 0; i < config.bypass_list.length; ++i)
+        lines.push('  ' + config.bypass_list[i]);
+    }
+
+    modes.push(lines);
+  }
+
+  // If we didn't find any proxy settings modes, we are using DIRECT.
+  if (modes.length < 1)
+    return 'Use DIRECT connections.';
+
+  // If there was just one mode, don't bother numbering it.
+  if (modes.length == 1)
+    return modes[0].join('\n');
+
+  // Otherwise concatenate all of the modes into a numbered list
+  // (which correspond with the fallback order).
+  var result = [];
+  for (var i = 0; i < modes.length; ++i)
+    result.push(indentLines('(' + (i + 1) + ') ', modes[i]));
+
+  return result.join('\n');
+};
 
 // End of anonymous namespace.
 })();

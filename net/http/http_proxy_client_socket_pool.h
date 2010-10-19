@@ -4,6 +4,7 @@
 
 #ifndef NET_HTTP_HTTP_PROXY_CLIENT_SOCKET_POOL_H_
 #define NET_HTTP_HTTP_PROXY_CLIENT_SOCKET_POOL_H_
+#pragma once
 
 #include <string>
 
@@ -12,35 +13,50 @@
 #include "base/scoped_ptr.h"
 #include "base/time.h"
 #include "net/base/host_port_pair.h"
-#include "net/base/host_resolver.h"
 #include "net/http/http_auth.h"
-#include "net/proxy/proxy_server.h"
 #include "net/socket/client_socket_pool_base.h"
 #include "net/socket/client_socket_pool_histograms.h"
 #include "net/socket/client_socket_pool.h"
-#include "net/socket/tcp_client_socket_pool.h"
 
 namespace net {
 
-class ClientSocketFactory;
-class ConnectJobFactory;
-class HttpAuthController;
+class HostResolver;
+class HttpAuthCache;
+class HttpAuthHandlerFactory;
+class SSLClientSocketPool;
+class SSLSocketParams;
+class TCPClientSocketPool;
+class TCPSocketParams;
 
+// HttpProxySocketParams only needs the socket params for one of the proxy
+// types.  The other param must be NULL.  When using an HTTP Proxy,
+// |tcp_params| must be set.  When using an HTTPS Proxy, |ssl_params|
+// must be set.
 class HttpProxySocketParams : public base::RefCounted<HttpProxySocketParams> {
  public:
-  HttpProxySocketParams(const scoped_refptr<TCPSocketParams>& proxy_server,
-                        const GURL& request_url, HostPortPair endpoint,
-                        scoped_refptr<HttpAuthController> auth_controller,
+  HttpProxySocketParams(const scoped_refptr<TCPSocketParams>& tcp_params,
+                        const scoped_refptr<SSLSocketParams>& ssl_params,
+                        const GURL& request_url,
+                        const std::string& user_agent,
+                        HostPortPair endpoint,
+                        HttpAuthCache* http_auth_cache,
+                        HttpAuthHandlerFactory* http_auth_handler_factory,
                         bool tunnel);
 
   const scoped_refptr<TCPSocketParams>& tcp_params() const {
     return tcp_params_;
   }
-  const GURL& request_url() const { return request_url_; }
-  const HostPortPair& endpoint() const { return endpoint_; }
-  const scoped_refptr<HttpAuthController>& auth_controller() {
-    return auth_controller_;
+  const scoped_refptr<SSLSocketParams>& ssl_params() const {
+    return ssl_params_;
   }
+  const GURL& request_url() const { return request_url_; }
+  const std::string& user_agent() const { return user_agent_; }
+  const HostPortPair& endpoint() const { return endpoint_; }
+  HttpAuthCache* http_auth_cache() const { return http_auth_cache_; }
+  HttpAuthHandlerFactory* http_auth_handler_factory() const {
+    return http_auth_handler_factory_;
+  }
+  const HostResolver::RequestInfo& destination() const;
   bool tunnel() const { return tunnel_; }
 
  private:
@@ -48,9 +64,12 @@ class HttpProxySocketParams : public base::RefCounted<HttpProxySocketParams> {
   ~HttpProxySocketParams();
 
   const scoped_refptr<TCPSocketParams> tcp_params_;
+  const scoped_refptr<SSLSocketParams> ssl_params_;
   const GURL request_url_;
+  const std::string user_agent_;
   const HostPortPair endpoint_;
-  const scoped_refptr<HttpAuthController> auth_controller_;
+  HttpAuthCache* const http_auth_cache_;
+  HttpAuthHandlerFactory* const http_auth_handler_factory_;
   const bool tunnel_;
 
   DISALLOW_COPY_AND_ASSIGN(HttpProxySocketParams);
@@ -63,7 +82,8 @@ class HttpProxyConnectJob : public ConnectJob {
   HttpProxyConnectJob(const std::string& group_name,
                       const scoped_refptr<HttpProxySocketParams>& params,
                       const base::TimeDelta& timeout_duration,
-                      const scoped_refptr<TCPClientSocketPool>& tcp_pool,
+                      TCPClientSocketPool* tcp_pool,
+                      SSLClientSocketPool* ssl_pool,
                       const scoped_refptr<HostResolver> &host_resolver,
                       Delegate* delegate,
                       NetLog* net_log);
@@ -74,11 +94,13 @@ class HttpProxyConnectJob : public ConnectJob {
 
  private:
   enum State {
-    kStateTCPConnect,
-    kStateTCPConnectComplete,
-    kStateHttpProxyConnect,
-    kStateHttpProxyConnectComplete,
-    kStateNone,
+    STATE_TCP_CONNECT,
+    STATE_TCP_CONNECT_COMPLETE,
+    STATE_SSL_CONNECT,
+    STATE_SSL_CONNECT_COMPLETE,
+    STATE_HTTP_PROXY_CONNECT,
+    STATE_HTTP_PROXY_CONNECT_COMPLETE,
+    STATE_NONE,
   };
 
   // Begins the tcp connection and the optional Http proxy tunnel.  If the
@@ -95,19 +117,26 @@ class HttpProxyConnectJob : public ConnectJob {
   // Runs the state transition loop.
   int DoLoop(int result);
 
+  // Connecting to HTTP Proxy
   int DoTCPConnect();
   int DoTCPConnectComplete(int result);
+  // Connecting to HTTPS Proxy
+  int DoSSLConnect();
+  int DoSSLConnectComplete(int result);
+
   int DoHttpProxyConnect();
   int DoHttpProxyConnectComplete(int result);
 
   scoped_refptr<HttpProxySocketParams> params_;
-  const scoped_refptr<TCPClientSocketPool> tcp_pool_;
+  TCPClientSocketPool* const tcp_pool_;
+  SSLClientSocketPool* const ssl_pool_;
   const scoped_refptr<HostResolver> resolver_;
 
   State next_state_;
   CompletionCallbackImpl<HttpProxyConnectJob> callback_;
-  scoped_ptr<ClientSocketHandle> tcp_socket_handle_;
-  scoped_ptr<ClientSocket> socket_;
+  scoped_ptr<ClientSocketHandle> transport_socket_handle_;
+  scoped_ptr<ClientSocket> transport_socket_;
+  bool using_spdy_;
 
   DISALLOW_COPY_AND_ASSIGN(HttpProxyConnectJob);
 };
@@ -117,10 +146,13 @@ class HttpProxyClientSocketPool : public ClientSocketPool {
   HttpProxyClientSocketPool(
       int max_sockets,
       int max_sockets_per_group,
-      const scoped_refptr<ClientSocketPoolHistograms>& histograms,
+      ClientSocketPoolHistograms* histograms,
       const scoped_refptr<HostResolver>& host_resolver,
-      const scoped_refptr<TCPClientSocketPool>& tcp_pool,
+      TCPClientSocketPool* tcp_pool,
+      SSLClientSocketPool* ssl_pool,
       NetLog* net_log);
+
+  virtual ~HttpProxyClientSocketPool();
 
   // ClientSocketPool methods:
   virtual int RequestSocket(const std::string& group_name,
@@ -150,16 +182,17 @@ class HttpProxyClientSocketPool : public ClientSocketPool {
   virtual LoadState GetLoadState(const std::string& group_name,
                                  const ClientSocketHandle* handle) const;
 
+  virtual DictionaryValue* GetInfoAsValue(const std::string& name,
+                                          const std::string& type,
+                                          bool include_nested_pools) const;
+
   virtual base::TimeDelta ConnectionTimeout() const {
     return base_.ConnectionTimeout();
   }
 
-  virtual scoped_refptr<ClientSocketPoolHistograms> histograms() const {
+  virtual ClientSocketPoolHistograms* histograms() const {
     return base_.histograms();
   };
-
- protected:
-  virtual ~HttpProxyClientSocketPool();
 
  private:
   typedef ClientSocketPoolBase<HttpProxySocketParams> PoolBase;
@@ -167,30 +200,30 @@ class HttpProxyClientSocketPool : public ClientSocketPool {
   class HttpProxyConnectJobFactory : public PoolBase::ConnectJobFactory {
    public:
     HttpProxyConnectJobFactory(
-        const scoped_refptr<TCPClientSocketPool>& tcp_pool,
+        TCPClientSocketPool* tcp_pool,
+        SSLClientSocketPool* ssl_pool,
         HostResolver* host_resolver,
-        NetLog* net_log)
-        : tcp_pool_(tcp_pool),
-          host_resolver_(host_resolver),
-          net_log_(net_log) {}
-
-    virtual ~HttpProxyConnectJobFactory() {}
+        NetLog* net_log);
 
     // ClientSocketPoolBase::ConnectJobFactory methods.
     virtual ConnectJob* NewConnectJob(const std::string& group_name,
                                       const PoolBase::Request& request,
                                       ConnectJob::Delegate* delegate) const;
 
-    virtual base::TimeDelta ConnectionTimeout() const;
+    virtual base::TimeDelta ConnectionTimeout() const { return timeout_; }
 
    private:
-    const scoped_refptr<TCPClientSocketPool> tcp_pool_;
+    TCPClientSocketPool* const tcp_pool_;
+    SSLClientSocketPool* const ssl_pool_;
     const scoped_refptr<HostResolver> host_resolver_;
     NetLog* net_log_;
+    base::TimeDelta timeout_;
 
     DISALLOW_COPY_AND_ASSIGN(HttpProxyConnectJobFactory);
   };
 
+  TCPClientSocketPool* const tcp_pool_;
+  SSLClientSocketPool* const ssl_pool_;
   PoolBase base_;
 
   DISALLOW_COPY_AND_ASSIGN(HttpProxyClientSocketPool);

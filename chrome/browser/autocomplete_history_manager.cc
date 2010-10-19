@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,9 +7,10 @@
 #include <vector>
 
 #include "base/string16.h"
-#include "base/string_util.h"
+#include "base/string_number_conversions.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/credit_card.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -46,19 +47,21 @@ bool IsSSN(const string16& text) {
   string16 group_string = number_string.substr(3, 2);
   string16 serial_string = number_string.substr(5, 4);
 
-  int area = StringToInt(area_string);
+  int area;
+  if (!base::StringToInt(area_string, &area))
+    return false;
   if (area < 1 ||
       area == 666 ||
       (area > 733 && area < 750) ||
       area > 772)
     return false;
 
-  int group = StringToInt(group_string);
-  if (group == 0)
+  int group;
+  if (!base::StringToInt(group_string, &group) || group == 0)
     return false;
 
-  int serial = StringToInt(serial_string);
-  if (serial == 0)
+  int serial;
+  if (!base::StringToInt(serial_string, &serial) || serial == 0)
     return false;
 
   return true;
@@ -145,6 +148,10 @@ void AutocompleteHistoryManager::StoreFormEntriesInWebDatabase(
     return;
 
   if (profile_->IsOffTheRecord())
+    return;
+
+  // Don't save data that was submitted through JavaScript.
+  if (!form.user_submitted)
     return;
 
   // We put the following restriction on stored FormFields:

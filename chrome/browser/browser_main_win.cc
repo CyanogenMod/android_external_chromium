@@ -11,14 +11,17 @@
 #include <algorithm>
 
 #include "app/l10n_util.h"
-#include "app/message_box_flags.h"
 #include "app/win_util.h"
 #include "base/command_line.h"
+#include "base/environment.h"
 #include "base/i18n/rtl.h"
+#include "base/nss_util.h"
 #include "base/path_service.h"
+#include "base/scoped_ptr.h"
+#include "base/utf_string_conversions.h"
 #include "base/win_util.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/first_run.h"
+#include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/metrics/metrics_service.h"
 #include "chrome/browser/views/uninstall_view.h"
 #include "chrome/common/chrome_switches.h"
@@ -30,12 +33,9 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "net/base/winsock_init.h"
+#include "net/socket/ssl_client_socket_nss_factory.h"
 #include "views/focus/accelerator_handler.h"
 #include "views/window/window.h"
-
-void WillInitializeMainMessageLoop(const MainFunctionParams& parameters) {
-  OleInitialize(NULL);
-}
 
 void DidEndMainMessageLoop() {
   OleUninitialize();
@@ -111,13 +111,12 @@ int DoUninstallTasks(bool chrome_still_running) {
 // chrome executable's lifetime.
 void PrepareRestartOnCrashEnviroment(const CommandLine &parsed_command_line) {
   // Clear this var so child processes don't show the dialog by default.
-  ::SetEnvironmentVariableW(ASCIIToWide(env_vars::kShowRestart).c_str(), NULL);
+  scoped_ptr<base::Environment> env(base::Environment::Create());
+  env->UnSetVar(env_vars::kShowRestart);
 
   // For non-interactive tests we don't restart on crash.
-  if (::GetEnvironmentVariableW(ASCIIToWide(env_vars::kHeadless).c_str(),
-                                NULL, 0)) {
+  if (env->HasVar(env_vars::kHeadless))
     return;
-  }
 
   // If the known command-line test options are used we don't create the
   // environment block which means we don't get the restart dialog.
@@ -129,18 +128,17 @@ void PrepareRestartOnCrashEnviroment(const CommandLine &parsed_command_line) {
   // The encoding we use for the info is "title|context|direction" where
   // direction is either env_vars::kRtlLocale or env_vars::kLtrLocale depending
   // on the current locale.
-  std::wstring dlg_strings;
-  dlg_strings.append(l10n_util::GetString(IDS_CRASH_RECOVERY_TITLE));
-  dlg_strings.append(L"|");
-  dlg_strings.append(l10n_util::GetString(IDS_CRASH_RECOVERY_CONTENT));
-  dlg_strings.append(L"|");
-  if (base::i18n::IsRTL())
-    dlg_strings.append(ASCIIToWide(env_vars::kRtlLocale));
-  else
-    dlg_strings.append(ASCIIToWide(env_vars::kLtrLocale));
+  string16 dlg_strings(l10n_util::GetStringUTF16(IDS_CRASH_RECOVERY_TITLE));
+  dlg_strings.push_back('|');
+  string16 adjusted_string(
+      l10n_util::GetStringUTF16(IDS_CRASH_RECOVERY_CONTENT));
+  base::i18n::AdjustStringForLocaleDirection(adjusted_string, &adjusted_string);
+  dlg_strings.append(adjusted_string);
+  dlg_strings.push_back('|');
+  dlg_strings.append(ASCIIToUTF16(
+      base::i18n::IsRTL() ? env_vars::kRtlLocale : env_vars::kLtrLocale));
 
-  ::SetEnvironmentVariableW(ASCIIToWide(env_vars::kRestartInfo).c_str(),
-                            dlg_strings.c_str());
+  env->SetVar(env_vars::kRestartInfo, UTF16ToUTF8(dlg_strings));
 }
 
 // This method handles the --hide-icons and --show-icons command line options
@@ -211,10 +209,28 @@ class BrowserMainPartsWin : public BrowserMainParts {
   explicit BrowserMainPartsWin(const MainFunctionParams& parameters)
       : BrowserMainParts(parameters) {}
 
- private:
+ protected:
   virtual void PreEarlyInitialization() {
     // Initialize Winsock.
     net::EnsureWinsockInit();
+  }
+
+  virtual void PreMainMessageLoopStart() {
+    OleInitialize(NULL);
+  }
+
+ private:
+  virtual void InitializeSSL() {
+    // Use NSS for SSL by default.
+    // Because of a build system issue (http://crbug.com/43461), the default
+    // client socket factory uses SChannel (the system SSL library) for SSL by
+    // default on Windows.
+    if (!parsed_command_line().HasSwitch(switches::kUseSystemSSL)) {
+      net::ClientSocketFactory::SetSSLClientSocketFactory(
+          net::SSLClientSocketNSSFactory);
+      // We want to be sure to init NSPR on the main thread.
+      base::EnsureNSPRInit();
+    }
   }
 };
 

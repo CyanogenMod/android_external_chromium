@@ -57,7 +57,7 @@ class RawTransportChannel : public TransportChannelImpl,
     public talk_base::MessageHandler {
  public:
   RawTransportChannel(const std::string &name,
-                      const std::string &session_type,
+                      const std::string &content_type,
                       RawTransport* transport,
                       talk_base::Thread *worker_thread,
                       PortAllocator *allocator);

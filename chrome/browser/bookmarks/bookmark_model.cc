@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -14,7 +14,7 @@
 #include "chrome/browser/bookmarks/bookmark_storage.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/history/history_notifications.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/notification_service.h"
 #include "gfx/codec/png_codec.h"
@@ -41,6 +41,9 @@ BookmarkNode::BookmarkNode(const GURL& url)
 BookmarkNode::BookmarkNode(int64 id, const GURL& url)
     : url_(url) {
   Initialize(id);
+}
+
+BookmarkNode::~BookmarkNode() {
 }
 
 void BookmarkNode::Initialize(int64 id) {
@@ -94,8 +97,9 @@ class SortComparator : public std::binary_function<const BookmarkNode*,
       // Types are the same, compare the names.
       if (!collator_)
         return n1->GetTitle() < n2->GetTitle();
-      return l10n_util::CompareStringWithCollator(collator_, n1->GetTitle(),
-                                                  n2->GetTitle()) == UCOL_LESS;
+      return l10n_util::CompareStringWithCollator(collator_,
+          UTF16ToWideHack(n1->GetTitle()), UTF16ToWideHack(n2->GetTitle())) ==
+          UCOL_LESS;
     }
     // Types differ, sort such that folders come first.
     return n1->is_folder();
@@ -241,18 +245,12 @@ const SkBitmap& BookmarkModel::GetFavIcon(const BookmarkNode* node) {
   return node->favicon();
 }
 
-#if !defined(WCHAR_T_IS_UTF16)
-void BookmarkModel::SetTitle(const BookmarkNode* node,
-                             const std::wstring& title) {
-  SetTitle(node, WideToUTF16(title));
-}
-#endif
 void BookmarkModel::SetTitle(const BookmarkNode* node, const string16& title) {
   if (!node) {
     NOTREACHED();
     return;
   }
-  if (node->GetTitleAsString16() == title)
+  if (node->GetTitle() == title)
     return;
 
   if (node == bookmark_bar_node_ || node == other_node_) {
@@ -348,6 +346,11 @@ void BookmarkModel::GetBookmarks(std::vector<GURL>* urls) {
   }
 }
 
+bool BookmarkModel::HasBookmarks() {
+  AutoLock url_lock(url_lock_);
+  return !nodes_ordered_by_url_set_.empty();
+}
+
 bool BookmarkModel::IsBookmarked(const GURL& url) {
   AutoLock url_lock(url_lock_);
   return IsBookmarkedNoLock(url);
@@ -358,13 +361,6 @@ const BookmarkNode* BookmarkModel::GetNodeByID(int64 id) {
   return GetNodeByID(&root_, id);
 }
 
-#if !defined(WCHAR_T_IS_UTF16)
-const BookmarkNode* BookmarkModel::AddGroup(const BookmarkNode* parent,
-                                            int index,
-                                            const std::wstring& title) {
-  return AddGroup(parent, index, WideToUTF16(title));
-}
-#endif
 const BookmarkNode* BookmarkModel::AddGroup(const BookmarkNode* parent,
                                             int index,
                                             const string16& title) {
@@ -383,14 +379,6 @@ const BookmarkNode* BookmarkModel::AddGroup(const BookmarkNode* parent,
   return AddNode(AsMutable(parent), index, new_node, false);
 }
 
-#if !defined(WCHAR_T_IS_UTF16)
-const BookmarkNode* BookmarkModel::AddURL(const BookmarkNode* parent,
-                                          int index,
-                                          const std::wstring& title,
-                                          const GURL& url) {
-  return AddURL(parent, index, WideToUTF16(title), url);
-}
-#endif
 const BookmarkNode* BookmarkModel::AddURL(const BookmarkNode* parent,
                                           int index,
                                           const string16& title,
@@ -398,17 +386,6 @@ const BookmarkNode* BookmarkModel::AddURL(const BookmarkNode* parent,
   return AddURLWithCreationTime(parent, index, title, url, Time::Now());
 }
 
-#if !defined(WCHAR_T_IS_UTF16)
-const BookmarkNode* BookmarkModel::AddURLWithCreationTime(
-    const BookmarkNode* parent,
-    int index,
-    const std::wstring& title,
-    const GURL& url,
-    const Time& creation_time) {
-  return AddURLWithCreationTime(parent, index, WideToUTF16(title),
-                                url, creation_time);
-}
-#endif
 const BookmarkNode* BookmarkModel::AddURLWithCreationTime(
     const BookmarkNode* parent,
     int index,
@@ -464,13 +441,6 @@ void BookmarkModel::SortChildren(const BookmarkNode* parent) {
                     BookmarkNodeChildrenReordered(this, parent));
 }
 
-#if !defined(WCHAR_T_IS_UTF16)
-void BookmarkModel::SetURLStarred(const GURL& url,
-                                  const std::wstring& title,
-                                  bool is_starred) {
-  SetURLStarred(url, WideToUTF16(title), is_starred);
-}
-#endif
 void BookmarkModel::SetURLStarred(const GURL& url,
                                   const string16& title,
                                   bool is_starred) {
@@ -506,14 +476,6 @@ void BookmarkModel::ResetDateGroupModified(const BookmarkNode* node) {
   SetDateGroupModified(node, Time());
 }
 
-#if !defined(WCHAR_T_IS_UTF16)
-void BookmarkModel::GetBookmarksWithTitlesMatching(
-    const std::wstring& text,
-    size_t max_count,
-    std::vector<bookmark_utils::TitleMatch>* matches) {
-  GetBookmarksWithTitlesMatching(WideToUTF16(text), max_count, matches);
-}
-#endif
 void BookmarkModel::GetBookmarksWithTitlesMatching(
     const string16& text,
     size_t max_count,
@@ -521,7 +483,7 @@ void BookmarkModel::GetBookmarksWithTitlesMatching(
   if (!loaded_)
     return;
 
-  index_->GetBookmarksWithTitlesMatching(UTF16ToWide(text), max_count, matches);
+  index_->GetBookmarksWithTitlesMatching(text, max_count, matches);
 }
 
 void BookmarkModel::ClearStore() {
@@ -751,10 +713,12 @@ BookmarkNode* BookmarkModel::CreateRootNodeFromStarredEntry(
          entry.type == history::StarredEntry::OTHER);
   BookmarkNode* node = new BookmarkNode(generate_next_node_id(), GURL());
   node->Reset(entry);
-  if (entry.type == history::StarredEntry::BOOKMARK_BAR)
-    node->SetTitle(l10n_util::GetString(IDS_BOOMARK_BAR_FOLDER_NAME));
-  else
-    node->SetTitle(l10n_util::GetString(IDS_BOOMARK_BAR_OTHER_FOLDER_NAME));
+  if (entry.type == history::StarredEntry::BOOKMARK_BAR) {
+    node->SetTitle(l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_FOLDER_NAME));
+  } else {
+    node->SetTitle(
+        l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_OTHER_FOLDER_NAME));
+  }
   return node;
 }
 

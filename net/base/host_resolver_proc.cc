@@ -13,17 +13,48 @@
 #include <netinet/in.h>
 
 #include "base/logging.h"
-#include "base/time.h"
 #include "net/base/address_list.h"
+#include "net/base/dns_reload_timer.h"
 #include "net/base/net_errors.h"
 #include "net/base/sys_addrinfo.h"
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
-#include "base/singleton.h"
-#include "base/thread_local_storage.h"
-#endif
-
 namespace net {
+
+namespace {
+
+bool IsAllLocalhostOfOneFamily(const struct addrinfo* ai) {
+  bool saw_v4_localhost = false;
+  bool saw_v6_localhost = false;
+  for (; ai != NULL; ai = ai->ai_next) {
+    switch (ai->ai_family) {
+      case AF_INET: {
+        const struct sockaddr_in* addr_in =
+            reinterpret_cast<struct sockaddr_in*>(ai->ai_addr);
+        if ((ntohl(addr_in->sin_addr.s_addr) & 0xff000000) == 0x7f000000)
+          saw_v4_localhost = true;
+        else
+          return false;
+        break;
+      }
+      case AF_INET6: {
+        const struct sockaddr_in6* addr_in6 =
+            reinterpret_cast<struct sockaddr_in6*>(ai->ai_addr);
+        if (IN6_IS_ADDR_LOOPBACK(&addr_in6->sin6_addr))
+          saw_v6_localhost = true;
+        else
+          return false;
+        break;
+      }
+      default:
+        NOTREACHED();
+        return false;
+    }
+  }
+
+  return saw_v4_localhost != saw_v6_localhost;
+}
+
+}  // namespace
 
 HostResolverProc* HostResolverProc::default_proc_ = NULL;
 
@@ -69,6 +100,9 @@ HostResolverProc* HostResolverProc::GetDefault() {
   return default_proc_;
 }
 
+HostResolverProc::~HostResolverProc() {
+}
+
 int HostResolverProc::ResolveUsingPrevious(
     const std::string& host,
     AddressFamily address_family,
@@ -85,84 +119,13 @@ int HostResolverProc::ResolveUsingPrevious(
                                 addrlist, os_error);
 }
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_OPENBSD)
-// On Linux/BSD, changes to /etc/resolv.conf can go unnoticed thus resulting
-// in DNS queries failing either because nameservers are unknown on startup
-// or because nameserver info has changed as a result of e.g. connecting to
-// a new network. Some distributions patch glibc to stat /etc/resolv.conf
-// to try to automatically detect such changes but these patches are not
-// universal and even patched systems such as Jaunty appear to need calls
-// to res_ninit to reload the nameserver information in different threads.
-//
-// We adopt the Mozilla solution here which is to call res_ninit when
-// lookups fail and to rate limit the reloading to once per second per
-// thread.
-//
-// OpenBSD does not have thread-safe res_ninit/res_nclose so we can't do
-// the same trick there.
-
-// Keep a timer per calling thread to rate limit the calling of res_ninit.
-class DnsReloadTimer {
- public:
-  // Check if the timer for the calling thread has expired. When no
-  // timer exists for the calling thread, create one.
-  bool Expired() {
-    const base::TimeDelta kRetryTime = base::TimeDelta::FromSeconds(1);
-    base::TimeTicks now = base::TimeTicks::Now();
-    base::TimeTicks* timer_ptr =
-      static_cast<base::TimeTicks*>(tls_index_.Get());
-
-    if (!timer_ptr) {
-      timer_ptr = new base::TimeTicks();
-      *timer_ptr = base::TimeTicks::Now();
-      tls_index_.Set(timer_ptr);
-      // Return true to reload dns info on the first call for each thread.
-      return true;
-    } else if (now - *timer_ptr > kRetryTime) {
-      *timer_ptr = now;
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-  // Free the allocated timer.
-  static void SlotReturnFunction(void* data) {
-    base::TimeTicks* tls_data = static_cast<base::TimeTicks*>(data);
-    delete tls_data;
-  }
-
- private:
-  friend struct DefaultSingletonTraits<DnsReloadTimer>;
-
-  DnsReloadTimer() {
-    // During testing the DnsReloadTimer Singleton may be created and destroyed
-    // multiple times. Initialize the ThreadLocalStorage slot only once.
-    if (!tls_index_.initialized())
-      tls_index_.Initialize(SlotReturnFunction);
-  }
-
-  ~DnsReloadTimer() {
-  }
-
-  // We use thread local storage to identify which base::TimeTicks to
-  // interact with.
-  static ThreadLocalStorage::Slot tls_index_ ;
-
-  DISALLOW_COPY_AND_ASSIGN(DnsReloadTimer);
-};
-
-// A TLS slot to the TimeTicks for the current thread.
-// static
-ThreadLocalStorage::Slot DnsReloadTimer::tls_index_(base::LINKER_INITIALIZED);
-
-#endif  // defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_OPENBSD)
-
 int SystemHostResolverProc(const std::string& host,
                            AddressFamily address_family,
                            HostResolverFlags host_resolver_flags,
                            AddressList* addrlist,
                            int* os_error) {
+  static const size_t kMaxHostLength = 4096;
+
   if (os_error)
     *os_error = 0;
 
@@ -170,6 +133,11 @@ int SystemHostResolverProc(const std::string& host,
   // On Windows it gives the default interface's address, whereas on Linux it
   // gives an error. We will make it fail on all platforms for consistency.
   if (host.empty())
+    return ERR_NAME_NOT_RESOLVED;
+
+  // Limit the size of hostnames that will be resolved to combat issues in some
+  // platform's resolvers.
+  if (host.size() > kMaxHostLength)
     return ERR_NAME_NOT_RESOLVED;
 
   struct addrinfo* ai = NULL;
@@ -218,6 +186,12 @@ int SystemHostResolverProc(const std::string& host,
   hints.ai_flags = AI_ADDRCONFIG;
 #endif
 
+  // On Linux AI_ADDRCONFIG doesn't consider loopback addreses, even if only
+  // loopback addresses are configured. So don't use it when there are only
+  // loopback addresses.
+  if (host_resolver_flags & HOST_RESOLVER_LOOPBACK_ONLY)
+    hints.ai_flags &= ~AI_ADDRCONFIG;
+
   if (host_resolver_flags & HOST_RESOLVER_CANONNAME)
     hints.ai_flags |= AI_CANONNAME;
 
@@ -225,16 +199,43 @@ int SystemHostResolverProc(const std::string& host,
   hints.ai_socktype = SOCK_STREAM;
 
   int err = getaddrinfo(host.c_str(), NULL, &hints, &ai);
+<<<<<<< HEAD
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(ANDROID)
   net::DnsReloadTimer* dns_timer = Singleton<net::DnsReloadTimer>::get();
+=======
+  bool should_retry = false;
+#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_OPENBSD)
+>>>>>>> Chromium at release 7.0.540.0
   // If we fail, re-initialise the resolver just in case there have been any
   // changes to /etc/resolv.conf and retry. See http://crbug.com/11380 for info.
-  if (err && dns_timer->Expired()) {
+  if (err && DnsReloadTimerHasExpired()) {
     res_nclose(&_res);
     if (!res_ninit(&_res))
-      err = getaddrinfo(host.c_str(), NULL, &hints, &ai);
+      should_retry = true;
   }
 #endif
+  // If the lookup was restricted (either by address family, or address
+  // detection), and the results where all localhost of a single family,
+  // maybe we should retry.  There were several bugs related to these
+  // issues, for example http://crbug.com/42058 and http://crbug.com/49024
+  if ((hints.ai_family != AF_UNSPEC || hints.ai_flags & AI_ADDRCONFIG) &&
+      err == 0 && IsAllLocalhostOfOneFamily(ai)) {
+    if (host_resolver_flags & HOST_RESOLVER_DEFAULT_FAMILY_SET_DUE_TO_NO_IPV6) {
+      hints.ai_family = AF_UNSPEC;
+      should_retry = true;
+    }
+    if (hints.ai_flags & AI_ADDRCONFIG) {
+      hints.ai_flags &= ~AI_ADDRCONFIG;
+      should_retry = true;
+    }
+  }
+  if (should_retry) {
+    if (ai != NULL) {
+      freeaddrinfo(ai);
+      ai = NULL;
+    }
+    err = getaddrinfo(host.c_str(), NULL, &hints, &ai);
+  }
 
   if (err) {
     if (os_error) {

@@ -1,9 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/epoll.h>
 #include <sys/prctl.h>
 #include <sys/signal.h>
@@ -21,11 +22,13 @@
 #include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/eintr_wrapper.h"
+#include "base/file_path.h"
 #include "base/global_descriptors_posix.h"
 #include "base/hash_tables.h"
 #include "base/linux_util.h"
 #include "base/path_service.h"
 #include "base/pickle.h"
+#include "base/process_util.h"
 #include "base/rand_util.h"
 #include "base/scoped_ptr.h"
 #include "base/sys_info.h"
@@ -36,6 +39,7 @@
 #include "chrome/common/chrome_descriptors.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/main_function_params.h"
+#include "chrome/common/pepper_plugin_registry.h"
 #include "chrome/common/process_watcher.h"
 #include "chrome/common/sandbox_methods_linux.h"
 
@@ -43,13 +47,14 @@
 
 #include "skia/ext/SkFontHost_fontconfig_control.h"
 
-#include "sandbox/linux/seccomp/sandbox.h"
+#include "seccompsandbox/sandbox.h"
 
 #include "unicode/timezone.h"
 
-#if defined(ARCH_CPU_X86_FAMILY) && !defined(CHROMIUM_SELINUX)
+#if defined(ARCH_CPU_X86_FAMILY) && !defined(CHROMIUM_SELINUX) && \
+    !defined(__clang__)
 // The seccomp sandbox is enabled on all ia32 and x86-64 processor as long as
-// we aren't using SELinux.
+// we aren't using SELinux or clang.
 #define SECCOMP_SANDBOX
 #endif
 
@@ -136,14 +141,15 @@ class Zygote {
     static const unsigned kMaxMessageLength = 1024;
     char buf[kMaxMessageLength];
     const ssize_t len = base::RecvMsg(fd, buf, sizeof(buf), &fds);
-    if (len == -1) {
-      LOG(WARNING) << "Error reading message from browser: " << errno;
+
+    if (len == 0 || (len == -1 && errno == ECONNRESET)) {
+      // EOF from the browser. We should die.
+      _exit(0);
       return false;
     }
 
-    if (len == 0) {
-      // EOF from the browser. We should die.
-      _exit(0);
+    if (len == -1) {
+      PLOG(ERROR) << "Error reading message from browser";
       return false;
     }
 
@@ -229,6 +235,101 @@ class Zygote {
     }
   }
 
+  // This is equivalent to fork(), except that, when using the SUID
+  // sandbox, it returns the real PID of the child process as it
+  // appears outside the sandbox, rather than returning the PID inside
+  // the sandbox.
+  int ForkWithRealPid() {
+    if (!g_suid_sandbox_active)
+      return fork();
+
+    int dummy_fd;
+    ino_t dummy_inode;
+    int pipe_fds[2] = { -1, -1 };
+    base::ProcessId pid = 0;
+
+    dummy_fd = socket(PF_UNIX, SOCK_DGRAM, 0);
+    if (dummy_fd < 0) {
+      LOG(ERROR) << "Failed to create dummy FD";
+      goto error;
+    }
+    if (!base::FileDescriptorGetInode(&dummy_inode, dummy_fd)) {
+      LOG(ERROR) << "Failed to get inode for dummy FD";
+      goto error;
+    }
+    if (pipe(pipe_fds) != 0) {
+      LOG(ERROR) << "Failed to create pipe";
+      goto error;
+    }
+
+    pid = fork();
+    if (pid < 0) {
+      goto error;
+    } else if (pid == 0) {
+      // In the child process.
+      close(pipe_fds[1]);
+      char buffer[1];
+      // Wait until the parent process has discovered our PID.  We
+      // should not fork any child processes (which the seccomp
+      // sandbox does) until then, because that can interfere with the
+      // parent's discovery of our PID.
+      if (HANDLE_EINTR(read(pipe_fds[0], buffer, 1)) != 1 ||
+          buffer[0] != 'x') {
+        LOG(FATAL) << "Failed to synchronise with parent zygote process";
+      }
+      close(pipe_fds[0]);
+      close(dummy_fd);
+      return 0;
+    } else {
+      // In the parent process.
+      close(dummy_fd);
+      dummy_fd = -1;
+      close(pipe_fds[0]);
+      pipe_fds[0] = -1;
+      uint8_t reply_buf[512];
+      Pickle request;
+      request.WriteInt(LinuxSandbox::METHOD_GET_CHILD_WITH_INODE);
+      request.WriteUInt64(dummy_inode);
+
+      const ssize_t r = base::SendRecvMsg(kMagicSandboxIPCDescriptor,
+                                          reply_buf, sizeof(reply_buf),
+                                          NULL, request);
+      if (r == -1) {
+        LOG(ERROR) << "Failed to get child process's real PID";
+        goto error;
+      }
+
+      base::ProcessId real_pid;
+      Pickle reply(reinterpret_cast<char*>(reply_buf), r);
+      void* iter2 = NULL;
+      if (!reply.ReadInt(&iter2, &real_pid))
+        goto error;
+      if (real_pid <= 0) {
+        // METHOD_GET_CHILD_WITH_INODE failed. Did the child die already?
+        LOG(ERROR) << "METHOD_GET_CHILD_WITH_INODE failed";
+        goto error;
+      }
+      real_pids_to_sandbox_pids[real_pid] = pid;
+      if (HANDLE_EINTR(write(pipe_fds[1], "x", 1)) != 1) {
+        LOG(ERROR) << "Failed to synchronise with child process";
+        goto error;
+      }
+      close(pipe_fds[1]);
+      return real_pid;
+    }
+
+   error:
+    if (pid > 0)
+      waitpid(pid, NULL, WNOHANG);
+    if (dummy_fd >= 0)
+      close(dummy_fd);
+    if (pipe_fds[0] >= 0)
+      close(pipe_fds[0]);
+    if (pipe_fds[1] >= 0)
+      close(pipe_fds[1]);
+    return -1;
+  }
+
   // Handle a 'fork' request from the browser: this means that the browser
   // wishes to start a new renderer.
   bool HandleForkRequest(int fd, const Pickle& pickle, void* iter,
@@ -237,8 +338,6 @@ class Zygote {
     int argc, numfds;
     base::GlobalDescriptors::Mapping mapping;
     base::ProcessId child;
-    uint64_t dummy_inode = 0;
-    int dummy_fd = -1;
 
     if (!pickle.ReadInt(&iter, &argc))
       goto error;
@@ -265,16 +364,7 @@ class Zygote {
     mapping.push_back(std::make_pair(
         static_cast<uint32_t>(kSandboxIPCChannel), kMagicSandboxIPCDescriptor));
 
-    if (g_suid_sandbox_active) {
-      dummy_fd = socket(PF_UNIX, SOCK_DGRAM, 0);
-      if (dummy_fd < 0)
-        goto error;
-
-      if (!base::FileDescriptorGetInode(&dummy_inode, dummy_fd))
-        goto error;
-    }
-
-    child = fork();
+    child = ForkWithRealPid();
 
     if (!child) {
 #if defined(SECCOMP_SANDBOX)
@@ -310,47 +400,19 @@ class Zygote {
       goto error;
     }
 
-    {
-      base::ProcessId proc_id;
-      if (g_suid_sandbox_active) {
-        close(dummy_fd);
-        dummy_fd = -1;
-        uint8_t reply_buf[512];
-        Pickle request;
-        request.WriteInt(LinuxSandbox::METHOD_GET_CHILD_WITH_INODE);
-        request.WriteUInt64(dummy_inode);
+    for (std::vector<int>::const_iterator
+         i = fds.begin(); i != fds.end(); ++i)
+      close(*i);
 
-        const ssize_t r = base::SendRecvMsg(kMagicSandboxIPCDescriptor,
-                                            reply_buf, sizeof(reply_buf),
-                                            NULL, request);
-        if (r == -1)
-          goto error;
-
-        Pickle reply(reinterpret_cast<char*>(reply_buf), r);
-        void* iter2 = NULL;
-        if (!reply.ReadInt(&iter2, &proc_id))
-          goto error;
-        real_pids_to_sandbox_pids[proc_id] = child;
-      } else {
-        proc_id = child;
-      }
-
-      for (std::vector<int>::const_iterator
-           i = fds.begin(); i != fds.end(); ++i)
-        close(*i);
-
-      if (HANDLE_EINTR(write(fd, &proc_id, sizeof(proc_id))) < 0)
-        PLOG(ERROR) << "write";
-      return false;
-    }
+    if (HANDLE_EINTR(write(fd, &child, sizeof(child))) < 0)
+      PLOG(ERROR) << "write";
+    return false;
 
    error:
     LOG(ERROR) << "Error parsing fork request from browser";
     for (std::vector<int>::const_iterator
          i = fds.begin(); i != fds.end(); ++i)
       close(*i);
-    if (dummy_fd >= 0)
-      close(dummy_fd);
     return false;
   }
 
@@ -451,7 +513,37 @@ static bool g_am_zygote_or_renderer = false;
 // We also considered patching the function in place, but this would again by
 // platform specific and the above technique seems to work well enough.
 
-static void WarnOnceAboutBrokenDlsym();
+typedef struct tm* (*LocaltimeFunction)(const time_t* timep);
+typedef struct tm* (*LocaltimeRFunction)(const time_t* timep,
+                                         struct tm* result);
+
+static pthread_once_t g_libc_localtime_funcs_guard = PTHREAD_ONCE_INIT;
+static LocaltimeFunction g_libc_localtime;
+static LocaltimeRFunction g_libc_localtime_r;
+
+static void InitLibcLocaltimeFunctions() {
+  g_libc_localtime = reinterpret_cast<LocaltimeFunction>(
+                         dlsym(RTLD_NEXT, "localtime"));
+  g_libc_localtime_r = reinterpret_cast<LocaltimeRFunction>(
+                         dlsym(RTLD_NEXT, "localtime_r"));
+
+  if (!g_libc_localtime || !g_libc_localtime_r) {
+    // http://code.google.com/p/chromium/issues/detail?id=16800
+    //
+    // Nvidia's libGL.so overrides dlsym for an unknown reason and replaces
+    // it with a version which doesn't work. In this case we'll get a NULL
+    // result. There's not a lot we can do at this point, so we just bodge it!
+    LOG(ERROR) << "Your system is broken: dlsym doesn't work! This has been "
+                  "reported to be caused by Nvidia's libGL. You should expect"
+                  " time related functions to misbehave. "
+                  "http://code.google.com/p/chromium/issues/detail?id=16800";
+  }
+
+  if (!g_libc_localtime)
+    g_libc_localtime = gmtime;
+  if (!g_libc_localtime_r)
+    g_libc_localtime_r = gmtime_r;
+}
 
 struct tm* localtime(const time_t* timep) {
   if (g_am_zygote_or_renderer) {
@@ -461,26 +553,9 @@ struct tm* localtime(const time_t* timep) {
                                 sizeof(timezone_string));
     return &time_struct;
   } else {
-    typedef struct tm* (*LocaltimeFunction)(const time_t* timep);
-    static LocaltimeFunction libc_localtime;
-    static bool have_libc_localtime = false;
-    if (!have_libc_localtime) {
-      libc_localtime = (LocaltimeFunction) dlsym(RTLD_NEXT, "localtime");
-      have_libc_localtime = true;
-    }
-
-    if (!libc_localtime) {
-      // http://code.google.com/p/chromium/issues/detail?id=16800
-      //
-      // Nvidia's libGL.so overrides dlsym for an unknown reason and replaces
-      // it with a version which doesn't work. In this case we'll get a NULL
-      // result. There's not a lot we can do at this point, so we just bodge it!
-      WarnOnceAboutBrokenDlsym();
-
-      return gmtime(timep);
-    }
-
-    return libc_localtime(timep);
+    CHECK_EQ(0, pthread_once(&g_libc_localtime_funcs_guard,
+                             InitLibcLocaltimeFunctions));
+    return g_libc_localtime(timep);
   }
 }
 
@@ -489,37 +564,12 @@ struct tm* localtime_r(const time_t* timep, struct tm* result) {
     ProxyLocaltimeCallToBrowser(*timep, result, NULL, 0);
     return result;
   } else {
-    typedef struct tm* (*LocaltimeRFunction)(const time_t* timep,
-                                             struct tm* result);
-    static LocaltimeRFunction libc_localtime_r;
-    static bool have_libc_localtime_r = false;
-    if (!have_libc_localtime_r) {
-      libc_localtime_r = (LocaltimeRFunction) dlsym(RTLD_NEXT, "localtime_r");
-      have_libc_localtime_r = true;
-    }
-
-    if (!libc_localtime_r) {
-      // See |localtime|, above.
-      WarnOnceAboutBrokenDlsym();
-
-      return gmtime_r(timep, result);
-    }
-
-    return libc_localtime_r(timep, result);
+    CHECK_EQ(0, pthread_once(&g_libc_localtime_funcs_guard,
+                             InitLibcLocaltimeFunctions));
+    return g_libc_localtime_r(timep, result);
   }
 }
 
-// See the comments at the callsite in |localtime| about this function.
-static void WarnOnceAboutBrokenDlsym() {
-  static bool have_shown_warning = false;
-  if (!have_shown_warning) {
-    LOG(ERROR) << "Your system is broken: dlsym doesn't work! This has been "
-                  "reported to be caused by Nvidia's libGL. You should expect "
-                  "time related functions to misbehave. "
-                  "http://code.google.com/p/chromium/issues/detail?id=16800";
-    have_shown_warning = true;
-  }
-}
 #endif  // !CHROMIUM_SELINUX
 
 // This function triggers the static and lazy construction of objects that need
@@ -546,6 +596,9 @@ static void PreSandboxInit() {
   FilePath module_path;
   if (PathService::Get(base::DIR_MODULE, &module_path))
     media::InitializeMediaLibrary(module_path);
+
+  // Ensure access to the Pepper plugins before the sandbox is turned on.
+  PepperPluginRegistry::PreloadModules();
 }
 
 #if !defined(CHROMIUM_SELINUX)
@@ -555,10 +608,9 @@ static bool EnterSandbox() {
   // chrooted.
   const char* const sandbox_fd_string = getenv("SBX_D");
 
-  if (switches::SeccompSandboxEnabled()) {
-    PreSandboxInit();
-    SkiaFontConfigUseIPCImplementation(kMagicSandboxIPCDescriptor);
-  } else if (sandbox_fd_string) {  // Use the SUID sandbox.
+  if (sandbox_fd_string) {
+    // Use the SUID sandbox.  This still allows the seccomp sandbox to
+    // be enabled by the process later.
     g_suid_sandbox_active = true;
 
     char* endptr;
@@ -618,6 +670,9 @@ static bool EnterSandbox() {
         return false;
       }
     }
+  } else if (switches::SeccompSandboxEnabled()) {
+    PreSandboxInit();
+    SkiaFontConfigUseIPCImplementation(kMagicSandboxIPCDescriptor);
   } else {
     SkiaFontConfigUseDirectImplementation();
   }

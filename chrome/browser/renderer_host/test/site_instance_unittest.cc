@@ -2,10 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/stl_util-inl.h"
 #include "base/string16.h"
 #include "chrome/browser/browsing_instance.h"
 #include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/renderer_host/browser_render_process_host.h"
+#include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
@@ -73,7 +75,7 @@ class TestSiteInstance : public SiteInstance {
 
 // Test to ensure no memory leaks for SiteInstance objects.
 TEST_F(SiteInstanceTest, SiteInstanceDestructor) {
-  // The existance of these factories will cause TabContents to create our test
+  // The existence of these factories will cause TabContents to create our test
   // one instead of the real one.
   MockRenderProcessHostFactory rph_factory;
   TestRenderViewHostFactory rvh_factory(&rph_factory);
@@ -117,7 +119,7 @@ TEST_F(SiteInstanceTest, SiteInstanceDestructor) {
                                                &siteDeleteCounter,
                                                &browsingDeleteCounter);
   {
-    TabContents contents(profile.get(), instance, MSG_ROUTING_NONE, NULL);
+    TabContents contents(profile.get(), instance, MSG_ROUTING_NONE, NULL, NULL);
     EXPECT_EQ(1, siteDeleteCounter);
     EXPECT_EQ(1, browsingDeleteCounter);
   }

@@ -9,6 +9,8 @@
 #include "net/socket/client_socket_handle.h"
 #if defined(OS_WIN)
 #include "net/socket/ssl_client_socket_win.h"
+#elif defined(USE_OPENSSL)
+#include "net/socket/ssl_client_socket_openssl.h"
 #elif defined(USE_NSS)
 #include "net/socket/ssl_client_socket_nss.h"
 #elif defined(USE_OPENSSL)
@@ -29,6 +31,8 @@ SSLClientSocket* DefaultSSLClientSocketFactory(
     const SSLConfig& ssl_config) {
 #if defined(OS_WIN)
   return new SSLClientSocketWin(transport_socket, hostname, ssl_config);
+#elif defined(USE_OPENSSL)
+  return new SSLClientSocketOpenSSL(transport_socket, hostname, ssl_config);
 #elif defined(USE_NSS)
   return new SSLClientSocketNSS(transport_socket, hostname, ssl_config);
 #elif defined(USE_OPENSSL)
@@ -37,7 +41,7 @@ SSLClientSocket* DefaultSSLClientSocketFactory(
   // TODO(wtc): SSLClientSocketNSS can't do SSL client authentication using
   // Mac OS X CDSA/CSSM yet (http://crbug.com/45369), so fall back on
   // SSLClientSocketMac.
-  if (ssl_config.client_cert)
+  if (ssl_config.send_client_cert)
     return new SSLClientSocketMac(transport_socket, hostname, ssl_config);
 
   return new SSLClientSocketNSS(transport_socket, hostname, ssl_config);
@@ -52,8 +56,10 @@ SSLClientSocketFactory g_ssl_factory = DefaultSSLClientSocketFactory;
 class DefaultClientSocketFactory : public ClientSocketFactory {
  public:
   virtual ClientSocket* CreateTCPClientSocket(
-      const AddressList& addresses, NetLog* net_log) {
-    return new TCPClientSocket(addresses, net_log);
+      const AddressList& addresses,
+      NetLog* net_log,
+      const NetLog::Source& source) {
+    return new TCPClientSocket(addresses, net_log, source);
   }
 
   virtual SSLClientSocket* CreateSSLClientSocket(

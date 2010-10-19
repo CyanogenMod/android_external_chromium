@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -7,10 +7,9 @@
 // does not support a timeout, but is greatly simplified.
 #ifndef CHROME_BROWSER_SYNC_ENGINE_SYNCER_THREAD_H_
 #define CHROME_BROWSER_SYNC_ENGINE_SYNCER_THREAD_H_
+#pragma once
 
 #include <list>
-#include <map>
-#include <queue>
 #include <vector>
 
 #include "base/basictypes.h"
@@ -21,7 +20,6 @@
 #include "base/thread.h"
 #include "base/time.h"
 #include "base/waitable_event.h"
-#include "chrome/browser/sync/engine/all_status.h"
 #if defined(OS_LINUX)
 #include "chrome/browser/sync/engine/idle_query_linux.h"
 #endif
@@ -29,11 +27,6 @@
 #include "chrome/common/deprecated/event_sys-inl.h"
 
 class EventListenerHookup;
-
-namespace syncable {
-class DirectoryManager;
-struct DirectoryManagerEvent;
-}
 
 namespace browser_sync {
 
@@ -92,7 +85,8 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
     kUnknown = 0,
     kNotification,
     kLocal,
-    kContinuation
+    kContinuation,
+    kClearPrivateData
   };
   // Server can overwrite these values via client commands.
   // Standard short poll. This is used when XMPP is off.
@@ -102,8 +96,10 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
   // 30 minutes by default. If exponential backoff kicks in, this is the
   // longest possible poll interval.
   static const int kDefaultMaxPollIntervalMs;
+  // Maximum interval for exponential backoff.
+  static const int kMaxBackoffSeconds;
 
-  SyncerThread(sessions::SyncSessionContext* context, AllStatus* all_status);
+  explicit SyncerThread(sessions::SyncSessionContext* context);
   virtual ~SyncerThread();
 
   virtual void WatchConnectionManager(ServerConnectionManager* conn_mgr);
@@ -137,6 +133,12 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
 
   virtual SyncerEventChannel* relay_channel();
 
+  // Call this when a directory is opened
+  void CreateSyncer(const std::string& dirname);
+
+  // DDOS avoidance function.  The argument and return value is in seconds
+  static int GetRecommendedDelaySeconds(int base_delay_seconds);
+
  protected:
   virtual void ThreadMain();
   void ThreadMainLoop();
@@ -166,17 +168,6 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
   // Handle of the running thread.
   base::Thread thread_;
 
-  typedef std::pair<base::TimeTicks, NudgeSource> NudgeObject;
-
-  struct IsTimeTicksGreater {
-    inline bool operator() (const NudgeObject& lhs, const NudgeObject& rhs) {
-      return lhs.first > rhs.first;
-    }
-  };
-
-  typedef std::priority_queue<NudgeObject, std::vector<NudgeObject>,
-                              IsTimeTicksGreater> NudgeQueue;
-
   // Fields that are modified / accessed by multiple threads go in this struct
   // for clarity and explicitness.
   struct ProtectedFields {
@@ -194,9 +185,12 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
     // State of the server connection.
     bool connected_;
 
-    // A queue of all scheduled nudges.  One insertion for every call to
-    // NudgeQueue().
-    NudgeQueue nudge_queue_;
+    // kUnknown if there is no pending nudge.  (Theoretically, there
+    // could be a pending nudge of type kUnknown, so it's better to
+    // check pending_nudge_time_.)
+    NudgeSource pending_nudge_source_;
+    // null iff there is no pending nudge.
+    base::TimeTicks pending_nudge_time_;
 
     // The wait interval for to the current iteration of our main loop.  This is
     // only written to by the syncer thread, and since the only reader from a
@@ -210,7 +204,8 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
           pause_requested_(false),
           paused_(false),
           syncer_(NULL),
-          connected_(false) {}
+          connected_(false),
+          pending_nudge_source_(kUnknown) {}
   } vault_;
 
   // Gets signaled whenever a thread outside of the syncer thread changes a
@@ -226,8 +221,6 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
 
   friend void* RunSyncerThread(void* syncer_thread);
   void* Run();
-  void HandleDirectoryManagerEvent(
-      const syncable::DirectoryManagerEvent& event);
   void HandleChannelEvent(const SyncerEvent& event);
 
   // SyncSession::Delegate implementation.
@@ -253,7 +246,6 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
   // in case of exponential backoff so we only allow one nudge per backoff
   // interval.
   WaitInterval CalculatePollingWaitTime(
-      const AllStatus::Status& status,
       int last_poll_wait,  // in s
       int* user_idle_milliseconds,
       bool* continue_sync_cycle,
@@ -300,7 +292,6 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
   bool p2p_subscribed_;
 
   scoped_ptr<EventListenerHookup> conn_mgr_hookup_;
-  const AllStatus* allstatus_;
 
   // Modifiable versions of kDefaultLongPollIntervalSeconds which can be
   // updated by the server.
@@ -321,7 +312,6 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
   // this is called.
   void NudgeSyncImpl(int milliseconds_from_now, NudgeSource source);
 
-  scoped_ptr<EventListenerHookup> directory_manager_hookup_;
   scoped_ptr<ChannelHookup<SyncerEvent> > syncer_events_;
 
 #if defined(OS_LINUX)

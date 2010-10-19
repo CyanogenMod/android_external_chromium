@@ -4,6 +4,7 @@
 
 #ifndef NET_SOCKET_TCP_CLIENT_SOCKET_WIN_H_
 #define NET_SOCKET_TCP_CLIENT_SOCKET_WIN_H_
+#pragma once
 
 #include <winsock2.h>
 
@@ -23,9 +24,11 @@ class TCPClientSocketWin : public ClientSocket, NonThreadSafe {
   // The IP address(es) and port number to connect to.  The TCP socket will try
   // each IP address in the list until it succeeds in establishing a
   // connection.
-  TCPClientSocketWin(const AddressList& addresses, net::NetLog* net_log);
+  TCPClientSocketWin(const AddressList& addresses,
+                     net::NetLog* net_log,
+                     const net::NetLog::Source& source);
 
-  ~TCPClientSocketWin();
+  virtual ~TCPClientSocketWin();
 
   // ClientSocket methods:
   virtual int Connect(CompletionCallback* callback);
@@ -34,6 +37,9 @@ class TCPClientSocketWin : public ClientSocket, NonThreadSafe {
   virtual bool IsConnectedAndIdle() const;
   virtual int GetPeerAddress(AddressList* address) const;
   virtual const BoundNetLog& NetLog() const { return net_log_; }
+  virtual void SetSubresourceSpeculation();
+  virtual void SetOmniboxSpeculation();
+  virtual bool WasEverUsed() const;
 
   // Socket methods:
   // Multiple outstanding requests are not supported.
@@ -110,6 +116,10 @@ class TCPClientSocketWin : public ClientSocket, NonThreadSafe {
   int connect_os_error_;
 
   BoundNetLog net_log_;
+
+  // Record of connectivity and transmissions, for use in speculative connection
+  // histograms.
+  UseHistory use_history_;
 
   DISALLOW_COPY_AND_ASSIGN(TCPClientSocketWin);
 };

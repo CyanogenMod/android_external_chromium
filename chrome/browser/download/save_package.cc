@@ -12,6 +12,7 @@
 #include "base/message_loop.h"
 #include "base/stl_util-inl.h"
 #include "base/string_piece.h"
+#include "base/string_split.h"
 #include "base/utf_string_conversions.h"
 #include "base/task.h"
 #include "base/thread.h"
@@ -21,11 +22,14 @@
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_shelf.h"
+#include "chrome/browser/download/download_util.h"
 #include "chrome/browser/download/save_file.h"
 #include "chrome/browser/download/save_file_manager.h"
 #include "chrome/browser/download/save_item.h"
+#include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/platform_util.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_member.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -205,28 +209,27 @@ class CreateDownloadDirectoryTask : public Task {
 
 }  // namespace
 
-SavePackage::SavePackage(TabContents* web_content,
+SavePackage::SavePackage(TabContents* tab_contents,
                          SavePackageType save_type,
                          const FilePath& file_full_path,
                          const FilePath& directory_full_path)
     : file_manager_(NULL),
-      tab_contents_(web_content),
+      tab_contents_(tab_contents),
       download_(NULL),
+      page_url_(GetUrlToBeSaved()),
       saved_main_file_path_(file_full_path),
       saved_main_directory_path_(directory_full_path),
+      title_(tab_contents->GetTitle()),
       finished_(false),
       user_canceled_(false),
       disk_error_occurred_(false),
       save_type_(save_type),
       all_save_items_count_(0),
       wait_state_(INITIALIZE),
-      tab_id_(web_content->GetRenderProcessHost()->id()),
+      tab_id_(tab_contents->GetRenderProcessHost()->id()),
       unique_id_(g_save_package_id++),
       ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
-  DCHECK(web_content);
-  const GURL& current_page_url = GetUrlToBeSaved();
-  DCHECK(current_page_url.is_valid());
-  page_url_ = current_page_url;
+  DCHECK(page_url_.is_valid());
   DCHECK(save_type_ == SAVE_AS_ONLY_HTML ||
          save_type_ == SAVE_AS_COMPLETE_HTML);
   DCHECK(!saved_main_file_path_.empty() &&
@@ -240,6 +243,8 @@ SavePackage::SavePackage(TabContents* tab_contents)
     : file_manager_(NULL),
       tab_contents_(tab_contents),
       download_(NULL),
+      page_url_(GetUrlToBeSaved()),
+      title_(tab_contents->GetTitle()),
       finished_(false),
       user_canceled_(false),
       disk_error_occurred_(false),
@@ -249,10 +254,7 @@ SavePackage::SavePackage(TabContents* tab_contents)
       tab_id_(tab_contents->GetRenderProcessHost()->id()),
       unique_id_(g_save_package_id++),
       ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
-
-  const GURL& current_page_url = GetUrlToBeSaved();
-  DCHECK(current_page_url.is_valid());
-  page_url_ = current_page_url;
+  DCHECK(page_url_.is_valid());
   InternalInit();
 }
 
@@ -276,10 +278,6 @@ SavePackage::SavePackage(TabContents* tab_contents,
       tab_id_(0),
       unique_id_(g_save_package_id++),
       ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
-  DCHECK(!saved_main_file_path_.empty() &&
-         saved_main_file_path_.value().length() <= kMaxFilePathLength);
-  DCHECK(!saved_main_directory_path_.empty() &&
-         saved_main_directory_path_.value().length() < kMaxFilePathLength);
 }
 
 SavePackage::~SavePackage() {
@@ -304,14 +302,9 @@ SavePackage::~SavePackage() {
   STLDeleteValues(&in_progress_items_);
   STLDeleteValues(&saved_failed_items_);
 
-  if (download_) {
-    // We call this to remove the view from the shelf. It will invoke
-    // DownloadManager::RemoveDownload, but since the fake DownloadItem is not
-    // owned by DownloadManager, it will do nothing to our fake item.
-    download_->Remove(false);
-    delete download_;
-    download_ = NULL;
-  }
+  // The DownloadItem is owned by DownloadManager.
+  download_ = NULL;
+
   file_manager_ = NULL;
 
   // If there's an outstanding save dialog, make sure it doesn't call us back
@@ -328,7 +321,7 @@ GURL SavePackage::GetUrlToBeSaved() {
   // rather than the displayed one (returned by GetURL) which may be
   // different (like having "view-source:" on the front).
   NavigationEntry* active_entry =
-           tab_contents_->controller().GetActiveEntry();
+      tab_contents_->controller().GetActiveEntry();
   return active_entry->url();
 }
 
@@ -377,10 +370,17 @@ bool SavePackage::Init() {
   request_context_getter_ = profile->GetRequestContext();
 
   // Create the fake DownloadItem and display the view.
-  download_ = new DownloadItem(1, saved_main_file_path_, 0, page_url_, GURL(),
-      "", "", FilePath(), Time::Now(), 0, -1, -1, false, false,
-      profile->IsOffTheRecord(), false, false);
-  download_->set_manager(tab_contents_->profile()->GetDownloadManager());
+  DownloadManager* download_manager =
+      tab_contents_->profile()->GetDownloadManager();
+  download_ = new DownloadItem(download_manager,
+                               saved_main_file_path_,
+                               page_url_,
+                               profile->IsOffTheRecord());
+
+  // Transfer the ownership to the download manager. We need the DownloadItem
+  // to be alive as long as the Profile is alive.
+  download_manager->SavePageAsDownloadStarted(download_);
+
   tab_contents_->OnStartDownload(download_);
 
   // Check save type and process the save page job.
@@ -390,8 +390,7 @@ bool SavePackage::Init() {
     GetAllSavableResourceLinksForCurrentPage();
   } else {
     wait_state_ = NET_FILES;
-    GURL u(page_url_);
-    SaveFileCreateInfo::SaveFileSource save_source = u.SchemeIsFile() ?
+    SaveFileCreateInfo::SaveFileSource save_source = page_url_.SchemeIsFile() ?
         SaveFileCreateInfo::SAVE_FILE_FROM_FILE :
         SaveFileCreateInfo::SAVE_FILE_FROM_NET;
     SaveItem* save_item = new SaveItem(page_url_,
@@ -727,9 +726,9 @@ void SavePackage::Finish() {
                         &SaveFileManager::RemoveSavedFileFromFileMap,
                         save_ids));
 
-  download_->Finished(all_save_items_count_);
-  // Notify download observers that we are complete (the call to Finished() set
-  // the state to complete but did not notify).
+  download_->OnAllDataSaved(all_save_items_count_);
+  // Notify download observers that we are complete (the call
+  // to OnAllDataSaved() set the state to complete but did not notify).
   download_->UpdateObservers();
 
   NotificationService::current()->Notify(
@@ -1044,9 +1043,8 @@ void SavePackage::GetAllSavableResourceLinksForCurrentPage() {
     return;
 
   wait_state_ = RESOURCES_LIST;
-  GURL main_page_url(page_url_);
   tab_contents_->render_view_host()->
-      GetAllSavableResourceLinksForCurrentPage(main_page_url);
+      GetAllSavableResourceLinksForCurrentPage(page_url_);
 }
 
 // Give backend the lists which contain all resource links that have local
@@ -1098,18 +1096,28 @@ void SavePackage::SetShouldPromptUser(bool should_prompt) {
   g_should_prompt_for_filename = should_prompt;
 }
 
-// static.
-FilePath SavePackage::GetSuggestedNameForSaveAs(const FilePath& name,
+FilePath SavePackage::GetSuggestedNameForSaveAs(
     bool can_save_as_complete,
     const FilePath::StringType& contents_mime_type) {
-  // If the name is a URL, try to use the last path component or if there is
-  // none, the domain as the file name.
-  FilePath name_with_proper_ext = name;
-  GURL url(WideToUTF8(name_with_proper_ext.ToWStringHack()));
-  if (url.is_valid()) {
+  FilePath name_with_proper_ext =
+      FilePath::FromWStringHack(UTF16ToWideHack(title_));
+
+  // If the page's title matches its URL, use the URL. Try to use the last path
+  // component or if there is none, the domain as the file name.
+  // Normally we want to base the filename on the page title, or if it doesn't
+  // exist, on the URL. It's not easy to tell if the page has no title, because
+  // if the page has no title, TabContents::GetTitle() will return the page's
+  // URL (adjusted for display purposes). Therefore, we convert the "title"
+  // back to a URL, and if it matches the original page URL, we know the page
+  // had no title (or had a title equal to its URL, which is fine to treat
+  // similarly).
+  GURL fixed_up_title_url =
+      URLFixerUpper::FixupURL(UTF16ToUTF8(title_), std::string());
+
+  if (page_url_ == fixed_up_title_url) {
     std::string url_path;
     std::vector<std::string> url_parts;
-    SplitString(url.path(), '/', &url_parts);
+    SplitString(page_url_.path(), '/', &url_parts);
     if (!url_parts.empty()) {
       for (int i = static_cast<int>(url_parts.size()) - 1; i >= 0; --i) {
         url_path = url_parts[i];
@@ -1118,7 +1126,7 @@ FilePath SavePackage::GetSuggestedNameForSaveAs(const FilePath& name,
       }
     }
     if (url_path.empty())
-      url_path = url.host();
+      url_path = page_url_.host();
     name_with_proper_ext = FilePath::FromWStringHack(UTF8ToWide(url_path));
   }
 
@@ -1235,9 +1243,6 @@ void SavePackage::ContinueGetSaveInfo(FilePath save_dir) {
   bool can_save_as_complete =
       CanSaveAsComplete(save_params->current_tab_mime_type);
 
-  FilePath title =
-      FilePath::FromWStringHack(UTF16ToWideHack(tab_contents_->GetTitle()));
-
 #if defined(OS_POSIX)
   FilePath::StringType mime_type(save_params->current_tab_mime_type);
 #elif defined(OS_WIN)
@@ -1245,9 +1250,8 @@ void SavePackage::ContinueGetSaveInfo(FilePath save_dir) {
       UTF8ToWide(save_params->current_tab_mime_type));
 #endif  // OS_WIN
 
-  FilePath suggested_path =
-      save_dir.Append(GetSuggestedNameForSaveAs(title, can_save_as_complete,
-      mime_type));
+  FilePath suggested_path = save_dir.Append(
+      GetSuggestedNameForSaveAs(can_save_as_complete, mime_type));
 
   // If the contents can not be saved as complete-HTML, do not show the
   // file filters.
@@ -1266,13 +1270,13 @@ void SavePackage::ContinueGetSaveInfo(FilePath save_dir) {
     if (add_extra_extension)
       file_type_info.extensions[0].push_back(extra_extension);
     file_type_info.extension_description_overrides.push_back(
-        WideToUTF16(l10n_util::GetString(IDS_SAVE_PAGE_DESC_HTML_ONLY)));
+        l10n_util::GetStringUTF16(IDS_SAVE_PAGE_DESC_HTML_ONLY));
     file_type_info.extensions[1].push_back(FILE_PATH_LITERAL("htm"));
     file_type_info.extensions[1].push_back(FILE_PATH_LITERAL("html"));
     if (add_extra_extension)
       file_type_info.extensions[1].push_back(extra_extension);
     file_type_info.extension_description_overrides.push_back(
-        WideToUTF16(l10n_util::GetString(IDS_SAVE_PAGE_DESC_COMPLETE)));
+        l10n_util::GetStringUTF16(IDS_SAVE_PAGE_DESC_COMPLETE));
     file_type_info.include_all_files = false;
     default_extension = kDefaultHtmlExtension;
   } else {
@@ -1309,10 +1313,8 @@ void SavePackage::ContinueSave(SavePackageParam* param,
                                int index) {
   // Ensure the filename is safe.
   param->saved_main_file_path = final_name;
-  DownloadManager* dlm = tab_contents_->profile()->GetDownloadManager();
-  DCHECK(dlm);
-  dlm->GenerateSafeFileName(param->current_tab_mime_type,
-                            &param->saved_main_file_path);
+  download_util::GenerateSafeFileName(param->current_tab_mime_type,
+                                      &param->saved_main_file_path);
 
   // The option index is not zero-based.
   DCHECK(index > 0 && index < 3);

@@ -10,7 +10,6 @@
 
 #include "base/crypto/cssm_init.h"
 #include "base/logging.h"
-#include "base/rand_util.h"
 
 namespace {
 
@@ -132,6 +131,12 @@ SymmetricKey* SymmetricKey::DeriveKeyFromPassword(Algorithm algorithm,
   CSSM_DeleteContext(ctx);
   CSSM_FreeKey(GetSharedCSPHandle(), &credentials, &cssm_key, false);
   return derived_key;
+}
+
+// static
+SymmetricKey* SymmetricKey::Import(Algorithm algorithm,
+                                   const std::string& raw_key) {
+  return new SymmetricKey(raw_key.data(), raw_key.size() * 8);
 }
 
 SymmetricKey::SymmetricKey(const void *key_data, size_t key_size_in_bits)

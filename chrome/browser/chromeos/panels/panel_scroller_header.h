@@ -1,11 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.  Use of this
-// source code is governed by a BSD-style license that can be found in the
-// LICENSE file.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_CHROMEOS_PANELS_PANEL_SCROLLER_HEADER_H_
 #define CHROME_BROWSER_CHROMEOS_PANELS_PANEL_SCROLLER_HEADER_H_
-
-#include <string>
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/string16.h"
@@ -18,9 +17,7 @@ class PanelScrollerHeader : public views::View {
   explicit PanelScrollerHeader(PanelScroller* scroller);
   virtual ~PanelScrollerHeader();
 
-  void set_title(const string16& title) {
-    title_ = title;
-  }
+  void set_title(const string16& title) { title_ = title; }
 
   // views::View overrides.
   virtual bool OnMousePressed(const views::MouseEvent& event);
@@ -39,4 +36,3 @@ class PanelScrollerHeader : public views::View {
 };
 
 #endif  // CHROME_BROWSER_CHROMEOS_PANELS_PANEL_SCROLLER_HEADER_H_
-

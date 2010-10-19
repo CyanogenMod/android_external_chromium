@@ -4,11 +4,13 @@
 
 #ifndef CHROME_BROWSER_CHROME_PLUGIN_BROWSING_CONTEXT_H_
 #define CHROME_BROWSER_CHROME_PLUGIN_BROWSING_CONTEXT_H_
+#pragma once
 
 #include <map>
 
 #include "base/id_map.h"
 #include "chrome/common/chrome_plugin_api.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
 class URLRequestContext;

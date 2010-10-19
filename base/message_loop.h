@@ -4,6 +4,7 @@
 
 #ifndef BASE_MESSAGE_LOOP_H_
 #define BASE_MESSAGE_LOOP_H_
+#pragma once
 
 #include <queue>
 #include <string>
@@ -90,8 +91,10 @@ class MessageLoop : public base::MessagePump::Delegate {
   //
   class DestructionObserver {
    public:
-    virtual ~DestructionObserver();
     virtual void WillDestroyCurrentMessageLoop() = 0;
+
+   protected:
+    virtual ~DestructionObserver();
   };
 
   // Add a DestructionObserver, which will start receiving notifications

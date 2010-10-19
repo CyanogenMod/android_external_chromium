@@ -5,13 +5,16 @@
 #include "chrome/browser/views/options/content_filter_page_view.h"
 
 #include "app/l10n_util.h"
+#include "base/command_line.h"
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
 #include "chrome/browser/geolocation/geolocation_exceptions_table_model.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification_exceptions_table_model.h"
+#include "chrome/browser/plugin_exceptions_table_model.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/views/options/exceptions_view.h"
 #include "chrome/browser/views/options/simple_content_exceptions_view.h"
+#include "chrome/common/chrome_switches.h"
 #include "grit/generated_resources.h"
 #include "views/controls/button/radio_button.h"
 #include "views/grid_layout.h"
@@ -88,10 +91,10 @@ void ContentFilterPageView::InitControlLayout() {
   layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
 
   static const int kAskIDs[] = {
+    IDS_COOKIES_ASK_EVERY_TIME_RADIO,
     0,
     0,
-    0,
-    0,
+    IDS_PLUGIN_LOAD_SANDBOXED_RADIO,
     0,
     IDS_GEOLOCATION_ASK_RADIO,
     IDS_NOTIFICATIONS_ASK_RADIO,
@@ -100,14 +103,16 @@ void ContentFilterPageView::InitControlLayout() {
                  Need_a_setting_for_every_content_settings_type);
   DCHECK_EQ(arraysize(kAskIDs),
             static_cast<size_t>(CONTENT_SETTINGS_NUM_TYPES));
-  if (kAskIDs[content_type_] != 0) {
-    ask_radio_ = new views::RadioButton(
-        l10n_util::GetString(kAskIDs[content_type_]), radio_button_group);
-    ask_radio_->set_listener(this);
-    ask_radio_->SetMultiLine(true);
-    layout->StartRow(0, single_column_set_id);
-    layout->AddView(ask_radio_);
-    layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+  if (content_type_ != CONTENT_SETTINGS_TYPE_COOKIES) {
+    if (kAskIDs[content_type_] != 0) {
+      ask_radio_ = new views::RadioButton(
+          l10n_util::GetString(kAskIDs[content_type_]), radio_button_group);
+      ask_radio_->set_listener(this);
+      ask_radio_->SetMultiLine(true);
+      layout->StartRow(0, single_column_set_id);
+      layout->AddView(ask_radio_);
+      layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
+    }
   }
 
   static const int kBlockIDs[] = {
@@ -130,7 +135,12 @@ void ContentFilterPageView::InitControlLayout() {
   layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
 
   ContentSetting default_setting;
-  if (content_type_ == CONTENT_SETTINGS_TYPE_GEOLOCATION) {
+  if (content_type_ == CONTENT_SETTINGS_TYPE_PLUGINS) {
+    default_setting = profile()->GetHostContentSettingsMap()->
+        GetDefaultContentSetting(content_type_);
+    if (profile()->GetHostContentSettingsMap()->GetBlockNonsandboxedPlugins())
+      default_setting = CONTENT_SETTING_ASK;
+  } else if (content_type_ == CONTENT_SETTINGS_TYPE_GEOLOCATION) {
     default_setting = profile()->GetGeolocationContentSettingsMap()->
         GetDefaultContentSetting();
   } else if (content_type_ == CONTENT_SETTINGS_TYPE_NOTIFICATIONS) {
@@ -179,12 +189,27 @@ void ContentFilterPageView::ButtonPressed(views::Button* sender,
               profile()->GetDesktopNotificationService()),
           IDS_NOTIFICATIONS_EXCEPTION_TITLE);
     } else {
-      ExceptionsView::ShowExceptionsWindow(GetWindow()->GetNativeWindow(),
-          profile()->GetHostContentSettingsMap(),
+      HostContentSettingsMap* settings = profile()->GetHostContentSettingsMap();
+      HostContentSettingsMap* otr_settings =
           profile()->HasOffTheRecordProfile() ?
               profile()->GetOffTheRecordProfile()->GetHostContentSettingsMap() :
-              NULL,
-          content_type_);
+              NULL;
+      if (content_type_ == CONTENT_SETTINGS_TYPE_PLUGINS &&
+          CommandLine::ForCurrentProcess()->HasSwitch(
+              switches::kEnableResourceContentSettings)) {
+        PluginExceptionsTableModel* model =
+            new PluginExceptionsTableModel(settings, otr_settings);
+        model->LoadSettings();
+        SimpleContentExceptionsView::ShowExceptionsWindow(
+            GetWindow()->GetNativeWindow(),
+            model,
+            IDS_PLUGINS_EXCEPTION_TITLE);
+      } else {
+        ExceptionsView::ShowExceptionsWindow(GetWindow()->GetNativeWindow(),
+                                             settings,
+                                             otr_settings,
+                                             content_type_);
+      }
     }
     return;
   }
@@ -194,7 +219,17 @@ void ContentFilterPageView::ButtonPressed(views::Button* sender,
   ContentSetting default_setting = allow_radio_->checked() ?
       CONTENT_SETTING_ALLOW :
       (block_radio_->checked() ? CONTENT_SETTING_BLOCK : CONTENT_SETTING_ASK);
-  if (content_type_ == CONTENT_SETTINGS_TYPE_GEOLOCATION) {
+  if (content_type_ == CONTENT_SETTINGS_TYPE_PLUGINS) {
+    if (default_setting == CONTENT_SETTING_ASK) {
+      default_setting = CONTENT_SETTING_ALLOW;
+      profile()->GetHostContentSettingsMap()->SetBlockNonsandboxedPlugins(true);
+    } else {
+      profile()->GetHostContentSettingsMap()->
+          SetBlockNonsandboxedPlugins(false);
+    }
+    profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
+        content_type_, default_setting);
+  } else if (content_type_ == CONTENT_SETTINGS_TYPE_GEOLOCATION) {
     profile()->GetGeolocationContentSettingsMap()->SetDefaultContentSetting(
         default_setting);
   } else if (content_type_ == CONTENT_SETTINGS_TYPE_NOTIFICATIONS) {

@@ -6,13 +6,12 @@
 
 #ifndef NET_DISK_CACHE_STORAGE_BLOCK_H__
 #define NET_DISK_CACHE_STORAGE_BLOCK_H__
+#pragma once
 
 #include "net/disk_cache/addr.h"
 #include "net/disk_cache/mapped_file.h"
 
 namespace disk_cache {
-
-class EntryImpl;
 
 // This class encapsulates common behavior of a single "block" of data that is
 // stored on a block-file. It implements the FileBlock interface, so it can be

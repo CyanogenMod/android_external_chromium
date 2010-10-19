@@ -9,12 +9,10 @@
 #include <string>
 
 #include "app/gtk_util.h"
+#include "app/keyboard_codes.h"
 #include "app/l10n_util.h"
-#include "app/resource_bundle.h"
-#include "app/theme_provider.h"
 #include "base/base_paths.h"
 #include "base/command_line.h"
-#include "base/keyboard_codes.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
@@ -22,6 +20,7 @@
 #include "base/singleton.h"
 #include "base/string_util.h"
 #include "base/time.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/app_modal_dialog_queue.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
@@ -29,7 +28,6 @@
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_theme_provider.h"
 #include "chrome/browser/debugger/devtools_window.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_manager.h"
@@ -69,14 +67,17 @@
 #include "chrome/browser/gtk/update_recommended_dialog.h"
 #include "chrome/browser/location_bar.h"
 #include "chrome/browser/page_info_window.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view_gtk.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/window_sizer.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "gfx/color_utils.h"
@@ -263,17 +264,23 @@ GdkColor SkColorToGdkColor(const SkColor& color) {
 
 // A helper method for setting the GtkWindow size that should be used in place
 // of calling gtk_window_resize directly.  This is done to avoid a WM "feature"
-// where setting the window size to the screen size causes the WM to set the
+// where setting the window size to the monitor size causes the WM to set the
 // EWMH for full screen mode.
-void SetWindowSize(GtkWindow* window, int width, int height) {
+void SetWindowSize(GtkWindow* window, const gfx::Size& size) {
   GdkScreen* screen = gtk_window_get_screen(window);
-  if (width >= gdk_screen_get_width(screen) &&
-      height >= gdk_screen_get_height(screen)) {
-    // Adjust the height so we don't trigger the WM feature.
-    gtk_window_resize(window, width, height - 1);
-  } else {
-    gtk_window_resize(window, width, height);
+  gint num_monitors = gdk_screen_get_n_monitors(screen);
+  // Make sure the window doesn't match any monitor size.  We compare against
+  // all monitors because we don't know which monitor the window is going to
+  // open on (the WM decides that).
+  for (gint i = 0; i < num_monitors; ++i) {
+    GdkRectangle monitor_size;
+    gdk_screen_get_monitor_geometry(screen, i, &monitor_size);
+    if (gfx::Size(monitor_size.width, monitor_size.height) == size) {
+      gtk_window_resize(window, size.width(), size.height() - 1);
+      return;
+    }
   }
+  gtk_window_resize(window, size.width(), size.height());
 }
 
 GQuark GetBrowserWindowQuarkKey() {
@@ -293,8 +300,8 @@ bool ShouldExecuteReservedCommandImmediately(
   // Keys like Ctrl+w, Ctrl+n, etc. should always be sent to the renderer first,
   // otherwise some web apps or the Emacs key bindings may not work correctly.
   int vkey = event.windowsKeyCode;
-  if ((vkey >= base::VKEY_0 && vkey <= base::VKEY_9) ||
-      (vkey >= base::VKEY_A && vkey <= base::VKEY_Z))
+  if ((vkey >= app::VKEY_0 && vkey <= app::VKEY_9) ||
+      (vkey >= app::VKEY_A && vkey <= app::VKEY_Z))
     return false;
 
   // All other reserved accelerators should be processed immediately.
@@ -639,16 +646,19 @@ void BrowserWindowGtk::Show() {
   gtk_widget_set_size_request(contents_container_->widget(), -1, -1);
 }
 
-void BrowserWindowGtk::SetBoundsImpl(const gfx::Rect& bounds, bool exterior) {
+void BrowserWindowGtk::SetBoundsImpl(const gfx::Rect& bounds,
+                                     bool exterior,
+                                     bool move) {
   gint x = static_cast<gint>(bounds.x());
   gint y = static_cast<gint>(bounds.y());
   gint width = static_cast<gint>(bounds.width());
   gint height = static_cast<gint>(bounds.height());
 
-  gtk_window_move(window_, x, y);
+  if (move)
+    gtk_window_move(window_, x, y);
 
   if (exterior) {
-    SetWindowSize(window_, width, height);
+    SetWindowSize(window_, gfx::Size(width, height));
   } else {
     gtk_widget_set_size_request(contents_container_->widget(),
                                 width, height);
@@ -656,18 +666,13 @@ void BrowserWindowGtk::SetBoundsImpl(const gfx::Rect& bounds, bool exterior) {
 }
 
 void BrowserWindowGtk::SetBounds(const gfx::Rect& bounds) {
-  SetBoundsImpl(bounds, true);
+  SetBoundsImpl(bounds, true, true);
 }
 
 void BrowserWindowGtk::Close() {
   // We're already closing.  Do nothing.
   if (!window_)
     return;
-
-  // Sometimes the tabstrip will get stuck thinking it's in a drag session.
-  // Short of figuring out a repro case and actually solving the problem, this
-  // is the best way to avoid an immortal window. See http://crbug.com/23733
-  tabstrip_->CancelActiveDragSession();
 
   if (!CanClose())
     return;
@@ -711,6 +716,10 @@ void BrowserWindowGtk::Activate() {
   gtk_window_present(window_);
 }
 
+void BrowserWindowGtk::Deactivate() {
+  gdk_window_lower(GTK_WIDGET(window_)->window);
+}
+
 bool BrowserWindowGtk::IsActive() const {
   return is_active_;
 }
@@ -736,10 +745,6 @@ StatusBubble* BrowserWindowGtk::GetStatusBubble() {
 void BrowserWindowGtk::SelectedTabToolbarSizeChanged(bool is_animating) {
   // On Windows, this is used for a performance optimization.
   // http://code.google.com/p/chromium/issues/detail?id=12291
-}
-
-void BrowserWindowGtk::SelectedTabExtensionShelfSizeChanged() {
-  NOTIMPLEMENTED();
 }
 
 void BrowserWindowGtk::UpdateTitleBar() {
@@ -815,7 +820,20 @@ void BrowserWindowGtk::SetFullscreen(bool fullscreen) {
   if (fullscreen) {
     gtk_window_fullscreen(window_);
   } else {
+    // Work around a bug where if we try to unfullscreen, metacity immediately
+    // fullscreens us again.  This is a little flickery and not necessary if
+    // there's a gnome-panel, but it's not easy to detect whether there's a
+    // panel or not.
+    std::string wm_name;
+    bool unmaximize_before_unfullscreen = IsMaximized() &&
+        x11_util::GetWindowManagerName(&wm_name) && wm_name == "Metacity";
+    if (unmaximize_before_unfullscreen)
+      UnMaximize();
+
     gtk_window_unfullscreen(window_);
+
+    if (unmaximize_before_unfullscreen)
+      gtk_window_maximize(window_);
   }
 }
 
@@ -894,10 +912,6 @@ void BrowserWindowGtk::ConfirmAddSearchProvider(const TemplateURL* template_url,
 
 void BrowserWindowGtk::ToggleBookmarkBar() {
   bookmark_utils::ToggleWhenVisible(browser_->profile());
-}
-
-void BrowserWindowGtk::ToggleExtensionShelf() {
-  NOTIMPLEMENTED();
 }
 
 views::Window* BrowserWindowGtk::ShowAboutChromeDialog() {
@@ -1009,7 +1023,11 @@ void BrowserWindowGtk::ShowPageInfo(Profile* profile,
                                     const GURL& url,
                                     const NavigationEntry::SSLStatus& ssl,
                                     bool show_history) {
-  browser::ShowPageInfo(window_, profile, url, ssl, show_history);
+  const CommandLine* command_line(CommandLine::ForCurrentProcess());
+  if (command_line->HasSwitch(switches::kEnableNewPageInfoBubble))
+    browser::ShowPageInfoBubble(window_, profile, url, ssl, show_history);
+  else
+    browser::ShowPageInfo(window_, profile, url, ssl, show_history);
 }
 
 void BrowserWindowGtk::ShowAppMenu() {
@@ -1115,6 +1133,22 @@ void BrowserWindowGtk::Paste() {
   DoCutCopyPaste(this, &RenderViewHost::Paste, "paste-clipboard");
 }
 
+void BrowserWindowGtk::ShowMatchPreview() {
+  // TODO: implement me
+  NOTIMPLEMENTED();
+}
+
+void BrowserWindowGtk::HideMatchPreview() {
+  // TODO: implement me
+  NOTIMPLEMENTED();
+}
+
+gfx::Rect BrowserWindowGtk::GetMatchPreviewBounds() {
+  // TODO: implement me
+  NOTIMPLEMENTED();
+  return gfx::Rect();
+}
+
 void BrowserWindowGtk::ConfirmBrowserCloseWithPendingDownloads() {
   new DownloadInProgressDialogGtk(browser());
 }
@@ -1128,7 +1162,7 @@ void BrowserWindowGtk::Observe(NotificationType type,
       break;
 
     case NotificationType::PREF_CHANGED: {
-      std::wstring* pref_name = Details<std::wstring>(details).ptr();
+      std::string* pref_name = Details<std::string>(details).ptr();
       if (*pref_name == prefs::kUseCustomChromeFrame) {
         UpdateCustomFrame();
       } else {
@@ -1475,15 +1509,10 @@ void BrowserWindowGtk::SetGeometryHints() {
   // For popup windows, we assume that if x == y == 0, the opening page
   // did not specify a position.  Let the WM position the popup instead.
   bool is_popup = browser_->type() & Browser::TYPE_POPUP;
-  bool popup_without_position = is_popup && bounds.x() == 0 && bounds.y() == 0;
-  if (browser_->bounds_overridden() && !popup_without_position) {
-    // For popups, bounds are set in terms of the client area rather than the
-    // entire window.
-    SetBoundsImpl(bounds, !is_popup);
-  } else {
-    // Ignore the position but obey the size.
-    SetWindowSize(window_, bounds.width(), bounds.height());
-  }
+  bool popup_without_position = is_popup &&
+      bounds.x() == 0 && bounds.y() == 0;
+  bool move = browser_->bounds_overridden() && !popup_without_position;
+  SetBoundsImpl(bounds, !is_popup, move);
 }
 
 void BrowserWindowGtk::ConnectHandlersToSignals() {
@@ -1737,27 +1766,27 @@ void BrowserWindowGtk::SaveWindowPosition() {
   if (!g_browser_process->local_state())
     return;
 
-  std::wstring window_name = browser_->GetWindowPlacementKey();
+  std::string window_name = browser_->GetWindowPlacementKey();
   DictionaryValue* window_preferences =
       g_browser_process->local_state()->GetMutableDictionary(
           window_name.c_str());
   // Note that we store left/top for consistency with Windows, but that we
   // *don't* obey them; we only use them for computing width/height.  See
   // comments in SetGeometryHints().
-  window_preferences->SetInteger(L"left", restored_bounds_.x());
-  window_preferences->SetInteger(L"top", restored_bounds_.y());
-  window_preferences->SetInteger(L"right", restored_bounds_.right());
-  window_preferences->SetInteger(L"bottom", restored_bounds_.bottom());
-  window_preferences->SetBoolean(L"maximized", IsMaximized());
+  window_preferences->SetInteger("left", restored_bounds_.x());
+  window_preferences->SetInteger("top", restored_bounds_.y());
+  window_preferences->SetInteger("right", restored_bounds_.right());
+  window_preferences->SetInteger("bottom", restored_bounds_.bottom());
+  window_preferences->SetBoolean("maximized", IsMaximized());
 
   scoped_ptr<WindowSizer::MonitorInfoProvider> monitor_info_provider(
       WindowSizer::CreateDefaultMonitorInfoProvider());
   gfx::Rect work_area(
       monitor_info_provider->GetMonitorWorkAreaMatching(restored_bounds_));
-  window_preferences->SetInteger(L"work_area_left", work_area.x());
-  window_preferences->SetInteger(L"work_area_top", work_area.y());
-  window_preferences->SetInteger(L"work_area_right", work_area.right());
-  window_preferences->SetInteger(L"work_area_bottom", work_area.bottom());
+  window_preferences->SetInteger("work_area_left", work_area.x());
+  window_preferences->SetInteger("work_area_top", work_area.y());
+  window_preferences->SetInteger("work_area_right", work_area.right());
+  window_preferences->SetInteger("work_area_bottom", work_area.bottom());
 }
 
 // static
@@ -1917,8 +1946,8 @@ gboolean BrowserWindowGtk::OnButtonPressEvent(GtkWidget* widget,
                      NULL);
 
         guint32 click_time = event->time - last_click_time;
-        int click_move_x = static_cast<int>(event->x - last_click_position.x());
-        int click_move_y = static_cast<int>(event->y - last_click_position.y());
+        int click_move_x = abs(event->x - last_click_position.x());
+        int click_move_y = abs(event->y - last_click_position.y());
 
         if (click_time > static_cast<guint32>(double_click_time) ||
             click_move_x > double_click_distance ||
@@ -1927,9 +1956,7 @@ gboolean BrowserWindowGtk::OnButtonPressEvent(GtkWidget* widget,
           // We do this to avoid triggering fullscreen mode in metacity
           // (without the --no-force-fullscreen flag) and in compiz (with
           // Legacy Fullscreen Mode enabled).
-          GdkScreen* screen = gtk_window_get_screen(window_);
-          if (bounds_.width() != gdk_screen_get_width(screen) ||
-              bounds_.height() != gdk_screen_get_height(screen)) {
+          if (!BoundsMatchMonitorSize()) {
             gtk_window_begin_move_drag(window_, event->button,
                                        static_cast<gint>(event->x_root),
                                        static_cast<gint>(event->y_root),
@@ -2108,6 +2135,17 @@ bool BrowserWindowGtk::UseCustomFrame() {
   return use_custom_frame_pref_.GetValue() &&
       browser_->type() != Browser::TYPE_APP &&
       browser_->type() != Browser::TYPE_APP_POPUP;
+}
+
+bool BrowserWindowGtk::BoundsMatchMonitorSize() {
+  // A screen can be composed of multiple monitors.
+  GdkScreen* screen = gtk_window_get_screen(window_);
+  gint monitor_num = gdk_screen_get_monitor_at_window(screen,
+      GTK_WIDGET(window_)->window);
+
+  GdkRectangle monitor_size;
+  gdk_screen_get_monitor_geometry(screen, monitor_num, &monitor_size);
+  return bounds_.size() == gfx::Size(monitor_size.width, monitor_size.height);
 }
 
 void BrowserWindowGtk::PlaceBookmarkBar(bool is_floating) {

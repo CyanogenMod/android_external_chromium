@@ -1,15 +1,15 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_EXTERNAL_PROTOCOL_HANDLER_H_
 #define CHROME_BROWSER_EXTERNAL_PROTOCOL_HANDLER_H_
+#pragma once
 
 #include <string>
 
 class DictionaryValue;
 class GURL;
-class MessageLoop;
 class PrefService;
 
 class ExternalProtocolHandler {
@@ -21,10 +21,10 @@ class ExternalProtocolHandler {
   };
 
   // Returns whether we should block a given scheme.
-  static BlockState GetBlockState(const std::wstring& scheme);
+  static BlockState GetBlockState(const std::string& scheme);
 
   // Sets whether we should block a given scheme.
-  static void SetBlockState(const std::wstring& scheme, BlockState state);
+  static void SetBlockState(const std::string& scheme, BlockState state);
 
   // Checks to see if the protocol is allowed, if it is whitelisted,
   // the application associated with the protocol is launched on the io thread,
@@ -68,8 +68,11 @@ class ExternalProtocolHandler {
   // preferences for them do not already exist.
   static void PrepopulateDictionary(DictionaryValue* win_pref);
 
-  // Called when the user interacts with a web page.
-  static void OnUserGesture();
+  // Allows LaunchUrl to proceed with launching an external protocol handler.
+  // This is typically triggered by a user gesture, but is also called for
+  // each extension API function. Note that each call to LaunchUrl resets
+  // the state to false (not allowed).
+  static void PermitLaunchUrl();
 };
 
 #endif  // CHROME_BROWSER_EXTERNAL_PROTOCOL_HANDLER_H_

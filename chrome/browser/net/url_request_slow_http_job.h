@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -6,8 +6,7 @@
 
 #ifndef CHROME_BROWSER_NET_URL_REQUEST_SLOW_HTTP_JOB_H_
 #define CHROME_BROWSER_NET_URL_REQUEST_SLOW_HTTP_JOB_H_
-
-#include <string>
+#pragma once
 
 #include "base/timer.h"
 #include "chrome/browser/net/url_request_mock_http_job.h"
@@ -29,7 +28,7 @@ class URLRequestSlowHTTPJob : public URLRequestMockHTTPJob {
   virtual void Start();
 
  private:
-  ~URLRequestSlowHTTPJob() {}
+  ~URLRequestSlowHTTPJob();
 
   void RealStart();
 

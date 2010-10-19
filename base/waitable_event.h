@@ -4,6 +4,7 @@
 
 #ifndef BASE_WAITABLE_EVENT_H_
 #define BASE_WAITABLE_EVENT_H_
+#pragma once
 
 #include "base/basictypes.h"
 
@@ -143,10 +144,8 @@ class WaitableEvent {
   struct WaitableEventKernel :
       public RefCountedThreadSafe<WaitableEventKernel> {
    public:
-    WaitableEventKernel(bool manual_reset, bool initially_signaled)
-        : manual_reset_(manual_reset),
-          signaled_(initially_signaled) {
-    }
+    WaitableEventKernel(bool manual_reset, bool initially_signaled);
+    virtual ~WaitableEventKernel();
 
     bool Dequeue(Waiter* waiter, void* tag);
 

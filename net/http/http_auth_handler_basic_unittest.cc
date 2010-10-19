@@ -2,28 +2,31 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "testing/gtest/include/gtest/gtest.h"
+#include <string>
 
 #include "base/basictypes.h"
+#include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_auth_handler_basic.h"
 #include "net/http/http_request_info.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
 
 TEST(HttpAuthHandlerBasicTest, GenerateAuthToken) {
   static const struct {
-    const wchar_t* username;
-    const wchar_t* password;
+    const char* username;
+    const char* password;
     const char* expected_credentials;
   } tests[] = {
-    { L"foo", L"bar", "Basic Zm9vOmJhcg==" },
+    { "foo", "bar", "Basic Zm9vOmJhcg==" },
     // Empty username
-    { L"", L"foobar", "Basic OmZvb2Jhcg==" },
+    { "", "foobar", "Basic OmZvb2Jhcg==" },
     // Empty password
-    { L"anon", L"", "Basic YW5vbjo=" },
+    { "anon", "", "Basic YW5vbjo=" },
     // Empty username and empty password.
-    { L"", L"", "Basic Og==" },
+    { "", "", "Basic Og==" },
   };
   GURL origin("http://www.example.com");
   HttpAuthHandlerBasic::Factory factory;
@@ -32,8 +35,8 @@ TEST(HttpAuthHandlerBasicTest, GenerateAuthToken) {
     scoped_ptr<HttpAuthHandler> basic;
     EXPECT_EQ(OK, factory.CreateAuthHandlerFromString(
         challenge, HttpAuth::AUTH_SERVER, origin, BoundNetLog(), &basic));
-    std::wstring username(tests[i].username);
-    std::wstring password(tests[i].password);
+    string16 username(ASCIIToUTF16(tests[i].username));
+    string16 password(ASCIIToUTF16(tests[i].password));
     HttpRequestInfo request_info;
     std::string auth_token;
     int rv = basic->GenerateAuthToken(&username, &password, &request_info,
@@ -63,6 +66,52 @@ TEST(HttpAuthHandlerBasicTest, InitFromChallenge) {
       OK,
       "",
     },
+
+    // Realm is valid.
+    {
+      "Basic realm=\"test_realm\"",
+      OK,
+      "test_realm",
+    },
+
+    // The parser ignores tokens which aren't known.
+    {
+      "Basic realm=\"test_realm\",unknown_token=foobar",
+      OK,
+      "test_realm",
+    },
+
+    // The parser skips over tokens which aren't known.
+    {
+      "Basic unknown_token=foobar,realm=\"test_realm\"",
+      OK,
+      "test_realm",
+    },
+
+#if 0
+    // TODO(cbentzel): It's unclear what the parser should do in these cases.
+    //                 It seems like this should either be treated as invalid,
+    //                 or the spaces should be used as a separator.
+    {
+      "Basic realm=\"test_realm\" unknown_token=foobar",
+      OK,
+      "test_realm",
+    },
+
+    // The parser skips over tokens which aren't known.
+    {
+      "Basic unknown_token=foobar realm=\"test_realm\"",
+      OK,
+      "test_realm",
+    },
+#endif
+
+    // The parser fails when the first token is not "Basic".
+    {
+      "Negotiate",
+      ERR_INVALID_RESPONSE,
+      ""
+    },
   };
   HttpAuthHandlerBasic::Factory factory;
   GURL origin("http://www.example.com");
@@ -77,4 +126,4 @@ TEST(HttpAuthHandlerBasicTest, InitFromChallenge) {
   }
 }
 
-} // namespace net
+}  // namespace net

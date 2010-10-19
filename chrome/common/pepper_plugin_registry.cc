@@ -6,12 +6,17 @@
 
 #include "base/command_line.h"
 #include "base/file_util.h"
+#include "base/native_library.h"
 #include "base/path_service.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "remoting/client/plugin/pepper_entrypoints.h"
+
+PepperPluginInfo::PepperPluginInfo() : is_internal(false) {
+}
 
 // static
 PepperPluginRegistry* PepperPluginRegistry::GetInstance() {
@@ -35,10 +40,24 @@ void PepperPluginRegistry::GetList(std::vector<PepperPluginInfo>* plugins) {
 }
 
 // static
+void PepperPluginRegistry::PreloadModules() {
+  std::vector<PepperPluginInfo> plugins;
+  GetList(&plugins);
+  for (size_t i = 0; i < plugins.size(); ++i) {
+    if (!plugins[i].is_internal) {
+      base::NativeLibrary library = base::LoadNativeLibrary(plugins[i].path);
+      LOG_IF(WARNING, !library) << "Unable to load plugin "
+                                << plugins[i].path.value();
+    }
+  }
+}
+
+// static
 void PepperPluginRegistry::GetPluginInfoFromSwitch(
     std::vector<PepperPluginInfo>* plugins) {
-  const std::wstring& value = CommandLine::ForCurrentProcess()->GetSwitchValue(
-      switches::kRegisterPepperPlugins);
+  const std::string value =
+      CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kRegisterPepperPlugins);
   if (value.empty())
     return;
 
@@ -47,27 +66,34 @@ void PepperPluginRegistry::GetPluginInfoFromSwitch(
   // plugin-entry = <file-path> + ["#" + <name> + ["#" + <description>]] +
   //                *1( LWS + ";" + LWS + <mime-type> )
 
-  std::vector<std::wstring> modules;
+  std::vector<std::string> modules;
   SplitString(value, ',', &modules);
   for (size_t i = 0; i < modules.size(); ++i) {
-    std::vector<std::wstring> parts;
+    std::vector<std::string> parts;
     SplitString(modules[i], ';', &parts);
     if (parts.size() < 2) {
       DLOG(ERROR) << "Required mime-type not found";
       continue;
     }
 
-    std::vector<std::wstring> name_parts;
+    std::vector<std::string> name_parts;
     SplitString(parts[0], '#', &name_parts);
 
     PepperPluginInfo plugin;
-    plugin.path = FilePath::FromWStringHack(name_parts[0]);
+#if defined(OS_WIN)
+    // This means we can't provide plugins from non-ASCII paths, but
+    // since this switch is only for development I don't think that's
+    // too awful.
+    plugin.path = FilePath(ASCIIToUTF16(name_parts[0]));
+#else
+    plugin.path = FilePath(name_parts[0]);
+#endif
     if (name_parts.size() > 1)
-      plugin.name = WideToUTF8(name_parts[1]);
+      plugin.name = name_parts[1];
     if (name_parts.size() > 2)
-      plugin.type_descriptions = WideToUTF8(name_parts[2]);
+      plugin.type_descriptions = name_parts[2];
     for (size_t j = 1; j < parts.size(); ++j)
-      plugin.mime_types.push_back(WideToASCII(parts[j]));
+      plugin.mime_types.push_back(parts[j]);
 
     plugins->push_back(plugin);
   }
@@ -76,17 +102,30 @@ void PepperPluginRegistry::GetPluginInfoFromSwitch(
 // static
 void PepperPluginRegistry::GetExtraPlugins(
     std::vector<PepperPluginInfo>* plugins) {
+  // Once we're sandboxed, we can't know if the PDF plugin is
+  // available or not; but (on Linux) this function is always called
+  // once before we're sandboxed.  So the first time through test if
+  // the file is available and then skip the check on subsequent calls
+  // if yes.
+  static bool skip_pdf_file_check = false;
   FilePath path;
-  if (PathService::Get(chrome::FILE_PDF_PLUGIN, &path) &&
-      file_util::PathExists(path)) {
-    PepperPluginInfo pdf;
-    pdf.path = path;
-    pdf.name = "Chrome PDF Viewer";
-    pdf.mime_types.push_back("application/pdf");
-    pdf.file_extensions = "pdf";
-    pdf.type_descriptions = "Portable Document Format";
-    plugins->push_back(pdf);
+  if (PathService::Get(chrome::FILE_PDF_PLUGIN, &path)) {
+    if (skip_pdf_file_check || file_util::PathExists(path)) {
+      PepperPluginInfo pdf;
+      pdf.path = path;
+      pdf.name = "Chrome PDF Viewer";
+      pdf.mime_types.push_back("application/pdf");
+      pdf.file_extensions = "pdf";
+      pdf.type_descriptions = "Portable Document Format";
+      plugins->push_back(pdf);
+
+      skip_pdf_file_check = true;
+    }
   }
+}
+
+PepperPluginRegistry::InternalPluginInfo::InternalPluginInfo() {
+  is_internal = true;
 }
 
 // static
@@ -105,9 +144,10 @@ void PepperPluginRegistry::GetInternalPluginInfo(
 
 #if defined(ENABLE_REMOTING)
   if (CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableChromoting)) {
+      switches::kEnableRemoting)) {
     InternalPluginInfo info;
     // Add the chromoting plugin.
+    DCHECK(info.is_internal);
     info.path =
         FilePath(FILE_PATH_LITERAL("internal-chromoting"));
     info.mime_types.push_back("pepper-application/x-chromoting");

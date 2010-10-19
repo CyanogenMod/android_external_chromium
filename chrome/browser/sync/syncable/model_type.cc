@@ -5,12 +5,14 @@
 #include "chrome/browser/sync/syncable/model_type.h"
 
 #include "chrome/browser/sync/engine/syncproto.h"
+#include "chrome/browser/sync/protocol/app_specifics.pb.h"
 #include "chrome/browser/sync/protocol/autofill_specifics.pb.h"
 #include "chrome/browser/sync/protocol/bookmark_specifics.pb.h"
 #include "chrome/browser/sync/protocol/extension_specifics.pb.h"
 #include "chrome/browser/sync/protocol/nigori_specifics.pb.h"
 #include "chrome/browser/sync/protocol/password_specifics.pb.h"
 #include "chrome/browser/sync/protocol/preference_specifics.pb.h"
+#include "chrome/browser/sync/protocol/session_specifics.pb.h"
 #include "chrome/browser/sync/protocol/sync.pb.h"
 #include "chrome/browser/sync/protocol/theme_specifics.pb.h"
 #include "chrome/browser/sync/protocol/typed_url_specifics.pb.h"
@@ -43,6 +45,12 @@ void AddDefaultExtensionValue(syncable::ModelType datatype,
       break;
     case NIGORI:
       specifics->MutableExtension(sync_pb::nigori);
+      break;
+    case SESSIONS:
+      specifics->MutableExtension(sync_pb::session);
+      break;
+    case APPS:
+      specifics->MutableExtension(sync_pb::app);
       break;
     default:
       NOTREACHED() << "No known extension for model type.";
@@ -105,6 +113,12 @@ ModelType GetModelTypeFromSpecifics(const sync_pb::EntitySpecifics& specifics) {
   if (specifics.HasExtension(sync_pb::nigori))
     return NIGORI;
 
+  if (specifics.HasExtension(sync_pb::app))
+    return APPS;
+
+  if (specifics.HasExtension(sync_pb::session))
+    return SESSIONS;
+
   return UNSPECIFIED;
 }
 
@@ -126,6 +140,10 @@ std::string ModelTypeToString(ModelType model_type) {
       return "Extensions";
     case NIGORI:
       return "Encryption keys";
+    case SESSIONS:
+      return "Sessions";
+    case APPS:
+      return "Apps";
     default:
       NOTREACHED() << "No known extension for model type.";
       return "INVALID";
@@ -143,6 +161,12 @@ const char kThemeNotificationType[] = "THEME";
 const char kTypedUrlNotificationType[] = "TYPED_URL";
 const char kExtensionNotificationType[] = "EXTENSION";
 const char kNigoriNotificationType[] = "NIGORI";
+const char kAppNotificationType[] = "APP";
+const char kSessionNotificationType[] = "SESSION";
+// TODO(akalin): This is a hack to make new sync data types work with
+// server-issued notifications.  Remove this when it's not needed
+// anymore.
+const char kUnknownNotificationType[] = "UNKNOWN";
 }  // namespace
 
 bool RealModelTypeToNotificationType(ModelType model_type,
@@ -171,6 +195,18 @@ bool RealModelTypeToNotificationType(ModelType model_type,
       return true;
     case NIGORI:
       *notification_type = kNigoriNotificationType;
+      return true;
+    case APPS:
+      *notification_type = kAppNotificationType;
+      return true;
+    case SESSIONS:
+      *notification_type = kSessionNotificationType;
+      return true;
+    // TODO(akalin): This is a hack to make new sync data types work with
+    // server-issued notifications.  Remove this when it's not needed
+    // anymore.
+    case UNSPECIFIED:
+      *notification_type = kUnknownNotificationType;
       return true;
     default:
       break;
@@ -204,6 +240,19 @@ bool NotificationTypeToRealModelType(const std::string& notification_type,
     return true;
   } else if (notification_type == kNigoriNotificationType) {
     *model_type = NIGORI;
+    return true;
+  } else if (notification_type == kAppNotificationType) {
+    *model_type = APPS;
+    return true;
+  } else if (notification_type == kSessionNotificationType) {
+    *model_type = SESSIONS;
+    return true;
+  }
+  else if (notification_type == kUnknownNotificationType) {
+    // TODO(akalin): This is a hack to make new sync data types work with
+    // server-issued notifications.  Remove this when it's not needed
+    // anymore.
+    *model_type = UNSPECIFIED;
     return true;
   }
   *model_type = UNSPECIFIED;

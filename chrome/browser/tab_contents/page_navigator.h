@@ -8,6 +8,7 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_PAGE_NAVIGATOR_H_
 #define CHROME_BROWSER_TAB_CONTENTS_PAGE_NAVIGATOR_H_
+#pragma once
 
 #include "chrome/common/page_transition_types.h"
 #include "webkit/glue/window_open_disposition.h"
@@ -21,6 +22,9 @@ class PageNavigator {
   virtual void OpenURL(const GURL& url, const GURL& referrer,
                        WindowOpenDisposition disposition,
                        PageTransition::Type transition) = 0;
+
+ protected:
+  virtual ~PageNavigator() {}
 };
 
 #endif  // CHROME_BROWSER_TAB_CONTENTS_PAGE_NAVIGATOR_H_

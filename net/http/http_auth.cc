@@ -28,20 +28,7 @@ void HttpAuth::ChooseBestChallenge(
     const BoundNetLog& net_log,
     scoped_ptr<HttpAuthHandler>* handler) {
   DCHECK(http_auth_handler_factory);
-
-  // A connection-based authentication scheme must continue to use the
-  // existing handler object in |*handler|.
-  if (handler->get() && (*handler)->is_connection_based()) {
-    const std::string header_name = GetChallengeHeaderName(target);
-    std::string challenge;
-    void* iter = NULL;
-    while (headers->EnumerateHeader(&iter, header_name, &challenge)) {
-      ChallengeTokenizer props(challenge.begin(), challenge.end());
-      if (LowerCaseEqualsASCII(props.scheme(), (*handler)->scheme().c_str()) &&
-          (*handler)->InitFromChallenge(&props, target, origin, net_log))
-        return;
-    }
-  }
+  DCHECK(handler->get() == NULL);
 
   // Choose the challenge whose authentication handler gives the maximum score.
   scoped_ptr<HttpAuthHandler> best;
@@ -53,16 +40,45 @@ void HttpAuth::ChooseBestChallenge(
     int rv = http_auth_handler_factory->CreateAuthHandlerFromString(
         cur_challenge, target, origin, net_log, &cur);
     if (rv != OK) {
-      LOG(WARNING) << "Unable to create AuthHandler. Status: "
-                   << ErrorToString(rv) << " Challenge: " << cur_challenge;
+      LOG(INFO) << "Unable to create AuthHandler. Status: "
+                << ErrorToString(rv) << " Challenge: " << cur_challenge;
       continue;
     }
-    if (cur.get() && (!best.get() || best->score() < cur->score())) {
-      if (disabled_schemes.find(cur->scheme()) == disabled_schemes.end())
-        best.swap(cur);
-    }
+    if (cur.get() && (!best.get() || best->score() < cur->score()) &&
+        (disabled_schemes.find(cur->scheme()) == disabled_schemes.end()))
+      best.swap(cur);
   }
   handler->swap(best);
+}
+
+// static
+HttpAuth::AuthorizationResult HttpAuth::HandleChallengeResponse(
+    HttpAuthHandler* handler,
+    const HttpResponseHeaders* headers,
+    Target target,
+    const std::set<std::string>& disabled_schemes,
+    std::string* challenge_used) {
+  DCHECK(challenge_used);
+  const std::string& current_scheme = handler->scheme();
+  if (disabled_schemes.find(current_scheme) != disabled_schemes.end())
+    return HttpAuth::AUTHORIZATION_RESULT_REJECT;
+  const std::string header_name = GetChallengeHeaderName(target);
+  void* iter = NULL;
+  std::string challenge;
+  HttpAuth::AuthorizationResult authorization_result =
+      HttpAuth::AUTHORIZATION_RESULT_INVALID;
+  while (headers->EnumerateHeader(&iter, header_name, &challenge)) {
+    HttpAuth::ChallengeTokenizer props(challenge.begin(), challenge.end());
+    if (!LowerCaseEqualsASCII(props.scheme(), current_scheme.c_str()))
+      continue;
+    authorization_result = handler->HandleAnotherChallenge(&props);
+    if (authorization_result != HttpAuth::AUTHORIZATION_RESULT_INVALID) {
+      *challenge_used = challenge;
+      return authorization_result;
+    }
+  }
+  // Finding no matches is equivalent to rejection.
+  return HttpAuth::AUTHORIZATION_RESULT_REJECT;
 }
 
 void HttpAuth::ChallengeTokenizer::Init(std::string::const_iterator begin,

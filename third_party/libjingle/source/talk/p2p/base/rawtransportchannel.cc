@@ -52,11 +52,11 @@ const uint32 MSG_DESTROY_UNUSED_PORTS = 1;
 namespace cricket {
 
 RawTransportChannel::RawTransportChannel(const std::string &name,
-                                         const std::string &session_type,
+                                         const std::string &content_type,
                                          RawTransport* transport,
                                          talk_base::Thread *worker_thread,
                                          PortAllocator *allocator)
-  : TransportChannelImpl(name, session_type),
+  : TransportChannelImpl(name, content_type),
     raw_transport_(transport),
     allocator_(allocator),
     allocator_session_(NULL),
@@ -95,7 +95,7 @@ int RawTransportChannel::GetError() {
 
 void RawTransportChannel::Connect() {
   // Create an allocator that only returns stun and relay ports.
-  allocator_session_ = allocator_->CreateSession(name(), session_type());
+  allocator_session_ = allocator_->CreateSession(name(), content_type());
 
   uint32 flags = PORTALLOCATOR_DISABLE_UDP | PORTALLOCATOR_DISABLE_TCP;
 

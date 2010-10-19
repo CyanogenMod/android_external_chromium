@@ -4,8 +4,7 @@
 
 #ifndef CHROME_BROWSER_PASSWORD_MANAGER_NATIVE_BACKEND_GNOME_X_H_
 #define CHROME_BROWSER_PASSWORD_MANAGER_NATIVE_BACKEND_GNOME_X_H_
-
-#include <vector>
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/time.h"

@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -15,6 +15,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_DOWNLOAD_ITEM_VIEW_H__
 #define CHROME_BROWSER_VIEWS_DOWNLOAD_ITEM_VIEW_H__
+#pragma once
 
 #include <string>
 
@@ -81,7 +82,7 @@ class DownloadItemView : public views::ButtonListener,
   void OnExtractIconComplete(IconManager::Handle handle, SkBitmap* icon_bitmap);
 
   // Returns the DownloadItem model object belonging to this item.
-  DownloadItem* get_download() { return download_; }
+  DownloadItem* download() const { return download_; }
 
  private:
   enum State {
@@ -254,6 +255,11 @@ class DownloadItemView : public views::ButtonListener,
 
   // The currently running download context menu.
   scoped_ptr<DownloadShelfContextMenuWin> context_menu_;
+
+  // If non-NULL, set to true when this object is deleted.
+  // (Used when showing the context menu as it runs an inner message loop that
+  // might delete us).
+  bool* deleted_;
 
   DISALLOW_COPY_AND_ASSIGN(DownloadItemView);
 };

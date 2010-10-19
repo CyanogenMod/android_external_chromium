@@ -1,18 +1,16 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_PROXY_PROXY_RESOLVER_V8_H_
 #define NET_PROXY_PROXY_RESOLVER_V8_H_
+#pragma once
 
 #include "base/scoped_ptr.h"
 #include "net/proxy/proxy_resolver.h"
 
-class MessageLoop;
-
 namespace net {
 
-class HostResolver;
 class ProxyResolverJSBindings;
 
 // Implementation of ProxyResolver that uses V8 to evaluate PAC scripts.

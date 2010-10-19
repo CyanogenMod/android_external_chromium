@@ -4,7 +4,9 @@
 
 #include "chrome/browser/content_setting_bubble_model.h"
 
+#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/geolocation/geolocation_content_settings_map.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/browser/tab_contents/test_tab_contents.h"
 #include "chrome/test/testing_profile.h"
@@ -38,6 +40,7 @@ class ContentSettingBubbleModelTest : public RenderViewHostTestHarness {
     EXPECT_NE(std::string(), bubble_content.manage_link);
     EXPECT_EQ(std::string(), bubble_content.info_link);
     EXPECT_EQ(std::string(), bubble_content.title);
+    EXPECT_EQ(std::string(), bubble_content.load_plugins_link_title);
   }
 
   ChromeThread ui_thread_;
@@ -46,7 +49,8 @@ class ContentSettingBubbleModelTest : public RenderViewHostTestHarness {
 TEST_F(ContentSettingBubbleModelTest, ImageRadios) {
   TabSpecificContentSettings* content_settings =
       contents()->GetTabSpecificContentSettings();
-  content_settings->OnContentBlocked(CONTENT_SETTINGS_TYPE_IMAGES);
+  content_settings->OnContentBlocked(CONTENT_SETTINGS_TYPE_IMAGES,
+                                     std::string());
 
   scoped_ptr<ContentSettingBubbleModel> content_setting_bubble_model(
       ContentSettingBubbleModel::CreateContentSettingBubbleModel(
@@ -58,12 +62,14 @@ TEST_F(ContentSettingBubbleModelTest, ImageRadios) {
   EXPECT_NE(std::string(), bubble_content.manage_link);
   EXPECT_EQ(std::string(), bubble_content.info_link);
   EXPECT_NE(std::string(), bubble_content.title);
+  EXPECT_EQ(std::string(), bubble_content.load_plugins_link_title);
 }
 
 TEST_F(ContentSettingBubbleModelTest, Cookies) {
   TabSpecificContentSettings* content_settings =
       contents()->GetTabSpecificContentSettings();
-  content_settings->OnContentBlocked(CONTENT_SETTINGS_TYPE_COOKIES);
+  content_settings->OnContentBlocked(CONTENT_SETTINGS_TYPE_COOKIES,
+                                     std::string());
 
   scoped_ptr<ContentSettingBubbleModel> content_setting_bubble_model(
       ContentSettingBubbleModel::CreateContentSettingBubbleModel(
@@ -74,6 +80,25 @@ TEST_F(ContentSettingBubbleModelTest, Cookies) {
   EXPECT_NE(std::string(), bubble_content.manage_link);
   EXPECT_NE(std::string(), bubble_content.info_link);
   EXPECT_NE(std::string(), bubble_content.title);
+  EXPECT_EQ(std::string(), bubble_content.load_plugins_link_title);
+}
+
+TEST_F(ContentSettingBubbleModelTest, Plugins) {
+  TabSpecificContentSettings* content_settings =
+      contents()->GetTabSpecificContentSettings();
+  content_settings->OnContentBlocked(CONTENT_SETTINGS_TYPE_PLUGINS,
+                                     std::string());
+
+  scoped_ptr<ContentSettingBubbleModel> content_setting_bubble_model(
+      ContentSettingBubbleModel::CreateContentSettingBubbleModel(
+         contents(), profile_.get(), CONTENT_SETTINGS_TYPE_PLUGINS));
+  const ContentSettingBubbleModel::BubbleContent& bubble_content =
+      content_setting_bubble_model->bubble_content();
+  EXPECT_EQ(2U, bubble_content.radio_group.radio_items.size());
+  EXPECT_NE(std::string(), bubble_content.manage_link);
+  EXPECT_EQ(std::string(), bubble_content.info_link);
+  EXPECT_NE(std::string(), bubble_content.title);
+  EXPECT_NE(std::string(), bubble_content.load_plugins_link_title);
 }
 
 TEST_F(ContentSettingBubbleModelTest, Geolocation) {

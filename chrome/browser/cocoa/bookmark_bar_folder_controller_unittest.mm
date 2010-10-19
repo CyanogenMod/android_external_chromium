@@ -6,6 +6,8 @@
 
 #include "base/basictypes.h"
 #include "base/scoped_nsobject.h"
+#include "base/utf_string_conversions.h"
+#include "chrome/browser/bookmarks/bookmark_model.h"
 #import "chrome/browser/cocoa/bookmark_bar_constants.h"  // namespace bookmarks
 #import "chrome/browser/cocoa/bookmark_bar_controller.h"
 #import "chrome/browser/cocoa/bookmark_bar_folder_button_cell.h"
@@ -16,6 +18,7 @@
 #import "chrome/browser/cocoa/view_resizer_pong.h"
 #include "chrome/test/model_test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
 
 // Add a redirect to make testing easier.
@@ -121,7 +124,7 @@ const int kLotsOfNodesCount = 150;
 class BookmarkBarFolderControllerTest : public CocoaTest {
  public:
   BrowserTestHelper helper_;
-  scoped_nsobject<BookmarkBarController> parentBarController_;
+  scoped_nsobject<BookmarkBarControllerChildFolderRedirect> bar_;
   const BookmarkNode* folderA_;  // owned by model
   const BookmarkNode* longTitleNode_;  // owned by model
 
@@ -130,40 +133,40 @@ class BookmarkBarFolderControllerTest : public CocoaTest {
     const BookmarkNode* parent = model->GetBookmarkBarNode();
     const BookmarkNode* folderA = model->AddGroup(parent,
                                                   parent->GetChildCount(),
-                                                  L"group");
+                                                  ASCIIToUTF16("group"));
     folderA_ = folderA;
     model->AddGroup(parent, parent->GetChildCount(),
-                    L"sibbling group");
+                    ASCIIToUTF16("sibbling group"));
     const BookmarkNode* folderB = model->AddGroup(folderA,
                                                   folderA->GetChildCount(),
-                                                  L"subgroup 1");
+                                                  ASCIIToUTF16("subgroup 1"));
     model->AddGroup(folderA,
                     folderA->GetChildCount(),
-                    L"subgroup 2");
-    model->AddURL(folderA, folderA->GetChildCount(), L"title a",
+                    ASCIIToUTF16("subgroup 2"));
+    model->AddURL(folderA, folderA->GetChildCount(), ASCIIToUTF16("title a"),
                   GURL("http://www.google.com/a"));
     longTitleNode_ = model->AddURL(
       folderA, folderA->GetChildCount(),
-      L"title super duper long long whoa momma title you betcha",
+      ASCIIToUTF16("title super duper long long whoa momma title you betcha"),
       GURL("http://www.google.com/b"));
-    model->AddURL(folderB, folderB->GetChildCount(), L"t",
+    model->AddURL(folderB, folderB->GetChildCount(), ASCIIToUTF16("t"),
                   GURL("http://www.google.com/c"));
 
-    parentBarController_.reset(
+    bar_.reset(
       [[BookmarkBarControllerChildFolderRedirect alloc]
           initWithBrowser:helper_.browser()
              initialWidth:300
                  delegate:nil
            resizeDelegate:nil]);
-    [parentBarController_ loaded:model];
+    [bar_ loaded:model];
     // Make parent frame for bookmark bar then open it.
     NSRect frame = [[test_window() contentView] frame];
     frame = NSInsetRect(frame, 100, 200);
     NSView* fakeToolbarView = [[[NSView alloc] initWithFrame:frame]
                                 autorelease];
     [[test_window() contentView] addSubview:fakeToolbarView];
-    [fakeToolbarView addSubview:[parentBarController_ view]];
-    [parentBarController_ setBookmarkBarEnabled:YES];
+    [fakeToolbarView addSubview:[bar_ view]];
+    [bar_ setBookmarkBarEnabled:YES];
   }
 
   // Remove the bookmark with the long title.
@@ -178,22 +181,21 @@ class BookmarkBarFolderControllerTest : public CocoaTest {
   int AddLotsOfNodes() {
     BookmarkModel* model = helper_.profile()->GetBookmarkModel();
     for (int i = 0; i < kLotsOfNodesCount; i++) {
-      model->AddURL(folderA_, folderA_->GetChildCount(), L"repeated title",
+      model->AddURL(folderA_, folderA_->GetChildCount(),
+                    ASCIIToUTF16("repeated title"),
                     GURL("http://www.google.com/repeated/url"));
     }
     return kLotsOfNodesCount;
   }
 
-
   // Return a simple BookmarkBarFolderController.
   BookmarkBarFolderControllerPong* SimpleBookmarkBarFolderController() {
-    BookmarkButton* parentButton = [[parentBarController_ buttons]
-                                     objectAtIndex:0];
+    BookmarkButton* parentButton = [[bar_ buttons] objectAtIndex:0];
     BookmarkBarFolderControllerPong* c =
       [[BookmarkBarFolderControllerPong alloc]
                initWithParentButton:parentButton
                    parentController:nil
-                      barController:parentBarController_];
+                      barController:bar_];
     [c window];  // Force nib load.
     return c;
   }
@@ -214,7 +216,9 @@ TEST_F(BookmarkBarFolderControllerTest, InitCreateAndDelete) {
   Class cellClass = [BookmarkBarFolderButtonCell class];
   for (BookmarkButton* button in buttons) {
     NSRect r = [[bbfc mainView] convertRect:[button frame] fromView:button];
-    EXPECT_TRUE(NSContainsRect([[bbfc mainView] frame], r));
+    // TODO(jrg): remove this adjustment.
+    NSRect bigger = NSInsetRect([[bbfc mainView] frame], -2, 0);
+    EXPECT_TRUE(NSContainsRect(bigger, r));
     EXPECT_TRUE([[button cell] isKindOfClass:cellClass]);
   }
 
@@ -241,8 +245,7 @@ TEST_F(BookmarkBarFolderControllerTest, ReleaseOnClose) {
 }
 
 TEST_F(BookmarkBarFolderControllerTest, BasicPosition) {
- BookmarkButton* parentButton = [[parentBarController_ buttons]
-                                   objectAtIndex:0];
+ BookmarkButton* parentButton = [[bar_ buttons] objectAtIndex:0];
   EXPECT_TRUE(parentButton);
 
   // If parent is a BookmarkBarController, grow down.
@@ -250,7 +253,7 @@ TEST_F(BookmarkBarFolderControllerTest, BasicPosition) {
   bbfc.reset([[BookmarkBarFolderControllerLow alloc]
                initWithParentButton:parentButton
                    parentController:nil
-                      barController:parentBarController_]);
+                      barController:bar_]);
   [bbfc window];
   [bbfc setRealTopLeft:YES];
   NSPoint pt = [bbfc windowTopLeftForWidth:0];  // screen coords
@@ -259,8 +262,10 @@ TEST_F(BookmarkBarFolderControllerTest, BasicPosition) {
         convertBaseToScreen:[parentButton
                               convertRectToBase:[parentButton frame]].origin];
   // Within margin
-  EXPECT_LE(abs(pt.x - buttonOriginInScreen.x), 2);
-  EXPECT_LE(abs(pt.y - buttonOriginInScreen.y), 2);
+  EXPECT_LE(abs(pt.x - buttonOriginInScreen.x),
+            bookmarks::kBookmarkMenuOverlap+1);
+  EXPECT_LE(abs(pt.y - buttonOriginInScreen.y),
+            bookmarks::kBookmarkMenuOverlap+1);
 
   // Make sure we see the window shift left if it spills off the screen
   pt = [bbfc windowTopLeftForWidth:0];
@@ -272,7 +277,7 @@ TEST_F(BookmarkBarFolderControllerTest, BasicPosition) {
   bbfc2.reset([[BookmarkBarFolderControllerLow alloc]
                 initWithParentButton:[[bbfc buttons] objectAtIndex:0]
                     parentController:bbfc.get()
-                       barController:parentBarController_]);
+                       barController:bar_]);
   [bbfc2 window];
   [bbfc2 setRealTopLeft:YES];
   pt = [bbfc2 windowTopLeftForWidth:0];
@@ -292,13 +297,12 @@ TEST_F(BookmarkBarFolderControllerTest, PositionRightLeftRight) {
   int i;
   // Make some super duper deeply nested folders.
   for (i=0; i<count; i++) {
-    folder = model->AddGroup(folder, 0, L"nested folder");
+    folder = model->AddGroup(folder, 0, ASCIIToUTF16("nested folder"));
   }
 
   // Setup initial state for opening all folders.
   folder = parent;
-  BookmarkButton* parentButton = [[parentBarController_ buttons]
-                                   objectAtIndex:0];
+  BookmarkButton* parentButton = [[bar_ buttons] objectAtIndex:0];
   BookmarkBarFolderController* parentController = nil;
   EXPECT_TRUE(parentButton);
 
@@ -310,7 +314,7 @@ TEST_F(BookmarkBarFolderControllerTest, PositionRightLeftRight) {
         [[BookmarkBarFolderControllerNoLevel alloc]
           initWithParentButton:parentButton
               parentController:parentController
-                 barController:parentBarController_];
+                 barController:bar_];
     [folder_controller_array addObject:bbfcl];
     [bbfcl autorelease];
     [bbfcl window];
@@ -412,7 +416,7 @@ TEST_F(BookmarkBarFolderControllerTest, ChildFolderCallbacks) {
   scoped_nsobject<BookmarkBarFolderControllerPong> bbfc;
   bbfc.reset(SimpleBookmarkBarFolderController());
   EXPECT_TRUE(bbfc.get());
-  [parentBarController_ setChildFolderDelegate:bbfc.get()];
+  [bar_ setChildFolderDelegate:bbfc.get()];
 
   EXPECT_FALSE([bbfc childFolderWillShow]);
   [bbfc openBookmarkFolderFromButton:[[bbfc buttons] objectAtIndex:0]];
@@ -422,7 +426,7 @@ TEST_F(BookmarkBarFolderControllerTest, ChildFolderCallbacks) {
   [bbfc closeBookmarkFolder:nil];
   EXPECT_TRUE([bbfc childFolderWillClose]);
 
-  [parentBarController_ setChildFolderDelegate:nil];
+  [bar_ setChildFolderDelegate:nil];
 }
 
 // Make sure bookmark folders have variable widths.
@@ -503,6 +507,59 @@ TEST_F(BookmarkBarFolderControllerTest, SimpleScroll) {
     EXPECT_TRUE(NSContainsRect(screenFrame,
                                [[bbfc window] frame]));
   }
+}
+
+// Folder menu sizing and placementwhile deleting bookmarks and scrolling tests.
+TEST_F(BookmarkBarFolderControllerTest, MenuPlacementWhileScrollingDeleting) {
+  scoped_nsobject<BookmarkBarFolderController> bbfc;
+  AddLotsOfNodes();
+  bbfc.reset(SimpleBookmarkBarFolderController());
+  [bbfc showWindow:bbfc.get()];
+  NSWindow* menuWindow = [bbfc window];
+  BookmarkBarFolderController* folder = [bar_ folderController];
+  NSArray* buttons = [folder buttons];
+
+  // Before scrolling any, delete a bookmark and make sure the window top has
+  // not moved. Pick a button which is near the top and visible.
+  CGFloat oldTop = [menuWindow frame].origin.y + NSHeight([menuWindow frame]);
+  BookmarkButton* button = [buttons objectAtIndex:3];
+  [folder deleteBookmark:button];
+  CGFloat newTop = [menuWindow frame].origin.y + NSHeight([menuWindow frame]);
+  EXPECT_CGFLOAT_EQ(oldTop, newTop);
+
+  // Scroll so that both the top and bottom scroll arrows show, make sure
+  // the top of the window has moved up, then delete a visible button and
+  // make sure the top has not moved.
+  oldTop = newTop;
+  const CGFloat scrollOneBookmark = bookmarks::kBookmarkButtonHeight +
+      bookmarks::kBookmarkVerticalPadding;
+  NSUInteger buttonCounter = 0;
+  NSUInteger extraButtonLimit = 3;
+  while (![bbfc canScrollDown] || extraButtonLimit > 0) {
+    [bbfc performOneScroll:scrollOneBookmark];
+    ++buttonCounter;
+    if ([bbfc canScrollDown])
+      --extraButtonLimit;
+  }
+  newTop = [menuWindow frame].origin.y + NSHeight([menuWindow frame]);
+  EXPECT_NE(oldTop, newTop);
+  oldTop = newTop;
+  button = [buttons objectAtIndex:buttonCounter + 3];
+  [folder deleteBookmark:button];
+  newTop = [menuWindow frame].origin.y + NSHeight([menuWindow frame]);
+  EXPECT_CGFLOAT_EQ(oldTop, newTop);
+
+  // Scroll so that the top scroll arrow is no longer showing, make sure
+  // the top of the window has not moved, then delete a visible button and
+  // make sure the top has not moved.
+  while ([bbfc canScrollDown]) {
+    [bbfc performOneScroll:-scrollOneBookmark];
+    --buttonCounter;
+  }
+  button = [buttons objectAtIndex:buttonCounter + 3];
+  [folder deleteBookmark:button];
+  newTop = [menuWindow frame].origin.y + NSHeight([menuWindow frame]);
+  EXPECT_CGFLOAT_EQ(oldTop, newTop);
 }
 
 @interface FakedDragInfo : NSObject {
@@ -595,13 +652,13 @@ class BookmarkBarFolderControllerMenuTest : public CocoaTest {
 TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveBarBookmarkToFolder) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
       "2f2f3b ] 2f3b ] 3b 4f:[ 4f1f:[ 4f1f1b 4f1f2b 4f1f3b ] 4f2f:[ 4f2f1b "
       "4f2f2b 4f2f3b ] 4f3f:[ 4f3f1b 4f3f2b 4f3f3b ] ] 5b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Pop up a folder menu and drag in a button from the bar.
@@ -627,7 +684,7 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveBarBookmarkToFolder) {
                             to:[targetButton center]
                           copy:NO];
   // The button should have landed just after "2f1b".
-  const std::wstring expected_string(L"2f:[ 2f1b 1b 2f2f:[ 2f2f1b "
+  const std::string expected_string("2f:[ 2f1b 1b 2f2f:[ 2f2f1b "
       "2f2f2b 2f2f3b ] 2f3b ] 3b 4f:[ 4f1f:[ 4f1f1b 4f1f2b 4f1f3b ] 4f2f:[ "
       "4f2f1b 4f2f2b 4f2f3b ] 4f3f:[ 4f3f1b 4f3f2b 4f3f3b ] ] 5b ");
   EXPECT_EQ(expected_string, model_test_utils::ModelStringFromNode(root));
@@ -646,10 +703,10 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveBarBookmarkToFolder) {
   // and grown vertically.
   NSRect expectedToWindowFrame = oldToWindowFrame;
   expectedToWindowFrame.origin.x -= horizontalShift;
-  expectedToWindowFrame.origin.y -=
-      bookmarks::kBookmarkBarHeight + bookmarks::kVisualHeightOffset;
-  expectedToWindowFrame.size.height +=
-      bookmarks::kBookmarkBarHeight + bookmarks::kVisualHeightOffset;
+  CGFloat diff = (bookmarks::kBookmarkBarHeight +
+                  2*bookmarks::kBookmarkVerticalPadding);
+  expectedToWindowFrame.origin.y -= diff;
+  expectedToWindowFrame.size.height += diff;
   EXPECT_NSRECT_EQ(expectedToWindowFrame, newToWindowFrame);
 
   // Move the button back to the bar at the beginning.
@@ -667,13 +724,13 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveBarBookmarkToFolder) {
 TEST_F(BookmarkBarFolderControllerMenuTest, DragCopyBarBookmarkToFolder) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
       "2f2f3b ] 2f3b ] 3b 4f:[ 4f1f:[ 4f1f1b 4f1f2b 4f1f3b ] 4f2f:[ 4f2f1b "
       "4f2f2b 4f2f3b ] 4f3f:[ 4f3f1b 4f3f2b 4f3f3b ] ] 5b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Pop up a folder menu and copy in a button from the bar.
@@ -698,7 +755,7 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragCopyBarBookmarkToFolder) {
                             to:[targetButton center]
                           copy:YES];
   // The button should have landed just after "2f1b".
-  const std::wstring expected_1(L"1b 2f:[ 2f1b 1b 2f2f:[ 2f2f1b "
+  const std::string expected_1("1b 2f:[ 2f1b 1b 2f2f:[ 2f2f1b "
     "2f2f2b 2f2f3b ] 2f3b ] 3b 4f:[ 4f1f:[ 4f1f1b 4f1f2b 4f1f3b ] 4f2f:[ "
     "4f2f1b 4f2f2b 4f2f3b ] 4f3f:[ 4f3f1b 4f3f2b 4f3f3b ] ] 5b ");
   EXPECT_EQ(expected_1, model_test_utils::ModelStringFromNode(root));
@@ -710,10 +767,10 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragCopyBarBookmarkToFolder) {
   EXPECT_NSRECT_EQ(oldToFolderFrame, newToFolderFrame);
   // The toWindow should have shifted down vertically and grown vertically.
   NSRect expectedToWindowFrame = oldToWindowFrame;
-  expectedToWindowFrame.origin.y -=
-      bookmarks::kBookmarkBarHeight + bookmarks::kVisualHeightOffset;
-  expectedToWindowFrame.size.height +=
-      bookmarks::kBookmarkBarHeight + bookmarks::kVisualHeightOffset;
+  CGFloat diff = (bookmarks::kBookmarkBarHeight +
+                  2*bookmarks::kBookmarkVerticalPadding);
+  expectedToWindowFrame.origin.y -= diff;
+  expectedToWindowFrame.size.height += diff;
   EXPECT_NSRECT_EQ(expectedToWindowFrame, newToWindowFrame);
 
   // Copy the button back to the bar after "3b".
@@ -724,7 +781,7 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragCopyBarBookmarkToFolder) {
   [bar_ dragButton:draggedButton
                 to:[targetButton left]
               copy:YES];
-  const std::wstring expected_2(L"1b 2f:[ 2f1b 1b 2f2f:[ 2f2f1b "
+  const std::string expected_2("1b 2f:[ 2f1b 1b 2f2f:[ 2f2f1b "
       "2f2f2b 2f2f3b ] 2f3b ] 3b 1b 4f:[ 4f1f:[ 4f1f1b 4f1f2b 4f1f3b ] 4f2f:[ "
       "4f2f1b 4f2f2b 4f2f3b ] 4f3f:[ 4f3f1b 4f3f2b 4f3f3b ] ] 5b ");
   EXPECT_EQ(expected_2, model_test_utils::ModelStringFromNode(root));
@@ -733,13 +790,13 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragCopyBarBookmarkToFolder) {
 TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveBarBookmarkToSubfolder) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
       "2f2f3b ] 2f3b ] 3b 4f:[ 4f1f:[ 4f1f1b 4f1f2b 4f1f3b ] 4f2f:[ 4f2f1b "
       "4f2f2b 4f2f3b ] 4f3f:[ 4f3f1b 4f3f2b 4f3f3b ] ] 5b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Pop up a folder menu and a subfolder menu.
@@ -774,7 +831,7 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveBarBookmarkToSubfolder) {
                                to:[targetButton center]
                              copy:NO];
   // The button should have landed just after "2f".
-  const std::wstring expected_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b "
+  const std::string expected_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b "
       "2f2f2b 2f2f3b ] 2f3b ] 3b 4f:[ 4f1f:[ 4f1f1b 4f1f2b 4f1f3b ] 4f2f:[ "
       "4f2f1b 4f2f2b 4f2f3b 5b ] 4f3f:[ 4f3f1b 4f3f2b 4f3f3b ] ] ");
   EXPECT_EQ(expected_string, model_test_utils::ModelStringFromNode(root));
@@ -795,13 +852,13 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveBarBookmarkToSubfolder) {
 TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveWithinFolder) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
       "2f2f3b ] 2f3b ] 3b 4f:[ 4f1f:[ 4f1f1b 4f1f2b 4f1f3b ] 4f2f:[ 4f2f1b "
       "4f2f2b 4f2f3b ] 4f3f:[ 4f3f1b 4f3f2b 4f3f3b ] ] 5b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Pop up a folder menu.
@@ -825,7 +882,7 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveWithinFolder) {
                             to:[targetButton top]
                           copy:NO];
   // The button should have landed above "4f1f".
-  const std::wstring expected_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b "
+  const std::string expected_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b "
       "2f2f2b 2f2f3b ] 2f3b ] 3b 4f:[ 4f2f:[ 4f2f1b 4f2f2b 4f2f3b ] "
       "4f1f:[ 4f1f1b 4f1f2b 4f1f3b ] 4f3f:[ 4f3f1b 4f3f2b 4f3f3b ] ] 5b ");
   EXPECT_EQ(expected_string, model_test_utils::ModelStringFromNode(root));
@@ -841,13 +898,13 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveWithinFolder) {
 TEST_F(BookmarkBarFolderControllerMenuTest, DragParentOntoChild) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
       "2f2f3b ] 2f3b ] 3b 4f:[ 4f1f:[ 4f1f1b 4f1f2b 4f1f3b ] 4f2f:[ 4f2f1b "
       "4f2f2b 4f2f3b ] 4f3f:[ 4f3f1b 4f3f2b 4f3f3b ] ] 5b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Pop up a folder menu.
@@ -875,13 +932,13 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragParentOntoChild) {
 TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveChildToParent) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
       "2f2f3b ] 2f3b ] 3b 4f:[ 4f1f:[ 4f1f1b 4f1f2b 4f1f3b ] 4f2f:[ 4f2f1b "
       "4f2f2b 4f2f3b ] 4f3f:[ 4f3f1b 4f3f2b 4f3f3b ] ] 5b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Pop up a folder menu and a subfolder menu.
@@ -911,7 +968,7 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveChildToParent) {
                             to:[targetButton top]
                           copy:NO];
   // The button should have landed above "4f2f".
-  const std::wstring expected_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
+  const std::string expected_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b "
       "2f2f3b ] 2f3b ] 3b 4f:[ 4f1f:[ 4f1f1b 4f1f2b 4f1f3b ] 4f2f3b 4f2f:[ "
       "4f2f1b 4f2f2b ] 4f3f:[ 4f3f1b 4f3f2b 4f3f3b ] ] 5b ");
   EXPECT_EQ(expected_string, model_test_utils::ModelStringFromNode(root));
@@ -925,12 +982,12 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragMoveChildToParent) {
 TEST_F(BookmarkBarFolderControllerMenuTest, DragWindowResizing) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring
-      model_string(L"a b:[ b1 b2 b3 ] reallyReallyLongBookmarkName c ");
+  const std::string
+      model_string("a b:[ b1 b2 b3 ] reallyReallyLongBookmarkName c ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Pop up a folder menu.
@@ -954,8 +1011,8 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragWindowResizing) {
                             to:[targetButton center]
                           copy:NO];
   // Verify the model change.
-  const std::wstring
-      expected_string(L"a b:[ b1 reallyReallyLongBookmarkName b2 b3 ] c ");
+  const std::string
+      expected_string("a b:[ b1 reallyReallyLongBookmarkName b2 b3 ] c ");
   EXPECT_EQ(expected_string, model_test_utils::ModelStringFromNode(root));
   // Verify the window grew. Just test a reasonable width gain.
   CGFloat newWidth = NSWidth([toWindow frame]);
@@ -965,11 +1022,11 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragWindowResizing) {
 TEST_F(BookmarkBarFolderControllerMenuTest, MoveRemoveAddButtons) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2b 2f3b ] 3b 4b ");
+  const std::string model_string("1b 2f:[ 2f1b 2f2b 2f3b ] 3b 4b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Pop up a folder menu.
@@ -986,50 +1043,50 @@ TEST_F(BookmarkBarFolderControllerMenuTest, MoveRemoveAddButtons) {
 
   // Move a button around a bit.
   [folder moveButtonFromIndex:0 toIndex:2];
-  EXPECT_TRUE([[[buttons objectAtIndex:0] title] isEqualToString:@"2f2b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:1] title] isEqualToString:@"2f3b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:2] title] isEqualToString:@"2f1b"]);
+  EXPECT_NSEQ(@"2f2b", [[buttons objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"2f3b", [[buttons objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"2f1b", [[buttons objectAtIndex:2] title]);
   EXPECT_EQ(oldDisplayedButtons, [buttons count]);
   [folder moveButtonFromIndex:2 toIndex:0];
-  EXPECT_TRUE([[[buttons objectAtIndex:0] title] isEqualToString:@"2f1b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:1] title] isEqualToString:@"2f2b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:2] title] isEqualToString:@"2f3b"]);
+  EXPECT_NSEQ(@"2f1b", [[buttons objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"2f2b", [[buttons objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"2f3b", [[buttons objectAtIndex:2] title]);
   EXPECT_EQ(oldDisplayedButtons, [buttons count]);
 
   // Add a couple of buttons.
   const BookmarkNode* node = root->GetChild(2); // Purloin an existing node.
   [folder addButtonForNode:node atIndex:0];
-  EXPECT_TRUE([[[buttons objectAtIndex:0] title] isEqualToString:@"3b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:1] title] isEqualToString:@"2f1b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:2] title] isEqualToString:@"2f2b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:3] title] isEqualToString:@"2f3b"]);
+  EXPECT_NSEQ(@"3b", [[buttons objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"2f1b", [[buttons objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"2f2b", [[buttons objectAtIndex:2] title]);
+  EXPECT_NSEQ(@"2f3b", [[buttons objectAtIndex:3] title]);
   EXPECT_EQ(oldDisplayedButtons + 1, [buttons count]);
   node = root->GetChild(3);
   [folder addButtonForNode:node atIndex:-1];
-  EXPECT_TRUE([[[buttons objectAtIndex:0] title] isEqualToString:@"3b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:1] title] isEqualToString:@"2f1b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:2] title] isEqualToString:@"2f2b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:3] title] isEqualToString:@"2f3b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:4] title] isEqualToString:@"4b"]);
+  EXPECT_NSEQ(@"3b", [[buttons objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"2f1b", [[buttons objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"2f2b", [[buttons objectAtIndex:2] title]);
+  EXPECT_NSEQ(@"2f3b", [[buttons objectAtIndex:3] title]);
+  EXPECT_NSEQ(@"4b", [[buttons objectAtIndex:4] title]);
   EXPECT_EQ(oldDisplayedButtons + 2, [buttons count]);
 
   // Remove a couple of buttons.
   [folder removeButton:4 animate:NO];
   [folder removeButton:1 animate:NO];
-  EXPECT_TRUE([[[buttons objectAtIndex:0] title] isEqualToString:@"3b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:1] title] isEqualToString:@"2f2b"]);
-  EXPECT_TRUE([[[buttons objectAtIndex:2] title] isEqualToString:@"2f3b"]);
+  EXPECT_NSEQ(@"3b", [[buttons objectAtIndex:0] title]);
+  EXPECT_NSEQ(@"2f2b", [[buttons objectAtIndex:1] title]);
+  EXPECT_NSEQ(@"2f3b", [[buttons objectAtIndex:2] title]);
   EXPECT_EQ(oldDisplayedButtons, [buttons count]);
 }
 
 TEST_F(BookmarkBarFolderControllerMenuTest, ControllerForNode) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2b ] 3b ");
+  const std::string model_string("1b 2f:[ 2f1b 2f2b ] 3b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Find the main bar controller.
@@ -1060,17 +1117,17 @@ TEST_F(BookmarkBarFolderControllerMenuTest, ControllerForNode) {
 TEST_F(BookmarkBarFolderControllerMenuTest, MenuSizingAndScrollArrows) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2b 3b ");
+  const std::string model_string("1b 2b 3b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   const BookmarkNode* parent = model.GetBookmarkBarNode();
   const BookmarkNode* folder = model.AddGroup(parent,
                                               parent->GetChildCount(),
-                                              L"BIG");
+                                              ASCIIToUTF16("BIG"));
 
   // Pop open the new folder window and verify it has one (empty) item.
   BookmarkButton* button = [bar_ buttonWithTitleEqualTo:@"BIG"];
@@ -1080,14 +1137,16 @@ TEST_F(BookmarkBarFolderControllerMenuTest, MenuSizingAndScrollArrows) {
   EXPECT_TRUE(folderController);
   NSWindow* folderMenu = [folderController window];
   EXPECT_TRUE(folderMenu);
-  CGFloat expectedHeight = (CGFloat)bookmarks::kBookmarkButtonHeight;
+  CGFloat expectedHeight = (CGFloat)bookmarks::kBookmarkButtonHeight +
+      (2*bookmarks::kBookmarkVerticalPadding);
   NSRect menuFrame = [folderMenu frame];
   CGFloat menuHeight = NSHeight(menuFrame);
   EXPECT_CGFLOAT_EQ(expectedHeight, menuHeight);
   EXPECT_FALSE([folderController scrollable]);
 
   // Now add a real bookmark and reopen.
-  model.AddURL(folder, folder->GetChildCount(), L"a", GURL("http://a.com/"));
+  model.AddURL(folder, folder->GetChildCount(), ASCIIToUTF16("a"),
+               GURL("http://a.com/"));
   folderController = [bar_ folderController];
   EXPECT_TRUE(folderController);
   folderMenu = [folderController window];
@@ -1099,12 +1158,12 @@ TEST_F(BookmarkBarFolderControllerMenuTest, MenuSizingAndScrollArrows) {
   button = [folderController buttonWithTitleEqualTo:@"a"];
   CGFloat buttonWidth = NSWidth([button frame]);
   CGFloat expectedWidth =
-      buttonWidth + (2 * bookmarks::kBookmarkVerticalPadding) +
-      bookmarks::kScrollViewContentWidthMargin;
+      buttonWidth + (2 * bookmarks::kBookmarkSubMenuHorizontalPadding);
   EXPECT_CGFLOAT_EQ(expectedWidth, menuWidth);
 
   // Add a wider bookmark and make sure the button widths match.
-  model.AddURL(folder, folder->GetChildCount(), L"A really, really long name",
+  model.AddURL(folder, folder->GetChildCount(),
+               ASCIIToUTF16("A really, really long name"),
                GURL("http://www.google.com/a"));
   EXPECT_LT(menuWidth, NSWidth([folderMenu frame]));
   EXPECT_LT(buttonWidth, NSWidth([button frame]));
@@ -1120,7 +1179,8 @@ TEST_F(BookmarkBarFolderControllerMenuTest, MenuSizingAndScrollArrows) {
   menuHeight = NSHeight([folderMenu frame]);
   NSUInteger tripWire = 0;  // Prevent a runaway.
   while (![folderController scrollable] && ++tripWire < 100) {
-    model.AddURL(folder, folder->GetChildCount(), L"B", GURL("http://b.com/"));
+    model.AddURL(folder, folder->GetChildCount(), ASCIIToUTF16("B"),
+                 GURL("http://b.com/"));
     oldMenuHeight = menuHeight;
     menuHeight = NSHeight([folderMenu frame]);
   }
@@ -1139,6 +1199,38 @@ TEST_F(BookmarkBarFolderControllerMenuTest, MenuSizingAndScrollArrows) {
   // Check the size. It should have reduced.
   EXPECT_GT(menuWidth, NSWidth([folderMenu frame]));
   EXPECT_GT(buttonWidth, NSWidth([button frame]));
+}
+
+// See http://crbug.com/46101
+TEST_F(BookmarkBarFolderControllerMenuTest, HoverThenDeleteBookmark) {
+  BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
+  const BookmarkNode* root = model.GetBookmarkBarNode();
+  const BookmarkNode* folder = model.AddGroup(root,
+                                              root->GetChildCount(),
+                                              ASCIIToUTF16("BIG"));
+  for (int i = 0; i < kLotsOfNodesCount; i++)
+    model.AddURL(folder, folder->GetChildCount(), ASCIIToUTF16("kid"),
+                  GURL("http://kid.com/smile"));
+
+  // Pop open the new folder window and hover one of its kids.
+  BookmarkButton* button = [bar_ buttonWithTitleEqualTo:@"BIG"];
+  [[button target] performSelector:@selector(openBookmarkFolderFromButton:)
+                        withObject:button];
+  BookmarkBarFolderController* bbfc = [bar_ folderController];
+  NSArray* buttons = [bbfc buttons];
+
+  // Hover over a button and verify that it is now known.
+  button = [buttons objectAtIndex:3];
+  BookmarkButton* buttonThatMouseIsIn = [bbfc buttonThatMouseIsIn];
+  EXPECT_FALSE(buttonThatMouseIsIn);
+  [bbfc mouseEnteredButton:button event:nil];
+  buttonThatMouseIsIn = [bbfc buttonThatMouseIsIn];
+  EXPECT_EQ(button, buttonThatMouseIsIn);
+
+  // Delete the bookmark and verify that it is now not known.
+  model.Remove(folder, 3);
+  buttonThatMouseIsIn = [bbfc buttonThatMouseIsIn];
+  EXPECT_FALSE(buttonThatMouseIsIn);
 }
 
 // Just like a BookmarkBarFolderController but intercedes when providing
@@ -1179,16 +1271,16 @@ TEST_F(BookmarkBarFolderControllerMenuTest, MenuSizingAndScrollArrows) {
 TEST_F(BookmarkBarFolderControllerMenuTest, DragBookmarkData) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
-                                  "2f3b ] 3b 4b ");
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
+                                 "2f3b ] 3b 4b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
   const BookmarkNode* other = model.other_node();
-  const std::wstring other_string(L"O1b O2b O3f:[ O3f1b O3f2f ] "
-                                  "O4f:[ O4f1b O4f2f ] 05b ");
+  const std::string other_string("O1b O2b O3f:[ O3f1b O3f2f ] "
+                                 "O4f:[ O4f1b O4f2f ] 05b ");
   model_test_utils::AddNodesFromModelString(model, other, other_string);
 
   // Validate initial model.
-  std::wstring actual = model_test_utils::ModelStringFromNode(root);
+  std::string actual = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actual);
   actual = model_test_utils::ModelStringFromNode(other);
   EXPECT_EQ(other_string, actual);
@@ -1200,7 +1292,6 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragBookmarkData) {
                           initWithParentButton:button
                               parentController:nil
                                  barController:bar_]);
-  [folderController window];
   BookmarkButton* targetButton =
       [folderController buttonWithTitleEqualTo:@"2f1b"];
   ASSERT_TRUE(targetButton);
@@ -1213,8 +1304,8 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragBookmarkData) {
   [folderController dragBookmarkData:(id<NSDraggingInfo>)dragInfo.get()];
 
   // Verify the model.
-  const std::wstring expected(L"1b 2f:[ O3f:[ O3f1b O3f2f ] 2f1b 2f2f:[ 2f2f1b "
-                              "2f2f2b 2f2f3b ] 2f3b ] 3b 4b ");
+  const std::string expected("1b 2f:[ O3f:[ O3f1b O3f2f ] 2f1b 2f2f:[ 2f2f1b "
+                             "2f2f2b 2f2f3b ] 2f3b ] 3b 4b ");
   actual = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(expected, actual);
 
@@ -1222,28 +1313,67 @@ TEST_F(BookmarkBarFolderControllerMenuTest, DragBookmarkData) {
   targetButton = [folderController buttonWithTitleEqualTo:@"2f2f"];
   ASSERT_TRUE(targetButton);
   newNode = other->GetChild(2);  // Should be O4f.
-  EXPECT_EQ(newNode->GetTitle(), L"O4f");
+  EXPECT_EQ(newNode->GetTitle(), ASCIIToUTF16("O4f"));
   [folderController setDragDataNode:newNode];
   [dragInfo setDropLocation:[targetButton center]];
   [folderController dragBookmarkData:(id<NSDraggingInfo>)dragInfo.get()];
 
   // Verify the model.
-  const std::wstring expectedA(L"1b 2f:[ O3f:[ O3f1b O3f2f ] 2f1b 2f2f:[ "
-                               "2f2f1b 2f2f2b 2f2f3b O4f:[ O4f1b O4f2f ] ] "
+  const std::string expectedA("1b 2f:[ O3f:[ O3f1b O3f2f ] 2f1b 2f2f:[ "
+                              "2f2f1b 2f2f2b 2f2f3b O4f:[ O4f1b O4f2f ] ] "
                                "2f3b ] 3b 4b ");
   actual = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(expectedA, actual);
 }
 
-TEST_F(BookmarkBarFolderControllerMenuTest, AddURLs) {
+TEST_F(BookmarkBarFolderControllerMenuTest, DragBookmarkDataToTrash) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
-                                  "2f3b ] 3b 4b ");
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
+                                 "2f3b ] 3b 4b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actual = model_test_utils::ModelStringFromNode(root);
+  std::string actual = model_test_utils::ModelStringFromNode(root);
+  EXPECT_EQ(model_string, actual);
+
+  const BookmarkNode* folderNode = root->GetChild(1);
+  int oldFolderChildCount = folderNode->GetChildCount();
+
+  // Pop open a folder.
+  BookmarkButton* button = [bar_ buttonWithTitleEqualTo:@"2f"];
+  scoped_nsobject<BookmarkBarFolderControllerDragData> folderController;
+  folderController.reset([[BookmarkBarFolderControllerDragData alloc]
+                          initWithParentButton:button
+                              parentController:nil
+                                 barController:bar_]);
+
+  // Drag a button to the trash.
+  BookmarkButton* buttonToDelete =
+      [folderController buttonWithTitleEqualTo:@"2f1b"];
+  ASSERT_TRUE(buttonToDelete);
+  EXPECT_TRUE([folderController canDragBookmarkButtonToTrash:buttonToDelete]);
+  [folderController didDragBookmarkToTrash:buttonToDelete];
+
+  // There should be one less button in the folder.
+  int newFolderChildCount = folderNode->GetChildCount();
+  EXPECT_EQ(oldFolderChildCount - 1, newFolderChildCount);
+  // Verify the model.
+  const std::string expected("1b 2f:[ 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
+                             "2f3b ] 3b 4b ");
+  actual = model_test_utils::ModelStringFromNode(root);
+  EXPECT_EQ(expected, actual);
+}
+
+TEST_F(BookmarkBarFolderControllerMenuTest, AddURLs) {
+  BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
+  const BookmarkNode* root = model.GetBookmarkBarNode();
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
+                                 "2f3b ] 3b 4b ");
+  model_test_utils::AddNodesFromModelString(model, root, model_string);
+
+  // Validate initial model.
+  std::string actual = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actual);
 
   // Pop open a folder.
@@ -1271,8 +1401,8 @@ TEST_F(BookmarkBarFolderControllerMenuTest, AddURLs) {
   int newDisplayedButtons = [buttons count];
   EXPECT_EQ(oldDisplayedButtons + 2, newDisplayedButtons);
   // Verify the model.
-  const std::wstring expected(L"1b 2f:[ SiteA SiteB 2f1b 2f2f:[ 2f2f1b 2f2f2b "
-                              "2f2f3b ] 2f3b ] 3b 4b ");
+  const std::string expected("1b 2f:[ SiteA SiteB 2f1b 2f2f:[ 2f2f1b 2f2f2b "
+                             "2f2f3b ] 2f3b ] 3b 4b ");
   actual = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(expected, actual);
 }
@@ -1280,12 +1410,12 @@ TEST_F(BookmarkBarFolderControllerMenuTest, AddURLs) {
 TEST_F(BookmarkBarFolderControllerMenuTest, DropPositionIndicator) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
-                                  "2f3b ] 3b 4b ");
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b 2f2f3b ] "
+                                 "2f3b ] 3b 4b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actual = model_test_utils::ModelStringFromNode(root);
+  std::string actual = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actual);
 
   // Pop open the folder.
@@ -1336,12 +1466,12 @@ class BookmarkBarFolderControllerClosingTest : public
 TEST_F(BookmarkBarFolderControllerClosingTest, DeleteClosesFolder) {
   BookmarkModel& model(*helper_.profile()->GetBookmarkModel());
   const BookmarkNode* root = model.GetBookmarkBarNode();
-  const std::wstring model_string(L"1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b ] "
-                                   "2f3b ] 3b ");
+  const std::string model_string("1b 2f:[ 2f1b 2f2f:[ 2f2f1b 2f2f2b ] "
+                                 "2f3b ] 3b ");
   model_test_utils::AddNodesFromModelString(model, root, model_string);
 
   // Validate initial model.
-  std::wstring actualModelString = model_test_utils::ModelStringFromNode(root);
+  std::string actualModelString = model_test_utils::ModelStringFromNode(root);
   EXPECT_EQ(model_string, actualModelString);
 
   // Open the folder menu and submenu.

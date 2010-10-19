@@ -67,14 +67,14 @@ class SessionManager : public sigslot::has_slots<> {
   // describing a session of the given type, we will automatically create a
   // Session object and notify this client.  The client may then accept or
   // reject the session.
-  void AddClient(const std::string& session_type, SessionClient* client);
-  void RemoveClient(const std::string& session_type);
-  SessionClient* GetClient(const std::string& session_type);
+  void AddClient(const std::string& content_type, SessionClient* client);
+  void RemoveClient(const std::string& content_type);
+  SessionClient* GetClient(const std::string& content_type);
 
   // Creates a new session.  The given name is the JID of the client on whose
   // behalf we initiate the session.
   Session *CreateSession(const std::string& name,
-                         const std::string& session_type);
+                         const std::string& content_type);
 
   // Destroys the given session.
   void DestroySession(Session *session);
@@ -140,7 +140,7 @@ class SessionManager : public sigslot::has_slots<> {
   // a message attempting to initiate a session with this client.
   Session *CreateSession(const std::string& name,
                          const SessionID& id,
-                         const std::string& session_type,
+                         const std::string& content_type,
                          bool received_initiate);
 
   // Attempts to find a registered session type whose description appears as

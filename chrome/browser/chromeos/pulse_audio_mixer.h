@@ -4,9 +4,11 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_PULSE_AUDIO_MIXER_H_
 #define CHROME_BROWSER_CHROMEOS_PULSE_AUDIO_MIXER_H_
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/callback.h"
+#include "base/lock.h"
 #include "base/scoped_ptr.h"
 #include "base/thread.h"
 
@@ -20,6 +22,14 @@ namespace chromeos {
 
 class PulseAudioMixer {
  public:
+  enum State {
+    UNINITIALIZED = 0,
+    INITIALIZING,
+    READY,
+    SHUTTING_DOWN,
+    IN_ERROR
+  };
+
   PulseAudioMixer();
   ~PulseAudioMixer();
 
@@ -28,12 +38,16 @@ class PulseAudioMixer {
   typedef Callback1<bool>::Type InitDoneCallback;
   bool Init(InitDoneCallback* callback);
 
+  // Blocking init call guarantees PulseAudio is started before returning.
+  bool InitSync();
+
   // Blocking call. Returns a default of -inf on error.
   double GetVolumeDb() const;
 
-  // Non-blocking, volume sent in as first param to callback
+  // Non-blocking, volume sent in as first param to callback.  The callback is
+  // only called if the function returns true.
   typedef Callback2<double, void*>::Type GetVolumeCallback;
-  void GetVolumeDbAsync(GetVolumeCallback* callback, void* user);
+  bool GetVolumeDbAsync(GetVolumeCallback* callback, void* user);
 
   // Non-blocking call.
   void SetVolumeDb(double vol_db);
@@ -45,19 +59,13 @@ class PulseAudioMixer {
   // Non-Blocking call.
   void SetMute(bool mute);
 
-  // Call any time to see if we have a valid working connection to PulseAudio.
-  // Non-blocking call.
-  bool IsValid() const;
+  // Returns READY if we have a valid working connection to PulseAudio.
+  // This can return IN_ERROR if we lose the connection, even after an original
+  // successful init.  Non-blocking call.
+  State CheckState() const;
 
  private:
   struct AudioInfo;
-
-  enum State {
-    UNINITIALIZED = 0,
-    INITIALIZING,
-    READY,
-    SHUTTING_DOWN
-  };
 
   // These are the tasks to be run in the background on the worker thread.
   void DoInit(InitDoneCallback* callback);
@@ -65,6 +73,9 @@ class PulseAudioMixer {
 
   static void ConnectToPulseCallbackThunk(pa_context* c, void* userdata);
   void OnConnectToPulseCallback(pa_context* c, bool* connect_done);
+
+  // Helper function to just get our messsage loop thread going.
+  bool InitThread();
 
   // This goes through sequence of connecting to the default PulseAudio server.
   // We will block until we either have a valid connection or something failed.
@@ -74,14 +85,9 @@ class PulseAudioMixer {
   // PulseAudioFree.  Disconnect from server.
   void PulseAudioFree();
 
-  // Check if the PA system is ready for communication, as well as if a default
-  // device is available to talk to.  This can return false if we lose the
-  // connection, even after an original successful init.
-  bool PulseAudioValid() const;
-
   // Iterates the PA mainloop and only returns once an operation has completed
-  // (successfully or unsuccessfully).  This call only blocks the worker thread.
-  void CompleteOperationAndUnlock(pa_operation* pa_op) const;
+  // (successfully or unsuccessfully) or *done is true.
+  void CompleteOperation(pa_operation* pa_op, bool* done) const;
 
   // For now, this just gets the first device returned from the enumeration
   // request.  This will be the 'default' or 'master' device that all further
@@ -91,7 +97,7 @@ class PulseAudioMixer {
                                        const pa_sink_info* sink_info,
                                        int eol,
                                        void* userdata);
-  void OnEnumerateDevices(const pa_sink_info* sink_info, int eol);
+  void OnEnumerateDevices(const pa_sink_info* sink_info, int eol, bool* done);
 
   // Get the info we're interested in from the default device. Currently this
   // is an array of volumes, and the mute state.  Blocking call.
@@ -101,12 +107,34 @@ class PulseAudioMixer {
                                    int eol,
                                    void* userdata);
 
+  void set_mixer_state(State state) {
+    AutoLock lock(mixer_state_lock_);
+    mixer_state_ = state;
+  }
+
+  // These call down to PulseAudio's mainloop locking functions
+  void MainloopLock() const;
+  void MainloopUnlock() const;
+  void MainloopWait() const;
+  void MainloopSignal() const;
+
+  // Same as Lock(), but we fail if we are shutting down or mainloop invalid.
+  bool MainloopSafeLock() const;
+
+  // Lock the mainloop pa_lock_ if mixer_state_ is READY.
+  bool MainloopLockIfReady() const;
+
   // The PulseAudio index of the main device being used.
-  mutable int device_id_;
+  int device_id_;
 
   // Set to the number of channels on the main device.
   int last_channels_;
-  State mixer_state_;
+
+  // For informational purposes only, just used to assert lock is held.
+  mutable int mainloop_lock_count_;
+
+  mutable Lock mixer_state_lock_;
+  mutable State mixer_state_;
 
   // Cached contexts for use in PulseAudio calls.
   pa_context* pa_context_;

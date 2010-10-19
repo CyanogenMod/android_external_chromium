@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_APPCACHE_CHROME_APPCACHE_SERVICE_H_
 #define CHROME_BROWSER_APPCACHE_CHROME_APPCACHE_SERVICE_H_
+#pragma once
 
 #include "base/ref_counted.h"
 #include "chrome/browser/chrome_thread.h"
@@ -21,7 +22,7 @@ class FilePath;
 // object, and those URLRequestContexts are refcounted independently of the
 // owning profile.
 //
-// All methods, including the ctor and dtor, are expected to be called on
+// All methods, except the ctor, are expected to be called on
 // the IO thread (unless specifically called out in doc comments).
 class ChromeAppCacheService
     : public base::RefCountedThreadSafe<ChromeAppCacheService,
@@ -30,8 +31,16 @@ class ChromeAppCacheService
       public appcache::AppCachePolicy,
       public NotificationObserver {
  public:
-  ChromeAppCacheService(const FilePath& profile_path,
-                        ChromeURLRequestContext* request_context);
+  ChromeAppCacheService();
+
+  void InitializeOnIOThread(
+      const FilePath& profile_path, bool is_incognito,
+      scoped_refptr<HostContentSettingsMap> content_settings_map);
+
+  // Helpers used by the extension service to grant and revoke
+  // unlimited storage to app extensions.
+  void SetOriginQuotaInMemory(const GURL& origin, int64 quota);
+  void ResetOriginQuotaInMemory(const GURL& origin);
 
   static void ClearLocalState(const FilePath& profile_path);
 
@@ -39,21 +48,12 @@ class ChromeAppCacheService
   friend class ChromeThread;
   friend class DeleteTask<ChromeAppCacheService>;
 
-  class PromptDelegate;
-
   virtual ~ChromeAppCacheService();
 
   // AppCachePolicy overrides
   virtual bool CanLoadAppCache(const GURL& manifest_url);
   virtual int CanCreateAppCache(const GURL& manifest_url,
                                 net::CompletionCallback* callback);
-
-  // The DoPrompt and DidPrrompt methods are called on the UI thread, and
-  // the following CallCallback method is called on the IO thread.
-  void DoPrompt(const GURL& manifest_url, net::CompletionCallback* callback);
-  void DidPrompt(int rv, const GURL& manifest_url,
-                 net::CompletionCallback* callback);
-  void CallCallback(int rv, net::CompletionCallback* callback);
 
   // NotificationObserver override
   virtual void Observe(NotificationType type,

@@ -4,10 +4,9 @@
 
 #ifndef CHROME_BROWSER_TAB_MENU_MODEL_H_
 #define CHROME_BROWSER_TAB_MENU_MODEL_H_
+#pragma once
 
 #include "app/menus/simple_menu_model.h"
-
-class Browser;
 
 // A menu model that builds the contents of the tab context menu. This menu has
 // only one level (no submenus). TabMenuModel caches local state from the

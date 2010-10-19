@@ -9,13 +9,14 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/site_instance.h"
-#include "chrome/browser/tab_contents/background_contents.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_service.h"
@@ -34,17 +35,16 @@
 //       <appid_2>: { "url": <url2>, "name": <frame_name> },
 //         ... etc ...
 //    }
-const wchar_t kUrlKey[] = L"url";
-const wchar_t kFrameNameKey[] = L"name";
+const char kUrlKey[] = "url";
+const char kFrameNameKey[] = "name";
 
 BackgroundContentsService::BackgroundContentsService(
     Profile* profile, const CommandLine* command_line)
-    : prefs_(NULL),
-      always_keep_alive_(command_line->HasSwitch(switches::kKeepAliveForTest)) {
+    : prefs_(NULL) {
   // Don't load/store preferences if the proper switch is not enabled, or if
   // the parent profile is off the record.
   if (!profile->IsOffTheRecord() &&
-      command_line->HasSwitch(switches::kRestoreBackgroundContents))
+      !command_line->HasSwitch(switches::kDisableRestoreBackgroundContents))
     prefs_ = profile->GetPrefs();
 
   // Listen for events to tell us when to load/unload persisted background
@@ -84,14 +84,6 @@ void BackgroundContentsService::StartObserving(Profile* profile) {
   // BackgroundContents.
   registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
                  Source<Profile>(profile));
-
-  if (always_keep_alive_ && !profile->IsOffTheRecord()) {
-    // For testing, keep the browser process alive until there is an explicit
-    // shutdown.
-    registrar_.Add(this, NotificationType::APP_TERMINATING,
-                   NotificationService::AllSources());
-    BrowserList::StartKeepAlive();
-  }
 }
 
 void BackgroundContentsService::Observe(NotificationType type,
@@ -120,11 +112,6 @@ void BackgroundContentsService::Observe(NotificationType type,
       ShutdownAssociatedBackgroundContents(
           ASCIIToUTF16(Details<Extension>(details)->id()));
       break;
-    case NotificationType::APP_TERMINATING:
-      // Performing an explicit shutdown, so allow the browser process to exit.
-      DCHECK(always_keep_alive_);
-      BrowserList::EndKeepAlive();
-      break;
     default:
       NOTREACHED();
       break;
@@ -147,11 +134,11 @@ void BackgroundContentsService::LoadBackgroundContentsFromPrefs(
     string16 frame_name;
     std::string url;
     dict->GetString(kUrlKey, &url);
-    dict->GetStringAsUTF16(kFrameNameKey, &frame_name);
+    dict->GetString(kFrameNameKey, &frame_name);
     CreateBackgroundContents(profile,
                              GURL(url),
                              frame_name,
-                             WideToUTF16(*it));
+                             UTF8ToUTF16(*it));
   }
 }
 
@@ -184,7 +171,9 @@ void BackgroundContentsService::CreateBackgroundContents(
   }
 
   BackgroundContents* contents = new BackgroundContents(
-      SiteInstance::CreateSiteInstanceForURL(profile, url), MSG_ROUTING_NONE);
+      SiteInstance::CreateSiteInstanceForURL(profile, url),
+      MSG_ROUTING_NONE,
+      this);
 
   // TODO(atwilson): Change this to send a BACKGROUND_CONTENTS_CREATED
   // notification when we have a listener outside of BackgroundContentsService.
@@ -196,7 +185,7 @@ void BackgroundContentsService::CreateBackgroundContents(
   RenderViewHost* render_view_host = contents->render_view_host();
   // TODO(atwilson): Create RenderViews asynchronously to avoid increasing
   // startup latency (http://crbug.com/47236).
-  render_view_host->CreateRenderView(profile->GetRequestContext(), frame_name);
+  render_view_host->CreateRenderView(frame_name);
   render_view_host->NavigateToURL(url);
 }
 
@@ -214,14 +203,14 @@ void BackgroundContentsService::RegisterBackgroundContents(
       prefs::kRegisteredBackgroundContents);
   const string16& appid = GetParentApplicationId(background_contents);
   DictionaryValue* current;
-  if (pref->GetDictionaryWithoutPathExpansion(UTF16ToWide(appid), &current))
+  if (pref->GetDictionaryWithoutPathExpansion(UTF16ToUTF8(appid), &current))
     return;
 
   // No entry for this application yet, so add one.
   DictionaryValue* dict = new DictionaryValue();
   dict->SetString(kUrlKey, background_contents->GetURL().spec());
-  dict->SetStringFromUTF16(kFrameNameKey, contents_map_[appid].frame_name);
-  pref->SetWithoutPathExpansion(UTF16ToWide(appid), dict);
+  dict->SetString(kFrameNameKey, contents_map_[appid].frame_name);
+  pref->SetWithoutPathExpansion(UTF16ToUTF8(appid), dict);
   prefs_->ScheduleSavePersistentPrefs();
 }
 
@@ -233,7 +222,7 @@ void BackgroundContentsService::UnregisterBackgroundContents(
   const string16 appid = GetParentApplicationId(background_contents);
   DictionaryValue* pref = prefs_->GetMutableDictionary(
       prefs::kRegisteredBackgroundContents);
-  pref->RemoveWithoutPathExpansion(UTF16ToWide(appid), NULL);
+  pref->RemoveWithoutPathExpansion(UTF16ToUTF8(appid), NULL);
   prefs_->ScheduleSavePersistentPrefs();
 }
 
@@ -249,11 +238,6 @@ void BackgroundContentsService::ShutdownAssociatedBackgroundContents(
 
 void BackgroundContentsService::BackgroundContentsOpened(
     BackgroundContentsOpenedDetails* details) {
-  // If this is the first BackgroundContents loaded, kick ourselves into
-  // persistent mode.
-  if (contents_map_.empty())
-    BrowserList::StartKeepAlive();
-
   // Add the passed object to our list. Should not already be tracked.
   DCHECK(!IsTracked(details->contents));
   DCHECK(!details->application_id.empty());
@@ -274,10 +258,6 @@ void BackgroundContentsService::BackgroundContentsShutdown(
   DCHECK(IsTracked(background_contents));
   string16 appid = GetParentApplicationId(background_contents);
   contents_map_.erase(appid);
-  // If we have no more BackgroundContents active, then stop keeping the browser
-  // process alive.
-  if (contents_map_.empty())
-    BrowserList::EndKeepAlive();
 }
 
 BackgroundContents* BackgroundContentsService::GetAppBackgroundContents(
@@ -299,4 +279,16 @@ const string16& BackgroundContentsService::GetParentApplicationId(
 // static
 void BackgroundContentsService::RegisterUserPrefs(PrefService* prefs) {
   prefs->RegisterDictionaryPref(prefs::kRegisteredBackgroundContents);
+}
+
+void BackgroundContentsService::AddTabContents(
+    TabContents* new_contents,
+    WindowOpenDisposition disposition,
+    const gfx::Rect& initial_pos,
+    bool user_gesture) {
+  Browser* browser = BrowserList::GetLastActiveWithProfile(
+      new_contents->profile());
+  if (!browser)
+    return;
+  browser->AddTabContents(new_contents, disposition, initial_pos, user_gesture);
 }

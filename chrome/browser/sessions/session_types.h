@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SESSIONS_SESSION_TYPES_H_
 #define CHROME_BROWSER_SESSIONS_SESSION_TYPES_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -30,25 +31,16 @@ class TabNavigation {
     HAS_POST_DATA = 1
   };
 
-  TabNavigation()
-      : transition_(PageTransition::TYPED),
-        type_mask_(0),
-        index_(-1) {
-  }
-
+  TabNavigation();
   TabNavigation(int index,
                 const GURL& virtual_url,
                 const GURL& referrer,
                 const string16& title,
                 const std::string& state,
-                PageTransition::Type transition)
-      : virtual_url_(virtual_url),
-        referrer_(referrer),
-        title_(title),
-        state_(state),
-        transition_(transition),
-        type_mask_(0),
-        index_(index) {}
+                PageTransition::Type transition);
+  TabNavigation(const TabNavigation& tab);
+  ~TabNavigation();
+  TabNavigation& operator=(const TabNavigation& tab);
 
   // Converts this TabNavigation into a NavigationEntry with a page id of
   // |page_id|. The caller owns the returned NavigationEntry.
@@ -87,7 +79,7 @@ class TabNavigation {
   // This is used when determining the selected TabNavigation and only useful
   // by BaseSessionService and SessionService.
   void set_index(int index) { index_ = index; }
-  int index() { return index_; }
+  int index() const { return index_; }
 
  private:
   friend class BaseSessionService;
@@ -106,10 +98,8 @@ class TabNavigation {
 
 // SessionTab corresponds to a NavigationController.
 struct SessionTab {
-  SessionTab()
-      : tab_visual_index(-1),
-        current_navigation_index(-1),
-        pinned(false) { }
+  SessionTab();
+  ~SessionTab();
 
   // Unique id of the window.
   SessionID window_id;
@@ -188,4 +178,16 @@ struct SessionWindow {
   DISALLOW_COPY_AND_ASSIGN(SessionWindow);
 };
 
+// Defines a foreign session for session sync.  A foreign session is a session
+// on a remote chrome instance.
+struct ForeignSession {
+  ForeignSession();
+  ~ForeignSession();
+
+  // Unique tag for each session.
+  std::string foreign_tession_tag;
+  std::vector<SessionWindow*> windows;
+};
+
 #endif  // CHROME_BROWSER_SESSIONS_SESSION_TYPES_H_
+

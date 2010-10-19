@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_JS_MODAL_DIALOG_H_
 #define CHROME_BROWSER_JS_MODAL_DIALOG_H_
+#pragma once
 
 #include <string>
 
@@ -11,18 +12,14 @@
 #include "chrome/browser/app_modal_dialog.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "net/base/cookie_monster.h"
-
-#if defined(OS_MACOSX)
-#if __OBJC__
-@class NSAlert;
-#else
-class NSAlert;
-#endif
-#endif
 
 class ExtensionHost;
 class JavaScriptMessageBoxClient;
+class NativeAppModalDialog;
+
+namespace IPC {
+class Message;
+}
 
 // A controller+model class for JavaScript alert, confirm, prompt, and
 // onbeforeunload dialog boxes.
@@ -42,41 +39,27 @@ class JavaScriptAppModalDialog : public AppModalDialog,
   virtual ~JavaScriptAppModalDialog();
 
   // AppModalDialog overrides.
-#if defined(OS_POSIX)
-  virtual void CreateAndShowDialog();
-#endif
-#if defined(TOOLKIT_USES_GTK)
-  virtual void HandleDialogResponse(GtkDialog* dialog, gint response_id);
-#endif
-  virtual int GetDialogButtons();
-  virtual void AcceptWindow();
-  virtual void CancelWindow();
+  virtual NativeAppModalDialog* CreateNativeDialog();
 
   /////////////////////////////////////////////////////////////////////////////
   // Getters so NativeDialog can get information about the message box.
-  JavaScriptMessageBoxClient* client() {
-    return client_;
-  }
-  int dialog_flags() {
-    return dialog_flags_;
-  }
-  bool is_before_unload_dialog() {
-    return is_before_unload_dialog_;
-  }
-
-#if defined(OS_MACOSX)
-  virtual void CloseModalDialog();
-#endif
+  JavaScriptMessageBoxClient* client() const { return client_; }
 
   // Callbacks from NativeDialog when the user accepts or cancels the dialog.
   void OnCancel();
   void OnAccept(const std::wstring& prompt_text, bool suppress_js_messages);
   void OnClose();
 
+  // Accessors
+  int dialog_flags() const { return dialog_flags_; }
+  std::wstring message_text() const { return message_text_; }
+  std::wstring default_prompt_text() const { return default_prompt_text_; }
+  bool display_suppress_checkbox() const { return display_suppress_checkbox_; }
+  bool is_before_unload_dialog() const { return is_before_unload_dialog_; }
+
  protected:
   // AppModalDialog overrides.
   virtual void Cleanup();
-  virtual NativeDialog CreateNativeDialog();
 
  private:
   // NotificationObserver implementation.
@@ -87,9 +70,7 @@ class JavaScriptAppModalDialog : public AppModalDialog,
   // Initializes for notifications to listen.
   void InitNotifications();
 
-#if defined(OS_MACOSX)
-  NSAlert* dialog_;
-#endif
+  NativeAppModalDialog* native_dialog_;
 
   NotificationRegistrar registrar_;
 

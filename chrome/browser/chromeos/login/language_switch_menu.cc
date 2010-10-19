@@ -4,14 +4,15 @@
 
 #include "chrome/browser/chromeos/login/language_switch_menu.h"
 
-#include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/chromeos/login/screen_observer.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "views/widget/widget_gtk.h"
@@ -69,18 +70,9 @@ std::wstring LanguageSwitchMenu::GetCurrentLocaleName() const {
       language_list_->GetIndexFromLocale(locale));
 };
 
-// Currently, views::Menu is implemented directly with the Gtk
-// widgets. So we use native gtk callbacks to get its future size.
-int LanguageSwitchMenu::GetFirstLevelMenuWidth() const {
-  DCHECK(menu_ != NULL);
-  GtkRequisition box_size;
-  gtk_widget_size_request(menu_->GetNativeMenu(), &box_size);
-  return box_size.width;
-}
-
 void LanguageSwitchMenu::SetFirstLevelMenuWidth(int width) {
   DCHECK(menu_ != NULL);
-  gtk_widget_set_size_request(menu_->GetNativeMenu(), width, -1);
+  menu_->SetMinimumWidth(width);
 }
 
 // static
@@ -97,12 +89,13 @@ void LanguageSwitchMenu::SwitchLanguage(const std::string& locale) {
     prefs->SavePersistentPrefs();
 
     // Switch the locale.
-    ResourceBundle::ReloadSharedInstance(UTF8ToWide(locale));
+    ResourceBundle::ReloadSharedInstance(locale);
 
     // Enable the keyboard layouts that are necessary for the new locale.
-    chromeos::input_method::EnableInputMethods(
-        locale, chromeos::input_method::kKeyboardLayoutsOnly,
-        kHardwareKeyboardLayout);
+    input_method::EnableInputMethods(
+        locale, input_method::kKeyboardLayoutsOnly,
+        CrosLibrary::Get()->GetKeyboardLibrary()->
+            GetHardwareKeyboardLayoutName());
 
     // The following line does not seem to affect locale anyhow. Maybe in
     // future..

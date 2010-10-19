@@ -9,6 +9,7 @@
 
 #ifndef NET_HTTP_HTTP_REQUEST_HEADERS_H_
 #define NET_HTTP_HTTP_REQUEST_HEADERS_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -20,10 +21,9 @@ namespace net {
 class HttpRequestHeaders {
  public:
   struct HeaderKeyValuePair {
-    HeaderKeyValuePair() {}
+    HeaderKeyValuePair();
     HeaderKeyValuePair(const base::StringPiece& key,
-                       const base::StringPiece& value)
-        : key(key.data(), key.size()), value(value.data(), value.size()) {}
+                       const base::StringPiece& value);
 
     std::string key;
     std::string value;

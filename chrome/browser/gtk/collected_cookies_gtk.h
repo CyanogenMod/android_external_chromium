@@ -6,6 +6,7 @@
 
 #ifndef CHROME_BROWSER_GTK_COLLECTED_COOKIES_GTK_H_
 #define CHROME_BROWSER_GTK_COLLECTED_COOKIES_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -14,6 +15,7 @@
 #include "chrome/browser/gtk/constrained_window_gtk.h"
 #include "chrome/browser/gtk/gtk_tree.h"
 #include "chrome/common/content_settings.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
 class CookiesTreeModel;
@@ -86,6 +88,10 @@ class CollectedCookiesGtk : public ConstrainedDialogDelegate,
 
   GtkTreeSelection* allowed_selection_;
   GtkTreeSelection* blocked_selection_;
+
+  // The infobar widget.
+  GtkWidget* infobar_;
+  GtkWidget* infobar_label_;
 
   // The tab contents.
   TabContents* tab_contents_;

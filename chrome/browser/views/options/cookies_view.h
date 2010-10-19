@@ -4,10 +4,10 @@
 
 #ifndef CHROME_BROWSER_VIEWS_OPTIONS_COOKIES_VIEW_H_
 #define CHROME_BROWSER_VIEWS_OPTIONS_COOKIES_VIEW_H_
+#pragma once
 
 #include <string>
 
-#include "app/tree_model.h"
 #include "base/task.h"
 #include "chrome/browser/cookies_tree_model.h"
 #include "net/base/cookie_monster.h"
@@ -30,9 +30,12 @@ class AppCacheInfoView;
 class CookieInfoView;
 class CookiesTreeView;
 class DatabaseInfoView;
+class IndexedDBInfoView;
 class LocalStorageInfoView;
 class Profile;
 class Timer;
+class TreeModel;
+class TreeModelNode;
 
 
 class CookiesView : public CookiesTreeModel::Observer,
@@ -50,24 +53,17 @@ class CookiesView : public CookiesTreeModel::Observer,
   // Updates the display to show only the search results.
   void UpdateSearchResults();
 
-  // TreeModelObserver implementation.
+  // Begin TreeModelObserver implementation.
   virtual void TreeNodesAdded(TreeModel* model,
                               TreeModelNode* parent,
                               int start,
                               int count);
-
-  // TreeModelObserver implementation.
   virtual void TreeNodesRemoved(TreeModel* model,
                                 TreeModelNode* parent,
                                 int start,
                                 int count) {}
-
-  // TreeModelObserver implementation.
-  virtual void TreeNodeChildrenReordered(TreeModel* model,
-                                         TreeModelNode* parent) {}
-
-  // TreeModelObserver implementation.
   virtual void TreeNodeChanged(TreeModel* model, TreeModelNode* node) {}
+  // End TreeModelObserver implementation.
 
   // views::ButtonListener implementation.
   virtual void ButtonPressed(views::Button* sender, const views::Event& event);
@@ -76,7 +72,7 @@ class CookiesView : public CookiesTreeModel::Observer,
   virtual void OnTreeViewSelectionChanged(views::TreeView* tree_view);
 
   // views::TreeViewController implementation.
-  virtual void OnTreeViewKeyDown(base::KeyboardCode keycode);
+  virtual void OnTreeViewKeyDown(app::KeyboardCode keycode);
 
   // views::Textfield::Controller implementation.
   virtual void ContentsChanged(views::Textfield* sender,
@@ -139,6 +135,7 @@ class CookiesView : public CookiesTreeModel::Observer,
   DatabaseInfoView* database_info_view_;
   LocalStorageInfoView* local_storage_info_view_;
   AppCacheInfoView* appcache_info_view_;
+  IndexedDBInfoView* indexed_db_info_view_;
   views::NativeButton* remove_button_;
   views::NativeButton* remove_all_button_;
 

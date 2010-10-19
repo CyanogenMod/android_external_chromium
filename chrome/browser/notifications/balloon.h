@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,7 @@
 
 #ifndef CHROME_BROWSER_NOTIFICATIONS_BALLOON_H_
 #define CHROME_BROWSER_NOTIFICATIONS_BALLOON_H_
-
-#include <vector>
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/scoped_ptr.h"
@@ -96,6 +95,9 @@ class Balloon {
 
   // Notify that the content of notification has changed.
   virtual void Update(const Notification& notification);
+
+  // Called when the balloon is clicked by the user.
+  virtual void OnClick();
 
   // Called when the balloon is closed, either by user (through the UI)
   // or by a script.

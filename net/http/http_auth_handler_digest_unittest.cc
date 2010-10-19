@@ -2,11 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "testing/gtest/include/gtest/gtest.h"
+#include <string>
 
 #include "base/basictypes.h"
+#include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_auth_handler_digest.h"
+#include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
 
@@ -276,15 +279,46 @@ TEST(HttpAuthHandlerDigestTest, AssembleCredentials) {
 
     HttpAuthHandlerDigest* digest =
         static_cast<HttpAuthHandlerDigest*>(handler.get());
-    std::string creds = digest->AssembleCredentials(tests[i].req_method,
-                                                    tests[i].req_path,
-                                                    tests[i].username,
-                                                    tests[i].password,
-                                                    tests[i].cnonce,
-                                                    tests[i].nonce_count);
+    std::string creds =
+        digest->AssembleCredentials(tests[i].req_method,
+                                    tests[i].req_path,
+                                    ASCIIToUTF16(tests[i].username),
+                                    ASCIIToUTF16(tests[i].password),
+                                    tests[i].cnonce,
+                                    tests[i].nonce_count);
 
     EXPECT_STREQ(tests[i].expected_creds, creds.c_str());
   }
+}
+
+TEST(HttpAuthHandlerDigest, HandleAnotherChallenge_Failed) {
+  scoped_ptr<HttpAuthHandlerDigest::Factory> factory(
+      new HttpAuthHandlerDigest::Factory());
+  scoped_ptr<HttpAuthHandler> handler;
+  std::string default_challenge =
+      "Digest realm=\"Oblivion\", nonce=\"nonce-value\"";
+  GURL origin("intranet.google.com");
+  int rv = factory->CreateAuthHandlerFromString(
+      default_challenge, HttpAuth::AUTH_SERVER, origin, BoundNetLog(),
+      &handler);
+  EXPECT_EQ(OK, rv);
+
+  HttpAuth::ChallengeTokenizer tok_default(default_challenge.begin(),
+                                           default_challenge.end());
+  EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_REJECT,
+            handler->HandleAnotherChallenge(&tok_default));
+
+  std::string stale_challenge = default_challenge + ", stale=true";
+  HttpAuth::ChallengeTokenizer tok_stale(stale_challenge.begin(),
+                                         stale_challenge.end());
+  EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_STALE,
+            handler->HandleAnotherChallenge(&tok_stale));
+
+  std::string stale_false_challenge = default_challenge + ", stale=false";
+  HttpAuth::ChallengeTokenizer tok_stale_false(stale_false_challenge.begin(),
+                                               stale_false_challenge.end());
+  EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_REJECT,
+            handler->HandleAnotherChallenge(&tok_stale_false));
 }
 
 } // namespace net

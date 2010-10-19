@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,9 +10,10 @@
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/path_service.h"
+#include "base/string_split.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/profile.h"
-#include "chrome/browser/pref_member.h"
 #include "chrome/browser/spellcheck_host_observer.h"
 #include "chrome/browser/spellchecker_platform_engine.h"
 #include "chrome/common/chrome_constants.h"
@@ -31,11 +32,13 @@ FilePath GetFirstChoiceFilePath(const std::string& language) {
   return SpellCheckCommon::GetVersionedFileName(language, dict_dir);
 }
 
+#if defined(OS_WIN)
 FilePath GetFallbackFilePath(const FilePath& first_choice) {
   FilePath dict_dir;
   PathService::Get(chrome::DIR_USER_DATA, &dict_dir);
   return dict_dir.Append(first_choice.BaseName());
 }
+#endif
 
 }  // namespace
 
@@ -164,9 +167,10 @@ void SpellCheckHost::InitializeInternal() {
   if (!observer_)
     return;
 
-  file_ = base::CreatePlatformFile(bdict_file_path_,
+  file_ = base::CreatePlatformFile(
+      bdict_file_path_,
       base::PLATFORM_FILE_READ | base::PLATFORM_FILE_OPEN,
-      NULL);
+      NULL, NULL);
 
   // File didn't exist. Download it.
   if (file_ == base::kInvalidPlatformFileValue && !tried_to_download_ &&
@@ -220,8 +224,9 @@ void SpellCheckHost::DownloadDictionary() {
   // Determine URL of file to download.
   static const char kDownloadServerUrl[] =
       "http://cache.pack.google.com/edgedl/chrome/dict/";
-  GURL url = GURL(std::string(kDownloadServerUrl) + WideToUTF8(
-      l10n_util::ToLower(bdict_file_path_.BaseName().ToWStringHack())));
+  GURL url = GURL(std::string(kDownloadServerUrl) +
+      StringToLowerASCII(WideToUTF8(
+          bdict_file_path_.BaseName().ToWStringHack())));
   fetcher_.reset(new URLFetcher(url, URLFetcher::GET, this));
   fetcher_->set_request_context(request_context_getter_);
   tried_to_download_ = true;

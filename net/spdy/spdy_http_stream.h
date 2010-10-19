@@ -4,8 +4,10 @@
 
 #ifndef NET_SPDY_SPDY_HTTP_STREAM_H_
 #define NET_SPDY_SPDY_HTTP_STREAM_H_
+#pragma once
 
 #include <list>
+#include <string>
 
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
@@ -13,7 +15,9 @@
 #include "net/base/completion_callback.h"
 #include "net/base/net_log.h"
 #include "net/http/http_request_info.h"
+#include "net/http/http_stream.h"
 #include "net/spdy/spdy_protocol.h"
+#include "net/spdy/spdy_session.h"
 #include "net/spdy/spdy_stream.h"
 
 namespace net {
@@ -25,52 +29,76 @@ class UploadData;
 class UploadDataStream;
 
 // The SpdyHttpStream is a HTTP-specific type of stream known to a SpdySession.
-class SpdyHttpStream : public SpdyStream::Delegate {
+class SpdyHttpStream : public SpdyStream::Delegate, public HttpStream {
  public:
   // SpdyHttpStream constructor
-  SpdyHttpStream();
+  SpdyHttpStream(SpdySession* spdy_session, bool direct);
   virtual ~SpdyHttpStream();
 
   SpdyStream* stream() { return stream_.get(); }
 
-  // Initialize stream.  Must be called before calling InitializeRequest().
-  int InitializeStream(SpdySession* spdy_session,
-                       const HttpRequestInfo& request_info,
-                       const BoundNetLog& stream_net_log,
-                       CompletionCallback* callback);
-
-  // Initialize request.  Must be called before calling SendRequest().
-  // SpdyHttpStream takes ownership of |upload_data|. |upload_data| may be NULL.
-  void InitializeRequest(base::Time request_time,
-                         UploadDataStream* upload_data);
-
-  const HttpResponseInfo* GetResponseInfo() const;
-
   // ===================================================
-  // Interface for [Http|Spdy]NetworkTransaction to use.
+  // HttpStream methods:
+
+  // Initialize stream.  Must be called before calling SendRequest().
+  virtual int InitializeStream(const HttpRequestInfo* request_info,
+                               const BoundNetLog& net_log,
+                               CompletionCallback* callback);
 
   // Sends the request.
   // |callback| is used when this completes asynchronously.
+  // SpdyHttpStream takes ownership of |upload_data|. |upload_data| may be NULL.
   // The actual SYN_STREAM packet will be sent if the stream is non-pushed.
-  int SendRequest(HttpResponseInfo* response,
-                  CompletionCallback* callback);
+  virtual int SendRequest(const std::string& headers,
+                          UploadDataStream* request_body,
+                          HttpResponseInfo* response,
+                          CompletionCallback* callback);
+
+  // Returns the number of bytes uploaded.
+  virtual uint64 GetUploadProgress() const;
 
   // Reads the response headers.  Returns a net error code.
-  int ReadResponseHeaders(CompletionCallback* callback);
+  virtual int ReadResponseHeaders(CompletionCallback* callback);
+
+  virtual const HttpResponseInfo* GetResponseInfo() const;
 
   // Reads the response body.  Returns a net error code or the number of bytes
   // read.
-  int ReadResponseBody(
+  virtual int ReadResponseBody(
       IOBuffer* buf, int buf_len, CompletionCallback* callback);
 
-  // Cancels any callbacks from being invoked and deletes the stream.
-  void Cancel();
+  // Closes the stream.
+  virtual void Close(bool not_reusable);
 
-  // Returns the number of bytes uploaded.
-  uint64 GetUploadProgress() const;
+  // Indicates if the response body has been completely read.
+  virtual bool IsResponseBodyComplete() const {
+    if (!stream_)
+      return false;
+    return stream_->closed();
+  }
+
+  // With SPDY the end of response is always detectable.
+  virtual bool CanFindEndOfResponse() const { return true; }
+
+  // A SPDY stream never has more data after the FIN.
+  virtual bool IsMoreDataBuffered() const { return false; }
+
+  virtual bool IsConnectionReused() const {
+    return spdy_session_->IsReused();
+  }
+
+  virtual void SetConnectionReused() {
+    // SPDY doesn't need an indicator here.
+  }
+
+  virtual void GetSSLInfo(SSLInfo* ssl_info);
+  virtual void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info);
 
   // ===================================================
   // SpdyStream::Delegate.
+
+  // Cancels any callbacks from being invoked and deletes the stream.
+  void Cancel();
 
   virtual bool OnSendHeadersComplete(int status);
   virtual int OnSendBody();
@@ -103,6 +131,8 @@ class SpdyHttpStream : public SpdyStream::Delegate {
   virtual void OnClose(int status);
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(SpdyNetworkTransactionTest, FlowControlStallResume);
+
   // Call the user callback.
   void DoCallback(int rv);
 
@@ -117,7 +147,7 @@ class SpdyHttpStream : public SpdyStream::Delegate {
   scoped_refptr<SpdySession> spdy_session_;
 
   // The request to send.
-  HttpRequestInfo request_info_;
+  const HttpRequestInfo* request_info_;
 
   scoped_ptr<UploadDataStream> request_body_stream_;
 
@@ -145,6 +175,9 @@ class SpdyHttpStream : public SpdyStream::Delegate {
   // Has more data been received from the network during the wait for the
   // scheduled read callback.
   bool more_read_data_pending_;
+
+  // Is this spdy stream direct to the origin server (or to a proxy).
+  bool direct_;
 
   DISALLOW_COPY_AND_ASSIGN(SpdyHttpStream);
 };

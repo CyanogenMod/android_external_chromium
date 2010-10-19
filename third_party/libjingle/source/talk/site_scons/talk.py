@@ -105,6 +105,16 @@ def App(env, **kwargs):
     params = kwargs
   return ExtendComponent(env, env.ComponentProgram, **params)
 
+def WiX(env, **kwargs):
+  """ Extends the WiX builder
+  Args:
+    env: The current environment.
+    kwargs: The keyword arguments.
+
+  Returns:
+    The node produced by the environment's wix builder
+  """
+  return ExtendComponent(env, env.WiX, **kwargs)
 
 def Repository(env, at, path):
   """Maps a directory external to $MAIN_DIR to the given path so that sources
@@ -217,6 +227,7 @@ def AddMediaLibs(env, **kwargs):
     'LmiSignaling',
     'LmiStun',
     'LmiTransport',
+    'LmiUi',
     'LmiUtils',
     'LmiVideoCommon',
     'LmiXml',
@@ -232,11 +243,13 @@ def AddMediaLibs(env, **kwargs):
 
   if env.Bit('windows'):
     AddToDict(kwargs, 'libs', [
+      'dsound',
+      'd3d9',
+      'gdi32',
       'ippcorel',
       'ippscmerged',
       'ippscemerged',
       'strmiids',
-      'dsound',
     ])
   else:
     AddToDict(kwargs, 'libs', [
@@ -356,9 +369,36 @@ def MergeAndFilterByPlatform(env, params):
 
 
 def ExtendComponent(env, component, **kwargs):
+  """A wrapper around a scons builder function that preprocesses and post-
+     processes its inputs and outputs.  For example, it merges and filters
+     fields based on platform and build mode, factors out common includes,
+     and can make a digitally signed copy of the output.
+
+     Why do we build everything up in to the params dict and pass explicitly
+     to component?  We've just always done it that way?  It's probably more
+     conventional to clone env, append or prepend in to env's existing
+     construction variables, then call component(srcs, target) without any extra
+     paremters.  Both methods ensure settings from one target don't leak back in
+     to the original env polluting later targets.
+
+  Args:
+    env: The hammer environment with which to build the target
+    component: The environment's builder function, e.g. ComponentProgram
+    kwargs: keyword arguments that are either merged, translated, and passed on
+            to the call to component, or which control execution.
+            TODO(): Document the fields, such as cppdefines->CPPDEFINES,
+            prepend_includedirs, include_talk_media_libs, etc.
+  Returns:
+    The output node returned by the call to component, or a subsequent signed
+    dependant node.
+  """
+
   # get our target identifier
   name = GetEntry(kwargs, 'name')
-  log_env = GetEntry(kwargs, 'dump')
+
+  signed = env.Bit('windows') and kwargs.has_key('signed') and kwargs['signed']
+  if signed:
+    name = 'unsigned_' + name
 
   if (kwargs.has_key('include_talk_media_libs') and
       kwargs['include_talk_media_libs']):
@@ -394,7 +434,21 @@ def ExtendComponent(env, component, **kwargs):
     return None
 
   # invoke the builder function
-  return component(name, srcs, **params)
+  node = component(name, srcs, **params)
+
+  if signed:
+    # Get the name of the built binary, then get the name of the final signed
+    # version from it.  We need the output path since we don't know the file
+    # extension beforehand.
+    target = node[0].path.split('_', 1)[1]
+    signed_node = env.SignedBinary(
+      source = node,
+      target = '$STAGING_DIR/' + target,
+    )
+    env.Alias('signed_binaries', signed_node)
+    return signed
+  else:
+    return node
 
 
 def AddToDict(dictionary, key, values, append=True):

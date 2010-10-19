@@ -5,11 +5,11 @@
 #include "chrome/browser/options_window.h"
 
 #include "app/l10n_util.h"
-#include "app/resource_bundle.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/views/options/advanced_page_view.h"
 #include "chrome/browser/views/options/content_page_view.h"
@@ -45,6 +45,7 @@ class OptionsWindowView : public views::View,
     return MessageBoxFlags::DIALOGBUTTON_CANCEL;
   }
   virtual std::wstring GetWindowTitle() const;
+  virtual std::wstring GetWindowName() const;
   virtual void WindowClosing();
   virtual bool Cancel();
   virtual views::View* GetContentsView();
@@ -53,7 +54,7 @@ class OptionsWindowView : public views::View,
   virtual void TabSelectedAt(int index);
 
   // views::View overrides:
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
   virtual void Layout();
   virtual gfx::Size GetPreferredSize();
 
@@ -103,23 +104,7 @@ OptionsWindowView::~OptionsWindowView() {
 
 void OptionsWindowView::ShowOptionsPage(OptionsPage page,
                                         OptionsGroup highlight_group) {
-  if (Browser* b = BrowserList::GetLastActive()) {
-    // Move dialog to user expected position.
-    gfx::Rect frame_bounds = b->window()->GetRestoredBounds();
-    if (b->window()->IsMaximized()) {
-      // For maximized window get monitor size as a bounding box.
-      WindowSizer::MonitorInfoProvider* provider =
-          WindowSizer::CreateDefaultMonitorInfoProvider();
-      frame_bounds = provider->GetMonitorWorkAreaMatching(frame_bounds);
-      delete provider;
-    }
-    gfx::Point origin = frame_bounds.origin();
-    origin.Offset(
-        (frame_bounds.width() - window()->GetBounds().width()) / 2,
-        (frame_bounds.height() - window()->GetBounds().height()) / 2);
-    window()->SetBounds(gfx::Rect(origin, window()->GetBounds().size()), NULL);
-  }
-
+  // Positioning is handled by window_delegate. we just need to show the window.
   // This will show invisible windows and bring visible windows to the front.
   window()->Show();
 
@@ -144,6 +129,10 @@ void OptionsWindowView::ShowOptionsPage(OptionsPage page,
 std::wstring OptionsWindowView::GetWindowTitle() const {
   return l10n_util::GetStringF(IDS_OPTIONS_DIALOG_TITLE,
                                l10n_util::GetString(IDS_PRODUCT_NAME));
+}
+
+std::wstring OptionsWindowView::GetWindowName() const {
+  return UTF8ToWide(prefs::kPreferencesWindowPlacement);
 }
 
 void OptionsWindowView::WindowClosing() {
@@ -171,9 +160,8 @@ void OptionsWindowView::TabSelectedAt(int index) {
 ///////////////////////////////////////////////////////////////////////////////
 // OptionsWindowView, views::View overrides:
 
-bool OptionsWindowView::GetAccessibleRole(AccessibilityTypes::Role* role) {
-  *role = AccessibilityTypes::ROLE_CLIENT;
-  return true;
+AccessibilityTypes::Role OptionsWindowView::GetAccessibleRole() {
+  return AccessibilityTypes::ROLE_CLIENT;
 }
 
 void OptionsWindowView::Layout() {

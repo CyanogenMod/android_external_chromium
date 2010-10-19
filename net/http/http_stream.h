@@ -5,10 +5,14 @@
 // HttpStream is an interface for reading and writing data to an HttpStream that
 // keeps the client agnostic of the actual underlying transport layer.  This
 // provides an abstraction for both a basic http stream as well as http
-// pipelining implementations.
+// pipelining implementations.  The HttpStream subtype is expected to manage the
+// underlying transport appropriately.  For example, a non-pipelined HttpStream
+// would return the transport socket to the pool for reuse.  SPDY streams on the
+// other hand leave the transport socket management to the SpdySession.
 
 #ifndef NET_HTTP_HTTP_STREAM_H_
 #define NET_HTTP_HTTP_STREAM_H_
+#pragma once
 
 #include <string>
 
@@ -17,23 +21,31 @@
 
 namespace net {
 
-struct HttpRequestInfo;
+class BoundNetLog;
 class HttpResponseInfo;
 class IOBuffer;
+class SSLCertRequestInfo;
+class SSLInfo;
 class UploadDataStream;
+struct HttpRequestInfo;
 
 class HttpStream {
  public:
   HttpStream() {}
   virtual ~HttpStream() {}
 
+  // Initialize stream.  Must be called before calling SendRequest().
+  // Returns a net error code, possibly ERR_IO_PENDING.
+  virtual int InitializeStream(const HttpRequestInfo* request_info,
+                               const BoundNetLog& net_log,
+                               CompletionCallback* callback) = 0;
+
   // Writes the headers and uploads body data to the underlying socket.
   // ERR_IO_PENDING is returned if the operation could not be completed
   // synchronously, in which case the result will be passed to the callback
   // when available. Returns OK on success. The HttpStream takes ownership
   // of the request_body.
-  virtual int SendRequest(const HttpRequestInfo* request,
-                          const std::string& request_headers,
+  virtual int SendRequest(const std::string& request_headers,
                           UploadDataStream* request_body,
                           HttpResponseInfo* response,
                           CompletionCallback* callback) = 0;
@@ -49,7 +61,7 @@ class HttpStream {
   virtual int ReadResponseHeaders(CompletionCallback* callback) = 0;
 
   // Provides access to HttpResponseInfo (owned by HttpStream).
-  virtual HttpResponseInfo* GetResponseInfo() const = 0;
+  virtual const HttpResponseInfo* GetResponseInfo() const = 0;
 
   // Reads response body data, up to |buf_len| bytes. |buf_len| should be a
   // reasonable size (<2MB). The number of bytes read is returned, or an
@@ -64,6 +76,17 @@ class HttpStream {
   virtual int ReadResponseBody(IOBuffer* buf, int buf_len,
                                CompletionCallback* callback) = 0;
 
+  // Closes the stream.
+  // |not_reusable| indicates if the stream can be used for further requests.
+  // In the case of HTTP, where we re-use the byte-stream (e.g. the connection)
+  // this means we need to close the connection; in the case of SPDY, where the
+  // underlying stream is never reused, it has no effect.
+  // TODO(mbelshe): We should figure out how to fold the not_reusable flag
+  //                into the stream implementation itself so that the caller
+  //                does not need to pass it at all.  We might also be able to
+  //                eliminate the SetConnectionReused() below.
+  virtual void Close(bool not_reusable) = 0;
+
   // Indicates if the response body has been completely read.
   virtual bool IsResponseBodyComplete() const = 0;
 
@@ -77,6 +100,23 @@ class HttpStream {
   // is complete, this function indicates if more data (either erroneous or
   // as part of the next pipelined response) has been read from the socket.
   virtual bool IsMoreDataBuffered() const = 0;
+
+  // A stream exists on top of a connection.  If the connection has been used
+  // to successfully exchange data in the past, error handling for the
+  // stream is done differently.  This method returns true if the underlying
+  // connection is reused or has been connected and idle for some time.
+  virtual bool IsConnectionReused() const = 0;
+  virtual void SetConnectionReused() = 0;
+
+  // Get the SSLInfo associated with this stream's connection.  This should
+  // only be called for streams over SSL sockets, otherwise the behavior is
+  // undefined.
+  virtual void GetSSLInfo(SSLInfo* ssl_info) = 0;
+
+  // Get the SSLCertRequestInfo associated with this stream's connection.
+  // This should only be called for streams over SSL sockets, otherwise the
+  // behavior is undefined.
+  virtual void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(HttpStream);

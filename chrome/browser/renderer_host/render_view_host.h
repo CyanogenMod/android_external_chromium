@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RENDER_VIEW_HOST_H_
 #define CHROME_BROWSER_RENDERER_HOST_RENDER_VIEW_HOST_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -28,6 +29,7 @@ class FilePath;
 class GURL;
 class ListValue;
 class RenderViewHostDelegate;
+class SessionStorageNamespace;
 class SiteInstance;
 class SkBitmap;
 class ViewMsg_Navigate;
@@ -35,7 +37,9 @@ struct ContentSettings;
 struct ContextMenuParams;
 struct MediaPlayerAction;
 struct ThumbnailScore;
+struct ViewHostMsg_AccessibilityNotification_Params;
 struct ViewHostMsg_DidPrintPage_Params;
+struct ViewHostMsg_DomMessage_Params;
 struct ViewHostMsg_RunFileChooser_Params;
 struct ViewHostMsg_ShowNotification_Params;
 struct ViewMsg_Navigate_Params;
@@ -52,6 +56,7 @@ struct FormData;
 class FormField;
 struct PasswordForm;
 struct PasswordFormFillData;
+struct WebAccessibility;
 struct WebApplicationInfo;
 }  // namespace webkit_glue
 
@@ -96,10 +101,15 @@ class RenderViewHost : public RenderWidgetHost {
 
   // routing_id could be a valid route id, or it could be MSG_ROUTING_NONE, in
   // which case RenderWidgetHost will create a new one.
+  //
+  // The session storage namespace parameter allows multiple render views and
+  // tab contentses to share the same session storage (part of the WebStorage
+  // spec) space. This is useful when restoring tabs, but most callers should
+  // pass in NULL which will cause a new SessionStorageNamespace to be created.
   RenderViewHost(SiteInstance* instance,
                  RenderViewHostDelegate* delegate,
                  int routing_id,
-                 int64 session_storage_namespace_id);
+                 SessionStorageNamespace* session_storage_namespace);
   virtual ~RenderViewHost();
 
   SiteInstance* site_instance() const { return instance_; }
@@ -108,8 +118,7 @@ class RenderViewHost : public RenderWidgetHost {
   // Set up the RenderView child process. Virtual because it is overridden by
   // TestRenderViewHost. If the |frame_name| parameter is non-empty, it is used
   // as the name of the new top-level frame.
-  virtual bool CreateRenderView(URLRequestContextGetter* request_context,
-                                const string16& frame_name);
+  virtual bool CreateRenderView(const string16& frame_name);
 
   // Returns true if the RenderView is active and has not crashed. Virtual
   // because it is overridden by TestRenderViewHost.
@@ -323,6 +332,7 @@ class RenderViewHost : public RenderWidgetHost {
   int enabled_bindings() { return enabled_bindings_; }
 
   // See variable comment.
+  bool is_extension_process() { return is_extension_process_; }
   void set_is_extension_process(bool is_extension_process) {
     is_extension_process_ = is_extension_process;
   }
@@ -343,6 +353,9 @@ class RenderViewHost : public RenderWidgetHost {
   // Request the Renderer to ask the default plugin to start installation of
   // missing plugin. Called by PluginInstaller.
   void InstallMissingPlugin();
+
+  // Load all blocked plugins in the RenderView.
+  void LoadBlockedPlugins();
 
   // Get all savable resource links from current webpage, include main
   // frame and sub-frame.
@@ -391,6 +404,7 @@ class RenderViewHost : public RenderWidgetHost {
       int query_id,
       const std::vector<string16>& values,
       const std::vector<string16>& labels,
+      const std::vector<string16>& icons,
       const std::vector<int>& unique_ids);
 
   // Called by the AutocompleteHistoryManager when the list of suggestions is
@@ -411,7 +425,9 @@ class RenderViewHost : public RenderWidgetHost {
   virtual bool IsRenderView() const { return true; }
   virtual void OnMessageReceived(const IPC::Message& msg);
   virtual void GotFocus();
+  virtual void LostCapture();
   virtual void ForwardMouseEvent(const WebKit::WebMouseEvent& mouse_event);
+  virtual void OnMouseActivate();
   virtual void ForwardKeyboardEvent(const NativeWebKeyboardEvent& key_event);
   virtual void ForwardEditCommand(const std::string& name,
                                   const std::string& value);
@@ -428,6 +444,9 @@ class RenderViewHost : public RenderWidgetHost {
   // if this widget is a popup and what kind of popup it is (select, autofill).
   void CreateNewWidget(int route_id, WebKit::WebPopupType popup_type);
 
+  // Creates a full screen RenderWidget.
+  void CreateNewFullscreenWidget(int route_id, WebKit::WebPopupType popup_type);
+
   // Sends the response to an extension api call.
   void SendExtensionResponse(int request_id, bool success,
                              const std::string& response,
@@ -436,9 +455,6 @@ class RenderViewHost : public RenderWidgetHost {
   // Sends a response to an extension api call that it was blocked for lack of
   // permission.
   void BlockExtensionRequest(int request_id);
-
-  // Notifies the renderer that its view type has changed.
-  void ViewTypeChanged(ViewType::Type type);
 
   // Tells the renderer which browser window it is being attached to.
   void UpdateBrowserWindowId(int window_id);
@@ -468,6 +484,20 @@ class RenderViewHost : public RenderWidgetHost {
   // in render_messages.h.
   void EnablePreferredSizeChangedMode(int flags);
 
+#if defined(UNIT_TEST)
+  // These functions shouldn't be necessary outside of testing.
+
+  void set_save_accessibility_tree_for_testing(bool save) {
+    save_accessibility_tree_for_testing_ = save;
+  }
+
+  const webkit_glue::WebAccessibility& accessibility_tree() {
+    return accessibility_tree_;
+  }
+
+  bool is_waiting_for_unload_ack() { return is_waiting_for_unload_ack_; }
+#endif
+
  protected:
   // RenderWidgetHost protected overrides.
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
@@ -477,6 +507,8 @@ class RenderViewHost : public RenderWidgetHost {
   virtual void NotifyRendererUnresponsive();
   virtual void NotifyRendererResponsive();
   virtual void OnMsgFocusedNodeChanged();
+  virtual void OnMsgFocus();
+  virtual void OnMsgBlur();
 
   // IPC message handlers.
   void OnMsgShowView(int route_id,
@@ -484,6 +516,7 @@ class RenderViewHost : public RenderWidgetHost {
                      const gfx::Rect& initial_pos,
                      bool user_gesture);
   void OnMsgShowWidget(int route_id, const gfx::Rect& initial_pos);
+  void OnMsgShowFullscreenWidget(int route_id);
   void OnMsgRunModal(IPC::Message* reply_msg);
   void OnMsgRenderViewReady();
   void OnMsgRenderViewGone();
@@ -505,7 +538,7 @@ class RenderViewHost : public RenderWidgetHost {
   void OnMsgDidStartLoading();
   void OnMsgDidStopLoading();
   void OnMsgDocumentAvailableInMainFrame();
-  void OnMsgDocumentOnLoadCompletedInMainFrame();
+  void OnMsgDocumentOnLoadCompletedInMainFrame(int32 page_id);
   void OnMsgDidLoadResourceFromMemoryCache(const GURL& url,
                                            const std::string& frame_origin,
                                            const std::string& main_frame_origin,
@@ -573,8 +606,6 @@ class RenderViewHost : public RenderWidgetHost {
   void OnUpdateDragCursor(WebKit::WebDragOperation drag_operation);
   void OnTakeFocus(bool reverse);
   void OnMsgPageHasOSDD(int32 page_id, const GURL& doc_url, bool autodetected);
-  void OnMsgGetSearchProviderInstallState(const GURL& url,
-                                          IPC::Message* reply_msg);
   void OnDidGetPrintedPagesCount(int cookie, int number_pages);
   void DidPrintPage(const ViewHostMsg_DidPrintPage_Params& params);
   void OnAddMessageToConsole(const std::wstring& message,
@@ -588,12 +619,16 @@ class RenderViewHost : public RenderWidgetHost {
   void OnCloseDevToolsWindow();
   void OnRequestDockDevToolsWindow();
   void OnRequestUndockDevToolsWindow();
-  void OnDevToolsRuntimeFeatureStateChanged(const std::string& feature,
-                                            bool enabled);
+  void OnDevToolsRuntimePropertyChanged(const std::string& name,
+                                        const std::string& value);
 
   void OnUserMetricsRecordAction(const std::string& action);
   void OnMissingPluginStatus(int status);
+  void OnNonSandboxedPluginBlocked(const std::string& plugin,
+                                   const string16& name);
+  void OnBlockedPluginLoaded();
   void OnCrashedPlugin(const FilePath& plugin_path);
+  void OnDisabledOutdatedPlugin(const string16& name, const GURL& update_url);
 
   void OnReceivedSavableResourceLinksForCurrentPage(
       const std::vector<GURL>& resources_list,
@@ -615,8 +650,6 @@ class RenderViewHost : public RenderWidgetHost {
   void OnShowAutoFillDialog();
   void OnFillAutoFillFormData(int query_id,
                               const webkit_glue::FormData& form,
-                              const string16& value,
-                              const string16& label,
                               int unique_id);
 
   void OnShowDesktopNotification(
@@ -624,14 +657,10 @@ class RenderViewHost : public RenderWidgetHost {
   void OnCancelDesktopNotification(int notification_id);
   void OnRequestNotificationPermission(const GURL& origin, int callback_id);
 
-  void OnExtensionRequest(const std::string& name, const ListValue& args,
-                          const GURL& source_url,
-                          int request_id,
-                          bool has_callback);
+  void OnExtensionRequest(const ViewHostMsg_DomMessage_Params& params);
   void OnExtensionPostMessage(int port_id, const std::string& message);
-  void OnAccessibilityFocusChange(int acc_obj_id);
-  void OnAccessibilityObjectStateChange(int acc_obj_id);
-  void OnAccessibilityTree(const webkit_glue::WebAccessibility& tree);
+  void OnAccessibilityNotifications(
+      const std::vector<ViewHostMsg_AccessibilityNotification_Params>& params);
   void OnCSSInserted();
   void OnPageContents(const GURL& url,
                       int32 page_id,
@@ -642,13 +671,19 @@ class RenderViewHost : public RenderWidgetHost {
                         const std::string& original_lang,
                         const std::string& translated_lang,
                         TranslateErrors::Type error_type);
-  void OnContentBlocked(ContentSettingsType type);
+  void OnContentBlocked(ContentSettingsType type,
+                        const std::string& resource_identifier);
   void OnAppCacheAccessed(const GURL& manifest_url, bool blocked_by_policy);
   void OnWebDatabaseAccessed(const GURL& url,
                              const string16& name,
                              const string16& display_name,
                              unsigned long estimated_size,
                              bool blocked_by_policy);
+  void OnSetDisplayingPDFContent();
+  void OnSetSuggestResult(int32 page_id, const std::string& result);
+  void OnDetectedPhishingSite(const GURL& phishing_url,
+                              double phishing_score,
+                              const SkBitmap& thumbnail);
 
  private:
   friend class TestRenderViewHost;
@@ -714,19 +749,25 @@ class RenderViewHost : public RenderWidgetHost {
   // True if the render view can be shut down suddenly.
   bool sudden_termination_allowed_;
 
-  // The session storage namespace id to be used by the associated render view.
-  int64 session_storage_namespace_id_;
+  // The session storage namespace to be used by the associated render view.
+  scoped_refptr<SessionStorageNamespace> session_storage_namespace_;
 
-  // Whether this render view will be used for extensions. This controls
+  // Whether this render view will get extension api bindings. This controls
   // what process type we use.
   bool is_extension_process_;
 
   // AutoFill and Autocomplete suggestions.  We accumulate these separately and
   // send them back to the renderer together.
-  int autofill_query_id_;
   std::vector<string16> autofill_values_;
   std::vector<string16> autofill_labels_;
+  std::vector<string16> autofill_icons_;
   std::vector<int> autofill_unique_ids_;
+
+  // Whether the accessibility tree should be saved, for unit testing.
+  bool save_accessibility_tree_for_testing_;
+
+  // The most recently received accessibility tree - for unit testing only.
+  webkit_glue::WebAccessibility accessibility_tree_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderViewHost);
 };

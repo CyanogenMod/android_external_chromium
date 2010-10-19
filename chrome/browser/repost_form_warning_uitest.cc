@@ -11,11 +11,11 @@
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/automation/browser_proxy.h"
 #include "chrome/test/ui/ui_test.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/test/test_server.h"
 
 namespace {
 
-const wchar_t kDocRoot[] = L"chrome/test/data";
+const FilePath::CharType kDocRoot[] = FILE_PATH_LITERAL("chrome/test/data");
 
 }  // namespace
 
@@ -29,9 +29,9 @@ typedef UITest RepostFormWarningTest;
 #endif
 
 TEST_F(RepostFormWarningTest, MAYBE_TestDoubleReload) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  net::TestServer test_server(net::TestServer::TYPE_HTTP, FilePath(kDocRoot));
+  ASSERT_TRUE(test_server.Start());
+
   scoped_refptr<BrowserProxy> browser(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser.get());
 
@@ -39,7 +39,7 @@ TEST_F(RepostFormWarningTest, MAYBE_TestDoubleReload) {
   ASSERT_TRUE(tab.get());
 
   // Load a form.
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("files/form.html")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server.GetURL("files/form.html")));
   // Submit it.
   ASSERT_TRUE(tab->NavigateToURL(GURL(
       "javascript:document.getElementById('form').submit()")));
@@ -49,20 +49,20 @@ TEST_F(RepostFormWarningTest, MAYBE_TestDoubleReload) {
   tab->ReloadAsync();
 
   // Navigate away from the page (this is when the test usually crashes).
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("bar")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server.GetURL("bar")));
 }
 
-#if defined(OS_WIN)
-// http://crbug.com/47228
+#if defined(OS_WIN) || defined(OS_LINUX)
+// http://crbug.com/47228 && http://crbug.com/56401
 #define MAYBE_TestLoginAfterRepost FLAKY_TestLoginAfterRepost
 #else
 #define MAYBE_TestLoginAfterRepost TestLoginAfterRepost
 #endif
 
 TEST_F(RepostFormWarningTest, MAYBE_TestLoginAfterRepost) {
-  scoped_refptr<HTTPTestServer> server =
-  HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  net::TestServer test_server(net::TestServer::TYPE_HTTP, FilePath(kDocRoot));
+  ASSERT_TRUE(test_server.Start());
+
   scoped_refptr<BrowserProxy> browser(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser.get());
 
@@ -70,7 +70,7 @@ TEST_F(RepostFormWarningTest, MAYBE_TestLoginAfterRepost) {
   ASSERT_TRUE(tab.get());
 
   // Load a form.
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("files/form.html")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server.GetURL("files/form.html")));
   // Submit it.
   ASSERT_TRUE(tab->NavigateToURL(GURL(
       "javascript:document.getElementById('form').submit()")));
@@ -80,11 +80,11 @@ TEST_F(RepostFormWarningTest, MAYBE_TestLoginAfterRepost) {
 
   // Navigate to a page that requires authentication, bringing up another
   // tab-modal sheet.
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("auth-basic")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server.GetURL("auth-basic")));
 
   // Try to reload it again.
   tab->ReloadAsync();
 
   // Navigate away from the page.
-  ASSERT_TRUE(tab->NavigateToURL(server->TestServerPage("bar")));
+  ASSERT_TRUE(tab->NavigateToURL(test_server.GetURL("bar")));
 }

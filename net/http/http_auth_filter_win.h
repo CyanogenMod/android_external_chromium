@@ -4,13 +4,12 @@
 
 #ifndef NET_HTTP_HTTP_AUTH_FILTER_WIN_H_
 #define NET_HTTP_HTTP_AUTH_FILTER_WIN_H_
-
-#include <string>
+#pragma once
 
 #include "build/build_config.h"
 
 #if defined(OS_WIN)
-#include "base/string_util.h"
+#include "base/string16.h"
 
 namespace net {
 

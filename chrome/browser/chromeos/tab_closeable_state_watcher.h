@@ -4,12 +4,13 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_TAB_CLOSEABLE_STATE_WATCHER_H_
 #define CHROME_BROWSER_CHROMEOS_TAB_CLOSEABLE_STATE_WATCHER_H_
+#pragma once
 
 #include <vector>
 
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/tab_closeable_state_watcher.h"
-#include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/tabs/tab_strip_model_observer.h"
 #include "chrome/common/notification_registrar.h"
 
 namespace chromeos {
@@ -17,6 +18,8 @@ namespace chromeos {
 // This class overrides ::TabCloseableStateWatcher to allow or disallow tabs or
 // browsers to be closed based on increase or decrease in number of tabs or
 // browsers.  We only do this on Chromeos and only for non-tests.
+//
+// Normal session:
 // 1) A tab, and hence its containing browser, is not closeable if the tab is
 // the last NewTabPage in the last normal non-incognito browser and user is not
 // signing off.
@@ -26,6 +29,15 @@ namespace chromeos {
 // 3) Or, if user closes a normal incognito browser or the last tab in it, the
 // browser closes, a new non-incognito normal browser is opened with a
 // NewTabPage (which, by rule 1, will not be closeable).
+//
+// BWSI session (all browsers are incognito):
+// Almost the same as in the normal session, but
+// 1) A tab, and hence its containing browser, is not closeable if the tab is
+// the last NewTabPage in the last browser (again, all browsers are incognito
+// browsers).
+// 2-3) Otherwise, if user closes a normal incognito browser or the last tab in
+// it, the browser stays open, the existing tabs are closed, and a new
+// NewTabPage is open.
 
 class TabCloseableStateWatcher : public ::TabCloseableStateWatcher,
                                  public BrowserList::Observer,
@@ -85,6 +97,9 @@ class TabCloseableStateWatcher : public ::TabCloseableStateWatcher,
   // This is true when sign-off notification is received; it lets us know to
   // allow closing of all tabs and browsers in this situation.
   bool signing_off_;
+
+  // In BWSI session?
+  bool bwsi_session_;
 
   NotificationRegistrar notification_registrar_;
 

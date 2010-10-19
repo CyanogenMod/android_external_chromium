@@ -4,10 +4,10 @@
 
 #include "chrome/browser/renderer_host/render_widget_host.h"
 
+#include "app/keyboard_codes.h"
 #include "base/auto_reset.h"
 #include "base/command_line.h"
 #include "base/histogram.h"
-#include "base/keyboard_codes.h"
 #include "base/message_loop.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/renderer_host/backing_store.h"
@@ -18,8 +18,12 @@
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/renderer_host/video_layer.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/render_messages_params.h"
+#include "third_party/WebKit/WebKit/chromium/public/WebCompositionUnderline.h"
+#include "webkit/glue/plugins/webplugin.h"
 #include "webkit/glue/webcursor.h"
 
 #if defined(TOOLKIT_VIEWS)
@@ -96,6 +100,11 @@ RenderWidgetHost::RenderWidgetHost(RenderProcessHost* process,
   // Because the widget initializes as is_hidden_ == false,
   // tell the process host that we're alive.
   process_->WidgetRestored();
+
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kForceRendererAccessibility)) {
+    EnableRendererAccessibility();
+  }
 }
 
 RenderWidgetHost::~RenderWidgetHost() {
@@ -154,12 +163,7 @@ void RenderWidgetHost::OnMessageReceived(const IPC::Message &msg) {
                         OnMsgImeCancelComposition)
     IPC_MESSAGE_HANDLER(ViewHostMsg_GpuRenderingActivated,
                         OnMsgGpuRenderingActivated)
-#if defined(OS_LINUX)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_CreatePluginContainer,
-                        OnMsgCreatePluginContainer)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_DestroyPluginContainer,
-                        OnMsgDestroyPluginContainer)
-#elif defined(OS_MACOSX)
+#if defined(OS_MACOSX)
     IPC_MESSAGE_HANDLER(ViewHostMsg_ShowPopup, OnMsgShowPopup)
     IPC_MESSAGE_HANDLER(ViewHostMsg_GetScreenInfo, OnMsgGetScreenInfo)
     IPC_MESSAGE_HANDLER(ViewHostMsg_GetWindowRect, OnMsgGetWindowRect)
@@ -174,6 +178,11 @@ void RenderWidgetHost::OnMessageReceived(const IPC::Message &msg) {
                         OnAcceleratedSurfaceSetTransportDIB)
     IPC_MESSAGE_HANDLER(ViewHostMsg_AcceleratedSurfaceBuffersSwapped,
                         OnAcceleratedSurfaceBuffersSwapped)
+#elif defined(OS_POSIX)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_CreatePluginContainer,
+                        OnMsgCreatePluginContainer)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_DestroyPluginContainer,
+                        OnMsgDestroyPluginContainer)
 #endif
     IPC_MESSAGE_UNHANDLED_ERROR()
   IPC_END_MESSAGE_MAP_EX()
@@ -222,8 +231,11 @@ void RenderWidgetHost::WasRestored() {
   BackingStore* backing_store = BackingStoreManager::Lookup(this);
   // If we already have a backing store for this widget, then we don't need to
   // repaint on restore _unless_ we know that our backing store is invalid.
+  // When accelerated compositing is on, we must always repaint, even when
+  // the backing store exists.
   bool needs_repainting;
-  if (needs_repainting_on_restore_ || !backing_store) {
+  if (needs_repainting_on_restore_ || !backing_store ||
+      is_gpu_rendering_active()) {
     needs_repainting = true;
     needs_repainting_on_restore_ = false;
   } else {
@@ -363,6 +375,11 @@ void RenderWidgetHost::DonePaintingToBackingStore() {
 }
 
 void RenderWidgetHost::StartHangMonitorTimeout(TimeDelta delay) {
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableHangMonitor)) {
+    return;
+  }
+
   // If we already have a timer that will expire at or before the given delay,
   // then we have nothing more to do now.  If we have set our end time to null
   // by calling StopHangMonitorTimeout, though, we will need to restart the
@@ -420,6 +437,9 @@ void RenderWidgetHost::ForwardMouseEvent(const WebMouseEvent& mouse_event) {
   ForwardInputEvent(mouse_event, sizeof(WebMouseEvent), false);
 }
 
+void RenderWidgetHost::OnMouseActivate() {
+}
+
 void RenderWidgetHost::ForwardWheelEvent(
     const WebMouseWheelEvent& wheel_event) {
   if (ignore_input_events_ || process_->ignore_input_events())
@@ -461,8 +481,8 @@ void RenderWidgetHost::ForwardKeyboardEvent(
     return;
 
   if (key_event.type == WebKeyboardEvent::Char &&
-      (key_event.windowsKeyCode == base::VKEY_RETURN ||
-       key_event.windowsKeyCode == base::VKEY_SPACE)) {
+      (key_event.windowsKeyCode == app::VKEY_RETURN ||
+       key_event.windowsKeyCode == app::VKEY_SPACE)) {
     OnUserGesture();
   }
 
@@ -480,21 +500,24 @@ void RenderWidgetHost::ForwardKeyboardEvent(
       suppress_next_char_events_ = false;
     }
 
-    // We need to set |suppress_next_char_events_| to true if
-    // PreHandleKeyboardEvent() returns true, but |this| may already be
-    // destroyed at that time. So set |suppress_next_char_events_| true here,
-    // then revert it afterwards when necessary.
-    if (key_event.type == WebKeyboardEvent::RawKeyDown)
-      suppress_next_char_events_ = true;
-
     bool is_keyboard_shortcut = false;
-    // Tab switching/closing accelerators aren't sent to the renderer to avoid a
-    // hung/malicious renderer from interfering.
-    if (PreHandleKeyboardEvent(key_event, &is_keyboard_shortcut))
-      return;
+    // Only pre-handle the key event if it's not handled by the input method.
+    if (!key_event.skip_in_browser) {
+      // We need to set |suppress_next_char_events_| to true if
+      // PreHandleKeyboardEvent() returns true, but |this| may already be
+      // destroyed at that time. So set |suppress_next_char_events_| true here,
+      // then revert it afterwards when necessary.
+      if (key_event.type == WebKeyboardEvent::RawKeyDown)
+        suppress_next_char_events_ = true;
 
-    if (key_event.type == WebKeyboardEvent::RawKeyDown)
-      suppress_next_char_events_ = false;
+      // Tab switching/closing accelerators aren't sent to the renderer to avoid
+      // a hung/malicious renderer from interfering.
+      if (PreHandleKeyboardEvent(key_event, &is_keyboard_shortcut))
+        return;
+
+      if (key_event.type == WebKeyboardEvent::RawKeyDown)
+        suppress_next_char_events_ = false;
+    }
 
     // Don't add this key to the queue if we have no way to send the message...
     if (!process_->HasConnection())
@@ -718,6 +741,9 @@ void RenderWidgetHost::OnMsgUpdateRect(
     const ViewHostMsg_UpdateRect_Params& params) {
   TimeTicks paint_start = TimeTicks::Now();
 
+  if (paint_observer_.get())
+    paint_observer_->RenderWidgetHostWillPaint(this);
+
   // Update our knowledge of the RenderWidget's size.
   current_size_ = params.view_size;
 
@@ -743,28 +769,33 @@ void RenderWidgetHost::OnMsgUpdateRect(
   DCHECK(!params.bitmap_rect.IsEmpty());
   DCHECK(!params.view_size.IsEmpty());
 
-  const size_t size = params.bitmap_rect.height() *
-                      params.bitmap_rect.width() * 4;
-  TransportDIB* dib = process_->GetTransportDIB(params.bitmap);
   bool painted_synchronously = true;  // Default to sending a paint ACK below.
-  if (dib) {
-    if (dib->size() < size) {
-      DLOG(WARNING) << "Transport DIB too small for given rectangle";
-      process()->ReceivedBadMessage(ViewHostMsg_UpdateRect__ID);
-    } else {
-      // Scroll the backing store.
-      if (!params.scroll_rect.IsEmpty()) {
-        ScrollBackingStoreRect(params.dx, params.dy,
-                               params.scroll_rect,
-                               params.view_size);
-      }
+  if (!is_gpu_rendering_active_) {
+    const size_t size = params.bitmap_rect.height() *
+        params.bitmap_rect.width() * 4;
+    TransportDIB* dib = process_->GetTransportDIB(params.bitmap);
 
-      // Paint the backing store. This will update it with the renderer-supplied
-      // bits. The view will read out of the backing store later to actually
-      // draw to the screen.
-      PaintBackingStoreRect(params.bitmap, params.bitmap_rect,
-                            params.copy_rects, params.view_size,
-                            &painted_synchronously);
+    // If gpu process does painting, scroll_rect and copy_rects are always empty
+    // and backing store is never used.
+    if (dib) {
+      if (dib->size() < size) {
+        DLOG(WARNING) << "Transport DIB too small for given rectangle";
+        process()->ReceivedBadMessage(ViewHostMsg_UpdateRect__ID);
+      } else {
+        // Scroll the backing store.
+        if (!params.scroll_rect.IsEmpty()) {
+          ScrollBackingStoreRect(params.dx, params.dy,
+                                 params.scroll_rect,
+                                 params.view_size);
+        }
+
+        // Paint the backing store. This will update it with the
+        // renderer-supplied bits. The view will read out of the backing store
+        // later to actually draw to the screen.
+        PaintBackingStoreRect(params.bitmap, params.bitmap_rect,
+                              params.copy_rects, params.view_size,
+                              &painted_synchronously);
+      }
     }
   }
 
@@ -882,14 +913,13 @@ void RenderWidgetHost::ProcessWheelAck() {
 }
 
 void RenderWidgetHost::OnMsgFocus() {
-  // Only the user can focus a RenderWidgetHost.
+  // Only RenderViewHost can deal with that message.
   process()->ReceivedBadMessage(ViewHostMsg_Focus__ID);
 }
 
 void RenderWidgetHost::OnMsgBlur() {
-  if (view_) {
-    view_->Blur();
-  }
+  // Only RenderViewHost can deal with that message.
+  process()->ReceivedBadMessage(ViewHostMsg_Blur__ID);
 }
 
 void RenderWidgetHost::OnMsgSetCursor(const WebCursor& cursor) {
@@ -912,31 +942,17 @@ void RenderWidgetHost::OnMsgImeCancelComposition() {
 }
 
 void RenderWidgetHost::OnMsgGpuRenderingActivated(bool activated) {
+#if defined(OS_MACOSX)
+  bool old_state = is_gpu_rendering_active_;
+#endif
   is_gpu_rendering_active_ = activated;
+#if defined(OS_MACOSX)
+  if (old_state != is_gpu_rendering_active_ && view_)
+    view_->GpuRenderingStateDidChange();
+#endif
 }
 
-#if defined(OS_LINUX)
-
-void RenderWidgetHost::OnMsgCreatePluginContainer(gfx::PluginWindowHandle id) {
-  // TODO(piman): view_ can only be NULL with delayed view creation in
-  // extensions (see ExtensionHost::CreateRenderViewSoon). Figure out how to
-  // support plugins in that case.
-  if (view_) {
-    view_->CreatePluginContainer(id);
-  } else {
-    NOTIMPLEMENTED();
-  }
-}
-
-void RenderWidgetHost::OnMsgDestroyPluginContainer(gfx::PluginWindowHandle id) {
-  if (view_) {
-    view_->DestroyPluginContainer(id);
-  } else {
-    NOTIMPLEMENTED();
-  }
-}
-
-#elif defined(OS_MACOSX)
+#if defined(OS_MACOSX)
 
 void RenderWidgetHost::OnMsgShowPopup(
     const ViewHostMsg_ShowPopup_Params& params) {
@@ -970,11 +986,12 @@ void RenderWidgetHost::OnMsgGetRootWindowRect(gfx::NativeViewId window_id,
 
 void RenderWidgetHost::OnAllocateFakePluginWindowHandle(
     bool opaque,
+    bool root,
     gfx::PluginWindowHandle* id) {
   // TODO(kbr): similar potential issue here as in OnMsgCreatePluginContainer.
   // Possibly less of an issue because this is only used for the GPU plugin.
   if (view_) {
-    *id = view_->AllocateFakePluginWindowHandle(opaque);
+    *id = view_->AllocateFakePluginWindowHandle(opaque, root);
   } else {
     NOTIMPLEMENTED();
   }
@@ -1016,6 +1033,27 @@ void RenderWidgetHost::OnAcceleratedSurfaceBuffersSwapped(
     view_->AcceleratedSurfaceBuffersSwapped(window);
   }
 }
+#elif defined(OS_POSIX)
+
+void RenderWidgetHost::OnMsgCreatePluginContainer(gfx::PluginWindowHandle id) {
+  // TODO(piman): view_ can only be NULL with delayed view creation in
+  // extensions (see ExtensionHost::CreateRenderViewSoon). Figure out how to
+  // support plugins in that case.
+  if (view_) {
+    view_->CreatePluginContainer(id);
+  } else {
+    NOTIMPLEMENTED();
+  }
+}
+
+void RenderWidgetHost::OnMsgDestroyPluginContainer(gfx::PluginWindowHandle id) {
+  if (view_) {
+    view_->DestroyPluginContainer(id);
+  } else {
+    NOTIMPLEMENTED();
+  }
+}
+
 #endif
 
 void RenderWidgetHost::PaintBackingStoreRect(
@@ -1103,22 +1141,6 @@ void RenderWidgetHost::AdvanceToNextMisspelling() {
   Send(new ViewMsg_AdvanceToNextMisspelling(routing_id_));
 }
 
-void RenderWidgetHost::RequestAccessibilityTree() {
-  Send(new ViewMsg_GetAccessibilityTree(routing_id()));
-}
-
-void RenderWidgetHost::SetDocumentLoaded(bool document_loaded) {
-  document_loaded_ = document_loaded;
-
-  if (!document_loaded_)
-    requested_accessibility_tree_ = false;
-
-  if (renderer_accessible_ && document_loaded_) {
-    RequestAccessibilityTree();
-    requested_accessibility_tree_ = true;
-  }
-}
-
 void RenderWidgetHost::EnableRendererAccessibility() {
   if (renderer_accessible_)
     return;
@@ -1130,9 +1152,9 @@ void RenderWidgetHost::EnableRendererAccessibility() {
 
   renderer_accessible_ = true;
 
-  if (document_loaded_ && !requested_accessibility_tree_) {
-    RequestAccessibilityTree();
-    requested_accessibility_tree_ = true;
+  if (process_->HasConnection()) {
+    // Renderer accessibility wasn't enabled on process launch. Enable it now.
+    Send(new ViewMsg_EnableAccessibility(routing_id()));
   }
 }
 
@@ -1142,6 +1164,10 @@ void RenderWidgetHost::SetAccessibilityFocus(int acc_obj_id) {
 
 void RenderWidgetHost::AccessibilityDoDefaultAction(int acc_obj_id) {
   Send(new ViewMsg_AccessibilityDoDefaultAction(routing_id(), acc_obj_id));
+}
+
+void RenderWidgetHost::AccessibilityNotificationsAck() {
+  Send(new ViewMsg_AccessibilityNotifications_ACK(routing_id()));
 }
 
 void RenderWidgetHost::ProcessKeyboardEventAck(int type, bool processed) {

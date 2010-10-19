@@ -4,6 +4,7 @@
 
 #ifndef NET_SOCKET_SSL_CLIENT_SOCKET_MAC_H_
 #define NET_SOCKET_SSL_CLIENT_SOCKET_MAC_H_
+#pragma once
 
 #include <Security/Security.h>
 
@@ -25,7 +26,7 @@ class ClientSocketHandle;
 // An SSL client socket implemented with Secure Transport.
 class SSLClientSocketMac : public SSLClientSocket {
  public:
-  // Takes ownership of the transport_socket, which may already be connected.
+  // Takes ownership of the |transport_socket|, which must already be connected.
   // The given hostname will be compared with the name(s) in the server's
   // certificate during the SSL handshake. ssl_config specifies the SSL
   // settings.
@@ -46,6 +47,9 @@ class SSLClientSocketMac : public SSLClientSocket {
   virtual bool IsConnectedAndIdle() const;
   virtual int GetPeerAddress(AddressList* address) const;
   virtual const BoundNetLog& NetLog() const { return net_log_; }
+  virtual void SetSubresourceSpeculation();
+  virtual void SetOmniboxSpeculation();
+  virtual bool WasEverUsed() const;
 
   // Socket methods:
   virtual int Read(IOBuffer* buf, int buf_len, CompletionCallback* callback);

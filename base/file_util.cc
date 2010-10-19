@@ -185,7 +185,7 @@ FILE* CreateAndOpenTemporaryFile(FilePath* path) {
 }
 
 bool GetFileSize(const FilePath& file_path, int64* file_size) {
-  FileInfo info;
+  base::PlatformFileInfo info;
   if (!GetFileInfo(file_path, &info))
     return false;
   *file_size = info.size;
@@ -198,6 +198,28 @@ bool IsDot(const FilePath& path) {
 
 bool IsDotDot(const FilePath& path) {
   return FILE_PATH_LITERAL("..") == path.BaseName().value();
+}
+
+bool TouchFile(const FilePath& path,
+               const base::Time& last_accessed,
+               const base::Time& last_modified) {
+  base::PlatformFile file =
+      base::CreatePlatformFile(path,
+                               base::PLATFORM_FILE_OPEN |
+                               base::PLATFORM_FILE_WRITE_ATTRIBUTES,
+                               NULL, NULL);
+  if (file != base::kInvalidPlatformFileValue) {
+    bool result = base::TouchPlatformFile(file, last_accessed, last_modified);
+    base::ClosePlatformFile(file);
+    return result;
+  }
+
+  return false;
+}
+
+bool SetLastModifiedTime(const FilePath& path,
+                         const base::Time& last_modified) {
+  return TouchFile(path, last_modified, last_modified);
 }
 
 bool CloseFile(FILE* file) {
@@ -320,9 +342,9 @@ bool MemoryMappedFile::Initialize(const FilePath& file_name) {
 }
 
 bool MemoryMappedFile::MapFileToMemory(const FilePath& file_name) {
-  file_ = base::CreatePlatformFile(file_name,
-      base::PLATFORM_FILE_OPEN | base::PLATFORM_FILE_READ,
-      NULL);
+  file_ = base::CreatePlatformFile(
+      file_name, base::PLATFORM_FILE_OPEN | base::PLATFORM_FILE_READ,
+      NULL, NULL);
 
   if (file_ == base::kInvalidPlatformFileValue) {
     LOG(ERROR) << "Couldn't open " << file_name.value();
@@ -337,10 +359,6 @@ bool MemoryMappedFile::IsValid() {
 }
 
 // Deprecated functions ----------------------------------------------------
-
-bool ReadFileToString(const std::wstring& path, std::string* contents) {
-  return ReadFileToString(FilePath::FromWStringHack(path), contents);
-}
 
 bool AbsolutePath(std::wstring* path_str) {
   FilePath path(FilePath::FromWStringHack(*path_str));
@@ -393,14 +411,6 @@ FILE* OpenFile(const std::wstring& filename, const char* mode) {
 }
 int ReadFile(const std::wstring& filename, char* data, int size) {
   return ReadFile(FilePath::FromWStringHack(filename), data, size);
-}
-void UpOneDirectory(std::wstring* dir) {
-  FilePath path = FilePath::FromWStringHack(*dir);
-  FilePath directory = path.DirName();
-  // If there is no separator, we will get back kCurrentDirectory.
-  // In this case don't change |dir|.
-  if (directory.value() != FilePath::kCurrentDirectory)
-    *dir = directory.ToWStringHack();
 }
 int WriteFile(const std::wstring& filename, const char* data, int size) {
   return WriteFile(FilePath::FromWStringHack(filename), data, size);

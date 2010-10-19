@@ -50,7 +50,7 @@ class SecureTunnelSession;  // below
 // SSL/TLS. The PseudoTcpChannel stream is wrapped with an
 // SSLStreamAdapter. An SSLIdentity must be set or generated.
 //
-// The TunnelSessionDescription is extended to include the client and
+// The TunnelContentDescription is extended to include the client and
 // server certificates. The initiator acts as the client. The session
 // initiate stanza carries a description that contains the client's
 // certificate, and the session accept response's description has the
@@ -81,14 +81,16 @@ class SecureTunnelSessionClient : public TunnelSessionClient {
 
   // Inherited methods
   virtual void OnIncomingTunnel(const buzz::Jid& jid, Session *session);
-  virtual const SessionDescription* CreateSessionDescription(
-      const buzz::XmlElement* element);
-  virtual buzz::XmlElement* TranslateSessionDescription(
-      const SessionDescription* description);
-  virtual SessionDescription *CreateOutgoingSessionDescription(
+  virtual bool ParseContent(const buzz::XmlElement* elem,
+                            const ContentDescription** content,
+                            ParseError* error);
+  virtual bool WriteContent(const ContentDescription* content,
+                            buzz::XmlElement** elem,
+                            WriteError* error);
+  virtual SessionDescription* CreateOffer(
       const buzz::Jid &jid, const std::string &description);
-  virtual SessionDescription *CreateOutgoingSessionDescription(
-      Session *incoming);
+  virtual SessionDescription* CreateAnswer(
+      const SessionDescription* offer);
 
  protected:
   virtual TunnelSession* MakeTunnelSession(
@@ -140,7 +142,7 @@ class SecureTunnelSession : public TunnelSession {
   // Our role in requesting the tunnel: INITIATOR or
   // RESPONDER. Translates to our role in SSL negotiation:
   // respectively client or server. Also indicates which slot of the
-  // SecureTunnelSessionDescription our cert goes into: client-cert or
+  // SecureTunnelContentDescription our cert goes into: client-cert or
   // server-cert respectively.
   TunnelSessionRole role_;
 

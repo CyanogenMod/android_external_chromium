@@ -7,6 +7,7 @@
 
 #ifndef CHROME_BROWSER_GTK_MENU_BAR_HELPER_H_
 #define CHROME_BROWSER_GTK_MENU_BAR_HELPER_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -31,7 +32,7 @@ class MenuBarHelper {
 
   // |delegate| cannot be null.
   explicit MenuBarHelper(Delegate* delegate);
-  ~MenuBarHelper();
+  virtual ~MenuBarHelper();
 
   // Must be called whenever a button's menu starts showing. It triggers the
   // MenuBarHelper to start listening for certain events.

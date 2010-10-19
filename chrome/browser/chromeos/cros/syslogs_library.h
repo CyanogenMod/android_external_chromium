@@ -4,33 +4,36 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_CROS_SYSLOGS_LIBRARY_H_
 #define CHROME_BROWSER_CHROMEOS_CROS_SYSLOGS_LIBRARY_H_
+#pragma once
 
 #include "base/singleton.h"
+#include "chrome/browser/cancelable_request.h"
 #include "cros/chromeos_syslogs.h"
+
+class CancelableRequestConsumerBase;
 
 namespace chromeos {
 
 // This interface defines interaction with the ChromeOS syslogs APIs.
-class SyslogsLibrary {
+class SyslogsLibrary : public CancelableRequestProvider {
  public:
+  typedef Callback1<LogDictionaryType*>::Type ReadCompleteCallback;
+
   SyslogsLibrary() {}
   virtual ~SyslogsLibrary() {}
 
-  // System logs gathered for userfeedback
-  virtual LogDictionaryType* GetSyslogs(FilePath* tmpfilename)  = 0;
-};
+  // Request system logs. Read happens on the FILE thread and callback is
+  // called on the thread this is called from (via ForwardResult).
+  // Logs are owned by callback function (use delete when done with them).
+  // Returns the request handle. Call CancelRequest(Handle) to cancel
+  // the request before the callback gets called.
+  virtual Handle RequestSyslogs(FilePath* tmpfilename,
+                                CancelableRequestConsumerBase* consumer,
+                                ReadCompleteCallback* callback) = 0;
 
-
-// This class handles the interaction with the ChromeOS syslogs APIs.
-class SyslogsLibraryImpl : public SyslogsLibrary {
- public:
-  SyslogsLibraryImpl() {}
-  virtual ~SyslogsLibraryImpl() {}
-
-  virtual LogDictionaryType* GetSyslogs(FilePath* tmpfilename);
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SyslogsLibraryImpl);
+  // Factory function, creates a new instance and returns ownership.
+  // For normal usage, access the singleton via CrosLibrary::Get().
+  static SyslogsLibrary* GetImpl(bool stub);
 };
 
 }  // namespace chromeos

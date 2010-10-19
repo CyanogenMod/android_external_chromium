@@ -4,11 +4,11 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_OPTIONS_LANGUAGE_CONFIG_VIEW_H_
 #define CHROME_BROWSER_CHROMEOS_OPTIONS_LANGUAGE_CONFIG_VIEW_H_
+#pragma once
 
 #include <map>
 #include <set>
 #include <string>
-#include <vector>
 
 #include "app/table_model.h"
 #include "chrome/browser/chromeos/options/language_config_model.h"

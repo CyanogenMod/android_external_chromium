@@ -7,6 +7,7 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_WEB_CACHE_MANAGER_H_
 #define CHROME_BROWSER_RENDERER_HOST_WEB_CACHE_MANAGER_H_
+#pragma once
 
 #include <map>
 #include <list>
@@ -14,7 +15,6 @@
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
-#include "base/shared_memory.h"
 #include "base/task.h"
 #include "base/time.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebCache.h"
@@ -121,7 +121,7 @@ class WebCacheManager {
     // Allow each renderer to keep its current set of cached resources.
     KEEP_CURRENT,
 
-    // Allow each renderer to keep cache resources it believs are currently
+    // Allow each renderer to keep cache resources it believes are currently
     // being used, with some extra allocation to store new objects.
     KEEP_LIVE_WITH_HEADROOM,
 

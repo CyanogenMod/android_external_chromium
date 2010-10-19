@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_HISTORY_DOWNLOAD_DATABASE_H_
 #define CHROME_BROWSER_HISTORY_DOWNLOAD_DATABASE_H_
+#pragma once
 
 #include "chrome/browser/history/history_types.h"
 
@@ -49,10 +50,6 @@ class DownloadDatabase {
   // to do an unbounded delete in either direction. This function ignores
   // all downloads that are in progress or are waiting to be cancelled.
   void RemoveDownloadsBetween(base::Time remove_begin, base::Time remove_end);
-
-  // Search for downloads matching the search text.
-  void SearchDownloads(std::vector<int64>* results,
-                       const string16& search_text);
 
  protected:
   // Returns the database for the functions in this interface.

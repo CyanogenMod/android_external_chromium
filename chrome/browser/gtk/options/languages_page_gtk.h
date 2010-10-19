@@ -11,6 +11,7 @@
 
 #ifndef CHROME_BROWSER_GTK_OPTIONS_LANGUAGES_PAGE_GTK_H_
 #define CHROME_BROWSER_GTK_OPTIONS_LANGUAGES_PAGE_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -20,8 +21,8 @@
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/gtk/gtk_tree.h"
-#include "chrome/browser/pref_member.h"
 #include "chrome/browser/options_page_base.h"
+#include "chrome/browser/prefs/pref_member.h"
 
 class LanguageComboboxModel;
 class LanguageOrderTableModel;
@@ -58,7 +59,7 @@ class LanguagesPageGtk
   int FirstSelectedRowNum();
 
   // Overridden from OptionsPageBase.
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
 
   // Callbacks for accept languages widgets.
   CHROMEG_CALLBACK_0(LanguagesPageGtk, void, OnSelectionChanged,

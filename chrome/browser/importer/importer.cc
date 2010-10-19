@@ -6,14 +6,18 @@
 
 #include "app/l10n_util.h"
 #include "base/thread.h"
+#include "base/values.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browsing_instance.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/importer/firefox_profile_lock.h"
 #include "chrome/browser/importer/importer_bridge.h"
 #include "chrome/browser/renderer_host/site_instance.h"
+#include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/common/notification_service.h"
 #include "gfx/codec/png_codec.h"
@@ -100,9 +104,7 @@ void ImporterHost::Loaded(BookmarkModel* model) {
   waiting_for_bookmarkbar_model_ = false;
   installed_bookmark_observer_ = false;
 
-  std::vector<GURL> starred_urls;
-  model->GetBookmarks(&starred_urls);
-  importer_->set_import_to_bookmark_bar(starred_urls.size() == 0);
+  importer_->set_import_to_bookmark_bar(!model->HasBookmarks());
   InvokeTaskIfDone();
 }
 
@@ -123,7 +125,7 @@ void ImporterHost::ShowWarningDialog() {
     OnLockViewEnd(false);
   } else {
 #if defined(OS_WIN)
-    views::Window::CreateChromeWindow(GetActiveWindow(), gfx::Rect(),
+    views::Window::CreateChromeWindow(NULL, gfx::Rect(),
                                       new ImporterLockView(this))->Show();
 #elif defined(TOOLKIT_USES_GTK)
     ImportLockDialogGtk::Show(parent_window_, this);
@@ -202,7 +204,8 @@ void ImporterHost::StartImportSettings(
       SiteInstance* site = instance->GetSiteInstanceForURL(url);
       Browser* browser = BrowserList::GetLastActive();
       browser->AddTabWithURL(url, GURL(), PageTransition::TYPED, -1,
-                             TabStripModel::ADD_SELECTED, site, std::string());
+                             TabStripModel::ADD_SELECTED, site, std::string(),
+                             NULL);
 
       MessageLoop::current()->PostTask(FROM_HERE, NewRunnableMethod(
         this, &ImporterHost::OnLockViewEnd, false));
@@ -258,9 +261,7 @@ void ImporterHost::ImportEnded() {
 bool ImporterHost::ShouldImportToBookmarkBar(bool first_run) {
   bool import_to_bookmark_bar = first_run;
   if (profile_ && profile_->GetBookmarkModel()->IsLoaded()) {
-    std::vector<GURL> starred_urls;
-    profile_->GetBookmarkModel()->GetBookmarks(&starred_urls);
-    import_to_bookmark_bar = (starred_urls.size() == 0);
+    import_to_bookmark_bar = (!profile_->GetBookmarkModel()->HasBookmarks());
   }
   return import_to_bookmark_bar;
 }
@@ -275,8 +276,7 @@ void ImporterHost::CheckForFirefoxLock(
       // If fail to acquire the lock, we set the source unreadable and
       // show a warning dialog, unless running without UI.
       is_source_readable_ = false;
-      if (!this->headless_)
-        ShowWarningDialog();
+      ShowWarningDialog();
     }
   }
 }
@@ -304,7 +304,9 @@ void ImporterHost::CheckForLoadedModels(uint16 items) {
 }
 
 ExternalProcessImporterHost::ExternalProcessImporterHost()
-    : cancelled_(false),
+    : items_(0),
+      import_to_bookmark_bar_(false),
+      cancelled_(false),
       import_process_launched_(false) {
 }
 
@@ -314,12 +316,10 @@ void ExternalProcessImporterHost::Loaded(BookmarkModel* model) {
   waiting_for_bookmarkbar_model_ = false;
   installed_bookmark_observer_ = false;
 
-  std::vector<GURL> starred_urls;
-  model->GetBookmarks(&starred_urls);
   // Because the import process is running externally, the decision whether
   // to import to the bookmark bar must be stored here so that it can be
   // passed to the importer when the import task is invoked.
-  import_to_bookmark_bar_ = (starred_urls.size() == 0);
+  import_to_bookmark_bar_ = (!model->HasBookmarks());
   InvokeTaskIfDone();
 }
 
@@ -375,7 +375,12 @@ ExternalProcessImporterClient::ExternalProcessImporterClient(
     int items,
     InProcessImporterBridge* bridge,
     bool import_to_bookmark_bar)
-    : process_importer_host_(importer_host),
+    : bookmarks_options_(0),
+      total_bookmarks_count_(0),
+      total_history_rows_count_(0),
+      total_fav_icons_count_(0),
+      process_importer_host_(importer_host),
+      profile_import_process_host_(NULL),
       profile_info_(profile_info),
       items_(items),
       import_to_bookmark_bar_(import_to_bookmark_bar),
@@ -496,14 +501,16 @@ void ExternalProcessImporterClient::OnHistoryImportStart(
 }
 
 void ExternalProcessImporterClient::OnHistoryImportGroup(
-    const std::vector<history::URLRow> &history_rows_group) {
+    const std::vector<history::URLRow>& history_rows_group,
+    int visit_source) {
   if (cancelled_)
     return;
 
   history_rows_.insert(history_rows_.end(), history_rows_group.begin(),
                        history_rows_group.end());
   if (history_rows_.size() == total_history_rows_count_)
-    bridge_->SetHistoryItems(history_rows_);
+    bridge_->SetHistoryItems(history_rows_,
+                             static_cast<history::VisitSource>(visit_source));
 }
 
 void ExternalProcessImporterClient::OnHomePageImportReady(

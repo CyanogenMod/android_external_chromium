@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,14 +6,16 @@
 
 #include <windows.h>
 
+#include <string>
+
 #include "base/file_path.h"
 #include "base/message_loop.h"
 #include "base/task.h"
 #include "base/thread.h"
 #include "base/utf_string_conversions.h"
-#include "base/win_util.h"
 #include "chrome/browser/bookmarks/bookmark_drag_data.h"
 #include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/download/download_util.h"
 #include "chrome/browser/download/drag_download_file.h"
 #include "chrome/browser/download/drag_download_util.h"
 #include "chrome/browser/profile.h"
@@ -197,11 +199,11 @@ void TabContentsDragWin::PrepareDragForDownload(
   std::string content_disposition =
       "attachment; filename=" + UTF16ToUTF8(file_name.value());
   FilePath generated_file_name;
-  DownloadManager::GenerateFileName(download_url,
-                                    content_disposition,
-                                    std::string(),
-                                    UTF16ToUTF8(mime_type),
-                                    &generated_file_name);
+  download_util::GenerateFileName(download_url,
+                                  content_disposition,
+                                  std::string(),
+                                  UTF16ToUTF8(mime_type),
+                                  &generated_file_name);
 
   // Provide the data as file (CF_HDROP). A temporary download file with the
   // Zone.Identifier ADS (Alternate Data Stream) attached will be created.

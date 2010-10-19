@@ -7,13 +7,12 @@
 #include <limits>
 #include <vector>
 
-#include "app/sql/connection.h"
 #include "app/sql/statement.h"
 #include "base/file_path.h"
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/download_item.h"
-#include "chrome/browser/history/download_types.h"
+#include "chrome/browser/history/download_create_info.h"
 
 // Download schema:
 //
@@ -195,24 +194,6 @@ void DownloadDatabase::RemoveDownloadsBetween(base::Time delete_begin,
   statement.BindInt(2, DownloadItem::COMPLETE);
   statement.BindInt(3, DownloadItem::CANCELLED);
   statement.Run();
-}
-
-void DownloadDatabase::SearchDownloads(std::vector<int64>* results,
-                                       const string16& search_text) {
-  sql::Statement statement(GetDB().GetCachedStatement(SQL_FROM_HERE,
-      "SELECT id FROM downloads WHERE url LIKE ? "
-      "OR full_path LIKE ? ORDER BY id"));
-  if (!statement)
-    return;
-
-  std::string text("%");
-  text.append(UTF16ToUTF8(search_text));
-  text.push_back('%');
-  statement.BindString(0, text);
-  statement.BindString(1, text);
-
-  while (statement.Step())
-    results->push_back(statement.ColumnInt64(0));
 }
 
 }  // namespace history

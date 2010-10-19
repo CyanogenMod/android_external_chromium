@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "base/format_macros.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "net/ftp/ftp_directory_listing_parser_ls.h"
 
 namespace {
@@ -45,6 +46,12 @@ TEST_F(FtpDirectoryListingParserLsTest, Good) {
     { "d-wx-wx-wt+  4 ftp      989          512 Dec  8 15:54 incoming",
       net::FtpDirectoryListingEntry::DIRECTORY, "incoming", -1,
       1993, 12, 8, 15, 54 },
+    { "drwxrwxrwx   1 owner    group               0 Sep 13  0:30 audio",
+      net::FtpDirectoryListingEntry::DIRECTORY, "audio", -1,
+      1994, 9, 13, 0, 30 },
+    { "lrwxrwxrwx 1 0  0 26 Sep 18 2008 pub",
+      net::FtpDirectoryListingEntry::SYMLINK, "pub", -1,
+      2008, 9, 18, 0, 0 },
 
     // Tests for the wu-ftpd variant:
     { "drwxr-xr-x   2 sys          512 Mar 27  2009 pub",
@@ -74,7 +81,8 @@ TEST_F(FtpDirectoryListingParserLsTest, Good) {
       2006, 7, 17, 0, 0 },
   };
   for (size_t i = 0; i < arraysize(good_cases); i++) {
-    SCOPED_TRACE(StringPrintf("Test[%" PRIuS "]: %s", i, good_cases[i].input));
+    SCOPED_TRACE(base::StringPrintf("Test[%" PRIuS "]: %s", i,
+                                    good_cases[i].input));
 
     net::FtpDirectoryListingParserLs parser(mock_current_time);
     RunSingleLineTestCase(&parser, good_cases[i]);
@@ -100,6 +108,7 @@ TEST_F(FtpDirectoryListingParserLsTest, Bad) {
     "qrwwr--r-- 1 ftp ftp 528 Nov 01 2007 README",
     "-rw-r--r-- 1 ftp ftp -528 Nov 01 2007 README",
     "-rw-r--r-- 1 ftp ftp 528 Foo 01 2007 README",
+    "drwxrwxrwx   1 owner    group               0 Sep 13  0:3 audio",
 
     "d-wx-wx-wt++  4 ftp 989 512 Dec  8 15:54 incoming",
     "d-wx-wx-wt$  4 ftp 989 512 Dec  8 15:54 incoming",

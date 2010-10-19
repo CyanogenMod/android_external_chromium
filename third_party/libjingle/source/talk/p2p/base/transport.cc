@@ -2,26 +2,26 @@
  * libjingle
  * Copyright 2004--2005, Google Inc.
  *
- * Redistribution and use in source and binary forms, with or without 
+ * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
  *
- *  1. Redistributions of source code must retain the above copyright notice, 
+ *  1. Redistributions of source code must retain the above copyright notice,
  *     this list of conditions and the following disclaimer.
  *  2. Redistributions in binary form must reproduce the above copyright notice,
  *     this list of conditions and the following disclaimer in the documentation
  *     and/or other materials provided with the distribution.
- *  3. The name of the author may not be used to endorse or promote products 
+ *  3. The name of the author may not be used to endorse or promote products
  *     derived from this software without specific prior written permission.
  *
  * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
- * EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+ * EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
  * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
  * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
  * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR 
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
+ * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+ * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
@@ -43,8 +43,8 @@ struct ChannelParams {
   explicit ChannelParams(const std::string& name)
       : name(name), channel(NULL), candidate(NULL) {}
   ChannelParams(const std::string& name,
-                const std::string& session_type)
-      : name(name), session_type(session_type),
+                const std::string& content_type)
+      : name(name), content_type(content_type),
         channel(NULL), candidate(NULL) {}
   explicit ChannelParams(cricket::Candidate* candidate) :
       channel(NULL), candidate(candidate) {
@@ -56,7 +56,7 @@ struct ChannelParams {
   }
 
   std::string name;
-  std::string session_type;
+  std::string content_type;
   cricket::TransportChannelImpl* channel;
   cricket::Candidate* candidate;
 };
@@ -91,18 +91,18 @@ Transport::~Transport() {
 }
 
 TransportChannelImpl* Transport::CreateChannel(
-    const std::string& name, const std::string& session_type) {
-  ChannelParams params(name, session_type);
+    const std::string& name, const std::string& content_type) {
+  ChannelParams params(name, content_type);
   ChannelMessage msg(&params);
   worker_thread()->Send(this, MSG_CREATECHANNEL, &msg);
   return msg.data()->channel;
 }
 
 TransportChannelImpl* Transport::CreateChannel_w(
-    const std::string& name, const std::string& session_type) {
+    const std::string& name, const std::string& content_type) {
   ASSERT(worker_thread()->IsCurrent());
 
-  TransportChannelImpl* impl = CreateTransportChannel(name, session_type);
+  TransportChannelImpl* impl = CreateTransportChannel(name, content_type);
   impl->SignalReadableState.connect(this, &Transport::OnChannelReadableState);
   impl->SignalWritableState.connect(this, &Transport::OnChannelWritableState);
   impl->SignalRequestSignaling.connect(
@@ -356,7 +356,7 @@ void Transport::OnMessage(talk_base::Message* msg) {
   case MSG_CREATECHANNEL:
     {
       ChannelParams* params = static_cast<ChannelMessage*>(msg->pdata)->data();
-      params->channel = CreateChannel_w(params->name, params->session_type);
+      params->channel = CreateChannel_w(params->name, params->content_type);
     }
     break;
   case MSG_DESTROYCHANNEL:
@@ -379,9 +379,11 @@ void Transport::OnMessage(talk_base::Message* msg) {
     break;
   case MSG_ONREMOTECANDIDATE:
     {
-      ChannelParams* params = static_cast<ChannelMessage*>(msg->pdata)->data();
+      ChannelMessage* channel_msg = static_cast<ChannelMessage*>(msg->pdata);
+      ChannelParams* params = channel_msg->data();
       OnRemoteCandidate_w(*(params->candidate));
       delete params;
+      delete channel_msg;
     }
     break;
   case MSG_CONNECTING:

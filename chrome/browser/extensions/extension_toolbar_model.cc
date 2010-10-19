@@ -6,7 +6,7 @@
 
 #include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_service.h"
@@ -31,6 +31,10 @@ ExtensionToolbarModel::ExtensionToolbarModel(ExtensionsService* service)
 }
 
 ExtensionToolbarModel::~ExtensionToolbarModel() {
+}
+
+void ExtensionToolbarModel::DestroyingProfile() {
+  registrar_.RemoveAll();
 }
 
 void ExtensionToolbarModel::AddObserver(Observer* observer) {

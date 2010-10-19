@@ -8,10 +8,11 @@
 #include "base/basictypes.h"
 #include "base/logging.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/history/history.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/common/pref_names.h"
@@ -274,11 +275,11 @@ void BookmarkEditorView::Init() {
       l10n_util::GetString(IDS_BOOMARK_EDITOR_NAME_LABEL));
   title_tf_.SetAccessibleName(title_label_->GetText());
 
-  std::wstring url_text;
+  string16 url_text;
   if (details_.type == EditDetails::EXISTING_NODE) {
-    std::wstring languages = profile_
-        ? UTF8ToWide(profile_->GetPrefs()->GetString(prefs::kAcceptLanguages))
-        : std::wstring();
+    std::string languages = profile_
+        ? profile_->GetPrefs()->GetString(prefs::kAcceptLanguages)
+        : std::string();
     // Because this gets parsed by FixupURL(), it's safe to omit the scheme or
     // trailing slash, and unescape most characters, but we need to not drop any
     // username/password, or unescape anything that changes the meaning.
@@ -286,7 +287,7 @@ void BookmarkEditorView::Init() {
         net::kFormatUrlOmitAll & ~net::kFormatUrlOmitUsernamePassword,
         UnescapeRule::SPACES, NULL, NULL, NULL);
   }
-  url_tf_.SetText(url_text);
+  url_tf_.SetText(UTF16ToWide(url_text));
   url_tf_.SetController(this);
 
   url_label_ = new views::Label(
@@ -449,7 +450,8 @@ void BookmarkEditorView::NewGroup() {
 BookmarkEditorView::EditorNode* BookmarkEditorView::AddNewGroup(
     EditorNode* parent) {
   EditorNode* new_node = new EditorNode();
-  new_node->SetTitle(l10n_util::GetString(IDS_BOOMARK_EDITOR_NEW_FOLDER_NAME));
+  new_node->SetTitle(
+      l10n_util::GetStringUTF16(IDS_BOOMARK_EDITOR_NEW_FOLDER_NAME));
   new_node->value = 0;
   // new_node is now owned by parent.
   tree_model_->Add(parent, parent->GetChildCount(), new_node);
@@ -486,8 +488,9 @@ void BookmarkEditorView::CreateNodes(const BookmarkNode* bb_node,
   for (int i = 0; i < bb_node->GetChildCount(); ++i) {
     const BookmarkNode* child_bb_node = bb_node->GetChild(i);
     if (child_bb_node->is_folder()) {
-      EditorNode* new_b_node = new EditorNode(child_bb_node->GetTitle(),
-                                              child_bb_node->id());
+      EditorNode* new_b_node =
+          new EditorNode(WideToUTF16(child_bb_node->GetTitle()),
+                                     child_bb_node->id());
       b_node->Add(b_node->GetChildCount(), new_b_node);
       CreateNodes(child_bb_node, new_b_node);
     }
@@ -528,7 +531,7 @@ void BookmarkEditorView::ApplyEdits(EditorNode* parent) {
   bb_model_->RemoveObserver(this);
 
   GURL new_url(GetInputURL());
-  std::wstring new_title(GetInputTitle());
+  string16 new_title(WideToUTF16Hack(GetInputTitle()));
 
   if (!show_tree_) {
     bookmark_utils::ApplyEditsWithNoGroupChange(

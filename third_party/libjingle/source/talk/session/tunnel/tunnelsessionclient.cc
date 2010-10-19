@@ -41,6 +41,7 @@ namespace cricket {
 const std::string NS_TUNNEL("http://www.google.com/talk/tunnel");
 const buzz::QName QN_TUNNEL_DESCRIPTION(NS_TUNNEL, "description");
 const buzz::QName QN_TUNNEL_TYPE(NS_TUNNEL, "type");
+const std::string CN_TUNNEL("tunnel");
 
 enum {
   MSG_CLOCK = 1,
@@ -83,13 +84,13 @@ const talk_base::ConstantLabel SESSION_STATES[] = {
 };
 
 ///////////////////////////////////////////////////////////////////////////////
-// TunnelSessionDescription
+// TunnelContentDescription
 ///////////////////////////////////////////////////////////////////////////////
 
-struct TunnelSessionDescription : public SessionDescription {
+struct TunnelContentDescription : public ContentDescription {
   std::string description;
 
-  TunnelSessionDescription(const std::string& desc) : description(desc) { }
+  TunnelContentDescription(const std::string& desc) : description(desc) { }
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -163,7 +164,11 @@ talk_base::StreamInterface* TunnelSessionClientBase::AcceptTunnel(
   }
   ASSERT(tunnel != NULL);
 
-  session->Accept(CreateOutgoingSessionDescription(session));
+  SessionDescription* answer = CreateAnswer(session->remote_description());
+  if (answer == NULL)
+    return NULL;
+
+  session->Accept(answer);
   return tunnel->GetStream();
 }
 
@@ -180,9 +185,8 @@ void TunnelSessionClientBase::OnMessage(talk_base::Message* pmsg) {
     TunnelSession* tunnel = MakeTunnelSession(session, data->thread,
                                               INITIATOR);
     sessions_.push_back(tunnel);
-    SessionDescription *desc =
-                CreateOutgoingSessionDescription(data->jid, data->description);
-    session->Initiate(data->jid.Str(), desc);
+    SessionDescription* offer = CreateOffer(data->jid, data->description);
+    session->Initiate(data->jid.Str(), offer);
     data->stream = tunnel->GetStream();
   }
 }
@@ -211,49 +215,71 @@ TunnelSessionClient::TunnelSessionClient(const buzz::Jid& jid,
 TunnelSessionClient::~TunnelSessionClient() {
 }
 
-const SessionDescription* TunnelSessionClient::CreateSessionDescription(
-    const buzz::XmlElement* element) {
-  if (const buzz::XmlElement* type_elem = element->FirstNamed(QN_TUNNEL_TYPE)) {
-    return new TunnelSessionDescription(type_elem->BodyText());
+
+bool TunnelSessionClient::ParseContent(const buzz::XmlElement* elem,
+                                       const ContentDescription** content,
+                                       ParseError* error) {
+  if (const buzz::XmlElement* type_elem = elem->FirstNamed(QN_TUNNEL_TYPE)) {
+    *content = new TunnelContentDescription(type_elem->BodyText());
+    return true;
   }
-  ASSERT(false);
-  return 0;
+  return false;
 }
 
-buzz::XmlElement* TunnelSessionClient::TranslateSessionDescription(
-    const SessionDescription* description) {
-  const TunnelSessionDescription* desc =
-      static_cast<const TunnelSessionDescription*>(description);
+bool TunnelSessionClient::WriteContent(
+    const ContentDescription* untyped_content,
+    buzz::XmlElement** elem, WriteError* error) {
+  const TunnelContentDescription* content =
+      static_cast<const TunnelContentDescription*>(untyped_content);
 
   buzz::XmlElement* root = new buzz::XmlElement(QN_TUNNEL_DESCRIPTION, true);
   buzz::XmlElement* type_elem = new buzz::XmlElement(QN_TUNNEL_TYPE);
-  type_elem->SetBodyText(desc->description);
+  type_elem->SetBodyText(content->description);
   root->AddElement(type_elem);
-  return root;
+  *elem = root;
+  return true;
 }
 
-void TunnelSessionClient::OnIncomingTunnel(const buzz::Jid &jid, 
+SessionDescription* NewTunnelSessionDescription(
+    const ContentDescription* content) {
+  SessionDescription* sdesc = new SessionDescription();
+  sdesc->AddContent(CN_TUNNEL, NS_TUNNEL, content);
+  return sdesc;
+}
+
+const TunnelContentDescription* FindTunnelContent(
+    const cricket::SessionDescription* sdesc) {
+  const ContentInfo* cinfo = sdesc->FirstContentByType(NS_TUNNEL);
+  if (cinfo == NULL)
+    return NULL;
+
+  return static_cast<const TunnelContentDescription*>(
+      cinfo->description);
+}
+
+void TunnelSessionClient::OnIncomingTunnel(const buzz::Jid &jid,
                                            Session *session) {
-  const TunnelSessionDescription *desc = 
-    static_cast<const TunnelSessionDescription*>(session->remote_description());
-
-  SignalIncomingTunnel(this, jid, desc->description, session);
-}
-
-SessionDescription *TunnelSessionClient::CreateOutgoingSessionDescription(
-    const buzz::Jid &jid, const std::string &description) {
-  return new TunnelSessionDescription(description);
-}
-
-SessionDescription *TunnelSessionClient::CreateOutgoingSessionDescription(
-    Session *session) {
-  const TunnelSessionDescription* in_desc =
-    static_cast<const TunnelSessionDescription*>(
+  const TunnelContentDescription* content = FindTunnelContent(
       session->remote_description());
-  TunnelSessionDescription* out_desc = new TunnelSessionDescription(
-    in_desc->description);
+  ASSERT(content != NULL);
 
-  return out_desc;
+  SignalIncomingTunnel(this, jid, content->description, session);
+}
+
+SessionDescription* TunnelSessionClient::CreateOffer(
+    const buzz::Jid &jid, const std::string &description) {
+  return NewTunnelSessionDescription(
+      new TunnelContentDescription(description));
+}
+
+SessionDescription* TunnelSessionClient::CreateAnswer(
+    const SessionDescription* offer) {
+  const TunnelContentDescription* offer_tunnel = FindTunnelContent(offer);
+  if (offer_tunnel == NULL)
+    return NULL;
+
+  return NewTunnelSessionDescription(
+      new TunnelContentDescription(offer_tunnel->description));
 }
 ///////////////////////////////////////////////////////////////////////////////
 // TunnelSession

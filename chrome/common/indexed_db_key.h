@@ -4,6 +4,7 @@
 
 #ifndef CHROME_COMMON_INDEXED_DB_KEY_H_
 #define CHROME_COMMON_INDEXED_DB_KEY_H_
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/string16.h"
@@ -18,6 +19,7 @@ class IndexedDBKey {
   void SetInvalid();
   void Set(const string16& string);
   void Set(int32_t number);
+  void Set(const WebKit::WebIDBKey& key);
 
   WebKit::WebIDBKey::Type type() const { return type_; }
   const string16& string() const { return string_; }

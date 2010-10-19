@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_EXTENSION_INSTALLED_BUBBLE_GTK_H_
 #define CHROME_BROWSER_GTK_EXTENSION_INSTALLED_BUBBLE_GTK_H_
+#pragma once
 
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
@@ -78,6 +79,10 @@ class ExtensionInstalledBubbleGtk
   SkBitmap icon_;
   NotificationRegistrar registrar_;
   BubbleType type_;
+
+  // The number of times to retry showing the bubble if the browser action
+  // toolbar is animating.
+  int animation_wait_retries_;
 
   // The 'x' that the user can press to hide the info bubble shelf.
   scoped_ptr<CustomDrawButton> close_button_;

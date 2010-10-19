@@ -38,7 +38,11 @@ class UnixFilesystem : public FilesystemInterface {
   // Opens a file. Returns an open StreamInterface if function succeeds. Otherwise,
   // returns NULL.
   virtual FileStream *OpenFile(const Pathname &filename, 
-			    const std::string &mode);
+                               const std::string &mode);
+
+  // Atomically creates an empty file accessible only to the current user if one
+  // does not already exist at the given path, otherwise fails.
+  virtual bool CreatePrivateFile(const Pathname &filename);
 
   // This will attempt to delete the file located at filename.
   // It will fail with VERIY if you pass it a non-existant file, or a directory.
@@ -100,6 +104,7 @@ class UnixFilesystem : public FilesystemInterface {
 
   // Returns the absolute path of the current directory.
   virtual Pathname GetCurrentDirectory();
+
  private:
   static std::string app_temp_path_;
 };

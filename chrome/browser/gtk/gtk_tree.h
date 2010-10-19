@@ -1,9 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_GTK_GTK_TREE_H_
 #define CHROME_BROWSER_GTK_GTK_TREE_H_
+#pragma once
 
 #include <gtk/gtk.h>
 #include <set>
@@ -12,6 +13,7 @@
 #include "app/table_model_observer.h"
 #include "app/tree_model.h"
 #include "base/basictypes.h"
+#include "chrome/browser/remove_rows_table_model.h"
 
 class TableModel;
 
@@ -43,6 +45,17 @@ void GetSelectedIndices(GtkTreeSelection* selection, std::set<int>* out);
 // A helper class for populating a GtkListStore from a TableModel.
 class TableAdapter : public TableModelObserver {
  public:
+
+  enum ColumnID {
+    COL_TITLE = 0,
+    COL_IS_HEADER,
+    COL_IS_SEPARATOR,
+    COL_GROUP_ID,
+    COL_WEIGHT,
+    COL_WEIGHT_SET,
+    COL_LAST_ID
+  };
+
   class Delegate {
    public:
     // Should fill in the column and row.
@@ -65,8 +78,9 @@ class TableAdapter : public TableModelObserver {
   };
 
   // |table_model| may be NULL.
-  explicit TableAdapter(Delegate* delegate, GtkListStore* list_store,
-                        TableModel* table_model);
+  TableAdapter(Delegate* delegate,
+               GtkListStore* list_store,
+               TableModel* table_model);
   virtual ~TableAdapter() {}
 
   // Replace the TableModel with a different one.  If the list store currenty
@@ -75,6 +89,24 @@ class TableAdapter : public TableModelObserver {
   // created with a NULL |table_model|.
   void SetModel(TableModel* table_model);
 
+  // Add all model rows corresponding to the given list store indices to |rows|.
+  void MapListStoreIndicesToModelRows(const std::set<int>& list_store_indices,
+                                      RemoveRowsTableModel::Rows* model_rows);
+
+  // GtkTreeModel callbacks:
+  // Callback checking whether a row should be drawn as a separator.
+  static gboolean OnCheckRowIsSeparator(GtkTreeModel* model,
+                                        GtkTreeIter* iter,
+                                        gpointer user_data);
+
+  // Callback checking whether a row may be selected.  We use some rows in the
+  // table as headers/separators for the groups, which should not be selectable.
+  static gboolean OnSelectionFilter(GtkTreeSelection* selection,
+                                    GtkTreeModel* model,
+                                    GtkTreePath* path,
+                                    gboolean path_currently_selected,
+                                    gpointer user_data);
+
   // TableModelObserver implementation.
   virtual void OnModelChanged();
   virtual void OnItemsChanged(int start, int length);
@@ -82,6 +114,13 @@ class TableAdapter : public TableModelObserver {
   virtual void OnItemsRemoved(int start, int length);
 
  private:
+  // Return whether the row pointed to by |iter| is a group row, i.e. a group
+  // header, or a separator.
+  bool IsGroupRow(GtkTreeIter* iter) const;
+
+  // Return the index into the list store for the given model row.
+  int GetListStoreIndexForModelRow(int model_row) const;
+
   // Add the values from |row| of the TableModel.
   void AddNodeToList(int row);
 
@@ -94,7 +133,6 @@ class TableAdapter : public TableModelObserver {
 
 // A helper class for populating a GtkTreeStore from a TreeModel.
 // TODO(mattm): support SetRootShown(true)
-// TODO(mattm): implement TreeNodeChildrenReordered
 class TreeAdapter : public TreeModelObserver {
  public:
   // Column ids for |tree_store_|.
@@ -113,6 +151,9 @@ class TreeAdapter : public TreeModelObserver {
 
     // Called after any change to the GtkTreeStore.
     virtual void OnAnyModelUpdate() {}
+
+   protected:
+    virtual ~Delegate() {}
   };
 
   TreeAdapter(Delegate* delegate, TreeModel* tree_model);
@@ -127,7 +168,7 @@ class TreeAdapter : public TreeModelObserver {
   // Get the TreeModelNode corresponding to iter in the tree store.
   TreeModelNode* GetNode(GtkTreeIter* iter);
 
-  // TreeModelObserver implementation.
+  // Begin TreeModelObserver implementation.
   virtual void TreeNodesAdded(TreeModel* model,
                               TreeModelNode* parent,
                               int start,
@@ -136,9 +177,8 @@ class TreeAdapter : public TreeModelObserver {
                                 TreeModelNode* parent,
                                 int start,
                                 int count);
-  virtual void TreeNodeChildrenReordered(TreeModel* model,
-                                         TreeModelNode* parent);
   virtual void TreeNodeChanged(TreeModel* model, TreeModelNode* node);
+  // End TreeModelObserver implementation.
 
  private:
   // Fill the tree store values for a given node.
@@ -158,6 +198,8 @@ class TreeAdapter : public TreeModelObserver {
   GtkTreeStore* tree_store_;
   TreeModel* tree_model_;
   std::vector<GdkPixbuf*> pixbufs_;
+
+  DISALLOW_COPY_AND_ASSIGN(TreeAdapter);
 };
 
 }  // namespace gtk_tree

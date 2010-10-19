@@ -19,10 +19,12 @@
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/chrome_plugin_browsing_context.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/net/url_request_tracking.h"
+#include "chrome/browser/plugin_download_helper.h"
 #include "chrome/browser/plugin_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
@@ -35,7 +37,7 @@
 #include "chrome/common/render_messages.h"
 #include "gfx/native_widget_types.h"
 #include "ipc/ipc_switches.h"
-#include "net/base/file_stream.h"
+#include "net/base/cookie_store.h"
 #include "net/base/io_buffer.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
@@ -54,203 +56,6 @@ static const char kDefaultPluginFinderURL[] =
     "https://dl-ssl.google.com/edgedl/chrome/plugins/plugins2.xml";
 
 #if defined(OS_WIN)
-
-// The PluginDownloadUrlHelper is used to handle one download URL request
-// from the plugin. Each download request is handled by a new instance
-// of this class.
-class PluginDownloadUrlHelper : public URLRequest::Delegate {
-  static const int kDownloadFileBufferSize = 32768;
- public:
-  PluginDownloadUrlHelper(const std::string& download_url,
-                          int source_pid, gfx::NativeWindow caller_window);
-  ~PluginDownloadUrlHelper();
-
-  void InitiateDownload();
-
-  // URLRequest::Delegate
-  virtual void OnAuthRequired(URLRequest* request,
-                              net::AuthChallengeInfo* auth_info);
-  virtual void OnSSLCertificateError(URLRequest* request,
-                                     int cert_error,
-                                     net::X509Certificate* cert);
-  virtual void OnResponseStarted(URLRequest* request);
-  virtual void OnReadCompleted(URLRequest* request, int bytes_read);
-
-  void OnDownloadCompleted(URLRequest* request);
-
- protected:
-  void DownloadCompletedHelper(bool success);
-
-  // The download file request initiated by the plugin.
-  URLRequest* download_file_request_;
-  // Handle to the downloaded file.
-  scoped_ptr<net::FileStream> download_file_;
-  // The full path of the downloaded file.
-  FilePath download_file_path_;
-  // The buffer passed off to URLRequest::Read.
-  scoped_refptr<net::IOBuffer> download_file_buffer_;
-  // TODO(port): this comment doesn't describe the situation on Posix.
-  // The window handle for sending the WM_COPYDATA notification,
-  // indicating that the download completed.
-  gfx::NativeWindow download_file_caller_window_;
-
-  std::string download_url_;
-  int download_source_child_unique_id_;
-
-  DISALLOW_COPY_AND_ASSIGN(PluginDownloadUrlHelper);
-};
-
-PluginDownloadUrlHelper::PluginDownloadUrlHelper(
-    const std::string& download_url,
-    int source_child_unique_id,
-    gfx::NativeWindow caller_window)
-    : download_file_request_(NULL),
-      download_file_buffer_(new net::IOBuffer(kDownloadFileBufferSize)),
-      download_file_caller_window_(caller_window),
-      download_url_(download_url),
-      download_source_child_unique_id_(source_child_unique_id) {
-  DCHECK(::IsWindow(caller_window));
-  memset(download_file_buffer_->data(), 0, kDownloadFileBufferSize);
-  download_file_.reset(new net::FileStream());
-}
-
-PluginDownloadUrlHelper::~PluginDownloadUrlHelper() {
-  if (download_file_request_) {
-    delete download_file_request_;
-    download_file_request_ = NULL;
-  }
-}
-
-void PluginDownloadUrlHelper::InitiateDownload() {
-  download_file_request_ = new URLRequest(GURL(download_url_), this);
-  chrome_browser_net::SetOriginProcessUniqueIDForRequest(
-      download_source_child_unique_id_, download_file_request_);
-  download_file_request_->set_context(
-      Profile::GetDefaultRequestContext()->GetURLRequestContext());
-  download_file_request_->Start();
-}
-
-void PluginDownloadUrlHelper::OnAuthRequired(
-    URLRequest* request,
-    net::AuthChallengeInfo* auth_info) {
-  URLRequest::Delegate::OnAuthRequired(request, auth_info);
-  DownloadCompletedHelper(false);
-}
-
-void PluginDownloadUrlHelper::OnSSLCertificateError(
-    URLRequest* request,
-    int cert_error,
-    net::X509Certificate* cert) {
-  URLRequest::Delegate::OnSSLCertificateError(request, cert_error, cert);
-  DownloadCompletedHelper(false);
-}
-
-void PluginDownloadUrlHelper::OnResponseStarted(URLRequest* request) {
-  if (!download_file_->IsOpen()) {
-    file_util::GetTempDir(&download_file_path_);
-
-    GURL request_url = request->url();
-    download_file_path_ = download_file_path_.Append(
-        UTF8ToWide(request_url.ExtractFileName()));
-    download_file_->Open(download_file_path_,
-                         base::PLATFORM_FILE_CREATE_ALWAYS |
-                         base::PLATFORM_FILE_READ | base::PLATFORM_FILE_WRITE);
-    if (!download_file_->IsOpen()) {
-      NOTREACHED();
-      OnDownloadCompleted(request);
-      return;
-    }
-  }
-  if (!request->status().is_success()) {
-    OnDownloadCompleted(request);
-  } else {
-    // Initiate a read.
-    int bytes_read = 0;
-    if (!request->Read(download_file_buffer_, kDownloadFileBufferSize,
-                       &bytes_read)) {
-      // If the error is not an IO pending, then we're done
-      // reading.
-      if (!request->status().is_io_pending()) {
-        OnDownloadCompleted(request);
-      }
-    } else if (bytes_read == 0) {
-      OnDownloadCompleted(request);
-    } else {
-      OnReadCompleted(request, bytes_read);
-    }
-  }
-}
-
-void PluginDownloadUrlHelper::OnReadCompleted(URLRequest* request,
-                                              int bytes_read) {
-  DCHECK(download_file_->IsOpen());
-
-  if (bytes_read == 0) {
-    OnDownloadCompleted(request);
-    return;
-  }
-
-  int request_bytes_read = bytes_read;
-
-  while (request->status().is_success()) {
-    int bytes_written = download_file_->Write(download_file_buffer_->data(),
-        request_bytes_read, NULL);
-    DCHECK((bytes_written < 0) || (bytes_written == request_bytes_read));
-
-    if ((bytes_written < 0) || (bytes_written != request_bytes_read)) {
-      DownloadCompletedHelper(false);
-      break;
-    }
-
-    // Start reading
-    request_bytes_read = 0;
-    if (!request->Read(download_file_buffer_, kDownloadFileBufferSize,
-                       &request_bytes_read)) {
-      if (!request->status().is_io_pending()) {
-        // If the error is not an IO pending, then we're done
-        // reading.
-        OnDownloadCompleted(request);
-      }
-      break;
-    } else if (request_bytes_read == 0) {
-      OnDownloadCompleted(request);
-      break;
-    }
-  }
-}
-
-void PluginDownloadUrlHelper::OnDownloadCompleted(URLRequest* request) {
-  bool success = true;
-  if (!request->status().is_success()) {
-    success = false;
-  } else if (!download_file_->IsOpen()) {
-    success = false;
-  }
-
-  DownloadCompletedHelper(success);
-}
-
-void PluginDownloadUrlHelper::DownloadCompletedHelper(bool success) {
-  if (download_file_->IsOpen()) {
-      download_file_.reset();
-  }
-
-  std::wstring path = download_file_path_.value();
-  COPYDATASTRUCT download_file_data = {0};
-  download_file_data.cbData =
-      static_cast<unsigned long>((path.length() + 1) * sizeof(wchar_t));
-  download_file_data.lpData = const_cast<wchar_t *>(path.c_str());
-  download_file_data.dwData = success;
-
-  if (::IsWindow(download_file_caller_window_)) {
-    ::SendMessage(download_file_caller_window_, WM_COPYDATA, NULL,
-                  reinterpret_cast<LPARAM>(&download_file_data));
-  }
-
-  // Don't access any members after this.
-  delete this;
-}
-
 void PluginProcessHost::OnPluginWindowDestroyed(HWND window, HWND parent) {
   // The window is destroyed at this point, we just care about its parent, which
   // is the intermediate window we created.
@@ -267,8 +72,9 @@ void PluginProcessHost::OnDownloadUrl(const std::string& url,
                                       int source_pid,
                                       gfx::NativeWindow caller_window) {
   PluginDownloadUrlHelper* download_url_helper =
-      new PluginDownloadUrlHelper(url, source_pid, caller_window);
-  download_url_helper->InitiateDownload();
+      new PluginDownloadUrlHelper(url, source_pid, caller_window, NULL);
+  download_url_helper->InitiateDownload(
+      Profile::GetDefaultRequestContext()->GetURLRequestContext());
 }
 
 void PluginProcessHost::AddWindow(HWND window) {
@@ -341,7 +147,7 @@ PluginProcessHost::~PluginProcessHost() {
 }
 
 bool PluginProcessHost::Init(const WebPluginInfo& info,
-                             const std::wstring& locale) {
+                             const std::string& locale) {
   info_ = info;
   set_name(UTF16ToWideHack(info_.name));
   set_version(UTF16ToWideHack(info_.version));
@@ -352,8 +158,8 @@ bool PluginProcessHost::Init(const WebPluginInfo& info,
   // Build command line for plugin. When we have a plugin launcher, we can't
   // allow "self" on linux and we need the real file path.
   const CommandLine& browser_command_line = *CommandLine::ForCurrentProcess();
-  std::wstring plugin_launcher =
-      browser_command_line.GetSwitchValue(switches::kPluginLauncher);
+  CommandLine::StringType plugin_launcher =
+      browser_command_line.GetSwitchValueNative(switches::kPluginLauncher);
   FilePath exe_path = GetChildPath(plugin_launcher.empty());
   if (exe_path.empty())
     return false;
@@ -361,17 +167,15 @@ bool PluginProcessHost::Init(const WebPluginInfo& info,
   CommandLine* cmd_line = new CommandLine(exe_path);
   // Put the process type and plugin path first so they're easier to see
   // in process listings using native process management tools.
-  cmd_line->AppendSwitchWithValue(switches::kProcessType,
-                                  switches::kPluginProcess);
-  cmd_line->AppendSwitchWithValue(switches::kPluginPath,
-                                  info.path.ToWStringHack());
+  cmd_line->AppendSwitchASCII(switches::kProcessType, switches::kPluginProcess);
+  cmd_line->AppendSwitchPath(switches::kPluginPath, info.path);
 
   if (logging::DialogsAreSuppressed())
     cmd_line->AppendSwitch(switches::kNoErrorDialogs);
 
   // Propagate the following switches to the plugin command line (along with
   // any associated values) if present in the browser command line
-  static const char* const switch_names[] = {
+  static const char* const kSwitchNames[] = {
     switches::kPluginStartupDialog,
     switches::kNoSandbox,
     switches::kSafePlugins,
@@ -392,17 +196,12 @@ bool PluginProcessHost::Init(const WebPluginInfo& info,
     switches::kEnableGPUPlugin,
     switches::kUseGL,
 #if defined(OS_CHROMEOS)
-    switches::kProfile,
+    switches::kLoginProfile,
 #endif
   };
 
-  for (size_t i = 0; i < arraysize(switch_names); ++i) {
-    if (browser_command_line.HasSwitch(switch_names[i])) {
-      cmd_line->AppendSwitchWithValue(
-          switch_names[i],
-          browser_command_line.GetSwitchValueASCII(switch_names[i]));
-    }
-  }
+  cmd_line->CopySwitchesFrom(browser_command_line, kSwitchNames,
+                             arraysize(kSwitchNames));
 
   // If specified, prepend a launcher program to the command line.
   if (!plugin_launcher.empty())
@@ -411,17 +210,16 @@ bool PluginProcessHost::Init(const WebPluginInfo& info,
   if (!locale.empty()) {
     // Pass on the locale so the null plugin will use the right language in the
     // prompt to install the desired plugin.
-    cmd_line->AppendSwitchWithValue(switches::kLang, locale);
+    cmd_line->AppendSwitchASCII(switches::kLang, locale);
   }
 
   // Gears requires the data dir to be available on startup.
-  std::wstring data_dir =
-    PluginService::GetInstance()->GetChromePluginDataDir().ToWStringHack();
+  FilePath data_dir =
+    PluginService::GetInstance()->GetChromePluginDataDir();
   DCHECK(!data_dir.empty());
-  cmd_line->AppendSwitchWithValue(switches::kPluginDataDir, data_dir);
+  cmd_line->AppendSwitchPath(switches::kPluginDataDir, data_dir);
 
-  cmd_line->AppendSwitchWithValue(switches::kProcessChannelID,
-                                  ASCIIToWide(channel_id()));
+  cmd_line->AppendSwitchASCII(switches::kProcessChannelID, channel_id());
 
   SetCrashReporterCommandLine(cmd_line);
 
@@ -581,7 +379,7 @@ void PluginProcessHost::OnAccessFiles(int renderer_id,
 
   for (size_t i = 0; i < files.size(); ++i) {
     const FilePath path = FilePath::FromWStringHack(UTF8ToWide(files[i]));
-    if (!policy->CanUploadFile(renderer_id, path)) {
+    if (!policy->CanReadFile(renderer_id, path)) {
       LOG(INFO) << "Denied unauthorized request for file " << files[i];
       *allowed = false;
       return;

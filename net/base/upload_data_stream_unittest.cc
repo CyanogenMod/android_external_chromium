@@ -66,7 +66,7 @@ TEST_F(UploadDataStreamTest, FileSmallerThanLength) {
   element.SetToFilePath(temp_file_path);
   element.SetContentLength(kFakeSize);
   elements.push_back(element);
-  upload_data_->set_elements(elements);
+  upload_data_->SetElements(elements);
   EXPECT_EQ(kFakeSize, upload_data_->GetContentLength());
 
   scoped_ptr<UploadDataStream> stream(
@@ -92,7 +92,7 @@ void UploadDataStreamTest::FileChangedHelper(const FilePath& file_path,
   UploadData::Element element;
   element.SetToFilePathRange(file_path, 1, 2, time);
   elements.push_back(element);
-  upload_data_->set_elements(elements);
+  upload_data_->SetElements(elements);
 
   int error_code;
   scoped_ptr<UploadDataStream> stream(
@@ -109,7 +109,7 @@ TEST_F(UploadDataStreamTest, FileChanged) {
   ASSERT_EQ(kTestDataSize, file_util::WriteFile(temp_file_path,
                                                 kTestData, kTestDataSize));
 
-  file_util::FileInfo file_info;
+  base::PlatformFileInfo file_info;
   ASSERT_TRUE(file_util::GetFileInfo(temp_file_path, &file_info));
 
   // Test file not changed.
@@ -124,4 +124,3 @@ TEST_F(UploadDataStreamTest, FileChanged) {
 }
 
 }  // namespace net
-

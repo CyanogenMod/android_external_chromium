@@ -23,6 +23,7 @@ CFLAGS_Debug := -pthread \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -76,6 +77,7 @@ CFLAGS_Release := -pthread \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -110,8 +112,10 @@ INCS_Release := -Ithird_party/libjingle/overrides \
 	-I.
 
 OBJS := $(obj).target/$(TARGET)/third_party/libjingle/overrides/talk/xmllite/qname.o \
+	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/asyncfile.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/asynchttprequest.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/asyncpacketsocket.o \
+	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/asyncsocket.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/asynctcpsocket.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/asyncudpsocket.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/autodetectproxy.o \
@@ -143,7 +147,9 @@ OBJS := $(obj).target/$(TARGET)/third_party/libjingle/overrides/talk/xmllite/qna
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/signalthread.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/socketadapters.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/socketaddress.o \
+	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/socketaddresspair.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/socketpool.o \
+	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/socketstream.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/ssladapter.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/sslsocketfactory.o \
 	$(obj).target/$(TARGET)/third_party/libjingle/source/talk/base/stream.o \
@@ -210,11 +216,12 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.c FORCE_DO_CMD
 # End of this set of suffix rules
 ### Rules for final target.
 LDFLAGS_Debug := -pthread \
-	-Wl,-z,noexecstack \
-	-rdynamic
+	-Wl,-z,noexecstack
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := 

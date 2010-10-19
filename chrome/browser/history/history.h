@@ -4,8 +4,8 @@
 
 #ifndef CHROME_BROWSER_HISTORY_HISTORY_H_
 #define CHROME_BROWSER_HISTORY_HISTORY_H_
+#pragma once
 
-#include <string>
 #include <vector>
 
 #include "base/basictypes.h"
@@ -18,7 +18,7 @@
 #include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/favicon_service.h"
 #include "chrome/browser/history/history_types.h"
-#include "chrome/browser/search_engines/template_url.h"
+#include "chrome/browser/search_engines/template_url_id.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/page_transition_types.h"
 #include "chrome/common/ref_counted_util.h"
@@ -48,14 +48,14 @@ class TypedUrlDataTypeController;
 }
 
 namespace history {
-
 class InMemoryHistoryBackend;
+class InMemoryURLIndex;
+class HistoryAddPageArgs;
 class HistoryBackend;
 class HistoryDatabase;
 struct HistoryDetails;
 class HistoryQueryTest;
 class URLDatabase;
-
 }  // namespace history
 
 
@@ -150,6 +150,8 @@ class HistoryService : public CancelableRequestProvider,
   // TODO(brettw) this should return the InMemoryHistoryBackend.
   history::URLDatabase* InMemoryDatabase();
 
+  history::InMemoryURLIndex* InMemoryIndex();
+
   // Navigation ----------------------------------------------------------------
 
   // Adds the given canonical URL to history with the current time as the visit
@@ -182,6 +184,7 @@ class HistoryService : public CancelableRequestProvider,
                const GURL& referrer,
                PageTransition::Type transition,
                const history::RedirectList& redirects,
+               history::VisitSource visit_source,
                bool did_replace_entry);
 
   // For adding pages to history with a specific time. This is for testing
@@ -193,13 +196,17 @@ class HistoryService : public CancelableRequestProvider,
                const GURL& referrer,
                PageTransition::Type transition,
                const history::RedirectList& redirects,
+               history::VisitSource visit_source,
                bool did_replace_entry);
 
   // For adding pages to history where no tracking information can be done.
-  void AddPage(const GURL& url) {
-    AddPage(url, NULL, 0, GURL(), PageTransition::LINK, history::RedirectList(),
-            false);
+  void AddPage(const GURL& url, history::VisitSource visit_source) {
+    AddPage(url, NULL, 0, GURL(), PageTransition::LINK,
+            history::RedirectList(), visit_source, false);
   }
+
+  // All AddPage variants end up here.
+  void AddPage(const history::HistoryAddPageArgs& add_page_args);
 
   // Sets the title for the given page. The page should be in history. If it
   // is not, this operation is ignored. This call will not update the full
@@ -442,15 +449,6 @@ class HistoryService : public CancelableRequestProvider,
   // both directions.
   void RemoveDownloadsBetween(base::Time remove_begin, base::Time remove_end);
 
-  // Implemented by the caller of 'SearchDownloads' below, and is called when
-  // the history system has retrieved the search results.
-  typedef Callback2<Handle, std::vector<int64>*>::Type DownloadSearchCallback;
-
-  // Search for downloads that match the search text.
-  Handle SearchDownloads(const string16& search_text,
-                         CancelableRequestConsumerBase* consumer,
-                         DownloadSearchCallback* callback);
-
   // Visit Segments ------------------------------------------------------------
 
   typedef Callback2<Handle, std::vector<PageUsageData*>*>::Type
@@ -482,11 +480,11 @@ class HistoryService : public CancelableRequestProvider,
   // Sets the search terms for the specified url and keyword. url_id gives the
   // id of the url, keyword_id the id of the keyword and term the search term.
   void SetKeywordSearchTermsForURL(const GURL& url,
-                                   TemplateURL::IDType keyword_id,
+                                   TemplateURLID keyword_id,
                                    const string16& term);
 
   // Deletes all search terms for the specified keyword.
-  void DeleteAllSearchTermsForKeyword(TemplateURL::IDType keyword_id);
+  void DeleteAllSearchTermsForKeyword(TemplateURLID keyword_id);
 
   typedef Callback2<Handle, std::vector<history::KeywordSearchTermVisit>*>::Type
       GetMostRecentKeywordSearchTermsCallback;
@@ -496,7 +494,7 @@ class HistoryService : public CancelableRequestProvider,
   // in descending order up to |max_count| with the most recent search term
   // first.
   Handle GetMostRecentKeywordSearchTerms(
-      TemplateURL::IDType keyword_id,
+      TemplateURLID keyword_id,
       const string16& prefix,
       int max_count,
       CancelableRequestConsumerBase* consumer,
@@ -541,10 +539,12 @@ class HistoryService : public CancelableRequestProvider,
                           int visit_count,
                           int typed_count,
                           base::Time last_visit,
-                          bool hidden);
+                          bool hidden,
+                          history::VisitSource visit_source);
 
   // The same as AddPageWithDetails() but takes a vector.
-  void AddPagesWithDetails(const std::vector<history::URLRow>& info);
+  void AddPagesWithDetails(const std::vector<history::URLRow>& info,
+                           history::VisitSource visit_source);
 
   // Starts the TopSites migration in the HistoryThread. Called by the
   // BackendDelegate.

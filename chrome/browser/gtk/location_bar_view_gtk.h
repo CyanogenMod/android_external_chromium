@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_LOCATION_BAR_VIEW_GTK_H_
 #define CHROME_BROWSER_GTK_LOCATION_BAR_VIEW_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -18,14 +19,14 @@
 #include "chrome/browser/autocomplete/autocomplete_edit_view_gtk.h"
 #include "chrome/browser/extensions/extension_context_menu_model.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
-#include "chrome/browser/first_run.h"
+#include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/gtk/info_bubble_gtk.h"
 #include "chrome/browser/gtk/menu_gtk.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/location_bar.h"
 #include "chrome/common/content_settings_types.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/owned_widget_gtk.h"
 #include "chrome/common/page_transition_types.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "webkit/glue/window_open_disposition.h"
@@ -56,6 +57,9 @@ class LocationBarViewGtk : public AutocompleteEditController,
 
   // Returns the widget the caller should host.  You must call Init() first.
   GtkWidget* widget() { return hbox_.get(); }
+
+  // Returns the widget the page info bubble should point to.
+  GtkWidget* location_icon_widget() const { return location_icon_image_; }
 
   // Returns the current TabContents.
   TabContents* GetTabContents() const;
@@ -97,6 +101,7 @@ class LocationBarViewGtk : public AutocompleteEditController,
 
   // Implement the LocationBar interface.
   virtual void ShowFirstRunBubble(FirstRun::BubbleType bubble_type);
+  virtual void SetSuggestedText(const string16& text);
   virtual std::wstring GetInputString() const;
   virtual WindowOpenDisposition GetWindowOpenDisposition() const;
   virtual PageTransition::Type GetPageTransition() const;
@@ -108,13 +113,9 @@ class LocationBarViewGtk : public AutocompleteEditController,
   virtual void InvalidatePageActions();
   virtual void SaveStateToContents(TabContents* contents);
   virtual void Revert();
-  virtual const AutocompleteEditView* location_entry() const {
-    return location_entry_.get();
-  }
-  virtual AutocompleteEditView* location_entry() {
-    return location_entry_.get();
-  }
-  virtual LocationBarTesting* GetLocationBarForTesting() { return this; }
+  virtual const AutocompleteEditView* location_entry() const;
+  virtual AutocompleteEditView* location_entry();
+  virtual LocationBarTesting* GetLocationBarForTesting();
 
   // Implement the LocationBarTesting interface.
   virtual int PageActionCount() { return page_action_views_.size(); }
@@ -331,12 +332,6 @@ class LocationBarViewGtk : public AutocompleteEditController,
   GtkWidget* star_image_;
   bool starred_;
 
-  // SSL state.
-  GtkWidget* security_icon_event_box_;
-  GtkWidget* ev_secure_icon_image_;
-  GtkWidget* secure_icon_image_;
-  GtkWidget* security_warning_icon_image_;
-  GtkWidget* security_error_icon_image_;
   // An icon to the left of the address bar.
   GtkWidget* site_type_alignment_;
   GtkWidget* site_type_event_box_;

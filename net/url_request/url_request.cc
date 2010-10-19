@@ -1,4 +1,4 @@
-// Copyright (c) 20010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,7 +23,6 @@
 using base::Time;
 using net::UploadData;
 using std::string;
-using std::wstring;
 
 namespace {
 
@@ -44,6 +43,54 @@ void StripPostSpecificHeaders(net::HttpRequestHeaders* headers) {
 }
 
 }  // namespace
+
+///////////////////////////////////////////////////////////////////////////////
+// URLRequest::Interceptor
+
+URLRequestJob* URLRequest::Interceptor::MaybeInterceptRedirect(
+    URLRequest* request,
+    const GURL& location) {
+  return NULL;
+}
+
+URLRequestJob* URLRequest::Interceptor::MaybeInterceptResponse(
+    URLRequest* request) {
+  return NULL;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// URLRequest::Delegate
+
+void URLRequest::Delegate::OnReceivedRedirect(URLRequest* request,
+                                              const GURL& new_url,
+                                              bool* defer_redirect) {
+}
+
+void URLRequest::Delegate::OnAuthRequired(URLRequest* request,
+                                          net::AuthChallengeInfo* auth_info) {
+  request->CancelAuth();
+}
+
+void URLRequest::Delegate::OnCertificateRequested(
+    URLRequest* request,
+    net::SSLCertRequestInfo* cert_request_info) {
+  request->ContinueWithCertificate(NULL);
+}
+
+void URLRequest::Delegate::OnSSLCertificateError(URLRequest* request,
+                                                 int cert_error,
+                                                 net::X509Certificate* cert) {
+  request->Cancel();
+}
+
+void URLRequest::Delegate::OnGetCookies(URLRequest* request,
+                                        bool blocked_by_policy) {
+}
+
+void URLRequest::Delegate::OnSetCookie(URLRequest* request,
+                                       const std::string& cookie_line,
+                                       bool blocked_by_policy) {
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // URLRequest
@@ -395,7 +442,7 @@ void URLRequest::FollowDeferredRedirect() {
   job_->FollowDeferredRedirect();
 }
 
-void URLRequest::SetAuth(const wstring& username, const wstring& password) {
+void URLRequest::SetAuth(const string16& username, const string16& password) {
   DCHECK(job_);
   DCHECK(job_->NeedsAuth());
 
@@ -443,7 +490,7 @@ void URLRequest::OrphanJob() {
 }
 
 int URLRequest::Redirect(const GURL& location, int http_status_code) {
-  if (net_log_.HasListener()) {
+  if (net_log_.IsLoggingAll()) {
     net_log_.AddEvent(
         net::NetLog::TYPE_URL_REQUEST_REDIRECTED,
         new net::NetLogStringParameter(

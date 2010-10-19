@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SSL_SSL_BLOCKING_PAGE_H_
 #define CHROME_BROWSER_SSL_SSL_BLOCKING_PAGE_H_
+#pragma once
 
 #include <string>
 
@@ -31,6 +32,9 @@ class SSLBlockingPage : public InterstitialPage {
 
     // Notification that the user chose to accept the certificate.
     virtual void OnAllowCertificate(SSLCertErrorHandler* handler) = 0;
+
+   protected:
+    virtual ~Delegate() {}
   };
 
   // The severity of the certificate error.

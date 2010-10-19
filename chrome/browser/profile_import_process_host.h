@@ -4,13 +4,13 @@
 
 #ifndef CHROME_BROWSER_PROFILE_IMPORT_PROCESS_HOST_H_
 #define CHROME_BROWSER_PROFILE_IMPORT_PROCESS_HOST_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
-#include "base/values.h"
 #include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/history/history_types.h"
@@ -51,7 +51,8 @@ class ProfileImportProcessHost : public BrowserChildProcessHost {
     // the external process to the process host client.
     virtual void OnHistoryImportStart(size_t total_history_rows_count) {}
     virtual void OnHistoryImportGroup(
-        const std::vector<history::URLRow> &history_rows_group) {}
+        const std::vector<history::URLRow> &history_rows_group,
+        int visit_source) {}  // visit_source has history::VisitSource type.
 
     virtual void OnHomePageImportReady(
         const GURL& home_page) {}

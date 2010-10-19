@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_POPUP_VIEW_GTK_H_
 #define CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_POPUP_VIEW_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 #include <map>
@@ -17,7 +18,7 @@
 
 class AutocompleteEditModel;
 class AutocompleteEditView;
-class AutocompleteMatch;
+struct AutocompleteMatch;
 class AutocompletePopupModel;
 class GtkThemeProvider;
 class Profile;
@@ -39,6 +40,7 @@ class AutocompletePopupViewGtk : public AutocompletePopupView,
   virtual void PaintUpdatesNow();
   virtual void OnDragCanceled();
   virtual AutocompletePopupModel* GetModel();
+  virtual int GetMaxYCoordinate();
 
   // Overridden from NotificationObserver:
   virtual void Observe(NotificationType type,

@@ -29,6 +29,15 @@ div.header {
   color: black;
 }
 
+*:-khtml-drag {
+  background-color: rgba(238,238,238, 0.5);
+}
+
+*[draggable] {
+  -khtml-user-drag: element;
+  cursor: move;
+}
+
 .rowlink {
   height: 100%;
   width: 90%;
@@ -95,7 +104,6 @@ div.header {
 
 a.iconlink {
   display: block;
-/*  font-family: helvetica; */
   font-weight: bold;
   font-size: 11px;
   color: white;
@@ -167,10 +175,12 @@ li.filebrowserow div.icon {
 
 .rightarrow {
   opacity: 0.5;
+  position: absolute;
+  right: 22px;
+  top: 8px;
 }
 
 .menuicon {
-  background: url('shared/images/filebrowse_menu.png');
   position: absolute;
   right: 4px;
   top: 5px;
@@ -182,6 +192,17 @@ li.filebrowserow div.icon {
   cursor: pointer;
   opacity: 0.3;
   -webkit-transition: opacity 0.2s ease-out ;
+}
+
+.spinicon {
+  position: absolute;
+  right: 4px;
+  top: 5px;
+  height: 100%;
+  width: 15px;
+  margin-left: 0;
+  margin-top: 5px;
+  background-repeat: no-repeat;
 }
 
 li.filebrowserow:hover .menuicon {
@@ -219,9 +240,7 @@ li.filebrowserow:hover .menuicon:hover {
 li.filebrowserow {
   border-bottom: 1px solid #f7f7f7;
   padding: 8px 5px 5px 54px;
-/*  overflow: hidden; */
   font-size: .8em;
-/*  font-family: helvetica; */
   position: relative;
   background: #fff;
 }
@@ -260,9 +279,12 @@ li.filebrowserow input.name {
 }
 
 li.filebrowserow span.namelink {
-  margin-top: 10px;
   margin-left: -22px;
   position: relative;
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color:#0D0052;
   -webkit-transition: color 1.0s ease-out ;
 }
@@ -318,10 +340,19 @@ div.column {
   position: relative;
 }
 
-div.columnlist {
+div.columnlistadv {
   width: 100%;
   bottom: 0;
   top: 32px;
+  position: absolute;
+  overflow-y: scroll;
+  overflow-x: hidden;
+}
+
+div.columnlist {
+  width: 100%;
+  bottom: 0;
+  top: 0;
   position: absolute;
   overflow-y: scroll;
   overflow-x: hidden;
@@ -371,10 +402,9 @@ div.scanningcontainer {
 }
 
 div.filebutton {
-  width: 70px;
   height: 18px;
   cursor: pointer;
-  padding-top: 2px;
+  padding: 3px 3px;
   border: 1px solid #abb6ce;
   background-color: #f5f7fc;
   border-radius: 5px;
@@ -390,7 +420,7 @@ div.filebutton {
 }
 
 .filename {
-  left: 80px;
+  left: 90px;
   top: 5px;
   right: 10px;
   font-size: .8em;
@@ -405,16 +435,13 @@ div.openbutton {
 
 div.cancelbutton {
   bottom: 5px;
-  left: 90px;
+  left: 100px;
   position: absolute;
 }
 
 div.newfolderbutton {
   bottom: 5px;
   right: 10px;
-  padding-left: 2px;
-  padding-right: 2px;
-  padding-top: 3px;
   position: absolute;
 }
 
@@ -584,6 +611,10 @@ function partial(fn, var_args) {
   };
 }
 
+function supportsPdf() {
+  return 'application/pdf' in navigator.mimeTypes;
+}
+
 var currentSavedPath = '';
 var currentNode = -1;
 var menus = [];
@@ -615,7 +646,7 @@ function enabledResult(info) {
   mediaPlayerEnabled = info.mpEnabled;
   mainColumn = $('main');
   if (!advancedEnabled) {
-    $('back').style.display = 'none';
+    $('header').style.display = 'none';
   }
   if(document.documentElement.clientWidth <= 600) {
     inFullMode = false;
@@ -814,6 +845,31 @@ function browseFileResult(info, results) {
      }
    } else if (info.functionCall == 'getChildren') {
      var main = getCurrentContainer();
+     main.addEventListener('dragover', function(e) {
+       if (e.preventDefault) e.preventDefault();
+       e.dataTransfer.dropEffect = 'copy';
+       return false;
+     }, false);
+     main.addEventListener('drop', function(e) {
+       if (e.stopPropagation) e.stopPropagation();
+       var src = e.dataTransfer.getData('Text');
+       var path = getPathAndFilenameForPath(src);
+       var dest = currentSavedPath + '/' + path[2];
+       var dirId = $('list/dir/' + currentSavedPath);
+       if (dirId) {
+         
+         var element = $(dest);
+         if (!element) {
+           // TODO(dhg): We probably should do some checking for 
+           // existance.
+           element = createNewFakeItem(path[2], dest, false, true);
+         }
+         dirId.appendChild(element);
+         element.scrollIntoView();
+       }
+       chrome.send('copyFile', [src, dest]);
+       return false;
+     }, false);
      main.id = 'dir/' + info.path;
      divArray.push(main);
      document.location.hash = info.path;
@@ -1014,6 +1070,7 @@ function deleteFileConfirm(path) {
   no.className = 'deleteNo';
   askingDiv.appendChild(yes);
   askingDiv.appendChild(no);
+  yes.scrollIntoView();
   var element = menus[path];
   if (element) {
     element.firstChild.appendChild(askingDiv);
@@ -1070,14 +1127,64 @@ function newDownload(results) {
       var dirId = $('list/dir/' + extracted[1]);
       if (dirId) {
         element = createNewItem(extracted[2], results[x].file_path, false);
-        dirId.appendChild(element);
+        downloadList.push(element);
+        if (dirId.firstChild) {
+          dirId.insertBefore(element, dirId.firstChild);
+        } else {
+          dirId.appendChild(element);
+        }
         element.scrollIntoView();
       }
     }
   }
 }
 
+function removeDownload(element) {
+  var status = undefined;
+  var pause = undefined;
+  for (var x = 0; x < element.children.length; x++) {
+    if (element.children[x].className == 'downloadstatus') {
+      var child = element.children[x];
+      status = child;
+    } else if (element.children[x].className == 'downloadpause') {
+       var child = element.children[x];
+       pause = child;
+    }
+  }
+  if (status) {
+    element.removeChild(status);
+  }
+  if (pause) {
+    element.removeChild(pause);
+  }
+  element.className = 'filebrowserow';
+  var elementList = [];
+  for (var x = 0; x < downloadList.length; x++) {
+    if (element != downloadList[x]) {
+      elementList.push(downloadList[x]);
+    }
+  }
+  downloadList = elementList;
+}
+
 function downloadUpdated(results) {
+  var removeDownloads = [];
+  for (var y = 0; y < downloadList.length; y++) {
+    var found = false;
+    for (var x = 0; x < results.length; x++) {
+      var element = $(results[x].file_path);
+      if (downloadList[y] == element) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      removeDownloads.push(downloadList[y]);
+    }
+  }
+  for (var x = 0; x < removeDownloads.length; x++) {
+    removeDownload(removeDownloads[x]);
+  }
   for (var x = 0; x < results.length; x++) {
     var element = $(results[x].file_path);
     if (!element && results[x].state != 'CANCELLED') {
@@ -1085,7 +1192,11 @@ function downloadUpdated(results) {
       var dirId = $('list/dir/' + extracted[1]);
       if (dirId) {
         element = createNewItem(extracted[2], results[x].file_path, false);
-        dirId.appendChild(element);
+        if (dirId.firstChild) {
+          dirId.insertBefore(element, dirId.firstChild);
+        } else {
+          dirId.appendChild(element);
+        }
         element.scrollIntoView();
       }
     }
@@ -1103,6 +1214,7 @@ function downloadUpdated(results) {
            }
         }
         if (progressDiv == null) {
+          downloadList.push(element);
           element.className = 'filebrowserow downloading';
           var progressDiv = document.createElement('div');
           progressDiv.className = 'downloadstatus';
@@ -1142,24 +1254,7 @@ function downloadUpdated(results) {
         }
 
       } else {
-        var status = undefined;
-        var pause = undefined;
-        for (var x = 0; x < element.children.length; x++) {
-           if (element.children[x].className == 'downloadstatus') {
-              var child = element.children[x];
-              status = child;
-           } else if (element.children[x].className == 'downloadpause') {
-              var child = element.children[x];
-              pause = child;
-           }
-        }
-        if (status) {
-          element.removeChild(status);
-        }
-        if (pause) {
-          element.removeChild(pause);
-        }
-        element.className = 'filebrowserow';
+        removeDownload(element);
       }
     }
   }
@@ -1174,7 +1269,8 @@ function dialogNewFolderClick() {
   var main = divArray[divArray.length - 1];
   var list;
   for (var x = 0; x < main.childNodes.length; x++ ) {
-    if (main.childNodes[x].className == 'columnlist') {
+    if (main.childNodes[x].className == 'columnlist' ||
+        main.childNodes[x].className == 'columnlistadv') {
       list = main.childNodes[x].firstChild;
       break;
     }
@@ -1267,7 +1363,7 @@ function showImage(path) {
   }
 }
 
-function showText(path) {
+function showPath(path) {
   chrome.send('openNewFullWindow', ['file://' + path]);
 }
 
@@ -1299,6 +1395,7 @@ function showMenu(path) {
     element.firstChild.style.display = 'block';
     element.style.opacity = '1';
     currentMenu = element;
+    currentMenu.scrollIntoView();
   }
   window.event.stopPropagation();
 }
@@ -1396,9 +1493,15 @@ function getFunctionForItem(path, id, isDirectory) {
   }
   if (pathIsHtmlFile(path)) {
     return function() {
-      showText(path);
+      showPath(path);
     }
   }
+  if (pathIsPdfFile(path) && supportsPdf()) {
+    return function() {
+      showPath(path);
+    }
+  }
+
   return getUnknownFileTypeHandler();
 }
 
@@ -1425,9 +1528,49 @@ function getDoubleClickForItem(path, id, isDirectory) {
 
 var elementIdCounter = 0;
 
+function createNewFakeItem(title, path, isDirectory, hasspinner) {
+ var element = document.createElement('li');
+
+  element.className = 'filebrowserow';
+  element.id = path;
+  elementIdCounter++;
+  var link;
+  link = document.createElement('div');
+  link.className = 'rowlink';
+
+  var icon = document.createElement('div');
+  icon.className = getClassForPath(path, isDirectory);
+  link.appendChild(icon);
+
+  var span = document.createElement('span');
+  span.className = 'name';
+  span.textContent = title;
+  link.appendChild(span);
+
+  element.appendChild(link);
+
+  // Setup Menu
+  var currentPath = currentSavedPath;
+  if (hasspinner) {
+    var spinicon = document.createElement('div');
+    spinicon.align = 'right';
+    spinicon.className = 'spinicon';
+    element.appendChild(spinicon);
+  }
+  return element;
+}
+
 function createNewItem(title, path, isDirectory) {
   var element = document.createElement('li');
+  element.setAttribute('draggable', 'true');
+  
+  element.addEventListener('dragstart', function (e) {
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('Text', this.id);
+  }, false);
+
   element.className = 'filebrowserow';
+  element.title = title;
   /*element.id = 'listItem' + elementIdCounter;*/
   element.id = path;
   elementIdCounter++;
@@ -1458,22 +1601,7 @@ function createNewItem(title, path, isDirectory) {
     var menuicon = document.createElement('div');
     var menu = document.createElement('div');
     menu.className = 'menu';
-    if (pathIsImageFile(path)) {
-      var picasaitem = document.createElement('div');
-      var flickritem = document.createElement('div');
-      var emailitem = document.createElement('div');
-      picasaitem.textContent = localStrings.getString('picasaweb');
-      flickritem.textContent = localStrings.getString('flickr');
-      emailitem.textContent = localStrings.getString('email');
-      picasaitem.className = 'menuitem';
-      flickritem.className = 'menuitemdisabled';
-      emailitem.className = 'menuitemdisabled';
-      picasaitem.onclick = partial(uploadImage, path);
-      menu.appendChild(picasaitem);
-      menu.appendChild(flickritem);
-      menu.appendChild(emailitem);
-    }
-    if ((pathIsVideoFile(path) || pathIsAudioFile(path)) && 
+    if ((pathIsVideoFile(path) || pathIsAudioFile(path)) &&
          mediaPlayerEnabled) {
       var enqueueitem = document.createElement('div');
       enqueueitem.textContent = localStrings.getString('enqueue');
@@ -1512,30 +1640,39 @@ function popout(path) {
 }
 
 function createNewList(title, results, main, path) {
+  downloadList = [];
   clearChildren(main);
 
   var mainList = document.createElement('div');
-  mainList.className = 'columnlist';
+  if (advancedEnabled) {
+    mainList.className = 'columnlistadv';
+  } else {
+    mainList.className = 'columnlist';
+  }
+
   var list = document.createElement('ul');
   list.className = 'filebrowselist';
   list.id = 'list/dir/' + path;
-  var header = document.createElement('div');
-  header.className = 'header';
-  var divTitle = document.createElement('div');
-  divTitle.className = 'title';
-  if (inFullMode) {
-    divTitle.style['text-align'] = 'center';
+  document.title = title;
+  if (advancedEnabled) {
+    var header = document.createElement('div');
+    header.className = 'header';
+    var divTitle = document.createElement('div');
+    divTitle.className = 'title';
+    if (inFullMode) {
+      divTitle.style['text-align'] = 'center';
+    }
+    divTitle.innerHTML = title;
+    if (inFullMode && (path.length != 0)) {
+      var popOutButton = document.createElement('div');
+      popOutButton.innerHTML = '&prod;';
+      popOutButton.className = 'popout';
+      popOutButton.onclick = partial(popout, path);
+      header.appendChild(popOutButton);
+    }
+    header.appendChild(divTitle);
+    main.appendChild(header);
   }
-  divTitle.innerHTML = title;
-  if (inFullMode && (path.length != 0)) {
-    var popOutButton = document.createElement('div');
-    popOutButton.innerHTML = '&prod;';
-    popOutButton.className = 'popout';
-    popOutButton.onclick = partial(popout, path);
-    header.appendChild(popOutButton);
-  }
-  header.appendChild(divTitle);
-  main.appendChild(header);
   main.appendChild(mainList);
   for (var x=0; x < results.length; x++) {
     var element = createNewItem(results[x].title,
@@ -1547,7 +1684,8 @@ function createNewList(title, results, main, path) {
 }
 
 </script>
-<body onload='load();' onclick='clearMenus()' onselectstart='return false'>
+<body onload='load();' onclick='clearMenus()' onselectstart='return false'
+  i18n-values=".style.fontFamily:fontfamily">
 <div id='header' class=''>
   <div id='back' class='backbutton controlbutton' onclick='goBackInList();return false;'>
     <img src="shared/images/filebrowse_back.png" width='100%' height='100%'>

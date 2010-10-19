@@ -4,14 +4,15 @@
 
 #ifndef NET_HTTP_HTTP_AUTH_CACHE_H_
 #define NET_HTTP_HTTP_AUTH_CACHE_H_
+#pragma once
 
 #include <list>
 #include <string>
 
+#include "base/gtest_prod_util.h"
 #include "base/ref_counted.h"
+#include "base/string16.h"
 #include "googleurl/src/gurl.h"
-// This is needed for the FRIEND_TEST() macro.
-#include "testing/gtest/include/gtest/gtest_prod.h"
 
 namespace net {
 
@@ -61,8 +62,8 @@ class HttpAuthCache {
              const std::string& realm,
              const std::string& scheme,
              const std::string& auth_challenge,
-             const std::wstring& username,
-             const std::wstring& password,
+             const string16& username,
+             const string16& password,
              const std::string& path);
 
   // Remove entry on server |origin| for realm |realm| and scheme |scheme|
@@ -76,8 +77,18 @@ class HttpAuthCache {
   bool Remove(const GURL& origin,
               const std::string& realm,
               const std::string& scheme,
-              const std::wstring& username,
-              const std::wstring& password);
+              const string16& username,
+              const string16& password);
+
+  // Updates a stale digest entry on server |origin| for realm |realm| and
+  // scheme |scheme|. The cached auth challenge is replaced with
+  // |auth_challenge| and the nonce count is reset.
+  // |UpdateStaleChallenge()| returns true if a matching entry exists in the
+  // cache, false otherwise.
+  bool UpdateStaleChallenge(const GURL& origin,
+                            const std::string& realm,
+                            const std::string& scheme,
+                            const std::string& auth_challenge);
 
   // Prevent unbounded memory growth. These are safeguards for abuse; it is
   // not expected that the limits will be reached in ordinary usage.
@@ -114,12 +125,12 @@ class HttpAuthCache::Entry {
   }
 
   // The login username.
-  const std::wstring username() const {
+  const string16 username() const {
     return username_;
   }
 
   // The login password.
-  const std::wstring password() const {
+  const string16 password() const {
     return password_;
   }
 
@@ -127,12 +138,14 @@ class HttpAuthCache::Entry {
     return ++nonce_count_;
   }
 
+  void UpdateStaleChallenge(const std::string& auth_challenge);
+
  private:
   friend class HttpAuthCache;
-  FRIEND_TEST(HttpAuthCacheTest, AddPath);
-  FRIEND_TEST(HttpAuthCacheTest, AddToExistingEntry);
+  FRIEND_TEST_ALL_PREFIXES(HttpAuthCacheTest, AddPath);
+  FRIEND_TEST_ALL_PREFIXES(HttpAuthCacheTest, AddToExistingEntry);
 
-  Entry() {}
+  Entry();
 
   // Adds a path defining the realm's protection space. If the path is
   // already contained in the protection space, is a no-op.
@@ -148,8 +161,8 @@ class HttpAuthCache::Entry {
 
   // Identity.
   std::string auth_challenge_;
-  std::wstring username_;
-  std::wstring password_;
+  string16 username_;
+  string16 password_;
 
   int nonce_count_;
 
@@ -158,6 +171,6 @@ class HttpAuthCache::Entry {
   PathList paths_;
 };
 
-} // namespace net
+}  // namespace net
 
 #endif  // NET_HTTP_HTTP_AUTH_CACHE_H_

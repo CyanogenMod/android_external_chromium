@@ -9,6 +9,7 @@
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/logging.h"
+#include "base/nss_util.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
 #include "base/time.h"
@@ -16,10 +17,14 @@
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/input_method_library.h"
+#include "chrome/browser/chromeos/login/ownership_service.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/notification_service.h"
+#include "chrome/common/notification_type.h"
 #include "gfx/codec/png_codec.h"
 #include "grit/theme_resources.h"
 
@@ -28,9 +33,13 @@ namespace chromeos {
 namespace {
 
 // A vector pref of the users who have logged into the device.
-const wchar_t kLoggedInUsers[] = L"LoggedInUsers";
+const char kLoggedInUsers[] = "LoggedInUsers";
 // A dictionary that maps usernames to file paths to their images.
-const wchar_t kUserImages[] = L"UserImages";
+const char kUserImages[] = "UserImages";
+
+// Incognito user is represented by an empty string (since some code already
+// depends on that and it's hard to figure out what).
+const char kIncognitoUser[] = "";
 
 // The one true UserManager.
 static UserManager* user_manager_ = NULL;
@@ -42,8 +51,7 @@ void save_path_to_local_state(const std::string& username,
   PrefService* local_state = g_browser_process->local_state();
   DictionaryValue* images =
       local_state->GetMutableDictionary(kUserImages);
-  images->SetWithoutPathExpansion(UTF8ToWide(username),
-                                  new StringValue(image_path));
+  images->SetWithoutPathExpansion(username, new StringValue(image_path));
   LOG(INFO) << "Saving path to user image in Local State.";
   local_state->SavePersistentPrefs();
 }
@@ -72,6 +80,14 @@ void save_image_to_file(const SkBitmap& image,
       FROM_HERE,
       NewRunnableFunction(&save_path_to_local_state,
                           username, image_path.value()));
+}
+
+// Checks current user's ownership on file thread.
+void CheckOwnership() {
+  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+
+  UserManager::Get()->set_current_user_is_owner(
+      OwnershipService::GetSharedInstance()->CurrentUserIsOwner());
 }
 
 }  // namespace
@@ -124,8 +140,7 @@ std::vector<UserManager::User> UserManager::GetUsers() const {
         std::string image_path;
         if (image_it == user_images_.end()) {
           if (prefs_images &&
-              prefs_images->GetStringWithoutPathExpansion(
-                  ASCIIToWide(email), &image_path)) {
+              prefs_images->GetStringWithoutPathExpansion(email, &image_path)) {
             // Insert the default image so we don't send another request if
             // GetUsers is called twice.
             user_images_[email] = user.image();
@@ -142,10 +157,17 @@ std::vector<UserManager::User> UserManager::GetUsers() const {
 }
 
 void UserManager::OffTheRecordUserLoggedIn() {
+  logged_in_user_ = User();
+  logged_in_user_.set_email(kIncognitoUser);
   NotifyOnLogin();
 }
 
 void UserManager::UserLoggedIn(const std::string& email) {
+  if (email == kIncognitoUser) {
+    OffTheRecordUserLoggedIn();
+    return;
+  }
+
   // Get a copy of the current users.
   std::vector<User> users = GetUsers();
 
@@ -193,6 +215,25 @@ void UserManager::RemoveUser(const std::string& email) {
   prefs->SavePersistentPrefs();
 }
 
+bool UserManager::IsKnownUser(const std::string& email) {
+  std::vector<User> users = GetUsers();
+  for (std::vector<User>::iterator it = users.begin();
+       it < users.end();
+       ++it) {
+    if (it->email() == email)
+      return true;
+  }
+
+  return false;
+}
+
+void UserManager::SetLoggedInUserImage(const SkBitmap& image) {
+  if (logged_in_user_.email().empty())
+    return;
+  logged_in_user_.set_image(image);
+  OnImageLoaded(logged_in_user_.email(), image);
+}
+
 void UserManager::SaveUserImage(const std::string& username,
                                 const SkBitmap& image) {
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
@@ -224,7 +265,10 @@ void UserManager::OnImageLoaded(const std::string& username,
 
 // Private constructor and destructor. Do nothing.
 UserManager::UserManager()
-    : ALLOW_THIS_IN_INITIALIZER_LIST(image_loader_(new UserImageLoader(this))) {
+    : ALLOW_THIS_IN_INITIALIZER_LIST(image_loader_(new UserImageLoader(this))),
+      current_user_is_owner_(false) {
+  registrar_.Add(this, NotificationType::OWNER_KEY_FETCH_ATTEMPT_SUCCEEDED,
+      NotificationService::AllSources());
 }
 
 UserManager::~UserManager() {
@@ -237,8 +281,28 @@ void UserManager::NotifyOnLogin() {
       Source<UserManager>(this),
       Details<const User>(&logged_in_user_));
 
+  chromeos::CrosLibrary::Get()->GetInputMethodLibrary()->
+      SetDeferImeStartup(false);
+  // Shut down the IME so that it will reload the user's settings.
+  chromeos::CrosLibrary::Get()->GetInputMethodLibrary()->
+      StopInputMethodProcesses();
   // Let the window manager know that we're logged in now.
   WmIpc::instance()->SetLoggedInProperty(true);
+  // Ensure we've opened the real user's key/certificate database.
+  base::OpenPersistentNSSDB();
+
+  // Schedules current user ownership check on file thread.
+  ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
+      NewRunnableFunction(&CheckOwnership));
+}
+
+void UserManager::Observe(NotificationType type,
+                          const NotificationSource& source,
+                          const NotificationDetails& details) {
+  if (type == NotificationType::OWNER_KEY_FETCH_ATTEMPT_SUCCEEDED) {
+    ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
+        NewRunnableFunction(&CheckOwnership));
+  }
 }
 
 }  // namespace chromeos

@@ -7,7 +7,7 @@
 #include "base/callback.h"
 #include "base/json/json_writer.h"
 #include "base/message_loop.h"
-#include "base/string_util.h"
+#include "base/string_number_conversions.h"
 #include "base/task.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_history_api_constants.h"
@@ -28,9 +28,9 @@ double MilliSecondsFromTime(const base::Time& time) {
 
 void GetHistoryItemDictionary(const history::URLRow& row,
                               DictionaryValue* value) {
-  value->SetString(keys::kIdKey, Int64ToString(row.id()));
+  value->SetString(keys::kIdKey, base::Int64ToString(row.id()));
   value->SetString(keys::kUrlKey, row.url().spec());
-  value->SetStringFromUTF16(keys::kTitleKey, row.title());
+  value->SetString(keys::kTitleKey, row.title());
   value->SetReal(keys::kLastVisitdKey, MilliSecondsFromTime(row.last_visit()));
   value->SetInteger(keys::kTypedCountKey, row.typed_count());
   value->SetInteger(keys::kVisitCountKey, row.visit_count());
@@ -44,11 +44,11 @@ void AddHistoryNode(const history::URLRow& row, ListValue* list) {
 
 void GetVisitInfoDictionary(const history::VisitRow& row,
                             DictionaryValue* value) {
-  value->SetString(keys::kIdKey, Int64ToString(row.url_id));
-  value->SetString(keys::kVisitId, Int64ToString(row.visit_id));
+  value->SetString(keys::kIdKey, base::Int64ToString(row.url_id));
+  value->SetString(keys::kVisitId, base::Int64ToString(row.visit_id));
   value->SetReal(keys::kVisitTime, MilliSecondsFromTime(row.visit_time));
   value->SetString(keys::kReferringVisitId,
-                   Int64ToString(row.referring_visit));
+                   base::Int64ToString(row.referring_visit));
 
   const char* trans = PageTransition::CoreTransitionString(row.transition);
   DCHECK(trans) << "Invalid transition.";
@@ -143,7 +143,7 @@ void ExtensionHistoryEventRouter::DispatchEvent(Profile* profile,
                                                 const std::string& json_args) {
   if (profile && profile->GetExtensionMessageService()) {
     profile->GetExtensionMessageService()->DispatchEventToRenderers(
-        event_name, json_args, profile->IsOffTheRecord(), GURL());
+        event_name, json_args, profile, GURL());
   }
 }
 
@@ -180,8 +180,17 @@ bool HistoryFunction::GetTimeFromValue(Value* value, base::Time* time) {
   // The history service has seconds resolution, while javascript Date() has
   // milliseconds resolution.
   double seconds_from_epoch = ms_from_epoch / 1000.0;
-  *time = base::Time::FromDoubleT(seconds_from_epoch);
+  // Time::FromDoubleT converts double time 0 to empty Time object. So we need
+  // to do special handling here.
+  *time = (seconds_from_epoch == 0) ?
+      base::Time::UnixEpoch() : base::Time::FromDoubleT(seconds_from_epoch);
   return true;
+}
+
+HistoryFunctionWithCallback::HistoryFunctionWithCallback() {
+}
+
+HistoryFunctionWithCallback::~HistoryFunctionWithCallback() {
 }
 
 bool HistoryFunctionWithCallback::RunImpl() {
@@ -248,8 +257,7 @@ bool SearchHistoryFunction::RunAsyncImpl() {
 
   // Initialize the HistoryQuery
   string16 search_text;
-  EXTENSION_FUNCTION_VALIDATE(json->GetStringAsUTF16(keys::kTextKey,
-                                                     &search_text));
+  EXTENSION_FUNCTION_VALIDATE(json->GetString(keys::kTextKey, &search_text));
 
   history::QueryOptions options;
   options.SetRecentDayRange(1);
@@ -305,7 +313,7 @@ bool AddUrlHistoryFunction::RunImpl() {
     return false;
 
   HistoryService* hs = profile()->GetHistoryService(Profile::EXPLICIT_ACCESS);
-  hs->AddPage(url);
+  hs->AddPage(url, history::SOURCE_EXTENSION);
 
   SendResponse(true);
   return true;
@@ -363,7 +371,7 @@ bool DeleteAllHistoryFunction::RunAsyncImpl() {
   HistoryService* hs = profile()->GetHistoryService(Profile::EXPLICIT_ACCESS);
   hs->ExpireHistoryBetween(
       restrict_urls,
-      base::Time::FromDoubleT(0),  // From the beginning of the epoch.
+      base::Time::UnixEpoch(),     // From the beginning of the epoch.
       base::Time::Now(),           // To the current time.
       &cancelable_consumer_,
       NewCallback(this, &DeleteAllHistoryFunction::DeleteComplete));

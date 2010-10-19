@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,11 +6,12 @@
 
 #include "base/message_loop.h"
 #include "base/message_loop_proxy.h"
-#include "base/string_util.h"
+#include "base/string_number_conversions.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/chrome_thread.h"
 #include "net/base/cookie_monster.h"
+#include "net/base/host_resolver.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_network_layer.h"
@@ -117,6 +118,7 @@ HttpBridge::HttpBridge(HttpBridge::RequestContextGetter* context_getter)
       request_completed_(false),
       request_succeeded_(false),
       http_response_code_(-1),
+      os_error_code_(-1),
       http_post_completed_(false, false) {
 }
 
@@ -142,7 +144,7 @@ void HttpBridge::SetURL(const char* url, int port) {
       << "HttpBridge::SetURL called more than once?!";
   GURL temp(url);
   GURL::Replacements replacements;
-  std::string port_str = IntToString(port);
+  std::string port_str = base::IntToString(port);
   replacements.SetPort(port_str.c_str(),
                        url_parse::Component(0, port_str.length()));
   url_for_request_ = temp.ReplaceComponents(replacements);

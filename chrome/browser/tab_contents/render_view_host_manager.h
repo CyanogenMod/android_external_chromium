@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_RENDER_VIEW_HOST_MANAGER_H_
 #define CHROME_BROWSER_TAB_CONTENTS_RENDER_VIEW_HOST_MANAGER_H_
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/logging.h"
@@ -67,6 +68,9 @@ class RenderViewHostManager
 
     // Focuses the location bar.
     virtual void SetFocusToLocationBar(bool select_all) = 0;
+
+   protected:
+    virtual ~Delegate() {}
   };
 
   // Both delegate pointers must be non-NULL and are not owned by this class.
@@ -76,7 +80,7 @@ class RenderViewHostManager
   // You must call Init() before using this class.
   RenderViewHostManager(RenderViewHostDelegate* render_view_delegate,
                         Delegate* delegate);
-  ~RenderViewHostManager();
+  virtual ~RenderViewHostManager();
 
   // For arguments, see TabContents constructor.
   void Init(Profile* profile,

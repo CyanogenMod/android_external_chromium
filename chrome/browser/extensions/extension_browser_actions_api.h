@@ -1,19 +1,24 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_BROWSER_ACTIONS_API_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_BROWSER_ACTIONS_API_H_
+#pragma once
 
 #include "chrome/browser/extensions/extension_function.h"
 #include "chrome/common/extensions/extension_action.h"
 
+class DictionaryValue;
 class ExtensionAction;
 
 // Base class for chrome.browserAction.* APIs.
 class BrowserActionFunction : public SyncExtensionFunction {
  protected:
-  BrowserActionFunction() : tab_id_(ExtensionAction::kDefaultTabId) {}
+  BrowserActionFunction()
+      : details_(NULL),
+        tab_id_(ExtensionAction::kDefaultTabId),
+        browser_action_(NULL) {}
   virtual ~BrowserActionFunction() {}
   virtual bool RunImpl();
   virtual bool RunBrowserAction() = 0;

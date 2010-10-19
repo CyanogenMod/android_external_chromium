@@ -31,7 +31,7 @@ namespace {
 #if defined(OS_WIN)
     FilePath path(FILE_PATH_LITERAL("c:\\foo"));
 #elif defined(OS_POSIX)
-  FilePath path(FILE_PATH_LITERAL("/foo"));
+    FilePath path(FILE_PATH_LITERAL("/foo"));
 #endif
     Extension extension(path);
     std::string error;
@@ -72,10 +72,10 @@ TEST(ExtensionUITest, GenerateExtensionsJSONData) {
   std::vector<ExtensionPage> pages;
   pages.push_back(ExtensionPage(
       GURL("chrome-extension://behllobkkfkfnphdnhnkndlbkcpglgmj/bar.html"),
-      42, 88));
+      42, 88, false));
   pages.push_back(ExtensionPage(
       GURL("chrome-extension://behllobkkfkfnphdnhnkndlbkcpglgmj/dog.html"),
-      0, 0));
+      0, 0, false));
 
   expected_output_path = data_test_dir_path.AppendASCII("extensions")
       .AppendASCII("ui")
@@ -85,6 +85,7 @@ TEST(ExtensionUITest, GenerateExtensionsJSONData) {
   EXPECT_TRUE(CompareExpectedAndActualOutput(extension_path, pages,
       expected_output_path)) << extension_path.value();
 
+#if !defined(OS_CHROMEOS)
   // Test Extension2
   extension_path = data_test_dir_path.AppendASCII("extensions")
       .AppendASCII("good")
@@ -102,6 +103,7 @@ TEST(ExtensionUITest, GenerateExtensionsJSONData) {
 
   EXPECT_TRUE(CompareExpectedAndActualOutput(extension_path, pages,
       expected_output_path)) << extension_path.value();
+#endif
 
   // Test Extension3
   extension_path = data_test_dir_path.AppendASCII("extensions")

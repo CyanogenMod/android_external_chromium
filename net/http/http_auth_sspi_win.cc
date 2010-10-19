@@ -11,6 +11,7 @@
 #include "base/logging.h"
 #include "base/singleton.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_auth.h"
 
@@ -20,32 +21,34 @@ namespace {
 
 int MapAcquireCredentialsStatusToError(SECURITY_STATUS status,
                                        const SEC_WCHAR* package) {
+  LOG(INFO) << "AcquireCredentialsHandle returned 0x" << std::hex << status;
   switch (status) {
     case SEC_E_OK:
       return OK;
     case SEC_E_INSUFFICIENT_MEMORY:
       return ERR_OUT_OF_MEMORY;
     case SEC_E_INTERNAL_ERROR:
-      return ERR_UNEXPECTED;
+      return ERR_UNEXPECTED_SECURITY_LIBRARY_STATUS;
     case SEC_E_NO_CREDENTIALS:
     case SEC_E_NOT_OWNER:
     case SEC_E_UNKNOWN_CREDENTIALS:
       return ERR_INVALID_AUTH_CREDENTIALS;
     case SEC_E_SECPKG_NOT_FOUND:
       // This indicates that the SSPI configuration does not match expectations
-      LOG(ERROR) << "Received SEC_E_SECPKG_NOT_FOUND for " << package;
       return ERR_UNSUPPORTED_AUTH_SCHEME;
     default:
-      LOG(ERROR) << "Unexpected SECURITY_STATUS " << status;
-      return ERR_UNEXPECTED;
+      LOG(WARNING)
+          << "AcquireSecurityCredentials returned undocumented status 0x"
+          << std::hex << status;
+      return ERR_UNDOCUMENTED_SECURITY_LIBRARY_STATUS;
   }
 }
 
 int AcquireExplicitCredentials(SSPILibrary* library,
                                const SEC_WCHAR* package,
-                               const std::wstring& domain,
-                               const std::wstring& user,
-                               const std::wstring& password,
+                               const string16& domain,
+                               const string16& user,
+                               const string16& password,
                                CredHandle* cred) {
   SEC_WINNT_AUTH_IDENTITY identity;
   identity.Flags = SEC_WINNT_AUTH_IDENTITY_UNICODE;
@@ -98,6 +101,85 @@ int AcquireDefaultCredentials(SSPILibrary* library, const SEC_WCHAR* package,
   return MapAcquireCredentialsStatusToError(status, package);
 }
 
+int MapInitializeSecurityContextStatusToError(SECURITY_STATUS status) {
+  LOG(INFO) << "InitializeSecurityContext returned 0x" << std::hex << status;
+  switch (status) {
+    case SEC_E_OK:
+    case SEC_I_CONTINUE_NEEDED:
+      return OK;
+    case SEC_I_COMPLETE_AND_CONTINUE:
+    case SEC_I_COMPLETE_NEEDED:
+    case SEC_I_INCOMPLETE_CREDENTIALS:
+    case SEC_E_INCOMPLETE_MESSAGE:
+    case SEC_E_INTERNAL_ERROR:
+      // These are return codes reported by InitializeSecurityContext
+      // but not expected by Chrome (for example, INCOMPLETE_CREDENTIALS
+      // and INCOMPLETE_MESSAGE are intended for schannel).
+      LOG(WARNING)
+          << "InitializeSecurityContext returned unexpected status 0x"
+          << std::hex << status;
+      return ERR_UNEXPECTED_SECURITY_LIBRARY_STATUS;
+    case SEC_E_INSUFFICIENT_MEMORY:
+      return ERR_OUT_OF_MEMORY;
+    case SEC_E_UNSUPPORTED_FUNCTION:
+      NOTREACHED();
+      return ERR_UNEXPECTED;
+    case SEC_E_INVALID_HANDLE:
+      NOTREACHED();
+      return ERR_INVALID_HANDLE;
+    case SEC_E_INVALID_TOKEN:
+      return ERR_INVALID_RESPONSE;
+    case SEC_E_LOGON_DENIED:
+      return ERR_ACCESS_DENIED;
+    case SEC_E_NO_CREDENTIALS:
+    case SEC_E_WRONG_PRINCIPAL:
+      return ERR_INVALID_AUTH_CREDENTIALS;
+    case SEC_E_NO_AUTHENTICATING_AUTHORITY:
+    case SEC_E_TARGET_UNKNOWN:
+      return ERR_MISCONFIGURED_AUTH_ENVIRONMENT;
+    default:
+      LOG(WARNING)
+          << "InitializeSecurityContext returned undocumented status 0x"
+          << std::hex << status;
+      return ERR_UNDOCUMENTED_SECURITY_LIBRARY_STATUS;
+  }
+}
+
+int MapQuerySecurityPackageInfoStatusToError(SECURITY_STATUS status) {
+  LOG(INFO) << "QuerySecurityPackageInfo returned 0x" << std::hex << status;
+  switch (status) {
+    case SEC_E_OK:
+      return OK;
+    case SEC_E_SECPKG_NOT_FOUND:
+      // This isn't a documented return code, but has been encountered
+      // during testing.
+      return ERR_UNSUPPORTED_AUTH_SCHEME;
+    default:
+      LOG(WARNING)
+          << "QuerySecurityPackageInfo returned undocumented status 0x"
+          << std::hex << status;
+      return ERR_UNDOCUMENTED_SECURITY_LIBRARY_STATUS;
+  }
+}
+
+int MapFreeContextBufferStatusToError(SECURITY_STATUS status) {
+  LOG(INFO) << "FreeContextBuffer returned 0x" << std::hex << status;
+  switch (status) {
+    case SEC_E_OK:
+      return OK;
+    default:
+      // The documentation at
+      // http://msdn.microsoft.com/en-us/library/aa375416(VS.85).aspx
+      // only mentions that a non-zero (or non-SEC_E_OK) value is returned
+      // if the function fails, and does not indicate what the failure
+      // conditions are.
+      LOG(WARNING)
+          << "FreeContextBuffer returned undocumented status 0x"
+          << std::hex << status;
+      return ERR_UNDOCUMENTED_SECURITY_LIBRARY_STATUS;
+  }
+}
+
 }  // anonymous namespace
 
 HttpAuthSSPI::HttpAuthSSPI(SSPILibrary* library,
@@ -107,7 +189,8 @@ HttpAuthSSPI::HttpAuthSSPI(SSPILibrary* library,
     : library_(library),
       scheme_(scheme),
       security_package_(security_package),
-      max_token_length_(max_token_length) {
+      max_token_length_(max_token_length),
+      can_delegate_(false) {
   DCHECK(library_);
   SecInvalidateHandle(&cred_);
   SecInvalidateHandle(&ctxt_);
@@ -125,8 +208,8 @@ bool HttpAuthSSPI::NeedsIdentity() const {
   return decoded_server_auth_token_.empty();
 }
 
-bool HttpAuthSSPI::IsFinalRound() const {
-  return !decoded_server_auth_token_.empty();
+void HttpAuthSSPI::Delegate() {
+  can_delegate_ = true;
 }
 
 void HttpAuthSSPI::ResetSecurityContext() {
@@ -136,37 +219,45 @@ void HttpAuthSSPI::ResetSecurityContext() {
   }
 }
 
-bool HttpAuthSSPI::ParseChallenge(HttpAuth::ChallengeTokenizer* tok) {
+HttpAuth::AuthorizationResult HttpAuthSSPI::ParseChallenge(
+    HttpAuth::ChallengeTokenizer* tok) {
   // Verify the challenge's auth-scheme.
   if (!tok->valid() ||
       !LowerCaseEqualsASCII(tok->scheme(), StringToLowerASCII(scheme_).c_str()))
-    return false;
+    return HttpAuth::AUTHORIZATION_RESULT_INVALID;
 
   tok->set_expect_base64_token(true);
   if (!tok->GetNext()) {
-    decoded_server_auth_token_.clear();
-    return true;
+    // If a context has already been established, an empty challenge
+    // should be treated as a rejection of the current attempt.
+    if (SecIsValidHandle(&ctxt_))
+      return HttpAuth::AUTHORIZATION_RESULT_REJECT;
+    DCHECK(decoded_server_auth_token_.empty());
+    return HttpAuth::AUTHORIZATION_RESULT_ACCEPT;
+  } else {
+    // If a context has not already been established, additional tokens should
+    // not be present in the auth challenge.
+    if (!SecIsValidHandle(&ctxt_))
+      return HttpAuth::AUTHORIZATION_RESULT_INVALID;
   }
 
   std::string encoded_auth_token = tok->value();
   std::string decoded_auth_token;
   bool base64_rv = base::Base64Decode(encoded_auth_token, &decoded_auth_token);
-  if (!base64_rv) {
-    LOG(ERROR) << "Base64 decoding of auth token failed.";
-    return false;
-  }
+  if (!base64_rv)
+    return HttpAuth::AUTHORIZATION_RESULT_INVALID;
   decoded_server_auth_token_ = decoded_auth_token;
-  return true;
+  return HttpAuth::AUTHORIZATION_RESULT_ACCEPT;
 }
 
-int HttpAuthSSPI::GenerateAuthToken(const std::wstring* username,
-                                    const std::wstring* password,
+int HttpAuthSSPI::GenerateAuthToken(const string16* username,
+                                    const string16* password,
                                     const std::wstring& spn,
                                     std::string* auth_token) {
   DCHECK((username == NULL) == (password == NULL));
 
   // Initial challenge.
-  if (!IsFinalRound()) {
+  if (!SecIsValidHandle(&cred_)) {
     int rv = OnFirstRound(username, password);
     if (rv != OK)
       return rv;
@@ -193,20 +284,20 @@ int HttpAuthSSPI::GenerateAuthToken(const std::wstring* username,
   free(out_buf);
   if (!base64_rv) {
     LOG(ERROR) << "Base64 encoding of auth token failed.";
-    return ERR_UNEXPECTED;
+    return ERR_ENCODING_CONVERSION_FAILED;
   }
   *auth_token = scheme_ + " " + encode_output;
   return OK;
 }
 
-int HttpAuthSSPI::OnFirstRound(const std::wstring* username,
-                               const std::wstring* password) {
+int HttpAuthSSPI::OnFirstRound(const string16* username,
+                               const string16* password) {
   DCHECK((username == NULL) == (password == NULL));
   DCHECK(!SecIsValidHandle(&cred_));
   int rv = OK;
   if (username) {
-    std::wstring domain;
-    std::wstring user;
+    string16 domain;
+    string16 user;
     SplitDomainAndUser(*username, &domain, &user);
     rv = AcquireExplicitCredentials(library_, security_package_, domain,
                                     user, *password, &cred_);
@@ -223,14 +314,10 @@ int HttpAuthSSPI::OnFirstRound(const std::wstring* username,
 
 int HttpAuthSSPI::GetNextSecurityToken(
     const std::wstring& spn,
-    const void * in_token,
+    const void* in_token,
     int in_token_len,
     void** out_token,
     int* out_token_len) {
-  SECURITY_STATUS status;
-  TimeStamp expiry;
-
-  DWORD ctxt_attr;
   CtxtHandle* ctxt_ptr;
   SecBufferDesc in_buffer_desc, out_buffer_desc;
   SecBufferDesc* in_buffer_desc_ptr;
@@ -251,7 +338,7 @@ int HttpAuthSSPI::GetNextSecurityToken(
     // sequence.  If we have already initialized our security context, then
     // we're incorrectly reusing the auth handler for a new sequence.
     if (SecIsValidHandle(&ctxt_)) {
-      LOG(ERROR) << "Cannot restart authentication sequence";
+      NOTREACHED();
       return ERR_UNEXPECTED;
     }
     ctxt_ptr = NULL;
@@ -268,28 +355,32 @@ int HttpAuthSSPI::GetNextSecurityToken(
   if (!out_buffer.pvBuffer)
     return ERR_OUT_OF_MEMORY;
 
+  DWORD context_flags = 0;
+  // Firefox only sets ISC_REQ_DELEGATE, but MSDN documentation indicates that
+  // ISC_REQ_MUTUAL_AUTH must also be set.
+  if (can_delegate_)
+    context_flags |= (ISC_REQ_DELEGATE | ISC_REQ_MUTUAL_AUTH);
+
   // This returns a token that is passed to the remote server.
-  status = library_->InitializeSecurityContext(
+  DWORD context_attribute;
+  SECURITY_STATUS status = library_->InitializeSecurityContext(
       &cred_,  // phCredential
       ctxt_ptr,  // phContext
       const_cast<wchar_t *>(spn.c_str()),  // pszTargetName
-      0,  // fContextReq
+      context_flags,  // fContextReq
       0,  // Reserved1 (must be 0)
       SECURITY_NATIVE_DREP,  // TargetDataRep
       in_buffer_desc_ptr,  // pInput
       0,  // Reserved2 (must be 0)
       &ctxt_,  // phNewContext
       &out_buffer_desc,  // pOutput
-      &ctxt_attr,  // pfContextAttr
-      &expiry);  // ptsExpiry
-  // On success, the function returns SEC_I_CONTINUE_NEEDED on the first call
-  // and SEC_E_OK on the second call.  On failure, the function returns an
-  // error code.
-  if (status != SEC_I_CONTINUE_NEEDED && status != SEC_E_OK) {
-    LOG(ERROR) << "InitializeSecurityContext failed " << status;
+      &context_attribute,  // pfContextAttr
+      NULL);  // ptsExpiry
+  int rv = MapInitializeSecurityContextStatusToError(status);
+  if (rv != OK) {
     ResetSecurityContext();
     free(out_buffer.pvBuffer);
-    return ERR_UNEXPECTED;  // TODO(wtc): map error code.
+    return rv;
   }
   if (!out_buffer.cbBuffer) {
     free(out_buffer.pvBuffer);
@@ -300,14 +391,14 @@ int HttpAuthSSPI::GetNextSecurityToken(
   return OK;
 }
 
-void SplitDomainAndUser(const std::wstring& combined,
-                        std::wstring* domain,
-                        std::wstring* user) {
+void SplitDomainAndUser(const string16& combined,
+                        string16* domain,
+                        string16* user) {
   // |combined| may be in the form "user" or "DOMAIN\user".
-  // Separatethe two parts if they exist.
+  // Separate the two parts if they exist.
   // TODO(cbentzel): I believe user@domain is also a valid form.
   size_t backslash_idx = combined.find(L'\\');
-  if (backslash_idx == std::wstring::npos) {
+  if (backslash_idx == string16::npos) {
     domain->clear();
     *user = combined;
   } else {
@@ -324,31 +415,14 @@ int DetermineMaxTokenLength(SSPILibrary* library,
   PSecPkgInfo pkg_info = NULL;
   SECURITY_STATUS status = library->QuerySecurityPackageInfo(
       const_cast<wchar_t *>(package.c_str()), &pkg_info);
-  if (status != SEC_E_OK) {
-    // The documentation at
-    // http://msdn.microsoft.com/en-us/library/aa379359(VS.85).aspx
-    // only mentions that a non-zero (or non-SEC_E_OK) value is returned
-    // if the function fails. In practice, it appears to return
-    // SEC_E_SECPKG_NOT_FOUND for invalid/unknown packages.
-    LOG(ERROR) << "Security package " << package << " not found."
-               << " Status code: " << status;
-    if (status == SEC_E_SECPKG_NOT_FOUND)
-      return ERR_UNSUPPORTED_AUTH_SCHEME;
-    else
-      return ERR_UNEXPECTED;
-  }
+  int rv = MapQuerySecurityPackageInfoStatusToError(status);
+  if (rv != OK)
+    return rv;
   int token_length = pkg_info->cbMaxToken;
   status = library->FreeContextBuffer(pkg_info);
-  if (status != SEC_E_OK) {
-    // The documentation at
-    // http://msdn.microsoft.com/en-us/library/aa375416(VS.85).aspx
-    // only mentions that a non-zero (or non-SEC_E_OK) value is returned
-    // if the function fails, and does not indicate what the failure conditions
-    // are.
-    LOG(ERROR) << "Unexpected problem freeing context buffer. Status code: "
-               << status;
-    return ERR_UNEXPECTED;
-  }
+  rv = MapFreeContextBufferStatusToError(status);
+  if (rv != OK)
+    return rv;
   *max_token_length = token_length;
   return OK;
 }

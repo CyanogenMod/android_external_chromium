@@ -331,20 +331,18 @@ class HighResNowSingleton {
   }
 
   TimeDelta Now() {
-    // Our maximum tolerance for QPC drifting.
-    const int kMaxTimeDrift = 50 * Time::kMicrosecondsPerMillisecond;
-
-    if (IsUsingHighResClock()) {
-      int64 now = UnreliableNow();
-
-      // Verify that QPC does not seem to drift.
-      DCHECK(now - ReliableNow() - skew_ < kMaxTimeDrift);
-
-      return TimeDelta::FromMicroseconds(now);
-    }
+    if (IsUsingHighResClock())
+      return TimeDelta::FromMicroseconds(UnreliableNow());
 
     // Just fallback to the slower clock.
     return RolloverProtectedNow();
+  }
+
+  int64 GetQPCDriftMicroseconds() {
+    if (!IsUsingHighResClock())
+      return 0;
+
+    return abs((UnreliableNow() - ReliableNow()) - skew_);
   }
 
  private:
@@ -397,4 +395,14 @@ TimeTicks TimeTicks::Now() {
 // static
 TimeTicks TimeTicks::HighResNow() {
   return TimeTicks() + Singleton<HighResNowSingleton>::get()->Now();
+}
+
+// static
+int64 TimeTicks::GetQPCDriftMicroseconds() {
+  return Singleton<HighResNowSingleton>::get()->GetQPCDriftMicroseconds();
+}
+
+// static
+bool TimeTicks::IsHighResClockWorking() {
+  return Singleton<HighResNowSingleton>::get()->IsUsingHighResClock();
 }

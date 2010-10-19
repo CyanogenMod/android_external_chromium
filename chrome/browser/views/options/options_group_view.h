@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_OPTIONS_OPTIONS_GROUP_VIEW_H__
 #define CHROME_BROWSER_VIEWS_OPTIONS_OPTIONS_GROUP_VIEW_H__
+#pragma once
 
 #include "views/view.h"
 
@@ -34,7 +35,7 @@ class OptionsGroupView : public views::View {
 
  protected:
   // views::View overrides:
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
   virtual void Paint(gfx::Canvas* canvas);
   virtual void ViewHierarchyChanged(bool is_add,
                                     views::View* parent,

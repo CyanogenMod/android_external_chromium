@@ -9,12 +9,10 @@
 #include "app/resource_bundle.h"
 #include "app/win_util.h"
 #include "base/utf_string_conversions.h"
-#include "base/win_util.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/first_run.h"
-#include "chrome/browser/options_window.h"
+#include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/search_engines/util.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "grit/chromium_strings.h"
@@ -150,10 +148,10 @@ void FirstRunBubbleView::ButtonPressed(views::Button* sender,
     UserMetrics::RecordAction(
                     UserMetricsAction("FirstRunBubbleView_ChangeButton"),
                     profile_);
+
     Browser* browser = BrowserList::GetLastActive();
     if (browser) {
-      ShowOptionsWindow(OPTIONS_PAGE_GENERAL, OPTIONS_GROUP_DEFAULT_SEARCH,
-                        browser->profile());
+      browser->OpenSearchEngineOptionsDialog();
     }
   }
 }
@@ -469,13 +467,13 @@ FirstRunBubble* FirstRunBubble::Show(Profile* profile,
   FirstRunBubbleViewBase* view = NULL;
 
   switch (bubble_type) {
-    case FirstRun::OEMBUBBLE:
+    case FirstRun::OEM_BUBBLE:
       view = new FirstRunOEMBubbleView(window, profile);
       break;
-    case FirstRun::LARGEBUBBLE:
+    case FirstRun::LARGE_BUBBLE:
       view = new FirstRunBubbleView(window, profile);
       break;
-    case FirstRun::MINIMALBUBBLE:
+    case FirstRun::MINIMAL_BUBBLE:
       view = new FirstRunMinimalBubbleView(window, profile);
       break;
     default:
@@ -495,9 +493,8 @@ FirstRunBubble::FirstRunBubble()
 }
 
 FirstRunBubble::~FirstRunBubble() {
-  // We should have called RevokeAll on the method factory already.
-  DCHECK(enable_window_method_factory_.empty());
   enable_window_method_factory_.RevokeAll();
+  GetFocusManager()->RemoveFocusChangeListener(view_);
 }
 
 void FirstRunBubble::EnableParent() {
@@ -510,7 +507,7 @@ void FirstRunBubble::EnableParent() {
 void FirstRunBubble::OnActivate(UINT action, BOOL minimized, HWND window) {
   // Keep the bubble around for kLingerTime milliseconds, to prevent accidental
   // closure.
-  const int kLingerTime = 1000;
+  const int kLingerTime = 3000;
 
   // We might get re-enabled right before we are closed (sequence is: we get
   // deactivated, we call close, before we are actually closed we get
@@ -524,6 +521,7 @@ void FirstRunBubble::OnActivate(UINT action, BOOL minimized, HWND window) {
         enable_window_method_factory_.NewRunnableMethod(
             &FirstRunBubble::EnableParent),
         kLingerTime);
+    return;
   }
 
   // Keep window from automatically closing until kLingerTime has passed.
@@ -536,6 +534,4 @@ void FirstRunBubble::InfoBubbleClosing(InfoBubble* info_bubble,
   // Make sure our parent window is re-enabled.
   if (!IsWindowEnabled(GetParent()))
     ::EnableWindow(GetParent(), true);
-  enable_window_method_factory_.RevokeAll();
-  GetFocusManager()->RemoveFocusChangeListener(view_);
 }

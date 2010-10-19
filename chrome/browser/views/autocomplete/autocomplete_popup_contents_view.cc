@@ -4,6 +4,8 @@
 
 #include "chrome/browser/views/autocomplete/autocomplete_popup_contents_view.h"
 
+#include "unicode/ubidi.h"
+
 #include "app/bidi_line_iterator.h"
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
@@ -22,7 +24,6 @@
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkShader.h"
-#include "third_party/icu/public/common/unicode/ubidi.h"
 #include "views/widget/widget.h"
 
 #if defined(OS_WIN)
@@ -31,6 +32,11 @@
 #include <dwmapi.h>
 
 #include "app/win_util.h"
+#endif
+
+#if defined(OS_LINUX)
+#include "chrome/browser/gtk/gtk_util.h"
+#include "gfx/skia_utils_gtk.h"
 #endif
 
 namespace {
@@ -59,6 +65,14 @@ SkColor GetColor(ResultViewState state, ColorKind kind) {
     colors[SELECTED][BACKGROUND] = color_utils::GetSysSkColor(COLOR_HIGHLIGHT);
     colors[NORMAL][TEXT] = color_utils::GetSysSkColor(COLOR_WINDOWTEXT);
     colors[SELECTED][TEXT] = color_utils::GetSysSkColor(COLOR_HIGHLIGHTTEXT);
+#elif defined(OS_LINUX)
+    GdkColor bg_color, selected_bg_color, text_color, selected_text_color;
+    gtk_util::GetTextColors(
+        &bg_color, &selected_bg_color, &text_color, &selected_text_color);
+    colors[NORMAL][BACKGROUND] = gfx::GdkColorToSkColor(bg_color);
+    colors[SELECTED][BACKGROUND] = gfx::GdkColorToSkColor(selected_bg_color);
+    colors[NORMAL][TEXT] = gfx::GdkColorToSkColor(text_color);
+    colors[SELECTED][TEXT] = gfx::GdkColorToSkColor(selected_text_color);
 #else
     // TODO(beng): source from theme provider.
     colors[NORMAL][BACKGROUND] = SK_ColorWHITE;
@@ -109,7 +123,8 @@ class AutocompleteResultView : public views::View {
  public:
   AutocompleteResultView(AutocompleteResultViewModel* model,
                          int model_index,
-                         const gfx::Font& font);
+                         const gfx::Font& font,
+                         const gfx::Font& bold_font);
   virtual ~AutocompleteResultView();
 
   // Updates the match used to paint the contents of this result view. We copy
@@ -121,6 +136,10 @@ class AutocompleteResultView : public views::View {
   virtual void Paint(gfx::Canvas* canvas);
   virtual void Layout();
   virtual gfx::Size GetPreferredSize();
+
+  // Returns the preferred height for a single row.
+  static int GetPreferredHeight(const gfx::Font& font,
+                                const gfx::Font& bold_font);
 
  private:
   // Precalculated data used to draw the portion of a match classification that
@@ -186,9 +205,8 @@ class AutocompleteResultView : public views::View {
   AutocompleteResultViewModel* model_;
   size_t model_index_;
 
-  // The fonts used to render the text in this row.
-  gfx::Font normal_font_;
-  gfx::Font bold_font_;
+  const gfx::Font normal_font_;
+  const gfx::Font bold_font_;
 
   // Width of the ellipsis in the normal font.
   int ellipsis_width_;
@@ -250,11 +268,12 @@ class AutocompleteResultView::MirroringContext {
 AutocompleteResultView::AutocompleteResultView(
     AutocompleteResultViewModel* model,
     int model_index,
-    const gfx::Font& font)
+    const gfx::Font& font,
+    const gfx::Font& bold_font)
     : model_(model),
       model_index_(model_index),
       normal_font_(font),
-      bold_font_(normal_font_.DeriveFont(0, gfx::Font::BOLD)),
+      bold_font_(bold_font),
       ellipsis_width_(font.GetStringWidth(kEllipsis)),
       mirroring_context_(new MirroringContext()),
       match_(NULL, 0, false, AutocompleteMatch::URL_WHAT_YOU_TYPED) {
@@ -305,20 +324,27 @@ void AutocompleteResultView::Paint(gfx::Canvas* canvas) {
 }
 
 void AutocompleteResultView::Layout() {
-  icon_bounds_.SetRect(LocationBarView::kItemPadding,
+  icon_bounds_.SetRect(LocationBarView::kEdgeItemPadding,
                        (height() - icon_size_) / 2, icon_size_, icon_size_);
   int text_x = icon_bounds_.right() + LocationBarView::kItemPadding;
-  int font_height = std::max(normal_font_.height(), bold_font_.height());
+  int font_height = std::max(normal_font_.GetHeight(), bold_font_.GetHeight());
   text_bounds_.SetRect(text_x, std::max(0, (height() - font_height) / 2),
-      std::max(0, bounds().width() - text_x - LocationBarView::kItemPadding),
-      font_height);
+      std::max(bounds().width() - text_x - LocationBarView::kEdgeItemPadding,
+      0), font_height);
 }
 
 gfx::Size AutocompleteResultView::GetPreferredSize() {
-  int text_height = std::max(normal_font_.height(), bold_font_.height()) +
+  return gfx::Size(0, GetPreferredHeight(normal_font_, bold_font_));
+}
+
+// static
+int AutocompleteResultView::GetPreferredHeight(
+    const gfx::Font& font,
+    const gfx::Font& bold_font) {
+  int text_height = std::max(font.GetHeight(), bold_font.GetHeight()) +
       (kTextVerticalPadding * 2);
   int icon_height = icon_size_ + (kIconVerticalPadding * 2);
-  return gfx::Size(0, std::max(icon_height, text_height));
+  return std::max(icon_height, text_height);
 }
 
 // static
@@ -497,7 +523,7 @@ int AutocompleteResultView::DrawString(
          j != i->classifications.end(); ++j) {
       int left = mirroring_context_->mirrored_left_coord(x, x + j->pixel_width);
       canvas->DrawStringInt(j->text, *j->font, j->color, left, y,
-                            j->pixel_width, j->font->height(), flags);
+                            j->pixel_width, j->font->GetHeight(), flags);
       x += j->pixel_width;
     }
   }
@@ -602,6 +628,7 @@ AutocompletePopupContentsView::AutocompletePopupContentsView(
       edit_view_(edit_view),
       location_bar_(location_bar),
       result_font_(font.DeriveFont(kEditFontAdjust)),
+      result_bold_font_(result_font_.DeriveFont(0, gfx::Font::BOLD)),
       ignore_mouse_drag_(false),
       ALLOW_THIS_IN_INITIALIZER_LIST(size_animation_(this)) {
   // The following little dance is required because set_border() requires a
@@ -666,7 +693,8 @@ void AutocompletePopupContentsView::UpdatePopupAppearance() {
   for (size_t i = 0; i < model_->result().size(); ++i) {
     AutocompleteResultView* result_view;
     if (i >= child_view_count) {
-      result_view = new AutocompleteResultView(this, i, result_font_);
+      result_view =
+          new AutocompleteResultView(this, i, result_font_, result_bold_font_);
       AddChildView(result_view);
     } else {
       result_view = static_cast<AutocompleteResultView*>(GetChildViewAt(i));
@@ -675,26 +703,7 @@ void AutocompletePopupContentsView::UpdatePopupAppearance() {
     total_child_height += result_view->GetPreferredSize().height();
   }
 
-  // Calculate desired bounds.
-  gfx::Rect location_bar_bounds(gfx::Point(), location_bar_->size());
-  const views::Border* border = location_bar_->border();
-  if (border) {
-    // Adjust for the border so that the bubble and location bar borders are
-    // aligned.
-    gfx::Insets insets;
-    border->GetInsets(&insets);
-    location_bar_bounds.Inset(insets.left(), 0, insets.right(), 0);
-  } else {
-    // The normal location bar is drawn using a background graphic that includes
-    // the border, so we inset by enough to make the edges line up, and the
-    // bubble appear at the same height as the Star bubble.
-    location_bar_bounds.Inset(LocationBarView::kEdgeThickness, 0);
-  }
-  gfx::Point location_bar_origin(location_bar_bounds.origin());
-  views::View::ConvertPointToScreen(location_bar_, &location_bar_origin);
-  location_bar_bounds.set_origin(location_bar_origin);
-  gfx::Rect new_target_bounds(bubble_border_->GetBounds(location_bar_bounds,
-      gfx::Size(location_bar_bounds.width(), total_child_height)));
+  gfx::Rect new_target_bounds = CalculateTargetBounds(total_child_height);
 
   // If we're animating and our target height changes, reset the animation.
   // NOTE: If we just reset blindly on _every_ update, then when the user types
@@ -721,6 +730,10 @@ void AutocompletePopupContentsView::UpdatePopupAppearance() {
   SchedulePaint();
 }
 
+gfx::Rect AutocompletePopupContentsView::GetTargetBounds() {
+  return target_bounds_;
+}
+
 void AutocompletePopupContentsView::PaintUpdatesNow() {
   // TODO(beng): remove this from the interface.
 }
@@ -731,6 +744,15 @@ void AutocompletePopupContentsView::OnDragCanceled() {
 
 AutocompletePopupModel* AutocompletePopupContentsView::GetModel() {
   return model_.get();
+}
+
+int AutocompletePopupContentsView::GetMaxYCoordinate() {
+  // Add one to kMaxMatches to account for the history shortcut that may be
+  // added.
+  return CalculateTargetBounds(
+      (static_cast<int>(AutocompleteResult::kMaxMatches) + 1) *
+      AutocompleteResultView::GetPreferredHeight(
+          result_font_, result_bold_font_)).bottom();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -981,4 +1003,27 @@ size_t AutocompletePopupContentsView::GetIndexForPoint(
       return i;
   }
   return AutocompletePopupModel::kNoMatch;
+}
+
+gfx::Rect AutocompletePopupContentsView::CalculateTargetBounds(int h) {
+  gfx::Rect location_bar_bounds(gfx::Point(), location_bar_->size());
+  const views::Border* border = location_bar_->border();
+  if (border) {
+    // Adjust for the border so that the bubble and location bar borders are
+    // aligned.
+    gfx::Insets insets;
+    border->GetInsets(&insets);
+    location_bar_bounds.Inset(insets.left(), 0, insets.right(), 0);
+  } else {
+    // The normal location bar is drawn using a background graphic that includes
+    // the border, so we inset by enough to make the edges line up, and the
+    // bubble appear at the same height as the Star bubble.
+    location_bar_bounds.Inset(LocationBarView::kNormalHorizontalEdgeThickness,
+                              0);
+  }
+  gfx::Point location_bar_origin(location_bar_bounds.origin());
+  views::View::ConvertPointToScreen(location_bar_, &location_bar_origin);
+  location_bar_bounds.set_origin(location_bar_origin);
+  return bubble_border_->GetBounds(
+      location_bar_bounds, gfx::Size(location_bar_bounds.width(), h));
 }

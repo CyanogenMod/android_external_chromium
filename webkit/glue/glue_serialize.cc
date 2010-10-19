@@ -15,11 +15,11 @@
 #include "third_party/WebKit/WebKit/chromium/public/WebPoint.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebSerializedScriptValue.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebString.h"
+#include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebVector.h"
 #include "webkit/glue/webkit_glue.h"
 
 using WebKit::WebData;
-using WebKit::WebFileInfo;
 using WebKit::WebHistoryItem;
 using WebKit::WebHTTPBody;
 using WebKit::WebPoint;
@@ -56,12 +56,13 @@ struct SerializeObject {
 // 7: Adds support for stateObject
 // 8: Adds support for file range and modification time
 // 9: Adds support for itemSequenceNumbers
+// 10: Adds support for blob
 // Should be const, but unit tests may modify it.
 //
 // NOTE: If the version is -1, then the pickle contains only a URL string.
 // See CreateHistoryStateForURL.
 //
-int kVersion = 9;
+int kVersion = 10;
 
 // A bunch of convenience functions to read/write to SerializeObjects.
 // The serializers assume the input data is in the correct format and so does
@@ -191,7 +192,9 @@ inline WebString ReadString(const SerializeObject* obj) {
 
   // In version 2, the length field was the length in WebUChars.
   // In version 1 and 3 it is the length in bytes.
-  int bytes = ((obj->version == 2) ? length * sizeof(WebUChar) : length);
+  int bytes = length;
+  if (obj->version == 2)
+    bytes *= sizeof(WebUChar);
 
   const void* data;
   if (!ReadBytes(obj, &data, bytes))
@@ -232,11 +235,13 @@ static void WriteFormData(const WebHTTPBody& http_body, SerializeObject* obj) {
     if (element.type == WebHTTPBody::Element::TypeData) {
       WriteData(element.data.data(), static_cast<int>(element.data.size()),
                 obj);
-    } else {
+    } else if (element.type == WebHTTPBody::Element::TypeFile) {
       WriteString(element.filePath, obj);
       WriteInteger64(element.fileStart, obj);
       WriteInteger64(element.fileLength, obj);
-      WriteReal(element.fileInfo.modificationTime, obj);
+      WriteReal(element.modificationTime, obj);
+    } else {
+      WriteGURL(element.blobURL, obj);
     }
   }
   WriteInteger64(http_body.identifier(), obj);
@@ -263,17 +268,21 @@ static WebHTTPBody ReadFormData(const SerializeObject* obj) {
       ReadData(obj, &data, &length);
       if (length >= 0)
         http_body.appendData(WebData(static_cast<const char*>(data), length));
-    } else {
+    } else if (type == WebHTTPBody::Element::TypeFile) {
       WebString file_path = ReadString(obj);
       long long file_start = 0;
       long long file_length = -1;
-      WebFileInfo file_info;
+      double modification_time = 0.0;
       if (obj->version >= 8) {
         file_start = ReadInteger64(obj);
         file_length = ReadInteger64(obj);
-        file_info.modificationTime = ReadReal(obj);
+        modification_time = ReadReal(obj);
       }
-      http_body.appendFileRange(file_path, file_start, file_length, file_info);
+      http_body.appendFileRange(file_path, file_start, file_length,
+                                modification_time);
+    } else if (obj->version >= 10) {
+      GURL blob_url = ReadGURL(obj);
+      http_body.appendBlob(blob_url);
     }
   }
   if (obj->version >= 4)

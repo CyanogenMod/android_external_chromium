@@ -9,10 +9,19 @@
 #include "base/ref_counted.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
+#include "net/base/sys_addrinfo.h"
 
 namespace net {
 
 namespace {
+
+char* do_strdup(const char* src) {
+#if defined(OS_WIN)
+  return _strdup(src);
+#else
+  return strdup(src);
+#endif
+}
 
 // Fills |*addrlist| with a socket address for |host| which should be an
 // IPv4 or IPv6 literal without enclosing brackets. If |canonical_name| is
@@ -27,15 +36,10 @@ int CreateIPAddress(const std::string& host,
     return ERR_UNEXPECTED;
   }
 
-  if (ip_number.size() == 4) {
-    *addrlist = AddressList::CreateIPv4Address(&ip_number[0], canonical_name);
-  } else if (ip_number.size() == 16) {
-    *addrlist = AddressList::CreateIPv6Address(&ip_number[0], canonical_name);
-  } else {
-    NOTREACHED();
-    return ERR_UNEXPECTED;
-  }
-
+  AddressList result(ip_number, -1, false);
+  struct addrinfo* ai = const_cast<struct addrinfo*>(result.head());
+  ai->ai_canonname = do_strdup(canonical_name.c_str());
+  *addrlist = result;
   return OK;
 }
 
@@ -98,7 +102,7 @@ void MockHostResolverBase::Reset(HostResolverProc* interceptor) {
         base::TimeDelta::FromSeconds(0));
   }
 
-  impl_ = new HostResolverImpl(proc, cache, 50u);
+  impl_ = new HostResolverImpl(proc, cache, 50u, NULL);
 }
 
 //-----------------------------------------------------------------------------
@@ -152,8 +156,10 @@ void RuleBasedHostResolverProc::AddRuleForAddressFamily(
     AddressFamily address_family,
     const std::string& replacement) {
   DCHECK(!replacement.empty());
-  Rule rule(Rule::kResolverTypeSystem, host_pattern,
-            address_family, 0, replacement, "", 0);
+  HostResolverFlags flags = HOST_RESOLVER_LOOPBACK_ONLY |
+      HOST_RESOLVER_DEFAULT_FAMILY_SET_DUE_TO_NO_IPV6;
+  Rule rule(Rule::kResolverTypeSystem, host_pattern, address_family, flags,
+            replacement, "", 0);
   rules_.push_back(rule);
 }
 
@@ -161,13 +167,16 @@ void RuleBasedHostResolverProc::AddIPLiteralRule(
     const std::string& host_pattern,
     const std::string& ip_literal,
     const std::string& canonical_name) {
-  Rule rule(Rule::kResolverTypeIPLiteral,
-            host_pattern,
-            ADDRESS_FAMILY_UNSPECIFIED,
-            canonical_name.empty() ? 0 : HOST_RESOLVER_CANONNAME,
-            ip_literal,
-            canonical_name,
-            0);
+  // Literals are always resolved to themselves by HostResolverImpl,
+  // consequently we do not support remapping them.
+  IPAddressNumber ip_number;
+  DCHECK(!ParseIPLiteralToNumber(host_pattern, &ip_number));
+  HostResolverFlags flags = HOST_RESOLVER_LOOPBACK_ONLY |
+      HOST_RESOLVER_DEFAULT_FAMILY_SET_DUE_TO_NO_IPV6;
+  if (!canonical_name.empty())
+    flags |= HOST_RESOLVER_CANONNAME;
+  Rule rule(Rule::kResolverTypeIPLiteral, host_pattern,
+            ADDRESS_FAMILY_UNSPECIFIED, flags, ip_literal, canonical_name, 0);
   rules_.push_back(rule);
 }
 
@@ -176,22 +185,28 @@ void RuleBasedHostResolverProc::AddRuleWithLatency(
     const std::string& replacement,
     int latency_ms) {
   DCHECK(!replacement.empty());
-  Rule rule(Rule::kResolverTypeSystem, host_pattern,
-            ADDRESS_FAMILY_UNSPECIFIED, 0, replacement, "", latency_ms);
+  HostResolverFlags flags = HOST_RESOLVER_LOOPBACK_ONLY |
+      HOST_RESOLVER_DEFAULT_FAMILY_SET_DUE_TO_NO_IPV6;
+  Rule rule(Rule::kResolverTypeSystem, host_pattern, ADDRESS_FAMILY_UNSPECIFIED,
+            flags, replacement, "", latency_ms);
   rules_.push_back(rule);
 }
 
 void RuleBasedHostResolverProc::AllowDirectLookup(
     const std::string& host_pattern) {
-  Rule rule(Rule::kResolverTypeSystem, host_pattern,
-            ADDRESS_FAMILY_UNSPECIFIED, 0, "", "", 0);
+  HostResolverFlags flags = HOST_RESOLVER_LOOPBACK_ONLY |
+      HOST_RESOLVER_DEFAULT_FAMILY_SET_DUE_TO_NO_IPV6;
+  Rule rule(Rule::kResolverTypeSystem, host_pattern, ADDRESS_FAMILY_UNSPECIFIED,
+            flags, "", "", 0);
   rules_.push_back(rule);
 }
 
 void RuleBasedHostResolverProc::AddSimulatedFailure(
     const std::string& host_pattern) {
-  Rule rule(Rule::kResolverTypeFail, host_pattern,
-            ADDRESS_FAMILY_UNSPECIFIED, 0, "", "", 0);
+  HostResolverFlags flags = HOST_RESOLVER_LOOPBACK_ONLY |
+      HOST_RESOLVER_DEFAULT_FAMILY_SET_DUE_TO_NO_IPV6;
+  Rule rule(Rule::kResolverTypeFail, host_pattern, ADDRESS_FAMILY_UNSPECIFIED,
+            flags, "", "", 0);
   rules_.push_back(rule);
 }
 
@@ -212,7 +227,7 @@ int RuleBasedHostResolverProc::Resolve(const std::string& host,
     bool matches_flags = (r->host_resolver_flags & host_resolver_flags) ==
         host_resolver_flags;
     if (matches_flags && matches_address_family &&
-        MatchPatternASCII(host, r->host_pattern)) {
+        MatchPattern(host, r->host_pattern)) {
       if (r->latency_ms != 0)
         PlatformThread::Sleep(r->latency_ms);
 

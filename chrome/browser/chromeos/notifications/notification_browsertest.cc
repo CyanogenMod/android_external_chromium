@@ -5,6 +5,11 @@
 #include "app/x11_util.h"
 #include "base/message_loop.h"
 #include "base/ref_counted.h"
+#include "base/scoped_ptr.h"
+#include "base/string16.h"
+#include "base/string_util.h"
+#include "base/stringprintf.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/notifications/balloon_collection_impl.h"
@@ -26,6 +31,7 @@ class MockNotificationDelegate : public NotificationDelegate {
   virtual void Display() {}
   virtual void Error() {}
   virtual void Close(bool by_user) {}
+  virtual void Click() {}
   virtual std::string id() const { return id_; }
 
  private:
@@ -48,6 +54,10 @@ class NotificationTest : public InProcessBrowserTest,
       : under_chromeos_(false),
         state_(PanelController::INITIAL),
         expected_(PanelController::INITIAL) {
+  }
+
+  void HandleDOMUIMessage(const ListValue* value) {
+    MessageLoop::current()->Quit();
   }
 
  protected:
@@ -249,7 +259,7 @@ IN_PROC_BROWSER_TEST_F(NotificationTest, TestSystemNotification) {
   // Dismiss the notification.
   // TODO(oshima): Consider updating API to Remove(NotificationDelegate)
   // or Remove(std::string id);
-  collection->Remove(Notification(GURL(), GURL(), std::wstring(), string16(),
+  collection->Remove(Notification(GURL(), GURL(), string16(), string16(),
                                   delegate.get()));
   ui_test_utils::RunAllPendingInMessageLoop();
 
@@ -414,7 +424,8 @@ IN_PROC_BROWSER_TEST_F(NotificationTest, TestCloseOpen) {
   EXPECT_EQ(NotificationPanel::CLOSED, tester->state());
 }
 
-IN_PROC_BROWSER_TEST_F(NotificationTest, TestScrollBalloonToVisible) {
+// TODO(oshima): bug chromium-os:7139 Fix this flaky test on ChromeOS.
+IN_PROC_BROWSER_TEST_F(NotificationTest, FLAKY_TestScrollBalloonToVisible) {
   BalloonCollectionImpl* collection = GetBalloonCollectionImpl();
   NotificationPanel* panel = GetNotificationPanel();
   NotificationPanelTester* tester = panel->GetTester();
@@ -426,8 +437,8 @@ IN_PROC_BROWSER_TEST_F(NotificationTest, TestScrollBalloonToVisible) {
   // new notification is always visible
   for (int i = 0; i < create_count; i++) {
     {
-      SCOPED_TRACE(StringPrintf("new n%d", i));
-      std::string id = StringPrintf("n%d", i);
+      SCOPED_TRACE(base::StringPrintf("new n%d", i));
+      std::string id = base::StringPrintf("n%d", i);
       collection->Add(NewMockNotification(id), profile);
       EXPECT_EQ(NotificationPanel::STICKY_AND_NEW, tester->state());
       BalloonViewImpl* view =
@@ -436,8 +447,8 @@ IN_PROC_BROWSER_TEST_F(NotificationTest, TestScrollBalloonToVisible) {
       EXPECT_TRUE(tester->IsVisible(view));
     }
     {
-      SCOPED_TRACE(StringPrintf("new s%d", i));
-      std::string id = StringPrintf("s%d", i);
+      SCOPED_TRACE(base::StringPrintf("new s%d", i));
+      std::string id = base::StringPrintf("s%d", i);
       collection->AddSystemNotification(
           NewMockNotification(id), browser()->profile(), true, false);
       ui_test_utils::RunAllPendingInMessageLoop();
@@ -450,8 +461,8 @@ IN_PROC_BROWSER_TEST_F(NotificationTest, TestScrollBalloonToVisible) {
   // Update should not change the visibility
   for (int i = 0; i < create_count; i++) {
     {
-      SCOPED_TRACE(StringPrintf("update n%d", i));
-      Notification notify = NewMockNotification(StringPrintf("n%d", i));
+      SCOPED_TRACE(base::StringPrintf("update n%d", i));
+      Notification notify = NewMockNotification(base::StringPrintf("n%d", i));
       // The last shown notification is sticky, which makes all non sticky
       // invisible.
       EXPECT_TRUE(collection->UpdateNotification(notify));
@@ -460,8 +471,8 @@ IN_PROC_BROWSER_TEST_F(NotificationTest, TestScrollBalloonToVisible) {
       EXPECT_FALSE(tester->IsVisible(view));
     }
     {
-      SCOPED_TRACE(StringPrintf("update s%d", i));
-      Notification notify = NewMockNotification(StringPrintf("s%d", i));
+      SCOPED_TRACE(base::StringPrintf("update s%d", i));
+      Notification notify = NewMockNotification(base::StringPrintf("s%d", i));
       BalloonViewImpl* view = tester->GetBalloonView(collection, notify);
       bool currently_visible = tester->IsVisible(view);
       EXPECT_TRUE(collection->UpdateNotification(notify));
@@ -473,16 +484,16 @@ IN_PROC_BROWSER_TEST_F(NotificationTest, TestScrollBalloonToVisible) {
   // UpdateAndShowNotification makes notification visible
   for (int i = 0; i < create_count; i++) {
     {
-      SCOPED_TRACE(StringPrintf("update and show n%d", i));
-      Notification notify = NewMockNotification(StringPrintf("n%d", i));
+      SCOPED_TRACE(base::StringPrintf("update and show n%d", i));
+      Notification notify = NewMockNotification(base::StringPrintf("n%d", i));
       EXPECT_TRUE(collection->UpdateAndShowNotification(notify));
       ui_test_utils::RunAllPendingInMessageLoop();
       BalloonViewImpl* view = tester->GetBalloonView(collection, notify);
       EXPECT_TRUE(tester->IsVisible(view));
     }
     {
-      SCOPED_TRACE(StringPrintf("update and show s%d", i));
-      Notification notify = NewMockNotification(StringPrintf("s%d", i));
+      SCOPED_TRACE(base::StringPrintf("update and show s%d", i));
+      Notification notify = NewMockNotification(base::StringPrintf("s%d", i));
       EXPECT_TRUE(collection->UpdateAndShowNotification(notify));
       ui_test_utils::RunAllPendingInMessageLoop();
       BalloonViewImpl* view = tester->GetBalloonView(collection, notify);
@@ -544,6 +555,60 @@ IN_PROC_BROWSER_TEST_F(NotificationTest, TestCloseDismissAllNonSticky) {
   ui_test_utils::RunAllPendingInMessageLoop();
   EXPECT_EQ(1, tester->GetNotificationCount());
   EXPECT_EQ(1, tester->GetStickyNotificationCount());
+}
+
+IN_PROC_BROWSER_TEST_F(NotificationTest, TestAddDOMUIMessageCallback) {
+  BalloonCollectionImpl* collection = GetBalloonCollectionImpl();
+  Profile* profile = browser()->profile();
+
+  collection->AddSystemNotification(
+      NewMockNotification("1"), profile, false, false);
+
+  EXPECT_TRUE(collection->AddDOMUIMessageCallback(
+      NewMockNotification("1"),
+      "test",
+      NewCallback(
+          static_cast<NotificationTest*>(this),
+          &NotificationTest::HandleDOMUIMessage)));
+
+  // Adding callback for the same message twice should fail.
+  EXPECT_FALSE(collection->AddDOMUIMessageCallback(
+      NewMockNotification("1"),
+      "test",
+      NewCallback(
+          static_cast<NotificationTest*>(this),
+          &NotificationTest::HandleDOMUIMessage)));
+
+  // Adding callback to nonexistent notification should fail.
+  EXPECT_FALSE(collection->AddDOMUIMessageCallback(
+      NewMockNotification("2"),
+      "test1",
+      NewCallback(
+          static_cast<NotificationTest*>(this),
+          &NotificationTest::HandleDOMUIMessage)));
+}
+
+IN_PROC_BROWSER_TEST_F(NotificationTest, TestDOMUIMessageCallback) {
+  BalloonCollectionImpl* collection = GetBalloonCollectionImpl();
+  Profile* profile = browser()->profile();
+  // a notification that sends 'test' domui message back to chrome.
+  const GURL content_url(
+      "data:text/html;charset=utf-8,"
+      "<html><script>function send() { chrome.send('test', ['']); }</script>"
+      "<body onload='send()'></body></html>");
+  collection->AddSystemNotification(
+      Notification(GURL(), content_url, string16(), string16(),
+                   new MockNotificationDelegate("1")),
+      profile,
+      false,
+      false);
+  EXPECT_TRUE(collection->AddDOMUIMessageCallback(
+      NewMockNotification("1"),
+      "test",
+      NewCallback(
+          static_cast<NotificationTest*>(this),
+          &NotificationTest::HandleDOMUIMessage)));
+  MessageLoop::current()->Run();
 }
 
 }  // namespace chromeos

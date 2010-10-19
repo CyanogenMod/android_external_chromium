@@ -4,10 +4,8 @@
 
 #ifndef CHROME_BROWSER_VIEWS_INFOBARS_AFTER_TRANSLATE_INFOBAR_H_
 #define CHROME_BROWSER_VIEWS_INFOBARS_AFTER_TRANSLATE_INFOBAR_H_
+#pragma once
 
-#include <string>
-
-#include "app/menus/simple_menu_model.h"
 #include "chrome/browser/translate/languages_menu_model.h"
 #include "chrome/browser/translate/options_menu_model.h"
 #include "chrome/browser/translate/translate_infobar_view.h"
@@ -24,9 +22,8 @@ class Menu2;
 class MenuButton;
 }
 
-class AfterTranslateInfoBar :
-      public TranslateInfoBarBase,
-      public views::ViewMenuDelegate {
+class AfterTranslateInfoBar : public TranslateInfoBarBase,
+                              public views::ViewMenuDelegate {
  public:
   explicit AfterTranslateInfoBar(TranslateInfoBarDelegate* delegate);
   virtual ~AfterTranslateInfoBar();

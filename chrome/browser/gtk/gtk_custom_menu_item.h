@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_GTK_CUSTOM_MENU_ITEM_H_
 #define CHROME_BROWSER_GTK_GTK_CUSTOM_MENU_ITEM_H_
+#pragma once
 
 // GtkCustomMenuItem is a GtkMenuItem subclass that has buttons in it and acts
 // to support this. GtkCustomMenuItems only render properly when put in a
@@ -121,6 +122,19 @@ void gtk_custom_menu_item_select_item_by_direction(
 // events.
 gboolean gtk_custom_menu_item_is_in_clickable_region(
     GtkCustomMenuItem* menu_item);
+
+// If the button is released while the |currently_selected_button| isn't
+// supposed to dismiss the menu, this signals to our listeners that we want to
+// run this command if it doesn't dismiss the menu.  Returns TRUE if we acted
+// on this button click (and should prevent the normal GtkMenu machinery from
+// firing an "activate" signal).
+gboolean gtk_custom_menu_item_try_no_dismiss_command(
+    GtkCustomMenuItem* menu_item);
+
+// Calls |callback| with every button and button-label in the container.
+void gtk_custom_menu_item_foreach_button(GtkCustomMenuItem* menu_item,
+                                         GtkCallback callback,
+                                         gpointer callback_data);
 
 G_END_DECLS
 

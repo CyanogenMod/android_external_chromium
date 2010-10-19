@@ -72,11 +72,11 @@ cr.define('bmm', function() {
       this.addEventListener('mousedown', this.handleMouseDown_);
 
       // HACK(arv): http://crbug.com/40902
-      window.addEventListener('resize', cr.bind(this.redraw, this));
+      window.addEventListener('resize', this.redraw.bind(this));
 
       // We could add the ContextMenuButton in the BookmarkListItem but it slows
       // down redraws a lot so we do this on mouseovers instead.
-      this.addEventListener('mouseover', cr.bind(this.handleMouseOver_, this));
+      this.addEventListener('mouseover', this.handleMouseOver_.bind(this));
     },
 
     createItem: function(bookmarkNode) {
@@ -110,7 +110,7 @@ cr.define('bmm', function() {
     reload: function() {
       var parentId = this.parentId;
 
-      var callback = cr.bind(this.handleBookmarkCallback_, this);
+      var callback = this.handleBookmarkCallback_.bind(this);
       this.loading_ = true;
 
       if (!parentId) {
@@ -205,7 +205,7 @@ cr.define('bmm', function() {
         var node = el.bookmarkNode;
         if (!bmm.isFolder(node)) {
           var event = new cr.Event('urlClicked', true, false);
-          event.url = url;
+          event.url = node.url;
           event.originalEvent = e;
           this.dispatchEvent(event);
         }
@@ -509,12 +509,16 @@ cr.define('bmm', function() {
         }
 
       } else {
-
         // Check that we have a valid URL and if not we do not change the
         // editing mode.
         if (!isFolder) {
           var urlInput = this.querySelector('.url input');
           var newUrl = urlInput.value;
+          if (!newUrl) {
+            cr.dispatchSimpleEvent(this, 'canceledit', true);
+            return;
+          }
+
           if (!urlInput.validity.valid) {
             // WebKit does not do URL fix up so we manually test if prepending
             // 'http://' would make the URL valid.
@@ -527,6 +531,12 @@ cr.define('bmm', function() {
               // In case the item was removed before getting here we should
               // not alert.
               if (listItem.parentNode) {
+                // Select the item again.
+                var dataModel = this.parentNode.dataModel;
+                var index = dataModel.indexOf(this.bookmarkNode);
+                var sm = this.parentNode.selectionModel;
+                sm.selectedIndex = sm.leadIndex = sm.anchorIndex = index;
+
                 alert(localStrings.getString('invalid_url'));
               }
               urlInput.focus();

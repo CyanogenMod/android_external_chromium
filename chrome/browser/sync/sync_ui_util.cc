@@ -6,10 +6,10 @@
 
 #include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/google_service_auth_error.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/options_window.h"
+#include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 
@@ -27,7 +27,10 @@ void GetStatusLabelsForAuthError(const AuthError& auth_error,
     string16* link_label) {
   if (link_label)
     link_label->assign(l10n_util::GetStringUTF16(IDS_SYNC_RELOGIN_LINK_LABEL));
-  if (auth_error.state() == AuthError::INVALID_GAIA_CREDENTIALS) {
+  if (auth_error.state() == AuthError::INVALID_GAIA_CREDENTIALS ||
+      auth_error.state() == AuthError::ACCOUNT_DELETED ||
+      auth_error.state() == AuthError::ACCOUNT_DISABLED ||
+      auth_error.state() == AuthError::SERVICE_UNAVAILABLE) {
     // If the user name is empty then the first login failed, otherwise the
     // credentials are out-of-date.
     if (service->GetAuthenticatedUsername().empty())
@@ -59,10 +62,9 @@ string16 GetSyncedStateStatusLabel(ProfileSyncService* service) {
   if (user_name.empty())
     return label;
 
-  return l10n_util::GetStringFUTF16(
-      IDS_SYNC_ACCOUNT_SYNCED_TO_USER_WITH_TIME,
-      user_name,
-      WideToUTF16(service->GetLastSyncedTimeString()));
+  return l10n_util::GetStringFUTF16(IDS_SYNC_ACCOUNT_SYNCED_TO_USER_WITH_TIME,
+                                    user_name,
+                                    service->GetLastSyncedTimeString());
 }
 
 // TODO(akalin): Write unit tests for these three functions below.
@@ -189,8 +191,8 @@ void OpenSyncMyBookmarksDialog(
   if (service->HasSyncSetupCompleted()) {
     ShowOptionsWindow(OPTIONS_PAGE_CONTENT, OPTIONS_GROUP_NONE, profile);
   } else {
-    service->EnableForUser(NULL);
-    ProfileSyncService::SyncEvent(code);
+    service->ShowLoginDialog(NULL);
+    ProfileSyncService::SyncEvent(code);  // UMA stats
   }
 }
 

@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_GLUE_CHANGE_PROCESSOR_H_
 #define CHROME_BROWSER_SYNC_GLUE_CHANGE_PROCESSOR_H_
+#pragma once
 
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/sync_backend_host.h"
@@ -42,6 +43,13 @@ class ChangeProcessor {
       const sync_api::BaseTransaction* trans,
       const sync_api::SyncManager::ChangeRecord* changes,
       int change_count) = 0;
+
+  // The changes found in ApplyChangesFromSyncModel may be too slow to be
+  // performed while holding a [Read/Write]Transaction lock. This function
+  // is called once the lock is released and performs any slow I/O operations
+  // without unnecessarily slowing the UI. Note that not all datatypes need
+  // this, so we provide an empty default version.
+  virtual void CommitChangesFromSyncModel() { }
 
  protected:
   // These methods are invoked by Start() and Stop() to do

@@ -25,8 +25,8 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TALK_BASE_COMMON_H__
-#define TALK_BASE_COMMON_H__
+#ifndef TALK_BASE_COMMON_H_
+#define TALK_BASE_COMMON_H_
 
 #include "talk/base/constructormagic.h"
 
@@ -128,4 +128,11 @@ inline bool ImplicitCastToBool(bool result) { return result; }
 #define CTA_MAKE_NAME(line)             MAKE_NAME2(line)
 #define CTA_MAKE_NAME2(line)            constraint_ ## line
 
-#endif // TALK_BASE_COMMON_H__
+#ifdef __GNUC__
+// Forces compiler to inline, even against its better judgement. Use wisely.
+#define FORCE_INLINE __attribute__((always_inline))
+#else
+#define FORCE_INLINE
+#endif
+
+#endif // TALK_BASE_COMMON_H_

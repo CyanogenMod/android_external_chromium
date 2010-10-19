@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_TASK_MANAGER_GTK_H_
 #define CHROME_BROWSER_GTK_TASK_MANAGER_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -11,8 +12,14 @@
 
 #include "app/gtk_signal.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/task_manager.h"
+#include "chrome/browser/task_manager/task_manager.h"
 #include "grit/generated_resources.h"
+
+#if defined(TOOLKIT_VIEWS)
+namespace gfx {
+class Point;
+}
+#endif
 
 class TaskManagerGtk : public TaskManagerModelObserver {
  public:
@@ -59,7 +66,11 @@ class TaskManagerGtk : public TaskManagerModelObserver {
   void KillSelectedProcesses();
 
   // Opens the context menu used to select the task manager columns.
+#if defined(TOOLKIT_VIEWS)
+  void ShowContextMenu(const gfx::Point& point);
+#else
   void ShowContextMenu();
+#endif
 
   // Activates the tab associated with the focused row.
   void ActivateFocusedTab();
@@ -166,6 +177,13 @@ class TaskManagerGtk : public TaskManagerModelObserver {
                                      GtkTreeIter* b, gpointer task_manager) {
     return reinterpret_cast<TaskManagerGtk*>(task_manager)->
         CompareImpl(model, a, b, IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN);
+  }
+
+  // Sqlite memory sorting callback.
+  static gint CompareSqliteMemoryUsed(GtkTreeModel* model, GtkTreeIter* a,
+                                      GtkTreeIter* b, gpointer task_manager) {
+    return reinterpret_cast<TaskManagerGtk*>(task_manager)->
+        CompareImpl(model, a, b, IDS_TASK_MANAGER_SQLITE_MEMORY_USED_COLUMN);
   }
 
   // Goats Teleported sorting callback.

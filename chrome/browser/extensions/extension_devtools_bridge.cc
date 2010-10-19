@@ -6,6 +6,7 @@
 
 #include "base/message_loop.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/extensions/extension_devtools_events.h"
 #include "chrome/browser/extensions/extension_devtools_manager.h"
@@ -65,7 +66,7 @@ void ExtensionDevToolsBridge::InspectedTabClosing() {
   // event in extensions.
   std::string json("[{}]");
   profile_->GetExtensionMessageService()->DispatchEventToRenderers(
-      on_tab_close_event_name_, json, profile_->IsOffTheRecord(), GURL());
+      on_tab_close_event_name_, json, profile_, GURL());
 
   // This may result in this object being destroyed.
   extension_devtools_manager_->BridgeClosingForTab(tab_id_);
@@ -73,22 +74,16 @@ void ExtensionDevToolsBridge::InspectedTabClosing() {
 
 void ExtensionDevToolsBridge::SendMessageToClient(const IPC::Message& msg) {
   IPC_BEGIN_MESSAGE_MAP(ExtensionDevToolsBridge, msg)
-    IPC_MESSAGE_HANDLER(DevToolsClientMsg_RpcMessage, OnRpcMessage);
+    IPC_MESSAGE_HANDLER(DevToolsClientMsg_DispatchToAPU, OnDispatchToAPU);
     IPC_MESSAGE_UNHANDLED_ERROR()
   IPC_END_MESSAGE_MAP()
 }
 
-static const char kApuAgentClassName[] = "ApuAgentDelegate";
-static const char kApuPageEventMessageName[] = "dispatchToApu";
-
-void ExtensionDevToolsBridge::OnRpcMessage(const DevToolsMessageData& data) {
+void ExtensionDevToolsBridge::OnDispatchToAPU(const std::string& data) {
   DCHECK_EQ(MessageLoop::current()->type(), MessageLoop::TYPE_UI);
 
-  if (data.class_name == kApuAgentClassName
-      && data.method_name == kApuPageEventMessageName) {
-    std::string json = StringPrintf("[%s]", data.arguments[0].c_str());
-    profile_->GetExtensionMessageService()->DispatchEventToRenderers(
-        on_page_event_name_, json, profile_->IsOffTheRecord(), GURL());
-  }
+  std::string json = base::StringPrintf("[%s]", data.c_str());
+  profile_->GetExtensionMessageService()->DispatchEventToRenderers(
+      on_page_event_name_, json, profile_, GURL());
 }
 

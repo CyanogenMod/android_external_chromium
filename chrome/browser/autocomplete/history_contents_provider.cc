@@ -7,6 +7,7 @@
 #include "base/callback.h"
 #include "base/histogram.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/history/query_parser.h"
@@ -48,6 +49,18 @@ bool CompareMatchRelevance(const MatchReference& a, const MatchReference& b) {
 }  // namespace
 
 using history::HistoryDatabase;
+
+HistoryContentsProvider::HistoryContentsProvider(ACProviderListener* listener,
+                                                 Profile* profile)
+    : AutocompleteProvider(listener, profile, "HistoryContents"),
+      star_title_count_(0),
+      star_contents_count_(0),
+      title_count_(0),
+      contents_count_(0),
+      input_type_(AutocompleteInput::INVALID),
+      trim_http_(false),
+      have_results_(false) {
+}
 
 void HistoryContentsProvider::Start(const AutocompleteInput& input,
                                     bool minimal_changes) {
@@ -135,6 +148,9 @@ void HistoryContentsProvider::Stop() {
   history::QueryResults empty_results;
   results_.Swap(&empty_results);
   have_results_ = false;
+}
+
+HistoryContentsProvider::~HistoryContentsProvider() {
 }
 
 void HistoryContentsProvider::QueryComplete(HistoryService::Handle handle,
@@ -267,8 +283,8 @@ void HistoryContentsProvider::QueryBookmarks(const AutocompleteInput& input) {
 
   TimeTicks start_time = TimeTicks::Now();
   std::vector<bookmark_utils::TitleMatch> matches;
-  bookmark_model->GetBookmarksWithTitlesMatching(input.text(), kMaxMatches,
-                                                 &matches);
+  bookmark_model->GetBookmarksWithTitlesMatching(WideToUTF16Hack(input.text()),
+                                                 kMaxMatches, &matches);
   for (size_t i = 0; i < matches.size(); ++i)
     AddBookmarkTitleMatchToResults(matches[i]);
   UMA_HISTOGRAM_TIMES("Omnibox.QueryBookmarksTime",
@@ -278,6 +294,6 @@ void HistoryContentsProvider::QueryBookmarks(const AutocompleteInput& input) {
 void HistoryContentsProvider::AddBookmarkTitleMatchToResults(
     const bookmark_utils::TitleMatch& match) {
   history::URLResult url_result(match.node->GetURL(), match.match_positions);
-  url_result.set_title(WideToUTF16(match.node->GetTitle()));
+  url_result.set_title(match.node->GetTitle());
   results_.AppendURLBySwapping(&url_result);
 }

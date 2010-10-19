@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_FIND_BAR_GTK_H_
 #define CHROME_BROWSER_GTK_FIND_BAR_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -11,10 +12,10 @@
 #include "base/scoped_ptr.h"
 #include "chrome/browser/find_bar.h"
 #include "chrome/browser/gtk/focus_store_gtk.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/gtk/slide_animator_gtk.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/owned_widget_gtk.h"
 #include "gfx/point.h"
 
 class Browser;
@@ -40,12 +41,8 @@ class FindBarGtk : public FindBar,
   GtkWidget* widget() const { return slide_widget_->widget(); }
 
   // Methods from FindBar.
-  virtual FindBarController* GetFindBarController() const {
-    return find_bar_controller_;
-  }
-  virtual void SetFindBarController(FindBarController* find_bar_controller) {
-    find_bar_controller_ = find_bar_controller;
-  }
+  virtual FindBarController* GetFindBarController() const;
+  virtual void SetFindBarController(FindBarController* find_bar_controller);
   virtual void Show(bool animate);
   virtual void Hide(bool animate);
   virtual void SetFocusAndSelection();

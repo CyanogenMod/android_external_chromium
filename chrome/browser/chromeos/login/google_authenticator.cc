@@ -22,10 +22,12 @@
 #include "chrome/browser/chromeos/login/auth_response_handler.h"
 #include "chrome/browser/chromeos/login/authentication_notification_details.h"
 #include "chrome/browser/chromeos/login/login_status_consumer.h"
+#include "chrome/browser/chromeos/login/ownership_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/profile_manager.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/net/gaia/gaia_authenticator2.h"
+#include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/notification_service.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
@@ -45,7 +47,7 @@ namespace chromeos {
 const char GoogleAuthenticator::kLocalaccountFile[] = "localaccount";
 
 // static
-const int GoogleAuthenticator::kClientLoginTimeoutMs = 5000;
+const int GoogleAuthenticator::kClientLoginTimeoutMs = 10000;
 // static
 const int GoogleAuthenticator::kLocalaccountRetryIntervalMs = 20;
 
@@ -57,21 +59,32 @@ GoogleAuthenticator::GoogleAuthenticator(LoginStatusConsumer* consumer)
       try_again_(true),
       checked_for_localaccount_(false) {
   CHECK(chromeos::CrosLibrary::Get()->EnsureLoaded());
+  // If not already owned, this is a no-op.  If it is, this loads the owner's
+  // public key off of disk.
+  OwnershipService::GetSharedInstance()->StartLoadOwnerKeyAttempt();
 }
 
 GoogleAuthenticator::~GoogleAuthenticator() {}
 
 void GoogleAuthenticator::CancelClientLogin() {
   if (gaia_authenticator_->HasPendingFetch()) {
+    LOG(INFO) << "Canceling ClientLogin attempt.";
     gaia_authenticator_->CancelRequest();
-    OnLoginFailure("Login has timed out; please try again!");
+
+    ChromeThread::PostTask(
+        ChromeThread::FILE, FROM_HERE,
+        NewRunnableMethod(this,
+                          &GoogleAuthenticator::LoadLocalaccount,
+                          std::string(kLocalaccountFile)));
+
+    CheckOffline(LoginFailure(LoginFailure::LOGIN_TIMED_OUT));
   }
 }
 
 void GoogleAuthenticator::TryClientLogin() {
   gaia_authenticator_->StartClientLogin(username_,
                                         password_,
-                                        GaiaAuthenticator2::kContactsService,
+                                        GaiaConstants::kContactsService,
                                         login_token_,
                                         login_captcha_);
   ChromeThread::PostDelayedTask(
@@ -114,7 +127,7 @@ bool GoogleAuthenticator::AuthenticateToLogin(
 
   gaia_authenticator_.reset(
       new GaiaAuthenticator2(this,
-                             GaiaAuthenticator2::kChromeOSSource,
+                             GaiaConstants::kChromeOSSource,
                              profile->GetRequestContext()));
   // Will be used for retries.
   PrepareClientLoginAttempt(password, login_token, login_captcha);
@@ -139,7 +152,7 @@ bool GoogleAuthenticator::AuthenticateToUnlock(const std::string& username,
     ChromeThread::PostTask(
         ChromeThread::UI, FROM_HERE,
         NewRunnableMethod(this, &GoogleAuthenticator::CheckOffline,
-                          std::string("unlock failed")));
+                          LoginFailure(LoginFailure::UNLOCK_FAILED)));
   }
   return true;
 }
@@ -155,8 +168,9 @@ void GoogleAuthenticator::LoginOffTheRecord() {
         Details<AuthenticationNotificationDetails>(&details));
     consumer_->OnOffTheRecordLoginSuccess();
   } else {
-    LOG(ERROR) << "Could not mount tmpfs cryptohome: " << mount_error;
-    consumer_->OnLoginFailure("Could not mount tmpfs cryptohome");
+    LOG(ERROR) << "Could not mount tmpfs: " << mount_error;
+    consumer_->OnLoginFailure(
+        LoginFailure(LoginFailure::COULD_NOT_MOUNT_TMPFS));
   }
 }
 
@@ -174,9 +188,9 @@ void GoogleAuthenticator::OnClientLoginSuccess(
 }
 
 void GoogleAuthenticator::OnClientLoginFailure(
-   const GaiaAuthConsumer::GaiaAuthError& error) {
+   const GoogleServiceAuthError& error) {
 
-  if (error.code == GaiaAuthConsumer::REQUEST_CANCELED) {
+  if (error.state() == GoogleServiceAuthError::REQUEST_CANCELED) {
     if (try_again_) {
       try_again_ = false;
       LOG(ERROR) << "Login attempt canceled!?!?  Trying again.";
@@ -188,7 +202,7 @@ void GoogleAuthenticator::OnClientLoginFailure(
 
   ClearClientLoginAttempt();
 
-  if (error.code == GaiaAuthConsumer::TWO_FACTOR) {
+  if (error.state() == GoogleServiceAuthError::TWO_FACTOR) {
     LOG(WARNING) << "Two factor authenticated. Sync will not work.";
     OnClientLoginSuccess(GaiaAuthConsumer::ClientLoginResult());
     return;
@@ -200,12 +214,14 @@ void GoogleAuthenticator::OnClientLoginFailure(
                         &GoogleAuthenticator::LoadLocalaccount,
                         std::string(kLocalaccountFile)));
 
-  if (error.code == GaiaAuthConsumer::NETWORK_ERROR) {
+  LoginFailure failure_details = LoginFailure::FromNetworkAuthFailure(error);
+
+  if (error.state() == GoogleServiceAuthError::CONNECTION_FAILED) {
     // The fetch failed for network reasons, try offline login.
     ChromeThread::PostTask(
         ChromeThread::UI, FROM_HERE,
         NewRunnableMethod(this, &GoogleAuthenticator::CheckOffline,
-                          net::ErrorToString(error.network_error)));
+                          failure_details));
     return;
   }
 
@@ -214,7 +230,7 @@ void GoogleAuthenticator::OnClientLoginFailure(
       ChromeThread::UI, FROM_HERE,
       NewRunnableMethod(this,
         &GoogleAuthenticator::CheckLocalaccount,
-        error.data));
+        failure_details));
 }
 
 void GoogleAuthenticator::OnLoginSuccess(
@@ -237,11 +253,11 @@ void GoogleAuthenticator::OnLoginSuccess(
              mount_error == chromeos::kCryptohomeMountErrorKeyFailure) {
     consumer_->OnPasswordChangeDetected(credentials);
   } else {
-    OnLoginFailure("Could not mount cryptohome");
+    OnLoginFailure(LoginFailure(LoginFailure::COULD_NOT_MOUNT_CRYPTOHOME));
   }
 }
 
-void GoogleAuthenticator::CheckOffline(const std::string& error) {
+void GoogleAuthenticator::CheckOffline(const LoginFailure& error) {
   LOG(INFO) << "Attempting offline login";
   if (CrosLibrary::Get()->GetCryptohomeLibrary()->CheckKey(
           username_.c_str(),
@@ -255,7 +271,7 @@ void GoogleAuthenticator::CheckOffline(const std::string& error) {
   }
 }
 
-void GoogleAuthenticator::CheckLocalaccount(const std::string& error) {
+void GoogleAuthenticator::CheckLocalaccount(const LoginFailure& error) {
   {
     AutoLock for_this_block(localaccount_lock_);
     LOG(INFO) << "Checking localaccount";
@@ -271,25 +287,30 @@ void GoogleAuthenticator::CheckLocalaccount(const std::string& error) {
     }
   }
   int mount_error = chromeos::kCryptohomeMountErrorNone;
-  if (!localaccount_.empty() && localaccount_ == username_ &&
-      CrosLibrary::Get()->GetCryptohomeLibrary()->MountForBwsi(&mount_error)) {
-    LOG(WARNING) << "Logging in with localaccount: " << localaccount_;
-    consumer_->OnLoginSuccess(username_, GaiaAuthConsumer::ClientLoginResult());
+  if (!localaccount_.empty() && localaccount_ == username_) {
+    if (CrosLibrary::Get()->GetCryptohomeLibrary()->MountForBwsi(
+        &mount_error)) {
+      LOG(WARNING) << "Logging in with localaccount: " << localaccount_;
+      consumer_->OnLoginSuccess(username_,
+                                GaiaAuthConsumer::ClientLoginResult());
+    } else {
+      LOG(ERROR) << "Could not mount tmpfs for local account: " << mount_error;
+      OnLoginFailure(
+          LoginFailure(LoginFailure::COULD_NOT_MOUNT_TMPFS));
+    }
   } else {
     OnLoginFailure(error);
   }
 }
 
-void GoogleAuthenticator::OnLoginFailure(const std::string& error) {
+void GoogleAuthenticator::OnLoginFailure(const LoginFailure& error) {
   // Send notification of failure
   AuthenticationNotificationDetails details(false);
   NotificationService::current()->Notify(
       NotificationType::LOGIN_AUTHENTICATION,
       NotificationService::AllSources(),
       Details<AuthenticationNotificationDetails>(&details));
-  LOG(WARNING) << "Login failed: " << error;
-  // TODO(cmasone): what can we do to expose these OS/server-side error strings
-  // in an internationalizable way?
+  LOG(WARNING) << "Login failed: " << error.GetErrorString();
   consumer_->OnLoginFailure(error);
 }
 
@@ -313,7 +334,7 @@ void GoogleAuthenticator::ResyncEncryptedData(
   if (CrosLibrary::Get()->GetCryptohomeLibrary()->Remove(username_)) {
     OnLoginSuccess(credentials);
   } else {
-    OnLoginFailure("Could not destroy your old data!");
+    OnLoginFailure(LoginFailure(LoginFailure::DATA_REMOVAL_FAILED));
   }
 }
 
@@ -411,21 +432,6 @@ bool GoogleAuthenticator::BinaryToHex(const std::vector<unsigned char>& binary,
   for (uint i = 0, j = 0; i < binary_len; i++, j+=2)
     snprintf(hex_string + j, len - j, "%02x", binary[i]);
   return true;
-}
-
-// static
-std::string GoogleAuthenticator::Canonicalize(
-    const std::string& email_address) {
-  std::vector<std::string> parts;
-  char at = '@';
-  SplitString(email_address, at, &parts);
-  DCHECK_EQ(parts.size(), 2U) << "email_address should have only one @";
-  RemoveChars(parts[0], ".", &parts[0]);
-  if (parts[0].find('+') != std::string::npos)
-    parts[0].erase(parts[0].find('+'));
-  std::string new_email = StringToLowerASCII(JoinString(parts, at));
-  LOG(INFO) << "Canonicalized " << email_address << " to " << new_email;
-  return new_email;
 }
 
 }  // namespace chromeos

@@ -8,6 +8,7 @@
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/time.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -41,8 +42,8 @@ const int kBlockSize = 1024;
 // number of the particular child.
 std::string GenerateChildName(const std::string& base_name, int64 signature,
                               int64 child_id) {
-  return StringPrintf("Range_%s:%" PRIx64 ":%" PRIx64, base_name.c_str(),
-                      signature, child_id);
+  return base::StringPrintf("Range_%s:%" PRIx64 ":%" PRIx64, base_name.c_str(),
+                            signature, child_id);
 }
 
 // This class deletes the children of a sparse entry.
@@ -51,7 +52,7 @@ class ChildrenDeleter
       public disk_cache::FileIOCallback {
  public:
   ChildrenDeleter(disk_cache::BackendImpl* backend, const std::string& name)
-      : backend_(backend), name_(name) {}
+      : backend_(backend->GetWeakPtr()), name_(name) {}
 
   virtual void OnFileIOComplete(int bytes_copied);
 
@@ -66,7 +67,7 @@ class ChildrenDeleter
 
   void DeleteChildren();
 
-  disk_cache::BackendImpl* backend_;
+  base::WeakPtr<disk_cache::BackendImpl> backend_;
   std::string name_;
   disk_cache::Bitmap children_map_;
   int64 signature_;
@@ -101,6 +102,9 @@ void ChildrenDeleter::Start(char* buffer, int len) {
 
 void ChildrenDeleter::ReadData(disk_cache::Addr address, int len) {
   DCHECK(address.is_block_file());
+  if (!backend_)
+    return Release();
+
   disk_cache::File* file(backend_->File(address));
   if (!file)
     return Release();
@@ -121,7 +125,7 @@ void ChildrenDeleter::ReadData(disk_cache::Addr address, int len) {
 
 void ChildrenDeleter::DeleteChildren() {
   int child_id = 0;
-  if (!children_map_.FindNextSetBit(&child_id)) {
+  if (!children_map_.FindNextSetBit(&child_id) || !backend_) {
     // We are done. Just delete this object.
     return Release();
   }

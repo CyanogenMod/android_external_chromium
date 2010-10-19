@@ -5,13 +5,15 @@
 #include "chrome/browser/translate/translate_manager.h"
 
 #include "app/resource_bundle.h"
+#include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/histogram.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -20,9 +22,11 @@
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_util.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/translate/page_translated_details.h"
 #include "chrome/browser/translate/translate_infobar_delegate.h"
 #include "chrome/browser/translate/translate_prefs.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_source.h"
@@ -187,6 +191,13 @@ void TranslateManager::Observe(NotificationType type,
         NOTREACHED();
         return;
       }
+      if (!load_details->is_main_frame &&
+          controller->tab_contents()->language_state().translation_declined()) {
+        // Some sites (such as Google map) may trigger sub-frame navigations
+        // when the user interacts with the page.  We don't want to show a new
+        // infobar if the user already dismissed one in that case.
+        return;
+      }
       if (entry->transition_type() != PageTransition::RELOAD &&
           load_details->type != NavigationType::SAME_PAGE) {
         return;
@@ -238,11 +249,11 @@ void TranslateManager::Observe(NotificationType type,
       // We should know about this profile since we are listening for
       // notifications on it.
       DCHECK(count > 0);
-      profile->GetPrefs()->RemovePrefObserver(prefs::kAcceptLanguages, this);
+      pref_change_registrar_.Remove(prefs::kAcceptLanguages, this);
       break;
     }
     case NotificationType::PREF_CHANGED: {
-      DCHECK(*Details<std::wstring>(details).ptr() == prefs::kAcceptLanguages);
+      DCHECK(*Details<std::string>(details).ptr() == prefs::kAcceptLanguages);
       PrefService* prefs = Source<PrefService>(source).ptr();
       InitAcceptLanguages(prefs);
       break;
@@ -331,6 +342,13 @@ void TranslateManager::InitiateTranslation(TabContents* tab,
   if (!prefs->GetBoolean(prefs::kEnableTranslate))
     return;
 
+  pref_change_registrar_.Init(prefs);
+
+  // Allow disabling of translate from the command line to assist with
+  // automated browser testing.
+  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kDisableTranslate))
+    return;
+
   NavigationEntry* entry = tab->controller().GetActiveEntry();
   if (!entry) {
     // This can happen for popups created with window.open("").
@@ -403,16 +421,17 @@ void TranslateManager::TranslatePage(TabContents* tab_contents,
     return;
   }
 
-  TranslateInfoBarDelegate* infobar = GetTranslateInfoBarDelegate(tab_contents);
-  if (infobar) {
-    // We don't show the translating infobar if no translate infobar is already
-    // showing (that is the case when the translation was triggered by the
-    // "always translate" for example).
-    infobar = TranslateInfoBarDelegate::CreateDelegate(
-        TranslateInfoBarDelegate::TRANSLATING, tab_contents,
-        source_lang, target_lang);
-    ShowInfoBar(tab_contents, infobar);
+  TranslateInfoBarDelegate* infobar = TranslateInfoBarDelegate::CreateDelegate(
+      TranslateInfoBarDelegate::TRANSLATING, tab_contents,
+      source_lang, target_lang);
+  if (!infobar) {
+    // This means the source or target languages are not supported, which should
+    // not happen as we won't show a translate infobar or have the translate
+    // context menu activated in such cases.
+    NOTREACHED();
+    return;
   }
+  ShowInfoBar(tab_contents, infobar);
 
   if (!translate_script_.empty()) {
     DoTranslatePage(tab_contents, translate_script_, source_lang, target_lang);
@@ -462,7 +481,8 @@ void TranslateManager::ReportLanguageDetectionError(TabContents* tab_contents) {
   }
   browser->AddTabWithURL(GURL(report_error_url), GURL(),
                          PageTransition::AUTO_BOOKMARK, -1,
-                         TabStripModel::ADD_SELECTED, NULL, std::string());
+                         TabStripModel::ADD_SELECTED, NULL, std::string(),
+                         NULL);
 }
 
 void TranslateManager::DoTranslatePage(TabContents* tab,
@@ -516,7 +536,7 @@ bool TranslateManager::IsAcceptLanguage(TabContents* tab,
     notification_registrar_.Add(this, NotificationType::PROFILE_DESTROYED,
                                 Source<Profile>(tab->profile()));
     // Also start listening for changes in the accept languages.
-    tab->profile()->GetPrefs()->AddPrefObserver(prefs::kAcceptLanguages, this);
+    pref_change_registrar_.Add(prefs::kAcceptLanguages, this);
 
     iter = accept_languages_.find(pref_service);
   }

@@ -4,6 +4,7 @@
 
 #ifndef NET_SOCKET_CLIENT_SOCKET_H_
 #define NET_SOCKET_CLIENT_SOCKET_H_
+#pragma once
 
 #include "net/socket/socket.h"
 
@@ -14,6 +15,8 @@ class BoundNetLog;
 
 class ClientSocket : public Socket {
  public:
+  virtual ~ClientSocket() {}
+
   // Called to establish a connection.  Returns OK if the connection could be
   // established synchronously.  Otherwise, ERR_IO_PENDING is returned and the
   // given callback will run asynchronously when the connection is established
@@ -49,10 +52,60 @@ class ClientSocket : public Socket {
   virtual bool IsConnectedAndIdle() const = 0;
 
   // Copies the peer address to |address| and returns a network error code.
+  // ERR_UNEXPECTED will be returned if the socket is not connected.
   virtual int GetPeerAddress(AddressList* address) const = 0;
 
   // Gets the NetLog for this socket.
   virtual const BoundNetLog& NetLog() const = 0;
+
+  // Set the annotation to indicate this socket was created for speculative
+  // reasons.  This call is generally forwarded to a basic TCPClientSocket*,
+  // where a UseHistory can be updated.
+  virtual void SetSubresourceSpeculation() = 0;
+  virtual void SetOmniboxSpeculation() = 0;
+
+  // Returns true if the underlying transport socket ever had any reads or
+  // writes.  ClientSockets layered on top of transport sockets should forward
+  // this call to the transport socket.
+  virtual bool WasEverUsed() const = 0;
+
+ protected:
+  // The following class is only used to gather statistics about the history of
+  // a socket.  It is only instantiated and used in basic sockets, such as
+  // TCPClientSocket* instances.  Other classes that are derived from
+  // ClientSocket should forward any potential settings to their underlying
+  // transport sockets.
+  class UseHistory {
+   public:
+    UseHistory();
+    ~UseHistory();
+
+    void set_was_ever_connected();
+    void set_was_used_to_convey_data();
+
+    // The next two setters only have any impact if the socket has not yet been
+    // used to transmit data.  If called later, we assume that the socket was
+    // reused from the pool, and was NOT constructed to service a speculative
+    // request.
+    void set_subresource_speculation();
+    void set_omnibox_speculation();
+
+    bool was_used_to_convey_data() const;
+
+   private:
+    // Summarize the statistics for this socket.
+    void EmitPreconnectionHistograms() const;
+    // Indicate if this was ever connected.
+    bool was_ever_connected_;
+    // Indicate if this socket was ever used to transmit or receive data.
+    bool was_used_to_convey_data_;
+
+    // Indicate if this socket was first created for speculative use, and
+    // identify the motivation.
+    bool omnibox_speculation_;
+    bool subresource_speculation_;
+    DISALLOW_COPY_AND_ASSIGN(UseHistory);
+  };
 };
 
 }  // namespace net

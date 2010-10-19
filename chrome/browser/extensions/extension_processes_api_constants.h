@@ -6,11 +6,12 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_PROCESSES_API_CONSTANTS_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_PROCESSES_API_CONSTANTS_H_
+#pragma once
 
 namespace extension_processes_api_constants {
 
 // Keys used in serializing tab data & events.
-extern const wchar_t kIdKey[];
+extern const char kIdKey[];
 
 };  // namespace extension_processes_api_constants
 

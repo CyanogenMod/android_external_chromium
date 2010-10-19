@@ -59,7 +59,8 @@ void WebPreferences::Apply(WebView* web_view) const {
   WebRuntimeFeatures::enableDatabase(
       WebRuntimeFeatures::isDatabaseEnabled() || databases_enabled);
   settings->setOfflineWebApplicationCacheEnabled(application_cache_enabled);
-  settings->setHTML5ParserEnabled(enable_html5_parser);
+  settings->setCaretBrowsingEnabled(caret_browsing_enabled);
+  settings->setHyperlinkAuditingEnabled(hyperlink_auditing_enabled);
 
   // This setting affects the behavior of links in an editable region:
   // clicking the link should select it rather than navigate to it.
@@ -87,7 +88,8 @@ void WebPreferences::Apply(WebView* web_view) const {
 
   // Enable experimental WebGL support if requested on command line
   // and support is compiled in.
-  settings->setExperimentalWebGLEnabled(experimental_webgl_enabled);
+  settings->setExperimentalWebGLEnabled(
+      WebRuntimeFeatures::isWebGLEnabled() || experimental_webgl_enabled);
 
   // Display colored borders around composited render layers if requested
   // on command line.
@@ -95,6 +97,9 @@ void WebPreferences::Apply(WebView* web_view) const {
 
   // Enable gpu-accelerated compositing if requested on the command line.
   settings->setAcceleratedCompositingEnabled(accelerated_compositing_enabled);
+
+  // Enable gpu-accelerated 2d canvas if requested on the command line.
+  settings->setAccelerated2dCanvasEnabled(accelerated_2d_canvas_enabled);
 
   // Enable memory info reporting to page if requested on the command line.
   settings->setMemoryInfoEnabled(memory_info_enabled);

@@ -4,11 +4,12 @@
 
 #ifndef CHROME_BROWSER_IMPORTER_FIREFOX_PROXY_SETTINGS_H_
 #define CHROME_BROWSER_IMPORTER_FIREFOX_PROXY_SETTINGS_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
-#include "base/logging.h"
+#include "base/basictypes.h"
 
 class FilePath;
 

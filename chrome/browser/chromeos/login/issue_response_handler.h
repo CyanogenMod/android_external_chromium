@@ -4,10 +4,11 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_ISSUE_RESPONSE_HANDLER_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_ISSUE_RESPONSE_HANDLER_H_
+#pragma once
 
 #include <string>
 
-#include "base/logging.h"
+#include "base/basictypes.h"
 #include "chrome/browser/chromeos/login/auth_response_handler.h"
 
 class URLRequestContextGetter;

@@ -9,10 +9,10 @@
       'type': '<(library)',
       'msvs_guid': 'BFE8E2A7-3B3B-43B0-A994-3058B852DB8B',
       'sources': [
-        # Sources based on files in r267 of gmock.
         'gtest/include/gtest/gtest-death-test.h',
         'gtest/include/gtest/gtest-message.h',
         'gtest/include/gtest/gtest-param-test.h',
+        'gtest/include/gtest/gtest-printers.h',
         'gtest/include/gtest/gtest-spi.h',
         'gtest/include/gtest/gtest-test-part.h',
         'gtest/include/gtest/gtest-typed-test.h',
@@ -34,6 +34,7 @@
         'gtest/src/gtest-filepath.cc',
         'gtest/src/gtest-internal-inl.h',
         'gtest/src/gtest-port.cc',
+        'gtest/src/gtest-printers.cc',
         'gtest/src/gtest-test-part.cc',
         'gtest/src/gtest-typed-test.cc',
         'gtest/src/gtest.cc',
@@ -51,6 +52,8 @@
       'conditions': [
         ['OS == "mac"', {
           'sources': [
+            'gtest_mac.h',
+            'gtest_mac.mm',
             'platform_test_mac.mm'
           ],
           'link_settings': {
@@ -73,6 +76,20 @@
           'direct_dependent_settings': {
             'defines': [
               'GTEST_HAS_RTTI=0',
+            ],
+          },
+        }],
+        ['clang==1', {
+          # We want gtest features that use tr1::tuple, but clang currently
+          # doesn't support the variadic templates used by libstdc++'s
+          # implementation.  gtest supports this scenario by providing its
+          # own implementation but we must opt in to it.
+          'defines': [
+            'GTEST_USE_OWN_TR1_TUPLE=1',
+          ],
+          'direct_dependent_settings': {
+            'defines': [
+              'GTEST_USE_OWN_TR1_TUPLE=1',
             ],
           },
         }],

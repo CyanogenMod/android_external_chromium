@@ -7,13 +7,13 @@
 #include <algorithm>
 
 #include "app/linear_animation.h"
-#include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "app/text_elider.h"
 #include "base/i18n/rtl.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
-#include "chrome/browser/browser_theme_provider.h"
+#include "base/utf_string_conversions.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "gfx/canvas_skia.h"
 #include "gfx/point.h"
 #include "googleurl/src/gurl.h"
@@ -112,7 +112,7 @@ class StatusBubbleViews::StatusView : public views::Label,
   // Set the bubble text to a certain value, hides the bubble if text is
   // an empty string.  Trigger animation sequence to display if
   // |should_animate_open|.
-  void SetText(const std::wstring& text, bool should_animate_open);
+  void SetText(const string16& text, bool should_animate_open);
 
   BubbleStage GetState() const { return stage_; }
 
@@ -164,7 +164,7 @@ class StatusBubbleViews::StatusView : public views::Label,
   views::Widget* popup_;
 
   // The currently-displayed text.
-  std::wstring text_;
+  string16 text_;
 
   // Start and end opacities for the current transition - note that as a
   // fade-in can easily turn into a fade out, opacity_start_ is sometimes
@@ -176,8 +176,8 @@ class StatusBubbleViews::StatusView : public views::Label,
   ThemeProvider* theme_provider_;
 };
 
-void StatusBubbleViews::StatusView::SetText(
-    const std::wstring& text, bool should_animate_open) {
+void StatusBubbleViews::StatusView::SetText(const string16& text,
+                                            bool should_animate_open) {
   if (text.empty()) {
     // The string was empty.
     StartHiding();
@@ -428,7 +428,8 @@ void StatusBubbleViews::StatusView::Paint(gfx::Canvas* canvas) {
   // Draw highlight text and then the text body. In order to make sure the text
   // is aligned to the right on RTL UIs, we mirror the text bounds if the
   // locale is RTL.
-  int text_width = std::min(views::Label::font().GetStringWidth(text_),
+  int text_width = std::min(
+      views::Label::font().GetStringWidth(UTF16ToWide(text_)),
       width - (kShadowThickness * 2) - kTextPositionX - kTextHorizPadding);
   int text_height = height - (kShadowThickness * 2);
   gfx::Rect body_bounds(kShadowThickness + kTextPositionX,
@@ -445,7 +446,7 @@ void StatusBubbleViews::StatusView::Paint(gfx::Canvas* canvas) {
       (SkColorGetR(text_color) + SkColorGetR(toolbar_color)) / 2,
       (SkColorGetG(text_color) + SkColorGetR(toolbar_color)) / 2,
       (SkColorGetB(text_color) + SkColorGetR(toolbar_color)) / 2);
-  canvas->DrawStringInt(text_,
+  canvas->DrawStringInt(UTF16ToWide(text_),
                         views::Label::font(),
                         text_color,
                         body_bounds.x(),
@@ -471,7 +472,7 @@ class StatusBubbleViews::StatusViewExpander : public LinearAnimation,
   }
 
   // Manage the expansion of the bubble.
-  void StartExpansion(std::wstring expanded_text, int current_width,
+  void StartExpansion(string16 expanded_text, int current_width,
                       int expansion_end);
 
   // Set width of fully expanded bubble.
@@ -491,7 +492,7 @@ class StatusBubbleViews::StatusViewExpander : public LinearAnimation,
   StatusView* status_view_;
 
   // Text elided (if needed) to fit maximum status bar width.
-  std::wstring expanded_text_;
+  string16 expanded_text_;
 
   // Widths at expansion start and end.
   int expansion_start_;
@@ -509,7 +510,7 @@ void StatusBubbleViews::StatusViewExpander::AnimationEnded(
 }
 
 void StatusBubbleViews::StatusViewExpander::StartExpansion(
-    std::wstring expanded_text, int expansion_start,
+    string16 expanded_text, int expansion_start,
     int expansion_end) {
   expanded_text_ = expanded_text;
   expansion_start_ = expansion_start;
@@ -535,11 +536,11 @@ void StatusBubbleViews::StatusViewExpander::SetBubbleWidth(int width) {
 
 const int StatusBubbleViews::kShadowThickness = 1;
 
-StatusBubbleViews::StatusBubbleViews(views::Widget* frame)
+StatusBubbleViews::StatusBubbleViews(views::View* base_view)
     : offset_(0),
       popup_(NULL),
       opacity_(0),
-      frame_(frame),
+      base_view_(base_view),
       view_(NULL),
       download_shelf_is_visible_(false),
       is_expanded_(false),
@@ -559,12 +560,13 @@ void StatusBubbleViews::Init() {
                                            Widget::NotAcceptEvents,
                                            Widget::NotDeleteOnDestroy,
                                            Widget::MirrorOriginInRTL));
+    views::Widget* frame = base_view_->GetWidget();
     if (!view_)
-      view_ = new StatusView(this, popup_.get(), frame_->GetThemeProvider());
+      view_ = new StatusView(this, popup_.get(), frame->GetThemeProvider());
     if (!expand_view_.get())
       expand_view_.reset(new StatusViewExpander(this, view_));
     popup_->SetOpacity(0x00);
-    popup_->Init(frame_->GetNativeView(), gfx::Rect());
+    popup_->Init(frame->GetNativeView(), gfx::Rect());
     popup_->SetContentsView(view_);
     Reposition();
     popup_->Show();
@@ -574,7 +576,7 @@ void StatusBubbleViews::Init() {
 void StatusBubbleViews::Reposition() {
   if (popup_.get()) {
     gfx::Point top_left;
-    views::View::ConvertPointToScreen(frame_->GetRootView(), &top_left);
+    views::View::ConvertPointToScreen(base_view_, &top_left);
 
     popup_->SetBounds(gfx::Rect(top_left.x() + position_.x(),
                                 top_left.y() + position_.y(),
@@ -584,26 +586,17 @@ void StatusBubbleViews::Reposition() {
 
 gfx::Size StatusBubbleViews::GetPreferredSize() {
   return gfx::Size(0, ResourceBundle::GetSharedInstance().GetFont(
-      ResourceBundle::BaseFont).height() + kTotalVerticalPadding);
+      ResourceBundle::BaseFont).GetHeight() + kTotalVerticalPadding);
 }
 
 void StatusBubbleViews::SetBounds(int x, int y, int w, int h) {
-  // If the UI layout is RTL, we need to mirror the position of the bubble
-  // relative to the parent.
-  if (base::i18n::IsRTL()) {
-    gfx::Rect frame_bounds;
-    frame_->GetBounds(&frame_bounds, false);
-    int mirrored_x = frame_bounds.width() - x - w;
-    position_.SetPoint(mirrored_x, y);
-  } else {
-    position_.SetPoint(x, y);
-  }
-
+  original_position_.SetPoint(x, y);
+  position_.SetPoint(base_view_->MirroredXWithWidthInsideView(x, w), y);
   size_.SetSize(w, h);
   Reposition();
 }
 
-void StatusBubbleViews::SetStatus(const std::wstring& status_text) {
+void StatusBubbleViews::SetStatus(const string16& status_text) {
   if (size_.IsEmpty())
     return;  // We have no bounds, don't attempt to show the popup.
 
@@ -621,11 +614,11 @@ void StatusBubbleViews::SetStatus(const std::wstring& status_text) {
   } else if (!url_text_.empty()) {
     view_->SetText(url_text_, true);
   } else {
-    view_->SetText(std::wstring(), true);
+    view_->SetText(string16(), true);
   }
 }
 
-void StatusBubbleViews::SetURL(const GURL& url, const std::wstring& languages) {
+void StatusBubbleViews::SetURL(const GURL& url, const string16& languages) {
   languages_ = languages;
   url_ = url;
   if (size_.IsEmpty())
@@ -636,7 +629,7 @@ void StatusBubbleViews::SetURL(const GURL& url, const std::wstring& languages) {
   // If we want to clear a displayed URL but there is a status still to
   // display, display that status instead.
   if (url.is_empty() && !status_text_.empty()) {
-    url_text_ = std::wstring();
+    url_text_ = string16();
     if (IsFrameVisible())
       view_->SetText(status_text_, true);
     return;
@@ -653,15 +646,16 @@ void StatusBubbleViews::SetURL(const GURL& url, const std::wstring& languages) {
   popup_->GetBounds(&popup_bounds, true);
   int text_width = static_cast<int>(popup_bounds.width() -
       (kShadowThickness * 2) - kTextPositionX - kTextHorizPadding - 1);
-  url_text_ = gfx::ElideUrl(url, view_->Label::font(), text_width,
-      languages);
+  url_text_ = WideToUTF16(gfx::ElideUrl(url, view_->Label::font(),
+      text_width, UTF16ToWide(languages)));
 
-  std::wstring original_url_text = net::FormatUrl(url, languages);
+  std::wstring original_url_text =
+      UTF16ToWideHack(net::FormatUrl(url, UTF16ToUTF8(languages)));
 
   // An URL is always treated as a left-to-right string. On right-to-left UIs
   // we need to explicitly mark the URL as LTR to make sure it is displayed
   // correctly.
-  base::i18n::GetDisplayStringInLTRDirectionality(&url_text_);
+  url_text_ = base::i18n::GetDisplayStringInLTRDirectionality(url_text_);
 
   if (IsFrameVisible()) {
     view_->SetText(url_text_, true);
@@ -680,8 +674,8 @@ void StatusBubbleViews::SetURL(const GURL& url, const std::wstring& languages) {
 }
 
 void StatusBubbleViews::Hide() {
-  status_text_ = std::wstring();
-  url_text_ = std::wstring();
+  status_text_ = string16();
+  url_text_ = string16();
   if (view_)
     view_->Hide();
 }
@@ -709,9 +703,9 @@ void StatusBubbleViews::UpdateDownloadShelfVisibility(bool visible) {
 void StatusBubbleViews::AvoidMouse(const gfx::Point& location) {
   // Get the position of the frame.
   gfx::Point top_left;
-  views::RootView* root = frame_->GetRootView();
-  views::View::ConvertPointToScreen(root, &top_left);
-  int window_width = root->GetLocalBounds(true).width();  // border included.
+  views::View::ConvertPointToScreen(base_view_, &top_left);
+  // Border included.
+  int window_width = base_view_->GetLocalBounds(true).width();
 
   // Get the cursor position relative to the popup.
   gfx::Point relative_location = location;
@@ -757,7 +751,7 @@ void StatusBubbleViews::AvoidMouse(const gfx::Point& location) {
 
     // Check if the bubble sticks out from the monitor or will obscure
     // download shelf.
-    gfx::NativeView widget = frame_->GetNativeView();
+    gfx::NativeView widget = base_view_->GetWidget()->GetNativeView();
     gfx::Rect monitor_rect =
         views::Screen::GetMonitorWorkAreaNearestWindow(widget);
     const int bubble_bottom_y = top_left.y() + position_.y() + size_.height();
@@ -793,10 +787,11 @@ void StatusBubbleViews::AvoidMouse(const gfx::Point& location) {
 }
 
 bool StatusBubbleViews::IsFrameVisible() {
-  if (!frame_->IsVisible())
+  views::Widget* frame = base_view_->GetWidget();
+  if (!frame->IsVisible())
     return false;
 
-  views::Window* window = frame_->GetWindow();
+  views::Window* window = frame->GetWindow();
   return !window || !window->IsMinimized();
 }
 
@@ -806,36 +801,32 @@ void StatusBubbleViews::ExpandBubble() {
   gfx::Rect popup_bounds;
   popup_->GetBounds(&popup_bounds, true);
   int max_status_bubble_width = GetMaxStatusBubbleWidth();
-  url_text_ = gfx::ElideUrl(url_, view_->Label::font(),
-                            max_status_bubble_width, languages_);
-  int expanded_bubble_width =
-      std::max(GetStandardStatusBubbleWidth(),
-               std::min(view_->Label::font().GetStringWidth(url_text_) +
-                            (kShadowThickness * 2) + kTextPositionX +
-                            kTextHorizPadding + 1,
-                        max_status_bubble_width));
+  url_text_ = WideToUTF16(gfx::ElideUrl(url_, view_->Label::font(),
+      max_status_bubble_width, UTF16ToWideHack(languages_)));
+  int expanded_bubble_width =std::max(GetStandardStatusBubbleWidth(),
+      std::min(view_->Label::font().GetStringWidth(UTF16ToWide(url_text_)) +
+                   (kShadowThickness * 2) + kTextPositionX +
+                   kTextHorizPadding + 1,
+               max_status_bubble_width));
   is_expanded_ = true;
   expand_view_->StartExpansion(url_text_, popup_bounds.width(),
                                expanded_bubble_width);
 }
 
 int StatusBubbleViews::GetStandardStatusBubbleWidth() {
-  gfx::Rect frame_bounds;
-  frame_->GetBounds(&frame_bounds, false);
-  return frame_bounds.width() / 3;
+  return base_view_->bounds().width() / 3;
 }
 
 int StatusBubbleViews::GetMaxStatusBubbleWidth() {
-  gfx::Rect frame_bounds;
-  frame_->GetBounds(&frame_bounds, false);
-  return static_cast<int>(frame_bounds.width() - (kShadowThickness * 2) -
-      kTextPositionX - kTextHorizPadding - 1 -
-      views::NativeScrollBar::GetVerticalScrollBarWidth());
+  return static_cast<int>(std::max(0, base_view_->bounds().width() -
+      (kShadowThickness * 2) - kTextPositionX - kTextHorizPadding - 1 -
+      views::NativeScrollBar::GetVerticalScrollBarWidth()));
 }
 
 void StatusBubbleViews::SetBubbleWidth(int width) {
   size_.set_width(width);
-  SetBounds(position_.x(), position_.y(), size_.width(), size_.height());
+  SetBounds(original_position_.x(), original_position_.y(),
+            size_.width(), size_.height());
 }
 
 void StatusBubbleViews::CancelExpandTimer() {

@@ -4,12 +4,13 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_FRAME_PANEL_CONTROLLER_H_
 #define CHROME_BROWSER_CHROMEOS_FRAME_PANEL_CONTROLLER_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
 #include "app/x11_util.h"
+#include "cros/chromeos_wm_ipc_enums.h"
 #include "views/controls/button/button.h"
-#include "third_party/cros/chromeos_wm_ipc_enums.h"
 
 class BrowserView;
 class SkBitmap;
@@ -73,7 +74,7 @@ class PanelController {
                            public views::ButtonListener {
    public:
     explicit TitleContentView(PanelController* panelController);
-    virtual ~TitleContentView() {}
+    virtual ~TitleContentView();
     virtual void Layout();
     virtual bool OnMousePressed(const views::MouseEvent& event);
     virtual void OnMouseReleased(const views::MouseEvent& event, bool canceled);

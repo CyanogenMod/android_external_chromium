@@ -4,8 +4,9 @@
 
 #ifndef CHROME_BROWSER_VIEWS_OPTIONS_MANAGED_PREFS_BANNER_VIEW_H_
 #define CHROME_BROWSER_VIEWS_OPTIONS_MANAGED_PREFS_BANNER_VIEW_H_
+#pragma once
 
-#include "chrome/browser/managed_prefs_banner_base.h"
+#include "chrome/browser/policy/managed_prefs_banner_base.h"
 #include "views/view.h"
 
 namespace views {
@@ -16,7 +17,7 @@ class Label;
 // Displays a banner showing a warning message that tells the user some options
 // cannot be changed because the relevant preferences are managed by their
 // system administrator.
-class ManagedPrefsBannerView : public ManagedPrefsBannerBase,
+class ManagedPrefsBannerView : public policy::ManagedPrefsBannerBase,
                                public views::View {
  public:
   // Initialize the banner. |page| is used to determine the names of the

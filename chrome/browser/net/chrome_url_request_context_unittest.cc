@@ -6,9 +6,11 @@
 
 #include "base/command_line.h"
 #include "base/format_macros.h"
-#include "chrome/browser/configuration_policy_pref_store.h"
-#include "chrome/browser/pref_value_store.h"
+#include "chrome/browser/policy/configuration_policy_pref_store.h"
+#include "chrome/browser/prefs/default_pref_store.h"
+#include "chrome/browser/prefs/pref_value_store.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/test/testing_pref_service.h"
 #include "net/proxy/proxy_config.h"
 #include "net/proxy/proxy_config_service_common_unittest.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -24,26 +26,25 @@ TEST(ChromeURLRequestContextTest, CreateProxyConfigTest) {
   no_proxy.AppendSwitch(switches::kNoProxyServer);
   CommandLine no_proxy_extra_params(unused_path);
   no_proxy_extra_params.AppendSwitch(switches::kNoProxyServer);
-  no_proxy_extra_params.AppendSwitchWithValue(switches::kProxyServer,
-      L"http://proxy:8888");
+  no_proxy_extra_params.AppendSwitchASCII(switches::kProxyServer,
+                                          "http://proxy:8888");
   CommandLine single_proxy(unused_path);
-  single_proxy.AppendSwitchWithValue(switches::kProxyServer,
-      L"http://proxy:8888");
+  single_proxy.AppendSwitchASCII(switches::kProxyServer, "http://proxy:8888");
   CommandLine per_scheme_proxy(unused_path);
-  per_scheme_proxy.AppendSwitchWithValue(switches::kProxyServer,
-      L"http=httpproxy:8888;ftp=ftpproxy:8889");
+  per_scheme_proxy.AppendSwitchASCII(switches::kProxyServer,
+                                     "http=httpproxy:8888;ftp=ftpproxy:8889");
   CommandLine per_scheme_proxy_bypass(unused_path);
-  per_scheme_proxy_bypass.AppendSwitchWithValue(switches::kProxyServer,
-      L"http=httpproxy:8888;ftp=ftpproxy:8889");
-  per_scheme_proxy_bypass.AppendSwitchWithValue(
+  per_scheme_proxy_bypass.AppendSwitchASCII(
+      switches::kProxyServer,
+      "http=httpproxy:8888;ftp=ftpproxy:8889");
+  per_scheme_proxy_bypass.AppendSwitchASCII(
       switches::kProxyBypassList,
-      L".google.com, foo.com:99, 1.2.3.4:22, 127.0.0.1/8");
+      ".google.com, foo.com:99, 1.2.3.4:22, 127.0.0.1/8");
   CommandLine with_pac_url(unused_path);
-  with_pac_url.AppendSwitchWithValue(switches::kProxyPacUrl,
-      L"http://wpad/wpad.dat");
-  with_pac_url.AppendSwitchWithValue(
+  with_pac_url.AppendSwitchASCII(switches::kProxyPacUrl, "http://wpad/wpad.dat");
+  with_pac_url.AppendSwitchASCII(
       switches::kProxyBypassList,
-      L".google.com, foo.com:99, 1.2.3.4:22, 127.0.0.1/8");
+      ".google.com, foo.com:99, 1.2.3.4:22, 127.0.0.1/8");
   CommandLine with_auto_detect(unused_path);
   with_auto_detect.AppendSwitch(switches::kProxyAutoDetect);
 
@@ -158,9 +159,11 @@ TEST(ChromeURLRequestContextTest, CreateProxyConfigTest) {
     SCOPED_TRACE(StringPrintf("Test[%" PRIuS "] %s", i,
                               tests[i].description.c_str()));
     CommandLine command_line(tests[i].command_line);
-    PrefService prefs(new PrefValueStore(
-        new ConfigurationPolicyPrefStore(&command_line, NULL),
-        NULL, NULL, NULL, NULL));  // Only configuration-policy prefs.
+    // Only configuration-policy and default prefs are needed.
+    PrefService prefs(new TestingPrefService::TestingPrefValueStore(
+        new policy::ConfigurationPolicyPrefStore(&command_line, NULL),
+        NULL, NULL, NULL, NULL,
+        new DefaultPrefStore()));
     ChromeURLRequestContextGetter::RegisterUserPrefs(&prefs);
     scoped_ptr<net::ProxyConfig> config(CreateProxyConfig(&prefs));
 
@@ -174,4 +177,3 @@ TEST(ChromeURLRequestContextTest, CreateProxyConfigTest) {
     }
   }
 }
-

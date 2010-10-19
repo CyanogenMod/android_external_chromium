@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_THROBBER_VIEW_H_
 #define CHROME_BROWSER_COCOA_THROBBER_VIEW_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
@@ -25,7 +26,6 @@
 @interface ThrobberView : NSView {
  @private
   id<ThrobberDataDelegate> dataDelegate_;
-  NSTimer* timer_;  // Animation timer. Weak, owned by runloop.
 }
 
 // Creates a filmstrip view with |frame| and image |image|.

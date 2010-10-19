@@ -16,6 +16,7 @@
 #include <limits>
 #include <set>
 
+#include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/debug_util.h"
 #include "base/dir_reader_posix.h"
@@ -23,15 +24,14 @@
 #include "base/logging.h"
 #include "base/platform_thread.h"
 #include "base/process_util.h"
-#include "base/rand_util.h"
 #include "base/scoped_ptr.h"
+#include "base/stringprintf.h"
 #include "base/time.h"
 #include "base/waitable_event.h"
 
 #if defined(OS_MACOSX)
 #include <crt_externs.h>
 #define environ (*_NSGetEnviron())
-#include "base/mach_ipc_mac.h"
 #else
 extern char** environ;
 #endif
@@ -107,6 +107,15 @@ void StackDumpSignalHandler(int signal) {
   _exit(1);
 }
 
+void ResetChildSignalHandlersToDefaults() {
+  // The previous signal handlers are likely to be meaningless in the child's
+  // context so we reset them to the defaults for now. http://crbug.com/44953
+  // These signal handlers are setup in browser_main.cc:BrowserMain
+  signal(SIGTERM, SIG_DFL);
+  signal(SIGHUP, SIG_DFL);
+  signal(SIGINT, SIG_DFL);
+}
+
 }  // anonymous namespace
 
 ProcessId GetCurrentProcId() {
@@ -146,6 +155,8 @@ bool KillProcess(ProcessHandle process_id, int exit_code, bool wait) {
   DCHECK_GT(process_id, 1) << " tried to kill invalid process_id";
   if (process_id <= 1)
     return false;
+  static unsigned kMaxSleepMs = 1000;
+  unsigned sleep_ms = 4;
 
   bool result = kill(process_id, SIGTERM) == 0;
 
@@ -169,7 +180,9 @@ bool KillProcess(ProcessHandle process_id, int exit_code, bool wait) {
         DPLOG(ERROR) << "Error waiting for process " << process_id;
       }
 
-      sleep(1);
+      usleep(sleep_ms * 1000);
+      if (sleep_ms < kMaxSleepMs)
+        sleep_ms *= 2;
     }
 
     if (!exited)
@@ -179,6 +192,13 @@ bool KillProcess(ProcessHandle process_id, int exit_code, bool wait) {
   if (!result)
     DPLOG(ERROR) << "Unable to terminate process " << process_id;
 
+  return result;
+}
+
+bool KillProcessGroup(ProcessHandle process_group_id) {
+  bool result = kill(-1 * process_group_id, SIGKILL) == 0;
+  if (!result)
+    PLOG(ERROR) << "Unable to terminate process group " << process_group_id;
   return result;
 }
 
@@ -285,75 +305,6 @@ void CloseSuperfluousFds(const base::InjectiveMultimap& saved_mapping) {
     }
   }
 }
-
-#if defined(OS_MACOSX)
-static std::string MachErrorCode(kern_return_t err) {
-  return StringPrintf("0x%x %s", err, mach_error_string(err));
-}
-
-// Forks the current process and returns the child's |task_t| in the parent
-// process.
-static pid_t fork_and_get_task(task_t* child_task) {
-  const int kTimeoutMs = 100;
-  kern_return_t err;
-
-  // Put a random number into the channel name, so that a compromised renderer
-  // can't pretend being the child that's forked off.
-  std::string mach_connection_name = StringPrintf(
-      "com.google.Chrome.samplingfork.%p.%d",
-      child_task, base::RandInt(0, std::numeric_limits<int>::max()));
-  ReceivePort parent_recv_port(mach_connection_name.c_str());
-
-  // Error handling philosophy: If Mach IPC fails, don't touch |child_task| but
-  // return a valid pid. If IPC fails in the child, the parent will have to wait
-  // until kTimeoutMs is over. This is not optimal, but I've never seen it
-  // happen, and stuff should still mostly work.
-  pid_t pid = fork();
-  switch (pid) {
-    case -1:
-      return pid;
-    case 0: {  // child
-      MachSendMessage child_message(/* id= */0);
-      if (!child_message.AddDescriptor(mach_task_self())) {
-        LOG(ERROR) << "child AddDescriptor(mach_task_self()) failed.";
-        return pid;
-      }
-
-      MachPortSender child_sender(mach_connection_name.c_str());
-      err = child_sender.SendMessage(child_message, kTimeoutMs);
-      if (err != KERN_SUCCESS) {
-        LOG(ERROR) << "child SendMessage() failed: " << MachErrorCode(err);
-        return pid;
-      }
-      break;
-    }
-    default: {  // parent
-      MachReceiveMessage child_message;
-      err = parent_recv_port.WaitForMessage(&child_message, kTimeoutMs);
-      if (err != KERN_SUCCESS) {
-        LOG(ERROR) << "parent WaitForMessage() failed: " << MachErrorCode(err);
-        return pid;
-      }
-
-      if (child_message.GetTranslatedPort(0) == MACH_PORT_NULL) {
-        LOG(ERROR) << "parent GetTranslatedPort(0) failed.";
-        return pid;
-      }
-      *child_task = child_message.GetTranslatedPort(0);
-      break;
-    }
-  }
-  return pid;
-}
-
-bool LaunchApp(const std::vector<std::string>& argv,
-               const environment_vector& env_changes,
-               const file_handle_mapping_vector& fds_to_remap,
-               bool wait, ProcessHandle* process_handle) {
-  return LaunchAppAndGetTask(
-      argv, env_changes, fds_to_remap, wait, NULL, process_handle);
-}
-#endif  // defined(OS_MACOSX)
 
 char** AlterEnvironment(const environment_vector& changes,
                         const char* const* const env) {
@@ -476,19 +427,13 @@ char** AlterEnvironment(const environment_vector& changes,
   return ret;
 }
 
-#if defined(OS_MACOSX)
-bool LaunchAppAndGetTask(
-#else
-bool LaunchApp(
-#endif
+bool LaunchAppImpl(
     const std::vector<std::string>& argv,
     const environment_vector& env_changes,
     const file_handle_mapping_vector& fds_to_remap,
     bool wait,
-#if defined(OS_MACOSX)
-    task_t* task_handle,
-#endif
-    ProcessHandle* process_handle) {
+    ProcessHandle* process_handle,
+    bool start_new_process_group) {
   pid_t pid;
   InjectiveMultimap fd_shuffle1, fd_shuffle2;
   fd_shuffle1.reserve(fds_to_remap.size());
@@ -496,35 +441,24 @@ bool LaunchApp(
   scoped_array<char*> argv_cstr(new char*[argv.size() + 1]);
   scoped_array<char*> new_environ(AlterEnvironment(env_changes, environ));
 
-#if defined(OS_MACOSX)
-  if (task_handle == NULL) {
-    pid = fork();
-  } else {
-    // On OS X, the task_t for a process is needed for several reasons. Sadly,
-    // the function task_for_pid() requires privileges a normal user doesn't
-    // have. Instead, a short-lived Mach IPC connection is opened between parent
-    // and child, and the child sends its task_t to the parent at fork time.
-    *task_handle = MACH_PORT_NULL;
-    pid = fork_and_get_task(task_handle);
-  }
-#else
   pid = fork();
-#endif
   if (pid < 0)
     return false;
 
   if (pid == 0) {
     // Child process
+
+    if (start_new_process_group) {
+      // Instead of inheriting the process group ID of the parent, the child
+      // starts off a new process group with pgid equal to its process ID.
+      if (setpgid(0, 0) < 0)
+        return false;
+    }
 #if defined(OS_MACOSX)
     RestoreDefaultExceptionHandler();
 #endif
 
-    // The previous signal handlers are likely to be meaningless in the child's
-    // context so we reset them to the defaults for now. http://crbug.com/44953
-    // These signal handlers are setup in browser_main.cc:BrowserMain
-    signal(SIGTERM, SIG_DFL);
-    signal(SIGHUP, SIG_DFL);
-    signal(SIGINT, SIG_DFL);
+    ResetChildSignalHandlersToDefaults();
 
 #if 0
     // When debugging it can be helpful to check that we really aren't making
@@ -577,6 +511,26 @@ bool LaunchApp(
   }
 
   return true;
+}
+
+bool LaunchApp(
+    const std::vector<std::string>& argv,
+    const environment_vector& env_changes,
+    const file_handle_mapping_vector& fds_to_remap,
+    bool wait,
+    ProcessHandle* process_handle) {
+  return LaunchAppImpl(argv, env_changes, fds_to_remap,
+                       wait, process_handle, false);
+}
+
+bool LaunchAppInNewProcessGroup(
+    const std::vector<std::string>& argv,
+    const environment_vector& env_changes,
+    const file_handle_mapping_vector& fds_to_remap,
+    bool wait,
+    ProcessHandle* process_handle) {
+  return LaunchAppImpl(argv, env_changes, fds_to_remap, wait,
+                       process_handle, true);
 }
 
 bool LaunchApp(const std::vector<std::string>& argv,

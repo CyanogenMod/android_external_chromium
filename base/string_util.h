@@ -6,6 +6,7 @@
 
 #ifndef BASE_STRING_UTIL_H_
 #define BASE_STRING_UTIL_H_
+#pragma once
 
 #include <stdarg.h>   // va_list
 
@@ -16,6 +17,17 @@
 #include "base/compiler_specific.h"
 #include "base/string16.h"
 #include "base/string_piece.h"  // For implicit conversions.
+
+// TODO(brettw) remove this dependency. Previously StringPrintf lived in this
+// file. We need to convert the callers over to using stringprintf.h instead
+// and then remove this.
+#include "base/stringprintf.h"
+
+#ifdef RLZ_WIN_LIB_RLZ_LIB_H_
+// TODO(tfarina): Fix the rlz library to include this instead and remove
+// this include.
+#include "base/string_split.h"
+#endif  // RLZ_WIN_LIB_RLZ_LIB_H_
 
 // Safe standard library wrappers for all platforms.
 
@@ -226,11 +238,10 @@ bool ContainsOnlyChars(const std::wstring& input,
 bool ContainsOnlyChars(const string16& input, const string16& characters);
 bool ContainsOnlyChars(const std::string& input, const std::string& characters);
 
-// These convert between ASCII (7-bit) and Wide/UTF16 strings.
+// Converts to 7-bit ASCII by truncating. The result must be known to be ASCII
+// beforehand.
 std::string WideToASCII(const std::wstring& wide);
-std::wstring ASCIIToWide(const base::StringPiece& ascii);
 std::string UTF16ToASCII(const string16& utf16);
-string16 ASCIIToUTF16(const base::StringPiece& ascii);
 
 // Converts the given wide string to the corresponding Latin1. This will fail
 // (return false) if any characters are more than 255.
@@ -363,6 +374,25 @@ inline bool IsAsciiDigit(Char c) {
   return c >= '0' && c <= '9';
 }
 
+template <typename Char>
+inline bool IsHexDigit(Char c) {
+  return (c >= '0' && c <= '9') ||
+         (c >= 'A' && c <= 'F') ||
+         (c >= 'a' && c <= 'f');
+}
+
+template <typename Char>
+inline Char HexDigitToInt(Char c) {
+  DCHECK(IsHexDigit(c));
+  if (c >= '0' && c <= '9')
+    return c - '0';
+  if (c >= 'A' && c <= 'F')
+    return c - 'A' + 10;
+  if (c >= 'a' && c <= 'f')
+    return c - 'a' + 10;
+  return 0;
+}
+
 // Returns true if it's a whitespace character.
 inline bool IsWhitespace(wchar_t c) {
   return wcschr(kWhitespaceWide, c) != NULL;
@@ -383,16 +413,16 @@ DataUnits GetByteDisplayUnits(int64 bytes);
 // specified by 'units', with an optional unit suffix.
 // Ex: FormatBytes(512, DATA_UNITS_KIBIBYTE, true) => "0.5 KB"
 // Ex: FormatBytes(10*1024, DATA_UNITS_MEBIBYTE, false) => "0.1"
-std::wstring FormatBytes(int64 bytes, DataUnits units, bool show_units);
+string16 FormatBytes(int64 bytes, DataUnits units, bool show_units);
 
 // As above, but with "/s" units.
 // Ex: FormatSpeed(512, DATA_UNITS_KIBIBYTE, true) => "0.5 KB/s"
 // Ex: FormatSpeed(10*1024, DATA_UNITS_MEBIBYTE, false) => "0.1"
-std::wstring FormatSpeed(int64 bytes, DataUnits units, bool show_units);
+string16 FormatSpeed(int64 bytes, DataUnits units, bool show_units);
 
 // Return a number formated with separators in the user's locale way.
 // Ex: FormatNumber(1234567) => 1,234,567
-std::wstring FormatNumber(int64 number);
+string16 FormatNumber(int64 number);
 
 // Starting at |start_offset| (usually 0), replace the first instance of
 // |find_this| with |replace_with|.
@@ -419,94 +449,6 @@ void ReplaceSubstringsAfterOffset(std::string* str,
                                   std::string::size_type start_offset,
                                   const std::string& find_this,
                                   const std::string& replace_with);
-
-// Specialized string-conversion functions.
-std::string IntToString(int value);
-std::wstring IntToWString(int value);
-string16 IntToString16(int value);
-std::string UintToString(unsigned int value);
-std::wstring UintToWString(unsigned int value);
-string16 UintToString16(unsigned int value);
-std::string Int64ToString(int64 value);
-std::wstring Int64ToWString(int64 value);
-std::string Uint64ToString(uint64 value);
-std::wstring Uint64ToWString(uint64 value);
-// The DoubleToString methods convert the double to a string format that
-// ignores the locale.  If you want to use locale specific formatting, use ICU.
-std::string DoubleToString(double value);
-std::wstring DoubleToWString(double value);
-
-// Perform a best-effort conversion of the input string to a numeric type,
-// setting |*output| to the result of the conversion.  Returns true for
-// "perfect" conversions; returns false in the following cases:
-//  - Overflow/underflow.  |*output| will be set to the maximum value supported
-//    by the data type.
-//  - Trailing characters in the string after parsing the number.  |*output|
-//    will be set to the value of the number that was parsed.
-//  - No characters parseable as a number at the beginning of the string.
-//    |*output| will be set to 0.
-//  - Empty string.  |*output| will be set to 0.
-bool StringToInt(const std::string& input, int* output);
-bool StringToInt(const string16& input, int* output);
-bool StringToInt64(const std::string& input, int64* output);
-bool StringToInt64(const string16& input, int64* output);
-bool HexStringToInt(const std::string& input, int* output);
-bool HexStringToInt(const string16& input, int* output);
-
-// Similar to the previous functions, except that output is a vector of bytes.
-// |*output| will contain as many bytes as were successfully parsed prior to the
-// error.  There is no overflow, but input.size() must be evenly divisible by 2.
-// Leading 0x or +/- are not allowed.
-bool HexStringToBytes(const std::string& input, std::vector<uint8>* output);
-bool HexStringToBytes(const string16& input, std::vector<uint8>* output);
-
-// For floating-point conversions, only conversions of input strings in decimal
-// form are defined to work.  Behavior with strings representing floating-point
-// numbers in hexadecimal, and strings representing non-fininte values (such as
-// NaN and inf) is undefined.  Otherwise, these behave the same as the integral
-// variants.  This expects the input string to NOT be specific to the locale.
-// If your input is locale specific, use ICU to read the number.
-bool StringToDouble(const std::string& input, double* output);
-bool StringToDouble(const string16& input, double* output);
-
-// Convenience forms of the above, when the caller is uninterested in the
-// boolean return value.  These return only the |*output| value from the
-// above conversions: a best-effort conversion when possible, otherwise, 0.
-int StringToInt(const std::string& value);
-int StringToInt(const string16& value);
-int64 StringToInt64(const std::string& value);
-int64 StringToInt64(const string16& value);
-int HexStringToInt(const std::string& value);
-int HexStringToInt(const string16& value);
-double StringToDouble(const std::string& value);
-double StringToDouble(const string16& value);
-
-// Return a C++ string given printf-like input.
-std::string StringPrintf(const char* format, ...) PRINTF_FORMAT(1, 2);
-std::wstring StringPrintf(const wchar_t* format, ...) WPRINTF_FORMAT(1, 2);
-
-// Return a C++ string given vprintf-like input.
-std::string StringPrintV(const char* format, va_list ap) PRINTF_FORMAT(1, 0);
-
-// Store result into a supplied string and return it
-const std::string& SStringPrintf(std::string* dst, const char* format, ...)
-    PRINTF_FORMAT(2, 3);
-const std::wstring& SStringPrintf(std::wstring* dst,
-                                  const wchar_t* format, ...)
-    WPRINTF_FORMAT(2, 3);
-
-// Append result to a supplied string
-void StringAppendF(std::string* dst, const char* format, ...)
-    PRINTF_FORMAT(2, 3);
-void StringAppendF(std::wstring* dst, const wchar_t* format, ...)
-    WPRINTF_FORMAT(2, 3);
-
-// Lower-level routine that takes a va_list and appends to a specified
-// string.  All other routines are just convenience wrappers around it.
-void StringAppendV(std::string* dst, const char* format, va_list ap)
-    PRINTF_FORMAT(2, 0);
-void StringAppendV(std::wstring* dst, const wchar_t* format, va_list ap)
-    WPRINTF_FORMAT(2, 0);
 
 // This is mpcomplete's pattern for saving a string copy when dealing with
 // a function that writes results into a wchar_t[] and wanting the result to
@@ -551,44 +493,6 @@ template<typename Char> struct CaseInsensitiveCompareASCII {
   }
 };
 
-// TODO(timsteele): Move these split string functions into their own API on
-// string_split.cc/.h files.
-//-----------------------------------------------------------------------------
-
-// Splits |str| into a vector of strings delimited by |s|. Append the results
-// into |r| as they appear. If several instances of |s| are contiguous, or if
-// |str| begins with or ends with |s|, then an empty string is inserted.
-//
-// Every substring is trimmed of any leading or trailing white space.
-void SplitString(const std::wstring& str,
-                 wchar_t s,
-                 std::vector<std::wstring>* r);
-void SplitString(const string16& str,
-                 char16 s,
-                 std::vector<string16>* r);
-void SplitString(const std::string& str,
-                 char s,
-                 std::vector<std::string>* r);
-
-// The same as SplitString, but don't trim white space.
-void SplitStringDontTrim(const std::wstring& str,
-                         wchar_t s,
-                         std::vector<std::wstring>* r);
-void SplitStringDontTrim(const string16& str,
-                         char16 s,
-                         std::vector<string16>* r);
-void SplitStringDontTrim(const std::string& str,
-                         char s,
-                         std::vector<std::string>* r);
-
-// The same as SplitString, but use a substring delimiter instead of a char.
-void SplitStringUsingSubstr(const string16& str,
-                            const string16& s,
-                            std::vector<string16>* r);
-void SplitStringUsingSubstr(const std::string& str,
-                            const std::string& s,
-                            std::vector<std::string>* r);
-
 // Splits a string into its fields delimited by any of the characters in
 // |delimiters|.  Each field is added to the |tokens| vector.  Returns the
 // number of tokens found.
@@ -626,8 +530,9 @@ void SplitStringAlongWhitespace(const std::string& str,
                                 std::vector<std::string>* result);
 
 // Replace $1-$2-$3..$9 in the format string with |a|-|b|-|c|..|i| respectively.
-// Additionally, $$ is replaced by $. The offsets parameter here can
-// be NULL. This only allows you to use up to nine replacements.
+// Additionally, any number of consecutive '$' characters is replaced by that
+// number less one. Eg $$->$, $$$->$$, etc. The offsets parameter here can be
+// NULL. This only allows you to use up to nine replacements.
 string16 ReplaceStringPlaceholders(const string16& format_string,
                                    const std::vector<string16>& subst,
                                    std::vector<size_t>* offsets);
@@ -636,7 +541,7 @@ std::string ReplaceStringPlaceholders(const base::StringPiece& format_string,
                                       const std::vector<std::string>& subst,
                                       std::vector<size_t>* offsets);
 
-// Single-string shortcut for ReplaceStringHolders.
+// Single-string shortcut for ReplaceStringHolders. |offset| may be NULL.
 string16 ReplaceStringPlaceholders(const string16& format_string,
                                    const string16& a,
                                    size_t* offset);
@@ -653,17 +558,9 @@ bool ElideString(const std::wstring& input, int max_len, std::wstring* output);
 // string can contain wildcards like * and ?
 // The backslash character (\) is an escape character for * and ?
 // We limit the patterns to having a max of 16 * or ? characters.
-bool MatchPatternWide(const std::wstring& string, const std::wstring& pattern);
-bool MatchPatternASCII(const std::string& string, const std::string& pattern);
-
-// Returns a hex string representation of a binary buffer.
-// The returned hex string will be in upper case.
-// This function does not check if |size| is within reasonable limits since
-// it's written with trusted data in mind.
-// If you suspect that the data you want to format might be large,
-// the absolute max size for |size| should be is
-//   std::numeric_limits<size_t>::max() / 2
-std::string HexEncode(const void* bytes, size_t size);
+bool MatchPattern(const base::StringPiece& string,
+                  const base::StringPiece& pattern);
+bool MatchPattern(const string16& string, const string16& pattern);
 
 // Hack to convert any char-like type to its unsigned counterpart.
 // For example, it will convert char, signed char and unsigned char to unsigned

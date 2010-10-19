@@ -56,12 +56,7 @@ class ForwardingNetLog::Core
 
     DCHECK_EQ(MessageLoop::current(), loop_);
 
-    // TODO(eroman): This shouldn't be necessary. See crbug.com/48806.
-    NetLog::Source effective_source = source;
-    if (effective_source.id == NetLog::Source::kInvalidId)
-      effective_source.id = impl_->NextID();
-
-    impl_->AddEntry(type, time, effective_source, phase, params);
+    impl_->AddEntry(type, time, source, phase, params);
   }
 
   Lock lock_;
@@ -91,10 +86,10 @@ uint32 ForwardingNetLog::NextID() {
   return 0;
 }
 
-bool ForwardingNetLog::HasListener() const {
+NetLog::LogLevel ForwardingNetLog::GetLogLevel() const {
   // Can't forward a synchronous API.
   CHECK(false) << "Not supported";
-  return false;
+  return LOG_ALL;
 }
 
 }  // namespace net

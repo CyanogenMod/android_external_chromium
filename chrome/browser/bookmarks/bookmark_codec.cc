@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "app/l10n_util.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/values.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
@@ -15,18 +16,18 @@
 
 using base::Time;
 
-const wchar_t* BookmarkCodec::kRootsKey = L"roots";
-const wchar_t* BookmarkCodec::kRootFolderNameKey = L"bookmark_bar";
-const wchar_t* BookmarkCodec::kOtherBookmarkFolderNameKey = L"other";
-const wchar_t* BookmarkCodec::kVersionKey = L"version";
-const wchar_t* BookmarkCodec::kChecksumKey = L"checksum";
-const wchar_t* BookmarkCodec::kIdKey = L"id";
-const wchar_t* BookmarkCodec::kTypeKey = L"type";
-const wchar_t* BookmarkCodec::kNameKey = L"name";
-const wchar_t* BookmarkCodec::kDateAddedKey = L"date_added";
-const wchar_t* BookmarkCodec::kURLKey = L"url";
-const wchar_t* BookmarkCodec::kDateModifiedKey = L"date_modified";
-const wchar_t* BookmarkCodec::kChildrenKey = L"children";
+const char* BookmarkCodec::kRootsKey = "roots";
+const char* BookmarkCodec::kRootFolderNameKey = "bookmark_bar";
+const char* BookmarkCodec::kOtherBookmarkFolderNameKey = "other";
+const char* BookmarkCodec::kVersionKey = "version";
+const char* BookmarkCodec::kChecksumKey = "checksum";
+const char* BookmarkCodec::kIdKey = "id";
+const char* BookmarkCodec::kTypeKey = "type";
+const char* BookmarkCodec::kNameKey = "name";
+const char* BookmarkCodec::kDateAddedKey = "date_added";
+const char* BookmarkCodec::kURLKey = "url";
+const char* BookmarkCodec::kDateModifiedKey = "date_modified";
+const char* BookmarkCodec::kChildrenKey = "children";
 const char* BookmarkCodec::kTypeURL = "url";
 const char* BookmarkCodec::kTypeFolder = "folder";
 
@@ -84,12 +85,12 @@ bool BookmarkCodec::Decode(BookmarkNode* bb_node,
 
 Value* BookmarkCodec::EncodeNode(const BookmarkNode* node) {
   DictionaryValue* value = new DictionaryValue();
-  std::string id = Int64ToString(node->id());
+  std::string id = base::Int64ToString(node->id());
   value->SetString(kIdKey, id);
-  const string16& title = node->GetTitleAsString16();
-  value->SetStringFromUTF16(kNameKey, title);
+  const string16& title = node->GetTitle();
+  value->SetString(kNameKey, title);
   value->SetString(kDateAddedKey,
-                   Int64ToString(node->date_added().ToInternalValue()));
+                   base::Int64ToString(node->date_added().ToInternalValue()));
   if (node->type() == BookmarkNode::URL) {
     value->SetString(kTypeKey, kTypeURL);
     std::string url = node->GetURL().possibly_invalid_spec();
@@ -98,7 +99,7 @@ Value* BookmarkCodec::EncodeNode(const BookmarkNode* node) {
   } else {
     value->SetString(kTypeKey, kTypeFolder);
     value->SetString(kDateModifiedKey,
-                     Int64ToString(node->date_group_modified().
+                     base::Int64ToString(node->date_group_modified().
                                    ToInternalValue()));
     UpdateChecksumWithFolderNode(id, title);
 
@@ -156,9 +157,9 @@ bool BookmarkCodec::DecodeHelper(BookmarkNode* bb_node,
   // the file.
   bb_node->set_type(BookmarkNode::BOOKMARK_BAR);
   other_folder_node->set_type(BookmarkNode::OTHER_NODE);
-  bb_node->SetTitle(l10n_util::GetString(IDS_BOOMARK_BAR_FOLDER_NAME));
+  bb_node->SetTitle(l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_FOLDER_NAME));
   other_folder_node->SetTitle(
-      l10n_util::GetString(IDS_BOOMARK_BAR_OTHER_FOLDER_NAME));
+      l10n_util::GetStringUTF16(IDS_BOOMARK_BAR_OTHER_FOLDER_NAME));
 
   return true;
 }
@@ -192,7 +193,7 @@ bool BookmarkCodec::DecodeNode(const DictionaryValue& value,
   int64 id = 0;
   if (ids_valid_) {
     if (!value.GetString(kIdKey, &id_string) ||
-        !StringToInt64(id_string, &id) ||
+        !base::StringToInt64(id_string, &id) ||
         ids_.count(id) != 0) {
       ids_valid_ = false;
     } else {
@@ -203,13 +204,14 @@ bool BookmarkCodec::DecodeNode(const DictionaryValue& value,
   maximum_id_ = std::max(maximum_id_, id);
 
   string16 title;
-  value.GetStringAsUTF16(kNameKey, &title);
+  value.GetString(kNameKey, &title);
 
   std::string date_added_string;
   if (!value.GetString(kDateAddedKey, &date_added_string))
-    date_added_string = Int64ToString(Time::Now().ToInternalValue());
-  base::Time date_added = base::Time::FromInternalValue(
-      StringToInt64(date_added_string));
+    date_added_string = base::Int64ToString(Time::Now().ToInternalValue());
+  int64 internal_time;
+  base::StringToInt64(date_added_string, &internal_time);
+  base::Time date_added = base::Time::FromInternalValue(internal_time);
 #if !defined(OS_WIN)
   // We changed the epoch for dates on Mac & Linux from 1970 to the Windows
   // one of 1601. We assume any number we encounter from before 1970 is using
@@ -249,7 +251,7 @@ bool BookmarkCodec::DecodeNode(const DictionaryValue& value,
   } else {
     std::string last_modified_date;
     if (!value.GetString(kDateModifiedKey, &last_modified_date))
-      last_modified_date = Int64ToString(Time::Now().ToInternalValue());
+      last_modified_date = base::Int64ToString(Time::Now().ToInternalValue());
 
     Value* child_values;
     if (!value.Get(kChildrenKey, &child_values))
@@ -266,8 +268,9 @@ bool BookmarkCodec::DecodeNode(const DictionaryValue& value,
     }
 
     node->set_type(BookmarkNode::FOLDER);
-    node->set_date_group_modified(Time::FromInternalValue(
-        StringToInt64(last_modified_date)));
+    int64 internal_time;
+    base::StringToInt64(last_modified_date, &internal_time);
+    node->set_date_group_modified(Time::FromInternalValue(internal_time));
 
     if (parent)
       parent->Add(parent->GetChildCount(), node);

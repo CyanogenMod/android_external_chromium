@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,7 +15,7 @@
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_process_impl.h"
 #include "chrome/browser/platform_util.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/escape.h"
@@ -32,33 +32,33 @@ void ExternalProtocolHandler::PrepopulateDictionary(DictionaryValue* win_pref) {
     return;
   is_warm = true;
 
-  static const wchar_t* const denied_schemes[] = {
-    L"afp",
-    L"data",
-    L"disk",
-    L"disks",
+  static const char* const denied_schemes[] = {
+    "afp",
+    "data",
+    "disk",
+    "disks",
     // ShellExecuting file:///C:/WINDOWS/system32/notepad.exe will simply
     // execute the file specified!  Hopefully we won't see any "file" schemes
     // because we think of file:// URLs as handled URLs, but better to be safe
     // than to let an attacker format the user's hard drive.
-    L"file",
-    L"hcp",
-    L"javascript",
-    L"ms-help",
-    L"nntp",
-    L"shell",
-    L"vbscript",
+    "file",
+    "hcp",
+    "javascript",
+    "ms-help",
+    "nntp",
+    "shell",
+    "vbscript",
     // view-source is a special case in chrome. When it comes through an
     // iframe or a redirect, it looks like an external protocol, but we don't
     // want to shellexecute it.
-    L"view-source",
-    L"vnd.ms.radio",
+    "view-source",
+    "vnd.ms.radio",
   };
 
-  static const wchar_t* const allowed_schemes[] = {
-    L"mailto",
-    L"news",
-    L"snews",
+  static const char* const allowed_schemes[] = {
+    "mailto",
+    "news",
+    "snews",
   };
 
   bool should_block;
@@ -77,7 +77,7 @@ void ExternalProtocolHandler::PrepopulateDictionary(DictionaryValue* win_pref) {
 
 // static
 ExternalProtocolHandler::BlockState ExternalProtocolHandler::GetBlockState(
-    const std::wstring& scheme) {
+    const std::string& scheme) {
   // If we are being carpet bombed, block the request.
   if (!g_accept_requests)
     return BLOCK;
@@ -110,7 +110,7 @@ ExternalProtocolHandler::BlockState ExternalProtocolHandler::GetBlockState(
 }
 
 // static
-void ExternalProtocolHandler::SetBlockState(const std::wstring& scheme,
+void ExternalProtocolHandler::SetBlockState(const std::string& scheme,
                                             BlockState state) {
   // Set in the stored prefs.
   // TODO(pkasting): http://b/1119651 This kind of thing should go in the
@@ -138,7 +138,7 @@ void ExternalProtocolHandler::LaunchUrl(const GURL& url,
   // have parameters unexpected by the external program.
   std::string escaped_url_string = EscapeExternalHandlerValue(url.spec());
   GURL escaped_url(escaped_url_string);
-  BlockState block_state = GetBlockState(ASCIIToWide(escaped_url.scheme()));
+  BlockState block_state = GetBlockState(escaped_url.scheme());
   if (block_state == BLOCK)
     return;
 
@@ -180,7 +180,7 @@ void ExternalProtocolHandler::RegisterPrefs(PrefService* prefs) {
 }
 
 // static
-void ExternalProtocolHandler::OnUserGesture() {
+void ExternalProtocolHandler::PermitLaunchUrl() {
   DCHECK_EQ(MessageLoop::TYPE_UI, MessageLoop::current()->type());
   g_accept_requests = true;
 }

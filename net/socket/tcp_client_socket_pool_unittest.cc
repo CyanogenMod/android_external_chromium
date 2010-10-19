@@ -50,6 +50,10 @@ class MockClientSocket : public ClientSocket {
     return net_log_;
   }
 
+  virtual void SetSubresourceSpeculation() {}
+  virtual void SetOmniboxSpeculation() {}
+  virtual bool WasEverUsed() const { return false; }
+
   // Socket methods:
   virtual int Read(IOBuffer* buf, int buf_len,
                    CompletionCallback* callback) {
@@ -90,6 +94,10 @@ class MockFailingClientSocket : public ClientSocket {
   virtual const BoundNetLog& NetLog() const {
     return net_log_;
   }
+
+  virtual void SetSubresourceSpeculation() {}
+  virtual void SetOmniboxSpeculation() {}
+  virtual bool WasEverUsed() const { return false; }
 
   // Socket methods:
   virtual int Read(IOBuffer* buf, int buf_len,
@@ -145,6 +153,10 @@ class MockPendingClientSocket : public ClientSocket {
     return net_log_;
   }
 
+  virtual void SetSubresourceSpeculation() {}
+  virtual void SetOmniboxSpeculation() {}
+  virtual bool WasEverUsed() const { return false; }
+
   // Socket methods:
   virtual int Read(IOBuffer* buf, int buf_len,
                    CompletionCallback* callback) {
@@ -198,8 +210,10 @@ class MockClientSocketFactory : public ClientSocketFactory {
         client_socket_types_(NULL), client_socket_index_(0),
         client_socket_index_max_(0) {}
 
-  virtual ClientSocket* CreateTCPClientSocket(const AddressList& addresses,
-                                              NetLog* /* net_log */) {
+  virtual ClientSocket* CreateTCPClientSocket(
+      const AddressList& addresses,
+      NetLog* /* net_log */,
+      const NetLog::Source& /* source */) {
     allocation_count_++;
 
     ClientSocketType type = client_socket_type_;
@@ -259,7 +273,7 @@ class MockClientSocketFactory : public ClientSocketFactory {
   int client_socket_index_max_;
 };
 
-class TCPClientSocketPoolTest : public ClientSocketPoolTest {
+class TCPClientSocketPoolTest : public testing::Test {
  protected:
   TCPClientSocketPoolTest()
       : params_(new TCPSocketParams(HostPortPair("www.google.com", 80),
@@ -268,32 +282,49 @@ class TCPClientSocketPoolTest : public ClientSocketPoolTest {
                                         LOW, GURL(), false)),
         histograms_(new ClientSocketPoolHistograms("TCPUnitTest")),
         host_resolver_(new MockHostResolver),
-        pool_(new TCPClientSocketPool(kMaxSockets,
-                                      kMaxSocketsPerGroup,
-                                      histograms_,
-                                      host_resolver_,
-                                      &client_socket_factory_,
-                                      NULL)) {
+        pool_(kMaxSockets,
+              kMaxSocketsPerGroup,
+              histograms_.get(),
+              host_resolver_,
+              &client_socket_factory_,
+              NULL) {
   }
 
   int StartRequest(const std::string& group_name, RequestPriority priority) {
     scoped_refptr<TCPSocketParams> params = new TCPSocketParams(
         HostPortPair("www.google.com", 80), MEDIUM, GURL(), false);
-    return StartRequestUsingPool(pool_, group_name, priority, params);
+    return test_base_.StartRequestUsingPool(
+        &pool_, group_name, priority, params);
   }
+
+  int GetOrderOfRequest(size_t index) {
+    return test_base_.GetOrderOfRequest(index);
+  }
+
+  bool ReleaseOneConnection(ClientSocketPoolTest::KeepAlive keep_alive) {
+    return test_base_.ReleaseOneConnection(keep_alive);
+  }
+
+  void ReleaseAllConnections(ClientSocketPoolTest::KeepAlive keep_alive) {
+    test_base_.ReleaseAllConnections(keep_alive);
+  }
+
+  ScopedVector<TestSocketRequest>* requests() { return test_base_.requests(); }
+  size_t completion_count() const { return test_base_.completion_count(); }
 
   scoped_refptr<TCPSocketParams> params_;
   scoped_refptr<TCPSocketParams> low_params_;
-  scoped_refptr<ClientSocketPoolHistograms> histograms_;
+  scoped_ptr<ClientSocketPoolHistograms> histograms_;
   scoped_refptr<MockHostResolver> host_resolver_;
   MockClientSocketFactory client_socket_factory_;
-  scoped_refptr<TCPClientSocketPool> pool_;
+  TCPClientSocketPool pool_;
+  ClientSocketPoolTest test_base_;
 };
 
 TEST_F(TCPClientSocketPoolTest, Basic) {
   TestCompletionCallback callback;
   ClientSocketHandle handle;
-  int rv = handle.Init("a", low_params_, LOW, &callback, pool_, BoundNetLog());
+  int rv = handle.Init("a", low_params_, LOW, &callback, &pool_, BoundNetLog());
   EXPECT_EQ(ERR_IO_PENDING, rv);
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -307,34 +338,36 @@ TEST_F(TCPClientSocketPoolTest, Basic) {
 
 TEST_F(TCPClientSocketPoolTest, InitHostResolutionFailure) {
   host_resolver_->rules()->AddSimulatedFailure("unresolvable.host.name");
-  TestSocketRequest req(&request_order_, &completion_count_);
+  TestCompletionCallback callback;
+  ClientSocketHandle handle;
   scoped_refptr<TCPSocketParams> dest = new TCPSocketParams(
           "unresolvable.host.name", 80, kDefaultPriority, GURL(), false);
   EXPECT_EQ(ERR_IO_PENDING,
-            req.handle()->Init("a", dest, kDefaultPriority, &req, pool_,
-                               BoundNetLog()));
-  EXPECT_EQ(ERR_NAME_NOT_RESOLVED, req.WaitForResult());
+            handle.Init("a", dest, kDefaultPriority, &callback, &pool_,
+                        BoundNetLog()));
+  EXPECT_EQ(ERR_NAME_NOT_RESOLVED, callback.WaitForResult());
 }
 
 TEST_F(TCPClientSocketPoolTest, InitConnectionFailure) {
   client_socket_factory_.set_client_socket_type(
       MockClientSocketFactory::MOCK_FAILING_CLIENT_SOCKET);
-  TestSocketRequest req(&request_order_, &completion_count_);
-  EXPECT_EQ(ERR_IO_PENDING, req.handle()->Init("a", params_, kDefaultPriority,
-                                               &req, pool_, BoundNetLog()));
-  EXPECT_EQ(ERR_CONNECTION_FAILED, req.WaitForResult());
+  TestCompletionCallback callback;
+  ClientSocketHandle handle;
+  EXPECT_EQ(ERR_IO_PENDING, handle.Init("a", params_, kDefaultPriority,
+                                        &callback, &pool_, BoundNetLog()));
+  EXPECT_EQ(ERR_CONNECTION_FAILED, callback.WaitForResult());
 
   // Make the host resolutions complete synchronously this time.
   host_resolver_->set_synchronous_mode(true);
-  EXPECT_EQ(ERR_CONNECTION_FAILED, req.handle()->Init("a", params_,
-                                                      kDefaultPriority, &req,
-                                                      pool_, BoundNetLog()));
+  EXPECT_EQ(ERR_CONNECTION_FAILED, handle.Init("a", params_,
+                                               kDefaultPriority, &callback,
+                                               &pool_, BoundNetLog()));
 }
 
 TEST_F(TCPClientSocketPoolTest, PendingRequests) {
   // First request finishes asynchronously.
   EXPECT_EQ(ERR_IO_PENDING, StartRequest("a", kDefaultPriority));
-  EXPECT_EQ(OK, requests_[0]->WaitForResult());
+  EXPECT_EQ(OK, (*requests())[0]->WaitForResult());
 
   // Make all subsequent host resolutions complete synchronously.
   host_resolver_->set_synchronous_mode(true);
@@ -358,12 +391,12 @@ TEST_F(TCPClientSocketPoolTest, PendingRequests) {
   EXPECT_EQ(ERR_IO_PENDING, StartRequest("a", MEDIUM));
   EXPECT_EQ(ERR_IO_PENDING, StartRequest("a", HIGHEST));
 
-  ReleaseAllConnections(KEEP_ALIVE);
+  ReleaseAllConnections(ClientSocketPoolTest::KEEP_ALIVE);
 
   EXPECT_EQ(kMaxSocketsPerGroup, client_socket_factory_.allocation_count());
 
   // One initial asynchronous request and then 10 pending requests.
-  EXPECT_EQ(11U, completion_count_);
+  EXPECT_EQ(11U, completion_count());
 
   // First part of requests, all with the same priority, finishes in FIFO order.
   EXPECT_EQ(1, GetOrderOfRequest(1));
@@ -386,13 +419,13 @@ TEST_F(TCPClientSocketPoolTest, PendingRequests) {
   EXPECT_EQ(9, GetOrderOfRequest(16));
 
   // Make sure we test order of all requests made.
-  EXPECT_EQ(kIndexOutOfBounds, GetOrderOfRequest(17));
+  EXPECT_EQ(ClientSocketPoolTest::kIndexOutOfBounds, GetOrderOfRequest(17));
 }
 
 TEST_F(TCPClientSocketPoolTest, PendingRequests_NoKeepAlive) {
   // First request finishes asynchronously.
   EXPECT_EQ(ERR_IO_PENDING, StartRequest("a", kDefaultPriority));
-  EXPECT_EQ(OK, requests_[0]->WaitForResult());
+  EXPECT_EQ(OK, (*requests())[0]->WaitForResult());
 
   // Make all subsequent host resolutions complete synchronously.
   host_resolver_->set_synchronous_mode(true);
@@ -411,53 +444,48 @@ TEST_F(TCPClientSocketPoolTest, PendingRequests_NoKeepAlive) {
   EXPECT_EQ(ERR_IO_PENDING, StartRequest("a", kDefaultPriority));
   EXPECT_EQ(ERR_IO_PENDING, StartRequest("a", kDefaultPriority));
 
-  ReleaseAllConnections(NO_KEEP_ALIVE);
+  ReleaseAllConnections(ClientSocketPoolTest::NO_KEEP_ALIVE);
 
   // The pending requests should finish successfully.
-  EXPECT_EQ(OK, requests_[6]->WaitForResult());
-  EXPECT_EQ(OK, requests_[7]->WaitForResult());
-  EXPECT_EQ(OK, requests_[8]->WaitForResult());
-  EXPECT_EQ(OK, requests_[9]->WaitForResult());
-  EXPECT_EQ(OK, requests_[10]->WaitForResult());
+  EXPECT_EQ(OK, (*requests())[6]->WaitForResult());
+  EXPECT_EQ(OK, (*requests())[7]->WaitForResult());
+  EXPECT_EQ(OK, (*requests())[8]->WaitForResult());
+  EXPECT_EQ(OK, (*requests())[9]->WaitForResult());
+  EXPECT_EQ(OK, (*requests())[10]->WaitForResult());
 
-  EXPECT_EQ(static_cast<int>(requests_.size()),
+  EXPECT_EQ(static_cast<int>(requests()->size()),
             client_socket_factory_.allocation_count());
 
   // First asynchronous request, and then last 5 pending requests.
-  EXPECT_EQ(6U, completion_count_);
+  EXPECT_EQ(6U, completion_count());
 }
 
 // This test will start up a RequestSocket() and then immediately Cancel() it.
 // The pending host resolution will eventually complete, and destroy the
 // ClientSocketPool which will crash if the group was not cleared properly.
 TEST_F(TCPClientSocketPoolTest, CancelRequestClearGroup) {
-  TestSocketRequest req(&request_order_, &completion_count_);
-  EXPECT_EQ(ERR_IO_PENDING, req.handle()->Init("a", params_, kDefaultPriority,
-                                               &req, pool_, BoundNetLog()));
-  req.handle()->Reset();
-
-  // There is a race condition here.  If the worker pool doesn't post the task
-  // before we get here, then this might not run ConnectingSocket::OnIOComplete
-  // and therefore leak the canceled ConnectingSocket.  However, other tests
-  // after this will call MessageLoop::RunAllPending() which should prevent a
-  // leak, unless the worker thread takes longer than all of them.
-  PlatformThread::Sleep(10);
-  MessageLoop::current()->RunAllPending();
+  TestCompletionCallback callback;
+  ClientSocketHandle handle;
+  EXPECT_EQ(ERR_IO_PENDING, handle.Init("a", params_, kDefaultPriority,
+                                        &callback, &pool_, BoundNetLog()));
+  handle.Reset();
 }
 
 TEST_F(TCPClientSocketPoolTest, TwoRequestsCancelOne) {
-  TestSocketRequest req(&request_order_, &completion_count_);
-  TestSocketRequest req2(&request_order_, &completion_count_);
+  ClientSocketHandle handle;
+  TestCompletionCallback callback;
+  ClientSocketHandle handle2;
+  TestCompletionCallback callback2;
 
-  EXPECT_EQ(ERR_IO_PENDING, req.handle()->Init("a", params_, kDefaultPriority,
-                                               &req, pool_, BoundNetLog()));
-  EXPECT_EQ(ERR_IO_PENDING, req2.handle()->Init("a", params_, kDefaultPriority,
-                                                &req2, pool_, BoundNetLog()));
+  EXPECT_EQ(ERR_IO_PENDING, handle.Init("a", params_, kDefaultPriority,
+                                        &callback, &pool_, BoundNetLog()));
+  EXPECT_EQ(ERR_IO_PENDING, handle2.Init("a", params_, kDefaultPriority,
+                                         &callback2, &pool_, BoundNetLog()));
 
-  req.handle()->Reset();
+  handle.Reset();
 
-  EXPECT_EQ(OK, req2.WaitForResult());
-  req2.handle()->Reset();
+  EXPECT_EQ(OK, callback2.WaitForResult());
+  handle2.Reset();
 }
 
 TEST_F(TCPClientSocketPoolTest, ConnectCancelConnect) {
@@ -465,16 +493,14 @@ TEST_F(TCPClientSocketPoolTest, ConnectCancelConnect) {
       MockClientSocketFactory::MOCK_PENDING_CLIENT_SOCKET);
   ClientSocketHandle handle;
   TestCompletionCallback callback;
-  TestSocketRequest req(&request_order_, &completion_count_);
-
   EXPECT_EQ(ERR_IO_PENDING, handle.Init("a", params_, kDefaultPriority,
-                                        &callback, pool_, BoundNetLog()));
+                                        &callback, &pool_, BoundNetLog()));
 
   handle.Reset();
 
   TestCompletionCallback callback2;
   EXPECT_EQ(ERR_IO_PENDING, handle.Init("a", params_, kDefaultPriority,
-                                        &callback2, pool_, BoundNetLog()));
+                                        &callback2, &pool_, BoundNetLog()));
 
   host_resolver_->set_synchronous_mode(true);
   // At this point, handle has two ConnectingSockets out for it.  Due to the
@@ -495,7 +521,7 @@ TEST_F(TCPClientSocketPoolTest, ConnectCancelConnect) {
 TEST_F(TCPClientSocketPoolTest, CancelRequest) {
   // First request finishes asynchronously.
   EXPECT_EQ(ERR_IO_PENDING, StartRequest("a", kDefaultPriority));
-  EXPECT_EQ(OK, requests_[0]->WaitForResult());
+  EXPECT_EQ(OK, (*requests())[0]->WaitForResult());
 
   // Make all subsequent host resolutions complete synchronously.
   host_resolver_->set_synchronous_mode(true);
@@ -520,14 +546,14 @@ TEST_F(TCPClientSocketPoolTest, CancelRequest) {
 
   // Cancel a request.
   size_t index_to_cancel = kMaxSocketsPerGroup + 2;
-  EXPECT_FALSE(requests_[index_to_cancel]->handle()->is_initialized());
-  requests_[index_to_cancel]->handle()->Reset();
+  EXPECT_FALSE((*requests())[index_to_cancel]->handle()->is_initialized());
+  (*requests())[index_to_cancel]->handle()->Reset();
 
-  ReleaseAllConnections(KEEP_ALIVE);
+  ReleaseAllConnections(ClientSocketPoolTest::KEEP_ALIVE);
 
   EXPECT_EQ(kMaxSocketsPerGroup,
             client_socket_factory_.allocation_count());
-  EXPECT_EQ(requests_.size() - kMaxSocketsPerGroup, completion_count_);
+  EXPECT_EQ(requests()->size() - kMaxSocketsPerGroup, completion_count());
 
   EXPECT_EQ(1, GetOrderOfRequest(1));
   EXPECT_EQ(2, GetOrderOfRequest(2));
@@ -537,7 +563,8 @@ TEST_F(TCPClientSocketPoolTest, CancelRequest) {
   EXPECT_EQ(6, GetOrderOfRequest(6));
   EXPECT_EQ(14, GetOrderOfRequest(7));
   EXPECT_EQ(7, GetOrderOfRequest(8));
-  EXPECT_EQ(kRequestNotFound, GetOrderOfRequest(9));  // Canceled request.
+  EXPECT_EQ(ClientSocketPoolTest::kRequestNotFound,
+            GetOrderOfRequest(9));  // Canceled request.
   EXPECT_EQ(9, GetOrderOfRequest(10));
   EXPECT_EQ(10, GetOrderOfRequest(11));
   EXPECT_EQ(11, GetOrderOfRequest(12));
@@ -547,7 +574,7 @@ TEST_F(TCPClientSocketPoolTest, CancelRequest) {
   EXPECT_EQ(15, GetOrderOfRequest(16));
 
   // Make sure we test order of all requests made.
-  EXPECT_EQ(kIndexOutOfBounds, GetOrderOfRequest(17));
+  EXPECT_EQ(ClientSocketPoolTest::kIndexOutOfBounds, GetOrderOfRequest(17));
 }
 
 class RequestSocketCallback : public CallbackRunner< Tuple1<int> > {
@@ -574,8 +601,7 @@ class RequestSocketCallback : public CallbackRunner< Tuple1<int> > {
       within_callback_ = true;
       scoped_refptr<TCPSocketParams> dest = new TCPSocketParams(
           HostPortPair("www.google.com", 80), LOWEST, GURL(), false);
-      int rv = handle_->Init("a", dest, LOWEST, this, pool_,
-                             BoundNetLog());
+      int rv = handle_->Init("a", dest, LOWEST, this, pool_, BoundNetLog());
       EXPECT_EQ(OK, rv);
     }
   }
@@ -586,17 +612,17 @@ class RequestSocketCallback : public CallbackRunner< Tuple1<int> > {
 
  private:
   ClientSocketHandle* const handle_;
-  const scoped_refptr<TCPClientSocketPool> pool_;
+  TCPClientSocketPool* const pool_;
   bool within_callback_;
   TestCompletionCallback callback_;
 };
 
 TEST_F(TCPClientSocketPoolTest, RequestTwice) {
   ClientSocketHandle handle;
-  RequestSocketCallback callback(&handle, pool_.get());
+  RequestSocketCallback callback(&handle, &pool_);
   scoped_refptr<TCPSocketParams> dest = new TCPSocketParams(
       HostPortPair("www.google.com", 80), LOWEST, GURL(), false);
-  int rv = handle.Init("a", dest, LOWEST, &callback, pool_,
+  int rv = handle.Init("a", dest, LOWEST, &callback, &pool_,
                        BoundNetLog());
   ASSERT_EQ(ERR_IO_PENDING, rv);
 
@@ -627,17 +653,17 @@ TEST_F(TCPClientSocketPoolTest, CancelActiveRequestWithPendingRequests) {
   EXPECT_EQ(ERR_IO_PENDING, StartRequest("a", kDefaultPriority));
 
   // Now, kMaxSocketsPerGroup requests should be active.  Let's cancel them.
-  ASSERT_LE(kMaxSocketsPerGroup, static_cast<int>(requests_.size()));
+  ASSERT_LE(kMaxSocketsPerGroup, static_cast<int>(requests()->size()));
   for (int i = 0; i < kMaxSocketsPerGroup; i++)
-    requests_[i]->handle()->Reset();
+    (*requests())[i]->handle()->Reset();
 
   // Let's wait for the rest to complete now.
-  for (size_t i = kMaxSocketsPerGroup; i < requests_.size(); ++i) {
-    EXPECT_EQ(OK, requests_[i]->WaitForResult());
-    requests_[i]->handle()->Reset();
+  for (size_t i = kMaxSocketsPerGroup; i < requests()->size(); ++i) {
+    EXPECT_EQ(OK, (*requests())[i]->WaitForResult());
+    (*requests())[i]->handle()->Reset();
   }
 
-  EXPECT_EQ(requests_.size() - kMaxSocketsPerGroup, completion_count_);
+  EXPECT_EQ(requests()->size() - kMaxSocketsPerGroup, completion_count());
 }
 
 // Make sure that pending requests get serviced after active requests fail.
@@ -653,13 +679,13 @@ TEST_F(TCPClientSocketPoolTest, FailingActiveRequestWithPendingRequests) {
     EXPECT_EQ(ERR_IO_PENDING, StartRequest("a", kDefaultPriority));
 
   for (int i = 0; i < kNumRequests; i++)
-    EXPECT_EQ(ERR_CONNECTION_FAILED, requests_[i]->WaitForResult());
+    EXPECT_EQ(ERR_CONNECTION_FAILED, (*requests())[i]->WaitForResult());
 }
 
 TEST_F(TCPClientSocketPoolTest, ResetIdleSocketsOnIPAddressChange) {
   TestCompletionCallback callback;
   ClientSocketHandle handle;
-  int rv = handle.Init("a", low_params_, LOW, &callback, pool_, BoundNetLog());
+  int rv = handle.Init("a", low_params_, LOW, &callback, &pool_, BoundNetLog());
   EXPECT_EQ(ERR_IO_PENDING, rv);
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -674,13 +700,13 @@ TEST_F(TCPClientSocketPoolTest, ResetIdleSocketsOnIPAddressChange) {
   MessageLoop::current()->RunAllPending();
 
   // Now we should have 1 idle socket.
-  EXPECT_EQ(1, pool_->IdleSocketCount());
+  EXPECT_EQ(1, pool_.IdleSocketCount());
 
   // After an IP address change, we should have 0 idle sockets.
   NetworkChangeNotifier::NotifyObserversOfIPAddressChangeForTests();
   MessageLoop::current()->RunAllPending();  // Notification happens async.
 
-  EXPECT_EQ(0, pool_->IdleSocketCount());
+  EXPECT_EQ(0, pool_.IdleSocketCount());
 }
 
 TEST_F(TCPClientSocketPoolTest, BackupSocketConnect) {
@@ -710,11 +736,11 @@ TEST_F(TCPClientSocketPoolTest, BackupSocketConnect) {
   for (size_t index = 0; index < arraysize(cases); ++index) {
     client_socket_factory_.set_client_socket_types(cases[index], 2);
 
-    EXPECT_EQ(0, pool_->IdleSocketCount());
+    EXPECT_EQ(0, pool_.IdleSocketCount());
 
     TestCompletionCallback callback;
     ClientSocketHandle handle;
-    int rv = handle.Init("b", low_params_, LOW, &callback, pool_,
+    int rv = handle.Init("b", low_params_, LOW, &callback, &pool_,
                          BoundNetLog());
     EXPECT_EQ(ERR_IO_PENDING, rv);
     EXPECT_FALSE(handle.is_initialized());
@@ -734,17 +760,11 @@ TEST_F(TCPClientSocketPoolTest, BackupSocketConnect) {
     EXPECT_TRUE(handle.socket());
 
     // One socket is stalled, the other is active.
-    EXPECT_EQ(0, pool_->IdleSocketCount());
+    EXPECT_EQ(0, pool_.IdleSocketCount());
     handle.Reset();
 
     // Close all pending connect jobs and existing sockets.
-    pool_->Flush();
-
-    // TODO(mbelshe): Flush has a bug.  UIt doesn't clean out pending connect
-    // jobs.  When they complete, they become idle sockets.  For now, continue
-    // to replace the pool_.  But we really need to fix Flush().
-    pool_ = new TCPClientSocketPool(kMaxSockets, kMaxSocketsPerGroup,
-        histograms_, host_resolver_, &client_socket_factory_, NULL);
+    pool_.Flush();
   }
 }
 
@@ -757,11 +777,11 @@ TEST_F(TCPClientSocketPoolTest, BackupSocketCancel) {
   enum { CANCEL_BEFORE_WAIT, CANCEL_AFTER_WAIT };
 
   for (int index = CANCEL_BEFORE_WAIT; index < CANCEL_AFTER_WAIT; ++index) {
-    EXPECT_EQ(0, pool_->IdleSocketCount());
+    EXPECT_EQ(0, pool_.IdleSocketCount());
 
     TestCompletionCallback callback;
     ClientSocketHandle handle;
-    int rv = handle.Init("c", low_params_, LOW, &callback, pool_,
+    int rv = handle.Init("c", low_params_, LOW, &callback, &pool_,
                          BoundNetLog());
     EXPECT_EQ(ERR_IO_PENDING, rv);
     EXPECT_FALSE(handle.is_initialized());
@@ -785,7 +805,7 @@ TEST_F(TCPClientSocketPoolTest, BackupSocketCancel) {
     EXPECT_FALSE(handle.socket());
 
     // One socket is stalled, the other is active.
-    EXPECT_EQ(0, pool_->IdleSocketCount());
+    EXPECT_EQ(0, pool_.IdleSocketCount());
   }
 }
 
@@ -802,11 +822,11 @@ TEST_F(TCPClientSocketPoolTest, BackupSocketFailAfterStall) {
 
   client_socket_factory_.set_client_socket_types(case_types, 2);
 
-  EXPECT_EQ(0, pool_->IdleSocketCount());
+  EXPECT_EQ(0, pool_.IdleSocketCount());
 
   TestCompletionCallback callback;
   ClientSocketHandle handle;
-  int rv = handle.Init("b", low_params_, LOW, &callback, pool_, BoundNetLog());
+  int rv = handle.Init("b", low_params_, LOW, &callback, &pool_, BoundNetLog());
   EXPECT_EQ(ERR_IO_PENDING, rv);
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
@@ -827,7 +847,7 @@ TEST_F(TCPClientSocketPoolTest, BackupSocketFailAfterStall) {
   EXPECT_EQ(ERR_CONNECTION_FAILED, callback.WaitForResult());
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());
-  EXPECT_EQ(0, pool_->IdleSocketCount());
+  EXPECT_EQ(0, pool_.IdleSocketCount());
   handle.Reset();
 
   // Reset for the next case.
@@ -847,11 +867,11 @@ TEST_F(TCPClientSocketPoolTest, BackupSocketFailAfterDelay) {
 
   client_socket_factory_.set_client_socket_types(case_types, 2);
 
-  EXPECT_EQ(0, pool_->IdleSocketCount());
+  EXPECT_EQ(0, pool_.IdleSocketCount());
 
   TestCompletionCallback callback;
   ClientSocketHandle handle;
-  int rv = handle.Init("b", low_params_, LOW, &callback, pool_, BoundNetLog());
+  int rv = handle.Init("b", low_params_, LOW, &callback, &pool_, BoundNetLog());
   EXPECT_EQ(ERR_IO_PENDING, rv);
   EXPECT_FALSE(handle.is_initialized());
   EXPECT_FALSE(handle.socket());

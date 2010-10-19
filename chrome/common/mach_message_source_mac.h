@@ -4,6 +4,7 @@
 
 #ifndef CHROME_COMMON_MACH_MESSAGE_SOURCE_MAC_H_
 #define CHROME_COMMON_MACH_MESSAGE_SOURCE_MAC_H_
+#pragma once
 
 #include <CoreServices/CoreServices.h>
 
@@ -38,6 +39,9 @@ class MachMessageSource {
   class MachPortListener {
    public:
     virtual void OnMachMessageReceived(void* mach_msg, size_t size) = 0;
+
+   protected:
+    virtual ~OnMachMessageReceived() {}
   };
 
   // |listener| is a week reference passed to CF, it needs to remain in

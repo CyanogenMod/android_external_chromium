@@ -1,9 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_BASE_SSL_CONFIG_SERVICE_DEFAULTS_H_
 #define NET_BASE_SSL_CONFIG_SERVICE_DEFAULTS_H_
+#pragma once
 
 #include "net/base/ssl_config_service.h"
 
@@ -14,15 +15,13 @@ namespace net {
 // implementation of SSLConfigService yet.
 class SSLConfigServiceDefaults : public SSLConfigService {
  public:
-  SSLConfigServiceDefaults() {}
+  SSLConfigServiceDefaults();
 
   // Store default SSL config settings in |config|.
-  virtual void GetSSLConfig(SSLConfig* config) {
-    *config = default_config_;
-  }
+  virtual void GetSSLConfig(SSLConfig* config);
 
  private:
-  virtual ~SSLConfigServiceDefaults() {}
+  virtual ~SSLConfigServiceDefaults();
 
   // Default value of prefs.
   const SSLConfig default_config_;

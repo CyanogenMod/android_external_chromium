@@ -4,6 +4,7 @@
 
 #ifndef NET_HTTP_HTTP_NETWORK_LAYER_H_
 #define NET_HTTP_HTTP_NETWORK_LAYER_H_
+#pragma once
 
 #include <string>
 
@@ -20,7 +21,6 @@ class HttpAuthHandlerFactory;
 class HttpNetworkDelegate;
 class HttpNetworkSession;
 class NetLog;
-class ProxyInfo;
 class ProxyService;
 class SpdySessionPool;
 class SSLConfigService;
@@ -38,6 +38,16 @@ class HttpNetworkLayer : public HttpTransactionFactory, public NonThreadSafe {
                    NetLog* net_log);
   // Construct a HttpNetworkLayer with an existing HttpNetworkSession which
   // contains a valid ProxyService.
+  HttpNetworkLayer(
+      ClientSocketFactory* socket_factory,
+      HostResolver* host_resolver,
+      ProxyService* proxy_service,
+      SSLConfigService* ssl_config_service,
+      SpdySessionPool* spdy_session_pool,
+      HttpAuthHandlerFactory* http_auth_handler_factory,
+      HttpNetworkDelegate* network_delegate,
+      NetLog* net_log);
+
   explicit HttpNetworkLayer(HttpNetworkSession* session);
   ~HttpNetworkLayer();
 
@@ -66,9 +76,11 @@ class HttpNetworkLayer : public HttpTransactionFactory, public NonThreadSafe {
 
   // Enable the spdy protocol.
   // Without calling this function, SPDY is disabled.  The mode can be:
-  //   ""            : (default) SSL and compression are enabled.
+  //   ""            : (default) SSL and compression are enabled, flow
+  //                   control disabled.
   //   "no-ssl"      : disables SSL.
   //   "no-compress" : disables compression.
+  //   "flow-control": enables flow control.
   //   "none"        : disables both SSL and compression.
   static void EnableSpdy(const std::string& mode);
 
@@ -92,7 +104,6 @@ class HttpNetworkLayer : public HttpTransactionFactory, public NonThreadSafe {
   NetLog* net_log_;
 
   bool suspended_;
-  static bool force_spdy_;
 };
 
 }  // namespace net

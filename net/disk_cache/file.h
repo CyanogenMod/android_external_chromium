@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,8 +6,7 @@
 
 #ifndef NET_DISK_CACHE_FILE_H_
 #define NET_DISK_CACHE_FILE_H_
-
-#include <string>
+#pragma once
 
 #include "base/platform_file.h"
 #include "base/ref_counted.h"
@@ -60,10 +59,6 @@ class File : public base::RefCounted<File> {
   bool Write(const void* buffer, size_t buffer_len, size_t offset,
              FileIOCallback* callback, bool* completed);
 
-  // Performs asynchronous writes, but doesn't notify when done. Automatically
-  // deletes buffer when done.
-  bool PostWrite(const void* buffer, size_t buffer_len, size_t offset);
-
   // Sets the file's length. The file is truncated or extended with zeros to
   // the new length.
   bool SetLength(size_t length);
@@ -78,7 +73,7 @@ class File : public base::RefCounted<File> {
   // Performs the actual asynchronous write. If notify is set and there is no
   // callback, the call will be re-synchronized.
   bool AsyncWrite(const void* buffer, size_t buffer_len, size_t offset,
-                  bool notify, FileIOCallback* callback, bool* completed);
+                  FileIOCallback* callback, bool* completed);
 
  private:
   bool init_;

@@ -93,17 +93,23 @@ bool BaseChannel::RemoveStream(uint32 ssrc) {
   return true;
 }
 
-bool BaseChannel::SetLocalDescription(const MediaSessionDescription& desc,
-                                      DescriptionType type) {
-  SetDescriptionData data(desc, type);
-  Send(MSG_SETLOCALDESCRIPTION, &data);
+bool BaseChannel::SetRtcpCName(const std::string& cname) {
+  SetRtcpCNameData data(cname);
+  Send(MSG_SETRTCPCNAME, &data);
   return data.result;
 }
 
-bool BaseChannel::SetRemoteDescription(const MediaSessionDescription& desc,
-                                       DescriptionType type) {
-  SetDescriptionData data(desc, type);
-  Send(MSG_SETREMOTEDESCRIPTION, &data);
+bool BaseChannel::SetLocalContent(const MediaContentDescription* content,
+                                  ContentAction action) {
+  SetContentData data(content, action);
+  Send(MSG_SETLOCALCONTENT, &data);
+  return data.result;
+}
+
+bool BaseChannel::SetRemoteContent(const MediaContentDescription* content,
+                                   ContentAction action) {
+  SetContentData data(content, action);
+  Send(MSG_SETREMOTECONTENT, &data);
   return data.result;
 }
 
@@ -270,27 +276,32 @@ void BaseChannel::OnSessionState(BaseSession* session,
                                  BaseSession::State state) {
   // TODO(juberti): tear down the call via session->SetError() if the
   // SetXXXXDescription calls fail.
+  const MediaContentDescription* content = NULL;
   switch (state) {
     case Session::STATE_SENTINITIATE:
+      content = GetFirstContent(session->local_description());
+      if (content) {
+        SetLocalContent(content, CA_OFFER);
+      }
+      break;
     case Session::STATE_SENTACCEPT:
-      if (session->local_description()) {
-        SetLocalDescription(*static_cast<const MediaSessionDescription*>(
-                                session->local_description()),
-                            (state == Session::STATE_SENTINITIATE) ?
-                                DT_OFFER : DT_ANSWER);
+      content = GetFirstContent(session->local_description());
+      if (content) {
+        SetLocalContent(content, CA_ANSWER);
       }
       break;
-
     case Session::STATE_RECEIVEDINITIATE:
-    case Session::STATE_RECEIVEDACCEPT:
-      if (session->remote_description()) {
-        SetRemoteDescription(*static_cast<const MediaSessionDescription*>(
-                                 session->remote_description()),
-                             (state == Session::STATE_RECEIVEDINITIATE) ?
-                                DT_OFFER : DT_ANSWER);
+      content = GetFirstContent(session->remote_description());
+      if (content) {
+        SetRemoteContent(content, CA_OFFER);
       }
       break;
-
+    case Session::STATE_RECEIVEDACCEPT:
+      content = GetFirstContent(session->remote_description());
+      if (content) {
+        SetRemoteContent(content, CA_ANSWER);
+      }
+      break;
     default:
       break;
   }
@@ -363,26 +374,30 @@ bool BaseChannel::SetMaxSendBandwidth_w(int max_bandwidth) {
   return media_channel()->SetMaxSendBandwidth(max_bandwidth);
 }
 
+bool BaseChannel::SetRtcpCName_w(const std::string& cname) {
+  return media_channel()->SetRtcpCName(cname);
+}
+
 bool BaseChannel::SetSrtp_w(const std::vector<CryptoParams>& cryptos,
-                            DescriptionType type, DescriptionSource src) {
+                            ContentAction action, ContentSource src) {
   bool ret;
-  if (type == DT_OFFER) {
+  if (action == CA_OFFER) {
     ret = srtp_filter_.SetOffer(cryptos, src);
-  } else if (type == DT_ANSWER) {
+  } else if (action == CA_ANSWER) {
     ret = srtp_filter_.SetAnswer(cryptos, src);
   } else {
-    // DT_UPDATE, no crypto params.
+    // CA_UPDATE, no crypto params.
     ret = true;
   }
   return ret;
 }
 
-bool BaseChannel::SetRtcpMux_w(bool enable, DescriptionType type,
-                               DescriptionSource src) {
+bool BaseChannel::SetRtcpMux_w(bool enable, ContentAction action,
+                               ContentSource src) {
   bool ret;
-  if (type == DT_OFFER) {
+  if (action == CA_OFFER) {
     ret = rtcp_mux_filter_.SetOffer(enable, src);
-  } else if (type == DT_ANSWER) {
+  } else if (action == CA_ANSWER) {
     ret = rtcp_mux_filter_.SetAnswer(enable, src);
     if (ret && rtcp_mux_filter_.IsActive()) {
       // We activated RTCP mux, close down the RTCP transport.
@@ -393,7 +408,7 @@ bool BaseChannel::SetRtcpMux_w(bool enable, DescriptionType type,
       }
     }
   } else {
-    // DT_UPDATE, no RTCP mux info.
+    // CA_UPDATE, no RTCP mux info.
     ret = true;
   }
   return ret;
@@ -415,14 +430,20 @@ void BaseChannel::OnMessage(talk_base::Message *pmsg) {
       UnmuteMedia_w();
       break;
 
-    case MSG_SETLOCALDESCRIPTION: {
-      SetDescriptionData* data = static_cast<SetDescriptionData*>(pmsg->pdata);
-      data->result = SetLocalDescription_w(data->desc, data->type);
+    case MSG_SETRTCPCNAME: {
+      SetRtcpCNameData* data = static_cast<SetRtcpCNameData*>(pmsg->pdata);
+      data->result = SetRtcpCName_w(data->cname);
       break;
     }
-    case MSG_SETREMOTEDESCRIPTION: {
-      SetDescriptionData* data = static_cast<SetDescriptionData*>(pmsg->pdata);
-      data->result = SetRemoteDescription_w(data->desc, data->type);
+
+    case MSG_SETLOCALCONTENT: {
+      SetContentData* data = static_cast<SetContentData*>(pmsg->pdata);
+      data->result = SetLocalContent_w(data->content, data->action);
+      break;
+    }
+    case MSG_SETREMOTECONTENT: {
+      SetContentData* data = static_cast<SetContentData*>(pmsg->pdata);
+      data->result = SetRemoteContent_w(data->content, data->action);
       break;
     }
 
@@ -587,44 +608,61 @@ void VoiceChannel::ChangeState() {
   LOG(LS_INFO) << "Changing voice state, recv=" << recv << " send=" << send;
 }
 
-bool VoiceChannel::SetLocalDescription_w(const MediaSessionDescription& desc,
-                                         DescriptionType type) {
+const MediaContentDescription* VoiceChannel::GetFirstContent(
+    const SessionDescription* sdesc) {
+  const ContentInfo* cinfo = GetFirstAudioContent(sdesc);
+  if (cinfo == NULL)
+    return NULL;
+
+  return static_cast<const MediaContentDescription*>(cinfo->description);
+}
+
+bool VoiceChannel::SetLocalContent_w(const MediaContentDescription* content,
+                                     ContentAction action) {
   ASSERT(worker_thread() == talk_base::Thread::Current());
   LOG(LS_INFO) << "Setting local voice description";
 
+  const AudioContentDescription* audio =
+      static_cast<const AudioContentDescription*>(content);
+  ASSERT(audio != NULL);
+
   bool ret;
   // set SRTP
-  ret = SetSrtp_w(desc.voice().cryptos(), type, DS_LOCAL);
+  ret = SetSrtp_w(audio->cryptos(), action, CS_LOCAL);
   // set RTCP mux
   if (ret) {
-    ret = SetRtcpMux_w(desc.voice().rtcp_mux(), type, DS_LOCAL);
+    ret = SetRtcpMux_w(audio->rtcp_mux(), action, CS_LOCAL);
   }
   // set payload type and config for voice codecs
   if (ret) {
-    ret = media_channel()->SetRecvCodecs(desc.voice().codecs());
+    ret = media_channel()->SetRecvCodecs(audio->codecs());
   }
   return ret;
 }
 
-bool VoiceChannel::SetRemoteDescription_w(const MediaSessionDescription& desc,
-                                          DescriptionType type) {
+bool VoiceChannel::SetRemoteContent_w(const MediaContentDescription* content,
+                                      ContentAction action) {
   ASSERT(worker_thread() == talk_base::Thread::Current());
   LOG(LS_INFO) << "Setting remote voice description";
 
+  const AudioContentDescription* audio =
+      static_cast<const AudioContentDescription*>(content);
+  ASSERT(audio != NULL);
+
   bool ret;
   // set the sending SSRC, if the remote side gave us one
-  if (desc.voice().ssrc_set()) {
-    media_channel()->SetSendSsrc(desc.voice().ssrc());
+  if (audio->ssrc_set()) {
+    media_channel()->SetSendSsrc(audio->ssrc());
   }
   // set SRTP
-  ret = SetSrtp_w(desc.voice().cryptos(), type, DS_REMOTE);
+  ret = SetSrtp_w(audio->cryptos(), action, CS_REMOTE);
   // set RTCP mux
   if (ret) {
-    ret = SetRtcpMux_w(desc.voice().rtcp_mux(), type, DS_REMOTE);
+    ret = SetRtcpMux_w(audio->rtcp_mux(), action, CS_REMOTE);
   }
   // set codecs and payload types
   if (ret) {
-    ret = media_channel()->SetSendCodecs(desc.voice().codecs());
+    ret = media_channel()->SetSendCodecs(audio->codecs());
   }
   // update state
   if (ret) {
@@ -755,17 +793,6 @@ bool VideoChannel::SetRenderer(uint32 ssrc, VideoRenderer* renderer) {
   return true;
 }
 
-bool VideoChannel::AddScreencast(uint32 ssrc, talk_base::WindowId id) {
-  ScreencastMessageData data(ssrc, id);
-  Send(MSG_ADDSCREENCAST, &data);
-  return true;
-}
-
-bool VideoChannel::RemoveScreencast(uint32 ssrc) {
-  ScreencastMessageData data(ssrc, 0);
-  Send(MSG_REMOVESCREENCAST, &data);
-  return true;
-}
 
 void VideoChannel::ChangeState() {
   // render incoming data if we are the active call
@@ -797,47 +824,64 @@ void VideoChannel::StopMediaMonitor() {
   }
 }
 
-bool VideoChannel::SetLocalDescription_w(const MediaSessionDescription& desc,
-                                         DescriptionType type) {
+const MediaContentDescription* VideoChannel::GetFirstContent(
+    const SessionDescription* sdesc) {
+  const ContentInfo* cinfo = GetFirstVideoContent(sdesc);
+  if (cinfo == NULL)
+    return NULL;
+
+  return static_cast<const MediaContentDescription*>(cinfo->description);
+}
+
+bool VideoChannel::SetLocalContent_w(const MediaContentDescription* content,
+                                     ContentAction action) {
   ASSERT(worker_thread() == talk_base::Thread::Current());
   LOG(LS_INFO) << "Setting local video description";
 
+  const VideoContentDescription* video =
+      static_cast<const VideoContentDescription*>(content);
+  ASSERT(video != NULL);
+
   bool ret;
   // set SRTP
-  ret = SetSrtp_w(desc.video().cryptos(), type, DS_LOCAL);
+  ret = SetSrtp_w(video->cryptos(), action, CS_LOCAL);
   // set RTCP mux
   if (ret) {
-    ret = SetRtcpMux_w(desc.video().rtcp_mux(), type, DS_LOCAL);
+    ret = SetRtcpMux_w(video->rtcp_mux(), action, CS_LOCAL);
   }
   // set payload types and config for receiving video
   if (ret) {
-    ret = media_channel()->SetRecvCodecs(desc.video().codecs());
+    ret = media_channel()->SetRecvCodecs(video->codecs());
   }
   return ret;
 }
 
-bool VideoChannel::SetRemoteDescription_w(const MediaSessionDescription& desc,
-                                          DescriptionType type) {
+bool VideoChannel::SetRemoteContent_w(const MediaContentDescription* content,
+                                      ContentAction action) {
   ASSERT(worker_thread() == talk_base::Thread::Current());
   LOG(LS_INFO) << "Setting remote video description";
+
+  const VideoContentDescription* video =
+      static_cast<const VideoContentDescription*>(content);
+  ASSERT(video != NULL);
 
   bool ret;
   // set the sending SSRC, if the remote side gave us one
   // TODO(juberti): remove this, since it's not needed.
-  if (desc.video().ssrc_set()) {
-    media_channel()->SetSendSsrc(desc.video().ssrc());
+  if (video->ssrc_set()) {
+    media_channel()->SetSendSsrc(video->ssrc());
   }
   // set SRTP
-  ret = SetSrtp_w(desc.video().cryptos(), type, DS_REMOTE);
+  ret = SetSrtp_w(video->cryptos(), action, CS_REMOTE);
   // set RTCP mux
   if (ret) {
-    ret = SetRtcpMux_w(desc.video().rtcp_mux(), type, DS_REMOTE);
+    ret = SetRtcpMux_w(video->rtcp_mux(), action, CS_REMOTE);
   }
   // TODO(juberti): Set bandwidth appropriately here.
   if (ret) {
-    ret = media_channel()->SetSendCodecs(desc.video().codecs());
+    ret = media_channel()->SetSendCodecs(video->codecs());
   }
-  media_channel()->SetRtpExtensionHeaders(!desc.video().rtp_headers_disabled());
+  media_channel()->SetRtpExtensionHeaders(!video->rtp_headers_disabled());
   if (ret) {
     set_has_codec(true);
     ChangeState();
@@ -857,13 +901,6 @@ void VideoChannel::SetRenderer_w(uint32 ssrc, VideoRenderer* renderer) {
   media_channel()->SetRenderer(ssrc, renderer);
 }
 
-void VideoChannel::AddScreencast_w(uint32 ssrc, talk_base::WindowId id) {
-  media_channel()->AddScreencast(ssrc, id);
-}
-
-void VideoChannel::RemoveScreencast_w(uint32 ssrc) {
-  media_channel()->RemoveScreencast(ssrc);
-}
 
 void VideoChannel::OnMessage(talk_base::Message *pmsg) {
   switch (pmsg->message_id) {
@@ -875,18 +912,6 @@ void VideoChannel::OnMessage(talk_base::Message *pmsg) {
     case MSG_SETRENDERER: {
       RenderMessageData* data = static_cast<RenderMessageData*>(pmsg->pdata);
       SetRenderer_w(data->ssrc, data->renderer);
-      break;
-    }
-    case MSG_ADDSCREENCAST: {
-      ScreencastMessageData* data =
-          static_cast<ScreencastMessageData*>(pmsg->pdata);
-      AddScreencast_w(data->ssrc, data->window_id);
-      break;
-    }
-    case MSG_REMOVESCREENCAST: {
-      ScreencastMessageData* data =
-          static_cast<ScreencastMessageData*>(pmsg->pdata);
-      RemoveScreencast_w(data->ssrc);
       break;
     }
   default:
@@ -917,11 +942,11 @@ bool RtcpMuxFilter::IsActive() const {
   return (state_ == ST_SENTOFFER || state_ == ST_ACTIVE);
 }
 
-bool RtcpMuxFilter::SetOffer(bool offer_enable, DescriptionSource source) {
+bool RtcpMuxFilter::SetOffer(bool offer_enable, ContentSource source) {
   bool ret = false;
   if (state_ == ST_INIT) {
     offer_enable_ = offer_enable;
-    state_ = (source == DS_LOCAL) ? ST_SENTOFFER : ST_RECEIVEDOFFER;
+    state_ = (source == CS_LOCAL) ? ST_SENTOFFER : ST_RECEIVEDOFFER;
     ret = true;
   } else {
     LOG(LS_ERROR) << "Invalid state for RTCP mux offer";
@@ -929,10 +954,10 @@ bool RtcpMuxFilter::SetOffer(bool offer_enable, DescriptionSource source) {
   return ret;
 }
 
-bool RtcpMuxFilter::SetAnswer(bool answer_enable, DescriptionSource source) {
+bool RtcpMuxFilter::SetAnswer(bool answer_enable, ContentSource source) {
   bool ret = false;
-  if ((state_ == ST_SENTOFFER && source == DS_REMOTE) ||
-      (state_ == ST_RECEIVEDOFFER && source == DS_LOCAL)) {
+  if ((state_ == ST_SENTOFFER && source == CS_REMOTE) ||
+      (state_ == ST_RECEIVEDOFFER && source == CS_LOCAL)) {
     if (offer_enable_) {
       state_ = (answer_enable) ? ST_ACTIVE : ST_INIT;
       ret = true;

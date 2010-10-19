@@ -3,9 +3,9 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
-#include "base/logging.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/sync/glue/app_data_type_controller.h"
 #include "chrome/browser/sync/glue/autofill_change_processor.h"
 #include "chrome/browser/sync/glue/autofill_data_type_controller.h"
 #include "chrome/browser/sync/glue/autofill_model_associator.h"
@@ -16,12 +16,16 @@
 #include "chrome/browser/sync/glue/extension_change_processor.h"
 #include "chrome/browser/sync/glue/extension_data_type_controller.h"
 #include "chrome/browser/sync/glue/extension_model_associator.h"
+#include "chrome/browser/sync/glue/extension_sync_traits.h"
 #include "chrome/browser/sync/glue/password_change_processor.h"
 #include "chrome/browser/sync/glue/password_data_type_controller.h"
 #include "chrome/browser/sync/glue/password_model_associator.h"
 #include "chrome/browser/sync/glue/preference_change_processor.h"
 #include "chrome/browser/sync/glue/preference_data_type_controller.h"
 #include "chrome/browser/sync/glue/preference_model_associator.h"
+#include "chrome/browser/sync/glue/session_change_processor.h"
+#include "chrome/browser/sync/glue/session_data_type_controller.h"
+#include "chrome/browser/sync/glue/session_model_associator.h"
 #include "chrome/browser/sync/glue/sync_backend_host.h"
 #include "chrome/browser/sync/glue/theme_change_processor.h"
 #include "chrome/browser/sync/glue/theme_data_type_controller.h"
@@ -34,6 +38,7 @@
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/common/chrome_switches.h"
 
+using browser_sync::AppDataTypeController;
 using browser_sync::AutofillChangeProcessor;
 using browser_sync::AutofillDataTypeController;
 using browser_sync::AutofillModelAssociator;
@@ -52,6 +57,9 @@ using browser_sync::PasswordModelAssociator;
 using browser_sync::PreferenceChangeProcessor;
 using browser_sync::PreferenceDataTypeController;
 using browser_sync::PreferenceModelAssociator;
+using browser_sync::SessionChangeProcessor;
+using browser_sync::SessionDataTypeController;
+using browser_sync::SessionModelAssociator;
 using browser_sync::SyncBackendHost;
 using browser_sync::ThemeChangeProcessor;
 using browser_sync::ThemeDataTypeController;
@@ -67,9 +75,18 @@ ProfileSyncFactoryImpl::ProfileSyncFactoryImpl(Profile* profile,
       command_line_(command_line) {
 }
 
-ProfileSyncService* ProfileSyncFactoryImpl::CreateProfileSyncService() {
+ProfileSyncService* ProfileSyncFactoryImpl::CreateProfileSyncService(
+    const std::string& cros_user) {
+
   ProfileSyncService* pss = new ProfileSyncService(
-      this, profile_, browser_defaults::kBootstrapSyncAuthentication);
+      this, profile_, cros_user);
+
+  // App sync is enabled by default.  Register unless explicitly
+  // disabled.
+  if (!command_line_->HasSwitch(switches::kDisableSyncApps)) {
+    pss->RegisterDataTypeController(
+        new AppDataTypeController(this, profile_, pss));
+  }
 
   // Autofill sync is enabled by default.  Register unless explicitly
   // disabled.
@@ -119,6 +136,12 @@ ProfileSyncService* ProfileSyncFactoryImpl::CreateProfileSyncService() {
         new TypedUrlDataTypeController(this, profile_, pss));
   }
 
+  // Session sync is disabled by default.  Register only if explicitly
+  // enabled.
+  if (command_line_->HasSwitch(switches::kEnableSyncSessions)) {
+    pss->RegisterDataTypeController(
+        new SessionDataTypeController(this, pss));
+  }
   return pss;
 }
 
@@ -126,6 +149,21 @@ DataTypeManager* ProfileSyncFactoryImpl::CreateDataTypeManager(
     SyncBackendHost* backend,
     const DataTypeController::TypeMap& controllers) {
   return new DataTypeManagerImpl(backend, controllers);
+}
+
+ProfileSyncFactory::SyncComponents
+ProfileSyncFactoryImpl::CreateAppSyncComponents(
+    ProfileSyncService* profile_sync_service,
+    UnrecoverableErrorHandler* error_handler) {
+  browser_sync::ExtensionSyncTraits traits = browser_sync::GetAppSyncTraits();
+  // For now we simply use extensions sync objects with the app sync
+  // traits.  If apps become more than simply extensions, we may have
+  // to write our own apps model associator and/or change processor.
+  ExtensionModelAssociator* model_associator =
+      new ExtensionModelAssociator(traits, profile_sync_service);
+  ExtensionChangeProcessor* change_processor =
+      new ExtensionChangeProcessor(traits, error_handler);
+  return SyncComponents(model_associator, change_processor);
 }
 
 ProfileSyncFactory::SyncComponents
@@ -163,10 +201,12 @@ ProfileSyncFactory::SyncComponents
 ProfileSyncFactoryImpl::CreateExtensionSyncComponents(
     ProfileSyncService* profile_sync_service,
     UnrecoverableErrorHandler* error_handler) {
+  browser_sync::ExtensionSyncTraits traits =
+      browser_sync::GetExtensionSyncTraits();
   ExtensionModelAssociator* model_associator =
-      new ExtensionModelAssociator(profile_sync_service);
+      new ExtensionModelAssociator(traits, profile_sync_service);
   ExtensionChangeProcessor* change_processor =
-      new ExtensionChangeProcessor(error_handler, model_associator);
+      new ExtensionChangeProcessor(traits, error_handler);
   return SyncComponents(model_associator, change_processor);
 }
 
@@ -220,5 +260,16 @@ ProfileSyncFactoryImpl::CreateTypedUrlSyncComponents(
       new TypedUrlChangeProcessor(model_associator,
                                   history_backend,
                                   error_handler);
+  return SyncComponents(model_associator, change_processor);
+}
+
+ProfileSyncFactory::SyncComponents
+ProfileSyncFactoryImpl::CreateSessionSyncComponents(
+    ProfileSyncService* profile_sync_service,
+    UnrecoverableErrorHandler* error_handler) {
+  SessionModelAssociator* model_associator =
+      new SessionModelAssociator(profile_sync_service);
+  SessionChangeProcessor* change_processor =
+      new SessionChangeProcessor(error_handler, model_associator);
   return SyncComponents(model_associator, change_processor);
 }

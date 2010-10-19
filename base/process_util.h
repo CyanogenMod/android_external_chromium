@@ -7,6 +7,7 @@
 
 #ifndef BASE_PROCESS_UTIL_H_
 #define BASE_PROCESS_UTIL_H_
+#pragma once
 
 #include "base/basictypes.h"
 
@@ -32,9 +33,7 @@ typedef struct _malloc_zone_t malloc_zone_t;
 #include <utility>
 #include <vector>
 
-#include "base/command_line.h"
 #include "base/file_descriptor_shuffle.h"
-#include "base/file_path.h"
 #include "base/process.h"
 
 #ifndef NAME_MAX  // Solaris and some BSDs have no NAME_MAX
@@ -44,6 +43,9 @@ typedef struct _malloc_zone_t malloc_zone_t;
 #define NAME_MAX 256
 #endif
 #endif
+
+class CommandLine;
+class FilePath;
 
 namespace base {
 
@@ -143,6 +145,18 @@ void CloseSuperfluousFds(const InjectiveMultimap& saved_map);
 #endif
 
 #if defined(OS_WIN)
+
+enum IntegrityLevel {
+  INTEGRITY_UNKNOWN,
+  LOW_INTEGRITY,
+  MEDIUM_INTEGRITY,
+  HIGH_INTEGRITY,
+};
+// Determine the integrity level of the specified process. Returns false
+// if the system does not support integrity levels (pre-Vista) or in the case
+// of an underlying system failure.
+bool GetProcessIntegrityLevel(ProcessHandle process, IntegrityLevel *level);
+
 // Runs the given application name with the given command line. Normally, the
 // first command line argument should be the path to the process, and don't
 // forget to quote it.
@@ -160,6 +174,13 @@ void CloseSuperfluousFds(const InjectiveMultimap& saved_map);
 bool LaunchApp(const std::wstring& cmdline,
                bool wait, bool start_hidden, ProcessHandle* process_handle);
 
+// Same as LaunchApp, except allows the new process to inherit handles of the
+// parent process.
+bool LaunchAppWithHandleInheritance(const std::wstring& cmdline,
+                                    bool wait,
+                                    bool start_hidden,
+                                    ProcessHandle* process_handle);
+
 // Runs the given application name with the given command line as if the user
 // represented by |token| had launched it. The caveats about |cmdline| and
 // |process_handle| explained for LaunchApp above apply as well.
@@ -174,10 +195,11 @@ bool LaunchAppAsUser(UserTokenHandle token, const std::wstring& cmdline,
                      bool start_hidden, ProcessHandle* process_handle);
 
 // Has the same behavior as LaunchAppAsUser, but offers the boolean option to
-// use an empty string for the desktop name.
+// use an empty string for the desktop name and a boolean for allowing the
+// child process to inherit handles from its parent.
 bool LaunchAppAsUser(UserTokenHandle token, const std::wstring& cmdline,
                      bool start_hidden, ProcessHandle* process_handle,
-                     bool empty_desktop_name);
+                     bool empty_desktop_name, bool inherit_handles);
 
 
 #elif defined(OS_POSIX)
@@ -204,6 +226,14 @@ bool LaunchApp(const std::vector<std::string>& argv,
                const file_handle_mapping_vector& fds_to_remap,
                bool wait, ProcessHandle* process_handle);
 
+// Similar to the above two methods, but starts the child process in a process
+// group of its own, instead of allowing it to inherit the parent's process
+// group. The pgid of the child process will be the same as its pid.
+bool LaunchAppInNewProcessGroup(const std::vector<std::string>& argv,
+                                const environment_vector& environ,
+                                const file_handle_mapping_vector& fds_to_remap,
+                                bool wait, ProcessHandle* process_handle);
+
 // AlterEnvironment returns a modified environment vector, constructed from the
 // given environment and the list of changes given in |changes|. Each key in
 // the environment is matched against the first element of the pairs. In the
@@ -213,18 +243,6 @@ bool LaunchApp(const std::vector<std::string>& argv,
 // The returned array is allocated using new[] and must be freed by the caller.
 char** AlterEnvironment(const environment_vector& changes,
                         const char* const* const env);
-
-#if defined(OS_MACOSX)
-// Similar to the above, but also returns the new process's task_t if
-// |task_handle| is not NULL. If |task_handle| is not NULL, the caller is
-// responsible for calling |mach_port_deallocate()| on the returned handle.
-bool LaunchAppAndGetTask(const std::vector<std::string>& argv,
-                         const environment_vector& environ,
-                         const file_handle_mapping_vector& fds_to_remap,
-                         bool wait,
-                         task_t* task_handle,
-                         ProcessHandle* process_handle);
-#endif  // defined(OS_MACOSX)
 #endif  // defined(OS_POSIX)
 
 // Executes the application specified by cl. This function delegates to one
@@ -252,9 +270,15 @@ class ProcessFilter {
   // Returns true to indicate set-inclusion and false otherwise.  This method
   // should not have side-effects and should be idempotent.
   virtual bool Includes(const ProcessEntry& entry) const = 0;
+<<<<<<< HEAD
 #ifdef ANDROID
   virtual ~ProcessFilter() {}
 #endif
+=======
+
+ protected:
+  virtual ~ProcessFilter() {}
+>>>>>>> Chromium at release 7.0.540.0
 };
 
 // Returns the number of processes on the machine that are running from the
@@ -266,7 +290,7 @@ int GetProcessCount(const std::wstring& executable_name,
 // Attempts to kill all the processes on the current machine that were launched
 // from the given executable name, ending them with the given exit code.  If
 // filter is non-null, then only processes selected by the filter are killed.
-// Returns false if all processes were able to be killed off, false if at least
+// Returns true if all processes were able to be killed off, false if at least
 // one couldn't be killed.
 bool KillProcesses(const std::wstring& executable_name, int exit_code,
                    const ProcessFilter* filter);
@@ -276,6 +300,13 @@ bool KillProcesses(const std::wstring& executable_name, int exit_code,
 // for the process to be actually terminated before returning.
 // Returns true if this is successful, false otherwise.
 bool KillProcess(ProcessHandle process, int exit_code, bool wait);
+
+#if defined(OS_POSIX)
+// Attempts to kill the process group identified by |process_group_id|. Returns
+// true on success.
+bool KillProcessGroup(ProcessHandle process_group_id);
+#endif
+
 #if defined(OS_WIN)
 bool KillProcessById(ProcessId process_id, int exit_code, bool wait);
 #endif

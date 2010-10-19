@@ -33,11 +33,13 @@
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/debug_util.h"
-#include "base/env_var.h"
+#include "base/environment.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/path_service.h"
+#include "base/string_number_conversions.h"
+#include "base/string_util.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/common/chrome_paths.h"
@@ -55,6 +57,10 @@ static bool dialogs_are_suppressed_ = false;
 // This should be true for exactly the period between the end of
 // InitChromeLogging() and the beginning of CleanupChromeLogging().
 static bool chrome_logging_initialized_ = false;
+
+// This should be true for exactly the period between the end of
+// InitChromeLogging() and the beginning of CleanupChromeLogging().
+static bool chrome_logging_redirected_ = false;
 
 #if defined(OS_WIN)
 // {7FE69228-633E-4f06-80C1-527FEA23E3A7}
@@ -159,6 +165,8 @@ FilePath TimestampLog(const FilePath& new_log_file, base::Time timestamp) {
 void RedirectChromeLogging(const FilePath& new_log_dir,
                            const CommandLine& command_line,
                            OldFileDeletionState delete_old_log_file) {
+  DCHECK(!chrome_logging_redirected_) <<
+    "Attempted to redirect logging when it was already initialized.";
   FilePath log_file_name = GetLogFileName().BaseName();
   FilePath new_log_path =
       TimestampLog(new_log_dir.Append(log_file_name), base::Time::Now());
@@ -166,6 +174,7 @@ void RedirectChromeLogging(const FilePath& new_log_dir,
               DetermineLogMode(command_line),
               logging::LOCK_LOG_FILE,
               delete_old_log_file);
+  chrome_logging_redirected_ = true;
 }
 #endif
 
@@ -188,6 +197,10 @@ void InitChromeLogging(const CommandLine& command_line,
                        logging::LOCK_LOG_FILE,
                        delete_old_log_file);
 
+  // Default to showing error dialogs.
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kNoErrorDialogs))
+    logging::SetShowErrorDialogs(true);
+
   // we want process and thread IDs because we have a lot of things running
   logging::SetLogItems(true, true, false, true);
 
@@ -195,8 +208,8 @@ void InitChromeLogging(const CommandLine& command_line,
   // headless mode to be configured either by the Environment
   // Variable or by the Command Line Switch.  This is for
   // automated test purposes.
-  scoped_ptr<base::EnvVarGetter> env(base::EnvVarGetter::Create());
-  if (env->HasEnv(env_vars::kHeadless) ||
+  scoped_ptr<base::Environment> env(base::Environment::Create());
+  if (env->HasVar(env_vars::kHeadless) ||
       command_line.HasSwitch(switches::kNoErrorDialogs))
     SuppressDialogs();
 
@@ -209,7 +222,7 @@ void InitChromeLogging(const CommandLine& command_line,
   std::string log_level = command_line.GetSwitchValueASCII(
       switches::kLoggingLevel);
   int level = 0;
-  if (StringToInt(log_level, &level)) {
+  if (base::StringToInt(log_level, &level)) {
     if ((level >= 0) && (level < LOG_NUM_SEVERITIES))
       logging::SetMinLogLevel(level);
   } else {
@@ -218,7 +231,7 @@ void InitChromeLogging(const CommandLine& command_line,
 
 #if defined(OS_WIN)
   // Enable trace control and transport through event tracing for Windows.
-  if (env->HasEnv(env_vars::kEtwLogging))
+  if (env->HasVar(env_vars::kEtwLogging))
     logging::LogEventProvider::Initialize(kChromeTraceProviderName);
 #endif
 
@@ -234,12 +247,13 @@ void CleanupChromeLogging() {
   CloseLogFile();
 
   chrome_logging_initialized_ = false;
+  chrome_logging_redirected_ = false;
 }
 
 FilePath GetLogFileName() {
   std::string filename;
-  scoped_ptr<base::EnvVarGetter> env(base::EnvVarGetter::Create());
-  if (env->GetEnv(env_vars::kLogFileName, &filename) && !filename.empty()) {
+  scoped_ptr<base::Environment> env(base::Environment::Create());
+  if (env->GetVar(env_vars::kLogFileName, &filename) && !filename.empty()) {
 #if defined(OS_WIN)
     return FilePath(UTF8ToWide(filename).c_str());
 #elif defined(OS_POSIX)

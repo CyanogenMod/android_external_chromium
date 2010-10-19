@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_IMPORTER_IMPORTER_BRIDGE_H_
 #define CHROME_BROWSER_IMPORTER_IMPORTER_BRIDGE_H_
+#pragma once
 
 #include "build/build_config.h"
 
@@ -12,7 +13,6 @@
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
-#include "base/string16.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/importer/importer_data_types.h"
 // TODO: remove this, see friend declaration in ImporterBridge.
@@ -38,7 +38,8 @@ class ImporterBridge : public base::RefCountedThreadSafe<ImporterBridge> {
 
   virtual void SetFavIcons(
       const std::vector<history::ImportedFavIconUsage>& fav_icons) = 0;
-  virtual void SetHistoryItems(const std::vector<history::URLRow> &rows) = 0;
+  virtual void SetHistoryItems(const std::vector<history::URLRow> &rows,
+                               history::VisitSource visit_source) = 0;
   virtual void SetKeywords(const std::vector<TemplateURL*> &template_urls,
                            int default_keyword_index,
                            bool unique_on_host_and_path) = 0;
@@ -95,7 +96,8 @@ class InProcessImporterBridge : public ImporterBridge {
 
   virtual void SetFavIcons(
       const std::vector<history::ImportedFavIconUsage>& fav_icons);
-  virtual void SetHistoryItems(const std::vector<history::URLRow> &rows);
+  virtual void SetHistoryItems(const std::vector<history::URLRow> &rows,
+                               history::VisitSource visit_source);
   virtual void SetKeywords(const std::vector<TemplateURL*>& template_urls,
                            int default_keyword_index,
                            bool unique_on_host_and_path);
@@ -140,7 +142,8 @@ class ExternalProcessImporterBridge : public ImporterBridge {
 
   virtual void SetFavIcons(
       const std::vector<history::ImportedFavIconUsage>& fav_icons);
-  virtual void SetHistoryItems(const std::vector<history::URLRow> &rows);
+  virtual void SetHistoryItems(const std::vector<history::URLRow> &rows,
+                               history::VisitSource visit_source);
   virtual void SetKeywords(const std::vector<TemplateURL*>& template_urls,
                            int default_keyword_index,
                            bool unique_on_host_and_path);

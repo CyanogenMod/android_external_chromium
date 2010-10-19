@@ -8,6 +8,7 @@
 #include "base/basictypes.h"
 #include "base/pickle.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #if defined(OS_MACOSX)
 #include "chrome/browser/bookmarks/bookmark_pasteboard_helper_mac.h"
@@ -20,13 +21,19 @@
 const char* BookmarkDragData::kClipboardFormatString =
     "chromium/x-bookmark-entries";
 
+BookmarkDragData::Element::Element() : is_url(false), id_(0) {
+}
+
 BookmarkDragData::Element::Element(const BookmarkNode* node)
     : is_url(node->is_url()),
       url(node->GetURL()),
-      title(node->GetTitleAsString16()),
+      title(node->GetTitle()),
       id_(node->id()) {
   for (int i = 0; i < node->GetChildCount(); ++i)
     children.push_back(Element(node->GetChild(i)));
+}
+
+BookmarkDragData::Element::~Element() {
 }
 
 void BookmarkDragData::Element::WriteToPickle(Pickle* pickle) const {
@@ -83,6 +90,9 @@ OSExchangeData::CustomFormat BookmarkDragData::GetBookmarkCustomFormat() {
 }
 #endif
 
+BookmarkDragData::BookmarkDragData() {
+}
+
 BookmarkDragData::BookmarkDragData(const BookmarkNode* node) {
   elements.push_back(Element(node));
 }
@@ -90,6 +100,9 @@ BookmarkDragData::BookmarkDragData(const BookmarkNode* node) {
 BookmarkDragData::BookmarkDragData(
     const std::vector<const BookmarkNode*>& nodes) {
   ReadFromVector(nodes);
+}
+
+BookmarkDragData::~BookmarkDragData() {
 }
 
 bool BookmarkDragData::ReadFromVector(
@@ -207,7 +220,7 @@ void BookmarkDragData::Write(Profile* profile, OSExchangeData* data) const {
   // clipboard.
   if (elements.size() == 1 && elements[0].is_url) {
     if (elements[0].url.SchemeIs(chrome::kJavaScriptScheme)) {
-      data->SetString(ASCIIToWide(elements[0].url.spec()));
+      data->SetString(UTF8ToWide(elements[0].url.spec()));
     } else {
       data->SetURL(elements[0].url, UTF16ToWide(elements[0].title));
     }

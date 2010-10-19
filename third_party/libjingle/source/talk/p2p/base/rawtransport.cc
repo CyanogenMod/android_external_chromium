@@ -70,9 +70,10 @@ bool RawTransport::ParseCandidates(const buzz::XmlElement* elem,
   return true;
 }
 
-void RawTransport::WriteCandidates(const Candidates& candidates,
+bool RawTransport::WriteCandidates(const Candidates& candidates,
                                    SignalingProtocol protocol,
-                                   XmlElements* candidate_elems) {
+                                   XmlElements* candidate_elems,
+                                   WriteError* error) {
   for (std::vector<Candidate>::const_iterator
        cand = candidates.begin();
        cand != candidates.end();
@@ -86,6 +87,7 @@ void RawTransport::WriteCandidates(const Candidates& candidates,
     elem->SetAttr(QN_PORT, addr.PortAsString());
     candidate_elems->push_back(elem);
   }
+  return true;
 }
 
 bool RawTransport::ParseRawAddress(const buzz::XmlElement* elem,
@@ -110,8 +112,8 @@ bool RawTransport::ParseRawAddress(const buzz::XmlElement* elem,
 }
 
 TransportChannelImpl* RawTransport::CreateTransportChannel(
-    const std::string& name, const std::string& session_type) {
-  return new RawTransportChannel(name, session_type, this,
+    const std::string& name, const std::string& content_type) {
+  return new RawTransportChannel(name, content_type, this,
                                  worker_thread(),
                                  port_allocator());
 }

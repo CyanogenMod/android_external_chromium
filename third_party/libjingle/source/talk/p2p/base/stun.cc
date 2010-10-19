@@ -142,7 +142,7 @@ const StunAttribute* StunMessage::GetAttribute(StunAttributeType type) const {
 }
 
 bool StunMessage::Read(ByteBuffer* buf) {
-  if (!buf->ReadUInt16(type_))
+  if (!buf->ReadUInt16(&type_))
     return false;
 
   if (type_ & 0x8000) {
@@ -151,11 +151,11 @@ bool StunMessage::Read(ByteBuffer* buf) {
     return false;
   }
 
-  if (!buf->ReadUInt16(length_))
+  if (!buf->ReadUInt16(&length_))
     return false;
 
   std::string transaction_id;
-  if (!buf->ReadString(transaction_id, 16))
+  if (!buf->ReadString(&transaction_id, 16))
     return false;
   ASSERT(transaction_id.size() == 16);
   transaction_id_ = transaction_id;
@@ -168,9 +168,9 @@ bool StunMessage::Read(ByteBuffer* buf) {
   size_t rest = buf->Length() - length_;
   while (buf->Length() > rest) {
     uint16 attr_type, attr_length;
-    if (!buf->ReadUInt16(attr_type))
+    if (!buf->ReadUInt16(&attr_type))
       return false;
-    if (!buf->ReadUInt16(attr_length))
+    if (!buf->ReadUInt16(&attr_length))
       return false;
 
     StunAttribute* attr = StunAttribute::Create(attr_type, attr_length);
@@ -325,13 +325,13 @@ StunAddressAttribute::StunAddressAttribute(uint16 type)
 
 bool StunAddressAttribute::Read(ByteBuffer* buf) {
   uint8 dummy;
-  if (!buf->ReadUInt8(dummy))
+  if (!buf->ReadUInt8(&dummy))
     return false;
-  if (!buf->ReadUInt8(family_))
+  if (!buf->ReadUInt8(&family_))
     return false;
-  if (!buf->ReadUInt16(port_))
+  if (!buf->ReadUInt16(&port_))
     return false;
-  if (!buf->ReadUInt32(ip_))
+  if (!buf->ReadUInt32(&ip_))
     return false;
   return true;
 }
@@ -359,7 +359,7 @@ void StunUInt32Attribute::SetBit(int index, bool value) {
 }
 
 bool StunUInt32Attribute::Read(ByteBuffer* buf) {
-  if (!buf->ReadUInt32(bits_))
+  if (!buf->ReadUInt32(&bits_))
     return false;
   return true;
 }
@@ -434,7 +434,7 @@ void StunErrorCodeAttribute::SetReason(const std::string& reason) {
 
 bool StunErrorCodeAttribute::Read(ByteBuffer* buf) {
   uint32 val;
-  if (!buf->ReadUInt32(val))
+  if (!buf->ReadUInt32(&val))
     return false;
 
   if ((val >> 11) != 0)
@@ -442,7 +442,7 @@ bool StunErrorCodeAttribute::Read(ByteBuffer* buf) {
 
   SetErrorCode(val);
 
-  if (!buf->ReadString(reason_, length() - 4))
+  if (!buf->ReadString(&reason_, length() - 4))
     return false;
 
   return true;
@@ -482,7 +482,7 @@ void StunUInt16ListAttribute::AddType(uint16 value) {
 bool StunUInt16ListAttribute::Read(ByteBuffer* buf) {
   for (int i = 0; i < length() / 2; i++) {
     uint16 attr;
-    if (!buf->ReadUInt16(attr))
+    if (!buf->ReadUInt16(&attr))
       return false;
     attr_types_->push_back(attr);
   }
@@ -518,7 +518,7 @@ void StunTransportPrefsAttribute::SetPreallocateAddress(
 
 bool StunTransportPrefsAttribute::Read(ByteBuffer* buf) {
   uint32 val;
-  if (!buf->ReadUInt32(val))
+  if (!buf->ReadUInt32(&val))
     return false;
 
   if ((val >> 3) != 0)

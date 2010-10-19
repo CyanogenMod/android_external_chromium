@@ -10,6 +10,7 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "app/throb_animation.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/gtk/bookmark_utils_gtk.h"
@@ -1077,8 +1078,8 @@ void TabRendererGtk::InitResources() {
   // Force the font size to 9pt, which matches Windows' default font size
   // (taken from the system).
   const gfx::Font& base_font = rb.GetFont(ResourceBundle::BaseFont);
-  title_font_ = new gfx::Font(gfx::Font::CreateFont(base_font.FontName(), 9));
-  title_font_height_ = title_font_->height();
+  title_font_ = new gfx::Font(base_font.GetFontName(), 9);
+  title_font_height_ = title_font_->GetHeight();
 
   crashed_fav_icon = rb.GetBitmapNamed(IDR_SAD_FAVICON);
 

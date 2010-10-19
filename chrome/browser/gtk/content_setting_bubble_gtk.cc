@@ -6,6 +6,7 @@
 
 #include "app/l10n_util.h"
 #include "base/i18n/rtl.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/blocked_popup_container.h"
 #include "chrome/browser/content_setting_bubble_model.h"
 #include "chrome/browser/gtk/gtk_chrome_link_button.h"
@@ -13,14 +14,17 @@
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/gtk/options/content_settings_window_gtk.h"
 #include "chrome/browser/host_content_settings_map.h"
+#include "chrome/browser/plugin_updater.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/content_settings.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
+#include "chrome/common/plugin_group.h"
 #include "gfx/gtk_util.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
+#include "webkit/glue/plugins/plugin_list.h"
 
 // Padding between content and edge of info bubble.
 static const int kContentBorder = 7;
@@ -77,6 +81,32 @@ void ContentSettingBubbleGtk::BuildBubble() {
     GtkWidget* label = gtk_label_new(content.title.c_str());
     gtk_misc_set_alignment(GTK_MISC(label), 0, 0.5);
     gtk_box_pack_start(GTK_BOX(bubble_content), label, FALSE, FALSE, 0);
+  }
+
+  const std::set<std::string>& plugins = content.resource_identifiers;
+  if (!plugins.empty()) {
+    GtkWidget* list_content = gtk_vbox_new(FALSE, gtk_util::kControlSpacing);
+
+    for (std::set<std::string>::const_iterator it = plugins.begin();
+        it != plugins.end(); ++it) {
+      std::string name;
+      PluginUpdater::PluginMap groups;
+      PluginUpdater::GetPluginUpdater()->GetPluginGroups(&groups);
+      if (groups.find(*it) != groups.end())
+        name = UTF16ToUTF8(groups[*it]->GetGroupName());
+      else
+        name = *it;
+
+      GtkWidget* label = gtk_label_new(name.c_str());
+      GtkWidget* label_box = gtk_hbox_new(FALSE, 0);
+      gtk_box_pack_start(GTK_BOX(label_box), label, FALSE, FALSE, 0);
+
+      gtk_box_pack_start(GTK_BOX(list_content),
+                         label_box,
+                         FALSE, FALSE, 0);
+    }
+    gtk_box_pack_start(GTK_BOX(bubble_content), list_content, FALSE, FALSE,
+                       gtk_util::kControlSpacing);
   }
 
   if (content_setting_bubble_model_->content_type() ==
@@ -197,6 +227,22 @@ void ContentSettingBubbleGtk::BuildBubble() {
                        FALSE, FALSE, 0);
   }
 
+  if (!content.load_plugins_link_title.empty()) {
+    GtkWidget* load_plugins_link_box = gtk_hbox_new(FALSE, 0);
+    GtkWidget* load_plugins_link = gtk_chrome_link_button_new(
+        content.load_plugins_link_title.c_str());
+    gtk_widget_set_sensitive(load_plugins_link,
+                             content.load_plugins_link_enabled);
+    g_signal_connect(load_plugins_link, "clicked",
+                     G_CALLBACK(OnLoadPluginsLinkClickedThunk), this);
+    gtk_box_pack_start(GTK_BOX(load_plugins_link_box), load_plugins_link,
+                       FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(bubble_content), load_plugins_link_box,
+                       FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(bubble_content), gtk_hseparator_new(),
+                       FALSE, FALSE, 0);
+  }
+
   GtkWidget* bottom_box = gtk_hbox_new(FALSE, 0);
 
   GtkWidget* manage_link =
@@ -279,5 +325,10 @@ void ContentSettingBubbleGtk::OnClearLinkClicked(GtkWidget* button) {
 
 void ContentSettingBubbleGtk::OnInfoLinkClicked(GtkWidget* button) {
   content_setting_bubble_model_->OnInfoLinkClicked();
+  Close();
+}
+
+void ContentSettingBubbleGtk::OnLoadPluginsLinkClicked(GtkWidget* button) {
+  content_setting_bubble_model_->OnLoadPluginsLinkClicked();
   Close();
 }

@@ -4,6 +4,9 @@
 
 #ifndef CHROME_COMMON_PAGE_ZOOM_H_
 #define CHROME_COMMON_PAGE_ZOOM_H_
+#pragma once
+
+#include "base/basictypes.h"
 
 class PageZoom {
  public:

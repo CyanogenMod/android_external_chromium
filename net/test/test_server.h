@@ -4,13 +4,17 @@
 
 #ifndef NET_TEST_TEST_SERVER_H_
 #define NET_TEST_TEST_SERVER_H_
+#pragma once
 
 #include "build/build_config.h"
 
 #include <string>
 
+#include "base/compiler_specific.h"
 #include "base/file_path.h"
+#include "base/file_util.h"
 #include "base/process_util.h"
+#include "net/base/host_port_pair.h"
 
 #if defined(OS_WIN)
 #include "base/scoped_handle_win.h"
@@ -21,44 +25,29 @@
 #include "net/base/x509_certificate.h"
 #endif
 
+class GURL;
+
 namespace net {
 
-// This object bounds the lifetime of an external python-based HTTP/HTTPS/FTP
-// server that can provide various responses useful for testing.
-// A few basic convenience methods are provided, but no
-// URL handling methods (those belong at a higher layer, e.g. in
-// url_request_unittest.h).
+class AddressList;
 
-class TestServerLauncher {
+// This object bounds the lifetime of an external python-based HTTP/FTP server
+// that can provide various responses useful for testing.
+class TestServer {
  public:
-  TestServerLauncher();
-  TestServerLauncher(int connection_attempts, int connection_timeout);
-
-  virtual ~TestServerLauncher();
-
-  enum Protocol {
-    ProtoHTTP, ProtoFTP
+  enum Type {
+    TYPE_FTP,
+    TYPE_HTTP,
+    TYPE_HTTPS,
+    TYPE_HTTPS_CLIENT_AUTH,
+    TYPE_HTTPS_MISMATCHED_HOSTNAME,
+    TYPE_HTTPS_EXPIRED_CERTIFICATE,
   };
 
-  // Load the test root cert, if it hasn't been loaded yet.
-  bool LoadTestRootCert();
+  TestServer(Type type, const FilePath& document_root);
+  ~TestServer();
 
-  // Tells the server to enable/disable servicing each request
-  // in a separate process. Takes effect only if called before Start.
-  void set_forking(bool forking) { forking_ = forking; }
-
-  // Start src/net/tools/testserver/testserver.py and
-  // ask it to serve the given protocol.
-  // If protocol is HTTP, and cert_path is not empty, serves HTTPS.
-  // file_root_url specifies the root url on the server that documents will be
-  // served out of. This is /files/ by default.
-  // Returns true on success, false if files not found or root cert
-  // not trusted.
-  bool Start(net::TestServerLauncher::Protocol protocol,
-             const std::string& host_name, int port,
-             const FilePath& document_root,
-             const FilePath& cert_path,
-             const std::wstring& file_root_url);
+  bool Start() WARN_UNUSED_RESULT;
 
   // Stop the server started by Start().
   bool Stop();
@@ -67,82 +56,79 @@ class TestServerLauncher {
   // without a call to Stop().
   // WaitToFinish is handy in that case.
   // It returns true if the server exited cleanly.
-  bool WaitToFinish(int milliseconds);
+  bool WaitToFinish(int milliseconds) WARN_UNUSED_RESULT;
 
-  // Paths to a good, an expired, and an invalid server certificate
-  // (use as arguments to Start()).
-  FilePath GetOKCertPath();
-  FilePath GetExpiredCertPath();
+  const FilePath& document_root() const { return document_root_; }
+  const HostPortPair& host_port_pair() const { return host_port_pair_; }
+  std::string GetScheme() const;
+  bool GetAddressList(AddressList* address_list) const WARN_UNUSED_RESULT;
 
-  FilePath GetDocumentRootPath() { return document_root_dir_; }
+  GURL GetURL(const std::string& path);
 
-  // Issuer name of the root cert that should be trusted for the test to work.
-  static const wchar_t kCertIssuerName[];
+  GURL GetURLWithUser(const std::string& path,
+                      const std::string& user);
 
-  // Hostname to use for test server
-  static const char kHostName[];
-
-  // Different hostname to use for test server (that still resolves to same IP)
-  static const char kMismatchedHostName[];
-
-  // Port to use for test server
-  static const int kOKHTTPSPort;
-
-  // Port to use for bad test server
-  static const int kBadHTTPSPort;
+  GURL GetURLWithUserAndPassword(const std::string& path,
+                                 const std::string& user,
+                                 const std::string& password);
 
  private:
-  // Wait a while for the server to start, return whether
-  // we were able to make a connection to it.
-  bool WaitToStart(const std::string& host_name, int port);
+  // Modify PYTHONPATH to contain libraries we need.
+  bool SetPythonPath() WARN_UNUSED_RESULT;
 
-  // Append to PYTHONPATH so Python can find pyftpdlib and tlslite.
-  void SetPythonPath();
+  // Launches the Python test server. Returns true on success.
+  bool LaunchPython(const FilePath& testserver_path) WARN_UNUSED_RESULT;
 
-  // Path to our test root certificate.
-  FilePath GetRootCertPath();
+  // Waits for the server to start. Returns true on success.
+  bool WaitToStart() WARN_UNUSED_RESULT;
+
+  // Returns path to the root certificate.
+  FilePath GetRootCertificatePath();
 
   // Returns false if our test root certificate is not trusted.
-  bool CheckCATrusted();
+  bool CheckCATrusted() WARN_UNUSED_RESULT;
 
-  // Initilize the certificate path.
-  void InitCertPath();
+  // Load the test root cert, if it hasn't been loaded yet.
+  bool LoadTestRootCert() WARN_UNUSED_RESULT;
 
-  FilePath document_root_dir_;
+  // Returns path to the SSL certificate we should use, or empty path
+  // if not applicable.
+  FilePath GetCertificatePath();
 
-  FilePath cert_dir_;
+  // Document root of the test server.
+  FilePath document_root_;
 
-  FilePath python_runtime_;
+  // Directory that contains the SSL certificates.
+  FilePath certificates_dir_;
 
+  // Address the test server listens on.
+  HostPortPair host_port_pair_;
+
+  // Handle of the Python process running the test server.
   base::ProcessHandle process_handle_;
 
 #if defined(OS_WIN)
   // JobObject used to clean up orphaned child processes.
   ScopedHandle job_handle_;
+
+  // The file handle the child writes to when it starts.
+  ScopedHandle child_fd_;
 #endif
 
-  // True if the server should handle each request in a separate process.
-  bool forking_;
-
-  // Number of tries and timeout for each try used for WaitToStart.
-  int connection_attempts_;
-  int connection_timeout_;
+#if defined(OS_POSIX)
+  // The file descriptor the child writes to when it starts.
+  int child_fd_;
+  file_util::ScopedFD child_fd_closer_;
+#endif
 
 #if defined(USE_NSS)
   scoped_refptr<X509Certificate> cert_;
 #endif
 
-  DISALLOW_COPY_AND_ASSIGN(TestServerLauncher);
-};
+  Type type_;
 
-#if defined(OS_WIN)
-// Launch test server as a job so that it is not orphaned if the test case is
-// abnormally terminated.
-bool LaunchTestServerAsJob(const std::wstring& cmdline,
-                           bool start_hidden,
-                           base::ProcessHandle* process_handle,
-                           ScopedHandle* job_handle);
-#endif
+  DISALLOW_COPY_AND_ASSIGN(TestServer);
+};
 
 }  // namespace net
 

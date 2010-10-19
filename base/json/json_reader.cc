@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,7 @@
 #include "base/float_util.h"
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
@@ -18,18 +19,6 @@ static const JSONReader::Token kInvalidToken(JSONReader::Token::INVALID_TOKEN,
 static const int kStackLimit = 100;
 
 namespace {
-
-inline int HexToInt(wchar_t c) {
-  if ('0' <= c && c <= '9') {
-    return c - '0';
-  } else if ('A' <= c && c <= 'F') {
-    return c - 'A' + 10;
-  } else if ('a' <= c && c <= 'f') {
-    return c - 'a' + 10;
-  }
-  NOTREACHED();
-  return 0;
-}
 
 // A helper method for ParseNumberToken.  It reads an int from the end of
 // token.  The method returns false if there is no valid integer at the end of
@@ -306,7 +295,7 @@ Value* JSONReader::BuildValue(bool is_root) {
             return NULL;
 
           // Convert the key into a wstring.
-          std::wstring dict_key;
+          std::string dict_key;
           bool success = dict_key_value->GetAsString(&dict_key);
           DCHECK(success);
 
@@ -401,11 +390,11 @@ Value* JSONReader::DecodeNumber(const Token& token) {
   const std::wstring num_string(token.begin, token.length);
 
   int num_int;
-  if (StringToInt(WideToUTF16Hack(num_string), &num_int))
+  if (StringToInt(WideToUTF8(num_string), &num_int))
     return Value::CreateIntegerValue(num_int);
 
   double num_double;
-  if (StringToDouble(WideToUTF16Hack(num_string), &num_double) &&
+  if (StringToDouble(WideToUTF8(num_string), &num_double) &&
       base::IsFinite(num_double))
     return Value::CreateRealValue(num_double);
 
@@ -492,15 +481,15 @@ Value* JSONReader::DecodeString(const Token& token) {
           break;
 
         case 'x':
-          decoded_str.push_back((HexToInt(*(token.begin + i + 1)) << 4) +
-                                HexToInt(*(token.begin + i + 2)));
+          decoded_str.push_back((HexDigitToInt(*(token.begin + i + 1)) << 4) +
+                                HexDigitToInt(*(token.begin + i + 2)));
           i += 2;
           break;
         case 'u':
-          decoded_str.push_back((HexToInt(*(token.begin + i + 1)) << 12 ) +
-                                (HexToInt(*(token.begin + i + 2)) << 8) +
-                                (HexToInt(*(token.begin + i + 3)) << 4) +
-                                HexToInt(*(token.begin + i + 4)));
+          decoded_str.push_back((HexDigitToInt(*(token.begin + i + 1)) << 12 ) +
+                                (HexDigitToInt(*(token.begin + i + 2)) << 8) +
+                                (HexDigitToInt(*(token.begin + i + 3)) << 4) +
+                                HexDigitToInt(*(token.begin + i + 4)));
           i += 4;
           break;
 
@@ -515,7 +504,7 @@ Value* JSONReader::DecodeString(const Token& token) {
       decoded_str.push_back(c);
     }
   }
-  return Value::CreateStringValue(decoded_str);
+  return Value::CreateStringValue(WideToUTF16Hack(decoded_str));
 }
 
 JSONReader::Token JSONReader::ParseToken() {

@@ -1,12 +1,13 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_GTK_BOOKMARK_TREE_MODEL_H_
 #define CHROME_BROWSER_GTK_BOOKMARK_TREE_MODEL_H_
+#pragma once
 
-#include <string>
 #include "base/basictypes.h"
+#include "base/string16.h"
 
 class BookmarkModel;
 class BookmarkNode;
@@ -68,8 +69,8 @@ const BookmarkNode* CommitTreeStoreDifferencesBetween(
 // Returns the id field of the row pointed to by |iter|.
 int64 GetIdFromTreeIter(GtkTreeModel* model, GtkTreeIter* iter);
 
-// Returns the title field of the row pointed to by |iter|.
-std::wstring GetTitleFromTreeIter(GtkTreeModel* model, GtkTreeIter* iter);
+// Returns the title field in utf8 of the row pointed to by |iter|.
+string16 GetTitleFromTreeIter(GtkTreeModel* model, GtkTreeIter* iter);
 
 }  // namespace bookmark_utils
 

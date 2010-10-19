@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_PROFILE_SYNC_FACTORY_MOCK_H__
 #define CHROME_BROWSER_SYNC_PROFILE_SYNC_FACTORY_MOCK_H__
+#pragma once
 
 #include "base/scoped_ptr.h"
 #include "chrome/browser/sync/profile_sync_service.h"
@@ -22,12 +23,15 @@ class ProfileSyncFactoryMock : public ProfileSyncFactory {
       browser_sync::AssociatorInterface* bookmark_model_associator,
       browser_sync::ChangeProcessor* bookmark_change_processor);
 
-  MOCK_METHOD0(CreateProfileSyncService,
-               ProfileSyncService*(void));
+  MOCK_METHOD1(CreateProfileSyncService,
+               ProfileSyncService*(const std::string&));
   MOCK_METHOD2(CreateDataTypeManager,
                browser_sync::DataTypeManager*(
                    browser_sync::SyncBackendHost*,
                    const browser_sync::DataTypeController::TypeMap&));
+  MOCK_METHOD2(CreateAppSyncComponents,
+      SyncComponents(ProfileSyncService* profile_sync_service,
+                     browser_sync::UnrecoverableErrorHandler* error_handler));
   MOCK_METHOD4(CreateAutofillSyncComponents,
                SyncComponents(
                    ProfileSyncService* profile_sync_service,
@@ -48,6 +52,9 @@ class ProfileSyncFactoryMock : public ProfileSyncFactory {
   MOCK_METHOD2(CreatePreferenceSyncComponents,
       SyncComponents(ProfileSyncService* profile_sync_service,
                      browser_sync::UnrecoverableErrorHandler* error_handler));
+  MOCK_METHOD2(CreateSessionSyncComponents,
+      SyncComponents(ProfileSyncService* profile_sync_service,
+      browser_sync::UnrecoverableErrorHandler* error_handler));
   MOCK_METHOD2(CreateThemeSyncComponents,
       SyncComponents(ProfileSyncService* profile_sync_service,
                      browser_sync::UnrecoverableErrorHandler* error_handler));

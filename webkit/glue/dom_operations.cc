@@ -2,10 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "webkit/glue/dom_operations.h"
+
 #include <set>
 
 #include "base/compiler_specific.h"
-#include "base/string_util.h"
+#include "base/string_number_conversions.h"
+#include "base/string_split.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebAnimationController.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebDocument.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebElement.h"
@@ -17,7 +20,6 @@
 #include "third_party/WebKit/WebKit/chromium/public/WebNodeList.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebVector.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebView.h"
-#include "webkit/glue/dom_operations.h"
 #include "webkit/glue/form_data.h"
 #include "webkit/glue/password_form_dom_manager.h"
 #include "webkit/glue/webpasswordautocompletelistener_impl.h"
@@ -184,7 +186,7 @@ static bool FillFormImpl(FormElements* fe, const FormData& data) {
     WebKit::WebInputElement& element = it->second;
     if (!element.value().isEmpty())  // Don't overwrite pre-filled values.
       continue;
-    if (element.inputType() == WebInputElement::Password &&
+    if (element.isPasswordField() &&
         (!element.isEnabledFormControl() || element.hasAttribute("readonly"))) {
       continue;  // Don't fill uneditable password fields.
     }
@@ -312,7 +314,7 @@ WebString GetSubResourceLinkFromElement(const WebElement& element) {
     attribute_name = "src";
   } else if (element.hasTagName("input")) {
     const WebInputElement input = element.toConst<WebInputElement>();
-    if (input.inputType() == WebInputElement::Image) {
+    if (input.isImageButton()) {
       attribute_name = "src";
     }
   } else if (element.hasTagName("body") ||
@@ -405,7 +407,7 @@ static int ParseSingleIconSize(const string16& text) {
       return 0;
   }
   int output;
-  if (!StringToInt(text, &output))
+  if (!base::StringToInt(text, &output))
     return 0;
   return output;
 }
@@ -415,7 +417,7 @@ static int ParseSingleIconSize(const string16& text) {
 // If the input couldn't be parsed, a size with a width/height < 0 is returned.
 static gfx::Size ParseIconSize(const string16& text) {
   std::vector<string16> sizes;
-  SplitStringDontTrim(text, L'x', &sizes);
+  base::SplitStringDontTrim(text, L'x', &sizes);
   if (sizes.size() != 2)
     return gfx::Size();
 
@@ -591,9 +593,10 @@ int NumberOfActiveAnimations(WebView* view) {
   return controller->numberOfActiveAnimations();
 }
 
-void GetMetaElementsWithName(WebDocument* document,
-                             const string16& name,
-                             std::vector<WebElement>* meta_elements) {
+void GetMetaElementsWithAttribute(WebDocument* document,
+                                  const string16& attribute_name,
+                                  const string16& attribute_value,
+                                  std::vector<WebElement>* meta_elements) {
   DCHECK(document);
   DCHECK(meta_elements);
   meta_elements->clear();
@@ -609,8 +612,8 @@ void GetMetaElementsWithName(WebDocument* document,
     WebElement element = node.to<WebElement>();
     if (!element.hasTagName("meta"))
       continue;
-    WebString meta_name = element.getAttribute("name");
-    if (meta_name.isNull() || meta_name != name)
+    WebString value = element.getAttribute(attribute_name);
+    if (value.isNull() || value != attribute_value)
       continue;
     meta_elements->push_back(element);
   }

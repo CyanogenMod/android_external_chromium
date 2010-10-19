@@ -24,18 +24,18 @@
 
 #include "chrome/browser/history/history.h"
 
-#include "app/l10n_util.h"
 #include "base/callback.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/ref_counted.h"
+#include "base/string_util.h"
 #include "base/task.h"
 #include "chrome/browser/autocomplete/history_url_provider.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/chrome_thread.h"
-#include "chrome/browser/history/download_types.h"
+#include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/history/history_backend.h"
 #include "chrome/browser/history/history_notifications.h"
 #include "chrome/browser/history/history_types.h"
@@ -222,6 +222,16 @@ history::URLDatabase* HistoryService::InMemoryDatabase() {
   return NULL;
 }
 
+history::InMemoryURLIndex* HistoryService::InMemoryIndex() {
+  // NOTE: See comments in BackendLoaded() as to why we call
+  // LoadBackendIfNecessary() here even though it won't affect the return value
+  // for this call.
+  LoadBackendIfNecessary();
+  if (in_memory_backend_.get())
+    return in_memory_backend_->index();
+  return NULL;
+}
+
 void HistoryService::SetSegmentPresentationIndex(int64 segment_id, int index) {
   ScheduleAndForget(PRIORITY_UI,
                     &HistoryBackend::SetSegmentPresentationIndex,
@@ -229,7 +239,7 @@ void HistoryService::SetSegmentPresentationIndex(int64 segment_id, int index) {
 }
 
 void HistoryService::SetKeywordSearchTermsForURL(const GURL& url,
-                                                 TemplateURL::IDType keyword_id,
+                                                 TemplateURLID keyword_id,
                                                  const string16& term) {
   ScheduleAndForget(PRIORITY_UI,
                     &HistoryBackend::SetKeywordSearchTermsForURL,
@@ -237,14 +247,14 @@ void HistoryService::SetKeywordSearchTermsForURL(const GURL& url,
 }
 
 void HistoryService::DeleteAllSearchTermsForKeyword(
-    TemplateURL::IDType keyword_id) {
+    TemplateURLID keyword_id) {
   ScheduleAndForget(PRIORITY_UI,
                     &HistoryBackend::DeleteAllSearchTermsForKeyword,
                     keyword_id);
 }
 
 HistoryService::Handle HistoryService::GetMostRecentKeywordSearchTerms(
-    TemplateURL::IDType keyword_id,
+    TemplateURLID keyword_id,
     const string16& prefix,
     int max_count,
     CancelableRequestConsumerBase* consumer,
@@ -291,9 +301,10 @@ void HistoryService::AddPage(const GURL& url,
                              const GURL& referrer,
                              PageTransition::Type transition,
                              const history::RedirectList& redirects,
+                             history::VisitSource visit_source,
                              bool did_replace_entry) {
   AddPage(url, Time::Now(), id_scope, page_id, referrer, transition, redirects,
-          did_replace_entry);
+          visit_source, did_replace_entry);
 }
 
 void HistoryService::AddPage(const GURL& url,
@@ -303,37 +314,45 @@ void HistoryService::AddPage(const GURL& url,
                              const GURL& referrer,
                              PageTransition::Type transition,
                              const history::RedirectList& redirects,
+                             history::VisitSource visit_source,
                              bool did_replace_entry) {
+  scoped_refptr<history::HistoryAddPageArgs> request(
+      new history::HistoryAddPageArgs(url, time, id_scope, page_id, referrer,
+                                      redirects, transition, visit_source,
+                                      did_replace_entry));
+  AddPage(*request);
+}
+
+void HistoryService::AddPage(const history::HistoryAddPageArgs& add_page_args) {
   DCHECK(thread_) << "History service being called after cleanup";
 
   // Filter out unwanted URLs. We don't add auto-subframe URLs. They are a
   // large part of history (think iframes for ads) and we never display them in
   // history UI. We will still add manual subframes, which are ones the user
   // has clicked on to get.
-  if (!CanAddURL(url))
+  if (!CanAddURL(add_page_args.url))
     return;
 
   // Add link & all redirects to visited link list.
   VisitedLinkMaster* visited_links;
   if (profile_ && (visited_links = profile_->GetVisitedLinkMaster())) {
-    visited_links->AddURL(url);
+    visited_links->AddURL(add_page_args.url);
 
-    if (!redirects.empty()) {
+    if (!add_page_args.redirects.empty()) {
       // We should not be asked to add a page in the middle of a redirect chain.
-      DCHECK(redirects[redirects.size() - 1] == url);
+      DCHECK_EQ(add_page_args.url,
+                add_page_args.redirects[add_page_args.redirects.size() - 1]);
 
       // We need the !redirects.empty() condition above since size_t is unsigned
       // and will wrap around when we subtract one from a 0 size.
-      for (size_t i = 0; i < redirects.size() - 1; i++)
-        visited_links->AddURL(redirects[i]);
+      for (size_t i = 0; i < add_page_args.redirects.size() - 1; i++)
+        visited_links->AddURL(add_page_args.redirects[i]);
     }
   }
 
-  scoped_refptr<history::HistoryAddPageArgs> request(
-      new history::HistoryAddPageArgs(url, time, id_scope, page_id,
-                                      referrer, redirects, transition,
-                                      did_replace_entry));
-  ScheduleAndForget(PRIORITY_NORMAL, &HistoryBackend::AddPage, request);
+  ScheduleAndForget(PRIORITY_NORMAL, &HistoryBackend::AddPage,
+                    scoped_refptr<history::HistoryAddPageArgs>(
+                        add_page_args.Clone()));
 }
 
 void HistoryService::SetPageTitle(const GURL& url,
@@ -346,7 +365,8 @@ void HistoryService::AddPageWithDetails(const GURL& url,
                                         int visit_count,
                                         int typed_count,
                                         Time last_visit,
-                                        bool hidden) {
+                                        bool hidden,
+                                        history::VisitSource visit_source) {
   // Filter out unwanted URLs.
   if (!CanAddURL(url))
     return;
@@ -367,11 +387,12 @@ void HistoryService::AddPageWithDetails(const GURL& url,
   rows.push_back(row);
 
   ScheduleAndForget(PRIORITY_NORMAL,
-                    &HistoryBackend::AddPagesWithDetails, rows);
+                    &HistoryBackend::AddPagesWithDetails, rows, visit_source);
 }
 
 void HistoryService::AddPagesWithDetails(
-    const std::vector<history::URLRow>& info) {
+    const std::vector<history::URLRow>& info,
+    history::VisitSource visit_source) {
 
   // Add to the visited links system.
   VisitedLinkMaster* visited_links;
@@ -387,7 +408,7 @@ void HistoryService::AddPagesWithDetails(
   }
 
   ScheduleAndForget(PRIORITY_NORMAL,
-                    &HistoryBackend::AddPagesWithDetails, info);
+                    &HistoryBackend::AddPagesWithDetails, info, visit_source);
 }
 
 void HistoryService::SetPageContents(const GURL& url,
@@ -527,14 +548,6 @@ void HistoryService::RemoveDownloadsBetween(Time remove_begin,
                     &HistoryBackend::RemoveDownloadsBetween,
                     remove_begin,
                     remove_end);
-}
-
-HistoryService::Handle HistoryService::SearchDownloads(
-    const string16& search_text,
-    CancelableRequestConsumerBase* consumer,
-    DownloadSearchCallback* callback) {
-  return Schedule(PRIORITY_NORMAL, &HistoryBackend::SearchDownloads, consumer,
-                  new history::DownloadSearchRequest(callback), search_text);
 }
 
 HistoryService::Handle HistoryService::QueryHistory(
@@ -744,7 +757,6 @@ void HistoryService::LoadBackendIfNecessary() {
 }
 
 void HistoryService::OnDBLoaded() {
-  LOG(INFO) << "History backend finished loading";
   backend_loaded_ = true;
   NotificationService::current()->Notify(NotificationType::HISTORY_LOADED,
                                          Source<Profile>(profile_),

@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,8 @@
 #include "app/os_exchange_data_provider_win.h"
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
+#include "base/string16.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_drag_data.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/chrome_thread.h"
@@ -62,8 +64,8 @@ TEST_F(BookmarkDragDataTest, JustURL) {
   EXPECT_TRUE(drag_data.is_valid());
   ASSERT_EQ(1, drag_data.elements.size());
   EXPECT_TRUE(drag_data.elements[0].is_url);
-  EXPECT_TRUE(drag_data.elements[0].url == url);
-  EXPECT_TRUE(drag_data.elements[0].title == title);
+  EXPECT_EQ(url, drag_data.elements[0].url);
+  EXPECT_EQ(title, drag_data.elements[0].title);
   EXPECT_EQ(0, drag_data.elements[0].children.size());
 }
 
@@ -76,14 +78,14 @@ TEST_F(BookmarkDragDataTest, URL) {
   BookmarkModel* model = profile.GetBookmarkModel();
   const BookmarkNode* root = model->GetBookmarkBarNode();
   GURL url(GURL("http://foo.com"));
-  const std::wstring title(L"blah");
+  const string16 title(ASCIIToUTF16("blah"));
   const BookmarkNode* node = model->AddURL(root, 0, title, url);
   BookmarkDragData drag_data(node);
   EXPECT_TRUE(drag_data.is_valid());
   ASSERT_EQ(1, drag_data.elements.size());
   EXPECT_TRUE(drag_data.elements[0].is_url);
-  EXPECT_TRUE(drag_data.elements[0].url == url);
-  EXPECT_EQ(title, drag_data.elements[0].title);
+  EXPECT_EQ(url, drag_data.elements[0].url);
+  EXPECT_EQ(title, WideToUTF16Hack(drag_data.elements[0].title));
   OSExchangeData data;
   drag_data.Write(&profile, &data);
 
@@ -94,19 +96,19 @@ TEST_F(BookmarkDragDataTest, URL) {
   EXPECT_TRUE(read_data.is_valid());
   ASSERT_EQ(1, read_data.elements.size());
   EXPECT_TRUE(read_data.elements[0].is_url);
-  EXPECT_TRUE(read_data.elements[0].url == url);
+  EXPECT_EQ(url, read_data.elements[0].url);
   EXPECT_EQ(title, read_data.elements[0].title);
   EXPECT_TRUE(read_data.GetFirstNode(&profile) == node);
 
   // Make sure asking for the node with a different profile returns NULL.
-  TestingProfile profile2(1);
+  TestingProfile profile2;
   EXPECT_TRUE(read_data.GetFirstNode(&profile2) == NULL);
 
   // Writing should also put the URL and title on the clipboard.
   GURL read_url;
   std::wstring read_title;
   EXPECT_TRUE(data2.GetURLAndTitle(&read_url, &read_title));
-  EXPECT_TRUE(read_url == url);
+  EXPECT_EQ(url, read_url);
   EXPECT_EQ(title, read_title);
 }
 
@@ -118,14 +120,14 @@ TEST_F(BookmarkDragDataTest, Group) {
   profile.SetID(L"id");
   BookmarkModel* model = profile.GetBookmarkModel();
   const BookmarkNode* root = model->GetBookmarkBarNode();
-  const BookmarkNode* g1 = model->AddGroup(root, 0, L"g1");
-  const BookmarkNode* g11 = model->AddGroup(g1, 0, L"g11");
-  const BookmarkNode* g12 = model->AddGroup(g1, 0, L"g12");
+  const BookmarkNode* g1 = model->AddGroup(root, 0, ASCIIToUTF16("g1"));
+  const BookmarkNode* g11 = model->AddGroup(g1, 0, ASCIIToUTF16("g11"));
+  const BookmarkNode* g12 = model->AddGroup(g1, 0, ASCIIToUTF16("g12"));
 
   BookmarkDragData drag_data(g12);
   EXPECT_TRUE(drag_data.is_valid());
   ASSERT_EQ(1, drag_data.elements.size());
-  EXPECT_EQ(g12->GetTitle(), drag_data.elements[0].title);
+  EXPECT_EQ(g12->GetTitle(), WideToUTF16Hack(drag_data.elements[0].title));
   EXPECT_FALSE(drag_data.elements[0].is_url);
 
   OSExchangeData data;
@@ -137,7 +139,7 @@ TEST_F(BookmarkDragDataTest, Group) {
   EXPECT_TRUE(read_data.Read(data2));
   EXPECT_TRUE(read_data.is_valid());
   ASSERT_EQ(1, read_data.elements.size());
-  EXPECT_EQ(g12->GetTitle(), read_data.elements[0].title);
+  EXPECT_EQ(g12->GetTitle(), WideToUTF16Hack(read_data.elements[0].title));
   EXPECT_FALSE(read_data.elements[0].is_url);
 
   // We should get back the same node when asking for the same profile.
@@ -145,7 +147,7 @@ TEST_F(BookmarkDragDataTest, Group) {
   EXPECT_TRUE(g12 == r_g12);
 
   // A different profile should return NULL for the node.
-  TestingProfile profile2(1);
+  TestingProfile profile2;
   EXPECT_TRUE(read_data.GetFirstNode(&profile2) == NULL);
 }
 
@@ -157,10 +159,10 @@ TEST_F(BookmarkDragDataTest, GroupWithChild) {
   profile.BlockUntilBookmarkModelLoaded();
   BookmarkModel* model = profile.GetBookmarkModel();
   const BookmarkNode* root = model->GetBookmarkBarNode();
-  const BookmarkNode* group = model->AddGroup(root, 0, L"g1");
+  const BookmarkNode* group = model->AddGroup(root, 0, ASCIIToUTF16("g1"));
 
   GURL url(GURL("http://foo.com"));
-  const std::wstring title(L"blah2");
+  const string16 title(ASCIIToUTF16("blah2"));
 
   model->AddURL(group, 0, title, url);
 
@@ -179,8 +181,8 @@ TEST_F(BookmarkDragDataTest, GroupWithChild) {
       read_data.elements[0].children[0];
 
   EXPECT_TRUE(read_child.is_url);
-  EXPECT_EQ(title, read_child.title);
-  EXPECT_TRUE(url == read_child.url);
+  EXPECT_EQ(title, WideToUTF16Hack(read_child.title));
+  EXPECT_EQ(url, read_child.url);
   EXPECT_TRUE(read_child.is_url);
 
   // And make sure we get the node back.
@@ -196,10 +198,10 @@ TEST_F(BookmarkDragDataTest, MultipleNodes) {
   profile.BlockUntilBookmarkModelLoaded();
   BookmarkModel* model = profile.GetBookmarkModel();
   const BookmarkNode* root = model->GetBookmarkBarNode();
-  const BookmarkNode* group = model->AddGroup(root, 0, L"g1");
+  const BookmarkNode* group = model->AddGroup(root, 0, ASCIIToUTF16("g1"));
 
   GURL url(GURL("http://foo.com"));
-  const std::wstring title(L"blah2");
+  const string16 title(ASCIIToUTF16("blah2"));
 
   const BookmarkNode* url_node = model->AddURL(group, 0, title, url);
 
@@ -226,7 +228,7 @@ TEST_F(BookmarkDragDataTest, MultipleNodes) {
 
   const BookmarkDragData::Element& read_url = read_data.elements[1];
   EXPECT_TRUE(read_url.is_url);
-  EXPECT_EQ(title, read_url.title);
+  EXPECT_EQ(title, WideToUTF16Hack(read_url.title));
   EXPECT_EQ(0, read_url.children.size());
 
   // And make sure we get the node back.

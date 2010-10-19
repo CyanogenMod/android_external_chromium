@@ -4,15 +4,18 @@
 
 #include "chrome/browser/in_process_webkit/webkit_context.h"
 
+#include "base/command_line.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/profile.h"
+#include "chrome/common/chrome_switches.h"
 
 WebKitContext::WebKitContext(Profile* profile)
     : data_path_(profile->IsOffTheRecord() ? FilePath() : profile->GetPath()),
       is_incognito_(profile->IsOffTheRecord()),
       ALLOW_THIS_IN_INITIALIZER_LIST(
           dom_storage_context_(new DOMStorageContext(this))),
-      indexed_db_context_(new IndexedDBContext()) {
+      ALLOW_THIS_IN_INITIALIZER_LIST(
+          indexed_db_context_(new IndexedDBContext(this))) {
 }
 
 WebKitContext::~WebKitContext() {
@@ -48,18 +51,19 @@ void WebKitContext::PurgeMemory() {
 
 void WebKitContext::DeleteDataModifiedSince(
     const base::Time& cutoff,
-    const char* url_scheme_to_be_skipped) {
+    const char* url_scheme_to_be_skipped,
+    const std::vector<string16>& protected_origins) {
   if (!ChromeThread::CurrentlyOn(ChromeThread::WEBKIT)) {
     bool result = ChromeThread::PostTask(
         ChromeThread::WEBKIT, FROM_HERE,
         NewRunnableMethod(this, &WebKitContext::DeleteDataModifiedSince,
-                          cutoff, url_scheme_to_be_skipped));
+                          cutoff, url_scheme_to_be_skipped, protected_origins));
     DCHECK(result);
     return;
   }
 
-  dom_storage_context_->DeleteDataModifiedSince(cutoff,
-                                                url_scheme_to_be_skipped);
+  dom_storage_context_->DeleteDataModifiedSince(
+      cutoff, url_scheme_to_be_skipped, protected_origins);
 }
 
 

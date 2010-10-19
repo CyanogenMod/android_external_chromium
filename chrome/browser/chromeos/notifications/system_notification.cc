@@ -4,11 +4,10 @@
 
 #include "chrome/browser/chromeos/notifications/system_notification.h"
 
-#include "app/resource_bundle.h"
-#include "base/base64.h"
 #include "base/move.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/notifications/system_notification_factory.h"
+#include "chrome/browser/dom_ui/dom_ui_util.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 
@@ -23,15 +22,9 @@ SystemNotification::SystemNotification(Profile* profile, std::string id,
     title_(move(title)),
     visible_(false),
     urgent_(false) {
-  // Load resource icon and covert to base64 encoded data url
-  scoped_refptr<RefCountedMemory> raw_icon(ResourceBundle::GetSharedInstance().
-      LoadDataResourceBytes(icon_resource_id));
-  std::string str_gurl;
-  std::copy(raw_icon->front(), raw_icon->front() + raw_icon->size(),
-            std::back_inserter(str_gurl));
-  base::Base64Encode(str_gurl, &str_gurl);
-  str_gurl.insert(0, "data:image/png;base64,");
-  GURL tmp_gurl(str_gurl);
+  std::string url = dom_ui_util::GetImageDataUrlFromResource(icon_resource_id);
+  DCHECK(!url.empty());
+  GURL tmp_gurl(url);
   icon_.Swap(&tmp_gurl);
 }
 
@@ -39,7 +32,9 @@ SystemNotification::~SystemNotification() {
   Hide();
 }
 
-void SystemNotification::Show(const string16& message, bool urgent) {
+void SystemNotification::Show(const string16& message,
+                              bool urgent,
+                              bool sticky) {
   Notification notify = SystemNotificationFactory::Create(icon_,
       title_, message, delegate_.get());
   if (visible_) {
@@ -50,7 +45,8 @@ void SystemNotification::Show(const string16& message, bool urgent) {
       collection_->UpdateNotification(notify);
     }
   } else {
-    collection_->AddSystemNotification(notify, profile_, true /* sticky */,
+    collection_->AddSystemNotification(notify, profile_,
+                                       sticky,
                                        false /* no controls */);
   }
   visible_ = true;
@@ -59,7 +55,7 @@ void SystemNotification::Show(const string16& message, bool urgent) {
 
 void SystemNotification::Hide() {
   if (visible_) {
-    collection_->Remove(Notification(GURL(), GURL(), std::wstring(), string16(),
+    collection_->Remove(Notification(GURL(), GURL(), string16(), string16(),
                                      delegate_.get()));
 
     visible_ = false;

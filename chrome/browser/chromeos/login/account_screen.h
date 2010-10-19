@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_ACCOUNT_SCREEN_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_ACCOUNT_SCREEN_H_
+#pragma once
 
 #include <string>
 
@@ -52,6 +53,7 @@ class AccountScreen : public ViewScreen<AccountCreationView>,
   virtual void NavigationStateChanged(const TabContents* source,
                                       unsigned changed_flags);
   virtual void LoadingStateChanged(TabContents* source);
+  virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event);
 
   // WebPageScreen implementation:
   virtual void CloseScreen(ScreenObserver::ExitCodes code);

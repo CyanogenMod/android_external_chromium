@@ -14,9 +14,10 @@
 namespace {
 
 // The info-bubble point should look like it points to the point
-// between the star's lower tips.  Determined via Pixie.app
+// between the star's lower tips.  The popup should be where the
+// Omnibox popup ends up (2px below field).  Determined via Pixie.app
 // magnification.
-const CGFloat kStarPointYOffset = 4.0;
+const CGFloat kStarPointYOffset = 2.0;
 
 }  // namespace
 
@@ -30,7 +31,7 @@ StarDecoration::~StarDecoration() {
 }
 
 void StarDecoration::SetStarred(bool starred) {
-  const int image_id = starred ? IDR_OMNIBOX_STAR_LIT : IDR_OMNIBOX_STAR;
+  const int image_id = starred ? IDR_STAR_LIT : IDR_STAR;
   const int tip_id = starred ? IDS_TOOLTIP_STARRED : IDS_TOOLTIP_STAR;
   SetImage(AutocompleteEditViewMac::ImageForResource(image_id));
   tooltip_.reset([l10n_util::GetNSStringWithFixup(tip_id) retain]);

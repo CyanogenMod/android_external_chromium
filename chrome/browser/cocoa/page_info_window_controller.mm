@@ -6,11 +6,10 @@
 
 #include "app/l10n_util_mac.h"
 #include "base/mac_util.h"
-#include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/cocoa/page_info_window_mac.h"
 #include "chrome/browser/cocoa/window_size_autosaver.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 
@@ -41,8 +40,7 @@ const NSInteger kWindowWidth = 460;
       sizeSaver_.reset([[WindowSizeAutosaver alloc]
           initWithWindow:[self window]
              prefService:g_browser_process->local_state()
-                    path:prefs::kPageInfoWindowPlacement
-                   state:kSaveWindowPos]);
+                    path:prefs::kPageInfoWindowPlacement]);
     }
   }
   return self;

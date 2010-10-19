@@ -4,26 +4,31 @@
 
 #ifndef CHROME_BROWSER_COCOA_TABLE_ROW_NSIMAGE_CACHE_H_
 #define CHROME_BROWSER_COCOA_TABLE_ROW_NSIMAGE_CACHE_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
 #include "base/scoped_nsobject.h"
-#include "third_party/skia/include/core/SkBitmap.h"
+
+class SkBitmap;
 
 // There are several dialogs that display tabular data with one SkBitmap
 // per row. This class converts these SkBitmaps to NSImages on demand, and
 // caches the results.
 class TableRowNSImageCache {
  public:
-   // Interface this cache expects for its table model.
-   class Table {
-    public:
-     // Returns the number of rows in the table.
-     virtual int RowCount() const = 0;
+  // Interface this cache expects for its table model.
+  class Table {
+   public:
+    // Returns the number of rows in the table.
+    virtual int RowCount() const = 0;
 
-     // Returns the icon of the |row|th row.
-     virtual SkBitmap GetIcon(int row) const = 0;
-   };
+    // Returns the icon of the |row|th row.
+    virtual SkBitmap GetIcon(int row) const = 0;
+
+   protected:
+    virtual ~Table() {}
+  };
 
   // |model| must outlive the cache.
   explicit TableRowNSImageCache(Table* model);

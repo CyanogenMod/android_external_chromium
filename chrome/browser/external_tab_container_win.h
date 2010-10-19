@@ -4,12 +4,12 @@
 
 #ifndef CHROME_BROWSER_EXTERNAL_TAB_CONTAINER_WIN_H_
 #define CHROME_BROWSER_EXTERNAL_TAB_CONTAINER_WIN_H_
+#pragma once
 
 #include <vector>
 #include <map>
 #include "base/lazy_instance.h"
 #include "chrome/browser/automation/automation_resource_message_filter.h"
-#include "chrome/browser/automation/automation_profile_impl.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
@@ -117,10 +117,10 @@ class ExternalTabContainer : public TabContentsDelegate,
                               const gfx::Rect& initial_pos,
                               bool user_gesture);
   virtual void ActivateContents(TabContents* contents);
+  virtual void DeactivateContents(TabContents* contents);
   virtual void LoadingStateChanged(TabContents* source);
   virtual void CloseContents(TabContents* source);
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos);
-  virtual bool IsPopup(TabContents* source);
   virtual void URLStarredChanged(TabContents* source, bool starred);
   virtual void UpdateTargetURL(TabContents* source, const GURL& url);
   virtual void ContentsZoomChange(bool zoom_in);
@@ -128,9 +128,7 @@ class ExternalTabContainer : public TabContentsDelegate,
   virtual void ForwardMessageToExternalHost(const std::string& message,
                                             const std::string& origin,
                                             const std::string& target);
-  virtual bool IsExternalTabContainer() const {
-    return true;
-  };
+  virtual bool IsExternalTabContainer() const;
   virtual gfx::NativeWindow GetFrameNativeWindow();
 
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
@@ -148,17 +146,6 @@ class ExternalTabContainer : public TabContentsDelegate,
                             const NavigationEntry::SSLStatus& ssl,
                             bool show_history);
 
-  virtual Browser* GetBrowser() { return browser_.get(); }
-
-  // Overriden from TabContentsDelegate::AutomationResourceRoutingDelegate
-  virtual void RegisterRenderViewHost(RenderViewHost* render_view_host);
-  virtual void UnregisterRenderViewHost(RenderViewHost* render_view_host);
-
-  // Overridden from NotificationObserver:
-  virtual void Observe(NotificationType type,
-                       const NotificationSource& source,
-                       const NotificationDetails& details);
-
   // Handles the context menu display operation. This allows external
   // hosts to customize the menu.
   virtual bool HandleContextMenu(const ContextMenuParams& params);
@@ -173,6 +160,19 @@ class ExternalTabContainer : public TabContentsDelegate,
   // that should be parent of the dialog, or NULL for the default.
   virtual void ShowHtmlDialog(HtmlDialogUIDelegate* delegate,
                               gfx::NativeWindow parent_window);
+
+  virtual void BeforeUnloadFired(TabContents* tab,
+                                 bool proceed,
+                                 bool* proceed_to_fire_unload);
+
+  // Overriden from TabContentsDelegate::AutomationResourceRoutingDelegate
+  virtual void RegisterRenderViewHost(RenderViewHost* render_view_host);
+  virtual void UnregisterRenderViewHost(RenderViewHost* render_view_host);
+
+  // Overridden from NotificationObserver:
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
 
   // Returns the ExternalTabContainer instance associated with the cookie
   // passed in. It also erases the corresponding reference from the map.
@@ -206,8 +206,7 @@ class ExternalTabContainer : public TabContentsDelegate,
 
   virtual bool infobars_enabled();
 
-  void RunUnloadHandlers(gfx::NativeWindow notification_window,
-                         int notification_message);
+  void RunUnloadHandlers(IPC::Message* reply_message);
 
  protected:
   // Overridden from views::WidgetWin:
@@ -219,9 +218,6 @@ class ExternalTabContainer : public TabContentsDelegate,
                           NavigationType::Type nav_type,
                           int relative_offset);
   void Navigate(const GURL& url, const GURL& referrer);
-
-  // Initializes the request context to be used for automation HTTP requests.
-  void InitializeAutomationRequestContext(int tab_handle);
 
  private:
   friend class base::RefCounted<ExternalTabContainer>;
@@ -313,9 +309,6 @@ class ExternalTabContainer : public TabContentsDelegate,
   // A mapping between accelerators and commands.
   std::map<views::Accelerator, int> accelerator_table_;
 
-  // Set to true if the tab is waiting for the unload event to complete.
-  bool waiting_for_unload_event_;
-
   // Contains the list of URL requests which are pending waiting for an ack
   // from the external host.
   std::vector<PendingTopLevelNavigation> pending_open_url_requests_;
@@ -331,8 +324,7 @@ class ExternalTabContainer : public TabContentsDelegate,
 
   views::View* external_tab_view_;
 
-  gfx::NativeWindow notification_window_;
-  int notification_message_;
+  IPC::Message* unload_reply_message_;
 
   DISALLOW_COPY_AND_ASSIGN(ExternalTabContainer);
 };

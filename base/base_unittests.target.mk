@@ -21,6 +21,7 @@ CFLAGS_Debug := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -77,6 +78,7 @@ CFLAGS_Release := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -126,13 +128,14 @@ OBJS := $(obj).target/$(TARGET)/base/test/run_all_unittests.o \
 	$(obj).target/$(TARGET)/base/condition_variable_unittest.o \
 	$(obj).target/$(TARGET)/base/crypto/encryptor_unittest.o \
 	$(obj).target/$(TARGET)/base/crypto/rsa_private_key_unittest.o \
+	$(obj).target/$(TARGET)/base/crypto/rsa_private_key_nss_unittest.o \
 	$(obj).target/$(TARGET)/base/crypto/signature_creator_unittest.o \
 	$(obj).target/$(TARGET)/base/crypto/signature_verifier_unittest.o \
 	$(obj).target/$(TARGET)/base/crypto/symmetric_key_unittest.o \
 	$(obj).target/$(TARGET)/base/data_pack_unittest.o \
 	$(obj).target/$(TARGET)/base/debug_util_unittest.o \
 	$(obj).target/$(TARGET)/base/dir_reader_posix_unittest.o \
-	$(obj).target/$(TARGET)/base/env_var_unittest.o \
+	$(obj).target/$(TARGET)/base/environment_unittest.o \
 	$(obj).target/$(TARGET)/base/field_trial_unittest.o \
 	$(obj).target/$(TARGET)/base/file_descriptor_shuffle_unittest.o \
 	$(obj).target/$(TARGET)/base/file_path_unittest.o \
@@ -141,6 +144,7 @@ OBJS := $(obj).target/$(TARGET)/base/test/run_all_unittests.o \
 	$(obj).target/$(TARGET)/base/histogram_unittest.o \
 	$(obj).target/$(TARGET)/base/hmac_unittest.o \
 	$(obj).target/$(TARGET)/base/id_map_unittest.o \
+	$(obj).target/$(TARGET)/base/i18n/char_iterator_unittest.o \
 	$(obj).target/$(TARGET)/base/i18n/file_util_icu_unittest.o \
 	$(obj).target/$(TARGET)/base/i18n/icu_string_conversions_unittest.o \
 	$(obj).target/$(TARGET)/base/i18n/rtl_unittest.o \
@@ -152,12 +156,16 @@ OBJS := $(obj).target/$(TARGET)/base/test/run_all_unittests.o \
 	$(obj).target/$(TARGET)/base/leak_tracker_unittest.o \
 	$(obj).target/$(TARGET)/base/linked_list_unittest.o \
 	$(obj).target/$(TARGET)/base/linked_ptr_unittest.o \
+	$(obj).target/$(TARGET)/base/lock_unittest.o \
 	$(obj).target/$(TARGET)/base/message_loop_proxy_impl_unittest.o \
 	$(obj).target/$(TARGET)/base/message_loop_unittest.o \
 	$(obj).target/$(TARGET)/base/message_pump_glib_unittest.o \
+	$(obj).target/$(TARGET)/base/non_thread_safe_unittest.o \
 	$(obj).target/$(TARGET)/base/observer_list_unittest.o \
 	$(obj).target/$(TARGET)/base/path_service_unittest.o \
 	$(obj).target/$(TARGET)/base/pickle_unittest.o \
+	$(obj).target/$(TARGET)/base/platform_file_unittest.o \
+	$(obj).target/$(TARGET)/base/platform_thread_unittest.o \
 	$(obj).target/$(TARGET)/base/pr_time_unittest.o \
 	$(obj).target/$(TARGET)/base/process_util_unittest.o \
 	$(obj).target/$(TARGET)/base/rand_util_unittest.o \
@@ -172,12 +180,16 @@ OBJS := $(obj).target/$(TARGET)/base/test/run_all_unittests.o \
 	$(obj).target/$(TARGET)/base/singleton_unittest.o \
 	$(obj).target/$(TARGET)/base/stack_container_unittest.o \
 	$(obj).target/$(TARGET)/base/stats_table_unittest.o \
+	$(obj).target/$(TARGET)/base/string_number_conversions_unittest.o \
 	$(obj).target/$(TARGET)/base/string_piece_unittest.o \
 	$(obj).target/$(TARGET)/base/string_split_unittest.o \
 	$(obj).target/$(TARGET)/base/string_tokenizer_unittest.o \
 	$(obj).target/$(TARGET)/base/string_util_unittest.o \
+	$(obj).target/$(TARGET)/base/stringprintf_unittest.o \
 	$(obj).target/$(TARGET)/base/sys_info_unittest.o \
 	$(obj).target/$(TARGET)/base/sys_string_conversions_unittest.o \
+	$(obj).target/$(TARGET)/base/task_queue_unittest.o \
+	$(obj).target/$(TARGET)/base/thread_checker_unittest.o \
 	$(obj).target/$(TARGET)/base/thread_collision_warner_unittest.o \
 	$(obj).target/$(TARGET)/base/thread_local_storage_unittest.o \
 	$(obj).target/$(TARGET)/base/thread_local_unittest.o \
@@ -191,6 +203,7 @@ OBJS := $(obj).target/$(TARGET)/base/test/run_all_unittests.o \
 	$(obj).target/$(TARGET)/base/utf_string_conversions_unittest.o \
 	$(obj).target/$(TARGET)/base/values_unittest.o \
 	$(obj).target/$(TARGET)/base/version_unittest.o \
+	$(obj).target/$(TARGET)/base/vlog_unittest.o \
 	$(obj).target/$(TARGET)/base/waitable_event_unittest.o \
 	$(obj).target/$(TARGET)/base/waitable_event_watcher_unittest.o \
 	$(obj).target/$(TARGET)/base/watchdog_unittest.o \
@@ -202,7 +215,7 @@ OBJS := $(obj).target/$(TARGET)/base/test/run_all_unittests.o \
 all_deps += $(OBJS)
 
 # Make sure our dependencies are built before any of us.
-$(OBJS): | $(obj).target/base/libbase.a $(obj).target/base/libbase_i18n.a $(obj).target/testing/libgmock.a $(obj).target/testing/libgtest.a xdisplaycheck $(obj).target/third_party/modp_b64/libmodp_b64.a $(obj).target/base/third_party/dynamic_annotations/libdynamic_annotations.a $(obj).target/base/libsymbolize.a $(obj).target/net/third_party/nss/libssl.a $(obj).target/third_party/zlib/libzlib.a $(obj).target/base/libxdg_mime.a $(obj).target/base/allocator/liballocator.a $(obj).target/third_party/libevent/libevent.a $(obj).target/third_party/icu/libicui18n.a $(obj).target/third_party/icu/libicuuc.a $(obj).target/third_party/icu/libicudata.a
+$(OBJS): | $(obj).target/base/libbase.a $(obj).target/base/libbase_i18n.a $(obj).target/base/libtest_support_base.a $(obj).target/testing/libgmock.a $(obj).target/testing/libgtest.a xdisplaycheck $(obj).target/third_party/modp_b64/libmodp_b64.a $(obj).target/base/third_party/dynamic_annotations/libdynamic_annotations.a $(obj).target/base/libsymbolize.a $(obj).target/net/third_party/nss/libssl.a $(obj).target/third_party/zlib/libzlib.a $(obj).target/base/libxdg_mime.a $(obj).target/base/allocator/liballocator.a $(obj).target/third_party/libevent/libevent.a $(obj).target/third_party/icu/libicui18n.a $(obj).target/third_party/icu/libicuuc.a $(obj).target/third_party/icu/libicudata.a
 
 # CFLAGS et al overrides must be target-local.
 # See "Target-specific Variable Values" in the GNU Make manual.
@@ -229,14 +242,15 @@ LDFLAGS_Debug := -pthread \
 	-Wl,-z,noexecstack \
 	-Wl,-uIsHeapProfilerRunning,-uProfilerStart \
 	-Wl,-u_Z21InitialMallocHook_NewPKvj,-u_Z22InitialMallocHook_MMapPKvS0_jiiix,-u_Z22InitialMallocHook_SbrkPKvi \
-	-Wl,-u_Z21InitialMallocHook_NewPKvm,-u_Z22InitialMallocHook_MMapPKvS0_miiil,-u_Z22InitialMallocHook_SbrkPKvl \
-	-rdynamic
+	-Wl,-u_Z21InitialMallocHook_NewPKvm,-u_Z22InitialMallocHook_MMapPKvS0_miiil,-u_Z22InitialMallocHook_SbrkPKvl
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
 	-Wl,-uIsHeapProfilerRunning,-uProfilerStart \
 	-Wl,-u_Z21InitialMallocHook_NewPKvj,-u_Z22InitialMallocHook_MMapPKvS0_jiiix,-u_Z22InitialMallocHook_SbrkPKvi \
 	-Wl,-u_Z21InitialMallocHook_NewPKvm,-u_Z22InitialMallocHook_MMapPKvS0_miiil,-u_Z22InitialMallocHook_SbrkPKvl \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := -lrt \
@@ -269,7 +283,7 @@ LIBS := -lrt \
 $(builddir)/base_unittests: GYP_LDFLAGS := $(LDFLAGS_$(BUILDTYPE))
 $(builddir)/base_unittests: LIBS := $(LIBS)
 $(builddir)/base_unittests: TOOLSET := $(TOOLSET)
-$(builddir)/base_unittests: $(OBJS) $(obj).target/base/libbase.a $(obj).target/base/libbase_i18n.a $(obj).target/testing/libgmock.a $(obj).target/testing/libgtest.a $(obj).target/third_party/modp_b64/libmodp_b64.a $(obj).target/base/third_party/dynamic_annotations/libdynamic_annotations.a $(obj).target/base/libsymbolize.a $(obj).target/net/third_party/nss/libssl.a $(obj).target/third_party/zlib/libzlib.a $(obj).target/base/libxdg_mime.a $(obj).target/base/allocator/liballocator.a $(obj).target/third_party/libevent/libevent.a $(obj).target/third_party/icu/libicui18n.a $(obj).target/third_party/icu/libicuuc.a $(obj).target/third_party/icu/libicudata.a FORCE_DO_CMD
+$(builddir)/base_unittests: $(OBJS) $(obj).target/base/libbase.a $(obj).target/base/libbase_i18n.a $(obj).target/base/libtest_support_base.a $(obj).target/testing/libgmock.a $(obj).target/testing/libgtest.a $(obj).target/third_party/modp_b64/libmodp_b64.a $(obj).target/base/third_party/dynamic_annotations/libdynamic_annotations.a $(obj).target/base/libsymbolize.a $(obj).target/net/third_party/nss/libssl.a $(obj).target/third_party/zlib/libzlib.a $(obj).target/base/libxdg_mime.a $(obj).target/base/allocator/liballocator.a $(obj).target/third_party/libevent/libevent.a $(obj).target/third_party/icu/libicui18n.a $(obj).target/third_party/icu/libicuuc.a $(obj).target/third_party/icu/libicudata.a FORCE_DO_CMD
 	$(call do_cmd,link)
 
 all_deps += $(builddir)/base_unittests

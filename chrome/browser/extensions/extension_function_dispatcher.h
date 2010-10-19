@@ -1,12 +1,12 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_FUNCTION_DISPATCHER_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_FUNCTION_DISPATCHER_H_
+#pragma once
 
 #include <string>
-#include <set>
 #include <vector>
 
 #include "base/ref_counted.h"
@@ -15,14 +15,12 @@
 
 class Browser;
 class Extension;
-class ExtensionDOMUI;
 class ExtensionFunction;
-class ExtensionHost;
 class ListValue;
 class Profile;
 class RenderViewHost;
-class RenderViewHostDelegate;
 class TabContents;
+struct ViewHostMsg_DomMessage_Params;
 
 // A factory function for creating new ExtensionFunction instances.
 typedef ExtensionFunction* (*ExtensionFunctionFactory)();
@@ -53,7 +51,7 @@ class ExtensionFunctionDispatcher {
     // context. For example, the TabContents in which an infobar or
     // chrome-extension://<id> URL are being shown. Callers must check for a
     // NULL return value (as in the case of a background page).
-    virtual TabContents* associated_tab_contents() = 0;
+    virtual TabContents* associated_tab_contents() const = 0;
 
    protected:
     virtual ~Delegate() {}
@@ -95,8 +93,7 @@ class ExtensionFunctionDispatcher {
   Delegate* delegate() { return delegate_; }
 
   // Handle a request to execute an extension function.
-  void HandleRequest(const std::string& name, const ListValue* args,
-                     const GURL& source_url, int request_id, bool has_callback);
+  void HandleRequest(const ViewHostMsg_DomMessage_Params& params);
 
   // Send a response to a function.
   void SendResponse(ExtensionFunction* api, bool success);
@@ -117,7 +114,7 @@ class ExtensionFunctionDispatcher {
   const GURL& url() { return url_; }
 
   // Gets the ID for this extension.
-  const std::string extension_id() { return url_.host(); }
+  const std::string extension_id() { return extension_id_; }
 
   // The profile that this dispatcher is associated with.
   Profile* profile();
@@ -141,6 +138,8 @@ class ExtensionFunctionDispatcher {
   Delegate* delegate_;
 
   GURL url_;
+
+  std::string extension_id_;
 
   scoped_refptr<Peer> peer_;
 

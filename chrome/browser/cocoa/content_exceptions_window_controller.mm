@@ -4,12 +4,15 @@
 
 #import "chrome/browser/cocoa/content_exceptions_window_controller.h"
 
+#include "app/l10n_util.h"
 #include "app/l10n_util_mac.h"
 #include "app/table_model_observer.h"
+#include "base/command_line.h"
 #import "base/mac_util.h"
 #import "base/scoped_nsobject.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/content_exceptions_table_model.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
 #include "grit/generated_resources.h"
@@ -493,8 +496,8 @@ static ContentExceptionsWindowController*
 }
 
 - (size_t)menuItemCount {
-  return showSession_ ?
-      arraysize(kSessionSettings) : arraysize(kNoSessionSettings);
+  return showSession_ ? arraysize(kSessionSettings)
+                      : arraysize(kNoSessionSettings);
 }
 
 - (NSString*)titleForIndex:(size_t)index {

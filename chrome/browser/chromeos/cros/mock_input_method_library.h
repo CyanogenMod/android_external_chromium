@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_CROS_MOCK_INPUT_METHOD_LIBRARY_H_
 #define CHROME_BROWSER_CHROMEOS_CROS_MOCK_INPUT_METHOD_LIBRARY_H_
+#pragma once
 
 #include <string>
 
@@ -32,9 +33,11 @@ class MockInputMethodLibrary : public InputMethodLibrary {
   MOCK_CONST_METHOD0(previous_input_method, const InputMethodDescriptor&(void));
   MOCK_CONST_METHOD0(current_input_method, const InputMethodDescriptor&(void));
   MOCK_CONST_METHOD0(current_ime_properties, const ImePropertyList&(void));
+  MOCK_METHOD0(StartInputMethodProcesses, void(void));
+  MOCK_METHOD0(StopInputMethodProcesses, void(void));
+  MOCK_METHOD1(SetDeferImeStartup, void(bool));
 };
 
 }  // namespace chromeos
 
 #endif  // CHROME_BROWSER_CHROMEOS_CROS_MOCK_INPUT_METHOD_LIBRARY_H_
-

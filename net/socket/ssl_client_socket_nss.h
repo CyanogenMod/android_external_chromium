@@ -4,6 +4,7 @@
 
 #ifndef NET_SOCKET_SSL_CLIENT_SOCKET_NSS_H_
 #define NET_SOCKET_SSL_CLIENT_SOCKET_NSS_H_
+#pragma once
 
 #include <certt.h>
 #include <keyt.h>
@@ -14,6 +15,7 @@
 #include <vector>
 
 #include "base/scoped_ptr.h"
+#include "base/time.h"
 #include "net/base/cert_verify_result.h"
 #include "net/base/completion_callback.h"
 #include "net/base/net_log.h"
@@ -32,7 +34,7 @@ class X509Certificate;
 // An SSL client socket implemented with Mozilla NSS.
 class SSLClientSocketNSS : public SSLClientSocket {
  public:
-  // Takes ownership of the transport_socket, which may already be connected.
+  // Takes ownership of the |transport_socket|, which must already be connected.
   // The given hostname will be compared with the name(s) in the server's
   // certificate during the SSL handshake.  ssl_config specifies the SSL
   // settings.
@@ -45,6 +47,7 @@ class SSLClientSocketNSS : public SSLClientSocket {
   virtual void GetSSLInfo(SSLInfo* ssl_info);
   virtual void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info);
   virtual NextProtoStatus GetNextProto(std::string* proto);
+  virtual void UseDNSSEC(DNSSECProvider*);
 
   // ClientSocket methods:
   virtual int Connect(CompletionCallback* callback);
@@ -53,6 +56,9 @@ class SSLClientSocketNSS : public SSLClientSocket {
   virtual bool IsConnectedAndIdle() const;
   virtual int GetPeerAddress(AddressList* address) const;
   virtual const BoundNetLog& NetLog() const { return net_log_; }
+  virtual void SetSubresourceSpeculation();
+  virtual void SetOmniboxSpeculation();
+  virtual bool WasEverUsed() const;
 
   // Socket methods:
   virtual int Read(IOBuffer* buf, int buf_len, CompletionCallback* callback);
@@ -85,6 +91,9 @@ class SSLClientSocketNSS : public SSLClientSocket {
   int DoWriteLoop(int result);
 
   int DoHandshake();
+
+  int DoVerifyDNSSEC(int result);
+  int DoVerifyDNSSECComplete(int result);
   int DoVerifyCert(int result);
   int DoVerifyCertComplete(int result);
   int DoPayloadRead();
@@ -115,6 +124,9 @@ class SSLClientSocketNSS : public SSLClientSocket {
   CompletionCallbackImpl<SSLClientSocketNSS> buffer_recv_callback_;
   bool transport_send_busy_;
   bool transport_recv_busy_;
+  // corked_ is true if we are currently suspending writes to the network. This
+  // is named after the similar kernel flag, TCP_CORK.
+  bool corked_;
   scoped_refptr<IOBuffer> recv_buffer_;
 
   CompletionCallbackImpl<SSLClientSocketNSS> handshake_io_callback_;
@@ -154,9 +166,16 @@ class SSLClientSocketNSS : public SSLClientSocket {
   // True if the SSL handshake has been completed.
   bool completed_handshake_;
 
+  // This pointer is owned by the caller of UseDNSSEC.
+  DNSSECProvider* dnssec_provider_;
+  // The time when we started waiting for DNSSEC records.
+  base::Time dnssec_wait_start_time_;
+
   enum State {
     STATE_NONE,
     STATE_HANDSHAKE,
+    STATE_VERIFY_DNSSEC,
+    STATE_VERIFY_DNSSEC_COMPLETE,
     STATE_VERIFY_CERT,
     STATE_VERIFY_CERT_COMPLETE,
   };

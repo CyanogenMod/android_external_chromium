@@ -7,13 +7,14 @@
 
 #ifndef CHROME_BROWSER_SYNC_GLUE_SYNCHRONIZED_PREFERENCES_H_
 #define CHROME_BROWSER_SYNC_GLUE_SYNCHRONIZED_PREFERENCES_H_
+#pragma once
 
 #include "chrome/browser/translate/translate_prefs.h"
 #include "chrome/common/pref_names.h"
 
 namespace browser_sync {
 
-static const wchar_t* kSynchronizedPreferences[] = {
+static const char* kSynchronizedPreferences[] = {
   // Options dialog: Basics tab.
   prefs::kRestoreOnStartup,
   prefs::kURLsToRestoreOnStartup,
@@ -94,7 +95,9 @@ static const wchar_t* kSynchronizedPreferences[] = {
   prefs::kWebKitUsesUniversalDetector,
 
   // Autofill dialog.
+#if defined(OS_MACOSX)
   prefs::kAutoFillAuxiliaryProfilesEnabled,
+#endif
 
   // Translate preferences.
   TranslatePrefs::kPrefTranslateLanguageBlacklist,
@@ -112,11 +115,42 @@ static const wchar_t* kSynchronizedPreferences[] = {
 
 #if defined(OS_CHROMEOS)
   // IME prefs
+  prefs::kLanguageChewingAddPhraseDirection,
+  prefs::kLanguageChewingAutoShiftCur,
+  prefs::kLanguageChewingCandPerPage,
+  prefs::kLanguageChewingEasySymbolInput,
+  prefs::kLanguageChewingEscCleanAllBuf,
+  prefs::kLanguageChewingForceLowercaseEnglish,
+  prefs::kLanguageChewingHsuSelKeyType,
+  prefs::kLanguageChewingKeyboardType,
+  prefs::kLanguageChewingMaxChiSymbolLen,
+  prefs::kLanguageChewingPhraseChoiceRearward,
+  prefs::kLanguageChewingPlainZhuyin,
+  prefs::kLanguageChewingSelKeys,
+  prefs::kLanguageChewingSpaceAsSelection,
   prefs::kLanguageHangulKeyboard,
+  prefs::kLanguageMozcHistoryLearningLevel,
+  prefs::kLanguageMozcIncognitoMode,
+  prefs::kLanguageMozcNumpadCharacterForm,
+  prefs::kLanguageMozcPreeditMethod,
+  prefs::kLanguageMozcPunctuationMethod,
+  prefs::kLanguageMozcSessionKeymap,
+  prefs::kLanguageMozcShiftKeyModeSwitch,
+  prefs::kLanguageMozcSpaceCharacterForm,
+  prefs::kLanguageMozcSuggestionsSize,
+  prefs::kLanguageMozcSymbolMethod,
+  prefs::kLanguageMozcUseAutoImeTurnOff,
+  prefs::kLanguageMozcUseDateConversion,
+  prefs::kLanguageMozcUseDictionarySuggest,
+  prefs::kLanguageMozcUseHistorySuggest,
+  prefs::kLanguageMozcUseNumberConversion,
+  prefs::kLanguageMozcUseSingleKanjiConversion,
+  prefs::kLanguageMozcUseSymbolConversion,
   prefs::kLanguagePinyinAutoCommit,
   prefs::kLanguagePinyinCommaPeriodPage,
   prefs::kLanguagePinyinCorrectPinyin,
   prefs::kLanguagePinyinDoublePinyin,
+  prefs::kLanguagePinyinDoublePinyinSchema,
   prefs::kLanguagePinyinFuzzyPinyin,
   prefs::kLanguagePinyinInitChinese,
   prefs::kLanguagePinyinInitFull,
@@ -127,34 +161,27 @@ static const wchar_t* kSynchronizedPreferences[] = {
   prefs::kLanguagePinyinTradCandidate,
   prefs::kLanguagePreferredLanguages,
   prefs::kLanguagePreloadEngines,
-  // TODO(yusukes): Add prefs for ibus-mozc (Japanese input method).
-  //   prefs::kLanguageMozcPreeditMethod,
-  //   prefs::kLanguageMozcSessionKeymap,
-  //   prefs::kLanguageMozcPunctuationMethod,
-  //   prefs::kLanguageMozcSymbolMethod,
-  //   prefs::kLanguageMozcSpaceCharacterForm;
-  //   prefs::kLanguageMozcHistoryLearningLevel;
-  //   prefs::kLanguageMozcSelectionShortcut;
-  //   prefs::kLanguageMozcShiftKeyModeSwitch;
-  //   prefs::kLanguageMozcNumpadCharacterForm;
-  //   prefs::kLanguageMozcIncognitoMode,
-  //   prefs::kLanguageMozcUseAutoImeTurnOff,
-  //   prefs::kLanguageMozcUseDateConversion,
-  //   prefs::kLanguageMozcUseSingleKanjiConversion,
-  //   prefs::kLanguageMozcUseSymbolConversion,
-  //   prefs::kLanguageMozcUseNumberConversion,
-  //   prefs::kLanguageMozcUseHistorySuggest,
-  //   prefs::kLanguageMozcUseDictionarySuggest,
-  //   prefs::kLanguageMozcSuggestionsSize
-  //
+
   // We don't sync the following IME prefs since they are not user-configurable
   // (yet):
+  //   prefs::kLanguageHangulHanjaKeys,
   //   prefs::kLanguageHotkeyNextEngineInMenu,
   //   prefs::kLanguageHotkeyPreviousEngine,
-  //   prefs::kLanguagePinyinDoublePinyinSchema,
+  //   prefs::kLanguageMozcSelectionShortcut,
   //   prefs::kLanguagePinyinLookupTablePageSize,
   //
   // We don't sync prefs::kLanguageCurrentInputMethod and PreviousInputMethod.
+
+  // Keyboard prefs
+  prefs::kLanguageXkbRemapAltKeyTo,
+  prefs::kLanguageXkbRemapControlKeyTo,
+  prefs::kLanguageXkbRemapSearchKeyTo,
+
+  // We don't sync the following keyboard prefs since they are not user-
+  // configurable:
+  //   prefs::kLanguageXkbAutoRepeatDelay,
+  //   prefs::kLanguageXkbAutoRepeatEnabled,
+  //   prefs::kLanguageXkbAutoRepeatInterval,
 #endif
 };
 

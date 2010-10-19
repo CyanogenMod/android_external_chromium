@@ -4,6 +4,7 @@
 
 #ifndef CHROME_COMMON_PREF_STORE_H_
 #define CHROME_COMMON_PREF_STORE_H_
+#pragma once
 
 class DictionaryValue;
 
@@ -26,7 +27,8 @@ class PrefStore {
     PREF_READ_ERROR_FILE_LOCKED,
     PREF_READ_ERROR_NO_FILE,
     PREF_READ_ERROR_JSON_REPEAT,
-    PREF_READ_ERROR_OTHER
+    PREF_READ_ERROR_OTHER,
+    PREF_READ_ERROR_FILE_NOT_SPECIFIED
   };
 
   virtual ~PrefStore() { }
@@ -46,4 +48,3 @@ class PrefStore {
 };
 
 #endif  // CHROME_COMMON_PREF_STORE_H_
-

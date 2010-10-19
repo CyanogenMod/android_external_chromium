@@ -5,7 +5,9 @@
 #include "app/l10n_util.h"
 #include "base/scoped_nsobject.h"
 #include "base/string_util.h"
+#include "base/string_number_conversions.h"
 #include "base/sys_string_conversions.h"
+#include "base/utf_string_conversions.h"
 #import "chrome/browser/cocoa/page_info_window_mac.h"
 #import "chrome/browser/cocoa/page_info_window_controller.h"
 #include "chrome/browser/cocoa/browser_test_helper.h"
@@ -17,14 +19,16 @@ namespace {
 
 class FakeModel : public PageInfoModel {
  public:
-  void AddSection(bool state,
+  void AddSection(SectionInfoState state,
                   const string16& title,
-                  const string16& description) {
+                  const string16& description,
+                  SectionInfoType type) {
     sections_.push_back(SectionInfo(
         state,
         title,
         string16(),
-        description));
+        description,
+        type));
   }
 };
 
@@ -107,16 +111,18 @@ class PageInfoWindowMacTest : public CocoaTest {
 
 
 TEST_F(PageInfoWindowMacTest, NoHistoryNoSecurity) {
-  model_->AddSection(false,
+  model_->AddSection(PageInfoModel::SECTION_STATE_ERROR,
       l10n_util::GetStringUTF16(IDS_PAGE_INFO_SECURITY_TAB_IDENTITY_TITLE),
       l10n_util::GetStringFUTF16(
           IDS_PAGE_INFO_SECURITY_TAB_UNKNOWN_PARTY,
-          ASCIIToUTF16("google.com")));
-  model_->AddSection(false,
+          ASCIIToUTF16("google.com")),
+      PageInfoModel::SECTION_INFO_IDENTITY);
+  model_->AddSection(PageInfoModel::SECTION_STATE_ERROR,
       l10n_util::GetStringUTF16(IDS_PAGE_INFO_SECURITY_TAB_CONNECTION_TITLE),
       l10n_util::GetStringFUTF16(
           IDS_PAGE_INFO_SECURITY_TAB_NOT_ENCRYPTED_CONNECTION_TEXT,
-          ASCIIToUTF16("google.com")));
+          ASCIIToUTF16("google.com")),
+      PageInfoModel::SECTION_INFO_CONNECTION);
 
   bridge_->ModelChanged();
 
@@ -125,26 +131,29 @@ TEST_F(PageInfoWindowMacTest, NoHistoryNoSecurity) {
 
 
 TEST_F(PageInfoWindowMacTest, HistoryNoSecurity) {
-  model_->AddSection(false,
+  model_->AddSection(PageInfoModel::SECTION_STATE_ERROR,
       l10n_util::GetStringUTF16(IDS_PAGE_INFO_SECURITY_TAB_IDENTITY_TITLE),
       l10n_util::GetStringFUTF16(
           IDS_PAGE_INFO_SECURITY_TAB_UNKNOWN_PARTY,
-          ASCIIToUTF16("google.com")));
-  model_->AddSection(false,
+          ASCIIToUTF16("google.com")),
+      PageInfoModel::SECTION_INFO_IDENTITY);
+  model_->AddSection(PageInfoModel::SECTION_STATE_ERROR,
       l10n_util::GetStringUTF16(IDS_PAGE_INFO_SECURITY_TAB_CONNECTION_TITLE),
       l10n_util::GetStringFUTF16(
           IDS_PAGE_INFO_SECURITY_TAB_NOT_ENCRYPTED_CONNECTION_TEXT,
-          ASCIIToUTF16("google.com")));
+          ASCIIToUTF16("google.com")),
+      PageInfoModel::SECTION_INFO_CONNECTION);
 
   // In practice, the history information comes later because it's queried
   // asynchronously, so replicate the double-build here.
   bridge_->ModelChanged();
 
-  model_->AddSection(false,
+  model_->AddSection(PageInfoModel::SECTION_STATE_ERROR,
       l10n_util::GetStringUTF16(
           IDS_PAGE_INFO_SECURITY_TAB_PERSONAL_HISTORY_TITLE),
       l10n_util::GetStringUTF16(
-          IDS_PAGE_INFO_SECURITY_TAB_FIRST_VISITED_TODAY));
+          IDS_PAGE_INFO_SECURITY_TAB_FIRST_VISITED_TODAY),
+      PageInfoModel::SECTION_INFO_FIRST_VISIT);
 
   bridge_->ModelChanged();
 
@@ -153,26 +162,28 @@ TEST_F(PageInfoWindowMacTest, HistoryNoSecurity) {
 
 
 TEST_F(PageInfoWindowMacTest, NoHistoryMixedSecurity) {
-  model_->AddSection(true,
+  model_->AddSection(PageInfoModel::SECTION_STATE_OK,
       l10n_util::GetStringUTF16(IDS_PAGE_INFO_SECURITY_TAB_IDENTITY_TITLE),
       l10n_util::GetStringFUTF16(
           IDS_PAGE_INFO_SECURITY_TAB_SECURE_IDENTITY,
-          ASCIIToUTF16("Goat Security Systems")));
+          ASCIIToUTF16("Goat Security Systems")),
+      PageInfoModel::SECTION_INFO_IDENTITY);
 
   // This string is super long and the text should overflow the default clip
   // region (kImageSize).
   string16 title =
       l10n_util::GetStringUTF16(IDS_PAGE_INFO_SECURITY_TAB_CONNECTION_TITLE);
-  model_->AddSection(true,
+  model_->AddSection(PageInfoModel::SECTION_STATE_OK,
       title,
       l10n_util::GetStringFUTF16(
           IDS_PAGE_INFO_SECURITY_TAB_ENCRYPTED_SENTENCE_LINK,
           l10n_util::GetStringFUTF16(
               IDS_PAGE_INFO_SECURITY_TAB_ENCRYPTED_CONNECTION_TEXT,
               ASCIIToUTF16("chrome.google.com"),
-              IntToString16(1024)),
+              base::IntToString16(1024)),
           l10n_util::GetStringUTF16(
-              IDS_PAGE_INFO_SECURITY_TAB_ENCRYPTED_INSECURE_CONTENT_WARNING)));
+              IDS_PAGE_INFO_SECURITY_TAB_ENCRYPTED_INSECURE_CONTENT_WARNING)),
+      PageInfoModel::SECTION_INFO_CONNECTION);
 
   bridge_->ModelChanged();
 

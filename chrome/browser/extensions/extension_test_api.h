@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_TEST_API_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_TEST_API_H_
+#pragma once
 
 #include "chrome/browser/extensions/extension_function.h"
 
@@ -35,6 +36,12 @@ class ExtensionTestCreateIncognitoTabFunction : public SyncExtensionFunction {
   ~ExtensionTestCreateIncognitoTabFunction() {}
   virtual bool RunImpl();
   DECLARE_EXTENSION_FUNCTION_NAME("test.createIncognitoTab")
+};
+
+class ExtensionTestSendMessageFunction : public SyncExtensionFunction {
+  ~ExtensionTestSendMessageFunction() {}
+  virtual bool RunImpl();
+  DECLARE_EXTENSION_FUNCTION_NAME("test.sendMessage")
 };
 
 #endif  // CHROME_BROWSER_EXTENSIONS_EXTENSION_TEST_API_H_

@@ -4,9 +4,9 @@
 
 #ifndef CHROME_BROWSER_REMOVE_ROWS_TABLE_MODEL_H_
 #define CHROME_BROWSER_REMOVE_ROWS_TABLE_MODEL_H_
+#pragma once
 
 #include <set>
-#include <vector>
 
 #include "app/table_model.h"
 

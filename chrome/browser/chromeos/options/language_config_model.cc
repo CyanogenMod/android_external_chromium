@@ -9,6 +9,7 @@
 #include <utility>
 
 #include "app/l10n_util.h"
+#include "base/string_split.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/input_method_library.h"
@@ -16,6 +17,7 @@
 #include "chrome/browser/chromeos/preferences.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
+#include "grit/generated_resources.h"
 
 namespace chromeos {
 
@@ -30,14 +32,13 @@ int AddLanguageComboboxModel::GetItemCount() {
   return get_languages_count() + 1 - ignore_set_.size();
 }
 
-std::wstring AddLanguageComboboxModel::GetItemAt(int index) {
+string16 AddLanguageComboboxModel::GetItemAt(int index) {
   // Show "Add language" as the first item.
   if (index == 0) {
-    return l10n_util::GetString(
+    return l10n_util::GetStringUTF16(
         IDS_OPTIONS_SETTINGS_LANGUAGES_ADD_LANGUAGE_COMBOBOX);
   }
-  return input_method::MaybeRewriteLanguageName(
-      GetLanguageNameAt(GetLanguageIndex(index)));
+  return WideToUTF16Hack(GetLanguageNameAt(GetLanguageIndex(index)));
 }
 
 int AddLanguageComboboxModel::GetLanguageIndex(int index) const {
@@ -213,10 +214,6 @@ void LanguageConfigModel::GetInputMethodIdsFromLanguageCode(
   input_method_ids->clear();
   input_method::GetInputMethodIdsFromLanguageCode(
       language_code, input_method::kAllInputMethods, input_method_ids);
-
-  // Reorder the input methods.
-  input_method::ReorderInputMethodIdsForLanguageCode(
-      language_code, input_method_ids);
 }
 
 void LanguageConfigModel::NotifyPrefChanged() {

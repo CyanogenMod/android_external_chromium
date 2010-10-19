@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_STATUS_ICONS_STATUS_ICON_MAC_H_
 #define CHROME_BROWSER_COCOA_STATUS_ICONS_STATUS_ICON_MAC_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
@@ -24,6 +25,10 @@ class StatusIconMac : public StatusIcon {
   virtual void SetImage(const SkBitmap& image);
   virtual void SetPressedImage(const SkBitmap& image);
   virtual void SetToolTip(const string16& tool_tip);
+
+ protected:
+  // Overridden from StatusIcon.
+  virtual void UpdatePlatformContextMenu(menus::MenuModel* menu);
 
  private:
   // Getter for item_ that allows lazy initialization.

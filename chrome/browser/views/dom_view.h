@@ -7,6 +7,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_DOM_VIEW_H_
 #define CHROME_BROWSER_VIEWS_DOM_VIEW_H_
+#pragma once
 
 #include "base/scoped_ptr.h"
 #include "googleurl/src/gurl.h"
@@ -39,6 +40,8 @@ class DOMView : public views::NativeViewHost {
   // Overridden from View.
   virtual bool SkipDefaultKeyEventProcessing(const views::KeyEvent& e);
   virtual void Focus();
+  virtual void ViewHierarchyChanged(bool is_add, views::View* parent,
+                                    views::View* child);
 
   // Returns new allocated TabContents instance, caller is responsible deleting.
   // Override in derived classes to replace TabContents with derivative.

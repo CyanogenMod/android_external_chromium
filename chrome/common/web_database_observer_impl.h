@@ -4,6 +4,7 @@
 
 #ifndef CHROME_COMMON_WEB_DATABASE_OBSERVER_IMPL_H_
 #define CHROME_COMMON_WEB_DATABASE_OBSERVER_IMPL_H_
+#pragma once
 
 #include "ipc/ipc_message.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebDatabaseObserver.h"
@@ -12,6 +13,7 @@
 class WebDatabaseObserverImpl : public WebKit::WebDatabaseObserver {
  public:
   explicit WebDatabaseObserverImpl(IPC::Message::Sender* sender);
+  virtual ~WebDatabaseObserverImpl() {}
   virtual void databaseOpened(const WebKit::WebDatabase& database);
   virtual void databaseModified(const WebKit::WebDatabase& database);
   virtual void databaseClosed(const WebKit::WebDatabase& database);

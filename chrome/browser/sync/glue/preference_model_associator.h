@@ -1,17 +1,17 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_SYNC_GLUE_PREFERENCE_MODEL_ASSOCIATOR_H_
 #define CHROME_BROWSER_SYNC_GLUE_PREFERENCE_MODEL_ASSOCIATOR_H_
+#pragma once
 
 #include <map>
 #include <set>
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/scoped_ptr.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/sync/glue/model_associator.h"
 #include "chrome/browser/sync/unrecoverable_error_handler.h"
 
@@ -20,6 +20,7 @@ class Value;
 
 namespace sync_api {
 class WriteNode;
+class WriteTransaction;
 }
 
 namespace browser_sync {
@@ -32,7 +33,7 @@ static const char kPreferencesTag[] = "google_chrome_preferences";
 // * Algorithm to associate preferences model and sync model.
 class PreferenceModelAssociator
     : public PerDataTypeAssociatorInterface<PrefService::Preference,
-                                            std::wstring> {
+                                            std::string> {
  public:
   static syncable::ModelType model_type() { return syncable::PREFERENCES; }
   explicit PreferenceModelAssociator(ProfileSyncService* sync_service);
@@ -41,9 +42,15 @@ class PreferenceModelAssociator
   // Returns the list of preference names that should be monitored for
   // changes.  Only preferences that are registered will be in this
   // list.
-  const std::set<std::wstring>& synced_preferences() {
+  const std::set<std::string>& synced_preferences() {
     return synced_preferences_;
   }
+
+  // Create an association for a given preference. A sync node is created if
+  // necessary and the value is read from or written to the node as appropriate.
+  bool InitPrefNodeAndAssociate(sync_api::WriteTransaction* trans,
+                                const sync_api::BaseNode& root,
+                                const PrefService::Preference* pref);
 
   // PerDataTypeAssociatorInterface implementation.
   //
@@ -69,14 +76,14 @@ class PreferenceModelAssociator
   }
 
   // Not implemented.
-  virtual bool InitSyncNodeFromChromeId(std::wstring node_id,
+  virtual bool InitSyncNodeFromChromeId(std::string node_id,
                                         sync_api::BaseNode* sync_node) {
     return false;
   }
 
   // Returns the sync id for the given preference name, or sync_api::kInvalidId
   // if the preference name is not associated to any sync id.
-  virtual int64 GetSyncIdFromChromeId(std::wstring node_id);
+  virtual int64 GetSyncIdFromChromeId(std::string node_id);
 
   // Associates the given preference name with the given sync id.
   virtual void Associate(const PrefService::Preference* node, int64 sync_id);
@@ -99,28 +106,28 @@ class PreferenceModelAssociator
 
   // Writes the value of pref into the specified node.  Returns true
   // upon success.
-  static bool WritePreferenceToNode(const std::wstring& name,
+  static bool WritePreferenceToNode(const std::string& name,
                                     const Value& value,
                                     sync_api::WriteNode* node);
 
   // Perform any additional operations that need to happen after a preference
   // has been updated.
-  void AfterUpdateOperations(const std::wstring& pref_name);
+  void AfterUpdateOperations(const std::string& pref_name);
 
  protected:
   // Returns sync service instance.
   ProfileSyncService* sync_service() { return sync_service_; }
 
  private:
-  typedef std::map<std::wstring, int64> PreferenceNameToSyncIdMap;
-  typedef std::map<int64, std::wstring> SyncIdToPreferenceNameMap;
+  typedef std::map<std::string, int64> PreferenceNameToSyncIdMap;
+  typedef std::map<int64, std::string> SyncIdToPreferenceNameMap;
 
   static Value* MergeListValues(const Value& from_value, const Value& to_value);
   static Value* MergeDictionaryValues(const Value& from_value,
                                       const Value& to_value);
 
   ProfileSyncService* sync_service_;
-  std::set<std::wstring> synced_preferences_;
+  std::set<std::string> synced_preferences_;
   int64 preferences_node_id_;
 
   PreferenceNameToSyncIdMap id_map_;

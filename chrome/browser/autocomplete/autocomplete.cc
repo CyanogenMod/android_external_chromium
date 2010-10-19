@@ -8,8 +8,12 @@
 
 #include "app/l10n_util.h"
 #include "base/basictypes.h"
+#include "base/command_line.h"
 #include "base/i18n/number_formatting.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
+#include "chrome/browser/autocomplete/history_quick_provider.h"
 #include "chrome/browser/autocomplete/history_url_provider.h"
 #include "chrome/browser/autocomplete/history_contents_provider.h"
 #include "chrome/browser/autocomplete/keyword_provider.h"
@@ -18,8 +22,9 @@
 #include "chrome/browser/dom_ui/history_ui.h"
 #include "chrome/browser/external_protocol_handler.h"
 #include "chrome/browser/net/url_fixer_upper.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -122,7 +127,9 @@ AutocompleteInput::Type AutocompleteInput::Parse(
     *scheme = parsed_scheme;
 
   if (parsed_scheme == L"file") {
-    // A user might or might not type a scheme when entering a file URL.
+    // A user might or might not type a scheme when entering a file URL.  In
+    // either case, |parsed_scheme| will tell us that this is a file URL, but
+    // |parts->scheme| might be empty, e.g. if the user typed "C:\foo".
     return URL;
   }
 
@@ -151,7 +158,8 @@ AutocompleteInput::Type AutocompleteInput::Parse(
     // a URL before.  We need to do this last because some schemes may be in
     // here as "blocked" (e.g. "javascript") because we don't want pages to open
     // them, but users still can.
-    switch (ExternalProtocolHandler::GetBlockState(parsed_scheme)) {
+    // TODO(viettrungluu): get rid of conversion.
+    switch (ExternalProtocolHandler::GetBlockState(WideToUTF8(parsed_scheme))) {
       case ExternalProtocolHandler::DONT_BLOCK:
         return URL;
 
@@ -232,26 +240,24 @@ AutocompleteInput::Type AutocompleteInput::Parse(
         UNKNOWN : QUERY;
   }
 
-  // Presence of a port means this is likely a URL, if the port is really a port
-  // number.  If it's just garbage after a colon, this is a query.
+  // A port number is a good indicator that this is a URL.  However, it might
+  // also be a query like "1.66:1" that looks kind of like an IP address and
+  // port number. So here we only check for "port numbers" that are illegal and
+  // thus mean this can't be navigated to (e.g. "1.2.3.4:garbage"), and we save
+  // handling legal port numbers until after the "IP address" determination
+  // below.
   if (parts->port.is_nonempty()) {
     int port;
-    return (StringToInt(WideToUTF16(
-                text.substr(parts->port.begin, parts->port.len)), &port) &&
-            (port >= 0) && (port <= 65535)) ? URL : QUERY;
+    if (!base::StringToInt(WideToUTF8(
+            text.substr(parts->port.begin, parts->port.len)), &port) ||
+        (port < 0) || (port > 65535))
+      return QUERY;
   }
 
-  // Presence of a username could either indicate a URL or an email address
-  // ("user@mail.com").  E-mail addresses are likely queries so we only open
-  // this as a URL if the user explicitly typed a scheme.
-  if (parts->username.is_nonempty() && parts->scheme.is_nonempty())
-    return URL;
-
-  // Presence of a password means this is likely a URL.  Note that unless the
-  // user has typed an explicit "http://" or similar, we'll probably think that
-  // the username is some unknown scheme, and bail out in the scheme-handling
-  // code above.
-  if (parts->password.is_nonempty())
+  // Now that we've ruled out all schemes other than http or https and done a
+  // little more sanity checking, the presence of a scheme means this is likely
+  // a URL.
+  if (parts->scheme.is_nonempty())
     return URL;
 
   // See if the host is an IP address.
@@ -262,36 +268,48 @@ AutocompleteInput::Type AutocompleteInput::Parse(
     // it, unless they explicitly typed a scheme.  This is true even if the URL
     // appears to have a path: "1.2/45" is more likely a search (for the answer
     // to a math problem) than a URL.
-    if ((host_info.num_ipv4_components == 4) || parts->scheme.is_nonempty())
+    if (host_info.num_ipv4_components == 4)
       return URL;
     return desired_tld.empty() ? UNKNOWN : REQUESTED_URL;
   }
   if (host_info.family == url_canon::CanonHostInfo::IPV6)
     return URL;
 
+  // Now that we've ruled out invalid ports and queries that look like they have
+  // a port, the presence of a port means this is likely a URL.
+  if (parts->port.is_nonempty())
+    return URL;
+
+  // Presence of a password means this is likely a URL.  Note that unless the
+  // user has typed an explicit "http://" or similar, we'll probably think that
+  // the username is some unknown scheme, and bail out in the scheme-handling
+  // code above.
+  if (parts->password.is_nonempty())
+    return URL;
+
   // The host doesn't look like a number, so see if the user's given us a path.
   if (parts->path.is_nonempty()) {
     // Most inputs with paths are URLs, even ones without known registries (e.g.
-    // intranet URLs).  However, if the user didn't type a scheme, there's no
-    // known registry, and the path has a space, this is more likely a query
-    // with a slash in the first term (e.g. "ps/2 games") than a URL.  We can
-    // still open URLs with spaces in the path by escaping the space, and we
-    // will still inline autocomplete them if users have typed them in the past,
-    // but we default to searching since that's the common case.
-    return (!parts->scheme.is_nonempty() && (registry_length == 0) &&
+    // intranet URLs).  However, if there's no known registry and the path has
+    // a space, this is more likely a query with a slash in the first term
+    // (e.g. "ps/2 games") than a URL.  We can still open URLs with spaces in
+    // the path by escaping the space, and we will still inline autocomplete
+    // them if users have typed them in the past, but we default to searching
+    // since that's the common case.
+    return ((registry_length == 0) &&
             (text.substr(parts->path.begin, parts->path.len).find(' ') !=
                 std::wstring::npos)) ? UNKNOWN : URL;
   }
 
-  // If we reach here with a username, our input looks like "user@host"; this is
-  // the case mentioned above, where we think this is more likely an email
-  // address than an HTTP auth attempt, so search for it.
+  // If we reach here with a username, our input looks like "user@host".
+  // Because there is no scheme explicitly specified, we think this is more
+  // likely an email address than an HTTP auth attempt.  Hence, we search by
+  // default and let users correct us on a case-by-case basis.
   if (parts->username.is_nonempty())
     return UNKNOWN;
 
-  // We have a bare host string.  See if it has a known TLD or the user typed a
-  // scheme.  If so, it's probably a URL.
-  if (parts->scheme.is_nonempty() || (registry_length != 0))
+  // We have a bare host string.  If it has a known TLD, it's probably a URL.
+  if (registry_length != 0)
     return URL;
 
   // No TLD that we know about.  This could be:
@@ -630,14 +648,13 @@ void AutocompleteProvider::UpdateStarredStateOfMatches() {
 std::wstring AutocompleteProvider::StringForURLDisplay(const GURL& url,
                                                        bool check_accept_lang,
                                                        bool trim_http) const {
-  std::wstring languages = (check_accept_lang && profile_) ?
-      UTF8ToWide(profile_->GetPrefs()->GetString(prefs::kAcceptLanguages)) :
-      std::wstring();
-  return net::FormatUrl(
+  std::string languages = (check_accept_lang && profile_) ?
+      profile_->GetPrefs()->GetString(prefs::kAcceptLanguages) : std::string();
+  return UTF16ToWideHack(net::FormatUrl(
       url,
       languages,
       net::kFormatUrlOmitAll & ~(trim_http ? 0 : net::kFormatUrlOmitHTTP),
-      UnescapeRule::SPACES, NULL, NULL, NULL);
+      UnescapeRule::SPACES, NULL, NULL, NULL));
 }
 
 // AutocompleteResult ---------------------------------------------------------
@@ -701,7 +718,7 @@ void AutocompleteResult::SortAndCull(const AutocompleteInput& input) {
                              &AutocompleteMatch::DestinationsEqual),
                  matches_.end());
 
-  // Find the top max_matches.
+  // Find the top |kMaxMatches| matches.
   if (matches_.size() > kMaxMatches) {
     std::partial_sort(matches_.begin(), matches_.begin() + kMaxMatches,
                       matches_.end(), &AutocompleteMatch::MoreRelevant);
@@ -728,6 +745,7 @@ void AutocompleteResult::SortAndCull(const AutocompleteInput& input) {
        (input.type() == AutocompleteInput::REQUESTED_URL)) &&
       (default_match_ != end()) &&
       (default_match_->transition != PageTransition::TYPED) &&
+      (default_match_->transition != PageTransition::KEYWORD) &&
       (input.canonicalized_url() != default_match_->destination_url))
     alternate_nav_url_ = input.canonicalized_url();
 }
@@ -755,7 +773,11 @@ AutocompleteController::AutocompleteController(Profile* profile)
       have_committed_during_this_query_(false),
       done_(true) {
   providers_.push_back(new SearchProvider(this, profile));
-  providers_.push_back(new HistoryURLProvider(this, profile));
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableInMemoryURLIndex))
+    providers_.push_back(new HistoryQuickProvider(this, profile));
+  else
+    providers_.push_back(new HistoryURLProvider(this, profile));
   providers_.push_back(new KeywordProvider(this, profile));
   history_contents_provider_ = new HistoryContentsProvider(this, profile);
   providers_.push_back(history_contents_provider_);
@@ -812,9 +834,12 @@ void AutocompleteController::Start(const std::wstring& text,
   // If we're interrupting an old query, and committing its result won't shrink
   // the visible set (which would probably re-expand soon, thus looking very
   // flickery), then go ahead and commit what we've got, in order to feel more
-  // responsive when the user is typing rapidly.
+  // responsive when the user is typing rapidly.  In this case it's important
+  // that we don't update the edit, as the user has already changed its contents
+  // and anything we might do with it (e.g. inline autocomplete) likely no
+  // longer applies.
   if (!minimal_changes && !done_ && (latest_result_.size() >= result_.size()))
-    CommitResult();
+    CommitResult(false);
 
   // If the timer is already running, it could fire shortly after starting this
   // query, when we're likely to only have the synchronous results back, thus
@@ -865,17 +890,20 @@ void AutocompleteController::DeleteMatch(const AutocompleteMatch& match) {
   DCHECK(match.deletable);
   match.provider->DeleteMatch(match);  // This may synchronously call back to
                                        // OnProviderUpdate().
-  CommitResult();  // Ensure any new result gets committed immediately.  If it
-                   // was committed already or hasn't been modified, this is
-                   // harmless.
+  CommitResult(true);  // Ensure any new result gets committed immediately.  If
+                       // it was committed already or hasn't been modified, this
+                       // is harmless.
+}
+
+void AutocompleteController::CommitIfQueryHasNeverBeenCommitted() {
+  if (!have_committed_during_this_query_)
+    CommitResult(true);
 }
 
 void AutocompleteController::OnProviderUpdate(bool updated_matches) {
   CheckIfDone();
-  if (updated_matches || done_) {
+  if (updated_matches || done_)
     UpdateLatestResult(false);
-    return;
-  }
 }
 
 void AutocompleteController::UpdateLatestResult(bool is_synchronous_pass) {
@@ -916,15 +944,15 @@ void AutocompleteController::UpdateLatestResult(bool is_synchronous_pass) {
   // last commit, to minimize flicker.
   if (result_.empty() || (done_ && !have_committed_during_this_query_) ||
       delay_interval_has_passed_)
-    CommitResult();
+    CommitResult(true);
 }
 
 void AutocompleteController::DelayTimerFired() {
   delay_interval_has_passed_ = true;
-  CommitResult();
+  CommitResult(true);
 }
 
-void AutocompleteController::CommitResult() {
+void AutocompleteController::CommitResult(bool notify_default_match) {
   if (done_) {
     update_delay_timer_.Stop();
     delay_interval_has_passed_ = false;
@@ -942,13 +970,15 @@ void AutocompleteController::CommitResult() {
       NotificationType::AUTOCOMPLETE_CONTROLLER_RESULT_UPDATED,
       Source<AutocompleteController>(this),
       Details<const AutocompleteResult>(&result_));
-  // This notification must be sent after the other so the popup has time to
-  // update its state before the edit calls into it.
-  // TODO(pkasting): Eliminate this ordering requirement.
-  NotificationService::current()->Notify(
-      NotificationType::AUTOCOMPLETE_CONTROLLER_DEFAULT_MATCH_UPDATED,
-      Source<AutocompleteController>(this),
-      Details<const AutocompleteResult>(&result_));
+  if (notify_default_match) {
+    // This notification must be sent after the other so the popup has time to
+    // update its state before the edit calls into it.
+    // TODO(pkasting): Eliminate this ordering requirement.
+    NotificationService::current()->Notify(
+        NotificationType::AUTOCOMPLETE_CONTROLLER_DEFAULT_MATCH_UPDATED,
+        Source<AutocompleteController>(this),
+        Details<const AutocompleteResult>(&result_));
+  }
   if (!done_)
     update_delay_timer_.Reset();
 }

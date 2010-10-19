@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_BOOKMARK_MENU_CONTROLLER_VIEWS_H_
 #define CHROME_BROWSER_VIEWS_BOOKMARK_MENU_CONTROLLER_VIEWS_H_
+#pragma once
 
 #include <map>
 #include <set>
@@ -43,6 +44,9 @@ class BookmarkMenuController : public BaseBookmarkModelObserver,
   class Observer {
    public:
     virtual void BookmarkMenuDeleted(BookmarkMenuController* controller) = 0;
+
+   protected:
+    virtual ~Observer() {}
   };
 
   // Creates a BookmarkMenuController showing the children of |node| starting
@@ -106,6 +110,7 @@ class BookmarkMenuController : public BaseBookmarkModelObserver,
       views::MenuItemView::AnchorPosition* anchor,
       bool* has_mnemonics,
       views::MenuButton** button);
+  virtual int GetMaxWidthForMenu();
 
   // BookmarkModelObserver methods.
   virtual void BookmarkModelChanged();
@@ -121,7 +126,7 @@ class BookmarkMenuController : public BaseBookmarkModelObserver,
   typedef std::map<const BookmarkNode*, int> NodeToMenuIDMap;
 
   // BookmarkMenuController deletes itself as necessary.
-  ~BookmarkMenuController();
+  virtual ~BookmarkMenuController();
 
   // Creates a menu and adds it to node_to_menu_id_map_. This uses
   // BuildMenu to recursively populate the menu.

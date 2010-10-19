@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -29,13 +29,13 @@ bool IsPluginRunningInRendererProcess() {
   return !IsPluginProcess();
 }
 
-std::wstring GetWebKitLocale() {
+std::string GetWebKitLocale() {
   // The browser process should have passed the locale to the renderer via the
   // --lang command line flag.  In single process mode, this will return the
   // wrong value.  TODO(tc): Fix this for single process mode.
   const CommandLine& parsed_command_line = *CommandLine::ForCurrentProcess();
-  const std::wstring& lang =
-      parsed_command_line.GetSwitchValue(switches::kLang);
+  const std::string& lang =
+      parsed_command_line.GetSwitchValueASCII(switches::kLang);
   DCHECK(!lang.empty() ||
       (!parsed_command_line.HasSwitch(switches::kRendererProcess) &&
        !parsed_command_line.HasSwitch(switches::kPluginProcess)));
@@ -43,7 +43,7 @@ std::wstring GetWebKitLocale() {
 }
 
 string16 GetLocalizedString(int message_id) {
-  return WideToUTF16(l10n_util::GetString(message_id));
+  return l10n_util::GetStringUTF16(message_id);
 }
 
 }  // namespace webkit_glue

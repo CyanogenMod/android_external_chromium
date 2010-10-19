@@ -11,6 +11,7 @@
 
 #ifndef CHROME_BROWSER_BROWSER_URL_HANDLER_H_
 #define CHROME_BROWSER_BROWSER_URL_HANDLER_H_
+#pragma once
 
 #include <vector>
 #include <utility>
@@ -43,6 +44,7 @@ class BrowserURLHandler {
   // RewriteURLIfNecessary is called.
   static void InitURLHandlers();
 
+ private:
   // The list of known URLHandlers, optionally with reverse-rewriters.
   typedef std::pair<URLHandler, URLHandler> HandlerPair;
   static std::vector<HandlerPair> url_handlers_;

@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_DOWNLOAD_DOWNLOAD_REQUEST_INFOBAR_DELEGATE_H_
 #define CHROME_BROWSER_DOWNLOAD_DOWNLOAD_REQUEST_INFOBAR_DELEGATE_H_
+#pragma once
 
 #include "base/basictypes.h"
 #include "chrome/browser/download/download_request_limiter.h"
@@ -28,13 +29,13 @@ class DownloadRequestInfoBarDelegate : public ConfirmInfoBarDelegate {
 
   virtual void InfoBarClosed();
 
-  virtual std::wstring GetMessageText() const;
+  virtual string16 GetMessageText() const;
 
   virtual SkBitmap* GetIcon() const;
 
   virtual int GetButtons() const;
 
-  virtual std::wstring GetButtonLabel(
+  virtual string16 GetButtonLabel(
       ConfirmInfoBarDelegate::InfoBarButton button) const;
 
   virtual bool Accept();

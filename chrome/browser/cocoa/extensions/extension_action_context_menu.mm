@@ -18,7 +18,8 @@
 #include "chrome/browser/extensions/extension_install_ui.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
@@ -45,8 +46,7 @@ class AsyncUninstaller : public ExtensionInstallUI::Delegate {
   ~AsyncUninstaller() {}
 
   // Overridden by ExtensionInstallUI::Delegate.
-  virtual void InstallUIProceed(bool create_shortcut) {
-    DCHECK(!create_shortcut);
+  virtual void InstallUIProceed() {
     profile_->GetExtensionsService()->
         UninstallExtension(extension_->id(), false);
   }
@@ -72,14 +72,10 @@ class DevmodeObserver : public NotificationObserver {
   DevmodeObserver(ExtensionActionContextMenu* menu,
                              PrefService* service)
       : menu_(menu), pref_service_(service) {
-    pref_service_->AddPrefObserver(prefs::kExtensionsUIDeveloperMode,
-                                   this);
+    registrar_.Init(pref_service_);
+    registrar_.Add(prefs::kExtensionsUIDeveloperMode, this);
   }
-
-  ~DevmodeObserver() {
-    pref_service_->RemovePrefObserver(prefs::kExtensionsUIDeveloperMode,
-                                      this);
-  }
+  virtual ~DevmodeObserver() {}
 
   void Observe(NotificationType type,
                const NotificationSource& source,
@@ -93,6 +89,7 @@ class DevmodeObserver : public NotificationObserver {
  private:
   ExtensionActionContextMenu* menu_;
   PrefService* pref_service_;
+  PrefChangeRegistrar registrar_;
 };
 
 }  // namespace extension_action_context_menu
@@ -241,13 +238,18 @@ int CurrentTabId() {
           [window->cocoa_controller() toolbarController];
       LocationBarViewMac* locationBarView =
           [toolbarController locationBarBridge];
-      NSPoint popupPoint = locationBarView->GetPageActionBubblePoint(action_);
 
-      // If there was no matching page action, it was a browser action.
-      if (NSEqualPoints(popupPoint, NSZeroPoint)) {
+      NSPoint popupPoint = NSZeroPoint;
+      if (extension_->page_action() == action_) {
+        popupPoint = locationBarView->GetPageActionBubblePoint(action_);
+
+      } else if (extension_->browser_action() == action_) {
         BrowserActionsController* controller =
             [toolbarController browserActionsController];
         popupPoint = [controller popupPointForBrowserAction:extension_];
+
+      } else {
+        NOTREACHED() << "action_ is not a page action or browser action?";
       }
 
       int tabId = CurrentTabId();

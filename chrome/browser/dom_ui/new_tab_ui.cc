@@ -14,37 +14,36 @@
 #include "base/histogram.h"
 #include "base/i18n/rtl.h"
 #include "base/singleton.h"
+#include "base/string_number_conversions.h"
 #include "base/thread.h"
-#include "chrome/browser/bookmarks/bookmark_model.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_ui/app_launcher_handler.h"
 #include "chrome/browser/dom_ui/dom_ui_theme_source.h"
+#include "chrome/browser/dom_ui/foreign_session_handler.h"
 #include "chrome/browser/dom_ui/most_visited_handler.h"
 #include "chrome/browser/dom_ui/new_tab_page_sync_handler.h"
 #include "chrome/browser/dom_ui/ntp_resource_cache.h"
 #include "chrome/browser/dom_ui/shown_sections_handler.h"
 #include "chrome/browser/dom_ui/tips_handler.h"
-#include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/sessions/session_types.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
+#include "chrome/browser/sessions/tab_restore_service_observer.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/extensions/extension.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
-
-#if defined(OS_WIN)
-#include "chrome/browser/views/importer_view.h"
-#include "views/window/window.h"
-#endif
+#include "grit/theme_resources.h"
 
 namespace {
 
@@ -56,8 +55,8 @@ const int kSearchURLs = 3;
 
 // Strings sent to the page via jstemplates used to set the direction of the
 // HTML document based on locale.
-const wchar_t kRTLHtmlTextDirection[] = L"rtl";
-const wchar_t kDefaultHtmlTextDirection[] = L"ltr";
+const char kRTLHtmlTextDirection[] = "rtl";
+const char kDefaultHtmlTextDirection[] = "ltr";
 
 ////////////////////////////////////////////////////////////////////////////////
 // PaintTimer
@@ -80,6 +79,8 @@ class PaintTimer : public RenderWidgetHost::PaintObserver {
   }
 
   // A callback that is invoked whenever our RenderWidgetHost paints.
+  virtual void RenderWidgetHostWillPaint(RenderWidgetHost* rhw) {}
+
   virtual void RenderWidgetHostDidPaint(RenderWidgetHost* rwh) {
     last_paint_ = base::TimeTicks::Now();
   }
@@ -124,7 +125,7 @@ class PaintTimer : public RenderWidgetHost::PaintObserver {
 // RecentlyClosedTabsHandler
 
 class RecentlyClosedTabsHandler : public DOMMessageHandler,
-                                  public TabRestoreService::Observer {
+                                  public TabRestoreServiceObserver {
  public:
   RecentlyClosedTabsHandler() : tab_restore_service_(NULL) {}
   virtual ~RecentlyClosedTabsHandler();
@@ -135,12 +136,12 @@ class RecentlyClosedTabsHandler : public DOMMessageHandler,
   // Callback for the "reopenTab" message. Rewrites the history of the
   // currently displayed tab to be the one in TabRestoreService with a
   // history of a session passed in through the content pointer.
-  void HandleReopenTab(const Value* content);
+  void HandleReopenTab(const ListValue* args);
 
   // Callback for the "getRecentlyClosedTabs" message.
-  void HandleGetRecentlyClosedTabs(const Value* content);
+  void HandleGetRecentlyClosedTabs(const ListValue* args);
 
-  // Observer callback for TabRestoreService::Observer. Sends data on
+  // Observer callback for TabRestoreServiceObserver. Sends data on
   // recently closed tabs to the javascript side of this page to
   // display to the user.
   virtual void TabRestoreServiceChanged(TabRestoreService* service);
@@ -164,7 +165,7 @@ class RecentlyClosedTabsHandler : public DOMMessageHandler,
   // tab was already in the list, true if it was absent.  A tab is
   // considered unique if no other tab shares both its title and its url.
   bool EnsureTabIsUnique(const DictionaryValue* tab,
-                   std::set<std::wstring>& unique_items);
+                         std::set<std::string>* unique_items);
 
   // TabRestoreService that we are observing.
   TabRestoreService* tab_restore_service_;
@@ -185,38 +186,21 @@ RecentlyClosedTabsHandler::~RecentlyClosedTabsHandler() {
     tab_restore_service_->RemoveObserver(this);
 }
 
-void RecentlyClosedTabsHandler::HandleReopenTab(const Value* content) {
+void RecentlyClosedTabsHandler::HandleReopenTab(const ListValue* args) {
   Browser* browser = Browser::GetBrowserForController(
       &dom_ui_->tab_contents()->controller(), NULL);
   if (!browser)
     return;
 
-  // Extract the integer value of the tab session to restore from the
-  // incoming string array. This will be greatly simplified when
-  // DOMUIBindings::send() is generalized to all data types instead of
-  // silently failing when passed anything other then an array of
-  // strings.
-  if (content->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(content);
-    Value* list_member;
-    if (list_value->Get(0, &list_member) &&
-        list_member->GetType() == Value::TYPE_STRING) {
-      const StringValue* string_value =
-          static_cast<const StringValue*>(list_member);
-      std::wstring wstring_value;
-      if (string_value->GetAsString(&wstring_value)) {
-        int session_to_restore = StringToInt(WideToUTF16Hack(wstring_value));
-        tab_restore_service_->RestoreEntryById(browser, session_to_restore,
-                                               true);
-        // The current tab has been nuked at this point; don't touch any member
-        // variables.
-      }
-    }
-  }
+  int session_to_restore;
+  if (ExtractIntegerValue(args, &session_to_restore))
+    tab_restore_service_->RestoreEntryById(browser, session_to_restore, true);
+  // The current tab has been nuked at this point; don't touch any member
+  // variables.
 }
 
 void RecentlyClosedTabsHandler::HandleGetRecentlyClosedTabs(
-    const Value* content) {
+    const ListValue* args) {
   if (!tab_restore_service_) {
     tab_restore_service_ = dom_ui_->GetProfile()->GetTabRestoreService();
 
@@ -239,7 +223,7 @@ void RecentlyClosedTabsHandler::TabRestoreServiceChanged(
     TabRestoreService* service) {
   const TabRestoreService::Entries& entries = service->entries();
   ListValue list_value;
-  std::set<std::wstring> unique_items;
+  std::set<std::string> unique_items;
   int added_count = 0;
   const int max_count = 10;
 
@@ -252,11 +236,11 @@ void RecentlyClosedTabsHandler::TabRestoreServiceChanged(
     DictionaryValue* value = new DictionaryValue();
     if ((entry->type == TabRestoreService::TAB &&
          TabToValue(*static_cast<TabRestoreService::Tab*>(entry), value) &&
-         EnsureTabIsUnique(value, unique_items)) ||
+         EnsureTabIsUnique(value, &unique_items)) ||
         (entry->type == TabRestoreService::WINDOW &&
          WindowToValue(*static_cast<TabRestoreService::Window*>(entry),
                        value))) {
-      value->SetInteger(L"sessionId", entry->id);
+      value->SetInteger("sessionId", entry->id);
       list_value.Append(value);
       added_count++;
     } else {
@@ -284,8 +268,8 @@ bool RecentlyClosedTabsHandler::TabToValue(
 
   NewTabUI::SetURLTitleAndDirection(dictionary, current_navigation.title(),
                                     current_navigation.virtual_url());
-  dictionary->SetString(L"type", L"tab");
-  dictionary->SetReal(L"timestamp", tab.timestamp.ToDoubleT());
+  dictionary->SetString("type", "tab");
+  dictionary->SetReal("timestamp", tab.timestamp.ToDoubleT());
   return true;
 }
 
@@ -310,23 +294,27 @@ bool RecentlyClosedTabsHandler::WindowToValue(
     return false;
   }
 
-  dictionary->SetString(L"type", L"window");
-  dictionary->SetReal(L"timestamp", window.timestamp.ToDoubleT());
-  dictionary->Set(L"tabs", tab_values);
+  dictionary->SetString("type", "window");
+  dictionary->SetReal("timestamp", window.timestamp.ToDoubleT());
+  dictionary->Set("tabs", tab_values);
   return true;
 }
 
-bool RecentlyClosedTabsHandler::EnsureTabIsUnique(const DictionaryValue* tab,
-    std::set<std::wstring>& unique_items) {
-  std::wstring title;
-  std::wstring url;
-  if (tab->GetString(L"title", &title) &&
-      tab->GetString(L"url", &url)) {
-    std::wstring unique_key = title + url;
-    if (unique_items.find(unique_key) != unique_items.end())
+bool RecentlyClosedTabsHandler::EnsureTabIsUnique(
+    const DictionaryValue* tab,
+    std::set<std::string>* unique_items) {
+  DCHECK(unique_items);
+  std::string title;
+  std::string url;
+  if (tab->GetString("title", &title) &&
+      tab->GetString("url", &url)) {
+    // TODO(viettrungluu): this isn't obviously reliable, since different
+    // combinations of titles/urls may conceivably yield the same string.
+    std::string unique_key = title + url;
+    if (unique_items->find(unique_key) != unique_items->end())
       return false;
     else
-      unique_items.insert(unique_key);
+      unique_items->insert(unique_key);
   }
   return true;
 }
@@ -350,10 +338,10 @@ class MetricsHandler : public DOMMessageHandler {
   virtual void RegisterMessages();
 
   // Callback which records a user action.
-  void HandleMetrics(const Value* content);
+  void HandleMetrics(const ListValue* args);
 
   // Callback for the "logEventTime" message.
-  void HandleLogEventTime(const Value* content);
+  void HandleLogEventTime(const ListValue* args);
 
  private:
 
@@ -368,35 +356,14 @@ void MetricsHandler::RegisterMessages() {
       NewCallback(this, &MetricsHandler::HandleLogEventTime));
 }
 
-void MetricsHandler::HandleMetrics(const Value* content) {
-  if (content && content->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(content);
-    Value* list_member;
-    if (list_value->Get(0, &list_member) &&
-        list_member->GetType() == Value::TYPE_STRING) {
-      const StringValue* string_value =
-          static_cast<const StringValue*>(list_member);
-      std::wstring wstring_value;
-      if (string_value->GetAsString(&wstring_value)) {
-        UserMetrics::RecordComputedAction(WideToASCII(wstring_value),
-                                          dom_ui_->GetProfile());
-      }
-    }
-  }
+void MetricsHandler::HandleMetrics(const ListValue* args) {
+  std::string string_action = WideToUTF8(ExtractStringValue(args));
+  UserMetrics::RecordComputedAction(string_action, dom_ui_->GetProfile());
 }
 
-void MetricsHandler::HandleLogEventTime(const Value* content) {
-  if (content && content->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(content);
-    Value* list_member;
-    if (list_value->Get(0, &list_member) &&
-        list_member->GetType() == Value::TYPE_STRING) {
-      std::string event_name;
-      if (list_member->GetAsString(&event_name)) {
-        dom_ui_->tab_contents()->LogNewTabTime(event_name);
-      }
-    }
-  }
+void MetricsHandler::HandleLogEventTime(const ListValue* args) {
+  std::string event_name = WideToUTF8(ExtractStringValue(args));
+  dom_ui_->tab_contents()->LogNewTabTime(event_name);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -413,7 +380,7 @@ class NewTabPageSetHomePageHandler : public DOMMessageHandler {
   virtual void RegisterMessages();
 
   // Callback for "setHomePage".
-  void HandleSetHomePage(const Value* value);
+  void HandleSetHomePage(const ListValue* args);
 
  private:
 
@@ -426,52 +393,15 @@ void NewTabPageSetHomePageHandler::RegisterMessages() {
 }
 
 void NewTabPageSetHomePageHandler::HandleSetHomePage(
-    const Value* value) {
+    const ListValue* args) {
   dom_ui_->GetProfile()->GetPrefs()->SetBoolean(prefs::kHomePageIsNewTabPage,
                                                 true);
   ListValue list_value;
   list_value.Append(new StringValue(
-      l10n_util::GetString(IDS_NEW_TAB_HOME_PAGE_SET_NOTIFICATION)));
+      l10n_util::GetStringUTF16(IDS_NEW_TAB_HOME_PAGE_SET_NOTIFICATION)));
   list_value.Append(new StringValue(
-      l10n_util::GetString(IDS_NEW_TAB_HOME_PAGE_HIDE_NOTIFICATION)));
+      l10n_util::GetStringUTF16(IDS_NEW_TAB_HOME_PAGE_HIDE_NOTIFICATION)));
   dom_ui_->CallJavascriptFunction(L"onHomePageSet", list_value);
-}
-
-///////////////////////////////////////////////////////////////////////////////
-// NewTabPageImportBookmarksHandler
-class NewTabPageImportBookmarksHandler : public DOMMessageHandler {
- public:
-  NewTabPageImportBookmarksHandler() {}
-  virtual ~NewTabPageImportBookmarksHandler() {}
-
-  // DOMMessageHandler implementation.
-  virtual void RegisterMessages();
-
-  // Callback for "importBookmarks".
-  void HandleImportBookmarks(const Value* value);
- private:
-
-  DISALLOW_COPY_AND_ASSIGN(NewTabPageImportBookmarksHandler);
-};
-
-void NewTabPageImportBookmarksHandler::RegisterMessages() {
-  dom_ui_->RegisterMessageCallback("importBookmarks", NewCallback(
-      this, &NewTabPageImportBookmarksHandler::HandleImportBookmarks));
-}
-
-void NewTabPageImportBookmarksHandler::HandleImportBookmarks(
-    const Value* value) {
-  Browser* browser = NULL;
-  TabContentsDelegate* delegate = dom_ui_->tab_contents()->delegate();
-  if (delegate)
-    browser = delegate->GetBrowser();
-  DCHECK(browser);
-#if defined(OS_WIN)
-  views::Window::CreateChromeWindow(
-      browser->window()->GetNativeHandle(),
-      gfx::Rect(),
-      new ImporterView(dom_ui_->GetProfile(), importer::FAVORITES))->Show();
-#endif
 }
 
 }  // namespace
@@ -484,10 +414,9 @@ NewTabUI::NewTabUI(TabContents* contents)
   // Override some options on the DOM UI.
   hide_favicon_ = true;
   force_bookmark_bar_visible_ = true;
-  force_extension_shelf_visible_ = true;
   focus_location_bar_by_default_ = true;
   should_hide_url_ = true;
-  overridden_title_ = WideToUTF16Hack(l10n_util::GetString(IDS_NEW_TAB_TITLE));
+  overridden_title_ = l10n_util::GetStringUTF16(IDS_NEW_TAB_TITLE);
 
   // We count all link clicks as AUTO_BOOKMARK, so that site can be ranked more
   // highly. Note this means we're including clicks on not only most visited
@@ -499,21 +428,17 @@ NewTabUI::NewTabUI(TabContents* contents)
 
   static bool first_view = true;
   if (first_view) {
-    Profile* profile = GetProfile();
-    profile->GetPrefs()->SetInteger(prefs::kNTPPromoViewsRemaining,
-        profile->GetPrefs()->GetInteger(prefs::kNTPPromoViewsRemaining) - 1);
-    profile->GetBookmarkModel()->AddObserver(this);
     first_view = false;
   }
 
   if (!GetProfile()->IsOffTheRecord()) {
     PrefService* pref_service = GetProfile()->GetPrefs();
     AddMessageHandler((new ShownSectionsHandler(pref_service))->Attach(this));
+    AddMessageHandler((new browser_sync::ForeignSessionHandler())->
+      Attach(this));
     AddMessageHandler((new MostVisitedHandler())->Attach(this));
     AddMessageHandler((new RecentlyClosedTabsHandler())->Attach(this));
     AddMessageHandler((new MetricsHandler())->Attach(this));
-    if (WebResourcesEnabled())
-      AddMessageHandler((new TipsHandler())->Attach(this));
     if (GetProfile()->IsSyncAccessible())
       AddMessageHandler((new NewTabPageSyncHandler())->Attach(this));
     if (Extension::AppsAreEnabled()) {
@@ -525,7 +450,6 @@ NewTabUI::NewTabUI(TabContents* contents)
     }
 
     AddMessageHandler((new NewTabPageSetHomePageHandler())->Attach(this));
-    AddMessageHandler((new NewTabPageImportBookmarksHandler())->Attach(this));
   }
 
   // Initializing the CSS and HTML can require some CPU, so do it after
@@ -550,9 +474,6 @@ NewTabUI::NewTabUI(TabContents* contents)
 }
 
 NewTabUI::~NewTabUI() {
-  BookmarkModel* bookmark_model = GetProfile()->GetBookmarkModel();
-  if (bookmark_model)
-    bookmark_model->RemoveObserver(this);
 }
 
 void NewTabUI::RenderViewCreated(RenderViewHost* render_view_host) {
@@ -563,20 +484,17 @@ void NewTabUI::RenderViewReused(RenderViewHost* render_view_host) {
   render_view_host->set_paint_observer(new PaintTimer);
 }
 
-void NewTabUI::BookmarkNodeAdded(BookmarkModel* model,
-                                 const BookmarkNode* parent,
-                                 int index) {
-  // Stop showing the promo, and no longer observe the bookmark model.
-  GetProfile()->GetPrefs()->SetInteger(prefs::kNTPPromoViewsRemaining, 0);
-  GetProfile()->GetBookmarkModel()->RemoveObserver(this);
-}
-
 void NewTabUI::Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details) {
   if (NotificationType::BROWSER_THEME_CHANGED == type) {
     InitializeCSSCaches();
-    CallJavascriptFunction(L"themeChanged");
+    ListValue args;
+    args.Append(Value::CreateStringValue(
+        GetProfile()->GetThemeProvider()->HasCustomImage(
+            IDR_THEME_NTP_ATTRIBUTION) ?
+        "true" : "false"));
+    CallJavascriptFunction(L"themeChanged", args);
   } else if (NotificationType::BOOKMARK_BAR_VISIBILITY_PREF_CHANGED) {
     if (GetProfile()->GetPrefs()->GetBoolean(prefs::kShowBookmarkBar))
       CallJavascriptFunction(L"bookmarkBarAttached");
@@ -641,16 +559,13 @@ bool NewTabUI::FirstRunDisabled() {
 void NewTabUI::SetURLTitleAndDirection(DictionaryValue* dictionary,
                                        const string16& title,
                                        const GURL& gurl) {
-  std::wstring wstring_url = UTF8ToWide(gurl.spec());
-  dictionary->SetString(L"url", wstring_url);
-
-  std::wstring wstring_title = UTF16ToWide(title);
+  dictionary->SetString("url", gurl.spec());
 
   bool using_url_as_the_title = false;
-  std::wstring title_to_set(wstring_title);
+  string16 title_to_set(title);
   if (title_to_set.empty()) {
     using_url_as_the_title = true;
-    title_to_set = wstring_url;
+    title_to_set = UTF8ToUTF16(gurl.spec());
   }
 
   // We set the "dir" attribute of the title, so that in RTL locales, a LTR
@@ -673,12 +588,12 @@ void NewTabUI::SetURLTitleAndDirection(DictionaryValue* dictionary,
   // entire title within a tooltip when the mouse is over the title link.. For
   // example, without LRE-PDF pair, the title "Yahoo!" will be rendered as
   // "!Yahoo" within the tooltip when the mouse is over the title link.
-  std::wstring direction = kDefaultHtmlTextDirection;
+  std::string direction = kDefaultHtmlTextDirection;
   if (base::i18n::IsRTL()) {
     if (using_url_as_the_title) {
       base::i18n::WrapStringWithLTRFormatting(&title_to_set);
     } else {
-      if (base::i18n::StringContainsStrongRTLChars(wstring_title)) {
+      if (base::i18n::StringContainsStrongRTLChars(title)) {
         base::i18n::WrapStringWithRTLFormatting(&title_to_set);
         direction = kRTLHtmlTextDirection;
       } else {
@@ -686,8 +601,8 @@ void NewTabUI::SetURLTitleAndDirection(DictionaryValue* dictionary,
       }
     }
   }
-  dictionary->SetString(L"title", title_to_set);
-  dictionary->SetString(L"direction", direction);
+  dictionary->SetString("title", title_to_set);
+  dictionary->SetString("direction", direction);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -716,4 +631,8 @@ void NewTabUI::NewTabHTMLSource::StartDataRequest(const std::string& path,
       profile_->GetNTPResourceCache()->GetNewTabHTML(is_off_the_record);
 
   SendResponse(request_id, html_bytes);
+}
+
+std::string NewTabUI::NewTabHTMLSource::GetMimeType(const std::string&) const {
+  return "text/html";
 }

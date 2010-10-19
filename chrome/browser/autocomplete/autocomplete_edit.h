@@ -4,10 +4,13 @@
 
 #ifndef CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_EDIT_H_
 #define CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_EDIT_H_
+#pragma once
 
 #include "chrome/browser/autocomplete/autocomplete.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/page_transition_types.h"
+#include "gfx/native_widget_types.h"
 #include "googleurl/src/gurl.h"
 #include "webkit/glue/window_open_disposition.h"
 
@@ -19,6 +22,10 @@ class AutocompleteEditController;
 class AutocompleteEditModel;
 class AutocompleteEditView;
 
+namespace gfx {
+class Rect;
+}
+
 // TODO(pkasting): The names and contents of the classes in
 // this file are temporary.  I am in hack-and-slash mode right now.
 // http://code.google.com/p/chromium/issues/detail?id=6772
@@ -26,6 +33,28 @@ class AutocompleteEditView;
 // Embedders of an AutocompleteEdit widget must implement this class.
 class AutocompleteEditController {
  public:
+#if defined(TOOLKIT_VIEWS)
+  // Sent when the autocomplete popup is about to close.
+  virtual void OnAutocompleteWillClosePopup() = 0;
+
+  // Sent when the edit is losing focus. |view_gaining_focus| is the view
+  // gaining focus and may be null.
+  virtual void OnAutocompleteLosingFocus(
+      gfx::NativeView view_gaining_focus) = 0;
+
+  // Sent prior to OnAutoCompleteAccept and before the model has been reverted.
+  virtual void OnAutocompleteWillAccept() = 0;
+
+  // Commits the suggested text. |typed_text| is the current text showing in the
+  // autocomplete. Returns true if the text was committed.
+  virtual bool OnCommitSuggestedText(const std::wstring& typed_text) = 0;
+
+  // Invoked when the popup is going to change its bounds to |bounds|.
+  virtual void OnPopupBoundsChanged(const gfx::Rect& bounds) = 0;
+#else
+  // TODO: port.
+#endif
+
   // When the user presses enter or selects a line with the mouse, this
   // function will get called synchronously with the url to open and
   // disposition and transition to use when opening it.
@@ -101,10 +130,8 @@ class AutocompleteEditModel : public NotificationObserver {
 
   void SetPopupModel(AutocompletePopupModel* popup_model);
 
-#ifdef UNIT_TEST
   // It should only be used by testing code.
   AutocompletePopupModel* popup_model() const { return popup_; }
-#endif
 
   // Invoked when the profile has changed.
   void SetProfile(Profile* profile);
@@ -117,6 +144,10 @@ class AutocompleteEditModel : public NotificationObserver {
 
   // Restores local state from the saved |state|.
   void RestoreState(const State& state);
+
+  // Returns the match for the current text. If the user has not edited the text
+  // this is the match corresponding to the permanent text.
+  AutocompleteMatch CurrentMatch();
 
   // Called when the user wants to export the entire current text as a URL.
   // Sets the url, and if known, the title and favicon.
@@ -174,7 +205,8 @@ class AutocompleteEditModel : public NotificationObserver {
   void Revert();
 
   // Directs the popup to start autocomplete.
-  void StartAutocomplete(bool prevent_inline_autocomplete) const;
+  void StartAutocomplete(bool has_selected_text,
+                         bool prevent_inline_autocomplete) const;
 
   // Determines whether the user can "paste and go", given the specified text.
   // This also updates the internal paste-and-go-related state variables as
@@ -287,6 +319,9 @@ class AutocompleteEditModel : public NotificationObserver {
                              bool just_deleted_text,
                              bool at_end_of_edit);
 
+  // Invoked when the popup is going to change its bounds to |bounds|.
+  void PopupBoundsChangedTo(const gfx::Rect& bounds);
+
  private:
   enum PasteState {
     NONE,           // Most recent edit was not a paste that replaced all text.
@@ -321,6 +356,9 @@ class AutocompleteEditModel : public NotificationObserver {
 
   // Called whenever user_text_ should change.
   void InternalSetUserText(const std::wstring& text);
+
+  // Returns true if a keyword is selected.
+  bool KeywordIsSelected() const;
 
   // Conversion between user text and display text. User text is the text the
   // user has input. Display text is the text being shown in the edit. The

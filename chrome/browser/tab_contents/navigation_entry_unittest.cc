@@ -4,6 +4,7 @@
 
 #include "base/string16.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -95,7 +96,7 @@ TEST_F(NavigationEntryTest, NavigationEntryFavicons) {
 
 // Test SSLStatus inner class
 TEST_F(NavigationEntryTest, NavigationEntrySSLStatus) {
-  // Default (not secure)
+  // Default (unknown)
   EXPECT_EQ(SECURITY_STYLE_UNKNOWN, entry1_.get()->ssl().security_style());
   EXPECT_EQ(SECURITY_STYLE_UNKNOWN, entry2_.get()->ssl().security_style());
   EXPECT_EQ(0, entry1_.get()->ssl().cert_id());

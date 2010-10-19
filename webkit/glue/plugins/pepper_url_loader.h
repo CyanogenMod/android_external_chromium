@@ -13,7 +13,8 @@
 #include "third_party/WebKit/WebKit/chromium/public/WebURLLoaderClient.h"
 #include "webkit/glue/plugins/pepper_resource.h"
 
-typedef struct _ppb_URLLoader PPB_URLLoader;
+struct PPB_URLLoader_Dev;
+struct PPB_URLLoaderTrusted_Dev;
 
 namespace pepper {
 
@@ -28,7 +29,11 @@ class URLLoader : public Resource, public WebKit::WebURLLoaderClient {
 
   // Returns a pointer to the interface implementing PPB_URLLoader that is
   // exposed to the plugin.
-  static const PPB_URLLoader* GetInterface();
+  static const PPB_URLLoader_Dev* GetInterface();
+
+  // Returns a pointer to the interface implementing PPB_URLLoaderTrusted that
+  // is exposed to the plugin.
+  static const PPB_URLLoaderTrusted_Dev* GetTrustedInterface();
 
   // Resource overrides.
   URLLoader* AsURLLoader() { return this; }
@@ -38,7 +43,11 @@ class URLLoader : public Resource, public WebKit::WebURLLoaderClient {
   int32_t FollowRedirect(PP_CompletionCallback callback);
   int32_t ReadResponseBody(char* buffer, int32_t bytes_to_read,
                            PP_CompletionCallback callback);
+  int32_t FinishStreamingToFile(PP_CompletionCallback callback);
   void Close();
+
+  // PPB_URLLoaderTrusted implementation.
+  void GrantUniversalAccess();
 
   // WebKit::WebURLLoaderClient implementation.
   virtual void willSendRequest(WebKit::WebURLLoader* loader,
@@ -49,10 +58,13 @@ class URLLoader : public Resource, public WebKit::WebURLLoaderClient {
                            unsigned long long total_bytes_to_be_sent);
   virtual void didReceiveResponse(WebKit::WebURLLoader* loader,
                                   const WebKit::WebURLResponse& response);
+  virtual void didDownloadData(WebKit::WebURLLoader* loader,
+                               int data_length);
   virtual void didReceiveData(WebKit::WebURLLoader* loader,
                               const char* data,
                               int data_length);
-  virtual void didFinishLoading(WebKit::WebURLLoader* loader);
+  virtual void didFinishLoading(WebKit::WebURLLoader* loader,
+                                double finish_time);
   virtual void didFail(WebKit::WebURLLoader* loader,
                        const WebKit::WebURLError& error);
 
@@ -81,7 +93,8 @@ class URLLoader : public Resource, public WebKit::WebURLLoaderClient {
   int64_t total_bytes_to_be_received_;
   char* user_buffer_;
   size_t user_buffer_size_;
-  bool done_;
+  int32_t done_status_;
+  bool has_universal_access_;
 };
 
 }  // namespace pepper

@@ -1,9 +1,10 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_PROXY_PROXY_INFO_H_
 #define NET_PROXY_PROXY_INFO_H_
+#pragma once
 
 #include <string>
 
@@ -12,14 +13,13 @@
 #include "net/proxy/proxy_retry_info.h"
 #include "net/proxy/proxy_server.h"
 
-class GURL;
-
 namespace net {
 
 // This object holds proxy information returned by ResolveProxy.
 class ProxyInfo {
  public:
   ProxyInfo();
+  ~ProxyInfo();
   // Default copy-constructor and assignment operator are OK!
 
   // Uses the same proxy server as the given |proxy_info|.
@@ -78,27 +78,21 @@ class ProxyInfo {
 
   // Returns the first valid proxy server. is_empty() must be false to be able
   // to call this function.
-  ProxyServer proxy_server() const { return proxy_list_.Get(); }
+  const ProxyServer& proxy_server() const { return proxy_list_.Get(); }
 
   // See description in ProxyList::ToPacString().
   std::string ToPacString() const;
 
   // Marks the current proxy as bad. Returns true if there is another proxy
   // available to try in proxy list_.
-  bool Fallback(ProxyRetryInfoMap* proxy_retry_info) {
-    return proxy_list_.Fallback(proxy_retry_info);
-  }
+  bool Fallback(ProxyRetryInfoMap* proxy_retry_info);
 
   // De-prioritizes the proxies that we have cached as not working, by moving
   // them to the end of the proxy list.
-  void DeprioritizeBadProxies(const ProxyRetryInfoMap& proxy_retry_info) {
-    proxy_list_.DeprioritizeBadProxies(proxy_retry_info);
-  }
+  void DeprioritizeBadProxies(const ProxyRetryInfoMap& proxy_retry_info);
 
   // Deletes any entry which doesn't have one of the specified proxy schemes.
-  void RemoveProxiesWithoutScheme(int scheme_bit_field) {
-    proxy_list_.RemoveProxiesWithoutScheme(scheme_bit_field);
-  }
+  void RemoveProxiesWithoutScheme(int scheme_bit_field);
 
  private:
   friend class ProxyService;

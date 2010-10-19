@@ -4,10 +4,11 @@
 
 #ifndef CHROME_BROWSER_VIEWS_FIRST_RUN_SEARCH_ENGINE_VIEW_H_
 #define CHROME_BROWSER_VIEWS_FIRST_RUN_SEARCH_ENGINE_VIEW_H_
+#pragma once
 
 #include <vector>
 
-#include "chrome/browser/search_engines/template_url_model.h"
+#include "chrome/browser/search_engines/template_url_model_observer.h"
 #include "gfx/size.h"
 #include "views/controls/button/native_button.h"
 #include "views/view.h"
@@ -96,11 +97,14 @@ class FirstRunSearchEngineView
   views::View* GetContentsView() { return this; }
   bool CanResize() const { return false; }
   bool CanMaximize() const { return false; }
-  bool IsAlwaysOnTop() const { return false; }
+  bool IsAlwaysOnTop() const { return true; }
   bool HasAlwaysOnTopMenu() const { return false; }
 
   // Overridden from views::ButtonListener:
   virtual void ButtonPressed(views::Button* sender, const views::Event& event);
+
+  // Override from View so we can draw the gray background at dialog top.
+  virtual void Paint(gfx::Canvas* canvas);
 
   // Overridden from TemplateURLModelObserver. When the search engines have
   // loaded from the profile, we can populate the logos in the dialog box

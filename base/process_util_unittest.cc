@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,12 +9,15 @@
 #include "base/command_line.h"
 #include "base/eintr_wrapper.h"
 #include "base/file_path.h"
-#include "base/multiprocess_test.h"
+#include "base/logging.h"
 #include "base/path_service.h"
 #include "base/platform_thread.h"
 #include "base/process_util.h"
 #include "base/scoped_ptr.h"
+#include "base/test/multiprocess_test.h"
+#include "base/utf_string_conversions.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "testing/multiprocess_func_list.h"
 
 #if defined(OS_LINUX)
 #include <errno.h>
@@ -61,7 +64,7 @@ void SignalChildren(const char* filename) {
 
 }  // namespace
 
-class ProcessUtilTest : public MultiProcessTest {
+class ProcessUtilTest : public base::MultiProcessTest {
 #if defined(OS_POSIX)
  public:
   // Spawn a child process that counts how many file descriptors are open.
@@ -74,7 +77,7 @@ MULTIPROCESS_TEST_MAIN(SimpleChildProcess) {
 }
 
 TEST_F(ProcessUtilTest, SpawnChild) {
-  base::ProcessHandle handle = this->SpawnChild(L"SimpleChildProcess");
+  base::ProcessHandle handle = this->SpawnChild("SimpleChildProcess", false);
   ASSERT_NE(base::kNullProcessHandle, handle);
   EXPECT_TRUE(base::WaitForSingleProcess(handle, 5000));
   base::CloseProcessHandle(handle);
@@ -87,7 +90,7 @@ MULTIPROCESS_TEST_MAIN(SlowChildProcess) {
 
 TEST_F(ProcessUtilTest, KillSlowChild) {
   remove("SlowChildProcess.die");
-  base::ProcessHandle handle = this->SpawnChild(L"SlowChildProcess");
+  base::ProcessHandle handle = this->SpawnChild("SlowChildProcess", false);
   ASSERT_NE(base::kNullProcessHandle, handle);
   SignalChildren("SlowChildProcess.die");
   EXPECT_TRUE(base::WaitForSingleProcess(handle, 5000));
@@ -97,7 +100,7 @@ TEST_F(ProcessUtilTest, KillSlowChild) {
 
 TEST_F(ProcessUtilTest, DidProcessCrash) {
   remove("SlowChildProcess.die");
-  base::ProcessHandle handle = this->SpawnChild(L"SlowChildProcess");
+  base::ProcessHandle handle = this->SpawnChild("SlowChildProcess", false);
   ASSERT_NE(base::kNullProcessHandle, handle);
 
   bool child_exited = true;
@@ -117,7 +120,7 @@ TEST_F(ProcessUtilTest, DidProcessCrash) {
 // Note: a platform may not be willing or able to lower the priority of
 // a process. The calls to SetProcessBackground should be noops then.
 TEST_F(ProcessUtilTest, SetProcessBackgrounded) {
-  base::ProcessHandle handle = this->SpawnChild(L"SimpleChildProcess");
+  base::ProcessHandle handle = this->SpawnChild("SimpleChildProcess", false);
   base::Process process(handle);
   int old_priority = process.GetPriority();
   process.SetProcessBackgrounded(true);
@@ -204,18 +207,16 @@ TEST_F(ProcessUtilTest, GetAppOutput) {
                                  .Append(FILE_PATH_LITERAL("python.exe"));
 
   CommandLine cmd_line(python_runtime);
-  cmd_line.AppendLooseValue(L"-c");
-  cmd_line.AppendLooseValue(L"\"import sys; sys.stdout.write('" +
-      ASCIIToWide(message) + L"');\"");
+  cmd_line.AppendArg("-c");
+  cmd_line.AppendArg("import sys; sys.stdout.write('" + message + "');");
   std::string output;
   ASSERT_TRUE(base::GetAppOutput(cmd_line, &output));
   EXPECT_EQ(message, output);
 
   // Let's make sure stderr is ignored.
   CommandLine other_cmd_line(python_runtime);
-  other_cmd_line.AppendLooseValue(L"-c");
-  other_cmd_line.AppendLooseValue(
-      L"\"import sys; sys.stderr.write('Hello!');\"");
+  other_cmd_line.AppendArg("-c");
+  other_cmd_line.AppendArg("import sys; sys.stderr.write('Hello!');");
   output.clear();
   ASSERT_TRUE(base::GetAppOutput(other_cmd_line, &output));
   EXPECT_EQ("", output);
@@ -225,7 +226,7 @@ TEST_F(ProcessUtilTest, LaunchAsUser) {
   base::UserTokenHandle token;
   ASSERT_TRUE(OpenProcessToken(GetCurrentProcess(), TOKEN_ALL_ACCESS, &token));
   std::wstring cmdline =
-      this->MakeCmdLine(L"SimpleChildProcess", false).command_line_string();
+      this->MakeCmdLine("SimpleChildProcess", false).command_line_string();
   EXPECT_TRUE(base::LaunchAppAsUser(token, cmdline, false, NULL));
 }
 
@@ -290,7 +291,7 @@ int ProcessUtilTest::CountOpenFDsInChild() {
   base::file_handle_mapping_vector fd_mapping_vec;
   fd_mapping_vec.push_back(std::pair<int, int>(fds[1], kChildPipe));
   base::ProcessHandle handle = this->SpawnChild(
-      L"ProcessUtilsLeakFDChildProcess", fd_mapping_vec, false);
+      "ProcessUtilsLeakFDChildProcess", fd_mapping_vec, false);
   CHECK(handle);
   int ret = HANDLE_EINTR(close(fds[1]));
   DPCHECK(ret == 0);
@@ -555,9 +556,9 @@ int tc_set_new_mode(int mode);
 }
 #endif  // defined(USE_TCMALLOC)
 
-class OutOfMemoryTest : public testing::Test {
+class OutOfMemoryDeathTest : public testing::Test {
  public:
-  OutOfMemoryTest()
+  OutOfMemoryDeathTest()
       : value_(NULL),
         // Make test size as large as possible minus a few pages so
         // that alignment or other rounding doesn't make it wrap.
@@ -566,9 +567,6 @@ class OutOfMemoryTest : public testing::Test {
   }
 
   virtual void SetUp() {
-    // Must call EnableTerminationOnOutOfMemory() because that is called from
-    // chrome's main function and therefore hasn't been called yet.
-    base::EnableTerminationOnOutOfMemory();
 #if defined(USE_TCMALLOC)
     tc_set_new_mode(1);
   }
@@ -578,56 +576,92 @@ class OutOfMemoryTest : public testing::Test {
 #endif  // defined(USE_TCMALLOC)
   }
 
+  void SetUpInDeathAssert() {
+    // Must call EnableTerminationOnOutOfMemory() because that is called from
+    // chrome's main function and therefore hasn't been called yet.
+    // Since this call may result in another thread being created and death
+    // tests shouldn't be started in a multithread environment, this call
+    // should be done inside of the ASSERT_DEATH.
+    base::EnableTerminationOnOutOfMemory();
+  }
+
   void* value_;
   size_t test_size_;
   ssize_t signed_test_size_;
 };
 
-TEST_F(OutOfMemoryTest, New) {
-  ASSERT_DEATH(value_ = operator new(test_size_), "");
+TEST_F(OutOfMemoryDeathTest, New) {
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      value_ = operator new(test_size_);
+    }, "");
 }
 
-TEST_F(OutOfMemoryTest, NewArray) {
-  ASSERT_DEATH(value_ = new char[test_size_], "");
+TEST_F(OutOfMemoryDeathTest, NewArray) {
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      value_ = new char[test_size_];
+    }, "");
 }
 
-TEST_F(OutOfMemoryTest, Malloc) {
-  ASSERT_DEATH(value_ = malloc(test_size_), "");
+TEST_F(OutOfMemoryDeathTest, Malloc) {
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      value_ = malloc(test_size_);
+    }, "");
 }
 
-TEST_F(OutOfMemoryTest, Realloc) {
-  ASSERT_DEATH(value_ = realloc(NULL, test_size_), "");
+TEST_F(OutOfMemoryDeathTest, Realloc) {
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      value_ = realloc(NULL, test_size_);
+    }, "");
 }
 
-TEST_F(OutOfMemoryTest, Calloc) {
-  ASSERT_DEATH(value_ = calloc(1024, test_size_ / 1024L), "");
+TEST_F(OutOfMemoryDeathTest, Calloc) {
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      value_ = calloc(1024, test_size_ / 1024L);
+    }, "");
 }
 
-TEST_F(OutOfMemoryTest, Valloc) {
-  ASSERT_DEATH(value_ = valloc(test_size_), "");
+TEST_F(OutOfMemoryDeathTest, Valloc) {
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      value_ = valloc(test_size_);
+    }, "");
 }
 
 #if defined(OS_LINUX)
-TEST_F(OutOfMemoryTest, Pvalloc) {
-  ASSERT_DEATH(value_ = pvalloc(test_size_), "");
+TEST_F(OutOfMemoryDeathTest, Pvalloc) {
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      value_ = pvalloc(test_size_);
+    }, "");
 }
 
-TEST_F(OutOfMemoryTest, Memalign) {
-  ASSERT_DEATH(value_ = memalign(4, test_size_), "");
+TEST_F(OutOfMemoryDeathTest, Memalign) {
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      value_ = memalign(4, test_size_);
+    }, "");
 }
 
-TEST_F(OutOfMemoryTest, ViaSharedLibraries) {
+TEST_F(OutOfMemoryDeathTest, ViaSharedLibraries) {
   // g_try_malloc is documented to return NULL on failure. (g_malloc is the
   // 'safe' default that crashes if allocation fails). However, since we have
   // hopefully overridden malloc, even g_try_malloc should fail. This tests
   // that the run-time symbol resolution is overriding malloc for shared
   // libraries as well as for our code.
-  ASSERT_DEATH(value_ = g_try_malloc(test_size_), "");
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      value_ = g_try_malloc(test_size_);
+    }, "");
 }
 #endif  // OS_LINUX
 
 #if defined(OS_POSIX)
-TEST_F(OutOfMemoryTest, Posix_memalign) {
+TEST_F(OutOfMemoryDeathTest, Posix_memalign) {
   typedef int (*memalign_t)(void **, size_t, size_t);
 #if defined(OS_MACOSX)
   // posix_memalign only exists on >= 10.6. Use dlsym to grab it at runtime
@@ -641,7 +675,10 @@ TEST_F(OutOfMemoryTest, Posix_memalign) {
     // Grab the return value of posix_memalign to silence a compiler warning
     // about unused return values. We don't actually care about the return
     // value, since we're asserting death.
-    ASSERT_DEATH(EXPECT_EQ(ENOMEM, memalign(&value_, 8, test_size_)), "");
+    ASSERT_DEATH({
+        SetUpInDeathAssert();
+        EXPECT_EQ(ENOMEM, memalign(&value_, 8, test_size_));
+      }, "");
   }
 }
 #endif  // OS_POSIX
@@ -650,32 +687,43 @@ TEST_F(OutOfMemoryTest, Posix_memalign) {
 
 // Purgeable zone tests (if it exists)
 
-TEST_F(OutOfMemoryTest, MallocPurgeable) {
+TEST_F(OutOfMemoryDeathTest, MallocPurgeable) {
   malloc_zone_t* zone = base::GetPurgeableZone();
   if (zone)
-    ASSERT_DEATH(value_ = malloc_zone_malloc(zone, test_size_), "");
+    ASSERT_DEATH({
+        SetUpInDeathAssert();
+        value_ = malloc_zone_malloc(zone, test_size_);
+      }, "");
 }
 
-TEST_F(OutOfMemoryTest, ReallocPurgeable) {
+TEST_F(OutOfMemoryDeathTest, ReallocPurgeable) {
   malloc_zone_t* zone = base::GetPurgeableZone();
   if (zone)
-    ASSERT_DEATH(value_ = malloc_zone_realloc(zone, NULL, test_size_), "");
+    ASSERT_DEATH({
+        SetUpInDeathAssert();
+        value_ = malloc_zone_realloc(zone, NULL, test_size_);
+      }, "");
 }
 
-TEST_F(OutOfMemoryTest, CallocPurgeable) {
+TEST_F(OutOfMemoryDeathTest, CallocPurgeable) {
   malloc_zone_t* zone = base::GetPurgeableZone();
   if (zone)
-    ASSERT_DEATH(value_ = malloc_zone_calloc(zone, 1024, test_size_ / 1024L),
-                 "");
+    ASSERT_DEATH({
+        SetUpInDeathAssert();
+        value_ = malloc_zone_calloc(zone, 1024, test_size_ / 1024L);
+      }, "");
 }
 
-TEST_F(OutOfMemoryTest, VallocPurgeable) {
+TEST_F(OutOfMemoryDeathTest, VallocPurgeable) {
   malloc_zone_t* zone = base::GetPurgeableZone();
   if (zone)
-    ASSERT_DEATH(value_ = malloc_zone_valloc(zone, test_size_), "");
+    ASSERT_DEATH({
+        SetUpInDeathAssert();
+        value_ = malloc_zone_valloc(zone, test_size_);
+      }, "");
 }
 
-TEST_F(OutOfMemoryTest, PosixMemalignPurgeable) {
+TEST_F(OutOfMemoryDeathTest, PosixMemalignPurgeable) {
   malloc_zone_t* zone = base::GetPurgeableZone();
 
   typedef void* (*zone_memalign_t)(malloc_zone_t*, size_t, size_t);
@@ -686,7 +734,10 @@ TEST_F(OutOfMemoryTest, PosixMemalignPurgeable) {
         dlsym(RTLD_DEFAULT, "malloc_zone_memalign"));
 
   if (zone && zone_memalign) {
-    ASSERT_DEATH(value_ = zone_memalign(zone, 8, test_size_), "");
+    ASSERT_DEATH({
+        SetUpInDeathAssert();
+        value_ = zone_memalign(zone, 8, test_size_);
+      }, "");
   }
 }
 
@@ -697,19 +748,28 @@ TEST_F(OutOfMemoryTest, PosixMemalignPurgeable) {
 // it's likely that they'll fail because they would require a preposterous
 // amount of (virtual) memory.
 
-TEST_F(OutOfMemoryTest, CFAllocatorSystemDefault) {
-  ASSERT_DEATH(while ((value_ =
-      base::AllocateViaCFAllocatorSystemDefault(signed_test_size_))) {}, "");
+TEST_F(OutOfMemoryDeathTest, CFAllocatorSystemDefault) {
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      while ((value_ =
+              base::AllocateViaCFAllocatorSystemDefault(signed_test_size_))) {}
+    }, "");
 }
 
-TEST_F(OutOfMemoryTest, CFAllocatorMalloc) {
-  ASSERT_DEATH(while ((value_ =
-      base::AllocateViaCFAllocatorMalloc(signed_test_size_))) {}, "");
+TEST_F(OutOfMemoryDeathTest, CFAllocatorMalloc) {
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      while ((value_ =
+              base::AllocateViaCFAllocatorMalloc(signed_test_size_))) {}
+    }, "");
 }
 
-TEST_F(OutOfMemoryTest, CFAllocatorMallocZone) {
-  ASSERT_DEATH(while ((value_ =
-      base::AllocateViaCFAllocatorMallocZone(signed_test_size_))) {}, "");
+TEST_F(OutOfMemoryDeathTest, CFAllocatorMallocZone) {
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      while ((value_ =
+              base::AllocateViaCFAllocatorMallocZone(signed_test_size_))) {}
+    }, "");
 }
 
 #if !defined(ARCH_CPU_64_BITS)
@@ -717,9 +777,11 @@ TEST_F(OutOfMemoryTest, CFAllocatorMallocZone) {
 // See process_util_unittest_mac.mm for an explanation of why this test isn't
 // run in the 64-bit environment.
 
-TEST_F(OutOfMemoryTest, PsychoticallyBigObjCObject) {
-  ASSERT_DEATH(while ((value_ =
-      base::AllocatePsychoticallyBigObjCObject())) {}, "");
+TEST_F(OutOfMemoryDeathTest, PsychoticallyBigObjCObject) {
+  ASSERT_DEATH({
+      SetUpInDeathAssert();
+      while ((value_ = base::AllocatePsychoticallyBigObjCObject())) {}
+    }, "");
 }
 
 #endif  // !ARCH_CPU_64_BITS

@@ -1,14 +1,14 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_GTK_CREATE_APPLICATION_SHORTCUTS_DIALOG_GTK_H_
 #define CHROME_BROWSER_GTK_CREATE_APPLICATION_SHORTCUTS_DIALOG_GTK_H_
+#pragma once
 
 #include "app/gtk_signal.h"
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
-#include "base/string16.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/shell_integration.h"
 #include "googleurl/src/gurl.h"
@@ -32,7 +32,7 @@ class CreateApplicationShortcutsDialogGtk
 
   CreateApplicationShortcutsDialogGtk(GtkWindow* parent,
                                       TabContents* tab_contents);
-  ~CreateApplicationShortcutsDialogGtk();
+  virtual ~CreateApplicationShortcutsDialogGtk();
 
   CHROMEGTK_CALLBACK_1(CreateApplicationShortcutsDialogGtk, void,
                        OnCreateDialogResponse, int);

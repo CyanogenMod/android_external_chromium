@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_WEBDATA_WEB_DATA_SERVICE_H__
 #define CHROME_BROWSER_WEBDATA_WEB_DATA_SERVICE_H__
+#pragma once
 
 #include <map>
 #include <vector>
@@ -13,22 +14,29 @@
 #include "base/lock.h"
 #include "base/ref_counted.h"
 #include "chrome/browser/chrome_thread.h"
+<<<<<<< HEAD
 #include "chrome/browser/search_engines/template_url.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #ifdef ANDROID
 #include <WebCoreSupport/autofill/FormFieldAndroid.h>
 #else
+=======
+#include "chrome/browser/search_engines/template_url_id.h"
+>>>>>>> Chromium at release 7.0.540.0
 #include "webkit/glue/form_field.h"
 #endif
 
 class AutofillChange;
 class AutoFillProfile;
 class CreditCard;
+class GURL;
 #if defined(OS_WIN)
 struct IE7PasswordInfo;
 #endif
 class MessageLoop;
+class SkBitmap;
 class Task;
+class TemplateURL;
 class WebDatabase;
 
 namespace base {
@@ -67,6 +75,7 @@ typedef enum {
   PASSWORD_IE7_RESULT,         // WDResult<IE7PasswordInfo>
 #endif
   WEB_APP_IMAGES,              // WDResult<WDAppImagesResult>
+  TOKEN_RESULT,                // WDResult<std::vector<std::string>>
   AUTOFILL_VALUE_RESULT,       // WDResult<std::vector<string16>>
   AUTOFILL_CHANGES,            // WDResult<std::vector<AutofillChange>>
   AUTOFILL_PROFILE_RESULT,     // WDResult<AutoFillProfile>
@@ -79,7 +88,8 @@ typedef std::vector<AutofillChange> AutofillChangeList;
 
 // Result from GetWebAppImages.
 struct WDAppImagesResult {
-  WDAppImagesResult() : has_all_images(false) {}
+  WDAppImagesResult();
+  ~WDAppImagesResult();
 
   // True if SetWebAppHasAllImages(true) was invoked.
   bool has_all_images;
@@ -334,6 +344,22 @@ class WebDataService
 
   //////////////////////////////////////////////////////////////////////////////
   //
+  // Token Service
+  //
+  //////////////////////////////////////////////////////////////////////////////
+
+  // Set a token to use for a specified service.
+  void SetTokenForService(const std::string& service,
+                          const std::string& token);
+
+  // Remove all tokens stored in the web database.
+  void RemoveAllTokens();
+
+  // Null on failure. Success is WDResult<std::vector<std::string> >
+  Handle GetAllTokens(WebDataServiceConsumer* consumer);
+
+  //////////////////////////////////////////////////////////////////////////////
+  //
   // Password manager
   // NOTE: These methods are all deprecated; new clients should use
   // PasswordStore. These are only still here because Windows is (temporarily)
@@ -514,10 +540,10 @@ class WebDataService
   //
   //////////////////////////////////////////////////////////////////////////////
   void AddKeywordImpl(GenericRequest<TemplateURL>* request);
-  void RemoveKeywordImpl(GenericRequest<TemplateURL::IDType>* request);
+  void RemoveKeywordImpl(GenericRequest<TemplateURLID>* request);
   void UpdateKeywordImpl(GenericRequest<TemplateURL>* request);
   void GetKeywordsImpl(WebDataRequest* request);
-  void SetDefaultSearchProviderImpl(GenericRequest<TemplateURL::IDType>* r);
+  void SetDefaultSearchProviderImpl(GenericRequest<TemplateURLID>* r);
   void SetBuiltinKeywordVersionImpl(GenericRequest<int>* r);
 
   //////////////////////////////////////////////////////////////////////////////
@@ -529,6 +555,17 @@ class WebDataService
   void SetWebAppHasAllImagesImpl(GenericRequest2<GURL, bool>* request);
   void RemoveWebAppImpl(GenericRequest<GURL>* request);
   void GetWebAppImagesImpl(GenericRequest<GURL>* request);
+
+  //////////////////////////////////////////////////////////////////////////////
+  //
+  // Token Service.
+  //
+  //////////////////////////////////////////////////////////////////////////////
+
+  void RemoveAllTokensImpl(GenericRequest<std::string>* request);
+  void SetTokenForServiceImpl(
+    GenericRequest2<std::string, std::string>* request);
+  void GetAllTokensImpl(GenericRequest<std::string>* request);
 
   //////////////////////////////////////////////////////////////////////////////
   //

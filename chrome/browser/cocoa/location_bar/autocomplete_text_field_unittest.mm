@@ -16,6 +16,7 @@
 #include "grit/theme_resources.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
 
 using ::testing::InSequence;
@@ -427,7 +428,7 @@ TEST_F(AutocompleteTextFieldTest, ClickBorderSelectsAll) {
 TEST_F(AutocompleteTextFieldTest, ClickSelectsAll) {
   EXPECT_FALSE([field_ currentEditor]);
 
-  const NSPoint point(NSMakePoint(20.0, 5.0));
+  const NSPoint point = NSMakePoint(20.0, NSMidY([field_ bounds]));
   NSEvent* downEvent(Event(field_, point, NSLeftMouseDown));
   NSEvent* upEvent(Event(field_, point, NSLeftMouseUp));
   [NSApp postEvent:upEvent atStart:YES];
@@ -468,7 +469,7 @@ TEST_F(AutocompleteTextFieldTest, ClickDragSelectsText) {
 TEST_F(AutocompleteTextFieldTest, DoubleClickSelectsWord) {
   EXPECT_FALSE([field_ currentEditor]);
 
-  const NSPoint point(NSMakePoint(20.0, 5.0));
+  const NSPoint point = NSMakePoint(20.0, NSMidY([field_ bounds]));
   NSEvent* downEvent(Event(field_, point, NSLeftMouseDown, 1));
   NSEvent* upEvent(Event(field_, point, NSLeftMouseUp, 1));
   NSEvent* downEvent2(Event(field_, point, NSLeftMouseDown, 2));
@@ -654,11 +655,11 @@ TEST_F(AutocompleteTextFieldTest, SetAttributedStringBaseline) {
                                       attributes:attributes]);
 
   // Check that what we get back looks like what we put in.
-  EXPECT_FALSE([[field_ stringValue] isEqualToString:kString]);
+  EXPECT_NSNE(kString, [field_ stringValue]);
   [field_ setAttributedStringValue:attributedString];
   EXPECT_TRUE([[field_ attributedStringValue]
                 isEqualToAttributedString:attributedString]);
-  EXPECT_TRUE([[field_ stringValue] isEqualToString:kString]);
+  EXPECT_NSEQ(kString, [field_ stringValue]);
 
   // Try that again with focus.
   [test_window() makePretendKeyWindowAndSetFirstResponder:field_];
@@ -667,11 +668,11 @@ TEST_F(AutocompleteTextFieldTest, SetAttributedStringBaseline) {
 
   // Check that what we get back looks like what we put in.
   [field_ setStringValue:@""];
-  EXPECT_FALSE([[field_ stringValue] isEqualToString:kString]);
+  EXPECT_NSNE(kString, [field_ stringValue]);
   [field_ setAttributedStringValue:attributedString];
   EXPECT_TRUE([[field_ attributedStringValue]
                 isEqualToAttributedString:attributedString]);
-  EXPECT_TRUE([[field_ stringValue] isEqualToString:kString]);
+  EXPECT_NSEQ(kString, [field_ stringValue]);
 }
 
 // -setAttributedStringValue: shouldn't reset the undo state if things

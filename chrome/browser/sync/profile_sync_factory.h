@@ -4,8 +4,11 @@
 
 #ifndef CHROME_BROWSER_SYNC_PROFILE_SYNC_FACTORY_H__
 #define CHROME_BROWSER_SYNC_PROFILE_SYNC_FACTORY_H__
+#pragma once
 
+#include <string>
 #include <utility>
+
 #include "base/task.h"
 #include "chrome/browser/sync/glue/change_processor.h"
 #include "chrome/browser/sync/glue/data_type_controller.h"
@@ -47,7 +50,8 @@ class ProfileSyncFactory {
   // Instantiates and initializes a new ProfileSyncService.  Enabled
   // data types are registered with the service.  The return pointer
   // is owned by the caller.
-  virtual ProfileSyncService* CreateProfileSyncService() = 0;
+  virtual ProfileSyncService* CreateProfileSyncService(
+      const std::string& cros_user) = 0;
 
   // Instantiates a new DataTypeManager with a SyncBackendHost and a
   // list of data type controllers.  The return pointer is owned by
@@ -55,6 +59,13 @@ class ProfileSyncFactory {
   virtual browser_sync::DataTypeManager* CreateDataTypeManager(
       browser_sync::SyncBackendHost* backend,
       const browser_sync::DataTypeController::TypeMap& controllers) = 0;
+
+  // Instantiates both a model associator and change processor for the
+  // app data type.  The pointers in the return struct are
+  // owned by the caller.
+  virtual SyncComponents CreateAppSyncComponents(
+      ProfileSyncService* profile_sync_service,
+      browser_sync::UnrecoverableErrorHandler* error_handler) = 0;
 
   // Instantiates both a model associator and change processor for the
   // autofill data type.  The pointers in the return struct are owned
@@ -107,6 +118,13 @@ class ProfileSyncFactory {
   virtual SyncComponents CreateTypedUrlSyncComponents(
       ProfileSyncService* profile_sync_service,
       history::HistoryBackend* history_backend,
+      browser_sync::UnrecoverableErrorHandler* error_handler) = 0;
+
+  // Instantiates both a model associator and change processor for the
+  // session data type.  The pointers in the return struct are
+  // owned by the caller.
+  virtual SyncComponents CreateSessionSyncComponents(
+      ProfileSyncService* profile_sync_service,
       browser_sync::UnrecoverableErrorHandler* error_handler) = 0;
 };
 

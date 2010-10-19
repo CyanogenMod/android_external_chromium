@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2004--2009, Google Inc.
+ * Copyright 2004--2010, Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -48,6 +48,7 @@ class FirewallManager;
 class AsyncHttpRequest : public SignalThread {
  public:
   explicit AsyncHttpRequest(const std::string &user_agent);
+  ~AsyncHttpRequest();
 
   void set_proxy(const ProxyInfo& proxy) {
     proxy_ = proxy;

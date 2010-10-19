@@ -5,17 +5,19 @@
 #ifndef WEBKIT_GLUE_PLUGINS_PEPPER_RESOURCE_TRACKER_H_
 #define WEBKIT_GLUE_PLUGINS_PEPPER_RESOURCE_TRACKER_H_
 
-#include <set>
+#include <utility>
 
-#include "base/atomic_sequence_num.h"
 #include "base/basictypes.h"
 #include "base/hash_tables.h"
 #include "base/ref_counted.h"
 #include "base/singleton.h"
 #include "third_party/ppapi/c/pp_resource.h"
 
+typedef struct NPObject NPObject;
+
 namespace pepper {
 
+class PluginModule;
 class Resource;
 
 // This class maintains a global list of all live pepper resources. It allows
@@ -41,13 +43,18 @@ class ResourceTracker {
   bool AddRefResource(PP_Resource res);
   bool UnrefResource(PP_Resource res);
 
+  // Returns the number of resources associated with this module.
+  //
+  // This is slow, use only for testing.
+  uint32 GetLiveObjectsForModule(PluginModule* module) const;
+
  private:
   friend struct DefaultSingletonTraits<ResourceTracker>;
   friend class Resource;
 
   // Prohibit creation other then by the Singleton class.
-  ResourceTracker() : last_id_(0) {}
-  ~ResourceTracker() {}
+  ResourceTracker();
+  ~ResourceTracker();
 
   // Adds the given resource to the tracker and assigns it a resource ID and
   // refcount of 1. The assigned resource ID will be returned. Used only by the

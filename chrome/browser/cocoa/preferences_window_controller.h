@@ -7,7 +7,9 @@
 #include "base/scoped_ptr.h"
 #include "base/scoped_nsobject.h"
 #include "chrome/browser/options_window.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
+#include "chrome/browser/prefs/pref_set_observer.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
 
 namespace PreferencesWindowControllerInternal {
 class PrefObserverBridge;
@@ -44,6 +46,7 @@ class ProfileSyncService;
   ProfileSyncService* syncService_;
   scoped_ptr<PreferencesWindowControllerInternal::PrefObserverBridge>
       observer_;  // Watches for pref changes.
+  PrefChangeRegistrar registrar_;  // Manages pref change observer registration.
   scoped_nsobject<WindowSizeAutosaver> sizeSaver_;
   NSView* currentPrefsView_;  // weak ref - current prefs page view.
   scoped_ptr<PreferencesWindowControllerInternal::ManagedPrefsBannerState>
@@ -89,9 +92,13 @@ class ProfileSyncService;
   scoped_nsobject<SearchEngineListModel> searchEngineModel_;
   // Used when creating a new home page url to make the new cell editable.
   BOOL pendingSelectForEdit_;
+  BOOL restoreButtonsEnabled_;
+  BOOL restoreURLsEnabled_;
+  BOOL showHomeButtonEnabled_;
 
   // User Data panel
   BooleanPrefMember askSavePasswords_;
+  BooleanPrefMember autoFillEnabled_;
   IBOutlet NSButton* autoFillSettingsButton_;
   IBOutlet NSButton* syncButton_;
   IBOutlet NSButton* syncCustomizeButton_;
@@ -101,6 +108,9 @@ class ProfileSyncService;
   scoped_nsobject<NSColor> syncStatusNoErrorBackgroundColor_;
   scoped_nsobject<NSColor> syncLinkNoErrorBackgroundColor_;
   scoped_nsobject<NSColor> syncErrorBackgroundColor_;
+  BOOL passwordManagerChoiceEnabled_;
+  BOOL passwordManagerButtonEnabled_;
+  BOOL autoFillSettingsButtonEnabled_;
 
   // Under the hood panel
   IBOutlet NSView* underTheHoodContentView_;
@@ -111,7 +121,7 @@ class ProfileSyncService;
   BooleanPrefMember useSuggest_;
   BooleanPrefMember dnsPrefetch_;
   BooleanPrefMember safeBrowsing_;
-  BooleanPrefMember metricsRecording_;
+  BooleanPrefMember metricsReporting_;
   IBOutlet NSPathControl* downloadLocationControl_;
   IBOutlet NSButton* downloadLocationButton_;
   StringPrefMember defaultDownloadLocation_;
@@ -123,6 +133,18 @@ class ProfileSyncService;
   FontLanguageSettingsController* fontLanguageSettings_;
   StringPrefMember currentTheme_;
   IBOutlet NSButton* enableLoggingCheckbox_;
+  scoped_ptr<PrefSetObserver> proxyPrefs_;
+  BOOL showAlternateErrorPagesEnabled_;
+  BOOL useSuggestEnabled_;
+  BOOL dnsPrefetchEnabled_;
+  BOOL safeBrowsingEnabled_;
+  BOOL metricsReportingEnabled_;
+  BOOL proxiesConfigureButtonEnabled_;
+  IBOutlet NSTextField* backgroundModeTitle_;
+  IBOutlet NSButton* backgroundModeCheckbox_;
+  IBOutlet NSTextField* backgroundModeDescription_;
+  IBOutlet NSButton* backgroundModeLearnMore_;
+  BooleanPrefMember backgroundModeEnabled_;
 }
 
 // Designated initializer. |profile| should not be NULL.
@@ -133,6 +155,9 @@ class ProfileSyncService;
 
 // Switch to the given preference page.
 - (void)switchToPage:(OptionsPage)page animate:(BOOL)animate;
+
+// Enables or disables the restoreOnStartup elements
+- (void) setEnabledStateOfRestoreOnStartup;
 
 // IBAction methods for responding to user actions.
 
@@ -163,6 +188,7 @@ class ProfileSyncService;
 - (IBAction)changeFontAndLanguageSettings:(id)sender;
 - (IBAction)openProxyPreferences:(id)sender;
 - (IBAction)showCertificates:(id)sender;
+- (IBAction)backgroundModeLearnMore:(id)sender;
 - (IBAction)resetToDefaults:(id)sender;
 
 // When a toolbar button is clicked
@@ -171,6 +197,20 @@ class ProfileSyncService;
 // Usable from cocoa bindings to hook up the custom home pages table.
 @property (nonatomic, readonly) CustomHomePagesModel* customPagesSource;
 
+// Properties for the enabled state of various UI elements. Keep these ordered
+// by occurrence on the dialog.
+@property (nonatomic) BOOL restoreButtonsEnabled;
+@property (nonatomic) BOOL restoreURLsEnabled;
+@property (nonatomic) BOOL showHomeButtonEnabled;
+@property (nonatomic) BOOL passwordManagerChoiceEnabled;
+@property (nonatomic) BOOL passwordManagerButtonEnabled;
+@property (nonatomic) BOOL autoFillSettingsButtonEnabled;
+@property (nonatomic) BOOL showAlternateErrorPagesEnabled;
+@property (nonatomic) BOOL useSuggestEnabled;
+@property (nonatomic) BOOL dnsPrefetchEnabled;
+@property (nonatomic) BOOL safeBrowsingEnabled;
+@property (nonatomic) BOOL metricsReportingEnabled;
+@property (nonatomic) BOOL proxiesConfigureButtonEnabled;
 @end
 
 @interface PreferencesWindowController(Testing)
@@ -198,4 +238,3 @@ class ProfileSyncService;
 - (NSView*)getPrefsViewForPage:(OptionsPage)page;
 
 @end
-

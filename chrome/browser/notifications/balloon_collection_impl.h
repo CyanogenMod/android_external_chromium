@@ -6,6 +6,7 @@
 
 #ifndef CHROME_BROWSER_NOTIFICATIONS_BALLOON_COLLECTION_IMPL_H_
 #define CHROME_BROWSER_NOTIFICATIONS_BALLOON_COLLECTION_IMPL_H_
+#pragma once
 
 #include <deque>
 
@@ -138,7 +139,11 @@ class BalloonCollectionImpl : public BalloonCollection
   int count() const { return balloons_.size(); }
 
   // Adjusts the positions of the balloons (e.g., when one is closed).
+  // Implemented by each platform for specific UI requirements.
   void PositionBalloons(bool is_reposition);
+
+  // Cross-platform internal implementation for PositionBalloons.
+  void PositionBalloonsInternal(bool is_reposition);
 
 #if defined(OS_MACOSX)
   // Get the work area on Mac OS, without inverting the coordinates.

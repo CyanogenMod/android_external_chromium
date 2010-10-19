@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <string>
 
-#include "app/sql/statement.h"
 #include "app/sql/transaction.h"
 #include "base/string_util.h"
 #include "chrome/browser/history/archived_database.h"
@@ -14,7 +13,7 @@ namespace history {
 
 namespace {
 
-static const int kCurrentVersionNumber = 2;
+static const int kCurrentVersionNumber = 3;
 static const int kCompatibleVersionNumber = 2;
 
 }  // namespace
@@ -109,6 +108,12 @@ sql::InitStatus ArchivedDatabase::EnsureCurrentVersion() {
     meta_table_.SetVersionNumber(cur_version);
     meta_table_.SetCompatibleVersionNumber(
         std::min(cur_version, kCompatibleVersionNumber));
+  }
+
+  if (cur_version == 2) {
+    // This is the version prior to adding visit_source table.
+    ++cur_version;
+    meta_table_.SetVersionNumber(cur_version);
   }
 
   // Put future migration cases here.

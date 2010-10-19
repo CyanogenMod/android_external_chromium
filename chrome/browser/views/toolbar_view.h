@@ -4,15 +4,16 @@
 
 #ifndef CHROME_BROWSER_VIEWS_TOOLBAR_VIEW_H_
 #define CHROME_BROWSER_VIEWS_TOOLBAR_VIEW_H_
+#pragma once
 
 #include <vector>
 
-#include "app/menus/simple_menu_model.h"
+#include "app/menus/accelerator.h"
 #include "app/slide_animation.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/back_forward_menu_model.h"
 #include "chrome/browser/command_updater.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/views/accessible_toolbar_view.h"
 #include "chrome/browser/views/location_bar/location_bar_view.h"
 #include "chrome/browser/views/reload_button.h"
@@ -27,14 +28,10 @@ class Browser;
 class Profile;
 class WrenchMenu;
 
-namespace views {
-class Menu2;
-}
-
 // The Browser Window's toolbar.
 class ToolbarView : public AccessibleToolbarView,
                     public views::ViewMenuDelegate,
-                    public menus::SimpleMenuModel::Delegate,
+                    public menus::AcceleratorProvider,
                     public LocationBarView::Delegate,
                     public AnimationDelegate,
                     public NotificationObserver,
@@ -91,6 +88,7 @@ class ToolbarView : public AccessibleToolbarView,
 
   // Overridden from LocationBarView::Delegate:
   virtual TabContents* GetTabContents();
+  virtual MatchPreview* GetMatchPreview();
   virtual void OnInputInProgress(bool in_progress);
 
   // Overridden from AnimationDelegate:
@@ -107,18 +105,22 @@ class ToolbarView : public AccessibleToolbarView,
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
-  // Overridden from menus::SimpleMenuModel::Delegate:
-  virtual bool IsCommandIdChecked(int command_id) const;
-  virtual bool IsCommandIdEnabled(int command_id) const;
+  // Overridden from menus::AcceleratorProvider:
   virtual bool GetAcceleratorForCommandId(int command_id,
                                           menus::Accelerator* accelerator);
-  virtual void ExecuteCommand(int command_id);
 
   // Overridden from views::View:
   virtual gfx::Size GetPreferredSize();
   virtual void Layout();
   virtual void Paint(gfx::Canvas* canvas);
-  virtual void ThemeChanged();
+  virtual void OnThemeChanged();
+
+  // The apparent horizontal space between most items, and the vertical padding
+  // above and below them.
+  static const int kStandardSpacing;
+  // The top of the toolbar has an edge we have to skip over in addition to the
+  // standard spacing.
+  static const int kVertSpacing;
 
  protected:
 
@@ -132,13 +134,6 @@ class ToolbarView : public AccessibleToolbarView,
 
   // Loads the images for all the child views.
   void LoadImages();
-
-  // Check if the menu exited with a code indicating the user wants to
-  // switch to the other menu, and then switch to that other menu.
-  void SwitchToOtherMenuIfNeeded(views::Menu2* previous_menu,
-                                 views::MenuButton* next_menu_button);
-
-  void ActivateMenuButton(views::MenuButton* menu_button);
 
   // Types of display mode this toolbar can have.
   enum DisplayMode {
@@ -159,7 +154,7 @@ class ToolbarView : public AccessibleToolbarView,
 
   // Gets a canvas with the icon for the app menu. It will possibly contain
   // an overlaid badge if an update is recommended.
-  SkBitmap GetAppMenuIcon();
+  SkBitmap GetAppMenuIcon(views::CustomButton::ButtonState state);
 
   scoped_ptr<BackForwardMenuModel> back_menu_model_;
   scoped_ptr<BackForwardMenuModel> forward_menu_model_;
@@ -170,8 +165,8 @@ class ToolbarView : public AccessibleToolbarView,
   // Controls
   views::ImageButton* back_;
   views::ImageButton* forward_;
-  views::ImageButton* home_;
   ReloadButton* reload_;
+  views::ImageButton* home_;
   LocationBarView* location_bar_;
   BrowserActionsContainer* browser_actions_;
   views::MenuButton* app_menu_;
@@ -187,8 +182,8 @@ class ToolbarView : public AccessibleToolbarView,
   // The display mode used when laying out the toolbar.
   DisplayMode display_mode_;
 
-  // The contents of the app menu.
-  scoped_ptr<menus::SimpleMenuModel> app_menu_model_;
+  // The contents of the wrench menu.
+  scoped_ptr<menus::SimpleMenuModel> wrench_menu_model_;
 
   // Wrench menu.
   scoped_ptr<WrenchMenu> wrench_menu_;

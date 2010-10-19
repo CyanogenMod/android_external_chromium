@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_CREATOR_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_CREATOR_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -34,7 +35,7 @@ class ExtensionCreator {
   std::string error_message() { return error_message_; }
 
  private:
-  // Verifies input directory's existance. |extension_dir| is the source
+  // Verifies input directory's existence. |extension_dir| is the source
   // directory that should contain all the extension resources.
   // |private_key_path| is the optional path to an existing private key to sign
   // the extension. If not provided, a random key will be created (in which case

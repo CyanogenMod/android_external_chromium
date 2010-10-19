@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_HISTORY_HISTORY_BACKEND_H_
 #define CHROME_BROWSER_HISTORY_HISTORY_BACKEND_H_
+#pragma once
 
 #include <utility>
 
@@ -11,7 +12,6 @@
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/history/archived_database.h"
-#include "chrome/browser/history/download_types.h"
 #include "chrome/browser/history/expire_history_backend.h"
 #include "chrome/browser/history/history_database.h"
 #include "chrome/browser/history/history_marshaling.h"
@@ -19,9 +19,11 @@
 #include "chrome/browser/history/text_database_manager.h"
 #include "chrome/browser/history/thumbnail_database.h"
 #include "chrome/browser/history/visit_tracker.h"
+#include "chrome/browser/search_engines/template_url_id.h"
 #include "chrome/common/mru_cache.h"
 
 class BookmarkService;
+struct DownloadCreateInfo;
 class TestingProfile;
 struct ThumbnailScore;
 
@@ -224,8 +226,6 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
   void RemoveDownloadsBetween(const base::Time remove_begin,
                               const base::Time remove_end);
   void RemoveDownloads(const base::Time remove_end);
-  void SearchDownloads(scoped_refptr<DownloadSearchRequest>,
-                       const string16& search_text);
 
   // Segment usage -------------------------------------------------------------
 
@@ -238,14 +238,14 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
   // Keyword search terms ------------------------------------------------------
 
   void SetKeywordSearchTermsForURL(const GURL& url,
-                                   TemplateURL::IDType keyword_id,
+                                   TemplateURLID keyword_id,
                                    const string16& term);
 
-  void DeleteAllSearchTermsForKeyword(TemplateURL::IDType keyword_id);
+  void DeleteAllSearchTermsForKeyword(TemplateURLID keyword_id);
 
   void GetMostRecentKeywordSearchTerms(
       scoped_refptr<GetMostRecentKeywordSearchTermsRequest> request,
-      TemplateURL::IDType keyword_id,
+      TemplateURLID keyword_id,
       const string16& prefix,
       int max_count);
 
@@ -259,8 +259,10 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
 
   virtual bool UpdateURL(URLID id, const history::URLRow& url);
 
+  // While adding visits in batch, the source needs to be provided.
   virtual bool AddVisits(const GURL& url,
-                         const std::vector<base::Time>& visits);
+                         const std::vector<base::Time>& visits,
+                         VisitSource visit_source);
 
   virtual bool RemoveVisits(const VisitVector& visits);
 
@@ -293,7 +295,9 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
 
   // Adds the given rows to the database if it doesn't exist. A visit will be
   // added for each given URL at the last visit time in the URLRow.
-  void AddPagesWithDetails(const std::vector<URLRow>& info);
+  // Each visit will have the visit_source type set.
+  void AddPagesWithDetails(const std::vector<URLRow>& info,
+                           VisitSource visit_source);
 
 #if defined(UNIT_TEST)
   HistoryDatabase* db() const { return db_.get(); }
@@ -313,6 +317,11 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, URLsNoLongerBookmarked);
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, StripUsernamePasswordTest);
   FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, DeleteThumbnailsDatabaseTest);
+  FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, AddPageVisitSource);
+  FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, AddPageArgsSource);
+  FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, AddVisitsSource);
+  FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, RemoveVisitsSource);
+  FRIEND_TEST_ALL_PREFIXES(HistoryBackendTest, MigrationVisitSource);
   friend class ::TestingProfile;
 
   // Computes the name of the specified database on disk.
@@ -340,7 +349,8 @@ class HistoryBackend : public base::RefCountedThreadSafe<HistoryBackend>,
   std::pair<URLID, VisitID> AddPageVisit(const GURL& url,
                                          base::Time time,
                                          VisitID referring_visit,
-                                         PageTransition::Type transition);
+                                         PageTransition::Type transition,
+                                         VisitSource visit_source);
 
   // Returns a redirect chain in |redirects| for the VisitID
   // |cur_visit|. |cur_visit| is assumed to be valid. Assumes that

@@ -18,6 +18,7 @@
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/json_value_serializer.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "webkit/glue/image_decoder.h"
@@ -81,13 +82,11 @@ class MockExtensionInstallUIDelegate : public ExtensionInstallUI::Delegate {
  public:
   MockExtensionInstallUIDelegate()
       : proceed_count_(0),
-        abort_count_(0),
-        last_proceed_was_create_app_shortcut_(0) {}
+        abort_count_(0) {}
 
   // ExtensionInstallUI::Delegate overrides.
-  virtual void InstallUIProceed(bool create_app_shortcut) {
+  virtual void InstallUIProceed() {
     proceed_count_++;
-    last_proceed_was_create_app_shortcut_ = create_app_shortcut;
   }
 
   virtual void InstallUIAbort() {
@@ -96,16 +95,11 @@ class MockExtensionInstallUIDelegate : public ExtensionInstallUI::Delegate {
 
   int proceed_count() { return proceed_count_; }
   int abort_count() { return abort_count_; }
-  bool last_proceed_was_create_app_shortcut() {
-    return last_proceed_was_create_app_shortcut_;
-  }
 
  protected:
   int proceed_count_;
   int abort_count_;
-  bool last_proceed_was_create_app_shortcut_;
 };
-
 
 // Test that we can load the two kinds of prompts correctly, that the outlets
 // are hooked up, and that the dialog calls cancel when cancel is pressed.
@@ -128,7 +122,7 @@ TEST_F(ExtensionInstallPromptControllerTest, BasicsNormalCancel) {
   [controller window];  // force nib load
 
   // Test the right nib loaded.
-  EXPECT_TRUE([[controller windowNibName] isEqual:@"ExtensionInstallPrompt"]);
+  EXPECT_NSEQ(@"ExtensionInstallPrompt", [controller windowNibName]);
 
   // Check all the controls.
   // Make sure everything is non-nil, and that the fields that are
@@ -145,8 +139,8 @@ TEST_F(ExtensionInstallPromptControllerTest, BasicsNormalCancel) {
   EXPECT_NE('^', [[[controller subtitleField] stringValue] characterAtIndex:0]);
 
   EXPECT_TRUE([controller warningsField] != nil);
-  EXPECT_TRUE([[[controller warningsField] stringValue]
-                  isEqual:(base::SysUTF16ToNSString(warnings[0]))]);
+  EXPECT_NSEQ([[controller warningsField] stringValue],
+              base::SysUTF16ToNSString(warnings[0]));
 
   EXPECT_TRUE([controller warningsBox] != nil);
 
@@ -162,7 +156,6 @@ TEST_F(ExtensionInstallPromptControllerTest, BasicsNormalCancel) {
   [controller cancel:nil];
   EXPECT_EQ(1, delegate->abort_count());
   EXPECT_EQ(0, delegate->proceed_count());
-  EXPECT_FALSE(delegate->last_proceed_was_create_app_shortcut());
 }
 
 
@@ -187,7 +180,6 @@ TEST_F(ExtensionInstallPromptControllerTest, BasicsNormalOK) {
 
   EXPECT_EQ(0, delegate->abort_count());
   EXPECT_EQ(1, delegate->proceed_count());
-  EXPECT_FALSE(delegate->last_proceed_was_create_app_shortcut());
 }
 
 // Test that controls get repositioned when there are two warnings vs one
@@ -270,8 +262,7 @@ TEST_F(ExtensionInstallPromptControllerTest, BasicsSkinny) {
   [controller window];  // force nib load
 
   // Test the right nib loaded.
-  EXPECT_TRUE([[controller windowNibName]
-                  isEqual:@"ExtensionInstallPromptNoWarnings"]);
+  EXPECT_NSEQ(@"ExtensionInstallPromptNoWarnings", [controller windowNibName]);
 
   // Check all the controls.
   // In the skinny prompt, only the icon, title and buttons are non-nill.

@@ -6,20 +6,19 @@
 
 #ifndef CHROME_BROWSER_PROFILE_H_
 #define CHROME_BROWSER_PROFILE_H_
-
-#include <set>
-#include <string>
+#pragma once
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
-#include "base/ref_counted.h"
-#include "base/scoped_ptr.h"
-#include "base/timer.h"
-#include "chrome/browser/spellcheck_host_observer.h"
-#include "chrome/common/notification_registrar.h"
+#include "base/logging.h"
+
+namespace base {
+class Time;
+}
 
 #if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/preferences.h"
+namespace chromeos {
+class ProxyConfigServiceImpl;
+}
 #endif
 
 namespace history {
@@ -37,8 +36,11 @@ class DatabaseTracker;
 
 class AutocompleteClassifier;
 class BackgroundContentsService;
+class BackgroundModeManager;
 class BookmarkModel;
 class BrowserThemeProvider;
+class ChromeAppCacheService;
+class ChromeBlobStorageContext;
 class ChromeURLRequestContextGetter;
 class DesktopNotificationService;
 class DownloadManager;
@@ -48,6 +50,8 @@ class ExtensionProcessManager;
 class ExtensionMessageService;
 class ExtensionsService;
 class FaviconService;
+class FilePath;
+class FileSystemHostContext;
 class FindBarState;
 class GeolocationContentSettingsMap;
 class GeolocationPermissionContext;
@@ -66,6 +70,7 @@ class SessionService;
 class SpellCheckHost;
 class SSLConfigServiceManager;
 class SSLHostState;
+class StatusTray;
 class TransportSecurityPersister;
 class SQLitePersistentCookieStore;
 class TabRestoreService;
@@ -155,6 +160,9 @@ class Profile {
   // Return the original "recording" profile. This method returns this if the
   // profile is not off the record.
   virtual Profile* GetOriginalProfile() = 0;
+
+  // Returns a pointer to the ChromeAppCacheService instance for this profile.
+  virtual ChromeAppCacheService* GetAppCacheService() = 0;
 
   // Returns a pointer to the DatabaseTracker instance for this profile.
   virtual webkit_database::DatabaseTracker* GetDatabaseTracker() = 0;
@@ -270,6 +278,9 @@ class Profile {
   // Returns the PersonalDataManager associated with this profile.
   virtual PersonalDataManager* GetPersonalDataManager() = 0;
 
+  // Returns the HTML5 FileSystemHostContext assigned to this profile.
+  virtual FileSystemHostContext* GetFileSystemHostContext() = 0;
+
   // Init our themes system.
   virtual void InitThemes() = 0;
 
@@ -366,6 +377,11 @@ class Profile {
   // Returns the ProfileSyncService, creating if not yet created.
   virtual ProfileSyncService* GetProfileSyncService() = 0;
 
+  // Returns the ProfileSyncService, creating if not yet created, with
+  // the specified CrOS username.
+  virtual ProfileSyncService* GetProfileSyncService(
+      const std::string& cros_user) = 0;
+
   // Returns the CloudPrintProxyService, creating if not yet created.
   virtual CloudPrintProxyService* GetCloudPrintProxyService() = 0;
 
@@ -403,6 +419,11 @@ class Profile {
   // Returns the service that manages BackgroundContents for this profile.
   virtual BackgroundContentsService* GetBackgroundContentsService() = 0;
 
+  // Returns the StatusTray, which provides an API for displaying status icons
+  // in the system status tray. Returns NULL if status icons are not supported
+  // on this platform (or this is a unit test).
+  virtual StatusTray* GetStatusTray() = 0;
+
   // Marks the profile as cleanly shutdown.
   //
   // NOTE: this is invoked internally on a normal shutdown, but is public so
@@ -411,7 +432,7 @@ class Profile {
 
   virtual void InitExtensions() = 0;
 
-  // Start up service that gathers data from web resource feeds.
+  // Start up service that gathers data from a web resource feed.
   virtual void InitWebResources() = 0;
 
   // Returns the new tab page resource cache.
@@ -420,6 +441,16 @@ class Profile {
   // Returns the last directory that was chosen for uploading or opening a file.
   virtual FilePath last_selected_directory() = 0;
   virtual void set_last_selected_directory(const FilePath& path) = 0;
+
+  // Returns a pointer to the ChromeBlobStorageContext instance for this
+  // profile.
+  virtual ChromeBlobStorageContext* GetBlobStorageContext() = 0;
+
+#if defined(OS_CHROMEOS)
+  // Returns ChromeOS's ProxyConfigServiceImpl, creating if not yet created.
+  virtual chromeos::ProxyConfigServiceImpl*
+      GetChromeOSProxyConfigServiceImpl() = 0;
+#endif  // defined(OS_CHROMEOS)
 
 #ifdef UNIT_TEST
   // Use with caution.  GetDefaultRequestContext may be called on any thread!
@@ -456,6 +487,9 @@ class Profile {
   // disabled or controlled by configuration management.
   bool IsSyncAccessible();
 
+  // Creates an OffTheRecordProfile which points to this Profile.
+  Profile* CreateOffTheRecordProfile();
+
  protected:
   static URLRequestContextGetter* default_request_context_;
 
@@ -467,216 +501,6 @@ class Profile {
   // increment and decrement the level, respectively, rather than set it to
   // true or false, so that calls can be nested.
   int accessibility_pause_level_;
-};
-
-class OffTheRecordProfileImpl;
-
-// The default profile implementation.
-class ProfileImpl : public Profile,
-                    public SpellCheckHostObserver,
-                    public NotificationObserver {
- public:
-  virtual ~ProfileImpl();
-
-  // Profile implementation.
-  virtual ProfileId GetRuntimeId();
-  virtual FilePath GetPath();
-  virtual bool IsOffTheRecord();
-  virtual Profile* GetOffTheRecordProfile();
-  virtual void DestroyOffTheRecordProfile();
-  virtual bool HasOffTheRecordProfile();
-  virtual Profile* GetOriginalProfile();
-  virtual webkit_database::DatabaseTracker* GetDatabaseTracker();
-  virtual history::TopSites* GetTopSites();
-  virtual VisitedLinkMaster* GetVisitedLinkMaster();
-  virtual UserScriptMaster* GetUserScriptMaster();
-  virtual SSLHostState* GetSSLHostState();
-  virtual net::TransportSecurityState* GetTransportSecurityState();
-  virtual ExtensionsService* GetExtensionsService();
-  virtual ExtensionDevToolsManager* GetExtensionDevToolsManager();
-  virtual ExtensionProcessManager* GetExtensionProcessManager();
-  virtual ExtensionMessageService* GetExtensionMessageService();
-  virtual FaviconService* GetFaviconService(ServiceAccessType sat);
-  virtual HistoryService* GetHistoryService(ServiceAccessType sat);
-  virtual HistoryService* GetHistoryServiceWithoutCreating();
-  virtual AutocompleteClassifier* GetAutocompleteClassifier();
-  virtual WebDataService* GetWebDataService(ServiceAccessType sat);
-  virtual WebDataService* GetWebDataServiceWithoutCreating();
-  virtual PasswordStore* GetPasswordStore(ServiceAccessType sat);
-  virtual PrefService* GetPrefs();
-  virtual TemplateURLModel* GetTemplateURLModel();
-  virtual TemplateURLFetcher* GetTemplateURLFetcher();
-  virtual DownloadManager* GetDownloadManager();
-  virtual PersonalDataManager* GetPersonalDataManager();
-  virtual void InitThemes();
-  virtual void SetTheme(Extension* extension);
-  virtual void SetNativeTheme();
-  virtual void ClearTheme();
-  virtual Extension* GetTheme();
-  virtual BrowserThemeProvider* GetThemeProvider();
-  virtual bool HasCreatedDownloadManager() const;
-  virtual URLRequestContextGetter* GetRequestContext();
-  virtual URLRequestContextGetter* GetRequestContextForMedia();
-  virtual URLRequestContextGetter* GetRequestContextForExtensions();
-  virtual void RegisterExtensionWithRequestContexts(Extension* extension);
-  virtual void UnregisterExtensionWithRequestContexts(Extension* extension);
-  virtual net::SSLConfigService* GetSSLConfigService();
-  virtual HostContentSettingsMap* GetHostContentSettingsMap();
-  virtual HostZoomMap* GetHostZoomMap();
-  virtual GeolocationContentSettingsMap* GetGeolocationContentSettingsMap();
-  virtual GeolocationPermissionContext* GetGeolocationPermissionContext();
-  virtual UserStyleSheetWatcher* GetUserStyleSheetWatcher();
-  virtual FindBarState* GetFindBarState();
-  virtual SessionService* GetSessionService();
-  virtual void ShutdownSessionService();
-  virtual bool HasSessionService() const;
-  virtual bool DidLastSessionExitCleanly();
-  virtual BookmarkModel* GetBookmarkModel();
-  virtual bool IsSameProfile(Profile* profile);
-  virtual base::Time GetStartTime() const;
-  virtual TabRestoreService* GetTabRestoreService();
-  virtual void ResetTabRestoreService();
-  virtual SpellCheckHost* GetSpellCheckHost();
-  virtual void ReinitializeSpellCheckHost(bool force);
-  virtual WebKitContext* GetWebKitContext();
-  virtual DesktopNotificationService* GetDesktopNotificationService();
-  virtual BackgroundContentsService* GetBackgroundContentsService();
-  virtual void MarkAsCleanShutdown();
-  virtual void InitExtensions();
-  virtual void InitWebResources();
-  virtual NTPResourceCache* GetNTPResourceCache();
-  virtual FilePath last_selected_directory();
-  virtual void set_last_selected_directory(const FilePath& path);
-  virtual ProfileSyncService* GetProfileSyncService();
-  virtual TokenService* GetTokenService();
-  void InitSyncService();
-  virtual CloudPrintProxyService* GetCloudPrintProxyService();
-  void InitCloudPrintProxyService();
-
-  // NotificationObserver implementation.
-  virtual void Observe(NotificationType type,
-                       const NotificationSource& source,
-                       const NotificationDetails& details);
-
-  // SpellCheckHostObserver implementation.
-  virtual void SpellCheckHostInitialized();
-
- private:
-  friend class Profile;
-
-  explicit ProfileImpl(const FilePath& path);
-
-  void CreateWebDataService();
-  FilePath GetPrefFilePath();
-
-  void CreatePasswordStore();
-
-  void StopCreateSessionServiceTimer();
-
-  void EnsureRequestContextCreated() {
-    GetRequestContext();
-  }
-
-  void EnsureSessionServiceCreated() {
-    GetSessionService();
-  }
-
-  NotificationRegistrar registrar_;
-
-  FilePath path_;
-  FilePath base_cache_path_;
-  scoped_ptr<VisitedLinkEventListener> visited_link_event_listener_;
-  scoped_ptr<VisitedLinkMaster> visited_link_master_;
-  scoped_refptr<ExtensionsService> extensions_service_;
-  scoped_refptr<UserScriptMaster> user_script_master_;
-  scoped_refptr<ExtensionDevToolsManager> extension_devtools_manager_;
-  scoped_ptr<ExtensionProcessManager> extension_process_manager_;
-  scoped_refptr<ExtensionMessageService> extension_message_service_;
-  scoped_ptr<SSLHostState> ssl_host_state_;
-  scoped_refptr<net::TransportSecurityState>
-      transport_security_state_;
-  scoped_refptr<TransportSecurityPersister>
-      transport_security_persister_;
-  scoped_ptr<PrefService> prefs_;
-  scoped_ptr<TemplateURLFetcher> template_url_fetcher_;
-  scoped_ptr<TemplateURLModel> template_url_model_;
-  scoped_ptr<BookmarkModel> bookmark_bar_model_;
-  scoped_refptr<WebResourceService> web_resource_service_;
-  scoped_ptr<NTPResourceCache> ntp_resource_cache_;
-
-  scoped_ptr<TokenService> token_service_;
-  scoped_ptr<ProfileSyncFactory> profile_sync_factory_;
-  scoped_ptr<ProfileSyncService> sync_service_;
-  scoped_ptr<CloudPrintProxyService> cloud_print_proxy_service_;
-
-  scoped_refptr<ChromeURLRequestContextGetter> request_context_;
-
-  scoped_refptr<ChromeURLRequestContextGetter> media_request_context_;
-
-  scoped_refptr<ChromeURLRequestContextGetter> extensions_request_context_;
-
-  scoped_ptr<SSLConfigServiceManager> ssl_config_service_manager_;
-
-  scoped_refptr<HostContentSettingsMap> host_content_settings_map_;
-  scoped_refptr<HostZoomMap> host_zoom_map_;
-  scoped_refptr<GeolocationContentSettingsMap>
-      geolocation_content_settings_map_;
-  scoped_refptr<GeolocationPermissionContext>
-      geolocation_permission_context_;
-  scoped_refptr<UserStyleSheetWatcher> user_style_sheet_watcher_;
-  scoped_ptr<FindBarState> find_bar_state_;
-  scoped_refptr<DownloadManager> download_manager_;
-  scoped_refptr<HistoryService> history_service_;
-  scoped_refptr<FaviconService> favicon_service_;
-  scoped_ptr<AutocompleteClassifier> autocomplete_classifier_;
-  scoped_refptr<WebDataService> web_data_service_;
-  scoped_refptr<PasswordStore> password_store_;
-  scoped_refptr<SessionService> session_service_;
-  scoped_ptr<BrowserThemeProvider> theme_provider_;
-  scoped_refptr<WebKitContext> webkit_context_;
-  scoped_ptr<DesktopNotificationService> desktop_notification_service_;
-  scoped_ptr<BackgroundContentsService> background_contents_service_;
-  scoped_refptr<PersonalDataManager> personal_data_manager_;
-  scoped_ptr<PinnedTabService> pinned_tab_service_;
-  bool history_service_created_;
-  bool favicon_service_created_;
-  bool created_web_data_service_;
-  bool created_password_store_;
-  bool created_download_manager_;
-  bool created_theme_provider_;
-  // Whether or not the last session exited cleanly. This is set only once.
-  bool last_session_exited_cleanly_;
-
-  base::OneShotTimer<ProfileImpl> create_session_service_timer_;
-
-  scoped_ptr<OffTheRecordProfileImpl> off_the_record_profile_;
-
-  // See GetStartTime for details.
-  base::Time start_time_;
-
-  scoped_refptr<TabRestoreService> tab_restore_service_;
-
-  scoped_refptr<SpellCheckHost> spellcheck_host_;
-
-  // Indicates whether |spellcheck_host_| has told us initialization is
-  // finished.
-  bool spellcheck_host_ready_;
-
-  // Set to true when ShutdownSessionService is invoked. If true
-  // GetSessionService won't recreate the SessionService.
-  bool shutdown_session_service_;
-
-  // The main database tracker for this profile.
-  // Should be used only on the file thread.
-  scoped_refptr<webkit_database::DatabaseTracker> db_tracker_;
-
-  scoped_refptr<history::TopSites> top_sites_;  // For history and thumbnails.
-
-#if defined(OS_CHROMEOS)
-  chromeos::Preferences chromeos_preferences_;
-#endif
-
-  DISALLOW_COPY_AND_ASSIGN(ProfileImpl);
 };
 
 #endif  // CHROME_BROWSER_PROFILE_H_

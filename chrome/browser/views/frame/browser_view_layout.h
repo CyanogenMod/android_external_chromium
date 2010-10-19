@@ -4,9 +4,17 @@
 
 #ifndef CHROME_BROWSER_VIEWS_FRAME_BROWSER_VIEW_LAYOUT_H_
 #define CHROME_BROWSER_VIEWS_FRAME_BROWSER_VIEW_LAYOUT_H_
+#pragma once
 
-#include "chrome/browser/views/frame/browser_view.h"
 #include "views/layout_manager.h"
+
+class BaseTabStrip;
+class BookmarkBarView;
+class Browser;
+class BrowserView;
+class ContentsContainer;
+class DownloadShelfView;
+class ToolbarView;
 
 // The layout manager used in chrome browser.
 class BrowserViewLayout : public views::LayoutManager {
@@ -39,9 +47,8 @@ class BrowserViewLayout : public views::LayoutManager {
   virtual gfx::Size GetPreferredSize(views::View* host);
 
  protected:
-  Browser* browser() {
-    return browser_view_->browser();
-  }
+  Browser* browser();
+  const Browser* browser() const;
 
   // Layout the TabStrip, returns the coordinate of the bottom of the TabStrip,
   // for laying out subsequent controls.
@@ -57,15 +64,18 @@ class BrowserViewLayout : public views::LayoutManager {
   // Layout the TabContents container, between the coordinates |top| and
   // |bottom|.
   void LayoutTabContents(int top, int bottom);
-  int LayoutExtensionAndDownloadShelves();
+
+  // Returns the top margin to adjust the contents_container_ by. This is used
+  // to make the bookmark bar and contents_container_ overlap so that the
+  // preview contents hides the bookmark bar.
+  int GetTopMarginForActiveContent();
 
   // Layout the Download Shelf, returns the coordinate of the top of the
   // control, for laying out the previous control.
   int LayoutDownloadShelf(int bottom);
 
-  // Layout the Extension Shelf, returns the coordinate of the top of the
-  // control, for laying out the previous control.
-  int LayoutExtensionShelf(int bottom);
+  // Returns true if an infobar is showing.
+  bool InfobarVisible() const;
 
   // See description above vertical_layout_rect_ for details.
   void set_vertical_layout_rect(const gfx::Rect& bounds) {
@@ -79,10 +89,9 @@ class BrowserViewLayout : public views::LayoutManager {
   BaseTabStrip* tabstrip_;
   ToolbarView* toolbar_;
   views::View* contents_split_;
-  views::View* contents_container_;
+  ContentsContainer* contents_container_;
   views::View* infobar_container_;
   DownloadShelfView* download_shelf_;
-  ExtensionShelf* extension_shelf_;
   BookmarkBarView* active_bookmark_bar_;
 
   BrowserView* browser_view_;

@@ -8,6 +8,7 @@
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_field.h"
 
 bool AddressField::GetFieldInfo(FieldTypeMap* field_type_map) const {
@@ -201,19 +202,13 @@ bool AddressField::ParseAddressLines(
       return false;
   } else {
     pattern =
-        ASCIIToUTF16("street|address line|address1|street_line1|addr1");
+        ASCIIToUTF16("address.?line|address1|addr1|street");
     string16 label_pattern = ASCIIToUTF16("address");
 
     if (!ParseText(iter, pattern, &address_field->address1_))
       if (!ParseLabelText(iter, label_pattern, &address_field->address1_))
         return false;
   }
-
-  // Some pages (e.g. expedia_checkout.html) have an apartment or
-  // suite number at this point.  The occasional page (e.g.
-  // Ticketmaster3.html) calls this a unit number.  We ignore this
-  // field since we can't fill it yet.
-  ParseText(iter, ASCIIToUTF16("suite|unit"));
 
   // Optionally parse more address lines, which may have empty labels.
   // Some pages have 3 address lines (eg SharperImageModifyAccount.html)
@@ -224,7 +219,7 @@ bool AddressField::ParseAddressLines(
     if (!ParseEmptyText(iter, &address_field->address2_))
       ParseText(iter, pattern, &address_field->address2_);
   } else {
-    pattern = ASCIIToUTF16("address2|street|street_line2|addr2");
+    pattern = ASCIIToUTF16("address.?line2|address2|addr2|street|suite|unit");
     string16 label_pattern = ASCIIToUTF16("address");
     if (!ParseEmptyText(iter, &address_field->address2_))
       if (!ParseText(iter, pattern, &address_field->address2_))
@@ -238,8 +233,9 @@ bool AddressField::ParseAddressLines(
                                kEcmlBillToAddress3, '|');
       ParseText(iter, pattern);
     } else {
-      pattern = ASCIIToUTF16("line3");
-      ParseLabelText(iter, pattern, NULL);
+      pattern = ASCIIToUTF16("address.?line3|address3|addr3|street|line3");
+      if (!ParseEmptyText(iter, NULL))
+        ParseText(iter, pattern, NULL);
     }
   }
 

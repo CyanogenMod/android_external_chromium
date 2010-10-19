@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <cmath>
+
 #import "chrome/browser/cocoa/location_bar/page_action_decoration.h"
 
 #include "base/sys_string_conversions.h"
@@ -16,6 +18,16 @@
 #include "chrome/common/extensions/extension_resource.h"
 #include "skia/ext/skia_utils_mac.h"
 
+namespace {
+
+// Distance to offset the bubble pointer from the bottom of the max
+// icon area of the decoration.  This makes the popup's upper border
+// 2px away from the omnibox's lower border (matches omnibox popup
+// upper border).
+const CGFloat kBubblePointYOffset = 2.0;
+
+}  // namespace
+
 PageActionDecoration::PageActionDecoration(
     LocationBarViewMac* owner,
     Profile* profile,
@@ -26,6 +38,7 @@ PageActionDecoration::PageActionDecoration(
       tracker_(this),
       current_tab_id_(-1),
       preview_enabled_(false) {
+  DCHECK(profile);
   Extension* extension = profile->GetExtensionsService()->GetExtensionById(
       page_action->extension_id(), false);
   DCHECK(extension);
@@ -48,11 +61,16 @@ PageActionDecoration::PageActionDecoration(
       Source<Profile>(profile_));
 }
 
-PageActionDecoration::~PageActionDecoration() {
+PageActionDecoration::~PageActionDecoration() {}
+
+// Always |kPageActionIconMaxSize| wide.  |ImageDecoration| draws the
+// image centered.
+CGFloat PageActionDecoration::GetWidthForSpace(CGFloat width) {
+  return Extension::kPageActionIconMaxSize;
 }
 
-// Overridden from LocationBarImageView. Either notify listeners or show a
-// popup depending on the Page Action.
+// Either notify listeners or show a popup depending on the Page
+// Action.
 bool PageActionDecoration::OnMousePressed(NSRect frame) {
   if (current_tab_id_ < 0) {
     NOTREACHED() << "No current tab.";
@@ -103,15 +121,15 @@ void PageActionDecoration::OnImageLoaded(
   owner_->UpdatePageActions();
 }
 
-void PageActionDecoration::UpdateVisibility(
-    TabContents* contents, const GURL& url) {
+void PageActionDecoration::UpdateVisibility(TabContents* contents,
+                                            const GURL& url) {
   // Save this off so we can pass it back to the extension when the action gets
   // executed. See PageActionDecoration::OnMousePressed.
-  current_tab_id_ = ExtensionTabUtil::GetTabId(contents);
+  current_tab_id_ = contents ? ExtensionTabUtil::GetTabId(contents) : -1;
   current_url_ = url;
 
-  bool visible = preview_enabled_ ||
-                 page_action_->GetIsVisible(current_tab_id_);
+  bool visible = contents &&
+      (preview_enabled_ || page_action_->GetIsVisible(current_tab_id_));
   if (visible) {
     SetToolTip(page_action_->GetTitle(current_tab_id_));
 
@@ -128,22 +146,28 @@ void PageActionDecoration::UpdateVisibility(
     SkBitmap skia_icon = page_action_->GetIcon(current_tab_id_);
     if (skia_icon.isNull()) {
       int icon_index = page_action_->GetIconIndex(current_tab_id_);
-      std::string icon_path;
-      if (icon_index >= 0)
-        icon_path = page_action_->icon_paths()->at(icon_index);
-      else
-        icon_path = page_action_->default_icon_path();
-
+      std::string icon_path = (icon_index < 0) ?
+          page_action_->default_icon_path() :
+          page_action_->icon_paths()->at(icon_index);
       if (!icon_path.empty()) {
         PageActionMap::iterator iter = page_action_icons_.find(icon_path);
         if (iter != page_action_icons_.end())
           skia_icon = iter->second;
       }
     }
-
-    if (!skia_icon.isNull())
+    if (!skia_icon.isNull()) {
       SetImage(gfx::SkBitmapToNSImage(skia_icon));
+    } else if (!GetImage()) {
+      // During install the action can be displayed before the icons
+      // have come in.  Rather than deal with this in multiple places,
+      // provide a placeholder image.  This will be replaced when an
+      // icon comes in.
+      const NSSize default_size = NSMakeSize(Extension::kPageActionIconMaxSize,
+                                             Extension::kPageActionIconMaxSize);
+      SetImage([[NSImage alloc] initWithSize:default_size]);
+    }
   }
+
   if (IsVisible() != visible) {
     SetVisible(visible);
     NotificationService::current()->Notify(
@@ -166,8 +190,19 @@ NSString* PageActionDecoration::GetToolTip() {
 }
 
 NSPoint PageActionDecoration::GetBubblePointInFrame(NSRect frame) {
-  frame = GetDrawRectInFrame(frame);
-  return NSMakePoint(NSMidX(frame), NSMaxY(frame));
+  // This is similar to |ImageDecoration::GetDrawRectInFrame()|,
+  // except that code centers the image, which can differ in size
+  // between actions.  This centers the maximum image size, so the
+  // point will consistently be at the same y position.  x position is
+  // easier (the middle of the centered image is the middle of the
+  // frame).
+  const CGFloat delta_height =
+      NSHeight(frame) - Extension::kPageActionIconMaxSize;
+  const CGFloat bottom_inset = std::ceil(delta_height / 2.0);
+
+  // Return a point just below the bottom of the maximal drawing area.
+  return NSMakePoint(NSMidX(frame),
+                     NSMaxY(frame) - bottom_inset + kBubblePointYOffset);
 }
 
 NSMenu* PageActionDecoration::GetMenu() {
@@ -181,10 +216,12 @@ NSMenu* PageActionDecoration::GetMenu() {
   DCHECK(extension);
   if (!extension)
     return nil;
-  return [[[ExtensionActionContextMenu alloc]
-            initWithExtension:extension
-                      profile:profile_
-              extensionAction:page_action_] autorelease];
+  menu_.reset([[ExtensionActionContextMenu alloc]
+      initWithExtension:extension
+                profile:profile_
+        extensionAction:page_action_]);
+
+  return menu_.get();
 }
 
 void PageActionDecoration::Observe(

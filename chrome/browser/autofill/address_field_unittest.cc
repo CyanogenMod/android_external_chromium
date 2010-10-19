@@ -4,6 +4,7 @@
 
 #include "base/scoped_ptr.h"
 #include "base/scoped_vector.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/address_field.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webkit/glue/form_field.h"
@@ -408,11 +409,9 @@ TEST_F(AddressFieldTest, ParseTwoLineAddressMissingLabel) {
   ASSERT_TRUE(
       field_type_map_.find(ASCIIToUTF16("addr1")) != field_type_map_.end());
   EXPECT_EQ(ADDRESS_HOME_LINE1, field_type_map_[ASCIIToUTF16("addr1")]);
-  ASSERT_FALSE(
+  ASSERT_TRUE(
       field_type_map_.find(ASCIIToUTF16("addr2")) != field_type_map_.end());
-  // The second line of the address should not match if |name| is set but
-  // |label| is empty.
-  EXPECT_NE(ADDRESS_HOME_LINE2, field_type_map_[ASCIIToUTF16("addr2")]);
+  EXPECT_EQ(ADDRESS_HOME_LINE2, field_type_map_[ASCIIToUTF16("addr2")]);
 }
 
 TEST_F(AddressFieldTest, ParseCompany) {

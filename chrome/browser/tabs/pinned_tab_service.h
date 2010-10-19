@@ -4,11 +4,11 @@
 
 #ifndef CHROME_BROWSER_TABS_PINNED_TAB_SERVICE_H_
 #define CHROME_BROWSER_TABS_PINNED_TAB_SERVICE_H_
+#pragma once
 
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
-class Browser;
 class Profile;
 
 // PinnedTabService is responsible for updating preferences with the set of

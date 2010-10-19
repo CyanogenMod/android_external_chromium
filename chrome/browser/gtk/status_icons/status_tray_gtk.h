@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_STATUS_ICONS_STATUS_TRAY_GTK_H_
 #define CHROME_BROWSER_GTK_STATUS_ICONS_STATUS_TRAY_GTK_H_
+#pragma once
 
 #include "chrome/browser/status_icons/status_tray.h"
 
@@ -14,7 +15,7 @@ class StatusTrayGtk : public StatusTray {
 
  protected:
   // Overriden from StatusTray:
-  virtual StatusIcon* CreateStatusIcon();
+  virtual StatusIcon* CreatePlatformStatusIcon();
 
  private:
   DISALLOW_COPY_AND_ASSIGN(StatusTrayGtk);

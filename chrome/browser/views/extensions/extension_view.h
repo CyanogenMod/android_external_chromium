@@ -1,13 +1,13 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_VIEWS_EXTENSIONS_EXTENSION_VIEW_H_
 #define CHROME_BROWSER_VIEWS_EXTENSIONS_EXTENSION_VIEW_H_
+#pragma once
 
 #include "build/build_config.h"
 
-#include "base/scoped_ptr.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "views/controls/native/native_view_host.h"
 
@@ -29,7 +29,7 @@ class ExtensionView : public views::NativeViewHost {
    public:
     virtual ~Container() {}
     // Mouse event notifications from the view. (useful for hover UI).
-    virtual void OnExtensionMouseEvent(ExtensionView* view) = 0;
+    virtual void OnExtensionMouseMove(ExtensionView* view) = 0;
     virtual void OnExtensionMouseLeave(ExtensionView* view) = 0;
     virtual void OnExtensionPreferredSizeChanged(ExtensionView* view) {}
   };
@@ -43,7 +43,7 @@ class ExtensionView : public views::NativeViewHost {
 
   // Notification from ExtensionHost.
   void UpdatePreferredSize(const gfx::Size& new_size);
-  void HandleMouseEvent();
+  void HandleMouseMove();
   void HandleMouseLeave();
 
   // Method for the ExtensionHost to notify us when the RenderViewHost has a

@@ -7,6 +7,7 @@
 #import <Cocoa/Cocoa.h>
 
 #include "app/l10n_util.h"
+#include "base/command_line.h"
 #include "base/mac_util.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_window.h"
@@ -20,8 +21,10 @@
 #import "chrome/browser/host_content_settings_map.h"
 #import "chrome/browser/notifications/desktop_notification_service.h"
 #import "chrome/browser/notifications/notification_exceptions_table_model.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/plugin_exceptions_table_model.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -43,7 +46,7 @@ ContentSettingsDialogController* g_instance = nil;
 
 // Callback when preferences are changed. |prefName| is the name of the
 // pref that has changed.
-- (void)prefChanged:(std::wstring*)prefName;
+- (void)prefChanged:(std::string*)prefName;
 
 @end
 
@@ -61,7 +64,7 @@ class PrefObserverBridge : public NotificationObserver {
                        const NotificationSource& source,
                        const NotificationDetails& details) {
     if (!disabled_ && type == NotificationType::PREF_CHANGED) {
-      [controller_ prefChanged:Details<std::wstring>(details).ptr()];
+      [controller_ prefChanged:Details<std::string>(details).ptr()];
     }
   }
 
@@ -137,28 +140,17 @@ class PrefObserverDisabler {
     // Manually observe notifications for preferences that are grouped in
     // the HostContentSettingsMap or GeolocationContentSettingsMap.
     PrefService* prefs = profile_->GetPrefs();
-    prefs->AddPrefObserver(prefs::kBlockThirdPartyCookies, observer_.get());
-    prefs->AddPrefObserver(prefs::kDefaultContentSettings, observer_.get());
-    prefs->AddPrefObserver(prefs::kGeolocationDefaultContentSetting,
-                           observer_.get());
+    registrar_.Init(prefs);
+    registrar_.Add(prefs::kBlockThirdPartyCookies, observer_.get());
+    registrar_.Add(prefs::kBlockNonsandboxedPlugins, observer_.get());
+    registrar_.Add(prefs::kDefaultContentSettings, observer_.get());
+    registrar_.Add(prefs::kGeolocationDefaultContentSetting, observer_.get());
 
     // We don't need to observe changes in this value.
     lastSelectedTab_.Init(prefs::kContentSettingsWindowLastTabIndex,
                           profile_->GetPrefs(), NULL);
   }
   return self;
-}
-
-- (void)dealloc {
-  if (profile_) {
-    PrefService* prefs = profile_->GetPrefs();
-    prefs->RemovePrefObserver(prefs::kBlockThirdPartyCookies, observer_.get());
-    prefs->RemovePrefObserver(prefs::kDefaultContentSettings, observer_.get());
-    prefs->RemovePrefObserver(prefs::kGeolocationDefaultContentSetting,
-                              observer_.get());
-  }
-
-  [super dealloc];
 }
 
 - (void)closeExceptionsSheet {
@@ -287,11 +279,14 @@ class PrefObserverDisabler {
       new BrowsingDataLocalStorageHelper(profile_);
   BrowsingDataAppCacheHelper* appcacheHelper =
       new BrowsingDataAppCacheHelper(profile_);
+  BrowsingDataIndexedDBHelper* indexedDBHelper =
+      BrowsingDataIndexedDBHelper::Create(profile_);
   CookiesWindowController* controller =
       [[CookiesWindowController alloc] initWithProfile:profile_
                                         databaseHelper:databaseHelper
                                          storageHelper:storageHelper
-                                        appcacheHelper:appcacheHelper];
+                                        appcacheHelper:appcacheHelper
+                                       indexedDBHelper:indexedDBHelper];
   [controller attachSheetTo:[self window]];
 }
 
@@ -324,7 +319,21 @@ class PrefObserverDisabler {
 }
 
 - (IBAction)showPluginsExceptions:(id)sender {
-  [self showExceptionsForType:CONTENT_SETTINGS_TYPE_PLUGINS];
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableResourceContentSettings)) {
+    HostContentSettingsMap* settingsMap = profile_->GetHostContentSettingsMap();
+    HostContentSettingsMap* offTheRecordSettingsMap =
+        profile_->HasOffTheRecordProfile() ?
+            profile_->GetOffTheRecordProfile()->GetHostContentSettingsMap() :
+            NULL;
+    PluginExceptionsTableModel* model =
+        new PluginExceptionsTableModel(settingsMap, offTheRecordSettingsMap);
+    model->LoadSettings();
+    [[SimpleContentExceptionsWindowController controllerWithTableModel:model]
+        attachSheetTo:[self window]];
+  } else {
+    [self showExceptionsForType:CONTENT_SETTINGS_TYPE_PLUGINS];
+  }
 }
 
 - (IBAction)showPopupsExceptions:(id)sender {
@@ -396,20 +405,39 @@ class PrefObserverDisabler {
 }
 
 - (void)setPluginsEnabledIndex:(NSInteger)value {
-  ContentSetting setting = value == kContentSettingsEnabledIndex ?
-      CONTENT_SETTING_ALLOW : CONTENT_SETTING_BLOCK;
+  ContentSetting setting = CONTENT_SETTING_DEFAULT;
+  bool blockNonsandboxedPlugins = false;
+  switch (value) {
+    case kPluginsAllowSandboxedIndex:
+      blockNonsandboxedPlugins = true;
+      // Fall through to the next case.
+    case kPluginsAllowIndex:
+      setting = CONTENT_SETTING_ALLOW;
+      break;
+    case kPluginsBlockIndex:
+      setting = CONTENT_SETTING_BLOCK;
+      break;
+    default:
+      NOTREACHED();
+  }
   ContentSettingsDialogControllerInternal::PrefObserverDisabler
       disabler(observer_.get());
   profile_->GetHostContentSettingsMap()->SetDefaultContentSetting(
       CONTENT_SETTINGS_TYPE_PLUGINS, setting);
+  profile_->GetHostContentSettingsMap()->SetBlockNonsandboxedPlugins(
+      blockNonsandboxedPlugins);
 }
 
 - (NSInteger)pluginsEnabledIndex {
-  HostContentSettingsMap* settingsMap = profile_->GetHostContentSettingsMap();
-  bool enabled =
-      settingsMap->GetDefaultContentSetting(CONTENT_SETTINGS_TYPE_PLUGINS) ==
-      CONTENT_SETTING_ALLOW;
-  return enabled ? kContentSettingsEnabledIndex : kContentSettingsDisabledIndex;
+  HostContentSettingsMap* map = profile_->GetHostContentSettingsMap();
+  ContentSetting setting =
+      map->GetDefaultContentSetting(CONTENT_SETTINGS_TYPE_PLUGINS);
+  if (setting == CONTENT_SETTING_ALLOW) {
+    if (map->GetBlockNonsandboxedPlugins())
+      return kPluginsAllowSandboxedIndex;
+    return kPluginsAllowIndex;
+  }
+  return kPluginsBlockIndex;
 }
 
 - (void)setPopupsEnabledIndex:(NSInteger)value {
@@ -487,7 +515,7 @@ class PrefObserverDisabler {
 
 // Callback when preferences are changed. |prefName| is the name of the
 // pref that has changed and should not be NULL.
-- (void)prefChanged:(std::wstring*)prefName {
+- (void)prefChanged:(std::string*)prefName {
   DCHECK(prefName);
   if (!prefName) return;
   if (*prefName == prefs::kClearSiteDataOnExit) {
@@ -497,6 +525,10 @@ class PrefObserverDisabler {
   if (*prefName == prefs::kBlockThirdPartyCookies) {
     [self willChangeValueForKey:@"blockThirdPartyCookies"];
     [self didChangeValueForKey:@"blockThirdPartyCookies"];
+  }
+  if (*prefName == prefs::kBlockNonsandboxedPlugins) {
+    [self willChangeValueForKey:@"pluginsEnabledIndex"];
+    [self didChangeValueForKey:@"pluginsEnabledIndex"];
   }
   if (*prefName == prefs::kDefaultContentSettings) {
     // We don't know exactly which setting has changed, so we'll tickle all

@@ -4,11 +4,13 @@
 
 #ifndef CHROME_BROWSER_CERT_STORE_H_
 #define CHROME_BROWSER_CERT_STORE_H_
+#pragma once
 
 #include <map>
 
 #include "base/lock.h"
 #include "base/singleton.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "net/base/x509_certificate.h"
 

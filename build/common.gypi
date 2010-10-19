@@ -61,6 +61,9 @@
         # toolkit_views test below.
         'chromeos%': '0',
 
+        # Disable touch support by default.
+        'touchui%': 0,
+
         # To do a shared build on linux we need to be able to choose between
         # type static_library and shared_library. We default to doing a static
         # build but you can override this with "gyp -Dlibrary=shared_library"
@@ -70,14 +73,25 @@
         'library%': 'static_library',
       },
 
-      # Set default value of toolkit_views on for Windows and Chrome OS.
-      # We set it at this level of nesting so the value is available for
+      # We set those at this level of nesting so the values are available for
       # other conditionals below.
       'conditions': [
-        ['OS=="win" or chromeos==1', {
+        # Set default value of toolkit_views on for Windows, Chrome OS
+        # and the touch UI.
+        ['OS=="win" or chromeos==1 or touchui==1', {
           'toolkit_views%': 1,
         }, {
           'toolkit_views%': 0,
+        }],
+
+        # A flag to enable or disable our compile-time dependency
+        # on gnome-keyring. If that dependency is disabled, no gnome-keyring
+        # support will be available. This option is useful
+        # for Linux distributions.
+        ['chromeos==1', {
+          'use_gnome_keyring%': 0,
+        }, {
+          'use_gnome_keyring%': 1,
         }],
       ],
 
@@ -87,15 +101,9 @@
       # building on.
       'target_arch%': '<(host_arch)',
 
-      # We do want to build Chromium with Breakpad support in certain
-      # situations. I.e. for Chrome bot.
-      'linux_chromium_breakpad%': 0,
-      # And if we want to dump symbols.
-      'linux_chromium_dump_symbols%': 0,
-      # Also see linux_strip_binary below.
-
-      # Copy conditionally-set chromeos variable out one scope.
+      # Copy conditionally-set chromeos and touchui variables out one scope.
       'chromeos%': '<(chromeos)',
+      'touchui%': '<(touchui)',
 
       # This variable tells WebCore.gyp and JavaScriptCore.gyp whether they are
       # are built under a chromium full build (1) or a webkit.org chromium
@@ -145,7 +153,9 @@
     'target_arch%': '<(target_arch)',
     'host_arch%': '<(host_arch)',
     'toolkit_views%': '<(toolkit_views)',
+    'use_gnome_keyring%': '<(use_gnome_keyring)',
     'chromeos%': '<(chromeos)',
+    'touchui%': '<(touchui)',
     'inside_chromium_build%': '<(inside_chromium_build)',
     'fastbuild%': '<(fastbuild)',
     'linux_fpic%': '<(linux_fpic)',
@@ -241,8 +251,20 @@
     # Set this to true to enable SELinux support.
     'selinux%': 0,
 
-    # Strip the binary after dumping symbols.
+    # Set this to true when building with Clang.
+    # See http://code.google.com/p/chromium/wiki/Clang for details.
+    # TODO: eventually clang should behave identically to gcc, and this
+    # won't be necessary.
+    'clang%': 0,
+
+    # Override whether we should use Breakpad on Linux. I.e. for Chrome bot.
+    'linux_breakpad%': 0,
+    # And if we want to dump symbols for Breakpad-enabled builds.
+    'linux_dump_symbols%': 0,
+    # And if we want to strip the binary after dumping symbols.
     'linux_strip_binary%': 0,
+    # Strip the test binaries needed for Linux reliability tests.
+    'linux_strip_reliability_tests%': 0,
 
     # Enable TCMalloc.
     'linux_use_tcmalloc%': 1,
@@ -252,6 +274,10 @@
 
     # Disable TCMalloc's heapchecker.
     'linux_use_heapchecker%': 0,
+
+    # Disable shadow stack keeping used by heapcheck to unwind the stacks
+    # better.
+    'linux_keep_shadow_stacks%': 0,
 
     # Set to 1 to turn on seccomp sandbox by default.
     # (Note: this is ignored for official builds.)
@@ -284,6 +310,9 @@
     # whether to compile in the sources for the GPU plugin / process.
     'enable_gpu%': 1,
 
+    # Use OpenSSL instead of NSS. Currently in developement.
+    'use_openssl%': 0,
+
     'conditions': [
       ['OS=="linux" or OS=="freebsd" or OS=="openbsd"', {
         # This will set gcc_version to XY if you are running gcc X.Y.*.
@@ -292,21 +321,13 @@
         # Figure out the python architecture to decide if we build pyauto.
         'python_arch%': '<!(<(DEPTH)/build/linux/python_arch.sh <(sysroot)/usr/lib/libpython<(python_ver).so.1.0)',
         'conditions': [
-          ['branding=="Chrome" or linux_chromium_breakpad==1', {
+          ['branding=="Chrome"', {
             'linux_breakpad%': 1,
-          }, {
-            'linux_breakpad%': 0,
           }],
           # All Chrome builds have breakpad symbols, but only process the
           # symbols from official builds.
-          # TODO(mmoss) dump_syms segfaults on x64. Enable once dump_syms and
-          # crash server handle 64-bit symbols.
-          ['linux_chromium_dump_symbols==1 or '
-           '(branding=="Chrome" and buildtype=="Official" and '
-           'target_arch=="ia32")', {
+          ['(branding=="Chrome" and buildtype=="Official")', {
             'linux_dump_symbols%': 1,
-          }, {
-            'linux_dump_symbols%': 0,
           }],
           ['toolkit_views==0', {
             # GTK wants Title Case strings
@@ -349,7 +370,6 @@
           ['component=="shared_library"', {
             'win_use_allocator_shim%': 0,
           }],
-        
           ['MSVS_VERSION=="2005"', {
             'msvs_multi_core_compile%': 0,
           },{
@@ -374,15 +394,12 @@
     # so Cocoa is happy (http://crbug.com/20441).
     'locales': [
       'am', 'ar', 'bg', 'bn', 'ca', 'cs', 'da', 'de', 'el', 'en-GB',
-      'en-US', 'es-419', 'es', 'et', 'fi', 'fil', 'fr', 'gu', 'he',
+      'en-US', 'es-419', 'es', 'et', 'fa', 'fi', 'fil', 'fr', 'gu', 'he',
       'hi', 'hr', 'hu', 'id', 'it', 'ja', 'kn', 'ko', 'lt', 'lv',
       'ml', 'mr', 'nb', 'nl', 'pl', 'pt-BR', 'pt-PT', 'ro', 'ru',
       'sk', 'sl', 'sr', 'sv', 'sw', 'ta', 'te', 'th', 'tr', 'uk',
       'vi', 'zh-CN', 'zh-TW',
     ],
-    
-    # Disable touch support by default.
-    'touchui%': 0,
   },
   'target_defaults': {
     'variables': {
@@ -524,6 +541,16 @@
          }],  # OS==win
         ],  # conditions for coverage
       }],  # coverage!=0
+      ['OS=="win"', {
+        'defines': [
+          '__STD_C',
+          '_CRT_SECURE_NO_DEPRECATE',
+          '_SCL_SECURE_NO_DEPRECATE',
+        ],
+        'include_dirs': [
+          '<(DEPTH)/third_party/wtl/include',
+        ],
+      }],  # OS==win
     ],  # conditions for 'target_defaults'
     'target_conditions': [
       ['chromium_code==0', {
@@ -830,6 +857,7 @@
           # Don't export any symbols (for example, to plugins we dlopen()).
           # Note: this is *required* to make some plugins work.
           '-fvisibility=hidden',
+          '-pipe',
         ],
         'cflags_cc': [
           '-fno-rtti',
@@ -919,11 +947,6 @@
             'cflags': [
               '-O>(debug_optimize)',
               '-g',
-              # One can use '-gstabs' to enable building the debugging
-              # information in STABS format for breakpad's dumpsyms.
-            ],
-            'ldflags': [
-              '-rdynamic',  # Allows backtrace to resolve symbols.
             ],
           },
           'Release_Base': {
@@ -946,6 +969,12 @@
               # can be removed at link time with --gc-sections.
               '-fdata-sections',
               '-ffunction-sections',
+            ],
+            'ldflags': [
+              # Specifically tell the linker to perform optimizations.
+              # See http://lwn.net/Articles/192624/ .
+              '-Wl,-O1',
+              '-Wl,--as-needed',
             ],
             'conditions' : [
               ['no_gc_sections==0', {
@@ -1094,13 +1123,30 @@
                 ],
               }]]
           }],
+          ['clang==1', {
+            'cflags': [
+              # Don't warn about unused variables, due to a common pattern:
+              #   scoped_deleter unused_variable(&thing_to_delete);
+              '-Wno-unused-variable',
+              # Clang spots more unused functions.
+              '-Wno-unused-function',
+              # gtest confuses clang.
+              '-Wno-bool-conversions',
+              # Don't die on dtoa code that uses a char as an array index.
+              '-Wno-char-subscripts',
+            ],
+            'cflags!': [
+              # Clang doesn't seem to know know this flag.
+              '-mfpmath=sse',
+            ],
+          }],
           ['no_strict_aliasing==1', {
             'cflags': [
               '-fno-strict-aliasing',
             ],
           }],
           ['linux_breakpad==1', {
-            'cflags': [ '-gstabs' ],
+            'cflags': [ '-g' ],
             'defines': ['USE_LINUX_BREAKPAD'],
           }],
           ['linux_use_seccomp_sandbox==1 and buildtype!="Official"', {
@@ -1126,6 +1172,10 @@
           ['linux_use_heapchecker==0', {
             'defines': ['NO_HEAPCHECKER'],
           }],
+          ['linux_keep_shadow_stacks==1', {
+            'defines': ['KEEP_SHADOW_STACKS'],
+            'cflags': ['-finstrument-functions'],
+          }],
         ],
       },
     }],
@@ -1145,9 +1195,10 @@
     ['OS=="mac"', {
       'target_defaults': {
         'variables': {
-          # This should be 'mac_real_dsym%', but there seems to be a bug
-          # with % in variables that are intended to be set to different
-          # values in different targets, like this one.
+          # These should be 'mac_real_dsym%' and 'mac_strip%', but there
+          # seems to be a bug with % in variables that are intended to be
+          # set to different values in different targets, like these two.
+          'mac_strip': 1,      # Strip debugging symbols from the target.
           'mac_real_dsym': 0,  # Fake .dSYMs are fine in most cases.
         },
         'mac_bundle': 0,
@@ -1186,6 +1237,13 @@
             ['chromium_mac_pch', {'GCC_PRECOMPILE_PREFIX_HEADER': 'YES'},
                                  {'GCC_PRECOMPILE_PREFIX_HEADER': 'NO'}
             ],
+            ['clang==1', {
+              'WARNING_CFLAGS': [
+                # Don't die on dtoa code that uses a char as an array index.
+                # This is required solely for base/third_party/dmg_fp/dtoa.cc.
+                '-Wno-char-subscripts',
+              ],
+            }],
           ],
         },
         'target_conditions': [
@@ -1195,7 +1253,8 @@
           ['_mac_bundle', {
             'xcode_settings': {'OTHER_LDFLAGS': ['-Wl,-ObjC']},
           }],
-          ['_type=="executable" or _type=="shared_library" or _type=="loadable_module"', {
+          ['(_type=="executable" or _type=="shared_library" or \
+             _type=="loadable_module") and mac_strip!=0', {
             'target_conditions': [
               ['mac_real_dsym == 1', {
                 # To get a real .dSYM bundle produced by dsymutil, set the
@@ -1239,7 +1298,8 @@
                 ],  # postbuilds
               }],  # mac_real_dsym
             ],  # target_conditions
-          }],  # _type=="executable" or _type=="shared_library" or _type=="loadable_module"
+          }],  # (_type=="executable" or _type=="shared_library" or
+               #  _type=="loadable_module") and mac_strip!=0
         ],  # target_conditions
       },  # target_defaults
     }],  # OS=="mac"
@@ -1265,7 +1325,6 @@
             ],
           }],
         ],
-        
         'msvs_system_include_dirs': [
           '<(DEPTH)/third_party/platformsdk_win7/files/Include',
           '<(DEPTH)/third_party/directxsdk/files/Include',
@@ -1286,7 +1345,6 @@
               [ 'msvs_multi_core_compile', {
                 'AdditionalOptions': ['/MP'],
               }],
-              
               ['component=="shared_library"', {
                 'ExceptionHandling': '1',  # /EHsc
               }, {

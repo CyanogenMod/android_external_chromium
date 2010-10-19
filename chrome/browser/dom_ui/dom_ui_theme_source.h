@@ -1,15 +1,17 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_DOM_UI_DOM_UI_THEME_SOURCE_H_
 #define CHROME_BROWSER_DOM_UI_DOM_UI_THEME_SOURCE_H_
+#pragma once
 
 #include <string>
 
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 
 class Profile;
+class RefCountedBytes;
 
 // ThumbnailSource is the gateway between network-level chrome:
 // requests for thumbnails and the history backend that serves these.
@@ -28,7 +30,7 @@ class DOMUIThemeSource : public ChromeURLDataManager::DataSource {
   virtual MessageLoop* MessageLoopForRequestPath(const std::string& path) const;
 
  protected:
-  virtual ~DOMUIThemeSource() {}
+  virtual ~DOMUIThemeSource();
 
  private:
   // Fetch and send the theme bitmap.

@@ -121,6 +121,15 @@ class FilesystemInterface {
   virtual FileStream *OpenFile(const Pathname &filename,
                                const std::string &mode) = 0;
 
+  // Atomically creates an empty file accessible only to the current user if one
+  // does not already exist at the given path, otherwise fails. This is the only
+  // secure way to create a file in a shared temp directory (e.g., C:\Temp on
+  // Windows or /tmp on Linux).
+  // Note that if it is essential that a file be successfully created then the
+  // app must generate random names and retry on failure, or else it will be
+  // vulnerable to a trivial DoS.
+  virtual bool CreatePrivateFile(const Pathname &filename) = 0;
+
   // This will attempt to delete the path located at filename.
   // It ASSERTS and returns false if the path points to a folder or a
   // non-existent file.
@@ -300,6 +309,10 @@ class Filesystem {
   static FileStream *OpenFile(const Pathname &filename,
                               const std::string &mode) {
     return EnsureDefaultFilesystem()->OpenFile(filename, mode);
+  }
+
+  static bool CreatePrivateFile(const Pathname &filename) {
+    return EnsureDefaultFilesystem()->CreatePrivateFile(filename);
   }
 
   static bool DeleteFile(const Pathname &filename) {

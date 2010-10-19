@@ -12,6 +12,7 @@
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/views/frame/browser_view.h"
 #include "chrome/common/extensions/extension.h"
+#include "chrome/common/extensions/extension_icon_set.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "gfx/canvas_skia.h"
 #include "grit/theme_resources.h"
@@ -67,7 +68,7 @@ ExtensionInfoBar::~ExtensionInfoBar() {
 
 void ExtensionInfoBar::OnExtensionPreferredSizeChanged(ExtensionView* view) {
   DCHECK(view == delegate_->extension_host()->view());
-  
+
   // When the infobar is closed, it animates to 0 vertical height. We'll
   // continue to get size changed notifications from the ExtensionView, but we
   // need to ignore them otherwise we'll try to re-animate open (and leak the
@@ -163,14 +164,14 @@ void ExtensionInfoBar::SetupIconAndMenu() {
   menu_->SetVisible(false);
   AddChildView(menu_);
 
-  ExtensionResource icon_resource;
   Extension* extension = delegate_->extension_host()->extension();
-  Extension::Icons size =
-      extension->GetIconPathAllowLargerSize(&icon_resource,
-                                            Extension::EXTENSION_ICON_BITTY);
+  ExtensionResource icon_resource = extension->GetIconResource(
+      Extension::EXTENSION_ICON_BITTY, ExtensionIconSet::MATCH_EXACTLY);
   if (!icon_resource.relative_path().empty()) {
     // Create a tracker to load the image. It will report back on OnImageLoaded.
-    tracker_.LoadImage(extension, icon_resource, gfx::Size(size, size),
+    tracker_.LoadImage(extension, icon_resource,
+                       gfx::Size(Extension::EXTENSION_ICON_BITTY,
+                                 Extension::EXTENSION_ICON_BITTY),
                        ImageLoadingTracker::DONT_CACHE);
   } else {
     OnImageLoaded(NULL, icon_resource, 0);  // |image|, |index|.

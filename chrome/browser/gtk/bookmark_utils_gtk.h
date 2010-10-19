@@ -4,11 +4,13 @@
 
 #ifndef CHROME_BROWSER_GTK_BOOKMARK_UTILS_GTK_H_
 #define CHROME_BROWSER_GTK_BOOKMARK_UTILS_GTK_H_
+#pragma once
 
 #include <vector>
 #include <string>
 
 #include "app/gtk_integers.h"
+#include "base/string16.h"
 
 class BookmarkModel;
 class BookmarkNode;
@@ -32,7 +34,7 @@ GdkPixbuf* GetPixbufForNode(const BookmarkNode* node, BookmarkModel* model,
 // Returns a GtkWindow with a visual hierarchy for passing to
 // gtk_drag_set_icon_widget().
 GtkWidget* GetDragRepresentation(GdkPixbuf* pixbuf,
-                                 const std::wstring& title,
+                                 const string16& title,
                                  GtkThemeProvider* provider);
 GtkWidget* GetDragRepresentationForNode(const BookmarkNode* node,
                                         BookmarkModel* model,

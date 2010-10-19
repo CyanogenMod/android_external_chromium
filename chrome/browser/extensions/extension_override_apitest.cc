@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,7 @@
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/extensions/extension_dom_ui.h"
 #include "chrome/browser/extensions/extensions_service.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/url_constants.h"
@@ -22,7 +22,7 @@ class ExtensionOverrideTest : public ExtensionApiTest {
             ExtensionDOMUI::kExtensionURLOverrides);
 
     ListValue* values = NULL;
-    if (!overrides->GetList(L"history", &values))
+    if (!overrides->GetList("history", &values))
       return false;
 
     std::set<std::string> seen_overrides;
@@ -39,6 +39,18 @@ class ExtensionOverrideTest : public ExtensionApiTest {
 
     return true;
   }
+
+#if defined(TOUCH_UI)
+  // Navigate to the keyboard page, and ensure we have arrived at an
+  // extension URL.
+  void NavigateToKeyboard() {
+    ui_test_utils::NavigateToURL(browser(), GURL("chrome://keyboard/"));
+    TabContents* tab = browser()->GetSelectedTabContents();
+    ASSERT_TRUE(tab->controller().GetActiveEntry());
+    EXPECT_TRUE(tab->controller().GetActiveEntry()->url().
+                SchemeIs(chrome::kExtensionScheme));
+  }
+#endif
 };
 
 IN_PROC_BROWSER_TEST_F(ExtensionOverrideTest, OverrideNewtab) {
@@ -120,7 +132,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionOverrideTest, ShouldCleanUpDuplicateEntries) {
     list->Append(Value::CreateStringValue("http://www.google.com/"));
 
   browser()->profile()->GetPrefs()->GetMutableDictionary(
-      ExtensionDOMUI::kExtensionURLOverrides)->Set(L"history", list);
+      ExtensionDOMUI::kExtensionURLOverrides)->Set("history", list);
 
   ASSERT_FALSE(CheckHistoryOverridesContainsNoDupes());
 
@@ -128,3 +140,33 @@ IN_PROC_BROWSER_TEST_F(ExtensionOverrideTest, ShouldCleanUpDuplicateEntries) {
 
   ASSERT_TRUE(CheckHistoryOverridesContainsNoDupes());
 }
+
+#if defined(TOUCH_UI)
+IN_PROC_BROWSER_TEST_F(ExtensionOverrideTest, OverrideKeyboard) {
+  ASSERT_TRUE(RunExtensionTest("override/keyboard")) << message_;
+  {
+    ResultCatcher catcher;
+    NavigateToKeyboard();
+    ASSERT_TRUE(catcher.GetNextResult());
+  }
+
+  // Load the failing version.  This should take precedence.
+  ASSERT_TRUE(LoadExtension(
+      test_data_dir_.AppendASCII("override").AppendASCII("keyboard_fails")));
+  {
+    ResultCatcher catcher;
+    NavigateToKeyboard();
+    ASSERT_FALSE(catcher.GetNextResult());
+  }
+
+  // Unload the failing version.  We should be back to passing now.
+  const ExtensionList *extensions =
+      browser()->profile()->GetExtensionsService()->extensions();
+  UnloadExtension((*extensions->rbegin())->id());
+  {
+    ResultCatcher catcher;
+    NavigateToKeyboard();
+    ASSERT_TRUE(catcher.GetNextResult());
+  }
+}
+#endif

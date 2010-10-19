@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_DROPDOWN_BAR_HOST_H_
 #define CHROME_BROWSER_VIEWS_DROPDOWN_BAR_HOST_H_
+#pragma once
 
 #include "app/animation.h"
 #include "base/scoped_ptr.h"
@@ -76,9 +77,6 @@ class DropdownBarHost : public views::AcceleratorTarget,
   // AnimationDelegate implementation:
   virtual void AnimationProgressed(const Animation* animation);
   virtual void AnimationEnded(const Animation* animation);
-
-  // Get the offset with which to paint the theme image.
-  void GetThemePosition(gfx::Rect* bounds);
 
   // During testing we can disable animations by setting this flag to true,
   // so that opening and closing the dropdown bar is shown instantly, instead of

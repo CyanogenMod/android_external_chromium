@@ -4,15 +4,20 @@
 
 #ifndef CHROME_BROWSER_VIEWS_AUTOFILL_PROFILES_VIEW_WIN_H_
 #define CHROME_BROWSER_VIEWS_AUTOFILL_PROFILES_VIEW_WIN_H_
+#pragma once
 
 #include <list>
+#include <map>
 #include <vector>
 
 #include "app/combobox_model.h"
 #include "app/table_model.h"
+#include "base/string16.h"
 #include "chrome/browser/autofill/autofill_dialog.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
+#include "chrome/browser/prefs/pref_member.h"
+#include "chrome/common/notification_observer.h"
 #include "views/controls/combobox/combobox.h"
 #include "views/controls/link.h"
 #include "views/controls/table/table_view_observer.h"
@@ -29,7 +34,7 @@ class Label;
 class RadioButton;
 class TableView;
 class TextButton;
-}
+}  // namespace views
 
 class PrefService;
 class SkBitmap;
@@ -54,7 +59,8 @@ class AutoFillProfilesView : public views::View,
                              public views::LinkController,
                              public views::FocusChangeListener,
                              public views::TableViewObserver,
-                             public PersonalDataManager::Observer {
+                             public PersonalDataManager::Observer,
+                             public NotificationObserver {
  public:
   virtual ~AutoFillProfilesView();
 
@@ -67,7 +73,7 @@ class AutoFillProfilesView : public views::View,
                   CreditCard* imported_credit_card);
 
  protected:
-  // forward declaration. This struct defined further down.
+  // Forward declaration. This struct defined further down.
   struct EditableSetInfo;
   // Called when 'Add Address' (|group_type| is
   // ContentListTableModel::kAddressGroup) or 'Add Credit Card' (|group_type| is
@@ -79,10 +85,14 @@ class AutoFillProfilesView : public views::View,
   void DeleteClicked();
 
   // Updates state of the buttons.
-  void UpdateButtonState();
+  void UpdateWidgetState();
 
   // Updates inferred labels.
   void UpdateProfileLabels();
+
+  // Updates the billing model. This is invoked any time the profile_set_
+  // changes.
+  void UpdateBillingModel();
 
   // Following two functions are called from opened child dialog to
   // disable/enable buttons.
@@ -92,7 +102,7 @@ class AutoFillProfilesView : public views::View,
   // Returns warning bitmap to set on warning indicator. If |good| is true it
   // returns the bitmap idicating validity, if false - indicating error.
   // Caller owns the bitmap after the call.
-  SkBitmap* GetWarningBimap(bool good);
+  SkBitmap* GetWarningBitmap(bool good);
 
   // views::View methods:
   virtual void Layout();
@@ -134,6 +144,12 @@ class AutoFillProfilesView : public views::View,
 
   // PersonalDataManager::Observer methods:
   virtual void OnPersonalDataLoaded();
+  virtual void OnPersonalDataChanged();
+
+  // NotificationObserver methods:
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
 
   // Helper structure to keep info on one address or credit card.
   // Keeps info on one item in EditableSetViewContents.
@@ -141,7 +157,6 @@ class AutoFillProfilesView : public views::View,
   // and then rebuild EditableSetViewContents.
   struct EditableSetInfo {
     bool is_address;
-    bool has_credit_card_number_been_edited;
     // If |is_address| is true |address| has some data and |credit_card|
     // is empty, and vice versa
     AutoFillProfile address;
@@ -149,13 +164,11 @@ class AutoFillProfilesView : public views::View,
 
     explicit EditableSetInfo(const AutoFillProfile* input_address)
         : address(*input_address),
-          is_address(true),
-          has_credit_card_number_been_edited(false) {
+          is_address(true) {
     }
     explicit EditableSetInfo(const CreditCard* input_credit_card)
         : credit_card(*input_credit_card),
-          is_address(false),
-          has_credit_card_number_been_edited(false) {
+          is_address(false) {
     }
   };
 
@@ -181,6 +194,8 @@ class AutoFillProfilesView : public views::View,
 
   void GetData();
   bool IsDataReady() const;
+  void SaveData();
+  void UpdateIdToIndexes();
 
   // Rebuilds the view by deleting and re-creating sub-views
   void RebuildView(const FocusedItem& new_focus_index);
@@ -199,6 +214,8 @@ class AutoFillProfilesView : public views::View,
                                  const string16& new_contents);
 
     bool IsValid() const;
+
+    views::Textfield* text_phone() { return text_phone_; }
 
    protected:
     // views::View methods:
@@ -223,11 +240,11 @@ class AutoFillProfilesView : public views::View,
     DISALLOW_COPY_AND_ASSIGN(PhoneSubView);
   };
 
-  // forward declaration
+  // Forward declaration.
   class AddressComboBoxModel;
   class StringVectorComboboxModel;
 
-  // Sub-view dealing with addresses.
+  // Sub-view for editing/adding a credit card or address.
   class EditableSetViewContents : public views::View,
                                   public views::DialogDelegate,
                                   public views::ButtonListener,
@@ -255,7 +272,7 @@ class AutoFillProfilesView : public views::View,
       MessageBoxFlags::DialogButton button) const;
     virtual bool CanResize() const { return false; }
     virtual bool CanMaximize() const { return false; }
-    virtual bool IsAlwaysOnTop() const { return false; }
+    virtual bool IsModal() const { return true; }
     virtual bool HasAlwaysOnTopMenu() const { return false; }
     virtual std::wstring GetWindowTitle() const;
     virtual void WindowClosing();
@@ -265,7 +282,7 @@ class AutoFillProfilesView : public views::View,
 
     // views::ButtonListener methods:
     virtual void ButtonPressed(views::Button* sender,
-        const views::Event& event);
+                               const views::Event& event);
 
     // views::Textfield::Controller methods:
     virtual void ContentsChanged(views::Textfield* sender,
@@ -292,7 +309,7 @@ class AutoFillProfilesView : public views::View,
       TEXT_FAX_PHONE,
       TEXT_CC_NAME,
       TEXT_CC_NUMBER,
-      // must be last
+      // Must be last.
       MAX_TEXT_FIELD
     };
 
@@ -303,13 +320,17 @@ class AutoFillProfilesView : public views::View,
 
     void UpdateButtons();
 
-    void UpdateContentsPhoneViews(TextFields field,
+    // If |field| is a phone or fax ContentsChanged is passed to the
+    // PhoneSubView, the appropriate fields in |temporary_info_| are updated and
+    // true is returned. Otherwise false is returned.
+    bool UpdateContentsPhoneViews(TextFields field,
                                   views::Textfield* sender,
                                   const string16& new_contents);
 
     views::Textfield* text_fields_[MAX_TEXT_FIELD];
     std::vector<EditableSetInfo>::iterator editable_fields_set_;
     EditableSetInfo temporary_info_;
+    bool has_credit_card_number_been_edited_;
     AutoFillProfilesView* observer_;
     AddressComboBoxModel* billing_model_;
     views::Combobox* combo_box_billing_;
@@ -340,16 +361,14 @@ class AutoFillProfilesView : public views::View,
     DISALLOW_COPY_AND_ASSIGN(EditableSetViewContents);
   };
 
-  // Encapsulates ComboboxModel for address
+  // Encapsulates ComboboxModel for address.
   class AddressComboBoxModel : public ComboboxModel {
    public:
     explicit AddressComboBoxModel(bool is_billing);
     virtual ~AddressComboBoxModel() {}
 
-    // Should be called only once. No other function should be called before it.
-    // Does not own |address_labels|. To update the model text,
-    // update label in one of the profiles and call LabelChanged()
-    void set_address_labels(const std::vector<EditableSetInfo>* address_labels);
+    // Updates address_labels_ from |address_labels|.
+    void SetAddressLabels(const std::vector<EditableSetInfo>& address_labels);
 
     // When you add a CB view that relies on this model, call this function
     // so the CB can be notified if strings change. Can be called multiple
@@ -361,18 +380,19 @@ class AutoFillProfilesView : public views::View,
     void ClearComboBoxes() { combo_boxes_.clear(); }
 
     // Call this function if one of the labels has changed
-    void LabelChanged();
+    void NotifyChanged();
 
     // Gets index of the item in the model or -1 if not found.
     int GetIndex(int unique_id);
 
-    // ComboboxModel methods, public as they used from EditableSetViewContents
+    // Overridden from ComboboxModel:
+    // Public as they are used from EditableSetViewContents.
     virtual int GetItemCount();
-    virtual std::wstring GetItemAt(int index);
+    virtual string16 GetItemAt(int index);
 
    private:
-    std::list<views::Combobox *> combo_boxes_;
-    const std::vector<EditableSetInfo>* address_labels_;
+    std::list<views::Combobox*> combo_boxes_;
+    std::vector<EditableSetInfo> address_labels_;
     bool is_billing_;
 
     DISALLOW_COPY_AND_ASSIGN(AddressComboBoxModel);
@@ -387,11 +407,9 @@ class AutoFillProfilesView : public views::View,
     // |source|.
     void set_cb_strings(std::vector<std::wstring> *source);
 
-    // Return the number of items in the combo box.
+    // Overridden from ComboboxModel:
     virtual int GetItemCount();
-
-    // Return the string that should be used to represent a given item.
-    virtual std::wstring GetItemAt(int index);
+    virtual string16 GetItemAt(int index);
 
     // Find an index of the item in the model, -1 if not present.
     int GetIndex(const std::wstring& value);
@@ -402,8 +420,7 @@ class AutoFillProfilesView : public views::View,
     DISALLOW_COPY_AND_ASSIGN(StringVectorComboboxModel);
   };
 
-
-  // Model for scrolling credit cards and addresses
+  // Model for scrolling credit cards and addresses.
   class ContentListTableModel : public TableModel {
    public:
     ContentListTableModel(std::vector<EditableSetInfo>* profiles,
@@ -443,8 +460,11 @@ class AutoFillProfilesView : public views::View,
   PrefService* preferences_;
   std::vector<EditableSetInfo> profiles_set_;
   std::vector<EditableSetInfo> credit_card_set_;
+  std::map<int, size_t> unique_ids_to_indexes_;
 
   AddressComboBoxModel billing_model_;
+
+  BooleanPrefMember enable_auto_fill_;
 
   views::Checkbox* enable_auto_fill_button_;
   views::Button* add_address_button_;
@@ -462,4 +482,3 @@ class AutoFillProfilesView : public views::View,
 };
 
 #endif  // CHROME_BROWSER_VIEWS_AUTOFILL_PROFILES_VIEW_WIN_H_
-

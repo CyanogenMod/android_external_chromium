@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_TAB_CONTENTS_NATIVE_TAB_CONTENTS_CONTAINER_H_
 #define CHROME_BROWSER_VIEWS_TAB_CONTENTS_NATIVE_TAB_CONTENTS_CONTAINER_H_
+#pragma once
 
 class RenderViewHost;
 class TabContents;
@@ -40,6 +41,8 @@ class NativeTabContentsContainer {
 
   // Retrieves the views::View that hosts the TabContents.
   virtual views::View* GetView() = 0;
+ protected:
+  virtual ~NativeTabContentsContainer() {}
 };
 
 #endif  // CHROME_BROWSER_VIEWS_TAB_CONTENTS_NATIVE_TAB_CONTENTS_CONTAINER_H_

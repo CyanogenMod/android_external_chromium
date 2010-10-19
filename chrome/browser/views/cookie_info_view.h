@@ -4,11 +4,13 @@
 
 #ifndef CHROME_BROWSER_VIEWS_COOKIE_INFO_VIEW_H_
 #define CHROME_BROWSER_VIEWS_COOKIE_INFO_VIEW_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "app/combobox_model.h"
+#include "base/string16.h"
 #include "net/base/cookie_monster.h"
 #include "views/controls/combobox/combobox.h"
 #include "views/view.h"
@@ -72,7 +74,7 @@ class CookieInfoView : public views::View,
 
   // ComboboxModel overrides for expires_value_combobox_.
   virtual int GetItemCount();
-  virtual std::wstring GetItemAt(int index);
+  virtual string16 GetItemAt(int index);
 
  private:
   // Layout helper routines.

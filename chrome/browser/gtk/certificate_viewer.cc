@@ -17,7 +17,7 @@
 #include "base/i18n/time_formatting.h"
 #include "base/nss_util.h"
 #include "base/scoped_ptr.h"
-#include "base/string_util.h"
+#include "base/string_number_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/gtk/certificate_dialogs.h"
@@ -52,27 +52,6 @@ std::string Stringize(char* nss_text) {
   return s;
 }
 
-// BreakHexLines will insert a newline character every 48 characters. For a hex
-// fingerprint with colons, that's every 128 bits.
-std::string BreakHexLines(const std::string& long_line) {
-  static const std::string::size_type line_len = 48;
-  if (long_line.size() <= line_len)
-    return long_line;
-
-  std::string ret;
-  std::string::size_type offset = 0;
-  while (offset < long_line.size()) {
-    if (offset > 0)
-      ret.append("\n");
-    std::string::size_type todo = long_line.size() - offset;
-    if (todo > line_len)
-      todo = line_len;
-    ret.append(long_line.data() + offset, todo);
-    offset += todo;
-  }
-  return ret;
-}
-
 // Hash a certificate using the given algorithm, return the result as a
 // colon-seperated hex string.  The len specified is the number of bytes
 // required for storing the raw fingerprint.
@@ -91,7 +70,7 @@ std::string HashCert(CERTCertificate* cert, HASH_HashType algorithm, int len) {
   DCHECK(rv == SECSuccess);
   fingerprint_item.data = fingerprint;
   fingerprint_item.len = len;
-  return BreakHexLines(Stringize(CERT_Hexify(&fingerprint_item, TRUE)));
+  return psm::ProcessRawBytes(&fingerprint_item);
 }
 
 std::string ProcessSecAlgorithm(SECAlgorithmID* algorithm_id) {
@@ -415,7 +394,7 @@ void CertificateViewer::FillTreeStoreWithCertFields(GtkTreeStore* store,
   if (SEC_ASN1DecodeInteger(&cert->version, &version) == SECSuccess &&
       version != ULONG_MAX)
     version_str = l10n_util::GetStringFUTF8(IDS_CERT_DETAILS_VERSION_FORMAT,
-                                            UintToString16(version + 1));
+                                            base::UintToString16(version + 1));
   GtkTreeIter iter;
   gtk_tree_store_append(store, &iter, &cert_iter);
   gtk_tree_store_set(

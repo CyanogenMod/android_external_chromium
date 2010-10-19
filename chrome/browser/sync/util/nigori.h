@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_UTIL_NIGORI_H_
 #define CHROME_BROWSER_SYNC_UTIL_NIGORI_H_
+#pragma once
 
 #include <string>
 
@@ -27,13 +28,19 @@ class Nigori {
     Password = 1,
   };
 
-  // Creates a Nigori client for communicating with |hostname|. Note that
-  // |hostname| is used to derive the keys used to encrypt and decrypt data.
-  explicit Nigori(const std::string& hostname);
+  Nigori();
   virtual ~Nigori();
 
-  // Initialize the client with the supplied |username| and |password|.
-  bool Init(const std::string& username, const std::string& password);
+  // Initialize the client with the given |hostname|, |username| and |password|.
+  bool InitByDerivation(const std::string& hostname,
+                        const std::string& username,
+                        const std::string& password);
+
+  // Initialize the client by importing the given keys instead of deriving new
+  // ones.
+  bool InitByImport(const std::string& user_key,
+                    const std::string& encryption_key,
+                    const std::string& mac_key);
 
   // Derives a secure lookup name from |type| and |name|. If |hostname|,
   // |username| and |password| are kept constant, a given |type| and |name| pair
@@ -49,12 +56,10 @@ class Nigori {
   // encoded.
   bool Decrypt(const std::string& value, std::string* decrypted) const;
 
-  // The next three getters return the parameters used to initialize the keys.
-  // Given the hostname, username and password, another Nigori object capable of
-  // encrypting and decrypting the same data as this one could be initialized.
-  const std::string& hostname() const { return hostname_; }
-  const std::string& username() const { return username_; }
-  const std::string& password() const { return password_; }
+  // Exports the raw derived keys.
+  bool ExportKeys(std::string* user_key,
+                  std::string* encryption_key,
+                  std::string* mac_key) const;
 
   static const char kSaltSalt[];  // The salt used to derive the user salt.
   static const size_t kSaltKeySizeInBits = 128;
@@ -68,10 +73,6 @@ class Nigori {
   static const size_t kSigningIterations = 1004;
 
  private:
-  std::string hostname_;
-  std::string username_;
-  std::string password_;
-
   scoped_ptr<base::SymmetricKey> user_key_;
   scoped_ptr<base::SymmetricKey> encryption_key_;
   scoped_ptr<base::SymmetricKey> mac_key_;

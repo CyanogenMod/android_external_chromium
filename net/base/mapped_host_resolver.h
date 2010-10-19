@@ -4,9 +4,9 @@
 
 #ifndef NET_BASE_MAPPED_HOST_RESOLVER_H_
 #define NET_BASE_MAPPED_HOST_RESOLVER_H_
+#pragma once
 
 #include <string>
-#include <vector>
 
 #include "base/ref_counted.h"
 #include "net/base/host_mapping_rules.h"

@@ -62,15 +62,8 @@ Session *Call::InitiateSession(const buzz::Jid &jid) {
   Session *session = session_client_->CreateSession(this);
   AddSession(session);
 
-  MediaSessionDescription *session_desc =
-      session_client_->CreateOfferSessionDescription(video_);
-  if (mux_) {
-    session_desc->voice().set_ssrc(0);
-    if (video_) {
-      session_desc->video().set_ssrc(0);
-    }
-  }
-  session->Initiate(jid.Str(), session_desc);
+  const SessionDescription* offer = session_client_->CreateOffer(video_, mux_);
+  session->Initiate(jid.Str(), offer);
 
   // After this timeout, terminate the call because the callee isn't
   // answering
@@ -85,23 +78,23 @@ Session *Call::InitiateSession(const buzz::Jid &jid) {
 void Call::AcceptSession(BaseSession *session) {
   std::vector<Session *>::iterator it;
   it = std::find(sessions_.begin(), sessions_.end(), session);
-  assert(it != sessions_.end());
+  ASSERT(it != sessions_.end());
   if (it != sessions_.end()) {
-    session->Accept(session_client_->CreateAcceptSessionDescription(
-      session->remote_description()));
+    session->Accept(
+        session_client_->CreateAnswer(session->remote_description()));
   }
 }
 
 void Call::RejectSession(BaseSession *session) {
   std::vector<Session *>::iterator it;
   it = std::find(sessions_.begin(), sessions_.end(), session);
-  assert(it != sessions_.end());
+  ASSERT(it != sessions_.end());
   if (it != sessions_.end())
     session->Reject();
 }
 
 void Call::TerminateSession(BaseSession *session) {
-  assert(std::find(sessions_.begin(), sessions_.end(), session)
+  ASSERT(std::find(sessions_.begin(), sessions_.end(), session)
          != sessions_.end());
   std::vector<Session *>::iterator it;
   it = std::find(sessions_.begin(), sessions_.end(), session);

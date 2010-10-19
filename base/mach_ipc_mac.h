@@ -4,6 +4,7 @@
 
 #ifndef BASE_MACH_IPC_MAC_H_
 #define BASE_MACH_IPC_MAC_H_
+#pragma once
 
 #include <mach/mach.h>
 #include <mach/message.h>
@@ -19,7 +20,7 @@
 //
 // The three main classes of interest are
 //
-//  MachMessage:    a wrapper for a mach message of the following form
+//  MachMessage:    a wrapper for a Mach message of the following form
 //   mach_msg_header_t
 //   mach_msg_body_t
 //   optional descriptors
@@ -29,10 +30,10 @@
 //    and are used instead of MachMessage which is an abstract base class
 //
 //  ReceivePort:
-//    Represents a mach port for which we have receive rights
+//    Represents a Mach port for which we have receive rights
 //
 //  MachPortSender:
-//    Represents a mach port for which we have send rights
+//    Represents a Mach port for which we have send rights
 //
 // Here's an example to receive a message on a server port:
 //
@@ -113,12 +114,6 @@ class MachMsgPortDescriptor : public mach_msg_port_descriptor_t {
     return disposition;
   }
 
-  // We're just a simple wrapper for mach_msg_port_descriptor_t
-  // and have the same memory layout
-  operator mach_msg_port_descriptor_t&() {
-    return *this;
-  }
-
   // For convenience
   operator mach_port_t() const {
     return GetMachPort();
@@ -126,7 +121,7 @@ class MachMsgPortDescriptor : public mach_msg_port_descriptor_t {
 };
 
 //==============================================================================
-// MachMessage: a wrapper for a mach message
+// MachMessage: a wrapper for a Mach message
 //  (mach_msg_header_t, mach_msg_body_t, extra data)
 //
 //  This considerably simplifies the construction of a message for sending
@@ -164,7 +159,7 @@ class MachMessage {
 
   int32_t GetMessageID() { return EndianU32_LtoN(GetDataPacket()->id); }
 
-  // Adds a descriptor (typically a mach port) to be translated
+  // Adds a descriptor (typically a Mach port) to be translated
   // returns true if successful, otherwise not enough space
   bool AddDescriptor(const MachMsgPortDescriptor &desc);
 
@@ -174,7 +169,7 @@ class MachMessage {
 
   MachMsgPortDescriptor *GetDescriptor(int n);
 
-  // Convenience method which gets the mach port described by the descriptor
+  // Convenience method which gets the Mach port described by the descriptor
   mach_port_t GetTranslatedPort(int n);
 
   // A simple message is one with no descriptors
@@ -211,7 +206,7 @@ class MachMessage {
   int CalculateSize();
 
   // Returns total storage size that this object can grow to, this is inclusive
-  // of the mach header.
+  // of the Mach header.
   size_t MaxSize() const { return storage_length_bytes_; }
 
  protected:
@@ -241,7 +236,7 @@ class MachMessage {
 
 //==============================================================================
 // MachReceiveMessage and MachSendMessage are useful to separate the idea
-// of a mach message being sent and being received, and adds increased type
+// of a Mach message being sent and being received, and adds increased type
 // safety:
 //  ReceivePort::WaitForMessage() only accepts a MachReceiveMessage
 //  MachPortSender::SendMessage() only accepts a MachSendMessage
@@ -270,26 +265,27 @@ class MachSendMessage : public MachMessage {
 };
 
 //==============================================================================
-// Represents a mach port for which we have receive rights
+// Represents a Mach port for which we have receive rights
 class ReceivePort {
  public:
-  // Creates a new mach port for receiving messages and registers a name for it
+  // Creates a new Mach port for receiving messages and registers a name for it
   explicit ReceivePort(const char *receive_port_name);
 
-  // Given an already existing mach port, use it.  We take ownership of the
+  // Given an already existing Mach port, use it.  We take ownership of the
   // port and deallocate it in our destructor.
   explicit ReceivePort(mach_port_t receive_port);
 
-  // Create a new mach port for receiving messages
+  // Create a new Mach port for receiving messages
   ReceivePort();
 
   ~ReceivePort();
 
-  // Waits on the mach port until message received or timeout
+  // Waits on the Mach port until message received or timeout.  If |timeout| is
+  // MACH_MSG_TIMEOUT_NONE, this method waits forever.
   kern_return_t WaitForMessage(MachReceiveMessage *out_message,
                                mach_msg_timeout_t timeout);
 
-  // The underlying mach port that we wrap
+  // The underlying Mach port that we wrap
   mach_port_t  GetPort() const { return port_; }
 
  private:
@@ -300,14 +296,14 @@ class ReceivePort {
 };
 
 //==============================================================================
-// Represents a mach port for which we have send rights
+// Represents a Mach port for which we have send rights
 class MachPortSender {
  public:
   // get a port with send rights corresponding to a named registered service
   explicit MachPortSender(const char *receive_port_name);
 
 
-  // Given an already existing mach port, use it. Does not take ownership of
+  // Given an already existing Mach port, use it. Does not take ownership of
   // |send_port|.
   explicit MachPortSender(mach_port_t send_port);
 

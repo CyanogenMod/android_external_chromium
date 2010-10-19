@@ -1,17 +1,19 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_IMPORTER_FIREFOX_IMPORTER_UTILS_H_
 #define CHROME_BROWSER_IMPORTER_FIREFOX_IMPORTER_UTILS_H_
+#pragma once
 
+#include <string>
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/file_path.h"
 #include "build/build_config.h"
 
 class DictionaryValue;
+class FilePath;
 class GURL;
 class TemplateURL;
 
@@ -93,5 +95,10 @@ bool IsDefaultHomepage(const GURL& homepage, const FilePath& app_path);
 // Note: for strings, only valid UTF-8 string values are supported.  If a
 // key/pair is not valid UTF-8, it is ignored and will not appear in |prefs|.
 bool ParsePrefFile(const FilePath& pref_file, DictionaryValue* prefs);
+
+// Parses the value of a particular firefox preference from a string that is
+// the contents of the prefs file.
+std::string GetPrefsJsValue(const std::string& prefs,
+                            const std::string& pref_key);
 
 #endif  // CHROME_BROWSER_IMPORTER_FIREFOX_IMPORTER_UTILS_H_

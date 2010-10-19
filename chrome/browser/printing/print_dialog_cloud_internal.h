@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_PRINTING_PRINT_DIALOG_CLOUD_INTERNAL_H_
 #define CHROME_BROWSER_PRINTING_PRINT_DIALOG_CLOUD_INTERNAL_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -21,20 +22,6 @@ class StringValue;
 class CloudPrintHtmlDialogDelegateTest;
 
 namespace internal_cloud_print_helpers {
-
-// Centralize URL management for the cloud print service.
-class CloudPrintService {
- public:
-  explicit CloudPrintService(Profile* profile) : profile_(profile) {}
-
-  GURL GetCloudPrintServiceURL();
-  GURL GetCloudPrintServiceDialogURL();
-
- private:
-  void RegisterPreferences();
-
-  Profile* profile_;
-};
 
 // Small class to virtualize a few functions to aid with unit testing.
 class CloudPrintDataSenderHelper {
@@ -122,9 +109,9 @@ class CloudPrintFlowHandler : public DOMMessageHandler,
                        const NotificationDetails& details);
 
   // Callbacks from the page.
-  void HandleShowDebugger(const Value* value);
-  void HandleSendPrintData(const Value* value);
-  void HandleSetPageParameters(const Value* value);
+  void HandleShowDebugger(const ListValue* args);
+  void HandleSendPrintData(const ListValue* args);
+  void HandleSetPageParameters(const ListValue* args);
 
   // Call to get the debugger loaded on our hosted dialog page
   // specifically.  Since we're not in an official browser tab, only

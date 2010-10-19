@@ -88,7 +88,8 @@ void ResourceFetcher::didReceiveCachedMetadata(
   metadata_.assign(data, data_length);
 }
 
-void ResourceFetcher::didFinishLoading(WebURLLoader* loader) {
+void ResourceFetcher::didFinishLoading(
+    WebURLLoader* loader, double finishTime) {
   DCHECK(!completed_);
   completed_ = true;
 
@@ -117,6 +118,9 @@ ResourceFetcherWithTimeout::ResourceFetcherWithTimeout(
     : ResourceFetcher(url, frame, c) {
   timeout_timer_.Start(TimeDelta::FromSeconds(timeout_secs), this,
                        &ResourceFetcherWithTimeout::TimeoutFired);
+}
+
+ResourceFetcherWithTimeout::~ResourceFetcherWithTimeout() {
 }
 
 void ResourceFetcherWithTimeout::TimeoutFired() {

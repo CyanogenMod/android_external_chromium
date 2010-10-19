@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_SCREEN_LOCK_VIEW_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_SCREEN_LOCK_VIEW_H_
+#pragma once
 
 #include "chrome/browser/chromeos/login/user_view.h"
 #include "chrome/common/notification_observer.h"
@@ -66,6 +67,12 @@ class ScreenLockView : public views::View,
 
   // UserView::Delegate implementation:
   virtual void OnSignout();
+
+ protected:
+  // views::View implementation:
+  virtual void ViewHierarchyChanged(bool is_add,
+                                    views::View* parent,
+                                    views::View* child);
 
  private:
   friend class test::ScreenLockerTester;

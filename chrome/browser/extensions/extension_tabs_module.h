@@ -4,11 +4,13 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_TABS_MODULE_H__
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_TABS_MODULE_H__
+#pragma once
 
 #include <string>
 
 #include "chrome/browser/extensions/extension_function.h"
 #include "chrome/common/notification_service.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
 class BackingStore;

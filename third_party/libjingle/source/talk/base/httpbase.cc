@@ -126,7 +126,7 @@ HttpParser::Process(const char* buffer, size_t len, size_t* processed,
       ProcessResult result = ProcessData(buffer + *processed, available, read,
                                          error);
       LOG(LS_VERBOSE) << "Processed data, result: " << result << " read: "
-                      << read << " error: " << error;
+                      << read << " err: " << error;
 
       if (PR_CONTINUE != result) {
         return result;
@@ -144,7 +144,7 @@ HttpParser::Process(const char* buffer, size_t len, size_t* processed,
 HttpParser::ProcessResult
 HttpParser::ProcessLine(const char* line, size_t len, HttpError* error) {
   LOG_F(LS_VERBOSE) << " state: " << state_ << " line: "
-                    << std::string(line, len) << " len: " << len << " error: "
+                    << std::string(line, len) << " len: " << len << " err: "
                     << error;
 
   switch (state_) {
@@ -285,12 +285,12 @@ public:
     // When the method returns, we restore the old document.  Ideally, we would
     // pass our StreamInterface* to DoReceiveLoop, but due to the callbacks
     // of HttpParser, we would still need to store the pointer temporarily.
-
-    BlockingMemoryStream stream(reinterpret_cast<char*>(buffer), buffer_len);
+    scoped_ptr<StreamInterface>
+        stream(new BlockingMemoryStream(reinterpret_cast<char*>(buffer),
+                                        buffer_len));
 
     // Replace the existing document with our wrapped buffer.
-    StreamInterface* prior_stream = base_->data_->document.release();
-    base_->data_->document.reset(&stream);
+    base_->data_->document.swap(stream);
 
     // Pump the I/O loop.  DoReceiveLoop is guaranteed not to attempt to
     // complete the I/O process, which means that our wrapper is not in danger
@@ -301,8 +301,7 @@ public:
     bool complete = base_->DoReceiveLoop(&http_error);
 
     // Reinstall the original output document.
-    base_->data_->document.release();
-    base_->data_->document.reset(prior_stream);
+    base_->data_->document.swap(stream);
 
     // If we reach the end of the receive stream, we disconnect our stream
     // adapter from the HttpBase, and further calls to read will either return
@@ -318,7 +317,7 @@ public:
     // Even if we are complete, if some data was read we must return SUCCESS.
     // Future Reads will return EOS or ERROR based on the error_ variable.
     size_t position;
-    stream.GetPosition(&position);
+    stream->GetPosition(&position);
     if (position > 0) {
       if (read) *read = position;
       result = SR_SUCCESS;

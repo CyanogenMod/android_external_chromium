@@ -10,7 +10,7 @@
 #include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/file_util.h"
-#include "base/rand_util.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
@@ -19,30 +19,32 @@
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#if defined(TOOLKIT_VIEWS)
-#include "chrome/browser/views/app_launcher.h"
-#include "chrome/browser/views/extensions/extension_installed_bubble.h"
-#elif defined(TOOLKIT_GTK)
-#include "chrome/browser/gtk/extension_installed_bubble_gtk.h"
-#endif
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_action.h"
+#include "chrome/common/extensions/extension_icon_set.h"
 #include "chrome/common/extensions/extension_resource.h"
+#include "chrome/common/extensions/url_pattern.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
-#include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 
-#if defined(TOOLKIT_GTK)
-#include "chrome/browser/extensions/gtk_theme_installed_infobar_delegate.h"
-#include "chrome/browser/gtk/gtk_theme_provider.h"
-#endif
-
 #if defined(OS_MACOSX)
 #include "chrome/browser/cocoa/extension_installed_bubble_bridge.h"
+#endif
+
+#if defined(TOOLKIT_VIEWS)
+#include "chrome/browser/views/app_launcher.h"
+#include "chrome/browser/views/extensions/extension_installed_bubble.h"
+#endif
+
+#if defined(TOOLKIT_GTK)
+#include "chrome/browser/extensions/gtk_theme_installed_infobar_delegate.h"
+#include "chrome/browser/gtk/extension_installed_bubble_gtk.h"
+#include "chrome/browser/gtk/gtk_theme_provider.h"
 #endif
 
 // static
@@ -63,62 +65,8 @@ const int ExtensionInstallUI::kButtonIds[NUM_PROMPT_TYPES] = {
 
 namespace {
 
-static void GetV2Warnings(Extension* extension,
-                          std::vector<string16>* warnings) {
-  if (!extension->plugins().empty()) {
-    // TODO(aa): This one is a bit awkward. Should we have a separate
-    // presentation for this case?
-    warnings->push_back(
-        l10n_util::GetStringUTF16(IDS_EXTENSION_PROMPT2_WARNING_FULL_ACCESS));
-    return;
-  }
-
-  if (extension->HasAccessToAllHosts()) {
-    warnings->push_back(
-        l10n_util::GetStringUTF16(IDS_EXTENSION_PROMPT2_WARNING_ALL_HOSTS));
-  } else {
-    std::set<std::string> hosts = extension->GetEffectiveHostPermissions();
-    if (hosts.size() == 1) {
-      warnings->push_back(
-          l10n_util::GetStringFUTF16(IDS_EXTENSION_PROMPT2_WARNING_1_HOST,
-                                     UTF8ToUTF16(*hosts.begin())));
-    } else if (hosts.size() == 2) {
-      warnings->push_back(
-          l10n_util::GetStringFUTF16(IDS_EXTENSION_PROMPT2_WARNING_2_HOSTS,
-                                     UTF8ToUTF16(*hosts.begin()),
-                                     UTF8ToUTF16(*(++hosts.begin()))));
-    } else if (hosts.size() == 3) {
-      warnings->push_back(
-          l10n_util::GetStringFUTF16(IDS_EXTENSION_PROMPT2_WARNING_3_HOSTS,
-                                     UTF8ToUTF16(*hosts.begin()),
-                                     UTF8ToUTF16(*(++hosts.begin())),
-                                     UTF8ToUTF16(*(++++hosts.begin()))));
-    } else if (hosts.size() >= 4) {
-      warnings->push_back(
-          l10n_util::GetStringFUTF16(
-              IDS_EXTENSION_PROMPT2_WARNING_4_OR_MORE_HOSTS,
-              UTF8ToUTF16(*hosts.begin()),
-              UTF8ToUTF16(*(++hosts.begin())),
-              IntToString16(hosts.size() - 2)));
-    }
-  }
-
-  if (extension->HasEffectiveBrowsingHistoryPermission()) {
-    warnings->push_back(
-        l10n_util::GetStringUTF16(
-            IDS_EXTENSION_PROMPT2_WARNING_BROWSING_HISTORY));
-  }
-
-  const Extension::SimplePermissions& simple_permissions =
-      Extension::GetSimplePermissions();
-
-  for (Extension::SimplePermissions::const_iterator iter =
-           simple_permissions.begin();
-       iter != simple_permissions.end(); ++iter) {
-    if (extension->HasApiPermission(iter->first))
-      warnings->push_back(iter->second);
-  }
-}
+// Size of extension icon in top left of dialog.
+const int kIconSize = 69;
 
 }  // namespace
 
@@ -130,6 +78,9 @@ ExtensionInstallUI::ExtensionInstallUI(Profile* profile)
       delegate_(NULL),
       prompt_type_(NUM_PROMPT_TYPES),
       ALLOW_THIS_IN_INITIALIZER_LIST(tracker_(this)) {}
+
+ExtensionInstallUI::~ExtensionInstallUI() {
+}
 
 void ExtensionInstallUI::ConfirmInstall(Delegate* delegate,
                                         Extension* extension) {
@@ -155,7 +106,7 @@ void ExtensionInstallUI::ConfirmInstall(Delegate* delegate,
     DCHECK(!previous_use_system_theme_);
 #endif
 
-    delegate->InstallUIProceed(false);
+    delegate->InstallUIProceed();
     return;
   }
 
@@ -198,7 +149,8 @@ void ExtensionInstallUI::OnInstallSuccess(Extension* extension) {
       url += "/#";
       url += hash_params;
       browser->AddTabWithURL(GURL(url), GURL(), PageTransition::TYPED, -1,
-                             TabStripModel::ADD_SELECTED, NULL, std::string());
+                             TabStripModel::ADD_SELECTED, NULL, std::string(),
+                             NULL);
     }
 
     return;
@@ -249,8 +201,13 @@ void ExtensionInstallUI::OnImageLoaded(
   else
     icon_ = SkBitmap();
   if (icon_.empty()) {
-    icon_ = *ResourceBundle::GetSharedInstance().GetBitmapNamed(
-        IDR_EXTENSION_DEFAULT_ICON);
+    if (extension_->is_app()) {
+      icon_ = *ResourceBundle::GetSharedInstance().GetBitmapNamed(
+          IDR_APP_DEFAULT_ICON);
+    } else {
+      icon_ = *ResourceBundle::GetSharedInstance().GetBitmapNamed(
+          IDR_EXTENSION_DEFAULT_ICON);
+    }
   }
 
   switch (prompt_type_) {
@@ -262,17 +219,14 @@ void ExtensionInstallUI::OnImageLoaded(
           Source<ExtensionInstallUI>(this),
           NotificationService::NoDetails());
 
-      std::vector<string16> warnings;
-      GetV2Warnings(extension_, &warnings);
-      ShowExtensionInstallUIPrompt2Impl(
-          profile_, delegate_, extension_, &icon_, warnings);
+      std::vector<string16> warnings = extension_->GetPermissionMessages();
+      ShowExtensionInstallUIPrompt2Impl(profile_, delegate_, extension_, &icon_,
+                                        warnings);
       break;
     }
     case UNINSTALL_PROMPT: {
-      string16 message =
-          l10n_util::GetStringUTF16(IDS_EXTENSION_UNINSTALL_CONFIRMATION);
       ShowExtensionInstallUIPromptImpl(profile_, delegate_, extension_, &icon_,
-          message, UNINSTALL_PROMPT);
+                                       UNINSTALL_PROMPT);
       break;
     }
     default:
@@ -331,10 +285,10 @@ void ExtensionInstallUI::ShowConfirmation(PromptType prompt_type) {
   // Load the image asynchronously. For the response, check OnImageLoaded.
   prompt_type_ = prompt_type;
   ExtensionResource image =
-      extension_->GetIconPath(Extension::EXTENSION_ICON_LARGE);
+      extension_->GetIconResource(Extension::EXTENSION_ICON_LARGE,
+                                  ExtensionIconSet::MATCH_EXACTLY);
   tracker_.LoadImage(extension_, image,
-                     gfx::Size(Extension::EXTENSION_ICON_LARGE,
-                               Extension::EXTENSION_ICON_LARGE),
+                     gfx::Size(kIconSize, kIconSize),
                      ImageLoadingTracker::DONT_CACHE);
 }
 
@@ -349,9 +303,11 @@ void ExtensionInstallUI::ShowGenericExtensionInstalledInfoBar(
   if (!tab_contents)
     return;
 
-  std::wstring msg = l10n_util::GetStringF(IDS_EXTENSION_INSTALLED_HEADING,
-                                           UTF8ToWide(new_extension->name())) +
-         L" " + l10n_util::GetString(IDS_EXTENSION_INSTALLED_MANAGE_INFO_MAC);
+  string16 msg =
+      l10n_util::GetStringFUTF16(IDS_EXTENSION_INSTALLED_HEADING,
+                                 UTF8ToUTF16(new_extension->name())) +
+      UTF8ToUTF16(" ") +
+      l10n_util::GetStringUTF16(IDS_EXTENSION_INSTALLED_MANAGE_INFO_MAC);
   InfoBarDelegate* delegate = new SimpleAlertInfoBarDelegate(
       tab_contents, msg, new SkBitmap(icon_), true);
   tab_contents->AddInfoBar(delegate);

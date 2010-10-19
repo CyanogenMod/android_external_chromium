@@ -1,9 +1,10 @@
-// Copyright (c) 2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_EXTENSIONS_USER_SCRIPT_MASTER_H_
 #define CHROME_BROWSER_EXTENSIONS_USER_SCRIPT_MASTER_H_
+#pragma once
 
 #include "base/file_path.h"
 #include "base/gtest_prod_util.h"
@@ -11,13 +12,13 @@
 #include "base/shared_memory.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/common/extensions/user_script.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
 namespace base {
 class StringPiece;
 }
 
-class Extension;
 class Profile;
 
 // Manages a segment of shared memory that contains the user scripts the user

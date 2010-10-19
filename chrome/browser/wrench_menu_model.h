@@ -4,23 +4,18 @@
 
 #ifndef CHROME_BROWSER_WRENCH_MENU_MODEL_H_
 #define CHROME_BROWSER_WRENCH_MENU_MODEL_H_
+#pragma once
 
-#include <set>
-#include <vector>
-
+#include "app/menus/accelerator.h"
 #include "app/menus/button_menu_item_model.h"
 #include "app/menus/simple_menu_model.h"
-#include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/tabs/tab_strip_model_observer.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
 class Browser;
-
-namespace menus {
-class ButtonMenuItemModel;
-}  // namespace menus
+class TabStripModel;
 
 namespace {
 class MockWrenchMenuModel;
@@ -31,7 +26,7 @@ class EncodingMenuModel : public menus::SimpleMenuModel,
                           public menus::SimpleMenuModel::Delegate {
  public:
   explicit EncodingMenuModel(Browser* browser);
-  virtual ~EncodingMenuModel() {}
+  virtual ~EncodingMenuModel();
 
   // Overridden from menus::SimpleMenuModel::Delegate:
   virtual bool IsCommandIdChecked(int command_id) const;
@@ -52,7 +47,7 @@ class EncodingMenuModel : public menus::SimpleMenuModel,
 class ZoomMenuModel : public menus::SimpleMenuModel {
  public:
   explicit ZoomMenuModel(menus::SimpleMenuModel::Delegate* delegate);
-  virtual ~ZoomMenuModel() {}
+  virtual ~ZoomMenuModel();
 
  private:
   void Build();
@@ -75,24 +70,27 @@ class ToolsMenuModel : public menus::SimpleMenuModel {
 
 // A menu model that builds the contents of the wrench menu.
 class WrenchMenuModel : public menus::SimpleMenuModel,
+                        public menus::SimpleMenuModel::Delegate,
                         public menus::ButtonMenuItemModel::Delegate,
                         public TabStripModelObserver,
                         public NotificationObserver {
  public:
-  WrenchMenuModel(menus::SimpleMenuModel::Delegate* delegate,
-                  Browser* browser);
+  WrenchMenuModel(menus::AcceleratorProvider* provider, Browser* browser);
   virtual ~WrenchMenuModel();
 
-  // Overridden from menus::SimpleMenuModel:
-  virtual bool IsLabelDynamicAt(int index) const;
-  virtual string16 GetLabelAt(int index) const;
-  virtual bool HasIcons() const { return true; }
-  virtual bool GetIconAt(int index, SkBitmap* icon) const;
+  // Overridden for ButtonMenuItemModel::Delegate:
+  virtual bool DoesCommandIdDismissMenu(int command_id) const;
 
-  // Overridden from menus::ButtonMenuItemModel::Delegate:
+  // Overridden for both ButtonMenuItemModel::Delegate and SimpleMenuModel:
   virtual bool IsLabelForCommandIdDynamic(int command_id) const;
   virtual string16 GetLabelForCommandId(int command_id) const;
   virtual void ExecuteCommand(int command_id);
+  virtual bool IsCommandIdChecked(int command_id) const;
+  virtual bool IsCommandIdEnabled(int command_id) const;
+  virtual bool IsCommandIdVisible(int command_id) const;
+  virtual bool GetAcceleratorForCommandId(
+      int command_id,
+      menus::Accelerator* accelerator);
 
   // Overridden from TabStripModelObserver:
   virtual void TabSelectedAt(TabContents* old_contents,
@@ -111,10 +109,13 @@ class WrenchMenuModel : public menus::SimpleMenuModel,
   // Getters.
   Browser* browser() const { return browser_; }
 
+  // Calculates |zoom_label_| in response to a zoom change.
+  void UpdateZoomControls();
+
  private:
   // Testing constructor used for mocking.
   friend class ::MockWrenchMenuModel;
-  WrenchMenuModel() : menus::SimpleMenuModel(NULL) {}
+  WrenchMenuModel();
 
   void Build();
 
@@ -123,13 +124,10 @@ class WrenchMenuModel : public menus::SimpleMenuModel,
   void CreateCutCopyPaste();
   void CreateZoomFullscreen();
 
-  // Calculates |zoom_label_| in response to a zoom change.
-  void UpdateZoomControls();
+  // Gets the current zoom information from the renderer.
   double GetZoom(bool* enable_increment, bool* enable_decrement);
 
   string16 GetSyncMenuLabel() const;
-  string16 GetAboutEntryMenuLabel() const;
-  bool IsDynamicItem(int index) const;
 
   // Models for the special menu items with buttons.
   scoped_ptr<menus::ButtonMenuItemModel> edit_menu_item_model_;
@@ -141,7 +139,7 @@ class WrenchMenuModel : public menus::SimpleMenuModel,
   // Tools menu.
   scoped_ptr<ToolsMenuModel> tools_menu_model_;
 
-  menus::SimpleMenuModel::Delegate* delegate_; // weak
+  menus::AcceleratorProvider* provider_;  // weak
 
   Browser* browser_;  // weak
   TabStripModel* tabstrip_model_; // weak

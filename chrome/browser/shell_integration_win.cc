@@ -9,7 +9,6 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 
-#include "app/win_util.h"
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
@@ -18,6 +17,7 @@
 #include "base/scoped_comptr_win.h"
 #include "base/string_util.h"
 #include "base/task.h"
+#include "base/utf_string_conversions.h"
 #include "base/win_util.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/web_applications/web_app.h"
@@ -218,14 +218,15 @@ bool MigrateChromiumShortcutsTask::GetExpectedAppId(
 
   FilePath profile_path;
   if (command_line.HasSwitch(switches::kUserDataDir)) {
-    profile_path = FilePath(command_line.GetSwitchValue(
-        switches::kUserDataDir)).Append(chrome::kNotSignedInProfile);
+    profile_path =
+        command_line.GetSwitchValuePath(switches::kUserDataDir).Append(
+            chrome::kNotSignedInProfile);
   }
 
   std::wstring app_name;
   if (command_line.HasSwitch(switches::kApp)) {
-    app_name = web_app::GenerateApplicationNameFromURL(
-        GURL(command_line.GetSwitchValueASCII(switches::kApp)));
+    app_name = UTF8ToWide(web_app::GenerateApplicationNameFromURL(
+        GURL(command_line.GetSwitchValueASCII(switches::kApp))));
   } else {
     app_name = BrowserDistribution::GetDistribution()->GetBrowserAppId();
   }

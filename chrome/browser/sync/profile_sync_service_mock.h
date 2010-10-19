@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_PROFILE_SYNC_SERVICE_MOCK_H_
 #define CHROME_BROWSER_SYNC_PROFILE_SYNC_SERVICE_MOCK_H_
+#pragma once
 
 #include <string>
 #include "base/string16.h"
@@ -19,7 +20,6 @@ class ProfileSyncServiceMock : public ProfileSyncService {
   ProfileSyncServiceMock() {}
   virtual ~ProfileSyncServiceMock() {}
 
-  MOCK_METHOD0(EnableForUser, void());
   MOCK_METHOD0(DisableForUser, void());
   MOCK_METHOD0(OnBackendInitialized, void());
   MOCK_METHOD0(OnSyncCycleCompleted, void());

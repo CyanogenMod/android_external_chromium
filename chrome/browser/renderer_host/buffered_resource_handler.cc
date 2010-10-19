@@ -112,8 +112,6 @@ bool BufferedResourceHandler::OnWillRead(int request_id, net::IOBuffer** buf,
     my_buffer_ = new net::IOBuffer(net::kMaxBytesToSniff);
     *buf = my_buffer_.get();
     *buf_size = net::kMaxBytesToSniff;
-    // TODO(willchan): Remove after debugging bug 16371.
-    CHECK((*buf)->data());
     return true;
   }
 
@@ -124,8 +122,6 @@ bool BufferedResourceHandler::OnWillRead(int request_id, net::IOBuffer** buf,
     return false;
   }
   read_buffer_ = *buf;
-  // TODO(willchan): Remove after debugging bug 16371.
-  CHECK(read_buffer_->data());
   read_buffer_size_ = *buf_size;
   DCHECK_GE(read_buffer_size_, net::kMaxBytesToSniff * 2);
   bytes_read_ = 0;
@@ -137,7 +133,6 @@ bool BufferedResourceHandler::OnReadCompleted(int request_id, int* bytes_read) {
     if (KeepBuffering(*bytes_read))
       return true;
 
-    LOG(INFO) << "Finished buffering " << request_->url().spec();
     *bytes_read = bytes_read_;
 
     // Done buffering, send the pending ResponseStarted event.
@@ -205,7 +200,6 @@ bool BufferedResourceHandler::DelayResponse() {
     // enough data to decode the doctype in order to select the rendering
     // mode.
     should_buffer_ = true;
-    LOG(INFO) << "To buffer: " << request_->url().spec();
     return true;
   }
 
@@ -242,6 +236,9 @@ bool BufferedResourceHandler::KeepBuffering(int bytes_read) {
   DCHECK(read_buffer_);
   if (my_buffer_) {
     // We are using our own buffer to read, update the main buffer.
+    // TODO(darin): We should handle the case where read_buffer_size_ is small!
+    // See RedirectToFileResourceHandler::BufIsFull to see how this impairs
+    // downstream ResourceHandler implementations.
     CHECK_LT(bytes_read + bytes_read_, read_buffer_size_);
     memcpy(read_buffer_->data() + bytes_read_, my_buffer_->data(), bytes_read);
     my_buffer_ = NULL;
@@ -320,7 +317,8 @@ bool BufferedResourceHandler::CompleteResponseStarted(int request_id,
     }
 
     X509UserCertResourceHandler* x509_cert_handler =
-        new X509UserCertResourceHandler(host_, request_);
+        new X509UserCertResourceHandler(host_, request_,
+                                        info->child_id(), info->route_id());
     UseAlternateResourceHandler(request_id, x509_cert_handler);
   }
 

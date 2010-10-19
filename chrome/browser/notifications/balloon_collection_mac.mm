@@ -4,6 +4,8 @@
 
 #include "chrome/browser/notifications/balloon_collection_impl.h"
 
+#import <Cocoa/Cocoa.h>
+
 #include "chrome/browser/cocoa/notifications/balloon_view_bridge.h"
 
 Balloon* BalloonCollectionImpl::MakeBalloon(const Notification& notification,
@@ -30,7 +32,15 @@ int BalloonCollectionImpl::Layout::HorizontalEdgeMargin() const {
 }
 
 int BalloonCollectionImpl::Layout::VerticalEdgeMargin() const {
-  return 5;
+  return 0;
+}
+
+void BalloonCollectionImpl::PositionBalloons(bool reposition) {
+  // Use an animation context so that all the balloons animate together.
+  [NSAnimationContext beginGrouping];
+  [[NSAnimationContext currentContext] setDuration:0.1f];
+  PositionBalloonsInternal(reposition);
+  [NSAnimationContext endGrouping];
 }
 
 // static

@@ -4,10 +4,12 @@
 
 #ifndef CHROME_BROWSER_GEOLOCATION_WIFI_DATA_PROVIDER_COMMON_H_
 #define CHROME_BROWSER_GEOLOCATION_WIFI_DATA_PROVIDER_COMMON_H_
+#pragma once
 
 #include <assert.h>
 
 #include "base/logging.h"
+#include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/task.h"
 #include "base/thread.h"

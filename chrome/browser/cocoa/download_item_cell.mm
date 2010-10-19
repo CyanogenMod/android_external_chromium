@@ -8,7 +8,6 @@
 #include "app/text_elider.h"
 #include "base/mac_util.h"
 #include "base/sys_string_conversions.h"
-#import "chrome/browser/browser_theme_provider.h"
 #import "chrome/browser/cocoa/download_item_cell.h"
 #import "chrome/browser/cocoa/image_utils.h"
 #import "chrome/browser/cocoa/themed_window.h"
@@ -16,6 +15,7 @@
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_util.h"
+#import "chrome/browser/themes/browser_theme_provider.h"
 #include "gfx/canvas_skia_paint.h"
 #include "grit/theme_resources.h"
 #import "third_party/GTM/AppKit/GTMNSAnimation+Duration.h"
@@ -395,19 +395,17 @@ NSGradient* BackgroundTheme::GetNSGradient(int id) const {
 
 - (NSString*)elideTitle:(int)availableWidth {
   NSFont* font = [self font];
-  gfx::Font font_chr =
-      gfx::Font::CreateFont(base::SysNSStringToWide([font fontName]),
-                            [font pointSize]);
+  gfx::Font font_chr(base::SysNSStringToWide([font fontName]),
+                     [font pointSize]);
 
-  return base::SysWideToNSString(
+  return base::SysUTF16ToNSString(
       ElideFilename(downloadPath_, font_chr, availableWidth));
 }
 
 - (NSString*)elideStatus:(int)availableWidth {
   NSFont* font = [self secondaryFont];
-  gfx::Font font_chr =
-      gfx::Font::CreateFont(base::SysNSStringToWide([font fontName]),
-                            [font pointSize]);
+  gfx::Font font_chr(base::SysNSStringToWide([font fontName]),
+                     [font pointSize]);
 
   return base::SysWideToNSString(ElideText(
       base::SysNSStringToWide([self secondaryTitle]),

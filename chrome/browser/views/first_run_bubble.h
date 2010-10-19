@@ -4,10 +4,11 @@
 
 #ifndef CHROME_BROWSER_VIEWS_FIRST_RUN_BUBBLE_H_
 #define CHROME_BROWSER_VIEWS_FIRST_RUN_BUBBLE_H_
+#pragma once
 
 #include "base/compiler_specific.h"
 #include "base/task.h"
-#include "chrome/browser/first_run.h"
+#include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/views/info_bubble.h"
 
 class FirstRunBubbleViewBase;

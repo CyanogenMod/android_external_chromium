@@ -5,11 +5,7 @@
 #include "chrome/browser/tab_contents/background_contents.h"
 
 #include "chrome/browser/background_contents_service.h"
-#include "chrome/browser/browser.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browsing_instance.h"
-#include "chrome/browser/in_process_webkit/dom_storage_context.h"
-#include "chrome/browser/in_process_webkit/webkit_context.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/site_instance.h"
@@ -17,21 +13,20 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/common/view_types.h"
-#include "chrome/common/render_messages.h"
-
+#include "chrome/common/render_messages_params.h"
+#include "gfx/rect.h"
 
 ////////////////
 // BackgroundContents
 
 BackgroundContents::BackgroundContents(SiteInstance* site_instance,
-                                       int routing_id) {
+                                       int routing_id,
+                                       Delegate* delegate)
+    : delegate_(delegate) {
   Profile* profile = site_instance->browsing_instance()->profile();
 
   // TODO(rafaelw): Implement correct session storage.
-  int64 session_storage_namespace_id = profile->GetWebKitContext()->
-      dom_storage_context()->AllocateSessionStorageNamespaceId();
-  render_view_host_ = new RenderViewHost(site_instance, this, routing_id,
-                                         session_storage_namespace_id);
+  render_view_host_ = new RenderViewHost(site_instance, this, routing_id, NULL);
   render_view_host_->AllowScriptToClose(true);
 
   // Close ourselves when the application is shutting down.
@@ -47,7 +42,8 @@ BackgroundContents::BackgroundContents(SiteInstance* site_instance,
 
 // Exposed to allow creating mocks.
 BackgroundContents::BackgroundContents()
-    : render_view_host_(NULL) {
+    : delegate_(NULL),
+      render_view_host_(NULL) {
 }
 
 void BackgroundContents::Observe(NotificationType type,
@@ -113,12 +109,6 @@ void BackgroundContents::RunJavaScriptMessage(
   *did_suppress_message = true;
 }
 
-std::wstring BackgroundContents::GetMessageBoxTitle(const GURL& frame_url,
-                                                    bool is_alert) {
-  NOTIMPLEMENTED();
-  return L"";
-}
-
 gfx::NativeWindow BackgroundContents::GetMessageBoxRootWindow() {
   NOTIMPLEMENTED();
   return NULL;
@@ -154,31 +144,34 @@ WebPreferences BackgroundContents::GetWebkitPrefs() {
                                                       false);  // is_dom_ui
 }
 
-void BackgroundContents::ProcessDOMUIMessage(const std::string& message,
-                                             const ListValue* content,
-                                             const GURL& source_url,
-                                             int request_id,
-                                             bool has_callback) {
+void BackgroundContents::ProcessDOMUIMessage(
+    const ViewHostMsg_DomMessage_Params& params) {
   // TODO(rafaelw): It may make sense for extensions to be able to open
   // BackgroundContents to chrome-extension://<id> pages. Consider implementing.
-  render_view_host_->BlockExtensionRequest(request_id);
+  render_view_host_->BlockExtensionRequest(params.request_id);
 }
 
 void BackgroundContents::CreateNewWindow(
     int route_id,
     WindowContainerType window_container_type,
     const string16& frame_name) {
-  delegate_view_helper_.CreateNewWindow(route_id,
-                                        render_view_host_->process()->profile(),
-                                        render_view_host_->site_instance(),
-                                        DOMUIFactory::GetDOMUIType(url_),
-                                        this,
-                                        window_container_type,
-                                        frame_name);
+  delegate_view_helper_.CreateNewWindow(
+      route_id,
+      render_view_host_->process()->profile(),
+      render_view_host_->site_instance(),
+      DOMUIFactory::GetDOMUIType(render_view_host_->process()->profile(), url_),
+      this,
+      window_container_type,
+      frame_name);
 }
 
 void BackgroundContents::CreateNewWidget(int route_id,
                                          WebKit::WebPopupType popup_type) {
+  NOTREACHED();
+}
+
+void BackgroundContents::CreateNewFullscreenWidget(
+    int route_id, WebKit::WebPopupType popup_type) {
   NOTREACHED();
 }
 
@@ -187,14 +180,8 @@ void BackgroundContents::ShowCreatedWindow(int route_id,
                                            const gfx::Rect& initial_pos,
                                            bool user_gesture) {
   TabContents* contents = delegate_view_helper_.GetCreatedWindow(route_id);
-  if (!contents)
-    return;
-  Browser* browser = BrowserList::GetLastActiveWithProfile(
-      render_view_host_->process()->profile());
-  if (!browser)
-    return;
-
-  browser->AddTabContents(contents, disposition, initial_pos, user_gesture);
+  if (contents)
+    delegate_->AddTabContents(contents, disposition, initial_pos, user_gesture);
 }
 
 void BackgroundContents::ShowCreatedWidget(int route_id,
@@ -202,3 +189,6 @@ void BackgroundContents::ShowCreatedWidget(int route_id,
   NOTIMPLEMENTED();
 }
 
+void BackgroundContents::ShowCreatedFullscreenWidget(int route_id) {
+  NOTIMPLEMENTED();
+}

@@ -29,7 +29,7 @@ int GetCurrentFirefoxMajorVersionFromRegistry() {
   // HKCU\Mozilla.
   for (int i = 0; i < arraysize(kFireFoxRegistryPaths); ++i) {
     RegKey reg_key(kFireFoxRegistryPaths[i],
-                   L"Software\\Mozilla\\Mozilla Firefox");
+                   L"Software\\Mozilla\\Mozilla Firefox", KEY_READ);
 
     bool result = reg_key.ReadValue(L"CurrentVersion", ver_buffer,
                                     &ver_buffer_length, NULL);
@@ -43,16 +43,16 @@ int GetCurrentFirefoxMajorVersionFromRegistry() {
 std::wstring GetFirefoxInstallPathFromRegistry() {
   // Detects the path that Firefox is installed in.
   std::wstring registry_path = L"Software\\Mozilla\\Mozilla Firefox";
-  TCHAR buffer[MAX_PATH];
+  wchar_t buffer[MAX_PATH];
   DWORD buffer_length = sizeof(buffer);
-  RegKey reg_key(HKEY_LOCAL_MACHINE, registry_path.c_str());
+  RegKey reg_key(HKEY_LOCAL_MACHINE, registry_path.c_str(), KEY_READ);
   bool result = reg_key.ReadValue(L"CurrentVersion", buffer,
                                   &buffer_length, NULL);
   if (!result)
     return std::wstring();
   registry_path += L"\\" + std::wstring(buffer) + L"\\Main";
   buffer_length = sizeof(buffer);
-  RegKey reg_key_directory = RegKey(HKEY_LOCAL_MACHINE, registry_path.c_str());
+  RegKey reg_key_directory(HKEY_LOCAL_MACHINE, registry_path.c_str(), KEY_READ);
   result = reg_key_directory.ReadValue(L"Install Directory", buffer,
                                        &buffer_length, NULL);
   if (!result)

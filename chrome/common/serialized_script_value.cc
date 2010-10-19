@@ -4,6 +4,7 @@
 
 #include "chrome/common/serialized_script_value.h"
 
+#include "third_party/WebKit/WebKit/chromium/public/WebSerializedScriptValue.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebString.h"
 
 using WebKit::WebSerializedScriptValue;
@@ -21,11 +22,8 @@ SerializedScriptValue::SerializedScriptValue(
 }
 
 SerializedScriptValue::SerializedScriptValue(
-    const WebSerializedScriptValue& value)
-    : is_null_(value.isNull()),
-      is_invalid_(value.isNull() ? false : value.toString().isNull()),
-      data_(value.isNull() ? string16()
-                           : static_cast<string16>(value.toString())) {
+    const WebSerializedScriptValue& value) {
+  set_web_serialized_script_value(value);
 }
 
 SerializedScriptValue::operator WebSerializedScriptValue() const {
@@ -34,4 +32,11 @@ SerializedScriptValue::operator WebSerializedScriptValue() const {
   if (is_invalid_)
     return WebSerializedScriptValue::createInvalid();
   return WebSerializedScriptValue::fromString(data_);
+}
+
+void SerializedScriptValue::set_web_serialized_script_value(
+    const WebSerializedScriptValue& value) {
+  is_null_ = value.isNull();
+  is_invalid_ = value.isNull() ? false : value.toString().isNull();
+  data_ = value.isNull() ? string16() : static_cast<string16>(value.toString());
 }

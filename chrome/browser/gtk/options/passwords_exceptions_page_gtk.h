@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_OPTIONS_PASSWORDS_EXCEPTIONS_PAGE_GTK_H_
 #define CHROME_BROWSER_GTK_OPTIONS_PASSWORDS_EXCEPTIONS_PAGE_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -19,7 +20,7 @@
 class PasswordsExceptionsPageGtk {
  public:
   explicit PasswordsExceptionsPageGtk(Profile* profile);
-  ~PasswordsExceptionsPageGtk();
+  virtual ~PasswordsExceptionsPageGtk();
 
   GtkWidget* get_page_widget() const { return page_; }
 

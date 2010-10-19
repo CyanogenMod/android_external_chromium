@@ -7,13 +7,12 @@
 #include <vector>
 
 #include "app/gtk_dnd_util.h"
-#include "app/l10n_util.h"
 #include "app/resource_bundle.h"
-#include "app/text_elider.h"
-#include "base/pickle.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_drag_data.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
+#include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/gtk/bookmark_menu_controller_gtk.h"
 #include "chrome/browser/gtk/bookmark_tree_model.h"
@@ -34,7 +33,7 @@
 #include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/ntp_background_util.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -66,7 +65,7 @@ const int kNTPRoundedness = 3;
 // The height of the bar when it is "hidden". It is usually not completely
 // hidden because even when it is closed it forms the bottom few pixels of
 // the toolbar.
-const int kBookmarkBarMinimumHeight = 4;
+const int kBookmarkBarMinimumHeight = 3;
 
 // Left-padding for the instructional text.
 const int kInstructionsPadding = 6;
@@ -245,7 +244,7 @@ void BookmarkBarGtk::Init(Profile* profile) {
   g_object_set_data(G_OBJECT(overflow_button_), "left-align-popup",
                     reinterpret_cast<void*>(true));
   SetOverflowButtonAppearance();
-  ConnectFolderButtonEvents(overflow_button_);
+  ConnectFolderButtonEvents(overflow_button_, false);
   gtk_box_pack_start(GTK_BOX(bookmark_hbox_), overflow_button_,
                      FALSE, FALSE, 0);
 
@@ -255,7 +254,7 @@ void BookmarkBarGtk::Init(Profile* profile) {
   g_signal_connect(bookmark_toolbar_.get(), "drag-motion",
                    G_CALLBACK(&OnToolbarDragMotionThunk), this);
   g_signal_connect(bookmark_toolbar_.get(), "drag-leave",
-                   G_CALLBACK(&OnToolbarDragLeaveThunk), this);
+                   G_CALLBACK(&OnDragLeaveThunk), this);
   g_signal_connect(bookmark_toolbar_.get(), "drag-data-received",
                    G_CALLBACK(&OnDragReceivedThunk), this);
 
@@ -266,7 +265,7 @@ void BookmarkBarGtk::Init(Profile* profile) {
   // We pack the button manually (rather than using gtk_button_set_*) so that
   // we can have finer control over its label.
   other_bookmarks_button_ = theme_provider_->BuildChromeButton();
-  ConnectFolderButtonEvents(other_bookmarks_button_);
+  ConnectFolderButtonEvents(other_bookmarks_button_, false);
   GtkWidget* other_padding = gtk_alignment_new(0, 0, 1, 1);
   gtk_alignment_set_padding(GTK_ALIGNMENT(other_padding),
                             kOtherBookmarksPaddingVertical,
@@ -413,7 +412,8 @@ void BookmarkBarGtk::Loaded(BookmarkModel* model) {
 void BookmarkBarGtk::BookmarkModelBeingDeleted(BookmarkModel* model) {
   // The bookmark model should never be deleted before us. This code exists
   // to check for regressions in shutdown code and not crash.
-  NOTREACHED();
+  if (!browser_shutdown::ShuttingDownWithoutClosingBrowsers())
+    NOTREACHED();
 
   // Do minimal cleanup, presumably we'll be deleted shortly.
   model_->RemoveObserver(this);
@@ -883,7 +883,7 @@ GtkWidget* BookmarkBarGtk::CreateBookmarkButton(const BookmarkNode* node) {
                      G_CALLBACK(OnClickedThunk), this);
     gtk_util::SetButtonTriggersNavigation(button);
   } else {
-    ConnectFolderButtonEvents(button);
+    ConnectFolderButtonEvents(button, true);
   }
 
   return button;
@@ -901,11 +901,25 @@ GtkToolItem* BookmarkBarGtk::CreateBookmarkToolItem(const BookmarkNode* node) {
   return item;
 }
 
-void BookmarkBarGtk::ConnectFolderButtonEvents(GtkWidget* widget) {
-  gtk_drag_dest_set(widget, GTK_DEST_DEFAULT_ALL, NULL, 0, kDragAction);
+void BookmarkBarGtk::ConnectFolderButtonEvents(GtkWidget* widget,
+                                               bool is_tool_item) {
+  // For toolbar items (i.e. not the overflow button or other bookmarks
+  // button), we handle motion and highlighting manually.
+  gtk_drag_dest_set(widget,
+                    is_tool_item ? GTK_DEST_DEFAULT_DROP :
+                                   GTK_DEST_DEFAULT_ALL,
+                    NULL,
+                    0,
+                    kDragAction);
   gtk_dnd_util::SetDestTargetList(widget, kDestTargetList);
   g_signal_connect(widget, "drag-data-received",
                    G_CALLBACK(&OnDragReceivedThunk), this);
+  if (is_tool_item) {
+    g_signal_connect(widget, "drag-motion",
+                     G_CALLBACK(&OnFolderDragMotionThunk), this);
+    g_signal_connect(widget, "drag-leave",
+                     G_CALLBACK(&OnDragLeaveThunk), this);
+  }
 
   g_signal_connect(widget, "button-press-event",
                    G_CALLBACK(OnButtonPressedThunk), this);
@@ -1058,12 +1072,7 @@ void BookmarkBarGtk::OnButtonDragEnd(GtkWidget* button,
   gtk_widget_show(button);
   gtk_widget_set_no_show_all(button, FALSE);
 
-  if (toolbar_drop_item_) {
-    g_object_unref(toolbar_drop_item_);
-    toolbar_drop_item_ = NULL;
-    gtk_toolbar_set_drop_highlight_item(GTK_TOOLBAR(bookmark_toolbar_.get()),
-                                        NULL, 0);
-  }
+  ClearToolbarDropHighlighting();
 
   DCHECK(dragged_node_);
   dragged_node_ = NULL;
@@ -1101,13 +1110,11 @@ void BookmarkBarGtk::OnFolderClicked(GtkWidget* sender) {
   }
 }
 
-gboolean BookmarkBarGtk::OnToolbarDragMotion(GtkWidget* toolbar,
-                                             GdkDragContext* context,
-                                             gint x,
-                                             gint y,
-                                             guint time) {
+gboolean BookmarkBarGtk::ItemDraggedOverToolbar(GdkDragContext* context,
+                                                int index,
+                                                guint time) {
   GdkAtom target_type =
-      gtk_drag_dest_find_target(toolbar, context, NULL);
+      gtk_drag_dest_find_target(bookmark_toolbar_.get(), context, NULL);
   if (target_type == GDK_NONE) {
     // We shouldn't act like a drop target when something that we can't deal
     // with is dragged over the toolbar.
@@ -1128,13 +1135,9 @@ gboolean BookmarkBarGtk::OnToolbarDragMotion(GtkWidget* toolbar,
     }
   }
 
-  if (toolbar_drop_item_) {
-    gint index = gtk_toolbar_get_drop_index(GTK_TOOLBAR(toolbar), x, y);
-    gtk_toolbar_set_drop_highlight_item(GTK_TOOLBAR(toolbar),
-                                        GTK_TOOL_ITEM(toolbar_drop_item_),
-                                        index);
-  }
-
+  gtk_toolbar_set_drop_highlight_item(GTK_TOOLBAR(bookmark_toolbar_.get()),
+                                      GTK_TOOL_ITEM(toolbar_drop_item_),
+                                      index);
   if (target_type ==
       gtk_dnd_util::GetAtomForTarget(gtk_dnd_util::CHROME_BOOKMARK_ITEM)) {
     gdk_drag_status(context, GDK_ACTION_MOVE, time);
@@ -1145,15 +1148,75 @@ gboolean BookmarkBarGtk::OnToolbarDragMotion(GtkWidget* toolbar,
   return TRUE;
 }
 
-void BookmarkBarGtk::OnToolbarDragLeave(GtkWidget* toolbar,
-                                        GdkDragContext* context,
-                                        guint time) {
+gboolean BookmarkBarGtk::OnToolbarDragMotion(GtkWidget* toolbar,
+                                             GdkDragContext* context,
+                                             gint x,
+                                             gint y,
+                                             guint time) {
+  gint index = gtk_toolbar_get_drop_index(GTK_TOOLBAR(toolbar), x, y);
+  return ItemDraggedOverToolbar(context, index, time);
+}
+
+int BookmarkBarGtk::GetToolbarIndexForDragOverFolder(
+    GtkWidget* button, gint x) {
+  int margin = std::min(15, static_cast<int>(0.3 * button->allocation.width));
+  if (x > margin && x < (button->allocation.width - margin))
+    return -1;
+
+  gint index = gtk_toolbar_get_item_index(GTK_TOOLBAR(bookmark_toolbar_.get()),
+                                          GTK_TOOL_ITEM(button->parent));
+  if (x > margin)
+    index++;
+  return index;
+}
+
+gboolean BookmarkBarGtk::OnFolderDragMotion(GtkWidget* button,
+                                            GdkDragContext* context,
+                                            gint x,
+                                            gint y,
+                                            guint time) {
+  GdkAtom target_type = gtk_drag_dest_find_target(button, context, NULL);
+  if (target_type == GDK_NONE)
+    return FALSE;
+
+  int index = GetToolbarIndexForDragOverFolder(button, x);
+  if (index < 0) {
+    ClearToolbarDropHighlighting();
+
+    // Drag is over middle of folder.
+    gtk_drag_highlight(button);
+    if (target_type ==
+        gtk_dnd_util::GetAtomForTarget(gtk_dnd_util::CHROME_BOOKMARK_ITEM)) {
+      gdk_drag_status(context, GDK_ACTION_MOVE, time);
+    } else {
+      gdk_drag_status(context, GDK_ACTION_COPY, time);
+    }
+
+    return TRUE;
+  }
+
+  // Remove previous highlighting.
+  gtk_drag_unhighlight(button);
+  return ItemDraggedOverToolbar(context, index, time);
+}
+
+void BookmarkBarGtk::ClearToolbarDropHighlighting() {
   if (toolbar_drop_item_) {
     g_object_unref(toolbar_drop_item_);
     toolbar_drop_item_ = NULL;
   }
 
-  gtk_toolbar_set_drop_highlight_item(GTK_TOOLBAR(toolbar), NULL, 0);
+  gtk_toolbar_set_drop_highlight_item(GTK_TOOLBAR(bookmark_toolbar_.get()),
+                                      NULL, 0);
+}
+
+void BookmarkBarGtk::OnDragLeave(GtkWidget* sender,
+                                 GdkDragContext* context,
+                                 guint time) {
+  if (GTK_IS_BUTTON(sender))
+    gtk_drag_unhighlight(sender);
+
+  ClearToolbarDropHighlighting();
 }
 
 void BookmarkBarGtk::OnToolbarSizeAllocate(GtkWidget* widget,
@@ -1179,18 +1242,20 @@ void BookmarkBarGtk::OnDragReceived(GtkWidget* widget,
   gboolean dnd_success = FALSE;
   gboolean delete_selection_data = FALSE;
 
-  const BookmarkNode* dest_node;
+  const BookmarkNode* dest_node = model_->GetBookmarkBarNode();
   gint index;
   if (widget == bookmark_toolbar_.get()) {
-    dest_node = model_->GetBookmarkBarNode();
     index = gtk_toolbar_get_drop_index(
       GTK_TOOLBAR(bookmark_toolbar_.get()), x, y);
   } else if (widget == instructions_) {
     dest_node = model_->GetBookmarkBarNode();
     index = 0;
   } else {
-    dest_node = GetNodeForToolButton(widget);
-    index = dest_node->GetChildCount();
+    index = GetToolbarIndexForDragOverFolder(widget, x);
+    if (index < 0) {
+      dest_node = GetNodeForToolButton(widget);
+      index = dest_node->GetChildCount();
+    }
   }
 
   switch (target_type) {
@@ -1233,7 +1298,7 @@ void BookmarkBarGtk::OnDragReceived(GtkWidget* widget,
       if (!url.is_valid())
         break;
       std::string title = bookmark_utils::GetNameForURL(url);
-      model_->AddURL(dest_node, index, UTF8ToWide(title), url);
+      model_->AddURL(dest_node, index, UTF8ToUTF16(title), url);
       dnd_success = TRUE;
       break;
     }

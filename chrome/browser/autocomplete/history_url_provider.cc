@@ -7,7 +7,6 @@
 #include <algorithm>
 
 #include "base/basictypes.h"
-#include "base/command_line.h"
 #include "base/histogram.h"
 #include "base/message_loop.h"
 #include "base/string_util.h"
@@ -16,9 +15,8 @@
 #include "chrome/browser/history/history_backend.h"
 #include "chrome/browser/history/history_database.h"
 #include "chrome/browser/net/url_fixer_upper.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "googleurl/src/gurl.h"
@@ -29,6 +27,79 @@
 using base::Time;
 using base::TimeDelta;
 using base::TimeTicks;
+using history::Prefix;
+using history::Prefixes;
+using history::HistoryMatch;
+using history::HistoryMatches;
+
+namespace history {
+
+// Returns true if |url| is just a host (e.g. "http://www.google.com/") and
+// not some other subpage (e.g. "http://www.google.com/foo.html").
+bool IsHostOnly(const GURL& url) {
+  DCHECK(url.is_valid());
+  return (!url.has_path() || (url.path() == "/")) && !url.has_query() &&
+      !url.has_ref();
+}
+
+// Acts like the > operator for URLInfo classes.
+bool CompareHistoryMatch(const HistoryMatch& a, const HistoryMatch& b) {
+  // A URL that has been typed at all is better than one that has never been
+  // typed.  (Note "!"s on each side)
+  if (!a.url_info.typed_count() != !b.url_info.typed_count())
+    return a.url_info.typed_count() > b.url_info.typed_count();
+
+  // Innermost matches (matches after any scheme or "www.") are better than
+  // non-innermost matches.
+  if (a.innermost_match != b.innermost_match)
+    return a.innermost_match;
+
+  // URLs that have been typed more often are better.
+  if (a.url_info.typed_count() != b.url_info.typed_count())
+    return a.url_info.typed_count() > b.url_info.typed_count();
+
+  // For URLs that have each been typed once, a host (alone) is better than a
+  // page inside.
+  if (a.url_info.typed_count() == 1) {
+    const bool a_is_host_only = history::IsHostOnly(a.url_info.url());
+    if (a_is_host_only != history::IsHostOnly(b.url_info.url()))
+      return a_is_host_only;
+  }
+
+  // URLs that have been visited more often are better.
+  if (a.url_info.visit_count() != b.url_info.visit_count())
+    return a.url_info.visit_count() > b.url_info.visit_count();
+
+  // URLs that have been visited more recently are better.
+  return a.url_info.last_visit() > b.url_info.last_visit();
+}
+
+// Given the user's |input| and a |match| created from it, reduce the
+// match's URL to just a host.  If this host still matches the user input,
+// return it.  Returns the empty string on failure.
+GURL ConvertToHostOnly(const HistoryMatch& match, const std::wstring& input) {
+  // See if we should try to do host-only suggestions for this URL. Nonstandard
+  // schemes means there's no authority section, so suggesting the host name
+  // is useless. File URLs are standard, but host suggestion is not useful for
+  // them either.
+  const GURL& url = match.url_info.url();
+  if (!url.is_valid() || !url.IsStandard() || url.SchemeIsFile())
+    return GURL();
+
+  // Transform to a host-only match.  Bail if the host no longer matches the
+  // user input (e.g. because the user typed more than just a host).
+  GURL host = url.GetWithEmptyPath();
+  if ((host.spec().length() < (match.input_location + input.length())))
+    return GURL();  // User typing is longer than this host suggestion.
+
+  const std::wstring spec = UTF8ToWide(host.spec());
+  if (spec.compare(match.input_location, input.length(), input))
+    return GURL();  // User typing is no longer a prefix.
+
+  return host;
+}
+
+}  // namespace history
 
 HistoryURLProviderParams::HistoryURLProviderParams(
     const AutocompleteInput& input,
@@ -40,6 +111,13 @@ HistoryURLProviderParams::HistoryURLProviderParams(
       cancel(false),
       failed(false),
       languages(languages) {
+}
+
+HistoryURLProvider::HistoryURLProvider(ACProviderListener* listener,
+                                       Profile* profile)
+    : AutocompleteProvider(listener, profile, "HistoryURL"),
+      prefixes_(GetPrefixes()),
+      params_(NULL) {
 }
 
 void HistoryURLProvider::Start(const AutocompleteInput& input,
@@ -151,30 +229,25 @@ void HistoryURLProvider::DoAutocomplete(history::HistoryBackend* backend,
   URLRowVector url_matches;
   HistoryMatches history_matches;
 
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableInMemoryURLIndex)) {
-    // TODO(rohitrao): Fetch results from the index.
-  } else {
-    for (Prefixes::const_iterator i(prefixes_.begin()); i != prefixes_.end();
-         ++i) {
-      if (params->cancel)
-        return;  // Canceled in the middle of a query, give up.
-      // We only need kMaxMatches results in the end, but before we get there we
-      // need to promote lower-quality matches that are prefixes of
-      // higher-quality matches, and remove lower-quality redirects.  So we ask
-      // for more results than we need, of every prefix type, in hopes this will
-      // give us far more than enough to work with.  CullRedirects() will then
-      // reduce the list to the best kMaxMatches results.
-      db->AutocompleteForPrefix(WideToUTF16(i->prefix + params->input.text()),
-                                kMaxMatches * 2, &url_matches);
-      for (URLRowVector::const_iterator j(url_matches.begin());
-           j != url_matches.end(); ++j) {
-        const Prefix* best_prefix = BestPrefix(j->url(), std::wstring());
-        DCHECK(best_prefix != NULL);
-        history_matches.push_back(HistoryMatch(*j, i->prefix.length(),
-            !i->num_components,
-            i->num_components >= best_prefix->num_components));
-      }
+  for (Prefixes::const_iterator i(prefixes_.begin()); i != prefixes_.end();
+       ++i) {
+    if (params->cancel)
+      return;  // Canceled in the middle of a query, give up.
+    // We only need kMaxMatches results in the end, but before we get there we
+    // need to promote lower-quality matches that are prefixes of
+    // higher-quality matches, and remove lower-quality redirects.  So we ask
+    // for more results than we need, of every prefix type, in hopes this will
+    // give us far more than enough to work with.  CullRedirects() will then
+    // reduce the list to the best kMaxMatches results.
+    db->AutocompleteForPrefix(WideToUTF16(i->prefix + params->input.text()),
+                              kMaxMatches * 2, &url_matches);
+    for (URLRowVector::const_iterator j(url_matches.begin());
+         j != url_matches.end(); ++j) {
+      const Prefix* best_prefix = BestPrefix(j->url(), std::wstring());
+      DCHECK(best_prefix != NULL);
+      history_matches.push_back(HistoryMatch(*j, i->prefix.length(),
+          !i->num_components,
+          i->num_components >= best_prefix->num_components));
     }
   }
 
@@ -325,13 +398,18 @@ bool HistoryURLProvider::FixupExactSuggestion(history::URLDatabase* db,
   // * ...then just before pressing "ctrl" the best match we supplied was the
   //   what-you-typed match, so stick with it by promoting this.
   history::URLRow info;
+  MatchType type = INLINE_AUTOCOMPLETE;
   if (!db->GetRowForURL(match->destination_url, &info)) {
     if (input.desired_tld().empty())
       return false;
     GURL destination_url(URLFixerUpper::FixupURL(WideToUTF8(input.text()),
                                                  std::string()));
-    if (!db->GetRowForURL(destination_url, &info))
+    if (!db->GetRowForURL(destination_url, NULL))
       return false;
+
+    // If we got here, then we hit the tricky corner case.  Make sure that
+    // |info| corresponds to the right URL.
+    info = history::URLRow(match->destination_url);
   } else {
     // We have data for this match, use it.
     match->deletable = true;
@@ -339,10 +417,20 @@ bool HistoryURLProvider::FixupExactSuggestion(history::URLDatabase* db,
     AutocompleteMatch::ClassifyMatchInString(input.text(),
         UTF16ToWide(info.title()),
         ACMatchClassification::NONE, &match->description_class);
+    if (!info.typed_count()) {
+      // If we reach here, we must be in the second pass, and we must not have
+      // promoted this match as an exact match during the first pass.  That
+      // means it will have been outscored by the "search what you typed match".
+      // We need to maintain that ordering in order to not make the destination
+      // for the user's typing change depending on when they hit enter.  So
+      // lower the score here enough to let the search provider continue to
+      // outscore this match.
+      type = WHAT_YOU_TYPED;
+    }
   }
 
   // Promote as an exact match.
-  match->relevance = CalculateRelevance(input.type(), INLINE_AUTOCOMPLETE, 0);
+  match->relevance = CalculateRelevance(input.type(), type, 0);
 
   // Put it on the front of the HistoryMatches for redirect culling.
   EnsureMatchPresent(info, std::wstring::npos, false, matches, true);
@@ -360,7 +448,7 @@ bool HistoryURLProvider::PromoteMatchForInlineAutocomplete(
   // hand, we wouldn't want to immediately start autocompleting it.
   if (!match.url_info.typed_count() ||
       ((match.url_info.typed_count() == 1) &&
-       !IsHostOnly(match.url_info.url())))
+       !history::IsHostOnly(match.url_info.url())))
     return false;
 
   params->matches.push_back(HistoryMatchToACMatch(params, match,
@@ -454,47 +542,7 @@ size_t HistoryURLProvider::TrimHttpPrefix(std::wstring* url) {
 }
 
 // static
-bool HistoryURLProvider::IsHostOnly(const GURL& url) {
-  DCHECK(url.is_valid());
-  return (!url.has_path() || (url.path() == "/")) && !url.has_query() &&
-      !url.has_ref();
-}
-
-// static
-bool HistoryURLProvider::CompareHistoryMatch(const HistoryMatch& a,
-                                             const HistoryMatch& b) {
-  // A URL that has been typed at all is better than one that has never been
-  // typed.  (Note "!"s on each side)
-  if (!a.url_info.typed_count() != !b.url_info.typed_count())
-    return a.url_info.typed_count() > b.url_info.typed_count();
-
-  // Innermost matches (matches after any scheme or "www.") are better than
-  // non-innermost matches.
-  if (a.innermost_match != b.innermost_match)
-    return a.innermost_match;
-
-  // URLs that have been typed more often are better.
-  if (a.url_info.typed_count() != b.url_info.typed_count())
-    return a.url_info.typed_count() > b.url_info.typed_count();
-
-  // For URLs that have each been typed once, a host (alone) is better than a
-  // page inside.
-  if (a.url_info.typed_count() == 1) {
-    const bool a_is_host_only = IsHostOnly(a.url_info.url());
-    if (a_is_host_only != IsHostOnly(b.url_info.url()))
-      return a_is_host_only;
-  }
-
-  // URLs that have been visited more often are better.
-  if (a.url_info.visit_count() != b.url_info.visit_count())
-    return a.url_info.visit_count() > b.url_info.visit_count();
-
-  // URLs that have been visited more recently are better.
-  return a.url_info.last_visit() > b.url_info.last_visit();
-}
-
-// static
-HistoryURLProvider::Prefixes HistoryURLProvider::GetPrefixes() {
+history::Prefixes HistoryURLProvider::GetPrefixes() {
   // We'll complete text following these prefixes.
   // NOTE: There's no requirement that these be in any particular order.
   Prefixes prefixes;
@@ -526,30 +574,6 @@ int HistoryURLProvider::CalculateRelevance(AutocompleteInput::Type input_type,
 }
 
 // static
-GURL HistoryURLProvider::ConvertToHostOnly(const HistoryMatch& match,
-                                           const std::wstring& input) {
-  // See if we should try to do host-only suggestions for this URL. Nonstandard
-  // schemes means there's no authority section, so suggesting the host name
-  // is useless. File URLs are standard, but host suggestion is not useful for
-  // them either.
-  const GURL& url = match.url_info.url();
-  if (!url.is_valid() || !url.IsStandard() || url.SchemeIsFile())
-    return GURL();
-
-  // Transform to a host-only match.  Bail if the host no longer matches the
-  // user input (e.g. because the user typed more than just a host).
-  GURL host = url.GetWithEmptyPath();
-  if ((host.spec().length() < (match.input_location + input.length())))
-    return GURL();  // User typing is longer than this host suggestion.
-
-  const std::wstring spec = UTF8ToWide(host.spec());
-  if (spec.compare(match.input_location, input.length(), input))
-    return GURL();  // User typing is no longer a prefix.
-
-  return host;
-}
-
-// static
 void HistoryURLProvider::PromoteOrCreateShorterSuggestion(
     history::URLDatabase* db,
     const HistoryURLProviderParams& params,
@@ -563,7 +587,7 @@ void HistoryURLProvider::PromoteOrCreateShorterSuggestion(
   // itself be added as a match.  We can add the base iff it's not "effectively
   // the same" as any "what you typed" match.
   const HistoryMatch& match = matches->front();
-  GURL search_base = ConvertToHostOnly(match, params.input.text());
+  GURL search_base = history::ConvertToHostOnly(match, params.input.text());
   bool can_add_search_base_to_matches = !have_what_you_typed_match;
   if (search_base.is_empty()) {
     // Search from what the user typed when we couldn't reduce the best match
@@ -576,6 +600,9 @@ void HistoryURLProvider::PromoteOrCreateShorterSuggestion(
     std::string new_match = match.url_info.url().possibly_invalid_spec().
         substr(0, match.input_location + params.input.text().length());
     search_base = GURL(new_match);
+    // TODO(mrossetti): There is a degenerate case where the following may
+    // cause a failure: http://www/~someword/fubar.html. Diagnose.
+    // See: http://crbug.com/50101
     if (search_base.is_empty())
       return;  // Can't construct a valid URL from which to start a search.
   } else if (!can_add_search_base_to_matches) {
@@ -722,7 +749,7 @@ void HistoryURLProvider::RunAutocompletePasses(
   }
 }
 
-const HistoryURLProvider::Prefix* HistoryURLProvider::BestPrefix(
+const history::Prefix* HistoryURLProvider::BestPrefix(
     const GURL& url,
     const std::wstring& prefix_suffix) const {
   const Prefix* best_prefix = NULL;
@@ -742,7 +769,7 @@ const HistoryURLProvider::Prefix* HistoryURLProvider::BestPrefix(
 
 void HistoryURLProvider::SortMatches(HistoryMatches* matches) const {
   // Sort by quality, best first.
-  std::sort(matches->begin(), matches->end(), &CompareHistoryMatch);
+  std::sort(matches->begin(), matches->end(), &history::CompareHistoryMatch);
 
   // Remove duplicate matches (caused by the search string appearing in one of
   // the prefixes as well as after it).  Consider the following scenario:
@@ -775,15 +802,11 @@ void HistoryURLProvider::SortMatches(HistoryMatches* matches) const {
 }
 
 void HistoryURLProvider::CullPoorMatches(HistoryMatches* matches) const {
-  static const int kLowQualityMatchTypedLimit = 1;
-  static const int kLowQualityMatchVisitLimit = 3;
-  static const int kLowQualityMatchAgeLimitInDays = 3;
-  Time recent_threshold =
-      Time::Now() - TimeDelta::FromDays(kLowQualityMatchAgeLimitInDays);
+  Time recent_threshold = history::AutocompleteAgeThreshold();
   for (HistoryMatches::iterator i(matches->begin()); i != matches->end();) {
-    const history::URLRow& url_info = i->url_info;
-    if ((url_info.typed_count() <= kLowQualityMatchTypedLimit) &&
-        (url_info.visit_count() <= kLowQualityMatchVisitLimit) &&
+    const history::URLRow& url_info(i->url_info);
+    if ((url_info.typed_count() <= history::kLowQualityMatchTypedLimit) &&
+        (url_info.visit_count() <= history::kLowQualityMatchVisitLimit) &&
         (url_info.last_visit() < recent_threshold)) {
       i = matches->erase(i);
     } else {
@@ -864,23 +887,24 @@ AutocompleteMatch HistoryURLProvider::HistoryMatchToACMatch(
   DCHECK(match.destination_url.is_valid());
   size_t inline_autocomplete_offset =
       history_match.input_location + params->input.text().length();
+  std::string languages = (match_type == WHAT_YOU_TYPED) ?
+      std::string() : WideToUTF8(params->languages);
   const net::FormatUrlTypes format_types = net::kFormatUrlOmitAll &
       ~((params->trim_http && !history_match.match_in_scheme) ?
           0 : net::kFormatUrlOmitHTTP);
   match.fill_into_edit =
       AutocompleteInput::FormattedStringWithEquivalentMeaning(info.url(),
-      net::FormatUrl(info.url(), match_type == WHAT_YOU_TYPED ?
-      std::wstring() : params->languages, format_types, UnescapeRule::SPACES,
-      NULL, NULL, &inline_autocomplete_offset));
+          UTF16ToWideHack(net::FormatUrl(info.url(), languages, format_types,
+                                         UnescapeRule::SPACES, NULL, NULL,
+                                         &inline_autocomplete_offset)));
   if (!params->input.prevent_inline_autocomplete())
     match.inline_autocomplete_offset = inline_autocomplete_offset;
   DCHECK((match.inline_autocomplete_offset == std::wstring::npos) ||
          (match.inline_autocomplete_offset <= match.fill_into_edit.length()));
 
   size_t match_start = history_match.input_location;
-  match.contents = net::FormatUrl(info.url(),
-      match_type == WHAT_YOU_TYPED ? std::wstring() : params->languages,
-      format_types, UnescapeRule::SPACES, NULL, NULL, &match_start);
+  match.contents = UTF16ToWideHack(net::FormatUrl(info.url(), languages,
+      format_types, UnescapeRule::SPACES, NULL, NULL, &match_start));
   if ((match_start != std::wstring::npos) &&
       (inline_autocomplete_offset != std::wstring::npos) &&
       (inline_autocomplete_offset != match_start)) {

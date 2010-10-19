@@ -23,15 +23,20 @@
 #include "chrome/browser/gtk/gtk_theme_provider.h"
 #include "chrome/browser/gtk/gtk_tree.h"
 #include "chrome/browser/gtk/gtk_util.h"
-#include "chrome/browser/gtk/menu_gtk.h"
 #include "chrome/browser/memory_purger.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "gfx/gtk_util.h"
 #include "grit/app_resources.h"
 #include "grit/chromium_strings.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+
+#if defined(TOOLKIT_VIEWS)
+#include "views/controls/menu/menu_2.h"
+#else
+#include "chrome/browser/gtk/menu_gtk.h"
+#endif
 
 namespace {
 
@@ -60,6 +65,7 @@ enum TaskManagerColumn {
   kTaskManagerWebCoreImageCache,
   kTaskManagerWebCoreScriptsCache,
   kTaskManagerWebCoreCssCache,
+  kTaskManagerSqliteMemoryUsed,
   kTaskManagerGoatsTeleported,
   kTaskManagerColumnCount,
 };
@@ -86,6 +92,8 @@ TaskManagerColumn TaskManagerResourceIDToColumnID(int id) {
       return kTaskManagerWebCoreScriptsCache;
     case IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN:
       return kTaskManagerWebCoreCssCache;
+    case IDS_TASK_MANAGER_SQLITE_MEMORY_USED_COLUMN:
+      return kTaskManagerSqliteMemoryUsed;
     case IDS_TASK_MANAGER_GOATS_TELEPORTED_COLUMN:
       return kTaskManagerGoatsTeleported;
     default:
@@ -116,6 +124,8 @@ int TaskManagerColumnIDToResourceID(int id) {
       return IDS_TASK_MANAGER_WEBCORE_SCRIPTS_CACHE_COLUMN;
     case kTaskManagerWebCoreCssCache:
       return IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN;
+    case kTaskManagerSqliteMemoryUsed:
+      return IDS_TASK_MANAGER_SQLITE_MEMORY_USED_COLUMN;
     case kTaskManagerGoatsTeleported:
       return IDS_TASK_MANAGER_GOATS_TELEPORTED_COLUMN;
     default:
@@ -212,18 +222,32 @@ class TaskManagerGtk::ContextMenuController
       menu_model_->AddCheckItemWithStringId(
           i, TaskManagerColumnIDToResourceID(i));
     }
+#if defined(TOOLKIT_VIEWS)
+    menu_.reset(new views::Menu2(menu_model_.get()));
+#else
     menu_.reset(new MenuGtk(NULL, menu_model_.get()));
+#endif
   }
 
   virtual ~ContextMenuController() {}
 
+#if defined(TOOLKIT_VIEWS)
+  void RunMenu(const gfx::Point& point) {
+    menu_->RunContextMenuAt(point);
+  }
+#else
   void RunMenu() {
     menu_->PopupAsContext(gtk_get_current_event_time());
   }
+#endif
 
   void Cancel() {
     task_manager_ = NULL;
+#if defined(TOOLKIT_VIEWS)
+    menu_->CancelMenu();
+#else
     menu_->Cancel();
+#endif
   }
 
  private:
@@ -260,7 +284,11 @@ class TaskManagerGtk::ContextMenuController
 
   // The model and view for the right click context menu.
   scoped_ptr<menus::SimpleMenuModel> menu_model_;
+#if defined(TOOLKIT_VIEWS)
+  scoped_ptr<views::Menu2> menu_;
+#else
   scoped_ptr<MenuGtk> menu_;
+#endif
 
   // The TaskManager the context menu was brought up for. Set to NULL when the
   // menu is canceled.
@@ -473,10 +501,10 @@ void TaskManagerGtk::SetInitialDialogSize() {
             prefs::kTaskManagerWindowPlacement);
     int top = 0, left = 0, bottom = 1, right = 1;
     if (placement_pref &&
-        placement_pref->GetInteger(L"top", &top) &&
-        placement_pref->GetInteger(L"left", &left) &&
-        placement_pref->GetInteger(L"bottom", &bottom) &&
-        placement_pref->GetInteger(L"right", &right)) {
+        placement_pref->GetInteger("top", &top) &&
+        placement_pref->GetInteger("left", &left) &&
+        placement_pref->GetInteger("bottom", &bottom) &&
+        placement_pref->GetInteger("right", &right)) {
       gtk_window_resize(GTK_WINDOW(dialog_),
                         std::max(1, right - left),
                         std::max(1, bottom - top));
@@ -504,7 +532,8 @@ void TaskManagerGtk::CreateTaskManagerTreeview() {
   process_list_ = gtk_list_store_new(kTaskManagerColumnCount,
       GDK_TYPE_PIXBUF, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
       G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
-      G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
+      G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING,
+      G_TYPE_STRING);
 
   // Support sorting on all columns.
   process_list_sort_ = gtk_tree_model_sort_new_with_model(
@@ -540,6 +569,9 @@ void TaskManagerGtk::CreateTaskManagerTreeview() {
                                   kTaskManagerWebCoreCssCache,
                                   CompareWebCoreCssCache, this, NULL);
   gtk_tree_sortable_set_sort_func(GTK_TREE_SORTABLE(process_list_sort_),
+                                  kTaskManagerSqliteMemoryUsed,
+                                  CompareSqliteMemoryUsed, this, NULL);
+  gtk_tree_sortable_set_sort_func(GTK_TREE_SORTABLE(process_list_sort_),
                                   kTaskManagerGoatsTeleported,
                                   CompareGoatsTeleported, this, NULL);
   treeview_ = gtk_tree_view_new_with_model(process_list_sort_);
@@ -557,6 +589,7 @@ void TaskManagerGtk::CreateTaskManagerTreeview() {
   TreeViewInsertColumn(treeview_,
                        IDS_TASK_MANAGER_WEBCORE_SCRIPTS_CACHE_COLUMN);
   TreeViewInsertColumn(treeview_, IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN);
+  TreeViewInsertColumn(treeview_, IDS_TASK_MANAGER_SQLITE_MEMORY_USED_COLUMN);
   TreeViewInsertColumn(treeview_, IDS_TASK_MANAGER_GOATS_TELEPORTED_COLUMN);
 
   // Hide some columns by default.
@@ -566,6 +599,7 @@ void TaskManagerGtk::CreateTaskManagerTreeview() {
   TreeViewColumnSetVisible(treeview_, kTaskManagerWebCoreImageCache, false);
   TreeViewColumnSetVisible(treeview_, kTaskManagerWebCoreScriptsCache, false);
   TreeViewColumnSetVisible(treeview_, kTaskManagerWebCoreCssCache, false);
+  TreeViewColumnSetVisible(treeview_, kTaskManagerSqliteMemoryUsed, false);
   TreeViewColumnSetVisible(treeview_, kTaskManagerGoatsTeleported, false);
 
   g_object_unref(process_list_);
@@ -594,37 +628,40 @@ std::string TaskManagerGtk::GetModelText(int row, int col_id) {
 
   switch (col_id) {
     case IDS_TASK_MANAGER_PAGE_COLUMN:  // Process
-      return WideToUTF8(model_->GetResourceTitle(row));
+      return UTF16ToUTF8(model_->GetResourceTitle(row));
 
     case IDS_TASK_MANAGER_PRIVATE_MEM_COLUMN:  // Memory
-      return WideToUTF8(model_->GetResourcePrivateMemory(row));
+      return UTF16ToUTF8(model_->GetResourcePrivateMemory(row));
 
     case IDS_TASK_MANAGER_SHARED_MEM_COLUMN:  // Memory
-      return WideToUTF8(model_->GetResourceSharedMemory(row));
+      return UTF16ToUTF8(model_->GetResourceSharedMemory(row));
 
     case IDS_TASK_MANAGER_CPU_COLUMN:  // CPU
-      return WideToUTF8(model_->GetResourceCPUUsage(row));
+      return UTF16ToUTF8(model_->GetResourceCPUUsage(row));
 
     case IDS_TASK_MANAGER_NET_COLUMN:  // Net
-      return WideToUTF8(model_->GetResourceNetworkUsage(row));
+      return UTF16ToUTF8(model_->GetResourceNetworkUsage(row));
 
     case IDS_TASK_MANAGER_PROCESS_ID_COLUMN:  // Process ID
-      return WideToUTF8(model_->GetResourceProcessId(row));
+      return UTF16ToUTF8(model_->GetResourceProcessId(row));
 
     case IDS_TASK_MANAGER_JAVASCRIPT_MEMORY_ALLOCATED_COLUMN:
-      return WideToUTF8(model_->GetResourceV8MemoryAllocatedSize(row));
+      return UTF16ToUTF8(model_->GetResourceV8MemoryAllocatedSize(row));
 
     case IDS_TASK_MANAGER_WEBCORE_IMAGE_CACHE_COLUMN:
-      return WideToUTF8(model_->GetResourceWebCoreImageCacheSize(row));
+      return UTF16ToUTF8(model_->GetResourceWebCoreImageCacheSize(row));
 
     case IDS_TASK_MANAGER_WEBCORE_SCRIPTS_CACHE_COLUMN:
-      return WideToUTF8(model_->GetResourceWebCoreScriptsCacheSize(row));
+      return UTF16ToUTF8(model_->GetResourceWebCoreScriptsCacheSize(row));
 
     case IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN:
-      return WideToUTF8(model_->GetResourceWebCoreCSSCacheSize(row));
+      return UTF16ToUTF8(model_->GetResourceWebCoreCSSCacheSize(row));
+
+    case IDS_TASK_MANAGER_SQLITE_MEMORY_USED_COLUMN:
+      return UTF16ToUTF8(model_->GetResourceSqliteMemoryUsed(row));
 
     case IDS_TASK_MANAGER_GOATS_TELEPORTED_COLUMN:  // Goats Teleported!
-      return WideToUTF8(model_->GetResourceGoatsTeleported(row));
+      return UTF16ToUTF8(model_->GetResourceGoatsTeleported(row));
 
     default:
       NOTREACHED();
@@ -672,6 +709,10 @@ void TaskManagerGtk::SetRowDataFromModel(int row, GtkTreeIter* iter) {
   if (TreeViewColumnIsVisible(treeview_, kTaskManagerWebCoreCssCache))
     wk_css_cache = GetModelText(
         row, IDS_TASK_MANAGER_WEBCORE_CSS_CACHE_COLUMN);
+  std::string sqlite_memory;
+  if (TreeViewColumnIsVisible(treeview_, kTaskManagerSqliteMemoryUsed))
+    sqlite_memory = GetModelText(
+        row, IDS_TASK_MANAGER_SQLITE_MEMORY_USED_COLUMN);
 
   std::string goats = GetModelText(
       row, IDS_TASK_MANAGER_GOATS_TELEPORTED_COLUMN);
@@ -687,6 +728,7 @@ void TaskManagerGtk::SetRowDataFromModel(int row, GtkTreeIter* iter) {
                      kTaskManagerWebCoreImageCache, wk_img_cache.c_str(),
                      kTaskManagerWebCoreScriptsCache, wk_scripts_cache.c_str(),
                      kTaskManagerWebCoreCssCache, wk_css_cache.c_str(),
+                     kTaskManagerSqliteMemoryUsed, sqlite_memory.c_str(),
                      kTaskManagerGoatsTeleported, goats.c_str(),
                      -1);
   g_object_unref(icon);
@@ -710,12 +752,21 @@ void TaskManagerGtk::KillSelectedProcesses() {
   g_list_free(paths);
 }
 
+#if defined(TOOLKIT_VIEWS)
+void TaskManagerGtk::ShowContextMenu(const gfx::Point& point) {
+  if (!menu_controller_.get())
+    menu_controller_.reset(new ContextMenuController(this));
+
+  menu_controller_->RunMenu(point);
+}
+#else
 void TaskManagerGtk::ShowContextMenu() {
   if (!menu_controller_.get())
     menu_controller_.reset(new ContextMenuController(this));
 
   menu_controller_->RunMenu();
 }
+#endif
 
 void TaskManagerGtk::ActivateFocusedTab() {
   GtkTreeSelection* selection = gtk_tree_view_get_selection(
@@ -790,11 +841,11 @@ void TaskManagerGtk::OnResponse(GtkWidget* dialog, gint response_id) {
               prefs::kTaskManagerWindowPlacement);
       // Note that we store left/top for consistency with Windows, but that we
       // *don't* restore them.
-      placement_pref->SetInteger(L"left", dialog_bounds.x());
-      placement_pref->SetInteger(L"top", dialog_bounds.y());
-      placement_pref->SetInteger(L"right", dialog_bounds.right());
-      placement_pref->SetInteger(L"bottom", dialog_bounds.bottom());
-      placement_pref->SetBoolean(L"maximized", false);
+      placement_pref->SetInteger("left", dialog_bounds.x());
+      placement_pref->SetInteger("top", dialog_bounds.y());
+      placement_pref->SetInteger("right", dialog_bounds.right());
+      placement_pref->SetInteger("bottom", dialog_bounds.bottom());
+      placement_pref->SetBoolean("maximized", false);
     }
 
     instance_ = NULL;
@@ -889,8 +940,14 @@ gboolean TaskManagerGtk::OnButtonPressEvent(GtkWidget* widget,
 
 gboolean TaskManagerGtk::OnButtonReleaseEvent(GtkWidget* widget,
                                               GdkEventButton* event) {
-  if (event->button == 3)
+  if (event->button == 3) {
+#if defined(TOOLKIT_VIEWS)
+    gfx::Point pt(event->x_root, event->y_root);
+    ShowContextMenu(pt);
+#else
     ShowContextMenu();
+#endif
+  }
 
   return FALSE;
 }

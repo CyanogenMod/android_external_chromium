@@ -7,7 +7,7 @@
 #include "app/resource_bundle.h"
 #include "app/theme_provider.h"
 #include "chrome/app/chrome_dll_resource.h"
-#include "chrome/browser/browser_theme_provider.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/views/frame/browser_view.h"
 #include "chrome/browser/views/tabs/side_tab_strip.h"
 #include "chrome/browser/views/tabs/tab.h"
@@ -33,9 +33,6 @@ const int kNonClientRestoredExtraThickness = 11;
 // In the window corners, the resize areas don't actually expand bigger, but the
 // 16 px at the end of the top and bottom edges triggers diagonal resizing.
 const int kResizeAreaCornerSize = 16;
-// In maximized mode, the OTR avatar starts 2 px below the top of the screen, so
-// that it doesn't extend into the "3D edge" portion of the titlebar.
-const int kOTRMaximizedTopSpacing = 2;
 // The OTR avatar ends 2 px above the bottom of the tabstrip (which, given the
 // way the tabstrip draws its bottom edge, will appear like a 1 px gap to the
 // user).
@@ -82,8 +79,9 @@ gfx::Rect GlassBrowserFrameView::GetBoundsForTabStrip(
     BaseTabStrip* tabstrip) const {
   if (browser_view_->UseVerticalTabs()) {
     gfx::Size ps = tabstrip->GetPreferredSize();
-    return gfx::Rect(NonClientBorderThickness(), NonClientTopBorderHeight(),
-                     ps.width(), browser_view_->height());
+    return gfx::Rect(NonClientBorderThickness(),
+        NonClientTopBorderHeight(false, false), ps.width(),
+        browser_view_->height());
   }
   int minimize_button_offset = frame_->GetMinimizeButtonOffset();
   int tabstrip_x = browser_view_->ShouldShowOffTheRecordAvatar() ?
@@ -103,9 +101,14 @@ gfx::Rect GlassBrowserFrameView::GetBoundsForTabStrip(
   int tabstrip_width = minimize_button_offset - tabstrip_x -
       (frame_->GetWindow()->IsMaximized() ?
           kNewTabCaptionMaximizedSpacing : kNewTabCaptionRestoredSpacing);
-  return gfx::Rect(tabstrip_x, NonClientTopBorderHeight(),
+  return gfx::Rect(tabstrip_x, GetHorizontalTabStripVerticalOffset(false),
                    std::max(0, tabstrip_width),
                    tabstrip->GetPreferredHeight());
+}
+
+int GlassBrowserFrameView::GetHorizontalTabStripVerticalOffset(
+    bool restored) const {
+  return NonClientTopBorderHeight(restored, true);
 }
 
 void GlassBrowserFrameView::UpdateThrobber(bool running) {
@@ -145,7 +148,7 @@ gfx::Rect GlassBrowserFrameView::GetWindowBoundsForClientBounds(
     return gfx::Rect(rect);
   }
 
-  int top_height = NonClientTopBorderHeight();
+  int top_height = NonClientTopBorderHeight(false, false);
   int border_thickness = NonClientBorderThickness();
   return gfx::Rect(std::max(0, client_bounds.x() - border_thickness),
                    std::max(0, client_bounds.y() - top_height),
@@ -192,7 +195,8 @@ void GlassBrowserFrameView::Paint(gfx::Canvas* canvas) {
     return;  // Nothing is visible, so don't bother to paint.
 
   PaintToolbarBackground(canvas);
-  PaintOTRAvatar(canvas);
+  if (browser_view_->ShouldShowOffTheRecordAvatar())
+    PaintOTRAvatar(canvas);
   if (!frame_->GetWindow()->IsMaximized())
     PaintRestoredClientEdge(canvas);
 }
@@ -221,15 +225,19 @@ int GlassBrowserFrameView::NonClientBorderThickness() const {
       kNonClientBorderThickness;
 }
 
-int GlassBrowserFrameView::NonClientTopBorderHeight() const {
-  if (frame_->GetWindow()->IsFullscreen())
+int GlassBrowserFrameView::NonClientTopBorderHeight(
+    bool restored,
+    bool ignore_vertical_tabs) const {
+  if (!restored && frame_->GetWindow()->IsFullscreen())
     return 0;
-  if (browser_view_->UseVerticalTabs())
-    return static_cast<BrowserFrameWin*>(frame_)->GetTitleBarHeight();
   // We'd like to use FrameBorderThickness() here, but the maximized Aero glass
-  // frame has a 0 frame border around most edges and a CXSIZEFRAME-thick border
+  // frame has a 0 frame border around most edges and a CYSIZEFRAME-thick border
   // at the top (see AeroGlassFrame::OnGetMinMaxInfo()).
-  return GetSystemMetrics(SM_CXSIZEFRAME) + (browser_view_->IsMaximized() ?
+  if (browser_view_->IsTabStripVisible() && !ignore_vertical_tabs &&
+      browser_view_->UseVerticalTabs())
+    return GetSystemMetrics(SM_CYSIZEFRAME) + GetSystemMetrics(SM_CYCAPTION);
+  return GetSystemMetrics(SM_CYSIZEFRAME) +
+      ((!restored && browser_view_->IsMaximized()) ?
       -kTabstripTopShadowThickness : kNonClientRestoredExtraThickness);
 }
 
@@ -238,62 +246,59 @@ void GlassBrowserFrameView::PaintToolbarBackground(gfx::Canvas* canvas) {
 
   gfx::Rect toolbar_bounds(browser_view_->GetToolbarBounds());
   gfx::Point toolbar_origin(toolbar_bounds.origin());
-  View::ConvertPointToView(frame_->GetWindow()->GetClientView(),
-                           this, &toolbar_origin);
+  View::ConvertPointToView(browser_view_, this, &toolbar_origin);
   toolbar_bounds.set_origin(toolbar_origin);
+  int x = toolbar_bounds.x();
+  int w = toolbar_bounds.width();
+  int left_x = x - kContentEdgeShadowThickness;
 
   SkBitmap* theme_toolbar = tp->GetBitmapNamed(IDR_THEME_TOOLBAR);
   SkBitmap* toolbar_left = tp->GetBitmapNamed(IDR_CONTENT_TOP_LEFT_CORNER);
   SkBitmap* toolbar_center = tp->GetBitmapNamed(IDR_CONTENT_TOP_CENTER);
 
   if (browser_view_->UseVerticalTabs()) {
-    gfx::Rect tabstrip_bounds(browser_view_->tabstrip()->bounds());
-    gfx::Point tabstrip_origin(tabstrip_bounds.origin());
-    View::ConvertPointToView(frame_->GetWindow()->GetClientView(),
-                             this, &tabstrip_origin);
-    tabstrip_bounds.set_origin(tabstrip_origin);
+    gfx::Point tabstrip_origin(browser_view_->tabstrip()->bounds().origin());
+    View::ConvertPointToView(browser_view_, this, &tabstrip_origin);
+    int y = tabstrip_origin.y();
 
-    int x = tabstrip_bounds.x();
-    int y = tabstrip_bounds.y();
-    int w = toolbar_bounds.right() - x;
+    // Tile the toolbar image starting at the frame edge on the left and where
+    // the horizontal tabstrip would be on the top.
+    canvas->TileImageInt(*theme_toolbar, x,
+                         y - GetHorizontalTabStripVerticalOffset(false), x, y,
+                         w, theme_toolbar->height());
 
-    int src_y = Tab::GetMinimumUnselectedSize().height();
-    canvas->TileImageInt(*theme_toolbar, 0, src_y,
-                         MirroredLeftPointForRect(toolbar_bounds), y,
-                         toolbar_bounds.width(), theme_toolbar->height());
-
-    // Draw left edge. We explicitly set a clip as the image is bigger than just
-    // the corner.
-    canvas->Save();
-    canvas->ClipRectInt(x - kNonClientBorderThickness,
-                        y - kNonClientBorderThickness,
-                        kNonClientBorderThickness,
-                        kNonClientBorderThickness);
-    canvas->DrawBitmapInt(*toolbar_left, x - kNonClientBorderThickness,
-                          y - kNonClientBorderThickness);
-    canvas->Restore();
+    // Draw left edge.
+    int dest_y = y - kNonClientBorderThickness;
+    canvas->DrawBitmapInt(*toolbar_left, 0, 0, kNonClientBorderThickness,
+                          kNonClientBorderThickness, left_x, dest_y,
+                          kNonClientBorderThickness, kNonClientBorderThickness,
+                          false);
 
     // Draw center edge. We need to draw a while line above the toolbar for the
     // image to overlay nicely.
-    canvas->FillRectInt(SK_ColorWHITE, x, y - 1, w, 1);
-    canvas->TileImageInt(*toolbar_center, x, y - kNonClientBorderThickness, w,
-                         toolbar_center->height());
-    // Right edge. Again, we have to clip because of image size.
-    canvas->Save();
-    canvas->ClipRectInt(x + w - kNonClientBorderThickness,
-                        y - kNonClientBorderThickness,
-                        kNonClientBorderThickness,
-                        kNonClientBorderThickness);
-    canvas->DrawBitmapInt(*tp->GetBitmapNamed(IDR_CONTENT_TOP_RIGHT_CORNER),
-                          x + w, y);
-    canvas->Restore();
+    int center_offset =
+        -kContentEdgeShadowThickness + kNonClientBorderThickness;
+    canvas->FillRectInt(SK_ColorWHITE, x + center_offset, y - 1,
+                        w - (2 * center_offset), 1);
+    canvas->TileImageInt(*toolbar_center, x + center_offset, dest_y,
+                         w - (2 * center_offset), toolbar_center->height());
+
+    // Right edge.
+    SkBitmap* toolbar_right = tp->GetBitmapNamed(IDR_CONTENT_TOP_RIGHT_CORNER);
+    canvas->DrawBitmapInt(*toolbar_right,
+        toolbar_right->width() - kNonClientBorderThickness, 0,
+        kNonClientBorderThickness, kNonClientBorderThickness,
+        x + w - center_offset, dest_y, kNonClientBorderThickness,
+        kNonClientBorderThickness, false);
   } else {
-    // Draw the toolbar background, setting src_y of the paint to the tab
-    // strip height as the toolbar background begins at the top of the tabs.
-    int src_y = browser_view_->GetTabStripHeight() - 1;
-    canvas->TileImageInt(*theme_toolbar, 0, src_y,
-                         toolbar_bounds.x() - 1, toolbar_bounds.y() + 2,
-                         toolbar_bounds.width() + 2, theme_toolbar->height());
+    // Tile the toolbar image starting at the frame edge on the left and where
+    // the tabstrip is on the top.
+    int y = toolbar_bounds.y();
+    int dest_y = y + (kFrameShadowThickness * 2);
+    canvas->TileImageInt(*theme_toolbar, x,
+                         dest_y - GetHorizontalTabStripVerticalOffset(false), x,
+                         dest_y, w, theme_toolbar->height());
+
     // Draw rounded corners for the tab.
     SkBitmap* toolbar_left_mask =
         tp->GetBitmapNamed(IDR_CONTENT_TOP_LEFT_CORNER_MASK);
@@ -307,122 +312,100 @@ void GlassBrowserFrameView::PaintToolbarBackground(gfx::Canvas* canvas) {
     paint.setXfermodeMode(SkXfermode::kDstIn_Mode);
 
     // Mask out the top left corner.
-    int left_x = toolbar_bounds.x() - kContentEdgeShadowThickness -
-        kClientEdgeThickness;
-    canvas->DrawBitmapInt(*toolbar_left_mask,
-                          left_x, toolbar_bounds.y(), paint);
+    canvas->DrawBitmapInt(*toolbar_left_mask, left_x, y, paint);
 
     // Mask out the top right corner.
-    int right_x = toolbar_bounds.right() - toolbar_right_mask->width() +
-        kContentEdgeShadowThickness + kClientEdgeThickness;
-    canvas->DrawBitmapInt(*toolbar_right_mask,
-                          right_x, toolbar_bounds.y(),
-                          paint);
+    int right_x =
+        x + w + kContentEdgeShadowThickness - toolbar_right_mask->width();
+    canvas->DrawBitmapInt(*toolbar_right_mask, right_x, y, paint);
 
     // Draw left edge.
-    canvas->DrawBitmapInt(*toolbar_left, left_x, toolbar_bounds.y());
+    canvas->DrawBitmapInt(*toolbar_left, left_x, y);
 
     // Draw center edge.
-    canvas->TileImageInt(*toolbar_center, left_x + toolbar_left->width(),
-                         toolbar_bounds.y(),
-                         right_x - (left_x + toolbar_left->width()),
-                         toolbar_center->height());
+    canvas->TileImageInt(*toolbar_center, left_x + toolbar_left->width(), y,
+        right_x - (left_x + toolbar_left->width()), toolbar_center->height());
 
     // Right edge.
     canvas->DrawBitmapInt(*tp->GetBitmapNamed(IDR_CONTENT_TOP_RIGHT_CORNER),
-                          right_x, toolbar_bounds.y());
+                          right_x, y);
   }
 
   // Draw the content/toolbar separator.
-  canvas->DrawLineInt(ResourceBundle::toolbar_separator_color,
-                      toolbar_bounds.x(), toolbar_bounds.bottom() - 1,
-                      toolbar_bounds.right() - 1, toolbar_bounds.bottom() - 1);
+  canvas->FillRectInt(ResourceBundle::toolbar_separator_color,
+      x + kClientEdgeThickness, toolbar_bounds.bottom() - kClientEdgeThickness,
+      w - (2 * kClientEdgeThickness), kClientEdgeThickness);
 }
 
 void GlassBrowserFrameView::PaintOTRAvatar(gfx::Canvas* canvas) {
-  if (!browser_view_->ShouldShowOffTheRecordAvatar())
-    return;
+  // In RTL mode, the avatar icon should be looking the opposite direction.
+  canvas->Save();
+  if (base::i18n::IsRTL()) {
+    canvas->TranslateInt(width(), 0);
+    canvas->ScaleInt(-1, 1);
+  }
 
   SkBitmap otr_avatar_icon = browser_view_->GetOTRAvatarIcon();
-  int src_x = 0;
-  int src_y = (otr_avatar_icon.height() - otr_avatar_bounds_.height()) / 2;
-  int dst_x = MirroredLeftPointForRect(otr_avatar_bounds_);
-  int dst_y = otr_avatar_bounds_.y();
   int w = otr_avatar_bounds_.width();
   int h = otr_avatar_bounds_.height();
-  if (browser_view_->UseVerticalTabs()) {
-    // Only a portion of the otr icon is visible for vertical tabs. Clip it
-    // so that it doesn't overlap shadows.
-    gfx::Point tabstrip_origin(browser_view_->tabstrip()->bounds().origin());
-    View::ConvertPointToView(frame_->GetWindow()->GetClientView(), this,
-                             &tabstrip_origin);
-    canvas->Save();
-    canvas->ClipRectInt(dst_x, 2, w, tabstrip_origin.y() - 4);
-    canvas->DrawBitmapInt(otr_avatar_icon, src_x, src_y, w, h, dst_x, dst_y,
-                          w, h, false);
-    canvas->Restore();
-  } else {
-    canvas->DrawBitmapInt(otr_avatar_icon, src_x, src_y, w, h, dst_x, dst_y,
-                          w, h, false);
-  }
+  canvas->DrawBitmapInt(otr_avatar_icon, 0,
+      // Bias the rounding to select a region that's lower rather than higher,
+      // as the shadows at the image top mean the apparent center is below the
+      // real center.
+      ((otr_avatar_icon.height() - otr_avatar_bounds_.height()) + 1) / 2, w, h,
+      otr_avatar_bounds_.x(), otr_avatar_bounds_.y(), w, h, false);
+
+  canvas->Restore();
 }
 
 void GlassBrowserFrameView::PaintRestoredClientEdge(gfx::Canvas* canvas) {
   ThemeProvider* tp = GetThemeProvider();
-
   gfx::Rect client_area_bounds = CalculateClientAreaBounds(width(), height());
 
   // The client edges start below the toolbar upper corner images regardless
   // of how tall the toolbar itself is.
   int client_area_top = browser_view_->UseVerticalTabs() ?
       client_area_bounds.y() :
-      frame_->GetWindow()->GetClientView()->y() +
+      (frame_->GetWindow()->GetClientView()->y() +
       browser_view_->GetToolbarBounds().y() +
-      tp->GetBitmapNamed(IDR_CONTENT_TOP_LEFT_CORNER)->height();
-
+      tp->GetBitmapNamed(IDR_CONTENT_TOP_LEFT_CORNER)->height());
   int client_area_bottom =
       std::max(client_area_top, height() - NonClientBorderThickness());
   int client_area_height = client_area_bottom - client_area_top;
+
+  // Draw the client edge images.
   SkBitmap* right = tp->GetBitmapNamed(IDR_CONTENT_RIGHT_SIDE);
   canvas->TileImageInt(*right, client_area_bounds.right(), client_area_top,
                        right->width(), client_area_height);
-
-  // Draw the toolbar color so that the one pixel areas down the sides
-  // show the right color even if not covered by the toolbar image.
-  SkColor toolbar_color = tp->GetColor(BrowserThemeProvider::COLOR_TOOLBAR);
-  canvas->DrawLineInt(toolbar_color,
-      client_area_bounds.x() - kClientEdgeThickness,
-      client_area_top,
-      client_area_bounds.x() - kClientEdgeThickness,
-      client_area_bottom - 1 + kClientEdgeThickness);
-  canvas->DrawLineInt(toolbar_color,
-      client_area_bounds.x() - kClientEdgeThickness,
-      client_area_bottom - 1 + kClientEdgeThickness,
-      client_area_bounds.right() + kClientEdgeThickness,
-      client_area_bottom - 1 + kClientEdgeThickness);
-  canvas->DrawLineInt(toolbar_color,
-      client_area_bounds.right() - 1 + kClientEdgeThickness,
-      client_area_bottom - 1 + kClientEdgeThickness,
-      client_area_bounds.right() - 1 + kClientEdgeThickness,
-      client_area_top);
-
   canvas->DrawBitmapInt(
       *tp->GetBitmapNamed(IDR_CONTENT_BOTTOM_RIGHT_CORNER),
       client_area_bounds.right(), client_area_bottom);
-
   SkBitmap* bottom = tp->GetBitmapNamed(IDR_CONTENT_BOTTOM_CENTER);
   canvas->TileImageInt(*bottom, client_area_bounds.x(),
       client_area_bottom, client_area_bounds.width(),
       bottom->height());
-
   SkBitmap* bottom_left =
       tp->GetBitmapNamed(IDR_CONTENT_BOTTOM_LEFT_CORNER);
   canvas->DrawBitmapInt(*bottom_left,
       client_area_bounds.x() - bottom_left->width(), client_area_bottom);
-
   SkBitmap* left = tp->GetBitmapNamed(IDR_CONTENT_LEFT_SIDE);
   canvas->TileImageInt(*left, client_area_bounds.x() - left->width(),
       client_area_top, left->width(), client_area_height);
+
+  // Draw the toolbar color so that the client edges show the right color even
+  // where not covered by the toolbar image.  NOTE: We do this after drawing the
+  // images because the images are meant to alpha-blend atop the frame whereas
+  // these rects are meant to be fully opaque, without anything overlaid.
+  SkColor toolbar_color = tp->GetColor(BrowserThemeProvider::COLOR_TOOLBAR);
+  canvas->FillRectInt(toolbar_color,
+      client_area_bounds.x() - kClientEdgeThickness, client_area_top,
+      kClientEdgeThickness,
+      client_area_bottom + kClientEdgeThickness - client_area_top);
+  canvas->FillRectInt(toolbar_color, client_area_bounds.x(), client_area_bottom,
+                      client_area_bounds.width(), kClientEdgeThickness);
+  canvas->FillRectInt(toolbar_color, client_area_bounds.right(),
+      client_area_top, kClientEdgeThickness,
+      client_area_bottom + kClientEdgeThickness - client_area_top);
 }
 
 void GlassBrowserFrameView::LayoutOTRAvatar() {
@@ -433,21 +416,22 @@ void GlassBrowserFrameView::LayoutOTRAvatar() {
   // comment in GetBoundsForTabStrip().)
   if (base::i18n::IsRTL())
     otr_x += width() - frame_->GetMinimizeButtonOffset();
+
   SkBitmap otr_avatar_icon = browser_view_->GetOTRAvatarIcon();
-  int otr_height = browser_view_->IsTabStripVisible() ?
-      otr_avatar_icon.height() : 0;
-  int otr_y = 0;
+  int otr_bottom, otr_restored_y;
   if (browser_view_->UseVerticalTabs()) {
-    otr_y = NonClientTopBorderHeight() - otr_avatar_icon.height();
-  } else if (browser_view_->IsTabStripVisible()) {
-    int top_height = NonClientTopBorderHeight();
-    int tabstrip_height =
+    otr_bottom = NonClientTopBorderHeight(false, false) - kOTRBottomSpacing;
+    otr_restored_y = kFrameShadowThickness;
+  } else {
+    otr_bottom = GetHorizontalTabStripVerticalOffset(false) +
         browser_view_->GetTabStripHeight() - kOTRBottomSpacing;
-    otr_height = frame_->GetWindow()->IsMaximized() ?
-        (tabstrip_height - kOTRMaximizedTopSpacing) : otr_avatar_icon.height();
-    otr_y = top_height + tabstrip_height - otr_height;
+    otr_restored_y = otr_bottom - otr_avatar_icon.height();
   }
-  otr_avatar_bounds_.SetRect(otr_x, otr_y, otr_avatar_icon.width(), otr_height);
+  int otr_y = frame_->GetWindow()->IsMaximized() ?
+      (NonClientTopBorderHeight(false, true) + kTabstripTopShadowThickness) :
+      otr_restored_y;
+  otr_avatar_bounds_.SetRect(otr_x, otr_y, otr_avatar_icon.width(),
+      browser_view_->ShouldShowOffTheRecordAvatar() ? (otr_bottom - otr_y) : 0);
 }
 
 void GlassBrowserFrameView::LayoutClientView() {
@@ -459,7 +443,7 @@ gfx::Rect GlassBrowserFrameView::CalculateClientAreaBounds(int width,
   if (!browser_view_->IsTabStripVisible())
     return gfx::Rect(0, 0, this->width(), this->height());
 
-  int top_height = NonClientTopBorderHeight();
+  int top_height = NonClientTopBorderHeight(false, false);
   int border_thickness = NonClientBorderThickness();
   return gfx::Rect(border_thickness, top_height,
                    std::max(0, width - (2 * border_thickness)),

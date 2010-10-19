@@ -8,6 +8,7 @@
 #include "app/resource_bundle.h"
 #include "base/i18n/rtl.h"
 #include "base/message_loop.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/gtk/browser_actions_toolbar_gtk.h"
 #include "chrome/browser/gtk/browser_toolbar_gtk.h"
@@ -31,6 +32,12 @@ const int kIconSize = 43;
 const int kTextColumnVerticalSpacing = 7;
 const int kTextColumnWidth = 350;
 
+// When showing the bubble for a new browser action, we may have to wait for
+// the toolbar to finish animating to know where the item's final position
+// will be.
+const int kAnimationWaitRetries = 10;
+const int kAnimationWaitMS = 50;
+
 // Padding between content and edge of info bubble.
 const int kContentBorder = 7;
 
@@ -46,7 +53,8 @@ ExtensionInstalledBubbleGtk::ExtensionInstalledBubbleGtk(Extension *extension,
                                                          SkBitmap icon)
     : extension_(extension),
       browser_(browser),
-      icon_(icon) {
+      icon_(icon),
+      animation_wait_retries_(kAnimationWaitRetries) {
   AddRef();  // Balanced in Close().
 
   if (extension_->browser_action()) {
@@ -90,16 +98,29 @@ void ExtensionInstalledBubbleGtk::ShowInternal() {
   GtkWidget* reference_widget = NULL;
 
   if (type_ == BROWSER_ACTION) {
-    reference_widget = browser_window->GetToolbar()->GetBrowserActionsToolbar()
-        ->GetBrowserActionWidget(extension_);
+    BrowserActionsToolbarGtk* toolbar =
+        browser_window->GetToolbar()->GetBrowserActionsToolbar();
+
+    if (toolbar->animating() && animation_wait_retries_-- > 0) {
+      MessageLoopForUI::current()->PostDelayedTask(
+          FROM_HERE,
+          NewRunnableMethod(this, &ExtensionInstalledBubbleGtk::ShowInternal),
+          kAnimationWaitMS);
+      return;
+    }
+
+    reference_widget = toolbar->GetBrowserActionWidget(extension_);
     // glib delays recalculating layout, but we need reference_widget to know
     // its coordinates, so we force a check_resize here.
     gtk_container_check_resize(GTK_CONTAINER(
         browser_window->GetToolbar()->widget()));
     // If the widget is not visible then browser_window could be incognito
-    // with this extension disabled. Fall back to default position.
-    if (reference_widget && !GTK_WIDGET_VISIBLE(reference_widget))
-      reference_widget = NULL;
+    // with this extension disabled. Try showing it on the chevron.
+    // If that fails, fall back to default position.
+    if (reference_widget && !GTK_WIDGET_VISIBLE(reference_widget)) {
+      reference_widget = GTK_WIDGET_VISIBLE(toolbar->chevron()) ?
+          toolbar->chevron() : NULL;
+    }
   } else if (type_ == PAGE_ACTION) {
     LocationBarViewGtk* location_bar_view =
         browser_window->GetToolbar()->GetLocationBarView();
@@ -158,9 +179,8 @@ void ExtensionInstalledBubbleGtk::ShowInternal() {
 
   // Heading label
   GtkWidget* heading_label = gtk_label_new(NULL);
-  std::string heading_text = WideToUTF8(l10n_util::GetStringF(
-      IDS_EXTENSION_INSTALLED_HEADING,
-      UTF8ToWide(extension_->name())));
+  std::string heading_text = l10n_util::GetStringFUTF8(
+      IDS_EXTENSION_INSTALLED_HEADING, UTF8ToUTF16(extension_->name()));
   char* markup = g_markup_printf_escaped("<span size=\"larger\">%s</span>",
       heading_text.c_str());
   gtk_label_set_markup(GTK_LABEL(heading_label), markup);
@@ -172,9 +192,8 @@ void ExtensionInstalledBubbleGtk::ShowInternal() {
 
   // Page action label
   if (type_ == ExtensionInstalledBubbleGtk::PAGE_ACTION) {
-    GtkWidget* info_label = gtk_label_new(
-        WideToUTF8(l10n_util::GetString(
-            IDS_EXTENSION_INSTALLED_PAGE_ACTION_INFO)).c_str());
+    GtkWidget* info_label = gtk_label_new(l10n_util::GetStringUTF8(
+            IDS_EXTENSION_INSTALLED_PAGE_ACTION_INFO).c_str());
     gtk_label_set_line_wrap(GTK_LABEL(info_label), TRUE);
     gtk_widget_set_size_request(info_label, kTextColumnWidth, -1);
     gtk_box_pack_start(GTK_BOX(text_column), info_label, FALSE, FALSE, 0);
@@ -182,8 +201,8 @@ void ExtensionInstalledBubbleGtk::ShowInternal() {
 
   // Manage label
   GtkWidget* manage_label = gtk_label_new(
-      WideToUTF8(l10n_util::GetStringF(IDS_EXTENSION_INSTALLED_MANAGE_INFO,
-          UTF8ToWide(extension_->name()))).c_str());
+      l10n_util::GetStringFUTF8(IDS_EXTENSION_INSTALLED_MANAGE_INFO,
+          UTF8ToUTF16(extension_->name())).c_str());
   gtk_label_set_line_wrap(GTK_LABEL(manage_label), TRUE);
   gtk_widget_set_size_request(manage_label, kTextColumnWidth, -1);
   gtk_box_pack_start(GTK_BOX(text_column), manage_label, FALSE, FALSE, 0);

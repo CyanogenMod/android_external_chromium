@@ -17,11 +17,12 @@
 #include "base/time.h"
 #include "chrome/browser/autocomplete/history_url_provider.h"
 #include "chrome/browser/bookmarks/bookmark_service.h"
-#include "chrome/browser/history/download_types.h"
+#include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/history/history_notifications.h"
 #include "chrome/browser/history/history_publisher.h"
 #include "chrome/browser/history/in_memory_history_backend.h"
 #include "chrome/browser/history/page_usage_data.h"
+#include "chrome/browser/history/top_sites.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_type.h"
@@ -362,8 +363,6 @@ SegmentID HistoryBackend::UpdateSegments(const GURL& url,
 }
 
 void HistoryBackend::AddPage(scoped_refptr<HistoryAddPageArgs> request) {
-  DLOG(INFO) << "Adding page " << request->url.possibly_invalid_spec();
-
   if (!db_.get())
     return;
 
@@ -405,7 +404,7 @@ void HistoryBackend::AddPage(scoped_refptr<HistoryAddPageArgs> request) {
 
     // No redirect case (one element means just the page itself).
     last_ids = AddPageVisit(request->url, last_recorded_time_,
-                            last_ids.second, t);
+                            last_ids.second, t, request->visit_source);
 
     // Update the segment for this visit. KEYWORD_GENERATED visits should not
     // result in changing most visited, so we don't update segments (most
@@ -471,7 +470,8 @@ void HistoryBackend::AddPage(scoped_refptr<HistoryAddPageArgs> request) {
       // them anyway, and if we ever decide to, we can reconstruct their order
       // from the redirect chain.
       last_ids = AddPageVisit(request->redirects[redirect_index],
-                              last_recorded_time_, last_ids.second, t);
+                              last_recorded_time_, last_ids.second,
+                              t, request->visit_source);
       if (t & PageTransition::CHAIN_START) {
         // Update the segment for this visit.
         UpdateSegments(request->redirects[redirect_index],
@@ -548,7 +548,7 @@ void HistoryBackend::InitImpl() {
   // Fill the in-memory database and send it back to the history service on the
   // main thread.
   InMemoryHistoryBackend* mem_backend = new InMemoryHistoryBackend;
-  if (mem_backend->Init(history_name))
+  if (mem_backend->Init(history_name, db_.get()))
     delegate_->SetInMemoryBackend(mem_backend);  // Takes ownership of pointer.
   else
     delete mem_backend;  // Error case, run without the in-memory DB.
@@ -581,11 +581,12 @@ void HistoryBackend::InitImpl() {
 
   // Thumbnail database.
   thumbnail_db_.reset(new ThumbnailDatabase());
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kTopSites)) {
-    if (!db_->needs_version_18_migration()) {
-      // No convertion needed - use new filename right away.
-      thumbnail_name = GetFaviconsFileName();
-    }
+  if (history::TopSites::IsEnabled()) {
+    // TODO(sky): once we reenable top sites this needs to be fixed.
+    // if (!db_->needs_version_18_migration()) {
+    // No convertion needed - use new filename right away.
+    // thumbnail_name = GetFaviconsFileName();
+    // }
   }
   if (thumbnail_db_->Init(thumbnail_name,
                           history_publisher_.get()) != sql::INIT_OK) {
@@ -598,11 +599,12 @@ void HistoryBackend::InitImpl() {
     thumbnail_db_.reset();
   }
 
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kTopSites)) {
-    if (db_->needs_version_18_migration()) {
-      LOG(INFO) << "Starting TopSites migration";
-      delegate_->StartTopSitesMigration();
-    }
+  if (history::TopSites::IsEnabled()) {
+    // TODO(sky): fix when reenabling top sites migration.
+    // if (db_->needs_version_18_migration()) {
+    // LOG(INFO) << "Starting TopSites migration";
+    // delegate_->StartTopSitesMigration();
+    // }
   }
 
   // Archived database.
@@ -651,7 +653,8 @@ std::pair<URLID, VisitID> HistoryBackend::AddPageVisit(
     const GURL& url,
     Time time,
     VisitID referring_visit,
-    PageTransition::Type transition) {
+    PageTransition::Type transition,
+    VisitSource visit_source) {
   // Top-level frame navigations are visible, everything else is hidden
   bool new_hidden = !PageTransition::IsMainFrame(transition);
 
@@ -708,7 +711,7 @@ std::pair<URLID, VisitID> HistoryBackend::AddPageVisit(
 
   // Add the visit with the time to the database.
   VisitRow visit_info(url_id, time, referring_visit, transition, 0);
-  VisitID visit_id = db_->AddVisit(&visit_info);
+  VisitID visit_id = db_->AddVisit(&visit_info, visit_source);
 
   if (visit_info.visit_time < first_recorded_time_)
     first_recorded_time_ = visit_info.visit_time;
@@ -727,7 +730,8 @@ std::pair<URLID, VisitID> HistoryBackend::AddPageVisit(
   return std::make_pair(url_id, visit_id);
 }
 
-void HistoryBackend::AddPagesWithDetails(const std::vector<URLRow>& urls) {
+void HistoryBackend::AddPagesWithDetails(const std::vector<URLRow>& urls,
+                                         VisitSource visit_source) {
   if (!db_.get())
     return;
 
@@ -789,7 +793,7 @@ void HistoryBackend::AddPagesWithDetails(const std::vector<URLRow>& urls) {
         PageTransition::LINK | PageTransition::CHAIN_START |
         PageTransition::CHAIN_END, 0);
     visit_info.is_indexed = has_indexed;
-    if (!visit_database->AddVisit(&visit_info)) {
+    if (!visit_database->AddVisit(&visit_info, visit_source)) {
       NOTREACHED() << "Adding visit failed.";
       return;
     }
@@ -906,11 +910,12 @@ bool HistoryBackend::UpdateURL(URLID id, const history::URLRow& url) {
 }
 
 bool HistoryBackend::AddVisits(const GURL& url,
-                               const std::vector<base::Time>& visits) {
+                               const std::vector<base::Time>& visits,
+                               VisitSource visit_source) {
   if (db_.get()) {
     for (std::vector<base::Time>::const_iterator visit = visits.begin();
          visit != visits.end(); ++visit) {
-      if (!AddPageVisit(url, *visit, 0, 0).first) {
+      if (!AddPageVisit(url, *visit, 0, 0, visit_source).first) {
         return false;
       }
     }
@@ -1022,7 +1027,7 @@ void HistoryBackend::QuerySegmentUsage(
 // Keyword visits --------------------------------------------------------------
 
 void HistoryBackend::SetKeywordSearchTermsForURL(const GURL& url,
-                                                 TemplateURL::IDType keyword_id,
+                                                 TemplateURLID keyword_id,
                                                  const string16& term) {
   if (!db_.get())
     return;
@@ -1040,7 +1045,7 @@ void HistoryBackend::SetKeywordSearchTermsForURL(const GURL& url,
 }
 
 void HistoryBackend::DeleteAllSearchTermsForKeyword(
-    TemplateURL::IDType keyword_id) {
+    TemplateURLID keyword_id) {
   if (!db_.get())
     return;
 
@@ -1051,7 +1056,7 @@ void HistoryBackend::DeleteAllSearchTermsForKeyword(
 
 void HistoryBackend::GetMostRecentKeywordSearchTerms(
     scoped_refptr<GetMostRecentKeywordSearchTermsRequest> request,
-    TemplateURL::IDType keyword_id,
+    TemplateURLID keyword_id,
     const string16& prefix,
     int max_count) {
   if (request->canceled())
@@ -1124,17 +1129,6 @@ void HistoryBackend::RemoveDownloadsBetween(const Time remove_begin,
                                             const Time remove_end) {
   if (db_.get())
     db_->RemoveDownloadsBetween(remove_begin, remove_end);
-}
-
-void HistoryBackend::SearchDownloads(
-    scoped_refptr<DownloadSearchRequest> request,
-    const string16& search_text) {
-  if (request->canceled())
-    return;
-  if (db_.get())
-    db_->SearchDownloads(&request->value, search_text);
-  request->ForwardResult(DownloadSearchRequest::TupleType(request->handle(),
-                                                          &request->value));
 }
 
 void HistoryBackend::QueryHistory(scoped_refptr<QueryHistoryRequest> request,
@@ -2156,9 +2150,16 @@ BookmarkService* HistoryBackend::GetBookmarkService() {
 }
 
 void HistoryBackend::MigrateThumbnailsDatabase() {
-  thumbnail_db_->RenameAndDropThumbnails(GetThumbnailFileName(),
-                                         GetFaviconsFileName());
-  db_->MigrationToTopSitesDone();
+  // If there is no History DB, we can't record that the migration was done.
+  // It will be recorded on the next run.
+  if (db_.get()) {
+    // If there is no thumbnail DB, we can still record a successful migration.
+    if (thumbnail_db_.get()) {
+      thumbnail_db_->RenameAndDropThumbnails(GetThumbnailFileName(),
+                                             GetFaviconsFileName());
+    }
+    db_->MigrationToTopSitesDone();
+  }
 }
 
 }  // namespace history

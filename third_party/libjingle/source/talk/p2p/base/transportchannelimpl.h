@@ -43,8 +43,8 @@ class Candidate;
 // client.
 class TransportChannelImpl : public TransportChannel {
  public:
-  TransportChannelImpl(const std::string& name, const std::string& session_type)
-    : TransportChannel(name, session_type) {}
+  TransportChannelImpl(const std::string& name, const std::string& content_type)
+    : TransportChannel(name, content_type) {}
 
   // Returns the transport that created this channel.
   virtual Transport* GetTransport() = 0;

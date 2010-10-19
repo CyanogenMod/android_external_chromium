@@ -27,6 +27,8 @@
 
 - (void)awakeFromNib {
   DCHECK([[self cell] isKindOfClass:[AutocompleteTextFieldCell class]]);
+  [[self cell] setTruncatesLastVisibleLine:YES];
+  [[self cell] setLineBreakMode:NSLineBreakByTruncatingTail];
   currentToolTips_.reset([[NSMutableArray alloc] init]);
 }
 
@@ -249,27 +251,6 @@
   if (observer_) {
     observer_->OnDidEndEditing();
   }
-}
-
-- (BOOL)textView:(NSTextView*)textView doCommandBySelector:(SEL)cmd {
-  // TODO(shess): Review code for cases where we're fruitlessly attempting to
-  // work in spite of not having an observer_.
-  if (observer_ && observer_->OnDoCommandBySelector(cmd)) {
-    return YES;
-  }
-
-  // If the escape key was pressed and no revert happened and we're in
-  // fullscreen mode, make it resign key.
-  if (cmd == @selector(cancelOperation:)) {
-    BrowserWindowController* windowController =
-        [BrowserWindowController browserWindowControllerForView:self];
-    if ([windowController isFullscreen]) {
-      [windowController focusTabContents];
-      return YES;
-    }
-  }
-
-  return NO;
 }
 
 // When the window resigns, make sure the autocomplete popup is no

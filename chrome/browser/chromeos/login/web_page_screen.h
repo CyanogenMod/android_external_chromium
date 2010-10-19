@@ -4,8 +4,8 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_WEB_PAGE_SCREEN_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_WEB_PAGE_SCREEN_H_
+#pragma once
 
-#include "base/scoped_ptr.h"
 #include "base/timer.h"
 #include "chrome/browser/chromeos/login/screen_observer.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
@@ -37,18 +37,23 @@ class WebPageScreen : public TabContentsDelegate {
                               const gfx::Rect& initial_pos,
                               bool user_gesture) {}
   virtual void ActivateContents(TabContents* contents) {}
+  virtual void DeactivateContents(TabContents* contents) {}
   virtual void LoadingStateChanged(TabContents* source) = 0;
   virtual void CloseContents(TabContents* source) {}
   virtual bool IsPopup(TabContents* source) { return false; }
   virtual void URLStarredChanged(TabContents* source, bool starred) {}
   virtual void UpdateTargetURL(TabContents* source, const GURL& url) {}
-  virtual bool ShouldAddNavigationToHistory() const { return false; }
+  virtual bool ShouldAddNavigationToHistory(
+      const history::HistoryAddPageArgs& add_page_args,
+      NavigationType::Type navigation_type) {
+    return false;
+  }
   virtual void MoveContents(TabContents* source, const gfx::Rect& pos) {}
   virtual void ToolbarSizeChanged(TabContents* source, bool is_animating) {}
   virtual bool HandleContextMenu(const ContextMenuParams& params);
 
   // Called by |timeout_timer_|. Stops page fetching and closes screen.
-  void OnNetworkTimeout();
+  virtual void OnNetworkTimeout();
 
   // Start/stop timeout timer.
   void StartTimeoutTimer();

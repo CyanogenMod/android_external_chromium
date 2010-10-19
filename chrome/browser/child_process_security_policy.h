@@ -1,13 +1,15 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_CHILD_PROCESS_SECURITY_POLICY_H_
 #define CHROME_BROWSER_CHILD_PROCESS_SECURITY_POLICY_H_
 
-#include <string>
+#pragma once
+
 #include <map>
 #include <set>
+#include <string>
 
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
@@ -67,7 +69,13 @@ class ChildProcessSecurityPolicy {
   // Whenever the user picks a file from a <input type="file"> element, the
   // browser should call this function to grant the renderer the capability to
   // upload the file to the web.
-  void GrantUploadFile(int renderer_id, const FilePath& file);
+  void GrantReadFile(int renderer_id, const FilePath& file);
+
+  // Grants certain permissions to a file. |permissions| must be a bit-set of
+  // base::PlatformFileFlags.
+  void GrantPermissionsForFile(int renderer_id,
+                               const FilePath& file,
+                               int permissions);
 
   // Grants the renderer process the capability to access URLs of the provided
   // scheme.
@@ -98,7 +106,13 @@ class ChildProcessSecurityPolicy {
   // Before servicing a renderer's request to upload a file to the web, the
   // browser should call this method to determine whether the renderer has the
   // capability to upload the requested file.
-  bool CanUploadFile(int renderer_id, const FilePath& file);
+  bool CanReadFile(int renderer_id, const FilePath& file);
+
+  // Determins if certain permissions were granted for a file. |permissions|
+  // must be a bit-set of base::PlatformFileFlags.
+  bool HasPermissionsForFile(int renderer_id,
+                             const FilePath& file,
+                             int permissions);
 
   // Returns true if the specified renderer_id has been granted DOMUIBindings.
   // The browser should check this property before assuming the renderer is
@@ -115,7 +129,8 @@ class ChildProcessSecurityPolicy {
 
  private:
   friend class ChildProcessSecurityPolicyInProcessBrowserTest;
-  FRIEND_TEST_ALL_PREFIXES(ChildProcessSecurityPolicyInProcessBrowserTest, NoLeak);
+  FRIEND_TEST_ALL_PREFIXES(ChildProcessSecurityPolicyInProcessBrowserTest,
+                           NoLeak);
 
   class SecurityState;
 

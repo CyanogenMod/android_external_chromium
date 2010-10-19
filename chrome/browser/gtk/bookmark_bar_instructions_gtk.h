@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_BOOKMARK_BAR_INSTRUCTIONS_GTK_H_
 #define CHROME_BROWSER_GTK_BOOKMARK_BAR_INSTRUCTIONS_GTK_H_
+#pragma once
 
 #include "app/gtk_signal.h"
 #include "base/basictypes.h"
@@ -21,6 +22,9 @@ class BookmarkBarInstructionsGtk : public NotificationObserver {
   class Delegate {
    public:
     virtual void ShowImportDialog() = 0;
+
+   protected:
+    virtual ~Delegate() {}
   };
 
   explicit BookmarkBarInstructionsGtk(Delegate* delegate, Profile* profile);

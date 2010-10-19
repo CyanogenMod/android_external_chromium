@@ -4,11 +4,12 @@
 
 #ifndef CHROME_BROWSER_MOCK_BROWSING_DATA_LOCAL_STORAGE_HELPER_H_
 #define CHROME_BROWSER_MOCK_BROWSING_DATA_LOCAL_STORAGE_HELPER_H_
+#pragma once
 
 #include <map>
+#include <vector>
 
 #include "base/callback.h"
-
 #include "chrome/browser/browsing_data_local_storage_helper.h"
 
 // Mock for BrowsingDataLocalStorageHelper.

@@ -4,14 +4,15 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTERNAL_EXTENSION_PROVIDER_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTERNAL_EXTENSION_PROVIDER_H_
+#pragma once
 
 #include <set>
 #include <string>
 
-#include "base/version.h"
 #include "chrome/common/extensions/extension.h"
 
 class FilePath;
+class Version;
 
 // This class is an abstract class for implementing external extensions
 // providers.
@@ -23,10 +24,15 @@ class ExternalExtensionProvider {
   // is not transferred to the visitor.
   class Visitor {
    public:
-     virtual void OnExternalExtensionFound(const std::string& id,
-                                           const Version* version,
-                                           const FilePath& path,
-                                           Extension::Location location) = 0;
+     virtual void OnExternalExtensionFileFound(
+         const std::string& id,
+         const Version* version,
+         const FilePath& path,
+         Extension::Location location) = 0;
+
+     virtual void OnExternalExtensionUpdateUrlFound(
+         const std::string& id,
+         const GURL& update_url) = 0;
 
    protected:
      virtual ~Visitor() {}

@@ -1,9 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_TOOLS_FLIP_SERVER_EPOLL_SERVER_H_
 #define NET_TOOLS_FLIP_SERVER_EPOLL_SERVER_H_
+#pragma once
 
 #include <fcntl.h>
 #include <sys/queue.h>
@@ -43,7 +44,6 @@ namespace net {
 class EpollServer;
 class EpollAlarmCallbackInterface;
 class ReadPipeCallback;
-class WatchDogToken;
 
 struct EpollEvent {
   EpollEvent(int events, bool is_epoll_wait)

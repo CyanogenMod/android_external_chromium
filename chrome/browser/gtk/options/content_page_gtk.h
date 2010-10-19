@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_OPTIONS_CONTENT_PAGE_GTK_H_
 #define CHROME_BROWSER_GTK_OPTIONS_CONTENT_PAGE_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -11,7 +12,7 @@
 #include "chrome/browser/autofill/personal_data_manager.h"
 #include "chrome/browser/gtk/options/managed_prefs_banner_gtk.h"
 #include "chrome/browser/options_page_base.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 
@@ -33,7 +34,7 @@ class ContentPageGtk : public OptionsPageBase,
   void UpdateSyncControls();
 
   // Overridden from OptionsPageBase.
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
 
   // Overridden from OptionsPageBase.
   virtual void Observe(NotificationType type,
@@ -67,6 +68,10 @@ class ContentPageGtk : public OptionsPageBase,
   // Widgets for the Password saving group.
   GtkWidget* passwords_asktosave_radio_;
   GtkWidget* passwords_neversave_radio_;
+  GtkWidget* show_passwords_button_;
+
+  // Widgets for the AutoFill group.
+  GtkWidget* autofill_button_;
 
   // Widgets for the Appearance group.
   GtkWidget* system_title_bar_show_radio_;
@@ -81,9 +86,7 @@ class ContentPageGtk : public OptionsPageBase,
   GtkWidget* sync_status_label_;
   GtkWidget* sync_action_link_background_;
   GtkWidget* sync_action_link_;
-#if !defined(OS_CHROMEOS)
   GtkWidget* sync_start_stop_button_;
-#endif
   GtkWidget* sync_customize_button_;
   GtkWidget* privacy_dashboard_link_;
 
@@ -92,6 +95,7 @@ class ContentPageGtk : public OptionsPageBase,
 
   // Pref members.
   BooleanPrefMember ask_to_save_passwords_;
+  BooleanPrefMember form_autofill_enabled_;
   BooleanPrefMember use_custom_chrome_frame_;
 
   // Flag to ignore gtk callbacks while we are loading prefs, to avoid

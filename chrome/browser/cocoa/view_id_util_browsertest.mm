@@ -2,14 +2,18 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/logging.h"
+#include "base/basictypes.h"
+#include "base/command_line.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/cocoa/view_id_util.h"
 #include "chrome/browser/download/download_shelf.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/profile.h"
+#include "chrome/browser/sidebar/sidebar_manager.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
@@ -18,7 +22,10 @@
 // Basic sanity check of ViewID use on the mac.
 class ViewIDTest : public InProcessBrowserTest {
  public:
-  ViewIDTest() : root_window_(nil) {}
+  ViewIDTest() : root_window_(nil) {
+    CommandLine::ForCurrentProcess()->AppendSwitch(
+        switches::kEnableExperimentalExtensionApis);
+  }
 
   void CheckViewID(ViewID view_id, bool should_have) {
     if (!root_window_)
@@ -33,6 +40,13 @@ class ViewIDTest : public InProcessBrowserTest {
     // Make sure FindBar is created to test
     // VIEW_ID_FIND_IN_PAGE_TEXT_FIELD and VIEW_ID_FIND_IN_PAGE.
     browser()->ShowFindBar();
+
+    // Make sure sidebar is created to test VIEW_ID_SIDE_BAR_CONTAINER.
+    const char sidebar_content_id[] = "test_content_id";
+    SidebarManager::GetInstance()->ShowSidebar(
+        browser()->GetSelectedTabContents(), sidebar_content_id);
+    SidebarManager::GetInstance()->ExpandSidebar(
+        browser()->GetSelectedTabContents(), sidebar_content_id);
 
     // Make sure docked devtools is created to test VIEW_ID_DEV_TOOLS_DOCKED
     browser()->profile()->GetPrefs()->SetBoolean(prefs::kDevToolsOpenDocked,
@@ -53,14 +67,11 @@ class ViewIDTest : public InProcessBrowserTest {
     }
 
     for (int i = VIEW_ID_TOOLBAR; i < VIEW_ID_PREDEFINED_COUNT; ++i) {
-      // Extension shelf is being removed, http://crbug.com/30178.
-      if (i == VIEW_ID_DEV_EXTENSION_SHELF)
-        continue;
-
       // Mac implementation does not support following ids yet.
       if (i == VIEW_ID_STAR_BUTTON ||
           i == VIEW_ID_AUTOCOMPLETE ||
-          i == VIEW_ID_CONTENTS_SPLIT) {
+          i == VIEW_ID_CONTENTS_SPLIT ||
+          i == VIEW_ID_SIDE_BAR_SPLIT) {
         continue;
       }
 

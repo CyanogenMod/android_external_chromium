@@ -4,8 +4,8 @@
 
 #ifndef CHROME_BROWSER_VIEWS_TAB_CONTENTS_RENDER_VIEW_CONTEXT_MENU_VIEWS_H_
 #define CHROME_BROWSER_VIEWS_TAB_CONTENTS_RENDER_VIEW_CONTEXT_MENU_VIEWS_H_
+#pragma once
 
-#include "app/menus/simple_menu_model.h"
 #include "base/scoped_ptr.h"
 #include "base/scoped_vector.h"
 #include "chrome/browser/tab_contents/render_view_context_menu.h"
@@ -38,9 +38,6 @@ class RenderViewContextMenuViews : public RenderViewContextMenu {
   virtual bool GetAcceleratorForCommandId(int command_id,
                                           menus::Accelerator* accelerator);
  private:
-  // The current radio group for radio menu items.
-  int current_radio_group_id_;
-
   // The context menu itself and its contents.
   scoped_ptr<views::Menu2> menu_;
 

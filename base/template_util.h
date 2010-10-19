@@ -4,6 +4,7 @@
 
 #ifndef BASE_TEMPLATE_UTIL_H_
 #define BASE_TEMPLATE_UTIL_H_
+#pragma once
 
 namespace base {
 
@@ -26,4 +27,4 @@ template <class T> struct is_pointer<T*> : true_type {};
 
 }  // namespace base
 
-#endif
+#endif  // BASE_TEMPLATE_UTIL_H_

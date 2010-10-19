@@ -4,13 +4,12 @@
 
 #include "chrome/browser/browsing_data_database_helper.h"
 
+#include "base/file_util.h"
 #include "chrome/test/testing_profile.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
-class TestCompletionCallback
-    : public CallbackRunner<Tuple1<
-          const std::vector<BrowsingDataDatabaseHelper::DatabaseInfo>& > > {
+class TestCompletionCallback {
  public:
   TestCompletionCallback()
       : have_result_(false) {
@@ -22,11 +21,10 @@ class TestCompletionCallback
     return result_;
   }
 
-  virtual void RunWithParams(
-      const Tuple1<const std::vector<
-          BrowsingDataDatabaseHelper::DatabaseInfo>& >& params) {
+  void callback(const std::vector<
+          BrowsingDataDatabaseHelper::DatabaseInfo>& info) {
     have_result_ = true;
-    result_ = params.a;
+    result_ = info;
   }
 
  private:
@@ -55,7 +53,8 @@ TEST(CannedBrowsingDataDatabaseTest, AddDatabase) {
   helper->AddDatabase(origin2, db3, "");
 
   TestCompletionCallback callback;
-  helper->StartFetching(&callback);
+  helper->StartFetching(
+      NewCallback(&callback, &TestCompletionCallback::callback));
   ASSERT_TRUE(callback.have_result());
 
   std::vector<BrowsingDataDatabaseHelper::DatabaseInfo> result =
@@ -83,7 +82,8 @@ TEST(CannedBrowsingDataDatabaseTest, Unique) {
   helper->AddDatabase(origin, db, "");
 
   TestCompletionCallback callback;
-  helper->StartFetching(&callback);
+  helper->StartFetching(
+      NewCallback(&callback, &TestCompletionCallback::callback));
   ASSERT_TRUE(callback.have_result());
 
   std::vector<BrowsingDataDatabaseHelper::DatabaseInfo> result =
@@ -92,4 +92,20 @@ TEST(CannedBrowsingDataDatabaseTest, Unique) {
   ASSERT_EQ(1u, result.size());
   EXPECT_STREQ(origin_str, result[0].origin_identifier.c_str());
   EXPECT_STREQ(db, result[0].database_name.c_str());
+}
+
+TEST(CannedBrowsingDataDatabaseTest, Empty) {
+  TestingProfile profile;
+
+  const GURL origin("http://host1:1/");
+  const char db[] = "db1";
+
+  scoped_refptr<CannedBrowsingDataDatabaseHelper> helper =
+      new CannedBrowsingDataDatabaseHelper(&profile);
+
+  ASSERT_TRUE(helper->empty());
+  helper->AddDatabase(origin, db, "");
+  ASSERT_FALSE(helper->empty());
+  helper->Reset();
+  ASSERT_TRUE(helper->empty());
 }

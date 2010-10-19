@@ -5,7 +5,10 @@
 #include "chrome/browser/extensions/extension_tabs_module.h"
 
 #include "base/base64.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
@@ -120,7 +123,7 @@ DictionaryValue* ExtensionTabUtil::CreateTabValue(
   result->SetString(keys::kStatusKey, GetTabStatusText(contents->is_loading()));
   result->SetBoolean(keys::kSelectedKey,
                      tab_strip && tab_index == tab_strip->selected_index());
-  result->SetString(keys::kTitleKey, UTF16ToWide(contents->GetTitle()));
+  result->SetString(keys::kTitleKey, contents->GetTitle());
   result->SetBoolean(keys::kIncognitoKey,
                      contents->profile()->IsOffTheRecord());
 
@@ -187,7 +190,8 @@ bool ExtensionTabUtil::GetTabById(int tab_id, Profile* profile,
   TabStripModel* target_tab_strip;
   TabContents* target_contents;
   Profile* incognito_profile =
-      include_incognito ? profile->GetOffTheRecordProfile() : NULL;
+      include_incognito && profile->HasOffTheRecordProfile() ?
+          profile->GetOffTheRecordProfile() : NULL;
   for (BrowserList::const_iterator iter = BrowserList::begin();
        iter != BrowserList::end(); ++iter) {
     target_browser = *iter;
@@ -223,7 +227,7 @@ bool GetWindowFunction::RunImpl() {
                                                include_incognito(), &error_);
   if (!browser || !browser->window()) {
     error_ = ExtensionErrorUtils::FormatErrorMessage(
-        keys::kWindowNotFoundError, IntToString(window_id));
+        keys::kWindowNotFoundError, base::IntToString(window_id));
     return false;
   }
 
@@ -266,7 +270,8 @@ bool GetAllWindowsFunction::RunImpl() {
 
   result_.reset(new ListValue());
   Profile* incognito_profile =
-      include_incognito() ? profile()->GetOffTheRecordProfile() : NULL;
+      include_incognito() && profile()->HasOffTheRecordProfile() ?
+          profile()->GetOffTheRecordProfile() : NULL;
   for (BrowserList::const_iterator browser = BrowserList::begin();
     browser != BrowserList::end(); ++browser) {
       // Only examine browsers in the current profile that have windows.
@@ -312,7 +317,7 @@ bool CreateWindowFunction::RunImpl() {
   //
   // NOTE(rafaelw): It's ok if GetCurrentBrowser() returns NULL here.
   // GetBrowserWindowBounds will default to saved "default" values for the app.
-  WindowSizer::GetBrowserWindowBounds(std::wstring(), empty_bounds,
+  WindowSizer::GetBrowserWindowBounds(std::string(), empty_bounds,
                                       GetCurrentBrowser(), &bounds,
                                       &maximized);
 
@@ -371,7 +376,8 @@ bool CreateWindowFunction::RunImpl() {
   Browser* new_window = new Browser(window_type, window_profile);
   new_window->CreateBrowserWindow();
   new_window->AddTabWithURL(url, GURL(), PageTransition::LINK, -1,
-                            TabStripModel::ADD_SELECTED, NULL, std::string());
+                            TabStripModel::ADD_SELECTED, NULL, std::string(),
+                            &new_window);
 
   new_window->window()->SetBounds(bounds);
   new_window->window()->Show();
@@ -396,7 +402,7 @@ bool UpdateWindowFunction::RunImpl() {
                                                include_incognito(), &error_);
   if (!browser || !browser->window()) {
     error_ = ExtensionErrorUtils::FormatErrorMessage(
-        keys::kWindowNotFoundError, IntToString(window_id));
+        keys::kWindowNotFoundError, base::IntToString(window_id));
     return false;
   }
 
@@ -579,15 +585,17 @@ bool CreateTabFunction::RunImpl() {
                              TabStripModel::ADD_NONE;
   add_types |= TabStripModel::ADD_FORCE_INDEX;
   TabContents* contents = browser->AddTabWithURL(url, GURL(),
-      PageTransition::LINK, index, add_types, NULL, std::string());
-  index = tab_strip->GetIndexOfTabContents(contents);
+      PageTransition::LINK, index, add_types, NULL, std::string(), &browser);
+  index = browser->tabstrip_model()->GetIndexOfTabContents(contents);
 
   if (selected)
     contents->Focus();
 
   // Return data about the newly created tab.
   if (has_callback())
-    result_.reset(ExtensionTabUtil::CreateTabValue(contents, tab_strip, index));
+    result_.reset(ExtensionTabUtil::CreateTabValue(contents,
+                                                   browser->tabstrip_model(),
+                                                   index));
 
   return true;
 }
@@ -746,7 +754,7 @@ bool MoveTabFunction::RunImpl() {
       contents = source_tab_strip->DetachTabContentsAt(tab_index);
       if (!contents) {
         error_ = ExtensionErrorUtils::FormatErrorMessage(
-            keys::kTabNotFoundError, IntToString(tab_id));
+            keys::kTabNotFoundError, base::IntToString(tab_id));
         return false;
       }
 
@@ -964,7 +972,8 @@ void CaptureVisibleTabFunction::SendResultFromBitmap(
       image_data->data.size());
 
   base::Base64Encode(stream_as_string, &base64_result);
-  base64_result.insert(0, StringPrintf("data:%s;base64,", mime_type.c_str()));
+  base64_result.insert(0, base::StringPrintf("data:%s;base64,",
+                                             mime_type.c_str()));
   result_.reset(new StringValue(base64_result));
   SendResponse(true);
 }
@@ -1049,7 +1058,8 @@ static Browser* GetBrowserInProfileWithId(Profile* profile,
                                           bool include_incognito,
                                           std::string* error_message) {
   Profile* incognito_profile =
-      include_incognito ? profile->GetOffTheRecordProfile() : NULL;
+      include_incognito && profile->HasOffTheRecordProfile() ?
+          profile->GetOffTheRecordProfile() : NULL;
   for (BrowserList::const_iterator browser = BrowserList::begin();
        browser != BrowserList::end(); ++browser) {
     if (((*browser)->profile() == profile ||
@@ -1060,7 +1070,7 @@ static Browser* GetBrowserInProfileWithId(Profile* profile,
 
   if (error_message)
     *error_message = ExtensionErrorUtils::FormatErrorMessage(
-        keys::kWindowNotFoundError, IntToString(window_id));
+        keys::kWindowNotFoundError, base::IntToString(window_id));
 
   return NULL;
 }
@@ -1078,7 +1088,7 @@ static bool GetTabById(int tab_id, Profile* profile,
 
   if (error_message)
     *error_message = ExtensionErrorUtils::FormatErrorMessage(
-        keys::kTabNotFoundError, IntToString(tab_id));
+        keys::kTabNotFoundError, base::IntToString(tab_id));
 
   return false;
 }

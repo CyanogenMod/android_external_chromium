@@ -420,23 +420,17 @@ static bool CreateTemporaryDirInDirImpl(const FilePath& base_dir,
   // this should be OK since mkdtemp just replaces characters in place
   char* buffer = const_cast<char*>(sub_dir_string.c_str());
   char* dtemp = mkdtemp(buffer);
-  if (!dtemp)
+  if (!dtemp) {
+    DPLOG(ERROR) << "mkdtemp";
     return false;
+  }
   *new_dir = FilePath(dtemp);
   return true;
 }
 
 bool CreateTemporaryDirInDir(const FilePath& base_dir,
                              const FilePath::StringType& prefix,
-                             bool loosen_permissions,
                              FilePath* new_dir) {
-  // To understand crbug/35198, the ability to call this
-  // this function on windows while giving loose permissions
-  // to the resulting directory has been temporarily added.
-  // It should not be possible to call this function with
-  // loosen_permissions == true on non-windows platforms.
-  DCHECK(!loosen_permissions);
-
   FilePath::StringType mkdtemp_template = prefix;
   mkdtemp_template.append(FILE_PATH_LITERAL("XXXXXX"));
   return CreateTemporaryDirInDirImpl(base_dir, mkdtemp_template, new_dir);
@@ -480,21 +474,16 @@ bool CreateDirectory(const FilePath& full_path) {
   return true;
 }
 
-bool GetFileInfo(const FilePath& file_path, FileInfo* results) {
+bool GetFileInfo(const FilePath& file_path, base::PlatformFileInfo* results) {
   stat_wrapper_t file_info;
   if (CallStat(file_path.value().c_str(), &file_info) != 0)
     return false;
   results->is_directory = S_ISDIR(file_info.st_mode);
   results->size = file_info.st_size;
   results->last_modified = base::Time::FromTimeT(file_info.st_mtime);
+  results->last_accessed = base::Time::FromTimeT(file_info.st_atime);
+  results->creation_time = base::Time::FromTimeT(file_info.st_ctime);
   return true;
-}
-
-bool SetLastModifiedTime(const FilePath& file_path, base::Time last_modified) {
-  struct timeval times[2];
-  times[0] = last_modified.ToTimeVal();
-  times[1] = last_modified.ToTimeVal();
-  return (utimes(file_path.value().c_str(), times) == 0);
 }
 
 bool GetInode(const FilePath& path, ino_t* inode) {

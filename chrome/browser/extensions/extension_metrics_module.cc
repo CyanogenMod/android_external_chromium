@@ -4,6 +4,7 @@
 
 #include "chrome/browser/extensions/extension_metrics_module.h"
 
+#include "base/values.h"
 #include "base/histogram.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/browser/metrics/user_metrics.h"
@@ -82,11 +83,11 @@ bool MetricsRecordValueFunction::RunImpl() {
   int min;
   int max;
   int buckets;
-  EXTENSION_FUNCTION_VALIDATE(metric_type->GetString(L"metricName", &name));
-  EXTENSION_FUNCTION_VALIDATE(metric_type->GetString(L"type", &type));
-  EXTENSION_FUNCTION_VALIDATE(metric_type->GetInteger(L"min", &min));
-  EXTENSION_FUNCTION_VALIDATE(metric_type->GetInteger(L"max", &max));
-  EXTENSION_FUNCTION_VALIDATE(metric_type->GetInteger(L"buckets", &buckets));
+  EXTENSION_FUNCTION_VALIDATE(metric_type->GetString("metricName", &name));
+  EXTENSION_FUNCTION_VALIDATE(metric_type->GetString("type", &type));
+  EXTENSION_FUNCTION_VALIDATE(metric_type->GetInteger("min", &min));
+  EXTENSION_FUNCTION_VALIDATE(metric_type->GetInteger("max", &max));
+  EXTENSION_FUNCTION_VALIDATE(metric_type->GetInteger("buckets", &buckets));
 
   Histogram::ClassType histogram_type(type == "histogram-linear" ?
       Histogram::LINEAR_HISTOGRAM : Histogram::HISTOGRAM);

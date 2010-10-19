@@ -4,8 +4,10 @@
 
 #ifndef CHROME_BROWSER_MOCK_BROWSING_DATA_DATABASE_HELPER_H_
 #define CHROME_BROWSER_MOCK_BROWSING_DATA_DATABASE_HELPER_H_
+#pragma once
 
 #include <map>
+#include <vector>
 
 #include "base/callback.h"
 

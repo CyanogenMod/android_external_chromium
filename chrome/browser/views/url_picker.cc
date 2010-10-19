@@ -4,16 +4,16 @@
 
 #include "chrome/browser/views/url_picker.h"
 
+#include "app/keyboard_codes.h"
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "app/table_model.h"
-#include "app/table_model_observer.h"
-#include "base/keyboard_codes.h"
 #include "base/stl_util-inl.h"
+#include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/possible_url_model.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/pref_names.h"
@@ -113,7 +113,7 @@ UrlPicker::UrlPicker(UrlPickerDelegate* delegate,
 
   layout->AddPaddingRow(0, kRelatedControlVerticalSpacing);
 
-  AddAccelerator(views::Accelerator(base::VKEY_RETURN, false, false, false));
+  AddAccelerator(views::Accelerator(app::VKEY_RETURN, false, false, false));
 }
 
 UrlPicker::~UrlPicker() {
@@ -219,16 +219,16 @@ bool UrlPicker::AcceleratorPressed(
 void UrlPicker::OnSelectionChanged() {
   int selection = url_table_->FirstSelectedRow();
   if (selection >= 0 && selection < url_table_model_->RowCount()) {
-    std::wstring languages = UTF8ToWide(
-        profile_->GetPrefs()->GetString(prefs::kAcceptLanguages));
+    std::string languages =
+        profile_->GetPrefs()->GetString(prefs::kAcceptLanguages);
     // Because this gets parsed by FixupURL(), it's safe to omit the scheme or
     // trailing slash, and unescape most characters, but we need to not drop any
     // username/password, or unescape anything that changes the meaning.
-    std::wstring formatted = net::FormatUrl(url_table_model_->GetURL(selection),
+    string16 formatted = net::FormatUrl(url_table_model_->GetURL(selection),
         languages,
         net::kFormatUrlOmitAll & ~net::kFormatUrlOmitUsernamePassword,
         UnescapeRule::SPACES, NULL, NULL, NULL);
-    url_field_->SetText(formatted);
+    url_field_->SetText(UTF16ToWide(formatted));
     GetDialogClientView()->UpdateDialogButtons();
   }
 }

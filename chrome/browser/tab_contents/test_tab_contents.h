@@ -1,16 +1,16 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_TEST_TAB_CONTENTS_H_
 #define CHROME_BROWSER_TAB_CONTENTS_TEST_TAB_CONTENTS_H_
+#pragma once
 
-#include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/notification_registrar.h"
 #include "webkit/glue/webpreferences.h"
 
-class RenderViewHostFactory;
+class Profile;
 class TestRenderViewHost;
 
 // Subclass TabContents to ensure it creates TestRenderViewHosts and does
@@ -20,7 +20,7 @@ class TestTabContents : public TabContents {
   // The render view host factory will be passed on to the
   TestTabContents(Profile* profile, SiteInstance* instance);
 
-  TestRenderViewHost* pending_rvh();
+  TestRenderViewHost* pending_rvh() const;
 
   // State accessor.
   bool cross_navigation_pending() {
@@ -56,6 +56,20 @@ class TestTabContents : public TabContents {
   // Returns a clone of this TestTabContents. The returned object is also a
   // TestTabContents. The caller owns the returned object.
   virtual TabContents* Clone();
+
+  // Creates a pending navigation to the given URL with the default parameters
+  // and then commits the load with a page ID one larger than any seen. This
+  // emulates what happens on a new navigation.
+  void NavigateAndCommit(const GURL& url);
+
+  // Simulates the appropriate RenderView (pending if any, current otherwise)
+  // sending a navigate notification for the NavigationController pending entry.
+  void CommitPendingNavigation();
+
+  // Simulates the current RVH notifying that it has unloaded so that the
+  // pending RVH navigation can proceed.
+  // Does nothing if no cross-navigation is pending.
+  void ProceedWithCrossSiteNavigation();
 
   // Set by individual tests.
   bool transition_cross_site;

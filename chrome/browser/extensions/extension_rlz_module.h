@@ -4,12 +4,11 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_RLZ_MODULE_H__
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_RLZ_MODULE_H__
+#pragma once
 
 #include "build/build_config.h"
 
 #if defined(OS_WIN)
-
-#include <string>
 
 #include "chrome/browser/extensions/extension_function.h"
 

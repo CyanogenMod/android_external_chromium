@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_DOM_UI_HTML_DIALOG_TAB_CONTENTS_DELEGATE_H_
 #define CHROME_BROWSER_DOM_UI_HTML_DIALOG_TAB_CONTENTS_DELEGATE_H_
+#pragma once
 
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
 
@@ -47,12 +48,15 @@ class HtmlDialogTabContentsDelegate : public TabContentsDelegate {
                               const gfx::Rect& initial_pos,
                               bool user_gesture);
   virtual void ActivateContents(TabContents* contents);
+  virtual void DeactivateContents(TabContents* contents);
   virtual void LoadingStateChanged(TabContents* source);
   virtual void CloseContents(TabContents* source);
-  virtual bool IsPopup(TabContents* source);
+  virtual bool IsPopup(const TabContents* source) const;
   virtual void URLStarredChanged(TabContents* source, bool starred);
   virtual void UpdateTargetURL(TabContents* source, const GURL& url);
-  virtual bool ShouldAddNavigationToHistory() const;
+  virtual bool ShouldAddNavigationToHistory(
+      const history::HistoryAddPageArgs& add_page_args,
+      NavigationType::Type navigation_type);
 
  protected:
   // Overridden only for testing.

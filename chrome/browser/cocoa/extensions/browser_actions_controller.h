@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_EXTENSIONS_BROWSER_ACTIONS_CONTROLLER_H_
 #define CHROME_BROWSER_COCOA_EXTENSIONS_BROWSER_ACTIONS_CONTROLLER_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
@@ -20,9 +21,6 @@ class ExtensionsServiceObserverBridge;
 @class MenuButton;
 class PrefService;
 class Profile;
-
-// The padding between browser action buttons.
-extern const CGFloat kBrowserActionButtonPadding;
 
 // Sent when the visibility of the Browser Actions changes.
 extern NSString* const kBrowserActionVisibilityChangedNotification;

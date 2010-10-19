@@ -90,33 +90,13 @@ TEST(FormStructureTest, AutoFillCount) {
   EXPECT_EQ(1U, form_structure.autofill_count());
 }
 
-TEST(FormStructureTest, ConvertToFormData) {
+TEST(FormStructureTest, SourceURL) {
   FormData form;
+  form.origin = GURL("http://www.foo.com/");
   form.method = ASCIIToUTF16("post");
-  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("username"),
-                                               ASCIIToUTF16("username"),
-                                               string16(),
-                                               ASCIIToUTF16("text"),
-                                               0));
-  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("password"),
-                                               ASCIIToUTF16("password"),
-                                               string16(),
-                                               ASCIIToUTF16("password"),
-                                               0));
-  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("state"),
-                                               ASCIIToUTF16("state"),
-                                               string16(),
-                                               ASCIIToUTF16("select"),
-                                               0));
-  form.fields.push_back(webkit_glue::FormField(string16(),
-                                               ASCIIToUTF16("Submit"),
-                                               string16(),
-                                               ASCIIToUTF16("submit"),
-                                               0));
   FormStructure form_structure(form);
 
-  FormData converted = form_structure.ConvertToFormData();
-  EXPECT_EQ(form, converted);
+  EXPECT_EQ(form.origin, form_structure.source_url());
 }
 
 TEST(FormStructureTest, HasAutoFillableValues) {
@@ -420,7 +400,8 @@ TEST(FormStructureTest, HeuristicsSample8) {
   // Zip.
   EXPECT_EQ(ADDRESS_BILLING_ZIP, form_structure->field(6)->heuristic_type());
   // Country.
-  EXPECT_EQ(ADDRESS_BILLING_COUNTRY, form_structure->field(7)->heuristic_type());
+  EXPECT_EQ(ADDRESS_BILLING_COUNTRY,
+      form_structure->field(7)->heuristic_type());
   // Phone.
   EXPECT_EQ(PHONE_HOME_WHOLE_NUMBER,
       form_structure->field(8)->heuristic_type());
@@ -740,6 +721,141 @@ TEST(FormStructureTest, ThreeAddressLines) {
   EXPECT_EQ(ADDRESS_HOME_CITY, form_structure->field(3)->heuristic_type());
 }
 
+// This test verifies that "addressLine1" and "addressLine2" matches heuristics.
+// This occured in https://www.gorillaclothing.com/.  http://crbug.com/52126.
+TEST(FormStructureTest, BillingAndShippingAddresses) {
+  scoped_ptr<FormStructure> form_structure;
+  FormData form;
+
+  form.method = ASCIIToUTF16("post");
+  form.fields.push_back(
+      webkit_glue::FormField(ASCIIToUTF16("Address Line1"),
+                             ASCIIToUTF16("shipping.address.addressLine1"),
+                             string16(),
+                             ASCIIToUTF16("text"),
+                             0));
+  form.fields.push_back(
+      webkit_glue::FormField(ASCIIToUTF16("Address Line2"),
+                             ASCIIToUTF16("shipping.address.addressLine2"),
+                             string16(),
+                             ASCIIToUTF16("text"),
+                             0));
+  form.fields.push_back(
+      webkit_glue::FormField(ASCIIToUTF16("Address Line1"),
+                             ASCIIToUTF16("billing.address.addressLine1"),
+                             string16(),
+                             ASCIIToUTF16("text"),
+                             0));
+  form.fields.push_back(
+      webkit_glue::FormField(ASCIIToUTF16("Address Line2"),
+                             ASCIIToUTF16("billing.address.addressLine2"),
+                             string16(),
+                             ASCIIToUTF16("text"),
+                             0));
+  form_structure.reset(new FormStructure(form));
+  EXPECT_TRUE(form_structure->IsAutoFillable());
+  ASSERT_EQ(4U, form_structure->field_count());
+  ASSERT_EQ(4U, form_structure->autofill_count());
+
+  // Address Line 1.
+  EXPECT_EQ(ADDRESS_HOME_LINE1, form_structure->field(0)->heuristic_type());
+  // Address Line 2.
+  EXPECT_EQ(ADDRESS_HOME_LINE2, form_structure->field(1)->heuristic_type());
+  // Address Line 1.
+  EXPECT_EQ(ADDRESS_BILLING_LINE1, form_structure->field(2)->heuristic_type());
+  // Address Line 2.
+  EXPECT_EQ(ADDRESS_BILLING_LINE2, form_structure->field(3)->heuristic_type());
+}
+
+
+// This example comes from expedia.com where they use a "Suite" label to
+// indicate a suite or apartment number.  We interpret this as address line 2.
+// And the following "Street address second line" we interpret as address line
+// 3 and discard.
+// See http://crbug.com/48197 for details.
+TEST(FormStructureTest, ThreeAddressLinesExpedia) {
+  scoped_ptr<FormStructure> form_structure;
+  FormData form;
+
+  form.method = ASCIIToUTF16("post");
+  form.fields.push_back(
+      webkit_glue::FormField(ASCIIToUTF16("Street:"),
+                             ASCIIToUTF16("FOPIH_RgWebCC_0_IHAddress_ads1"),
+                             string16(),
+                             ASCIIToUTF16("text"),
+                             0));
+  form.fields.push_back(
+      webkit_glue::FormField(ASCIIToUTF16("Suite or Apt:"),
+                             ASCIIToUTF16("FOPIH_RgWebCC_0_IHAddress_adap"),
+                             string16(),
+                             ASCIIToUTF16("text"),
+                             0));
+  form.fields.push_back(
+      webkit_glue::FormField(ASCIIToUTF16("Street address second line"),
+                             ASCIIToUTF16("FOPIH_RgWebCC_0_IHAddress_ads2"),
+                             string16(),
+                             ASCIIToUTF16("text"),
+                             0));
+  form.fields.push_back(
+      webkit_glue::FormField(ASCIIToUTF16("City:"),
+                             ASCIIToUTF16("FOPIH_RgWebCC_0_IHAddress_adct"),
+                             string16(),
+                             ASCIIToUTF16("text"),
+                             0));
+  form_structure.reset(new FormStructure(form));
+  EXPECT_TRUE(form_structure->IsAutoFillable());
+  ASSERT_EQ(4U, form_structure->field_count());
+  ASSERT_EQ(3U, form_structure->autofill_count());
+
+  // Address Line 1.
+  EXPECT_EQ(ADDRESS_HOME_LINE1, form_structure->field(0)->heuristic_type());
+  // Suite / Apt.
+  EXPECT_EQ(ADDRESS_HOME_LINE2, form_structure->field(1)->heuristic_type());
+  // Address Line 3.
+  EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(2)->heuristic_type());
+  // City.
+  EXPECT_EQ(ADDRESS_HOME_CITY, form_structure->field(3)->heuristic_type());
+}
+
+// This example comes from ebay.com where the word "suite" appears in the label
+// and the name "address2" clearly indicates that this is the address line 2.
+// See http://crbug.com/48197 for details.
+TEST(FormStructureTest, TwoAddressLinesEbay) {
+  scoped_ptr<FormStructure> form_structure;
+  FormData form;
+
+  form.method = ASCIIToUTF16("post");
+  form.fields.push_back(
+      webkit_glue::FormField(ASCIIToUTF16("Address Line1"),
+                             ASCIIToUTF16("address1"),
+                             string16(),
+                             ASCIIToUTF16("text"),
+                             0));
+  form.fields.push_back(
+      webkit_glue::FormField(ASCIIToUTF16("Floor number, suite number, etc"),
+                             ASCIIToUTF16("address2"),
+                             string16(),
+                             ASCIIToUTF16("text"),
+                             0));
+  form.fields.push_back(
+      webkit_glue::FormField(ASCIIToUTF16("City"),
+                             ASCIIToUTF16("city"),
+                             string16(),
+                             ASCIIToUTF16("text"),
+                             0));
+  form_structure.reset(new FormStructure(form));
+  EXPECT_TRUE(form_structure->IsAutoFillable());
+  ASSERT_EQ(3U, form_structure->field_count());
+  ASSERT_EQ(3U, form_structure->autofill_count());
+
+  // Address Line 1.
+  EXPECT_EQ(ADDRESS_HOME_LINE1, form_structure->field(0)->heuristic_type());
+  // Address Line 2.
+  EXPECT_EQ(ADDRESS_HOME_LINE2, form_structure->field(1)->heuristic_type());
+  // City.
+  EXPECT_EQ(ADDRESS_HOME_CITY, form_structure->field(2)->heuristic_type());
+}
+
 TEST(FormStructureTest, HeuristicsStateWithProvince) {
   scoped_ptr<FormStructure> form_structure;
   FormData form;
@@ -851,15 +967,13 @@ TEST(FormStructureTest, HeuristicsWithBilling) {
   form_structure.reset(new FormStructure(form));
   EXPECT_TRUE(form_structure->IsAutoFillable());
   ASSERT_EQ(11U, form_structure->field_count());
-  ASSERT_EQ(10U, form_structure->autofill_count());
+  ASSERT_EQ(11U, form_structure->autofill_count());
 
   EXPECT_EQ(NAME_FIRST, form_structure->field(0)->heuristic_type());
   EXPECT_EQ(NAME_LAST, form_structure->field(1)->heuristic_type());
   EXPECT_EQ(COMPANY_NAME, form_structure->field(2)->heuristic_type());
   EXPECT_EQ(ADDRESS_BILLING_LINE1, form_structure->field(3)->heuristic_type());
-  // Note: We'd expect this to match ADDRESS_BILLING_LINE2, but due to toolbar
-  // heuristics for other pages we skip fields with label including "suite".
-  EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(4)->heuristic_type());
+  EXPECT_EQ(ADDRESS_BILLING_LINE2, form_structure->field(4)->heuristic_type());
   EXPECT_EQ(ADDRESS_BILLING_CITY, form_structure->field(5)->heuristic_type());
   EXPECT_EQ(ADDRESS_BILLING_STATE, form_structure->field(6)->heuristic_type());
   EXPECT_EQ(ADDRESS_BILLING_COUNTRY,
@@ -914,6 +1028,90 @@ TEST(FormStructureTest, ThreePartPhoneNumber) {
             form_structure->field(2)->heuristic_type());
   // Unknown.
   EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(3)->heuristic_type());
+}
+
+TEST(FormStructureTest, MatchSpecificInputTypes) {
+  scoped_ptr<FormStructure> form_structure;
+  FormData form;
+  form.method = ASCIIToUTF16("post");
+  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("First Name"),
+                                               ASCIIToUTF16("firstname"),
+                                               string16(),
+                                               ASCIIToUTF16("text"),
+                                               0));
+  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("Last Name"),
+                                               ASCIIToUTF16("lastname"),
+                                               string16(),
+                                               ASCIIToUTF16("text"),
+                                               0));
+  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("EMail"),
+                                               ASCIIToUTF16("email"),
+                                               string16(),
+                                               ASCIIToUTF16("email"),
+                                               0));
+  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("Phone"),
+                                               ASCIIToUTF16("phone"),
+                                               string16(),
+                                               ASCIIToUTF16("number"),
+                                               0));
+  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("Country"),
+                                               ASCIIToUTF16("country"),
+                                               string16(),
+                                               ASCIIToUTF16("select-one"),
+                                               0));
+  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("Fax"),
+                                               ASCIIToUTF16("fax"),
+                                               string16(),
+                                               ASCIIToUTF16("tel"),
+                                               0));
+  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("Address"),
+                                               ASCIIToUTF16("address"),
+                                               string16(),
+                                               ASCIIToUTF16("radio"),
+                                               0));
+  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("City"),
+                                               ASCIIToUTF16("city"),
+                                               string16(),
+                                               ASCIIToUTF16("checkbox"),
+                                               0));
+  form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("State"),
+                                               ASCIIToUTF16("state"),
+                                               string16(),
+                                               ASCIIToUTF16("hidden"),
+                                               0));
+  form.fields.push_back(webkit_glue::FormField(string16(),
+                                               ASCIIToUTF16("Submit"),
+                                               string16(),
+                                               ASCIIToUTF16("submit"),
+                                               0));
+  form_structure.reset(new FormStructure(form));
+  EXPECT_TRUE(form_structure->IsAutoFillable());
+
+  // Expect the correct number of fields.
+  ASSERT_EQ(10U, form_structure->field_count());
+  ASSERT_EQ(6U, form_structure->autofill_count());
+
+  // First name.
+  EXPECT_EQ(NAME_FIRST, form_structure->field(0)->heuristic_type());
+  // Last name.
+  EXPECT_EQ(NAME_LAST, form_structure->field(1)->heuristic_type());
+  // Email.
+  EXPECT_EQ(EMAIL_ADDRESS, form_structure->field(2)->heuristic_type());
+  // Phone.
+  EXPECT_EQ(PHONE_HOME_WHOLE_NUMBER,
+            form_structure->field(3)->heuristic_type());
+  // Country.
+  EXPECT_EQ(ADDRESS_HOME_COUNTRY, form_structure->field(4)->heuristic_type());
+  // Fax.
+  EXPECT_EQ(PHONE_FAX_WHOLE_NUMBER, form_structure->field(5)->heuristic_type());
+  // Address.  Invalid input type.
+  EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(6)->heuristic_type());
+  // City.  Invalid input type.
+  EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(7)->heuristic_type());
+  // State.  Invalid input type.
+  EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(8)->heuristic_type());
+  // Submit.  Invalid input type.
+  EXPECT_EQ(UNKNOWN_TYPE, form_structure->field(9)->heuristic_type());
 }
 
 }  // namespace

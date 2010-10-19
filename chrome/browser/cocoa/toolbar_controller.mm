@@ -6,10 +6,10 @@
 
 #include <algorithm>
 
+#include "app/l10n_util.h"
 #include "app/l10n_util_mac.h"
 #include "app/menus/accelerator_cocoa.h"
 #include "app/menus/menu_model.h"
-#include "base/keyboard_codes.h"
 #include "base/mac_util.h"
 #include "base/nsimage_cache_mac.h"
 #include "base/singleton.h"
@@ -17,7 +17,6 @@
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/browser.h"
-#include "chrome/browser/browser_theme_provider.h"
 #include "chrome/browser/browser_window.h"
 #import "chrome/browser/cocoa/accelerators_cocoa.h"
 #import "chrome/browser/cocoa/back_forward_menu_controller.h"
@@ -36,10 +35,11 @@
 #import "chrome/browser/cocoa/view_id_util.h"
 #import "chrome/browser/cocoa/wrench_menu_controller.h"
 #include "chrome/browser/net/url_fixer_upper.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/toolbar_model.h"
 #include "chrome/browser/upgrade_detector.h"
 #include "chrome/browser/wrench_menu_model.h"
@@ -80,7 +80,7 @@ const CGFloat kWrenchMenuLeftPadding = 3.0;
 @interface ToolbarController(Private)
 - (void)addAccessibilityDescriptions;
 - (void)initCommandStatus:(CommandUpdater*)commands;
-- (void)prefChanged:(std::wstring*)prefName;
+- (void)prefChanged:(std::string*)prefName;
 - (BackgroundGradientView*)backgroundGradientView;
 - (void)toolbarFrameChanged;
 - (void)pinLocationBarToLeftOfBrowserActionsContainerAndAnimate:(BOOL)animate;
@@ -95,24 +95,9 @@ const CGFloat kWrenchMenuLeftPadding = 3.0;
 
 namespace ToolbarControllerInternal {
 
-// A C++ delegate that handles enabling/disabling menu items and handling when
-// a menu command is chosen.
-class MenuDelegate : public menus::SimpleMenuModel::Delegate {
+// A C++ delegate that handles the accelerators in the wrench menu.
+class WrenchAcceleratorDelegate : public menus::AcceleratorProvider {
  public:
-  explicit MenuDelegate(Browser* browser)
-      : browser_(browser) { }
-
-  // Overridden from menus::SimpleMenuModel::Delegate
-  virtual bool IsCommandIdChecked(int command_id) const {
-    if (command_id == IDC_SHOW_BOOKMARK_BAR) {
-      return browser_->profile()->GetPrefs()->GetBoolean(
-          prefs::kShowBookmarkBar);
-    }
-    return false;
-  }
-  virtual bool IsCommandIdEnabled(int command_id) const {
-    return browser_->command_updater()->IsCommandEnabled(command_id);
-  }
   virtual bool GetAcceleratorForCommandId(int command_id,
       menus::Accelerator* accelerator_generic) {
     // Downcast so that when the copy constructor is invoked below, the key
@@ -128,26 +113,6 @@ class MenuDelegate : public menus::SimpleMenuModel::Delegate {
     }
     return false;
   }
-  virtual void ExecuteCommand(int command_id) {
-    browser_->ExecuteCommand(command_id);
-  }
-  virtual bool IsLabelForCommandIdDynamic(int command_id) const {
-    // On Mac, switch between "Enter Full Screen" and "Exit Full Screen".
-    return (command_id == IDC_FULLSCREEN);
-  }
-  virtual string16 GetLabelForCommandId(int command_id) const {
-    if (command_id == IDC_FULLSCREEN) {
-      int string_id = IDS_ENTER_FULLSCREEN_MAC;  // Default to Enter.
-      // Note: On startup, |window()| may be NULL.
-      if (browser_->window() && browser_->window()->IsFullscreen())
-        string_id = IDS_EXIT_FULLSCREEN_MAC;
-      return l10n_util::GetStringUTF16(string_id);
-    }
-    return menus::SimpleMenuModel::Delegate::GetLabelForCommandId(command_id);
-  }
-
- private:
-  Browser* browser_;
 };
 
 // A class registered for C++ notifications. This is used to detect changes in
@@ -166,7 +131,7 @@ class NotificationBridge : public NotificationObserver {
                        const NotificationSource& source,
                        const NotificationDetails& details) {
     if (type == NotificationType::PREF_CHANGED)
-      [controller_ prefChanged:Details<std::wstring>(details).ptr()];
+      [controller_ prefChanged:Details<std::string>(details).ptr()];
     else if (type == NotificationType::UPGRADE_RECOMMENDED)
       [controller_ badgeWrenchMenu];
   }
@@ -337,6 +302,8 @@ class NotificationBridge : public NotificationObserver {
   view_id_util::SetID(forwardButton_, VIEW_ID_FORWARD_BUTTON);
   view_id_util::SetID(homeButton_, VIEW_ID_HOME_BUTTON);
   view_id_util::SetID(wrenchButton_, VIEW_ID_APP_MENU);
+
+  [self addAccessibilityDescriptions];
 }
 
 - (void)addAccessibilityDescriptions {
@@ -420,9 +387,6 @@ class NotificationBridge : public NotificationObserver {
     case IDC_FORWARD:
       button = forwardButton_;
       break;
-    case IDC_RELOAD:
-      button = reloadButton_;
-      break;
     case IDC_HOME:
       button = homeButton_;
       break;
@@ -436,7 +400,7 @@ class NotificationBridge : public NotificationObserver {
   [backButton_ setEnabled:commands->IsCommandEnabled(IDC_BACK) ? YES : NO];
   [forwardButton_
       setEnabled:commands->IsCommandEnabled(IDC_FORWARD) ? YES : NO];
-  [reloadButton_ setEnabled:commands->IsCommandEnabled(IDC_RELOAD) ? YES : NO];
+  [reloadButton_ setEnabled:YES];
   [homeButton_ setEnabled:commands->IsCommandEnabled(IDC_HOME) ? YES : NO];
 }
 
@@ -538,7 +502,6 @@ class NotificationBridge : public NotificationObserver {
   if (hide)
     moveX *= -1;  // Reverse the direction of the move.
 
-  [reloadButton_ setFrame:NSOffsetRect([reloadButton_ frame], moveX, 0)];
   [locationBar_ setFrame:[self adjustRect:[locationBar_ frame]
                                  byAmount:moveX]];
   [homeButton_ setHidden:hide];
@@ -549,9 +512,11 @@ class NotificationBridge : public NotificationObserver {
 - (void)installWrenchMenu {
   if (wrenchMenuModel_.get())
     return;
-  menuDelegate_.reset(new ToolbarControllerInternal::MenuDelegate(browser_));
+  acceleratorDelegate_.reset(
+      new ToolbarControllerInternal::WrenchAcceleratorDelegate());
 
-  wrenchMenuModel_.reset(new WrenchMenuModel(menuDelegate_.get(), browser_));
+  wrenchMenuModel_.reset(new WrenchMenuModel(
+      acceleratorDelegate_.get(), browser_));
   [wrenchMenuController_ setModel:wrenchMenuModel_.get()];
   [wrenchMenuController_ setUseWithPopUpButtonCell:YES];
   [wrenchButton_ setAttachedMenu:[wrenchMenuController_ menu]];
@@ -562,17 +527,10 @@ class NotificationBridge : public NotificationObserver {
 }
 
 - (void)badgeWrenchMenu {
-  // The wrench menu gets an upgrade dot. This gets ugly because we only have a
-  // PNG so we need to position it. TODO(avi): Get a PDF version, one ready for
-  // overlaying. http://crbug.com/49668
-  //
   // In the Windows version, the ball doesn't actually pulsate, and is always
   // drawn with the inactive image. Why? (We follow suit, though not on the
   // weird positioning they do that overlaps the button border.)
-  ThemeProvider* theme_provider = profile_->GetThemeProvider();
-  NSImage* badge = theme_provider->GetNSImageNamed(IDR_UPGRADE_DOT_INACTIVE,
-                                                   true);
-
+  NSImage* badge = nsimage_cache::ImageNamed(@"upgrade_dot.pdf");
   NSImage* wrenchImage = nsimage_cache::ImageNamed(kWrenchButtonImageName);
   NSSize wrenchImageSize = [wrenchImage size];
 
@@ -589,7 +547,7 @@ class NotificationBridge : public NotificationObserver {
   [[wrenchButton_ cell] setOverlayImage:overlayImage];
 }
 
-- (void)prefChanged:(std::wstring*)prefName {
+- (void)prefChanged:(std::string*)prefName {
   if (!prefName) return;
   if (*prefName == prefs::kShowHomeButton) {
     [self showOptionalHomeButton];

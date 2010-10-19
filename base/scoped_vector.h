@@ -4,10 +4,11 @@
 
 #ifndef BASE_SCOPED_VECTOR_H_
 #define BASE_SCOPED_VECTOR_H_
+#pragma once
 
 #include <vector>
 
-#include "base/logging.h"
+#include "base/basictypes.h"
 #include "base/stl_util-inl.h"
 
 // ScopedVector wraps a vector deleting the elements from its
@@ -26,7 +27,7 @@ class ScopedVector {
 
   std::vector<T*>* operator->() { return &v; }
   const std::vector<T*>* operator->() const { return &v; }
-  T* operator[](size_t i) { return v[i]; }
+  T*& operator[](size_t i) { return v[i]; }
   const T* operator[](size_t i) const { return v[i]; }
 
   bool empty() const { return v.empty(); }
@@ -53,7 +54,32 @@ class ScopedVector {
   }
 
   void reset() { STLDeleteElements(&v); }
+  void resize(size_t new_size) { v.resize(new_size); }
 
+  // Lets the ScopedVector take ownership of |x|.
+  iterator insert(iterator position, T* x) {
+    return v.insert(position, x);
+  }
+
+  iterator erase(iterator position) {
+    delete *position;
+    return v.erase(position);
+  }
+
+  iterator erase(iterator first, iterator last) {
+    STLDeleteContainerPointers(first, last);
+    return v.erase(first, last);
+  }
+
+  // Like |erase()|, but doesn't delete the element at |position|.
+  iterator weak_erase(iterator position) {
+    return v.erase(position);
+  }
+
+  // Like |erase()|, but doesn't delete the elements in [first, last).
+  iterator weak_erase(iterator first, iterator last) {
+    return v.erase(first, last);
+  }
  private:
   std::vector<T*> v;
 

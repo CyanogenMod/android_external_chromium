@@ -1,16 +1,15 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_DOWNLOAD_DOWNLOAD_SHELF_H_
 #define CHROME_BROWSER_DOWNLOAD_DOWNLOAD_SHELF_H_
-
-#include <string>
+#pragma once
 
 #include "app/menus/simple_menu_model.h"
 #include "base/basictypes.h"
-#include "base/logging.h"
 #include "base/scoped_ptr.h"
+#include "base/string16.h"
 
 class BaseDownloadItemModel;
 class Browser;
@@ -19,7 +18,7 @@ class DownloadItem;
 // DownloadShelf is an interface for platform-specific download shelf views.
 class DownloadShelf {
  public:
-  virtual ~DownloadShelf() { }
+  virtual ~DownloadShelf() {}
 
   // A new download has started, so add it to our shelf. This object will
   // take ownership of |download_model|. Also make the shelf visible.

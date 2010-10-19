@@ -21,6 +21,13 @@ scoped_refptr<Resource> ResourceTracker::GetResource(PP_Resource res) const {
   return result->second.first;
 }
 
+ResourceTracker::ResourceTracker()
+    : last_id_(0) {
+}
+
+ResourceTracker::~ResourceTracker() {
+}
+
 PP_Resource ResourceTracker::AddResource(Resource* resource) {
   // If the plugin manages to create 4B resources...
   if (last_id_ == std::numeric_limits<PP_Resource>::max()) {
@@ -56,6 +63,20 @@ bool ResourceTracker::UnrefResource(PP_Resource res) {
   } else {
     return false;
   }
+}
+
+uint32 ResourceTracker::GetLiveObjectsForModule(PluginModule* module) const {
+  // Since this is for testing only, we'll just go through all of them and
+  // count.
+  //
+  // TODO(brettw) we will eventually need to implement more efficient
+  // module->resource lookup to free resources when a module is unloaded. In
+  // this case, this function can be implemented using that system.
+  uint32 count = 0;
+  for (ResourceMap::const_iterator i = live_resources_.begin();
+       i != live_resources_.end(); ++i)
+    count++;
+  return count;
 }
 
 }  // namespace pepper

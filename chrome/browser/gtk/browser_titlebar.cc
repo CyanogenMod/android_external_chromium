@@ -16,6 +16,7 @@
 #include "base/singleton.h"
 #include "base/string_piece.h"
 #include "base/string_tokenizer.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/encoding_menu_controller.h"
@@ -28,7 +29,7 @@
 #include "chrome/browser/gtk/menu_gtk.h"
 #include "chrome/browser/gtk/nine_box.h"
 #include "chrome/browser/gtk/tabs/tab_strip_gtk.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/wrench_menu_model.h"
@@ -170,6 +171,7 @@ void PopupPageMenuModel::Build() {
   AddItemWithStringId(IDC_RELOAD, IDS_APP_MENU_RELOAD);
   AddSeparator();
   AddItemWithStringId(IDC_SHOW_AS_TAB, IDS_SHOW_AS_TAB);
+  AddItemWithStringId(IDC_COPY_URL, IDS_APP_MENU_COPY_URL);
   AddSeparator();
   AddItemWithStringId(IDC_CUT, IDS_CUT);
   AddItemWithStringId(IDC_COPY, IDS_COPY);
@@ -183,6 +185,9 @@ void PopupPageMenuModel::Build() {
   encoding_menu_model_.reset(new EncodingMenuModel(browser_));
   AddSubMenuWithStringId(IDC_ENCODING_MENU, IDS_ENCODING_MENU,
                          encoding_menu_model_.get());
+
+  AddSeparator();
+  AddItemWithStringId(IDC_CLOSE_WINDOW, IDS_CLOSE);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

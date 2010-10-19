@@ -4,10 +4,11 @@
 
 #ifndef CHROME_BROWSER_VIEWS_OPTIONS_FONTS_PAGE_VIEW_H_
 #define CHROME_BROWSER_VIEWS_OPTIONS_FONTS_PAGE_VIEW_H_
+#pragma once
 
 #include <string>
 
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/shell_dialogs.h"
 #include "chrome/browser/views/options/options_page_view.h"
 #include "views/controls/combobox/combobox.h"
@@ -54,7 +55,7 @@ class FontsPageView : public OptionsPageView,
  protected:
   // OptionsPageView implementation:
   virtual void InitControlLayout();
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
 
  private:
   enum FontTypeBeingChanged {

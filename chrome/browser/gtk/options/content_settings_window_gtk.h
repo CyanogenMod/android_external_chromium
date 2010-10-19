@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_OPTIONS_CONTENT_SETTINGS_WINDOW_GTK_H_
 #define CHROME_BROWSER_GTK_OPTIONS_CONTENT_SETTINGS_WINDOW_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -11,7 +12,7 @@
 #include "base/scoped_ptr.h"
 #include "chrome/browser/gtk/options/cookie_filter_page_gtk.h"
 #include "chrome/browser/gtk/options/content_filter_page_gtk.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/common/content_settings_types.h"
 
 class AccessibleWidgetHelper;

@@ -6,7 +6,10 @@
 
 #include "base/compiler_specific.h"
 #include "base/time.h"
+#include "chrome/browser/net/chrome_net_log.h"
+#include "chrome/common/resource_response.h"
 #include "net/base/load_flags.h"
+#include "net/url_request/url_request.h"
 #include "net/url_request/url_request_netlog_params.h"
 
 using base::Time;
@@ -48,7 +51,9 @@ LoadTimingObserver::URLRequestRecord::URLRequestRecord()
       socket_reused(false) {
 }
 
-LoadTimingObserver::LoadTimingObserver() {
+LoadTimingObserver::LoadTimingObserver()
+    : Observer(net::NetLog::LOG_BASIC),
+      last_connect_job_id_(net::NetLog::Source::kInvalidId) {
 }
 
 LoadTimingObserver::~LoadTimingObserver() {
@@ -73,6 +78,28 @@ void LoadTimingObserver::OnAddEntry(net::NetLog::EventType type,
     OnAddConnectJobEntry(type, time, source, phase, params);
   else if (source.type == net::NetLog::SOURCE_SOCKET)
     OnAddSocketEntry(type, time, source, phase, params);
+}
+
+// static
+void LoadTimingObserver::PopulateTimingInfo(URLRequest* request,
+                                            ResourceResponse* response) {
+  if (!(request->load_flags() & net::LOAD_ENABLE_LOAD_TIMING))
+    return;
+
+  ChromeNetLog* chrome_net_log = static_cast<ChromeNetLog*>(
+      request->net_log().net_log());
+  if (chrome_net_log == NULL)
+    return;
+
+  uint32 source_id = request->net_log().source().id;
+  LoadTimingObserver* observer = chrome_net_log->load_timing_observer();
+  LoadTimingObserver::URLRequestRecord* record =
+      observer->GetURLRequestRecord(source_id);
+  if (record) {
+    response->response_head.connection_id = record->socket_log_id;
+    response->response_head.connection_reused = record->socket_reused;
+    response->response_head.load_timing = record->timing;
+  }
 }
 
 void LoadTimingObserver::OnAddURLRequestEntry(
@@ -118,7 +145,7 @@ void LoadTimingObserver::OnAddURLRequestEntry(
 
   ResourceLoaderBridge::LoadTimingInfo& timing = record->timing;
 
-  switch(type) {
+  switch (type) {
     case net::NetLog::TYPE_PROXY_SERVICE:
       if (is_begin)
         timing.proxy_start = TimeTicksToOffset(time, record);
@@ -135,12 +162,12 @@ void LoadTimingObserver::OnAddURLRequestEntry(
       {
         uint32 connect_job_id = static_cast<net::NetLogSourceParameter*>(
             params)->value().id;
-        ConnectJobToRecordMap::iterator it =
-            connect_job_to_record_.find(connect_job_id);
-        if (it != connect_job_to_record_.end() &&
-                !it->second.dns_start.is_null()) {
-          timing.dns_start = TimeTicksToOffset(it->second.dns_start, record);
-          timing.dns_end = TimeTicksToOffset(it->second.dns_end, record);
+        if (last_connect_job_id_ == connect_job_id &&
+            !last_connect_job_record_.dns_start.is_null()) {
+          timing.dns_start =
+              TimeTicksToOffset(last_connect_job_record_.dns_start, record);
+          timing.dns_end =
+              TimeTicksToOffset(last_connect_job_record_.dns_end, record);
         }
       }
       break;
@@ -154,20 +181,18 @@ void LoadTimingObserver::OnAddURLRequestEntry(
         SocketToRecordMap::iterator it =
             socket_to_record_.find(record->socket_log_id);
         if (it != socket_to_record_.end() && !it->second.ssl_start.is_null()) {
-            timing.ssl_start = TimeTicksToOffset(it->second.ssl_start, record);
-            timing.ssl_end = TimeTicksToOffset(it->second.ssl_end, record);
+          timing.ssl_start = TimeTicksToOffset(it->second.ssl_start, record);
+          timing.ssl_end = TimeTicksToOffset(it->second.ssl_end, record);
         }
       }
       break;
     case net::NetLog::TYPE_HTTP_TRANSACTION_SEND_REQUEST:
-    case net::NetLog::TYPE_SPDY_TRANSACTION_SEND_REQUEST:
       if (is_begin)
         timing.send_start = TimeTicksToOffset(time, record);
       else if (is_end)
         timing.send_end = TimeTicksToOffset(time, record);
       break;
     case net::NetLog::TYPE_HTTP_TRANSACTION_READ_HEADERS:
-    case net::NetLog::TYPE_SPDY_TRANSACTION_READ_HEADERS:
       if (is_begin)
         timing.receive_headers_start =  TimeTicksToOffset(time, record);
       else if (is_end)
@@ -201,7 +226,13 @@ void LoadTimingObserver::OnAddConnectJobEntry(
       connect_job_to_record_.insert(
           std::make_pair(source.id, ConnectJobRecord()));
     } else if (is_end) {
-      connect_job_to_record_.erase(source.id);
+      ConnectJobToRecordMap::iterator it =
+          connect_job_to_record_.find(source.id);
+      if (it != connect_job_to_record_.end()) {
+        last_connect_job_id_ = it->first;
+        last_connect_job_record_ = it->second;
+        connect_job_to_record_.erase(it);
+      }
     }
   } else if (type == net::NetLog::TYPE_HOST_RESOLVER_IMPL) {
     ConnectJobToRecordMap::iterator it =

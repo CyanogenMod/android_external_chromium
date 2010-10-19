@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_STATUS_BUBBLE_GTK_H_
 #define CHROME_BROWSER_GTK_STATUS_BUBBLE_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -13,10 +14,10 @@
 #include "app/slide_animation.h"
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/status_bubble.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/owned_widget_gtk.h"
 #include "gfx/point.h"
 #include "googleurl/src/gurl.h"
 
@@ -38,8 +39,8 @@ class StatusBubbleGtk : public StatusBubble,
   int y_offset() const { return y_offset_; }
 
   // StatusBubble implementation.
-  virtual void SetStatus(const std::wstring& status);
-  virtual void SetURL(const GURL& url, const std::wstring& languages);
+  virtual void SetStatus(const string16& status);
+  virtual void SetURL(const GURL& url, const string16& languages);
   virtual void Hide();
   virtual void MouseMoved(const gfx::Point& location, bool left_content);
 
@@ -128,7 +129,7 @@ class StatusBubbleGtk : public StatusBubble,
 
   // Used to determine the character set that the user can read (for eliding
   // the url text).
-  std::wstring languages_;
+  string16 languages_;
 
   // A timer that hides our window after a delay.
   base::OneShotTimer<StatusBubbleGtk> hide_timer_;

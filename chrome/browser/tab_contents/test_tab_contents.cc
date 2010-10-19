@@ -4,13 +4,16 @@
 
 #include "chrome/browser/tab_contents/test_tab_contents.h"
 
+#include "chrome/browser/browser_url_handler.h"
+#include "chrome/browser/renderer_host/mock_render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
+#include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/common/notification_service.h"
 
 TestTabContents::TestTabContents(Profile* profile, SiteInstance* instance)
-    : TabContents(profile, instance, MSG_ROUTING_NONE, NULL),
+    : TabContents(profile, instance, MSG_ROUTING_NONE, NULL, NULL),
       transition_cross_site(false) {
   // Listen for infobar events so we can call InfoBarClosed() on the infobar
   // delegates and give them an opportunity to delete themselves.  (Since we
@@ -42,7 +45,7 @@ void TestTabContents::Observe(NotificationType type,
   }
 }
 
-TestRenderViewHost* TestTabContents::pending_rvh() {
+TestRenderViewHost* TestTabContents::pending_rvh() const {
   return static_cast<TestRenderViewHost*>(
       render_manager_.pending_render_view_host_);
 }
@@ -50,8 +53,7 @@ TestRenderViewHost* TestTabContents::pending_rvh() {
 bool TestTabContents::CreateRenderViewForRenderManager(
     RenderViewHost* render_view_host) {
   // This will go to a TestRenderViewHost.
-  render_view_host->CreateRenderView(profile()->GetRequestContext(),
-                                     string16());
+  render_view_host->CreateRenderView(string16());
   return true;
 }
 
@@ -60,4 +62,42 @@ TabContents* TestTabContents::Clone() {
       profile(), SiteInstance::CreateSiteInstance(profile()));
   tc->controller().CopyStateFrom(controller_);
   return tc;
+}
+
+void TestTabContents::NavigateAndCommit(const GURL& url) {
+  controller().LoadURL(url, GURL(), 0);
+  GURL loaded_url(url);
+  bool reverse_on_redirect = false;
+  BrowserURLHandler::RewriteURLIfNecessary(
+      &loaded_url, profile(), &reverse_on_redirect);
+
+  // LoadURL created a navigation entry, now simulate the RenderView sending
+  // a notification that it actually navigated.
+  CommitPendingNavigation();
+}
+
+void TestTabContents::CommitPendingNavigation() {
+  // If we are doing a cross-site navigation, this simulates the current RVH
+  // notifying that it has unloaded so the pending RVH is resumed and can
+  // navigate.
+  ProceedWithCrossSiteNavigation();
+  TestRenderViewHost* rvh = pending_rvh();
+  if (!rvh)
+    rvh = static_cast<TestRenderViewHost*>(render_manager_.current_host());
+
+  const NavigationEntry* entry = controller().pending_entry();
+  DCHECK(entry);
+  int page_id = entry->page_id();
+  if (page_id == -1) {
+    // It's a new navigation, assign a never-seen page id to it.
+    page_id =
+        static_cast<MockRenderProcessHost*>(rvh->process())->max_page_id() + 1;
+  }
+  rvh->SendNavigate(page_id, entry->url());
+}
+
+void TestTabContents::ProceedWithCrossSiteNavigation() {
+  if (!pending_rvh())
+    return;
+  render_manager_.ShouldClosePage(true, true);
 }

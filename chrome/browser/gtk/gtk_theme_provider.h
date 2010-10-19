@@ -4,17 +4,18 @@
 
 #ifndef CHROME_BROWSER_GTK_GTK_THEME_PROVIDER_H_
 #define CHROME_BROWSER_GTK_GTK_THEME_PROVIDER_H_
+#pragma once
 
 #include <map>
-#include <string>
 #include <vector>
 
 #include "app/gtk_integers.h"
 #include "app/gtk_signal.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/browser_theme_provider.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/common/notification_observer.h"
-#include "chrome/common/owned_widget_gtk.h"
 #include "gfx/color_utils.h"
 
 class CairoCachedSurface;
@@ -97,10 +98,17 @@ class GtkThemeProvider : public BrowserThemeProvider,
   // to send the image to the server on each expose.
   CairoCachedSurface* GetSurfaceNamed(int id, GtkWidget* widget_on_display);
 
-  // Returns a CairoCachedSurface for a particular Display for an image
-  // resource that's unthemed.
-  CairoCachedSurface* GetUnthemedSurfaceNamed(
-      int id, GtkWidget* widget_on_display);
+  // Same as above, but auto-mirrors the underlying pixbuf in RTL mode.
+  CairoCachedSurface* GetRTLEnabledSurfaceNamed(int id,
+                                                GtkWidget* widget_on_display);
+
+  // Same as above, but gets the resource from the ResourceBundle instead of the
+  // BrowserThemeProvider.
+  // NOTE: Never call this with resource IDs that are ever passed to the above
+  // two functions!  Depending on which call comes first, all callers will
+  // either get the themed or the unthemed version.
+  CairoCachedSurface* GetUnthemedSurfaceNamed(int id,
+                                              GtkWidget* widget_on_display);
 
   // Returns colors that we pass to webkit to match the system theme.
   const SkColor& get_focus_ring_color() const { return focus_ring_color_; }
@@ -201,6 +209,11 @@ class GtkThemeProvider : public BrowserThemeProvider,
   // entry.
   void GetSelectedEntryForegroundHSL(color_utils::HSL* tint) const;
 
+  // Implements GetXXXSurfaceNamed(), given the appropriate pixbuf to use.
+  CairoCachedSurface* GetSurfaceNamedImpl(int id,
+                                          GdkPixbuf* pixbuf,
+                                          GtkWidget* widget_on_display);
+
   // Handles signal from GTK that our theme has been changed.
   CHROMEGTK_CALLBACK_1(GtkThemeProvider, void, OnStyleSet, GtkStyle*);
 
@@ -262,6 +275,8 @@ class GtkThemeProvider : public BrowserThemeProvider,
   // Cairo surfaces for each GdkDisplay.
   PerDisplaySurfaceMap per_display_surfaces_;
   PerDisplaySurfaceMap per_display_unthemed_surfaces_;
+
+  PrefChangeRegistrar registrar_;
 
   // This is a dummy widget that only exists so we have something to pass to
   // gtk_widget_render_icon().

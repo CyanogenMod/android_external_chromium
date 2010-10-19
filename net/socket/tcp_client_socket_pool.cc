@@ -23,7 +23,7 @@ namespace net {
 TCPSocketParams::TCPSocketParams(const HostPortPair& host_port_pair,
                                  RequestPriority priority, const GURL& referrer,
                                  bool disable_resolver_cache)
-    : destination_(host_port_pair.host, host_port_pair.port) {
+    : destination_(host_port_pair) {
   Initialize(priority, referrer, disable_resolver_cache);
 }
 
@@ -31,7 +31,7 @@ TCPSocketParams::TCPSocketParams(const HostPortPair& host_port_pair,
 TCPSocketParams::TCPSocketParams(const std::string& host, int port,
                                  RequestPriority priority, const GURL& referrer,
                                  bool disable_resolver_cache)
-    : destination_(host, port) {
+    : destination_(HostPortPair(host, port)) {
   Initialize(priority, referrer, disable_resolver_cache);
 }
 
@@ -72,11 +72,11 @@ TCPConnectJob::~TCPConnectJob() {
 
 LoadState TCPConnectJob::GetLoadState() const {
   switch (next_state_) {
-    case kStateResolveHost:
-    case kStateResolveHostComplete:
+    case STATE_RESOLVE_HOST:
+    case STATE_RESOLVE_HOST_COMPLETE:
       return LOAD_STATE_RESOLVING_HOST;
-    case kStateTCPConnect:
-    case kStateTCPConnectComplete:
+    case STATE_TCP_CONNECT:
+    case STATE_TCP_CONNECT_COMPLETE:
       return LOAD_STATE_CONNECTING;
     default:
       NOTREACHED();
@@ -85,7 +85,7 @@ LoadState TCPConnectJob::GetLoadState() const {
 }
 
 int TCPConnectJob::ConnectInternal() {
-  next_state_ = kStateResolveHost;
+  next_state_ = STATE_RESOLVE_HOST;
   start_time_ = base::TimeTicks::Now();
   return DoLoop(OK);
 }
@@ -97,25 +97,25 @@ void TCPConnectJob::OnIOComplete(int result) {
 }
 
 int TCPConnectJob::DoLoop(int result) {
-  DCHECK_NE(next_state_, kStateNone);
+  DCHECK_NE(next_state_, STATE_NONE);
 
   int rv = result;
   do {
     State state = next_state_;
-    next_state_ = kStateNone;
+    next_state_ = STATE_NONE;
     switch (state) {
-      case kStateResolveHost:
+      case STATE_RESOLVE_HOST:
         DCHECK_EQ(OK, rv);
         rv = DoResolveHost();
         break;
-      case kStateResolveHostComplete:
+      case STATE_RESOLVE_HOST_COMPLETE:
         rv = DoResolveHostComplete(rv);
         break;
-      case kStateTCPConnect:
+      case STATE_TCP_CONNECT:
         DCHECK_EQ(OK, rv);
         rv = DoTCPConnect();
         break;
-      case kStateTCPConnectComplete:
+      case STATE_TCP_CONNECT_COMPLETE:
         rv = DoTCPConnectComplete(rv);
         break;
       default:
@@ -123,27 +123,27 @@ int TCPConnectJob::DoLoop(int result) {
         rv = ERR_FAILED;
         break;
     }
-  } while (rv != ERR_IO_PENDING && next_state_ != kStateNone);
+  } while (rv != ERR_IO_PENDING && next_state_ != STATE_NONE);
 
   return rv;
 }
 
 int TCPConnectJob::DoResolveHost() {
-  next_state_ = kStateResolveHostComplete;
+  next_state_ = STATE_RESOLVE_HOST_COMPLETE;
   return resolver_.Resolve(params_->destination(), &addresses_, &callback_,
                            net_log());
 }
 
 int TCPConnectJob::DoResolveHostComplete(int result) {
   if (result == OK)
-    next_state_ = kStateTCPConnect;
+    next_state_ = STATE_TCP_CONNECT;
   return result;
 }
 
 int TCPConnectJob::DoTCPConnect() {
-  next_state_ = kStateTCPConnectComplete;
+  next_state_ = STATE_TCP_CONNECT_COMPLETE;
   set_socket(client_socket_factory_->CreateTCPClientSocket(
-        addresses_, net_log().net_log()));
+        addresses_, net_log().net_log(), net_log().source()));
   connect_start_time_ = base::TimeTicks::Now();
   return socket()->Connect(&callback_);
 }
@@ -194,7 +194,7 @@ base::TimeDelta
 TCPClientSocketPool::TCPClientSocketPool(
     int max_sockets,
     int max_sockets_per_group,
-    const scoped_refptr<ClientSocketPoolHistograms>& histograms,
+    ClientSocketPoolHistograms* histograms,
     HostResolver* host_resolver,
     ClientSocketFactory* client_socket_factory,
     NetLog* net_log)
@@ -204,7 +204,7 @@ TCPClientSocketPool::TCPClientSocketPool(
             base::TimeDelta::FromSeconds(kUsedIdleSocketTimeout),
             new TCPConnectJobFactory(client_socket_factory,
                                      host_resolver, net_log)) {
-  base_.EnableBackupJobs();
+  base_.EnableConnectBackupJobs();
 }
 
 TCPClientSocketPool::~TCPClientSocketPool() {}
@@ -219,15 +219,13 @@ int TCPClientSocketPool::RequestSocket(
   const scoped_refptr<TCPSocketParams>* casted_params =
       static_cast<const scoped_refptr<TCPSocketParams>*>(params);
 
-  if (net_log.HasListener()) {
+  if (net_log.IsLoggingAll()) {
     // TODO(eroman): Split out the host and port parameters.
     net_log.AddEvent(
         NetLog::TYPE_TCP_CLIENT_SOCKET_POOL_REQUESTED_SOCKET,
         new NetLogStringParameter(
             "host_and_port",
-            StringPrintf("%s [port %d]",
-                         casted_params->get()->destination().hostname().c_str(),
-                         casted_params->get()->destination().port())));
+            casted_params->get()->destination().host_port_pair().ToString()));
   }
 
   return base_.RequestSocket(group_name, *casted_params, priority, handle,

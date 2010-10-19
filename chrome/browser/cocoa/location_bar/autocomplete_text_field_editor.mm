@@ -271,6 +271,17 @@
   [self didChangeText];
 }
 
+- (void)setSelectedRange:(NSRange)charRange
+                affinity:(NSSelectionAffinity)affinity
+          stillSelecting:(BOOL)flag {
+  [super setSelectedRange:charRange affinity:affinity stillSelecting:flag];
+
+  // We're only interested in selection changes directly caused by keyboard
+  // input from the user.
+  if (interpretingKeyEvents_)
+    textChangedByKeyEvents_ = YES;
+}
+
 - (void)interpretKeyEvents:(NSArray *)eventArray {
   DCHECK(!interpretingKeyEvents_);
   interpretingKeyEvents_ = YES;
@@ -295,6 +306,33 @@
     else
       textChangedByKeyEvents_ = YES;
   }
+}
+
+- (void)doCommandBySelector:(SEL)cmd {
+  // TODO(shess): Review code for cases where we're fruitlessly attempting to
+  // work in spite of not having an observer.
+  AutocompleteTextFieldObserver* observer = [self observer];
+
+  if (observer && observer->OnDoCommandBySelector(cmd)) {
+    // The observer should already be aware of any changes to the text, so
+    // setting |textChangedByKeyEvents_| to NO to prevent its OnDidChange()
+    // method from being called unnecessarily.
+    textChangedByKeyEvents_ = NO;
+    return;
+  }
+
+  // If the escape key was pressed and no revert happened and we're in
+  // fullscreen mode, make it resign key.
+  if (cmd == @selector(cancelOperation:)) {
+    BrowserWindowController* windowController =
+        [BrowserWindowController browserWindowControllerForView:self];
+    if ([windowController isFullscreen]) {
+      [windowController focusTabContents];
+      return;
+    }
+  }
+
+  [super doCommandBySelector:cmd];
 }
 
 - (void)setAttributedString:(NSAttributedString*)aString {

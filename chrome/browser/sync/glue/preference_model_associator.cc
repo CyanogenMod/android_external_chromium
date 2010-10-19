@@ -9,7 +9,7 @@
 #include "base/values.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chrome_thread.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/synchronized_preferences.h"
@@ -43,6 +43,68 @@ PreferenceModelAssociator::~PreferenceModelAssociator() {
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
 }
 
+bool PreferenceModelAssociator::InitPrefNodeAndAssociate(
+    sync_api::WriteTransaction* trans,
+    const sync_api::BaseNode& root,
+    const PrefService::Preference* pref) {
+  DCHECK(pref);
+
+  PrefService* pref_service = sync_service_->profile()->GetPrefs();
+  base::JSONReader reader;
+  std::string tag = pref->name();
+  sync_api::WriteNode node(trans);
+  if (node.InitByClientTagLookup(syncable::PREFERENCES, tag)) {
+    // The server has a value for the preference.
+    const sync_pb::PreferenceSpecifics& preference(
+        node.GetPreferenceSpecifics());
+    DCHECK_EQ(tag, preference.name());
+
+    if (pref->IsUserModifiable()) {
+      scoped_ptr<Value> value(
+          reader.JsonToValue(preference.value(), false, false));
+      std::string pref_name = preference.name();
+      if (!value.get()) {
+        LOG(ERROR) << "Failed to deserialize preference value: "
+                   << reader.GetErrorMessage();
+        return false;
+      }
+
+      // Merge the server value of this preference with the local value.
+      scoped_ptr<Value> new_value(MergePreference(*pref, *value));
+
+      // Update the local preference based on what we got from the
+      // sync server.
+      if (!pref->GetValue()->Equals(new_value.get()))
+        pref_service->Set(pref_name.c_str(), *new_value);
+
+      AfterUpdateOperations(pref_name);
+
+      // If the merge resulted in an updated value, write it back to
+      // the sync node.
+      if (!value->Equals(new_value.get()) &&
+          !WritePreferenceToNode(pref->name(), *new_value, &node))
+        return false;
+    }
+    Associate(pref, node.GetId());
+  } else if (pref->IsUserControlled()) {
+    // The server doesn't have a value, but we have a user-controlled value,
+    // so we push it to the server.
+    sync_api::WriteNode write_node(trans);
+    if (!write_node.InitUniqueByCreation(syncable::PREFERENCES, root, tag)) {
+      LOG(ERROR) << "Failed to create preference sync node.";
+      return false;
+    }
+
+    // Update the sync node with the local value for this preference.
+    if (!WritePreferenceToNode(pref->name(), *pref->GetValue(), &write_node))
+      return false;
+
+    Associate(pref, write_node.GetId());
+  }
+
+  return true;
+}
+
 bool PreferenceModelAssociator::AssociateModels() {
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
   PrefService* pref_service = sync_service_->profile()->GetPrefs();
@@ -63,63 +125,11 @@ bool PreferenceModelAssociator::AssociateModels() {
     return false;
   }
 
-  base::JSONReader reader;
-  for (std::set<std::wstring>::iterator it = synced_preferences_.begin();
+  for (std::set<std::string>::iterator it = synced_preferences_.begin();
        it != synced_preferences_.end(); ++it) {
-    std::string tag = WideToUTF8(*it);
     const PrefService::Preference* pref =
         pref_service->FindPreference((*it).c_str());
-    DCHECK(pref);
-
-    sync_api::WriteNode node(&trans);
-    if (node.InitByClientTagLookup(syncable::PREFERENCES, tag)) {
-      // The server has a value for the preference.
-      const sync_pb::PreferenceSpecifics& preference(
-          node.GetPreferenceSpecifics());
-      DCHECK_EQ(tag, preference.name());
-
-      if (pref->IsUserModifiable()) {
-        scoped_ptr<Value> value(
-            reader.JsonToValue(preference.value(), false, false));
-        std::wstring pref_name = UTF8ToWide(preference.name());
-        if (!value.get()) {
-          LOG(ERROR) << "Failed to deserialize preference value: "
-                     << reader.GetErrorMessage();
-          return false;
-        }
-
-        // Merge the server value of this preference with the local value.
-        scoped_ptr<Value> new_value(MergePreference(*pref, *value));
-
-        // Update the local preference based on what we got from the
-        // sync server.
-        if (!pref->GetValue()->Equals(new_value.get()))
-          pref_service->Set(pref_name.c_str(), *new_value);
-
-        AfterUpdateOperations(pref_name);
-
-        // If the merge resulted in an updated value, write it back to
-        // the sync node.
-        if (!value->Equals(new_value.get()) &&
-            !WritePreferenceToNode(pref->name(), *new_value, &node))
-          return false;
-      }
-      Associate(pref, node.GetId());
-    } else if (pref->IsUserControlled()) {
-      // The server doesn't have a value, but we have a user-controlled value,
-      // so we push it to the server.
-      sync_api::WriteNode write_node(&trans);
-      if (!write_node.InitUniqueByCreation(syncable::PREFERENCES, root, tag)) {
-        LOG(ERROR) << "Failed to create preference sync node.";
-        return false;
-      }
-
-      // Update the sync node with the local value for this preference.
-      if (!WritePreferenceToNode(pref->name(), *pref->GetValue(), &write_node))
-        return false;
-
-      Associate(pref, write_node.GetId());
-    }
+    InitPrefNodeAndAssociate(&trans, root, pref);
   }
   return true;
 }
@@ -156,7 +166,7 @@ bool PreferenceModelAssociator::SyncModelHasUserCreatedNodes(bool* has_nodes) {
 }
 
 int64 PreferenceModelAssociator::GetSyncIdFromChromeId(
-    const std::wstring preference_name) {
+    const std::string preference_name) {
   PreferenceNameToSyncIdMap::const_iterator iter =
       id_map_.find(preference_name);
   return iter == id_map_.end() ? sync_api::kInvalidId : iter->second;
@@ -195,14 +205,15 @@ bool PreferenceModelAssociator::GetSyncIdForTaggedNode(const std::string& tag,
 Value* PreferenceModelAssociator::MergePreference(
     const PrefService::Preference& local_pref,
     const Value& server_value) {
-  if (local_pref.name() == prefs::kURLsToRestoreOnStartup ||
-      local_pref.name() == prefs::kDesktopNotificationAllowedOrigins ||
-      local_pref.name() == prefs::kDesktopNotificationDeniedOrigins) {
+  const std::string& name(local_pref.name());
+  if (name == prefs::kURLsToRestoreOnStartup ||
+      name == prefs::kDesktopNotificationAllowedOrigins ||
+      name == prefs::kDesktopNotificationDeniedOrigins) {
     return MergeListValues(*local_pref.GetValue(), server_value);
   }
 
-  if (local_pref.name() == prefs::kContentSettingsPatterns ||
-      local_pref.name() == prefs::kGeolocationContentSettings) {
+  if (name == prefs::kContentSettingsPatterns ||
+      name == prefs::kGeolocationContentSettings) {
     return MergeDictionaryValues(*local_pref.GetValue(), server_value);
   }
 
@@ -211,7 +222,7 @@ Value* PreferenceModelAssociator::MergePreference(
 }
 
 bool PreferenceModelAssociator::WritePreferenceToNode(
-    const std::wstring& name,
+    const std::string& name,
     const Value& value,
     sync_api::WriteNode* node) {
   std::string serialized;
@@ -222,10 +233,11 @@ bool PreferenceModelAssociator::WritePreferenceToNode(
   }
 
   sync_pb::PreferenceSpecifics preference;
-  preference.set_name(WideToUTF8(name));
+  preference.set_name(name);
   preference.set_value(serialized);
   node->SetPreferenceSpecifics(preference);
-  node->SetTitle(name);
+  // TODO(viettrungluu): eliminate conversion (it's temporary)
+  node->SetTitle(UTF8ToWide(name));
   return true;
 }
 
@@ -290,7 +302,7 @@ Value* PreferenceModelAssociator::MergeDictionaryValues(
 }
 
 void PreferenceModelAssociator::AfterUpdateOperations(
-    const std::wstring& pref_name) {
+    const std::string& pref_name) {
   // The bookmark bar visibility preference requires a special
   // notification to update the UI.
   if (0 == pref_name.compare(prefs::kShowBookmarkBar)) {

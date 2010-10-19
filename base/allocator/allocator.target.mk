@@ -15,6 +15,7 @@ CFLAGS_Debug := -pthread \
 	-Wno-unused-parameter \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
+	-pipe \
 	-fno-strict-aliasing \
 	-DNO_HEAP_CHECK \
 	-O0 \
@@ -47,6 +48,7 @@ CFLAGS_Release := -pthread \
 	-Wno-unused-parameter \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
+	-pipe \
 	-fno-strict-aliasing \
 	-DNO_HEAP_CHECK \
 	-O2 \
@@ -132,11 +134,12 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.c FORCE_DO_CMD
 # End of this set of suffix rules
 ### Rules for final target.
 LDFLAGS_Debug := -pthread \
-	-Wl,-z,noexecstack \
-	-rdynamic
+	-Wl,-z,noexecstack
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := 

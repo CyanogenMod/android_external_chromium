@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,6 +6,7 @@
 
 #include "app/resource_bundle.h"
 #include "base/callback.h"
+#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/url_constants.h"
 #include "grit/app_resources.h"
@@ -15,6 +16,9 @@ DOMUIFavIconSource::DOMUIFavIconSource(Profile* profile)
       profile_(profile) {
 }
 
+DOMUIFavIconSource::~DOMUIFavIconSource() {
+}
+
 void DOMUIFavIconSource::StartDataRequest(const std::string& path,
                                           bool is_off_the_record,
                                           int request_id) {
@@ -22,6 +26,11 @@ void DOMUIFavIconSource::StartDataRequest(const std::string& path,
       profile_->GetFaviconService(Profile::EXPLICIT_ACCESS);
   if (favicon_service) {
     FaviconService::Handle handle;
+    if (path.empty()) {
+      SendDefaultResponse(request_id);
+      return;
+    }
+
     if (path.size() > 8 && path.substr(0, 8) == "iconurl/") {
       handle = favicon_service->GetFavicon(
           GURL(path.substr(8)),
@@ -40,6 +49,12 @@ void DOMUIFavIconSource::StartDataRequest(const std::string& path,
   }
 }
 
+std::string DOMUIFavIconSource::GetMimeType(const std::string&) const {
+  // We need to explicitly return a mime type, otherwise if the user tries to
+  // drag the image they get no extension.
+  return "image/png";
+}
+
 void DOMUIFavIconSource::OnFavIconDataAvailable(
     FaviconService::Handle request_handle,
     bool know_favicon,
@@ -55,12 +70,16 @@ void DOMUIFavIconSource::OnFavIconDataAvailable(
     // Forward the data along to the networking system.
     SendResponse(request_id, data);
   } else {
-    if (!default_favicon_.get()) {
-      default_favicon_ =
-          ResourceBundle::GetSharedInstance().LoadDataResourceBytes(
-              IDR_DEFAULT_FAVICON);
-    }
-
-    SendResponse(request_id, default_favicon_);
+    SendDefaultResponse(request_id);
   }
+}
+
+void DOMUIFavIconSource::SendDefaultResponse(int request_id) {
+  if (!default_favicon_.get()) {
+    default_favicon_ =
+        ResourceBundle::GetSharedInstance().LoadDataResourceBytes(
+            IDR_DEFAULT_FAVICON);
+  }
+
+  SendResponse(request_id, default_favicon_);
 }

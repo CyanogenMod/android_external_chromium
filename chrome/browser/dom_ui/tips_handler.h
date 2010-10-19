@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,6 +8,7 @@
 
 #ifndef CHROME_BROWSER_DOM_UI_TIPS_HANDLER_H_
 #define CHROME_BROWSER_DOM_UI_TIPS_HANDLER_H_
+#pragma once
 
 #include <string>
 
@@ -15,8 +16,8 @@
 
 class DictionaryValue;
 class DOMUI;
+class ListValue;
 class PrefService;
-class Value;
 
 class TipsHandler : public DOMMessageHandler {
  public:
@@ -28,7 +29,7 @@ class TipsHandler : public DOMMessageHandler {
   virtual void RegisterMessages();
 
   // Callback which pulls tips data from the preferences.
-  void HandleGetTips(const Value* content);
+  void HandleGetTips(const ListValue* args);
 
   // Register tips cache with pref service.
   static void RegisterUserPrefs(PrefService* prefs);
@@ -40,7 +41,8 @@ class TipsHandler : public DOMMessageHandler {
   // Send a tip to the NTP.  tip_type is "tip_html_text" if the tip is from
   // the tip server, and "set_homepage_tip" if it's the tip to set the NTP
   // as home page.
-  void SendTip(std::string tip, std::wstring tip_type, int tip_index);
+  void SendTip(const std::string& tip, const std::string& tip_type,
+               int tip_index);
 
   // So we can push data out to the page that has called this handler.
   DOMUI* dom_ui_;

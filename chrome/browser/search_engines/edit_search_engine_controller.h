@@ -4,9 +4,11 @@
 
 #ifndef CHROME_BROWSER_SEARCH_ENGINES_EDIT_SEARCH_ENGINE_CONTROLLER_H_
 #define CHROME_BROWSER_SEARCH_ENGINES_EDIT_SEARCH_ENGINE_CONTROLLER_H_
+#pragma once
 
 #include <string>
 
+#include "base/string16.h"
 #include "gfx/native_widget_types.h"
 
 class Profile;
@@ -20,9 +22,12 @@ class EditSearchEngineControllerDelegate {
   // indicates a new TemplateURL should be created rather than modifying an
   // existing TemplateURL.
   virtual void OnEditedKeyword(const TemplateURL* template_url,
-                               const std::wstring& title,
-                               const std::wstring& keyword,
+                               const string16& title,
+                               const string16& keyword,
                                const std::string& url) = 0;
+
+ protected:
+  virtual ~EditSearchEngineControllerDelegate() {}
 };
 
 // EditSearchEngineController provides the core platform independent logic
@@ -37,7 +42,7 @@ class EditSearchEngineController {
   ~EditSearchEngineController() {}
 
   // Returns true if the value of |title_input| is a valid search engine name.
-  bool IsTitleValid(const std::wstring& title_input) const;
+  bool IsTitleValid(const string16& title_input) const;
 
   // Returns true if the value of |url_input| represents a valid search engine
   // URL. The URL is valid if it contains no search terms and is a valid
@@ -48,11 +53,11 @@ class EditSearchEngineController {
   // Returns true if the value of |keyword_input| represents a valid keyword.
   // The keyword is valid if it is non-empty and does not conflict with an
   // existing entry. NOTE: this is just the keyword, not the title and url.
-  bool IsKeywordValid(const std::wstring& keyword_input) const;
+  bool IsKeywordValid(const string16& keyword_input) const;
 
   // Completes the add or edit of a search engine.
-  void AcceptAddOrEdit(const std::wstring& title_input,
-                       const std::wstring& keyword_input,
+  void AcceptAddOrEdit(const string16& title_input,
+                       const string16& keyword_input,
                        const std::string& url_input);
 
   // Deletes an unused TemplateURL, if its add was cancelled and it's not

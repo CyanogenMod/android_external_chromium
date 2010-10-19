@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/scoped_nsobject.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/cocoa/browser_test_helper.h"
 #include "chrome/browser/cocoa/cocoa_test_helper.h"
 #include "chrome/browser/cocoa/notifications/balloon_controller.h"
@@ -12,6 +13,16 @@
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/test/testing_profile.h"
 #import "third_party/ocmock/OCMock/OCMock.h"
+
+// Subclass balloon controller and mock out the initialization of the RVH.
+@interface TestBalloonController : BalloonController {
+}
+- (void)initializeHost;
+@end
+
+@implementation TestBalloonController
+- (void)initializeHost {}
+@end
 
 namespace {
 
@@ -63,41 +74,38 @@ class BalloonControllerTest : public RenderViewHostTestHarness {
 
 TEST_F(BalloonControllerTest, ShowAndCloseTest) {
   Notification n(GURL("http://www.google.com"), GURL("http://www.google.com"),
-      L"http://www.google.com", ASCIIToUTF16(""),
+      ASCIIToUTF16("http://www.google.com"), string16(),
       new NotificationObjectProxy(-1, -1, -1, false));
   scoped_ptr<Balloon> balloon(
       new Balloon(n, profile_.get(), collection_.get()));
+  balloon->SetPosition(gfx::Point(1, 1), false);
+  balloon->set_content_size(gfx::Size(100, 100));
 
-  BalloonController* controller = [BalloonController alloc];
+  BalloonController* controller =
+      [[TestBalloonController alloc] initWithBalloon:balloon.get()];
 
-  id mock = [OCMockObject partialMockForObject:controller];
-  [[mock expect] initializeHost];
-
-  [controller initWithBalloon:balloon.get()];
   [controller showWindow:nil];
   [controller closeBalloon:YES];
-
-  [mock verify];
 }
 
 TEST_F(BalloonControllerTest, SizesTest) {
   Notification n(GURL("http://www.google.com"), GURL("http://www.google.com"),
-      L"http://www.google.com", ASCIIToUTF16(""),
+      ASCIIToUTF16("http://www.google.com"), string16(),
       new NotificationObjectProxy(-1, -1, -1, false));
   scoped_ptr<Balloon> balloon(
       new Balloon(n, profile_.get(), collection_.get()));
+  balloon->SetPosition(gfx::Point(1, 1), false);
   balloon->set_content_size(gfx::Size(100, 100));
 
-  BalloonController* controller = [BalloonController alloc];
+  BalloonController* controller =
+      [[TestBalloonController alloc] initWithBalloon:balloon.get()];
 
-  id mock = [OCMockObject partialMockForObject:controller];
-  [[mock expect] initializeHost];
-
-  [controller initWithBalloon:balloon.get()];
+  [controller showWindow:nil];
 
   EXPECT_TRUE([controller desiredTotalWidth] > 100);
   EXPECT_TRUE([controller desiredTotalHeight] > 100);
-  [mock verify];
+
+  [controller closeBalloon:YES];
 }
 
 }

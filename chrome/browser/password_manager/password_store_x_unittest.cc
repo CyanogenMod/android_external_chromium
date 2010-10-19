@@ -14,6 +14,7 @@
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/test/signaling_task.h"
 #include "chrome/test/testing_profile.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -41,17 +42,6 @@ class MockWebDataServiceConsumer : public WebDataServiceConsumer {
  public:
   MOCK_METHOD2(OnWebDataServiceRequestDone, void(WebDataService::Handle,
                                                  const WDTypedResult*));
-};
-
-class SignalingTask : public Task {
- public:
-  explicit SignalingTask(WaitableEvent* event) : event_(event) {
-  }
-  virtual void Run() {
-    event_->Signal();
-  }
- private:
-  WaitableEvent* event_;
 };
 
 class MockNotificationObserver : public NotificationObserver {
@@ -610,7 +600,7 @@ TEST_P(PasswordStoreXTest, NativeMigration) {
   // Get the initial size of the login DB file, before we populate it.
   // This will be used later to make sure it gets back to this size.
   const FilePath login_db_file = temp_dir_.path().Append("login_test");
-  file_util::FileInfo db_file_start_info;
+  base::PlatformFileInfo db_file_start_info;
   ASSERT_TRUE(file_util::GetFileInfo(login_db_file, &db_file_start_info));
 
   LoginDatabase* login_db = login_db_.get();
@@ -640,7 +630,7 @@ TEST_P(PasswordStoreXTest, NativeMigration) {
   done.Wait();
 
   // Get the new size of the login DB file. We expect it to be larger.
-  file_util::FileInfo db_file_full_info;
+  base::PlatformFileInfo db_file_full_info;
   ASSERT_TRUE(file_util::GetFileInfo(login_db_file, &db_file_full_info));
   EXPECT_GT(db_file_full_info.size, db_file_start_info.size);
 
@@ -727,7 +717,7 @@ TEST_P(PasswordStoreXTest, NativeMigration) {
     // recreated. We approximate checking for this by checking that the file
     // size is equal to the size before we populated it, even though it was
     // larger after populating it.
-    file_util::FileInfo db_file_end_info;
+    base::PlatformFileInfo db_file_end_info;
     ASSERT_TRUE(file_util::GetFileInfo(login_db_file, &db_file_end_info));
     EXPECT_EQ(db_file_start_info.size, db_file_end_info.size);
   }

@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/views/bookmark_bar_view.h"
@@ -11,11 +12,9 @@
 class BookmarkBarViewTest : public BrowserWithTestWindowTest {
  public:
   BookmarkBarViewTest()
-      : ui_thread_(ChromeThread::UI, message_loop()),
-        file_thread_(ChromeThread::FILE, message_loop()) {}
+      : file_thread_(ChromeThread::FILE, message_loop()) {}
 
  private:
-  ChromeThread ui_thread_;
   ChromeThread file_thread_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkBarViewTest);
@@ -28,14 +27,14 @@ TEST_F(BookmarkBarViewTest, SwitchProfile) {
   profile()->GetBookmarkModel()->AddURL(
       profile()->GetBookmarkModel()->GetBookmarkBarNode(),
       0,
-      L"blah",
+      ASCIIToUTF16("blah"),
       GURL("http://www.google.com"));
 
   BookmarkBarView bookmark_bar(profile(), browser());
 
   EXPECT_EQ(1, bookmark_bar.GetBookmarkButtonCount());
 
-  TestingProfile profile2(0);
+  TestingProfile profile2;
   profile2.CreateBookmarkModel(true);
   profile2.BlockUntilBookmarkModelLoaded();
 

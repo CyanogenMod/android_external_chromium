@@ -1,14 +1,16 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include <map>
 
 #include "base/file_util.h"
-#include "base/rand_util.h"
 #include "base/scoped_ptr.h"
 #include "base/stl_util-inl.h"
+#include "base/string_number_conversions.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/thread.h"
 #include "base/version.h"
 #include "chrome/browser/chrome_thread.h"
@@ -16,7 +18,7 @@
 #include "chrome/browser/extensions/extension_updater.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/extensions/test_extension_prefs.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
@@ -40,33 +42,37 @@ class MockService : public ExtensionUpdateService {
   virtual ~MockService() {}
 
   virtual const ExtensionList* extensions() const {
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
     return NULL;
   }
 
   virtual const PendingExtensionMap& pending_extensions() const {
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
     return pending_extensions_;
   }
 
   virtual void UpdateExtension(const std::string& id,
                                const FilePath& extension_path,
                                const GURL& download_url) {
-    EXPECT_TRUE(false);
+    FAIL();
   }
 
   virtual Extension* GetExtensionById(const std::string& id, bool) {
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
     return NULL;
   }
 
   virtual void UpdateExtensionBlacklist(
-    const std::vector<std::string>& blacklist) {
-    EXPECT_TRUE(false);
+      const std::vector<std::string>& blacklist) {
+    FAIL();
+  }
+
+  virtual void CheckAdminBlacklist() {
+    FAIL();
   }
 
   virtual bool HasInstalledExtensions() {
-    EXPECT_TRUE(false);
+    ADD_FAILURE();
     return false;
   }
 
@@ -82,9 +88,9 @@ class MockService : public ExtensionUpdateService {
     for (int i = 1; i <= count; i++) {
       DictionaryValue manifest;
       manifest.SetString(extension_manifest_keys::kVersion,
-                         StringPrintf("%d.0.0.0", i));
+                         base::StringPrintf("%d.0.0.0", i));
       manifest.SetString(extension_manifest_keys::kName,
-                         StringPrintf("Extension %d", i));
+                         base::StringPrintf("Extension %d", i));
       if (update_url)
         manifest.SetString(extension_manifest_keys::kUpdateURL, *update_url);
       Extension* e = prefs_.AddExtensionWithManifest(manifest);
@@ -112,15 +118,19 @@ std::string GenerateId(std::string input) {
 // name and version are all based on their index.
 void CreateTestPendingExtensions(int count, const GURL& update_url,
                                  PendingExtensionMap* pending_extensions) {
+  PendingExtensionInfo::ExpectedCrxType crx_type;
   for (int i = 1; i <= count; i++) {
-    bool is_theme = (i % 2) == 0;
+    crx_type = ((i % 2) ? PendingExtensionInfo::EXTENSION
+                        : PendingExtensionInfo::THEME);
+    const bool kIsFromSync = true;
     const bool kInstallSilently = true;
     const Extension::State kInitialState = Extension::ENABLED;
     const bool kInitialIncognitoEnabled = false;
-    std::string id = GenerateId(StringPrintf("extension%i", i));
+    std::string id = GenerateId(base::StringPrintf("extension%i", i));
     (*pending_extensions)[id] =
-        PendingExtensionInfo(update_url, is_theme, kInstallSilently,
-                             kInitialState, kInitialIncognitoEnabled);
+        PendingExtensionInfo(update_url, crx_type, kIsFromSync,
+                             kInstallSilently, kInitialState,
+                             kInitialIncognitoEnabled);
   }
 }
 
@@ -548,14 +558,17 @@ class ExtensionUpdaterTest : public testing::Test {
     updater->FetchUpdatedExtension(id, test_url, hash, version->GetString());
 
     if (pending) {
-      const bool kIsTheme = false;
+      const PendingExtensionInfo::ExpectedCrxType kExpectedCrxType =
+          PendingExtensionInfo::EXTENSION;
+      const bool kIsFromSync = true;
       const bool kInstallSilently = true;
       const Extension::State kInitialState = Extension::ENABLED;
       const bool kInitialIncognitoEnabled = false;
       PendingExtensionMap pending_extensions;
       pending_extensions[id] =
-          PendingExtensionInfo(test_url, kIsTheme, kInstallSilently,
-                               kInitialState, kInitialIncognitoEnabled);
+          PendingExtensionInfo(test_url, kExpectedCrxType, kIsFromSync,
+                               kInstallSilently, kInitialState,
+                               kInitialIncognitoEnabled);
       service.set_pending_extensions(pending_extensions);
     }
 
@@ -767,7 +780,7 @@ class ExtensionUpdaterTest : public testing::Test {
     if (ping_days == 0) {
       EXPECT_TRUE(url1_query.find(search_string) == std::string::npos);
     } else {
-      search_string += "%253D" + IntToString(ping_days);
+      search_string += "%253D" + base::IntToString(ping_days);
       size_t pos = url1_query.find(search_string);
       EXPECT_TRUE(pos != std::string::npos);
     }
@@ -883,18 +896,24 @@ TEST(ExtensionUpdaterTest, TestManifestFetchesBuilderAddExtension) {
   // Extensions with invalid update URLs should be rejected.
   builder.AddPendingExtension(
       GenerateId("foo"), PendingExtensionInfo(GURL("http:google.com:foo"),
+                                              PendingExtensionInfo::EXTENSION,
                                               false, false, true, false));
   EXPECT_TRUE(builder.GetFetches().empty());
 
   // Extensions with empty IDs should be rejected.
   builder.AddPendingExtension(
-      "", PendingExtensionInfo(GURL(), false, false, true, false));
+      "", PendingExtensionInfo(GURL(), PendingExtensionInfo::EXTENSION,
+                               false, false, true, false));
   EXPECT_TRUE(builder.GetFetches().empty());
+
+  // TODO(akalin): Test that extensions with empty update URLs
+  // converted from user scripts are rejected.
 
   // Extensions with empty update URLs should have a default one
   // filled in.
   builder.AddPendingExtension(
       GenerateId("foo"), PendingExtensionInfo(GURL(),
+                                              PendingExtensionInfo::EXTENSION,
                                               false, false, true, false));
   std::vector<ManifestFetchData*> fetches = builder.GetFetches();
   ASSERT_EQ(1u, fetches.size());

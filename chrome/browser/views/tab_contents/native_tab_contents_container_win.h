@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_TAB_CONTENTS_NATIVE_TAB_CONTENTS_CONTAINER_WIN_H_
 #define CHROME_BROWSER_VIEWS_TAB_CONTENTS_NATIVE_TAB_CONTENTS_CONTAINER_WIN_H_
+#pragma once
 
 #include "chrome/browser/views/tab_contents/native_tab_contents_container.h"
 #include "views/controls/native/native_view_host.h"
@@ -29,7 +30,7 @@ class NativeTabContentsContainerWin : public NativeTabContentsContainer,
   virtual void Focus();
   virtual void RequestFocus();
   virtual void AboutToRequestFocusFromTabTraversal(bool reverse);
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
 
  private:
   TabContentsContainer* container_;

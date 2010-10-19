@@ -5,6 +5,7 @@
 #include <list>
 
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_download.h"
 #include "chrome/common/net/test_url_fetcher_factory.h"
 #include "chrome/test/testing_profile.h"
@@ -147,7 +148,7 @@ TEST(AutoFillDownloadTest, QueryAndUploadTest) {
                                                ASCIIToUTF16("text"),
                                                0));
   form.fields.push_back(webkit_glue::FormField(ASCIIToUTF16("city"),
-                                               ASCIIToUTF16("address2"),
+                                               ASCIIToUTF16("city"),
                                                string16(),
                                                ASCIIToUTF16("text"),
                                                0));

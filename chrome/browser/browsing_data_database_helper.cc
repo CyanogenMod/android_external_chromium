@@ -70,7 +70,7 @@ void BrowsingDataDatabaseHelper::FetchDatabaseInfoInFileThread() {
       for (std::vector<string16>::const_iterator db = databases.begin();
            db != databases.end(); ++db) {
         FilePath file_path = tracker_->GetFullDBFilePath(ori->GetOrigin(), *db);
-        file_util::FileInfo file_info;
+        base::PlatformFileInfo file_info;
         if (file_util::GetFileInfo(file_path, &file_info)) {
           database_info_.push_back(DatabaseInfo(
                 web_security_origin.host().utf8(),
@@ -147,7 +147,12 @@ void CannedBrowsingDataDatabaseHelper::Reset() {
   database_info_.clear();
 }
 
+bool CannedBrowsingDataDatabaseHelper::empty() const {
+ return database_info_.empty();
+}
+
 void CannedBrowsingDataDatabaseHelper::StartFetching(
     Callback1<const std::vector<DatabaseInfo>& >::Type* callback) {
   callback->Run(database_info_);
+  delete callback;
 }

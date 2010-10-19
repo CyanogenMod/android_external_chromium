@@ -4,22 +4,22 @@
 
 #include "base/xdg_util.h"
 
-#include "base/env_var.h"
+#include "base/environment.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/third_party/xdg_user_dirs/xdg_user_dir_lookup.h"
 
 namespace base {
 
-FilePath GetXDGDirectory(EnvVarGetter* env, const char* env_name,
+FilePath GetXDGDirectory(Environment* env, const char* env_name,
                          const char* fallback_dir) {
   std::string env_value;
-  if (env->GetEnv(env_name, &env_value) && !env_value.empty())
+  if (env->GetVar(env_name, &env_value) && !env_value.empty())
     return FilePath(env_value);
   return file_util::GetHomeDir().Append(fallback_dir);
 }
 
-FilePath GetXDGUserDirectory(EnvVarGetter* env, const char* dir_name,
+FilePath GetXDGUserDirectory(Environment* env, const char* dir_name,
                              const char* fallback_dir) {
   char* xdg_dir = xdg_user_dir_lookup(dir_name);
   if (xdg_dir) {
@@ -30,16 +30,16 @@ FilePath GetXDGUserDirectory(EnvVarGetter* env, const char* dir_name,
   return file_util::GetHomeDir().Append(fallback_dir);
 }
 
-DesktopEnvironment GetDesktopEnvironment(EnvVarGetter* env) {
+DesktopEnvironment GetDesktopEnvironment(Environment* env) {
   std::string desktop_session;
-  if (env->GetEnv("DESKTOP_SESSION", &desktop_session)) {
+  if (env->GetVar("DESKTOP_SESSION", &desktop_session)) {
     if (desktop_session == "gnome") {
       return DESKTOP_ENVIRONMENT_GNOME;
     } else if (desktop_session == "kde4") {
       return DESKTOP_ENVIRONMENT_KDE4;
     } else if (desktop_session == "kde") {
       // This may mean KDE4 on newer systems, so we have to check.
-      if (env->HasEnv("KDE_SESSION_VERSION"))
+      if (env->HasVar("KDE_SESSION_VERSION"))
         return DESKTOP_ENVIRONMENT_KDE4;
       return DESKTOP_ENVIRONMENT_KDE3;
     } else if (desktop_session.find("xfce") != std::string::npos) {
@@ -49,10 +49,10 @@ DesktopEnvironment GetDesktopEnvironment(EnvVarGetter* env) {
 
   // Fall back on some older environment variables.
   // Useful particularly in the DESKTOP_SESSION=default case.
-  if (env->HasEnv("GNOME_DESKTOP_SESSION_ID")) {
+  if (env->HasVar("GNOME_DESKTOP_SESSION_ID")) {
     return DESKTOP_ENVIRONMENT_GNOME;
-  } else if (env->HasEnv("KDE_FULL_SESSION")) {
-    if (env->HasEnv("KDE_SESSION_VERSION"))
+  } else if (env->HasVar("KDE_FULL_SESSION")) {
+    if (env->HasVar("KDE_SESSION_VERSION"))
       return DESKTOP_ENVIRONMENT_KDE4;
     return DESKTOP_ENVIRONMENT_KDE3;
   }
@@ -76,7 +76,7 @@ const char* GetDesktopEnvironmentName(DesktopEnvironment env) {
   return NULL;
 }
 
-const char* GetDesktopEnvironmentName(EnvVarGetter* env) {
+const char* GetDesktopEnvironmentName(Environment* env) {
   return GetDesktopEnvironmentName(GetDesktopEnvironment(env));
 }
 

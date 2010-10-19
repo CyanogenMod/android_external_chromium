@@ -8,30 +8,57 @@
 #include "app/resource_bundle.h"
 #include "app/table_model_observer.h"
 #include "base/i18n/rtl.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/common/url_constants.h"
 #include "gfx/codec/png_codec.h"
+#include "googleurl/src/gurl.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
 #include "net/base/net_util.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 
-// static
-SkBitmap CustomHomePagesTableModel::default_favicon_;
+struct CustomHomePagesTableModel::Entry {
+  Entry() : title_handle(0), fav_icon_handle(0) {}
+
+  // URL of the page.
+  GURL url;
+
+  // Page title.  If this is empty, we'll display the URL as the entry.
+  std::wstring title;
+
+  // Icon for the page.
+  SkBitmap icon;
+
+  // If non-zero, indicates we're loading the title for the page.
+  HistoryService::Handle title_handle;
+
+  // If non-zero, indicates we're loading the favicon for the page.
+  FaviconService::Handle fav_icon_handle;
+};
 
 CustomHomePagesTableModel::CustomHomePagesTableModel(Profile* profile)
-    : profile_(profile),
+    : default_favicon_(NULL),
+      profile_(profile),
       observer_(NULL) {
-  InitClass();
+  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+  default_favicon_ = rb.GetBitmapNamed(IDR_DEFAULT_FAVICON);
+}
+
+CustomHomePagesTableModel::~CustomHomePagesTableModel() {
 }
 
 void CustomHomePagesTableModel::SetURLs(const std::vector<GURL>& urls) {
   entries_.resize(urls.size());
   for (size_t i = 0; i < urls.size(); ++i) {
     entries_[i].url = urls[i];
+    entries_[i].title.erase();
+    entries_[i].icon.reset();
     LoadTitleAndFavIcon(&(entries_[i]));
   }
   // Complete change, so tell the view to just rebuild itself.
@@ -84,7 +111,9 @@ void CustomHomePagesTableModel::SetToCurrentlyOpenPages() {
 
     for (int tab_index = 0; tab_index < browser->tab_count(); ++tab_index) {
       const GURL url = browser->GetTabContentsAt(tab_index)->GetURL();
-      if (!url.is_empty())
+      if (!url.is_empty() &&
+          !(url.SchemeIs(chrome::kChromeUIScheme) &&
+            url.host() == chrome::kChromeUISettingsHost))
         Add(add_index++, url);
     }
   }
@@ -109,7 +138,7 @@ std::wstring CustomHomePagesTableModel::GetText(int row, int column_id) {
 
 SkBitmap CustomHomePagesTableModel::GetIcon(int row) {
   DCHECK(row >= 0 && row < RowCount());
-  return entries_[row].icon.isNull() ? default_favicon_ : entries_[row].icon;
+  return entries_[row].icon.isNull() ? *default_favicon_ : entries_[row].icon;
 }
 
 std::wstring CustomHomePagesTableModel::GetTooltip(int row) {
@@ -120,15 +149,6 @@ std::wstring CustomHomePagesTableModel::GetTooltip(int row) {
 
 void CustomHomePagesTableModel::SetObserver(TableModelObserver* observer) {
   observer_ = observer;
-}
-
-void CustomHomePagesTableModel::InitClass() {
-  static bool initialized = false;
-  if (!initialized) {
-    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-    default_favicon_ = *rb.GetBitmapNamed(IDR_DEFAULT_FAVICON);
-    initialized = true;
-  }
 }
 
 void CustomHomePagesTableModel::LoadTitleAndFavIcon(Entry* entry) {
@@ -213,9 +233,9 @@ CustomHomePagesTableModel::Entry*
 }
 
 std::wstring CustomHomePagesTableModel::FormattedURL(int row) const {
-  std::wstring languages =
-      UTF8ToWide(profile_->GetPrefs()->GetString(prefs::kAcceptLanguages));
-  std::wstring url(net::FormatUrl(entries_[row].url, languages));
-  base::i18n::GetDisplayStringInLTRDirectionality(&url);
-  return url;
+  std::string languages =
+      profile_->GetPrefs()->GetString(prefs::kAcceptLanguages);
+  string16 url = net::FormatUrl(entries_[row].url, languages);
+  url = base::i18n::GetDisplayStringInLTRDirectionality(url);
+  return UTF16ToWide(url);
 }

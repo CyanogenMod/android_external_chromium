@@ -5,7 +5,7 @@
 #include "chrome/browser/chromeos/network_list.h"
 
 #include "app/l10n_util.h"
-#include "app/resource_bundle.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "grit/generated_resources.h"
 

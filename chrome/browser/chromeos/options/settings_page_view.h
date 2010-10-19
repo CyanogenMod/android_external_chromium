@@ -4,13 +4,12 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_OPTIONS_SETTINGS_PAGE_VIEW_H_
 #define CHROME_BROWSER_CHROMEOS_OPTIONS_SETTINGS_PAGE_VIEW_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
 #include "chrome/browser/views/options/options_page_view.h"
 
-#include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "views/grid_layout.h"
 #include "views/standard_layout.h"
 

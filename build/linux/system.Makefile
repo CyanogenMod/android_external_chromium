@@ -3,4 +3,4 @@
 export builddir_name ?= /usr/local/google/src/chromium-merge/src/build/linux/out
 .PHONY: all
 all:
-	$(MAKE) -C ../.. xext dbus-glib gtk gnome-keyring fontconfig x11 gconf gdk freetype2 gtkprint nss
+	$(MAKE) -C ../.. libresolv freetype2 xext dbus-glib gtkprint gtk fontconfig gdk gconf gnome-keyring x11 nss

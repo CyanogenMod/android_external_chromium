@@ -11,21 +11,25 @@
     # but not listed below, it will revert to its hardcoded webkit value.
     'feature_defines': [
       'ENABLE_3D_CANVAS=1',
+      'ENABLE_BLOB=1',
       'ENABLE_BLOB_SLICE=1',
       'ENABLE_CHANNEL_MESSAGING=1',
       'ENABLE_DASHBOARD_SUPPORT=0',
       'ENABLE_DATABASE=1',
       'ENABLE_DATAGRID=0',
+      'ENABLE_DEVICE_ORIENTATION=1',
       'ENABLE_DIRECTORY_UPLOAD=1',
       'ENABLE_DOM_STORAGE=1',
       'ENABLE_EVENTSOURCE=1',
-      'ENABLE_FILE_READER=1',
+      'ENABLE_FILE_SYSTEM=1',
       'ENABLE_FILTERS=1',
       'ENABLE_GEOLOCATION=1',
       'ENABLE_ICONDATABASE=0',
       'ENABLE_INDEXED_DATABASE=1',
+      'ENABLE_INPUT_SPEECH=1',
       'ENABLE_JAVASCRIPT_DEBUGGER=1',
       'ENABLE_JSC_MULTIPLE_THREADS=0',
+      'ENABLE_LINK_PREFETCH=1',
       'ENABLE_METER_TAG=1',
       'ENABLE_NOTIFICATIONS=1',
       'ENABLE_OFFLINE_WEB_APPLICATIONS=1',
@@ -47,13 +51,14 @@
       'ENABLE_WEB_SOCKETS=1',
       'ENABLE_WEB_TIMING=1',
       'ENABLE_WORKERS=1',
+      'ENABLE_XHR_RESPONSE_BLOB=1',
       'ENABLE_XPATH=1',
       'ENABLE_XSLT=1',
     ],
     # We have to nest variables inside variables so that they can be overridden
     # through GYP_DEFINES.
     'variables': {
-      'use_accelerated_compositing%': 0,
+      'use_accelerated_compositing%': 1,
       'enable_svg%': 1,
       'enable_touch_events%': 1,
     },
@@ -61,10 +66,11 @@
     'enable_svg%': '<(enable_svg)',
     'enable_touch_events%': '<(enable_touch_events)',
     'conditions': [
-      ['OS=="win" or OS=="linux" or use_accelerated_compositing==1', {
+      ['(OS=="win" or OS=="linux" or OS=="mac") and use_accelerated_compositing==1', {
         'feature_defines': [
-         'WTF_USE_ACCELERATED_COMPOSITING=1',
-         'ENABLE_3D_RENDERING=1',
+          'WTF_USE_ACCELERATED_COMPOSITING=1',
+          'ENABLE_3D_RENDERING=1',
+          'ENABLE_ACCELERATED_2D_CANVAS=1',
         ],
         'use_accelerated_compositing': 1,
       }],

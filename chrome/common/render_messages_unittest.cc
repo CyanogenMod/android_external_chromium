@@ -4,9 +4,11 @@
 
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
-#include "base/values.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/common/render_messages.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "webkit/glue/webaccessibility.h"
+#include "third_party/WebKit/WebKit/chromium/public/WebRect.h"
 
 TEST(RenderMessagesUnittest, WebAccessibility) {
   // Test a simple case.
@@ -21,6 +23,10 @@ TEST(RenderMessagesUnittest, WebAccessibility) {
       (1 << webkit_glue::WebAccessibility::STATE_CHECKED) |
       (1 << webkit_glue::WebAccessibility::STATE_FOCUSED);
   input.location = WebKit::WebRect(11, 22, 333, 444);
+  input.html_attributes.push_back(
+      std::pair<string16, string16>(ASCIIToUTF16("id"), ASCIIToUTF16("a")));
+  input.html_attributes.push_back(
+      std::pair<string16, string16>(ASCIIToUTF16("class"), ASCIIToUTF16("b")));
 
   IPC::Message msg(1, 2, IPC::Message::PRIORITY_NORMAL);
   IPC::WriteParam(&msg, input);
@@ -37,6 +43,15 @@ TEST(RenderMessagesUnittest, WebAccessibility) {
   EXPECT_EQ(input.state, output.state);
   EXPECT_EQ(input.location, output.location);
   EXPECT_EQ(input.children.size(), output.children.size());
+  EXPECT_EQ(input.html_attributes.size(), output.html_attributes.size());
+  EXPECT_EQ(input.html_attributes[0].first,
+            output.html_attributes[0].first);
+  EXPECT_EQ(input.html_attributes[0].second,
+            output.html_attributes[0].second);
+  EXPECT_EQ(input.html_attributes[1].first,
+            output.html_attributes[1].first);
+  EXPECT_EQ(input.html_attributes[1].second,
+            output.html_attributes[1].second);
 
   // Test a corrupt case.
   IPC::Message bad_msg(1, 2, IPC::Message::PRIORITY_NORMAL);

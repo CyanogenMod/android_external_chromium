@@ -9,12 +9,12 @@
 
 #ifndef CHROME_BROWSER_GEOLOCATION_GPS_LOCATION_PROVIDER_LINUX_H_
 #define CHROME_BROWSER_GEOLOCATION_GPS_LOCATION_PROVIDER_LINUX_H_
-
-#include "chrome/browser/geolocation/location_provider.h"
-#include "chrome/common/geoposition.h"
+#pragma once
 
 #include "base/scoped_ptr.h"
 #include "base/task.h"
+#include "chrome/browser/geolocation/location_provider.h"
+#include "chrome/common/geoposition.h"
 
 class LibGps;
 
@@ -27,8 +27,8 @@ class GpsLocationProviderLinux : public LocationProviderBase {
  public:
   typedef LibGps* (*LibGpsFactory)();
   // |factory| will be used to create the gpsd client library wrapper. (Note
-  // NewGpsLocationProvider() will use the default factory).
-  GpsLocationProviderLinux(LibGpsFactory libgps_factory);
+  // NewSystemLocationProvider() will use the default factory).
+  explicit GpsLocationProviderLinux(LibGpsFactory libgps_factory);
   virtual ~GpsLocationProviderLinux();
 
   // LocationProvider

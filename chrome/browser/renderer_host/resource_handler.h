@@ -11,6 +11,7 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RESOURCE_HANDLER_H_
 #define CHROME_BROWSER_RENDERER_HOST_RESOURCE_HANDLER_H_
+#pragma once
 
 #include <string>
 
@@ -78,6 +79,12 @@ class ResourceHandler
   // Signals that the request is closed (i.e. finished successfully, cancelled).
   // This is a signal that the associated URLRequest isn't valid anymore.
   virtual void OnRequestClosed() = 0;
+
+  // This notification is synthesized by the RedirectToFileResourceHandler
+  // to indicate progress of 'download_to_file' requests. OnReadCompleted
+  // calls are consumed by the RedirectToFileResourceHandler and replaced
+  // with OnDataDownloaded calls.
+  virtual void OnDataDownloaded(int request_id, int bytes_downloaded) {}
 
  protected:
   friend class ChromeThread;

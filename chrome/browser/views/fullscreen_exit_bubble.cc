@@ -4,9 +4,9 @@
 
 #include "chrome/browser/views/fullscreen_exit_bubble.h"
 
+#include "app/keyboard_codes.h"
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
-#include "base/keyboard_codes.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "gfx/canvas_skia.h"
 #include "grit/generated_resources.h"
@@ -49,7 +49,11 @@ FullscreenExitBubble::FullscreenExitView::FullscreenExitView(
     FullscreenExitBubble* bubble,
     const std::wstring& accelerator) {
   link_.set_parent_owned(false);
+#if !defined(OS_CHROMEOS)
   link_.SetText(l10n_util::GetStringF(IDS_EXIT_FULLSCREEN_MODE, accelerator));
+#else
+  link_.SetText(l10n_util::GetString(IDS_EXIT_FULLSCREEN_MODE));
+#endif
   link_.SetController(bubble);
   link_.SetFont(ResourceBundle::GetSharedInstance().GetFont(
       ResourceBundle::LargeFont));
@@ -138,7 +142,7 @@ FullscreenExitBubble::FullscreenExitBubble(
   size_animation_->Reset(1);
 
   // Create the contents view.
-  views::Accelerator accelerator(base::VKEY_UNKNOWN, false, false, false);
+  views::Accelerator accelerator(app::VKEY_UNKNOWN, false, false, false);
   bool got_accelerator = frame->GetAccelerator(IDC_FULLSCREEN, &accelerator);
   DCHECK(got_accelerator);
   view_ = new FullscreenExitView(this, accelerator.GetShortcutText());

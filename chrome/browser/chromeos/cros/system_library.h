@@ -4,9 +4,9 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_CROS_SYSTEM_LIBRARY_H_
 #define CHROME_BROWSER_CHROMEOS_CROS_SYSTEM_LIBRARY_H_
+#pragma once
 
 #include "base/observer_list.h"
-#include "base/scoped_ptr.h"
 #include "base/singleton.h"
 #include "cros/chromeos_system.h"
 #include "unicode/timezone.h"
@@ -32,26 +32,15 @@ class SystemLibrary {
 
   // Sets the current timezone. |timezone| must be non-null.
   virtual void SetTimezone(const icu::TimeZone* timezone) = 0;
-};
 
-// This class handles the interaction with the ChromeOS syslogs APIs.
-class SystemLibraryImpl : public SystemLibrary {
- public:
-  SystemLibraryImpl();
-  virtual ~SystemLibraryImpl() {}
+  // Retrieve the named machine statistic (e.g. "hardware_class").
+  // This does not update the statistcs (i.e. does not call into libcros).
+  virtual bool GetMachineStatistic(const std::string& name,
+                                   std::string* result) = 0;
 
-  // NetworkLibrary overrides.
-  virtual void AddObserver(Observer* observer);
-  virtual void RemoveObserver(Observer* observer);
-
-  virtual const icu::TimeZone& GetTimezone();
-  virtual void SetTimezone(const icu::TimeZone*);
-
- private:
-  scoped_ptr<icu::TimeZone> timezone_;
-  ObserverList<Observer> observers_;
-
-  DISALLOW_COPY_AND_ASSIGN(SystemLibraryImpl);
+  // Factory function, creates a new instance and returns ownership.
+  // For normal usage, access the singleton via CrosLibrary::Get().
+  static SystemLibrary* GetImpl(bool stub);
 };
 
 }  // namespace chromeos

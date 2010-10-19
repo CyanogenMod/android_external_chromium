@@ -4,8 +4,8 @@
 
 #ifndef CHROME_BROWSER_BOOKMARKS_BOOKMARK_DRAG_DATA_H_
 #define CHROME_BROWSER_BOOKMARKS_BOOKMARK_DRAG_DATA_H_
+#pragma once
 
-#include <string>
 #include <vector>
 
 #include "base/file_path.h"
@@ -16,9 +16,7 @@
 #include "app/os_exchange_data.h"
 #endif
 
-class BookmarkModel;
 class BookmarkNode;
-class OSExchangeData;
 class Pickle;
 class Profile;
 
@@ -46,9 +44,9 @@ class Profile;
 struct BookmarkDragData {
   // Element represents a single node.
   struct Element {
+    Element();
     explicit Element(const BookmarkNode* node);
-
-    Element() : is_url(false), id_(0) {}
+    ~Element();
 
     // If true, this element represents a URL.
     bool is_url;
@@ -76,7 +74,7 @@ struct BookmarkDragData {
     int64 id_;
   };
 
-  BookmarkDragData() { }
+  BookmarkDragData();
 
 #if defined(TOOLKIT_VIEWS)
   static OSExchangeData::CustomFormat GetBookmarkCustomFormat();
@@ -85,6 +83,8 @@ struct BookmarkDragData {
   // Created a BookmarkDragData populated from the arguments.
   explicit BookmarkDragData(const BookmarkNode* node);
   explicit BookmarkDragData(const std::vector<const BookmarkNode*>& nodes);
+
+  ~BookmarkDragData();
 
   // Reads bookmarks from the given vector.
   bool ReadFromVector(const std::vector<const BookmarkNode*>& nodes);
@@ -96,7 +96,8 @@ struct BookmarkDragData {
   void WriteToClipboard(Profile* profile) const;
 
   // Reads bookmarks from the general copy/paste clipboard. Prefers data
-  // written via WriteToClipboard but will also attempt to read a plain bookmark.
+  // written via WriteToClipboard but will also attempt to read a plain
+  // bookmark.
   bool ReadFromClipboard();
 #if defined(OS_MACOSX)
   // Reads bookmarks that are being dragged from the drag and drop

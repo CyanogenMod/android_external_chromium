@@ -5,14 +5,22 @@
 #include "chrome/browser/extensions/extension_apitest.h"
 
 #include "chrome/browser/browser.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/pref_names.h"
 
-// Tabs is flaky on chromeos and linux views debug build.
+// Tabs started crashing on CrOS and hanging browser tests
+// http://crbug.com/56479
+#if defined(OS_CHROMEOS)
+#define MAYBE_Tabs DISABLED_Tabs
+// Tabs is flaky on chromeos, windows, linux views and linux dbg.
 // http://crbug.com/48920
-#if defined(OS_LINUX) && defined(TOOLKIT_VIEWS) && !defined(NDEBUG)
+#elif defined(OS_LINUX) || defined(OS_WIN)
 #define MAYBE_Tabs FLAKY_Tabs
+#elif defined(OS_MACOSX)
+// Tabs appears to timeout, or maybe crash on mac.
+// http://crbug.com/53779
+#define MAYBE_Tabs FAILS_Tabs
 #else
 #define MAYBE_Tabs Tabs
 #endif
@@ -25,16 +33,8 @@
 #define MAYBE_TabOnRemoved TabOnRemoved
 #endif
 
-// CaptureVisibleTab fails on karmic 64 bit.
-// http://crbug.com/49040
-#if defined(OS_LINUX) && defined(__x86_64__) && !defined(NDEBUG)
-#define MAYBE_CaptureVisibleTab FLAKY_CaptureVisibleTab
-#else
-#define MAYBE_CaptureVisibleTab CaptureVisibleTab
-#endif
-
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_Tabs) {
-  ASSERT_TRUE(StartHTTPServer());
+  ASSERT_TRUE(test_server()->Start());
 
   // The test creates a tab and checks that the URL of the new tab
   // is that of the new tab page.  Make sure the pref that controls
@@ -46,27 +46,34 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_Tabs) {
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabGetCurrent) {
-  ASSERT_TRUE(StartHTTPServer());
+  ASSERT_TRUE(test_server()->Start());
   ASSERT_TRUE(RunExtensionTest("tabs/get_current")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabConnect) {
-  ASSERT_TRUE(StartHTTPServer());
+  ASSERT_TRUE(test_server()->Start());
   ASSERT_TRUE(RunExtensionTest("tabs/connect")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_TabOnRemoved) {
-  ASSERT_TRUE(StartHTTPServer());
+  ASSERT_TRUE(test_server()->Start());
   ASSERT_TRUE(RunExtensionTest("tabs/on_removed")) << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_CaptureVisibleTab) {
-  ASSERT_TRUE(StartHTTPServer());
-  ASSERT_TRUE(RunExtensionTest("tabs/capture_visible_tab")) << message_;
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, CaptureVisibleTabJpeg) {
+  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(RunExtensionSubtest("tabs/capture_visible_tab",
+                                  "test_jpeg.html")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, CaptureVisibleTabPng) {
+  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(RunExtensionSubtest("tabs/capture_visible_tab",
+                                  "test_png.html")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabsOnUpdated) {
-  ASSERT_TRUE(StartHTTPServer());
+  ASSERT_TRUE(test_server()->Start());
 
   ASSERT_TRUE(RunExtensionTest("tabs/on_updated")) << message_;
 }

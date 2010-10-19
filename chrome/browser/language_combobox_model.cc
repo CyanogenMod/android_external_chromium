@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,10 +6,11 @@
 
 #include "app/l10n_util.h"
 #include "base/i18n/rtl.h"
+#include "base/string_split.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "grit/generated_resources.h"
 #include "unicode/uloc.h"
@@ -151,6 +152,14 @@ LanguageComboboxModel::LanguageComboboxModel(
       profile_(profile) {
 }
 
+int LanguageComboboxModel::GetItemCount() {
+  return get_languages_count();
+}
+
+string16 LanguageComboboxModel::GetItemAt(int index) {
+  return WideToUTF16Hack(GetLanguageNameAt(index));
+}
+
 // Returns the index of the language currently specified in the user's
 // preference file.  Note that it's possible for language A to be picked
 // while chrome is currently in language B if the user specified language B
@@ -158,7 +167,7 @@ LanguageComboboxModel::LanguageComboboxModel(
 // shouldn't be reflected in this combo box.  We return -1 if the value in
 // the pref doesn't map to a know language (possible if the user edited the
 // prefs file manually).
-int LanguageComboboxModel::GetSelectedLanguageIndex(const std::wstring& prefs) {
+int LanguageComboboxModel::GetSelectedLanguageIndex(const std::string& prefs) {
   PrefService* local_state;
   if (!profile_)
     local_state = g_browser_process->local_state();

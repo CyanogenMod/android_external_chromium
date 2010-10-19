@@ -13,8 +13,10 @@
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/process_util.h"
-#include "base/registry.h"
+#include "base/stringprintf.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/trace_event.h"
 #include "base/win_util.h"
 #include "chrome/common/child_process_info.h"
 #include "chrome/common/chrome_constants.h"
@@ -300,14 +302,75 @@ bool ApplyPolicyForUntrustedPlugin(sandbox::TargetPolicy* policy) {
   return true;
 }
 
+// Launches the privileged flash broker, used when flash is sandboxed.
+// The broker is the same flash dll, except that it uses a different
+// entrypoint (BrokerMain) and it is hosted in windows' generic surrogate
+// process rundll32. After launching the broker we need to pass to
+// the flash plugin the process id of the broker via the command line
+// using --flash-broker=pid.
+// More info about rundll32 at http://support.microsoft.com/kb/164787.
+bool LoadFlashBroker(const FilePath& plugin_path, CommandLine* cmd_line) {
+  FilePath rundll;
+  if (!PathService::Get(base::DIR_SYSTEM, &rundll))
+    return false;
+  rundll = rundll.AppendASCII("rundll32.exe");
+  // Rundll32 cannot handle paths with spaces, so we use the short path.
+  wchar_t short_path[MAX_PATH];
+  if (0 == ::GetShortPathNameW(plugin_path.value().c_str(),
+                               short_path, arraysize(short_path)))
+    return false;
+  std::wstring cmd_final =
+      base::StringPrintf(L"%ls %ls,BrokerMain browser=chrome",
+                         rundll.value().c_str(),
+                         short_path);
+  base::ProcessHandle process;
+  if (!base::LaunchApp(cmd_final, false, true, &process))
+    return false;
+
+  cmd_line->AppendSwitchASCII("flash-broker",
+                              base::Int64ToString(::GetProcessId(process)));
+  ::CloseHandle(process);
+  return true;
+}
+
+// Creates a sandbox for the built-in flash plugin running in a restricted
+// environment. This is a work in progress and for the time being do not
+// pay attention to the duplication between this function and the above
+// function. For more information see bug 50796.
+bool ApplyPolicyForBuiltInFlashPlugin(sandbox::TargetPolicy* policy) {
+  // TODO(cpu): Lock down the job level more.
+  policy->SetJobLevel(sandbox::JOB_UNPROTECTED, 0);
+
+  sandbox::TokenLevel initial_token = sandbox::USER_UNPROTECTED;
+
+  if (win_util::GetWinVersion() > win_util::WINVERSION_XP)
+    initial_token = sandbox::USER_RESTRICTED_SAME_ACCESS;
+
+  policy->SetTokenLevel(initial_token, sandbox::USER_LIMITED);
+
+  policy->SetDelayedIntegrityLevel(sandbox::INTEGRITY_LEVEL_LOW);
+
+  // TODO(cpu): Proxy registry access and remove these policies.
+  if (!AddKeyAndSubkeys(L"HKEY_CURRENT_USER\\SOFTWARE\\ADOBE",
+                        sandbox::TargetPolicy::REG_ALLOW_ANY,
+                        policy))
+    return false;
+
+  if (!AddKeyAndSubkeys(L"HKEY_CURRENT_USER\\SOFTWARE\\MACROMEDIA",
+                        sandbox::TargetPolicy::REG_ALLOW_ANY,
+                        policy))
+    return false;
+  return true;
+}
+
 // Adds the custom policy rules for a given plugin. |trusted_plugins| contains
 // the comma separate list of plugin dll names that should not be sandboxed.
-bool AddPolicyForPlugin(const CommandLine* cmd_line,
+bool AddPolicyForPlugin(CommandLine* cmd_line,
                         sandbox::TargetPolicy* policy) {
   std::wstring plugin_dll = cmd_line->
-      GetSwitchValue(switches::kPluginPath);
+      GetSwitchValueNative(switches::kPluginPath);
   std::wstring trusted_plugins = CommandLine::ForCurrentProcess()->
-      GetSwitchValue(switches::kTrustedPlugins);
+      GetSwitchValueNative(switches::kTrustedPlugins);
   // Add the policy for the pipes.
   sandbox::ResultCode result = sandbox::SBOX_ALL_OK;
   result = policy->AddRule(sandbox::TargetPolicy::SUBSYS_NAMED_PIPES,
@@ -316,6 +379,21 @@ bool AddPolicyForPlugin(const CommandLine* cmd_line,
   if (result != sandbox::SBOX_ALL_OK) {
     NOTREACHED();
     return false;
+  }
+
+  // The built-in flash gets a custom, more restricted sandbox.
+  FilePath builtin_flash;
+  if (PathService::Get(chrome::FILE_FLASH_PLUGIN, &builtin_flash)) {
+    FilePath plugin_path(plugin_dll);
+    if (plugin_path == builtin_flash) {
+      // Spawn the flash broker and apply sandbox policy.
+      if (!LoadFlashBroker(plugin_path, cmd_line)) {
+        // Could not start the broker, use a very weak policy instead.
+        DLOG(WARNING) << "Failed to start flash broker";
+        return ApplyPolicyForTrustedPlugin(policy);
+      }
+      return ApplyPolicyForBuiltInFlashPlugin(policy);
+    }
   }
 
   PluginPolicyCategory policy_category =
@@ -402,6 +480,8 @@ base::ProcessHandle StartProcessWithAccess(CommandLine* cmd_line,
     return 0;
   }
 
+  TRACE_EVENT_BEGIN("StartProcessWithAccess", 0, type_str);
+
   bool in_sandbox =
       (type != ChildProcessInfo::NACL_BROKER_PROCESS) &&
       !browser_command_line.HasSwitch(switches::kNoSandbox) &&
@@ -414,7 +494,7 @@ base::ProcessHandle StartProcessWithAccess(CommandLine* cmd_line,
     in_sandbox = false;
   }
 #endif
-  if (browser_command_line.HasSwitch(switches::kEnableExperimentalWebGL) &&
+  if (!browser_command_line.HasSwitch(switches::kDisableExperimentalWebGL) &&
       browser_command_line.HasSwitch(switches::kInProcessWebGL)) {
     // In process WebGL won't work if the sandbox is enabled.
     in_sandbox = false;
@@ -433,7 +513,7 @@ base::ProcessHandle StartProcessWithAccess(CommandLine* cmd_line,
   // Prefetch hints on windows:
   // Using a different prefetch profile per process type will allow Windows
   // to create separate pretetch settings for browser, renderer etc.
-  cmd_line->AppendLooseValue(StringPrintf(L"/prefetch:%d", type));
+  cmd_line->AppendArg(StringPrintf("/prefetch:%d", type));
 
   if (!in_sandbox) {
     base::LaunchApp(*cmd_line, false, false, &process);
@@ -455,7 +535,7 @@ base::ProcessHandle StartProcessWithAccess(CommandLine* cmd_line,
       // Hack for Google Desktop crash. Trick GD into not injecting its DLL into
       // this subprocess. See
       // http://code.google.com/p/chromium/issues/detail?id=25580
-      cmd_line->AppendSwitchWithValue("ignored", " --type=renderer ");
+      cmd_line->AppendSwitchASCII("ignored", " --type=renderer ");
     }
   }
 
@@ -479,11 +559,15 @@ base::ProcessHandle StartProcessWithAccess(CommandLine* cmd_line,
     return 0;
   }
 
+  TRACE_EVENT_BEGIN("StartProcessWithAccess::LAUNCHPROCESS", 0, 0);
+
   result = g_broker_services->SpawnTarget(
       cmd_line->program().c_str(),
       cmd_line->command_line_string().c_str(),
       policy, &target);
   policy->Release();
+
+  TRACE_EVENT_END("StartProcessWithAccess::LAUNCHPROCESS", 0, 0);
 
   if (sandbox::SBOX_ALL_OK != result)
     return 0;

@@ -4,6 +4,7 @@
 
 #ifndef NET_SOCKET_TCP_CLIENT_SOCKET_POOL_H_
 #define NET_SOCKET_TCP_CLIENT_SOCKET_POOL_H_
+#pragma once
 
 #include <string>
 
@@ -71,11 +72,11 @@ class TCPConnectJob : public ConnectJob {
 
  private:
   enum State {
-    kStateResolveHost,
-    kStateResolveHostComplete,
-    kStateTCPConnect,
-    kStateTCPConnectComplete,
-    kStateNone,
+    STATE_RESOLVE_HOST,
+    STATE_RESOLVE_HOST_COMPLETE,
+    STATE_TCP_CONNECT,
+    STATE_TCP_CONNECT_COMPLETE,
+    STATE_NONE,
   };
 
   // Begins the host resolution and the TCP connect.  Returns OK on success
@@ -114,10 +115,12 @@ class TCPClientSocketPool : public ClientSocketPool {
   TCPClientSocketPool(
       int max_sockets,
       int max_sockets_per_group,
-      const scoped_refptr<ClientSocketPoolHistograms>& histograms,
+      ClientSocketPoolHistograms* histograms,
       HostResolver* host_resolver,
       ClientSocketFactory* client_socket_factory,
       NetLog* net_log);
+
+  virtual ~TCPClientSocketPool();
 
   // ClientSocketPool methods:
 
@@ -148,16 +151,19 @@ class TCPClientSocketPool : public ClientSocketPool {
   virtual LoadState GetLoadState(const std::string& group_name,
                                  const ClientSocketHandle* handle) const;
 
+  virtual DictionaryValue* GetInfoAsValue(const std::string& name,
+                                          const std::string& type,
+                                          bool include_nested_pools) const {
+    return base_.GetInfoAsValue(name, type);
+  }
+
   virtual base::TimeDelta ConnectionTimeout() const {
     return base_.ConnectionTimeout();
   }
 
-  virtual scoped_refptr<ClientSocketPoolHistograms> histograms() const {
+  virtual ClientSocketPoolHistograms* histograms() const {
     return base_.histograms();
   }
-
- protected:
-  virtual ~TCPClientSocketPool();
 
  private:
   typedef ClientSocketPoolBase<TCPSocketParams> PoolBase;

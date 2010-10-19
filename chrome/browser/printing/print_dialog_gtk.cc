@@ -12,6 +12,7 @@
 #include "base/lazy_instance.h"
 #include "base/lock.h"
 #include "base/logging.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/chrome_thread.h"
@@ -39,20 +40,18 @@ class PdfUnsupportedInfoBarDelegate : public LinkInfoBarDelegate {
 
   virtual ~PdfUnsupportedInfoBarDelegate() {}
 
-  virtual std::wstring GetMessageTextWithOffset(size_t* link_offset) const {
-    std::wstring message(L"Oops! Your printer does not support PDF. Please "
-                         L"report this to us .");
+  virtual string16 GetMessageTextWithOffset(size_t* link_offset) const {
+    string16 message = UTF8ToUTF16("Oops! Your printer does not support PDF. "
+                                   "Please report this to us.");
     *link_offset = message.length() - 1;
     return message;
   }
 
-  virtual std::wstring GetLinkText() const {
-    return std::wstring(L"here");
+  virtual string16 GetLinkText() const {
+    return UTF8ToUTF16("here");
   }
 
-  virtual Type GetInfoBarType() {
-    return ERROR_TYPE;
-  }
+  virtual Type GetInfoBarType() { return WARNING_TYPE; }
 
   virtual bool LinkClicked(WindowOpenDisposition disposition) {
     browser_->OpenURL(
@@ -111,7 +110,7 @@ PrintDialogGtk::~PrintDialogGtk() {
   g_print_dialog = NULL;
 }
 
-void PrintDialogGtk::OnResponse(gint response_id) {
+void PrintDialogGtk::OnResponse(GtkWidget* dialog, gint response_id) {
   gtk_widget_hide(dialog_);
 
   switch (response_id) {
@@ -152,6 +151,13 @@ void PrintDialogGtk::OnResponse(gint response_id) {
 
   // Delete this dialog.
   OnJobCompleted(NULL, NULL);
+}
+
+void PrintDialogGtk::OnJobCompletedThunk(GtkPrintJob* print_job,
+                                         gpointer user_data,
+                                         GError* error) {
+  reinterpret_cast<PrintDialogGtk*>(user_data)->OnJobCompleted(print_job,
+                                                               error);
 }
 
 void PrintDialogGtk::OnJobCompleted(GtkPrintJob* job, GError* error) {

@@ -1,9 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_JSMESSAGE_BOX_CLIENT_H_
 #define CHROME_BROWSER_JSMESSAGE_BOX_CLIENT_H_
+#pragma once
 
 // JavaScriptMessageBoxClient
 //
@@ -17,7 +18,6 @@
 
 class ExtensionHost;
 class GURL;
-class Profile;
 class TabContents;
 namespace IPC {
 class Message;
@@ -26,10 +26,6 @@ class Message;
 class JavaScriptMessageBoxClient {
  public:
   virtual ~JavaScriptMessageBoxClient() {}
-
-  // Returns the title to use for the message box.
-  virtual std::wstring GetMessageBoxTitle(const GURL& frame_url,
-                                          bool is_alert) = 0;
 
   // Returns the root native window with which the message box is associated.
   virtual gfx::NativeWindow GetMessageBoxRootWindow() = 0;

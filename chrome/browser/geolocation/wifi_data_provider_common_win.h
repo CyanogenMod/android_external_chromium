@@ -4,10 +4,11 @@
 
 #ifndef CHROME_BROWSER_GEOLOCATION_WIFI_DATA_PROVIDER_COMMON_WIN_H_
 #define CHROME_BROWSER_GEOLOCATION_WIFI_DATA_PROVIDER_COMMON_WIN_H_
+#pragma once
 
 #include <windows.h>
 #include <ntddndis.h>
-#include <vector>
+
 #include "chrome/browser/geolocation/device_data_provider.h"
 
 // Extracts access point data from the NDIS_802_11_BSSID_LIST structure and

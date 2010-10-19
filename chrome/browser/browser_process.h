@@ -9,6 +9,7 @@
 
 #ifndef CHROME_BROWSER_BROWSER_PROCESS_H_
 #define CHROME_BROWSER_BROWSER_PROCESS_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -20,6 +21,7 @@ class AutomationProviderList;
 class Clipboard;
 class DevToolsManager;
 class DownloadRequestLimiter;
+class DownloadStatusUpdater;
 class GoogleURLTracker;
 class IntranetRedirectDetector;
 class IconManager;
@@ -28,11 +30,9 @@ class NotificationUIManager;
 class PrefService;
 class ProfileManager;
 class ResourceDispatcherHost;
-class StatusTrayManager;
-class SuspendController;
+class SidebarManager;
 class TabCloseableStateWatcher;
 class ThumbnailGenerator;
-class WebAppInstallerService;
 
 namespace base {
 class Thread;
@@ -65,14 +65,11 @@ class BrowserProcess {
   virtual ProfileManager* profile_manager() = 0;
   virtual PrefService* local_state() = 0;
   virtual DevToolsManager* devtools_manager() = 0;
+  virtual SidebarManager* sidebar_manager() = 0;
   virtual Clipboard* clipboard() = 0;
 
   // Returns the manager for desktop notifications.
   virtual NotificationUIManager* notification_ui_manager() = 0;
-
-  // Returns the status tray manager (provides APIs for manipulating status
-  // icons).
-  virtual StatusTrayManager* status_tray_manager() = 0;
 
   // Returns the thread that we perform I/O coordination on (network requests,
   // communication with renderers, etc.
@@ -80,7 +77,7 @@ class BrowserProcess {
   // need a MessageLoop*.  If you just want to post a task, use
   // ChromeThread::PostTask (or other variants) as they take care of checking
   // that a thread is still alive, race conditions, lifetime differences etc.
-  // If you still must use this, need to check the return value for NULL.
+  // If you still must use this check the return value for NULL.
   virtual IOThread* io_thread() = 0;
 
   // Returns the thread that we perform random file operations on. For code
@@ -128,6 +125,7 @@ class BrowserProcess {
   virtual void SetApplicationLocale(const std::string& locale) = 0;
 
   DownloadRequestLimiter* download_request_limiter();
+  virtual DownloadStatusUpdater* download_status_updater() = 0;
 
   // Returns an event that is signaled when the browser shutdown.
   virtual base::WaitableEvent* shutdown_event() = 0;

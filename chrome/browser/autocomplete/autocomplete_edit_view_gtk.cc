@@ -9,11 +9,10 @@
 
 #include <algorithm>
 
-#include "app/clipboard/clipboard.h"
-#include "app/clipboard/scoped_clipboard_writer.h"
 #include "app/l10n_util.h"
 #include "base/gtk_util.h"
 #include "base/logging.h"
+#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
@@ -33,6 +32,7 @@
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "net/base/escape.h"
+#include "third_party/undoview/undo_view.h"
 
 #if defined(TOOLKIT_VIEWS)
 #include "chrome/browser/views/autocomplete/autocomplete_popup_contents_view.h"
@@ -217,7 +217,7 @@ void AutocompleteEditViewGtk::Init() {
   tag_table_ = gtk_text_tag_table_new();
   text_buffer_ = gtk_text_buffer_new(tag_table_);
   g_object_set_data(G_OBJECT(text_buffer_), kAutocompleteEditViewGtkKey, this);
-  text_view_ = gtk_text_view_new_with_buffer(text_buffer_);
+  text_view_ = gtk_undo_view_new(text_buffer_);
   if (popup_window_mode_)
     gtk_text_view_set_editable(GTK_TEXT_VIEW(text_view_), false);
 
@@ -342,6 +342,18 @@ int AutocompleteEditViewGtk::TextWidth() {
       horizontal_border_size;
 }
 
+int AutocompleteEditViewGtk::WidthOfTextAfterCursor() {
+  // TODO(sky): implement this.
+  NOTIMPLEMENTED();
+  return TextWidth();
+}
+
+gfx::Font AutocompleteEditViewGtk::GetFont() {
+  GtkRcStyle* rc_style = gtk_widget_get_modifier_style(text_view_);
+  return gfx::Font((rc_style && rc_style->font_desc) ?
+                   rc_style->font_desc : text_view_->style->font_desc);
+}
+
 void AutocompleteEditViewGtk::SaveStateToTab(TabContents* tab) {
   DCHECK(tab);
   // If any text has been selected, register it as the PRIMARY selection so it
@@ -420,6 +432,10 @@ int AutocompleteEditViewGtk::GetIcon() const {
       toolbar_model_->GetIcon();
 }
 
+void AutocompleteEditViewGtk::SetUserText(const std::wstring& text) {
+  SetUserText(text, text, true);
+}
+
 void AutocompleteEditViewGtk::SetUserText(const std::wstring& text,
                                           const std::wstring& display_text,
                                           bool update_popup) {
@@ -439,11 +455,12 @@ void AutocompleteEditViewGtk::SetWindowTextAndCaretPos(const std::wstring& text,
 
 void AutocompleteEditViewGtk::SetForcedQuery() {
   const std::wstring current_text(GetText());
-  if (current_text.empty() || (current_text[0] != '?')) {
+  const size_t start = current_text.find_first_not_of(kWhitespaceWide);
+  if (start == std::wstring::npos || (current_text[start] != '?')) {
     SetUserText(L"?");
   } else {
     StartUpdatingHighlightedText();
-    SetSelectedRange(CharRange(current_text.size(), 1));
+    SetSelectedRange(CharRange(current_text.size(), start + 1));
     FinishUpdatingHighlightedText();
   }
 }
@@ -458,6 +475,13 @@ bool AutocompleteEditViewGtk::IsSelectAll() {
   // Returns true if the |text_buffer_| is empty.
   return gtk_text_iter_equal(&start, &sel_start) &&
       gtk_text_iter_equal(&end, &sel_end);
+}
+
+void AutocompleteEditViewGtk::GetSelectionBounds(std::wstring::size_type* start,
+                                                 std::wstring::size_type* end) {
+  CharRange selection = GetSelection();
+  *start = static_cast<size_t>(selection.cp_min);
+  *end = static_cast<size_t>(selection.cp_max);
 }
 
 void AutocompleteEditViewGtk::SelectAll(bool reversed) {
@@ -481,10 +505,16 @@ void AutocompleteEditViewGtk::UpdatePopup() {
   // Don't inline autocomplete when the caret/selection isn't at the end of
   // the text.
   CharRange sel = GetSelection();
-  model_->StartAutocomplete(std::max(sel.cp_max, sel.cp_min) < GetTextLength());
+  model_->StartAutocomplete(sel.cp_min != sel.cp_max,
+                            std::max(sel.cp_max, sel.cp_min) < GetTextLength());
 }
 
 void AutocompleteEditViewGtk::ClosePopup() {
+#if defined(TOOLKIT_VIEWS)
+  if (popup_view_->GetModel()->IsOpen())
+    controller_->OnAutocompleteWillClosePopup();
+#endif
+
   popup_view_->GetModel()->StopAutocomplete();
 }
 
@@ -915,6 +945,12 @@ gboolean AutocompleteEditViewGtk::HandleViewFocusIn(GtkWidget* sender,
 
 gboolean AutocompleteEditViewGtk::HandleViewFocusOut(GtkWidget* sender,
                                                      GdkEventFocus* event) {
+#if defined(TOOLKIT_VIEWS)
+  // This must be invoked before ClosePopup.
+  // TODO: figure out who is getting focus.
+  controller_->OnAutocompleteLosingFocus(NULL);
+#endif
+
   // Close the popup.
   ClosePopup();
   // Tell the model to reset itself.

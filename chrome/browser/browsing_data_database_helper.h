@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_BROWSING_DATA_DATABASE_HELPER_H_
 #define CHROME_BROWSER_BROWSING_DATA_DATABASE_HELPER_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -126,6 +127,9 @@ class CannedBrowsingDataDatabaseHelper : public BrowsingDataDatabaseHelper {
 
   // Clear the list of canned databases.
   void Reset();
+
+  // True if no databases are currently stored.
+  bool empty() const;
 
   // BrowsingDataDatabaseHelper methods.
   virtual void StartFetching(

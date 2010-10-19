@@ -4,7 +4,9 @@
 
 #ifndef CHROME_BROWSER_APPCACHE_APPCACHE_FRONTEND_PROXY_H_
 #define CHROME_BROWSER_APPCACHE_APPCACHE_FRONTEND_PROXY_H_
+#pragma once
 
+#include <string>
 #include <vector>
 
 #include "ipc/ipc_message.h"
@@ -18,8 +20,7 @@ class AppCacheFrontendProxy : public appcache::AppCacheFrontend {
   IPC::Message::Sender* sender() const { return sender_; }
 
   // AppCacheFrontend methods
-  virtual void OnCacheSelected(int host_id, int64 cache_id ,
-                               appcache::Status);
+  virtual void OnCacheSelected(int host_id, const appcache::AppCacheInfo& info);
   virtual void OnStatusChanged(const std::vector<int>& host_ids,
                                appcache::Status status);
   virtual void OnEventRaised(const std::vector<int>& host_ids,

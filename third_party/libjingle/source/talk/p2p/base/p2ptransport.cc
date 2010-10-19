@@ -151,22 +151,26 @@ const buzz::QName& GetCandidateQName(SignalingProtocol protocol) {
   }
 }
 
-void P2PTransport::WriteCandidates(const Candidates& candidates,
+bool P2PTransport::WriteCandidates(const Candidates& candidates,
                                    SignalingProtocol protocol,
-                                   XmlElements* candidate_elems) {
+                                   XmlElements* candidate_elems,
+                                   WriteError* error) {
   for (std::vector<Candidate>::const_iterator
        iter = candidates.begin();
        iter != candidates.end();
        ++iter) {
     buzz::XmlElement* cand_elem =
         new buzz::XmlElement(GetCandidateQName(protocol));
-    WriteCandidate(*iter, cand_elem);
+    if (!WriteCandidate(*iter, cand_elem, error))
+      return false;
     candidate_elems->push_back(cand_elem);
   }
+  return true;
 }
 
-void P2PTransport::WriteCandidate(const Candidate& candidate,
-                                  buzz::XmlElement* elem) {
+bool P2PTransport::WriteCandidate(const Candidate& candidate,
+                                  buzz::XmlElement* elem,
+                                  WriteError* error) {
   elem->SetAttr(buzz::QN_NAME, candidate.name());
   elem->SetAttr(QN_ADDRESS, candidate.address().IPAsString());
   elem->SetAttr(QN_PORT, candidate.address().PortAsString());
@@ -180,11 +184,12 @@ void P2PTransport::WriteCandidate(const Candidate& candidate,
     elem->SetAttr(buzz::QN_TYPE, candidate.type());
   if (candidate.network_name().size() > 0)
     elem->SetAttr(QN_NETWORK, candidate.network_name());
+  return true;
 }
 
 TransportChannelImpl* P2PTransport::CreateTransportChannel(
-    const std::string& name, const std::string& session_type) {
-  return new P2PTransportChannel(name, session_type, this, port_allocator());
+    const std::string& name, const std::string& content_type) {
+  return new P2PTransportChannel(name, content_type, this, port_allocator());
 }
 
 void P2PTransport::DestroyTransportChannel(TransportChannelImpl* channel) {

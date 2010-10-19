@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTERNAL_PREF_EXTENSION_PROVIDER_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTERNAL_PREF_EXTENSION_PROVIDER_H_
+#pragma once
 
 #include <set>
 #include <string>
@@ -11,6 +12,7 @@
 #include "chrome/browser/extensions/external_extension_provider.h"
 
 class DictionaryValue;
+class ValueSerializer;
 class Version;
 
 // A specialization of the ExternalExtensionProvider that uses a json file to

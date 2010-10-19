@@ -4,10 +4,12 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_STATUS_CLOCK_MENU_BUTTON_H_
 #define CHROME_BROWSER_CHROMEOS_STATUS_CLOCK_MENU_BUTTON_H_
+#pragma once
 
 #include "base/scoped_ptr.h"
 #include "base/timer.h"
 #include "chrome/browser/chromeos/cros/system_library.h"
+#include "chrome/browser/chromeos/status/status_area_button.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_service.h"
 #include "unicode/calendar.h"
@@ -21,7 +23,7 @@ class StatusAreaHost;
 
 // The clock menu button in the status area.
 // This button shows the current time.
-class ClockMenuButton : public views::MenuButton,
+class ClockMenuButton : public StatusAreaButton,
                         public views::ViewMenuDelegate,
                         public menus::MenuModel,
                         public SystemLibrary::Observer {

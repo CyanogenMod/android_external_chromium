@@ -18,13 +18,13 @@ AccessibleToolbarView::AccessibleToolbarView()
     : toolbar_has_focus_(false),
       ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)),
       focus_manager_(NULL),
-      ALLOW_THIS_IN_INITIALIZER_LIST(focus_search_(this, true, true)),
-      home_key_(base::VKEY_HOME, false, false, false),
-      end_key_(base::VKEY_END, false, false, false),
-      escape_key_(base::VKEY_ESCAPE, false, false, false),
-      left_key_(base::VKEY_LEFT, false, false, false),
-      right_key_(base::VKEY_RIGHT, false, false, false),
+      home_key_(app::VKEY_HOME, false, false, false),
+      end_key_(app::VKEY_END, false, false, false),
+      escape_key_(app::VKEY_ESCAPE, false, false, false),
+      left_key_(app::VKEY_LEFT, false, false, false),
+      right_key_(app::VKEY_RIGHT, false, false, false),
       last_focused_view_storage_id_(-1) {
+  focus_search_.reset(new views::FocusSearch(this, true, true));
 }
 
 AccessibleToolbarView::~AccessibleToolbarView() {
@@ -118,7 +118,7 @@ void AccessibleToolbarView::RestoreLastFocusedView() {
 views::View* AccessibleToolbarView::GetFirstFocusableChild() {
   FocusTraversable* dummy_focus_traversable;
   views::View* dummy_focus_traversable_view;
-  return focus_search_.FindNextFocusableView(
+  return focus_search_->FindNextFocusableView(
       NULL, false, views::FocusSearch::DOWN, false,
       &dummy_focus_traversable, &dummy_focus_traversable_view);
 }
@@ -126,7 +126,7 @@ views::View* AccessibleToolbarView::GetFirstFocusableChild() {
 views::View* AccessibleToolbarView::GetLastFocusableChild() {
   FocusTraversable* dummy_focus_traversable;
   views::View* dummy_focus_traversable_view;
-  return focus_search_.FindNextFocusableView(
+  return focus_search_->FindNextFocusableView(
       this, true, views::FocusSearch::DOWN, false,
       &dummy_focus_traversable, &dummy_focus_traversable_view);
 }
@@ -148,27 +148,27 @@ bool AccessibleToolbarView::AcceleratorPressed(
   views::View* focused_view = focus_manager_->GetFocusedView();
   if ((focused_view->GetClassName() == LocationBarView::kViewClassName ||
        focused_view->GetClassName() == views::NativeViewHost::kViewClassName) &&
-      (accelerator.GetKeyCode() == base::VKEY_LEFT ||
-       accelerator.GetKeyCode() == base::VKEY_RIGHT)) {
+      (accelerator.GetKeyCode() == app::VKEY_LEFT ||
+       accelerator.GetKeyCode() == app::VKEY_RIGHT)) {
     return false;
   }
 
   switch (accelerator.GetKeyCode()) {
-    case base::VKEY_ESCAPE:
+    case app::VKEY_ESCAPE:
       RemoveToolbarFocus();
       RestoreLastFocusedView();
       return true;
-    case base::VKEY_LEFT:
+    case app::VKEY_LEFT:
       focus_manager_->AdvanceFocus(true);
       return true;
-    case base::VKEY_RIGHT:
+    case app::VKEY_RIGHT:
       focus_manager_->AdvanceFocus(false);
       return true;
-    case base::VKEY_HOME:
+    case app::VKEY_HOME:
       focus_manager_->SetFocusedViewWithReason(
           GetFirstFocusableChild(), views::FocusManager::kReasonFocusTraversal);
       return true;
-    case base::VKEY_END:
+    case app::VKEY_END:
       focus_manager_->SetFocusedViewWithReason(
           GetLastFocusableChild(), views::FocusManager::kReasonFocusTraversal);
       return true;
@@ -185,11 +185,8 @@ void AccessibleToolbarView::SetVisible(bool flag) {
   View::SetVisible(flag);
 }
 
-bool AccessibleToolbarView::GetAccessibleRole(AccessibilityTypes::Role* role) {
-  DCHECK(role);
-
-  *role = AccessibilityTypes::ROLE_TOOLBAR;
-  return true;
+AccessibilityTypes::Role AccessibleToolbarView::GetAccessibleRole() {
+  return AccessibilityTypes::ROLE_TOOLBAR;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -223,7 +220,7 @@ void AccessibleToolbarView::FocusWillChange(views::View* focused_before,
 
 views::FocusSearch* AccessibleToolbarView::GetFocusSearch() {
   DCHECK(toolbar_has_focus_);
-  return &focus_search_;
+  return focus_search_.get();
 }
 
 views::FocusTraversable* AccessibleToolbarView::GetFocusTraversableParent() {

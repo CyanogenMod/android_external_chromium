@@ -22,6 +22,7 @@ CFLAGS_Debug := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -72,6 +73,7 @@ CFLAGS_Release := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -111,7 +113,7 @@ OBJS := $(obj).target/$(TARGET)/net/base/cookie_monster_perftest.o \
 all_deps += $(OBJS)
 
 # Make sure our dependencies are built before any of us.
-$(OBJS): | $(obj).target/net/libnet.a $(obj).target/net/libnet_test_support.a $(obj).target/base/libbase.a $(obj).target/base/libbase_i18n.a $(obj).target/base/libtest_support_base.a $(obj).target/base/libtest_support_perf.a $(obj).target/testing/libgtest.a $(obj).target/third_party/modp_b64/libmodp_b64.a $(obj).target/base/third_party/dynamic_annotations/libdynamic_annotations.a $(obj).target/base/libsymbolize.a $(obj).target/net/third_party/nss/libssl.a $(obj).target/third_party/zlib/libzlib.a $(obj).target/base/libxdg_mime.a $(obj).target/base/allocator/liballocator.a $(obj).target/third_party/libevent/libevent.a $(obj).target/third_party/icu/libicui18n.a $(obj).target/third_party/icu/libicuuc.a $(obj).target/third_party/icu/libicudata.a $(obj).target/build/temp_gyp/libgoogleurl.a $(obj).target/sdch/libsdch.a $(obj).target/net/libnet_base.a $(obj).target/v8/tools/gyp/libv8_snapshot.a $(obj).target/v8/tools/gyp/libv8_base.a
+$(OBJS): | $(obj).target/net/libnet.a $(obj).target/net/libnet_test_support.a $(obj).target/base/libbase.a $(obj).target/base/libbase_i18n.a $(obj).target/base/libtest_support_base.a $(obj).target/base/libtest_support_perf.a $(obj).target/testing/libgtest.a $(obj).target/third_party/modp_b64/libmodp_b64.a $(obj).target/base/third_party/dynamic_annotations/libdynamic_annotations.a $(obj).target/base/libsymbolize.a $(obj).target/net/third_party/nss/libssl.a $(obj).target/third_party/zlib/libzlib.a $(obj).target/base/libxdg_mime.a $(obj).target/base/allocator/liballocator.a $(obj).target/third_party/libevent/libevent.a $(obj).target/third_party/icu/libicui18n.a $(obj).target/third_party/icu/libicuuc.a $(obj).target/third_party/icu/libicudata.a $(obj).target/build/temp_gyp/libgoogleurl.a $(obj).target/sdch/libsdch.a $(obj).target/net/libnet_base.a $(obj).target/v8/tools/gyp/libv8_snapshot.a $(obj).target/v8/tools/gyp/libv8_base.a $(obj).target/testing/libgmock.a
 
 # CFLAGS et al overrides must be target-local.
 # See "Target-specific Variable Values" in the GNU Make manual.
@@ -138,14 +140,15 @@ LDFLAGS_Debug := -pthread \
 	-Wl,-z,noexecstack \
 	-Wl,-uIsHeapProfilerRunning,-uProfilerStart \
 	-Wl,-u_Z21InitialMallocHook_NewPKvj,-u_Z22InitialMallocHook_MMapPKvS0_jiiix,-u_Z22InitialMallocHook_SbrkPKvi \
-	-Wl,-u_Z21InitialMallocHook_NewPKvm,-u_Z22InitialMallocHook_MMapPKvS0_miiil,-u_Z22InitialMallocHook_SbrkPKvl \
-	-rdynamic
+	-Wl,-u_Z21InitialMallocHook_NewPKvm,-u_Z22InitialMallocHook_MMapPKvS0_miiil,-u_Z22InitialMallocHook_SbrkPKvl
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
 	-Wl,-uIsHeapProfilerRunning,-uProfilerStart \
 	-Wl,-u_Z21InitialMallocHook_NewPKvj,-u_Z22InitialMallocHook_MMapPKvS0_jiiix,-u_Z22InitialMallocHook_SbrkPKvi \
 	-Wl,-u_Z21InitialMallocHook_NewPKvm,-u_Z22InitialMallocHook_MMapPKvS0_miiil,-u_Z22InitialMallocHook_SbrkPKvl \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := -lrt \
@@ -174,12 +177,13 @@ LIBS := -lrt \
 	-lnspr4 \
 	-lpthread \
 	-lz \
-	-lgconf-2
+	-lgconf-2 \
+	-lresolv
 
 $(builddir)/net_perftests: GYP_LDFLAGS := $(LDFLAGS_$(BUILDTYPE))
 $(builddir)/net_perftests: LIBS := $(LIBS)
 $(builddir)/net_perftests: TOOLSET := $(TOOLSET)
-$(builddir)/net_perftests: $(OBJS) $(obj).target/net/libnet.a $(obj).target/net/libnet_test_support.a $(obj).target/base/libbase.a $(obj).target/base/libbase_i18n.a $(obj).target/base/libtest_support_base.a $(obj).target/base/libtest_support_perf.a $(obj).target/testing/libgtest.a $(obj).target/third_party/modp_b64/libmodp_b64.a $(obj).target/base/third_party/dynamic_annotations/libdynamic_annotations.a $(obj).target/base/libsymbolize.a $(obj).target/net/third_party/nss/libssl.a $(obj).target/third_party/zlib/libzlib.a $(obj).target/base/libxdg_mime.a $(obj).target/base/allocator/liballocator.a $(obj).target/third_party/libevent/libevent.a $(obj).target/third_party/icu/libicui18n.a $(obj).target/third_party/icu/libicuuc.a $(obj).target/third_party/icu/libicudata.a $(obj).target/build/temp_gyp/libgoogleurl.a $(obj).target/sdch/libsdch.a $(obj).target/net/libnet_base.a $(obj).target/v8/tools/gyp/libv8_snapshot.a $(obj).target/v8/tools/gyp/libv8_base.a FORCE_DO_CMD
+$(builddir)/net_perftests: $(OBJS) $(obj).target/net/libnet.a $(obj).target/net/libnet_test_support.a $(obj).target/base/libbase.a $(obj).target/base/libbase_i18n.a $(obj).target/base/libtest_support_base.a $(obj).target/base/libtest_support_perf.a $(obj).target/testing/libgtest.a $(obj).target/third_party/modp_b64/libmodp_b64.a $(obj).target/base/third_party/dynamic_annotations/libdynamic_annotations.a $(obj).target/base/libsymbolize.a $(obj).target/net/third_party/nss/libssl.a $(obj).target/third_party/zlib/libzlib.a $(obj).target/base/libxdg_mime.a $(obj).target/base/allocator/liballocator.a $(obj).target/third_party/libevent/libevent.a $(obj).target/third_party/icu/libicui18n.a $(obj).target/third_party/icu/libicuuc.a $(obj).target/third_party/icu/libicudata.a $(obj).target/build/temp_gyp/libgoogleurl.a $(obj).target/sdch/libsdch.a $(obj).target/net/libnet_base.a $(obj).target/v8/tools/gyp/libv8_snapshot.a $(obj).target/v8/tools/gyp/libv8_base.a $(obj).target/testing/libgmock.a FORCE_DO_CMD
 	$(call do_cmd,link)
 
 all_deps += $(builddir)/net_perftests

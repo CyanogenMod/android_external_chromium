@@ -6,6 +6,7 @@
 
 #ifndef CHROME_BROWSER_AUTOMATION_AUTOMATION_EXTENSION_FUNCTION_H_
 #define CHROME_BROWSER_AUTOMATION_AUTOMATION_EXTENSION_FUNCTION_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -20,7 +21,7 @@ class TabContents;
 // automation interface, so that extensions can be tested using UITests.
 class AutomationExtensionFunction : public AsyncExtensionFunction {
  public:
-  AutomationExtensionFunction() { }
+  AutomationExtensionFunction();
 
   // ExtensionFunction implementation.
   virtual void SetArgs(const ListValue* args);
@@ -58,7 +59,7 @@ class AutomationExtensionFunction : public AsyncExtensionFunction {
                                                const std::string& target);
 
  private:
-  ~AutomationExtensionFunction() {}
+  ~AutomationExtensionFunction();
 
   // Weak reference, lifetime managed by the ExternalTabContainer instance
   // owning the TabContents in question.

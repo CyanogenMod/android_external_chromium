@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_EDIT_VIEW_WIN_H_
 #define CHROME_BROWSER_AUTOCOMPLETE_AUTOCOMPLETE_EDIT_VIEW_WIN_H_
+#pragma once
 
 #include <atlbase.h>
 #include <atlapp.h>
@@ -24,7 +25,6 @@
 #include "webkit/glue/window_open_disposition.h"
 #include "views/controls/menu/menu_2.h"
 
-class AutocompletePopupModel;
 class Profile;
 class TabContents;
 namespace views {
@@ -74,6 +74,18 @@ class AutocompleteEditViewWin
 
   views::View* parent_view() const { return parent_view_; }
 
+  // Returns the width in pixels needed to display the current text. The
+  // returned value includes margins.
+  int TextWidth();
+
+  // Returns the width in pixels needed to display the text from one character
+  // before the caret to the end of the string. See comments in
+  // LocationBarView::Layout as to why this uses -1.
+  int WidthOfTextAfterCursor();
+
+  // Returns the font.
+  gfx::Font GetFont();
+
   // Implement the AutocompleteEditView interface.
   virtual AutocompleteEditModel* model() { return model_.get(); }
   virtual const AutocompleteEditModel* model() const { return model_.get(); }
@@ -94,9 +106,7 @@ class AutocompleteEditViewWin
   virtual bool IsEditingOrEmpty() const;
   virtual int GetIcon() const;
 
-  virtual void SetUserText(const std::wstring& text) {
-    SetUserText(text, text, true);
-  }
+  virtual void SetUserText(const std::wstring& text);
   virtual void SetUserText(const std::wstring& text,
                            const std::wstring& display_text,
                            bool update_popup);
@@ -107,6 +117,8 @@ class AutocompleteEditViewWin
   virtual void SetForcedQuery();
 
   virtual bool IsSelectAll();
+  virtual void GetSelectionBounds(std::wstring::size_type* start,
+                                  std::wstring::size_type* end);
   virtual void SelectAll(bool reversed);
   virtual void RevertAll();
 
@@ -124,6 +136,7 @@ class AutocompleteEditViewWin
   virtual bool OnAfterPossibleChange();
   virtual gfx::NativeView GetNativeView() const;
   virtual CommandUpdater* GetCommandUpdater();
+  int GetPopupMaxYCoordinate();
 
   // Exposes custom IAccessible implementation to the overall MSAA hierarchy.
   IAccessible* GetIAccessible();
@@ -382,6 +395,12 @@ class AutocompleteEditViewWin
 
   void SelectAllIfNecessary(MouseButton button, const CPoint& point);
   void TrackMousePosition(MouseButton button, const CPoint& point);
+
+  // Returns the sum of the left and right margins.
+  int GetHorizontalMargin();
+
+  // Returns the width in pixels needed to display |text|.
+  int WidthNeededToDisplay(const std::wstring& text);
 
   scoped_ptr<AutocompleteEditModel> model_;
 

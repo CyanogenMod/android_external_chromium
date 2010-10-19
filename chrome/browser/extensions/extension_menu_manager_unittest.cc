@@ -9,6 +9,7 @@
 #include "base/scoped_temp_dir.h"
 #include "base/scoped_vector.h"
 #include "base/values.h"
+#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/extensions/extension_menu_manager.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/extensions/test_extension_prefs.h"
@@ -152,6 +153,71 @@ TEST_F(ExtensionMenuManagerTest, ChildFunctions) {
   ASSERT_EQ(0, item2->child_count());
 }
 
+// Tests that deleting a parent properly removes descendants.
+TEST_F(ExtensionMenuManagerTest, DeleteParent) {
+  Extension* extension = AddExtension("1111");
+
+  // Set up 5 items to add.
+  ExtensionMenuItem* item1 = CreateTestItem(extension);
+  ExtensionMenuItem* item2 = CreateTestItem(extension);
+  ExtensionMenuItem* item3 = CreateTestItem(extension);
+  ExtensionMenuItem* item4 = CreateTestItem(extension);
+  ExtensionMenuItem* item5 = CreateTestItem(extension);
+  ExtensionMenuItem* item6 = CreateTestItem(extension);
+  ExtensionMenuItem::Id item1_id = item1->id();
+  ExtensionMenuItem::Id item2_id = item2->id();
+  ExtensionMenuItem::Id item3_id = item3->id();
+  ExtensionMenuItem::Id item4_id = item4->id();
+  ExtensionMenuItem::Id item5_id = item5->id();
+  ExtensionMenuItem::Id item6_id = item6->id();
+
+  // Add the items in the hierarchy
+  // item1 -> item2 -> item3 -> item4 -> item5 -> item6.
+  ASSERT_TRUE(manager_.AddContextItem(extension, item1));
+  ASSERT_TRUE(manager_.AddChildItem(item1_id, item2));
+  ASSERT_TRUE(manager_.AddChildItem(item2_id, item3));
+  ASSERT_TRUE(manager_.AddChildItem(item3_id, item4));
+  ASSERT_TRUE(manager_.AddChildItem(item4_id, item5));
+  ASSERT_TRUE(manager_.AddChildItem(item5_id, item6));
+  ASSERT_EQ(item1, manager_.GetItemById(item1_id));
+  ASSERT_EQ(item2, manager_.GetItemById(item2_id));
+  ASSERT_EQ(item3, manager_.GetItemById(item3_id));
+  ASSERT_EQ(item4, manager_.GetItemById(item4_id));
+  ASSERT_EQ(item5, manager_.GetItemById(item5_id));
+  ASSERT_EQ(item6, manager_.GetItemById(item6_id));
+  ASSERT_EQ(1u, manager_.MenuItems(extension->id())->size());
+  ASSERT_EQ(6u, manager_.items_by_id_.size());
+
+  // Remove item6 (a leaf node).
+  ASSERT_TRUE(manager_.RemoveContextMenuItem(item6_id));
+  ASSERT_EQ(item1, manager_.GetItemById(item1_id));
+  ASSERT_EQ(item2, manager_.GetItemById(item2_id));
+  ASSERT_EQ(item3, manager_.GetItemById(item3_id));
+  ASSERT_EQ(item4, manager_.GetItemById(item4_id));
+  ASSERT_EQ(item5, manager_.GetItemById(item5_id));
+  ASSERT_EQ(NULL, manager_.GetItemById(item6_id));
+  ASSERT_EQ(1u, manager_.MenuItems(extension->id())->size());
+  ASSERT_EQ(5u, manager_.items_by_id_.size());
+
+  // Remove item4 and make sure item5 is gone as well.
+  ASSERT_TRUE(manager_.RemoveContextMenuItem(item4_id));
+  ASSERT_EQ(item1, manager_.GetItemById(item1_id));
+  ASSERT_EQ(item2, manager_.GetItemById(item2_id));
+  ASSERT_EQ(item3, manager_.GetItemById(item3_id));
+  ASSERT_EQ(NULL, manager_.GetItemById(item4_id));
+  ASSERT_EQ(NULL, manager_.GetItemById(item5_id));
+  ASSERT_EQ(1u, manager_.MenuItems(extension->id())->size());
+  ASSERT_EQ(3u, manager_.items_by_id_.size());
+
+  // Now remove item1 and make sure item2 and item3 are gone as well.
+  ASSERT_TRUE(manager_.RemoveContextMenuItem(item1_id));
+  ASSERT_EQ(0u, manager_.MenuItems(extension->id())->size());
+  ASSERT_EQ(0u, manager_.items_by_id_.size());
+  ASSERT_EQ(NULL, manager_.GetItemById(item1_id));
+  ASSERT_EQ(NULL, manager_.GetItemById(item2_id));
+  ASSERT_EQ(NULL, manager_.GetItemById(item3_id));
+}
+
 // Tests changing parents.
 TEST_F(ExtensionMenuManagerTest, ChangeParent) {
   Extension* extension1 = AddExtension("1111");
@@ -272,7 +338,7 @@ class MockExtensionMessageService : public ExtensionMessageService {
 
   MOCK_METHOD4(DispatchEventToRenderers, void(const std::string& event_name,
                                               const std::string& event_args,
-                                              bool has_incognito_data,
+                                              Profile* source_profile,
                                               const GURL& event_url));
 
  private:
@@ -347,17 +413,13 @@ TEST_F(ExtensionMenuManagerTest, ExecuteCommand) {
       .Times(1)
       .WillOnce(Return(mock_message_service.get()));
 
-  EXPECT_CALL(profile, IsOffTheRecord())
-      .Times(AtLeast(1))
-      .WillRepeatedly(Return(false));
-
   // Use the magic of googlemock to save a parameter to our mock's
   // DispatchEventToRenderers method into event_args.
   std::string event_args;
   std::string expected_event_name = "contextMenus/" + item->extension_id();
   EXPECT_CALL(*mock_message_service.get(),
               DispatchEventToRenderers(expected_event_name, _,
-                                       profile.IsOffTheRecord(),
+                                       &profile,
                                        GURL()))
       .Times(1)
       .WillOnce(SaveArg<1>(&event_args));
@@ -378,22 +440,21 @@ TEST_F(ExtensionMenuManagerTest, ExecuteCommand) {
   ASSERT_TRUE(list->GetDictionary(0, &info));
 
   int tmp_id = 0;
-  ASSERT_TRUE(info->GetInteger(L"menuItemId", &tmp_id));
+  ASSERT_TRUE(info->GetInteger("menuItemId", &tmp_id));
   ASSERT_EQ(id.second, tmp_id);
 
   std::string tmp;
-  ASSERT_TRUE(info->GetString(L"mediaType", &tmp));
-  ASSERT_EQ("IMAGE", tmp);
-  ASSERT_TRUE(info->GetString(L"srcUrl", &tmp));
+  ASSERT_TRUE(info->GetString("mediaType", &tmp));
+  ASSERT_EQ("image", tmp);
+  ASSERT_TRUE(info->GetString("srcUrl", &tmp));
   ASSERT_EQ(params.src_url.spec(), tmp);
-  ASSERT_TRUE(info->GetString(L"mainFrameUrl", &tmp));
+  ASSERT_TRUE(info->GetString("pageUrl", &tmp));
   ASSERT_EQ(params.page_url.spec(), tmp);
 
-  std::wstring wide_tmp;
-  ASSERT_TRUE(info->GetString(L"selectionText", &wide_tmp));
-  ASSERT_EQ(params.selection_text, wide_tmp);
+  ASSERT_TRUE(info->GetString("selectionText", &tmp));
+  ASSERT_EQ(WideToUTF8(params.selection_text), tmp);
 
   bool bool_tmp = true;
-  ASSERT_TRUE(info->GetBoolean(L"editable", &bool_tmp));
+  ASSERT_TRUE(info->GetBoolean("editable", &bool_tmp));
   ASSERT_EQ(params.is_editable, bool_tmp);
 }

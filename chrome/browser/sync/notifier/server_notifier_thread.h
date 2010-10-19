@@ -11,6 +11,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_NOTIFIER_SERVER_NOTIFIER_THREAD_H_
 #define CHROME_BROWSER_SYNC_NOTIFIER_SERVER_NOTIFIER_THREAD_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -20,13 +21,18 @@
 #include "chrome/browser/sync/syncable/model_type.h"
 #include "jingle/notifier/listener/mediator_thread_impl.h"
 
+namespace notifier {
+struct NotifierOptions;
+}
+
 namespace sync_notifier {
 
 class ServerNotifierThread
     : public notifier::MediatorThreadImpl,
       public ChromeInvalidationClient::Listener {
  public:
-  explicit ServerNotifierThread(bool use_chrome_async_socket);
+  explicit ServerNotifierThread(
+      const notifier::NotifierOptions& notifier_options);
 
   virtual ~ServerNotifierThread();
 
@@ -52,9 +58,7 @@ class ServerNotifierThread
   virtual void OnInvalidateAll();
 
  protected:
-  // Overridden to know what state we're in.
-  virtual void OnClientStateChangeMessage(
-      notifier::LoginConnectionState state);
+  virtual void OnDisconnect();
 
  private:
   // Posted to the worker thread by ListenForUpdates().
@@ -73,7 +77,6 @@ class ServerNotifierThread
   // thread by Stop().
   void StopInvalidationListener();
 
-  notifier::LoginConnectionState state_;
   scoped_ptr<ChromeInvalidationClient> chrome_invalidation_client_;
 };
 

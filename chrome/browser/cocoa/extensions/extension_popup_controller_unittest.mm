@@ -24,11 +24,10 @@ class ExtensionTestingProfile : public TestingProfile {
     DCHECK(!GetExtensionProcessManager());
     DCHECK(!GetExtensionsService());
 
-    manager_.reset(new ExtensionProcessManager(this));
+    manager_.reset(ExtensionProcessManager::Create(this));
     service_ = new ExtensionsService(this,
                                      CommandLine::ForCurrentProcess(),
-                                     GetPrefs(),
-                                     GetExtensionsInstallDir(),
+                                    GetExtensionsInstallDir(),
                                      false);
     service_->set_extensions_enabled(true);
     service_->set_show_extensions_prompts(false);

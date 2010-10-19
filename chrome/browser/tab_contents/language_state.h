@@ -4,12 +4,12 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_LANGUAGE_STATE_H_
 #define CHROME_BROWSER_TAB_CONTENTS_LANGUAGE_STATE_H_
+#pragma once
 
 #include <string>
 
 #include "base/basictypes.h"
-
-class NavigationController;
+#include "chrome/browser/tab_contents/navigation_controller.h"
 
 // This class holds the language state of the current page.
 // There is one LanguageState instance per TabContents.
@@ -27,7 +27,7 @@ class LanguageState {
 
   // Should be called when the page did a new navigation (whether it is a main
   // frame or sub-frame navigation).
-  void DidNavigate(bool reload, bool in_page_navigation);
+  void DidNavigate(const NavigationController::LoadCommittedDetails& details);
 
   // Should be called when the language of the page has been determined.
   // |page_translatable| when false indicates that the browser should not offer

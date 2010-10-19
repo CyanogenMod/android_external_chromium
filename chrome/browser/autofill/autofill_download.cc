@@ -10,7 +10,7 @@
 #include "base/rand_util.h"
 #include "base/stl_util-inl.h"
 #include "chrome/browser/autofill/autofill_xml_parser.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/pref_names.h"
 #include "net/http/http_response_headers.h"
@@ -175,7 +175,7 @@ bool AutoFillDownloadManager::StartRequest(
                                            URLFetcher::POST,
                                            this);
   url_fetchers_[fetcher] = request_data;
-  fetcher->set_automatcally_retry_on_5xx(false);
+  fetcher->set_automatically_retry_on_5xx(false);
   fetcher->set_request_context(Profile::GetDefaultRequestContext());
   fetcher->set_upload_data("text/plain", form_xml);
   fetcher->Start();

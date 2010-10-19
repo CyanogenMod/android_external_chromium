@@ -14,6 +14,7 @@
 #include "chrome/common/notification_service.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
+#include "net/base/x509_certificate.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
 
@@ -134,7 +135,8 @@ void URLRequestInterceptJob::GetResponseInfo(net::HttpResponseInfo* info) {
           WriteInto(&raw_headers, size+1), size);
   if (rv != CPERR_SUCCESS) {
     // TODO(mpcomplete): what should we do here?
-    raw_headers = "HTTP/1.1 404 Not Found" + '\0';
+    raw_headers = "HTTP/1.1 404 Not Found";
+    raw_headers.push_back('\0');
   }
 
   info->headers = new net::HttpResponseHeaders(raw_headers);

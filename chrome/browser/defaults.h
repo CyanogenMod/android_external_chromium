@@ -6,9 +6,10 @@
 
 #ifndef CHROME_BROWSER_DEFAULTS_H_
 #define CHROME_BROWSER_DEFAULTS_H_
+#pragma once
 
 #include "build/build_config.h"
-#include "chrome/browser/session_startup_pref.h"
+#include "chrome/browser/prefs/session_startup_pref.h"
 
 namespace browser_defaults {
 
@@ -72,6 +73,13 @@ extern const bool kAlwaysOpenIncognitoWindow;
 
 // Are phantom tabs enabled?
 extern const bool kPhantomTabsEnabled;
+
+//=============================================================================
+// Runtime "const" - set only once after parsing command line option and should
+// never be modified after that.
+
+// Are bookmark enabled? True by default.
+extern bool bookmarks_enabled;
 
 }  // namespace browser_defaults
 

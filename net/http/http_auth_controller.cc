@@ -5,12 +5,16 @@
 #include "net/http/http_auth_controller.h"
 
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
+#include "net/base/auth.h"
 #include "net/base/host_resolver.h"
 #include "net/base/net_util.h"
+#include "net/http/http_auth_handler.h"
 #include "net/http/http_auth_handler_factory.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_request_info.h"
+#include "net/http/http_response_headers.h"
 
 namespace net {
 
@@ -50,14 +54,16 @@ std::string AuthChallengeLogMessage(HttpResponseHeaders* headers) {
 HttpAuthController::HttpAuthController(
     HttpAuth::Target target,
     const GURL& auth_url,
-    scoped_refptr<HttpNetworkSession> session)
+    HttpAuthCache* http_auth_cache,
+    HttpAuthHandlerFactory* http_auth_handler_factory)
     : target_(target),
       auth_url_(auth_url),
       auth_origin_(auth_url.GetOrigin()),
       auth_path_(HttpAuth::AUTH_PROXY ? std::string() : auth_url.path()),
       embedded_identity_used_(false),
       default_credentials_used_(false),
-      session_(session),
+      http_auth_cache_(http_auth_cache),
+      http_auth_handler_factory_(http_auth_handler_factory),
       ALLOW_THIS_IN_INITIALIZER_LIST(
           io_callback_(this, &HttpAuthController::OnIOComplete)),
       user_callback_(NULL) {
@@ -73,8 +79,8 @@ int HttpAuthController::MaybeGenerateAuthToken(const HttpRequestInfo* request,
   bool needs_auth = HaveAuth() || SelectPreemptiveAuth(net_log);
   if (!needs_auth)
     return OK;
-  const std::wstring* username = NULL;
-  const std::wstring* password = NULL;
+  const string16* username = NULL;
+  const string16* password = NULL;
   if (identity_.source != HttpAuth::IDENT_SRC_DEFAULT_CREDENTIALS) {
     username = &identity_.username;
     password = &identity_.password;
@@ -109,14 +115,14 @@ bool HttpAuthController::SelectPreemptiveAuth(const BoundNetLog& net_log) {
   // is expected to be fast. LookupByPath() is fast in the common case, since
   // the number of http auth cache entries is expected to be very small.
   // (For most users in fact, it will be 0.)
-  HttpAuthCache::Entry* entry = session_->auth_cache()->LookupByPath(
+  HttpAuthCache::Entry* entry = http_auth_cache_->LookupByPath(
       auth_origin_, auth_path_);
   if (!entry)
     return false;
 
   // Try to create a handler using the previous auth challenge.
   scoped_ptr<HttpAuthHandler> handler_preemptive;
-  int rv_create = session_->http_auth_handler_factory()->
+  int rv_create = http_auth_handler_factory_->
       CreatePreemptiveAuthHandlerFromString(entry->auth_challenge(), target_,
                                             auth_origin_,
                                             entry->IncrementNonceCount(),
@@ -148,29 +154,52 @@ int HttpAuthController::HandleAuthChallenge(
     const BoundNetLog& net_log) {
   DCHECK(headers);
   DCHECK(auth_origin_.is_valid());
-
   LOG(INFO) << "The " << HttpAuth::GetAuthTargetString(target_) << " "
             << auth_origin_ << " requested auth"
             << AuthChallengeLogMessage(headers.get());
 
-  // The auth we tried just failed, hence it can't be valid. Remove it from
-  // the cache so it won't be used again.
-  // TODO(wtc): IsFinalRound is not the right condition.  In a multi-round
-  // auth sequence, the server may fail the auth in round 1 if our first
-  // authorization header is broken.  We should inspect response_.headers to
-  // determine if the server already failed the auth or wants us to continue.
-  // See http://crbug.com/21015.
-  if (HaveAuth() && handler_->IsFinalRound()) {
-    InvalidateRejectedAuthFromCache();
-    handler_.reset();
-    identity_ = HttpAuth::Identity();
+  // Give the existing auth handler first try at the authentication headers.
+  // This will also evict the entry in the HttpAuthCache if the previous
+  // challenge appeared to be rejected, or is using a stale nonce in the Digest
+  // case.
+  if (HaveAuth()) {
+    std::string challenge_used;
+    HttpAuth::AuthorizationResult result = HttpAuth::HandleChallengeResponse(
+        handler_.get(), headers, target_, disabled_schemes_, &challenge_used);
+    switch (result) {
+      case HttpAuth::AUTHORIZATION_RESULT_ACCEPT:
+        break;
+      case HttpAuth::AUTHORIZATION_RESULT_INVALID:
+      case HttpAuth::AUTHORIZATION_RESULT_REJECT:
+        InvalidateCurrentHandler();
+        break;
+      case HttpAuth::AUTHORIZATION_RESULT_STALE:
+        if (http_auth_cache_->UpdateStaleChallenge(auth_origin_,
+                                                   handler_->realm(),
+                                                   handler_->scheme(),
+                                                   challenge_used)) {
+          handler_.reset();
+          identity_ = HttpAuth::Identity();
+        } else {
+          // It's possible that a server could incorrectly issue a stale
+          // response when the entry is not in the cache. Just evict the
+          // current value from the cache.
+          InvalidateCurrentHandler();
+        }
+        break;
+      default:
+        NOTREACHED();
+        break;
+    }
   }
 
   identity_.invalid = true;
 
-  if (target_ != HttpAuth::AUTH_SERVER || !do_not_send_server_auth) {
+  bool can_send_auth = (target_ != HttpAuth::AUTH_SERVER ||
+                        !do_not_send_server_auth);
+  if (!handler_.get() && can_send_auth) {
     // Find the best authentication challenge that we support.
-    HttpAuth::ChooseBestChallenge(session_->http_auth_handler_factory(),
+    HttpAuth::ChooseBestChallenge(http_auth_handler_factory_,
                                   headers, target_, auth_origin_,
                                   disabled_schemes_, net_log,
                                   &handler_);
@@ -200,9 +229,6 @@ int HttpAuthController::HandleAuthChallenge(
     SelectNextAuthIdentityToTry();
   } else {
     // Proceed with the existing identity or a null identity.
-    //
-    // TODO(wtc): Add a safeguard against infinite transaction restarts, if
-    // the server keeps returning "NTLM".
     identity_.invalid = false;
   }
 
@@ -219,8 +245,8 @@ int HttpAuthController::HandleAuthChallenge(
   return OK;
 }
 
-void HttpAuthController::ResetAuth(const std::wstring& username,
-                                   const std::wstring& password) {
+void HttpAuthController::ResetAuth(const string16& username,
+                                   const string16& password) {
   DCHECK(identity_.invalid || (username.empty() && password.empty()));
 
   if (identity_.invalid) {
@@ -252,12 +278,18 @@ void HttpAuthController::ResetAuth(const std::wstring& username,
     case HttpAuth::IDENT_SRC_DEFAULT_CREDENTIALS:
       break;
     default:
-      session_->auth_cache()->Add(auth_origin_, handler_->realm(),
-                                  handler_->scheme(), handler_->challenge(),
-                                  identity_.username, identity_.password,
-                                  auth_path_);
+      http_auth_cache_->Add(auth_origin_, handler_->realm(),
+                            handler_->scheme(), handler_->challenge(),
+                            identity_.username, identity_.password,
+                            auth_path_);
       break;
   }
+}
+
+void HttpAuthController::InvalidateCurrentHandler() {
+  InvalidateRejectedAuthFromCache();
+  handler_.reset();
+  identity_ = HttpAuth::Identity();
 }
 
 void HttpAuthController::InvalidateRejectedAuthFromCache() {
@@ -273,9 +305,9 @@ void HttpAuthController::InvalidateRejectedAuthFromCache() {
   // Clear the cache entry for the identity we just failed on.
   // Note: we require the username/password to match before invalidating
   // since the entry in the cache may be newer than what we used last time.
-  session_->auth_cache()->Remove(auth_origin_, handler_->realm(),
-                                 handler_->scheme(), identity_.username,
-                                 identity_.password);
+  http_auth_cache_->Remove(auth_origin_, handler_->realm(),
+                           handler_->scheme(), identity_.username,
+                           identity_.password);
 }
 
 bool HttpAuthController::SelectNextAuthIdentityToTry() {
@@ -299,8 +331,8 @@ bool HttpAuthController::SelectNextAuthIdentityToTry() {
 
   // Check the auth cache for a realm entry.
   HttpAuthCache::Entry* entry =
-    session_->auth_cache()->Lookup(auth_origin_, handler_->realm(),
-                                   handler_->scheme());
+      http_auth_cache_->Lookup(auth_origin_, handler_->realm(),
+                               handler_->scheme());
 
   if (entry) {
     identity_.source = HttpAuth::IDENT_SRC_REALM_LOOKUP;
@@ -350,6 +382,10 @@ void HttpAuthController::OnIOComplete(int result) {
     user_callback_ = NULL;
     c->Run(result);
   }
+}
+
+scoped_refptr<AuthChallengeInfo> HttpAuthController::auth_info() {
+  return auth_info_;
 }
 
 bool HttpAuthController::IsAuthSchemeDisabled(const std::string& scheme) const {

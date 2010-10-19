@@ -7,18 +7,20 @@
 #include <string>
 
 #include "base/values.h"
+#include "base/string_number_conversions.h"
+#include "base/string_util.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/extensions/extension_error_utils.h"
 
-const wchar_t kCheckedKey[] = L"checked";
-const wchar_t kContextsKey[] = L"contexts";
-const wchar_t kDocumentUrlPatternsKey[] = L"documentUrlPatterns";
-const wchar_t kGeneratedIdKey[] = L"generatedId";
-const wchar_t kParentIdKey[] = L"parentId";
-const wchar_t kTargetUrlPatternsKey[] = L"targetUrlPatterns";
-const wchar_t kTitleKey[] = L"title";
-const wchar_t kTypeKey[] = L"type";
+const char kCheckedKey[] = "checked";
+const char kContextsKey[] = "contexts";
+const char kDocumentUrlPatternsKey[] = "documentUrlPatterns";
+const char kGeneratedIdKey[] = "generatedId";
+const char kParentIdKey[] = "parentId";
+const char kTargetUrlPatternsKey[] = "targetUrlPatterns";
+const char kTitleKey[] = "title";
+const char kTypeKey[] = "type";
 
 const char kCannotFindItemError[] = "Cannot find menu item with id *";
 const char kCheckedError[] =
@@ -34,7 +36,7 @@ const char kTitleNeededError[] =
 
 bool ExtensionContextMenuFunction::ParseContexts(
     const DictionaryValue& properties,
-    const wchar_t* key,
+    const char* key,
     ExtensionMenuItem::ContextList* result) {
   ListValue* list = NULL;
   if (!properties.GetList(key, &list)) {
@@ -64,8 +66,7 @@ bool ExtensionContextMenuFunction::ParseContexts(
     } else if (value == "audio") {
       tmp_result.Add(ExtensionMenuItem::AUDIO);
     } else {
-      error_ = ExtensionErrorUtils::FormatErrorMessage(kInvalidValueError,
-                                                       WideToASCII(key));
+      error_ = ExtensionErrorUtils::FormatErrorMessage(kInvalidValueError, key);
       return false;
     }
   }
@@ -124,7 +125,7 @@ bool ExtensionContextMenuFunction::ParseChecked(
 
 bool ExtensionContextMenuFunction::ParseURLPatterns(
     const DictionaryValue& properties,
-    const wchar_t* key,
+    const char* key,
     ExtensionExtent* result) {
   if (!properties.HasKey(key))
     return true;
@@ -187,7 +188,8 @@ bool ExtensionContextMenuFunction::GetParent(
 
   ExtensionMenuItem* parent = manager.GetItemById(parent_id);
   if (!parent) {
-    error_ = "Cannot find menu item with id " + IntToString(parent_id.second);
+    error_ = "Cannot find menu item with id " +
+        base::IntToString(parent_id.second);
     return false;
   }
   if (parent->type() != ExtensionMenuItem::NORMAL) {
@@ -245,7 +247,7 @@ bool CreateContextMenuFunction::RunImpl() {
     ExtensionMenuItem* parent = menu_manager->GetItemById(parent_id);
     if (!parent) {
       error_ = ExtensionErrorUtils::FormatErrorMessage(
-          kCannotFindItemError, IntToString(parent_id.second));
+          kCannotFindItemError, base::IntToString(parent_id.second));
       return false;
     }
     if (parent->type() != ExtensionMenuItem::NORMAL) {
@@ -272,7 +274,7 @@ bool UpdateContextMenuFunction::RunImpl() {
   ExtensionMenuItem* item = manager->GetItemById(item_id);
   if (!item || item->extension_id() != extension_id()) {
     error_ = ExtensionErrorUtils::FormatErrorMessage(
-        kCannotFindItemError, IntToString(item_id.second));
+        kCannotFindItemError, base::IntToString(item_id.second));
     return false;
   }
 
@@ -340,7 +342,7 @@ bool RemoveContextMenuFunction::RunImpl() {
   // Ensure one extension can't remove another's menu items.
   if (!item || item->extension_id() != extension_id()) {
     error_ = ExtensionErrorUtils::FormatErrorMessage(
-        kCannotFindItemError, IntToString(id.second));
+        kCannotFindItemError, base::IntToString(id.second));
     return false;
   }
 

@@ -14,7 +14,9 @@
 #include "chrome/browser/renderer_host/resource_handler.h"
 #include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/render_messages_params.h"
 #include "net/base/net_errors.h"
+#include "net/base/upload_data.h"
 #include "net/http/http_util.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_job.h"
@@ -73,6 +75,7 @@ static ViewHostMsg_Resource_Request CreateResourceRequest(
   request.resource_type = type;
   request.request_context = 0;
   request.appcache_host_id = appcache::kNoHostId;
+  request.download_to_file = false;
   request.host_renderer_id = -1;
   request.host_render_view_id = -1;
   return request;
@@ -309,7 +312,7 @@ void CheckSuccessfulRequest(const std::vector<IPC::Message>& messages,
   //
   // This function verifies that we received 4 messages and that they
   // are appropriate.
-  ASSERT_EQ(messages.size(), 3U);
+  ASSERT_EQ(3U, messages.size());
 
   // The first messages should be received response
   ASSERT_EQ(ViewMsg_Resource_ReceivedResponse::ID, messages[0].type());

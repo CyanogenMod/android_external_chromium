@@ -4,14 +4,18 @@
 
 #ifndef CHROME_BROWSER_SYNC_GLUE_UI_MODEL_WORKER_H_
 #define CHROME_BROWSER_SYNC_GLUE_UI_MODEL_WORKER_H_
+#pragma once
 
 #include "base/callback.h"
 #include "base/condition_variable.h"
 #include "base/lock.h"
 #include "base/task.h"
-#include "base/waitable_event.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/engine/model_safe_worker.h"
+
+namespace base {
+class WaitableEvent;
+}
 
 class MessageLoop;
 

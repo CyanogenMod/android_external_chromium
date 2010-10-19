@@ -192,7 +192,7 @@ static void gtk_floating_container_forall(GtkContainer* container,
 
 static void gtk_floating_container_size_request(GtkWidget* widget,
                                                 GtkRequisition* requisition) {
-  GtkBin *bin = GTK_BIN(widget);
+  GtkBin* bin = GTK_BIN(widget);
   if (bin && bin->child) {
     gtk_widget_size_request(bin->child, requisition);
   } else {
@@ -238,8 +238,8 @@ static void gtk_floating_container_size_allocate(GtkWidget* widget,
 
     if (GTK_WIDGET_VISIBLE(child->widget)) {
       gtk_widget_size_request(child->widget, &child_requisition);
-      child_allocation.x = child->x;
-      child_allocation.y = child->y;
+      child_allocation.x = allocation->x + child->x;
+      child_allocation.y = allocation->y + child->y;
       child_allocation.width = std::max(1, std::min(child_requisition.width,
                                                     allocation->width));
       child_allocation.height = std::max(1, std::min(child_requisition.height,

@@ -4,10 +4,11 @@
 
 #import "chrome/browser/cocoa/restart_browser.h"
 
+#include "app/l10n_util.h"
 #include "app/l10n_util_mac.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/pref_names.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"

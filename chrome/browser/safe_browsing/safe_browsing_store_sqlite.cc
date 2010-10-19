@@ -8,6 +8,7 @@
 
 #include "base/callback.h"
 #include "base/file_util.h"
+#include "base/histogram.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/common/sqlite_compiled_statement.h"
@@ -52,11 +53,6 @@ SafeBrowsingStoreSqlite::~SafeBrowsingStoreSqlite() {
 }
 
 bool SafeBrowsingStoreSqlite::Delete() {
-  // The database should not be open at this point.  TODO(shess): It
-  // can be open if corruption was detected while opening the
-  // database.  Ick.
-  DCHECK(!db_);
-
   // The file must be closed, both so that the journal file is deleted
   // by SQLite, and because open files cannot be deleted on Windows.
   if (!Close()) {
@@ -95,8 +91,12 @@ bool SafeBrowsingStoreSqlite::OnCorruptDatabase() {
 }
 
 bool SafeBrowsingStoreSqlite::Open() {
-  if (db_)
+  // This case should never happen, but if it does we shouldn't leak
+  // handles.
+  if (db_) {
+    NOTREACHED() << " Database was already open in Open().";
     return true;
+  }
 
   if (sqlite_utils::OpenSqliteDb(filename_, &db_) != SQLITE_OK) {
     sqlite3_close(db_);
@@ -350,9 +350,6 @@ bool SafeBrowsingStoreSqlite::ReadAddPrefixes(
   int rv;
   while ((rv = statement->step()) == SQLITE_ROW) {
     const int32 chunk_id = statement->column_int(0);
-    if (add_del_cache_.count(chunk_id) > 0)
-      continue;
-
     const SBPrefix prefix = statement->column_int(1);
     add_prefixes->push_back(SBAddPrefix(chunk_id, prefix));
   }
@@ -402,9 +399,6 @@ bool SafeBrowsingStoreSqlite::ReadSubPrefixes(
   int rv;
   while ((rv = statement->step()) == SQLITE_ROW) {
     const int32 chunk_id = statement->column_int(0);
-    if (sub_del_cache_.count(chunk_id) > 0)
-      continue;
-
     const int32 add_chunk_id = statement->column_int(1);
     const SBPrefix add_prefix = statement->column_int(2);
     sub_prefixes->push_back(SBSubPrefix(chunk_id, add_chunk_id, add_prefix));
@@ -456,9 +450,6 @@ bool SafeBrowsingStoreSqlite::ReadAddHashes(
   int rv;
   while ((rv = statement->step()) == SQLITE_ROW) {
     const int32 chunk_id = statement->column_int(0);
-    if (add_del_cache_.count(chunk_id) > 0)
-      continue;
-
     // NOTE: Legacy format duplicated |hash.prefix| in column 1.
     const SBPrefix prefix = statement->column_int(1);
     const int32 received = statement->column_int(2);
@@ -517,9 +508,6 @@ bool SafeBrowsingStoreSqlite::ReadSubHashes(
   int rv;
   while ((rv = statement->step()) == SQLITE_ROW) {
     const int32 chunk_id = statement->column_int(0);
-    if (sub_del_cache_.count(chunk_id) > 0)
-      continue;
-
     // NOTE: Legacy format duplicated |hash.prefix| in column 2.
     const int32 add_chunk_id = statement->column_int(1);
     const SBPrefix add_prefix = statement->column_int(2);
@@ -563,29 +551,15 @@ bool SafeBrowsingStoreSqlite::WriteSubHashes(
   return true;
 }
 
-bool SafeBrowsingStoreSqlite::RenameTables() {
+bool SafeBrowsingStoreSqlite::ResetTables() {
   DCHECK(db_);
 
-  if (!ExecSql("ALTER TABLE add_prefix RENAME TO add_prefix_old") ||
-      !ExecSql("ALTER TABLE sub_prefix RENAME TO sub_prefix_old") ||
-      !ExecSql("ALTER TABLE add_full_hash RENAME TO add_full_hash_old") ||
-      !ExecSql("ALTER TABLE sub_full_hash RENAME TO sub_full_hash_old") ||
-      !ExecSql("ALTER TABLE add_chunks RENAME TO add_chunks_old") ||
-      !ExecSql("ALTER TABLE sub_chunks RENAME TO sub_chunks_old"))
-    return false;
-
-  return CreateTables();
-}
-
-bool SafeBrowsingStoreSqlite::DeleteOldTables() {
-  DCHECK(db_);
-
-  if (!ExecSql("DROP TABLE add_prefix_old") ||
-      !ExecSql("DROP TABLE sub_prefix_old") ||
-      !ExecSql("DROP TABLE add_full_hash_old") ||
-      !ExecSql("DROP TABLE sub_full_hash_old") ||
-      !ExecSql("DROP TABLE add_chunks_old") ||
-      !ExecSql("DROP TABLE sub_chunks_old"))
+  if (!ExecSql("DELETE FROM add_prefix") ||
+      !ExecSql("DELETE FROM sub_prefix") ||
+      !ExecSql("DELETE FROM add_full_hash") ||
+      !ExecSql("DELETE FROM sub_full_hash") ||
+      !ExecSql("DELETE FROM add_chunks") ||
+      !ExecSql("DELETE FROM sub_chunks"))
     return false;
 
   return true;
@@ -627,22 +601,21 @@ bool SafeBrowsingStoreSqlite::DoUpdate(
       !ReadSubHashes(&sub_full_hashes))
     return false;
 
-  // Add the pending adds which haven't since been deleted.
-  for (std::vector<SBAddFullHash>::const_iterator iter = pending_adds.begin();
-       iter != pending_adds.end(); ++iter) {
-    if (add_del_cache_.count(iter->chunk_id) == 0)
-      add_full_hashes.push_back(*iter);
-  }
+  // Append items from |pending_adds|.
+  add_full_hashes.insert(add_full_hashes.end(),
+                         pending_adds.begin(), pending_adds.end());
 
+  // Knock the subs from the adds and process deleted chunks.
   SBProcessSubs(&add_prefixes, &sub_prefixes,
-                &add_full_hashes, &sub_full_hashes);
-
-  // Move the existing tables aside and prepare to write fresh tables.
-  if (!RenameTables())
-    return false;
+                &add_full_hashes, &sub_full_hashes,
+                add_del_cache_, sub_del_cache_);
 
   DeleteChunksFromSet(add_del_cache_, &add_chunks_cache_);
   DeleteChunksFromSet(sub_del_cache_, &sub_chunks_cache_);
+
+  // Clear the existing tables before rewriting them.
+  if (!ResetTables())
+    return false;
 
   if (!WriteAddChunks() ||
       !WriteSubChunks() ||
@@ -652,17 +625,17 @@ bool SafeBrowsingStoreSqlite::DoUpdate(
       !WriteSubHashes(sub_full_hashes))
     return false;
 
-  // Delete the old tables.
-  if (!DeleteOldTables())
-    return false;
-
   // Commit all the changes to the database.
   int rv = insert_transaction_->Commit();
   if (rv != SQLITE_OK) {
     NOTREACHED() << "SafeBrowsing update transaction failed to commit.";
-    // UMA_HISTOGRAM_COUNTS("SB2.FailedUpdate", 1);
+    UMA_HISTOGRAM_COUNTS("SB2.FailedUpdate", 1);
     return false;
   }
+
+  // Record counts before swapping to caller.
+  UMA_HISTOGRAM_COUNTS("SB2.AddPrefixes", add_prefixes.size());
+  UMA_HISTOGRAM_COUNTS("SB2.SubPrefixes", sub_prefixes.size());
 
   add_prefixes_result->swap(add_prefixes);
   add_full_hashes_result->swap(add_full_hashes);

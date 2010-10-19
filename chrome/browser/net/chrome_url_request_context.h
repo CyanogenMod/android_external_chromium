@@ -4,23 +4,29 @@
 
 #ifndef CHROME_BROWSER_NET_CHROME_URL_REQUEST_CONTEXT_H_
 #define CHROME_BROWSER_NET_CHROME_URL_REQUEST_CONTEXT_H_
+#pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
 #include "base/file_path.h"
 #include "base/linked_ptr.h"
-#include "net/base/cookie_monster.h"
-#include "net/base/cookie_policy.h"
 #include "chrome/browser/appcache/chrome_appcache_service.h"
+#include "chrome/browser/chrome_blob_storage_context.h"
+#include "chrome/browser/file_system/file_system_host_context.h"
 #include "chrome/browser/host_content_settings_map.h"
 #include "chrome/browser/host_zoom_map.h"
 #include "chrome/browser/io_thread.h"
-#include "chrome/browser/pref_service.h"
 #include "chrome/browser/net/chrome_cookie_policy.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/extensions/extension.h"
+#include "chrome/common/extensions/extension_icon_set.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/common/notification_registrar.h"
+#include "net/base/cookie_monster.h"
+#include "net/base/cookie_policy.h"
 #include "net/url_request/url_request_context.h"
 #include "webkit/database/database_tracker.h"
 
@@ -48,18 +54,31 @@ class ChromeURLRequestContext : public URLRequestContext {
   // could be immutable and ref-counted so that we could use them directly from
   // both threads. There is only a small amount of mutable state in Extension.
   struct ExtensionInfo {
-    ExtensionInfo(const std::string& name, const FilePath& path,
+    ExtensionInfo(const std::string& name,
+                  const FilePath& path,
                   const std::string& default_locale,
+                  bool incognito_split_mode,
                   const ExtensionExtent& extent,
-                  const std::vector<std::string>& api_permissions)
-        : name(name), path(path), default_locale(default_locale),
-          extent(extent), api_permissions(api_permissions) {
+                  const ExtensionExtent& effective_host_permissions,
+                  const std::set<std::string>& api_permissions,
+                  const ExtensionIconSet& icons)
+        : name(name),
+          path(path),
+          default_locale(default_locale),
+          incognito_split_mode(incognito_split_mode),
+          extent(extent),
+          effective_host_permissions(effective_host_permissions),
+          api_permissions(api_permissions),
+          icons(icons) {
     }
     const std::string name;
-    FilePath path;
-    std::string default_locale;
-    ExtensionExtent extent;
-    std::vector<std::string> api_permissions;
+    const FilePath path;
+    const std::string default_locale;
+    const bool incognito_split_mode;
+    const ExtensionExtent extent;
+    const ExtensionExtent effective_host_permissions;
+    std::set<std::string> api_permissions;
+    ExtensionIconSet icons;
   };
 
   // Map of extension info by extension id.
@@ -73,13 +92,28 @@ class ChromeURLRequestContext : public URLRequestContext {
   // Gets the path to the directory for the specified extension.
   FilePath GetPathForExtension(const std::string& id);
 
+  // Returns true if the specified extension exists and has a non-empty web
+  // extent.
+  bool ExtensionHasWebExtent(const std::string& id);
+
+  // Returns true if the specified extension exists and can load in incognito
+  // contexts.
+  bool ExtensionCanLoadInIncognito(const std::string& id);
+
   // Returns an empty string if the extension with |id| doesn't have a default
   // locale.
   std::string GetDefaultLocaleForExtension(const std::string& id);
 
+  // Gets the effective host permissions for the extension with |id|.
+  ExtensionExtent
+      GetEffectiveHostPermissionsForExtension(const std::string& id);
+
   // Determine whether a URL has access to the specified extension permission.
   bool CheckURLAccessToExtensionPermission(const GURL& url,
                                            const char* permission_name);
+
+  // Returns true if the specified URL references the icon for an extension.
+  bool URLIsForExtensionIcon(const GURL& url);
 
   // Gets the path to the directory user scripts are stored in.
   FilePath user_script_dir_path() const {
@@ -95,6 +129,16 @@ class ChromeURLRequestContext : public URLRequestContext {
   // Gets the database tracker associated with this context's profile.
   webkit_database::DatabaseTracker* database_tracker() const {
     return database_tracker_.get();
+  }
+
+  // Gets the blob storage context associated with this context's profile.
+  ChromeBlobStorageContext* blob_storage_context() const {
+    return blob_storage_context_.get();
+  }
+
+  // Gets the file system host context with this context's profile.
+  FileSystemHostContext* file_system_host_context() const {
+    return file_system_host_context_.get();
   }
 
   bool is_off_the_record() const {
@@ -119,14 +163,9 @@ class ChromeURLRequestContext : public URLRequestContext {
   // Callback for when an extension is unloaded.
   void OnUnloadedExtension(const std::string& id);
 
-  // False only if cookies are globally blocked without exception.
-  bool AreCookiesEnabled() const;
-
   // Returns true if this context is an external request context, like
   // ChromeFrame.
-  virtual bool IsExternal() const {
-    return false;
-  }
+  virtual bool IsExternal() const;
 
  protected:
   // Copies the dependencies from |other| into |this|. If you use this
@@ -202,6 +241,12 @@ class ChromeURLRequestContext : public URLRequestContext {
   void set_database_tracker(webkit_database::DatabaseTracker* tracker) {
     database_tracker_ = tracker;
   }
+  void set_blob_storage_context(ChromeBlobStorageContext* context) {
+    blob_storage_context_ = context;
+  }
+  void set_file_system_host_context(FileSystemHostContext* context) {
+    file_system_host_context_ = context;
+  }
   void set_net_log(net::NetLog* net_log) {
     net_log_ = net_log;
   }
@@ -227,6 +272,8 @@ class ChromeURLRequestContext : public URLRequestContext {
   scoped_refptr<ChromeCookiePolicy> chrome_cookie_policy_;
   scoped_refptr<HostContentSettingsMap> host_content_settings_map_;
   scoped_refptr<HostZoomMap> host_zoom_map_;
+  scoped_refptr<ChromeBlobStorageContext> blob_storage_context_;
+  scoped_refptr<FileSystemHostContext> file_system_host_context_;
 
   bool is_media_;
   bool is_off_the_record_;
@@ -291,6 +338,11 @@ class ChromeURLRequestContextGetter : public URLRequestContextGetter,
   // called on the UI thread.
   static ChromeURLRequestContextGetter* CreateOffTheRecord(Profile* profile);
 
+  // Create an instance for an OTR profile for extensions. This is expected
+  // to get called on UI thread.
+  static ChromeURLRequestContextGetter* CreateOffTheRecordForExtensions(
+      Profile* profile);
+
   // Clean up UI thread resources. This is expected to get called on the UI
   // thread before the instance is deleted on the IO thread.
   void CleanupOnUIThread();
@@ -331,8 +383,7 @@ class ChromeURLRequestContextGetter : public URLRequestContextGetter,
   void GetCookieStoreAsyncHelper(base::WaitableEvent* completion,
                                  net::CookieStore** result);
 
-  // Access only from the UI thread.
-  PrefService* prefs_;
+  PrefChangeRegistrar registrar_;
 
   // Deferred logic for creating a ChromeURLRequestContext.
   // Access only from the IO thread.
@@ -383,11 +434,14 @@ class ChromeURLRequestContextFactory {
   // user scripts.
   FilePath user_script_dir_path_;
   scoped_refptr<HostContentSettingsMap> host_content_settings_map_;
+  scoped_refptr<ChromeAppCacheService> appcache_service_;
   scoped_refptr<webkit_database::DatabaseTracker> database_tracker_;
   scoped_refptr<HostZoomMap> host_zoom_map_;
   scoped_refptr<net::TransportSecurityState> transport_security_state_;
   scoped_refptr<net::SSLConfigService> ssl_config_service_;
   scoped_refptr<net::CookieMonster::Delegate> cookie_monster_delegate_;
+  scoped_refptr<ChromeBlobStorageContext> blob_storage_context_;
+  scoped_refptr<FileSystemHostContext> file_system_host_context_;
 
   FilePath profile_dir_path_;
 

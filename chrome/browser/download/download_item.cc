@@ -4,21 +4,42 @@
 
 #include "chrome/browser/download/download_item.h"
 
+#include "app/l10n_util.h"
+#include "base/file_util.h"
 #include "base/logging.h"
 #include "base/timer.h"
+#include "base/utf_string_conversions.h"
+#include "net/base/net_util.h"
+#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/download/download_history.h"
 #include "chrome/browser/download/download_manager.h"
+#include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/download/download_util.h"
-#include "chrome/browser/history/download_types.h"
+#include "chrome/browser/history/download_create_info.h"
+#include "chrome/browser/platform_util.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/profile.h"
+#include "chrome/common/extensions/extension.h"
+#include "chrome/common/pref_names.h"
 
 namespace {
 
 // Update frequency (milliseconds).
 const int kUpdateTimeMs = 1000;
 
+void DeleteDownloadedFile(const FilePath& path) {
+  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+
+  // Make sure we only delete files.
+  if (!file_util::DirectoryExists(path))
+    file_util::Delete(path, false);
+}
+
 }  // namespace
 
 // Constructor for reading from the history service.
-DownloadItem::DownloadItem(const DownloadCreateInfo& info)
+DownloadItem::DownloadItem(DownloadManager* download_manager,
+                           const DownloadCreateInfo& info)
     : id_(-1),
       full_path_(info.path),
       url_(info.url),
@@ -31,7 +52,7 @@ DownloadItem::DownloadItem(const DownloadCreateInfo& info)
       state_(static_cast<DownloadState>(info.state)),
       start_time_(info.start_time),
       db_handle_(info.db_handle),
-      manager_(NULL),
+      download_manager_(download_manager),
       is_paused_(false),
       open_when_complete_(false),
       safety_state_(SAFE),
@@ -44,64 +65,82 @@ DownloadItem::DownloadItem(const DownloadCreateInfo& info)
       is_extension_install_(info.is_extension_install),
       name_finalized_(false),
       is_temporary_(false),
-      need_final_rename_(false) {
+      need_final_rename_(false),
+      opened_(false) {
   if (state_ == IN_PROGRESS)
     state_ = CANCELLED;
   Init(false /* don't start progress timer */);
 }
 
-// Constructor for DownloadItem created via user action in the main thread.
-DownloadItem::DownloadItem(int32 download_id,
-                           const FilePath& path,
-                           int path_uniquifier,
-                           const GURL& url,
-                           const GURL& referrer_url,
-                           const std::string& mime_type,
-                           const std::string& original_mime_type,
-                           const FilePath& original_name,
-                           const base::Time start_time,
-                           int64 download_size,
-                           int render_process_id,
-                           int request_id,
-                           bool is_dangerous,
-                           bool save_as,
-                           bool is_otr,
-                           bool is_extension_install,
-                           bool is_temporary)
-    : id_(download_id),
-      full_path_(path),
-      path_uniquifier_(path_uniquifier),
-      url_(url),
-      referrer_url_(referrer_url),
-      mime_type_(mime_type),
-      original_mime_type_(original_mime_type),
-      total_bytes_(download_size),
+// Constructing for a regular download:
+DownloadItem::DownloadItem(DownloadManager* download_manager,
+                           const DownloadCreateInfo& info,
+                           bool is_otr)
+    : id_(info.download_id),
+      full_path_(info.path),
+      path_uniquifier_(info.path_uniquifier),
+      url_(info.url),
+      referrer_url_(info.referrer_url),
+      mime_type_(info.mime_type),
+      original_mime_type_(info.original_mime_type),
+      total_bytes_(info.total_bytes),
       received_bytes_(0),
       start_tick_(base::TimeTicks::Now()),
       state_(IN_PROGRESS),
-      start_time_(start_time),
-      db_handle_(DownloadManager::kUninitializedHandle),
-      manager_(NULL),
+      start_time_(info.start_time),
+      db_handle_(DownloadHistory::kUninitializedHandle),
+      download_manager_(download_manager),
       is_paused_(false),
       open_when_complete_(false),
-      safety_state_(is_dangerous ? DANGEROUS : SAFE),
+      safety_state_(info.is_dangerous ? DANGEROUS : SAFE),
       auto_opened_(false),
-      original_name_(original_name),
-      render_process_id_(render_process_id),
-      request_id_(request_id),
-      save_as_(save_as),
+      original_name_(info.original_name),
+      render_process_id_(info.child_id),
+      request_id_(info.request_id),
+      save_as_(info.prompt_user_for_save_location),
       is_otr_(is_otr),
-      is_extension_install_(is_extension_install),
+      is_extension_install_(info.is_extension_install),
       name_finalized_(false),
-      is_temporary_(is_temporary),
-      need_final_rename_(false) {
+      is_temporary_(!info.save_info.file_path.empty()),
+      need_final_rename_(false),
+      opened_(false) {
   Init(true /* start progress timer */);
 }
 
-void DownloadItem::Init(bool start_timer) {
-  file_name_ = full_path_.BaseName();
-  if (start_timer)
-    StartProgressTimer();
+// Constructing for the "Save Page As..." feature:
+DownloadItem::DownloadItem(DownloadManager* download_manager,
+                           const FilePath& path,
+                           const GURL& url,
+                           bool is_otr)
+    : id_(1),
+      full_path_(path),
+      path_uniquifier_(0),
+      url_(url),
+      referrer_url_(GURL()),
+      mime_type_(std::string()),
+      original_mime_type_(std::string()),
+      total_bytes_(0),
+      received_bytes_(0),
+      start_tick_(base::TimeTicks::Now()),
+      state_(IN_PROGRESS),
+      start_time_(base::Time::Now()),
+      db_handle_(DownloadHistory::kUninitializedHandle),
+      download_manager_(download_manager),
+      is_paused_(false),
+      open_when_complete_(false),
+      safety_state_(SAFE),
+      auto_opened_(false),
+      original_name_(FilePath()),
+      render_process_id_(-1),
+      request_id_(-1),
+      save_as_(false),
+      is_otr_(is_otr),
+      is_extension_install_(false),
+      name_finalized_(false),
+      is_temporary_(false),
+      need_final_rename_(false),
+      opened_(false) {
+  Init(true /* start progress timer */);
 }
 
 DownloadItem::~DownloadItem() {
@@ -125,16 +164,82 @@ void DownloadItem::NotifyObserversDownloadFileCompleted() {
   FOR_EACH_OBSERVER(Observer, observers_, OnDownloadFileCompleted(this));
 }
 
-void DownloadItem::NotifyObserversDownloadOpened() {
-  FOR_EACH_OBSERVER(Observer, observers_, OnDownloadOpened(this));
+bool DownloadItem::CanOpenDownload() {
+  FilePath file_to_use = full_path();
+  if (!original_name().value().empty())
+    file_to_use = original_name();
+
+  return !Extension::IsExtension(file_to_use) &&
+      !download_util::IsExecutableFile(file_to_use);
 }
 
-// If we've received more data than we were expecting (bad server info?), revert
-// to 'unknown size mode'.
+bool DownloadItem::ShouldOpenFileBasedOnExtension() {
+  return download_manager_->ShouldOpenFileBasedOnExtension(full_path());
+}
+
+void DownloadItem::OpenFilesBasedOnExtension(bool open) {
+  DownloadPrefs* prefs = download_manager_->download_prefs();
+  if (open)
+    prefs->EnableAutoOpenBasedOnExtension(full_path());
+  else
+    prefs->DisableAutoOpenBasedOnExtension(full_path());
+}
+
+void DownloadItem::OpenDownload() {
+  if (state() == DownloadItem::IN_PROGRESS) {
+    open_when_complete_ = !open_when_complete_;
+  } else if (state() == DownloadItem::COMPLETE) {
+    opened_ = true;
+    FOR_EACH_OBSERVER(Observer, observers_, OnDownloadOpened(this));
+    if (is_extension_install()) {
+      download_util::OpenChromeExtension(download_manager_->profile(),
+                                         download_manager_,
+                                         *this);
+      return;
+    }
+#if defined(OS_MACOSX)
+    // Mac OS X requires opening downloads on the UI thread.
+    platform_util::OpenItem(full_path());
+#else
+    ChromeThread::PostTask(
+        ChromeThread::FILE, FROM_HERE,
+        NewRunnableFunction(&platform_util::OpenItem, full_path()));
+#endif
+  }
+}
+
+void DownloadItem::ShowDownloadInShell() {
+#if defined(OS_MACOSX)
+  // Mac needs to run this operation on the UI thread.
+  platform_util::ShowItemInFolder(full_path());
+#else
+  ChromeThread::PostTask(
+      ChromeThread::FILE, FROM_HERE,
+      NewRunnableFunction(&platform_util::ShowItemInFolder,
+                          full_path()));
+#endif
+}
+
+void DownloadItem::DangerousDownloadValidated() {
+  download_manager_->DangerousDownloadValidated(this);
+}
+
 void DownloadItem::UpdateSize(int64 bytes_so_far) {
   received_bytes_ = bytes_so_far;
+
+  // If we've received more data than we were expecting (bad server info?),
+  // revert to 'unknown size mode'.
   if (received_bytes_ > total_bytes_)
     total_bytes_ = 0;
+}
+
+void DownloadItem::StartProgressTimer() {
+  update_timer_.Start(base::TimeDelta::FromMilliseconds(kUpdateTimeMs), this,
+                      &DownloadItem::UpdateObservers);
+}
+
+void DownloadItem::StopProgressTimer() {
+  update_timer_.Stop();
 }
 
 // Updates from the download thread may have been posted while this download
@@ -159,31 +264,55 @@ void DownloadItem::Cancel(bool update_history) {
   UpdateObservers();
   StopProgressTimer();
   if (update_history)
-    manager_->DownloadCancelled(id_);
+    download_manager_->DownloadCancelled(id_);
 }
 
-void DownloadItem::Finished(int64 size) {
+void DownloadItem::OnAllDataSaved(int64 size) {
   state_ = COMPLETE;
   UpdateSize(size);
   StopProgressTimer();
 }
 
+void DownloadItem::Finished() {
+  // Handle chrome extensions explicitly and skip the shell execute.
+  if (is_extension_install()) {
+    download_util::OpenChromeExtension(download_manager_->profile(),
+                                       download_manager_,
+                                       *this);
+    auto_opened_ = true;
+  } else if (open_when_complete() ||
+             download_manager_->ShouldOpenFileBasedOnExtension(full_path()) ||
+             is_temporary()) {
+    // If the download is temporary, like in drag-and-drop, do not open it but
+    // we still need to set it auto-opened so that it can be removed from the
+    // download shelf.
+    if (!is_temporary())
+      OpenDownload();
+    auto_opened_ = true;
+  }
+
+  // Notify our observers that we are complete (the call to OnAllDataSaved()
+  // set the state to complete but did not notify).
+  UpdateObservers();
+
+  // The download file is meant to be completed if both the filename is
+  // finalized and the file data is downloaded. The ordering of these two
+  // actions is indeterministic. Thus, if the filename is not finalized yet,
+  // delay the notification.
+  if (name_finalized())
+    NotifyObserversDownloadFileCompleted();
+}
+
 void DownloadItem::Remove(bool delete_on_disk) {
   Cancel(true);
   state_ = REMOVING;
-  if (delete_on_disk)
-    manager_->DeleteDownload(full_path_);
-  manager_->RemoveDownload(db_handle_);
+  if (delete_on_disk) {
+    ChromeThread::PostTask(
+        ChromeThread::FILE, FROM_HERE,
+        NewRunnableFunction(&DeleteDownloadedFile, full_path_));
+  }
+  download_manager_->RemoveDownload(db_handle_);
   // We have now been deleted.
-}
-
-void DownloadItem::StartProgressTimer() {
-  update_timer_.Start(base::TimeDelta::FromMilliseconds(kUpdateTimeMs), this,
-                      &DownloadItem::UpdateObservers);
-}
-
-void DownloadItem::StopProgressTimer() {
-  update_timer_.Stop();
 }
 
 bool DownloadItem::TimeRemaining(base::TimeDelta* remaining) const {
@@ -220,9 +349,48 @@ void DownloadItem::Rename(const FilePath& full_path) {
 
 void DownloadItem::TogglePause() {
   DCHECK(state_ == IN_PROGRESS);
-  manager_->PauseDownload(id_, !is_paused_);
+  download_manager_->PauseDownload(id_, !is_paused_);
   is_paused_ = !is_paused_;
   UpdateObservers();
+}
+
+void DownloadItem::OnNameFinalized() {
+  name_finalized_ = true;
+
+  // The download file is meant to be completed if both the filename is
+  // finalized and the file data is downloaded. The ordering of these two
+  // actions is indeterministic. Thus, if we are still in downloading the
+  // file, delay the notification.
+  if (state() == DownloadItem::COMPLETE)
+    NotifyObserversDownloadFileCompleted();
+}
+
+bool DownloadItem::MatchesQuery(const string16& query) const {
+  if (query.empty())
+    return true;
+
+  DCHECK_EQ(query, l10n_util::ToLower(query));
+
+  string16 url_raw(l10n_util::ToLower(UTF8ToUTF16(url_.spec())));
+  if (url_raw.find(query) != string16::npos)
+    return true;
+
+  // TODO(phajdan.jr): write a test case for the following code.
+  // A good test case would be:
+  //   "/\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xbd\xa0\xe5\xa5\xbd",
+  //   L"/\x4f60\x597d\x4f60\x597d",
+  //   "/%E4%BD%A0%E5%A5%BD%E4%BD%A0%E5%A5%BD"
+  PrefService* prefs = download_manager_->profile()->GetPrefs();
+  std::string languages(prefs->GetString(prefs::kAcceptLanguages));
+  string16 url_formatted(l10n_util::ToLower(net::FormatUrl(url_, languages)));
+  if (url_formatted.find(query) != string16::npos)
+    return true;
+
+  string16 path(l10n_util::ToLower(WideToUTF16(full_path_.ToWStringHack())));
+  if (path.find(query) != std::wstring::npos)
+    return true;
+
+  return false;
 }
 
 FilePath DownloadItem::GetFileName() const {
@@ -234,4 +402,10 @@ FilePath DownloadItem::GetFileName() const {
     return name;
   }
   return original_name_;
+}
+
+void DownloadItem::Init(bool start_timer) {
+  file_name_ = full_path_.BaseName();
+  if (start_timer)
+    StartProgressTimer();
 }

@@ -17,6 +17,7 @@
 #include "base/registry.h"
 #include "base/scoped_comptr_win.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/installer/util/google_update_settings.h"
 #include "chrome/installer/util/google_update_constants.h"
 #include "chrome/installer/util/install_util.h"
@@ -112,10 +113,10 @@ void OpenExternal(const GURL& url) {
   RegKey key;
   std::wstring registry_path = ASCIIToWide(url.scheme()) +
                                L"\\shell\\open\\command";
-  key.Open(HKEY_CLASSES_ROOT, registry_path.c_str());
+  key.Open(HKEY_CLASSES_ROOT, registry_path.c_str(), KEY_READ);
   if (key.Valid()) {
     DWORD size = 0;
-    key.ReadValue(NULL, NULL, &size);
+    key.ReadValue(NULL, NULL, &size, NULL);
     if (size <= 2) {
       // ShellExecute crashes the process when the command is empty.
       // We check for "2" because it always returns the trailing NULL.
@@ -165,7 +166,7 @@ bool SimpleYesNoBox(gfx::NativeWindow parent,
       MB_YESNO | MB_ICONWARNING | MB_SETFOREGROUND) == IDYES;
 }
 
-string16 GetVersionStringModifier() {
+std::string GetVersionStringModifier() {
 #if defined(GOOGLE_CHROME_BUILD)
   FilePath module;
   string16 channel;
@@ -175,9 +176,9 @@ string16 GetVersionStringModifier() {
 
     GoogleUpdateSettings::GetChromeChannel(is_system_install, &channel);
   }
-  return channel;
+  return UTF16ToASCII(channel);
 #else
-  return string16();
+  return std::string();
 #endif
 }
 

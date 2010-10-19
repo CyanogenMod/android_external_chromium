@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_BROWSER_WINDOW_H_
 #define CHROME_BROWSER_BROWSER_WINDOW_H_
+#pragma once
 
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/common/content_settings_types.h"
@@ -19,7 +20,6 @@ class LocationBar;
 class Profile;
 class StatusBubble;
 class TabContents;
-class TabContentsContainer;
 class TemplateURL;
 #if !defined(OS_MACOSX)
 class ToolbarView;
@@ -60,6 +60,10 @@ class BrowserWindow {
   // state if necessary.
   virtual void Activate() = 0;
 
+  // Deactivates the window, making the next window in the Z order the active
+  // window.
+  virtual void Deactivate() = 0;
+
   // Returns true if the window is currently the active/focused window.
   virtual bool IsActive() const = 0;
 
@@ -83,17 +87,14 @@ class BrowserWindow {
   //             BrowserView.
   virtual void SelectedTabToolbarSizeChanged(bool is_animating) = 0;
 
-  // Notification for the Extension Shelf changing its size.
-  virtual void SelectedTabExtensionShelfSizeChanged() = 0;
-
   // Inform the frame that the selected tab favicon or title has changed. Some
   // frames may need to refresh their title bar.
   virtual void UpdateTitleBar() = 0;
 
-  // Invoked when the visibility of the bookmark bar or extension shelf changes.
-  // NOTE: this is NOT sent when the user toggles the visibility of one of
-  // these shelves, but rather when the user transitions from a page that forces
-  // the shelves to be visibile to one that doesn't have them visible (or
+  // Invoked when the visibility of the bookmark bar.
+  // NOTE: this is NOT sent when the user toggles the visibility of this,
+  // but rather when the user transitions from a page that forces
+  // it to be visibile to one that doesn't have it visible (or
   // vice-versa).
   // TODO(sky): see about routing visibility pref changing through here too.
   virtual void ShelfVisibilityChanged() = 0;
@@ -185,9 +186,6 @@ class BrowserWindow {
 
   // Shows or hides the bookmark bar depending on its current visibility.
   virtual void ToggleBookmarkBar() = 0;
-
-  // Shows or hides the extension shelf depending on its current visibility.
-  virtual void ToggleExtensionShelf() = 0;
 
   // Shows the About Chrome dialog box.
   virtual views::Window* ShowAboutChromeDialog() = 0;
@@ -309,6 +307,22 @@ class BrowserWindow {
   // Switches between available tabstrip display modes.
   virtual void ToggleTabStripMode() = 0;
 
+#if defined(OS_MACOSX)
+  // Opens the tabpose view.
+  virtual void OpenTabpose() = 0;
+#endif
+
+  // Invoked when the match preview's tab contents should be shown.
+  virtual void ShowMatchPreview() = 0;
+
+  // Invoked when the match preview's tab contents should be hidden.
+  virtual void HideMatchPreview() = 0;
+
+  // Returns the desired bounds for match preview in screen coordinates. Note
+  // that if match preview isn't currently visible this returns the bounds the
+  // match preview would be placed at.
+  virtual gfx::Rect GetMatchPreviewBounds() = 0;
+
   // Construct a BrowserWindow implementation for the specified |browser|.
   static BrowserWindow* CreateBrowserWindow(Browser* browser);
 
@@ -320,7 +334,7 @@ class BrowserWindow {
   friend class BrowserView;
   virtual void DestroyBrowser() = 0;
 
-  ~BrowserWindow() {}
+  virtual ~BrowserWindow() {}
 };
 
 #if defined(OS_WIN) || defined(TOOLKIT_VIEWS)
@@ -346,9 +360,15 @@ class BrowserWindowTesting {
   // Returns the TabContentsContainer.
   virtual views::View* GetTabContentsContainerView() const = 0;
 
+  // Returns the TabContentsContainer.
+  virtual views::View* GetSidebarContainerView() const = 0;
+
   // Returns the ToolbarView.
   virtual ToolbarView* GetToolbarView() const = 0;
 #endif
+
+ protected:
+  virtual ~BrowserWindowTesting() {}
 };
 
 #endif  // CHROME_BROWSER_BROWSER_WINDOW_H_

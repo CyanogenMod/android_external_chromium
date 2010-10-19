@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_MAC_H_
 #define CHROME_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_MAC_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/CALayer.h>
@@ -22,6 +23,7 @@
 #include "webkit/glue/webcursor.h"
 #include "webkit/glue/webmenuitem.h"
 
+@class AcceleratedPluginView;
 class RenderWidgetHostViewMac;
 class RWHVMEditCommandHelper;
 @class ToolTip;
@@ -60,9 +62,6 @@ class RWHVMEditCommandHelper;
   BOOL hasOpenMouseDown_;
 
   NSWindow* lastWindow_;  // weak
-
-  // The Core Animation layer, if any, hosting the accelerated plugins' output.
-  scoped_nsobject<CALayer> acceleratedPluginLayer_;
 
   // Variables used by our implementaion of the NSTextInput protocol.
   // An input method of Mac calls the methods of this protocol not only to
@@ -131,12 +130,6 @@ class RWHVMEditCommandHelper;
 - (void)setCanBeKeyView:(BOOL)can;
 - (void)setCloseOnDeactivate:(BOOL)b;
 - (void)setToolTipAtMousePoint:(NSString *)string;
-// Makes sure that the initial layer setup for accelerated plugin drawing has
-// been done. Can be called multiple times.
-- (void)ensureAcceleratedPluginLayer;
-// Triggers a refresh of the accelerated plugin layer; should be called whenever
-// the shared surface for one of the plugins is updated.
-- (void)drawAcceleratedPluginLayer;
 // Set frame, then notify the RenderWidgetHost that the frame has been changed,
 // but do it in a separate task, using |performSelector:withObject:afterDelay:|.
 // This stops the flickering issue in http://crbug.com/31970
@@ -181,6 +174,7 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   // Implementation of RenderWidgetHostView:
   virtual void InitAsPopup(RenderWidgetHostView* parent_host_view,
                            const gfx::Rect& pos);
+  virtual void InitAsFullscreen(RenderWidgetHostView* parent_host_view);
   virtual RenderWidgetHost* GetRenderWidgetHost() const;
   virtual void DidBecomeSelected();
   virtual void WasHidden();
@@ -207,6 +201,7 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   virtual void WillDestroyRenderWidget(RenderWidgetHost* rwh) {};
   virtual void Destroy();
   virtual void SetTooltipText(const std::wstring& tooltip_text);
+  virtual void SelectionChanged(const std::string& text);
   virtual BackingStore* AllocBackingStore(const gfx::Size& size);
   virtual VideoLayer* AllocVideoLayer(const gfx::Size& size);
   virtual void ShowPopupWithItems(gfx::Rect bounds,
@@ -224,10 +219,10 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   virtual bool ContainsNativeView(gfx::NativeView native_view) const;
   virtual void UpdateAccessibilityTree(
       const webkit_glue::WebAccessibility& tree);
-  virtual void OnAccessibilityFocusChange(int acc_obj_id);
-  virtual void OnAccessibilityObjectStateChange(int acc_obj_id);
-  // Methods associated with GPU-accelerated plug-in instances.
-  virtual gfx::PluginWindowHandle AllocateFakePluginWindowHandle(bool opaque);
+  // Methods associated with GPU-accelerated plug-in instances and the
+  // accelerated compositor.
+  virtual gfx::PluginWindowHandle AllocateFakePluginWindowHandle(bool opaque,
+                                                                 bool root);
   virtual void DestroyFakePluginWindowHandle(gfx::PluginWindowHandle window);
   virtual void AcceleratedSurfaceSetIOSurface(gfx::PluginWindowHandle window,
                                               int32 width,
@@ -239,10 +234,14 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
       int32 height,
       TransportDIB::Handle transport_dib);
   virtual void AcceleratedSurfaceBuffersSwapped(gfx::PluginWindowHandle window);
-  // Draws the current GPU-accelerated plug-in instances into the given context.
-  virtual void DrawAcceleratedSurfaceInstances(CGLContextObj context);
-  // Informs the plug-in instances that their drawing context has changed.
-  virtual void AcceleratedSurfaceContextChanged();
+  virtual void GpuRenderingStateDidChange();
+  void DrawAcceleratedSurfaceInstance(
+      CGLContextObj context,
+      gfx::PluginWindowHandle plugin_handle,
+      NSSize size);
+  // Forces the textures associated with any accelerated plugin instances
+  // to be reloaded.
+  void ForceTextureReload();
 
   virtual void SetVisuallyDeemphasized(bool deemphasized);
 
@@ -251,6 +250,8 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   void set_parent_view(NSView* parent_view) { parent_view_ = parent_view; }
 
   void SetTextInputActive(bool active);
+
+  const std::string& selected_text() const { return selected_text_; }
 
   // These member variables should be private, but the associated ObjC class
   // needs access to them and can't be made a friend.
@@ -284,6 +285,13 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   // Current text input type.
   WebKit::WebTextInputType text_input_type_;
 
+  typedef std::map<gfx::PluginWindowHandle, AcceleratedPluginView*>
+      PluginViewMap;
+  PluginViewMap plugin_views_;  // Weak values.
+
+  // Helper class for managing instances of accelerated plug-ins.
+  AcceleratedSurfaceContainerManagerMac plugin_container_manager_;
+
  private:
   // Updates the display cursor to the current cursor if the cursor is over this
   // render view.
@@ -292,6 +300,9 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   // Shuts down the render_widget_host_.  This is a separate function so we can
   // invoke it from the message loop.
   void ShutdownHost();
+
+  // Used to determine whether or not to enable accessibility.
+  bool IsVoiceOverRunning();
 
   // The associated view. This is weak and is inserted into the view hierarchy
   // to own this RenderWidgetHostViewMac object unless is_popup_menu_ is true.
@@ -323,11 +334,11 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   // Used for positioning a popup menu.
   NSView* parent_view_;
 
-  // Helper class for managing instances of accelerated plug-ins.
-  AcceleratedSurfaceContainerManagerMac plugin_container_manager_;
-
   // Whether or not web accessibility is enabled.
   bool renderer_accessible_;
+
+  // selected text on the renderer.
+  std::string selected_text_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostViewMac);
 };

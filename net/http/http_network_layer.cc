@@ -6,12 +6,12 @@
 
 #include "base/field_trial.h"
 #include "base/logging.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 #include "net/http/http_network_session.h"
 #include "net/http/http_network_transaction.h"
 #include "net/socket/client_socket_factory.h"
 #include "net/spdy/spdy_framer.h"
-#include "net/spdy/spdy_network_transaction.h"
 #include "net/spdy/spdy_session.h"
 #include "net/spdy/spdy_session_pool.h"
 
@@ -45,8 +45,6 @@ HttpTransactionFactory* HttpNetworkLayer::CreateFactory(
 }
 
 //-----------------------------------------------------------------------------
-bool HttpNetworkLayer::force_spdy_ = false;
-
 HttpNetworkLayer::HttpNetworkLayer(
     ClientSocketFactory* socket_factory,
     HostResolver* host_resolver,
@@ -61,6 +59,29 @@ HttpNetworkLayer::HttpNetworkLayer(
       ssl_config_service_(ssl_config_service),
       session_(NULL),
       spdy_session_pool_(NULL),
+      http_auth_handler_factory_(http_auth_handler_factory),
+      network_delegate_(network_delegate),
+      net_log_(net_log),
+      suspended_(false) {
+  DCHECK(proxy_service_);
+  DCHECK(ssl_config_service_.get());
+}
+
+HttpNetworkLayer::HttpNetworkLayer(
+    ClientSocketFactory* socket_factory,
+    HostResolver* host_resolver,
+    ProxyService* proxy_service,
+    SSLConfigService* ssl_config_service,
+    SpdySessionPool* spdy_session_pool,
+    HttpAuthHandlerFactory* http_auth_handler_factory,
+    HttpNetworkDelegate* network_delegate,
+    NetLog* net_log)
+    : socket_factory_(socket_factory),
+      host_resolver_(host_resolver),
+      proxy_service_(proxy_service),
+      ssl_config_service_(ssl_config_service),
+      session_(NULL),
+      spdy_session_pool_(spdy_session_pool),
       http_auth_handler_factory_(http_auth_handler_factory),
       network_delegate_(network_delegate),
       net_log_(net_log),
@@ -88,10 +109,7 @@ int HttpNetworkLayer::CreateTransaction(scoped_ptr<HttpTransaction>* trans) {
   if (suspended_)
     return ERR_NETWORK_IO_SUSPENDED;
 
-  if (force_spdy_)
-    trans->reset(new SpdyNetworkTransaction(GetSession()));
-  else
-    trans->reset(new HttpNetworkTransaction(GetSession()));
+  trans->reset(new HttpNetworkTransaction(GetSession()));
   return OK;
 }
 
@@ -109,7 +127,7 @@ void HttpNetworkLayer::Suspend(bool suspend) {
 HttpNetworkSession* HttpNetworkLayer::GetSession() {
   if (!session_) {
     DCHECK(proxy_service_);
-    SpdySessionPool* spdy_pool = new SpdySessionPool();
+    SpdySessionPool* spdy_pool = new SpdySessionPool(ssl_config_service_);
     session_ = new HttpNetworkSession(host_resolver_, proxy_service_,
         socket_factory_, ssl_config_service_, spdy_pool,
         http_auth_handler_factory_, network_delegate_, net_log_);
@@ -126,9 +144,18 @@ HttpNetworkSession* HttpNetworkLayer::GetSession() {
 
 // static
 void HttpNetworkLayer::EnableSpdy(const std::string& mode) {
+  static const char kSSL[] = "ssl";
   static const char kDisableSSL[] = "no-ssl";
   static const char kDisableCompression[] = "no-compress";
   static const char kDisableAltProtocols[] = "no-alt-protocols";
+  static const char kEnableVersionOne[] = "v1";
+  static const char kForceAltProtocols[] = "force-alt-protocols";
+
+  // If flow-control is enabled, received WINDOW_UPDATE and SETTINGS
+  // messages are processed and outstanding window size is actually obeyed
+  // when sending data frames, and WINDOW_UPDATE messages are generated
+  // when data is consumed.
+  static const char kEnableFlowControl[] = "flow-control";
 
   // We want an A/B experiment between SPDY enabled and SPDY disabled,
   // but only for pages where SPDY *could have been* negotiated.  To do
@@ -146,16 +173,14 @@ void HttpNetworkLayer::EnableSpdy(const std::string& mode) {
   // will choose the first overlapping protocol in the server's list, since
   // it presumedly has a better understanding of which protocol we should
   // use, therefore the rest of the ordering here is not important.
-  static const char kNpnProtosFull[] =
-      "\x08http/1.1\x07http1.1\x06spdy/1\x04spdy";
+  static const char kNpnProtosFull[] = "\x08http/1.1\x06spdy/2";
+  // This is a temporary hack to pretend we support version 1.
+  static const char kNpnProtosFullV1[] = "\x08http/1.1\x06spdy/1";
   // No spdy specified.
   static const char kNpnProtosHttpOnly[] = "\x08http/1.1\x07http1.1";
 
   std::vector<std::string> spdy_options;
   SplitString(mode, ',', &spdy_options);
-
-  // Force spdy mode (use SpdyNetworkTransaction for all http requests).
-  force_spdy_ = true;
 
   bool use_alt_protocols = true;
 
@@ -164,21 +189,34 @@ void HttpNetworkLayer::EnableSpdy(const std::string& mode) {
     const std::string& option = *it;
     if (option == kDisableSSL) {
       SpdySession::SetSSLMode(false);  // Disable SSL
+      HttpStreamFactory::set_force_spdy_over_ssl(false);
+      HttpStreamFactory::set_force_spdy_always(true);
+    } else if (option == kSSL) {
+      HttpStreamFactory::set_force_spdy_over_ssl(true);
+      HttpStreamFactory::set_force_spdy_always(true);
     } else if (option == kDisableCompression) {
       spdy::SpdyFramer::set_enable_compression_default(false);
     } else if (option == kEnableNPN) {
-      HttpNetworkTransaction::SetUseAlternateProtocols(use_alt_protocols);
-      HttpNetworkTransaction::SetNextProtos(kNpnProtosFull);
-      force_spdy_ = false;
+      HttpStreamFactory::set_use_alternate_protocols(use_alt_protocols);
+      HttpStreamFactory::set_next_protos(kNpnProtosFull);
     } else if (option == kEnableNpnHttpOnly) {
       // Avoid alternate protocol in this case. Otherwise, browser will try SSL
       // and then fallback to http. This introduces extra load.
-      HttpNetworkTransaction::SetUseAlternateProtocols(false);
-      HttpNetworkTransaction::SetNextProtos(kNpnProtosHttpOnly);
-      force_spdy_ = false;
+      HttpStreamFactory::set_use_alternate_protocols(false);
+      HttpStreamFactory::set_next_protos(kNpnProtosHttpOnly);
+    } else if (option == kEnableVersionOne) {
+      spdy::SpdyFramer::set_protocol_version(1);
+      HttpStreamFactory::set_next_protos(kNpnProtosFullV1);
     } else if (option == kDisableAltProtocols) {
       use_alt_protocols = false;
-      HttpNetworkTransaction::SetUseAlternateProtocols(false);
+      HttpStreamFactory::set_use_alternate_protocols(false);
+    } else if (option == kEnableFlowControl) {
+      SpdySession::set_flow_control(true);
+    } else if (option == kForceAltProtocols) {
+      HttpAlternateProtocols::PortProtocolPair pair;
+      pair.port = 443;
+      pair.protocol = HttpAlternateProtocols::NPN_SPDY_2;
+      HttpAlternateProtocols::ForceAlternateProtocol(pair);
     } else if (option.empty() && it == spdy_options.begin()) {
       continue;
     } else {
@@ -186,5 +224,4 @@ void HttpNetworkLayer::EnableSpdy(const std::string& mode) {
     }
   }
 }
-
 }  // namespace net

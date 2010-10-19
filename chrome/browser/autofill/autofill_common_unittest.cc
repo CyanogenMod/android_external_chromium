@@ -4,6 +4,7 @@
 
 #include "chrome/browser/autofill/autofill_common_unittest.h"
 
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/credit_card.h"
 #include "webkit/glue/form_field.h"
@@ -31,7 +32,9 @@ void SetProfileInfo(AutoFillProfile* profile,
     const char* address1, const char* address2, const char* city,
     const char* state, const char* zipcode, const char* country,
     const char* phone, const char* fax) {
-  profile->set_label(ASCIIToUTF16(label));
+  // TODO(jhawkins): Remove |label|.
+  if (label)
+    profile->set_label(ASCIIToUTF16(label));
   check_and_set(profile, NAME_FIRST, first_name);
   check_and_set(profile, NAME_MIDDLE, middle_name);
   check_and_set(profile, NAME_LAST, last_name);
@@ -50,15 +53,14 @@ void SetProfileInfo(AutoFillProfile* profile,
 void SetCreditCardInfo(CreditCard* credit_card,
     const char* label, const char* name_on_card, const char* type,
     const char* card_number, const char* expiration_month,
-    const char* expiration_year, const char* billing_address) {
+    const char* expiration_year, int billing_address_id) {
   credit_card->set_label(ASCIIToUTF16(label));
   check_and_set(credit_card, CREDIT_CARD_NAME, name_on_card);
   check_and_set(credit_card, CREDIT_CARD_TYPE, type);
   check_and_set(credit_card, CREDIT_CARD_NUMBER, card_number);
   check_and_set(credit_card, CREDIT_CARD_EXP_MONTH, expiration_month);
   check_and_set(credit_card, CREDIT_CARD_EXP_4_DIGIT_YEAR, expiration_year);
-  if (billing_address)
-    credit_card->set_billing_address(ASCIIToUTF16(billing_address));
+  credit_card->set_billing_address_id(billing_address_id);
 }
 
 }  // namespace autofill_unittest

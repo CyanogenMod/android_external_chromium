@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_UPDATER_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_UPDATER_H_
+#pragma once
 
 #include <deque>
 #include <map>
@@ -110,7 +111,7 @@ class ManifestFetchesBuilder {
   void AddExtensionData(Extension::Location location,
                         const std::string& id,
                         const Version& version,
-                        bool is_theme,
+                        PendingExtensionInfo::ExpectedCrxType crx_type,
                         GURL update_url);
 
   ExtensionUpdateService* service_;

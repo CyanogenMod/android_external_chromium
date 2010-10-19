@@ -7,15 +7,15 @@
 
 #ifndef CHROME_BROWSER_GTK_OPTIONS_FONTS_PAGE_GTK_H_
 #define CHROME_BROWSER_GTK_OPTIONS_FONTS_PAGE_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
-#include <vector>
 
 #include "app/gtk_signal.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/character_encoding.h"
-#include "chrome/browser/pref_member.h"
 #include "chrome/browser/options_page_base.h"
+#include "chrome/browser/prefs/pref_member.h"
 
 class DefaultEncodingComboboxModel;
 
@@ -31,7 +31,7 @@ class FontsPageGtk : public OptionsPageBase {
   void InitDefaultEncodingComboBox();
 
   // Overridden from OptionsPageBase.
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
 
   // Retrieve the font selection from the button and save it to the prefs.  Also
   // ensure the button(s) are displayed in the proper size, as the

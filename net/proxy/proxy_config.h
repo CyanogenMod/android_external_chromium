@@ -1,17 +1,18 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef NET_PROXY_PROXY_CONFIG_H_
 #define NET_PROXY_PROXY_CONFIG_H_
+#pragma once
 
-#include <ostream>
 #include <string>
-#include <vector>
 
 #include "googleurl/src/gurl.h"
 #include "net/proxy/proxy_bypass_rules.h"
 #include "net/proxy/proxy_server.h"
+
+class Value;
 
 namespace net {
 
@@ -41,7 +42,8 @@ class ProxyConfig {
 
     // Note that the default of TYPE_NO_RULES results in direct connections
     // being made when using this ProxyConfig.
-    ProxyRules() : reverse_bypass(false), type(TYPE_NO_RULES) {}
+    ProxyRules();
+    ~ProxyRules();
 
     bool empty() const {
       return type == TYPE_NO_RULES;
@@ -69,9 +71,7 @@ class ProxyConfig {
     void ParseFromString(const std::string& proxy_rules);
 
     // Returns one of {&proxy_for_http, &proxy_for_https, &proxy_for_ftp,
-    // &socks_proxy}, or NULL if it is a scheme that we don't have a mapping
-    // for. If the scheme mapping is not present and socks_proxy is defined,
-    // we fall back to using socks_proxy.
+    // &fallback_proxy}, or NULL if there is no proxy to use.
     // Should only call this if the type is TYPE_PROXY_PER_SCHEME.
     const ProxyServer* MapUrlSchemeToProxy(const std::string& url_scheme) const;
 
@@ -94,14 +94,14 @@ class ProxyConfig {
     ProxyServer proxy_for_https;
     ProxyServer proxy_for_ftp;
 
-    // Set if the configuration has a SOCKS proxy fallback.
-    ProxyServer socks_proxy;
+    // Used when there isn't a more specific per-scheme proxy server.
+    ProxyServer fallback_proxy;
 
    private:
-    // Returns one of {&proxy_for_http, &proxy_for_https, &proxy_for_ftp,
-    // &socks_proxy}, or NULL if it is a scheme that we don't have a mapping
+    // Returns one of {&proxy_for_http, &proxy_for_https, &proxy_for_ftp}
+    // or NULL if it is a scheme that we don't have a mapping
     // for. Should only call this if the type is TYPE_PROXY_PER_SCHEME.
-    ProxyServer* MapSchemeToProxy(const std::string& scheme);
+    ProxyServer* MapUrlSchemeToProxyNoFallback(const std::string& scheme);
   };
 
   typedef int ID;
@@ -110,18 +110,27 @@ class ProxyConfig {
   enum { INVALID_ID = 0 };
 
   ProxyConfig();
+  ProxyConfig(const ProxyConfig& config);
+  ~ProxyConfig();
+  ProxyConfig& operator=(const ProxyConfig& config);
 
   // Used to numerically identify this configuration.
   ID id() const { return id_; }
   void set_id(int id) { id_ = id; }
-  bool is_valid() { return id_ != INVALID_ID; }
+  bool is_valid() const { return id_ != INVALID_ID; }
 
   // Returns true if the given config is equivalent to this config.
   bool Equals(const ProxyConfig& other) const;
 
-  // Returns true if this config could possibly require the proxy service to
-  // use a PAC resolver.
-  bool MayRequirePACResolver() const;
+  // Returns true if this config contains any "automatic" settings. See the
+  // class description for what that means.
+  bool HasAutomaticSettings() const;
+
+  void ClearAutomaticSettings();
+
+  // Creates a Value dump of this configuration. The caller is responsible for
+  // deleting the returned value.
+  Value* ToValue() const;
 
   ProxyRules& proxy_rules() {
     return proxy_rules_;
@@ -184,13 +193,6 @@ class ProxyConfig {
 
 }  // namespace net
 
-// Dumps a human-readable string representation of the configuration to |out|;
-// used when logging the configuration changes.
-std::ostream& operator<<(std::ostream& out, const net::ProxyConfig& config);
 
-// Dumps a human-readable string representation of the |rules| to |out|;
-// used for logging and for better unittest failure output.
-std::ostream& operator<<(std::ostream& out,
-                         const net::ProxyConfig::ProxyRules& rules);
 
 #endif  // NET_PROXY_PROXY_CONFIG_H_

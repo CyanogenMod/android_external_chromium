@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -48,7 +48,7 @@
     [self setBookmarkNode:node];
 
     if (node) {
-      NSString* title = base::SysWideToNSString(node->GetTitle());
+      NSString* title = base::SysUTF16ToNSString(node->GetTitle());
       [self setBookmarkCellText:title image:cellImage];
       [self setMenu:contextMenu];
     } else {
@@ -180,6 +180,8 @@
 // To implement "hover open a bookmark button to open the folder"
 // which feels like menus, we override NSButtonCell's mouseEntered:
 // and mouseExited:, then and pass them along to our owning control.
+// Note: as verified in a debugger, mouseEntered: does NOT increase
+// the retainCount of the cell or its owning control.
 - (void)mouseEntered:(NSEvent*)event {
   [super mouseEntered:event];
   [[self controlView] mouseEntered:event];
@@ -187,8 +189,8 @@
 
 // See comment above mouseEntered:, above.
 - (void)mouseExited:(NSEvent*)event {
-  [super mouseExited:event];
   [[self controlView] mouseExited:event];
+  [super mouseExited:event];
 }
 
 - (void)setDrawFolderArrow:(BOOL)draw {

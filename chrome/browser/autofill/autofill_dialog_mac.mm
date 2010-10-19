@@ -4,7 +4,7 @@
 
 #import "chrome/browser/autofill/autofill_dialog_controller_mac.h"
 #include "chrome/browser/autofill/autofill_dialog.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/pref_names.h"
 
@@ -13,10 +13,7 @@
 void ShowAutoFillDialog(gfx::NativeView parent,
                         AutoFillDialogObserver* observer,
                         Profile* profile) {
-  // TODO: get rid of imported profile and credit card.
   [AutoFillDialogController
       showAutoFillDialogWithObserver:observer
-                             profile:profile
-                     importedProfile:NULL
-                  importedCreditCard:NULL];
+                             profile:profile];
 }

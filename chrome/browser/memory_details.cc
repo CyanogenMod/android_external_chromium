@@ -4,10 +4,10 @@
 
 #include "chrome/browser/memory_details.h"
 
-#include "app/l10n_util.h"
 #include "base/file_version_info.h"
 #include "base/histogram.h"
 #include "base/process_util.h"
+#include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/chrome_thread.h"
@@ -218,6 +218,9 @@ void MemoryDetails::UpdateHistograms() {
         break;
       case ChildProcessInfo::NACL_BROKER_PROCESS:
         UMA_HISTOGRAM_MEMORY_KB("Memory.NativeClientBroker", sample);
+        break;
+      case ChildProcessInfo::GPU_PROCESS:
+        UMA_HISTOGRAM_MEMORY_KB("Memory.Gpu", sample);
         break;
       default:
         NOTREACHED();

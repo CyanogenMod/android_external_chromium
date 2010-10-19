@@ -4,21 +4,19 @@
 
 #ifndef NET_HTTP_HTTP_AUTH_GSSAPI_POSIX_H_
 #define NET_HTTP_HTTP_AUTH_GSSAPI_POSIX_H_
+#pragma once
 
 #include <string>
 
 #include "base/gtest_prod_util.h"
 #include "base/native_library.h"
+#include "base/string16.h"
 #include "net/http/http_auth.h"
 
 #define GSS_USE_FUNCTION_POINTERS
 #include "net/third_party/gssapi/gssapi.h"
 
-class GURL;
-
 namespace net {
-
-class HttpRequestInfo;
 
 extern gss_OID CHROME_GSS_C_NT_HOSTBASED_SERVICE_X;
 extern gss_OID CHROME_GSS_C_NT_HOSTBASED_SERVICE;
@@ -200,10 +198,10 @@ class GSSAPISharedLibrary : public GSSAPILibrary {
 // scope.
 class ScopedSecurityContext {
  public:
-  ScopedSecurityContext(GSSAPILibrary* gssapi_lib);
+  explicit ScopedSecurityContext(GSSAPILibrary* gssapi_lib);
   ~ScopedSecurityContext();
 
-  const gss_ctx_id_t get() const { return security_context_; }
+  gss_ctx_id_t get() const { return security_context_; }
   gss_ctx_id_t* receive() { return &security_context_; }
 
  private:
@@ -225,9 +223,9 @@ class HttpAuthGSSAPI {
   bool Init();
 
   bool NeedsIdentity() const;
-  bool IsFinalRound() const;
 
-  bool ParseChallenge(HttpAuth::ChallengeTokenizer* tok);
+  HttpAuth::AuthorizationResult ParseChallenge(
+      HttpAuth::ChallengeTokenizer* tok);
 
   // Generates an authentication token.
   // The return value is an error code. If it's not |OK|, the value of
@@ -237,25 +235,27 @@ class HttpAuthGSSAPI {
   // If this is the first round of a multiple round scheme, credentials are
   // obtained using |*username| and |*password|. If |username| and |password|
   // are NULL, the default credentials are used instead.
-  int GenerateAuthToken(const std::wstring* username,
-                        const std::wstring* password,
+  int GenerateAuthToken(const string16* username,
+                        const string16* password,
                         const std::wstring& spn,
                         std::string* auth_token);
 
+  // Delegation is allowed on the Kerberos ticket. This allows certain servers
+  // to act as the user, such as an IIS server retrieiving data from a
+  // Kerberized MSSQL server.
+  void Delegate();
+
  private:
-  int OnFirstRound(const std::wstring* username,
-                   const std::wstring* password);
   int GetNextSecurityToken(const std::wstring& spn,
                            gss_buffer_t in_token,
                            gss_buffer_t out_token);
 
   std::string scheme_;
-  std::wstring username_;
-  std::wstring password_;
   gss_OID gss_oid_;
   GSSAPILibrary* library_;
   std::string decoded_server_auth_token_;
   ScopedSecurityContext scoped_sec_context_;
+  bool can_delegate_;
 };
 
 }  // namespace net

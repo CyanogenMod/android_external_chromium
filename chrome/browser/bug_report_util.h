@@ -4,16 +4,15 @@
 
 #ifndef CHROME_BROWSER_BUG_REPORT_UTIL_H_
 #define CHROME_BROWSER_BUG_REPORT_UTIL_H_
+#pragma once
 
 #include <string>
-#include <vector>
 
 #include "base/basictypes.h"
 #if defined(OS_MACOSX)
 #include "base/mac_util.h"
 #include "base/sys_info.h"
 #endif
-#include "base/scoped_ptr.h"
 #include "chrome/browser/userfeedback/proto/common.pb.h"
 #include "chrome/browser/userfeedback/proto/extension.pb.h"
 #include "chrome/browser/userfeedback/proto/math.pb.h"
@@ -64,19 +63,21 @@ class BugReportUtil {
   //     all the call sites or making it a wrapper around another util.
   static void SetOSVersion(std::string *os_version);
 
+  // This sets the address of the feedback server to be used by SendReport
+  static void SetFeedbackServer(const std::string& server);
+
   // Generates bug report data.
   static void SendReport(Profile* profile,
       const std::string& page_title_text,
       int problem_type,
       const std::string& page_url_text,
-      const std::string& user_email_text,
       const std::string& description,
       const char* png_data,
       int png_data_length,
       int png_width,
 #if defined(OS_CHROMEOS)
       int png_height,
-      const std::string& problem_type_text,
+      const std::string& user_email_text,
       const chromeos::LogDictionaryType* const sys_info);
 #else
       int png_height);
@@ -93,6 +94,8 @@ class BugReportUtil {
   static void AddFeedbackData(
       userfeedback::ExternalExtensionSubmit* feedback_data,
       const std::string& key, const std::string& value);
+
+  static std::string feedback_server_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(BugReportUtil);
 };

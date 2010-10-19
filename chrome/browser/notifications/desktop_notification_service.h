@@ -4,11 +4,14 @@
 
 #ifndef CHROME_BROWSER_NOTIFICATIONS_DESKTOP_NOTIFICATION_SERVICE_H_
 #define CHROME_BROWSER_NOTIFICATIONS_DESKTOP_NOTIFICATION_SERVICE_H_
+#pragma once
 
-#include <set>
+#include <vector>
 
 #include "base/basictypes.h"
+#include "base/string16.h"
 #include "chrome/browser/notifications/notification.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/content_settings.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
@@ -85,6 +88,9 @@ class DesktopNotificationService : public NotificationObserver {
   ContentSetting GetDefaultContentSetting();
   void SetDefaultContentSetting(ContentSetting setting);
 
+  // NOTE: This should only be called on the UI thread.
+  void ResetToDefaultContentSetting();
+
   // Returns all origins that explicitly have been allowed.
   std::vector<GURL> GetAllowedOrigins();
 
@@ -101,6 +107,7 @@ class DesktopNotificationService : public NotificationObserver {
   void ResetAllOrigins();
 
   static void RegisterUserPrefs(PrefService* user_prefs);
+
  private:
   void InitPrefs();
   void StartObserving();
@@ -115,7 +122,7 @@ class DesktopNotificationService : public NotificationObserver {
   // Returns a display name for an origin, to be used in permission infobar
   // or on the frame of the notification toast.  Different from the origin
   // itself when dealing with extensions.
-  std::wstring DisplayNameForOrigin(const GURL& origin);
+  string16 DisplayNameForOrigin(const GURL& origin);
 
   ContentSetting GetContentSetting(const GURL& origin);
 
@@ -129,6 +136,8 @@ class DesktopNotificationService : public NotificationObserver {
   // Non-owned pointer to the notification manager which manages the
   // UI for desktop toasts.
   NotificationUIManager* ui_manager_;
+
+  PrefChangeRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(DesktopNotificationService);
 };

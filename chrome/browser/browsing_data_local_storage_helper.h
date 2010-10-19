@@ -4,8 +4,10 @@
 
 #ifndef CHROME_BROWSER_BROWSING_DATA_LOCAL_STORAGE_HELPER_H_
 #define CHROME_BROWSER_BROWSING_DATA_LOCAL_STORAGE_HELPER_H_
+#pragma once
 
 #include <string>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/file_path.h"
@@ -119,6 +121,9 @@ class CannedBrowsingDataLocalStorageHelper
 
   // Clear the list of canned local storages.
   void Reset();
+
+  // True if no local storages are currently stored.
+  bool empty() const;
 
   // BrowsingDataLocalStorageHelper methods.
   virtual void StartFetching(

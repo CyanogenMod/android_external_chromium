@@ -13,6 +13,7 @@
 #include "base/sys_info.h"
 #endif
 #include "base/sys_string_conversions.h"
+#include "base/utf_string_conversions.h"
 #include "net/base/net_util.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebBindings.h"
 #include "webkit/glue/webkit_glue.h"
@@ -449,7 +450,7 @@ static NPError PostURLNotify(NPP id,
           base::SysNativeMBToWide(file_path_ascii));
     }
 
-    file_util::FileInfo post_file_info = {0};
+    base::PlatformFileInfo post_file_info = {0};
     if (!file_util::GetFileInfo(file_path, &post_file_info) ||
         post_file_info.is_directory)
       return NPERR_FILE_NOT_FOUND;

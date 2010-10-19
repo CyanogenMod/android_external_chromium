@@ -4,8 +4,10 @@
 
 #ifndef CHROME_BROWSER_VIEWS_TAB_CONTENTS_TAB_CONTENTS_CONTAINER_H_
 #define CHROME_BROWSER_VIEWS_TAB_CONTENTS_TAB_CONTENTS_CONTAINER_H_
+#pragma once
 
 #include "chrome/browser/views/tab_contents/native_tab_contents_container.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "views/view.h"
 
@@ -41,7 +43,7 @@ class TabContentsContainer : public views::View,
 
   // Overridden from views::View:
   virtual void Layout();
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
 
  protected:
   // Overridden from views::View:

@@ -7,12 +7,14 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "chrome/browser/chromeos/login/helper.h"
+#include "chrome/browser/chromeos/login/rounded_rect_painter.h"
 #include "grit/generated_resources.h"
+#include "grit/theme_resources.h"
 #include "views/controls/button/menu_button.h"
 #include "views/controls/button/text_button.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
-#include "views/controls/menu/menu_2.h"
+#include "views/controls/link.h"
 #include "views/controls/throbber.h"
 
 namespace {
@@ -20,28 +22,25 @@ namespace {
 // Background color of the login status label and signout button.
 const SkColor kSignoutBackgroundColor = 0xFF007700;
 
-// Left margin to the "Active User" text.
-const int kSignoutLeftOffset = 10;
+// Horiz/Vert insets for Signout view.
+const int kSignoutViewHorizontalInsets = 10;
+const int kSignoutViewVerticalInsets = 5;
 
-// Padding between menu button and left right image corner.
-const int kMenuButtonPadding = 4;
-
-const int kIdRemove = 1;
-const int kIdChangePhoto = 2;
+// Padding between remove button and top right image corner.
+const int kRemoveButtonPadding = 3;
 
 }  // namespace
 
 namespace chromeos {
 
 using login::kBackgroundColor;
-using login::kBorderSize;
 using login::kTextColor;
 using login::kUserImageSize;
 
 // The view that shows the Sign out button below the user's image.
 class SignoutView : public views::View {
  public:
-  explicit SignoutView(views::ButtonListener* listener) {
+  explicit SignoutView(views::LinkController* link_controller) {
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();
     const gfx::Font& font = rb.GetFont(ResourceBundle::SmallFont);
 
@@ -50,16 +49,15 @@ class SignoutView : public views::View {
     active_user_label_->SetFont(font);
     active_user_label_->SetColor(kTextColor);
 
-    signout_button_ = new views::TextButton(
-        listener, l10n_util::GetString(IDS_SCREEN_LOCK_SIGN_OUT));
-    signout_button_->SetFont(font);
-    signout_button_->SetEnabledColor(kTextColor);
-    signout_button_->SetNormalHasBorder(false);
-    signout_button_->set_tag(login::SIGN_OUT);
-    signout_button_->SetFocusable(true);
+    signout_link_ = new views::Link(
+        l10n_util::GetString(IDS_SCREEN_LOCK_SIGN_OUT));
+    signout_link_->SetController(link_controller);
+    signout_link_->SetFont(font);
+    signout_link_->SetColor(kTextColor);
+    signout_link_->SetFocusable(true);
 
     AddChildView(active_user_label_);
-    AddChildView(signout_button_);
+    AddChildView(signout_link_);
 
     set_background(views::Background::CreateSolidBackground(
         kSignoutBackgroundColor));
@@ -68,51 +66,133 @@ class SignoutView : public views::View {
   // views::View overrides.
   virtual void Layout() {
     gfx::Size label = active_user_label_->GetPreferredSize();
-    gfx::Size button = signout_button_->GetPreferredSize();
-    active_user_label_->SetBounds(kSignoutLeftOffset,
-                                  (height() - label.height()) / 2,
-                                  label.width(), label.height());
-    signout_button_->SetBounds(
-        width() - button.width(), (height() - button.height()) / 2,
+    gfx::Size button = signout_link_->GetPreferredSize();
+    active_user_label_->SetBounds(
+        kSignoutViewHorizontalInsets, (height() - label.height()) / 2,
+        label.width(), label.height());
+    signout_link_->SetBounds(
+        width() - button.width() - kSignoutViewHorizontalInsets,
+        (height() - button.height()) / 2,
         button.width(), button.height());
   }
 
   virtual gfx::Size GetPreferredSize() {
     gfx::Size label = active_user_label_->GetPreferredSize();
-    gfx::Size button = signout_button_->GetPreferredSize();
+    gfx::Size button = signout_link_->GetPreferredSize();
     return gfx::Size(label.width() + button.width(),
-                     std::max(label.height(), button.height()));
+                     std::max(label.height(), button.height()) +
+                     kSignoutViewVerticalInsets * 2);
   }
 
-  views::Button* signout_button() { return signout_button_; }
+  views::Link* signout_link() { return signout_link_; }
 
  private:
   friend class UserView;
 
   views::Label* active_user_label_;
-  views::TextButton* signout_button_;
+  views::Link* signout_link_;
 
   DISALLOW_COPY_AND_ASSIGN(SignoutView);
 };
 
-UserView::UserView(Delegate* delegate, bool is_login)
+class RemoveButton : public views::TextButton {
+ public:
+  RemoveButton(views::ButtonListener* listener,
+               const SkBitmap& icon,
+               const std::wstring& text,
+               const gfx::Point& top_right)
+    : views::TextButton(listener, std::wstring()),
+      icon_(icon),
+      text_(text),
+      top_right_(top_right) {
+    SetEnabledColor(SK_ColorWHITE);
+    SetDisabledColor(SK_ColorWHITE);
+    SetHighlightColor(SK_ColorWHITE);
+    SetHoverColor(SK_ColorWHITE);
+    SetIcon(icon_);
+    set_border(NULL);
+    UpdatePosition();
+  }
+
+ protected:
+  // Overridden from View:
+  virtual void OnMouseEntered(const views::MouseEvent& e) {
+    SetIcon(SkBitmap());
+    views::TextButton::SetText(text_);
+
+    const SkColor kStrokeColor = SK_ColorWHITE;
+    const SkColor kButtonColor = 0xFFE94949;
+    const int kStrokeWidth = 1;
+    const int kVerticalPadding = 4;
+    const int kHorizontalPadding = 8;
+    const int kCornerRadius = 4;
+
+    set_background(
+        CreateRoundedBackground(
+            kCornerRadius, kStrokeWidth, kButtonColor, kStrokeColor));
+
+    set_border(
+        views::Border::CreateEmptyBorder(kVerticalPadding,
+                                         kHorizontalPadding,
+                                         kVerticalPadding,
+                                         kHorizontalPadding));
+
+    UpdatePosition();
+  }
+
+  void OnMouseMoved(const views::MouseEvent& e) {
+  }
+
+  virtual void OnMouseExited(const views::MouseEvent& e) {
+    SetIcon(icon_);
+    views::TextButton::SetText(std::wstring());
+    ClearMaxTextSize();
+    set_background(NULL);
+    set_border(NULL);
+    UpdatePosition();
+  }
+
+  void SetText(const std::wstring& text) {
+    text_ = text;
+  }
+
+ private:
+  // Update button position and schedule paint event for the view and parent.
+  void UpdatePosition() {
+    gfx::Size size = GetPreferredSize();
+    gfx::Point origin = top_right_;
+    origin.Offset(-size.width(), 0);
+    SetBounds(gfx::Rect(origin, size));
+
+    if (GetParent())
+      GetParent()->SchedulePaint();
+  }
+
+  SkBitmap icon_;
+  std::wstring text_;
+  gfx::Point top_right_;
+
+  DISALLOW_COPY_AND_ASSIGN(RemoveButton);
+};
+
+UserView::UserView(Delegate* delegate, bool is_login, bool need_background)
     : delegate_(delegate),
       signout_view_(NULL),
       image_view_(new views::ImageView()),
       throbber_(CreateDefaultSmoothedThrobber()),
-      menu_button_(NULL) {
+      remove_button_(NULL) {
   DCHECK(delegate);
   if (!is_login)
     signout_view_ = new SignoutView(this);
-  if (is_login)
-    menu_button_ = new views::MenuButton(NULL, std::wstring(), this, true);
 
-  Init();
+  Init(need_background);
 }
 
-void UserView::Init() {
-  image_view_->set_background(
-      views::Background::CreateSolidBackground(kBackgroundColor));
+void UserView::Init(bool need_background) {
+  if (need_background) {
+    image_view_->set_background(
+        views::Background::CreateSolidBackground(kBackgroundColor));
+  }
   if (throbber_) {
     int w = throbber_->GetPreferredSize().width();
     int h = throbber_->GetPreferredSize().height();
@@ -132,14 +212,15 @@ void UserView::Init() {
                              signout_view_->GetPreferredSize().height());
     AddChildView(signout_view_);
   }
-  if (menu_button_) {
-    int w = menu_button_->GetPreferredSize().width();
-    int h = menu_button_->GetPreferredSize().height();
-    menu_button_->SetBounds(kUserImageSize - w - kMenuButtonPadding,
-                            kMenuButtonPadding, w, h);
-    menu_button_->SetVisible(false);
-    AddChildView(menu_button_);
-  }
+
+  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+  remove_button_ = new RemoveButton(
+      this,
+      *rb.GetBitmapNamed(IDR_CLOSE_BAR_H),
+      l10n_util::GetString(IDS_LOGIN_REMOVE),
+      gfx::Point(kUserImageSize - kRemoveButtonPadding, kRemoveButtonPadding));
+  remove_button_->SetVisible(false);
+  AddChildView(remove_button_);
 }
 
 void UserView::SetImage(const SkBitmap& image) {
@@ -175,58 +256,28 @@ gfx::Size UserView::GetPreferredSize() {
 
 void UserView::SetSignoutEnabled(bool enabled) {
   DCHECK(signout_view_);
-  signout_view_->signout_button_->SetEnabled(enabled);
+  signout_view_->signout_link_->SetEnabled(enabled);
+}
+
+void UserView::LinkActivated(views::Link* source, int event_flags) {
+  DCHECK(delegate_);
+  DCHECK(signout_view_);
+  if (signout_view_->signout_link_ == source)
+    delegate_->OnSignout();
+}
+
+void UserView::SetRemoveButtonVisible(bool flag) {
+  remove_button_->SetVisible(flag);
 }
 
 void UserView::ButtonPressed(views::Button* sender, const views::Event& event) {
   DCHECK(delegate_);
-  if (sender->tag() == login::SIGN_OUT)
-    delegate_->OnSignout();
+  if (remove_button_ == sender)
+    delegate_->OnRemoveUser();
 }
 
-void UserView::SetMenuVisible(bool flag) {
-  DCHECK(menu_button_);
-  menu_button_->SetVisible(flag);
-}
-
-void UserView::BuildMenu() {
-  menu_model_.reset(new menus::SimpleMenuModel(this));
-  menu_model_->AddItemWithStringId(kIdRemove, IDS_LOGIN_REMOVE);
-  menu_model_->AddItemWithStringId(kIdChangePhoto, IDS_LOGIN_CHANGE_PHOTO);
-  menu_.reset(new views::Menu2(menu_model_.get()));
-}
-
-void UserView::RunMenu(View* source, const gfx::Point& pt) {
-  if (!menu_.get())
-    BuildMenu();
-
-  menu_->RunMenuAt(pt, views::Menu2::ALIGN_TOPRIGHT);
-}
-
-bool UserView::IsCommandIdChecked(int command_id) const {
-  return false;
-}
-
-bool UserView::IsCommandIdEnabled(int command_id) const {
-  // TODO(dpolukhin): implement and enable change photo.
-  return command_id != kIdChangePhoto;
-}
-
-bool UserView::GetAcceleratorForCommandId(int command_id,
-                                          menus::Accelerator* accelerator) {
-  return false;
-}
-
-void UserView::ExecuteCommand(int command_id) {
-  switch (command_id) {
-    case kIdRemove:
-      delegate_->OnRemoveUser();
-      break;
-
-    case kIdChangePhoto:
-      delegate_->OnChangePhoto();
-      break;
-  }
+void UserView::OnLocaleChanged() {
+  remove_button_->SetText(l10n_util::GetString(IDS_LOGIN_REMOVE));
 }
 
 }  // namespace chromeos

@@ -16,6 +16,7 @@
 
 #ifndef CHROME_BROWSER_DOWNLOAD_DOWNLOAD_ITEM_H_
 #define CHROME_BROWSER_DOWNLOAD_DOWNLOAD_ITEM_H_
+#pragma once
 
 #include <string>
 
@@ -64,32 +65,21 @@ class DownloadItem {
   };
 
   // Constructing from persistent store:
-  explicit DownloadItem(const DownloadCreateInfo& info);
+  DownloadItem(DownloadManager* download_manager,
+               const DownloadCreateInfo& info);
 
-  // Constructing from user action:
-  DownloadItem(int32 download_id,
+  // Constructing for a regular download:
+  DownloadItem(DownloadManager* download_manager,
+               const DownloadCreateInfo& info,
+               bool is_otr);
+
+  // Constructing for the "Save Page As..." feature:
+  DownloadItem(DownloadManager* download_manager,
                const FilePath& path,
-               int path_uniquifier,
                const GURL& url,
-               const GURL& referrer_url,
-               const std::string& mime_type,
-               const std::string& original_mime_type,
-               const FilePath& original_name,
-               const base::Time start_time,
-               int64 download_size,
-               int render_process_id,
-               int request_id,
-               bool is_dangerous,
-               bool save_as,
-               bool is_otr,
-               bool is_extension_install,
-               bool is_temporary);
+               bool is_otr);
 
   ~DownloadItem();
-
-  void Init(bool start_timer);
-
-  // Public API
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
@@ -100,8 +90,26 @@ class DownloadItem {
   // Notifies our observers the downloaded file has been completed.
   void NotifyObserversDownloadFileCompleted();
 
-  // Notifies our observers the downloaded file has been opened.
-  void NotifyObserversDownloadOpened();
+  // Whether it is OK to open this download.
+  bool CanOpenDownload();
+
+  // Tests if a file type should be opened automatically.
+  bool ShouldOpenFileBasedOnExtension();
+
+  // Registers this file extension for automatic opening upon download
+  // completion if 'open' is true, or prevents the extension from automatic
+  // opening if 'open' is false.
+  void OpenFilesBasedOnExtension(bool open);
+
+  // Open the file associated with this download (wait for the download to
+  // complete if it is in progress).
+  void OpenDownload();
+
+  // Show the download via the OS shell.
+  void ShowDownloadInShell();
+
+  // Called when the user has validated the download of a dangerous file.
+  void DangerousDownloadValidated();
 
   // Received a new chunk of data
   void Update(int64 bytes_so_far);
@@ -117,16 +125,16 @@ class DownloadItem {
   // when resuming a download (assuming the server supports byte ranges).
   void Cancel(bool update_history);
 
-  // Download operation completed.
-  void Finished(int64 size);
+  // Called when all data has been saved.
+  void OnAllDataSaved(int64 size);
+
+  // Called when the entire download operation (including renaming etc)
+  // is finished.
+  void Finished();
 
   // The user wants to remove the download from the views and history. If
   // |delete_file| is true, the file is deleted on the disk.
   void Remove(bool delete_file);
-
-  // Start/stop sending periodic updates to our observers
-  void StartProgressTimer();
-  void StopProgressTimer();
 
   // Simple calculation of the amount of time remaining to completion. Fills
   // |*remaining| with the amount of time remaining if successful. Fails and
@@ -148,13 +156,15 @@ class DownloadItem {
   // Allow the user to temporarily pause a download or resume a paused download.
   void TogglePause();
 
+  // Called when the name of the download is finalized.
+  void OnNameFinalized();
+
+  // Returns true if this item matches |query|. |query| must be lower-cased.
+  bool MatchesQuery(const string16& query) const;
+
   // Accessors
   DownloadState state() const { return state_; }
-  FilePath file_name() const { return file_name_; }
-  void set_file_name(const FilePath& name) { file_name_ = name; }
   FilePath full_path() const { return full_path_; }
-  void set_full_path(const FilePath& path) { full_path_ = path; }
-  int path_uniquifier() const { return path_uniquifier_; }
   void set_path_uniquifier(int uniquifier) { path_uniquifier_ = uniquifier; }
   GURL url() const { return url_; }
   GURL referrer_url() const { return referrer_url_; }
@@ -167,10 +177,7 @@ class DownloadItem {
   base::Time start_time() const { return start_time_; }
   void set_db_handle(int64 handle) { db_handle_ = handle; }
   int64 db_handle() const { return db_handle_; }
-  DownloadManager* manager() const { return manager_; }
-  void set_manager(DownloadManager* manager) { manager_ = manager; }
   bool is_paused() const { return is_paused_; }
-  void set_is_paused(bool pause) { is_paused_ = pause; }
   bool open_when_complete() const { return open_when_complete_; }
   void set_open_when_complete(bool open) { open_when_complete_ = open; }
   int render_process_id() const { return render_process_id_; }
@@ -180,22 +187,18 @@ class DownloadItem {
     safety_state_ = safety_state;
   }
   bool auto_opened() { return auto_opened_; }
-  void set_auto_opened(bool auto_opened) { auto_opened_ = auto_opened; }
   FilePath original_name() const { return original_name_; }
-  void set_original_name(const FilePath& name) { original_name_ = name; }
   bool save_as() const { return save_as_; }
   bool is_otr() const { return is_otr_; }
   bool is_extension_install() const { return is_extension_install_; }
   bool name_finalized() const { return name_finalized_; }
-  void set_name_finalized(bool name_finalized) {
-    name_finalized_ = name_finalized;
-  }
   bool is_temporary() const { return is_temporary_; }
-  void set_is_temporary(bool is_temporary) { is_temporary_ = is_temporary; }
   bool need_final_rename() const { return need_final_rename_; }
   void set_need_final_rename(bool need_final_rename) {
     need_final_rename_ = need_final_rename;
   }
+  void set_opened(bool opened) { opened_ = opened; }
+  bool opened() const { return opened_; }
 
   // Returns the file-name that should be reported to the user, which is
   // file_name_ for safe downloads and original_name_ for dangerous ones with
@@ -203,8 +206,14 @@ class DownloadItem {
   FilePath GetFileName() const;
 
  private:
+  void Init(bool start_timer);
+
   // Internal helper for maintaining consistent received and total sizes.
   void UpdateSize(int64 size);
+
+  // Start/stop sending periodic updates to our observers
+  void StartProgressTimer();
+  void StopProgressTimer();
 
   // Request ID assigned by the ResourceDispatcherHost.
   int32 id_;
@@ -257,7 +266,7 @@ class DownloadItem {
   base::RepeatingTimer<DownloadItem> update_timer_;
 
   // Our owning object
-  DownloadManager* manager_;
+  DownloadManager* download_manager_;
 
   // In progress downloads may be paused by the user, we note it here
   bool is_paused_;
@@ -299,6 +308,12 @@ class DownloadItem {
 
   // True if the file needs final rename.
   bool need_final_rename_;
+
+  // Did the user open the item either directly or indirectly (such as by
+  // setting always open files of this type)? The shelf also sets this field
+  // when the user closes the shelf before the item has been opened but should
+  // be treated as though the user opened it.
+  bool opened_;
 
   DISALLOW_COPY_AND_ASSIGN(DownloadItem);
 };

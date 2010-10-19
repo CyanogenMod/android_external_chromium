@@ -6,18 +6,17 @@
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/common/chrome_switches.h"
 
-// Flaky on windows.  http://crbug.com/46601
-#if defined(OS_WIN)
-#define MAYBE_Popup FLAKY_Popup
-#else
-#define MAYBE_Popup Popup
-#endif
-
-IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_Popup) {
+// Flaky, http://crbug.com/46601.
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, FLAKY_Popup) {
   CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableExperimentalExtensionApis);
-  CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kEnableExtensionToolstrips);
 
-  ASSERT_TRUE(RunExtensionTest("popup")) << message_;
+  ASSERT_TRUE(RunExtensionTest("popup/popup_main")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, PopupFromInfobar) {
+  CommandLine::ForCurrentProcess()->AppendSwitch(
+    switches::kEnableExperimentalExtensionApis);
+
+  ASSERT_TRUE(RunExtensionTest("popup/popup_from_infobar")) << message_;
 }

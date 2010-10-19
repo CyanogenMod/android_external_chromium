@@ -7,10 +7,12 @@
 #include "chrome/browser/extensions/extension_cookies_helpers.h"
 
 #include "base/logging.h"
+#include "base/values.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/extensions/extension_cookies_api_constants.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/url_constants.h"
 #include "googleurl/src/gurl.h"
@@ -26,9 +28,11 @@ Profile* ChooseProfileFromStoreId(const std::string& store_id,
                                   Profile* profile,
                                   bool include_incognito) {
   DCHECK(profile);
-  if (store_id == kOriginalProfileStoreId)
+  bool allow_original = !profile->IsOffTheRecord();
+  bool allow_incognito = profile->IsOffTheRecord() || include_incognito;
+  if (store_id == kOriginalProfileStoreId && allow_original)
     return profile->GetOriginalProfile();
-  if (store_id == kOffTheRecordProfileStoreId && include_incognito)
+  if (store_id == kOffTheRecordProfileStoreId && allow_incognito)
     return profile->GetOffTheRecordProfile();
   return NULL;
 }
@@ -128,15 +132,14 @@ MatchFilter::MatchFilter(const DictionaryValue* details)
 
 bool MatchFilter::MatchesCookie(
     const net::CookieMonster::CanonicalCookie& cookie) {
-  return
-      MatchesString(keys::kNameKey, cookie.Name()) &&
-      MatchesDomain(cookie.Domain()) &&
-      MatchesString(keys::kPathKey, cookie.Path()) &&
-      MatchesBoolean(keys::kSecureKey, cookie.IsSecure()) &&
-      MatchesBoolean(keys::kSessionKey, !cookie.DoesExpire());
+  return MatchesString(keys::kNameKey, cookie.Name()) &&
+         MatchesDomain(cookie.Domain()) &&
+         MatchesString(keys::kPathKey, cookie.Path()) &&
+         MatchesBoolean(keys::kSecureKey, cookie.IsSecure()) &&
+         MatchesBoolean(keys::kSessionKey, !cookie.DoesExpire());
 }
 
-bool MatchFilter::MatchesString(const wchar_t* key, const std::string& value) {
+bool MatchFilter::MatchesString(const char* key, const std::string& value) {
   if (!details_->HasKey(key))
     return true;
   std::string filter_value;
@@ -144,7 +147,7 @@ bool MatchFilter::MatchesString(const wchar_t* key, const std::string& value) {
           value == filter_value);
 }
 
-bool MatchFilter::MatchesBoolean(const wchar_t* key, bool value) {
+bool MatchFilter::MatchesBoolean(const char* key, bool value) {
   if (!details_->HasKey(key))
     return true;
   bool filter_value = false;

@@ -4,15 +4,21 @@
 
 #ifndef CHROME_BROWSER_SEARCH_ENGINES_TEMPLATE_URL_H_
 #define CHROME_BROWSER_SEARCH_ENGINES_TEMPLATE_URL_H_
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "base/gtest_prod_util.h"
 #include "base/time.h"
+#include "chrome/browser/search_engines/template_url_id.h"
+#include "chrome/browser/search_engines/template_url_prepopulate_data.h"
 #include "googleurl/src/gurl.h"
 
+class SearchTermsData;
 class TemplateURL;
+class WebDataService;
+struct WDKeywordsResult;
 
 // TemplateURL represents the relevant portions of the Open Search Description
 // Document (http://www.opensearch.org/Specifications/OpenSearch).
@@ -45,17 +51,16 @@ class TemplateURLRef {
 
   TemplateURLRef();
 
-  TemplateURLRef(const std::string& url, int index_offset, int page_offset)
-      : url_(url),
-        index_offset_(index_offset),
-        page_offset_(page_offset),
-        parsed_(false),
-        valid_(false),
-        supports_replacements_(false) {
-  }
+  TemplateURLRef(const std::string& url, int index_offset, int page_offset);
+
+  ~TemplateURLRef();
 
   // Returns true if this URL supports replacement.
   bool SupportsReplacement() const;
+
+  // Like SupportsReplacement but usable on threads other than the UI thread.
+  bool SupportsReplacementUsingTermsData(
+      const SearchTermsData& search_terms_data) const;
 
   // Returns a string that is the result of replacing the search terms in
   // the url with the specified value.
@@ -70,6 +75,16 @@ class TemplateURLRef {
       int accepted_suggestion,
       const std::wstring& original_query_for_suggestion) const;
 
+  // Just like ReplaceSearchTerms except that it takes SearchTermsData to supply
+  // the data for some search terms. Most of the time ReplaceSearchTerms should
+  // be called.
+  std::string ReplaceSearchTermsUsingTermsData(
+      const TemplateURL& host,
+      const std::wstring& terms,
+      int accepted_suggestion,
+      const std::wstring& original_query_for_suggestion,
+      const SearchTermsData& search_terms_data) const;
+
   // Returns the raw URL. None of the parameters will have been replaced.
   const std::string& url() const { return url_; }
 
@@ -82,6 +97,9 @@ class TemplateURLRef {
   // Returns true if the TemplateURLRef is valid. An invalid TemplateURLRef is
   // one that contains unknown terms, or invalid characters.
   bool IsValid() const;
+
+  // Like IsValid but usable on threads other than the UI thread.
+  bool IsValidUsingTermsData(const SearchTermsData& search_terms_data) const;
 
   // Returns a string representation of this TemplateURLRef suitable for
   // display. The display format is the same as the format used by Firefox.
@@ -110,8 +128,9 @@ class TemplateURLRef {
   bool HasGoogleBaseURLs() const;
 
  private:
+  friend class SearchHostToURLsMapTest;
   friend class TemplateURL;
-  friend class TemplateURLModelTest;
+  friend class TemplateURLModelTestUtil;
   friend class TemplateURLTest;
   FRIEND_TEST_ALL_PREFIXES(TemplateURLTest, ParseParameterKnown);
   FRIEND_TEST_ALL_PREFIXES(TemplateURLTest, ParseParameterUnknown);
@@ -180,14 +199,17 @@ class TemplateURLRef {
   // search_offset_.
   void ParseIfNecessary() const;
 
+  // Like ParseIfNecessary but usable on threads other than the UI thread.
+  void ParseIfNecessaryUsingTermsData(
+      const SearchTermsData& search_terms_data) const;
+
   // Extracts the query key and host from the url.
-  void ParseHostAndSearchTermKey() const;
+  void ParseHostAndSearchTermKey(
+      const SearchTermsData& search_terms_data) const;
 
-  // Returns the value for the GOOGLE_BASE_URL term.
-  static std::string GoogleBaseURLValue();
-
-  // Returns the value for the GOOGLE_BASE_SUGGEST_URL term.
-  static std::string GoogleBaseSuggestURLValue();
+  // Used by tests to set the value for the Google base url. This takes
+  // ownership of the given std::string.
+  static void SetGoogleBaseURL(std::string* google_base_url);
 
   // The raw URL. Where as this contains all the terms (such as {searchTerms}),
   // parsed_url_ has them all stripped out.
@@ -221,17 +243,11 @@ class TemplateURLRef {
   mutable std::string host_;
   mutable std::string path_;
   mutable std::string search_term_key_;
-
-  // For testing. If non-null this is the replacement value for GOOGLE_BASE_URL
-  // terms.
-  static std::string* google_base_url_;
 };
 
 // Describes the relevant portions of a single OSD document.
 class TemplateURL {
  public:
-  typedef int64 IDType;
-
   // Describes a single image reference. Each TemplateURL may have
   // any number (including 0) of ImageRefs.
   //
@@ -261,20 +277,17 @@ class TemplateURL {
   // Generates a favicon URL from the specified url.
   static GURL GenerateFaviconURL(const GURL& url);
 
-  // Returns true if |true| is non-null and has a search URL that supports
+  // Returns true if |turl| is non-null and has a search URL that supports
   // replacement.
   static bool SupportsReplacement(const TemplateURL* turl);
 
-  TemplateURL()
-      : autogenerate_keyword_(false),
-        keyword_generated_(false),
-        show_in_default_list_(false),
-        safe_for_autoreplace_(false),
-        id_(0),
-        date_created_(base::Time::Now()),
-        usage_count_(0),
-        prepopulate_id_(0) {}
-  ~TemplateURL() {}
+  // Like SupportsReplacement but usable on threads other than the UI thread.
+  static bool SupportsReplacementUsingTermsData(
+      const TemplateURL* turl,
+      const SearchTermsData& search_terms_data);
+
+  TemplateURL();
+  ~TemplateURL();
 
   // A short description of the template. This is the name we show to the user
   // in various places that use keywords. For example, the location bar shows
@@ -283,6 +296,10 @@ class TemplateURL {
     short_name_ = short_name;
   }
   const std::wstring& short_name() const { return short_name_; }
+
+  // Returns true if this search engine supports showing instant results.
+  // TODO(sky): make this real.
+  bool supports_instant() const { return false; }
 
   // An accessor for the short_name, but adjusted so it can be appropriately
   // displayed even if it is LTR and the UI is RTL.
@@ -344,6 +361,11 @@ class TemplateURL {
     return autogenerate_keyword_;
   }
 
+  // Ensures that the keyword is generated.  Most consumers should not need this
+  // because it is done automatically.  Use this method on the UI thread, so
+  // the keyword may be accessed on another thread.
+  void EnsureKeyword() const;
+
   // Whether this keyword is shown in the default list of search providers. This
   // is just a property and does not indicate whether this TemplateURL has
   // a TemplateURLRef that supports replacement. Use ShowInDefaultList to
@@ -393,6 +415,13 @@ class TemplateURL {
   void set_date_created(base::Time time) { date_created_ = time; }
   base::Time date_created() const { return date_created_; }
 
+  // True if this TemplateURL was automatically created by the administrator via
+  // group policy.
+  void set_created_by_policy(bool created_by_policy) {
+     created_by_policy_ = created_by_policy;
+  }
+  bool created_by_policy() const { return created_by_policy_; }
+
   // Number of times this keyword has been explicitly used to load a URL.  We
   // don't increment this for uses as the "default search engine" since that's
   // not really "explicit" usage and incrementing would result in pinning the
@@ -413,9 +442,20 @@ class TemplateURL {
     return input_encodings_;
   }
 
+  void set_search_engine_type(TemplateURLPrepopulateData::SearchEngineType
+      search_engine_type) {
+    search_engine_type_ = search_engine_type;
+  }
+  TemplateURLPrepopulateData::SearchEngineType search_engine_type() const {
+    return search_engine_type_;
+  }
+
+  void set_logo_id(int logo_id) { logo_id_ = logo_id; }
+  int logo_id() const { return logo_id_; }
+
   // Returns the unique identifier of this TemplateURL. The unique ID is set
   // by the TemplateURLModel when the TemplateURL is added to it.
-  IDType id() const { return id_; }
+  TemplateURLID id() const { return id_; }
 
   // If this TemplateURL comes from prepopulated data the prepopulate_id is > 0.
   void set_prepopulate_id(int id) { prepopulate_id_ = id; }
@@ -425,15 +465,21 @@ class TemplateURL {
   bool IsExtensionKeyword() const;
 
  private:
+  friend void MergeEnginesFromPrepopulateData(
+      PrefService* prefs,
+      WebDataService* service,
+      std::vector<TemplateURL*>* template_urls,
+      const TemplateURL** default_search_provider);
+  friend class SearchHostToURLsMap;
+  friend class TemplateURLModel;
   friend class WebDatabaseTest;
   friend class WebDatabase;
-  friend class TemplateURLModel;
 
   // Invalidates cached values on this object and its child TemplateURLRefs.
   void InvalidateCachedValues() const;
 
   // Unique identifier, used when archived to the database.
-  void set_id(IDType id) { id_ = id;}
+  void set_id(TemplateURLID id) { id_ = id;}
 
   std::wstring short_name_;
   std::wstring description_;
@@ -452,9 +498,12 @@ class TemplateURL {
   std::vector<std::wstring> languages_;
   // List of supported input encodings.
   std::vector<std::string> input_encodings_;
-  IDType id_;
+  TemplateURLID id_;
   base::Time date_created_;
+  bool created_by_policy_;
   int usage_count_;
+  TemplateURLPrepopulateData::SearchEngineType search_engine_type_;
+  int logo_id_;
   int prepopulate_id_;
 
   // TODO(sky): Add date last parsed OSD file.

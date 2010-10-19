@@ -1,9 +1,10 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/test/ui/ui_test.h"
 
+#include "base/environment.h"
 #include "build/build_config.h"
 
 class LocaleTestsBase : public UITest {
@@ -14,10 +15,11 @@ class LocaleTestsBase : public UITest {
  protected:
   void RestoreLcAllEnvironment() {
 #if defined(OS_LINUX)
+    scoped_ptr<base::Environment> env(base::Environment::Create());
     if (old_lc_all_) {
-      setenv("LC_ALL", old_lc_all_, 1);
+      env->SetVar("LC_ALL", old_lc_all_);
     } else {
-      unsetenv("LC_ALL");
+      env->UnSetVar("LC_ALL");
     }
 #endif
   };
@@ -29,7 +31,7 @@ class LocaleTestsBase : public UITest {
 class LocaleTestsDa : public LocaleTestsBase {
  public:
   LocaleTestsDa() : LocaleTestsBase() {
-    launch_arguments_.AppendSwitchWithValue("lang", "da");
+    launch_arguments_.AppendSwitchASCII("lang", "da");
 
     // Linux doesn't use --lang, it only uses environment variables to set the
     // language.
@@ -43,7 +45,7 @@ class LocaleTestsDa : public LocaleTestsBase {
 class LocaleTestsHe : public LocaleTestsBase {
  public:
   LocaleTestsHe() : LocaleTestsBase() {
-    launch_arguments_.AppendSwitchWithValue("lang", "he");
+    launch_arguments_.AppendSwitchASCII("lang", "he");
 #if defined(OS_LINUX)
     old_lc_all_ = getenv("LC_ALL");
     setenv("LC_ALL", "he_IL.UTF-8", 1);
@@ -54,7 +56,7 @@ class LocaleTestsHe : public LocaleTestsBase {
 class LocaleTestsZhTw : public LocaleTestsBase {
  public:
   LocaleTestsZhTw() : LocaleTestsBase() {
-    launch_arguments_.AppendSwitchWithValue("lang", "zh-TW");
+    launch_arguments_.AppendSwitchASCII("lang", "zh-TW");
 #if defined(OS_LINUX)
     old_lc_all_ = getenv("LC_ALL");
     setenv("LC_ALL", "zh_TW.UTF-8", 1);

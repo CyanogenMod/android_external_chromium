@@ -4,13 +4,13 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_OPTIONS_LANGUAGE_MOZC_CONFIG_VIEW_H_
 #define CHROME_BROWSER_CHROMEOS_OPTIONS_LANGUAGE_MOZC_CONFIG_VIEW_H_
+#pragma once
 
 #include <string>
 
-#include "base/scoped_ptr.h"
 #include "chrome/browser/chromeos/cros/input_method_library.h"
 #include "chrome/browser/chromeos/language_preferences.h"
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/views/options/options_page_view.h"
 #include "views/controls/combobox/combobox.h"
 #include "views/controls/label.h"
@@ -83,18 +83,18 @@ class LanguageMozcConfigView : public views::ButtonListener,
   struct MozcPrefAndAssociatedCheckbox {
     BooleanPrefMember boolean_pref;
     views::Checkbox* checkbox;
-  } prefs_and_checkboxes_[kNumMozcBooleanPrefs];
+  } prefs_and_checkboxes_[language_prefs::kNumMozcBooleanPrefs];
 
   struct MozcPrefAndAssociatedCombobox {
     StringPrefMember multiple_choice_pref;
     LanguageComboboxModel<const char*>* combobox_model;
     LanguageCombobox* combobox;
-  } prefs_and_comboboxes_[kNumMozcMultipleChoicePrefs];
+  } prefs_and_comboboxes_[language_prefs::kNumMozcMultipleChoicePrefs];
 
   struct MozcPrefAndAssociatedSlider {
     IntegerPrefMember integer_pref;
     views::Slider* slider;
-  } prefs_and_sliders_[kNumMozcIntegerPrefs];
+  } prefs_and_sliders_[language_prefs::kNumMozcIntegerPrefs];
 
   DISALLOW_COPY_AND_ASSIGN(LanguageMozcConfigView);
 };

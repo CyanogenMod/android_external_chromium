@@ -6,6 +6,7 @@
 
 #ifndef CHROME_BROWSER_GTK_OPTIONS_COOKIES_VIEW_H_
 #define CHROME_BROWSER_GTK_OPTIONS_COOKIES_VIEW_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -16,6 +17,7 @@
 #include "base/task.h"
 #include "chrome/browser/browsing_data_appcache_helper.h"
 #include "chrome/browser/browsing_data_database_helper.h"
+#include "chrome/browser/browsing_data_indexed_db_helper.h"
 #include "chrome/browser/browsing_data_local_storage_helper.h"
 #include "chrome/browser/gtk/gtk_chrome_cookie_view.h"
 #include "chrome/browser/gtk/gtk_tree.h"
@@ -42,7 +44,8 @@ class CookiesView : public gtk_tree::TreeAdapter::Delegate {
       Profile* profile,
       BrowsingDataDatabaseHelper* browsing_data_database_helper,
       BrowsingDataLocalStorageHelper* browsing_data_local_storage_helper,
-      BrowsingDataAppCacheHelper* browsing_data_appcache_helper);
+      BrowsingDataAppCacheHelper* browsing_data_appcache_helper,
+      BrowsingDataIndexedDBHelper* browsing_data_indexed_db_helper);
 
   // gtk_tree::TreeAdapter::Delegate implementation.
   virtual void OnAnyModelUpdateStart();
@@ -54,11 +57,12 @@ class CookiesView : public gtk_tree::TreeAdapter::Delegate {
       Profile* profile,
       BrowsingDataDatabaseHelper* browsing_data_database_helper,
       BrowsingDataLocalStorageHelper* browsing_data_local_storage_helper,
-      BrowsingDataAppCacheHelper* browsing_data_appcache_helper);
+      BrowsingDataAppCacheHelper* browsing_data_appcache_helper,
+      BrowsingDataIndexedDBHelper* browsing_data_indexed_db_helper);
 
   // A method only used in unit tests that sets a bit inside this class that
   // lets it be stack allocated.
-  void TestDestroySyncrhonously();
+  void TestDestroySynchronously();
 
   // Initialize the dialog contents and layout.
   void Init(GtkWindow* parent);
@@ -111,6 +115,7 @@ class CookiesView : public gtk_tree::TreeAdapter::Delegate {
   scoped_refptr<BrowsingDataLocalStorageHelper>
       browsing_data_local_storage_helper_;
   scoped_refptr<BrowsingDataAppCacheHelper> browsing_data_appcache_helper_;
+  scoped_refptr<BrowsingDataIndexedDBHelper> browsing_data_indexed_db_helper_;
 
   // A factory to construct Runnable Methods so that we can be called back to
   // re-evaluate the model after the search query string changes.

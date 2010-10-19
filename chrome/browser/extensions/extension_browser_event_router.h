@@ -1,9 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_BROWSER_EVENT_ROUTER_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_BROWSER_EVENT_ROUTER_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -12,7 +13,7 @@
 #include "base/singleton.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
-#include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/tabs/tab_strip_model_observer.h"
 #include "chrome/common/notification_registrar.h"
 #if defined(TOOLKIT_VIEWS)
 #include "views/view.h"
@@ -69,7 +70,9 @@ class ExtensionBrowserEventRouter : public TabStripModelObserver,
   virtual void TabChangedAt(TabContents* contents, int index,
                             TabChangeType change_type);
   virtual void TabReplacedAt(TabContents* old_contents,
-                             TabContents* new_contents, int index);
+                             TabContents* new_contents,
+                             int index,
+                             TabReplaceType type);
   virtual void TabStripEmpty();
 
   // Page Action execute event.
@@ -113,6 +116,9 @@ class ExtensionBrowserEventRouter : public TabStripModelObserver,
   // Register ourselves to receive the various notifications we are interested
   // in for a tab.
   void RegisterForTabNotifications(TabContents* contents);
+
+  // Removes notifications added in RegisterForTabNotifications.
+  void UnregisterForTabNotifications(TabContents* contents);
 
   ExtensionBrowserEventRouter();
   friend struct DefaultSingletonTraits<ExtensionBrowserEventRouter>;

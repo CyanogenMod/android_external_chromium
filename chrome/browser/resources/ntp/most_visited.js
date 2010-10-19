@@ -41,29 +41,34 @@ var MostVisited = (function() {
     return Array.prototype.indexOf.call(nodes, el);
   }
 
-  function MostVisited(el, useSmallGrid, visible) {
+  function MostVisited(el, miniview, useSmallGrid, visible) {
     this.element = el;
+    this.miniview = miniview;
     this.useSmallGrid_ = useSmallGrid;
     this.visible_ = visible;
 
     this.createThumbnails_();
     this.applyMostVisitedRects_();
 
-    el.addEventListener('click', bind(this.handleClick_, this));
-    el.addEventListener('keydown', bind(this.handleKeyDown_, this));
+    el.addEventListener('click', this.handleClick_.bind(this));
+    el.addEventListener('keydown', this.handleKeyDown_.bind(this));
 
     document.addEventListener('DOMContentLoaded',
-                              bind(this.ensureSmallGridCorrect, this));
+                              this.ensureSmallGridCorrect.bind(this));
+
+    // Commands
+    document.addEventListener('command', this.handleCommand_.bind(this));
+    document.addEventListener('canExecute', this.handleCanExecute_.bind(this));
 
     // DND
-    el.addEventListener('dragstart', bind(this.handleDragStart_, this));
-    el.addEventListener('dragenter', bind(this.handleDragEnter_, this));
-    el.addEventListener('dragover', bind(this.handleDragOver_, this));
-    el.addEventListener('dragleave', bind(this.handleDragLeave_, this));
-    el.addEventListener('drop', bind(this.handleDrop_, this));
-    el.addEventListener('dragend', bind(this.handleDragEnd_, this));
-    el.addEventListener('drag', bind(this.handleDrag_, this));
-    el.addEventListener('mousedown', bind(this.handleMouseDown_, this));
+    el.addEventListener('dragstart', this.handleDragStart_.bind(this));
+    el.addEventListener('dragenter', this.handleDragEnter_.bind(this));
+    el.addEventListener('dragover', this.handleDragOver_.bind(this));
+    el.addEventListener('dragleave', this.handleDragLeave_.bind(this));
+    el.addEventListener('drop', this.handleDrop_.bind(this));
+    el.addEventListener('dragend', this.handleDragEnd_.bind(this));
+    el.addEventListener('drag', this.handleDrag_.bind(this));
+    el.addEventListener('mousedown', this.handleMouseDown_.bind(this));
   }
 
   MostVisited.prototype = {
@@ -99,6 +104,13 @@ var MostVisited = (function() {
       this.data[sourceIndex] = destinationData;
     },
 
+    updateSettingsLink: function(hasBlacklistedUrls) {
+      if (hasBlacklistedUrls)
+        $('most-visited-settings').classList.add('has-blacklist');
+      else
+        $('most-visited-settings').classList.remove('has-blacklist');
+    },
+
     blacklist: function(el) {
       var self = this;
       var url = el.href;
@@ -121,7 +133,11 @@ var MostVisited = (function() {
 
       // Send 'getMostVisitedPages' with a callback since we want to find the
       // new page and add that in the place of the removed page.
-      chromeSend('getMostVisited', [], 'mostVisitedPages', function(data) {
+      chromeSend('getMostVisited', [], 'mostVisitedPages',
+                 function(data, firstRun, hasBlacklistedUrls) {
+        // Update settings link.
+        self.updateSettingsLink(hasBlacklistedUrls);
+
         // Find new item.
         var newItem;
         for (var i = 0; i < data.length; i++) {
@@ -254,6 +270,7 @@ var MostVisited = (function() {
       var w = thumbWidth + 2 * borderWidth + 2 * marginWidth;
       var h = thumbHeight + 40 + 2 * marginHeight;
       var sumWidth = cols * w  - 2 * marginWidth;
+      var topSpacing = 10;
 
       var rtl = isRtl();
       var rects = [];
@@ -265,7 +282,7 @@ var MostVisited = (function() {
           var left = rtl ? sumWidth - col * w - thumbWidth - 2 * borderWidth :
               col * w;
 
-          var top = row * h;
+          var top = row * h + topSpacing;
 
           rects[i] = {left: left, top: top};
         }
@@ -296,6 +313,23 @@ var MostVisited = (function() {
 
     getRectByIndex_: function(index) {
       return this.getMostVisitedLayoutRects_()[index];
+    },
+
+    // Commands
+
+    handleCommand_: function(e) {
+      var commandId = e.command.id;
+      switch (commandId) {
+        case 'clear-all-blacklisted':
+          this.clearAllBlacklisted();
+          chrome.send('getMostVisited');
+          break;
+      }
+    },
+
+    handleCanExecute_: function(e) {
+      if (e.command.id == 'clear-all-blacklisted')
+        e.canExecute = true;
     },
 
     // DND
@@ -395,10 +429,10 @@ var MostVisited = (function() {
         // The timeout below is to allow WebKit to see that we turned off
         // pointer-event before moving the thumbnails so that we can get out of
         // hover mode.
-        window.setTimeout(bind(function() {
+        window.setTimeout((function() {
           this.invalidate_();
           this.layout();
-        }, this), 10);
+        }).bind(this), 10);
         e.preventDefault();
         if (this.dragEndTimer_) {
           window.clearTimeout(this.dragEndTimer_);
@@ -501,6 +535,7 @@ var MostVisited = (function() {
       // On setting we need to update the items
       this.data_ = data;
       this.updateMostVisited_();
+      this.updateMiniview_();
     },
 
     updateMostVisited_: function() {
@@ -553,6 +588,25 @@ var MostVisited = (function() {
         titleDiv.style.backgroundImage = url(faviconUrl);
         titleDiv.dir = d.direction;
       }
+    },
+
+    updateMiniview_: function() {
+      this.miniview.textContent = '';
+      var data = this.data.slice(0, MAX_MINIVIEW_ITEMS);
+      for (var i = 0, item; item = data[i]; i++) {
+        if (item.filler) {
+          continue;
+        }
+
+        var span = document.createElement('span');
+        var a = span.appendChild(document.createElement('a'));
+        a.href = item.url;
+        a.textContent = item.title;
+        a.style.backgroundImage = url('chrome://favicon/' + item.url);
+        a.className = 'item';
+        this.miniview.appendChild(span);
+      }
+      updateMiniviewClipping(this.miniview);
     },
 
     handleClick_: function(e) {

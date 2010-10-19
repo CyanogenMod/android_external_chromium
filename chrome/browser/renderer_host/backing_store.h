@@ -4,13 +4,12 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_BACKING_STORE_H_
 #define CHROME_BROWSER_RENDERER_HOST_BACKING_STORE_H_
+#pragma once
 
 #include <vector>
 
 #include "app/surface/transport_dib.h"
 #include "base/basictypes.h"
-#include "base/process.h"
-#include "gfx/rect.h"
 #include "gfx/size.h"
 
 class RenderProcessHost;

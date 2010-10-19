@@ -15,6 +15,7 @@
 #include "base/string_util.h"
 #include "base/thread.h"
 #include "base/time.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/weak_ptr.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
@@ -23,27 +24,27 @@
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
+#include "chrome/browser/dom_ui/mediaplayer_ui.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_util.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/dom_ui/mediaplayer_ui.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/time_format.h"
 #include "chrome/common/url_constants.h"
-#include "net/base/escape.h"
-
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
+#include "net/base/escape.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/cros/cros_library.h"
@@ -54,16 +55,16 @@
 // Maximum number of search results to return in a given search. We should
 // eventually remove this.
 static const int kMaxSearchResults = 100;
-static const std::wstring kPropertyPath = L"path";
-static const std::wstring kPropertyTitle = L"title";
-static const std::wstring kPropertyDirectory = L"isDirectory";
-static const std::string kPicasawebUserPrefix =
+static const char kPropertyPath[] = "path";
+static const char kPropertyTitle[] = "title";
+static const char kPropertyDirectory[] = "isDirectory";
+static const char kPicasawebUserPrefix[] =
     "http://picasaweb.google.com/data/feed/api/user/";
-static const std::string kPicasawebDefault = "/albumid/default";
-static const std::string kPicasawebDropBox = "/home";
-static const std::string kPicasawebBaseUrl = "http://picasaweb.google.com/";
-static const std::string kMediaPath = "/media";
-static const char* kFilebrowseURLHash = "chrome://filebrowse#";
+static const char kPicasawebDefault[] = "/albumid/default";
+static const char kPicasawebDropBox[] = "/home";
+static const char kPicasawebBaseUrl[] = "http://picasaweb.google.com/";
+static const char kMediaPath[] = "/media";
+static const char kFilebrowseURLHash[] = "chrome://filebrowse#";
 static const int kPopupLeft = 0;
 static const int kPopupTop = 0;
 
@@ -106,7 +107,8 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
   void Init();
 
   // DirectoryLister::DirectoryListerDelegate methods:
-  virtual void OnListFile(const file_util::FileEnumerator::FindInfo& data);
+  virtual void OnListFile(
+      const net::DirectoryLister::DirectoryListerData& data);
   virtual void OnListDone(int error);
 
   // DOMMessageHandler implementation.
@@ -126,10 +128,9 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
 
   // DownloadManager::Observer interface
   virtual void ModelChanged();
-  virtual void SetDownloads(std::vector<DownloadItem*>& downloads);
 
   // Callback for the "getRoots" message.
-  void HandleGetRoots(const Value* value);
+  void HandleGetRoots(const ListValue* args);
 
   void GetChildrenForPath(FilePath& path, bool is_refresh);
 
@@ -141,37 +142,40 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
                           const std::string& data);
 
   // Callback for the "getChildren" message.
-  void HandleGetChildren(const Value* value);
+  void HandleGetChildren(const ListValue* args);
  // Callback for the "refreshDirectory" message.
-  void HandleRefreshDirectory(const Value* value);
-  void HandleIsAdvancedEnabled(const Value* value);
+  void HandleRefreshDirectory(const ListValue* args);
+  void HandleIsAdvancedEnabled(const ListValue* args);
 
   // Callback for the "getMetadata" message.
-  void HandleGetMetadata(const Value* value);
+  void HandleGetMetadata(const ListValue* args);
 
  // Callback for the "openNewWindow" message.
-  void OpenNewFullWindow(const Value* value);
-  void OpenNewPopupWindow(const Value* value);
+  void OpenNewFullWindow(const ListValue* args);
+  void OpenNewPopupWindow(const ListValue* args);
 
   // Callback for the "uploadToPicasaweb" message.
-  void UploadToPicasaweb(const Value* value);
+  void UploadToPicasaweb(const ListValue* args);
 
   // Callback for the "getDownloads" message.
-  void HandleGetDownloads(const Value* value);
+  void HandleGetDownloads(const ListValue* args);
 
-  void HandleCreateNewFolder(const Value* value);
+  void HandleCreateNewFolder(const ListValue* args);
 
-  void PlayMediaFile(const Value* value);
-  void EnqueueMediaFile(const Value* value);
+  void PlayMediaFile(const ListValue* args);
+  void EnqueueMediaFile(const ListValue* args);
 
-  void HandleDeleteFile(const Value* value);
+  void HandleDeleteFile(const ListValue* args);
+  void HandleCopyFile(const ListValue* value);
+  void CopyFile(const FilePath& src, const FilePath& dest);
   void DeleteFile(const FilePath& path);
   void FireDeleteComplete(const FilePath& path);
+  void FireCopyComplete(const FilePath& src, const FilePath& dest);
 
-  void HandlePauseToggleDownload(const Value* value);
+  void HandlePauseToggleDownload(const ListValue* args);
 
-  void HandleCancelDownload(const Value* value);
-  void HandleAllowDownload(const Value* value);
+  void HandleCancelDownload(const ListValue* args);
+  void HandleAllowDownload(const ListValue* args);
 
   void ReadInFile();
   void FireUploadComplete();
@@ -179,7 +183,7 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
   void SendPicasawebRequest();
  private:
 
-  void OpenNewWindow(const Value* value, bool popup);
+  void OpenNewWindow(const ListValue* args, bool popup);
 
   // Clear all download items and their observers.
   void ClearDownloadItems();
@@ -211,10 +215,15 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
 
 class TaskProxy : public base::RefCountedThreadSafe<TaskProxy> {
  public:
-  explicit TaskProxy(const base::WeakPtr<FilebrowseHandler>& handler,
-                     FilePath& path)
+  TaskProxy(const base::WeakPtr<FilebrowseHandler>& handler,
+            const FilePath& path, const FilePath& dest)
       : handler_(handler),
-        path_(path) {}
+        src_(path),
+        dest_(dest) {}
+  TaskProxy(const base::WeakPtr<FilebrowseHandler>& handler,
+            const FilePath& path)
+      : handler_(handler),
+        src_(path) {}
   void ReadInFileProxy() {
     if (handler_) {
       handler_->ReadInFile();
@@ -236,18 +245,30 @@ class TaskProxy : public base::RefCountedThreadSafe<TaskProxy> {
 
   void DeleteFileProxy() {
     if (handler_) {
-      handler_->DeleteFile(path_);
+      handler_->DeleteFile(src_);
+    }
+  }
+
+  void CopyFileProxy() {
+    if (handler_) {
+      handler_->CopyFile(src_, dest_);
     }
   }
 
   void FireDeleteCompleteProxy() {
     if (handler_) {
-      handler_->FireDeleteComplete(path_);
+      handler_->FireDeleteComplete(src_);
+    }
+  }
+  void FireCopyCompleteProxy() {
+    if (handler_) {
+      handler_->FireCopyComplete(src_, dest_);
     }
   }
  private:
   base::WeakPtr<FilebrowseHandler> handler_;
-  FilePath path_;
+  FilePath src_;
+  FilePath dest_;
   friend class base::RefCountedThreadSafe<TaskProxy>;
   DISALLOW_COPY_AND_ASSIGN(TaskProxy);
 };
@@ -269,49 +290,50 @@ void FileBrowseUIHTMLSource::StartDataRequest(const std::string& path,
   DictionaryValue localized_strings;
   // TODO(dhg): Add stirings to localized strings, also add more strings
   // that are currently hardcoded.
-  localized_strings.SetString(L"title",
-      l10n_util::GetString(IDS_FILEBROWSER_TITLE));
-  localized_strings.SetString(L"pause",
-      l10n_util::GetString(IDS_FILEBROWSER_PAUSE));
-  localized_strings.SetString(L"resume",
-      l10n_util::GetString(IDS_FILEBROWSER_RESUME));
-  localized_strings.SetString(L"scanning",
-      l10n_util::GetString(IDS_FILEBROWSER_SCANNING));
-  localized_strings.SetString(L"confirmdelete",
-      l10n_util::GetString(IDS_FILEBROWSER_CONFIRM_DELETE));
-  localized_strings.SetString(L"confirmyes",
-      l10n_util::GetString(IDS_FILEBROWSER_CONFIRM_YES));
-  localized_strings.SetString(L"confirmcancel",
-      l10n_util::GetString(IDS_FILEBROWSER_CONFIRM_CANCEL));
-  localized_strings.SetString(L"allowdownload",
-      l10n_util::GetString(IDS_FILEBROWSER_CONFIRM_DOWNLOAD));
-  localized_strings.SetString(L"filenameprompt",
-      l10n_util::GetString(IDS_FILEBROWSER_PROMPT_FILENAME));
-  localized_strings.SetString(L"save",
-      l10n_util::GetString(IDS_FILEBROWSER_SAVE));
-  localized_strings.SetString(L"newfolder",
-      l10n_util::GetString(IDS_FILEBROWSER_NEW_FOLDER));
-  localized_strings.SetString(L"open",
-      l10n_util::GetString(IDS_FILEBROWSER_OPEN));
-  localized_strings.SetString(L"picasaweb",
-      l10n_util::GetString(IDS_FILEBROWSER_UPLOAD_PICASAWEB));
-  localized_strings.SetString(L"flickr",
-      l10n_util::GetString(IDS_FILEBROWSER_UPLOAD_FLICKR));
-  localized_strings.SetString(L"email",
-      l10n_util::GetString(IDS_FILEBROWSER_UPLOAD_EMAIL));
-  localized_strings.SetString(L"delete",
-      l10n_util::GetString(IDS_FILEBROWSER_DELETE));
-  localized_strings.SetString(L"enqueue",
-      l10n_util::GetString(IDS_FILEBROWSER_ENQUEUE));
-  localized_strings.SetString(L"mediapath", kMediaPath);
+  localized_strings.SetString("title",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_TITLE));
+  localized_strings.SetString("pause",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_PAUSE));
+  localized_strings.SetString("resume",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_RESUME));
+  localized_strings.SetString("scanning",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_SCANNING));
+  localized_strings.SetString("confirmdelete",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_CONFIRM_DELETE));
+  localized_strings.SetString("confirmyes",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_CONFIRM_YES));
+  localized_strings.SetString("confirmcancel",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_CONFIRM_CANCEL));
+  localized_strings.SetString("allowdownload",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_CONFIRM_DOWNLOAD));
+  localized_strings.SetString("filenameprompt",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_PROMPT_FILENAME));
+  localized_strings.SetString("save",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_SAVE));
+  localized_strings.SetString("newfolder",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_NEW_FOLDER));
+  localized_strings.SetString("open",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_OPEN));
+  localized_strings.SetString("picasaweb",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_UPLOAD_PICASAWEB));
+  localized_strings.SetString("flickr",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_UPLOAD_FLICKR));
+  localized_strings.SetString("email",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_UPLOAD_EMAIL));
+  localized_strings.SetString("delete",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_DELETE));
+  localized_strings.SetString("enqueue",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_ENQUEUE));
+  localized_strings.SetString("mediapath", kMediaPath);
   FilePath default_download_path;
   if (!PathService::Get(chrome::DIR_DEFAULT_DOWNLOADS,
                         &default_download_path)) {
     NOTREACHED();
   }
-  localized_strings.SetString(L"downloadpath", default_download_path.value());
-  localized_strings.SetString(L"error_unknown_file_type",
-      l10n_util::GetString(IDS_FILEBROWSER_ERROR_UNKNOWN_FILE_TYPE));
+  // TODO(viettrungluu): this is wrong -- FilePath's need not be Unicode.
+  localized_strings.SetString("downloadpath", default_download_path.value());
+  localized_strings.SetString("error_unknown_file_type",
+      l10n_util::GetStringUTF16(IDS_FILEBROWSER_ERROR_UNKNOWN_FILE_TYPE));
   SetFontAndTextDirection(&localized_strings);
 
   static const base::StringPiece filebrowse_html(
@@ -385,7 +407,7 @@ DOMMessageHandler* FilebrowseHandler::Attach(DOMUI* dom_ui) {
 }
 
 void FilebrowseHandler::Init() {
-  download_manager_ = profile_->GetOriginalProfile()->GetDownloadManager();
+  download_manager_ = profile_->GetDownloadManager();
   download_manager_->AddObserver(this);
   TaskProxy* task = new TaskProxy(AsWeakPtr(), currentpath_);
   task->AddRef();
@@ -427,6 +449,8 @@ void FilebrowseHandler::RegisterMessages() {
       NewCallback(this, &FilebrowseHandler::HandlePauseToggleDownload));
   dom_ui_->RegisterMessageCallback("deleteFile",
       NewCallback(this, &FilebrowseHandler::HandleDeleteFile));
+  dom_ui_->RegisterMessageCallback("copyFile",
+      NewCallback(this, &FilebrowseHandler::HandleCopyFile));
   dom_ui_->RegisterMessageCallback("cancelDownload",
       NewCallback(this, &FilebrowseHandler::HandleCancelDownload));
   dom_ui_->RegisterMessageCallback("allowDownload",
@@ -444,10 +468,17 @@ void FilebrowseHandler::FireDeleteComplete(const FilePath& path) {
   GetChildrenForPath(dir_path, true);
 };
 
+void FilebrowseHandler::FireCopyComplete(const FilePath& src,
+                                         const FilePath& dest) {
+  // Notify the UI somehow.
+  FilePath dir_path = dest.DirName();
+  GetChildrenForPath(dir_path, true);
+};
+
 void FilebrowseHandler::FireUploadComplete() {
 #if defined(OS_CHROMEOS)
   DictionaryValue info_value;
-  info_value.SetString(L"path", current_file_uploaded_);
+  info_value.SetString("path", current_file_uploaded_);
 
   std::string username;
   chromeos::UserManager* user_man = chromeos::UserManager::Get();
@@ -463,12 +494,11 @@ void FilebrowseHandler::FireUploadComplete() {
     return;
   }
   username = username.erase(username.find_first_of('@',0));
-  std::string picture_url;
-  picture_url = kPicasawebBaseUrl;
+  std::string picture_url = kPicasawebBaseUrl;
   picture_url += username;
   picture_url += kPicasawebDropBox;
-  info_value.SetString(L"url", picture_url);
-  info_value.SetInteger(L"status_code", upload_response_code_);
+  info_value.SetString("url", picture_url);
+  info_value.SetInteger("status_code", upload_response_code_);
   dom_ui_->CallJavascriptFunction(L"uploadComplete", info_value);
 #endif
 }
@@ -501,7 +531,7 @@ void FilebrowseHandler::OnURLFetchComplete(const URLFetcher* source,
   fetch_.reset();
 }
 
-void FilebrowseHandler::HandleGetRoots(const Value* value) {
+void FilebrowseHandler::HandleGetRoots(const ListValue* args) {
   ListValue results_value;
   DictionaryValue info_value;
   // TODO(dhg): add other entries, make this more general
@@ -514,8 +544,7 @@ void FilebrowseHandler::HandleGetRoots(const Value* value) {
     if (!disks[i].mount_path.empty()) {
       DictionaryValue* page_value = new DictionaryValue();
       page_value->SetString(kPropertyPath, disks[i].mount_path);
-      FilePath currentpath;
-      currentpath = FilePath(disks[i].mount_path);
+      FilePath currentpath(disks[i].mount_path);
       std::string filename;
       filename = currentpath.BaseName().value();
       page_value->SetString(kPropertyTitle, filename);
@@ -544,230 +573,138 @@ void FilebrowseHandler::HandleGetRoots(const Value* value) {
 
   results_value.Append(download_value);
 
-  info_value.SetString(L"functionCall", "getRoots");
+  info_value.SetString("functionCall", "getRoots");
   info_value.SetString(kPropertyPath, "");
   dom_ui_->CallJavascriptFunction(L"browseFileResult",
                                   info_value, results_value);
 }
 
-void FilebrowseHandler::HandleCreateNewFolder(const Value* value) {
+void FilebrowseHandler::HandleCreateNewFolder(const ListValue* args) {
 #if defined(OS_CHROMEOS)
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    std::string path;
+  std::string path = WideToUTF8(ExtractStringValue(args));
+  FilePath currentpath(path);
 
-    // Get path string.
-    if (list_value->GetString(0, &path)) {
-
-      FilePath currentpath;
-      currentpath = FilePath(path);
-
-      if (!file_util::CreateDirectory(currentpath)) {
-        LOG(ERROR) << "unable to create directory";
-      }
-    } else {
-      LOG(ERROR) << "Unable to get string";
-      return;
-    }
-  }
+  if (!file_util::CreateDirectory(currentpath))
+    LOG(ERROR) << "unable to create directory";
 #endif
 }
 
-void FilebrowseHandler::PlayMediaFile(const Value* value) {
+void FilebrowseHandler::PlayMediaFile(const ListValue* args) {
 #if defined(OS_CHROMEOS)
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    std::string path;
+  std::string url = WideToUTF8(ExtractStringValue(args));
+  GURL gurl(url);
 
-    // Get path string.
-    if (list_value->GetString(0, &path)) {
-      FilePath currentpath;
-      currentpath = FilePath(path);
-
-      MediaPlayer* mediaplayer = MediaPlayer::Get();
-      std::string url = currentpath.value();
-
-      GURL gurl(url);
-      Browser* browser = Browser::GetBrowserForController(
-          &tab_contents_->controller(), NULL);
-      mediaplayer->ForcePlayMediaURL(gurl, browser);
-    } else {
-      LOG(ERROR) << "Unable to get string";
-      return;
-    }
-  }
+  Browser* browser = Browser::GetBrowserForController(
+      &tab_contents_->controller(), NULL);
+  MediaPlayer* mediaplayer = MediaPlayer::Get();
+  mediaplayer->ForcePlayMediaURL(gurl, browser);
 #endif
 }
 
-void FilebrowseHandler::EnqueueMediaFile(const Value* value) {
+void FilebrowseHandler::EnqueueMediaFile(const ListValue* args) {
 #if defined(OS_CHROMEOS)
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    std::string path;
+  std::string url = WideToUTF8(ExtractStringValue(args));
+  GURL gurl(url);
 
-    // Get path string.
-    if (list_value->GetString(0, &path)) {
-      FilePath currentpath;
-      currentpath = FilePath(path);
-
-      MediaPlayer* mediaplayer = MediaPlayer::Get();
-      std::string url = currentpath.value();
-
-      GURL gurl(url);
-      Browser* browser = Browser::GetBrowserForController(
-          &tab_contents_->controller(), NULL);
-      mediaplayer->EnqueueMediaURL(gurl, browser);
-    } else {
-      LOG(ERROR) << "Unable to get string";
-      return;
-    }
-  }
+  Browser* browser = Browser::GetBrowserForController(
+      &tab_contents_->controller(), NULL);
+  MediaPlayer* mediaplayer = MediaPlayer::Get();
+  mediaplayer->EnqueueMediaURL(gurl, browser);
 #endif
 }
 
-void FilebrowseHandler::HandleIsAdvancedEnabled(const Value* value) {
+void FilebrowseHandler::HandleIsAdvancedEnabled(const ListValue* args) {
 #if defined(OS_CHROMEOS)
-  Profile* profile = BrowserList::GetLastActive()->profile();
-  PrefService* pref_service = profile->GetPrefs();
-  bool is_enabled = pref_service->GetBoolean(
-      prefs::kLabsAdvancedFilesystemEnabled);
-  bool mp_enabled = pref_service->GetBoolean(prefs::kLabsMediaplayerEnabled);
+  Browser* browser = BrowserList::GetLastActive();
+  bool is_enabled = false;
+  bool mp_enabled = false;
+  if (browser) {
+    Profile* profile = browser->profile();
+    PrefService* pref_service = profile->GetPrefs();
+    is_enabled = pref_service->GetBoolean(
+        prefs::kLabsAdvancedFilesystemEnabled);
+    mp_enabled = pref_service->GetBoolean(prefs::kLabsMediaplayerEnabled);
+  }
   DictionaryValue info_value;
-  info_value.SetBoolean(L"enabled", is_enabled);
-  info_value.SetBoolean(L"mpEnabled", mp_enabled);
+  info_value.SetBoolean("enabled", is_enabled);
+  info_value.SetBoolean("mpEnabled", mp_enabled);
   dom_ui_->CallJavascriptFunction(L"enabledResult",
                                   info_value);
+
 #endif
 }
-void FilebrowseHandler::HandleRefreshDirectory(const Value* value) {
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    std::string path;
 
-    // Get path string.
-    if (list_value->GetString(0, &path)) {
-      FilePath currentpath;
-#if defined(OS_WIN)
-      currentpath = FilePath(ASCIIToWide(path));
-#else
-      currentpath = FilePath(path);
-#endif
-      GetChildrenForPath(currentpath, true);
-    } else {
-      LOG(ERROR) << "Unable to get string";
-      return;
-    }
-  }
-}
-
-void FilebrowseHandler::HandlePauseToggleDownload(const Value* value) {
+void FilebrowseHandler::HandleRefreshDirectory(const ListValue* args) {
 #if defined(OS_CHROMEOS)
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    int id;
-    std::string str_id;
-
-    if (list_value->GetString(0, &str_id)) {
-      id = atoi(str_id.c_str());
-      DownloadItem* item = active_download_items_[id];
-      item->TogglePause();
-    } else {
-      LOG(ERROR) << "Unable to get id for download to pause";
-      return;
-    }
-  }
+  std::string path = WideToUTF8(ExtractStringValue(args));
+  FilePath currentpath(path);
+  GetChildrenForPath(currentpath, true);
 #endif
 }
 
-void FilebrowseHandler::HandleAllowDownload(const Value* value) {
+void FilebrowseHandler::HandlePauseToggleDownload(const ListValue* args) {
 #if defined(OS_CHROMEOS)
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    int id;
-    std::string str_id;
-
-    if (list_value->GetString(0, &str_id)) {
-      id = atoi(str_id.c_str());
-      DownloadItem* item = active_download_items_[id];
-      download_manager_->DangerousDownloadValidated(item);
-    } else {
-      LOG(ERROR) << "Unable to get id for download to pause";
-      return;
-    }
-  }
-#endif
-}
-
-void FilebrowseHandler::HandleCancelDownload(const Value* value) {
-#if defined(OS_CHROMEOS)
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    int id;
-    std::string str_id;
-
-    if (list_value->GetString(0, &str_id)) {
-      id = atoi(str_id.c_str());
-      DownloadItem* item = active_download_items_[id];
-      item->Cancel(true);
-      FilePath path = item->full_path();
-      FilePath dir_path = path.DirName();
-      item->Remove(true);
-      GetChildrenForPath(dir_path, true);
-    } else {
-      LOG(ERROR) << "Unable to get id for download to pause";
-      return;
-    }
-  }
-#endif
-}
-
-void FilebrowseHandler::OpenNewFullWindow(const Value* value) {
-  OpenNewWindow(value, false);
-}
-
-void FilebrowseHandler::OpenNewPopupWindow(const Value* value) {
-  OpenNewWindow(value, true);
-}
-
-void FilebrowseHandler::OpenNewWindow(const Value* value, bool popup) {
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    Value* list_member;
-    std::string path;
-
-    // Get path string.
-    if (list_value->Get(0, &list_member) &&
-        list_member->GetType() == Value::TYPE_STRING) {
-      const StringValue* string_value =
-          static_cast<const StringValue*>(list_member);
-      string_value->GetAsString(&path);
-    } else {
-      LOG(ERROR) << "Unable to get string";
-      return;
-    }
-    Browser* browser;
-    if (popup) {
-      browser = Browser::CreateForPopup(profile_);
-    } else {
-      browser = BrowserList::GetLastActive();
-    }
-    TabContents* contents = browser->AddTabWithURL(
-        GURL(path), GURL(), PageTransition::LINK, -1,
-        TabStripModel::ADD_SELECTED, NULL, std::string());
-    // AddTabWithURL could have picked another Browser instance to create this
-    // new tab at. So we have to reset the ptr of the browser that we want to
-    // talk to.
-    browser = contents->delegate()->GetBrowser();
-    if (popup) {
-      // TODO(dhg): Remove these from being hardcoded. Allow javascript
-      // to specify.
-      browser->window()->SetBounds(gfx::Rect(0, 0, 400, 300));
-    }
-    browser->window()->Show();
-  } else {
-    LOG(ERROR) << "Wasn't able to get the List if requested files.";
+  int id;
+  ExtractIntegerValue(args, &id);
+  if ((id - 1) >= (int)active_download_items_.size()) {
     return;
   }
+  DownloadItem* item = active_download_items_[id];
+  item->TogglePause();
+#endif
+}
+
+void FilebrowseHandler::HandleAllowDownload(const ListValue* args) {
+#if defined(OS_CHROMEOS)
+  int id;
+  ExtractIntegerValue(args, &id);
+  if ((id - 1) >= (int)active_download_items_.size()) {
+    return;
+  }
+
+  DownloadItem* item = active_download_items_[id];
+  download_manager_->DangerousDownloadValidated(item);
+#endif
+}
+
+void FilebrowseHandler::HandleCancelDownload(const ListValue* args) {
+#if defined(OS_CHROMEOS)
+  int id;
+  ExtractIntegerValue(args, &id);
+  if ((id - 1) >= (int)active_download_items_.size()) {
+    return;
+  }
+  DownloadItem* item = active_download_items_[id];
+  FilePath path = item->full_path();
+  item->Cancel(true);
+  FilePath dir_path = path.DirName();
+  item->Remove(true);
+  GetChildrenForPath(dir_path, true);
+#endif
+}
+
+void FilebrowseHandler::OpenNewFullWindow(const ListValue* args) {
+  OpenNewWindow(args, false);
+}
+
+void FilebrowseHandler::OpenNewPopupWindow(const ListValue* args) {
+  OpenNewWindow(args, true);
+}
+
+void FilebrowseHandler::OpenNewWindow(const ListValue* args, bool popup) {
+  std::string url = WideToUTF8(ExtractStringValue(args));
+  Browser* browser = popup ?
+      Browser::CreateForType(Browser::TYPE_APP_PANEL, profile_) :
+      BrowserList::GetLastActive();
+  browser->AddTabWithURL(GURL(url), GURL(), PageTransition::LINK, -1,
+                         TabStripModel::ADD_SELECTED, NULL, std::string(),
+                         &browser);
+  if (popup) {
+    // TODO(dhg): Remove these from being hardcoded. Allow javascript
+    // to specify.
+    browser->window()->SetBounds(gfx::Rect(0, 0, 400, 300));
+  }
+  browser->window()->Show();
 }
 
 void FilebrowseHandler::SendPicasawebRequest() {
@@ -810,8 +747,7 @@ void FilebrowseHandler::ReadInFile() {
   url += username;
   url += kPicasawebDefault;
 
-  FilePath currentpath;
-  currentpath = FilePath(current_file_uploaded_);
+  FilePath currentpath(current_file_uploaded_);
   // Get the filename
   std::string filename;
   filename = currentpath.BaseName().value();
@@ -836,28 +772,12 @@ void FilebrowseHandler::ReadInFile() {
 
 // This is just a prototype for allowing generic uploads to various sites
 // TODO(dhg): Remove this and implement general upload.
-void FilebrowseHandler::UploadToPicasaweb(const Value* value) {
-  std::string path;
+void FilebrowseHandler::UploadToPicasaweb(const ListValue* args) {
 #if defined(OS_CHROMEOS)
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    Value* list_member;
-
-    // Get search string.
-    if (list_value->Get(0, &list_member) &&
-        list_member->GetType() == Value::TYPE_STRING) {
-      const StringValue* string_value =
-          static_cast<const StringValue*>(list_member);
-      string_value->GetAsString(&path);
-    }
-
-  } else {
-    LOG(ERROR) << "Wasn't able to get the List if requested files.";
-    return;
-  }
-  current_file_uploaded_ = path;
+  std::string search_string = WideToUTF8(ExtractStringValue(args));
+  current_file_uploaded_ = search_string;
   //  ReadInFile();
-  FilePath current_path(path);
+  FilePath current_path(search_string);
   TaskProxy* task = new TaskProxy(AsWeakPtr(), current_path);
   task->AddRef();
   current_task_ = task;
@@ -870,7 +790,7 @@ void FilebrowseHandler::UploadToPicasaweb(const Value* value) {
 
 void FilebrowseHandler::GetChildrenForPath(FilePath& path, bool is_refresh) {
   filelist_value_.reset(new ListValue());
-  currentpath_ = FilePath(path);
+  currentpath_ = path;
 
   if (lister_.get()) {
     lister_->Cancel();
@@ -879,47 +799,40 @@ void FilebrowseHandler::GetChildrenForPath(FilePath& path, bool is_refresh) {
   }
 
   is_refresh_ = is_refresh;
-  lister_ = new net::DirectoryLister(currentpath_, this);
+  FilePath default_download_path;
+  if (!PathService::Get(chrome::DIR_DEFAULT_DOWNLOADS,
+                        &default_download_path)) {
+    NOTREACHED();
+  }
+  if (currentpath_ == default_download_path) {
+    lister_ = new net::DirectoryLister(currentpath_,
+                                       false,
+                                       net::DirectoryLister::DATE,
+                                       this);
+  } else {
+    lister_ = new net::DirectoryLister(currentpath_, this);
+  }
   lister_->Start();
 }
 
-void FilebrowseHandler::HandleGetChildren(const Value* value) {
-  std::string path;
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    Value* list_member;
-
-    // Get search string.
-    if (list_value->Get(0, &list_member) &&
-        list_member->GetType() == Value::TYPE_STRING) {
-      const StringValue* string_value =
-          static_cast<const StringValue*>(list_member);
-      string_value->GetAsString(&path);
-    }
-
-  } else {
-    LOG(ERROR) << "Wasn't able to get the List if requested files.";
-    return;
-  }
+void FilebrowseHandler::HandleGetChildren(const ListValue* args) {
+#if defined(OS_CHROMEOS)
+  std::string path = WideToUTF8(ExtractStringValue(args));
+  FilePath currentpath(path);
   filelist_value_.reset(new ListValue());
-  FilePath currentpath;
-#if defined(OS_WIN)
-  currentpath = FilePath(ASCIIToWide(path));
-#else
-  currentpath = FilePath(path);
-#endif
 
   GetChildrenForPath(currentpath, false);
+#endif
 }
 
 void FilebrowseHandler::OnListFile(
-    const file_util::FileEnumerator::FindInfo& data) {
+    const net::DirectoryLister::DirectoryListerData& data) {
 #if defined(OS_WIN)
-  if (data.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) {
+  if (data.info.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) {
     return;
   }
 #elif defined(OS_POSIX)
-  if (data.filename[0] == '.') {
+  if (data.info.filename[0] == '.') {
     return;
   }
 #endif
@@ -927,19 +840,18 @@ void FilebrowseHandler::OnListFile(
   DictionaryValue* file_value = new DictionaryValue();
 
 #if defined(OS_WIN)
-  int64 size = (static_cast<int64>(data.nFileSizeHigh) << 32) |
-      data.nFileSizeLow;
-  file_value->SetString(kPropertyTitle, data.cFileName);
+  int64 size = (static_cast<int64>(data.info.nFileSizeHigh) << 32) |
+      data.info.nFileSizeLow;
+  file_value->SetString(kPropertyTitle, data.info.cFileName);
   file_value->SetString(kPropertyPath,
-                        currentpath_.Append(data.cFileName).value());
+                        currentpath_.Append(data.info.cFileName).value());
   file_value->SetBoolean(kPropertyDirectory,
-      (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? true : false);
-
+      (data.info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? true : false);
 #elif defined(OS_POSIX)
-  file_value->SetString(kPropertyTitle, data.filename);
+  file_value->SetString(kPropertyTitle, data.info.filename);
   file_value->SetString(kPropertyPath,
-                        currentpath_.Append(data.filename).value());
-  file_value->SetBoolean(kPropertyDirectory, S_ISDIR(data.stat.st_mode));
+                        currentpath_.Append(data.info.filename).value());
+  file_value->SetBoolean(kPropertyDirectory, S_ISDIR(data.info.stat.st_mode));
 #endif
   filelist_value_->Append(file_value);
 }
@@ -947,9 +859,9 @@ void FilebrowseHandler::OnListFile(
 void FilebrowseHandler::OnListDone(int error) {
   DictionaryValue info_value;
   if (is_refresh_) {
-    info_value.SetString(L"functionCall", "refresh");
+    info_value.SetString("functionCall", "refresh");
   } else {
-    info_value.SetString(L"functionCall", "getChildren");
+    info_value.SetString("functionCall", "getChildren");
   }
   info_value.SetString(kPropertyPath, currentpath_.value());
   dom_ui_->CallJavascriptFunction(L"browseFileResult",
@@ -957,20 +869,19 @@ void FilebrowseHandler::OnListDone(int error) {
   SendCurrentDownloads();
 }
 
-void FilebrowseHandler::HandleGetMetadata(const Value* value) {
+void FilebrowseHandler::HandleGetMetadata(const ListValue* args) {
 }
 
-void FilebrowseHandler::HandleGetDownloads(const Value* value) {
+void FilebrowseHandler::HandleGetDownloads(const ListValue* args) {
   ModelChanged();
 }
 
 void FilebrowseHandler::ModelChanged() {
   ClearDownloadItems();
-  download_manager_->GetAllDownloads(this, FilePath());
-}
 
-void FilebrowseHandler::SetDownloads(std::vector<DownloadItem*>& downloads) {
-  ClearDownloadItems();
+  std::vector<DownloadItem*> downloads;
+  download_manager_->GetAllDownloads(FilePath(), &downloads);
+
   std::vector<DownloadItem*> new_downloads;
   // Scan for any in progress downloads and add ourself to them as an observer.
   for (DownloadList::iterator it = downloads.begin();
@@ -1011,34 +922,65 @@ void FilebrowseHandler::DeleteFile(const FilePath& path) {
       NewRunnableMethod(current_task_, &TaskProxy::FireDeleteCompleteProxy));
 }
 
-void FilebrowseHandler::HandleDeleteFile(const Value* value) {
-  #if defined(OS_CHROMEOS)
+void FilebrowseHandler::CopyFile(const FilePath& src, const FilePath& dest) {
+  if (file_util::DirectoryExists(src)) {
+    if (!file_util::CopyDirectory(src, dest, true)) {
+      LOG(ERROR) << "unable to copy directory:" << src.value();
+    }
+  } else {
+    if (!file_util::CopyFile(src, dest)) {
+      LOG(ERROR) << "unable to copy file" << src.value();
+    }
+  }
+  ChromeThread::PostTask(
+      ChromeThread::UI, FROM_HERE,
+      NewRunnableMethod(current_task_, &TaskProxy::FireCopyCompleteProxy));
+}
+
+void FilebrowseHandler::HandleDeleteFile(const ListValue* args) {
+#if defined(OS_CHROMEOS)
+  std::string path = WideToUTF8(ExtractStringValue(args));
+  FilePath currentpath(path);
+  for (unsigned int x = 0; x < active_download_items_.size(); x++) {
+    FilePath item = active_download_items_[x]->full_path();
+    if (item == currentpath) {
+      active_download_items_[x]->Cancel(true);
+      active_download_items_[x]->Remove(true);
+      FilePath dir_path = item.DirName();
+      GetChildrenForPath(dir_path, true);
+      return;
+    }
+  }
+  TaskProxy* task = new TaskProxy(AsWeakPtr(), currentpath);
+  task->AddRef();
+  current_task_ = task;
+  ChromeThread::PostTask(
+      ChromeThread::FILE, FROM_HERE,
+      NewRunnableMethod(
+          task, &TaskProxy::DeleteFileProxy));
+#endif
+}
+
+void FilebrowseHandler::HandleCopyFile(const ListValue* value) {
+#if defined(OS_CHROMEOS)
   if (value && value->GetType() == Value::TYPE_LIST) {
     const ListValue* list_value = static_cast<const ListValue*>(value);
-    std::string path;
+    std::string src;
+    std::string dest;
 
     // Get path string.
-    if (list_value->GetString(0, &path)) {
+    if (list_value->GetString(0, &src) &&
+        list_value->GetString(1, &dest)) {
+      FilePath SrcPath = FilePath(src);
+      FilePath DestPath = FilePath(dest);
 
-      FilePath currentpath;
-      currentpath = FilePath(path);
-      for (unsigned int x = 0; x < active_download_items_.size(); x++) {
-        FilePath item = active_download_items_[x]->full_path();
-        if (item == currentpath) {
-          active_download_items_[x]->Cancel(true);
-          active_download_items_[x]->Remove(true);
-          FilePath dir_path = item.DirName();
-          GetChildrenForPath(dir_path, true);
-          return;
-        }
-      }
-      TaskProxy* task = new TaskProxy(AsWeakPtr(), currentpath);
+      TaskProxy* task = new TaskProxy(AsWeakPtr(), SrcPath, DestPath);
       task->AddRef();
       current_task_ = task;
       ChromeThread::PostTask(
           ChromeThread::FILE, FROM_HERE,
           NewRunnableMethod(
-              task, &TaskProxy::DeleteFileProxy));
+              task, &TaskProxy::CopyFileProxy));
     } else {
       LOG(ERROR) << "Unable to get string";
       return;
@@ -1046,6 +988,7 @@ void FilebrowseHandler::HandleDeleteFile(const Value* value) {
   }
 #endif
 }
+
 
 void FilebrowseHandler::OnDownloadUpdated(DownloadItem* download) {
   DownloadList::iterator it = find(active_download_items_.begin(),
@@ -1106,11 +1049,11 @@ Browser* FileBrowseUI::OpenPopup(Profile* profile,
                                  int width,
                                  int height) {
   // Get existing pop up for given hashArgument.
-  Browser* browser = GetPopupForPath(hashArgument);
+  Browser* browser = GetPopupForPath(hashArgument, profile);
 
   // Create new browser if no matching pop up found.
   if (browser == NULL) {
-    browser = Browser::CreateForPopup(profile);
+    browser = Browser::CreateForType(Browser::TYPE_APP_PANEL, profile);
     std::string url;
     if (hashArgument.empty()) {
       url = chrome::kChromeUIFileBrowseURL;
@@ -1121,22 +1064,46 @@ Browser* FileBrowseUI::OpenPopup(Profile* profile,
 
     browser->AddTabWithURL(
         GURL(url), GURL(), PageTransition::LINK, -1,
-        TabStripModel::ADD_SELECTED, NULL, std::string());
+        TabStripModel::ADD_SELECTED, NULL, std::string(),
+        &browser);
     browser->window()->SetBounds(gfx::Rect(kPopupLeft,
                                            kPopupTop,
                                            width,
                                            height));
 
     browser->window()->Show();
+  } else {
+    browser->window()->Show();
   }
 
   return browser;
 }
 
-Browser* FileBrowseUI::GetPopupForPath(const std::string& path) {
+Browser* FileBrowseUI::GetPopupForPath(const std::string& path,
+                                       Profile* profile) {
+  std::string current_path = path;
+  if (current_path.empty()) {
+    Browser* browser = BrowserList::GetLastActive();
+    if (browser == NULL) {
+      return NULL;
+    }
+    Profile* profile = browser->profile();
+    PrefService* pref_service = profile->GetPrefs();
+    bool is_enabled = pref_service->GetBoolean(
+        prefs::kLabsAdvancedFilesystemEnabled);
+    if (!is_enabled) {
+      FilePath default_download_path;
+      if (!PathService::Get(chrome::DIR_DEFAULT_DOWNLOADS,
+                            &default_download_path)) {
+        NOTREACHED();
+      }
+      current_path = default_download_path.value();
+    }
+  }
+
   for (BrowserList::const_iterator it = BrowserList::begin();
        it != BrowserList::end(); ++it) {
-    if ((*it)->type() == Browser::TYPE_POPUP) {
+    if (((*it)->type() == Browser::TYPE_APP_PANEL)) {
       TabContents* tab_contents = (*it)->GetSelectedTabContents();
       DCHECK(tab_contents);
       if (!tab_contents)
@@ -1145,7 +1112,8 @@ Browser* FileBrowseUI::GetPopupForPath(const std::string& path) {
 
       if (url.SchemeIs(chrome::kChromeUIScheme) &&
           url.host() == chrome::kChromeUIFileBrowseHost &&
-          url.ref() == path) {
+          url.ref() == current_path &&
+          (*it)->profile() == profile) {
         return (*it);
       }
     }

@@ -172,6 +172,12 @@ cr.define('cr.ui', function() {
   cr.defineProperty(Command, 'hidden', cr.PropertyKind.BOOL_ATTR);
 
   /**
+   * Whether the command is checked or not.
+   * @type {boolean}
+   */
+  cr.defineProperty(Command, 'checked', cr.PropertyKind.BOOL_ATTR);
+
+  /**
    * Dispatches a canExecute event on the target.
    * @param {cr.ui.Command} command The command that we are testing for.
    * @param {Element} target The target element to dispatch the event on.
@@ -194,10 +200,10 @@ cr.define('cr.ui', function() {
    * @constructor
    */
   function CommandManager(doc) {
-    doc.addEventListener('focus', cr.bind(this.handleFocus_, this), true);
+    doc.addEventListener('focus', this.handleFocus_.bind(this), true);
     // Make sure we add the listener to the bubbling phase so that elements can
     // prevent the command.
-    doc.addEventListener('keydown', cr.bind(this.handleKeyDown_, this), false);
+    doc.addEventListener('keydown', this.handleKeyDown_.bind(this), false);
   }
 
   /**
@@ -282,7 +288,7 @@ cr.define('cr.ui', function() {
       return this.canExecute_;
     },
     set canExecute(canExecute) {
-      this.canExecute_ = canExecute;
+      this.canExecute_ = !!canExecute;
       this.stopPropagation();
     }
   };

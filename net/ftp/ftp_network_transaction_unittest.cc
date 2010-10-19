@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,6 +7,8 @@
 #include "build/build_config.h"
 
 #include "base/ref_counted.h"
+#include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "net/base/io_buffer.h"
 #include "net/base/mock_host_resolver.h"
 #include "net/base/net_util.h"
@@ -81,6 +83,8 @@ class FtpSocketDataProvider : public DynamicSocketDataProvider {
         return Verify("EPSV\r\n", data, PRE_SIZE,
                       "227 Entering Extended Passive Mode (|||31744|)\r\n");
       case PRE_NOPASV:
+        // Use unallocated 599 FTP error code to make sure it falls into the
+        // generic ERR_FTP_FAILED bucket.
         return Verify("PASV\r\n", data, PRE_QUIT,
                       "599 fail\r\n");
       case PRE_QUIT:
@@ -473,6 +477,8 @@ class FtpSocketDataProviderFileDownloadInvalidResponse
       return MockWriteResult(true, data.length());
     switch (state()) {
       case PRE_SIZE:
+        // Use unallocated 599 FTP error code to make sure it falls into the
+        // generic ERR_FTP_FAILED bucket.
         return Verify("SIZE /file\r\n", data, PRE_QUIT,
                       "599 Evil Response\r\n"
                       "599 More Evil\r\n");
@@ -649,13 +655,10 @@ class FtpNetworkTransactionTest : public PlatformTest {
       MockRead(false, ERR_TEST_PEER_CLOSE_AFTER_NEXT_MOCK_READ),
       MockRead(mock_data.c_str()),
     };
-    // For compatibility with FileZilla, the transaction code will use two data
-    // sockets for directory requests. For more info see http://crbug.com/25316.
-    StaticSocketDataProvider data1(data_reads, arraysize(data_reads), NULL, 0);
-    StaticSocketDataProvider data2(data_reads, arraysize(data_reads), NULL, 0);
+    StaticSocketDataProvider data_socket(data_reads, arraysize(data_reads),
+                                         NULL, 0);
     mock_socket_factory_.AddSocketDataProvider(ctrl_socket);
-    mock_socket_factory_.AddSocketDataProvider(&data1);
-    mock_socket_factory_.AddSocketDataProvider(&data2);
+    mock_socket_factory_.AddSocketDataProvider(&data_socket);
     FtpRequestInfo request_info = GetRequestInfo(request);
     EXPECT_EQ(LOAD_STATE_IDLE, transaction_.GetLoadState());
     ASSERT_EQ(ERR_IO_PENDING,
@@ -1044,9 +1047,10 @@ TEST_F(FtpNetworkTransactionTest, EvilRestartUser) {
   StaticSocketDataProvider ctrl_socket2(ctrl_reads, arraysize(ctrl_reads),
                                         ctrl_writes, arraysize(ctrl_writes));
   mock_socket_factory_.AddSocketDataProvider(&ctrl_socket2);
-  ASSERT_EQ(ERR_IO_PENDING, transaction_.RestartWithAuth(L"foo\nownz0red",
-                                                         L"innocent",
-                                                         &callback_));
+  ASSERT_EQ(ERR_IO_PENDING,
+            transaction_.RestartWithAuth(ASCIIToUTF16("foo\nownz0red"),
+                                         ASCIIToUTF16("innocent"),
+                                         &callback_));
   EXPECT_EQ(ERR_MALFORMED_IDENTITY, callback_.WaitForResult());
 }
 
@@ -1076,9 +1080,10 @@ TEST_F(FtpNetworkTransactionTest, EvilRestartPassword) {
   StaticSocketDataProvider ctrl_socket2(ctrl_reads, arraysize(ctrl_reads),
                                         ctrl_writes, arraysize(ctrl_writes));
   mock_socket_factory_.AddSocketDataProvider(&ctrl_socket2);
-  ASSERT_EQ(ERR_IO_PENDING, transaction_.RestartWithAuth(L"innocent",
-                                                         L"foo\nownz0red",
-                                                         &callback_));
+  ASSERT_EQ(ERR_IO_PENDING,
+            transaction_.RestartWithAuth(ASCIIToUTF16("innocent"),
+                                         ASCIIToUTF16("foo\nownz0red"),
+                                         &callback_));
   EXPECT_EQ(ERR_MALFORMED_IDENTITY, callback_.WaitForResult());
 }
 
@@ -1116,6 +1121,8 @@ TEST_F(FtpNetworkTransactionTest, CloseConnection) {
 
 TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailUser) {
   FtpSocketDataProviderDirectoryListing ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host",
                         FtpSocketDataProvider::PRE_USER,
@@ -1147,6 +1154,8 @@ TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailPass503) {
 
 TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailSyst) {
   FtpSocketDataProviderDirectoryListing ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host",
                         FtpSocketDataProvider::PRE_SYST,
@@ -1157,6 +1166,8 @@ TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailSyst) {
 
 TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailPwd) {
   FtpSocketDataProviderDirectoryListing ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host",
                         FtpSocketDataProvider::PRE_PWD,
@@ -1167,6 +1178,8 @@ TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailPwd) {
 
 TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailType) {
   FtpSocketDataProviderDirectoryListing ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host",
                         FtpSocketDataProvider::PRE_TYPE,
@@ -1177,6 +1190,8 @@ TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailType) {
 
 TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailEpsv) {
   FtpSocketDataProviderDirectoryListing ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host",
                         FtpSocketDataProvider::PRE_EPSV,
@@ -1187,6 +1202,8 @@ TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailEpsv) {
 
 TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailCwd) {
   FtpSocketDataProviderDirectoryListing ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host",
                         FtpSocketDataProvider::PRE_CWD,
@@ -1217,6 +1234,8 @@ TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailMlsd) {
 
 TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailList) {
   FtpSocketDataProviderVMSDirectoryListing ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host/dir",
                         FtpSocketDataProvider::PRE_LIST,
@@ -1227,6 +1246,8 @@ TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailList) {
 
 TEST_F(FtpNetworkTransactionTest, DownloadTransactionFailUser) {
   FtpSocketDataProviderFileDownload ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host/file",
                         FtpSocketDataProvider::PRE_USER,
@@ -1247,6 +1268,8 @@ TEST_F(FtpNetworkTransactionTest, DownloadTransactionFailPass) {
 
 TEST_F(FtpNetworkTransactionTest, DownloadTransactionFailSyst) {
   FtpSocketDataProviderFileDownload ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host/file",
                         FtpSocketDataProvider::PRE_SYST,
@@ -1257,6 +1280,8 @@ TEST_F(FtpNetworkTransactionTest, DownloadTransactionFailSyst) {
 
 TEST_F(FtpNetworkTransactionTest, DownloadTransactionFailPwd) {
   FtpSocketDataProviderFileDownload ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host/file",
                         FtpSocketDataProvider::PRE_PWD,
@@ -1267,6 +1292,8 @@ TEST_F(FtpNetworkTransactionTest, DownloadTransactionFailPwd) {
 
 TEST_F(FtpNetworkTransactionTest, DownloadTransactionFailType) {
   FtpSocketDataProviderFileDownload ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host/file",
                         FtpSocketDataProvider::PRE_TYPE,
@@ -1277,6 +1304,8 @@ TEST_F(FtpNetworkTransactionTest, DownloadTransactionFailType) {
 
 TEST_F(FtpNetworkTransactionTest, DownloadTransactionFailEpsv) {
   FtpSocketDataProviderFileDownload ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host/file",
                         FtpSocketDataProvider::PRE_EPSV,
@@ -1287,6 +1316,8 @@ TEST_F(FtpNetworkTransactionTest, DownloadTransactionFailEpsv) {
 
 TEST_F(FtpNetworkTransactionTest, DownloadTransactionFailRetr) {
   FtpSocketDataProviderFileDownload ctrl_socket;
+  // Use unallocated 599 FTP error code to make sure it falls into the generic
+  // ERR_FTP_FAILED bucket.
   TransactionFailHelper(&ctrl_socket,
                         "ftp://host/file",
                         FtpSocketDataProvider::PRE_RETR,

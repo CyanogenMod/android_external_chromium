@@ -14,6 +14,7 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/translate/translate_infobar_view.h"
 #include "chrome/browser/translate/translate_manager.h"
+#include "chrome/common/chrome_constants.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 
@@ -24,7 +25,13 @@ TranslateInfoBarDelegate* TranslateInfoBarDelegate::CreateDelegate(
     const std::string& original_language,
     const std::string& target_language) {
   DCHECK(type != TRANSLATION_ERROR);
-  if (!TranslateManager::IsSupportedLanguage(original_language) ||
+  // The original language can only be "unknown" for the "translating"
+  // infobar, which is the case when the user started a translation from the
+  // context menu.
+  DCHECK(type == TRANSLATING ||
+      original_language != chrome::kUnknownLanguageCode);
+  if ((original_language != chrome::kUnknownLanguageCode &&
+          !TranslateManager::IsSupportedLanguage(original_language)) ||
       !TranslateManager::IsSupportedLanguage(target_language)) {
     return NULL;
   }
@@ -32,7 +39,6 @@ TranslateInfoBarDelegate* TranslateInfoBarDelegate::CreateDelegate(
       new TranslateInfoBarDelegate(type, TranslateErrors::NONE,
                                    tab_contents,
                                    original_language, target_language);
-  DCHECK(delegate->original_language_index() != -1);
   DCHECK(delegate->target_language_index() != -1);
   return delegate;
 }
@@ -111,6 +117,8 @@ string16 TranslateInfoBarDelegate::GetLanguageDisplayableNameAt(
 }
 
 std::string TranslateInfoBarDelegate::GetOriginalLanguageCode() const {
+  if (original_language_index() == -1)
+    return chrome::kUnknownLanguageCode;
   return GetLanguageCodeAt(original_language_index());
 }
 
@@ -142,8 +150,10 @@ bool TranslateInfoBarDelegate::IsError() {
 
 void TranslateInfoBarDelegate::Translate() {
   const std::string& original_language_code = GetOriginalLanguageCode();
-  prefs_.ResetTranslationDeniedCount(original_language_code);
-  prefs_.IncrementTranslationAcceptedCount(original_language_code);
+  if (!tab_contents()->profile()->IsOffTheRecord()) {
+    prefs_.ResetTranslationDeniedCount(original_language_code);
+    prefs_.IncrementTranslationAcceptedCount(original_language_code);
+  }
 
   Singleton<TranslateManager>::get()->TranslatePage(
       tab_contents_,
@@ -163,8 +173,10 @@ void TranslateInfoBarDelegate::ReportLanguageDetectionError() {
 
 void TranslateInfoBarDelegate::TranslationDeclined() {
   const std::string& original_language_code = GetOriginalLanguageCode();
-  prefs_.ResetTranslationAcceptedCount(original_language_code);
-  prefs_.IncrementTranslationDeniedCount(original_language_code);
+  if (!tab_contents()->profile()->IsOffTheRecord()) {
+    prefs_.ResetTranslationAcceptedCount(original_language_code);
+    prefs_.IncrementTranslationDeniedCount(original_language_code);
+  }
 
   // Remember that the user declined the translation so as to prevent showing a
   // translate infobar for that page again.  (TranslateManager initiates
@@ -323,13 +335,21 @@ void TranslateInfoBarDelegate::MessageInfoBarButtonPressed() {
       tab_contents_, GetOriginalLanguageCode(), GetTargetLanguageCode());
 }
 
+bool TranslateInfoBarDelegate::ShouldShowMessageInfoBarButton() {
+  return !GetMessageInfoBarButtonText().empty();
+}
+
 bool TranslateInfoBarDelegate::ShouldShowNeverTranslateButton() {
   DCHECK(type_ == BEFORE_TRANSLATE);
+  if (tab_contents()->profile()->IsOffTheRecord())
+    return false;
   return prefs_.GetTranslationDeniedCount(GetOriginalLanguageCode()) >= 3;
 }
 
 bool TranslateInfoBarDelegate::ShouldShowAlwaysTranslateButton() {
   DCHECK(type_ == BEFORE_TRANSLATE);
+  if (tab_contents()->profile()->IsOffTheRecord())
+    return false;
   return prefs_.GetTranslationAcceptedCount(GetOriginalLanguageCode()) >= 3;
 }
 

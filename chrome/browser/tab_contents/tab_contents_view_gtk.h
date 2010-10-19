@@ -4,24 +4,23 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_TAB_CONTENTS_VIEW_GTK_H_
 #define CHROME_BROWSER_TAB_CONTENTS_TAB_CONTENTS_VIEW_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
 #include "app/gtk_signal.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/gtk/focus_store_gtk.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/owned_widget_gtk.h"
 
 class ConstrainedWindowGtk;
-class GtkThemeProperties;
 class RenderViewContextMenuGtk;
 class SadTabGtk;
 class TabContentsDragSource;
 class WebDragDestGtk;
-typedef struct _GtkFloatingContainer GtkFloatingContainer;
 
 class TabContentsViewGtk : public TabContentsView,
                            public NotificationObserver {
@@ -36,6 +35,10 @@ class TabContentsViewGtk : public TabContentsView,
   // TabContentsViewGtk to position the dialogs.
   void AttachConstrainedWindow(ConstrainedWindowGtk* constrained_window);
   void RemoveConstrainedWindow(ConstrainedWindowGtk* constrained_window);
+
+  // Override the stored focus widget. This call only makes sense when the
+  // tab contents is not focused.
+  void SetFocusedWidget(GtkWidget* widget);
 
   // TabContentsView implementation --------------------------------------------
 
@@ -79,6 +82,9 @@ class TabContentsViewGtk : public TabContentsView,
   void InsertIntoContentArea(GtkWidget* widget);
 
   void CancelDragIfAny();
+
+  // Handle focus traversal on the render widget native view.
+  CHROMEGTK_CALLBACK_1(TabContentsViewGtk, gboolean, OnFocus, GtkDirectionType);
 
   // We keep track of the timestamp of the latest mousedown event.
   CHROMEGTK_CALLBACK_1(TabContentsViewGtk, gboolean, OnMouseDown,

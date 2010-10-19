@@ -4,16 +4,18 @@
 
 #ifndef CHROME_BROWSER_SAFE_BROWSING_SAFE_BROWSING_STORE_SQLITE_H_
 #define CHROME_BROWSER_SAFE_BROWSING_SAFE_BROWSING_STORE_SQLITE_H_
+#pragma once
 
 #include <set>
 #include <vector>
 
 #include "base/callback.h"
+#include "base/file_path.h"
+#include "base/scoped_ptr.h"
 #include "chrome/browser/safe_browsing/safe_browsing_store.h"
 #include "testing/gtest/include/gtest/gtest_prod.h"
 
 struct sqlite3;
-class SqliteCompiledStatement;
 class SqliteStatementCache;
 class SQLTransaction;
 
@@ -125,8 +127,9 @@ class SafeBrowsingStoreSqlite : public SafeBrowsingStore {
   bool CheckCompatibleVersion();
 
   bool CreateTables();
-  bool RenameTables();
-  bool DeleteOldTables();
+
+  // Clear the old safe-browsing data from the tables.
+  bool ResetTables();
 
   // Read and write the chunks-seen data from |*_chunks_cache_|.
   // Chunk deletions are not accounted for.

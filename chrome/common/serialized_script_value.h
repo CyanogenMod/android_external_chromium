@@ -4,9 +4,13 @@
 
 #ifndef CHROME_COMMON_SERIALIZED_SCRIPT_VALUE_H_
 #define CHROME_COMMON_SERIALIZED_SCRIPT_VALUE_H_
+#pragma once
 
 #include "base/string16.h"
-#include "third_party/WebKit/WebKit/chromium/public/WebSerializedScriptValue.h"
+
+namespace WebKit {
+class WebSerializedScriptValue;
+}
 
 class SerializedScriptValue {
  public:
@@ -22,6 +26,9 @@ class SerializedScriptValue {
 
   void set_data(const string16& data) { data_ = data; }
   const string16& data() const { return data_; }
+
+  void set_web_serialized_script_value(
+      const WebKit::WebSerializedScriptValue& value);
 
   operator WebKit::WebSerializedScriptValue() const;
 

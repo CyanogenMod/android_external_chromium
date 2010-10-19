@@ -1,14 +1,13 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/file_path.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/automation/browser_proxy.h"
 #include "chrome/test/automation/tab_proxy.h"
 #include "chrome/test/ui/ui_test.h"
 #include "net/base/net_util.h"
-#include "net/url_request/url_request_unittest.h"
+#include "net/test/test_server.h"
 
 class NotificationsPermissionTest : public UITest {
  public:
@@ -19,17 +18,16 @@ class NotificationsPermissionTest : public UITest {
 };
 
 TEST_F(NotificationsPermissionTest, TestUserGestureInfobar) {
-  const wchar_t kDocRoot[] = L"chrome/test/data";
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(server.get() != NULL);
+  net::TestServer test_server(net::TestServer::TYPE_HTTP,
+                              FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  ASSERT_TRUE(test_server.Start());
 
   scoped_refptr<BrowserProxy> browser(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser.get());
   scoped_refptr<TabProxy> tab(browser->GetActiveTab());
   ASSERT_TRUE(tab.get());
   ASSERT_EQ(AUTOMATION_MSG_NAVIGATION_SUCCESS,
-            tab->NavigateToURL(server->TestServerPage(
+            tab->NavigateToURL(test_server.GetURL(
                 "files/notifications/notifications_request_function.html")));
   WaitUntilTabCount(1);
 
@@ -42,14 +40,13 @@ TEST_F(NotificationsPermissionTest, TestUserGestureInfobar) {
       &result));
   EXPECT_TRUE(result);
 
-  EXPECT_TRUE(tab->WaitForInfoBarCount(1, action_max_timeout_ms()));
+  EXPECT_TRUE(tab->WaitForInfoBarCount(1));
 }
 
 TEST_F(NotificationsPermissionTest, TestNoUserGestureInfobar) {
-  const wchar_t kDocRoot[] = L"chrome/test/data";
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(server.get() != NULL);
+  net::TestServer test_server(net::TestServer::TYPE_HTTP,
+                              FilePath(FILE_PATH_LITERAL("chrome/test/data")));
+  ASSERT_TRUE(test_server.Start());
 
   scoped_refptr<BrowserProxy> browser(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser.get());
@@ -59,7 +56,7 @@ TEST_F(NotificationsPermissionTest, TestNoUserGestureInfobar) {
   // Load a page which just does a request; no user gesture should result
   // in no infobar.
   ASSERT_EQ(AUTOMATION_MSG_NAVIGATION_SUCCESS,
-            tab->NavigateToURL(server->TestServerPage(
+            tab->NavigateToURL(test_server.GetURL(
                 "files/notifications/notifications_request_inline.html")));
   WaitUntilTabCount(1);
 

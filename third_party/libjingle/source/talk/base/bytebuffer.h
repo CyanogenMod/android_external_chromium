@@ -46,17 +46,19 @@ class ByteBuffer {
   size_t Length() const { return end_ - start_; }
   size_t Capacity() const { return size_ - start_; }
 
-  bool ReadUInt8(uint8& val);
-  bool ReadUInt16(uint16& val);
-  bool ReadUInt24(uint32& val);
-  bool ReadUInt32(uint32& val);
-  bool ReadString(std::string& val, size_t len);  // append to val
+  bool ReadUInt8(uint8* val);
+  bool ReadUInt16(uint16* val);
+  bool ReadUInt24(uint32* val);
+  bool ReadUInt32(uint32* val);
+  bool ReadUInt64(uint64* val);
+  bool ReadString(std::string* val, size_t len);  // append to val
   bool ReadBytes(char* val, size_t len);
 
   void WriteUInt8(uint8 val);
   void WriteUInt16(uint16 val);
   void WriteUInt24(uint32 val);
   void WriteUInt32(uint32 val);
+  void WriteUInt64(uint64 val);
   void WriteString(const std::string& val);
   void WriteBytes(const char* val, size_t len);
 

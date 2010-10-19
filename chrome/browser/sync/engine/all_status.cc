@@ -8,8 +8,6 @@
 
 #include "base/logging.h"
 #include "base/port.h"
-#include "base/rand_util.h"
-#include "chrome/browser/sync/engine/auth_watcher.h"
 #include "chrome/browser/sync/engine/net/server_connection_manager.h"
 #include "chrome/browser/sync/engine/syncer.h"
 #include "chrome/browser/sync/engine/syncer_thread.h"
@@ -22,11 +20,6 @@
 namespace browser_sync {
 
 static const time_t kMinSyncObserveInterval = 10;  // seconds
-
-// Backoff interval randomization factor.
-static const int kBackoffRandomizationFactor = 2;
-
-const int AllStatus::kMaxBackoffSeconds = 60 * 60 * 4;  // 4 hours.
 
 const char* AllStatus::GetSyncStatusString(SyncStatus icon) {
   const char* strings[] = {"OFFLINE", "OFFLINE_UNSYNCED", "SYNCING", "READY",
@@ -52,11 +45,6 @@ AllStatus::AllStatus() : status_(init_status),
 AllStatus::~AllStatus() {
   syncer_thread_hookup_.reset();
   delete channel_;
-}
-
-void AllStatus::WatchConnectionManager(ServerConnectionManager* conn_mgr) {
-  conn_mgr_hookup_.reset(NewEventListenerHookup(conn_mgr->channel(), this,
-                         &AllStatus::HandleServerConnectionEvent));
 }
 
 void AllStatus::WatchSyncerThread(SyncerThread* syncer_thread) {
@@ -103,10 +91,6 @@ AllStatus::Status AllStatus::CalcSyncing(const SyncerEvent &event) const {
   status.updates_available += snapshot->num_server_changes_remaining;
   status.updates_received += snapshot->max_local_timestamp;
   return status;
-}
-
-AllStatus::Status AllStatus::CalcSyncing() const {
-  return CreateBlankStatus();
 }
 
 int AllStatus::CalcStatusChanges(Status* old_status) {
@@ -159,34 +143,6 @@ int AllStatus::CalcStatusChanges(Status* old_status) {
   return what_changed;
 }
 
-void AllStatus::HandleAuthWatcherEvent(const AuthWatcherEvent& auth_event) {
-  ScopedStatusLockWithNotify lock(this);
-  switch (auth_event.what_happened) {
-    case AuthWatcherEvent::GAIA_AUTH_FAILED:
-    case AuthWatcherEvent::SERVICE_AUTH_FAILED:
-    case AuthWatcherEvent::SERVICE_CONNECTION_FAILED:
-    case AuthWatcherEvent::AUTHENTICATION_ATTEMPT_START:
-      status_.authenticated = false;
-      break;
-    case AuthWatcherEvent::AUTH_SUCCEEDED:
-      // If we've already calculated that the server is reachable, since we've
-      // successfully authenticated, we can be confident that the server is up.
-      if (status_.server_reachable)
-        status_.server_up = true;
-
-      if (!status_.authenticated) {
-        status_.authenticated = true;
-        status_ = CalcSyncing();
-      } else {
-        lock.set_notify_plan(DONT_NOTIFY);
-      }
-      break;
-    default:
-      lock.set_notify_plan(DONT_NOTIFY);
-      break;
-  }
-}
-
 void AllStatus::HandleChannelEvent(const SyncerEvent& event) {
   ScopedStatusLockWithNotify lock(this);
   switch (event.what_happened) {
@@ -228,37 +184,21 @@ void AllStatus::HandleServerConnectionEvent(
     ScopedStatusLockWithNotify lock(this);
     status_.server_up = IsGoodReplyFromServer(event.connection_code);
     status_.server_reachable = event.server_reachable;
+
+    if (event.connection_code == HttpResponse::SERVER_CONNECTION_OK) {
+      if (!status_.authenticated) {
+        status_ = CreateBlankStatus();
+      }
+      status_.authenticated = true;
+    } else {
+      status_.authenticated = false;
+    }
   }
 }
 
 AllStatus::Status AllStatus::status() const {
   AutoLock lock(mutex_);
   return status_;
-}
-
-int AllStatus::GetRecommendedDelaySeconds(int base_delay_seconds) {
-  if (base_delay_seconds >= kMaxBackoffSeconds)
-    return kMaxBackoffSeconds;
-
-  // This calculates approx. base_delay_seconds * 2 +/- base_delay_seconds / 2
-  int backoff_s = (0 == base_delay_seconds) ? 1 :
-      base_delay_seconds * kBackoffRandomizationFactor;
-
-  // Flip a coin to randomize backoff interval by +/- 50%.
-  int rand_sign = base::RandInt(0, 1) * 2 - 1;
-
-  // Truncation is adequate for rounding here.
-  backoff_s = backoff_s +
-      (rand_sign * (base_delay_seconds / kBackoffRandomizationFactor));
-
-  // Cap the backoff interval.
-  backoff_s = std::min(backoff_s, kMaxBackoffSeconds);
-
-  return backoff_s;
-}
-
-int AllStatus::GetRecommendedDelay(int base_delay_ms) const {
-  return GetRecommendedDelaySeconds(base_delay_ms / 1000) * 1000;
 }
 
 void AllStatus::SetNotificationsEnabled(bool notifications_enabled) {

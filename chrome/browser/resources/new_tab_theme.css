@@ -1,12 +1,16 @@
-html {
-  background-image: url(chrome://theme/IDR_THEME_NTP_BACKGROUND?$1);
+html,
+.section > h2 span,
+#most-visited-settings {
+  background-attachment: fixed;
   background-color: $2; /* COLOR_NTP_BACKGROUND */
+  background-image: url(chrome://theme/IDR_THEME_NTP_BACKGROUND?$1);
   background-position: $3;
   background-repeat: $5;
-  overflow: hidden;
 }
 
-html[bookmarkbarattached='true'] {
+html[bookmarkbarattached='true'],
+html[bookmarkbarattached='true'] .section > h2 span,
+html[bookmarkbarattached='true'] #most-visited-settings {
   background-position: $4;
 }
 
@@ -16,17 +20,15 @@ body {
   overflow: auto;
 }
 
-#main {
-  background: url(chrome://theme/IDR_PRODUCT_LOGO?$1) no-repeat 0 8px;
-}
-
+/* TODO(aa): Is this still in use? The styling may be incorrect with M7 NTP
+   rework. */
 #notification.first-run {
   background-color: $$1; /* COLOR_NTP_SECTION */
   border-color: $$2; /* COLOR_NTP_SECTION_BORDER */
 }
 
 #notification.first-run .link {
-   color: $$6; /* COLOR_NTP_LINK_UNDERLINE */
+   color: $$5; /* COLOR_NTP_LINK_UNDERLINE */
 }
 
 #notification.first-run .link-color {
@@ -68,29 +70,22 @@ body {
   background-color: $$1; /* COLOR_NTP_SECTION */
 }
 
-#option-button {
-  background-color: $7; /* color_header_gradient_light */
-  -webkit-mask-image: url(chrome://theme/IDR_NEWTAB_MENU_MASK);
-}
-
-#recently-closed {
+.miniview {
   color: $8; /* COLOR_NTP_TEXT */
 }
 
-#recently-closed > span > span {
-  color: $$6; /* COLOR_NTP_LINK_UNDERLINE */
+.miniview > span {
+  color: $$5; /* COLOR_NTP_LINK_UNDERLINE */
   text-decoration: underline;
 }
 
-#recently-closed > span > span > .item {
+.miniview > span > .item {
   color: $9; /* COLOR_NTP_LINK */
   text-decoration: none;
 }
 
 #attribution {
-  display: $$5;
   color: $9; /* COLOR_NTP_LINK */
-  text-align: right;
 }
 
 #tip-line {
@@ -104,40 +99,39 @@ body {
 :link,
 :visited,
 .link {
-  color: $$6; /* COLOR_NTP_LINK_UNDERLINE */
-}
-
-#top-bar {
-  border-bottom: 1px solid $$2; /* COLOR_NTP_SECTION_BORDER */
-}
-
-.section {
-  border-top: 1px solid $$2; /* COLOR_NTP_SECTION_BORDER */
-  border-bottom: 1px solid $$2; /* COLOR_NTP_SECTION_BORDER */
-}
-
-.section.hidden + :not(.hidden) {
-  border-top: 1px solid $$2; /* COLOR_NTP_SECTION_BORDER */;
-}
-
-.section.hidden + .hidden > h2 {
-  border-left: 1px solid $$2; /* COLOR_NTP_SECTION_BORDER */
+  color: $$5; /* COLOR_NTP_LINK_UNDERLINE */
 }
 
 .section > h2 {
+  color: $$7; /* COLOR_NTP_SECTION_HEADER_TEXT */
+}
+
+.section:not(.hidden) > h2 {
+  color: $$8; /* COLOR_NTP_SECTION_HEADER_TEXT_HOVER */
+}
+
+.section.hidden:not([noexpand]) > h2:hover {
+  color: $$8; /* COLOR_NTP_SECTION_HEADER_TEXT_HOVER */
+}
+
+.section > h2 .back {
+  border-top: 1px solid $$1; /* COLOR_NTP_SECTION  */
+}
+
+.section.hidden > h2 .back {
+  background: none;
+  border-color-top: $$$1; /* COLOR_NTP_SECTION_HEADER_RULE_LIGHT */
+}
+
+.section.hidden:hover > h2 .back {
+  border-color-top: $$9; /* COLOR_NTP_SECTION_HEADER_RULE */
+}
+
+.app a {
   color: $8; /* COLOR_NTP_TEXT */
 }
 
-#apps-section a {
-  color: $8; /* COLOR_NTP_TEXT */
-}
-
-#apps-section .app:hover > .front > a,
-#apps-section .app > .back {
+.app:hover > a {
   color: $$3; /* COLOR_NTP_SECTION_TEXT */
   background-color: $$1; /* COLOR_NTP_SECTION */;
-}
-
-#footer hr {
-  color: $$2; /* COLOR_NTP_SECTION_BORDER */
 }

@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_ABOUT_CHROME_VIEW_H_
 #define CHROME_BROWSER_VIEWS_ABOUT_CHROME_VIEW_H_
+#pragma once
 
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
@@ -12,7 +13,7 @@
 #include "views/window/dialog_delegate.h"
 
 #if defined(OS_WIN) || defined(OS_CHROMEOS)
-#include "chrome/browser/google_update.h"
+#include "chrome/browser/google/google_update.h"
 #endif
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/version_loader.h"
@@ -83,13 +84,6 @@ class AboutChromeView : public views::View,
 #endif
 
  private:
-  // The visible state of the Check For Updates button.
-  enum CheckButtonStatus {
-    CHECKBUTTON_HIDDEN = 0,
-    CHECKBUTTON_DISABLED,
-    CHECKBUTTON_ENABLED,
-  };
-
 #if defined(OS_WIN) || defined(OS_CHROMEOS)
   // Update the UI to show the status of the upgrade.
   void UpdateStatus(GoogleUpdateUpgradeResult result,
@@ -131,8 +125,8 @@ class AboutChromeView : public views::View,
   // The dialog dimensions.
   gfx::Size dialog_dimensions_;
 
-  // Keeps track of the visible state of the Check For Updates button.
-  CheckButtonStatus check_button_status_;
+  // Keeps track of the visible state of the Restart Now button.
+  bool restart_button_visible_;
 
   // The text to display as the main label of the About box. We draw this text
   // word for word with the help of the WordIterator, and make room for URLs

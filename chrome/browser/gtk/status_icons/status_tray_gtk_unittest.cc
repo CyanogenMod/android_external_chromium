@@ -2,8 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "app/menus/simple_menu_model.h"
 #include "app/resource_bundle.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/gtk/status_icons/status_icon_gtk.h"
 #include "chrome/browser/gtk/status_icons/status_tray_gtk.h"
 #include "grit/browser_resources.h"
@@ -26,19 +28,21 @@ TEST(StatusTrayGtkTest, CreateTray) {
 TEST(StatusTrayGtkTest, CreateIcon) {
   // Create an icon, set the images and tooltip, then shut it down.
   StatusTrayGtk tray;
-  StatusIcon* icon = tray.GetStatusIcon(ASCIIToUTF16("test"));
+  StatusIcon* icon = tray.CreateStatusIcon();
   SkBitmap* bitmap = ResourceBundle::GetSharedInstance().GetBitmapNamed(
       IDR_STATUS_TRAY_ICON);
   icon->SetImage(*bitmap);
   icon->SetPressedImage(*bitmap);
   icon->SetToolTip(ASCIIToUTF16("tool tip"));
+  menus::SimpleMenuModel* menu = new menus::SimpleMenuModel(NULL);
+  menu->AddItem(0, ASCIIToUTF16("foo"));
+  icon->SetContextMenu(menu);
 }
 
 TEST(StatusTrayGtkTest, ClickOnIcon) {
   // Create an icon, send a fake click event, make sure observer is called.
   StatusTrayGtk tray;
-  StatusIconGtk* icon = static_cast<StatusIconGtk*>(
-      tray.GetStatusIcon(ASCIIToUTF16("test")));
+  StatusIconGtk* icon = static_cast<StatusIconGtk*>(tray.CreateStatusIcon());
   MockStatusIconObserver observer;
   icon->AddObserver(&observer);
   EXPECT_CALL(observer, OnClicked());

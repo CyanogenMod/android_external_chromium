@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_TRANSLATE_TRANSLATE_MANAGER_H_
 #define CHROME_BROWSER_TRANSLATE_TRANSLATE_MANAGER_H_
+#pragma once
 
 #include <map>
 #include <set>
@@ -13,6 +14,7 @@
 #include "base/lazy_instance.h"
 #include "base/singleton.h"
 #include "base/task.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
@@ -152,6 +154,7 @@ class TranslateManager : public NotificationObserver,
       TabContents* tab);
 
   NotificationRegistrar notification_registrar_;
+  PrefChangeRegistrar pref_change_registrar_;
 
   // A map that associates a profile with its parsed "accept languages".
   typedef std::set<std::string> LanguageSet;

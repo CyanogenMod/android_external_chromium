@@ -4,7 +4,6 @@
 
 #include "chrome/browser/dom_ui/mediaplayer_ui.h"
 
-#include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
@@ -26,15 +25,20 @@
 #include "chrome/browser/download/download_util.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/history/history_types.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/time_format.h"
 #include "chrome/common/url_constants.h"
+#include "grit/browser_resources.h"
+#include "grit/chromium_strings.h"
+#include "grit/generated_resources.h"
+#include "grit/locale_settings.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_request_job.h"
@@ -43,23 +47,17 @@
 #include "chrome/browser/chromeos/frame/panel_browser_view.h"
 #endif
 
-#include "grit/browser_resources.h"
-#include "grit/chromium_strings.h"
-#include "grit/generated_resources.h"
-#include "grit/locale_settings.h"
+static const char kPropertyPath[] = "path";
+static const char kPropertyForce[] = "force";
+static const char kPropertyOffset[] = "currentOffset";
+static const char kPropertyError[] = "error";
 
-static const std::wstring kPropertyPath = L"path";
-static const std::wstring kPropertyForce = L"force";
-static const std::wstring kPropertyTitle = L"title";
-static const std::wstring kPropertyOffset = L"currentOffset";
-static const std::wstring kPropertyError = L"error";
-
-const char* kMediaplayerURL = "chrome://mediaplayer";
-const char* kMediaplayerPlaylistURL = "chrome://mediaplayer#playlist";
-const int kPopupLeft = 0;
-const int kPopupTop = 0;
-const int kPopupWidth = 350;
-const int kPopupHeight = 300;
+static const char* kMediaplayerURL = "chrome://mediaplayer";
+static const char* kMediaplayerPlaylistURL = "chrome://mediaplayer#playlist";
+static const int kPopupLeft = 0;
+static const int kPopupTop = 0;
+static const int kPopupWidth = 350;
+static const int kPopupHeight = 300;
 
 class MediaplayerUIHTMLSource : public ChromeURLDataManager::DataSource {
  public:
@@ -108,7 +106,7 @@ class MediaplayerHandler : public DOMMessageHandler,
   virtual void RegisterMessages();
 
   // Callback for the "currentOffsetChanged" message.
-  void HandleCurrentOffsetChanged(const Value* value);
+  void HandleCurrentOffsetChanged(const ListValue* args);
 
   void FirePlaylistChanged(const std::string& path,
                            bool force,
@@ -118,18 +116,18 @@ class MediaplayerHandler : public DOMMessageHandler,
 
   void EnqueueMediaFile(const GURL& url);
 
-  void GetPlaylistValue(ListValue& value);
+  void GetPlaylistValue(ListValue& args);
 
   // Callback for the "playbackError" message.
-  void HandlePlaybackError(const Value* value);
+  void HandlePlaybackError(const ListValue* args);
 
   // Callback for the "getCurrentPlaylist" message.
-  void HandleGetCurrentPlaylist(const Value* value);
+  void HandleGetCurrentPlaylist(const ListValue* args);
 
-  void HandleTogglePlaylist(const Value* value);
-  void HandleShowPlaylist(const Value* value);
-  void HandleSetCurrentPlaylistOffset(const Value* value);
-  void HandleToggleFullscreen(const Value* value);
+  void HandleTogglePlaylist(const ListValue* args);
+  void HandleShowPlaylist(const ListValue* args);
+  void HandleSetCurrentPlaylistOffset(const ListValue* args);
+  void HandleToggleFullscreen(const ListValue* args);
 
   const UrlVector& GetCurrentPlaylist();
 
@@ -167,7 +165,7 @@ void MediaplayerUIHTMLSource::StartDataRequest(const std::string& path,
   DictionaryValue localized_strings;
   // TODO(dhg): Fix the strings that are currently hardcoded so they
   // use the localized versions.
-  localized_strings.SetString(L"errorstring", "Error Playing Back");
+  localized_strings.SetString("errorstring", "Error Playing Back");
 
   SetFontAndTextDirection(&localized_strings);
 
@@ -247,12 +245,12 @@ void MediaplayerHandler::RegisterMessages() {
       NewCallback(this, &MediaplayerHandler::HandleShowPlaylist));
 }
 
-void MediaplayerHandler::GetPlaylistValue(ListValue& value) {
+void MediaplayerHandler::GetPlaylistValue(ListValue& urls) {
   for (size_t x = 0; x < current_playlist_.size(); x++) {
     DictionaryValue* url_value = new DictionaryValue();
     url_value->SetString(kPropertyPath, current_playlist_[x].url.spec());
     url_value->SetBoolean(kPropertyError, current_playlist_[x].haderror);
-    value.Append(url_value);
+    urls.Append(url_value);
   }
 }
 
@@ -271,22 +269,14 @@ int MediaplayerHandler::GetCurrentPlaylistOffset() {
   return current_offset_;
 }
 
-void MediaplayerHandler::HandleToggleFullscreen(const Value* value) {
+void MediaplayerHandler::HandleToggleFullscreen(const ListValue* args) {
   MediaPlayer::Get()->ToggleFullscreen();
 }
 
-void MediaplayerHandler::HandleSetCurrentPlaylistOffset(const Value* value) {
-  ListValue results_value;
-  DictionaryValue info_value;
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    // Get the new playlist offset;
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    std::string val;
-    if (list_value->GetString(0, &val)) {
-      int id = atoi(val.c_str());
-      MediaPlayer::Get()->SetPlaylistOffset(id);
-    }
-  }
+void MediaplayerHandler::HandleSetCurrentPlaylistOffset(const ListValue* args) {
+  int id;
+  CHECK(ExtractIntegerValue(args, &id));
+  MediaPlayer::Get()->SetPlaylistOffset(id);
 }
 
 void MediaplayerHandler::FirePlaylistChanged(const std::string& path,
@@ -319,51 +309,36 @@ void MediaplayerHandler::EnqueueMediaFile(const GURL& url) {
   MediaPlayer::Get()->NotifyPlaylistChanged();
 }
 
-void MediaplayerHandler::HandleCurrentOffsetChanged(const Value* value) {
-  ListValue results_value;
-  DictionaryValue info_value;
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    std::string val;
-
-    // Get the new playlist offset;
-    if (list_value->GetString(0, &val)) {
-      int id = atoi(val.c_str());
-      current_offset_ = id;
-      MediaPlayer::Get()->NotifyPlaylistChanged();
-    }
-  }
+void MediaplayerHandler::HandleCurrentOffsetChanged(const ListValue* args) {
+  CHECK(ExtractIntegerValue(args, &current_offset_));
+  MediaPlayer::Get()->NotifyPlaylistChanged();
 }
 
-void MediaplayerHandler::HandlePlaybackError(const Value* value) {
-  if (value && value->GetType() == Value::TYPE_LIST) {
-    const ListValue* list_value = static_cast<const ListValue*>(value);
-    std::string error;
-    std::string url;
-    // Get path string.
-    if (list_value->GetString(0, &error)) {
-      LOG(ERROR) << "Playback error" << error;
-    }
-    if (list_value->GetString(1, &url)) {
-      for (size_t x = 0; x < current_playlist_.size(); x++) {
-        if (current_playlist_[x].url == GURL(url)) {
-          current_playlist_[x].haderror = true;
-        }
+void MediaplayerHandler::HandlePlaybackError(const ListValue* args) {
+  std::string error;
+  std::string url;
+  // Get path string.
+  if (args->GetString(0, &error))
+    LOG(ERROR) << "Playback error" << error;
+  if (args->GetString(1, &url)) {
+    for (size_t x = 0; x < current_playlist_.size(); x++) {
+      if (current_playlist_[x].url == GURL(url)) {
+        current_playlist_[x].haderror = true;
       }
-      FirePlaylistChanged(std::string(), false, current_offset_);
     }
+    FirePlaylistChanged(std::string(), false, current_offset_);
   }
 }
 
-void MediaplayerHandler::HandleGetCurrentPlaylist(const Value* value) {
+void MediaplayerHandler::HandleGetCurrentPlaylist(const ListValue* args) {
   FirePlaylistChanged(std::string(), false, current_offset_);
 }
 
-void MediaplayerHandler::HandleTogglePlaylist(const Value* value) {
+void MediaplayerHandler::HandleTogglePlaylist(const ListValue* args) {
   MediaPlayer::Get()->TogglePlaylistWindowVisible();
 }
 
-void MediaplayerHandler::HandleShowPlaylist(const Value* value) {
+void MediaplayerHandler::HandleShowPlaylist(const ListValue* args) {
   MediaPlayer::Get()->ShowPlaylistWindow();
 }
 
@@ -376,6 +351,9 @@ void MediaplayerHandler::HandleShowPlaylist(const Value* value) {
 // Allows InvokeLater without adding refcounting. This class is a Singleton and
 // won't be deleted until it's last InvokeLater is run.
 DISABLE_RUNNABLE_METHOD_REFCOUNT(MediaPlayer);
+
+MediaPlayer::~MediaPlayer() {
+}
 
 void MediaPlayer::EnqueueMediaURL(const GURL& url, Browser* creator) {
   if (!Enabled()) {
@@ -518,10 +496,12 @@ void MediaPlayer::RemoveHandler(MediaplayerHandler* handler) {
 
 void MediaPlayer::PopupPlaylist(Browser* creator) {
   Profile* profile = BrowserList::GetLastActive()->profile();
-  playlist_browser_ = Browser::CreateForPopup(profile);
+  playlist_browser_ = Browser::CreateForType(Browser::TYPE_APP_PANEL,
+                                             profile);
   playlist_browser_->AddTabWithURL(
       GURL(kMediaplayerPlaylistURL), GURL(), PageTransition::LINK,
-      -1, TabStripModel::ADD_SELECTED, NULL, std::string());
+      -1, TabStripModel::ADD_SELECTED, NULL, std::string(),
+      &playlist_browser_);
   playlist_browser_->window()->SetBounds(gfx::Rect(kPopupLeft,
                                                    kPopupTop,
                                                    kPopupWidth,
@@ -538,7 +518,8 @@ void MediaPlayer::PopupMediaPlayer(Browser* creator) {
     return;
   }
   Profile* profile = BrowserList::GetLastActive()->profile();
-  mediaplayer_browser_ = Browser::CreateForPopup(profile);
+  mediaplayer_browser_ = Browser::CreateForType(Browser::TYPE_APP_PANEL,
+                                                profile);
 #if defined(OS_CHROMEOS)
   // Since we are on chromeos, popups should be a PanelBrowserView,
   // so we can just cast it.
@@ -553,7 +534,8 @@ void MediaPlayer::PopupMediaPlayer(Browser* creator) {
 #endif
   mediaplayer_browser_->AddTabWithURL(
       GURL(kMediaplayerURL), GURL(), PageTransition::LINK,
-      -1, TabStripModel::ADD_SELECTED, NULL, std::string());
+      -1, TabStripModel::ADD_SELECTED, NULL, std::string(),
+      &mediaplayer_browser_);
   mediaplayer_browser_->window()->SetBounds(gfx::Rect(kPopupLeft,
                                                       kPopupTop,
                                                       kPopupWidth,

@@ -18,18 +18,29 @@
 #include "base/i18n/time_formatting.h"
 #include "base/path_service.h"
 #include "base/singleton.h"
-#include "base/string_util.h"
+#include "base/string16.h"
+#include "base/string_number_conversions.h"
+#include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/browser.h"
+#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_manager.h"
+#include "chrome/browser/extensions/crx_installer.h"
+#include "chrome/browser/extensions/extension_install_ui.h"
+#include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
+#include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
+#include "chrome/browser/tab_contents/infobar_delegate.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/extensions/extension.h"
+#include "chrome/common/notification_service.h"
 #include "chrome/common/time_format.h"
 #include "gfx/canvas_skia.h"
 #include "gfx/rect.h"
@@ -37,6 +48,7 @@
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
 #include "net/base/mime_util.h"
+#include "net/base/net_util.h"
 #include "skia/ext/image_operations.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/core/SkShader.h"
@@ -46,18 +58,20 @@
 #include "views/drag_utils.h"
 #endif
 
-#if defined(OS_LINUX)
+#if defined(TOOLKIT_USES_GTK)
 #if defined(TOOLKIT_VIEWS)
 #include "app/drag_drop_types.h"
 #include "views/widget/widget_gtk.h"
 #elif defined(TOOLKIT_GTK)
 #include "chrome/browser/gtk/custom_drag.h"
 #endif  // defined(TOOLKIT_GTK)
-#endif  // defined(OS_LINUX)
+#endif  // defined(TOOLKIT_USES_GTK)
 
 #if defined(OS_WIN)
 #include "app/os_exchange_data_provider_win.h"
+#include "app/win_util.h"
 #include "base/base_drag_source.h"
+#include "base/registry.h"
 #include "base/scoped_comptr_win.h"
 #include "base/win_util.h"
 #include "chrome/browser/browser_list.h"
@@ -69,26 +83,6 @@ namespace download_util {
 // How many times to cycle the complete animation. This should be an odd number
 // so that the animation ends faded out.
 static const int kCompleteAnimationCycles = 5;
-
-// Download opening ------------------------------------------------------------
-
-bool CanOpenDownload(DownloadItem* download) {
-  FilePath file_to_use = download->full_path();
-  if (!download->original_name().value().empty())
-    file_to_use = download->original_name();
-
-  return !Extension::IsExtension(file_to_use) &&
-         !download->manager()->IsExecutableFile(file_to_use);
-}
-
-void OpenDownload(DownloadItem* download) {
-  if (download->state() == DownloadItem::IN_PROGRESS) {
-    download->set_open_when_complete(!download->open_when_complete());
-  } else if (download->state() == DownloadItem::COMPLETE) {
-    download->NotifyObserversDownloadOpened();
-    download->manager()->OpenDownload(download, NULL);
-  }
-}
 
 // Download temporary file creation --------------------------------------------
 
@@ -128,6 +122,198 @@ bool DownloadPathIsDangerous(const FilePath& download_path) {
     return false;
   }
   return (download_path == desktop_dir);
+}
+
+void GenerateExtension(const FilePath& file_name,
+                       const std::string& mime_type,
+                       FilePath::StringType* generated_extension) {
+  // We're worried about three things here:
+  //
+  // 1) Security.  Many sites let users upload content, such as buddy icons, to
+  //    their web sites.  We want to mitigate the case where an attacker
+  //    supplies a malicious executable with an executable file extension but an
+  //    honest site serves the content with a benign content type, such as
+  //    image/jpeg.
+  //
+  // 2) Usability.  If the site fails to provide a file extension, we want to
+  //    guess a reasonable file extension based on the content type.
+  //
+  // 3) Shell integration.  Some file extensions automatically integrate with
+  //    the shell.  We block these extensions to prevent a malicious web site
+  //    from integrating with the user's shell.
+
+  static const FilePath::CharType default_extension[] =
+      FILE_PATH_LITERAL("download");
+
+  // See if our file name already contains an extension.
+  FilePath::StringType extension = file_name.Extension();
+  if (!extension.empty())
+    extension.erase(extension.begin());  // Erase preceding '.'.
+
+#if defined(OS_WIN)
+  // Rename shell-integrated extensions.
+  if (win_util::IsShellIntegratedExtension(extension))
+    extension.assign(default_extension);
+#endif
+
+  std::string mime_type_from_extension;
+  net::GetMimeTypeFromFile(file_name,
+                           &mime_type_from_extension);
+  if (mime_type == mime_type_from_extension) {
+    // The hinted extension matches the mime type.  It looks like a winner.
+    generated_extension->swap(extension);
+    return;
+  }
+
+  if (IsExecutableExtension(extension) && !IsExecutableMimeType(mime_type)) {
+    // We want to be careful about executable extensions.  The worry here is
+    // that a trusted web site could be tricked into dropping an executable file
+    // on the user's filesystem.
+    if (!net::GetPreferredExtensionForMimeType(mime_type, &extension)) {
+      // We couldn't find a good extension for this content type.  Use a dummy
+      // extension instead.
+      extension.assign(default_extension);
+    }
+  }
+
+  if (extension.empty()) {
+    net::GetPreferredExtensionForMimeType(mime_type, &extension);
+  } else {
+    // Append extension generated from the mime type if:
+    // 1. New extension is not ".txt"
+    // 2. New extension is not the same as the already existing extension.
+    // 3. New extension is not executable. This action mitigates the case when
+    //    an executable is hidden in a benign file extension;
+    //    E.g. my-cat.jpg becomes my-cat.jpg.js if content type is
+    //         application/x-javascript.
+    // 4. New extension is not ".tar" for .tar.gz/tgz files. For misconfigured
+    //    web servers, i.e. bug 5772.
+    // 5. The original extension is not ".tgz" & the new extension is not "gz".
+    FilePath::StringType append_extension;
+    if (net::GetPreferredExtensionForMimeType(mime_type, &append_extension)) {
+      if (append_extension != FILE_PATH_LITERAL("txt") &&
+          append_extension != extension &&
+          !IsExecutableExtension(append_extension) &&
+          !(append_extension == FILE_PATH_LITERAL("gz") &&
+            extension == FILE_PATH_LITERAL("tgz")) &&
+          !(append_extension == FILE_PATH_LITERAL("tar") &&
+           (extension == FILE_PATH_LITERAL("tar.gz") ||
+            extension == FILE_PATH_LITERAL("tgz")))) {
+        extension += FILE_PATH_LITERAL(".");
+        extension += append_extension;
+      }
+    }
+  }
+
+  generated_extension->swap(extension);
+}
+
+void GenerateFileNameFromInfo(DownloadCreateInfo* info,
+                              FilePath* generated_name) {
+  GenerateFileName(GURL(info->url),
+                   info->content_disposition,
+                   info->referrer_charset,
+                   info->mime_type,
+                   generated_name);
+}
+
+void GenerateFileName(const GURL& url,
+                      const std::string& content_disposition,
+                      const std::string& referrer_charset,
+                      const std::string& mime_type,
+                      FilePath* generated_name) {
+  std::wstring default_name =
+      l10n_util::GetString(IDS_DEFAULT_DOWNLOAD_FILENAME);
+#if defined(OS_WIN)
+  FilePath default_file_path(default_name);
+#elif defined(OS_POSIX)
+  FilePath default_file_path(base::SysWideToNativeMB(default_name));
+#endif
+
+  *generated_name = net::GetSuggestedFilename(GURL(url),
+                                              content_disposition,
+                                              referrer_charset,
+                                              default_file_path);
+
+  DCHECK(!generated_name->empty());
+
+  GenerateSafeFileName(mime_type, generated_name);
+}
+
+void GenerateSafeFileName(const std::string& mime_type, FilePath* file_name) {
+  // Make sure we get the right file extension
+  FilePath::StringType extension;
+  GenerateExtension(*file_name, mime_type, &extension);
+  *file_name = file_name->ReplaceExtension(extension);
+
+#if defined(OS_WIN)
+  // Prepend "_" to the file name if it's a reserved name
+  FilePath::StringType leaf_name = file_name->BaseName().value();
+  DCHECK(!leaf_name.empty());
+  if (win_util::IsReservedName(leaf_name)) {
+    leaf_name = FilePath::StringType(FILE_PATH_LITERAL("_")) + leaf_name;
+    *file_name = file_name->DirName();
+    if (file_name->value() == FilePath::kCurrentDirectory) {
+      *file_name = FilePath(leaf_name);
+    } else {
+      *file_name = file_name->Append(leaf_name);
+    }
+  }
+#endif
+}
+
+void OpenChromeExtension(Profile* profile,
+                         DownloadManager* download_manager,
+                         const DownloadItem& download_item) {
+  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(download_item.is_extension_install());
+
+  // We don't support extensions in OTR mode.
+  ExtensionsService* service = profile->GetExtensionsService();
+  if (service) {
+    NotificationService* nservice = NotificationService::current();
+    GURL nonconst_download_url = download_item.url();
+    nservice->Notify(NotificationType::EXTENSION_READY_FOR_INSTALL,
+                     Source<DownloadManager>(download_manager),
+                     Details<GURL>(&nonconst_download_url));
+
+    scoped_refptr<CrxInstaller> installer(
+        new CrxInstaller(service->install_directory(),
+                         service,
+                         new ExtensionInstallUI(profile)));
+    installer->set_delete_source(true);
+
+    if (UserScript::HasUserScriptFileExtension(download_item.url())) {
+      installer->InstallUserScript(download_item.full_path(),
+                                   download_item.url());
+    } else {
+      bool is_gallery_download = ExtensionsService::IsDownloadFromGallery(
+          download_item.url(), download_item.referrer_url());
+      installer->set_original_mime_type(download_item.original_mime_type());
+      installer->set_apps_require_extension_mime_type(true);
+      installer->set_allow_privilege_increase(true);
+      installer->set_original_url(download_item.url());
+      installer->set_limit_web_extent_to_download_host(!is_gallery_download);
+      installer->InstallCrx(download_item.full_path());
+      installer->set_allow_silent_install(is_gallery_download);
+    }
+  } else {
+    TabContents* contents = NULL;
+    // Get last active normal browser of profile.
+    Browser* last_active =
+        BrowserList::FindBrowserWithType(profile, Browser::TYPE_NORMAL, true);
+    if (last_active)
+      contents = last_active->GetSelectedTabContents();
+    if (contents) {
+      contents->AddInfoBar(
+          new SimpleAlertInfoBarDelegate(contents,
+              l10n_util::GetStringUTF16(
+                  IDS_EXTENSION_INCOGNITO_INSTALL_INFOBAR_LABEL),
+              ResourceBundle::GetSharedInstance().GetBitmapNamed(
+                  IDR_INFOBAR_PLUGIN_INSTALL),
+              true));
+    }
+  }
 }
 
 // Download progress painting --------------------------------------------------
@@ -282,8 +468,8 @@ int GetBigProgressIconSize() {
   static int big_progress_icon_size = 0;
   if (big_progress_icon_size == 0) {
     string16 locale_size_str =
-        WideToUTF16Hack(l10n_util::GetString(IDS_DOWNLOAD_BIG_PROGRESS_SIZE));
-    bool rc = StringToInt(locale_size_str, &big_progress_icon_size);
+        l10n_util::GetStringUTF16(IDS_DOWNLOAD_BIG_PROGRESS_SIZE);
+    bool rc = base::StringToInt(locale_size_str, &big_progress_icon_size);
     if (!rc || big_progress_icon_size < kBigProgressIconSize) {
       NOTREACHED();
       big_progress_icon_size = kBigProgressIconSize;
@@ -308,7 +494,7 @@ void DragDownload(const DownloadItem* download,
   OSExchangeData data;
 
   if (icon) {
-    drag_utils::CreateDragImageForFile(download->file_name().value(), icon,
+    drag_utils::CreateDragImageForFile(download->GetFileName().value(), icon,
                                        &data);
   }
 
@@ -322,7 +508,7 @@ void DragDownload(const DownloadItem* download,
   // Add URL so that we can load supported files when dragged to TabContents.
   if (net::IsSupportedMimeType(mime_type)) {
     data.SetURL(GURL(WideToUTF8(full_path.ToWStringHack())),
-                     download->file_name().ToWStringHack());
+                     download->GetFileName().ToWStringHack());
   }
 
 #if defined(OS_WIN)
@@ -332,7 +518,7 @@ void DragDownload(const DownloadItem* download,
   DWORD effects;
   DoDragDrop(OSExchangeDataProviderWin::GetIDataObject(data), drag_source.get(),
              DROPEFFECT_COPY | DROPEFFECT_LINK, &effects);
-#elif defined(OS_LINUX)
+#elif defined(TOOLKIT_USES_GTK)
   GtkWidget* root = gtk_widget_get_toplevel(view);
   if (!root)
     return;
@@ -343,59 +529,61 @@ void DragDownload(const DownloadItem* download,
   widget->DoDrag(data, DragDropTypes::DRAG_COPY | DragDropTypes::DRAG_LINK);
 #endif  // OS_WIN
 }
-#elif defined(OS_LINUX)
+#elif defined(USE_X11)
 void DragDownload(const DownloadItem* download,
                   SkBitmap* icon,
                   gfx::NativeView view) {
   DownloadItemDrag::BeginDrag(download, icon);
 }
-#endif  // OS_LINUX
+#endif  // USE_X11
 
 DictionaryValue* CreateDownloadItemValue(DownloadItem* download, int id) {
   DictionaryValue* file_value = new DictionaryValue();
 
-  file_value->SetInteger(L"started",
-    static_cast<int>(download->start_time().ToTimeT()));
-  file_value->SetString(L"since_string",
-    TimeFormat::RelativeDate(download->start_time(), NULL));
-  file_value->SetString(L"date_string",
-    base::TimeFormatShortDate(download->start_time()));
-  file_value->SetInteger(L"id", id);
-  file_value->SetString(L"file_path", download->full_path().ToWStringHack());
+  file_value->SetInteger("started",
+      static_cast<int>(download->start_time().ToTimeT()));
+  file_value->SetString("since_string",
+      TimeFormat::RelativeDate(download->start_time(), NULL));
+  file_value->SetString("date_string",
+      WideToUTF16Hack(base::TimeFormatShortDate(download->start_time())));
+  file_value->SetInteger("id", id);
+  file_value->SetString("file_path",
+      WideToUTF16Hack(download->full_path().ToWStringHack()));
   // Keep file names as LTR.
-  std::wstring file_name = download->GetFileName().ToWStringHack();
-  base::i18n::GetDisplayStringInLTRDirectionality(&file_name);
-  file_value->SetString(L"file_name", file_name);
-  file_value->SetString(L"url", download->url().spec());
-  file_value->SetBoolean(L"otr", download->is_otr());
+  string16 file_name = WideToUTF16Hack(
+      download->GetFileName().ToWStringHack());
+  file_name = base::i18n::GetDisplayStringInLTRDirectionality(file_name);
+  file_value->SetString("file_name", file_name);
+  file_value->SetString("url", download->url().spec());
+  file_value->SetBoolean("otr", download->is_otr());
 
   if (download->state() == DownloadItem::IN_PROGRESS) {
     if (download->safety_state() == DownloadItem::DANGEROUS) {
-      file_value->SetString(L"state", L"DANGEROUS");
+      file_value->SetString("state", "DANGEROUS");
     } else if (download->is_paused()) {
-      file_value->SetString(L"state", L"PAUSED");
+      file_value->SetString("state", "PAUSED");
     } else {
-      file_value->SetString(L"state", L"IN_PROGRESS");
+      file_value->SetString("state", "IN_PROGRESS");
     }
 
-    file_value->SetString(L"progress_status_text",
-       GetProgressStatusText(download));
+    file_value->SetString("progress_status_text",
+       WideToUTF16Hack(GetProgressStatusText(download)));
 
-    file_value->SetInteger(L"percent",
+    file_value->SetInteger("percent",
         static_cast<int>(download->PercentComplete()));
-    file_value->SetInteger(L"received",
+    file_value->SetInteger("received",
         static_cast<int>(download->received_bytes()));
   } else if (download->state() == DownloadItem::CANCELLED) {
-    file_value->SetString(L"state", L"CANCELLED");
+    file_value->SetString("state", "CANCELLED");
   } else if (download->state() == DownloadItem::COMPLETE) {
     if (download->safety_state() == DownloadItem::DANGEROUS) {
-      file_value->SetString(L"state", L"DANGEROUS");
+      file_value->SetString("state", "DANGEROUS");
     } else {
-      file_value->SetString(L"state", L"COMPLETE");
+      file_value->SetString("state", "COMPLETE");
     }
   }
 
-  file_value->SetInteger(L"total",
+  file_value->SetInteger("total",
       static_cast<int>(download->total_bytes()));
 
   return file_value;
@@ -405,7 +593,8 @@ std::wstring GetProgressStatusText(DownloadItem* download) {
   int64 total = download->total_bytes();
   int64 size = download->received_bytes();
   DataUnits amount_units = GetByteDisplayUnits(size);
-  std::wstring received_size = FormatBytes(size, amount_units, true);
+  std::wstring received_size = UTF16ToWideHack(FormatBytes(size, amount_units,
+                                                           true));
   std::wstring amount = received_size;
 
   // Adjust both strings for the locale direction since we don't yet know which
@@ -418,7 +607,8 @@ std::wstring GetProgressStatusText(DownloadItem* download) {
 
   if (total) {
     amount_units = GetByteDisplayUnits(total);
-    std::wstring total_text = FormatBytes(total, amount_units, true);
+    std::wstring total_text =
+        UTF16ToWideHack(FormatBytes(total, amount_units, true));
     std::wstring total_text_localized;
     if (base::i18n::AdjustStringForLocaleDirection(total_text,
                                                    &total_text_localized))
@@ -431,17 +621,18 @@ std::wstring GetProgressStatusText(DownloadItem* download) {
     amount.assign(received_size);
   }
   amount_units = GetByteDisplayUnits(download->CurrentSpeed());
-  std::wstring speed_text = FormatSpeed(download->CurrentSpeed(),
-                                        amount_units, true);
+  std::wstring speed_text =
+      UTF16ToWideHack(FormatSpeed(download->CurrentSpeed(), amount_units,
+                                  true));
   std::wstring speed_text_localized;
   if (base::i18n::AdjustStringForLocaleDirection(speed_text,
                                                  &speed_text_localized))
     speed_text.assign(speed_text_localized);
 
   base::TimeDelta remaining;
-  std::wstring time_remaining;
+  string16 time_remaining;
   if (download->is_paused())
-    time_remaining = l10n_util::GetString(IDS_DOWNLOAD_PROGRESS_PAUSED);
+    time_remaining = l10n_util::GetStringUTF16(IDS_DOWNLOAD_PROGRESS_PAUSED);
   else if (download->TimeRemaining(&remaining))
     time_remaining = TimeFormat::TimeRemaining(remaining);
 
@@ -450,7 +641,7 @@ std::wstring GetProgressStatusText(DownloadItem* download) {
                                  speed_text, amount);
   }
   return l10n_util::GetStringF(IDS_DOWNLOAD_TAB_PROGRESS_STATUS, speed_text,
-                               amount, time_remaining);
+                               amount, UTF16ToWideHack(time_remaining));
 }
 
 #if !defined(OS_MACOSX)

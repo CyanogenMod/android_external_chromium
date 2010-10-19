@@ -9,7 +9,7 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/background_contents_service.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/tab_contents/background_contents.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -25,7 +25,6 @@ class BackgroundContentsServiceTest : public testing::Test {
   ~BackgroundContentsServiceTest() {}
   void SetUp() {
     command_line_.reset(new CommandLine(CommandLine::ARGUMENTS_ONLY));
-    command_line_->AppendSwitch(switches::kRestoreBackgroundContents);
   }
 
   DictionaryValue* GetPrefs(Profile* profile) {
@@ -36,11 +35,11 @@ class BackgroundContentsServiceTest : public testing::Test {
   // Returns the stored pref URL for the passed app id.
   std::string GetPrefURLForApp(Profile* profile, const string16& appid) {
     DictionaryValue* pref = GetPrefs(profile);
-    EXPECT_TRUE(pref->HasKey(UTF16ToWide(appid)));
+    EXPECT_TRUE(pref->HasKey(UTF16ToUTF8(appid)));
     DictionaryValue* value;
-    pref->GetDictionaryWithoutPathExpansion(UTF16ToWide(appid), &value);
+    pref->GetDictionaryWithoutPathExpansion(UTF16ToUTF8(appid), &value);
     std::string url;
-    value->GetString(L"url", &url);
+    value->GetString("url", &url);
     return url;
   }
 
@@ -68,7 +67,7 @@ class MockBackgroundContents : public BackgroundContents {
         Details<BackgroundContentsOpenedDetails>(&details));
   }
 
-  virtual const void Navigate(GURL url) {
+  virtual void Navigate(GURL url) {
     url_ = url;
     NotificationService::current()->Notify(
         NotificationType::BACKGROUND_CONTENTS_NAVIGATED,
@@ -115,12 +114,9 @@ TEST_F(BackgroundContentsServiceTest, BackgroundContentsCreateDestroy) {
   BackgroundContentsService service(&profile, command_line_.get());
   MockBackgroundContents* contents = new MockBackgroundContents(&profile);
   EXPECT_FALSE(service.IsTracked(contents));
-  EXPECT_FALSE(BrowserList::WillKeepAlive());
   contents->SendOpenedNotification();
-  EXPECT_TRUE(BrowserList::WillKeepAlive());
   EXPECT_TRUE(service.IsTracked(contents));
   delete contents;
-  EXPECT_FALSE(BrowserList::WillKeepAlive());
   EXPECT_FALSE(service.IsTracked(contents));
 }
 

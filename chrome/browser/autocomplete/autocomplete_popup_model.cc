@@ -4,6 +4,8 @@
 
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 
+#include "unicode/ubidi.h"
+
 #include "base/string_util.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_view.h"
@@ -12,7 +14,7 @@
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/notification_service.h"
-#include "third_party/icu/public/common/unicode/ubidi.h"
+#include "gfx/rect.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 // AutocompletePopupModel
@@ -82,14 +84,19 @@ void AutocompletePopupModel::SetHoveredLine(size_t line) {
 
 void AutocompletePopupModel::SetSelectedLine(size_t line,
                                              bool reset_to_default) {
+  // We should at least be dealing with the results of the current query.  Note
+  // that even if |line| was valid on entry, this may make it invalid.  We clamp
+  // it below.
+  controller_->CommitIfQueryHasNeverBeenCommitted();
+
   const AutocompleteResult& result = controller_->result();
-  CHECK(line < result.size());
   if (result.empty())
     return;
 
   // Cancel the query so the matches don't change on the user.
   controller_->Stop(false);
 
+  line = std::min(line, result.size() - 1);
   const AutocompleteMatch& match = result.match_at(line);
   if (reset_to_default) {
     manually_selected_match_.Clear();
@@ -154,6 +161,10 @@ void AutocompletePopupModel::InfoForCurrentSelection(
   DCHECK(match != NULL);
   const AutocompleteResult* result;
   if (!controller_->done()) {
+    // NOTE: Using latest_result() is important here since not only could it
+    // contain newer results than result() for the current query, it could even
+    // refer to an entirely different query (e.g. if the user is typing rapidly
+    // and the controller is purposefully delaying updates to avoid flicker).
     result = &controller_->latest_result();
     // It's technically possible for |result| to be empty if no provider returns
     // a synchronous result but the query has not completed synchronously;
@@ -229,8 +240,8 @@ void AutocompletePopupModel::Move(int count) {
 
   // Clamp the new line to [0, result_.count() - 1].
   const size_t new_line = selected_line_ + count;
-  SetSelectedLine((((count < 0) && (new_line >= selected_line_)) ?
-      0 : std::min(new_line, result.size() - 1)), false);
+  SetSelectedLine(((count < 0) && (new_line >= selected_line_)) ? 0 : new_line,
+                  false);
 }
 
 void AutocompletePopupModel::TryDeletingCurrentItem() {
@@ -252,10 +263,12 @@ void AutocompletePopupModel::TryDeletingCurrentItem() {
     const AutocompleteResult& result = controller_->result();
     if (!result.empty()) {
       // Move the selection to the next choice after the deleted one.
+      // SetSelectedLine() will clamp to take care of the case where we deleted
+      // the last item.
       // TODO(pkasting): Eventually the controller should take care of this
       // before notifying us, reducing flicker.  At that point the check for
       // deletability can move there too.
-      SetSelectedLine(std::min(result.size() - 1, selected_line), false);
+      SetSelectedLine(selected_line, false);
     }
   }
 }
@@ -268,8 +281,8 @@ void AutocompletePopupModel::Observe(NotificationType type,
 
   const AutocompleteResult* result =
       Details<const AutocompleteResult>(details).ptr();
-  selected_line_ = (result->default_match() == result->end()) ?
-      kNoMatch : (result->default_match() - result->begin());
+  selected_line_ = result->default_match() == result->end() ?
+      kNoMatch : static_cast<size_t>(result->default_match() - result->begin());
   // There had better not be a nonempty result set with no default match.
   CHECK((selected_line_ != kNoMatch) || result->empty());
   // If we're going to trim the window size to no longer include the hovered
@@ -279,6 +292,12 @@ void AutocompletePopupModel::Observe(NotificationType type,
     SetHoveredLine(kNoMatch);
 
   view_->UpdatePopupAppearance();
+
+#if defined(TOOLKIT_VIEWS)
+  edit_model_->PopupBoundsChangedTo(view_->GetTargetBounds());
+#else
+  // TODO: port
+#endif
 }
 
 const SkBitmap* AutocompletePopupModel::GetSpecialIconForMatch(
@@ -286,6 +305,6 @@ const SkBitmap* AutocompletePopupModel::GetSpecialIconForMatch(
   if (!match.template_url || !match.template_url->IsExtensionKeyword())
     return NULL;
 
-  return &profile_->GetExtensionsService()->GetOmniboxIcon(
+  return &profile_->GetExtensionsService()->GetOmniboxPopupIcon(
       match.template_url->GetExtensionId());
 }

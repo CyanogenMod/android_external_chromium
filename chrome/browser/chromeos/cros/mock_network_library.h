@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_CROS_MOCK_NETWORK_LIBRARY_H_
 #define CHROME_BROWSER_CHROMEOS_CROS_MOCK_NETWORK_LIBRARY_H_
+#pragma once
 
 #include <string>
 
@@ -49,9 +50,6 @@ class MockNetworkLibrary : public NetworkLibrary {
   MOCK_METHOD0(RequestWifiScan, void(void));
   MOCK_METHOD0(UpdateSystemInfo, void(void));
   MOCK_METHOD1(GetWifiAccessPoints, bool(WifiAccessPointVector*));
-  MOCK_METHOD0(ConnectToPreferredNetworkIfAvailable, bool(void));
-  MOCK_METHOD0(PreferredNetworkConnected, bool(void));
-  MOCK_METHOD0(PreferredNetworkFailed, bool(void));
   MOCK_METHOD4(ConnectToWifiNetwork, void(WifiNetwork,
                                           const std::string&,
                                           const std::string&,
@@ -65,7 +63,7 @@ class MockNetworkLibrary : public NetworkLibrary {
   MOCK_METHOD1(DisconnectFromWirelessNetwork, void(const WirelessNetwork&));
   MOCK_METHOD1(SaveCellularNetwork, void(const CellularNetwork&));
   MOCK_METHOD1(SaveWifiNetwork, void(const WifiNetwork&));
-  MOCK_METHOD1(ForgetWirelessNetwork, void(const WirelessNetwork&));
+  MOCK_METHOD1(ForgetWirelessNetwork, void(const std::string&));
 
   MOCK_CONST_METHOD0(ethernet_available, bool(void));
   MOCK_CONST_METHOD0(wifi_available, bool(void));

@@ -1,4 +1,4 @@
-// Copyright (c) 2009-2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,9 @@
 
 #include "base/format_macros.h"
 #include "base/logging.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "net/base/net_errors.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/http/http_response_headers.h"
@@ -25,13 +27,13 @@ void AddRangeHeader(int64 start, int64 end, HttpRequestHeaders* headers) {
   DCHECK(start >= 0 || end >= 0);
   std::string my_start, my_end;
   if (start >= 0)
-    my_start = Int64ToString(start);
+    my_start = base::Int64ToString(start);
   if (end >= 0)
-    my_end = Int64ToString(end);
+    my_end = base::Int64ToString(end);
 
   headers->SetHeader(
       HttpRequestHeaders::kRange,
-      StringPrintf("bytes=%s-%s", my_start.c_str(), my_end.c_str()));
+      base::StringPrintf("bytes=%s-%s", my_start.c_str(), my_end.c_str()));
 }
 
 }  // namespace
@@ -348,11 +350,11 @@ void PartialData::FixResponseHeaders(HttpResponseHeaders* headers) {
     DCHECK(byte_range_.HasFirstBytePosition());
     DCHECK(byte_range_.HasLastBytePosition());
     headers->AddHeader(
-        StringPrintf("%s: bytes %" PRId64 "-%" PRId64 "/%" PRId64,
-                     kRangeHeader,
-                     byte_range_.first_byte_position(),
-                     byte_range_.last_byte_position(),
-                     resource_size_));
+        base::StringPrintf("%s: bytes %" PRId64 "-%" PRId64 "/%" PRId64,
+                           kRangeHeader,
+                           byte_range_.first_byte_position(),
+                           byte_range_.last_byte_position(),
+                           resource_size_));
     range_len = byte_range_.last_byte_position() -
                 byte_range_.first_byte_position() + 1;
   } else {
@@ -362,13 +364,14 @@ void PartialData::FixResponseHeaders(HttpResponseHeaders* headers) {
     range_len = resource_size_;
   }
 
-  headers->AddHeader(StringPrintf("%s: %" PRId64, kLengthHeader, range_len));
+  headers->AddHeader(base::StringPrintf("%s: %" PRId64, kLengthHeader,
+                                        range_len));
 }
 
 void PartialData::FixContentLength(HttpResponseHeaders* headers) {
   headers->RemoveHeader(kLengthHeader);
-  headers->AddHeader(StringPrintf("%s: %" PRId64, kLengthHeader,
-                                  resource_size_));
+  headers->AddHeader(base::StringPrintf("%s: %" PRId64, kLengthHeader,
+                                        resource_size_));
 }
 
 int PartialData::CacheRead(disk_cache::Entry* entry, IOBuffer* data,

@@ -1,13 +1,14 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef WEBKIT_GLUE_MEDIA_MOCK_MEDIA_RESOURCE_LOADER_BRIDGE_FACTORY_H_
-#define WEBKIT_GLUE_MEDIA_MOCK_MEDIA_RESOURCE_LOADER_BRIDGE_FACTORY_H_
+#ifndef WEBKIT_GLUE_MOCK_RESOURCE_LOADER_BRIDGE_H_
+#define WEBKIT_GLUE_MOCK_RESOURCE_LOADER_BRIDGE_H_
 
-#include "base/file_path.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "webkit/glue/resource_loader_bridge.h"
+
+class FilePath;
 
 namespace webkit_glue {
 
@@ -21,11 +22,12 @@ class MockResourceLoaderBridge : public webkit_glue::ResourceLoaderBridge {
   }
 
   MOCK_METHOD2(AppendDataToUpload, void(const char* data, int data_len));
-  MOCK_METHOD4(AppendFileRangeToUpload, 
+  MOCK_METHOD4(AppendFileRangeToUpload,
                void(const FilePath& file_path,
                     uint64 offset,
                     uint64 length,
                     const base::Time& expected_modification_time));
+  MOCK_METHOD1(AppendBlobToUpload, void(const GURL& blob_url));
   MOCK_METHOD1(SetUploadIdentifier, void(int64 identifier));
   MOCK_METHOD1(Start, bool(ResourceLoaderBridge::Peer* peer));
   MOCK_METHOD0(Cancel, void());
@@ -39,4 +41,4 @@ class MockResourceLoaderBridge : public webkit_glue::ResourceLoaderBridge {
 
 }  // namespace webkit_glue
 
-#endif  // WEBKIT_GLUE_MEDIA_MOCK_MEDIA_RESOURCE_LOADER_BRIDGE_FACTORY_H_
+#endif  // WEBKIT_GLUE_MOCK_RESOURCE_LOADER_BRIDGE_H_

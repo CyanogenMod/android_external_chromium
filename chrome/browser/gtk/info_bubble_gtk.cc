@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,7 +7,6 @@
 #include <gdk/gdkkeysyms.h>
 #include <gtk/gtk.h>
 
-#include "app/l10n_util.h"
 #include "base/basictypes.h"
 #include "base/logging.h"
 #include "chrome/browser/gtk/gtk_theme_provider.h"
@@ -20,14 +19,15 @@
 namespace {
 
 // The height of the arrow, and the width will be about twice the height.
-const int kArrowSize = 5;
+const int kArrowSize = 8;
 
-// Number of pixels to the start of the arrow from the edge of the window.
-const int kArrowX = 13;
+// Number of pixels to the middle of the arrow from the close edge of the
+// window.
+const int kArrowX = 18;
 
 // Number of pixels between the tip of the arrow and the region we're
 // pointing to.
-const int kArrowToContentPadding = -6;
+const int kArrowToContentPadding = -4;
 
 // We draw flat diagonal corners, each corner is an NxN square.
 const int kCornerSize = 3;
@@ -65,6 +65,7 @@ InfoBubbleGtk::InfoBubbleGtk(GtkThemeProvider* provider,
       theme_provider_(provider),
       accel_group_(gtk_accel_group_new()),
       toplevel_window_(NULL),
+      anchor_widget_(NULL),
       mask_region_(NULL),
       preferred_arrow_location_(ARROW_LOCATION_TOP_LEFT),
       current_arrow_location_(ARROW_LOCATION_TOP_LEFT),
@@ -290,6 +291,7 @@ void InfoBubbleGtk::UpdateWindowShape() {
   mask_region_ = gdk_region_polygon(&points[0],
                                     points.size(),
                                     GDK_EVEN_ODD_RULE);
+  gdk_window_shape_combine_region(window_->window, NULL, 0, 0);
   gdk_window_shape_combine_region(window_->window, mask_region_, 0, 0);
 }
 

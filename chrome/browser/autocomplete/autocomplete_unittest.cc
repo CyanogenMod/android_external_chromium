@@ -4,9 +4,11 @@
 
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -77,7 +79,7 @@ void TestProvider::AddResults(int start_at, int num) {
     AutocompleteMatch match(this, relevance_ - i, false,
                             AutocompleteMatch::URL_WHAT_YOU_TYPED);
 
-    match.fill_into_edit = prefix_ + IntToWString(i);
+    match.fill_into_edit = prefix_ + UTF8ToWide(base::IntToString(i));
     match.destination_url = GURL(WideToUTF8(match.fill_into_edit));
 
     match.contents = match.fill_into_edit;
@@ -122,9 +124,6 @@ class AutocompleteProviderTest : public testing::Test,
 void AutocompleteProviderTest::SetUp() {
   registrar_.Add(this, NotificationType::AUTOCOMPLETE_CONTROLLER_RESULT_UPDATED,
                  NotificationService::AllSources());
-  registrar_.Add(this,
-      NotificationType::AUTOCOMPLETE_CONTROLLER_DEFAULT_MATCH_UPDATED,
-      NotificationService::AllSources());
   ResetController(false);
 }
 
@@ -218,9 +217,9 @@ TEST(AutocompleteTest, InputType) {
     { L"foo.com", AutocompleteInput::URL },
     { L"-.com", AutocompleteInput::UNKNOWN },
     { L"foo/bar", AutocompleteInput::URL },
+    { L"foo;bar", AutocompleteInput::QUERY },
     { L"foo/bar baz", AutocompleteInput::UNKNOWN },
     { L"foo bar.com", AutocompleteInput::QUERY },
-    { L"http://foo/bar baz", AutocompleteInput::URL },
     { L"foo bar", AutocompleteInput::QUERY },
     { L"foo+bar", AutocompleteInput::QUERY },
     { L"foo+bar.com", AutocompleteInput::UNKNOWN },
@@ -230,10 +229,14 @@ TEST(AutocompleteTest, InputType) {
     { L"localhost:8080", AutocompleteInput::URL },
     { L"foo.com:123456", AutocompleteInput::QUERY },
     { L"foo.com:abc", AutocompleteInput::QUERY },
+    { L"1.2.3.4:abc", AutocompleteInput::QUERY },
     { L"user@foo.com", AutocompleteInput::UNKNOWN },
     { L"user:pass@foo.com", AutocompleteInput::UNKNOWN },
     { L"1.2", AutocompleteInput::UNKNOWN },
     { L"1.2/45", AutocompleteInput::UNKNOWN },
+    { L"1.2:45", AutocompleteInput::UNKNOWN },
+    { L"user@1.2:45", AutocompleteInput::UNKNOWN },
+    { L"user:foo@1.2:45", AutocompleteInput::UNKNOWN },
     { L"ps/2 games", AutocompleteInput::UNKNOWN },
     { L"en.wikipedia.org/wiki/James Bond", AutocompleteInput::URL },
     // In Chrome itself, mailto: will get handled by ShellExecute, but in
@@ -251,17 +254,21 @@ TEST(AutocompleteTest, InputType) {
     { L"http://foo.c", AutocompleteInput::URL },
     { L"http://foo.com", AutocompleteInput::URL },
     { L"http://foo_bar.com", AutocompleteInput::URL },
+    { L"http://foo/bar baz", AutocompleteInput::URL },
     { L"http://-.com", AutocompleteInput::UNKNOWN },
     { L"http://_foo_.com", AutocompleteInput::UNKNOWN },
     { L"http://foo.com:abc", AutocompleteInput::QUERY },
     { L"http://foo.com:123456", AutocompleteInput::QUERY },
+    { L"http://1.2.3.4:abc", AutocompleteInput::QUERY },
     { L"http:user@foo.com", AutocompleteInput::URL },
     { L"http://user@foo.com", AutocompleteInput::URL },
+    { L"http:user:pass@foo.com", AutocompleteInput::URL },
     { L"http://user:pass@foo.com", AutocompleteInput::URL },
     { L"http://1.2", AutocompleteInput::URL },
     { L"http://1.2/45", AutocompleteInput::URL },
     { L"http:ps/2 games", AutocompleteInput::URL },
     { L"http://ps/2 games", AutocompleteInput::URL },
+    { L"https://foo.com", AutocompleteInput::URL },
     { L"127.0.0.1", AutocompleteInput::URL },
     { L"127.0.1", AutocompleteInput::UNKNOWN },
     { L"127.0.1/", AutocompleteInput::UNKNOWN },

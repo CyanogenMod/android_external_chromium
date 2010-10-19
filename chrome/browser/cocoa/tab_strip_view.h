@@ -4,11 +4,14 @@
 
 #ifndef CHROME_BROWSER_COCOA_TAB_STRIP_VIEW_H_
 #define CHROME_BROWSER_COCOA_TAB_STRIP_VIEW_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
 #include "base/scoped_nsobject.h"
 #import "chrome/browser/cocoa/url_drop_target.h"
+
+@class NewTabButton;
 
 // A view class that handles rendering the tab strip and drops of URLS with
 // a positioning locator for drop feedback.
@@ -21,7 +24,7 @@
   scoped_nsobject<URLDropTargetHandler> dropHandler_;
 
   // Weak; the following come from the nib.
-  NSButton* newTabButton_;
+  NewTabButton* newTabButton_;
 
   // Whether the drop-indicator arrow is shown, and if it is, the coordinate of
   // its tip.
@@ -29,7 +32,7 @@
   NSPoint dropArrowPosition_;
 }
 
-@property(assign, nonatomic) IBOutlet NSButton* newTabButton;
+@property(assign, nonatomic) IBOutlet NewTabButton* newTabButton;
 @property(assign, nonatomic) BOOL dropArrowShown;
 @property(assign, nonatomic) NSPoint dropArrowPosition;
 

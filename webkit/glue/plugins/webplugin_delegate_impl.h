@@ -2,16 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef WEBKIT_GLUE_PLUGIN_WEBPLUGIN_DELEGATE_IMPL_H_
-#define WEBKIT_GLUE_PLUGIN_WEBPLUGIN_DELEGATE_IMPL_H_
+#ifndef WEBKIT_GLUE_PLUGINS_WEBPLUGIN_DELEGATE_IMPL_H_
+#define WEBKIT_GLUE_PLUGINS_WEBPLUGIN_DELEGATE_IMPL_H_
 
 #include "build/build_config.h"
 
 #include <string>
 #include <list>
-#include <set>
 
-#include "base/file_path.h"
 #include "base/ref_counted.h"
 #include "base/task.h"
 #include "base/time.h"
@@ -27,8 +25,12 @@
 #endif
 
 #if defined(USE_X11)
+#include "app/x11_util.h"
+
 typedef struct _GdkDrawable GdkPixmap;
 #endif
+
+class FilePath;
 
 namespace NPAPI {
 class PluginInstance;
@@ -135,6 +137,9 @@ class WebPluginDelegateImpl : public webkit_glue::WebPluginDelegate {
   // Returns a combination of PluginQuirks.
   int GetQuirks() const { return quirks_; }
 
+  // Informs the plugin that the view it is in has gained or lost focus.
+  void SetContentAreaHasFocus(bool has_focus);
+
 #if defined(OS_MACOSX)
   // Informs the plugin that the geometry has changed, as with UpdateGeometry,
   // but also includes the new buffer context for that new geometry.
@@ -148,16 +153,14 @@ class WebPluginDelegateImpl : public webkit_glue::WebPluginDelegate {
   static WebPluginDelegateImpl* GetActiveDelegate();
   // Informs the plugin that the window it is in has gained or lost focus.
   void SetWindowHasFocus(bool has_focus);
-  // Informs the plugin that the view it is in has gained or lost first
-  // responder status.
-  void SetContentAreaHasFocus(bool has_focus);
   // Returns whether or not the window the plugin is in has focus.
   bool GetWindowHasFocus() const { return containing_window_has_focus_; }
   // Informs the plugin that its tab or window has been hidden or shown.
   void SetContainerVisibility(bool is_visible);
   // Informs the plugin that its containing window's frame has changed.
   // Frames are in screen coordinates.
-  void WindowFrameChanged(gfx::Rect window_frame, gfx::Rect view_frame);
+  void WindowFrameChanged(const gfx::Rect& window_frame,
+                          const gfx::Rect& view_frame);
   // Informs the delegate that the plugin set a Carbon ThemeCursor.
   void SetThemeCursor(ThemeCursor cursor);
   // Informs the delegate that the plugin set a Carbon Cursor.
@@ -179,6 +182,12 @@ class WebPluginDelegateImpl : public webkit_glue::WebPluginDelegate {
   // Allow setting a "fake" window handle to associate this plug-in with
   // an IOSurface in the browser. Used for accelerated drawing surfaces.
   void set_windowed_handle(gfx::PluginWindowHandle handle);
+#endif
+
+#if defined(USE_X11)
+  void SetWindowlessShmPixmap(XID shm_pixmap) {
+    windowless_shm_pixmap_ = shm_pixmap;
+  }
 #endif
 
  private:
@@ -246,6 +255,14 @@ class WebPluginDelegateImpl : public webkit_glue::WebPluginDelegate {
   // See NPAPI NPP_SetWindow for more information.
   void WindowlessSetWindow();
 
+  // Informs the plugin that it has gained or lost keyboard focus (on the Mac,
+  // this just means window first responder status).
+  void SetPluginHasFocus(bool focused);
+
+  // Handles the platform specific details of setting plugin focus. Returns
+  // false if the platform cancelled the focus tranfer.
+  bool PlatformSetPluginHasFocus(bool focused);
+
   //-----------------------------------------
   // used for windowed and windowless plugins
 
@@ -289,9 +306,12 @@ class WebPluginDelegateImpl : public webkit_glue::WebPluginDelegate {
   // layout of this process with the one of the browser process.
   HKL keyboard_layout_;
   int parent_thread_id_;
-#endif // OS_WIN
+#endif  // defined(OS_WIN)
 
 #if defined(USE_X11)
+  // The SHM pixmap for a windowless plugin.
+  XID windowless_shm_pixmap_;
+
   // The pixmap we're drawing into, for a windowless plugin.
   GdkPixmap* pixmap_;
   double first_event_time_;
@@ -366,10 +386,6 @@ class WebPluginDelegateImpl : public webkit_glue::WebPluginDelegate {
   // Updates everything that depends on the plugin's absolute screen location.
   void PluginScreenLocationChanged();
 
-  // Informs the plugin that it has gained or lost keyboard focus (i.e., window
-  // first responder status).
-  void SetPluginHasFocus(bool has_focus);
-
   // Returns the apparent zoom ratio for the given event, as inferred from our
   // current knowledge about about where on screen the plugin is.
   // This is a temporary workaround for <http://crbug.com/9996>; once that is
@@ -424,14 +440,6 @@ class WebPluginDelegateImpl : public webkit_glue::WebPluginDelegate {
   // relative to an upper-left (0,0).
   gfx::Point content_area_origin_;
 
-  // True if the plugin thinks it has keyboard focus
-  bool plugin_has_focus_;
-  // True if the plugin element has focus within the page, regardless of whether
-  // its containing view is currently the first responder for the window.
-  bool has_webkit_focus_;
-  // True if the containing view is the window's first responder.
-  bool containing_view_has_focus_;
-
   bool containing_window_has_focus_;
   bool initial_window_focus_;
   bool container_is_visible_;
@@ -484,7 +492,18 @@ class WebPluginDelegateImpl : public webkit_glue::WebPluginDelegate {
   // call received by the plugin.
   bool first_set_window_call_;
 
+  // True if the plugin thinks it has keyboard focus
+  bool plugin_has_focus_;
+  // True if the plugin element has focus within the web content, regardless of
+  // whether its containing view currently has focus.
+  bool has_webkit_focus_;
+  // True if the containing view currently has focus.
+  // Initially set to true so that plugin focus still works in environments
+  // where SetContentAreaHasFocus is never called. See
+  // https://bugs.webkit.org/show_bug.cgi?id=46013 for details.
+  bool containing_view_has_focus_;
+
   DISALLOW_COPY_AND_ASSIGN(WebPluginDelegateImpl);
 };
 
-#endif  // WEBKIT_GLUE_PLUGIN_WEBPLUGIN_DELEGATE_IMPL_H_
+#endif  // WEBKIT_GLUE_PLUGINS_WEBPLUGIN_DELEGATE_IMPL_H_

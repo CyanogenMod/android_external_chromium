@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_OPTIONS_GENERAL_PAGE_GTK_H_
 #define CHROME_BROWSER_GTK_OPTIONS_GENERAL_PAGE_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -13,14 +14,16 @@
 #include "chrome/browser/gtk/gtk_tree.h"
 #include "chrome/browser/gtk/options/managed_prefs_banner_gtk.h"
 #include "chrome/browser/options_page_base.h"
-#include "chrome/browser/pref_member.h"
-#include "chrome/browser/search_engines/template_url_model.h"
+#include "chrome/browser/prefs/pref_change_registrar.h"
+#include "chrome/browser/prefs/pref_member.h"
+#include "chrome/browser/search_engines/template_url_model_observer.h"
 #include "chrome/browser/shell_integration.h"
 #include "googleurl/src/gurl.h"
 
 class AccessibleWidgetHelper;
 class CustomHomePagesTableModel;
 class Profile;
+class TemplateURLModel;
 
 class GeneralPageGtk : public OptionsPageBase,
                        public TemplateURLModelObserver,
@@ -34,7 +37,7 @@ class GeneralPageGtk : public OptionsPageBase,
 
  private:
   // Overridden from OptionsPageBase
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
   virtual void HighlightGroup(OptionsGroup highlight_group);
 
   // Initialize the option group widgets, return their container
@@ -157,6 +160,8 @@ class GeneralPageGtk : public OptionsPageBase,
 
   // Tracks managed preference warning banner state.
   ManagedPrefsBannerGtk managed_prefs_banner_;
+
+  PrefChangeRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(GeneralPageGtk);
 };

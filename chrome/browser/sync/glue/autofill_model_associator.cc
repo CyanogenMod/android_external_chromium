@@ -8,6 +8,7 @@
 
 #include "base/task.h"
 #include "base/time.h"
+#include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/chrome_thread.h"
@@ -124,7 +125,7 @@ bool AutofillModelAssociator::TraverseAndAssociateChromeAutoFillProfiles(
       int64 sync_id = node.GetId();
       if (id_map_.find(tag) != id_map_.end()) {
         // We just looked up something we already associated.  Move aside.
-        label = MakeUniqueLabel(label, write_trans);
+        label = MakeUniqueLabel(label, string16(), write_trans);
         if (label.empty()) {
           return false;
         }
@@ -158,11 +159,18 @@ bool AutofillModelAssociator::TraverseAndAssociateChromeAutoFillProfiles(
 
 // static
 string16 AutofillModelAssociator::MakeUniqueLabel(
-    const string16& non_unique_label, sync_api::BaseTransaction* trans) {
+    const string16& non_unique_label,
+    const string16& existing_unique_label,
+    sync_api::BaseTransaction* trans) {
+  if (!non_unique_label.empty() && non_unique_label == existing_unique_label) {
+    return existing_unique_label;
+  }
   int unique_id = 1;  // Priming so we start by appending "2".
   while (unique_id++ < kMaxNumAttemptsToFindUniqueLabel) {
-    string16 suffix(UTF8ToUTF16(IntToString(unique_id)));
+    string16 suffix(base::IntToString16(unique_id));
     string16 unique_label = non_unique_label + suffix;
+    if (unique_label == existing_unique_label)
+      return unique_label;  // We'll use the one we already have.
     sync_api::ReadNode node(trans);
     if (node.InitByClientTagLookup(syncable::AUTOFILL,
                                    ProfileLabelToTag(unique_label))) {

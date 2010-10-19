@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_TABS_BASE_TAB_H_
 #define CHROME_BROWSER_VIEWS_TABS_BASE_TAB_H_
+#pragma once
 
 #include "app/animation.h"
 #include "base/ref_counted.h"
@@ -33,7 +34,7 @@ class BaseTab : public AnimationDelegate,
                 public views::View {
  public:
   explicit BaseTab(TabController* controller);
-  ~BaseTab();
+  virtual ~BaseTab();
 
   // Sets the data this tabs displays. Invokes DataChanged for subclasses to
   // update themselves appropriately.
@@ -85,7 +86,7 @@ class BaseTab : public AnimationDelegate,
   virtual void OnMouseReleased(const views::MouseEvent& event,
                                bool canceled);
   virtual bool GetTooltipText(const gfx::Point& p, std::wstring* tooltip);
-  virtual bool GetAccessibleRole(AccessibilityTypes::Role* role);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
   virtual ThemeProvider* GetThemeProvider();
 
  protected:
@@ -109,7 +110,7 @@ class BaseTab : public AnimationDelegate,
 
   views::ImageButton* close_button() const { return close_button_; }
 
-  // Paints the icon at the specified x-coordinate.
+  // Paints the icon at the specified coordinates, mirrored for RTL if needed.
   void PaintIcon(gfx::Canvas* canvas, int x, int y);
   void PaintTitle(gfx::Canvas* canvas, SkColor title_color);
 
@@ -127,18 +128,8 @@ class BaseTab : public AnimationDelegate,
                                const gfx::Point& p,
                                bool is_mouse_gesture);
 
-  // views::View overrides:
-  virtual void ThemeChanged();
-
   // Returns the bounds of the title.
   virtual const gfx::Rect& title_bounds() const = 0;
-
-  // Close button size.
-  static int close_button_height() { return close_button_height_; }
-  static int close_button_width() { return close_button_width_; }
-
-  // Size (width/height) of the loading animation.
-  static int loading_animation_size() { return loading_animation_size_; }
 
   static gfx::Font* font() { return font_; }
   static int font_height() { return font_height_; }
@@ -162,9 +153,6 @@ class BaseTab : public AnimationDelegate,
   bool IsPerformingCrashAnimation() const;
 
   static void InitResources();
-
-  // Invoked when the theme changes to reload theme images.
-  static void LoadThemeImages();
 
   // The controller.
   // WARNING: this is null during detached tab dragging.
@@ -206,13 +194,6 @@ class BaseTab : public AnimationDelegate,
   int fav_icon_hiding_offset_;
 
   bool should_display_crashed_favicon_;
-
-  // Size of the close button.
-  static int close_button_width_;
-  static int close_button_height_;
-
-  // Size of the loading animation frames.
-  static int loading_animation_size_;
 
   static gfx::Font* font_;
   static int font_height_;

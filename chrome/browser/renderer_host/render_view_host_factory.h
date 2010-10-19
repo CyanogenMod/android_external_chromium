@@ -4,11 +4,13 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RENDER_VIEW_HOST_FACTORY_H_
 #define CHROME_BROWSER_RENDERER_HOST_RENDER_VIEW_HOST_FACTORY_H_
+#pragma once
 
 #include "base/basictypes.h"
 
 class RenderViewHost;
 class RenderViewHostDelegate;
+class SessionStorageNamespace;
 class SiteInstance;
 
 namespace base {
@@ -26,7 +28,7 @@ class RenderViewHostFactory {
   static RenderViewHost* Create(SiteInstance* instance,
                                 RenderViewHostDelegate* delegate,
                                 int routing_id,
-                                int64 session_storage_namespace_id);
+                                SessionStorageNamespace* session_storage);
 
   // Returns true if there is currently a globally-registered factory.
   static bool has_factory() {
@@ -43,7 +45,7 @@ class RenderViewHostFactory {
       SiteInstance* instance,
       RenderViewHostDelegate* delegate,
       int routing_id,
-      int64 session_storage_namespace_id) = 0;
+      SessionStorageNamespace* session_storage_namespace) = 0;
 
   // Registers your factory to be called when new RenderViewHosts are created.
   // We have only one global factory, so there must be no factory registered

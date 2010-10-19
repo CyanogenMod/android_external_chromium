@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_CROS_UPDATE_LIBRARY_H_
 #define CHROME_BROWSER_CHROMEOS_CROS_UPDATE_LIBRARY_H_
+#pragma once
 
 #include <string>
 
@@ -52,50 +53,26 @@ class UpdateLibrary {
   class Observer {
    public:
     virtual ~Observer() { }
-    virtual void Changed(UpdateLibrary* obj) = 0;
+    virtual void UpdateStatusChanged(UpdateLibrary* library) = 0;
   };
+
+//  static UpdateLibrary* GetStubImplementation();
 
   virtual ~UpdateLibrary() {}
   virtual void AddObserver(Observer* observer) = 0;
   virtual void RemoveObserver(Observer* observer) = 0;
 
+  // Initiates update check and returns true if check was initiated.
+  virtual bool CheckForUpdate() = 0;
+
+  // Reboots if update has been performed.
+  virtual bool RebootAfterUpdate() = 0;
+
   virtual const Status& status() const = 0;
-};
 
-class UpdateLibraryImpl : public UpdateLibrary {
- public:
-  UpdateLibraryImpl();
-  virtual ~UpdateLibraryImpl();
-
-  // UpdateLibrary overrides.
-  virtual void AddObserver(Observer* observer);
-  virtual void RemoveObserver(Observer* observer);
-
-  virtual const Status& status() const;
-
- private:
-
-  // This method is called when there's a change in status.
-  // This method is called on a background thread.
-  static void ChangedHandler(void* object, const UpdateProgress& status);
-
-  // This methods starts the monitoring of power changes.
-  void Init();
-
-  // Called by the handler to update the power status.
-  // This will notify all the Observers.
-  void UpdateStatus(const Status& status);
-
-  ObserverList<Observer> observers_;
-
-  // A reference to the update api, to allow callbacks when the update
-  // status changes.
-  UpdateStatusConnection status_connection_;
-
-  // The latest power status.
-  Status status_;
-
-  DISALLOW_COPY_AND_ASSIGN(UpdateLibraryImpl);
+  // Factory function, creates a new instance and returns ownership.
+  // For normal usage, access the singleton via CrosLibrary::Get().
+  static UpdateLibrary* GetImpl(bool stub);
 };
 
 }  // namespace chromeos

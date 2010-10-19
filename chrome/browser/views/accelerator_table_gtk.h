@@ -4,17 +4,18 @@
 
 #ifndef CHROME_BROWSER_VIEWS_ACCELERATOR_TABLE_GTK_H_
 #define CHROME_BROWSER_VIEWS_ACCELERATOR_TABLE_GTK_H_
+#pragma once
 
 #include <stdio.h>
 
-#include "base/keyboard_codes.h"
+#include "app/keyboard_codes.h"
 
 // This contains the list of accelerators for the Linux toolkit_view
 // implementation.
 namespace browser {
 
   struct AcceleratorMapping {
-    base::KeyboardCode keycode;
+    app::KeyboardCode keycode;
     bool shift_pressed;
     bool ctrl_pressed;
     bool alt_pressed;

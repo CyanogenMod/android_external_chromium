@@ -76,7 +76,7 @@ void BrowsingDataLocalStorageHelper::FetchLocalStorageInfoInWebKitThread() {
         // Extension state is not considered browsing data.
         continue;
       }
-      file_util::FileInfo file_info;
+      base::PlatformFileInfo file_info;
       bool ret = file_util::GetFileInfo(file_path, &file_info);
       if (ret) {
         local_storage_info_.push_back(LocalStorageInfo(
@@ -152,7 +152,12 @@ void CannedBrowsingDataLocalStorageHelper::Reset() {
   local_storage_info_.clear();
 }
 
+bool CannedBrowsingDataLocalStorageHelper::empty() const {
+  return local_storage_info_.empty();
+}
+
 void CannedBrowsingDataLocalStorageHelper::StartFetching(
     Callback1<const std::vector<LocalStorageInfo>& >::Type* callback) {
   callback->Run(local_storage_info_);
+  delete callback;
 }

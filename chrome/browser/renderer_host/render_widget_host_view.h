@@ -4,19 +4,20 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_H_
 #define CHROME_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_H_
+#pragma once
 
 #if defined(OS_MACOSX)
 #include <OpenGL/OpenGL.h>
 #endif
 
+#include <string>
+#include <vector>
+
 #include "app/surface/transport_dib.h"
-#include "base/shared_memory.h"
 #include "gfx/native_widget_types.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebPopupType.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebTextInputType.h"
-#include "webkit/glue/plugins/webplugin.h"
-#include "webkit/glue/webaccessibility.h"
 
 namespace gfx {
 class Rect;
@@ -31,7 +32,13 @@ class RenderProcessHost;
 class RenderWidgetHost;
 class VideoLayer;
 class WebCursor;
+struct ViewHostMsg_AccessibilityNotification_Params;
 struct WebMenuItem;
+
+namespace webkit_glue {
+struct WebAccessibility;
+struct WebPluginGeometry;
+}
 
 // RenderWidgetHostView is an interface implemented by an object that acts as
 // the "View" portion of a RenderWidgetHost. The RenderWidgetHost and its
@@ -65,6 +72,10 @@ class RenderWidgetHostView {
   // a popup (such as a <select> dropdown), then shows the popup at |pos|.
   virtual void InitAsPopup(RenderWidgetHostView* parent_host_view,
                            const gfx::Rect& pos) = 0;
+
+  // Perform all the initialization steps necessary for this object to represent
+  // a full screen window.
+  virtual void InitAsFullscreen(RenderWidgetHostView* parent_host_view) = 0;
 
   // Returns the associated RenderWidgetHost.
   virtual RenderWidgetHost* GetRenderWidgetHost() const = 0;
@@ -196,7 +207,7 @@ class RenderWidgetHostView {
 
   // Methods associated with GPU-accelerated plug-in instances.
   virtual gfx::PluginWindowHandle AllocateFakePluginWindowHandle(
-      bool opaque) = 0;
+      bool opaque, bool root) = 0;
   virtual void DestroyFakePluginWindowHandle(
       gfx::PluginWindowHandle window) = 0;
   virtual void AcceleratedSurfaceSetIOSurface(
@@ -211,11 +222,10 @@ class RenderWidgetHostView {
       TransportDIB::Handle transport_dib) = 0;
   virtual void AcceleratedSurfaceBuffersSwapped(
       gfx::PluginWindowHandle window) = 0;
-  // Draws the current GPU-accelerated plug-in instances into the given context.
-  virtual void DrawAcceleratedSurfaceInstances(CGLContextObj context) = 0;
+  virtual void GpuRenderingStateDidChange() = 0;
 #endif
 
-#if defined(OS_LINUX)
+#if defined(TOOLKIT_USES_GTK)
   virtual void CreatePluginContainer(gfx::PluginWindowHandle id) = 0;
   virtual void DestroyPluginContainer(gfx::PluginWindowHandle id) = 0;
 #endif
@@ -242,8 +252,9 @@ class RenderWidgetHostView {
 
   virtual void UpdateAccessibilityTree(
       const webkit_glue::WebAccessibility& tree) { }
-  virtual void OnAccessibilityFocusChange(int acc_obj_id) { }
-  virtual void OnAccessibilityObjectStateChange(int acc_obj_id) { }
+  virtual void OnAccessibilityNotifications(
+      const std::vector<ViewHostMsg_AccessibilityNotification_Params>& params) {
+  }
 
  protected:
   // Interface class only, do not construct.

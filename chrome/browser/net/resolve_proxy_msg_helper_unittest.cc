@@ -4,7 +4,6 @@
 
 #include "chrome/browser/net/resolve_proxy_msg_helper.h"
 
-#include "base/waitable_event.h"
 #include "net/base/net_errors.h"
 #include "net/proxy/mock_proxy_resolver.h"
 #include "net/proxy/proxy_config_service.h"
@@ -13,9 +12,11 @@
 // This ProxyConfigService always returns "http://pac" as the PAC url to use.
 class MockProxyConfigService : public net::ProxyConfigService {
  public:
-  virtual int GetProxyConfig(net::ProxyConfig* results) {
-    results->set_pac_url(GURL("http://pac"));
-    return net::OK;
+  virtual void AddObserver(Observer* observer) {}
+  virtual void RemoveObserver(Observer* observer) {}
+  virtual bool GetLatestProxyConfig(net::ProxyConfig* results) {
+    *results = net::ProxyConfig::CreateFromCustomPacURL(GURL("http://pac"));
+    return true;
   }
 };
 

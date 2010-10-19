@@ -36,6 +36,13 @@ bool match(const std::vector<std::string> &rdn1,
   return true;
 }
 
+CertPrincipal::CertPrincipal() {
+}
+
+CertPrincipal::CertPrincipal(const std::string& name) : common_name(name) {}
+
+CertPrincipal::~CertPrincipal() {
+}
 
 bool CertPrincipal::Matches(const CertPrincipal& against) const {
   return match(common_name, against.common_name) &&
@@ -47,6 +54,17 @@ bool CertPrincipal::Matches(const CertPrincipal& against) const {
       match(organization_names, against.organization_names) &&
       match(organization_unit_names, against.organization_unit_names) &&
       match(domain_components, against.domain_components);
+}
+
+std::string CertPrincipal::GetDisplayName() const {
+  if (!common_name.empty())
+    return common_name;
+  if (!organization_names.empty())
+    return organization_names[0];
+  if (!organization_unit_names.empty())
+    return organization_unit_names[0];
+
+  return std::string();
 }
 
 std::ostream& operator<<(std::ostream& s, const CertPrincipal& p) {
@@ -68,6 +86,12 @@ std::ostream& operator<<(std::ostream& s, const CertPrincipal& p) {
   for (unsigned i = 0; i < p.domain_components.size(); ++i)
     s << "dc=\"" << p.domain_components[i] << "\" ";
   return s << "]";
+}
+
+CertPolicy::CertPolicy() {
+}
+
+CertPolicy::~CertPolicy() {
 }
 
 CertPolicy::Judgment CertPolicy::Check(

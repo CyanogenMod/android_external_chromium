@@ -7,11 +7,12 @@
 #include <gtk/gtk.h>
 
 #include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/basictypes.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
+#include "base/string16.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_editor.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
@@ -43,11 +44,6 @@ void BookmarkBubbleGtk::Show(GtkWidget* anchor,
                              Profile* profile,
                              const GURL& url,
                              bool newly_bookmarked) {
-  // TODO(deanm): The Views code deals with the possibility of a bubble already
-  // being open, and then it just does nothing.  I am not sure how this could
-  // happen with the style of our GTK bubble since it has a grab.  I would also
-  // think that closing the previous bubble and opening the new one would make
-  // more sense, but I guess then you would commit the bubble's changes.
   DCHECK(!g_bubble);
   g_bubble = new BookmarkBubbleGtk(anchor, profile, url, newly_bookmarked);
 }
@@ -277,10 +273,8 @@ void BookmarkBubbleGtk::ApplyEdits() {
   BookmarkModel* model = profile_->GetBookmarkModel();
   const BookmarkNode* node = model->GetMostRecentlyAddedNodeForURL(url_);
   if (node) {
-    // NOTE: Would be nice to save a strlen and use gtk_entry_get_text_length,
-    // but it is fairly new and not always in our GTK version.
-    const std::wstring new_title(
-        UTF8ToWide(gtk_entry_get_text(GTK_ENTRY(name_entry_))));
+    const string16 new_title(
+        UTF8ToUTF16(gtk_entry_get_text(GTK_ENTRY(name_entry_))));
 
     if (new_title != node->GetTitle()) {
       model->SetTitle(node, new_title);
@@ -312,7 +306,7 @@ std::string BookmarkBubbleGtk::GetTitle() {
     return std::string();
   }
 
-  return WideToUTF8(node->GetTitle());
+  return UTF16ToUTF8(node->GetTitle());
 }
 
 void BookmarkBubbleGtk::ShowEditor() {
@@ -345,7 +339,7 @@ void BookmarkBubbleGtk::InitFolderComboModel() {
   // the 'Select another folder...' entry that opens the bookmark editor.
   for (int i = 0; i < folder_combo_model_->GetItemCount(); ++i) {
     gtk_combo_box_append_text(GTK_COMBO_BOX(folder_combo_),
-        WideToUTF8(folder_combo_model_->GetItemAt(i)).c_str());
+        UTF16ToUTF8(folder_combo_model_->GetItemAt(i)).c_str());
   }
 
   gtk_combo_box_set_active(GTK_COMBO_BOX(folder_combo_),

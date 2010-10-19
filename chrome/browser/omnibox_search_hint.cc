@@ -4,7 +4,6 @@
 
 #include "chrome/browser/omnibox_search_hint.h"
 
-#include "app/animation.h"
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/command_line.h"
@@ -15,8 +14,9 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/location_bar.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -71,8 +71,8 @@ class HintInfoBar : public ConfirmInfoBarDelegate {
     omnibox_hint_->DisableHint();
   }
 
-  virtual std::wstring GetMessageText() const {
-    return l10n_util::GetString(IDS_OMNIBOX_SEARCH_HINT_INFOBAR_TEXT);
+  virtual string16 GetMessageText() const {
+    return l10n_util::GetStringUTF16(IDS_OMNIBOX_SEARCH_HINT_INFOBAR_TEXT);
   }
 
   virtual SkBitmap* GetIcon() const {
@@ -84,13 +84,12 @@ class HintInfoBar : public ConfirmInfoBarDelegate {
     return BUTTON_OK;
   }
 
-  virtual std::wstring GetButtonLabel(InfoBarButton button) const {
-    return l10n_util::GetString(IDS_OMNIBOX_SEARCH_HINT_INFOBAR_BUTTON_LABEL);
+  virtual string16 GetButtonLabel(InfoBarButton button) const {
+    return l10n_util::GetStringUTF16(
+        IDS_OMNIBOX_SEARCH_HINT_INFOBAR_BUTTON_LABEL);
   }
 
-  virtual Type GetInfoBarType() {
-    return INFO_TYPE;
-  }
+  virtual Type GetInfoBarType() { return PAGE_ACTION_TYPE; }
 
   virtual bool Accept() {
     action_taken_ = true;

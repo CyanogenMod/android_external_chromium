@@ -6,14 +6,15 @@
 
 #include "app/combobox_model.h"
 #include "app/l10n_util.h"
+#include "base/string16.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/common/notification_type.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/input_method_library.h"
 #include "chrome/browser/chromeos/language_preferences.h"
 #include "chrome/browser/chromeos/preferences.h"
 #include "chrome/browser/profile.h"
+#include "chrome/common/notification_type.h"
+#include "chrome/common/pref_names.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "views/controls/button/checkbox.h"
@@ -28,10 +29,12 @@ namespace chromeos {
 class HangulKeyboardComboboxModel : public ComboboxModel {
  public:
   HangulKeyboardComboboxModel() {
-    for (size_t i = 0; i < arraysize(kHangulKeyboardNameIDPairs); ++i) {
+    for (size_t i = 0; i < language_prefs::kNumHangulKeyboardNameIDPairs;
+         ++i) {
       layouts_.push_back(std::make_pair(
-          l10n_util::GetStringUTF8(kHangulKeyboardNameIDPairs[i].message_id),
-          kHangulKeyboardNameIDPairs[i].keyboard_id));
+          l10n_util::GetStringUTF8(
+              language_prefs::kHangulKeyboardNameIDPairs[i].message_id),
+          language_prefs::kHangulKeyboardNameIDPairs[i].keyboard_id));
     }
   }
 
@@ -41,12 +44,12 @@ class HangulKeyboardComboboxModel : public ComboboxModel {
   }
 
   // Implements ComboboxModel interface.
-  virtual std::wstring GetItemAt(int index) {
+  virtual string16 GetItemAt(int index) {
     if (index < 0 || index > GetItemCount()) {
       LOG(ERROR) << "Index is out of bounds: " << index;
-      return L"";
+      return string16();
     }
-    return UTF8ToWide(layouts_.at(index).first);
+    return UTF8ToUTF16(layouts_.at(index).first);
   }
 
   // Gets a keyboard layout ID (e.g. "2", "3f", ..) for an item at zero-origin

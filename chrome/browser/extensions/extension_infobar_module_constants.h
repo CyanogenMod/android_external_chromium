@@ -6,12 +6,13 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_INFOBAR_MODULE_CONSTANTS_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_INFOBAR_MODULE_CONSTANTS_H_
+#pragma once
 
 namespace extension_infobar_module_constants {
 
 // Keys.
-extern const wchar_t kHtmlPath[];
-extern const wchar_t kTabId[];
+extern const char kHtmlPath[];
+extern const char kTabId[];
 
 // Errors.
 extern const char kNoCurrentWindowError[];

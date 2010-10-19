@@ -8,8 +8,6 @@
 #include <gdk/gdkkeysyms.h>
 #include <gtk/gtk.h>
 
-#include "app/gtk_dnd_util.h"
-#include "base/pickle.h"
 #include "base/string_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/download/download_shelf.h"
@@ -41,25 +39,6 @@ using WebKit::WebDragOperation;
 using WebKit::WebDragOperationsMask;
 
 namespace {
-
-// Called when the content view gtk widget is tabbed to, or after the call to
-// gtk_widget_child_focus() in TakeFocus(). We return true
-// and grab focus if we don't have it. The call to
-// FocusThroughTabTraversal(bool) forwards the "move focus forward" effect to
-// webkit.
-gboolean OnFocus(GtkWidget* widget, GtkDirectionType focus,
-                 TabContents* tab_contents) {
-  // If we already have focus, let the next widget have a shot at it. We will
-  // reach this situation after the call to gtk_widget_child_focus() in
-  // TakeFocus().
-  if (gtk_widget_is_focus(widget))
-    return FALSE;
-
-  gtk_widget_grab_focus(widget);
-  bool reverse = focus == GTK_DIR_TAB_BACKWARD;
-  tab_contents->FocusThroughTabTraversal(reverse);
-  return TRUE;
-}
 
 // Called when the mouse leaves the widget. We notify our delegate.
 gboolean OnLeaveNotify(GtkWidget* widget, GdkEventCrossing* event,
@@ -166,8 +145,7 @@ RenderWidgetHostView* TabContentsViewGtk::CreateViewForWidget(
       new RenderWidgetHostViewGtk(render_widget_host);
   view->InitAsChild();
   gfx::NativeView content_view = view->native_view();
-  g_signal_connect(content_view, "focus",
-                   G_CALLBACK(OnFocus), tab_contents());
+  g_signal_connect(content_view, "focus", G_CALLBACK(OnFocusThunk), this);
   g_signal_connect(content_view, "leave-notify-event",
                    G_CALLBACK(OnLeaveNotify), tab_contents());
   g_signal_connect(content_view, "motion-notify-event",
@@ -244,7 +222,7 @@ void TabContentsViewGtk::SizeContents(const gfx::Size& size) {
 void TabContentsViewGtk::Focus() {
   if (tab_contents()->showing_interstitial_page()) {
     tab_contents()->interstitial_page()->Focus();
-  } else {
+  } else if (!constrained_window_) {
     GtkWidget* widget = GetContentNativeView();
     if (widget)
       gtk_widget_grab_focus(widget);
@@ -267,6 +245,10 @@ void TabContentsViewGtk::RestoreFocus() {
     gtk_widget_grab_focus(focus_store_.widget());
   else
     SetInitialFocus();
+}
+
+void TabContentsViewGtk::SetFocusedWidget(GtkWidget* widget) {
+  focus_store_.SetWidget(widget);
 }
 
 void TabContentsViewGtk::UpdateDragCursor(WebDragOperation operation) {
@@ -333,6 +315,38 @@ void TabContentsViewGtk::InsertIntoContentArea(GtkWidget* widget) {
   gtk_container_add(GTK_CONTAINER(expanded_), widget);
 }
 
+// Called when the content view gtk widget is tabbed to, or after the call to
+// gtk_widget_child_focus() in TakeFocus(). We return true
+// and grab focus if we don't have it. The call to
+// FocusThroughTabTraversal(bool) forwards the "move focus forward" effect to
+// webkit.
+gboolean TabContentsViewGtk::OnFocus(GtkWidget* widget,
+                                     GtkDirectionType focus) {
+  // If we are showing a constrained window, don't allow the native view to take
+  // focus.
+  if (constrained_window_) {
+    // If we return false, it will revert to the default handler, which will
+    // take focus. We don't want that. But if we return true, the event will
+    // stop being propagated, leaving focus wherever it is currently. That is
+    // also bad. So we return false to let the default handler run, but take
+    // focus first so as to trick it into thinking the view was already focused
+    // and allowing the event to propagate.
+    gtk_widget_grab_focus(widget);
+    return FALSE;
+  }
+
+  // If we already have focus, let the next widget have a shot at it. We will
+  // reach this situation after the call to gtk_widget_child_focus() in
+  // TakeFocus().
+  if (gtk_widget_is_focus(widget))
+    return FALSE;
+
+  gtk_widget_grab_focus(widget);
+  bool reverse = focus == GTK_DIR_TAB_BACKWARD;
+  tab_contents()->FocusThroughTabTraversal(reverse);
+  return TRUE;
+}
+
 gboolean TabContentsViewGtk::OnMouseDown(GtkWidget* widget,
                                          GdkEventButton* event) {
   last_mouse_down_ = *event;
@@ -369,28 +383,27 @@ void TabContentsViewGtk::OnSizeAllocate(GtkWidget* widget,
 
 void TabContentsViewGtk::OnSetFloatingPosition(
     GtkWidget* floating_container, GtkAllocation* allocation) {
+  if (!constrained_window_)
+    return;
+
   // Place each ConstrainedWindow in the center of the view.
-  int half_view_width = std::max((allocation->x + allocation->width) / 2, 0);
-  int half_view_height = std::max((allocation->y + allocation->height) / 2, 0);
-  if (constrained_window_) {
-    GtkWidget* widget = constrained_window_->widget();
-    DCHECK(widget->parent == floating_.get());
+  GtkWidget* widget = constrained_window_->widget();
+  DCHECK(widget->parent == floating_.get());
 
-    GtkRequisition requisition;
-    gtk_widget_size_request(widget, &requisition);
+  GtkRequisition requisition;
+  gtk_widget_size_request(widget, &requisition);
 
-    GValue value = { 0, };
-    g_value_init(&value, G_TYPE_INT);
+  GValue value = { 0, };
+  g_value_init(&value, G_TYPE_INT);
 
-    int child_x = std::max(half_view_width - (requisition.width / 2), 0);
-    g_value_set_int(&value, child_x);
-    gtk_container_child_set_property(GTK_CONTAINER(floating_container),
-                                     widget, "x", &value);
+  int child_x = std::max((allocation->width - requisition.width) / 2, 0);
+  g_value_set_int(&value, child_x);
+  gtk_container_child_set_property(GTK_CONTAINER(floating_container),
+                                   widget, "x", &value);
 
-    int child_y = std::max(half_view_height - (requisition.height / 2), 0);
-    g_value_set_int(&value, child_y);
-    gtk_container_child_set_property(GTK_CONTAINER(floating_container),
-                                     widget, "y", &value);
-    g_value_unset(&value);
-  }
+  int child_y = std::max((allocation->height - requisition.height) / 2, 0);
+  g_value_set_int(&value, child_y);
+  gtk_container_child_set_property(GTK_CONTAINER(floating_container),
+                                   widget, "y", &value);
+  g_value_unset(&value);
 }

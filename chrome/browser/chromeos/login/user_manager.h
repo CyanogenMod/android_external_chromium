@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_USER_MANAGER_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_USER_MANAGER_H_
+#pragma once
 
 #include <string>
 #include <vector>
@@ -12,6 +13,8 @@
 #include "base/hash_tables.h"
 #include "base/ref_counted.h"
 #include "chrome/browser/chromeos/login/user_image_loader.h"
+#include "chrome/common/notification_observer.h"
+#include "chrome/common/notification_registrar.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 class PrefService;
@@ -20,7 +23,8 @@ namespace chromeos {
 
 // This class provides a mechanism for discovering users who have logged
 // into this chromium os device before and updating that list.
-class UserManager : public UserImageLoader::Delegate {
+class UserManager : public UserImageLoader::Delegate,
+                    public NotificationObserver {
  public:
   // A class representing information about a previously logged in user.
   class User {
@@ -65,10 +69,17 @@ class UserManager : public UserImageLoader::Delegate {
   // Remove user from persistent list. NOTE: user's data won't be removed.
   void RemoveUser(const std::string& email);
 
+  // Returns true if given user has logged into the device before.
+  bool IsKnownUser(const std::string& email);
+
   // Returns the logged-in user.
   const User& logged_in_user() {
     return logged_in_user_;
   }
+
+  // Sets image for logged-in user and sends LOGIN_USER_IMAGE_CHANGED
+  // notification about the image changed via NotificationService.
+  void SetLoggedInUserImage(const SkBitmap& image);
 
   // Saves image to file and saves image path in local state preferences.
   void SaveUserImage(const std::string& username,
@@ -77,6 +88,19 @@ class UserManager : public UserImageLoader::Delegate {
   // chromeos::UserImageLoader::Delegate implementation.
   virtual void OnImageLoaded(const std::string& username,
                              const SkBitmap& image);
+
+  // NotificationObserver implementation.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
+  // Accessor for current_user_is_owner_
+  bool current_user_is_owner() const {
+    return current_user_is_owner_;
+  }
+  void set_current_user_is_owner(bool current_user_is_owner) {
+    current_user_is_owner_ = current_user_is_owner;
+  }
 
  private:
   UserManager();
@@ -94,6 +118,11 @@ class UserManager : public UserImageLoader::Delegate {
 
   // The logged-in user.
   User logged_in_user_;
+
+  // Cached flag of whether currently logged-in user is owner or not.
+  bool current_user_is_owner_;
+
+  NotificationRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(UserManager);
 };

@@ -4,9 +4,12 @@
 
 #include "chrome/browser/chromeos/native_dialog_window.h"
 
+#include <gtk/gtk.h>
+
 #include "app/gtk_signal.h"
 #include "base/logging.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/chromeos/frame/bubble_window.h"
 #include "views/controls/native/native_view_host.h"
 #include "views/window/dialog_delegate.h"
 #include "views/window/non_client_view.h"
@@ -17,6 +20,30 @@ namespace {
 const int kDialogPadding = 3;
 
 const char kNativeDialogHost[] = "_chromeos_native_dialog_host_";
+
+// TODO(xiyuan): Use gtk_window_get_default_widget with GTK 2.14+.
+// Gets the default widget of given dialog.
+GtkWidget* GetDialogDefaultWidget(GtkDialog* dialog) {
+  GtkWidget* default_widget = NULL;
+
+  GList* children = gtk_container_get_children(
+      GTK_CONTAINER(dialog->action_area));
+
+  GList* current = children;
+  while (current) {
+    GtkWidget* widget = reinterpret_cast<GtkWidget*>(current->data);
+    if (GTK_WIDGET_HAS_DEFAULT(widget)) {
+      default_widget = widget;
+      break;
+    }
+
+    current = g_list_next(current);
+  }
+
+  g_list_free(children);
+
+  return default_widget;
+}
 
 }  // namespace
 
@@ -165,6 +192,12 @@ void NativeDialogHost::Init() {
   if (contents_view_)
     return;
 
+  // Get default widget of the dialog.
+  GtkWidget* default_widget = GetDialogDefaultWidget(GTK_DIALOG(dialog_));
+
+  // Get focus widget of the dialog.
+  GtkWidget* focus_widget = gtk_window_get_focus(GTK_WINDOW(dialog_));
+
   // Create a GtkAlignment as dialog contents container.
   GtkWidget* contents = gtk_alignment_new(0.5, 0.5, 1.0, 1.0);
   gtk_alignment_set_padding(GTK_ALIGNMENT(contents),
@@ -185,6 +218,8 @@ void NativeDialogHost::Init() {
   gtk_widget_show_all(contents);
 
   contents_view_ = new views::NativeViewHost();
+  contents_view_->set_background(views::Background::CreateSolidBackground(
+      BubbleWindow::kBackgroundColor));
   AddChildView(contents_view_);
   contents_view_->Attach(contents);
 
@@ -207,6 +242,12 @@ void NativeDialogHost::Init() {
   }
 
   CheckSize();
+
+  if (default_widget)
+    gtk_widget_grab_default(default_widget);
+
+  if (focus_widget)
+    gtk_widget_grab_focus(focus_widget);
 }
 
 void NativeDialogHost::CheckSize() {
@@ -224,7 +265,7 @@ void ShowNativeDialog(gfx::NativeWindow parent,
                       const gfx::Size& min_size) {
   NativeDialogHost* native_dialog_host =
       new NativeDialogHost(native_dialog, flags, size, min_size);
-  views::Window::CreateChromeWindow(parent, gfx::Rect(), native_dialog_host);
+  BubbleWindow::Create(parent, gfx::Rect(), native_dialog_host);
   native_dialog_host->window()->Show();
 }
 

@@ -9,21 +9,23 @@
 #include "app/slide_animation.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
-#include "chrome/browser/browser_theme_provider.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_browser_event_router.h"
 #include "chrome/browser/extensions/extension_host.h"
-#include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/extensions/extension_tabs_module.h"
-#include "chrome/browser/renderer_host/render_widget_host_view.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
+#include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/renderer_host/render_view_host.h"
+#include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/view_ids.h"
 #include "chrome/browser/views/detachable_toolbar_view.h"
 #include "chrome/browser/views/extensions/browser_action_drag_data.h"
 #include "chrome/browser/views/extensions/extension_popup.h"
+#include "chrome/browser/views/toolbar_view.h"
 #include "chrome/common/extensions/extension_action.h"
 #include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/notification_source.h"
@@ -44,53 +46,13 @@
 
 #include "grit/theme_resources.h"
 
-namespace {
+// Horizontal spacing between most items in the container, as well as after the
+// last item or chevron (if visible).
+static const int kItemSpacing = ToolbarView::kStandardSpacing;
+// Horizontal spacing before the chevron (if visible).
+static const int kChevronSpacing = kItemSpacing - 2;
 
-// The size (both dimensions) of the buttons for page actions.
-static const int kButtonSize = 29;
-
-// The padding between the browser actions and the OmniBox/page menu.
-static const int kHorizontalPadding = 4;
-static const int kHorizontalPaddingRtl = 8;
-
-// The padding between browser action buttons. Visually, the actual number of
-// empty (non-drawing) pixels is this value + 2 when adjacent browser icons
-// use their maximum allowed size.
-static const int kBrowserActionButtonPadding = 3;
-
-// This is the same value from toolbar.cc. We position the browser actions
-// container flush with the edges of the toolbar as a special case so that we
-// can draw the badge outside the visual bounds of the container.
-static const int kControlVertOffset = 6;
-
-// The margin between the divider and the chrome menu buttons.
-static const int kDividerHorizontalMargin = 2;
-
-// The padding above and below the divider.
-static const int kDividerVerticalPadding = 9;
-
-// The margin above the chevron.
-static const int kChevronTopMargin = 9;
-
-// The margin to the right of the chevron.
-static const int kChevronRightMargin = 4;
-
-// Extra hit-area for the resize gripper.
-static const int kExtraResizeArea = 4;
-
-// Width of the drop indicator.
-static const int kDropIndicatorWidth = 2;
-
-// Color of the drop indicator.
-static const SkColor kDropIndicatorColor = SK_ColorBLACK;
-
-// The x offset for the drop indicator (how much we shift it by).
-static const int kDropIndicatorOffsetLtr = 3;
-static const int kDropIndicatorOffsetRtl = 9;
-
-}  // namespace.
-
-// Static.
+// static
 bool BrowserActionsContainer::disable_animations_during_testing_ = false;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -98,12 +60,14 @@ bool BrowserActionsContainer::disable_animations_during_testing_ = false;
 
 BrowserActionButton::BrowserActionButton(Extension* extension,
                                          BrowserActionsContainer* panel)
-    : ALLOW_THIS_IN_INITIALIZER_LIST(MenuButton(this, L"", NULL, false)),
+    : ALLOW_THIS_IN_INITIALIZER_LIST(
+          MenuButton(this, std::wstring(), NULL, false)),
       browser_action_(extension->browser_action()),
       extension_(extension),
       ALLOW_THIS_IN_INITIALIZER_LIST(tracker_(this)),
       showing_context_menu_(false),
       panel_(panel) {
+  set_border(NULL);
   set_alignment(TextButton::ALIGN_CENTER);
 
   // No UpdateState() here because View hierarchy not setup yet. Our parent
@@ -138,18 +102,14 @@ void BrowserActionButton::Destroy() {
   }
 }
 
-gfx::Insets BrowserActionButton::GetInsets() const {
-  static gfx::Insets zero_inset;
-  return zero_inset;
-}
-
 void BrowserActionButton::ButtonPressed(views::Button* sender,
-    const views::Event& event) {
-  panel_->OnBrowserActionExecuted(this, false);  // inspect_with_devtools
+                                        const views::Event& event) {
+  panel_->OnBrowserActionExecuted(this, false);
 }
 
-void BrowserActionButton::OnImageLoaded(
-    SkBitmap* image, ExtensionResource resource, int index) {
+void BrowserActionButton::OnImageLoaded(SkBitmap* image,
+                                        ExtensionResource resource,
+                                        int index) {
   if (image)
     default_icon_ = *image;
 
@@ -163,11 +123,40 @@ void BrowserActionButton::UpdateState() {
   if (tab_id < 0)
     return;
 
-  SkBitmap image = browser_action()->GetIcon(tab_id);
-  if (!image.isNull())
-    SetIcon(image);
-  else if (!default_icon_.isNull())
-    SetIcon(default_icon_);
+  SkBitmap icon(browser_action()->GetIcon(tab_id));
+  if (icon.isNull())
+    icon = default_icon_;
+  if (!icon.isNull()) {
+    SkPaint paint;
+    paint.setXfermode(SkXfermode::Create(SkXfermode::kSrcOver_Mode));
+    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+
+    SkBitmap bg;
+    rb.GetBitmapNamed(IDR_BROWSER_ACTION)->copyTo(&bg,
+        SkBitmap::kARGB_8888_Config);
+    SkCanvas bg_canvas(bg);
+    bg_canvas.drawBitmap(icon, SkIntToScalar((bg.width() - icon.width()) / 2),
+        SkIntToScalar((bg.height() - icon.height()) / 2), &paint);
+    SetIcon(bg);
+
+    SkBitmap bg_h;
+    rb.GetBitmapNamed(IDR_BROWSER_ACTION_H)->copyTo(&bg_h,
+        SkBitmap::kARGB_8888_Config);
+    SkCanvas bg_h_canvas(bg_h);
+    bg_h_canvas.drawBitmap(icon,
+        SkIntToScalar((bg_h.width() - icon.width()) / 2),
+        SkIntToScalar((bg_h.height() - icon.height()) / 2), &paint);
+    SetHoverIcon(bg_h);
+
+    SkBitmap bg_p;
+    rb.GetBitmapNamed(IDR_BROWSER_ACTION_P)->copyTo(&bg_p,
+        SkBitmap::kARGB_8888_Config);
+    SkCanvas bg_p_canvas(bg_p);
+    bg_p_canvas.drawBitmap(icon,
+        SkIntToScalar((bg_p.width() - icon.width()) / 2),
+        SkIntToScalar((bg_p.height() - icon.height()) / 2), &paint);
+    SetPushedIcon(bg_p);
+  }
 
   // If the browser action name is empty, show the extension name instead.
   std::wstring name = UTF8ToWide(browser_action()->GetTitle(tab_id));
@@ -181,66 +170,54 @@ void BrowserActionButton::UpdateState() {
 void BrowserActionButton::Observe(NotificationType type,
                                   const NotificationSource& source,
                                   const NotificationDetails& details) {
-  if (type == NotificationType::EXTENSION_BROWSER_ACTION_UPDATED) {
-    UpdateState();
-    // The browser action may have become visible/hidden so we need to make
-    // sure the state gets updated.
-    panel_->OnBrowserActionVisibilityChanged();
-  } else {
-    NOTREACHED() << L"Received unexpected notification";
-  }
+  DCHECK(type == NotificationType::EXTENSION_BROWSER_ACTION_UPDATED);
+  UpdateState();
+  // The browser action may have become visible/hidden so we need to make
+  // sure the state gets updated.
+  panel_->OnBrowserActionVisibilityChanged();
 }
 
 bool BrowserActionButton::IsPopup() {
   int tab_id = panel_->GetCurrentTabId();
-  if (tab_id < 0) {
-    NOTREACHED() << "Button is not on a specific tab.";
-    return false;
-  }
-  return browser_action_->HasPopup(tab_id);
+  return (tab_id < 0) ? false : browser_action_->HasPopup(tab_id);
 }
 
 GURL BrowserActionButton::GetPopupUrl() {
   int tab_id = panel_->GetCurrentTabId();
-  if (tab_id < 0) {
-    NOTREACHED() << "Button is not on a specific tab.";
-    GURL empty_url;
-    return empty_url;
-  }
-  return browser_action_->GetPopupUrl(tab_id);
+  return (tab_id < 0) ? GURL() : browser_action_->GetPopupUrl(tab_id);
 }
 
 bool BrowserActionButton::Activate() {
-  if (IsPopup()) {
-    panel_->OnBrowserActionExecuted(this, false);  // |inspect_with_devtools|.
+  if (!IsPopup())
+    return true;
 
-    // TODO(erikkay): Run a nested modal loop while the mouse is down to
-    // enable menu-like drag-select behavior.
+  panel_->OnBrowserActionExecuted(this, false);
 
-    // The return value of this method is returned via OnMousePressed.
-    // We need to return false here since we're handing off focus to another
-    // widget/view, and true will grab it right back and try to send events
-    // to us.
-    return false;
-  }
-  return true;
+  // TODO(erikkay): Run a nested modal loop while the mouse is down to
+  // enable menu-like drag-select behavior.
+
+  // The return value of this method is returned via OnMousePressed.
+  // We need to return false here since we're handing off focus to another
+  // widget/view, and true will grab it right back and try to send events
+  // to us.
+  return false;
 }
 
 bool BrowserActionButton::OnMousePressed(const views::MouseEvent& e) {
-  if (e.IsRightMouseButton()) {
-    // Get the top left point of this button in screen coordinates.
-    gfx::Point point = gfx::Point(0, 0);
-    ConvertPointToScreen(this, &point);
-
-    // Make the menu appear below the button.
-    point.Offset(0, height());
-
-    ShowContextMenu(point, true);
-    return false;
-  } else if (IsPopup()) {
-    return MenuButton::OnMousePressed(e);
+  if (!e.IsRightMouseButton()) {
+    return IsPopup() ?
+        MenuButton::OnMousePressed(e) : TextButton::OnMousePressed(e);
   }
-  return TextButton::OnMousePressed(e);
+
+  // Get the top left point of this button in screen coordinates.
+  gfx::Point point = gfx::Point(0, 0);
+  ConvertPointToScreen(this, &point);
+
+  // Make the menu appear below the button.
+  point.Offset(0, height());
+
+  ShowContextMenu(point, true);
+  return false;
 }
 
 void BrowserActionButton::OnMouseReleased(const views::MouseEvent& e,
@@ -255,9 +232,8 @@ void BrowserActionButton::OnMouseReleased(const views::MouseEvent& e,
 }
 
 bool BrowserActionButton::OnKeyReleased(const views::KeyEvent& e) {
-  if (IsPopup())
-    return MenuButton::OnKeyReleased(e);
-  return TextButton::OnKeyReleased(e);
+  return IsPopup() ?
+      MenuButton::OnKeyReleased(e) : TextButton::OnKeyReleased(e);
 }
 
 void BrowserActionButton::OnMouseExited(const views::MouseEvent& e) {
@@ -273,8 +249,8 @@ void BrowserActionButton::ShowContextMenu(const gfx::Point& p,
   SetButtonPushed();
 
   // Reconstructs the menu every time because the menu's contents are dynamic.
-  context_menu_contents_ = new ExtensionContextMenuModel(
-      extension(), panel_->browser(), panel_);
+  context_menu_contents_ =
+      new ExtensionContextMenuModel(extension(), panel_->browser(), panel_);
   context_menu_menu_.reset(new views::Menu2(context_menu_contents_.get()));
   context_menu_menu_->RunContextMenuAt(p);
 
@@ -322,52 +298,53 @@ gfx::Canvas* BrowserActionView::GetIconWithBadge() {
   if (icon.isNull())
     icon = button_->default_icon();
 
-  gfx::Canvas* canvas =
-      new gfx::CanvasSkia(icon.width(), icon.height(), false);
+  gfx::Canvas* canvas = new gfx::CanvasSkia(icon.width(), icon.height(), false);
   canvas->DrawBitmapInt(icon, 0, 0);
 
   if (tab_id >= 0) {
-    gfx::Rect bounds =
-        gfx::Rect(icon.width(), icon.height() + kControlVertOffset);
-    button_->extension()->browser_action()->PaintBadge(canvas,
-                                                       bounds, tab_id);
+    gfx::Rect bounds(icon.width(), icon.height() + ToolbarView::kVertSpacing);
+    button_->extension()->browser_action()->PaintBadge(canvas, bounds, tab_id);
   }
 
   return canvas;
 }
 
-bool BrowserActionView::GetAccessibleRole(AccessibilityTypes::Role* role) {
-  DCHECK(role);
-  *role = AccessibilityTypes::ROLE_GROUPING;
-  return true;
+AccessibilityTypes::Role BrowserActionView::GetAccessibleRole() {
+  return AccessibilityTypes::ROLE_GROUPING;
 }
 
 void BrowserActionView::Layout() {
-  button_->SetBounds(0, kControlVertOffset, width(), kButtonSize);
+  // We can't rely on button_->GetPreferredSize() here because that's not set
+  // correctly until the first call to
+  // BrowserActionsContainer::RefreshBrowserActionViews(), whereas this can be
+  // called before that when the initial bounds are set (and then not after,
+  // since the bounds don't change).  So instead of setting the height from the
+  // button's preferred size, we use IconHeight(), since that's how big the
+  // button should be regardless of what it's displaying.
+  button_->SetBounds(0, ToolbarView::kVertSpacing, width(),
+                     BrowserActionsContainer::IconHeight());
 }
 
 void BrowserActionView::PaintChildren(gfx::Canvas* canvas) {
   View::PaintChildren(canvas);
   ExtensionAction* action = button()->browser_action();
   int tab_id = panel_->GetCurrentTabId();
-  if (tab_id < 0)
-    return;
-
-  action->PaintBadge(canvas, gfx::Rect(width(), height()), tab_id);
+  if (tab_id >= 0)
+    action->PaintBadge(canvas, gfx::Rect(width(), height()), tab_id);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // BrowserActionsContainer
 
-BrowserActionsContainer::BrowserActionsContainer(
-    Browser* browser, View* owner_view)
+BrowserActionsContainer::BrowserActionsContainer(Browser* browser,
+                                                 View* owner_view)
     : profile_(browser->profile()),
       browser_(browser),
       owner_view_(owner_view),
       popup_(NULL),
       popup_button_(NULL),
       model_(NULL),
-      resize_gripper_(NULL),
+      container_width_(0),
       chevron_(NULL),
       overflow_menu_(NULL),
       suppress_chevron_(false),
@@ -382,41 +359,19 @@ BrowserActionsContainer::BrowserActionsContainer(
     model_ = profile_->GetExtensionsService()->toolbar_model();
     model_->AddObserver(this);
   }
-  resize_animation_.reset(new SlideAnimation(this));
-  resize_gripper_ = new views::ResizeGripper(this);
-  resize_gripper_->SetAccessibleName(
-      l10n_util::GetString(IDS_ACCNAME_SEPARATOR));
-  resize_gripper_->SetVisible(false);
-  AddChildView(resize_gripper_);
 
-  // TODO(glen): Come up with a new bitmap for the chevron.
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  SkBitmap* chevron_image = rb.GetBitmapNamed(IDR_BOOKMARK_BAR_CHEVRONS);
+  resize_animation_.reset(new SlideAnimation(this));
+  resize_area_ = new views::ResizeArea(this);
+  resize_area_->SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_SEPARATOR));
+  AddChildView(resize_area_);
+
   chevron_ = new views::MenuButton(NULL, std::wstring(), this, false);
-  chevron_->SetVisible(false);
-  chevron_->SetIcon(*chevron_image);
+  chevron_->set_border(NULL);
+  chevron_->EnableCanvasFlippingForRTLUI(true);
   chevron_->SetAccessibleName(
       l10n_util::GetString(IDS_ACCNAME_EXTENSIONS_CHEVRON));
-  // Chevron contains >> that should point left in LTR locales.
-  chevron_->EnableCanvasFlippingForRTLUI(true);
+  chevron_->SetVisible(false);
   AddChildView(chevron_);
-
-  if (!profile_->GetPrefs()->HasPrefPath(prefs::kExtensionToolbarSize)) {
-    // Migration code to the new VisibleIconCount pref.
-    // TODO(mpcomplete): remove this after users are upgraded to 5.0.
-    int predefined_width =
-        profile_->GetPrefs()->GetInteger(prefs::kBrowserActionContainerWidth);
-    if (predefined_width != 0) {
-      int icon_width = (kButtonSize + kBrowserActionButtonPadding);
-      if (model_) {
-        model_->SetVisibleIconCount(
-            (predefined_width - WidthOfNonIconArea()) / icon_width);
-      }
-    }
-  }
-
-  if (model_ && model_->extensions_initialized())
-    SetContainerWidth();
 
   SetAccessibleName(l10n_util::GetString(IDS_ACCNAME_EXTENSIONS));
 }
@@ -434,23 +389,36 @@ void BrowserActionsContainer::RegisterUserPrefs(PrefService* prefs) {
   prefs->RegisterIntegerPref(prefs::kBrowserActionContainerWidth, 0);
 }
 
+void BrowserActionsContainer::Init() {
+  LoadImages();
+
+  // We wait to set the container width until now so that the chevron images
+  // will be loaded.  The width calculation needs to know the chevron size.
+  if (model_ &&
+      !profile_->GetPrefs()->HasPrefPath(prefs::kExtensionToolbarSize)) {
+    // Migration code to the new VisibleIconCount pref.
+    // TODO(mpcomplete): remove this after users are upgraded to 5.0.
+    int predefined_width =
+        profile_->GetPrefs()->GetInteger(prefs::kBrowserActionContainerWidth);
+    if (predefined_width != 0)
+      model_->SetVisibleIconCount(WidthToIconCount(predefined_width));
+  }
+  if (model_ && model_->extensions_initialized())
+    SetContainerWidth();
+}
+
 int BrowserActionsContainer::GetCurrentTabId() const {
   TabContents* tab_contents = browser_->GetSelectedTabContents();
-  if (!tab_contents)
-    return -1;
-
-  return tab_contents->controller().session_id().id();
+  return tab_contents ? tab_contents->controller().session_id().id() : -1;
 }
 
 BrowserActionView* BrowserActionsContainer::GetBrowserActionView(
     ExtensionAction* action) {
-  for (BrowserActionViews::iterator iter =
-       browser_action_views_.begin(); iter != browser_action_views_.end();
-       ++iter) {
+  for (BrowserActionViews::iterator iter = browser_action_views_.begin();
+       iter != browser_action_views_.end(); ++iter) {
     if ((*iter)->button()->browser_action() == action)
       return *iter;
   }
-
   return NULL;
 }
 
@@ -459,46 +427,13 @@ void BrowserActionsContainer::RefreshBrowserActionViews() {
     browser_action_views_[i]->button()->UpdateState();
 }
 
-void BrowserActionsContainer::CloseOverflowMenu() {
-  if (overflow_menu_)
-    overflow_menu_->CancelMenu();
-}
-
-void BrowserActionsContainer::StopShowFolderDropMenuTimer() {
-  show_menu_task_factory_.RevokeAll();
-}
-
-void BrowserActionsContainer::StartShowFolderDropMenuTimer() {
-  int delay = View::GetMenuShowDelay();
-  MessageLoop::current()->PostDelayedTask(FROM_HERE,
-      show_menu_task_factory_.NewRunnableMethod(
-          &BrowserActionsContainer::ShowDropFolder),
-      delay);
-}
-
-void BrowserActionsContainer::ShowDropFolder() {
-  DCHECK(!overflow_menu_);
-  SetDropIndicator(-1);
-  overflow_menu_ = new BrowserActionOverflowMenuController(
-      this, chevron_, browser_action_views_, VisibleBrowserActions());
-  overflow_menu_->set_observer(this);
-  overflow_menu_->RunMenu(GetWindow()->GetNativeWindow(), true);
-}
-
-void BrowserActionsContainer::SetDropIndicator(int x_pos) {
-  if (drop_indicator_position_ != x_pos) {
-    drop_indicator_position_ = x_pos;
-    SchedulePaint();
-  }
-}
-
 void BrowserActionsContainer::CreateBrowserActionViews() {
   DCHECK(browser_action_views_.empty());
   if (!model_)
     return;
 
-  for (ExtensionList::iterator iter = model_->begin();
-       iter != model_->end(); ++iter) {
+  for (ExtensionList::iterator iter = model_->begin(); iter != model_->end();
+       ++iter) {
     if (!ShouldDisplayBrowserAction(*iter))
       continue;
 
@@ -519,82 +454,66 @@ void BrowserActionsContainer::DeleteBrowserActionViews() {
 }
 
 void BrowserActionsContainer::OnBrowserActionVisibilityChanged() {
-  SetVisible(browser_action_views_.size() > 0);
-  resize_gripper_->SetVisible(browser_action_views_.size() > 0);
-
+  SetVisible(!browser_action_views_.empty());
   owner_view_->Layout();
   owner_view_->SchedulePaint();
 }
 
-void BrowserActionsContainer::HidePopup() {
-  if (popup_)
-    popup_->Close();
-}
-
-void BrowserActionsContainer::TestExecuteBrowserAction(int index) {
-  BrowserActionButton* button = browser_action_views_[index]->button();
-  OnBrowserActionExecuted(button, false);  // |inspect_with_devtools|.
-}
-
-void BrowserActionsContainer::TestSetIconVisibilityCount(size_t icons) {
-  chevron_->SetVisible(icons < browser_action_views_.size());
-  container_size_.set_width(IconCountToWidth(icons));
-  Layout();
-  SchedulePaint();
+size_t BrowserActionsContainer::VisibleBrowserActions() const {
+  size_t visible_actions = 0;
+  for (size_t i = 0; i < browser_action_views_.size(); ++i) {
+    if (browser_action_views_[i]->IsVisible())
+      ++visible_actions;
+  }
+  return visible_actions;
 }
 
 void BrowserActionsContainer::OnBrowserActionExecuted(
-    BrowserActionButton* button, bool inspect_with_devtools) {
+    BrowserActionButton* button,
+    bool inspect_with_devtools) {
   ExtensionAction* browser_action = button->browser_action();
 
   // Popups just display.  No notification to the extension.
   // TODO(erikkay): should there be?
-  if (button->IsPopup()) {
-    // If we're showing the same popup, just hide it and return.
-    bool same_showing = popup_ && button == popup_button_;
-
-    // Always hide the current popup, even if it's not the same.
-    // Only one popup should be visible at a time.
-    HidePopup();
-
-    if (same_showing)
-      return;
-
-    // We can get the execute event for browser actions that are not visible,
-    // since buttons can be activated from the overflow menu (chevron). In that
-    // case we show the popup as originating from the chevron.
-    View* reference_view = button->GetParent()->IsVisible() ? button : chevron_;
-    gfx::Point origin;
-    View::ConvertPointToScreen(reference_view, &origin);
-    gfx::Rect rect = reference_view->bounds();
-    rect.set_x(origin.x());
-    rect.set_y(origin.y());
-
-    gfx::NativeWindow frame_window =
-        browser_->window()->GetNativeHandle();
-    BubbleBorder::ArrowLocation arrow_location = base::i18n::IsRTL() ?
-        BubbleBorder::TOP_LEFT : BubbleBorder::TOP_RIGHT;
-
-    popup_ = ExtensionPopup::Show(button->GetPopupUrl(), browser_,
-        browser_->profile(), frame_window, rect, arrow_location,
-        true,  // Activate the popup window.
-        inspect_with_devtools,
-        ExtensionPopup::BUBBLE_CHROME,
-        this);  // ExtensionPopupDelegate
-    popup_button_ = button;
-    popup_button_->SetButtonPushed();
-
+  if (!button->IsPopup()) {
+    ExtensionBrowserEventRouter::GetInstance()->BrowserActionExecuted(
+        profile_, browser_action->extension_id(), browser_);
     return;
   }
 
-  // Otherwise, we send the action to the extension.
-  ExtensionBrowserEventRouter::GetInstance()->BrowserActionExecuted(
-      profile_, browser_action->extension_id(), browser_);
+  // If we're showing the same popup, just hide it and return.
+  bool same_showing = popup_ && button == popup_button_;
+
+  // Always hide the current popup, even if it's not the same.
+  // Only one popup should be visible at a time.
+  HidePopup();
+
+  if (same_showing)
+    return;
+
+  // We can get the execute event for browser actions that are not visible,
+  // since buttons can be activated from the overflow menu (chevron). In that
+  // case we show the popup as originating from the chevron.
+  View* reference_view = button->GetParent()->IsVisible() ? button : chevron_;
+  gfx::Point origin;
+  View::ConvertPointToScreen(reference_view, &origin);
+  gfx::Rect rect = reference_view->bounds();
+  rect.set_origin(origin);
+
+  gfx::NativeWindow frame_window = browser_->window()->GetNativeHandle();
+  BubbleBorder::ArrowLocation arrow_location = base::i18n::IsRTL() ?
+      BubbleBorder::TOP_LEFT : BubbleBorder::TOP_RIGHT;
+
+  popup_ = ExtensionPopup::Show(button->GetPopupUrl(), browser_,
+      browser_->profile(), frame_window, rect, arrow_location, true,
+      inspect_with_devtools, ExtensionPopup::BUBBLE_CHROME, this);
+  popup_button_ = button;
+  popup_button_->SetButtonPushed();
 }
 
 gfx::Size BrowserActionsContainer::GetPreferredSize() {
   if (browser_action_views_.empty())
-    return gfx::Size(0, 0);
+    return gfx::Size(ToolbarView::kStandardSpacing, 0);
 
   // We calculate the size of the view by taking the current width and
   // subtracting resize_amount_ (the latter represents how far the user is
@@ -602,72 +521,44 @@ gfx::Size BrowserActionsContainer::GetPreferredSize() {
   // But we also clamp it to a minimum size and the maximum size, so that the
   // container can never shrink too far or take up more space than it needs. In
   // other words: ContainerMinSize() < width() - resize < ClampTo(MAX).
-  int width = std::max(ContainerMinSize(),
-                       container_size_.width() - resize_amount_);
-  int max_width = ClampToNearestIconCount(-1, false);  // -1 gives max width.
-  width = std::min(width, max_width);
-
-  return gfx::Size(width, kButtonSize);
+  int clamped_width = std::min(
+      std::max(ContainerMinSize(), container_width_ - resize_amount_),
+      IconCountToWidth(-1, false));
+  return gfx::Size(clamped_width, 0);
 }
 
 void BrowserActionsContainer::Layout() {
-  if (browser_action_views_.size() == 0) {
+  if (browser_action_views_.empty()) {
     SetVisible(false);
-    resize_gripper_->SetVisible(false);
-    chevron_->SetVisible(false);
     return;
-  } else {
-    SetVisible(true);
-    resize_gripper_->SetVisible(true);
   }
 
-  int x = 0;
-  if (resize_gripper_->IsVisible()) {
-    // We'll draw the resize gripper a little wider, to add some invisible hit
-    // target area - but we don't account for it anywhere.
-    gfx::Size sz = resize_gripper_->GetPreferredSize();
-    resize_gripper_->SetBounds(x, (height() - sz.height()) / 2 + 1,
-                               sz.width() + kExtraResizeArea, sz.height());
-    x += sz.width();
-  }
+  SetVisible(true);
+  resize_area_->SetBounds(0, ToolbarView::kVertSpacing, kItemSpacing,
+                          IconHeight());
 
-  x += base::i18n::IsRTL() ? kHorizontalPaddingRtl : kHorizontalPadding;
-
-  // Calculate if all icons fit without showing the chevron. We need to know
-  // this beforehand, because showing the chevron will decrease the space that
-  // we have to draw the visible ones (ie. if one icon is visible and another
-  // doesn't have enough room).
-  int last_x_of_icons = x +
-      (browser_action_views_.size() * kButtonSize) +
-      ((browser_action_views_.size() - 1) *
-          kBrowserActionButtonPadding);
-
-  gfx::Size sz = GetPreferredSize();
-  int max_x = sz.width() - kDividerHorizontalMargin - kChevronRightMargin;
-
-  // If they don't all fit, show the chevron (unless suppressed).
-  gfx::Size chevron_size;
-  if (last_x_of_icons >= max_x && !suppress_chevron_) {
+  // If the icons don't all fit, show the chevron (unless suppressed).
+  int max_x = GetPreferredSize().width();
+  if ((IconCountToWidth(-1, false) > max_x) && !suppress_chevron_) {
     chevron_->SetVisible(true);
-    chevron_size = chevron_->GetPreferredSize();
-    max_x -= chevron_size.width();
-    chevron_->SetBounds(width() - chevron_size.width() - kChevronRightMargin,
-                        kChevronTopMargin,
-                        chevron_size.width(), chevron_size.height());
+    gfx::Size chevron_size(chevron_->GetPreferredSize());
+    max_x -=
+        ToolbarView::kStandardSpacing + chevron_size.width() + kChevronSpacing;
+    chevron_->SetBounds(
+        width() - ToolbarView::kStandardSpacing - chevron_size.width(),
+        ToolbarView::kVertSpacing, chevron_size.width(), chevron_size.height());
   } else {
     chevron_->SetVisible(false);
   }
 
   // Now draw the icons for the browser actions in the available space.
+  int icon_width = IconWidth(false);
   for (size_t i = 0; i < browser_action_views_.size(); ++i) {
     BrowserActionView* view = browser_action_views_[i];
-    // Add padding between buttons if multiple buttons.
-    int padding = (i > 0) ? kBrowserActionButtonPadding : 0;
-    if (x + kButtonSize + padding < max_x) {
-      x += padding;
-      view->SetBounds(x, 0, kButtonSize, height());
+    int x = ToolbarView::kStandardSpacing + (i * IconWidth(true));
+    if (x + icon_width <= max_x) {
+      view->SetBounds(x, 0, icon_width, height());
       view->SetVisible(true);
-      x += kButtonSize;
     } else {
       view->SetVisible(false);
     }
@@ -675,25 +566,17 @@ void BrowserActionsContainer::Layout() {
 }
 
 void BrowserActionsContainer::Paint(gfx::Canvas* canvas) {
-  // The one-pixel themed vertical divider to the right of the browser actions.
-  int x = base::i18n::IsRTL() ?
-      kDividerHorizontalMargin : (width() - kDividerHorizontalMargin);
-  DetachableToolbarView::PaintVerticalDivider(
-      canvas, x, height(), kDividerVerticalPadding,
-      DetachableToolbarView::kEdgeDividerColor,
-      DetachableToolbarView::kMiddleDividerColor,
-      GetThemeProvider()->GetColor(BrowserThemeProvider::COLOR_TOOLBAR));
-
-  // The two-pixel width drop indicator.
+  // TODO(sky/glen): Instead of using a drop indicator, animate the icons while
+  // dragging (like we do for tab dragging).
   if (drop_indicator_position_ > -1) {
-    x = drop_indicator_position_;
-    int y = kDividerVerticalPadding;
-    gfx::Rect indicator_bounds(x - kDropIndicatorWidth / 2,
-                               y,
-                               kDropIndicatorWidth,
-                               height() - (2 * kDividerVerticalPadding));
+    // The two-pixel width drop indicator.
+    static const int kDropIndicatorWidth = 2;
+    gfx::Rect indicator_bounds(
+        drop_indicator_position_ - (kDropIndicatorWidth / 2),
+        ToolbarView::kVertSpacing, kDropIndicatorWidth, IconHeight());
 
-    // TODO(sky/glen): make me pretty!
+    // Color of the drop indicator.
+    static const SkColor kDropIndicatorColor = SK_ColorBLACK;
     canvas->FillRectInt(kDropIndicatorColor, indicator_bounds.x(),
                         indicator_bounds.y(), indicator_bounds.width(),
                         indicator_bounds.height());
@@ -717,7 +600,8 @@ void BrowserActionsContainer::ViewHierarchyChanged(bool is_add,
 }
 
 bool BrowserActionsContainer::GetDropFormats(
-    int* formats, std::set<OSExchangeData::CustomFormat>* custom_formats) {
+    int* formats,
+    std::set<OSExchangeData::CustomFormat>* custom_formats) {
   custom_formats->insert(BrowserActionDragData::GetBrowserActionCustomFormat());
 
   return true;
@@ -729,9 +613,7 @@ bool BrowserActionsContainer::AreDropTypesRequired() {
 
 bool BrowserActionsContainer::CanDrop(const OSExchangeData& data) {
   BrowserActionDragData drop_data;
-  if (!drop_data.Read(data))
-    return false;
-  return drop_data.IsFromProfile(profile_);
+  return drop_data.Read(data) ? drop_data.IsFromProfile(profile_) : false;
 }
 
 void BrowserActionsContainer::OnDragEntered(
@@ -745,34 +627,55 @@ int BrowserActionsContainer::OnDragUpdated(
     if (show_menu_task_factory_.empty() && !overflow_menu_)
       StartShowFolderDropMenuTimer();
     return DragDropTypes::DRAG_MOVE;
-  } else {
-    StopShowFolderDropMenuTimer();
   }
+  StopShowFolderDropMenuTimer();
 
-  // Modifying the x value before clamping affects how far you have to drag to
-  // get the drop indicator to shift to another position. Modifying after
-  // clamping affects where the drop indicator is drawn.
+  // Figure out where to display the indicator.  This is a complex calculation:
 
-  // We add half a button size so that when you drag a button to the right and
-  // you are half-way dragging across a button the drop indicator moves from the
-  // left of that button to the right of that button.
-  int x = event.x() + (kButtonSize / 2) + (2 * kBrowserActionButtonPadding);
-  if (chevron_->IsVisible())
-    x += chevron_->bounds().width();
-  x = ClampToNearestIconCount(x, false);
+  // First, we figure out how much space is to the left of the icon area, so we
+  // can calculate the true offset into the icon area.
+  int width_before_icons = ToolbarView::kStandardSpacing +
+      (base::i18n::IsRTL() ?
+          (chevron_->GetPreferredSize().width() + kChevronSpacing) : 0);
+  int offset_into_icon_area = event.x() - width_before_icons;
 
-  if (!base::i18n::IsRTL() && chevron_->IsVisible()) {
-    // The clamping function includes the chevron width. In LTR locales, the
-    // chevron is on the right and we never want to account for its width. In
-    // RTL it is on the left and we always want to count the width.
-    x -= chevron_->width();
-  }
+  // Next, we determine which icon to place the indicator in front of.  We want
+  // to place the indicator in front of icon n when the cursor is between the
+  // midpoints of icons (n - 1) and n.  To do this we take the offset into the
+  // icon area and transform it as follows:
+  //
+  // Real icon area:
+  //   0   a     *  b        c
+  //   |   |        |        |
+  //   |[IC|ON]  [IC|ON]  [IC|ON]
+  // We want to be before icon 0 for 0 < x <= a, icon 1 for a < x <= b, etc.
+  // Here the "*" represents the offset into the icon area, and since it's
+  // between a and b, we want to return "1".
+  //
+  // Transformed "icon area":
+  //   0        a     *  b        c
+  //   |        |        |        |
+  //   |[ICON]  |[ICON]  |[ICON]  |
+  // If we shift both our offset and our divider points later by half an icon
+  // plus one spacing unit, then it becomes very easy to calculate how many
+  // divider points we've passed, because they're the multiples of "one icon
+  // plus padding".
+  int before_icon_unclamped = (offset_into_icon_area + (IconWidth(false) / 2) +
+      kItemSpacing) / IconWidth(true);
 
-  // Clamping gives us a value where the next button will be drawn, but we want
-  // to subtract the padding (and then some) to make it appear in-between the
-  // buttons.
-  SetDropIndicator(x - kBrowserActionButtonPadding - (base::i18n::IsRTL() ?
-      kDropIndicatorOffsetRtl : kDropIndicatorOffsetLtr));
+  // Because the user can drag outside the container bounds, we need to clamp to
+  // the valid range.  Note that the maximum allowable value is (num icons), not
+  // (num icons - 1), because we represent the indicator being past the last
+  // icon as being "before the (last + 1) icon".
+  int before_icon = std::min(std::max(before_icon_unclamped, 0),
+                             static_cast<int>(VisibleBrowserActions()));
+
+  // Now we convert back to a pixel offset into the container.  We want to place
+  // the center of the drop indicator at the midpoint of the space before our
+  // chosen icon.
+  SetDropIndicator(width_before_icons + (before_icon * IconWidth(true)) -
+      (kItemSpacing / 2));
+
   return DragDropTypes::DRAG_MOVE;
 }
 
@@ -789,21 +692,17 @@ int BrowserActionsContainer::OnPerformDrop(
     return DragDropTypes::DRAG_NONE;
 
   // Make sure we have the same view as we started with.
-  DCHECK(browser_action_views_[data.index()]->button()->extension()->id() ==
-         data.id());
+  DCHECK_EQ(browser_action_views_[data.index()]->button()->extension()->id(),
+            data.id());
   DCHECK(model_);
-
-  Extension* dragging =
-      browser_action_views_[data.index()]->button()->extension();
-
-  int target_x = drop_indicator_position_;
 
   size_t i = 0;
   for (; i < browser_action_views_.size(); ++i) {
     int view_x =
         browser_action_views_[i]->GetBounds(APPLY_MIRRORING_TRANSFORMATION).x();
     if (!browser_action_views_[i]->IsVisible() ||
-        (base::i18n::IsRTL() ? view_x < target_x : view_x >= target_x)) {
+        (base::i18n::IsRTL() ? (view_x < drop_indicator_position_) :
+            (view_x >= drop_indicator_position_))) {
       // We have reached the end of the visible icons or found one that has a
       // higher x position than the drop point.
       break;
@@ -821,27 +720,19 @@ int BrowserActionsContainer::OnPerformDrop(
   if (profile_->IsOffTheRecord())
     i = model_->IncognitoIndexToOriginal(i);
 
-  model_->MoveBrowserAction(dragging, i);
+  model_->MoveBrowserAction(
+      browser_action_views_[data.index()]->button()->extension(), i);
 
   OnDragExited();  // Perform clean up after dragging.
   return DragDropTypes::DRAG_MOVE;
 }
 
-bool BrowserActionsContainer::GetAccessibleRole(
-    AccessibilityTypes::Role* role) {
-  DCHECK(role);
-  *role = AccessibilityTypes::ROLE_GROUPING;
-  return true;
+void BrowserActionsContainer::OnThemeChanged() {
+  LoadImages();
 }
 
-void BrowserActionsContainer::MoveBrowserAction(
-    const std::string& extension_id, size_t new_index) {
-  ExtensionsService* service = profile_->GetExtensionsService();
-  if (service) {
-    Extension* extension = service->GetExtensionById(extension_id, false);
-    model_->MoveBrowserAction(extension, new_index);
-    SchedulePaint();
-  }
+AccessibilityTypes::Role BrowserActionsContainer::GetAccessibleRole() {
+  return AccessibilityTypes::ROLE_GROUPING;
 }
 
 void BrowserActionsContainer::RunMenu(View* source, const gfx::Point& pt) {
@@ -887,41 +778,106 @@ bool BrowserActionsContainer::CanStartDrag(View* sender,
   return true;
 }
 
-int BrowserActionsContainer::ClampToNearestIconCount(
-    int pixelWidth, bool allow_shrink_to_minimum) const {
-  // Calculate the width of one icon.
-  int icon_width = (kButtonSize + kBrowserActionButtonPadding);
-
-  // Calculate pixel count for the area not used by the icons.
-  int extras = WidthOfNonIconArea();
-
-  size_t icon_count = 0u;
-  if (pixelWidth >= 0) {
-    // Caller wants to know how many icons fit within a given space so we start
-    // by subtracting the padding, gripper and dividers.
-    int icon_area = pixelWidth - extras;
-    icon_area = std::max(0, icon_area);
-
-    // Make sure we never throw an icon into the chevron menu just because
-    // there isn't enough enough space for the invisible padding around buttons.
-    icon_area += kBrowserActionButtonPadding - 1;
-
-    // Count the number of icons that fit within that area.
-    icon_count = icon_area / icon_width;
-
-    if (icon_count == 0 && allow_shrink_to_minimum) {
-      extras = ContainerMinSize();  // Allow very narrow width if no icons.
-    } else if (icon_count > browser_action_views_.size()) {
-      // No use allowing more than what we have.
-      icon_count = browser_action_views_.size();
-    }
-  } else {
-    // A negative |pixels| count indicates caller wants to know the max width
-    // that fits all icons;
-    icon_count = browser_action_views_.size();
+void BrowserActionsContainer::OnResize(int resize_amount, bool done_resizing) {
+  if (!done_resizing) {
+    resize_amount_ = resize_amount;
+    OnBrowserActionVisibilityChanged();
+    return;
   }
 
-  return extras + (icon_count * icon_width);
+  // Up until now we've only been modifying the resize_amount, but now it is
+  // time to set the container size to the size we have resized to, and then
+  // animate to the nearest icon count size if necessary (which may be 0).
+  int max_width = IconCountToWidth(-1, false);
+  container_width_ =
+      std::min(std::max(0, container_width_ - resize_amount), max_width);
+  SaveDesiredSizeAndAnimate(Tween::EASE_OUT,
+                            WidthToIconCount(container_width_));
+}
+
+void BrowserActionsContainer::AnimationProgressed(const Animation* animation) {
+  DCHECK_EQ(resize_animation_.get(), animation);
+  resize_amount_ = static_cast<int>(resize_animation_->GetCurrentValue() *
+      (container_width_ - animation_target_size_));
+  OnBrowserActionVisibilityChanged();
+}
+
+void BrowserActionsContainer::AnimationEnded(const Animation* animation) {
+  container_width_ = animation_target_size_;
+  animation_target_size_ = 0;
+  resize_amount_ = 0;
+  OnBrowserActionVisibilityChanged();
+  suppress_chevron_ = false;
+}
+
+void BrowserActionsContainer::NotifyMenuDeleted(
+    BrowserActionOverflowMenuController* controller) {
+  DCHECK(controller == overflow_menu_);
+  overflow_menu_ = NULL;
+}
+
+void BrowserActionsContainer::InspectPopup(ExtensionAction* action) {
+  OnBrowserActionExecuted(GetBrowserActionView(action)->button(), true);
+}
+
+void BrowserActionsContainer::ExtensionPopupIsClosing(ExtensionPopup* popup) {
+  // ExtensionPopup is ref-counted, so we don't need to delete it.
+  DCHECK_EQ(popup_, popup);
+  popup_ = NULL;
+  popup_button_->SetButtonNotPushed();
+  popup_button_ = NULL;
+}
+
+void BrowserActionsContainer::MoveBrowserAction(const std::string& extension_id,
+                                                size_t new_index) {
+  ExtensionsService* service = profile_->GetExtensionsService();
+  if (service) {
+    Extension* extension = service->GetExtensionById(extension_id, false);
+    model_->MoveBrowserAction(extension, new_index);
+    SchedulePaint();
+  }
+}
+
+void BrowserActionsContainer::HidePopup() {
+  if (popup_)
+    popup_->Close();
+}
+
+void BrowserActionsContainer::TestExecuteBrowserAction(int index) {
+  BrowserActionButton* button = browser_action_views_[index]->button();
+  OnBrowserActionExecuted(button, false);
+}
+
+void BrowserActionsContainer::TestSetIconVisibilityCount(size_t icons) {
+  model_->SetVisibleIconCount(icons);
+  chevron_->SetVisible(icons < browser_action_views_.size());
+  container_width_ = IconCountToWidth(icons, chevron_->IsVisible());
+  Layout();
+  SchedulePaint();
+}
+
+// static
+int BrowserActionsContainer::IconWidth(bool include_padding) {
+  static bool initialized = false;
+  static int icon_width = 0;
+  if (!initialized) {
+    initialized = true;
+    icon_width = ResourceBundle::GetSharedInstance().GetBitmapNamed(
+        IDR_BROWSER_ACTION)->width();
+  }
+  return icon_width + (include_padding ? kItemSpacing : 0);
+}
+
+// static
+int BrowserActionsContainer::IconHeight() {
+  static bool initialized = false;
+  static int icon_height = 0;
+  if (!initialized) {
+    initialized = true;
+    icon_height = ResourceBundle::GetSharedInstance().GetBitmapNamed(
+        IDR_BROWSER_ACTION)->height();
+  }
+  return icon_height;
 }
 
 void BrowserActionsContainer::BrowserActionAdded(Extension* extension,
@@ -938,13 +894,11 @@ void BrowserActionsContainer::BrowserActionAdded(Extension* extension,
   if (!ShouldDisplayBrowserAction(extension))
     return;
 
-  if (profile_->IsOffTheRecord())
-    index = model_->OriginalIndexToIncognito(index);
-
-  // Before we change anything, determine the number of visible browser actions.
   size_t visible_actions = VisibleBrowserActions();
 
   // Add the new browser action to the vector and the view hierarchy.
+  if (profile_->IsOffTheRecord())
+    index = model_->OriginalIndexToIncognito(index);
   BrowserActionView* view = new BrowserActionView(extension, this);
   browser_action_views_.insert(browser_action_views_.begin() + index, view);
   AddChildView(index, view);
@@ -953,23 +907,14 @@ void BrowserActionsContainer::BrowserActionAdded(Extension* extension,
   if (!model_->extensions_initialized())
     return;
 
-  // For details on why we do the following see the class comments in the
-  // header.
-
-  // Determine if we need to increase (we only do that if the container was
-  // showing all icons before the addition of this icon).
-  if (model_->GetVisibleIconCount() >= 0 || extension->being_upgraded()) {
-    // Some icons were hidden, don't increase the size of the container.
-    OnBrowserActionVisibilityChanged();
+  // Enlarge the container if it was already at maximum size and we're not in
+  // the middle of upgrading.
+  if ((model_->GetVisibleIconCount() < 0) && !extension->being_upgraded()) {
+    suppress_chevron_ = true;
+    SaveDesiredSizeAndAnimate(Tween::LINEAR, visible_actions + 1);
   } else {
-    // Container was at max, increase the size of it by one icon.
-    int target_size = IconCountToWidth(visible_actions + 1);
-
-    // We don't want the chevron to appear while we animate. See documentation
-    // in the header for why we do this.
-    suppress_chevron_ = !chevron_->IsVisible();
-
-    Animate(Tween::LINEAR, target_size);
+    // Just redraw the (possibly modified) visible icon set.
+    OnBrowserActionVisibilityChanged();
   }
 }
 
@@ -979,13 +924,9 @@ void BrowserActionsContainer::BrowserActionRemoved(Extension* extension) {
   if (popup_ && popup_->host()->extension() == extension)
     HidePopup();
 
-  // Before we change anything, determine the number of visible browser
-  // actions.
   size_t visible_actions = VisibleBrowserActions();
-
-  for (BrowserActionViews::iterator iter =
-       browser_action_views_.begin(); iter != browser_action_views_.end();
-       ++iter) {
+  for (BrowserActionViews::iterator iter = browser_action_views_.begin();
+       iter != browser_action_views_.end(); ++iter) {
     if ((*iter)->button()->extension() == extension) {
       RemoveChildView(*iter);
       delete *iter;
@@ -996,18 +937,19 @@ void BrowserActionsContainer::BrowserActionRemoved(Extension* extension) {
       if (extension->being_upgraded())
         return;
 
-      // For details on why we do the following see the class comments in the
-      // header.
-
-      // Calculate the target size we'll animate to (end state). This might be
-      // the same size (if the icon we are removing is in the overflow bucket
-      // and there are other icons there). We don't decrement visible_actions
-      // because we want the container to stay the same size (clamping will take
-      // care of shrinking the container if there aren't enough icons to show).
-      int target_size =
-          ClampToNearestIconCount(IconCountToWidth(visible_actions), true);
-
-      Animate(Tween::EASE_OUT, target_size);
+      if (browser_action_views_.size() > visible_actions) {
+        // If we have more icons than we can show, then we must not be changing
+        // the container size (since we either removed an icon from the main
+        // area and one from the overflow list will have shifted in, or we
+        // removed an entry directly from the overflow list).
+        OnBrowserActionVisibilityChanged();
+      } else {
+        // Either we went from overflow to no-overflow, or we shrunk the no-
+        // overflow container by 1.  Either way the size changed, so animate.
+        chevron_->SetVisible(false);
+        SaveDesiredSizeAndAnimate(Tween::EASE_OUT,
+                                  browser_action_views_.size());
+      }
       return;
     }
   }
@@ -1033,39 +975,103 @@ void BrowserActionsContainer::ModelLoaded() {
   SetContainerWidth();
 }
 
+void BrowserActionsContainer::LoadImages() {
+  ThemeProvider* tp = GetThemeProvider();
+  chevron_->SetIcon(*tp->GetBitmapNamed(IDR_BROWSER_ACTIONS_OVERFLOW));
+  chevron_->SetHoverIcon(*tp->GetBitmapNamed(IDR_BROWSER_ACTIONS_OVERFLOW_H));
+  chevron_->SetPushedIcon(*tp->GetBitmapNamed(IDR_BROWSER_ACTIONS_OVERFLOW_P));
+}
+
 void BrowserActionsContainer::SetContainerWidth() {
   int visible_actions = model_->GetVisibleIconCount();
   if (visible_actions < 0)  // All icons should be visible.
     visible_actions = model_->size();
-  else
-    chevron_->SetVisible(true);
-  container_size_ = gfx::Size(IconCountToWidth(visible_actions), kButtonSize);
+  chevron_->SetVisible(static_cast<size_t>(visible_actions) < model_->size());
+  container_width_ = IconCountToWidth(visible_actions, chevron_->IsVisible());
 }
 
-int BrowserActionsContainer::WidthOfNonIconArea() const {
-  int chevron_size = (chevron_->IsVisible()) ?
-                     chevron_->GetPreferredSize().width() : 0;
-  int padding = base::i18n::IsRTL() ?
-      kHorizontalPaddingRtl : kHorizontalPadding;
-  return resize_gripper_->GetPreferredSize().width() + padding +
-         chevron_size + kChevronRightMargin + kDividerHorizontalMargin;
+void BrowserActionsContainer::CloseOverflowMenu() {
+  if (overflow_menu_)
+    overflow_menu_->CancelMenu();
 }
 
-int BrowserActionsContainer::IconCountToWidth(int icons) const {
-  DCHECK_GE(icons, 0);
-  if (icons == 0)
-    return ContainerMinSize();
+void BrowserActionsContainer::StopShowFolderDropMenuTimer() {
+  show_menu_task_factory_.RevokeAll();
+}
 
-  int icon_width = kButtonSize + kBrowserActionButtonPadding;
+void BrowserActionsContainer::StartShowFolderDropMenuTimer() {
+  int delay = View::GetMenuShowDelay();
+  MessageLoop::current()->PostDelayedTask(FROM_HERE,
+      show_menu_task_factory_.NewRunnableMethod(
+          &BrowserActionsContainer::ShowDropFolder),
+      delay);
+}
 
-  return WidthOfNonIconArea() + (icons * icon_width);
+void BrowserActionsContainer::ShowDropFolder() {
+  DCHECK(!overflow_menu_);
+  SetDropIndicator(-1);
+  overflow_menu_ = new BrowserActionOverflowMenuController(
+      this, chevron_, browser_action_views_, VisibleBrowserActions());
+  overflow_menu_->set_observer(this);
+  overflow_menu_->RunMenu(GetWindow()->GetNativeWindow(), true);
+}
+
+void BrowserActionsContainer::SetDropIndicator(int x_pos) {
+  if (drop_indicator_position_ != x_pos) {
+    drop_indicator_position_ = x_pos;
+    SchedulePaint();
+  }
+}
+
+int BrowserActionsContainer::IconCountToWidth(int icons,
+                                              bool display_chevron) const {
+  if (icons < 0)
+    icons = browser_action_views_.size();
+  if ((icons == 0) && !display_chevron)
+    return ToolbarView::kStandardSpacing;
+  int icons_size =
+      (icons == 0) ? 0 : ((icons * IconWidth(true)) - kItemSpacing);
+  int chevron_size = display_chevron ?
+      (kChevronSpacing + chevron_->GetPreferredSize().width()) : 0;
+  return ToolbarView::kStandardSpacing + icons_size + chevron_size +
+      ToolbarView::kStandardSpacing;
+}
+
+size_t BrowserActionsContainer::WidthToIconCount(int pixels) const {
+  // Check for widths large enough to show the entire icon set.
+  if (pixels >= IconCountToWidth(-1, false))
+    return browser_action_views_.size();
+
+  // We need to reserve space for the resize area, chevron, and the spacing on
+  // either side of the chevron.
+  int available_space = pixels - ToolbarView::kStandardSpacing -
+      chevron_->GetPreferredSize().width() - kChevronSpacing -
+      ToolbarView::kStandardSpacing;
+  // Now we add an extra between-item padding value so the space can be divided
+  // evenly by (size of icon with padding).
+  return static_cast<size_t>(
+      std::max(0, available_space + kItemSpacing) / IconWidth(true));
 }
 
 int BrowserActionsContainer::ContainerMinSize() const {
-  return resize_gripper_->width() + chevron_->width() + kChevronRightMargin;
+  return ToolbarView::kStandardSpacing + kChevronSpacing +
+      chevron_->GetPreferredSize().width() + ToolbarView::kStandardSpacing;
 }
 
-void BrowserActionsContainer::Animate(Tween::Type tween_type, int target_size) {
+void BrowserActionsContainer::SaveDesiredSizeAndAnimate(
+    Tween::Type tween_type,
+    size_t num_visible_icons) {
+  // Save off the desired number of visible icons.  We do this now instead of at
+  // the end of the animation so that even if the browser is shut down while
+  // animating, the right value will be restored on next run.
+  // NOTE: Don't save the icon count in incognito because there may be fewer
+  // icons in that mode. The result is that the container in a normal window is
+  // always at least as wide as in an incognito window.
+  if (!profile_->IsOffTheRecord())
+    model_->SetVisibleIconCount(num_visible_icons);
+
+  int target_size = IconCountToWidth(num_visible_icons,
+      num_visible_icons < browser_action_views_.size());
   if (!disable_animations_during_testing_) {
     // Animate! We have to set the animation_target_size_ after calling Reset(),
     // because that could end up calling AnimationEnded which clears the value.
@@ -1077,86 +1083,6 @@ void BrowserActionsContainer::Animate(Tween::Type tween_type, int target_size) {
     animation_target_size_ = target_size;
     AnimationEnded(resize_animation_.get());
   }
-}
-
-size_t BrowserActionsContainer::VisibleBrowserActions() const {
-  size_t visible_actions = 0;
-  for (size_t i = 0; i < browser_action_views_.size(); ++i) {
-    if (browser_action_views_[i]->IsVisible())
-      ++visible_actions;
-  }
-
-  return visible_actions;
-}
-
-void BrowserActionsContainer::OnResize(int resize_amount, bool done_resizing) {
-  if (!done_resizing) {
-    resize_amount_ = resize_amount;
-    OnBrowserActionVisibilityChanged();
-  } else {
-    // For details on why we do the following see the class comments in the
-    // header.
-
-    // Clamp lower limit to 0 and upper limit to the amount that allows enough
-    // room for all icons to show.
-    int new_width = std::max(0, container_size_.width() - resize_amount);
-    int max_width = ClampToNearestIconCount(-1, false);
-    new_width = std::min(new_width, max_width);
-
-    // Up until now we've only been modifying the resize_amount, but now it is
-    // time to set the container size to the size we have resized to, but then
-    // animate to the nearest icon count size (or down to min size if no icon).
-    container_size_.set_width(new_width);
-    animation_target_size_ = ClampToNearestIconCount(new_width, true);
-    resize_animation_->Reset();
-    resize_animation_->SetTweenType(Tween::EASE_OUT);
-    resize_animation_->Show();
-  }
-}
-
-void BrowserActionsContainer::AnimationProgressed(const Animation* animation) {
-  DCHECK(animation == resize_animation_.get());
-
-  double e = resize_animation_->GetCurrentValue();
-  int difference = container_size_.width() - animation_target_size_;
-
-  resize_amount_ = static_cast<int>(e * difference);
-
-  OnBrowserActionVisibilityChanged();
-}
-
-void BrowserActionsContainer::AnimationEnded(const Animation* animation) {
-  container_size_.set_width(animation_target_size_);
-  animation_target_size_ = 0;
-  resize_amount_ = 0;
-  OnBrowserActionVisibilityChanged();
-  suppress_chevron_ = false;
-
-  // Don't save the icon count in incognito because there may be fewer icons
-  // in that mode. The result is that the container in a normal window is always
-  // at least as wide as in an incognito window.
-  if (!profile_->IsOffTheRecord())
-    model_->SetVisibleIconCount(VisibleBrowserActions());
-}
-
-void BrowserActionsContainer::NotifyMenuDeleted(
-    BrowserActionOverflowMenuController* controller) {
-  DCHECK(controller == overflow_menu_);
-  overflow_menu_ = NULL;
-}
-
-void BrowserActionsContainer::InspectPopup(
-    ExtensionAction* action) {
-  OnBrowserActionExecuted(GetBrowserActionView(action)->button(),
-      true);  // |inspect_with_devtools|.
-}
-
-void BrowserActionsContainer::ExtensionPopupIsClosing(ExtensionPopup* popup) {
-  // ExtensionPopup is ref-counted, so we don't need to delete it.
-  DCHECK_EQ(popup_, popup);
-  popup_ = NULL;
-  popup_button_->SetButtonNotPushed();
-  popup_button_ = NULL;
 }
 
 bool BrowserActionsContainer::ShouldDisplayBrowserAction(Extension* extension) {

@@ -14,9 +14,12 @@
 #include "base/logging.h"
 #include "base/string_util.h"
 #include "base/third_party/icu/icu_utf.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/gtk/gtk_util.h"
+#if !defined(TOOLKIT_VIEWS)
 #include "chrome/browser/gtk/menu_gtk.h"
+#endif
 #include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view_gtk.h"
 #include "chrome/common/native_web_keyboard_event.h"
@@ -35,7 +38,8 @@ GtkIMContextWrapper::GtkIMContextWrapper(RenderWidgetHostViewGtk* host_view)
       is_in_key_event_handler_(false),
       preedit_selection_start_(0),
       preedit_selection_end_(0),
-      is_preedit_changed_(false) {
+      is_preedit_changed_(false),
+      suppress_next_commit_(false) {
   DCHECK(context_);
   DCHECK(context_simple_);
 
@@ -82,6 +86,8 @@ GtkIMContextWrapper::~GtkIMContextWrapper() {
 }
 
 void GtkIMContextWrapper::ProcessKeyEvent(GdkEventKey* event) {
+  suppress_next_commit_ = false;
+
   // Indicates preedit-changed and commit signal handlers that we are
   // processing a key event.
   is_in_key_event_handler_ = true;
@@ -132,6 +138,13 @@ void GtkIMContextWrapper::ProcessKeyEvent(GdkEventKey* event) {
 
   NativeWebKeyboardEvent wke(event);
 
+  // If the key event was handled by the input method, then we need to prevent
+  // RenderView::UnhandledKeyboardEvent() from processing it.
+  // Otherwise unexpected result may occur. For example if it's a
+  // Backspace key event, the browser may go back to previous page.
+  if (filtered)
+    wke.skip_in_browser = true;
+
   // Send filtered keydown event before sending IME result.
   if (event->type == GDK_KEY_PRESS && filtered)
     ProcessFilteredKeyPressEvent(&wke);
@@ -164,6 +177,8 @@ void GtkIMContextWrapper::ProcessKeyEvent(GdkEventKey* event) {
 
 void GtkIMContextWrapper::UpdateInputMethodState(WebKit::WebTextInputType type,
                                                  const gfx::Rect& caret_rect) {
+  suppress_next_commit_ = false;
+
   // The renderer has updated its IME status.
   // Control the GtkIMContext object according to this status.
   if (!context_ || !is_focused_)
@@ -240,6 +255,9 @@ void GtkIMContextWrapper::OnFocusOut() {
     host_view_->GetRenderWidgetHost()->SetInputMethodActive(false);
 }
 
+#if !defined(TOOLKIT_VIEWS)
+// Not defined for views because the views context menu doesn't
+// implement input methods yet.
 void GtkIMContextWrapper::AppendInputMethodsContextMenu(MenuGtk* menu) {
   gboolean show_input_method_menu = TRUE;
 
@@ -258,6 +276,7 @@ void GtkIMContextWrapper::AppendInputMethodsContextMenu(MenuGtk* menu) {
   menu->AppendSeparator();
   menu->AppendMenuItem(IDC_INPUT_METHODS_MENU, menuitem);
 }
+#endif
 
 void GtkIMContextWrapper::CancelComposition() {
   if (!is_enabled_)
@@ -267,6 +286,7 @@ void GtkIMContextWrapper::CancelComposition() {
 
   // To prevent any text from being committed when resetting the |context_|;
   is_in_key_event_handler_ = true;
+  suppress_next_commit_ = true;
 
   gtk_im_context_reset(context_);
   gtk_im_context_reset(context_simple_);
@@ -321,10 +341,6 @@ void GtkIMContextWrapper::ProcessFilteredKeyPressEvent(
     // keyidentifier must be updated accordingly, otherwise this key event may
     // still be processed by webkit.
     wke->setKeyIdentifierFromWindowsKeyCode();
-    // Prevent RenderView::UnhandledKeyboardEvent() from processing it.
-    // Otherwise unexpected result may occur. For example if it's a
-    // Backspace key event, the browser may go back to previous page.
-    wke->skip_in_browser = true;
   }
   host_view_->ForwardKeyboardEvent(*wke);
 }
@@ -420,6 +436,11 @@ void GtkIMContextWrapper::ConfirmComposition() {
 }
 
 void GtkIMContextWrapper::HandleCommit(const string16& text) {
+  if (suppress_next_commit_) {
+    suppress_next_commit_ = false;
+    return;
+  }
+
   // Append the text to the buffer, because commit signal might be fired
   // multiple times when processing a key event.
   commit_text_.append(text);
@@ -440,6 +461,7 @@ void GtkIMContextWrapper::HandlePreeditStart() {
 void GtkIMContextWrapper::HandlePreeditChanged(const gchar* text,
                                                PangoAttrList* attrs,
                                                int cursor_position) {
+  suppress_next_commit_ = false;
   // Don't set is_preedit_changed_ to false if there is no change, because
   // this handler might be called multiple times with the same data.
   is_preedit_changed_ = true;

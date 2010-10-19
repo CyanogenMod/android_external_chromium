@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,7 +6,10 @@
 #include <vector>
 
 #include "base/message_loop.h"
+#include "base/string_number_conversions.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_index.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
@@ -21,37 +24,38 @@ class BookmarkIndexTest : public testing::Test {
  public:
   BookmarkIndexTest() : model_(new BookmarkModel(NULL)) {}
 
-  void AddBookmarksWithTitles(const wchar_t** titles, size_t count) {
-    std::vector<std::wstring> title_vector;
+  void AddBookmarksWithTitles(const char** titles, size_t count) {
+    std::vector<std::string> title_vector;
     for (size_t i = 0; i < count; ++i)
       title_vector.push_back(titles[i]);
     AddBookmarksWithTitles(title_vector);
   }
 
-  void AddBookmarksWithTitles(const std::vector<std::wstring>& titles) {
+  void AddBookmarksWithTitles(const std::vector<std::string>& titles) {
     GURL url("about:blank");
     for (size_t i = 0; i < titles.size(); ++i)
-      model_->AddURL(model_->other_node(), static_cast<int>(i), titles[i], url);
+      model_->AddURL(model_->other_node(), static_cast<int>(i),
+                     ASCIIToUTF16(titles[i]), url);
   }
 
-  void ExpectMatches(const std::wstring& query,
-                     const wchar_t** expected_titles,
+  void ExpectMatches(const std::string& query,
+                     const char** expected_titles,
                      size_t expected_count) {
-    std::vector<std::wstring> title_vector;
+    std::vector<std::string> title_vector;
     for (size_t i = 0; i < expected_count; ++i)
       title_vector.push_back(expected_titles[i]);
     ExpectMatches(query, title_vector);
   }
 
-  void ExpectMatches(const std::wstring& query,
-                     const std::vector<std::wstring> expected_titles) {
+  void ExpectMatches(const std::string& query,
+                     const std::vector<std::string> expected_titles) {
     std::vector<bookmark_utils::TitleMatch> matches;
-    model_->GetBookmarksWithTitlesMatching(query, 1000, &matches);
+    model_->GetBookmarksWithTitlesMatching(ASCIIToUTF16(query), 1000, &matches);
     ASSERT_EQ(expected_titles.size(), matches.size());
     for (size_t i = 0; i < expected_titles.size(); ++i) {
       bool found = false;
       for (size_t j = 0; j < matches.size(); ++j) {
-        if (std::wstring(expected_titles[i]) == matches[j].node->GetTitle()) {
+        if (ASCIIToUTF16(expected_titles[i]) == matches[j].node->GetTitle()) {
           matches.erase(matches.begin() + j);
           found = true;
           break;
@@ -64,21 +68,24 @@ class BookmarkIndexTest : public testing::Test {
   void ExtractMatchPositions(const std::string& string,
                              Snippet::MatchPositions* matches) {
     std::vector<std::string> match_strings;
-    SplitString(string, L':', &match_strings);
+    SplitString(string, ':', &match_strings);
     for (size_t i = 0; i < match_strings.size(); ++i) {
       std::vector<std::string> chunks;
       SplitString(match_strings[i], ',', &chunks);
       ASSERT_EQ(2U, chunks.size());
       matches->push_back(Snippet::MatchPosition());
-      matches->back().first = StringToInt(chunks[0]);
-      matches->back().second = StringToInt(chunks[1]);
+      int chunks0, chunks1;
+      base::StringToInt(chunks[0], &chunks0);
+      base::StringToInt(chunks[1], &chunks1);
+      matches->back().first = chunks0;
+      matches->back().second = chunks1;
     }
   }
 
-  void ExpectMatchPositions(const std::wstring& query,
+  void ExpectMatchPositions(const std::string& query,
                             const Snippet::MatchPositions& expected_positions) {
     std::vector<bookmark_utils::TitleMatch> matches;
-    model_->GetBookmarksWithTitlesMatching(query, 1000, &matches);
+    model_->GetBookmarksWithTitlesMatching(ASCIIToUTF16(query), 1000, &matches);
     ASSERT_EQ(1U, matches.size());
     const bookmark_utils::TitleMatch& match = matches[0];
     ASSERT_EQ(expected_positions.size(), match.match_positions.size());
@@ -99,41 +106,41 @@ class BookmarkIndexTest : public testing::Test {
 // all query paths.
 TEST_F(BookmarkIndexTest, Tests) {
   struct TestData {
-    const std::wstring input;
-    const std::wstring query;
-    const std::wstring expected;
+    const std::string input;
+    const std::string query;
+    const std::string expected;
   } data[] = {
     // Trivial test case of only one term, exact match.
-    { L"a;b",                       L"A",       L"a" },
+    { "a;b",                        "A",        "a" },
 
     // Prefix match, one term.
-    { L"abcd;abc;b",                L"abc",     L"abcd;abc" },
+    { "abcd;abc;b",                 "abc",      "abcd;abc" },
 
     // Prefix match, multiple terms.
-    { L"abcd cdef;abcd;abcd cdefg", L"abc cde", L"abcd cdef;abcd cdefg"},
+    { "abcd cdef;abcd;abcd cdefg",  "abc cde",  "abcd cdef;abcd cdefg"},
 
     // Exact and prefix match.
-    { L"ab cdef;abcd;abcd cdefg",   L"ab cdef", L"ab cdef"},
+    { "ab cdef;abcd;abcd cdefg",    "ab cdef",  "ab cdef"},
 
     // Exact and prefix match.
-    { L"ab cdef ghij;ab;cde;cdef;ghi;cdef ab;ghij ab",
-      L"ab cde ghi",
-      L"ab cdef ghij"},
+    { "ab cdef ghij;ab;cde;cdef;ghi;cdef ab;ghij ab",
+      "ab cde ghi",
+      "ab cdef ghij"},
 
     // Title with term multiple times.
-    { L"ab ab",                     L"ab",      L"ab ab"},
+    { "ab ab",                      "ab",       "ab ab"},
 
     // Make sure quotes don't do a prefix match.
-    { L"think",                     L"\"thi\"", L""},
+    { "think",                      "\"thi\"",  ""},
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(data); ++i) {
-    std::vector<std::wstring> titles;
-    SplitString(data[i].input, L';', &titles);
+    std::vector<std::string> titles;
+    SplitString(data[i].input, ';', &titles);
     AddBookmarksWithTitles(titles);
 
-    std::vector<std::wstring> expected;
+    std::vector<std::string> expected;
     if (!data[i].expected.empty())
-      SplitString(data[i].expected, L';', &expected);
+      SplitString(data[i].expected, ';', &expected);
 
     ExpectMatches(data[i].query, expected);
 
@@ -144,17 +151,17 @@ TEST_F(BookmarkIndexTest, Tests) {
 // Makes sure match positions are updated appropriately.
 TEST_F(BookmarkIndexTest, MatchPositions) {
   struct TestData {
-    const std::wstring title;
-    const std::wstring query;
+    const std::string title;
+    const std::string query;
     const std::string expected;
   } data[] = {
     // Trivial test case of only one term, exact match.
-    { L"a",                         L"A",       "0,1" },
-    { L"foo bar",                   L"bar",     "4,7" },
-    { L"fooey bark",                L"bar foo", "0,3:6,9"},
+    { "a",                        "A",        "0,1" },
+    { "foo bar",                  "bar",      "4,7" },
+    { "fooey bark",               "bar foo",  "0,3:6,9"},
   };
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(data); ++i) {
-    std::vector<std::wstring> titles;
+    std::vector<std::string> titles;
     titles.push_back(data[i].title);
     AddBookmarksWithTitles(titles);
 
@@ -168,43 +175,44 @@ TEST_F(BookmarkIndexTest, MatchPositions) {
 
 // Makes sure index is updated when a node is removed.
 TEST_F(BookmarkIndexTest, Remove) {
-  const wchar_t* input[] = { L"a", L"b" };
+  const char* input[] = { "a", "b" };
   AddBookmarksWithTitles(input, ARRAYSIZE_UNSAFE(input));
 
   // Remove the node and make sure we don't get back any results.
   model_->Remove(model_->other_node(), 0);
-  ExpectMatches(L"A", NULL, 0U);
+  ExpectMatches("A", NULL, 0U);
 }
 
 // Makes sure index is updated when a node's title is changed.
 TEST_F(BookmarkIndexTest, ChangeTitle) {
-  const wchar_t* input[] = { L"a", L"b" };
+  const char* input[] = { "a", "b" };
   AddBookmarksWithTitles(input, ARRAYSIZE_UNSAFE(input));
 
   // Remove the node and make sure we don't get back any results.
-  const wchar_t* expected[] = { L"blah" };
-  model_->SetTitle(model_->other_node()->GetChild(0), L"blah");
-  ExpectMatches(L"BlAh", expected, ARRAYSIZE_UNSAFE(expected));
+  const char* expected[] = { "blah" };
+  model_->SetTitle(model_->other_node()->GetChild(0), ASCIIToUTF16("blah"));
+  ExpectMatches("BlAh", expected, ARRAYSIZE_UNSAFE(expected));
 }
 
 // Makes sure no more than max queries is returned.
 TEST_F(BookmarkIndexTest, HonorMax) {
-  const wchar_t* input[] = { L"abcd", L"abcde" };
+  const char* input[] = { "abcd", "abcde" };
   AddBookmarksWithTitles(input, ARRAYSIZE_UNSAFE(input));
 
   std::vector<bookmark_utils::TitleMatch> matches;
-  model_->GetBookmarksWithTitlesMatching(L"ABc", 1, &matches);
+  model_->GetBookmarksWithTitlesMatching(ASCIIToUTF16("ABc"), 1, &matches);
   EXPECT_EQ(1U, matches.size());
 }
 
 // Makes sure if the lower case string of a bookmark title is more characters
 // than the upper case string no match positions are returned.
 TEST_F(BookmarkIndexTest, EmptyMatchOnMultiwideLowercaseString) {
-  const BookmarkNode* n1 = model_->AddURL(model_->other_node(), 0, L"\u0130 i",
+  const BookmarkNode* n1 = model_->AddURL(model_->other_node(), 0,
+                                          WideToUTF16(L"\u0130 i"),
                                           GURL("http://www.google.com"));
 
   std::vector<bookmark_utils::TitleMatch> matches;
-  model_->GetBookmarksWithTitlesMatching(L"i", 100, &matches);
+  model_->GetBookmarksWithTitlesMatching(ASCIIToUTF16("i"), 100, &matches);
   ASSERT_EQ(1U, matches.size());
   EXPECT_TRUE(matches[0].node == n1);
   EXPECT_TRUE(matches[0].match_positions.empty());
@@ -248,7 +256,7 @@ TEST_F(BookmarkIndexTest, GetResultsSortedByTypedCount) {
     // Populate the InMemoryDatabase....
     url_db->AddURL(info);
     // Populate the BookmarkIndex.
-    model->AddURL(model->other_node(), i, UTF8ToWide(data[i].title),
+    model->AddURL(model->other_node(), i, UTF8ToUTF16(data[i].title),
                   data[i].url);
   }
 
@@ -271,7 +279,7 @@ TEST_F(BookmarkIndexTest, GetResultsSortedByTypedCount) {
 
   // Populate match nodes.
   std::vector<bookmark_utils::TitleMatch> matches;
-  model->GetBookmarksWithTitlesMatching(L"google", 4, &matches);
+  model->GetBookmarksWithTitlesMatching(ASCIIToUTF16("google"), 4, &matches);
 
   // The resulting order should be:
   // 1. Google (google.com) 100
@@ -286,7 +294,7 @@ TEST_F(BookmarkIndexTest, GetResultsSortedByTypedCount) {
 
   matches.clear();
   // Select top two matches.
-  model->GetBookmarksWithTitlesMatching(L"google", 2, &matches);
+  model->GetBookmarksWithTitlesMatching(ASCIIToUTF16("google"), 2, &matches);
 
   EXPECT_EQ(2, static_cast<int>(matches.size()));
   EXPECT_EQ(data[0].url, matches[0].node->GetURL());

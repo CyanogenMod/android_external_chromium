@@ -45,6 +45,7 @@ const std::string JINGLE_ACTION_SESSION_INFO("session-info");
 const std::string JINGLE_ACTION_SESSION_ACCEPT("session-accept");
 const std::string JINGLE_ACTION_SESSION_TERMINATE("session-terminate");
 const std::string JINGLE_ACTION_TRANSPORT_INFO("transport-info");
+const std::string JINGLE_ACTION_TRANSPORT_ACCEPT("transport-accept");
 
 const buzz::QName QN_GINGLE_SESSION(true, NS_GINGLE, "session");
 const std::string GINGLE_ACTION_INITIATE("initiate");
@@ -54,8 +55,8 @@ const std::string GINGLE_ACTION_REJECT("reject");
 const std::string GINGLE_ACTION_TERMINATE("terminate");
 const std::string GINGLE_ACTION_CANDIDATES("candidates");
 
-// SessionApps (aka Gingle <session><description>
-//              or Jingle <content><description>)
+// Session Contents (aka Gingle <session><description>
+//                   or Jingle <content><description>)
 const std::string LN_DESCRIPTION("description");
 const std::string LN_PAYLOADTYPE("payload-type");
 const buzz::QName QN_ID(true, NS_EMPTY, "id");
@@ -76,26 +77,29 @@ const std::string PAYLOADTYPE_PARAMETER_HEIGHT("height");
 const std::string PAYLOADTYPE_PARAMETER_WIDTH("width");
 const std::string PAYLOADTYPE_PARAMETER_FRAMERATE("framerate");
 
+const std::string CN_AUDIO("audio");
+const std::string CN_VIDEO("video");
+const std::string CN_OTHER("main");
 
 const std::string NS_JINGLE_AUDIO("urn:xmpp:jingle:apps:rtp:audio");
-const buzz::QName QN_JINGLE_AUDIO_FORMAT(
+const buzz::QName QN_JINGLE_AUDIO_CONTENT(
     true, NS_JINGLE_AUDIO, LN_DESCRIPTION);
 const buzz::QName QN_JINGLE_AUDIO_PAYLOADTYPE(
     true, NS_JINGLE_AUDIO, LN_PAYLOADTYPE);
 const std::string NS_JINGLE_VIDEO("urn:xmpp:jingle:apps:rtp:video");
-const buzz::QName QN_JINGLE_VIDEO_FORMAT(
+const buzz::QName QN_JINGLE_VIDEO_CONTENT(
     true, NS_JINGLE_VIDEO, LN_DESCRIPTION);
 const buzz::QName QN_JINGLE_VIDEO_PAYLOADTYPE(
     true, NS_JINGLE_VIDEO, LN_PAYLOADTYPE);
 
 const std::string NS_GINGLE_AUDIO("http://www.google.com/session/phone");
-const buzz::QName QN_GINGLE_AUDIO_FORMAT(
+const buzz::QName QN_GINGLE_AUDIO_CONTENT(
     true, NS_GINGLE_AUDIO, LN_DESCRIPTION);
 const buzz::QName QN_GINGLE_AUDIO_PAYLOADTYPE(
     true, NS_GINGLE_AUDIO, LN_PAYLOADTYPE);
 const buzz::QName QN_GINGLE_AUDIO_SRCID(true, NS_GINGLE_AUDIO, "src-id");
 const std::string NS_GINGLE_VIDEO("http://www.google.com/session/video");
-const buzz::QName QN_GINGLE_VIDEO_FORMAT(
+const buzz::QName QN_GINGLE_VIDEO_CONTENT(
     true, NS_GINGLE_VIDEO, LN_DESCRIPTION);
 const buzz::QName QN_GINGLE_VIDEO_PAYLOADTYPE(
     true, NS_GINGLE_VIDEO, LN_PAYLOADTYPE);

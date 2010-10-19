@@ -4,12 +4,14 @@
 
 #ifndef CHROME_BROWSER_COCOA_TAB_STRIP_MODEL_OBSERVER_BRIDGE_H_
 #define CHROME_BROWSER_COCOA_TAB_STRIP_MODEL_OBSERVER_BRIDGE_H_
+#pragma once
 
 #import <Foundation/Foundation.h>
 
-#include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/tabs/tab_strip_model_observer.h"
 
 class TabContents;
+class TabStripModel;
 
 // A C++ bridge class to handle receiving notifications from the C++ tab strip
 // model. When the caller allocates a bridge, it automatically registers for
@@ -41,6 +43,7 @@ class TabStripModelObserverBridge : public TabStripModelObserver {
                              int index);
   virtual void TabMiniStateChanged(TabContents* contents, int index);
   virtual void TabStripEmpty();
+  virtual void TabStripModelDeleted();
 
  private:
   id controller_;  // weak, owns me
@@ -71,6 +74,7 @@ class TabStripModelObserverBridge : public TabStripModelObserver {
 - (void)tabMiniStateChangedWithContents:(TabContents*)contents
                                 atIndex:(NSInteger)index;
 - (void)tabStripEmpty;
+- (void)tabStripModelDeleted;
 @end
 
 #endif  // CHROME_BROWSER_COCOA_TAB_STRIP_MODEL_OBSERVER_BRIDGE_H_

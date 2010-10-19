@@ -93,6 +93,12 @@ gfx::Rect AppPanelBrowserFrameView::GetBoundsForTabStrip(
   return gfx::Rect();
 }
 
+int AppPanelBrowserFrameView::GetHorizontalTabStripVerticalOffset(
+    bool restored) const {
+  // App panels are not themed and don't need this.
+  return 0;
+}
+
 void AppPanelBrowserFrameView::UpdateThrobber(bool running) {
   window_icon_->Update();
 }
@@ -477,7 +483,7 @@ void AppPanelBrowserFrameView::LayoutTitleBar() {
 
   // Size the title.
   int title_x = icon_bounds.right() + kIconTitleSpacing;
-  int title_height = BrowserFrame::GetTitleFont().height();
+  int title_height = BrowserFrame::GetTitleFont().GetHeight();
   // We bias the title position so that when the difference between the icon
   // and title heights is odd, the extra pixel of the title is above the
   // vertical midline rather than below.  This compensates for how the icon is

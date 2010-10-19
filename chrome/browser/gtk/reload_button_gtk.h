@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_RELOAD_BUTTON_GTK_H_
 #define CHROME_BROWSER_GTK_RELOAD_BUTTON_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
@@ -11,9 +12,9 @@
 #include "base/basictypes.h"
 #include "base/timer.h"
 #include "chrome/browser/gtk/custom_button.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
-#include "chrome/common/owned_widget_gtk.h"
 
 class Browser;
 class GtkThemeProvider;
@@ -41,10 +42,10 @@ class ReloadButtonGtk : public NotificationObserver {
  private:
   friend class ReloadButtonGtkPeer;
 
+  CHROMEGTK_CALLBACK_0(ReloadButtonGtk, void, OnClicked);
   CHROMEGTK_CALLBACK_1(ReloadButtonGtk, gboolean, OnExpose, GdkEventExpose*);
   CHROMEGTK_CALLBACK_1(ReloadButtonGtk, gboolean, OnLeaveNotify,
                        GdkEventCrossing*);
-  CHROMEGTK_CALLBACK_0(ReloadButtonGtk, void, OnClicked);
   CHROMEGTK_CALLBACK_4(ReloadButtonGtk, gboolean, OnQueryTooltip, gint, gint,
                        gboolean, GtkTooltip*);
 

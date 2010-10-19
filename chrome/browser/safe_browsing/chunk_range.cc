@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
@@ -7,6 +7,8 @@
 #include "chrome/browser/safe_browsing/chunk_range.h"
 
 #include "base/logging.h"
+#include "base/string_number_conversions.h"
+#include "base/string_split.h"
 #include "base/string_util.h"
 
 ChunkRange::ChunkRange(int start) : start_(start), stop_(start) {
@@ -61,7 +63,7 @@ void RangesToString(const std::vector<ChunkRange>& ranges,
     if (!result->empty())
       result->append(",");
     if (it->start() == it->stop()) {
-      std::string num_buf = IntToString(it->start());
+      std::string num_buf = base::IntToString(it->start());
       result->append(num_buf);
     } else {
       result->append(StringPrintf("%d-%d", it->start(), it->stop()));

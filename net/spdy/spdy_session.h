@@ -4,6 +4,7 @@
 
 #ifndef NET_SPDY_SPDY_SESSION_H_
 #define NET_SPDY_SPDY_SESSION_H_
+#pragma once
 
 #include <deque>
 #include <list>
@@ -11,8 +12,10 @@
 #include <queue>
 #include <string>
 
+#include "base/gtest_prod_util.h"
 #include "base/linked_ptr.h"
 #include "base/ref_counted.h"
+#include "base/task.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_states.h"
 #include "net/base/net_errors.h"
@@ -27,34 +30,40 @@
 #include "net/spdy/spdy_io_buffer.h"
 #include "net/spdy/spdy_protocol.h"
 #include "net/spdy/spdy_session_pool.h"
-#include "testing/gtest/include/gtest/gtest_prod.h"  // For FRIEND_TEST
 
 namespace net {
 
-class SpdyStream;
-class HttpNetworkSession;
+// This is somewhat arbitrary and not really fixed, but it will always work
+// reasonably with ethernet. Chop the world into 2-packet chunks.  This is
+// somewhat arbitrary, but is reasonably small and ensures that we elicit
+// ACKs quickly from TCP (because TCP tries to only ACK every other packet).
+const int kMss = 1430;
+const int kMaxSpdyFrameChunkSize = (2 * kMss) - spdy::SpdyFrame::size();
+
 class BoundNetLog;
+class SpdySettingsStorage;
+class SpdyStream;
 class SSLInfo;
 
 class SpdySession : public base::RefCounted<SpdySession>,
                     public spdy::SpdyFramerVisitorInterface {
  public:
   // Create a new SpdySession.
-  // |host_port_pair| is the host/port that this session connects to.
+  // |host_port_proxy_pair| is the host/port that this session connects to, and
+  // the proxy configuration settings that it's using.
   // |session| is the HttpNetworkSession.  |net_log| is the NetLog that we log
   // network events to.
-  SpdySession(const HostPortPair& host_port_pair, HttpNetworkSession* session,
+  SpdySession(const HostPortProxyPair& host_port_proxy_pair,
+              SpdySessionPool* spdy_session_pool,
+              SpdySettingsStorage* spdy_settings,
               NetLog* net_log);
 
-  const HostPortPair& host_port_pair() const { return host_port_pair_; }
-
-  // Connect the Spdy Socket.
-  // Returns net::Error::OK on success.
-  // Note that this call does not wait for the connect to complete. Callers can
-  // immediately start using the SpdySession while it connects.
-  net::Error Connect(const std::string& group_name,
-                     const scoped_refptr<TCPSocketParams>& destination,
-                     RequestPriority priority);
+  const HostPortPair& host_port_pair() const {
+    return host_port_proxy_pair_.first;
+  }
+  const HostPortProxyPair& host_port_proxy_pair() const {
+    return host_port_proxy_pair_;
+  }
 
   // Get a pushed stream for a given |url|.
   // If the server initiates a stream, it might already exist for a given path.
@@ -78,10 +87,13 @@ class SpdySession : public base::RefCounted<SpdySession>,
   // Remove PendingCreateStream objects on transaction deletion
   void CancelPendingCreateStreams(const scoped_refptr<SpdyStream>* spdy_stream);
 
-  // Used by SpdySessionPool to initialize with a pre-existing SSL socket.
+  // Used by SpdySessionPool to initialize with a pre-existing SSL socket. For
+  // testing, setting is_secure to false allows initialization with a
+  // pre-existing TCP socket.
   // Returns OK on success, or an error on failure.
-  net::Error InitializeWithSSLSocket(ClientSocketHandle* connection,
-                                     int certificate_error_code);
+  net::Error InitializeWithSocket(ClientSocketHandle* connection,
+                                  bool is_secure,
+                                  int certificate_error_code);
 
   // Send the SYN frame for |stream_id|.
   int WriteSynStream(
@@ -114,9 +126,21 @@ class SpdySession : public base::RefCounted<SpdySession>,
   // Fills SSL info in |ssl_info| and returns true when SSL is in use.
   bool GetSSLInfo(SSLInfo* ssl_info, bool* was_npn_negotiated);
 
+  // Fills SSL Certificate Request info |cert_request_info| and returns
+  // true when SSL is in use.
+  bool GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info);
+
   // Enable or disable SSL.
   static void SetSSLMode(bool enable) { use_ssl_ = enable; }
   static bool SSLMode() { return use_ssl_; }
+
+  // Enable or disable flow control.
+  static void set_flow_control(bool enable) { use_flow_control_ = enable; }
+  static bool flow_control() { return use_flow_control_; }
+
+  // Send WINDOW_UPDATE frame, called by a stream whenever receive window
+  // size is increased.
+  void SendWindowUpdate(spdy::SpdyStreamId stream_id, int delta_window_size);
 
   // If session is closed, no new streams/transactions should be created.
   bool IsClosed() const { return state_ == CLOSED; }
@@ -125,11 +149,30 @@ class SpdySession : public base::RefCounted<SpdySession>,
   // the session as permanently closed.
   // |err| should not be OK; this function is intended to be called on
   // error.
-  void CloseSessionOnError(net::Error err);
+  // |remove_from_pool| indicates whether to also remove the session from the
+  // session pool.
+  void CloseSessionOnError(net::Error err, bool remove_from_pool);
+
+  // Indicates whether the session is being reused after having successfully
+  // used to send/receive data in the past.
+  bool IsReused() const {
+    return frames_received_ > 0;
+  }
+
+  void set_in_session_pool(bool val) { in_session_pool_ = val; }
+
+  // Access to the number of active and pending streams.  These are primarily
+  // available for testing and diagnostics.
+  size_t num_active_streams() const { return active_streams_.size(); }
+  size_t num_unclaimed_pushed_streams() const {
+      return unclaimed_pushed_streams_.size();
+  }
+
+  const BoundNetLog& net_log() const { return net_log_; }
 
  private:
   friend class base::RefCounted<SpdySession>;
-  FRIEND_TEST(SpdySessionTest, GetActivePushStream);
+  FRIEND_TEST_ALL_PREFIXES(SpdySessionTest, GetActivePushStream);
 
   enum State {
     IDLE,
@@ -158,8 +201,7 @@ class SpdySession : public base::RefCounted<SpdySession>,
       PendingCreateStreamQueue;
   typedef std::map<int, scoped_refptr<SpdyStream> > ActiveStreamMap;
   // Only HTTP push a stream.
-  typedef std::list<scoped_refptr<SpdyStream> > ActivePushedStreamList;
-  typedef std::map<std::string, scoped_refptr<SpdyStream> > PendingStreamMap;
+  typedef std::map<std::string, scoped_refptr<SpdyStream> > PushedStreamMap;
   typedef std::priority_queue<SpdyIOBuffer> OutputQueue;
 
   virtual ~SpdySession();
@@ -183,14 +225,12 @@ class SpdySession : public base::RefCounted<SpdySession>,
              const linked_ptr<spdy::SpdyHeaderBlock>& headers);
   void OnSynReply(const spdy::SpdySynReplyControlFrame& frame,
                   const linked_ptr<spdy::SpdyHeaderBlock>& headers);
-  void OnFin(const spdy::SpdyRstStreamControlFrame& frame);
+  void OnRst(const spdy::SpdyRstStreamControlFrame& frame);
   void OnGoAway(const spdy::SpdyGoAwayControlFrame& frame);
   void OnSettings(const spdy::SpdySettingsControlFrame& frame);
   void OnWindowUpdate(const spdy::SpdyWindowUpdateControlFrame& frame);
 
   // IO Callbacks
-  void OnTCPConnect(int result);
-  void OnSSLConnect(int result);
   void OnReadComplete(int result);
   void OnWriteComplete(int result);
 
@@ -242,17 +282,20 @@ class SpdySession : public base::RefCounted<SpdySession>,
   void CloseAllStreams(net::Error status);
 
   // Callbacks for the Spdy session.
-  CompletionCallbackImpl<SpdySession> connect_callback_;
-  CompletionCallbackImpl<SpdySession> ssl_connect_callback_;
   CompletionCallbackImpl<SpdySession> read_callback_;
   CompletionCallbackImpl<SpdySession> write_callback_;
 
+  // Used for posting asynchronous IO tasks.  We use this even though
+  // SpdySession is refcounted because we don't need to keep the SpdySession
+  // alive if the last reference is within a RunnableMethod.  Just revoke the
+  // method.
+  ScopedRunnableMethodFactory<SpdySession> method_factory_;
+
   // The domain this session is connected to.
-  const HostPortPair host_port_pair_;
+  const HostPortProxyPair host_port_proxy_pair_;
 
-  SSLConfig ssl_config_;
-
-  scoped_refptr<HttpNetworkSession> session_;
+  scoped_refptr<SpdySessionPool> spdy_session_pool_;
+  SpdySettingsStorage* spdy_settings_;
 
   // The socket handle for this session.
   scoped_ptr<ClientSocketHandle> connection_;
@@ -267,10 +310,6 @@ class SpdySession : public base::RefCounted<SpdySession>,
   // yet been satisfied
   PendingCreateStreamQueue create_stream_queues_[NUM_PRIORITIES];
 
-  // TODO(mbelshe): We need to track these stream lists better.
-  //                I suspect it is possible to remove a stream from
-  //                one list, but not the other.
-
   // Map from stream id to all active streams.  Streams are active in the sense
   // that they have a consumer (typically SpdyNetworkTransaction and regardless
   // of whether or not there is currently any ongoing IO [might be waiting for
@@ -280,13 +319,9 @@ class SpdySession : public base::RefCounted<SpdySession>,
   // them into a separate ActiveStreamMap, and not deliver network events to
   // them?
   ActiveStreamMap active_streams_;
-  // List of all the streams that have already started to be pushed by the
+  // Map of all the streams that have already started to be pushed by the
   // server, but do not have consumers yet.
-  ActivePushedStreamList pushed_streams_;
-  // List of streams declared in X-Associated-Content headers, but do not have
-  // consumers yet.
-  // The key is a string representing the path of the URI being pushed.
-  PendingStreamMap pending_streams_;
+  PushedStreamMap unclaimed_pushed_streams_;
 
   // As we gather data to be sent, we put it into the output queue.
   OutputQueue queue_;
@@ -321,20 +356,28 @@ class SpdySession : public base::RefCounted<SpdySession>,
   int streams_pushed_count_;
   int streams_pushed_and_claimed_count_;
   int streams_abandoned_count_;
+  int frames_received_;
   bool sent_settings_;      // Did this session send settings when it started.
   bool received_settings_;  // Did this session receive at least one settings
                             // frame.
 
   bool in_session_pool_;  // True if the session is currently in the pool.
 
-  int initial_window_size_; // Initial window size for the session; can be
-                            // changed by an arriving SETTINGS frame; newly
-                            // created streams use this value for the initial
-                            // window size.
+  // Initial send window size for the session; can be changed by an
+  // arriving SETTINGS frame; newly created streams use this value for the
+  // initial send window size.
+  int initial_send_window_size_;
+
+  // Initial receive window size for the session; there are plans to add a
+  // command line switch that would cause a SETTINGS frame with window size
+  // announcement to be sent on startup; newly created streams will use
+  // this value for the initial receive window size.
+  int initial_recv_window_size_;
 
   BoundNetLog net_log_;
 
   static bool use_ssl_;
+  static bool use_flow_control_;
 };
 
 }  // namespace net

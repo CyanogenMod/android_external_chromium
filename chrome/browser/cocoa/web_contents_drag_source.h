@@ -4,13 +4,11 @@
 
 #ifndef CHROME_BROWSER_COCOA_WEB_CONTENTS_DRAG_SOURCE_H_
 #define CHROME_BROWSER_COCOA_WEB_CONTENTS_DRAG_SOURCE_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
-#include "app/download_file_interface.h"
-#include "base/file_path.h"
 #include "base/scoped_nsobject.h"
-#include "base/scoped_ptr.h"
 #include "chrome/browser/bookmarks/bookmark_drag_data.h"
 
 @class TabContentsViewCocoa;
@@ -61,5 +59,4 @@
 
 @end
 
-#endif // define CHROME_BROWSER_COCOA_WEB_CONTENTS_DRAG_SOURCE_H_
-
+#endif  // CHROME_BROWSER_COCOA_WEB_CONTENTS_DRAG_SOURCE_H_

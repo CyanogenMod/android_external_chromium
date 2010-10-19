@@ -36,16 +36,18 @@ void AddEndEntry(LoadTimingObserver& observer,
 void AddStartURLRequestEntries(LoadTimingObserver& observer,
                                uint32 id,
                                bool request_timing) {
+  scoped_refptr<URLRequestStartEventParameters> params(
+      new URLRequestStartEventParameters(
+          GURL(StringPrintf("http://req%d", id)),
+          "GET",
+          request_timing ? net::LOAD_ENABLE_LOAD_TIMING : 0,
+          net::LOW));
   NetLog::Source source(NetLog::SOURCE_URL_REQUEST, id);
   AddStartEntry(observer, source, NetLog::TYPE_REQUEST_ALIVE, NULL);
   AddStartEntry(observer,
                 source,
                 NetLog::TYPE_URL_REQUEST_START_JOB,
-                new URLRequestStartEventParameters(
-                    GURL(StringPrintf("http://req%d", id)),
-                    "GET",
-                    request_timing ? net::LOAD_ENABLE_LOAD_TIMING : 0,
-                    net::LOW));
+                params.get());
 }
 
 void AddEndURLRequestEntries(LoadTimingObserver& observer, uint32 id) {
@@ -221,12 +223,15 @@ TEST(LoadTimingObserverTest, DnsTime) {
                 NULL);
   current_time += TimeDelta::FromSeconds(2);
   AddEndEntry(observer, connect_source, NetLog::TYPE_HOST_RESOLVER_IMPL, NULL);
+  AddEndConnectJobEntries(observer, 1);
 
   // Bind to connect job.
+  scoped_refptr<net::NetLogSourceParameter> params(
+      new net::NetLogSourceParameter("connect_job", connect_source));
   AddStartEntry(observer,
                 source,
                 NetLog::TYPE_SOCKET_POOL_BOUND_TO_CONNECT_JOB,
-                new net::NetLogSourceParameter("connect_job", connect_source));
+                params.get());
 
   LoadTimingObserver::URLRequestRecord* record =
       observer.GetURLRequestRecord(0);
@@ -303,10 +308,12 @@ TEST(LoadTimingObserverTest, SslTime) {
   AddEndEntry(observer, socket_source, NetLog::TYPE_SSL_CONNECT, NULL);
 
   // Bind to connect job.
+  scoped_refptr<net::NetLogSourceParameter> params(
+      new net::NetLogSourceParameter("socket", socket_source));
   AddStartEntry(observer,
                 source,
                 NetLog::TYPE_SOCKET_POOL_BOUND_TO_SOCKET,
-                new net::NetLogSourceParameter("socket", socket_source));
+                params.get());
 
   LoadTimingObserver::URLRequestRecord* record =
       observer.GetURLRequestRecord(0);

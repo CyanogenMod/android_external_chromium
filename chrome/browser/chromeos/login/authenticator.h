@@ -4,12 +4,10 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_AUTHENTICATOR_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_AUTHENTICATOR_H_
+#pragma once
 
-#include <vector>
-
-#include "base/logging.h"
+#include "base/basictypes.h"
 #include "base/ref_counted.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/chromeos/login/login_status_consumer.h"
 #include "chrome/common/net/gaia/gaia_auth_consumer.h"
 
@@ -25,10 +23,8 @@ namespace chromeos {
 // consumer_->OnPasswordChangeDetected() on the UI thread.
 class Authenticator : public base::RefCountedThreadSafe<Authenticator> {
  public:
-  explicit Authenticator(LoginStatusConsumer* consumer)
-      : consumer_(consumer) {
-  }
-  virtual ~Authenticator() {}
+  explicit Authenticator(LoginStatusConsumer* consumer);
+  virtual ~Authenticator();
 
   // Given a |username| and |password|, this method attempts to authenticate
   // to login.
@@ -55,7 +51,7 @@ class Authenticator : public base::RefCountedThreadSafe<Authenticator> {
   // and also call back to the login UI.
   virtual void OnLoginSuccess(
       const GaiaAuthConsumer::ClientLoginResult& credentials) = 0;
-  virtual void OnLoginFailure(const std::string& data) = 0;
+  virtual void OnLoginFailure(const LoginFailure& error) = 0;
 
   // Call these methods on the UI thread.
   // If a password logs the user in online, but cannot be used to
@@ -74,6 +70,13 @@ class Authenticator : public base::RefCountedThreadSafe<Authenticator> {
   // data passed back through OnPasswordChangeDetected().
   virtual void ResyncEncryptedData(
       const GaiaAuthConsumer::ClientLoginResult& credentials) = 0;
+
+  // Perform basic canonicalization of |email_address|, taking into account
+  // that gmail does not consider '.' or caps inside a username to matter.
+  // It also ignores everything after a '+'.
+  // For example, c.masone+abc@gmail.com == cMaSone@gmail.com, per
+  // http://mail.google.com/support/bin/answer.py?hl=en&ctx=mail&answer=10313#
+  static std::string Canonicalize(const std::string& email_address);
 
  protected:
   LoginStatusConsumer* consumer_;

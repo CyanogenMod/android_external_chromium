@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_NET_CONNECT_INTERCEPTOR_H_
 #define CHROME_BROWSER_NET_CONNECT_INTERCEPTOR_H_
+#pragma once
 
 #include "net/url_request/url_request.h"
 
@@ -23,13 +24,9 @@ class ConnectInterceptor : public URLRequest::Interceptor {
   // URLRequest::Interceptor overrides
   // Learn about referrers, and optionally preconnect based on history.
   virtual URLRequestJob* MaybeIntercept(URLRequest* request);
-  virtual URLRequestJob* MaybeInterceptResponse(URLRequest* request) {
-    return NULL;
-  }
+  virtual URLRequestJob* MaybeInterceptResponse(URLRequest* request);
   virtual URLRequestJob* MaybeInterceptRedirect(URLRequest* request,
-                                                const GURL& location) {
-    return NULL;
-  }
+                                                const GURL& location);
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ConnectInterceptor);

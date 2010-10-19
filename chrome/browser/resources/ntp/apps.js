@@ -3,131 +3,260 @@
 // found in the LICENSE file.
 
 function getAppsCallback(data) {
-  logEvent('recieved apps');
-  var appsSection = $('apps-section');
-  var debugSection = $('debug');
-  appsSection.textContent = '';
+  logEvent('received apps');
+  var appsSection = $('apps');
+  var appsSectionContent = $('apps-maxiview');
+  var appsMiniview = appsSection.getElementsByClassName('miniview')[0];
+  appsSectionContent.textContent = '';
+  appsMiniview.textContent = '';
 
-  data.apps.forEach(function(app) {
-    appsSection.appendChild(apps.createElement(app));
-  });
-
-  // TODO(aa): Figure out what to do with the debug mode when we turn apps on
-  // for everyone.
-  if (appsSection.hasChildNodes()) {
-    appsSection.classList.remove('disabled');
-    if (data.showDebugLink) {
-      debugSection.classList.remove('disabled');
-    }
-
-    appsSection.appendChild(apps.createWebStoreElement());
-  } else {
+  if (data.apps.length == 0) {
     appsSection.classList.add('disabled');
-    debugSection.classList.add('disabled');
+    setShownSections(Section.THUMB);
+  } else {
+    data.apps.forEach(function(app) {
+        appsSectionContent.appendChild(apps.createElement(app));
+    });
+
+    appsSectionContent.appendChild(apps.createWebStoreElement());
+
+    data.apps.slice(0, MAX_MINIVIEW_ITEMS).forEach(function(app) {
+      appsMiniview.appendChild(apps.createMiniviewElement(app));
+    });
+
+    appsSection.classList.remove('disabled');
+  }
+
+  apps.loaded = true;
+  maybeDoneLoading();
+
+  if (data.apps.length > 0 && isDoneLoading()) {
+    updateMiniviewClipping(appsMiniview);
+    layoutSections();
   }
 }
 
-var apps = {
-  /**
-   * @this {!HTMLAnchorElement}
-   */
-  handleClick_: function() {
-    var launchType = '';
-    var inputElements = document.querySelectorAll(
-        '#apps-launch-control input');
-    for (var i = 0, input; input = inputElements[i]; i++) {
-      if (input.checked) {
-        launchType = input.value;
-        break;
-      }
-    }
+function appsPrefChangeCallback(data) {
+  // Currently the only pref that is watched is the launch type.
+  data.apps.forEach(function(app) {
+    var appLink = document.querySelector('.app a[app-id=' + app['id'] + ']');
+    if (appLink)
+      appLink.setAttribute('launch-type', app['launch_type']);
+  });
+}
 
-    // TODO(arv): Handle zoom?
-    var rect = this.getBoundingClientRect();
-    var cs = getComputedStyle(this);
-    var size = cs.backgroundSize.split(/\s+/);  // background-size has the
-                                                // format '123px 456px'.
-    var width = parseInt(size[0], 10);
-    var height = parseInt(size[1], 10);
-    // We are using background-position-x 50%.
-    var left = rect.left + ((rect.width - width) >> 1);  // Integer divide by 2.
-    var top = rect.top + parseInt(cs.backgroundPositionY, 10);
+var apps = (function() {
 
-    chrome.send('launchApp', [this.id, launchType,
-                              String(left), String(top),
-                              String(width), String(height)]);
-    return false;
-  },
-
-  createElement_: function(app) {
+  function createElement(app) {
     var div = document.createElement('div');
     div.className = 'app';
 
-    var front = div.appendChild(document.createElement('div'));
-    front.className = 'front';
-
-    var a = front.appendChild(document.createElement('a'));
-    a.id = app['id'];
+    var a = div.appendChild(document.createElement('a'));
+    a.setAttribute('app-id', app['id']);
+    a.setAttribute('launch-type', app['launch_type']);
     a.xtitle = a.textContent = app['name'];
     a.href = app['launch_url'];
 
     return div;
-  },
+  }
 
-  createElement: function(app) {
-    var div = this.createElement_(app);
-    var front = div.firstChild;
-    var a = front.firstChild;
+  function createContextMenu(app) {
+    var menu = new cr.ui.Menu;
+    var button = document.createElement(button);
+  }
 
-    a.onclick = apps.handleClick_;
-    a.style.backgroundImage = url(app['icon']);
-    if (hashParams['app-id'] == app['id']) {
-      div.setAttribute('new', 'new');
-      // Delay changing the attribute a bit to let the page settle down a bit.
-      setTimeout(function() {
-        div.setAttribute('new', 'installed');
-      }, 500);
+  function launchApp(appId) {
+    var appsSection = $('apps');
+    var expanded = !appsSection.classList.contains('hidden');
+    var element = document.querySelector(
+        (expanded ? '.maxiview' : '.miniview') + ' a[app-id=' + appId + ']');
+
+    // TODO(arv): Handle zoom?
+    var rect = element.getBoundingClientRect();
+    var cs = getComputedStyle(element);
+    var size = cs.backgroundSize.split(/\s+/);  // background-size has the
+                                                // format '123px 456px'.
+
+    var width = parseInt(size[0], 10);
+    var height = parseInt(size[1], 10);
+
+    var top, left;
+    if (expanded) {
+      // We are using background-position-x 50%.
+      top = rect.top + parseInt(cs.backgroundPositionY, 10);
+      left = rect.left + ((rect.width - width) >> 1);  // Integer divide by 2.
+
+    } else {
+      // We are using background-position-y 50%.
+      top = rect.top + ((rect.height - width) >> 1);  // Integer divide by 2.
+      if (getComputedStyle(element).direction == 'rtl')
+        left = rect.left + rect.width - width;
+      else
+        left = rect.left;
     }
 
-    var settingsButton = front.appendChild(document.createElement('button'));
-    settingsButton.className = 'flip';
-    settingsButton.title = localStrings.getString('appsettings');
+    chrome.send('launchApp', [appId,
+                              String(left), String(top),
+                              String(width), String(height)]);
+  }
 
-    var back = div.appendChild(document.createElement('div'));
-    back.className = 'back';
+  /**
+   * @this {!HTMLAnchorElement}
+   */
+  function handleClick(e) {
+    var appId = e.currentTarget.getAttribute('app-id');
+    launchApp(appId);
+    return false;
+  }
 
-    var header = back.appendChild(document.createElement('h2'));
-    header.textContent = app['name'];
+  // Keep in sync with LaunchType in extension_prefs.h
+  var LaunchType = {
+    LAUNCH_PINNED: 0,
+    LAUNCH_REGULAR: 1,
+    LAUNCH_FULLSCREEN: 2
+  };
 
-    var optionsButton = back.appendChild(document.createElement('button'));
-    optionsButton.textContent = localStrings.getString('appoptions');
-    optionsButton.disabled = !app['options_url'];
-    optionsButton.onclick = function() {
-      window.location = app['options_url'];
-    };
+  // Keep in sync with LaunchContainer in extension.h
+  var LaunchContainer = {
+    LAUNCH_WINDOW: 0,
+    LAUNCH_PANEL: 1,
+    LAUNCH_TAB: 2
+  };
 
-    var uninstallButton = back.appendChild(document.createElement('button'));
-    uninstallButton.textContent = uninstallButton.xtitle =
-        localStrings.getString('appuninstall');
-    uninstallButton.onclick = function() {
-      chrome.send('uninstallApp', [app['id']]);
-    };
+  var currentApp;
 
-    var closeButton = back.appendChild(document.createElement('button'));
-    closeButton.title = localStrings.getString('close');
-    closeButton.className = 'flip';
-    closeButton.onclick = settingsButton.onclick = function() {
-      div.classList.toggle('config');
-    };
+  function addContextMenu(el, app) {
+    el.addEventListener('contextmenu', cr.ui.contextMenuHandler);
+    el.addEventListener('keydown', cr.ui.contextMenuHandler);
+    el.addEventListener('keyup', cr.ui.contextMenuHandler);
 
-    return div;
-  },
+    Object.defineProperty(el, 'contextMenu', {
+      get: function() {
+        currentApp = app;
 
-  createWebStoreElement: function() {
-    return this.createElement_({
-      'id': 'web-store-entry',
-      'name': localStrings.getString('web_store_title'),
-      'launch_url': localStrings.getString('web_store_url')
+        $('apps-launch-command').label = app['name'];
+        $('apps-options-command').canExecuteChange();
+
+        var appLinkSel = '.app a[app-id=' + app['id'] + ']';
+        var launchType =
+            el.querySelector(appLinkSel).getAttribute('launch-type');
+
+        var launchContainer = app['launch_container'];
+        var isPanel = launchContainer == LaunchContainer.LAUNCH_PANEL;
+
+        // Update the commands related to the launch type.
+        var launchTypeIds = ['apps-launch-type-pinned',
+                             'apps-launch-type-regular',
+                             'apps-launch-type-fullscreen'];
+        launchTypeIds.forEach(function(id) {
+          var command = $(id);
+          command.disabled = isPanel;
+          command.checked = !isPanel &&
+              launchType == command.getAttribute('launch-type');
+        });
+
+        return $('app-context-menu');
+      }
     });
   }
-};
+
+  document.addEventListener('command', function(e) {
+    if (!currentApp)
+      return;
+
+    var commandId = e.command.id;
+    switch (commandId) {
+      case 'apps-options-command':
+        window.location = currentApp['options_url'];
+        break;
+      case 'apps-launch-command':
+        launchApp(currentApp['id']);
+        break;
+      case 'apps-uninstall-command':
+        chrome.send('uninstallApp', [currentApp['id']]);
+        break;
+      case 'apps-launch-type-pinned':
+      case 'apps-launch-type-regular':
+      case 'apps-launch-type-fullscreen':
+        chrome.send('setLaunchType',
+            [currentApp['id'], e.command.getAttribute('launch-type')]);
+        break;
+    }
+  });
+
+  document.addEventListener('canExecute', function(e) {
+    switch (e.command.id) {
+      case 'apps-options-command':
+        e.canExecute = currentApp && currentApp['options_url'];
+        break;
+      case 'apps-launch-command':
+      case 'apps-uninstall-command':
+        e.canExecute = true;
+        break;
+    }
+  });
+
+  return {
+    loaded: false,
+
+    createElement: function(app) {
+      var div = createElement(app);
+      var a = div.firstChild;
+
+      a.onclick = handleClick;
+      a.style.backgroundImage = url(app['icon_big']);
+      if (hashParams['app-id'] == app['id']) {
+        div.setAttribute('new', 'new');
+        // Delay changing the attribute a bit to let the page settle down a bit.
+        setTimeout(function() {
+          // This will trigger the 'bounce' animation defined in apps.css.
+          div.setAttribute('new', 'installed');
+        }, 500);
+        div.addEventListener('webkitAnimationEnd', function(e) {
+          div.removeAttribute('new');
+
+          // If we get new data (eg because something installs in another tab,
+          // or because we uninstall something here), don't run the install
+          // animation again.
+          document.documentElement.setAttribute("install-animation-enabled",
+                                                "false");
+        });
+        if ($('apps').classList.contains('hidden'))
+          toggleSectionVisibilityAndAnimate('APPS');
+      }
+
+      var settingsButton = div.appendChild(new cr.ui.ContextMenuButton);
+      settingsButton.className = 'app-settings';
+      settingsButton.title = localStrings.getString('appsettings');
+
+      addContextMenu(div, app);
+
+      return div;
+    },
+
+    createMiniviewElement: function(app) {
+      var span = document.createElement('span');
+      var a = span.appendChild(document.createElement('a'));
+
+      a.setAttribute('app-id', app['id']);
+      a.textContent = app['name'];
+      a.href = app['launch_url'];
+      a.onclick = handleClick;
+      a.style.backgroundImage = url(app['icon_small']);
+      a.className = 'item';
+      span.appendChild(a);
+
+      addContextMenu(span, app);
+
+      return span;
+    },
+
+    createWebStoreElement: function() {
+      return createElement({
+        'id': 'web-store-entry',
+        'name': localStrings.getString('web_store_title'),
+        'launch_url': localStrings.getString('web_store_url')
+      });
+    }
+  };
+})();

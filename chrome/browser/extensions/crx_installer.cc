@@ -9,11 +9,15 @@
 #include "base/file_util.h"
 #include "base/path_service.h"
 #include "base/scoped_temp_dir.h"
+#include "base/singleton.h"
+#include "base/stringprintf.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
+#include "base/version.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/extensions/convert_user_script.h"
+#include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/shell_integration.h"
@@ -23,17 +27,48 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
-#include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
+#include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 namespace {
-  // Helper function to delete files. This is used to avoid ugly casts which
-  // would be necessary with PostMessage since file_util::Delete is overloaded.
-  static void DeleteFileHelper(const FilePath& path, bool recursive) {
-    file_util::Delete(path, recursive);
+
+// Helper function to delete files. This is used to avoid ugly casts which
+// would be necessary with PostMessage since file_util::Delete is overloaded.
+static void DeleteFileHelper(const FilePath& path, bool recursive) {
+  file_util::Delete(path, recursive);
+}
+
+struct WhitelistedInstallData {
+  WhitelistedInstallData() {}
+  std::list<std::string> ids;
+};
+
+}
+
+// static
+void CrxInstaller::SetWhitelistedInstallId(const std::string& id) {
+  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  Singleton<WhitelistedInstallData>::get()->ids.push_back(id);
+}
+
+// static
+bool CrxInstaller::ClearWhitelistedInstallId(const std::string& id) {
+  std::list<std::string>& ids = Singleton<WhitelistedInstallData>::get()->ids;
+  std::list<std::string>::iterator iter = ids.begin();
+  for (; iter != ids.end(); ++iter) {
+    if (*iter == id) {
+      break;
+    }
   }
+
+  if (iter != ids.end()) {
+    ids.erase(iter);
+    return true;
+  }
+
+  return false;
 }
 
 CrxInstaller::CrxInstaller(const FilePath& install_directory,
@@ -44,10 +79,10 @@ CrxInstaller::CrxInstaller(const FilePath& install_directory,
       delete_source_(false),
       allow_privilege_increase_(false),
       limit_web_extent_to_download_host_(false),
-      create_app_shortcut_(false),
       frontend_(frontend),
       client_(client),
-      apps_require_extension_mime_type_(false) {
+      apps_require_extension_mime_type_(false),
+      allow_silent_install_(false) {
   extensions_enabled_ = frontend_->extensions_enabled();
 }
 
@@ -137,13 +172,13 @@ void CrxInstaller::OnUnpackSuccess(const FilePath& temp_dir,
       !original_url_.SchemeIsFile() &&
       apps_require_extension_mime_type_ &&
       original_mime_type_ != Extension::kMimeType) {
-    ReportFailureFromFileThread(StringPrintf(
+    ReportFailureFromFileThread(base::StringPrintf(
         "Applications must be served with content type %s.",
         Extension::kMimeType));
     return;
   }
 
-  // The unpack dir we don't have to delete explicity since it is a child of
+  // We don't have to delete the unpack dir explicity since it is a child of
   // the temp dir.
   unpacked_extension_root_ = extension_dir;
 
@@ -158,7 +193,7 @@ void CrxInstaller::OnUnpackSuccess(const FilePath& temp_dir,
   // Make sure the expected id matches.
   // TODO(aa): Also support expected version?
   if (!expected_id_.empty() && expected_id_ != extension->id()) {
-    ReportFailureFromFileThread(StringPrintf(
+    ReportFailureFromFileThread(base::StringPrintf(
         "ID in new extension manifest (%s) does not match expected id (%s)",
         extension->id().c_str(),
         expected_id_.c_str()));
@@ -174,7 +209,7 @@ void CrxInstaller::OnUnpackSuccess(const FilePath& temp_dir,
 
     for (size_t i = 0; i < extension_->web_extent().patterns().size(); ++i) {
       if (!pattern.MatchesHost(extension_->web_extent().patterns()[i].host())) {
-        ReportFailureFromFileThread(StringPrintf(
+        ReportFailureFromFileThread(base::StringPrintf(
             "Apps must be served from the host that they affect."));
         return;
       }
@@ -200,6 +235,12 @@ void CrxInstaller::ConfirmInstall() {
     return;
   }
 
+  if (!frontend_->extension_prefs()->IsExtensionAllowedByPolicy(
+      extension_->id())) {
+    ReportFailureFromUIThread("This extension is blacklisted by admin policy.");
+    return;
+  }
+
   GURL overlapping_url;
   Extension* overlapping_extension =
       frontend_->GetExtensionByOverlappingWebExtent(extension_->web_extent());
@@ -213,7 +254,9 @@ void CrxInstaller::ConfirmInstall() {
   current_version_ =
       frontend_->extension_prefs()->GetVersionString(extension_->id());
 
-  if (client_) {
+  if (client_ &&
+      (!allow_silent_install_ ||
+       !ClearWhitelistedInstallId(extension_->id()))) {
     AddRef();  // Balanced in Proceed() and Abort().
     client_->ConfirmInstall(this, extension_.get());
   } else {
@@ -224,12 +267,7 @@ void CrxInstaller::ConfirmInstall() {
   return;
 }
 
-void CrxInstaller::InstallUIProceed(bool create_app_shortcut) {
-  if (create_app_shortcut) {
-    DCHECK(extension_->GetFullLaunchURL().is_valid());
-    create_app_shortcut_ = true;
-  }
-
+void CrxInstaller::InstallUIProceed() {
   ChromeThread::PostTask(
         ChromeThread::FILE, FROM_HERE,
         NewRunnableMethod(this, &CrxInstaller::CompleteInstall));
@@ -271,25 +309,6 @@ void CrxInstaller::CompleteInstall() {
         l10n_util::GetStringUTF8(
             IDS_EXTENSION_MOVE_DIRECTORY_TO_PROFILE_FAILED));
     return;
-  }
-
-  if (create_app_shortcut_) {
-    SkBitmap icon = install_icon_.get() ? *install_icon_ :
-        *ResourceBundle::GetSharedInstance().GetBitmapNamed(
-            IDR_EXTENSION_DEFAULT_ICON);
-
-    ShellIntegration::ShortcutInfo shortcut_info;
-    shortcut_info.url = extension_->GetFullLaunchURL();
-    shortcut_info.extension_id = UTF8ToUTF16(extension_->id());
-    shortcut_info.title = UTF8ToUTF16(extension_->name());
-    shortcut_info.description = UTF8ToUTF16(extension_->description());
-    shortcut_info.favicon = icon;
-    shortcut_info.create_on_desktop = true;
-
-    // TODO(aa): Seems nasty to be reusing the old webapps code this way. What
-    // baggage am I inheriting?
-    web_app::CreateShortcut(frontend_->profile()->GetPath(), shortcut_info,
-                            NULL);
   }
 
   // This is lame, but we must reload the extension because absolute paths

@@ -8,13 +8,13 @@
 
 #include "app/l10n_util.h"
 #include "base/scoped_cftyperef.h"
-#include "base/i18n/time_formatting.h"
 #include "app/resource_bundle.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
 #import "chrome/browser/cocoa/page_info_window_controller.h"
 #include "chrome/browser/cert_store.h"
 #include "chrome/browser/certificate_viewer.h"
+#include "chrome/browser/page_info_window.h"
 #include "chrome/browser/profile.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -47,23 +47,25 @@ const CGFloat kImageSize = 30;
 
 }  // namespace
 
-void PageInfoWindowMac::ShowPageInfo(Profile* profile,
-                                     const GURL& url,
-                                     const NavigationEntry::SSLStatus& ssl,
-                                     bool show_history) {
-  // The controller will clean itself up after the NSWindow it manages closes.
-  // We do not manage it as it owns us.
-  PageInfoWindowController* controller =
-      [[PageInfoWindowController alloc] init];
-  PageInfoWindowMac* page_info = new PageInfoWindowMac(controller,
-                                                       profile,
-                                                       url,
-                                                       ssl,
-                                                       show_history);
-  [controller setPageInfo:page_info];
-  page_info->LayoutSections();
-  page_info->Show();
+namespace browser {
+
+void ShowPageInfo(gfx::NativeWindow parent,
+                  Profile* profile,
+                  const GURL& url,
+                  const NavigationEntry::SSLStatus& ssl,
+                  bool show_history) {
+  PageInfoWindowMac::ShowPageInfo(parent, profile, url, ssl, show_history);
 }
+
+void ShowPageInfoBubble(gfx::NativeWindow parent,
+                        Profile* profile,
+                        const GURL& url,
+                        const NavigationEntry::SSLStatus& ssl,
+                        bool show_history) {
+  NOTIMPLEMENTED();
+}
+
+}  // namespace browser
 
 PageInfoWindowMac::PageInfoWindowMac(PageInfoWindowController* controller,
                                      Profile* profile,
@@ -84,6 +86,26 @@ PageInfoWindowMac::PageInfoWindowMac(PageInfoWindowController* controller,
   Init();
 }
 
+// static
+void PageInfoWindowMac::ShowPageInfo(gfx::NativeWindow parent,
+                                     Profile* profile,
+                                     const GURL& url,
+                                     const NavigationEntry::SSLStatus& ssl,
+                                     bool show_history) {
+  // The controller will clean itself up after the NSWindow it manages closes.
+  // We do not manage it as it owns us.
+  PageInfoWindowController* controller =
+      [[PageInfoWindowController alloc] init];
+  PageInfoWindowMac* page_info = new PageInfoWindowMac(controller,
+                                                       profile,
+                                                       url,
+                                                       ssl,
+                                                       show_history);
+  [controller setPageInfo:page_info];
+  page_info->LayoutSections();
+  page_info->Show();
+}
+
 void PageInfoWindowMac::Init() {
   // Load the image refs.
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
@@ -98,13 +120,17 @@ void PageInfoWindowMac::Init() {
 PageInfoWindowMac::~PageInfoWindowMac() {
 }
 
-void PageInfoWindowMac::Show() {
-  [[controller_ window] makeKeyAndOrderFront:nil];
-}
-
 void PageInfoWindowMac::ShowCertDialog(int) {
   DCHECK(cert_id_ != 0);
   ShowCertificateViewerByID([controller_ window], cert_id_);
+}
+
+void PageInfoWindowMac::ModelChanged() {
+  LayoutSections();
+}
+
+void PageInfoWindowMac::Show() {
+  [[controller_ window] makeKeyAndOrderFront:nil];
 }
 
 // This will create the subviews for the page info window. The general layout
@@ -195,7 +221,8 @@ void PageInfoWindowMac::LayoutSections() {
     scoped_nsobject<NSImageView> image_view(
         [[NSImageView alloc] initWithFrame:image_view_rect]);
     [image_view setImageFrameStyle:NSImageFrameNone];
-    [image_view setImage:(info.state) ? good_image_.get() : bad_image_.get()];
+    [image_view setImage:(info.state == PageInfoModel::SECTION_STATE_OK) ?
+        good_image_.get() : bad_image_.get()];
 
     // Add the box to the list of new subviews.
     [box addSubview:image_view.get()];
@@ -230,8 +257,4 @@ void PageInfoWindowMac::LayoutSections() {
   [[controller_ window] setFrame:window_frame
                          display:YES
                          animate:[[controller_ window] isVisible]];
-}
-
-void PageInfoWindowMac::ModelChanged() {
-  LayoutSections();
 }

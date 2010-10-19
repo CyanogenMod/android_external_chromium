@@ -9,23 +9,22 @@
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_theme_provider.h"
-#import "chrome/browser/cocoa/chrome_browser_window.h"
 #import "chrome/browser/cocoa/fast_resize_view.h"
 #import "chrome/browser/cocoa/find_bar_cocoa_controller.h"
 #import "chrome/browser/cocoa/floating_bar_backing_view.h"
+#import "chrome/browser/cocoa/framed_browser_window.h"
 #import "chrome/browser/cocoa/fullscreen_controller.h"
 #import "chrome/browser/cocoa/side_tab_strip_controller.h"
 #import "chrome/browser/cocoa/tab_strip_controller.h"
 #import "chrome/browser/cocoa/tab_strip_view.h"
 #import "chrome/browser/cocoa/toolbar_controller.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/common/pref_names.h"
-
 
 namespace {
 
@@ -51,10 +50,13 @@ const CGFloat kLocBarBottomInset = 1;
   if ([self useVerticalTabs])
     factory = [SideTabStripController class];
 
+  DCHECK([sidebarController_ view]);
+  DCHECK([[sidebarController_ view] window]);
   tabStripController_.reset([[factory alloc]
                               initWithView:[self tabStripView]
-                                switchView:[self tabContentArea]
-                                   browser:browser_.get()]);
+                                switchView:[sidebarController_ view]
+                                   browser:browser_.get()
+                                  delegate:self]);
 }
 
 - (void)saveWindowPositionIfNeeded {
@@ -100,16 +102,16 @@ const CGFloat kLocBarBottomInset = 1;
 
   DictionaryValue* windowPreferences = prefs->GetMutableDictionary(
       browser_->GetWindowPlacementKey().c_str());
-  windowPreferences->SetInteger(L"left", bounds.x());
-  windowPreferences->SetInteger(L"top", bounds.y());
-  windowPreferences->SetInteger(L"right", bounds.right());
-  windowPreferences->SetInteger(L"bottom", bounds.bottom());
-  windowPreferences->SetBoolean(L"maximized", false);
-  windowPreferences->SetBoolean(L"always_on_top", false);
-  windowPreferences->SetInteger(L"work_area_left", workArea.x());
-  windowPreferences->SetInteger(L"work_area_top", workArea.y());
-  windowPreferences->SetInteger(L"work_area_right", workArea.right());
-  windowPreferences->SetInteger(L"work_area_bottom", workArea.bottom());
+  windowPreferences->SetInteger("left", bounds.x());
+  windowPreferences->SetInteger("top", bounds.y());
+  windowPreferences->SetInteger("right", bounds.right());
+  windowPreferences->SetInteger("bottom", bounds.bottom());
+  windowPreferences->SetBoolean("maximized", false);
+  windowPreferences->SetBoolean("always_on_top", false);
+  windowPreferences->SetInteger("work_area_left", workArea.x());
+  windowPreferences->SetInteger("work_area_top", workArea.y());
+  windowPreferences->SetInteger("work_area_right", workArea.right());
+  windowPreferences->SetInteger("work_area_bottom", workArea.bottom());
 }
 
 - (NSRect)window:(NSWindow*)window
@@ -229,9 +231,6 @@ willPositionSheet:(NSWindow*)sheet
   // Finally, the content area takes up all of the remaining space.
   NSRect contentAreaRect = NSMakeRect(minX, minY, width, maxY - minY);
   [self layoutTabContentArea:contentAreaRect];
-
-  // Place the status bubble at the bottom of the content area.
-  verticalOffsetForStatusBubble_ = minY;
 
   // Normally, we don't need to tell the toolbar whether or not to show the
   // divider, but things break down during animation.

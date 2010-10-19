@@ -5,8 +5,8 @@
 #import "chrome/browser/cocoa/fullscreen_window.h"
 
 #include "base/mac_util.h"
-#include "chrome/browser/browser_theme_provider.h"
 #import "chrome/browser/cocoa/themed_window.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 
 @implementation FullscreenWindow
 
@@ -80,27 +80,6 @@
     return YES;
 
   return [super validateUserInterfaceItem:item];
-}
-
-- (ThemeProvider*)themeProvider {
-  id delegate = [self delegate];
-  if (![delegate respondsToSelector:@selector(themeProvider)])
-    return NULL;
-  return [delegate themeProvider];
-}
-
-- (ThemedWindowStyle)themedWindowStyle {
-  id delegate = [self delegate];
-  if (![delegate respondsToSelector:@selector(themedWindowStyle)])
-    return THEMED_NORMAL;
-  return [delegate themedWindowStyle];
-}
-
-- (NSPoint)themePatternPhase {
-  id delegate = [self delegate];
-  if (![delegate respondsToSelector:@selector(themePatternPhase)])
-    return NSMakePoint(0, 0);
-  return [delegate themePatternPhase];
 }
 
 @end

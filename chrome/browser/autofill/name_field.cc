@@ -6,6 +6,7 @@
 
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_type.h"
 
 NameField* NameField::Parse(std::vector<AutoFillField*>::const_iterator* iter,
@@ -76,7 +77,7 @@ FirstLastNameField* FirstLastNameField::Parse2(
   // American-style).
   // The ".*first$" matches fields ending in "first" (example in sample8.html).
   string16 match =
-      ASCIIToUTF16("first *name|first_name|initials|fname|.*first$");
+      ASCIIToUTF16("first *name|first_name|initials|fname|first$");
   if (!ParseText(&q, match, &v->first_name_))
     return NULL;
 
@@ -85,16 +86,16 @@ FirstLastNameField* FirstLastNameField::Parse2(
   // as both (the label text is "MI" and the element name is
   // "txtmiddlename"); such a field probably actually represents a
   // middle initial.
-  match = ASCIIToUTF16("^mi$|middle initial|middleinitial|m.i.");
+  match = ASCIIToUTF16("middle *initial|middle_initial|m\\.i\\.|mi$");
   if (ParseText(&q, match, &v->middle_name_)) {
     v->middle_initial_ = true;
   } else {
-    match = ASCIIToUTF16("middle *name|mname");
+    match = ASCIIToUTF16("middle *name|middle_name|mname|middle$");
     ParseText(&q, match, &v->middle_name_);
   }
 
   // The ".*last$" matches fields ending in "last" (example in sample8.html).
-  match = ASCIIToUTF16("last *name|last_name|lname|surname|.*last$");
+  match = ASCIIToUTF16("last *name|last_name|lname|surname|last$");
   if (!ParseText(&q, match, &v->last_name_))
     return NULL;
 

@@ -28,6 +28,7 @@
 #include "talk/base/unixfilesystem.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -128,6 +129,22 @@ FileStream *UnixFilesystem::OpenFile(const Pathname &filename,
     fs = NULL;
   }
   return fs;
+}
+
+bool UnixFilesystem::CreatePrivateFile(const Pathname &filename) {
+  int fd = open(filename.pathname().c_str(),
+                O_RDWR | O_CREAT | O_EXCL,
+                S_IRUSR | S_IWUSR);
+  if (fd < 0) {
+    LOG_ERR(LS_ERROR) << "open() failed.";
+    return false;
+  }
+  // Don't need to keep the file descriptor.
+  if (close(fd) < 0) {
+    LOG_ERR(LS_ERROR) << "close() failed.";
+    // Continue.
+  }
+  return true;
 }
 
 bool UnixFilesystem::DeleteFile(const Pathname &filename) {

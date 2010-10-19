@@ -13,12 +13,13 @@
 
 #ifndef CHROME_BROWSER_GTK_SLIDE_ANIMATOR_GTK_H_
 #define CHROME_BROWSER_GTK_SLIDE_ANIMATOR_GTK_H_
+#pragma once
 
 #include <gtk/gtk.h>
 
 #include "app/animation.h"
 #include "base/scoped_ptr.h"
-#include "chrome/common/owned_widget_gtk.h"
+#include "chrome/browser/gtk/owned_widget_gtk.h"
 
 class SlideAnimation;
 

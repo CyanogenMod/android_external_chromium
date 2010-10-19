@@ -14,7 +14,7 @@
 #include "chrome/browser/gtk/options/url_picker_dialog_gtk.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/possible_url_model.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/pref_names.h"
 #include "gfx/gtk_util.h"
@@ -23,6 +23,7 @@
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "net/base/net_util.h"
+#include "third_party/skia/include/core/SkBitmap.h"
 
 namespace {
 
@@ -195,15 +196,14 @@ std::string UrlPickerDialogGtk::GetURLForPath(GtkTreePath* path) const {
     NOTREACHED();
     return std::string();
   }
-  std::wstring languages =
-      UTF8ToWide(profile_->GetPrefs()->GetString(prefs::kAcceptLanguages));
+  std::string languages =
+      profile_->GetPrefs()->GetString(prefs::kAcceptLanguages);
   // Because this gets parsed by FixupURL(), it's safe to omit the scheme or
   // trailing slash, and unescape most characters, but we need to not drop any
   // username/password, or unescape anything that changes the meaning.
-  std::wstring formatted = net::FormatUrl(url_table_model_->GetURL(row),
+  return UTF16ToUTF8(net::FormatUrl(url_table_model_->GetURL(row),
       languages, net::kFormatUrlOmitAll & ~net::kFormatUrlOmitUsernamePassword,
-      UnescapeRule::SPACES, NULL, NULL, NULL);
-  return WideToUTF8(formatted);
+      UnescapeRule::SPACES, NULL, NULL, NULL));
 }
 
 void UrlPickerDialogGtk::SetColumnValues(int row, GtkTreeIter* iter) {

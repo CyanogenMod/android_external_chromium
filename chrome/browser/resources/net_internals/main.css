@@ -36,7 +36,7 @@ body {
   overflow: hidden;
 }
 
-#requestsBox {
+#eventsBox {
   overflow-x: hidden;
   overflow-y: auto
 }
@@ -55,17 +55,17 @@ body {
   user-select: none;
 }
 
-#requestsListTable {
+#eventsListTable {
   cursor: pointer;
 }
 
-#requestsListTable thead td {
+#eventsListTable thead td {
   text-align: left;
   font-weight: bold;
   background: rgb(229, 236, 249);
 }
 
-#requestsListTable td {
+#eventsListTable td {
   padding: 3px;
   border-left: 1px solid #afafaf;
   border-bottom: 1px solid #afafaf;
@@ -74,28 +74,33 @@ body {
   white-space: nowrap;
 }
 
-#requestsListTableBody .mouseover {
+#eventsListTableBody .mouseover {
   background: rgb(244,244,255);
 }
 
-#requestsListTableBody .selected,
-#requestsListTableBody .mouseover .selected {
+#eventsListTableBody .selected,
+#eventsListTableBody .mouseover .selected {
   background: #C3D9FF;
 }
 
-#requestsListTableBody .source_CONNECT_JOB {
+#eventsListTableBody .source_CONNECT_JOB {
   color: blue;
 }
 
-#requestsListTableBody .source_SOCKET {
+#eventsListTableBody .source_HOST_RESOLVER_IMPL_JOB,
+#eventsListTableBody .source_HOST_RESOLVER_IMPL_REQUEST {
+  color: #308080;
+}
+
+#eventsListTableBody .source_SOCKET {
   color: purple;
 }
 
-#requestsListTableBody .source_INIT_PROXY_RESOLVER {
+#eventsListTableBody .source_INIT_PROXY_RESOLVER {
   color: green;
 }
 
-#requestsListTableBody .source_NONE {
+#eventsListTableBody .source_NONE {
   color: red;
 }
 
@@ -196,6 +201,8 @@ body {
 #proxyTabContent,
 #dataTabContent,
 #dnsTabContent,
+#socketsTabContent,
+#serviceProvidersTabContent,
 #testTabContent {
   overflow: auto;
   padding: 10px;
@@ -217,9 +224,33 @@ table.styledTable,
 .styledTable th,
 .styledTable td {
   border: 1px solid #777;
+  padding-right: 4px; 
+  padding-left: 4px; 
 }
 
 .styledTable th {
   background: rgb(224,236,255);
 }
 
+.styledTable th.title {
+  background: rgb(255,217,217);
+}
+
+/* 
+ * This is the box in the top right of the Data tab which shows how many
+ * events have been captured so far.
+ */
+.capturingBox {
+  border: 1px dashed black;
+  display: inline-block;
+  text-align: left;
+  padding: 5px;
+}
+
+/**
+ * Styling for an emphasized button.
+ */
+.bigButton {
+  font-size: 100%;
+  font-weight: bold;
+}

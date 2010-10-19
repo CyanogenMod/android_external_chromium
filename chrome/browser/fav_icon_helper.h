@@ -4,13 +4,13 @@
 
 #ifndef CHROME_BROWSER_FAV_ICON_HELPER_H__
 #define CHROME_BROWSER_FAV_ICON_HELPER_H__
+#pragma once
 
 #include <map>
-#include <vector>
 
 #include "base/basictypes.h"
 #include "base/callback.h"
-#include "base/scoped_ptr.h"
+#include "base/ref_counted.h"
 #include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/favicon_service.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"

@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_CLIPBOARD_API_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_CLIPBOARD_API_H_
+#pragma once
 
 #include "chrome/browser/extensions/extension_function.h"
 
@@ -14,6 +15,9 @@ class ClipboardFunction : public SyncExtensionFunction {
  public:
   virtual bool RunImpl();
   virtual bool RunImpl(RenderViewHost* render_view_host) = 0;
+
+ protected:
+  virtual ~ClipboardFunction() {}
 };
 
 class ExecuteCopyClipboardFunction : public ClipboardFunction {

@@ -10,30 +10,30 @@
 
 #include "app/gtk_signal_registrar.h"
 #include "app/resource_bundle.h"
-#include "base/env_var.h"
+#include "base/environment.h"
 #include "base/stl_util-inl.h"
 #include "base/xdg_util.h"
-#include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/profile.h"
 #include "chrome/browser/gtk/cairo_cached_surface.h"
-#include "chrome/browser/gtk/hover_controller_gtk.h"
 #include "chrome/browser/gtk/gtk_chrome_button.h"
+#include "chrome/browser/gtk/hover_controller_gtk.h"
 #include "chrome/browser/gtk/meta_frames.h"
-#include "chrome/browser/pref_service.h"
-#include "chrome/common/pref_names.h"
+#include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/profile.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_source.h"
 #include "chrome/common/notification_type.h"
+#include "chrome/common/pref_names.h"
 #include "gfx/color_utils.h"
+#include "gfx/gtk_util.h"
 #include "gfx/skbitmap_operations.h"
 #include "gfx/skia_utils_gtk.h"
+#include "grit/app_resources.h"
+#include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkColor.h"
-#include "gfx/gtk_util.h"
-#include "grit/app_resources.h"
-#include "grit/theme_resources.h"
 
 namespace {
 
@@ -258,7 +258,6 @@ GtkThemeProvider::GtkThemeProvider()
 }
 
 GtkThemeProvider::~GtkThemeProvider() {
-  profile()->GetPrefs()->RemovePrefObserver(prefs::kUsesSystemTheme, this);
   gtk_widget_destroy(fake_window_);
   gtk_widget_destroy(fake_frame_);
   fake_label_.Destroy();
@@ -273,7 +272,8 @@ GtkThemeProvider::~GtkThemeProvider() {
 }
 
 void GtkThemeProvider::Init(Profile* profile) {
-  profile->GetPrefs()->AddPrefObserver(prefs::kUsesSystemTheme, this);
+  registrar_.Init(profile->GetPrefs());
+  registrar_.Add(prefs::kUsesSystemTheme, this);
   use_gtk_ = profile->GetPrefs()->GetBoolean(prefs::kUsesSystemTheme);
 
   BrowserThemeProvider::Init(profile);
@@ -345,7 +345,7 @@ void GtkThemeProvider::Observe(NotificationType type,
                                const NotificationSource& source,
                                const NotificationDetails& details) {
   if ((type == NotificationType::PREF_CHANGED) &&
-      (*Details<std::wstring>(details).ptr() == prefs::kUsesSystemTheme))
+      (*Details<std::string>(details).ptr() == prefs::kUsesSystemTheme))
     use_gtk_ = profile()->GetPrefs()->GetBoolean(prefs::kUsesSystemTheme);
 }
 
@@ -428,7 +428,7 @@ void GtkThemeProvider::GetScrollbarColors(GdkColor* thumb_active_color,
   GtkStyle*  style  = gtk_rc_get_style(scrollbar);
   GdkPixmap* pm     = gdk_pixmap_new(window->window, kWidth, kHeight, -1);
   GdkRectangle rect = { 0, 0, kWidth, kHeight };
-  unsigned char data[3*kWidth*kHeight];
+  unsigned char data[3 * kWidth * kHeight];
   for (int i = 0; i < 3; ++i) {
     if (i < 2) {
       // Thumb part
@@ -443,19 +443,19 @@ void GtkThemeProvider::GetScrollbarColors(GdkColor* thumb_active_color,
     }
     GdkPixbuf* pb = gdk_pixbuf_new_from_data(data, GDK_COLORSPACE_RGB,
                                              FALSE, 8, kWidth, kHeight,
-                                             3*kWidth, 0, 0);
+                                             3 * kWidth, 0, 0);
     gdk_pixbuf_get_from_drawable(pb, pm, NULL, 0, 0, 0, 0, kWidth, kHeight);
 
     // Sample pixels
     int components[3] = { 0 };
-    for (int y = 2; y < kHeight-2; ++y) {
+    for (int y = 2; y < kHeight - 2; ++y) {
       for (int c = 0; c < 3; ++c) {
         // Sample a vertical slice of pixels at about one-thirds from the
         // left edge. This allows us to avoid any fixed graphics that might be
         // located at the edges or in the center of the scrollbar.
         // Each pixel is made up of a red, green, and blue component; taking up
         // a total of three bytes.
-        components[c] += data[3*(kWidth/3 + y*kWidth) + c];
+        components[c] += data[3 * (kWidth / 3 + y * kWidth) + c];
       }
     }
     GdkColor* color = i == 0 ? thumb_active_color :
@@ -469,9 +469,9 @@ void GtkThemeProvider::GetScrollbarColors(GdkColor* thumb_active_color,
     // We now need to scale the colors from the 0..255 range, to the wider
     // 0..65535 range, and we need to actually compute the average color; so,
     // we divide by the total number of pixels in the sample.
-    color->red   = components[0] * 65535 / (255*(kHeight-4));
-    color->green = components[1] * 65535 / (255*(kHeight-4));
-    color->blue  = components[2] * 65535 / (255*(kHeight-4));
+    color->red   = components[0] * 65535 / (255 * (kHeight - 4));
+    color->green = components[1] * 65535 / (255 * (kHeight - 4));
+    color->blue  = components[2] * 65535 / (255 * (kHeight - 4));
 
     g_object_unref(pb);
   }
@@ -481,42 +481,29 @@ void GtkThemeProvider::GetScrollbarColors(GdkColor* thumb_active_color,
 }
 
 CairoCachedSurface* GtkThemeProvider::GetSurfaceNamed(
-    int id, GtkWidget* widget_on_display) {
-  GdkDisplay* display = gtk_widget_get_display(widget_on_display);
-  CairoCachedSurfaceMap& surface_map = per_display_surfaces_[display];
+    int id,
+    GtkWidget* widget_on_display) {
+  return GetSurfaceNamedImpl(id, GetPixbufNamed(id), widget_on_display);
+}
 
-  // Check to see if we already have the pixbuf in the cache.
-  CairoCachedSurfaceMap::const_iterator found = surface_map.find(id);
-  if (found != surface_map.end())
-    return found->second;
-
-  GdkPixbuf* pixbuf = GetPixbufNamed(id);
-  CairoCachedSurface* surface = new CairoCachedSurface;
-  surface->UsePixbuf(pixbuf);
-
-  surface_map[id] = surface;
-
-  return surface;
+CairoCachedSurface* GtkThemeProvider::GetRTLEnabledSurfaceNamed(
+    int id,
+    GtkWidget* widget_on_display) {
+  // We flip the sign of |id| when passing it to GetSurfaceNamedImpl() for the
+  // same reason that BrowserThemeProvider::GetPixbufImpl() does: so that if one
+  // location calls this function with a resource ID, and another place calls
+  // GetSurfaceNamed() with the same ID, they'll correctly get different
+  // surfaces in RTL mode.
+  return GetSurfaceNamedImpl(-id, GetRTLEnabledPixbufNamed(id),
+                             widget_on_display);
 }
 
 CairoCachedSurface* GtkThemeProvider::GetUnthemedSurfaceNamed(
-    int id, GtkWidget* widget_on_display) {
-  GdkDisplay* display = gtk_widget_get_display(widget_on_display);
-  CairoCachedSurfaceMap& surface_map = per_display_unthemed_surfaces_[display];
-
-  // Check to see if we already have the pixbuf in the cache.
-  CairoCachedSurfaceMap::const_iterator found = surface_map.find(id);
-  if (found != surface_map.end())
-    return found->second;
-
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  GdkPixbuf* pixbuf = rb.GetPixbufNamed(id);
-  CairoCachedSurface* surface = new CairoCachedSurface;
-  surface->UsePixbuf(pixbuf);
-
-  surface_map[id] = surface;
-
-  return surface;
+    int id,
+    GtkWidget* widget_on_display) {
+  return GetSurfaceNamedImpl(id,
+      ResourceBundle::GetSharedInstance().GetPixbufNamed(id),
+      widget_on_display);
 }
 
 // static
@@ -563,9 +550,9 @@ GdkPixbuf* GtkThemeProvider::GetDefaultFavicon(bool native) {
 
 // static
 bool GtkThemeProvider::DefaultUsesSystemTheme() {
-  scoped_ptr<base::EnvVarGetter> env_getter(base::EnvVarGetter::Create());
+  scoped_ptr<base::Environment> env(base::Environment::Create());
 
-  switch (base::GetDesktopEnvironment(env_getter.get())) {
+  switch (base::GetDesktopEnvironment(env.get())) {
     case base::DESKTOP_ENVIRONMENT_GNOME:
     case base::DESKTOP_ENVIRONMENT_XFCE:
       return true;
@@ -912,38 +899,23 @@ SkBitmap* GtkThemeProvider::GenerateGtkThemeBitmap(int id) const {
     // instead should tint based on the foreground text entry color in GTK+
     // mode because some themes that try to be dark *and* light have very
     // different colors between the omnibox and the normal background area.
-    case IDR_OMNIBOX_SEARCH:
+    case IDR_OMNIBOX_HISTORY:
+    case IDR_OMNIBOX_HTTP:
     case IDR_OMNIBOX_MORE:
+    case IDR_OMNIBOX_SEARCH:
     case IDR_OMNIBOX_STAR:
     case IDR_GEOLOCATION_ALLOWED_LOCATIONBAR_ICON:
     case IDR_GEOLOCATION_DENIED_LOCATIONBAR_ICON: {
       return GenerateTintedIcon(id, entry_tint_);
     }
-    // Two sets of omnibox icons, the one for normal http and the one for
-    // history, include white backgrounds (and are supposed to, for the windows
-    // chrome-theme). On linux, where we have all sorts of wacky themes and
-    // color combinations we need to deal with, switch them out with
-    // transparent background versions.
-    case IDR_OMNIBOX_HTTP: {
-      return GenerateTintedIcon(IDR_OMNIBOX_HTTP_TRANSPARENT, entry_tint_);
-    }
-    case IDR_OMNIBOX_HISTORY: {
-      return GenerateTintedIcon(IDR_OMNIBOX_HISTORY_TRANSPARENT, entry_tint_);
-    }
     // In GTK mode, the dark versions of the omnibox icons only ever appear in
     // the autocomplete popup and only against the current theme's GtkEntry
     // base[GTK_STATE_SELECTED] color, so tint the icons so they won't collide
     // with the selected color.
-    case IDR_OMNIBOX_HTTP_DARK: {
-      return GenerateTintedIcon(IDR_OMNIBOX_HTTP_DARK_TRANSPARENT,
-                                selected_entry_tint_);
-    }
-    case IDR_OMNIBOX_HISTORY_DARK: {
-      return GenerateTintedIcon(IDR_OMNIBOX_HISTORY_DARK_TRANSPARENT,
-                                selected_entry_tint_);
-    }
-    case IDR_OMNIBOX_SEARCH_DARK:
+    case IDR_OMNIBOX_HISTORY_DARK:
+    case IDR_OMNIBOX_HTTP_DARK:
     case IDR_OMNIBOX_MORE_DARK:
+    case IDR_OMNIBOX_SEARCH_DARK:
     case IDR_OMNIBOX_STAR_DARK: {
       return GenerateTintedIcon(id, selected_entry_tint_);
     }
@@ -1010,6 +982,26 @@ void GtkThemeProvider::GetSelectedEntryForegroundHSL(
   GtkStyle* style = gtk_rc_get_style(fake_entry_.get());
   const GdkColor color = style->text[GTK_STATE_SELECTED];
   color_utils::SkColorToHSL(GdkToSkColor(&color), tint);
+}
+
+CairoCachedSurface* GtkThemeProvider::GetSurfaceNamedImpl(
+    int id,
+    GdkPixbuf* pixbuf,
+    GtkWidget* widget_on_display) {
+  GdkDisplay* display = gtk_widget_get_display(widget_on_display);
+  CairoCachedSurfaceMap& surface_map = per_display_surfaces_[display];
+
+  // Check to see if we already have the pixbuf in the cache.
+  CairoCachedSurfaceMap::const_iterator found = surface_map.find(id);
+  if (found != surface_map.end())
+    return found->second;
+
+  CairoCachedSurface* surface = new CairoCachedSurface;
+  surface->UsePixbuf(pixbuf);
+
+  surface_map[id] = surface;
+
+  return surface;
 }
 
 void GtkThemeProvider::OnDestroyChromeButton(GtkWidget* button) {

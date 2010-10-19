@@ -21,6 +21,7 @@ CFLAGS_Debug := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -100,6 +101,7 @@ CFLAGS_Release := -Werror \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -196,6 +198,7 @@ OBJS := $(obj).target/$(TARGET)/net/disk_cache/addr.o \
 	$(obj).target/$(TARGET)/net/ftp/ftp_server_type_histograms.o \
 	$(obj).target/$(TARGET)/net/ftp/ftp_util.o \
 	$(obj).target/$(TARGET)/net/http/des.o \
+	$(obj).target/$(TARGET)/net/http/disk_cache_based_ssl_host_info.o \
 	$(obj).target/$(TARGET)/net/http/http_alternate_protocols.o \
 	$(obj).target/$(TARGET)/net/http/http_auth.o \
 	$(obj).target/$(TARGET)/net/http/http_auth_cache.o \
@@ -218,9 +221,12 @@ OBJS := $(obj).target/$(TARGET)/net/disk_cache/addr.o \
 	$(obj).target/$(TARGET)/net/http/http_network_session.o \
 	$(obj).target/$(TARGET)/net/http/http_network_transaction.o \
 	$(obj).target/$(TARGET)/net/http/http_request_headers.o \
+	$(obj).target/$(TARGET)/net/http/http_response_body_drainer.o \
 	$(obj).target/$(TARGET)/net/http/http_response_headers.o \
 	$(obj).target/$(TARGET)/net/http/http_response_info.o \
+	$(obj).target/$(TARGET)/net/http/http_stream_factory.o \
 	$(obj).target/$(TARGET)/net/http/http_stream_parser.o \
+	$(obj).target/$(TARGET)/net/http/http_stream_request.o \
 	$(obj).target/$(TARGET)/net/http/url_security_manager.o \
 	$(obj).target/$(TARGET)/net/http/url_security_manager_posix.o \
 	$(obj).target/$(TARGET)/net/http/http_proxy_client_socket.o \
@@ -233,6 +239,7 @@ OBJS := $(obj).target/$(TARGET)/net/disk_cache/addr.o \
 	$(obj).target/$(TARGET)/net/ocsp/nss_ocsp.o \
 	$(obj).target/$(TARGET)/net/proxy/init_proxy_resolver.o \
 	$(obj).target/$(TARGET)/net/proxy/multi_threaded_proxy_resolver.o \
+	$(obj).target/$(TARGET)/net/proxy/polling_proxy_config_service.o \
 	$(obj).target/$(TARGET)/net/proxy/proxy_bypass_rules.o \
 	$(obj).target/$(TARGET)/net/proxy/proxy_config.o \
 	$(obj).target/$(TARGET)/net/proxy/proxy_config_service_linux.o \
@@ -245,11 +252,13 @@ OBJS := $(obj).target/$(TARGET)/net/disk_cache/addr.o \
 	$(obj).target/$(TARGET)/net/proxy/proxy_server.o \
 	$(obj).target/$(TARGET)/net/proxy/proxy_service.o \
 	$(obj).target/$(TARGET)/net/proxy/sync_host_resolver_bridge.o \
+	$(obj).target/$(TARGET)/net/socket/client_socket.o \
 	$(obj).target/$(TARGET)/net/socket/client_socket_factory.o \
 	$(obj).target/$(TARGET)/net/socket/client_socket_handle.o \
 	$(obj).target/$(TARGET)/net/socket/client_socket_pool.o \
 	$(obj).target/$(TARGET)/net/socket/client_socket_pool_base.o \
 	$(obj).target/$(TARGET)/net/socket/client_socket_pool_histograms.o \
+	$(obj).target/$(TARGET)/net/socket/client_socket_pool_manager.o \
 	$(obj).target/$(TARGET)/net/socket/socks5_client_socket.o \
 	$(obj).target/$(TARGET)/net/socket/socks_client_socket.o \
 	$(obj).target/$(TARGET)/net/socket/socks_client_socket_pool.o \
@@ -264,8 +273,8 @@ OBJS := $(obj).target/$(TARGET)/net/disk_cache/addr.o \
 	$(obj).target/$(TARGET)/net/spdy/spdy_frame_builder.o \
 	$(obj).target/$(TARGET)/net/spdy/spdy_framer.o \
 	$(obj).target/$(TARGET)/net/spdy/spdy_http_stream.o \
+	$(obj).target/$(TARGET)/net/spdy/spdy_http_utils.o \
 	$(obj).target/$(TARGET)/net/spdy/spdy_io_buffer.o \
-	$(obj).target/$(TARGET)/net/spdy/spdy_network_transaction.o \
 	$(obj).target/$(TARGET)/net/spdy/spdy_session.o \
 	$(obj).target/$(TARGET)/net/spdy/spdy_session_pool.o \
 	$(obj).target/$(TARGET)/net/spdy/spdy_settings_storage.o \
@@ -273,6 +282,7 @@ OBJS := $(obj).target/$(TARGET)/net/disk_cache/addr.o \
 	$(obj).target/$(TARGET)/net/url_request/https_prober.o \
 	$(obj).target/$(TARGET)/net/url_request/url_request.o \
 	$(obj).target/$(TARGET)/net/url_request/url_request_about_job.o \
+	$(obj).target/$(TARGET)/net/url_request/url_request_context.o \
 	$(obj).target/$(TARGET)/net/url_request/url_request_data_job.o \
 	$(obj).target/$(TARGET)/net/url_request/url_request_error_job.o \
 	$(obj).target/$(TARGET)/net/url_request/url_request_file_dir_job.o \
@@ -325,11 +335,12 @@ $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.cc FORCE_DO_CMD
 # End of this set of suffix rules
 ### Rules for final target.
 LDFLAGS_Debug := -pthread \
-	-Wl,-z,noexecstack \
-	-rdynamic
+	-Wl,-z,noexecstack
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := 

@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_NET_LOAD_TIMING_OBSERVER_H_
 #define CHROME_BROWSER_NET_LOAD_TIMING_OBSERVER_H_
+#pragma once
 
 #include "base/gtest_prod_util.h"
 #include "base/hash_tables.h"
@@ -11,6 +12,9 @@
 #include "chrome/browser/net/chrome_net_log.h"
 #include "net/base/net_log.h"
 #include "webkit/glue/resource_loader_bridge.h"
+
+class URLRequest;
+struct ResourceResponse;
 
 // LoadTimingObserver watches the NetLog event stream and collects the network
 // timing information.
@@ -47,6 +51,10 @@ class LoadTimingObserver : public ChromeNetLog::Observer {
                           const net::NetLog::Source& source,
                           net::NetLog::EventPhase phase,
                           net::NetLog::EventParameters* params);
+
+  static void PopulateTimingInfo(URLRequest* request,
+                                 ResourceResponse* response);
+
  private:
   FRIEND_TEST_ALL_PREFIXES(LoadTimingObserverTest,
                            ConnectJobRecord);
@@ -80,6 +88,8 @@ class LoadTimingObserver : public ChromeNetLog::Observer {
   URLRequestToRecordMap url_request_to_record_;
   ConnectJobToRecordMap connect_job_to_record_;
   SocketToRecordMap socket_to_record_;
+  uint32 last_connect_job_id_;
+  ConnectJobRecord last_connect_job_record_;
 
   DISALLOW_COPY_AND_ASSIGN(LoadTimingObserver);
 };

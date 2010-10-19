@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -10,8 +10,10 @@
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/sha2.h"
+#include "base/string_number_conversions.h"
 #include "base/string_tokenizer.h"
 #include "base/string_util.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/dns_util.h"
@@ -29,7 +31,7 @@ void TransportSecurityState::EnableHost(const std::string& host,
     return;
 
   bool temp;
-  if (isPreloadedSTS(canonicalised_host, &temp))
+  if (IsPreloadedSTS(canonicalised_host, &temp))
     return;
 
   char hashed[base::SHA256_LENGTH];
@@ -45,6 +47,12 @@ void TransportSecurityState::EnableHost(const std::string& host,
   DirtyNotify();
 }
 
+// IncludeNUL converts a char* to a std::string and includes the terminating
+// NUL in the result.
+static std::string IncludeNUL(const char* in) {
+  return std::string(in, strlen(in) + 1);
+}
+
 bool TransportSecurityState::IsEnabledForHost(DomainState* result,
                                               const std::string& host) {
   const std::string canonicalised_host = CanonicaliseHost(host);
@@ -52,7 +60,7 @@ bool TransportSecurityState::IsEnabledForHost(DomainState* result,
     return false;
 
   bool include_subdomains;
-  if (isPreloadedSTS(canonicalised_host, &include_subdomains)) {
+  if (IsPreloadedSTS(canonicalised_host, &include_subdomains)) {
     result->created = result->expiry = base::Time::FromTimeT(0);
     result->mode = DomainState::MODE_STRICT;
     result->include_subdomains = include_subdomains;
@@ -64,7 +72,7 @@ bool TransportSecurityState::IsEnabledForHost(DomainState* result,
   for (size_t i = 0; canonicalised_host[i]; i += canonicalised_host[i] + 1) {
     char hashed_domain[base::SHA256_LENGTH];
 
-    base::SHA256HashString(&canonicalised_host[i], &hashed_domain,
+    base::SHA256HashString(IncludeNUL(&canonicalised_host[i]), &hashed_domain,
                            sizeof(hashed_domain));
     std::map<std::string, DomainState>::iterator j =
         enabled_hosts_.find(std::string(hashed_domain, sizeof(hashed_domain)));
@@ -134,7 +142,7 @@ bool TransportSecurityState::ParseHeader(const std::string& value,
       case AFTER_MAX_AGE_EQUALS:
         if (IsAsciiWhitespace(*tokenizer.token_begin()))
           continue;
-        if (!StringToInt(tokenizer.token(), &max_age_candidate))
+        if (!base::StringToInt(tokenizer.token(), &max_age_candidate))
           return false;
         if (max_age_candidate < 0)
           return false;
@@ -196,18 +204,17 @@ void TransportSecurityState::SetDelegate(
 
 // This function converts the binary hashes, which we store in
 // |enabled_hosts_|, to a base64 string which we can include in a JSON file.
-static std::wstring HashedDomainToExternalString(const std::string& hashed) {
+static std::string HashedDomainToExternalString(const std::string& hashed) {
   std::string out;
   CHECK(base::Base64Encode(hashed, &out));
-  return ASCIIToWide(out);
+  return out;
 }
 
 // This inverts |HashedDomainToExternalString|, above. It turns an external
 // string (from a JSON file) into an internal (binary) string.
-static std::string ExternalStringToHashedDomain(const std::wstring& external) {
-  std::string external_ascii = WideToASCII(external);
+static std::string ExternalStringToHashedDomain(const std::string& external) {
   std::string out;
-  if (!base::Base64Decode(external_ascii, &out) ||
+  if (!base::Base64Decode(external, &out) ||
       out.size() != base::SHA256_LENGTH) {
     return std::string();
   }
@@ -220,19 +227,19 @@ bool TransportSecurityState::Serialise(std::string* output) {
   for (std::map<std::string, DomainState>::const_iterator
        i = enabled_hosts_.begin(); i != enabled_hosts_.end(); ++i) {
     DictionaryValue* state = new DictionaryValue;
-    state->SetBoolean(L"include_subdomains", i->second.include_subdomains);
-    state->SetReal(L"created", i->second.created.ToDoubleT());
-    state->SetReal(L"expiry", i->second.expiry.ToDoubleT());
+    state->SetBoolean("include_subdomains", i->second.include_subdomains);
+    state->SetReal("created", i->second.created.ToDoubleT());
+    state->SetReal("expiry", i->second.expiry.ToDoubleT());
 
     switch (i->second.mode) {
       case DomainState::MODE_STRICT:
-        state->SetString(L"mode", "strict");
+        state->SetString("mode", "strict");
         break;
       case DomainState::MODE_OPPORTUNISTIC:
-        state->SetString(L"mode", "opportunistic");
+        state->SetString("mode", "opportunistic");
         break;
       case DomainState::MODE_SPDY_ONLY:
-        state->SetString(L"mode", "spdy-only");
+        state->SetString("mode", "spdy-only");
         break;
       default:
         NOTREACHED() << "DomainState with unknown mode";
@@ -271,9 +278,9 @@ bool TransportSecurityState::Deserialise(const std::string& input,
     double created;
     double expiry;
 
-    if (!state->GetBoolean(L"include_subdomains", &include_subdomains) ||
-        !state->GetString(L"mode", &mode_string) ||
-        !state->GetReal(L"expiry", &expiry)) {
+    if (!state->GetBoolean("include_subdomains", &include_subdomains) ||
+        !state->GetString("mode", &mode_string) ||
+        !state->GetReal("expiry", &expiry)) {
       continue;
     }
 
@@ -292,7 +299,7 @@ bool TransportSecurityState::Deserialise(const std::string& input,
 
     base::Time expiry_time = base::Time::FromDoubleT(expiry);
     base::Time created_time;
-    if (state->GetReal(L"created", &created)) {
+    if (state->GetReal("created", &created)) {
       created_time = base::Time::FromDoubleT(created);
     } else {
       // We're migrating an old entry with no creation date. Make sure we
@@ -340,6 +347,9 @@ void TransportSecurityState::DeleteSince(const base::Time& time) {
     DirtyNotify();
 }
 
+TransportSecurityState::~TransportSecurityState() {
+}
+
 void TransportSecurityState::DirtyNotify() {
   if (delegate_)
     delegate_->StateIsDirty(this);
@@ -353,7 +363,8 @@ std::string TransportSecurityState::CanonicaliseHost(const std::string& host) {
 
   std::string new_host;
   if (!DNSDomainFromDot(host, &new_host)) {
-    NOTREACHED();
+    // DNSDomainFromDot can fail if any label is > 63 bytes or if the whole
+    // name is >255 bytes. However, search terms can have those properties.
     return std::string();
   }
 
@@ -380,10 +391,10 @@ std::string TransportSecurityState::CanonicaliseHost(const std::string& host) {
   return new_host;
 }
 
-// isPreloadedSTS returns true if the canonicalised hostname should always be
+// IsPreloadedSTS returns true if the canonicalised hostname should always be
 // considered to have STS enabled.
 // static
-bool TransportSecurityState::isPreloadedSTS(
+bool TransportSecurityState::IsPreloadedSTS(
     const std::string& canonicalised_host, bool *include_subdomains) {
   // In the medium term this list is likely to just be hardcoded here. This,
   // slightly odd, form removes the need for additional relocations records.
@@ -395,12 +406,14 @@ bool TransportSecurityState::isPreloadedSTS(
     {16, false, "\003www\006paypal\003com"},
     {16, false, "\003www\006elanex\003biz"},
     {12, true,  "\006jottit\003com"},
+    {19, true,  "\015sunshinepress\003org"},
+    {21, false, "\003www\013noisebridge\003net"},
   };
   static const size_t kNumPreloadedSTS = ARRAYSIZE_UNSAFE(kPreloadedSTS);
 
   for (size_t i = 0; canonicalised_host[i]; i += canonicalised_host[i] + 1) {
     for (size_t j = 0; j < kNumPreloadedSTS; j++) {
-      if (kPreloadedSTS[j].length == canonicalised_host.size() + 1 - i &&
+      if (kPreloadedSTS[j].length == canonicalised_host.size() - i &&
           (kPreloadedSTS[j].include_subdomains || i == 0) &&
           memcmp(kPreloadedSTS[j].dns_name, &canonicalised_host[i],
                  kPreloadedSTS[j].length) == 0) {

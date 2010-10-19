@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GEOLOCATION_LOCATION_ARBITRATOR_H_
 #define CHROME_BROWSER_GEOLOCATION_LOCATION_ARBITRATOR_H_
+#pragma once
 
 #include "base/string16.h"
 #include "base/time.h"
@@ -42,7 +43,7 @@ class GeolocationArbitrator : public base::RefCounted<GeolocationArbitrator> {
         URLRequestContextGetter* context,
         const GURL& url,
         const string16& access_token) = 0;
-    virtual LocationProviderBase* NewGpsLocationProvider() = 0;
+    virtual LocationProviderBase* NewSystemLocationProvider() = 0;
 
    protected:
     friend class base::RefCounted<ProviderFactory>;

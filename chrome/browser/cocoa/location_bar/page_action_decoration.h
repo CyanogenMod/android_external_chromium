@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_LOCATION_BAR_PAGE_ACTION_DECORATION_H_
 #define CHROME_BROWSER_COCOA_LOCATION_BAR_PAGE_ACTION_DECORATION_H_
+#pragma once
 
 #import "chrome/browser/cocoa/location_bar/image_decoration.h"
 
@@ -11,6 +12,7 @@
 #include "googleurl/src/gurl.h"
 
 class ExtensionAction;
+@class ExtensionActionContextMenu;
 class LocationBarViewMac;
 class Profile;
 class TabContents;
@@ -50,6 +52,7 @@ class PageActionDecoration : public ImageDecoration,
   NSPoint GetBubblePointInFrame(NSRect frame);
 
   // Overridden from |LocationBarDecoration|
+  virtual CGFloat GetWidthForSpace(CGFloat width);
   virtual bool AcceptsMousePress() { return true; }
   virtual bool OnMousePressed(NSRect frame);
   virtual NSString* GetToolTip();
@@ -98,6 +101,9 @@ class PageActionDecoration : public ImageDecoration,
 
   // The string to show for a tooltip.
   scoped_nsobject<NSString> tooltip_;
+
+  // The context menu for the Page Action.
+  scoped_nsobject<ExtensionActionContextMenu> menu_;
 
   // This is used for post-install visual feedback. The page_action
   // icon is briefly shown even if it hasn't been enabled by its

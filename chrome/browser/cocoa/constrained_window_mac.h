@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_COCOA_CONSTRAINED_WINDOW_MAC_H_
 #define CHROME_BROWSER_COCOA_CONSTRAINED_WINDOW_MAC_H_
+#pragma once
 
 #import <Cocoa/Cocoa.h>
 
@@ -58,6 +59,16 @@ class ConstrainedWindowMacDelegateSystemSheet
  protected:
   void set_sheet(id sheet) { systemSheet_.reset([sheet retain]); }
   id sheet() { return systemSheet_; }
+
+  // Returns an NSArray to be passed as parameters to GTMWindowSheetController.
+  // Array's contents should be the arguments passed to the system sheet's
+  // beginSheetForWindow:... method. The window argument must be [NSNull null].
+  //
+  // The default implementation returns
+  //     [null window, delegate, didEndSelector, null contextInfo]
+  // Subclasses may override this if they show a system sheet which takes
+  // different parameters.
+  virtual NSArray* GetSheetParameters(id delegate, SEL didEndSelector);
 
  private:
   virtual void RunSheet(GTMWindowSheetController* sheetController,

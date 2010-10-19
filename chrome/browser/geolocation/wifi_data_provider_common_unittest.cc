@@ -9,6 +9,7 @@
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/third_party/dynamic_annotations/dynamic_annotations.h"
+#include "base/utf_string_conversions.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -69,7 +70,7 @@ class MessageLoopQuitListener
     // Provider should call back on client's thread.
     EXPECT_EQ(MessageLoop::current(), message_loop_to_quit_);
     provider_ = provider;
-    message_loop_to_quit_->Quit();
+    message_loop_to_quit_->QuitNow();
   }
   MessageLoop* message_loop_to_quit_;
   DeviceDataProvider<WifiData>* provider_;
@@ -142,7 +143,7 @@ TEST_F(GeolocationWifiDataProviderCommonTest, StartThread) {
   EXPECT_CALL(*polling_policy_, PollingInterval())
       .Times(AtLeast(1));
   EXPECT_TRUE(provider_->StartDataProvider());
-  provider_->StopDataProvider();
+  main_message_loop_.Run();
   SUCCEED();
 }
 

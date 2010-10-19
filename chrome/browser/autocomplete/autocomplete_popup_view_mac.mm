@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <cmath>
+
 #include "chrome/browser/autocomplete/autocomplete_popup_view_mac.h"
 
 #include "app/resource_bundle.h"
@@ -26,7 +28,7 @@ const int kEditFontAdjust = -1;
 
 // How much to adjust the cell sizing up from the default determined
 // by the font.
-const int kCellHeightAdjust = 7.0;
+const int kCellHeightAdjust = 6.0;
 
 // How to round off the popup's corners.  Goal is to match star and go
 // buttons.
@@ -40,16 +42,13 @@ const CGFloat kPopupFieldGap = 2.0;
 const CGFloat kPopupAlpha = 240.0 / 255.0;
 
 // How far to offset image column from the left.
-const CGFloat kImageXOffset = 2.0;
+const CGFloat kImageXOffset = 4.0;
 
 // How far to offset the text column from the left.
-const CGFloat kTextXOffset = 25.0;
+const CGFloat kTextXOffset = 27.0;
 
 // Animation duration when animating the popup window smaller.
 const NSTimeInterval kShrinkAnimationDuration = 0.1;
-
-// A very short animation duration used to cancel running animations.
-const NSTimeInterval kCancelAnimationDuration = 0.00001;
 
 // Maximum fraction of the popup width that can be used to display match
 // contents.
@@ -67,11 +66,6 @@ const CGFloat kFieldVisualInset = 1.0;
 // which has to be backed out to line the borders up with the field
 // borders.
 const CGFloat kWindowBorderWidth = 1.0;
-
-// |AutocompleteButtonCell| and |AutocompleteTextFieldCell| draw their
-// text somewhat differently.  The image needs to be adjusted slightly
-// downward to align with the text the same.
-const CGFloat kImageBaselineAdjust = 1.0;
 
 // Background colors for different states of the popup elements.
 NSColor* BackgroundColor() {
@@ -109,7 +103,7 @@ NSMutableAttributedString* AutocompletePopupViewMac::DecorateMatchedString(
   // Start out with a string using the default style info.
   NSString* s = base::SysWideToNSString(matchString);
   NSDictionary* attributes = [NSDictionary dictionaryWithObjectsAndKeys:
-                                  font.nativeFont(), NSFontAttributeName,
+                                  font.GetNativeFont(), NSFontAttributeName,
                                   textColor, NSForegroundColorAttributeName,
                                   nil];
   NSMutableAttributedString* as =
@@ -134,7 +128,7 @@ NSMutableAttributedString* AutocompletePopupViewMac::DecorateMatchedString(
     if (0 != (i->style & ACMatchClassification::MATCH)) {
       if (!boldFont) {
         NSFontManager* fontManager = [NSFontManager sharedFontManager];
-        boldFont = [fontManager convertFont:font.nativeFont()
+        boldFont = [fontManager convertFont:font.GetNativeFont()
                                 toHaveTrait:NSBoldFontMask];
       }
       [as addAttribute:NSFontAttributeName value:boldFont range:range];
@@ -203,7 +197,7 @@ NSAttributedString* AutocompletePopupViewMac::MatchText(
 
     NSDictionary* attributes =
         [NSDictionary dictionaryWithObjectsAndKeys:
-             font.nativeFont(), NSFontAttributeName,
+             font.GetNativeFont(), NSFontAttributeName,
              ContentTextColor(), NSForegroundColorAttributeName,
              nil];
     NSString* rawEnDash = [NSString stringWithFormat:@" %C ", 0x2013];
@@ -344,15 +338,34 @@ void AutocompletePopupViewMac::PositionPopup(const CGFloat matrixHeight) {
   // Otherwise, resize immediately.
   bool animate = (NSHeight(popupFrame) < NSHeight(currentPopupFrame) &&
                   NSWidth(popupFrame) == NSWidth(currentPopupFrame));
-  NSTimeInterval duration =
-      (animate ? kShrinkAnimationDuration: kCancelAnimationDuration);
+
+  NSDictionary* savedAnimations = nil;
+  if (!animate) {
+    // In an ideal world, running a zero-length animation would cancel any
+    // running animations and set the new frame value immediately.  In practice,
+    // zero-length animations are ignored entirely.  Work around this AppKit bug
+    // by explicitly setting an NSNull animation for the "frame" key and then
+    // running the animation with a non-zero(!!) duration.  This somehow
+    // convinces AppKit to do the right thing.  Save off the current animations
+    // dictionary so it can be restored later.
+    savedAnimations = [[popup_ animations] copy];
+    [popup_ setAnimations:
+              [NSDictionary dictionaryWithObjectsAndKeys:[NSNull null],
+                                                         @"frame", nil]];
+  }
 
   [NSAnimationContext beginGrouping];
   // Don't use the GTM additon for the "Steve" slowdown because this can happen
   // async from user actions and the effects could be a surprise.
-  [[NSAnimationContext currentContext] setDuration:duration];
+  [[NSAnimationContext currentContext] setDuration:kShrinkAnimationDuration];
   [[popup_ animator] setFrame:popupFrame display:YES];
   [NSAnimationContext endGrouping];
+
+  if (!animate) {
+    // Restore the original animations dictionary.  This does not reinstate any
+    // previously running animations.
+    [popup_ setAnimations:savedAnimations];
+  }
 
   if (!IsOpen())
     [[field_ window] addChildWindow:popup_ ordered:NSWindowAbove];
@@ -392,8 +405,8 @@ void AutocompletePopupViewMac::UpdatePopupAppearance() {
   // The popup's font is a slightly smaller version of the field's.
   NSFont* fieldFont = AutocompleteEditViewMac::GetFieldFont();
   const CGFloat resultFontSize = [fieldFont pointSize] + kEditFontAdjust;
-  gfx::Font resultFont = gfx::Font::CreateFont(
-      base::SysNSStringToWide([fieldFont fontName]), (int)resultFontSize);
+  gfx::Font resultFont(base::SysNSStringToWide([fieldFont fontName]),
+                       static_cast<int>(resultFontSize));
 
   AutocompleteMatrix* matrix = [popup_ contentView];
 
@@ -435,6 +448,10 @@ void AutocompletePopupViewMac::UpdatePopupAppearance() {
   PositionPopup(rows * cellHeight);
 }
 
+void AutocompletePopupViewMac::SetSelectedLine(size_t line) {
+  model_->SetSelectedLine(line, false);
+}
+
 // This is only called by model in SetSelectedLine() after updating
 // everything.  Popup should already be visible.
 void AutocompletePopupViewMac::PaintUpdatesNow() {
@@ -444,6 +461,12 @@ void AutocompletePopupViewMac::PaintUpdatesNow() {
 
 AutocompletePopupModel* AutocompletePopupViewMac::GetModel() {
   return model_.get();
+}
+
+int AutocompletePopupViewMac::GetMaxYCoordinate() {
+  // TODO: implement if match preview pans out.
+  NOTIMPLEMENTED();
+  return 0;
 }
 
 void AutocompletePopupViewMac::OpenURLForRow(int row, bool force_background) {
@@ -503,8 +526,8 @@ void AutocompletePopupViewMac::OpenURLForRow(int row, bool force_background) {
   if (image) {
     NSRect imageRect = cellFrame;
     imageRect.size = [image size];
-    imageRect.origin.y += kImageBaselineAdjust +
-        floor((NSHeight(cellFrame) - NSHeight(imageRect)) / 2);
+    imageRect.origin.y +=
+        std::floor((NSHeight(cellFrame) - NSHeight(imageRect)) / 2.0);
     imageRect.origin.x += kImageXOffset;
     [image drawInRect:imageRect
              fromRect:NSZeroRect  // Entire image
@@ -515,7 +538,7 @@ void AutocompletePopupViewMac::OpenURLForRow(int row, bool force_background) {
 
   // Adjust the title position to be lined up under the field's text.
   NSAttributedString* title = [self attributedTitle];
-  if (title) {
+  if (title && [title length]) {
     NSRect titleRect = cellFrame;
     titleRect.size.width -= kTextXOffset;
     titleRect.origin.x += kTextXOffset;
@@ -654,7 +677,8 @@ void AutocompletePopupViewMac::OpenURLForRow(int row, bool force_background) {
   NSInteger row, column;
   if ([self getRow:&row column:&column forPoint:point]) {
     DCHECK_EQ(column, 0);
-    [self selectCellAtRow:row column:column];
+    DCHECK(popupView_);
+    popupView_->SetSelectedLine(row);
     return YES;
   }
   return NO;

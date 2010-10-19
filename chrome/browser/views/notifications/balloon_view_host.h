@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_NOTIFICATIONS_BALLOON_VIEW_HOST_H_
 #define CHROME_BROWSER_VIEWS_NOTIFICATIONS_BALLOON_VIEW_HOST_H_
+#pragma once
 
 #include "chrome/browser/notifications/balloon_host.h"
 #include "views/controls/native/native_view_host.h"
@@ -16,7 +17,7 @@ class BalloonViewHost : public BalloonHost {
  public:
   explicit BalloonViewHost(Balloon* balloon);
 
-  ~BalloonViewHost() {
+  virtual ~BalloonViewHost() {
      Shutdown();
   }
 

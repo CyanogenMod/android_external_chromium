@@ -4,6 +4,7 @@
 
 #ifndef CHROME_COMMON_NATIVE_WEB_KEYBOARD_EVENT_H_
 #define CHROME_COMMON_NATIVE_WEB_KEYBOARD_EVENT_H_
+#pragma once
 
 #include "base/basictypes.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebInputEvent.h"
@@ -32,7 +33,7 @@ struct NativeWebKeyboardEvent : public WebKit::WebKeyboardEvent {
   NativeWebKeyboardEvent(wchar_t character,
                          int state,
                          double time_stamp_seconds);
-#elif defined(OS_LINUX)
+#elif defined(TOOLKIT_USES_GTK)
   explicit NativeWebKeyboardEvent(const GdkEventKey* event);
   NativeWebKeyboardEvent(wchar_t character,
                          int state,
@@ -48,7 +49,7 @@ struct NativeWebKeyboardEvent : public WebKit::WebKeyboardEvent {
   MSG os_event;
 #elif defined(OS_MACOSX)
   NSEvent* os_event;
-#elif defined(OS_LINUX)
+#elif defined(TOOLKIT_USES_GTK)
   GdkEventKey* os_event;
 #endif
 

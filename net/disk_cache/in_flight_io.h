@@ -4,6 +4,7 @@
 
 #ifndef NET_DISK_CACHE_IN_FLIGHT_IO_H_
 #define NET_DISK_CACHE_IN_FLIGHT_IO_H_
+#pragma once
 
 #include <set>
 
@@ -23,8 +24,7 @@ class BackgroundIO : public base::RefCountedThreadSafe<BackgroundIO> {
   // is keeping track of all operations. When done, we notify the controller
   // (we do NOT invoke the callback), in the worker thead that completed the
   // operation.
-  explicit BackgroundIO(InFlightIO* controller)
-      : controller_(controller), result_(-1), io_completed_(true, false) {}
+  explicit BackgroundIO(InFlightIO* controller);
 
   // This method signals the controller that this operation is finished, in the
   // original thread. In practice, this is a RunableMethod that allows
@@ -46,7 +46,7 @@ class BackgroundIO : public base::RefCountedThreadSafe<BackgroundIO> {
   }
 
  protected:
-  virtual ~BackgroundIO() {}
+  virtual ~BackgroundIO();
 
   InFlightIO* controller_;  // The controller that tracks all operations.
   int result_;  // Final operation result.
@@ -88,10 +88,8 @@ class BackgroundIO : public base::RefCountedThreadSafe<BackgroundIO> {
 // of just waiting for step 7.
 class InFlightIO {
  public:
-  InFlightIO()
-      : callback_thread_(base::MessageLoopProxy::CreateForCurrentThread()),
-        running_(false), single_thread_(false) {}
-  virtual ~InFlightIO() {}
+  InFlightIO();
+  virtual ~InFlightIO();
 
   // Blocks the current thread until all IO operations tracked by this object
   // complete.

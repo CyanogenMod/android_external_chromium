@@ -22,6 +22,7 @@ CFLAGS_Debug := -pthread \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -79,6 +80,7 @@ CFLAGS_Release := -pthread \
 	-Wno-missing-field-initializers \
 	-D_FILE_OFFSET_BITS=64 \
 	-fvisibility=hidden \
+	-pipe \
 	-fno-strict-aliasing \
 	-pthread \
 	-D_REENTRANT \
@@ -151,14 +153,15 @@ LDFLAGS_Debug := -pthread \
 	-Wl,-z,noexecstack \
 	-Wl,-uIsHeapProfilerRunning,-uProfilerStart \
 	-Wl,-u_Z21InitialMallocHook_NewPKvj,-u_Z22InitialMallocHook_MMapPKvS0_jiiix,-u_Z22InitialMallocHook_SbrkPKvi \
-	-Wl,-u_Z21InitialMallocHook_NewPKvm,-u_Z22InitialMallocHook_MMapPKvS0_miiil,-u_Z22InitialMallocHook_SbrkPKvl \
-	-rdynamic
+	-Wl,-u_Z21InitialMallocHook_NewPKvm,-u_Z22InitialMallocHook_MMapPKvS0_miiil,-u_Z22InitialMallocHook_SbrkPKvl
 
 LDFLAGS_Release := -pthread \
 	-Wl,-z,noexecstack \
 	-Wl,-uIsHeapProfilerRunning,-uProfilerStart \
 	-Wl,-u_Z21InitialMallocHook_NewPKvj,-u_Z22InitialMallocHook_MMapPKvS0_jiiix,-u_Z22InitialMallocHook_SbrkPKvi \
 	-Wl,-u_Z21InitialMallocHook_NewPKvm,-u_Z22InitialMallocHook_MMapPKvS0_miiil,-u_Z22InitialMallocHook_SbrkPKvl \
+	-Wl,-O1 \
+	-Wl,--as-needed \
 	-Wl,--gc-sections
 
 LIBS := -lrt \
@@ -189,7 +192,8 @@ LIBS := -lrt \
 	-lz \
 	-lXss \
 	-lexpat \
-	-lgconf-2
+	-lgconf-2 \
+	-lresolv
 
 $(builddir)/sync_listen_notifications: GYP_LDFLAGS := $(LDFLAGS_$(BUILDTYPE))
 $(builddir)/sync_listen_notifications: LIBS := $(LIBS)

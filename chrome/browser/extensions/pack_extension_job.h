@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_PACK_EXTENSION_JOB_H_
 #define CHROME_BROWSER_EXTENSIONS_PACK_EXTENSION_JOB_H_
+#pragma once
 
 #include <string>
 
@@ -22,7 +23,10 @@ class PackExtensionJob : public base::RefCountedThreadSafe<PackExtensionJob> {
    public:
     virtual void OnPackSuccess(const FilePath& crx_file,
                                const FilePath& key_file) = 0;
-    virtual void OnPackFailure(const std::wstring& message) = 0;
+    virtual void OnPackFailure(const std::string& message) = 0;
+
+   protected:
+    virtual ~Client() {}
   };
 
   PackExtensionJob(Client* client,
@@ -37,14 +41,18 @@ class PackExtensionJob : public base::RefCountedThreadSafe<PackExtensionJob> {
   // PackExtensionJob from attempting to access it.
   void ClearClient();
 
+  // The standard packing success message.
+  static std::wstring StandardSuccessMessage(const FilePath& crx_file,
+                                             const FilePath& key_file);
+
  private:
   friend class base::RefCountedThreadSafe<PackExtensionJob>;
 
   ~PackExtensionJob() {}
 
   void RunOnFileThread();
-  void ReportSuccessOnUIThread();
-  void ReportFailureOnUIThread(const std::string& error);
+  void ReportSuccessOnClientThread();
+  void ReportFailureOnClientThread(const std::string& error);
 
   ChromeThread::ID client_thread_id_;
   Client* client_;

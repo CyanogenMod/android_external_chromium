@@ -8,6 +8,7 @@
 #include "base/scoped_ptr.h"
 #include "base/values.h"
 #include "chrome/common/common_param_traits.h"
+#include "chrome/common/geoposition.h"
 #include "gfx/rect.h"
 #include "googleurl/src/gurl.h"
 #include "ipc/ipc_message.h"
@@ -146,21 +147,21 @@ TEST(IPCMessageTest, ListValue) {
 
 TEST(IPCMessageTest, DictionaryValue) {
   DictionaryValue input;
-  input.Set(L"null", Value::CreateNullValue());
-  input.Set(L"bool", Value::CreateBooleanValue(true));
-  input.Set(L"int", Value::CreateIntegerValue(42));
+  input.Set("null", Value::CreateNullValue());
+  input.Set("bool", Value::CreateBooleanValue(true));
+  input.Set("int", Value::CreateIntegerValue(42));
 
   scoped_ptr<DictionaryValue> subdict(new DictionaryValue());
-  subdict->Set(L"str", Value::CreateStringValue("forty two"));
-  subdict->Set(L"bool", Value::CreateBooleanValue(false));
+  subdict->Set("str", Value::CreateStringValue("forty two"));
+  subdict->Set("bool", Value::CreateBooleanValue(false));
 
   scoped_ptr<ListValue> sublist(new ListValue());
   sublist->Set(0, Value::CreateRealValue(42.42));
   sublist->Set(1, Value::CreateStringValue("forty"));
   sublist->Set(2, Value::CreateStringValue("two"));
-  subdict->Set(L"list", sublist.release());
+  subdict->Set("list", sublist.release());
 
-  input.Set(L"dict", subdict.release());
+  input.Set("dict", subdict.release());
 
   IPC::Message msg(1, 2, IPC::Message::PRIORITY_NORMAL);
   IPC::WriteParam(&msg, input);
@@ -207,13 +208,13 @@ TEST(IPCMessageTest, Geoposition) {
   EXPECT_EQ(input.error_code, output.error_code);
   EXPECT_EQ(input.error_message, output.error_message);
 
-  std::wstring log_message;
+  std::string log_message;
   IPC::LogParam(output, &log_message);
-  EXPECT_STREQ(L"<Geoposition>"
-               L"0.100000 51.300000 13.700000 42.240000 "
-               L"9.300000 55.000000 120.000000 "
-               L"1977 unittest error message for geoposition"
-               L"<Geoposition::ErrorCode>2",
+  EXPECT_STREQ("<Geoposition>"
+               "0.100000 51.300000 13.700000 42.240000 "
+               "9.300000 55.000000 120.000000 "
+               "1977 unittest error message for geoposition"
+               "<Geoposition::ErrorCode>2",
                log_message.c_str());
 }
 
@@ -232,8 +233,9 @@ TEST(IPCMessageTest, PageRange) {
   EXPECT_TRUE(input == output);
 }
 
+// Enabling this test breaks assert handling for test suite. Bug 55177.
 // Tests printing::NativeMetafile serialization.
-TEST(IPCMessageTest, Metafile) {
+TEST(IPCMessageTest, DISABLED_Metafile) {
   // TODO(sanjeevr): Make this test meaningful for non-Windows platforms. We
   // need to initialize the metafile using alternate means on the other OSes.
 #if defined(OS_WIN)

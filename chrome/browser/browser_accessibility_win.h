@@ -4,16 +4,20 @@
 
 #ifndef CHROME_BROWSER_BROWSER_ACCESSIBILITY_WIN_H_
 #define CHROME_BROWSER_BROWSER_ACCESSIBILITY_WIN_H_
+#pragma once
 
 #include <atlbase.h>
 #include <atlcom.h>
 #include <oleacc.h>
 
+#include <map>
 #include <vector>
 
-#include "base/scoped_comptr_win.h"
 #include "chrome/browser/browser_accessibility_manager_win.h"
 #include "ia2_api_all.h"  // Generated
+#include "ISimpleDOMDocument.h"  // Generated
+#include "ISimpleDOMNode.h"  // Generated
+#include "ISimpleDOMText.h"  // Generated
 #include "webkit/glue/webaccessibility.h"
 
 using webkit_glue::WebAccessibility;
@@ -33,7 +37,10 @@ class ATL_NO_VTABLE BrowserAccessibility
                          &LIBID_IAccessible2Lib>,
     public IAccessibleImage,
     public IAccessibleText,
-    public IServiceProvider {
+    public IServiceProvider,
+    public ISimpleDOMDocument,
+    public ISimpleDOMNode,
+    public ISimpleDOMText {
  public:
   BEGIN_COM_MAP(BrowserAccessibility)
     COM_INTERFACE_ENTRY2(IDispatch, IAccessible2)
@@ -42,6 +49,9 @@ class ATL_NO_VTABLE BrowserAccessibility
     COM_INTERFACE_ENTRY(IAccessibleImage)
     COM_INTERFACE_ENTRY(IAccessibleText)
     COM_INTERFACE_ENTRY(IServiceProvider)
+    COM_INTERFACE_ENTRY(ISimpleDOMDocument)
+    COM_INTERFACE_ENTRY(ISimpleDOMNode)
+    COM_INTERFACE_ENTRY(ISimpleDOMText)
   END_COM_MAP()
 
   BrowserAccessibility();
@@ -66,6 +76,13 @@ class ATL_NO_VTABLE BrowserAccessibility
   // Return true if this object is equal to or a descendant of |ancestor|.
   bool IsDescendantOf(BrowserAccessibility* ancestor);
 
+  // Returns the parent of this object, or NULL if it's the BrowserAccessibility
+  // root.
+  BrowserAccessibility* GetParent();
+
+  // Returns the number of children of this BrowserAccessibility object.
+  uint32 GetChildCount();
+
   // Return the previous sibling of this object, or NULL if it's the first
   // child of its parent.
   BrowserAccessibility* GetPreviousSibling();
@@ -74,9 +91,15 @@ class ATL_NO_VTABLE BrowserAccessibility
   // of its parent.
   BrowserAccessibility* GetNextSibling();
 
+  // Replace a child BrowserAccessibility object. Used when updating the
+  // accessibility tree.
+  void ReplaceChild(
+      const BrowserAccessibility* old_acc, BrowserAccessibility* new_acc);
+
   // Accessors
   LONG child_id() const { return child_id_; }
   int32 renderer_id() const { return renderer_id_; }
+  LONG index_in_parent() const { return index_in_parent_; }
 
   // Add one to the reference count and return the same object. Always
   // use this method when returning a BrowserAccessibility object as
@@ -324,6 +347,129 @@ class ATL_NO_VTABLE BrowserAccessibility
   }
 
   //
+  // ISimpleDOMDocument methods.
+  //
+
+  STDMETHODIMP get_URL(BSTR* url);
+
+  STDMETHODIMP get_title(BSTR* title);
+
+  STDMETHODIMP get_mimeType(BSTR* mime_type);
+
+  STDMETHODIMP get_docType(BSTR* doc_type);
+
+  STDMETHODIMP get_nameSpaceURIForID(
+      short name_space_id, BSTR *name_space_uri) {
+    return E_NOTIMPL;
+  }
+  STDMETHODIMP put_alternateViewMediaTypes(
+      BSTR *comma_separated_media_types) {
+    return E_NOTIMPL;
+  }
+
+  //
+  // ISimpleDOMNode methods.
+  //
+
+  STDMETHODIMP get_nodeInfo(
+      BSTR* node_name,
+      short* name_space_id,
+      BSTR* node_value,
+      unsigned int* num_children,
+      unsigned int* unique_id,
+      unsigned short* node_type);
+
+  STDMETHODIMP get_attributes(
+      unsigned short max_attribs,
+      BSTR* attrib_names,
+      short* name_space_id,
+      BSTR* attrib_values,
+      unsigned short* num_attribs);
+
+  STDMETHODIMP get_attributesForNames(
+      unsigned short num_attribs,
+      BSTR* attrib_names,
+      short* name_space_id,
+      BSTR* attrib_values);
+
+  STDMETHODIMP get_computedStyle(
+      unsigned short max_style_properties,
+      boolean use_alternate_view,
+      BSTR *style_properties,
+      BSTR *style_values,
+      unsigned short *num_style_properties);
+
+  STDMETHODIMP get_computedStyleForProperties(
+      unsigned short num_style_properties,
+      boolean use_alternate_view,
+      BSTR* style_properties,
+      BSTR* style_values);
+
+  STDMETHODIMP scrollTo(boolean placeTopLeft);
+
+  STDMETHODIMP get_parentNode(ISimpleDOMNode** node);
+
+  STDMETHODIMP get_firstChild(ISimpleDOMNode** node);
+
+  STDMETHODIMP get_lastChild(ISimpleDOMNode** node);
+
+  STDMETHODIMP get_previousSibling(ISimpleDOMNode** node);
+
+  STDMETHODIMP get_nextSibling(ISimpleDOMNode** node);
+
+  STDMETHODIMP get_childAt(
+      unsigned int child_index,
+      ISimpleDOMNode** node);
+
+  STDMETHODIMP get_innerHTML(BSTR* innerHTML) {
+    return E_NOTIMPL;
+  }
+
+  STDMETHODIMP get_localInterface(void** local_interface) {
+    return E_NOTIMPL;
+  }
+
+  STDMETHODIMP get_language(BSTR* language) {
+    return E_NOTIMPL;
+  }
+
+  //
+  // ISimpleDOMText methods.
+  //
+
+  STDMETHODIMP get_domText(BSTR* dom_text);
+
+  STDMETHODIMP get_clippedSubstringBounds(
+      unsigned int start_index,
+      unsigned int end_index,
+      int* x,
+      int* y,
+      int* width,
+      int* height) {
+    return E_NOTIMPL;
+  }
+
+  STDMETHODIMP get_unclippedSubstringBounds(
+      unsigned int start_index,
+      unsigned int end_index,
+      int* x,
+      int* y,
+      int* width,
+      int* height) {
+    return E_NOTIMPL;
+  }
+
+  STDMETHODIMP scrollToSubstring(
+      unsigned int start_index,
+      unsigned int end_index)  {
+    return E_NOTIMPL;
+  }
+
+  STDMETHODIMP get_fontFamily(BSTR *font_family)  {
+    return E_NOTIMPL;
+  }
+
+  //
   // IServiceProvider methods.
   //
 
@@ -358,6 +504,15 @@ class ATL_NO_VTABLE BrowserAccessibility
   // returns true if found.
   bool GetAttribute(WebAccessibility::Attribute attribute, string16* value);
 
+  // Retrieve the string value of an attribute from the attribute map and
+  // if found and nonempty, allocate a new BSTR (with SysAllocString)
+  // and return S_OK. If not found or empty, return S_FALSE.
+  HRESULT GetAttributeAsBstr(
+      WebAccessibility::Attribute attribute, BSTR* value_bstr);
+
+  // Escape a string like it would be escaped for a URL or HTML form.
+  string16 Escape(string16 str);
+
   // The manager of this tree of accessibility objects; needed for
   // global operations like focus tracking.
   BrowserAccessibilityManager* manager_;
@@ -378,6 +533,7 @@ class ATL_NO_VTABLE BrowserAccessibility
   string16 name_;
   string16 value_;
   std::map<int32, string16> attributes_;
+  std::vector<std::pair<string16, string16> > html_attributes_;
 
   LONG role_;
   LONG state_;

@@ -1,9 +1,10 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_DEVTOOLS_BRIDGE_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_DEVTOOLS_BRIDGE_H_
+#pragma once
 
 #include <string>
 
@@ -13,7 +14,6 @@
 #include "chrome/browser/extensions/extension_message_service.h"
 
 class Profile;
-struct DevToolsMessageData;
 
 // This class is a DevToolsClientHost that fires extension events.
 class ExtensionDevToolsBridge : public DevToolsClientHost {
@@ -32,7 +32,7 @@ class ExtensionDevToolsBridge : public DevToolsClientHost {
   virtual void SendMessageToClient(const IPC::Message& msg);
 
  private:
-  void OnRpcMessage(const DevToolsMessageData& data);
+  void OnDispatchToAPU(const std::string& data);
 
   // ID of the tab we are monitoring.
   int tab_id_;

@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2004--2009, Google Inc.
+ * Copyright 2004--2010, Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -43,6 +43,9 @@ AsyncHttpRequest::AsyncHttpRequest(const std::string &user_agent)
       pool_(&factory_), client_(user_agent.c_str(), &pool_), error_(HE_NONE)  {
   client_.SignalHttpClientComplete.connect(this,
       &AsyncHttpRequest::OnComplete);
+}
+
+AsyncHttpRequest::~AsyncHttpRequest() {
 }
 
 void AsyncHttpRequest::OnWorkStart() {

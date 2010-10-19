@@ -10,7 +10,6 @@
 #include "app/resource_bundle.h"
 #include "base/message_loop.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_theme_provider.h"
 #include "chrome/browser/notifications/balloon.h"
 #include "chrome/browser/notifications/balloon_collection.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
@@ -18,6 +17,7 @@
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/views/bubble_border.h"
 #include "chrome/browser/views/notifications/balloon_view_host.h"
 #include "chrome/common/notification_details.h"
@@ -55,15 +55,18 @@ const int kShelfBorderTopOverlap = 0;
 // Properties of the dismiss button.
 const int kDismissButtonWidth = 14;
 const int kDismissButtonHeight = 14;
-const int kDismissButtonRightMargin = 10;
+const int kDismissButtonTopMargin = 6;
+const int kDismissButtonRightMargin = 6;
 
 // Properties of the options menu.
-const int kOptionsButtonWidth = 26;
+const int kOptionsButtonWidth = 21;
 const int kOptionsButtonHeight = 14;
-const int kOptionsButtonRightMargin = 10;
+const int kOptionsButtonTopMargin = 5;
+const int kOptionsButtonRightMargin = 4;
 
 // Properties of the origin label.
-const int kLeftLabelMargin = 10;
+const int kLabelLeftMargin = 10;
+const int kLabelTopMargin = 6;
 
 // Size of the drop shadow.  The shadow is provided by BubbleBorder,
 // not this class.
@@ -78,7 +81,6 @@ const bool kAnimateEnabled = true;
 // The shelf height for the system default font size.  It is scaled
 // with changes in the default font size.
 const int kDefaultShelfHeight = 22;
-const int kShelfTopMargin = 6;
 
 // Menu commands
 const int kRevokePermissionCommand = 0;
@@ -247,7 +249,7 @@ gfx::Rect BalloonViewImpl::GetCloseButtonBounds() const {
   return gfx::Rect(
       width() - kDismissButtonWidth -
           kDismissButtonRightMargin - kRightShadowWidth,
-      kShelfTopMargin,
+      kDismissButtonTopMargin,
       kDismissButtonWidth,
       kDismissButtonHeight);
 }
@@ -257,15 +259,15 @@ gfx::Rect BalloonViewImpl::GetOptionsButtonBounds() const {
 
   return gfx::Rect(
       close_rect.x() - kOptionsButtonWidth - kOptionsButtonRightMargin,
-      kShelfTopMargin,
+      kOptionsButtonTopMargin,
       kOptionsButtonWidth,
       kOptionsButtonHeight);
 }
 
 gfx::Rect BalloonViewImpl::GetLabelBounds() const {
   return gfx::Rect(
-      kLeftShadowWidth + kLeftLabelMargin,
-      kShelfTopMargin,
+      kLeftShadowWidth + kLabelLeftMargin,
+      kLabelTopMargin,
       std::max(0, width() - kOptionsButtonWidth -
                kRightMargin),
       kOptionsButtonHeight);
@@ -274,22 +276,22 @@ gfx::Rect BalloonViewImpl::GetLabelBounds() const {
 void BalloonViewImpl::Show(Balloon* balloon) {
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
 
-  const std::wstring source_label_text = l10n_util::GetStringF(
-      IDS_NOTIFICATION_BALLOON_SOURCE_LABEL,
-      balloon->notification().display_source());
-  const std::wstring dismiss_text =
-      l10n_util::GetString(IDS_NOTIFICATION_BALLOON_DISMISS_LABEL);
-
   balloon_ = balloon;
 
   SetBounds(balloon_->GetPosition().x(), balloon_->GetPosition().y(),
             GetTotalWidth(), GetTotalHeight());
 
-  source_label_ = new views::Label(source_label_text);
+  const string16 source_label_text = l10n_util::GetStringFUTF16(
+      IDS_NOTIFICATION_BALLOON_SOURCE_LABEL,
+      balloon->notification().display_source());
+
+  source_label_ = new views::Label(UTF16ToWide(source_label_text));
   AddChildView(source_label_);
   options_menu_button_ = new views::MenuButton(NULL, L"", this, false);
   AddChildView(options_menu_button_);
   close_button_ = new views::ImageButton(this);
+  close_button_->SetTooltipText(l10n_util::GetString(
+      IDS_NOTIFICATION_BALLOON_DISMISS_LABEL));
   AddChildView(close_button_);
 
   // We have to create two windows: one for the contents and one for the
@@ -330,16 +332,21 @@ void BalloonViewImpl::Show(Balloon* balloon) {
   frame_container_->MoveAbove(html_container_);
 
   close_button_->SetImage(views::CustomButton::BS_NORMAL,
-      rb.GetBitmapNamed(IDR_BALLOON_CLOSE));
+                          rb.GetBitmapNamed(IDR_TAB_CLOSE));
   close_button_->SetImage(views::CustomButton::BS_HOT,
-      rb.GetBitmapNamed(IDR_BALLOON_CLOSE_HOVER));
+                          rb.GetBitmapNamed(IDR_TAB_CLOSE_H));
   close_button_->SetImage(views::CustomButton::BS_PUSHED,
-      rb.GetBitmapNamed(IDR_BALLOON_CLOSE_HOVER));
+                          rb.GetBitmapNamed(IDR_TAB_CLOSE_P));
   close_button_->SetBounds(GetCloseButtonBounds());
+  close_button_->SetBackground(SK_ColorBLACK,
+                               rb.GetBitmapNamed(IDR_TAB_CLOSE),
+                               rb.GetBitmapNamed(IDR_TAB_CLOSE_MASK));
 
   options_menu_button_->SetIcon(*rb.GetBitmapNamed(IDR_BALLOON_WRENCH));
-  options_menu_button_->SetHoverIcon(*rb.GetBitmapNamed(IDR_BALLOON_WRENCH));
+  options_menu_button_->SetHoverIcon(*rb.GetBitmapNamed(IDR_BALLOON_WRENCH_H));
+  options_menu_button_->SetPushedIcon(*rb.GetBitmapNamed(IDR_BALLOON_WRENCH_P));
   options_menu_button_->set_alignment(views::TextButton::ALIGN_CENTER);
+  options_menu_button_->set_border(NULL);
   options_menu_button_->SetBounds(GetOptionsButtonBounds());
 
   source_label_->SetFont(rb.GetFont(ResourceBundle::SmallFont));

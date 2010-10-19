@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2004--2005, Google Inc.
+ * Copyright 2004--2010, Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -54,6 +54,9 @@ namespace talk_base {
 enum {
   MSG_POST_EVENT = 0xF1F1
 };
+
+StreamInterface::~StreamInterface() {
+}
 
 struct PostEventData : public MessageData {
   int events, error;
@@ -120,12 +123,50 @@ void StreamInterface::PostEvent(int events, int err) {
   PostEvent(Thread::Current(), events, err);
 }
 
+StreamInterface::StreamInterface() {
+}
+
 void StreamInterface::OnMessage(Message* msg) {
   if (MSG_POST_EVENT == msg->message_id) {
     PostEventData* pe = static_cast<PostEventData*>(msg->pdata);
     SignalEvent(this, pe->events, pe->error);
     delete msg->pdata;
   }
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// StreamAdapterInterface
+///////////////////////////////////////////////////////////////////////////////
+
+StreamAdapterInterface::StreamAdapterInterface(StreamInterface* stream,
+                                               bool owned)
+    : stream_(stream), owned_(owned) {
+  if (NULL != stream_)
+    stream_->SignalEvent.connect(this, &StreamAdapterInterface::OnEvent);
+}
+
+void StreamAdapterInterface::Attach(StreamInterface* stream, bool owned) {
+  if (NULL != stream_)
+    stream_->SignalEvent.disconnect(this);
+  if (owned_)
+    delete stream_;
+  stream_ = stream;
+  owned_ = owned;
+  if (NULL != stream_)
+    stream_->SignalEvent.connect(this, &StreamAdapterInterface::OnEvent);
+}
+
+StreamInterface* StreamAdapterInterface::Detach() {
+  if (NULL != stream_)
+    stream_->SignalEvent.disconnect(this);
+  StreamInterface* stream = stream_;
+  stream_ = NULL;
+  return stream;
+}
+
+StreamAdapterInterface::~StreamAdapterInterface() {
+  if (owned_)
+    delete stream_;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -655,6 +696,9 @@ ExternalMemoryStream::ExternalMemoryStream(void* data, size_t length) {
   SetData(data, length);
 }
 
+ExternalMemoryStream::~ExternalMemoryStream() {
+}
+
 void ExternalMemoryStream::SetData(void* data, size_t length) {
   data_length_ = buffer_length_ = length;
   buffer_ = static_cast<char*>(data);
@@ -950,6 +994,31 @@ bool StringStream::ReserveSize(size_t size) {
     return false;
   str_.reserve(size);
   return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// StreamReference
+///////////////////////////////////////////////////////////////////////////////
+
+StreamReference::StreamReference(StreamInterface* stream)
+    : StreamAdapterInterface(stream, false) {
+  // owner set to false so the destructor does not free the stream.
+  stream_ref_count_ = new StreamRefCount(stream);
+}
+
+StreamInterface* StreamReference::NewReference() {
+  stream_ref_count_->AddReference();
+  return new StreamReference(stream_ref_count_, stream());
+}
+
+StreamReference::~StreamReference() {
+  stream_ref_count_->Release();
+}
+
+StreamReference::StreamReference(StreamRefCount* stream_ref_count,
+                                 StreamInterface* stream)
+    : StreamAdapterInterface(stream, false),
+      stream_ref_count_(stream_ref_count) {
 }
 
 ///////////////////////////////////////////////////////////////////////////////

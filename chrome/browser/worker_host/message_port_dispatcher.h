@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_WORKER_HOST_MESSAGE_PORT_DISPATCHER_H_
 #define CHROME_BROWSER_WORKER_HOST_MESSAGE_PORT_DISPATCHER_H_
+#pragma once
 
 #include <map>
 #include <utility>
@@ -14,6 +15,7 @@
 #include "base/singleton.h"
 #include "base/string16.h"
 #include "base/task.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "ipc/ipc_message.h"
 
@@ -71,12 +73,6 @@ class MessagePortDispatcher : public NotificationObserver {
   // Handles the details of removing a message port id. Before calling this,
   // verify that the message port id exists.
   void Erase(int message_port_id);
-
-#ifdef NDEBUG
-  bool CheckMessagePortMap(bool check_entanglements) { return true; }
-#else
-  bool CheckMessagePortMap(bool check_entanglements);
-#endif
 
   struct MessagePort {
     // sender and route_id are what we need to send messages to the port.

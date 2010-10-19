@@ -4,10 +4,11 @@
 
 #ifndef CHROME_BROWSER_VIEWS_OPTIONS_COOKIE_FILTER_PAGE_VIEW_H_
 #define CHROME_BROWSER_VIEWS_OPTIONS_COOKIE_FILTER_PAGE_VIEW_H_
+#pragma once
 
 #include "chrome/browser/views/options/content_filter_page_view.h"
 
-#include "chrome/browser/pref_member.h"
+#include "chrome/browser/prefs/pref_member.h"
 
 namespace views {
 class Checkbox;
@@ -27,7 +28,7 @@ class CookieFilterPageView : public ContentFilterPageView,
   virtual void InitControlLayout();
 
   // OptionsPageView implementation:
-  virtual void NotifyPrefChanged(const std::wstring* pref_name);
+  virtual void NotifyPrefChanged(const std::string* pref_name);
 
   // views::ButtonListener implementation:
   virtual void ButtonPressed(views::Button* sender, const views::Event& event);

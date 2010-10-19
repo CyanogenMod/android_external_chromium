@@ -6,11 +6,13 @@
 
 #include "base/string_util.h"
 #include "base/thread.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/importer/importer.h"
 #include "chrome/browser/password_manager/password_store.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
@@ -35,9 +37,10 @@ void ProfileWriter::AddIE7PasswordInfo(const IE7PasswordInfo& info) {
 }
 #endif
 
-void ProfileWriter::AddHistoryPage(const std::vector<history::URLRow>& page) {
+void ProfileWriter::AddHistoryPage(const std::vector<history::URLRow>& page,
+                                   history::VisitSource visit_source) {
   profile_->GetHistoryService(Profile::EXPLICIT_ACCESS)->
-      AddPagesWithDetails(page);
+      AddPagesWithDetails(page, visit_source);
 }
 
 void ProfileWriter::AddHomepage(const GURL& home_page) {
@@ -99,18 +102,19 @@ void ProfileWriter::AddBookmarkEntry(
         const BookmarkNode* node = parent->GetChild(index);
         if ((node->type() == BookmarkNode::BOOKMARK_BAR ||
              node->type() == BookmarkNode::FOLDER) &&
-            node->GetTitle() == folder_name) {
+            node->GetTitle() == WideToUTF16Hack(folder_name)) {
           child = node;
           break;
         }
       }
       if (child == NULL)
-        child = model->AddGroup(parent, parent->GetChildCount(), folder_name);
+        child = model->AddGroup(parent, parent->GetChildCount(),
+                                WideToUTF16Hack(folder_name));
       parent = child;
     }
     groups_added_to.insert(parent);
     model->AddURLWithCreationTime(parent, parent->GetChildCount(),
-        it->title, it->url, it->creation_time);
+        WideToUTF16Hack(it->title), it->url, it->creation_time);
 
     // If some items are put into toolbar, it looks like the user was using
     // it in their last browser. We turn on the bookmarks toolbar.
@@ -283,7 +287,7 @@ std::wstring ProfileWriter::GenerateUniqueFolderName(
   for (int i = 0, child_count = other->GetChildCount(); i < child_count; ++i) {
     const BookmarkNode* node = other->GetChild(i);
     if (node->is_folder())
-      other_folder_names.insert(node->GetTitle());
+      other_folder_names.insert(UTF16ToWideHack(node->GetTitle()));
   }
 
   if (other_folder_names.find(folder_name) == other_folder_names.end())
@@ -311,7 +315,7 @@ bool ProfileWriter::DoesBookmarkExist(
 
   for (size_t i = 0; i < nodes_with_same_url.size(); ++i) {
     const BookmarkNode* node = nodes_with_same_url[i];
-    if (entry.title != node->GetTitle())
+    if (WideToUTF16Hack(entry.title) != node->GetTitle())
       continue;
 
     // Does the path match?

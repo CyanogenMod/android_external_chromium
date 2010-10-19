@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_EXTENSIONS_EXTENSION_MENU_MANAGER_H_
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_MENU_MANAGER_H_
+#pragma once
 
 #include <map>
 #include <set>
@@ -11,6 +12,7 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "chrome/browser/extensions/extension_icon_manager.h"
@@ -21,7 +23,6 @@
 struct ContextMenuParams;
 
 class Extension;
-class ExtensionMessageService;
 class Profile;
 class SkBitmap;
 class TabContents;
@@ -119,8 +120,10 @@ class ExtensionMenuItem {
     target_url_patterns_ = patterns;
   }
 
-  // Returns the title with any instances of %s replaced by |selection|.
-  string16 TitleWithReplacement(const string16& selection) const;
+  // Returns the title with any instances of %s replaced by |selection|. The
+  // result will be no longer than |max_length|.
+  string16 TitleWithReplacement(const string16& selection,
+                                size_t max_length) const;
 
   // Set the checked state to |checked|. Returns true if successful.
   bool SetChecked(bool checked);
@@ -130,10 +133,6 @@ class ExtensionMenuItem {
 
   // Takes ownership of |item| and sets its parent_id_.
   void AddChild(ExtensionMenuItem* item);
-
-  // Removes child menu item with the given id, returning true if the item was
-  // found and removed, or false otherwise.
-  bool RemoveChild(const Id& child_id);
 
   // Takes the child item from this parent. The item is returned and the caller
   // then owns the pointer.
@@ -244,6 +243,8 @@ class ExtensionMenuManager : public NotificationObserver {
   static bool HasAllowedScheme(const GURL& url);
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(ExtensionMenuManagerTest, DeleteParent);
+
   // This is a helper function which takes care of de-selecting any other radio
   // items in the same group (i.e. that are adjacent in the list).
   void RadioItemSelected(ExtensionMenuItem* item);

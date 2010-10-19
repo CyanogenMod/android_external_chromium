@@ -5,15 +5,20 @@
 #include "chrome/browser/geolocation/geolocation_permission_context.h"
 
 #include "base/scoped_vector.h"
+#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/geolocation/geolocation_content_settings_map.h"
+#include "chrome/browser/geolocation/geolocation_permission_context.h"
 #include "chrome/browser/geolocation/location_arbitrator.h"
 #include "chrome/browser/geolocation/location_provider.h"
 #include "chrome/browser/geolocation/mock_location_provider.h"
 #include "chrome/browser/renderer_host/mock_render_process_host.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
+#include "chrome/browser/tab_contents/test_tab_contents.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/test/testing_profile.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 // TestTabContents short-circuits TAB_CONTENTS_INFOBAR_REMOVED to call
@@ -184,7 +189,7 @@ TEST_F(GeolocationPermissionContextTests, QueuedPermission) {
   ConfirmInfoBarDelegate* infobar_0 =
       contents()->GetInfoBarDelegateAt(0)->AsConfirmInfoBarDelegate();
   ASSERT_TRUE(infobar_0);
-  std::wstring text_0 = infobar_0->GetMessageText();
+  string16 text_0 = infobar_0->GetMessageText();
 
   // Accept the first frame.
   infobar_0->Accept();
@@ -201,7 +206,7 @@ TEST_F(GeolocationPermissionContextTests, QueuedPermission) {
   ConfirmInfoBarDelegate* infobar_1 =
       contents()->GetInfoBarDelegateAt(0)->AsConfirmInfoBarDelegate();
   ASSERT_TRUE(infobar_1);
-  std::wstring text_1 = infobar_1->GetMessageText();
+  string16 text_1 = infobar_1->GetMessageText();
   EXPECT_NE(text_0, text_1);
 
   // Cancel (block) this frame.
@@ -248,7 +253,7 @@ TEST_F(GeolocationPermissionContextTests, CancelGeolocationPermissionRequest) {
   ConfirmInfoBarDelegate* infobar_0 =
       contents()->GetInfoBarDelegateAt(0)->AsConfirmInfoBarDelegate();
   ASSERT_TRUE(infobar_0);
-  std::wstring text_0 = infobar_0->GetMessageText();
+  string16 text_0 = infobar_0->GetMessageText();
 
   // Simulate the frame going away, ensure the infobar for this frame
   // is removed and the next pending infobar is created.
@@ -262,7 +267,7 @@ TEST_F(GeolocationPermissionContextTests, CancelGeolocationPermissionRequest) {
   ConfirmInfoBarDelegate* infobar_1 =
       contents()->GetInfoBarDelegateAt(0)->AsConfirmInfoBarDelegate();
   ASSERT_TRUE(infobar_1);
-  std::wstring text_1 = infobar_1->GetMessageText();
+  string16 text_1 = infobar_1->GetMessageText();
   EXPECT_NE(text_0, text_1);
 
   // Allow this frame.

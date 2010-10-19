@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_LOGIN_USER_IMAGE_SCREEN_H_
 #define CHROME_BROWSER_CHROMEOS_LOGIN_USER_IMAGE_SCREEN_H_
+#pragma once
 
 #include "chrome/browser/chromeos/login/camera.h"
 #include "chrome/browser/chromeos/login/user_image_view.h"
@@ -32,7 +33,7 @@ class UserImageScreen: public ViewScreen<UserImageView>,
 
   // UserImageView::Delegate implementation:
   virtual void OnOK(const SkBitmap& image);
-  virtual void OnCancel();
+  virtual void OnSkip();
 
   // NotificationObserver implementation:
   virtual void Observe(NotificationType type,

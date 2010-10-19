@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GTK_GTK_FLOATING_CONTAINER_H_
 #define CHROME_BROWSER_GTK_GTK_FLOATING_CONTAINER_H_
+#pragma once
 
 #include <gdk/gdk.h>
 #include <gtk/gtk.h>
@@ -26,7 +27,8 @@
 // signature:
 //
 //   void (*set_floating_position)(GtkFloatingContainer* container,
-//                                 GtkAllocation* allocation);
+//                                 GtkAllocation* allocation,
+//                                 gpointer userdata);
 //
 // Your handler should, for each floating widget, set the "x" and "y" child
 // properties.

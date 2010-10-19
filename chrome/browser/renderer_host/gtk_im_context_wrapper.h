@@ -4,14 +4,15 @@
 
 #ifndef CHROME_BROWSER_RENDERER_HOST_GTK_IM_CONTEXT_WRAPPER_H_
 #define CHROME_BROWSER_RENDERER_HOST_GTK_IM_CONTEXT_WRAPPER_H_
+#pragma once
 
 #include <gdk/gdk.h>
 #include <pango/pango-attributes.h>
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/gtest_prod_util.h"
 #include "base/string16.h"
-#include "testing/gtest/include/gtest/gtest_prod.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebCompositionUnderline.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebTextInputType.h"
 
@@ -19,7 +20,9 @@ namespace gfx {
 class Rect;
 }
 
+#if !defined(TOOLKIT_VIEWS)
 class MenuGtk;
+#endif
 class RenderWidgetHostViewGtk;
 struct NativeWebKeyboardEvent;
 typedef struct _GtkIMContext GtkIMContext;
@@ -49,7 +52,11 @@ class GtkIMContextWrapper {
   void OnFocusIn();
   void OnFocusOut();
 
+#if !defined(TOOLKIT_VIEWS)
+  // Not defined for views because the views context menu doesn't
+  // implement input methods yet.
   void AppendInputMethodsContextMenu(MenuGtk* menu);
+#endif
 
   void CancelComposition();
 
@@ -58,7 +65,7 @@ class GtkIMContextWrapper {
  private:
   // For unit tests.
   class GtkIMContextWrapperTest;
-  FRIEND_TEST(GtkIMContextWrapperTest, ExtractCompositionInfo);
+  FRIEND_TEST_ALL_PREFIXES(GtkIMContextWrapperTest, ExtractCompositionInfo);
 
   // Check if a text needs commit by forwarding a char event instead of
   // by confirming as a composition text.
@@ -188,6 +195,11 @@ class GtkIMContextWrapper {
   // Stores a copy of the most recent commit text received by commit signal
   // handler.
   string16 commit_text_;
+
+  // If it's true then the next "commit" signal will be suppressed.
+  // It's only used to workaround http://crbug.com/50485.
+  // TODO(suzhe): Remove it after input methods get fixed.
+  bool suppress_next_commit_;
 
   DISALLOW_COPY_AND_ASSIGN(GtkIMContextWrapper);
 };

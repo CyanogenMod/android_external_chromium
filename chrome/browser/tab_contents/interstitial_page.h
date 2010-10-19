@@ -4,12 +4,14 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_INTERSTITIAL_PAGE_H_
 #define CHROME_BROWSER_TAB_CONTENTS_INTERSTITIAL_PAGE_H_
+#pragma once
 
 #include <map>
 #include <string>
 
 #include "base/scoped_ptr.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
+#include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/renderer_preferences.h"
 #include "gfx/size.h"
@@ -103,6 +105,12 @@ class InterstitialPage : public NotificationObserver,
   }
   virtual int GetBrowserWindowID() const;
 
+  // See description above field.
+  void set_reload_on_dont_proceed(bool value) {
+    reload_on_dont_proceed_ = value;
+  }
+  bool reload_on_dont_proceed() const { return reload_on_dont_proceed_; }
+
  protected:
   // NotificationObserver method:
   virtual void Observe(NotificationType type,
@@ -120,9 +128,7 @@ class InterstitialPage : public NotificationObserver,
                            const std::wstring& title);
   virtual void DomOperationResponse(const std::string& json_string,
                                     int automation_id);
-  virtual RendererPreferences GetRendererPrefs(Profile* profile) const {
-    return renderer_preferences_;
-  }
+  virtual RendererPreferences GetRendererPrefs(Profile* profile) const;
 
   // Invoked when the page sent a command through DOMAutomation.
   virtual void CommandReceived(const std::string& command) {}
@@ -182,6 +188,12 @@ class InterstitialPage : public NotificationObserver,
   // pending entry was created since this interstitial was shown and we should
   // not discard it.
   bool should_discard_pending_nav_entry_;
+
+  // If true and the user chooses not to proceed the target NavigationController
+  // is reloaded. This is used when two NavigationControllers are merged
+  // (CopyStateFromAndPrune).
+  // The default is false.
+  bool reload_on_dont_proceed_;
 
   // Whether this interstitial is enabled.  See Disable() for more info.
   bool enabled_;

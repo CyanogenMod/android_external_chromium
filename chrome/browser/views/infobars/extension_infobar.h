@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_INFOBARS_EXTENSION_INFOBAR_H_
 #define CHROME_BROWSER_VIEWS_INFOBARS_EXTENSION_INFOBAR_H_
+#pragma once
 
 #include "chrome/browser/views/infobars/infobars.h"
 
@@ -31,7 +32,7 @@ class ExtensionInfoBar : public InfoBar,
   virtual ~ExtensionInfoBar();
 
   // Overridden from ExtensionView::Container:
-  virtual void OnExtensionMouseEvent(ExtensionView* view) {}
+  virtual void OnExtensionMouseMove(ExtensionView* view) {}
   virtual void OnExtensionMouseLeave(ExtensionView* view) {}
   virtual void OnExtensionPreferredSizeChanged(ExtensionView* view);
 

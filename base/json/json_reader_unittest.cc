@@ -1,10 +1,12 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "base/json/json_reader.h"
 #include "base/scoped_ptr.h"
+#include "base/string_piece.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
 
@@ -168,9 +170,9 @@ TEST(JSONReaderTest, Reading) {
   root.reset(JSONReader().JsonToValue("\"hello world\"", false, false));
   ASSERT_TRUE(root.get());
   ASSERT_TRUE(root->IsType(Value::TYPE_STRING));
-  std::wstring str_val;
+  std::string str_val;
   ASSERT_TRUE(root->GetAsString(&str_val));
-  ASSERT_EQ(L"hello world", str_val);
+  ASSERT_EQ("hello world", str_val);
 
   // Empty string
   root.reset(JSONReader().JsonToValue("\"\"", false, false));
@@ -178,7 +180,7 @@ TEST(JSONReaderTest, Reading) {
   ASSERT_TRUE(root->IsType(Value::TYPE_STRING));
   str_val.clear();
   ASSERT_TRUE(root->GetAsString(&str_val));
-  ASSERT_EQ(L"", str_val);
+  ASSERT_EQ("", str_val);
 
   // Test basic string escapes
   root.reset(JSONReader().JsonToValue("\" \\\"\\\\\\/\\b\\f\\n\\r\\t\\v\"",
@@ -187,7 +189,7 @@ TEST(JSONReaderTest, Reading) {
   ASSERT_TRUE(root->IsType(Value::TYPE_STRING));
   str_val.clear();
   ASSERT_TRUE(root->GetAsString(&str_val));
-  ASSERT_EQ(L" \"\\/\b\f\n\r\t\v", str_val);
+  ASSERT_EQ(" \"\\/\b\f\n\r\t\v", str_val);
 
   // Test hex and unicode escapes including the null character.
   root.reset(JSONReader().JsonToValue("\"\\x41\\x00\\u1234\"", false,
@@ -196,7 +198,7 @@ TEST(JSONReaderTest, Reading) {
   ASSERT_TRUE(root->IsType(Value::TYPE_STRING));
   str_val.clear();
   ASSERT_TRUE(root->GetAsString(&str_val));
-  ASSERT_EQ(std::wstring(L"A\0\x1234", 3), str_val);
+  ASSERT_EQ(std::wstring(L"A\0\x1234", 3), UTF8ToWide(str_val));
 
   // Test invalid strings
   root.reset(JSONReader().JsonToValue("\"no closing quote", false, false));
@@ -302,14 +304,14 @@ TEST(JSONReaderTest, Reading) {
   ASSERT_TRUE(root->IsType(Value::TYPE_DICTIONARY));
   DictionaryValue* dict_val = static_cast<DictionaryValue*>(root.get());
   real_val = 0.0;
-  ASSERT_TRUE(dict_val->GetReal(L"number", &real_val));
+  ASSERT_TRUE(dict_val->GetReal("number", &real_val));
   ASSERT_DOUBLE_EQ(9.87654321, real_val);
   Value* null_val = NULL;
-  ASSERT_TRUE(dict_val->Get(L"null", &null_val));
+  ASSERT_TRUE(dict_val->Get("null", &null_val));
   ASSERT_TRUE(null_val->IsType(Value::TYPE_NULL));
   str_val.clear();
-  ASSERT_TRUE(dict_val->GetString(L"S", &str_val));
-  ASSERT_EQ(L"str", str_val);
+  ASSERT_TRUE(dict_val->GetString("S", &str_val));
+  ASSERT_EQ("str", str_val);
 
   root2.reset(JSONReader::Read(
       "{\"number\":9.87654321, \"null\":null , \"\\x53\" : \"str\", }", true));
@@ -342,15 +344,15 @@ TEST(JSONReaderTest, Reading) {
   ASSERT_TRUE(root->IsType(Value::TYPE_DICTIONARY));
   dict_val = static_cast<DictionaryValue*>(root.get());
   DictionaryValue* inner_dict = NULL;
-  ASSERT_TRUE(dict_val->GetDictionary(L"inner", &inner_dict));
+  ASSERT_TRUE(dict_val->GetDictionary("inner", &inner_dict));
   ListValue* inner_array = NULL;
-  ASSERT_TRUE(inner_dict->GetList(L"array", &inner_array));
+  ASSERT_TRUE(inner_dict->GetList("array", &inner_array));
   ASSERT_EQ(1U, inner_array->GetSize());
   bool_value = true;
-  ASSERT_TRUE(dict_val->GetBoolean(L"false", &bool_value));
+  ASSERT_TRUE(dict_val->GetBoolean("false", &bool_value));
   ASSERT_FALSE(bool_value);
   inner_dict = NULL;
-  ASSERT_TRUE(dict_val->GetDictionary(L"d", &inner_dict));
+  ASSERT_TRUE(dict_val->GetDictionary("d", &inner_dict));
 
   root2.reset(JSONReader::Read(
       "{\"inner\": {\"array\":[true] , },\"false\":false,\"d\":{},}", true));
@@ -363,15 +365,15 @@ TEST(JSONReaderTest, Reading) {
   ASSERT_TRUE(root->IsType(Value::TYPE_DICTIONARY));
   dict_val = static_cast<DictionaryValue*>(root.get());
   int integer_value = 0;
-  EXPECT_TRUE(dict_val->GetIntegerWithoutPathExpansion(L"a.b", &integer_value));
+  EXPECT_TRUE(dict_val->GetIntegerWithoutPathExpansion("a.b", &integer_value));
   EXPECT_EQ(3, integer_value);
-  EXPECT_TRUE(dict_val->GetIntegerWithoutPathExpansion(L"c", &integer_value));
+  EXPECT_TRUE(dict_val->GetIntegerWithoutPathExpansion("c", &integer_value));
   EXPECT_EQ(2, integer_value);
   inner_dict = NULL;
-  ASSERT_TRUE(dict_val->GetDictionaryWithoutPathExpansion(L"d.e.f",
+  ASSERT_TRUE(dict_val->GetDictionaryWithoutPathExpansion("d.e.f",
                                                           &inner_dict));
   ASSERT_EQ(1U, inner_dict->size());
-  EXPECT_TRUE(inner_dict->GetIntegerWithoutPathExpansion(L"g.h.i.j",
+  EXPECT_TRUE(inner_dict->GetIntegerWithoutPathExpansion("g.h.i.j",
                                                          &integer_value));
   EXPECT_EQ(1, integer_value);
 
@@ -379,9 +381,9 @@ TEST(JSONReaderTest, Reading) {
   ASSERT_TRUE(root.get());
   ASSERT_TRUE(root->IsType(Value::TYPE_DICTIONARY));
   dict_val = static_cast<DictionaryValue*>(root.get());
-  EXPECT_TRUE(dict_val->GetInteger(L"a.b", &integer_value));
+  EXPECT_TRUE(dict_val->GetInteger("a.b", &integer_value));
   EXPECT_EQ(2, integer_value);
-  EXPECT_TRUE(dict_val->GetIntegerWithoutPathExpansion(L"a.b", &integer_value));
+  EXPECT_TRUE(dict_val->GetIntegerWithoutPathExpansion("a.b", &integer_value));
   EXPECT_EQ(1, integer_value);
 
   // Invalid, no closing brace
@@ -444,7 +446,7 @@ TEST(JSONReaderTest, Reading) {
   ASSERT_TRUE(root->IsType(Value::TYPE_STRING));
   str_val.clear();
   ASSERT_TRUE(root->GetAsString(&str_val));
-  ASSERT_EQ(L"\x7f51\x9875", str_val);
+  ASSERT_EQ(L"\x7f51\x9875", UTF8ToWide(str_val));
 
   // Test invalid utf8 encoded input
   root.reset(JSONReader().JsonToValue("\"345\xb0\xa1\xb0\xa2\"",

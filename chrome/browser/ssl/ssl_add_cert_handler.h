@@ -4,10 +4,10 @@
 
 #ifndef CHROME_BROWSER_SSL_SSL_ADD_CERT_HANDLER_H_
 #define CHROME_BROWSER_SSL_SSL_ADD_CERT_HANDLER_H_
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
-#include "base/string16.h"
 
 namespace net {
 class X509Certificate;
@@ -20,9 +20,12 @@ class URLRequest;
 // It is self-owned and deletes itself when finished.
 class SSLAddCertHandler : public base::RefCountedThreadSafe<SSLAddCertHandler> {
  public:
-  SSLAddCertHandler(URLRequest* request, net::X509Certificate* cert);
+  SSLAddCertHandler(URLRequest* request, net::X509Certificate* cert,
+                    int render_process_host_id, int render_view_id);
 
   net::X509Certificate* cert()  { return cert_; }
+
+  int network_request_id() const { return network_request_id_; }
 
   // The platform-specific code calls this when it's done, to clean up.
   // If |addCert| is true, the cert will be added to the CertDatabase.
@@ -31,18 +34,22 @@ class SSLAddCertHandler : public base::RefCountedThreadSafe<SSLAddCertHandler> {
  private:
   friend class base::RefCountedThreadSafe<SSLAddCertHandler>;
 
-  // Runs the user interface. Called on the UI thread. Calls AskToAddCert.
-  void RunUI();
+  // Runs the handler. Called on the IO thread.
+  void Run();
 
   // Platform-specific code that asks the user whether to add the cert.
   // Called on the UI thread.
   void AskToAddCert();
 
-  // Utility to display an error message in a dialog box.
-  void ShowError(const string16& error);
-
   // The cert to add.
   scoped_refptr<net::X509Certificate> cert_;
+
+  // The id of the request which started the process.
+  int network_request_id_;
+  // The id of the |RenderProcessHost| which started the download.
+  int render_process_host_id_;
+  // The id of the |RenderView| which started the download.
+  int render_view_id_;
 
   DISALLOW_COPY_AND_ASSIGN(SSLAddCertHandler);
 };

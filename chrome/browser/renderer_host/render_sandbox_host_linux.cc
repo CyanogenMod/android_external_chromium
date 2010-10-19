@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,7 @@
 #include "base/process_util.h"
 #include "base/scoped_ptr.h"
 #include "base/shared_memory.h"
+#include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/unix_domain_socket_posix.h"
 #include "chrome/common/sandbox_methods_linux.h"
@@ -156,13 +157,13 @@ class SandboxIPCProcess  {
 
   void HandleFontMatchRequest(int fd, const Pickle& pickle, void* iter,
                               std::vector<int>& fds) {
-    bool fileid_valid;
-    uint32_t fileid;
+    bool filefaceid_valid;
+    uint32_t filefaceid;
 
-    if (!pickle.ReadBool(&iter, &fileid_valid))
+    if (!pickle.ReadBool(&iter, &filefaceid_valid))
       return;
-    if (fileid_valid) {
-      if (!pickle.ReadUInt32(&iter, &fileid))
+    if (filefaceid_valid) {
+      if (!pickle.ReadUInt32(&iter, &filefaceid))
         return;
     }
     bool is_bold, is_italic;
@@ -177,7 +178,7 @@ class SandboxIPCProcess  {
     const char* characters = NULL;
     if (characters_bytes > 0) {
       const uint32_t kMaxCharactersBytes = 1 << 10;
-      if (characters_bytes % 2 == 0 ||  // We expect UTF-16.
+      if (characters_bytes % 2 != 0 ||  // We expect UTF-16.
           characters_bytes > kMaxCharactersBytes ||
           !pickle.ReadBytes(&iter, &characters, characters_bytes))
         return;
@@ -188,17 +189,17 @@ class SandboxIPCProcess  {
       return;
 
     std::string result_family;
-    unsigned result_fileid;
+    unsigned result_filefaceid;
     const bool r = font_config_->Match(
-        &result_family, &result_fileid, fileid_valid, fileid, family,
-        characters, characters_bytes, &is_bold, &is_italic);
+        &result_family, &result_filefaceid, filefaceid_valid, filefaceid,
+        family, characters, characters_bytes, &is_bold, &is_italic);
 
     Pickle reply;
     if (!r) {
       reply.WriteBool(false);
     } else {
       reply.WriteBool(true);
-      reply.WriteUInt32(result_fileid);
+      reply.WriteUInt32(result_filefaceid);
       reply.WriteString(result_family);
       reply.WriteBool(is_bold);
       reply.WriteBool(is_italic);
@@ -208,10 +209,10 @@ class SandboxIPCProcess  {
 
   void HandleFontOpenRequest(int fd, const Pickle& pickle, void* iter,
                              std::vector<int>& fds) {
-    uint32_t fileid;
-    if (!pickle.ReadUInt32(&iter, &fileid))
+    uint32_t filefaceid;
+    if (!pickle.ReadUInt32(&iter, &filefaceid))
       return;
-    const int result_fd = font_config_->Open(fileid);
+    const int result_fd = font_config_->Open(filefaceid);
 
     Pickle reply;
     if (result_fd == -1) {
@@ -336,14 +337,15 @@ class SandboxIPCProcess  {
     std::string inode_output;
 
     std::vector<std::string> sandbox_cmd = sandbox_cmd_;
-    sandbox_cmd.push_back(Int64ToString(inode));
+    sandbox_cmd.push_back(base::Int64ToString(inode));
     CommandLine get_inode_cmd(sandbox_cmd);
     if (base::GetAppOutput(get_inode_cmd, &inode_output))
-      StringToInt(inode_output, &pid);
+      base::StringToInt(inode_output, &pid);
 
     if (!pid) {
+      // Even though the pid is invalid, we still need to reply to the zygote
+      // and not just return here.
       LOG(ERROR) << "Could not get pid";
-      return;
     }
 
     Pickle reply;
@@ -358,7 +360,7 @@ class SandboxIPCProcess  {
       return;
     int shm_fd = -1;
     base::SharedMemory shm;
-    if (shm.Create(L"", false, false, shm_size))
+    if (shm.Create("", false, false, shm_size))
       shm_fd = shm.handle().fd;
     Pickle reply;
     SendRendererReply(fds, reply, shm_fd);
@@ -495,8 +497,10 @@ class SandboxIPCProcess  {
     Pickle reply;
     SendRendererReply(fds, reply, font_fd);
 
-    if (font_fd >= 0)
-      HANDLE_EINTR(close(font_fd));
+    if (font_fd >= 0) {
+      if (HANDLE_EINTR(close(font_fd)) < 0)
+        PLOG(ERROR) << "close";
+    }
   }
 
   // MSCharSetToFontconfig translates a Microsoft charset identifier to a
@@ -630,7 +634,10 @@ class SandboxIPCProcess  {
 
 // Runs on the main thread at startup.
 RenderSandboxHostLinux::RenderSandboxHostLinux()
-    : init_(false) {
+    : init_(false),
+      renderer_socket_(0),
+      childs_lifeline_fd_(0),
+      pid_(0) {
 }
 
 void RenderSandboxHostLinux::Init(const std::string& sandbox_path) {

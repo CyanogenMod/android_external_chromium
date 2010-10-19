@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_VIEWS_LOCATION_BAR_ICON_LABEL_BUBBLE_VIEW_H_
 #define CHROME_BROWSER_VIEWS_LOCATION_BAR_ICON_LABEL_BUBBLE_VIEW_H_
+#pragma once
 
 #include <string>
 
@@ -35,6 +36,7 @@ class IconLabelBubbleView : public views::View {
   void SetFont(const gfx::Font& font);
   void SetLabel(const std::wstring& label);
   void SetImage(const SkBitmap& bitmap);
+  void SetItemPadding(int padding) { item_padding_ = padding; }
 
   virtual void Paint(gfx::Canvas* canvas);
   virtual gfx::Size GetPreferredSize();
@@ -53,6 +55,8 @@ class IconLabelBubbleView : public views::View {
   // The contents of the bubble.
   views::ImageView* image_;
   views::Label* label_;
+
+  int item_padding_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(IconLabelBubbleView);
 };

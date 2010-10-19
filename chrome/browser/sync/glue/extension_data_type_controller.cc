@@ -2,14 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/sync/glue/extension_data_type_controller.h"
+
 #include "base/histogram.h"
 #include "base/logging.h"
 #include "base/time.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/profile.h"
-#include "chrome/browser/sync/glue/extension_change_processor.h"
-#include "chrome/browser/sync/glue/extension_data_type_controller.h"
-#include "chrome/browser/sync/glue/extension_model_associator.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_factory.h"
 #include "chrome/browser/sync/unrecoverable_error_handler.h"

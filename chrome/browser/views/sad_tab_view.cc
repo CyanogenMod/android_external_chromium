@@ -7,6 +7,7 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tab_contents/tab_contents_delegate.h"
 #include "gfx/canvas.h"
 #include "gfx/canvas_skia.h"
 #include "gfx/size.h"
@@ -53,9 +54,9 @@ SadTabView::SadTabView(TabContents* tab_contents)
 
 void SadTabView::Paint(gfx::Canvas* canvas) {
   SkPaint paint;
-  paint.setShader(gfx::CreateGradientShader(0, height(),
-                                            kBackgroundColor,
-                                            kBackgroundEndColor))->safeUnref();
+  SkSafeUnref(paint.setShader(gfx::CreateGradientShader(0, height(),
+                                                        kBackgroundColor,
+                                                        kBackgroundEndColor)));
   paint.setStyle(SkPaint::kFill_Style);
   canvas->AsCanvasSkia()->drawRectCoords(
       0, 0, SkIntToScalar(width()), SkIntToScalar(height()), paint);
@@ -86,7 +87,7 @@ void SadTabView::Layout() {
 
   int title_x = (width() - title_width_) / 2;
   int title_y = icon_bounds_.bottom() + kIconTitleSpacing;
-  int title_height = title_font_->height();
+  int title_height = title_font_->GetHeight();
   title_bounds_.SetRect(title_x, title_y, title_width_, title_height);
 
   gfx::CanvasSkia cc(0, 0, true);
@@ -110,7 +111,16 @@ void SadTabView::Layout() {
 void SadTabView::LinkActivated(views::Link* source, int event_flags) {
   if (tab_contents_ != NULL && source == learn_more_link_) {
     string16 url = l10n_util::GetStringUTF16(IDS_CRASH_REASON_URL);
-    tab_contents_->OpenURL(GURL(url), GURL(), CURRENT_TAB,
+    WindowOpenDisposition disposition(CURRENT_TAB);
+#if defined(OS_CHROMEOS)
+    if (tab_contents_->delegate() &&
+        tab_contents_->delegate()->IsPopup(tab_contents_)) {
+      // Popup windows are generally too small to effectively show help,
+      // so open the help content in a new foregreound tab.
+      disposition = NEW_FOREGROUND_TAB;
+    }
+#endif
+    tab_contents_->OpenURL(GURL(url), GURL(), disposition,
         PageTransition::LINK);
   }
 }

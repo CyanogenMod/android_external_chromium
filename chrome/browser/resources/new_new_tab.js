@@ -2,61 +2,25 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-var loading = true;
+// To avoid creating tons of unnecessary nodes. We assume we cannot fit more
+// than this many items in the miniview.
+var MAX_MINIVIEW_ITEMS = 15;
+
+// Extra spacing at the top of the layout.
+var LAYOUT_SPACING_TOP = 25;
 
 function updateSimpleSection(id, section) {
-  if (shownSections & section)
+  var elm = $(id);
+  var maxiview = getSectionMaxiview(elm);
+  if (shownSections & section) {
     $(id).classList.remove('hidden');
-  else
+    if (maxiview)
+      maxiview.classList.remove('hidden');
+  } else {
     $(id).classList.add('hidden');
-}
-
-var tipCache = {};
-
-function tips(data) {
-  logEvent('received tips');
-  tipCache = data;
-  renderTip();
-}
-
-function createTip(data) {
-  if (data.length) {
-    if (data[0].set_homepage_tip) {
-      var homepageButton = document.createElement('button');
-      homepageButton.className = 'link';
-      homepageButton.textContent = data[0].set_homepage_tip;
-      homepageButton.addEventListener('click', setAsHomePageLinkClicked);
-      return homepageButton;
-    } else if (data[0].set_promo_tip) {
-      var promoMessage = document.createElement('span');
-      promoMessage.innerHTML = data[0].set_promo_tip;
-      var promoButton = promoMessage.querySelector('button');
-      promoButton.addEventListener('click', importBookmarksLinkClicked);
-      return promoMessage;
-    } else {
-      try {
-        return parseHtmlSubset(data[0].tip_html_text);
-      } catch (parseErr) {
-        console.error('Error parsing tips: ' + parseErr.message);
-      }
-    }
+    if (maxiview)
+      maxiview.classList.add('hidden');
   }
-  // Return an empty DF in case of failure.
-  return document.createDocumentFragment();
-}
-
-function clearTipLine() {
-  var tipElement = $('tip-line');
-  // There should always be only one tip.
-  tipElement.textContent = '';
-  tipElement.removeEventListener('click', setAsHomePageLinkClicked);
-}
-
-function renderTip() {
-  clearTipLine();
-  var tipElement = $('tip-line');
-  tipElement.appendChild(createTip(tipCache));
-  fixLinkUnderlines(tipElement);
 }
 
 function recentlyClosedTabs(data) {
@@ -64,6 +28,7 @@ function recentlyClosedTabs(data) {
   // We need to store the recent items so we can update the layout on a resize.
   recentItems = data;
   renderRecentlyClosed();
+  layoutSections();
 }
 
 var recentItems = [];
@@ -130,7 +95,196 @@ function handleWindowResize() {
     mostVisited.useSmallGrid = b;
     mostVisited.layout();
     renderRecentlyClosed();
+    updateAllMiniviewClippings();
   }
+
+  layoutSections();
+}
+
+// Stores some information about each section necessary to layout. A new
+// instance is constructed for each section on each layout.
+function SectionLayoutInfo(section) {
+  this.section = section;
+  this.header = section.getElementsByTagName('h2')[0];
+  this.miniview = section.getElementsByClassName('miniview')[0];
+  this.maxiview = getSectionMaxiview(section);
+  this.expanded = this.maxiview && !section.classList.contains('hidden');
+  this.fixedHeight = this.section.offsetHeight;
+  this.scrollingHeight = 0;
+
+  if (this.expanded)
+    this.scrollingHeight = this.maxiview.offsetHeight;
+}
+
+// Get all sections to be layed out.
+SectionLayoutInfo.getAll = function() {
+  var sections = document.querySelectorAll('.section:not(.disabled)');
+  var result = [];
+  for (var i = 0, section; section = sections[i]; i++) {
+    result.push(new SectionLayoutInfo(section));
+  }
+  return result;
+};
+
+// Ensure the miniview sections don't have any clipped items.
+function updateMiniviewClipping(miniview) {
+  var clipped = false;
+  for (var j = 0, item; item = miniview.children[j]; j++) {
+    item.style.display = '';
+    if (clipped ||
+        (item.offsetLeft + item.offsetWidth) > miniview.offsetWidth) {
+      item.style.display = 'none';
+      clipped = true;
+    } else {
+      item.style.display = '';
+    }
+  }
+}
+
+// Ensure none of the miniviews have any clipped items.
+function updateAllMiniviewClippings() {
+  var miniviews = document.querySelectorAll('.section.hidden .miniview');
+  for (var i = 0, miniview; miniview = miniviews[i]; i++) {
+    updateMiniviewClipping(miniview);
+  }
+}
+
+// Layout the sections in a modified accordian. The header and miniview, if
+// visible are fixed within the viewport. If there is an expanded section, its
+// it scrolls.
+//
+// =============================
+// | collapsed section         |  <- Any collapsed sections are fixed position.
+// | and miniview              |
+// |---------------------------|
+// | expanded section          |
+// |                           |  <- There can be one expanded section and it
+// | and maxiview              |     is absolutely positioned so that it can
+// |                           |     scroll "underneath" the fixed elements.
+// |                           |
+// |---------------------------|
+// | another collapsed section |
+// |---------------------------|
+//
+// We want the main frame scrollbar to be the one that scrolls the expanded
+// region. To get this effect, we make the fixed elements position:fixed and the
+// scrollable element position:absolute. We also artificially increase the
+// height of the document so that it is possible to scroll down enough to
+// display the end of the document, even with any fixed elements at the bottom
+// of the viewport.
+//
+// There is a final twist: If the intrinsic height of the expanded section is
+// less than the available height (because the window is tall), any collapsed
+// sections sinch up and sit below the expanded section. This is so that we
+// don't have a bunch of dead whitespace in the case of expanded sections that
+// aren't very tall.
+function layoutSections() {
+  var sections = SectionLayoutInfo.getAll();
+  var expandedSection = null;
+  var headerHeight = LAYOUT_SPACING_TOP;
+  var footerHeight = 0;
+
+  // Calculate the height of the fixed elements above the expanded section. Also
+  // take note of the expanded section, if there is one.
+  var i;
+  var section;
+  for (i = 0; section = sections[i]; i++) {
+    headerHeight += section.fixedHeight;
+    if (section.expanded) {
+      expandedSection = section;
+      i++;
+      break;
+    }
+  }
+
+  // Calculate the height of the fixed elements below the expanded section, if
+  // any.
+  for (; section = sections[i]; i++) {
+    footerHeight += section.fixedHeight;
+  }
+
+  // Determine the height to use for the expanded section. If there isn't enough
+  // space to show the expanded section completely, this will be the available
+  // height. Otherwise, we use the intrinsic height of the expanded section.
+  var expandedSectionHeight;
+  if (expandedSection) {
+    var flexHeight = window.innerHeight - headerHeight - footerHeight;
+    if (flexHeight < expandedSection.scrollingHeight) {
+      expandedSectionHeight = flexHeight;
+
+      // Also, artificially expand the height of the document so that we can see
+      // the entire expanded section.
+      //
+      // TODO(aa): Where does this come from? It is the difference between what
+      // we set document.body.style.height to and what
+      // document.body.scrollHeight measures afterward. I expect them to be the
+      // same if document.body has no margins.
+      var fudge = 44;
+      document.body.style.height =
+          headerHeight +
+          expandedSection.scrollingHeight +
+          footerHeight +
+          fudge +
+          'px';
+    } else {
+      expandedSectionHeight = expandedSection.scrollingHeight;
+      document.body.style.height = '';
+    }
+  }
+
+  // Now position all the elements.
+  var y = LAYOUT_SPACING_TOP;
+  for (i = 0, section; section = sections[i]; i++) {
+    section.section.style.top = y + 'px';
+    y += section.fixedHeight;
+
+    if (section.maxiview && section == expandedSection) {
+      section.maxiview.style.top = y + 'px';
+      updateMask(section.maxiview, expandedSectionHeight);
+    }
+
+    if (section == expandedSection)
+      y += expandedSectionHeight;
+  }
+
+  updateAttributionDisplay(y);
+}
+
+function updateMask(maxiview, visibleHeightPx) {
+  // We want to end up with 10px gradients at the top and bottom of
+  // visibleHeight, but webkit-mask only supports expression in terms of
+  // percentages.
+
+  // We might not have enough room to do 10px gradients on each side. To get the
+  // right effect, we don't want to make the gradients smaller, but make them
+  // appear to mush into each other.
+  var gradientHeightPx = Math.min(10, Math.floor(visibleHeightPx / 2));
+  var gradientDestination = 'rgba(0,0,0,' + (gradientHeightPx / 10) + ')';
+
+  var bottomSpacing = 15;
+  var first = parseFloat(maxiview.style.top) / window.innerHeight;
+  var second = first + gradientHeightPx / window.innerHeight;
+  var fourth = first + (visibleHeightPx - bottomSpacing) / window.innerHeight;
+  var third = fourth - gradientHeightPx / window.innerHeight;
+
+  var gradientArguments = [
+    'linear',
+    '0 0',
+    '0 100%',
+    'from(transparent)',
+    getColorStopString(first, 'transparent'),
+    getColorStopString(second, gradientDestination),
+    getColorStopString(third, gradientDestination),
+    getColorStopString(fourth, 'transparent'),
+    'to(transparent)'
+  ];
+
+  var gradient = '-webkit-gradient(' + gradientArguments.join(', ') + ')';
+  maxiview.style.WebkitMaskImage = gradient;
+}
+
+function getColorStopString(height, color) {
+  return 'color-stop(' + height + ', ' + color + ')';
 }
 
 window.addEventListener('resize', handleWindowResize);
@@ -147,20 +301,28 @@ function getSectionElement(section) {
   return sectionToElementMap[section];
 }
 
+function getSectionMaxiview(section) {
+  return $(section.id + '-maxiview');
+}
+
 function showSection(section) {
   if (!(section & shownSections)) {
     shownSections |= section;
     var el = getSectionElement(section);
-    if (el)
+    if (el) {
       el.classList.remove('hidden');
+
+      var maxiview = getSectionMaxiview(el);
+      if (maxiview) {
+        maxiview.classList.remove('hiding');
+        maxiview.classList.remove('hidden');
+      }
+    }
 
     switch (section) {
       case Section.THUMB:
         mostVisited.visible = true;
         mostVisited.layout();
-        break;
-      case Section.RECENT:
-        renderRecentlyClosed();
         break;
     }
   }
@@ -175,16 +337,31 @@ function hideSection(section) {
         mostVisited.visible = false;
         mostVisited.layout();
         break;
-      case Section.RECENT:
-        renderRecentlyClosed();
-        break;
     }
 
     var el = getSectionElement(section);
-    if (el)
+    if (el) {
       el.classList.add('hidden');
+
+      var maxiview = getSectionMaxiview(el);
+      if (maxiview)
+        maxiview.classList.add('hiding');
+
+      var miniview = el.getElementsByClassName('miniview')[0];
+      if (miniview)
+        updateMiniviewClipping(miniview);
+    }
   }
 }
+
+window.addEventListener('webkitTransitionEnd', function(e) {
+  if (e.target.classList.contains('hiding')) {
+    e.target.classList.add('hidden');
+    e.target.classList.remove('hiding');
+  }
+
+  document.documentElement.setAttribute('enable-section-animations', 'false');
+});
 
 /**
  * Callback when the shown sections changes in another NTP.
@@ -197,31 +374,34 @@ function setShownSections(newShownSections) {
     else
       hideSection(Section[key]);
   }
+  layoutSections();
 }
 
 // Recently closed
 
 function layoutRecentlyClosed() {
-  var recentShown = shownSections & Section.RECENT;
+  var recentElement = $('recently-closed');
+  // We cannot use clientWidth here since the width has a transition.
+  var availWidth = useSmallGrid() ? 692 : 920;
+  var parentEl = recentElement.lastElementChild;
 
-  if (recentShown) {
-    var recentElement = $('recently-closed');
-    // We cannot use clientWidth here since the width has a transition.
-    var availWidth = useSmallGrid() ? 692 : 920;
-    var parentEl = recentElement.lastElementChild;
-
-    // Now go backwards and hide as many elements as needed.
-    var elementsToHide = [];
-    for (var el = parentEl.lastElementChild; el;
-         el = el.previousElementSibling) {
-      if (el.offsetLeft + el.offsetWidth > availWidth) {
-        elementsToHide.push(el);
-      }
+  // Now go backwards and hide as many elements as needed.
+  var elementsToHide = [];
+  for (var el = parentEl.lastElementChild; el;
+       el = el.previousElementSibling) {
+    if (el.offsetLeft + el.offsetWidth > availWidth) {
+      elementsToHide.push(el);
     }
+  }
 
-    elementsToHide.forEach(function(el) {
-      parentEl.removeChild(el);
-    });
+  elementsToHide.forEach(function(el) {
+    parentEl.removeChild(el);
+  });
+
+  if (parentEl.hasChildNodes()) {
+    recentElement.classList.remove('disabled');
+  } else {
+    recentElement.classList.add('disabled');
   }
 }
 
@@ -248,31 +428,33 @@ function layoutRecentlyClosed() {
  */
 function syncMessageChanged(newMessage) {
   var syncStatusElement = $('sync-status');
-  var style = syncStatusElement.style;
 
   // Hide the section if the message is emtpy.
   if (!newMessage['syncsectionisvisible']) {
-    style.display = 'none';
+    syncStatusElement.classList.add('disabled');
     return;
   }
-  style.display = 'block';
+
+  syncStatusElement.classList.remove('disabled');
+
+  var content = syncStatusElement.children[0];
 
   // Set the sync section background color based on the state.
   if (newMessage.msgtype == 'error') {
-    style.backgroundColor = 'tomato';
+    content.style.backgroundColor = 'tomato';
   } else {
-    style.backgroundColor = '';
+    content.style.backgroundColor = '';
   }
 
   // Set the text for the header and sync message.
-  var titleElement = syncStatusElement.firstElementChild;
+  var titleElement = content.firstElementChild;
   titleElement.textContent = newMessage.title;
   var messageElement = titleElement.nextElementSibling;
   messageElement.textContent = newMessage.msg;
 
   // Remove what comes after the message
   while (messageElement.nextSibling) {
-    syncStatusElement.removeChild(messageElement.nextSibling);
+    content.removeChild(messageElement.nextSibling);
   }
 
   if (newMessage.linkisvisible) {
@@ -287,9 +469,11 @@ function syncMessageChanged(newMessage) {
       el.addEventListener('click', syncSectionLinkClicked);
     }
     el.textContent = newMessage.linktext;
-    syncStatusElement.appendChild(el);
+    content.appendChild(el);
     fixLinkUnderline(el);
   }
+
+  layoutSections();
 }
 
 /**
@@ -322,14 +506,51 @@ function formatTabsText(numTabs) {
 
 // Theme related
 
-function themeChanged() {
+function themeChanged(hasAttribution) {
+  document.documentElement.setAttribute('hasattribution', hasAttribution);
   $('themecss').href = 'chrome://theme/css/newtab.css?' + Date.now();
   updateAttribution();
 }
 
 function updateAttribution() {
-  $('attribution-img').src = 'chrome://theme/IDR_THEME_NTP_ATTRIBUTION?' +
-      Date.now();
+  // Default value for standard NTP with no theme attribution or custom logo.
+  logEvent('updateAttribution called');
+  var imageId = 'IDR_PRODUCT_LOGO';
+  // Theme attribution always overrides custom logos.
+  if (document.documentElement.getAttribute('hasattribution') == 'true') {
+    logEvent('updateAttribution called with THEME ATTR');
+    imageId = 'IDR_THEME_NTP_ATTRIBUTION';
+  } else if (document.documentElement.getAttribute('customlogo') == 'true') {
+    logEvent('updateAttribution with CUSTOMLOGO');
+    imageId = 'IDR_CUSTOM_PRODUCT_LOGO';
+  }
+
+  $('attribution-img').src = 'chrome://theme/' + imageId + '?' + Date.now();
+}
+
+// If the content overlaps with the attribution, we bump its opacity down.
+function updateAttributionDisplay(contentBottom) {
+  var attribution = $('attribution');
+  var main = $('main');
+  var rtl = document.documentElement.dir == 'rtl';
+  var contentRect = main.getBoundingClientRect();
+  var attributionRect = attribution.getBoundingClientRect();
+
+  // Hack. See comments for '.haslayout' in new_new_tab.css.
+  if (attributionRect.width == 0)
+    return;
+  else
+    attribution.classList.remove('nolayout');
+
+  if (contentBottom > attribution.offsetTop) {
+    if ((!rtl && contentRect.right > attributionRect.left) ||
+        (rtl && attributionRect.right > contentRect.left)) {
+      attribution.classList.add('obscured');
+      return;
+    }
+  }
+
+  attribution.classList.remove('obscured');
 }
 
 function bookmarkBarAttached() {
@@ -351,20 +572,6 @@ function viewLog() {
   console.log(lines.join('\n'));
 }
 
-// Updates the visibility of the menu items.
-function updateOptionMenu() {
-  var menuItems = $('option-menu').children;
-  for (var i = 0; i < menuItems.length; i++) {
-    var item = menuItems[i];
-    var command = item.getAttribute('command');
-    if (command == 'show' || command == 'hide') {
-      var section = Section[item.getAttribute('section')];
-      var visible = shownSections & section;
-      item.setAttribute('command', visible ? 'hide' : 'show');
-    }
-  }
-}
-
 // We apply the size class here so that we don't trigger layout animations
 // onload.
 
@@ -376,7 +583,7 @@ var localStrings = new LocalStrings();
 // Things we know are not needed at startup go below here
 
 function afterTransition(f) {
-  if (loading) {
+  if (!isDoneLoading()) {
     // Make sure we do not use a timer during load since it slows down the UI.
     f();
   } else {
@@ -447,223 +654,65 @@ function hideNotification() {
   actionLink.blur();
 }
 
-/**
- * This handles the option menu.
- * @param {Element} button The button element.
- * @param {Element} menu The menu element.
- * @constructor
- */
-function OptionMenu(button, menu) {
-  this.button = button;
-  this.menu = menu;
-  this.button.onmousedown = bind(this.handleMouseDown, this);
-  this.button.onkeydown = bind(this.handleKeyDown, this);
-  this.boundHideMenu_ = bind(this.hide, this);
-  this.boundMaybeHide_ = bind(this.maybeHide_, this);
-  this.menu.onmouseover = bind(this.handleMouseOver, this);
-  this.menu.onmouseout = bind(this.handleMouseOut, this);
-  this.menu.onmouseup = bind(this.handleMouseUp, this);
+function showFirstRunNotification() {
+  showNotification(localStrings.getString('firstrunnotification'),
+                   localStrings.getString('closefirstrunnotification'),
+                   null, 30000);
+  var notificationElement = $('notification');
+  notification.classList.add('first-run');
 }
 
-OptionMenu.prototype = {
-  show: function() {
-    updateOptionMenu();
-    this.positionMenu_();
-    this.menu.style.display = 'block';
-    this.button.classList.add('open');
-    this.button.focus();
-
-    // Listen to document and window events so that we hide the menu when the
-    // user clicks outside the menu or tabs away or the whole window is blurred.
-    document.addEventListener('focus', this.boundMaybeHide_, true);
-    document.addEventListener('mousedown', this.boundMaybeHide_, true);
-  },
-
-  positionMenu_: function() {
-    this.menu.style.top = this.button.getBoundingClientRect().bottom + 'px';
-  },
-
-  hide: function() {
-    this.menu.style.display = 'none';
-    this.button.classList.remove('open');
-    this.setSelectedIndex(-1);
-
-    document.removeEventListener('focus', this.boundMaybeHide_, true);
-    document.removeEventListener('mousedown', this.boundMaybeHide_, true);
-  },
-
-  isShown: function() {
-    return this.menu.style.display == 'block';
-  },
-
-  /**
-   * Callback for document mousedown and focus. It checks if the user tried to
-   * navigate to a different element on the page and if so hides the menu.
-   * @param {Event} e The mouse or focus event.
-   * @private
-   */
-  maybeHide_: function(e) {
-    if (!this.menu.contains(e.target) && !this.button.contains(e.target)) {
-      this.hide();
-    }
-  },
-
-  handleMouseDown: function(e) {
-    if (this.isShown()) {
-      this.hide();
-    } else {
-      this.show();
-    }
-  },
-
-  handleMouseOver: function(e) {
-    var el = e.target;
-    if (!el.hasAttribute('command')) {
-      this.setSelectedIndex(-1);
-    } else {
-      var index = Array.prototype.indexOf.call(this.menu.children, el);
-      this.setSelectedIndex(index);
-    }
-  },
-
-  handleMouseOut: function(e) {
-    this.setSelectedIndex(-1);
-  },
-
-  handleMouseUp: function(e) {
-    var item = this.getSelectedItem();
-    if (item) {
-      this.executeItem(item);
-    }
-  },
-
-  handleKeyDown: function(e) {
-    var item = this.getSelectedItem();
-
-    var self = this;
-    function selectNextVisible(m) {
-      var children = self.menu.children;
-      var len = children.length;
-      var i = self.selectedIndex_;
-      if (i == -1 && m == -1) {
-        // Edge case when we need to go the last item fisrt.
-        i = 0;
-      }
-      while (true) {
-        i = (i + m + len) % len;
-        item = children[i];
-        if (item && item.hasAttribute('command') &&
-            item.style.display != 'none') {
-          break;
-        }
-      }
-      if (item) {
-        self.setSelectedIndex(i);
-      }
-    }
-
-    switch (e.keyIdentifier) {
-      case 'Down':
-        if (!this.isShown()) {
-          this.show();
-        }
-        selectNextVisible(1);
-        e.preventDefault();
-        break;
-      case 'Up':
-        if (!this.isShown()) {
-          this.show();
-        }
-        selectNextVisible(-1);
-        e.preventDefault();
-        break;
-      case 'Esc':
-      case 'U+001B': // Maybe this is remote desktop playing a prank?
-        this.hide();
-        break;
-      case 'Enter':
-      case 'U+0020': // Space
-        if (this.isShown()) {
-          if (item) {
-            this.executeItem(item);
-          } else {
-            this.hide();
-          }
-        } else {
-          this.show();
-        }
-        e.preventDefault();
-        break;
-    }
-  },
-
-  selectedIndex_: -1,
-  setSelectedIndex: function(i) {
-    if (i != this.selectedIndex_) {
-      var items = this.menu.children;
-      var oldItem = items[this.selectedIndex_];
-      if (oldItem) {
-        oldItem.removeAttribute('selected');
-      }
-      var newItem = items[i];
-      if (newItem) {
-        newItem.setAttribute('selected', 'selected');
-      }
-      this.selectedIndex_ = i;
-    }
-  },
-
-  getSelectedItem: function() {
-    return this.menu.children[this.selectedIndex_] || null;
-  },
-
-  executeItem: function(item) {
-    var command = item.getAttribute('command');
-    if (command in this.commands) {
-      this.commands[command].call(this, item);
-    }
-
-    this.hide();
-  }
-};
-
-var optionMenu = new OptionMenu($('option-button'), $('option-menu'));
-optionMenu.commands = {
-  'clear-all-blacklisted' : function() {
-    mostVisited.clearAllBlacklisted();
-    chrome.send('getMostVisited');
-  },
-  'show': function(item) {
-    var section = Section[item.getAttribute('section')];
-    showSection(section);
-    saveShownSections();
-  },
-  'hide': function(item) {
-    var section = Section[item.getAttribute('section')];
-    hideSection(section);
-    saveShownSections();
-  }
-};
-
 $('main').addEventListener('click', function(e) {
-  if (e.target.tagName == 'H2') {
-    var p = e.target.parentNode;
-    var section = p.getAttribute('section');
-    if (section) {
-      if (shownSections & Section[section])
-        hideSection(Section[section]);
+  var p = e.target;
+  while (p && p.tagName != 'H2') {
+    // In case the user clicks on a button we do not want to expand/collapse a
+    // section.
+    if (p.tagName == 'BUTTON')
+      return;
+    p = p.parentNode;
+  }
+
+  if (!p)
+    return;
+
+  p = p.parentNode;
+  if (!getSectionMaxiview(p))
+    return;
+
+  toggleSectionVisibilityAndAnimate(p.getAttribute('section'));
+});
+
+$('most-visited-settings').addEventListener('click', function() {
+  $('clear-all-blacklisted').execute();
+});
+
+function toggleSectionVisibilityAndAnimate(section) {
+  if (!section)
+    return;
+
+  // It looks better to return the scroll to the top when toggling sections.
+  document.body.scrollTop = 0;
+
+  // We set it back in webkitTransitionEnd.
+  document.documentElement.setAttribute('enable-section-animations', 'true');
+  if (shownSections & Section[section]) {
+    hideSection(Section[section]);
+  } else {
+    for (var p in Section) {
+      if (p == section)
+        showSection(Section[p]);
       else
-        showSection(Section[section]);
-      saveShownSections();
+        hideSection(Section[p]);
     }
   }
-});
+  layoutSections();
+  saveShownSections();
+}
 
 function handleIfEnterKey(f) {
   return function(e) {
-    if (e.keyIdentifier == 'Enter') {
+    if (e.keyIdentifier == 'Enter')
       f(e);
-    }
   };
 }
 
@@ -714,8 +763,8 @@ recentlyClosedElement.addEventListener('focus', maybeShowWindowTooltip, true);
  */
 function WindowTooltip(tooltipEl) {
   this.tooltipEl = tooltipEl;
-  this.boundHide_ = bind(this.hide, this);
-  this.boundHandleMouseOut_ = bind(this.handleMouseOut, this);
+  this.boundHide_ = this.hide.bind(this);
+  this.boundHandleMouseOut_ = this.handleMouseOut.bind(this);
 }
 
 WindowTooltip.trackMouseMove_ = function(e) {
@@ -739,7 +788,7 @@ WindowTooltip.prototype = {
     } else { // focus
       this.linkEl_.addEventListener('blur', this.boundHide_);
     }
-    this.timer = window.setTimeout(bind(this.show, this, e.type, linkEl, tabs),
+    this.timer = window.setTimeout(this.show.bind(this, e.type, linkEl, tabs),
                                    WindowTooltip.DELAY);
   },
   show: function(type, linkEl, tabs) {
@@ -819,12 +868,12 @@ WindowTooltip.prototype = {
 
 var windowTooltip = new WindowTooltip($('window-tooltip'));
 
-window.addEventListener('load', bind(logEvent, global, 'Tab.NewTabOnload',
-                                     true));
+window.addEventListener('load',
+                        logEvent.bind(global, 'Tab.NewTabOnload', true));
 
 window.addEventListener('resize', handleWindowResize);
 document.addEventListener('DOMContentLoaded',
-    bind(logEvent, global, 'Tab.NewTabDOMContentLoaded', true));
+    logEvent.bind(global, 'Tab.NewTabDOMContentLoaded', true));
 
 // Whether or not we should send the initial 'GetSyncMessage' to the backend
 // depends on the value of the attribue 'syncispresent' which the backend sets
@@ -844,33 +893,6 @@ function callGetSyncMessageIfSyncIsPresent() {
     chrome.send('GetSyncMessage');
   }
 }
-
-function setAsHomePageLinkClicked(e) {
-  chrome.send('setHomePage');
-  e.preventDefault();
-}
-
-function importBookmarksLinkClicked(e) {
-  chrome.send('importBookmarks');
-  e.preventDefault();
-}
-
-function onHomePageSet(data) {
-  showNotification(data[0], data[1]);
-  // Removes the "make this my home page" tip.
-  clearTipLine();
-}
-
-function hideAllMenus() {
-  optionMenu.hide();
-}
-
-window.addEventListener('blur', hideAllMenus);
-window.addEventListener('keydown', function(e) {
-  if (e.keyIdentifier == 'Alt' || e.keyIdentifier == 'Meta') {
-    hideAllMenus();
-  }
-}, true);
 
 // Tooltip for elements that have text that overflows.
 document.addEventListener('mouseover', function(e) {
@@ -916,33 +938,38 @@ function fixLinkUnderline(el) {
 
 updateAttribution();
 
-var mostVisited = new MostVisited($('most-visited'),
-                                  useSmallGrid(),
-                                  shownSections & Section.THUMB);
+var mostVisited = new MostVisited(
+    $('most-visited-maxiview'),
+    document.querySelector('#most-visited .miniview'),
+    useSmallGrid(),
+    shownSections & Section.THUMB);
 
-function mostVisitedPages(data, firstRun) {
+function mostVisitedPages(data, firstRun, hasBlacklistedUrls) {
   logEvent('received most visited pages');
 
+  mostVisited.updateSettingsLink(hasBlacklistedUrls);
   mostVisited.data = data;
   mostVisited.layout();
-
-  loading = false;
+  layoutSections();
 
   // Remove class name in a timeout so that changes done in this JS thread are
   // not animated.
   window.setTimeout(function() {
     mostVisited.ensureSmallGridCorrect();
-    document.body.classList.remove('loading');
+    maybeDoneLoading();
   }, 1);
+
+  // Only show the first run notification if first run.
+  if (firstRun) {
+    showFirstRunNotification();
+  }
 }
 
-// Log clicked links from the tips section.
-document.addEventListener('click', function(e) {
-  var tipLinks = document.querySelectorAll('#tip-line a');
-  for (var i = 0, tipLink; tipLink = tipLinks[i]; i++) {
-    if (tipLink.contains(e.target)) {
-      chrome.send('metrics', ['NTPTip_' + tipLink.href]);
-      break;
-    }
-  }
-});
+function maybeDoneLoading() {
+  if (mostVisited.data && apps.loaded)
+    document.body.classList.remove('loading');
+}
+
+function isDoneLoading() {
+  return !document.body.classList.contains('loading');
+}

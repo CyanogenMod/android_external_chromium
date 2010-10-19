@@ -4,10 +4,9 @@
 
 #ifndef CHROME_BROWSER_COCOA_LOCATION_BAR_VIEW_MAC_H_
 #define CHROME_BROWSER_COCOA_LOCATION_BAR_VIEW_MAC_H_
+#pragma once
 
 #include <string>
-#include <map>
-#include <vector>
 
 #import <Cocoa/Cocoa.h>
 
@@ -17,11 +16,10 @@
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view_mac.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
-#include "chrome/browser/first_run.h"
+#include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/location_bar.h"
 #include "chrome/browser/toolbar_model.h"
 #include "chrome/common/content_settings_types.h"
-#include "third_party/skia/include/core/SkBitmap.h"
 
 @class AutocompleteTextField;
 class CommandUpdater;
@@ -34,6 +32,7 @@ class LocationIconDecoration;
 class PageActionDecoration;
 class Profile;
 class SelectedKeywordDecoration;
+class SkBitmap;
 class StarDecoration;
 class ToolbarModel;
 
@@ -55,6 +54,7 @@ class LocationBarViewMac : public AutocompleteEditController,
 
   // Overridden from LocationBar:
   virtual void ShowFirstRunBubble(FirstRun::BubbleType bubble_type);
+  virtual void SetSuggestedText(const string16& text);
   virtual std::wstring GetInputString() const;
   virtual WindowOpenDisposition GetWindowOpenDisposition() const;
   virtual PageTransition::Type GetPageTransition() const;
@@ -111,8 +111,16 @@ class LocationBarViewMac : public AutocompleteEditController,
                                    bool preview_enabled);
 
   // Return |page_action|'s info-bubble point in window coordinates.
-  // Returns |NSZeroPoint| if |page_action| is not present.
+  // This function should always be called with a visible page action.
+  // If |page_action| is not a page action or not visible, NOTREACHED()
+  // is called and this function returns |NSZeroPoint|.
   NSPoint GetPageActionBubblePoint(ExtensionAction* page_action);
+
+  // Get the blocked-popup content setting's frame in window
+  // coordinates.  Used by the blocked-popup animation.  Returns
+  // |NSZeroRect| if the relevant content setting decoration is not
+  // visible.
+  NSRect GetBlockedPopupRect() const;
 
   virtual void OnAutocompleteAccept(const GURL& url,
       WindowOpenDisposition disposition,
@@ -151,7 +159,7 @@ class LocationBarViewMac : public AutocompleteEditController,
 
   // Updates visibility of the content settings icons based on the current
   // tab contents state.
-  void RefreshContentSettingsDecorations();
+  bool RefreshContentSettingsDecorations();
 
   void ShowFirstRunBubbleInternal(FirstRun::BubbleType bubble_type);
 

@@ -26,7 +26,9 @@ const char kServerReply[] = "HTTP/1.1 404 Not Found";
 class TCPClientSocketTest
     : public PlatformTest, public ListenSocket::ListenSocketDelegate {
  public:
-  TCPClientSocketTest() : net_log_(CapturingNetLog::kUnbounded) {
+  TCPClientSocketTest()
+      : listen_port_(0),
+        net_log_(CapturingNetLog::kUnbounded) {
   }
 
   // Implement ListenSocketDelegate methods
@@ -90,11 +92,12 @@ void TCPClientSocketTest::SetUp() {
 
   AddressList addr;
   scoped_refptr<HostResolver> resolver(
-      CreateSystemHostResolver(HostResolver::kDefaultParallelism));
-  HostResolver::RequestInfo info("localhost", listen_port_);
+      CreateSystemHostResolver(HostResolver::kDefaultParallelism,
+                               NULL));
+  HostResolver::RequestInfo info(HostPortPair("localhost", listen_port_));
   int rv = resolver->Resolve(info, &addr, NULL, NULL, BoundNetLog());
   CHECK_EQ(rv, OK);
-  sock_.reset(new TCPClientSocket(addr, &net_log_));
+  sock_.reset(new TCPClientSocket(addr, &net_log_, NetLog::Source()));
 }
 
 TEST_F(TCPClientSocketTest, Connect) {

@@ -4,8 +4,8 @@
 
 #include "chrome/browser/views/dropdown_bar_host.h"
 
+#include "app/keyboard_codes.h"
 #include "app/slide_animation.h"
-#include "base/keyboard_codes.h"
 #include "base/scoped_handle.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_process.h"
@@ -174,13 +174,6 @@ void DropdownBarHost::AnimationEnded(const Animation* animation) {
   }
 }
 
-void DropdownBarHost::GetThemePosition(gfx::Rect* bounds) {
-  *bounds = GetDialogPosition(gfx::Rect());
-  gfx::Rect toolbar_bounds = browser_view_->GetToolbarBounds();
-  gfx::Rect tab_strip_bounds = browser_view_->GetTabStripBounds();
-  bounds->Offset(-toolbar_bounds.x(), -tab_strip_bounds.y());
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // DropdownBarHost protected:
 
@@ -276,7 +269,7 @@ void DropdownBarHost::UpdateWindowEdges(const gfx::Rect& new_pos) {
   // TODO(brettw) this constant is evil. This is the amount of room we've added
   // to the window size, when we set the region, it can change the size.
   static const int kAddedWidth = 7;
-  int difference = new_pos.right() - kAddedWidth - widget_bounds.width() -
+  int difference = new_pos.right() - kAddedWidth - widget_bounds.right() -
       gfx::scrollbar_size() + 1;
   if (difference > 0) {
     Path::Point exclude[4];
@@ -304,14 +297,14 @@ void DropdownBarHost::UpdateWindowEdges(const gfx::Rect& new_pos) {
 
 void DropdownBarHost::RegisterAccelerators() {
   DCHECK(!esc_accel_target_registered_);
-  views::Accelerator escape(base::VKEY_ESCAPE, false, false, false);
+  views::Accelerator escape(app::VKEY_ESCAPE, false, false, false);
   focus_manager_->RegisterAccelerator(escape, this);
   esc_accel_target_registered_ = true;
 }
 
 void DropdownBarHost::UnregisterAccelerators() {
   DCHECK(esc_accel_target_registered_);
-  views::Accelerator escape(base::VKEY_ESCAPE, false, false, false);
+  views::Accelerator escape(app::VKEY_ESCAPE, false, false, false);
   focus_manager_->UnregisterAccelerator(escape, this);
   esc_accel_target_registered_ = false;
 }

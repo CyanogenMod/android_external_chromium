@@ -57,36 +57,36 @@ SessionManager::~SessionManager() {
   // TerminateAll();
 }
 
-void SessionManager::AddClient(const std::string& session_type,
+void SessionManager::AddClient(const std::string& content_type,
                                SessionClient* client) {
-  ASSERT(client_map_.find(session_type) == client_map_.end());
-  client_map_[session_type] = client;
+  ASSERT(client_map_.find(content_type) == client_map_.end());
+  client_map_[content_type] = client;
 }
 
-void SessionManager::RemoveClient(const std::string& session_type) {
-  ClientMap::iterator iter = client_map_.find(session_type);
+void SessionManager::RemoveClient(const std::string& content_type) {
+  ClientMap::iterator iter = client_map_.find(content_type);
   ASSERT(iter != client_map_.end());
   client_map_.erase(iter);
 }
 
-SessionClient* SessionManager::GetClient(const std::string& session_type) {
-  ClientMap::iterator iter = client_map_.find(session_type);
+SessionClient* SessionManager::GetClient(const std::string& content_type) {
+  ClientMap::iterator iter = client_map_.find(content_type);
   return (iter != client_map_.end()) ? iter->second : NULL;
 }
 
 Session *SessionManager::CreateSession(const std::string& name,
-                                       const std::string& session_type) {
+                                       const std::string& content_type) {
   return CreateSession(name, SessionID(name, talk_base::CreateRandomId()),
-                       session_type, false);
+                       content_type, false);
 }
 
 Session *SessionManager::CreateSession(
     const std::string &name, const SessionID& id,
-    const std::string& session_type, bool received_initiate) {
-  SessionClient* client = GetClient(session_type);
+    const std::string& content_type, bool received_initiate) {
+  SessionClient* client = GetClient(content_type);
   ASSERT(client != NULL);
 
-  Session *session = new Session(this, name, id, session_type, client);
+  Session *session = new Session(this, name, id, content_type, client);
   session_map_[session->id()] = session;
   session->SignalRequestSignaling.connect(
       this, &SessionManager::OnRequestSignaling);
@@ -164,14 +164,14 @@ void SessionManager::OnIncomingMessage(const buzz::XmlElement* stanza) {
     return;
   }
 
-  std::string format_name;
-  if (!ParseFormatName(msg.action_elem, &format_name, &error)) {
+  std::string content_type;
+  if (!ParseFirstContentType(msg.action_elem, &content_type, &error)) {
     SendErrorMessage(stanza, buzz::QN_STANZA_BAD_REQUEST, "modify",
                      error.text, NULL);
     return;
   }
 
-  if (!GetClient(format_name)) {
+  if (!GetClient(content_type)) {
     SendErrorMessage(stanza, buzz::QN_STANZA_BAD_REQUEST, "modify",
                      "unknown session description type", NULL);
     return;
@@ -179,7 +179,7 @@ void SessionManager::OnIncomingMessage(const buzz::XmlElement* stanza) {
 
   session = CreateSession(msg.to,
                           SessionID(msg.initiator, msg.sid),
-                          format_name, true);
+                          content_type, true);
   session->OnIncomingMessage(msg);
 }
 

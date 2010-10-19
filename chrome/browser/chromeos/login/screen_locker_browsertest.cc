@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/command_line.h"
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/automation/ui_controls.h"
@@ -9,11 +10,11 @@
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/chromeos/cros/cros_in_process_browser_test.h"
-#include "chrome/browser/chromeos/cros/mock_screen_lock_library.h"
 #include "chrome/browser/chromeos/cros/mock_input_method_library.h"
+#include "chrome/browser/chromeos/cros/mock_screen_lock_library.h"
+#include "chrome/browser/chromeos/login/mock_authenticator.h"
 #include "chrome/browser/chromeos/login/screen_locker.h"
 #include "chrome/browser/chromeos/login/screen_locker_tester.h"
-#include "chrome/browser/chromeos/login/mock_authenticator.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/views/browser_dialogs.h"
 #include "chrome/common/chrome_switches.h"
@@ -30,7 +31,7 @@ namespace {
 // An object that wait for lock state and fullscreen state.
 class Waiter : public NotificationObserver {
  public:
-  Waiter(Browser* browser)
+  explicit Waiter(Browser* browser)
       : browser_(browser) {
     registrar_.Add(this,
                    NotificationType::SCREEN_LOCK_STATE_CHANGED,
@@ -90,9 +91,13 @@ namespace chromeos {
 
 class ScreenLockerTest : public CrosInProcessBrowserTest {
  public:
-  ScreenLockerTest() {}
+  ScreenLockerTest() : mock_screen_lock_library_(NULL),
+                       mock_input_method_library_(NULL) {
+  }
 
  protected:
+  MockScreenLockLibrary *mock_screen_lock_library_;
+  MockInputMethodLibrary *mock_input_method_library_;
 
   // Test the no password mode with different unlock scheme given by
   // |unlock| function.
@@ -125,8 +130,10 @@ class ScreenLockerTest : public CrosInProcessBrowserTest {
 
  private:
   virtual void SetUpInProcessBrowserTestFixture() {
-    InitStatusAreaMocks();
-    InitMockScreenLockLibrary();
+    cros_mock_->InitStatusAreaMocks();
+    cros_mock_->InitMockScreenLockLibrary();
+    mock_screen_lock_library_ = cros_mock_->mock_screen_lock_library();
+    mock_input_method_library_ = cros_mock_->mock_input_method_library();
     EXPECT_CALL(*mock_screen_lock_library_, AddObserver(testing::_))
         .Times(1)
         .RetiresOnSaturation();
@@ -134,13 +141,13 @@ class ScreenLockerTest : public CrosInProcessBrowserTest {
         .Times(1)
         .RetiresOnSaturation();
     // Expectations for the status are on the screen lock window.
-    SetStatusAreaMocksExpectations();
+    cros_mock_->SetStatusAreaMocksExpectations();
     // Expectations for the status area on the browser window.
-    SetStatusAreaMocksExpectations();
+    cros_mock_->SetStatusAreaMocksExpectations();
   }
 
   virtual void SetUpCommandLine(CommandLine* command_line) {
-    command_line->AppendSwitchWithValue(switches::kLoginProfile, "user");
+    command_line->AppendSwitchASCII(switches::kLoginProfile, "user");
     command_line->AppendSwitch(switches::kNoFirstRun);
   }
 
@@ -164,6 +171,14 @@ IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestBasic) {
   tester->EmulateWindowManagerReady();
   ui_test_utils::WaitForNotification(
       NotificationType::SCREEN_LOCK_STATE_CHANGED);
+
+  // Test to make sure that the widget is actually appearing and is of
+  // reasonable size, preventing a regression of
+  // http://code.google.com/p/chromium-os/issues/detail?id=5987
+  gfx::Rect lock_bounds;
+  tester->GetChildWidget()->GetBounds(&lock_bounds, true);
+  EXPECT_GT(lock_bounds.width(), 10);
+  EXPECT_GT(lock_bounds.height(), 10);
 
   tester->InjectMockAuthenticator("user", "pass");
   EXPECT_TRUE(tester->IsLocked());
@@ -208,6 +223,7 @@ IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestFullscreenExit) {
   }
   tester->InjectMockAuthenticator("user", "pass");
   tester->EnterPassword("pass");
+  ui_test_utils::RunAllPendingInMessageLoop();
   ScreenLocker::Hide();
   ui_test_utils::RunAllPendingInMessageLoop();
   EXPECT_FALSE(tester->IsLocked());
@@ -231,7 +247,7 @@ IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestNoPasswordWithMouseClick) {
 
 void KeyPress(views::Widget* widget) {
   ui_controls::SendKeyPress(GTK_WINDOW(widget->GetNativeView()),
-                            base::VKEY_SPACE, false, false, false, false);
+                            app::VKEY_SPACE, false, false, false, false);
 }
 
 IN_PROC_BROWSER_TEST_F(ScreenLockerTest, TestNoPasswordWithKeyPress) {

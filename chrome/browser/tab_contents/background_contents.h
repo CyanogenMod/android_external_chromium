@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_TAB_CONTENTS_BACKGROUND_CONTENTS_H_
 #define CHROME_BROWSER_TAB_CONTENTS_BACKGROUND_CONTENTS_H_
+#pragma once
 
 #include <string>
 
@@ -14,11 +15,14 @@
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/view_types.h"
 #include "chrome/common/window_container_type.h"
+#include "webkit/glue/window_open_disposition.h"
 
-class RenderWidgetHost;
-class RenderWidgetHostView;
 class TabContents;
 struct WebPreferences;
+
+namespace gfx {
+class Rect;
+}
 
 // This class is a peer of TabContents. It can host a renderer, but does not
 // have any visible display. Its navigation is not managed by a
@@ -30,8 +34,23 @@ class BackgroundContents : public RenderViewHostDelegate,
                            public NotificationObserver,
                            public JavaScriptMessageBoxClient {
  public:
+  class Delegate {
+   public:
+    // Called by ShowCreatedWindow. Asks the delegate to attach the opened
+    // TabContents to a suitable container (e.g. browser) or to show it if it's
+    // a popup window.
+    virtual void AddTabContents(TabContents* new_contents,
+                                WindowOpenDisposition disposition,
+                                const gfx::Rect& initial_pos,
+                                bool user_gesture) = 0;
+
+   protected:
+    virtual ~Delegate() {}
+  };
+
   BackgroundContents(SiteInstance* site_instance,
-                     int routing_id);
+                     int routing_id,
+                     Delegate* delegate);
   virtual ~BackgroundContents();
 
   // Provide access to the RenderViewHost for the
@@ -50,11 +69,7 @@ class BackgroundContents : public RenderViewHostDelegate,
   virtual void DidNavigate(RenderViewHost* render_view_host,
                            const ViewHostMsg_FrameNavigate_Params& params);
   virtual WebPreferences GetWebkitPrefs();
-  virtual void ProcessDOMUIMessage(const std::string& message,
-                                   const ListValue* content,
-                                   const GURL& source_url,
-                                   int request_id,
-                                   bool has_callback);
+  virtual void ProcessDOMUIMessage(const ViewHostMsg_DomMessage_Params& params);
   virtual void RunJavaScriptMessage(const std::wstring& message,
                                     const std::wstring& default_prompt,
                                     const GURL& frame_url,
@@ -70,12 +85,15 @@ class BackgroundContents : public RenderViewHostDelegate,
       WindowContainerType window_container_type,
       const string16& frame_name);
   virtual void CreateNewWidget(int route_id, WebKit::WebPopupType popup_type);
+  virtual void CreateNewFullscreenWidget(
+      int route_id, WebKit::WebPopupType popup_type);
   virtual void ShowCreatedWindow(int route_id,
                                  WindowOpenDisposition disposition,
                                  const gfx::Rect& initial_pos,
                                  bool user_gesture);
   virtual void ShowCreatedWidget(int route_id,
                                  const gfx::Rect& initial_pos);
+  virtual void ShowCreatedFullscreenWidget(int route_id);
   virtual void ShowContextMenu(const ContextMenuParams& params) {}
   virtual void StartDragging(const WebDropData& drop_data,
                              WebKit::WebDragOperationsMask allowed_operations,
@@ -84,13 +102,19 @@ class BackgroundContents : public RenderViewHostDelegate,
   virtual void UpdateDragCursor(WebKit::WebDragOperation operation) {}
   virtual void GotFocus() {}
   virtual void TakeFocus(bool reverse) {}
+  virtual void LostCapture() {}
+  virtual void Activate() {}
+  virtual void Deactivate() {}
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
                                       bool* is_keyboard_shortcut) {
     return false;
   }
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {}
-  virtual void HandleMouseEvent() {}
+  virtual void HandleMouseMove() {}
+  virtual void HandleMouseDown() {}
   virtual void HandleMouseLeave() {}
+  virtual void HandleMouseUp() {}
+  virtual void HandleMouseActivate() {}
   virtual void UpdatePreferredSize(const gfx::Size& new_size) {}
 
   // NotificationObserver
@@ -99,8 +123,6 @@ class BackgroundContents : public RenderViewHostDelegate,
                        const NotificationDetails& details);
 
   // JavaScriptMessageBoxClient
-  virtual std::wstring GetMessageBoxTitle(const GURL& frame_url,
-                                          bool is_alert);
   virtual gfx::NativeWindow GetMessageBoxRootWindow();
   virtual void OnMessageBoxClosed(IPC::Message* reply_msg,
                                   bool success,
@@ -114,6 +136,9 @@ class BackgroundContents : public RenderViewHostDelegate,
   BackgroundContents();
 
  private:
+  // The delegate for this BackgroundContents.
+  Delegate* delegate_;
+
   // The host for our HTML content.
   RenderViewHost* render_view_host_;
 

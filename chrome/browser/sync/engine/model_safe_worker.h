@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_SYNC_ENGINE_MODEL_SAFE_WORKER_H_
 #define CHROME_BROWSER_SYNC_ENGINE_MODEL_SAFE_WORKER_H_
+#pragma once
 
 #include <map>
 #include <string>
@@ -12,7 +13,6 @@
 #include "base/callback.h"
 #include "base/ref_counted.h"
 #include "chrome/browser/sync/syncable/model_type.h"
-#include "chrome/browser/sync/util/sync_types.h"
 
 namespace browser_sync {
 

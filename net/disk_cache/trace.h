@@ -8,9 +8,7 @@
 
 #ifndef NET_DISK_CACHE_TRACE_H__
 #define NET_DISK_CACHE_TRACE_H__
-
-#include <string>
-#include <vector>
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
@@ -29,13 +27,8 @@ class TraceObject : public base::RefCounted<TraceObject> {
   static TraceObject* GetTraceObject();
 
  private:
-  TraceObject() {
-    InitTrace();
-  }
-
-  ~TraceObject() {
-    DestroyTrace();
-  }
+  TraceObject();
+  ~TraceObject();
   DISALLOW_COPY_AND_ASSIGN(TraceObject);
 };
 

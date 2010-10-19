@@ -11,9 +11,11 @@
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/path_service.h"
+#include "base/task.h"
 #include "base/thread.h"
 #include "base/waitable_event.h"
 #include "chrome/browser/appcache/chrome_appcache_service.h"
+#include "chrome/browser/automation/automation_provider_list.h"
 #include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_main.h"
@@ -24,8 +26,8 @@
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/download/download_file_manager.h"
 #include "chrome/browser/download/save_file_manager.h"
-#include "chrome/browser/first_run.h"
-#include "chrome/browser/google_url_tracker.h"
+#include "chrome/browser/first_run/first_run.h"
+#include "chrome/browser/google/google_url_tracker.h"
 #include "chrome/browser/icon_manager.h"
 #include "chrome/browser/in_process_webkit/dom_storage_context.h"
 #include "chrome/browser/intranet_redirect_detector.h"
@@ -36,13 +38,14 @@
 #include "chrome/browser/net/sqlite_persistent_cookie_store.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/plugin_service.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/plugin_updater.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/profile_manager.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
-#include "chrome/browser/status_icons/status_tray_manager.h"
+#include "chrome/browser/sidebar/sidebar_manager.h"
 #include "chrome/browser/tab_closeable_state_watcher.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
@@ -53,6 +56,7 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/common/switch_utils.h"
 #include "chrome/installer/util/google_update_constants.h"
 #include "ipc/ipc_logging.h"
 #include "webkit/database/database_tracker.h"
@@ -72,6 +76,13 @@
 static const int kUpdateCheckIntervalHours = 6;
 #endif
 
+#if defined(USE_X11)
+// How long to wait for the File thread to complete during EndSession, on
+// Linux. We have a timeout here because we're unable to run the UI messageloop
+// and there's some deadlock risk. Our only option is to exit anyway.
+static const int kEndSessionTimeoutSeconds = 10;
+#endif
+
 BrowserProcessImpl::BrowserProcessImpl(const CommandLine& command_line)
     : created_resource_dispatcher_host_(false),
       created_metrics_service_(false),
@@ -85,6 +96,7 @@ BrowserProcessImpl::BrowserProcessImpl(const CommandLine& command_line)
       created_icon_manager_(false),
       created_debugger_wrapper_(false),
       created_devtools_manager_(false),
+      created_sidebar_manager_(false),
       created_notification_ui_manager_(false),
       module_ref_count_(0),
       did_start_(false),
@@ -131,6 +143,11 @@ BrowserProcessImpl::~BrowserProcessImpl() {
   metrics_service_.reset();
   google_url_tracker_.reset();
   intranet_redirect_detector_.reset();
+
+  // Need to clear the desktop notification balloons before the io_thread_ and
+  // before the profiles, since if there are any still showing we will access
+  // those things during teardown.
+  notification_ui_manager_.reset();
 
   // Need to clear profiles (download managers) before the io_thread_.
   profile_manager_.reset();
@@ -208,10 +225,16 @@ BrowserProcessImpl::~BrowserProcessImpl() {
   g_browser_process = NULL;
 }
 
+#if defined(OS_WIN)
 // Send a QuitTask to the given MessageLoop.
 static void PostQuit(MessageLoop* message_loop) {
   message_loop->PostTask(FROM_HERE, new MessageLoop::QuitTask());
 }
+#elif defined(USE_X11)
+static void Signal(base::WaitableEvent* event) {
+  event->Signal();
+}
+#endif
 
 unsigned int BrowserProcessImpl::AddRefModule() {
   DCHECK(CalledOnValidThread());
@@ -233,9 +256,9 @@ unsigned int BrowserProcessImpl::ReleaseModule() {
 }
 
 void BrowserProcessImpl::EndSession() {
-#if defined(OS_WIN)
+#if defined(OS_WIN) || defined(USE_X11)
   // Notify we are going away.
-  ::SetEvent(shutdown_event_->handle());
+  shutdown_event_->Signal();
 #endif
 
   // Mark all the profiles as clean.
@@ -257,9 +280,149 @@ void BrowserProcessImpl::EndSession() {
   // We must write that the profile and metrics service shutdown cleanly,
   // otherwise on startup we'll think we crashed. So we block until done and
   // then proceed with normal shutdown.
-  g_browser_process->file_thread()->message_loop()->PostTask(FROM_HERE,
+#if defined(USE_X11)
+  //  Can't run a local loop on linux. Instead create a waitable event.
+  base::WaitableEvent done_writing(false, false);
+  ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
+      NewRunnableFunction(Signal, &done_writing));
+  done_writing.TimedWait(
+      base::TimeDelta::FromSeconds(kEndSessionTimeoutSeconds));
+#elif defined(OS_WIN)
+  ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
       NewRunnableFunction(PostQuit, MessageLoop::current()));
   MessageLoop::current()->Run();
+#else
+  NOTIMPLEMENTED();
+#endif
+}
+
+ResourceDispatcherHost* BrowserProcessImpl::resource_dispatcher_host() {
+  DCHECK(CalledOnValidThread());
+  if (!created_resource_dispatcher_host_)
+    CreateResourceDispatcherHost();
+  return resource_dispatcher_host_.get();
+}
+
+MetricsService* BrowserProcessImpl::metrics_service() {
+  DCHECK(CalledOnValidThread());
+  if (!created_metrics_service_)
+    CreateMetricsService();
+  return metrics_service_.get();
+}
+
+IOThread* BrowserProcessImpl::io_thread() {
+  DCHECK(CalledOnValidThread());
+  if (!created_io_thread_)
+    CreateIOThread();
+  return io_thread_.get();
+}
+
+base::Thread* BrowserProcessImpl::file_thread() {
+  DCHECK(CalledOnValidThread());
+  if (!created_file_thread_)
+    CreateFileThread();
+  return file_thread_.get();
+}
+
+base::Thread* BrowserProcessImpl::db_thread() {
+  DCHECK(CalledOnValidThread());
+  if (!created_db_thread_)
+    CreateDBThread();
+  return db_thread_.get();
+}
+
+base::Thread* BrowserProcessImpl::process_launcher_thread() {
+  DCHECK(CalledOnValidThread());
+  if (!created_process_launcher_thread_)
+    CreateProcessLauncherThread();
+  return process_launcher_thread_.get();
+}
+
+base::Thread* BrowserProcessImpl::cache_thread() {
+  DCHECK(CalledOnValidThread());
+  if (!created_cache_thread_)
+    CreateCacheThread();
+  return cache_thread_.get();
+}
+
+#if defined(USE_X11)
+base::Thread* BrowserProcessImpl::background_x11_thread() {
+  DCHECK(CalledOnValidThread());
+  // The BACKGROUND_X11 thread is created when the IO thread is created.
+  if (!created_io_thread_)
+    CreateIOThread();
+  return background_x11_thread_.get();
+}
+#endif
+
+ProfileManager* BrowserProcessImpl::profile_manager() {
+  DCHECK(CalledOnValidThread());
+  if (!created_profile_manager_)
+    CreateProfileManager();
+  return profile_manager_.get();
+}
+
+PrefService* BrowserProcessImpl::local_state() {
+  DCHECK(CalledOnValidThread());
+  if (!created_local_state_)
+    CreateLocalState();
+  return local_state_.get();
+}
+
+DevToolsManager* BrowserProcessImpl::devtools_manager() {
+  DCHECK(CalledOnValidThread());
+  if (!created_devtools_manager_)
+    CreateDevToolsManager();
+  return devtools_manager_.get();
+}
+
+SidebarManager* BrowserProcessImpl::sidebar_manager() {
+  DCHECK(CalledOnValidThread());
+  if (!created_sidebar_manager_)
+    CreateSidebarManager();
+  return sidebar_manager_.get();
+}
+
+Clipboard* BrowserProcessImpl::clipboard() {
+  DCHECK(CalledOnValidThread());
+  return clipboard_.get();
+}
+
+NotificationUIManager* BrowserProcessImpl::notification_ui_manager() {
+  DCHECK(CalledOnValidThread());
+  if (!created_notification_ui_manager_)
+    CreateNotificationUIManager();
+  return notification_ui_manager_.get();
+}
+
+IconManager* BrowserProcessImpl::icon_manager() {
+  DCHECK(CalledOnValidThread());
+  if (!created_icon_manager_)
+    CreateIconManager();
+  return icon_manager_.get();
+}
+
+ThumbnailGenerator* BrowserProcessImpl::GetThumbnailGenerator() {
+  return &thumbnail_generator_;
+}
+
+AutomationProviderList* BrowserProcessImpl::InitAutomationProviderList() {
+  DCHECK(CalledOnValidThread());
+  if (automation_provider_list_.get() == NULL) {
+    automation_provider_list_.reset(AutomationProviderList::GetInstance());
+  }
+  return automation_provider_list_.get();
+}
+
+void BrowserProcessImpl::InitDebuggerWrapper(int port, bool useHttp) {
+  DCHECK(CalledOnValidThread());
+  if (!created_debugger_wrapper_)
+    CreateDebuggerWrapper(port, useHttp);
+}
+
+bool BrowserProcessImpl::IsShuttingDown() {
+  DCHECK(CalledOnValidThread());
+  return did_start_ && 0 == module_ref_count_;
 }
 
 printing::PrintJobManager* BrowserProcessImpl::print_job_manager() {
@@ -269,6 +432,64 @@ printing::PrintJobManager* BrowserProcessImpl::print_job_manager() {
   // destructor, so it should always be valid.
   DCHECK(print_job_manager_.get());
   return print_job_manager_.get();
+}
+
+GoogleURLTracker* BrowserProcessImpl::google_url_tracker() {
+  DCHECK(CalledOnValidThread());
+  if (!google_url_tracker_.get())
+    CreateGoogleURLTracker();
+  return google_url_tracker_.get();
+}
+
+IntranetRedirectDetector* BrowserProcessImpl::intranet_redirect_detector() {
+  DCHECK(CalledOnValidThread());
+  if (!intranet_redirect_detector_.get())
+    CreateIntranetRedirectDetector();
+  return intranet_redirect_detector_.get();
+}
+
+const std::string& BrowserProcessImpl::GetApplicationLocale() {
+  DCHECK(!locale_.empty());
+  return locale_;
+}
+
+void BrowserProcessImpl::SetApplicationLocale(const std::string& locale) {
+  locale_ = locale;
+  extension_l10n_util::SetProcessLocale(locale);
+}
+
+DownloadStatusUpdater* BrowserProcessImpl::download_status_updater() {
+  return &download_status_updater_;
+}
+
+base::WaitableEvent* BrowserProcessImpl::shutdown_event() {
+  return shutdown_event_.get();
+}
+
+TabCloseableStateWatcher* BrowserProcessImpl::tab_closeable_state_watcher() {
+  DCHECK(CalledOnValidThread());
+  if (!tab_closeable_state_watcher_.get())
+    CreateTabCloseableStateWatcher();
+  return tab_closeable_state_watcher_.get();
+}
+
+void BrowserProcessImpl::CheckForInspectorFiles() {
+  file_thread()->message_loop()->PostTask
+      (FROM_HERE,
+       NewRunnableMethod(this, &BrowserProcessImpl::DoInspectorFilesCheck));
+}
+
+#if (defined(OS_WIN) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
+void BrowserProcessImpl::StartAutoupdateTimer() {
+  autoupdate_timer_.Start(
+      base::TimeDelta::FromHours(kUpdateCheckIntervalHours),
+      this,
+      &BrowserProcessImpl::OnAutoupdateTimer);
+}
+#endif
+
+bool BrowserProcessImpl::have_inspector_files() const {
+  return have_inspector_files_;
 }
 
 void BrowserProcessImpl::ClearLocalState(const FilePath& profile_path) {
@@ -415,8 +636,15 @@ void BrowserProcessImpl::CreateLocalState() {
 
   FilePath local_state_path;
   PathService::Get(chrome::FILE_LOCAL_STATE, &local_state_path);
-  local_state_.reset(PrefService::CreatePrefService(local_state_path));
-  }
+  local_state_.reset(PrefService::CreatePrefService(local_state_path, NULL));
+
+  // Make sure the the plugin updater gets notifications of changes
+  // in the plugin blacklist.
+  local_state_->RegisterListPref(prefs::kPluginsPluginsBlacklist);
+  plugin_state_change_registrar_.Init(local_state_.get());
+  plugin_state_change_registrar_.Add(prefs::kPluginsPluginsBlacklist,
+                                     PluginUpdater::GetPluginUpdater());
+}
 
 void BrowserProcessImpl::CreateIconManager() {
   DCHECK(!created_icon_manager_ && icon_manager_.get() == NULL);
@@ -435,6 +663,12 @@ void BrowserProcessImpl::CreateDevToolsManager() {
   DCHECK(devtools_manager_.get() == NULL);
   created_devtools_manager_ = true;
   devtools_manager_ = new DevToolsManager();
+}
+
+void BrowserProcessImpl::CreateSidebarManager() {
+  DCHECK(sidebar_manager_.get() == NULL);
+  created_sidebar_manager_ = true;
+  sidebar_manager_ = new SidebarManager();
 }
 
 void BrowserProcessImpl::CreateGoogleURLTracker() {
@@ -456,16 +690,6 @@ void BrowserProcessImpl::CreateNotificationUIManager() {
   created_notification_ui_manager_ = true;
 }
 
-void BrowserProcessImpl::SetApplicationLocale(const std::string& locale) {
-  locale_ = locale;
-  extension_l10n_util::SetProcessLocale(locale);
-}
-
-void BrowserProcessImpl::CreateStatusTrayManager() {
-  DCHECK(status_tray_manager_.get() == NULL);
-  status_tray_manager_.reset(new StatusTrayManager());
-}
-
 void BrowserProcessImpl::CreateTabCloseableStateWatcher() {
   DCHECK(tab_closeable_state_watcher_.get() == NULL);
   tab_closeable_state_watcher_.reset(TabCloseableStateWatcher::Create());
@@ -474,21 +698,6 @@ void BrowserProcessImpl::CreateTabCloseableStateWatcher() {
 // The BrowserProcess object must outlive the file thread so we use traits
 // which don't do any management.
 DISABLE_RUNNABLE_METHOD_REFCOUNT(BrowserProcessImpl);
-
-void BrowserProcessImpl::CheckForInspectorFiles() {
-  file_thread()->message_loop()->PostTask
-      (FROM_HERE,
-       NewRunnableMethod(this, &BrowserProcessImpl::DoInspectorFilesCheck));
-}
-
-#if (defined(OS_WIN) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
-void BrowserProcessImpl::StartAutoupdateTimer() {
-  autoupdate_timer_.Start(
-      base::TimeDelta::FromHours(kUpdateCheckIntervalHours),
-      this,
-      &BrowserProcessImpl::OnAutoupdateTimer);
-}
-#endif
 
 #if defined(IPC_MESSAGE_LOG_ENABLED)
 
@@ -547,20 +756,13 @@ void BrowserProcessImpl::DoInspectorFilesCheck() {
 bool BrowserProcessImpl::CanAutorestartForUpdate() const {
   // Check if browser is in the background and if it needs to be restarted to
   // apply a pending update.
-  return BrowserList::size() == 0 && !BrowserList::WillKeepAlive() &&
+  return BrowserList::size() == 0 && BrowserList::WillKeepAlive() &&
          Upgrade::IsUpdatePendingRestart();
 }
 
-// Switches enumerated here will be removed when a background instance of
-// Chrome restarts itself. If your key is designed to only be used once,
-// or if it does not make sense when restarting a background instance to
-// pick up an automatic update, be sure to add it to this list.
-const char* const kSwitchesToRemoveOnAutorestart[] = {
-    switches::kApp,
-    switches::kFirstRun,
-    switches::kImport,
-    switches::kImportFromFile,
-    switches::kMakeDefaultBrowser
+// Switches to add when auto-restarting Chrome.
+const char* const kSwitchesToAddOnAutorestart[] = {
+  switches::kNoStartupWindow
 };
 
 void BrowserProcessImpl::RestartPersistentInstance() {
@@ -570,10 +772,7 @@ void BrowserProcessImpl::RestartPersistentInstance() {
   std::map<std::string, CommandLine::StringType> switches =
       old_cl->GetSwitches();
 
-  // Remove the keys that we shouldn't pass through during restart.
-  for (size_t i = 0; i < arraysize(kSwitchesToRemoveOnAutorestart); i++) {
-    switches.erase(kSwitchesToRemoveOnAutorestart[i]);
-  }
+  switches::RemoveSwitchesForAutostart(&switches);
 
   // Append the rest of the switches (along with their values, if any)
   // to the new command line
@@ -581,14 +780,17 @@ void BrowserProcessImpl::RestartPersistentInstance() {
       switches.begin(); i != switches.end(); ++i) {
       CommandLine::StringType switch_value = i->second;
       if (switch_value.length() > 0) {
-        new_cl->AppendSwitchWithValue(i->first, i->second);
+        new_cl->AppendSwitchNative(i->first, i->second);
       } else {
         new_cl->AppendSwitch(i->first);
       }
   }
 
-  if (!new_cl->HasSwitch(switches::kRestoreBackgroundContents))
-    new_cl->AppendSwitch(switches::kRestoreBackgroundContents);
+  // Ensure that our desired switches are set on the new process.
+  for (size_t i = 0; i < arraysize(kSwitchesToAddOnAutorestart); ++i) {
+    if (!new_cl->HasSwitch(kSwitchesToAddOnAutorestart[i]))
+      new_cl->AppendSwitch(kSwitchesToAddOnAutorestart[i]);
+  }
 
   DLOG(WARNING) << "Shutting down current instance of the browser.";
   BrowserList::CloseAllBrowsersAndExit();

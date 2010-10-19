@@ -4,12 +4,14 @@
 
 #ifndef CHROME_BROWSER_GTK_GTK_UTIL_H_
 #define CHROME_BROWSER_GTK_GTK_UTIL_H_
+#pragma once
 
 #include <gtk/gtk.h>
 #include <string>
 #include <vector>
 
 #include "app/x11_util.h"
+#include "base/string16.h"
 #include "gfx/point.h"
 #include "gfx/rect.h"
 #include "webkit/glue/window_open_disposition.h"
@@ -280,6 +282,12 @@ bool URLFromPrimarySelection(Profile* profile, GURL* url);
 // Set the colormap of the given window to rgba to allow transparency.
 bool AddWindowAlphaChannel(GtkWidget* window);
 
+// Get the default colors for a text entry.  Parameters may be NULL.
+void GetTextColors(GdkColor* normal_base,
+                   GdkColor* selected_base,
+                   GdkColor* normal_text,
+                   GdkColor* selected_text);
+
 // Wrappers to show a GtkDialog. On Linux, it merely calls gtk_widget_show_all.
 // On ChromeOs, it calls ShowNativeDialog which hosts the its vbox
 // in a view based Window.
@@ -302,6 +310,30 @@ GtkWindow* GetDialogWindow(GtkWidget* dialog);
 
 // Gets dialog window bounds.
 gfx::Rect GetDialogBounds(GtkWidget* dialog);
+
+// Returns the stock menu item label for the "preferences" item - returns an
+// empty string if no stock item found.
+string16 GetStockPreferencesMenuLabel();
+
+// Checks whether a widget is actually visible, i.e. whether it and all its
+// ancestors up to its toplevel are visible.
+bool IsWidgetAncestryVisible(GtkWidget* widget);
+
+// Sets the GTK font from the given font name (ex. "Arial Black, 10").
+void SetGtkFont(const std::string& font_name);
+
+// Sets the given label's size request to |pixel_width|. This will cause the
+// label to wrap if it needs to. The reason for this function is that some
+// versions of GTK mis-align labels that have a size request and line wrapping,
+// and this function hides the complexity of the workaround.
+void SetLabelWidth(GtkWidget* label, int pixel_width);
+
+// Make the |label| shrinkable within a GthChromeShrinkableHBox
+// It calculates the real size request of a label and set its ellipsize mode to
+// PANGO_ELLIPSIZE_END.
+// It must be done when the label is mapped (become visible on the screen),
+// to make sure the pango can get correct font information for the calculation.
+void InitLabelSizeRequestAndEllipsizeMode(GtkWidget* label);
 
 }  // namespace gtk_util
 

@@ -4,6 +4,7 @@
 
 #include "chrome/browser/importer/firefox_importer_unittest_utils.h"
 
+#include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/debug_on_start.h"
 #include "base/file_path.h"
@@ -16,10 +17,15 @@
 #include "ipc/ipc_switches.h"
 #include "testing/multiprocess_func_list.h"
 
-// Definition of IPC Messages used for this test.
+// Declaration of IPC Messages used for this test.
 #define MESSAGES_INTERNAL_FILE \
     "chrome/browser/importer/firefox_importer_unittest_messages_internal.h"
 #include "ipc/ipc_message_macros.h"
+
+// Definition of IPC Messages used for this test.
+#define MESSAGES_INTERNAL_IMPL_FILE \
+  "chrome/browser/importer/firefox_importer_unittest_messages_internal.h"
+#include "ipc/ipc_message_impl_macros.h"
 
 namespace {
 
@@ -34,7 +40,7 @@ const char kTestChannelID[] = "T1";
 bool LaunchNSSDecrypterChildProcess(const std::wstring& nss_path,
     const IPC::Channel& channel, base::ProcessHandle* handle) {
   CommandLine cl(*CommandLine::ForCurrentProcess());
-  cl.AppendSwitchWithValue("client", "NSSDecrypterChildProcess");
+  cl.AppendSwitchASCII(switches::kTestChildProcess, "NSSDecrypterChildProcess");
 
   FilePath ff_dylib_dir = FilePath::FromWStringHack(nss_path);
   // Set env variable needed for FF encryption libs to load.

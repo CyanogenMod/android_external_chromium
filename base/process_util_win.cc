@@ -12,11 +12,13 @@
 
 #include <ios>
 
+#include "base/command_line.h"
 #include "base/debug_util.h"
 #include "base/histogram.h"
 #include "base/logging.h"
 #include "base/scoped_handle_win.h"
 #include "base/scoped_ptr.h"
+#include "base/win_util.h"
 
 // userenv.dll is required for CreateEnvironmentBlock().
 #pragma comment(lib, "userenv.lib")
@@ -138,8 +140,60 @@ ProcessId GetProcId(ProcessHandle process) {
   return 0;
 }
 
-bool LaunchApp(const std::wstring& cmdline,
-               bool wait, bool start_hidden, ProcessHandle* process_handle) {
+bool GetProcessIntegrityLevel(ProcessHandle process, IntegrityLevel *level) {
+  if (!level)
+    return false;
+
+  if (win_util::GetWinVersion() < win_util::WINVERSION_VISTA)
+    return false;
+
+  HANDLE process_token;
+  if (!OpenProcessToken(process, TOKEN_QUERY | TOKEN_QUERY_SOURCE,
+      &process_token))
+    return false;
+
+  ScopedHandle scoped_process_token(process_token);
+
+  DWORD token_info_length = 0;
+  if (GetTokenInformation(process_token, TokenIntegrityLevel, NULL, 0,
+                          &token_info_length) ||
+      GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+    return false;
+
+  scoped_array<char> token_label_bytes(new char[token_info_length]);
+  if (!token_label_bytes.get())
+    return false;
+
+  TOKEN_MANDATORY_LABEL* token_label =
+      reinterpret_cast<TOKEN_MANDATORY_LABEL*>(token_label_bytes.get());
+  if (!token_label)
+    return false;
+
+  if (!GetTokenInformation(process_token, TokenIntegrityLevel, token_label,
+                           token_info_length, &token_info_length))
+    return false;
+
+  DWORD integrity_level = *GetSidSubAuthority(token_label->Label.Sid,
+      (DWORD)(UCHAR)(*GetSidSubAuthorityCount(token_label->Label.Sid)-1));
+
+  if (integrity_level < SECURITY_MANDATORY_MEDIUM_RID) {
+    *level = LOW_INTEGRITY;
+  } else if (integrity_level >= SECURITY_MANDATORY_MEDIUM_RID &&
+      integrity_level < SECURITY_MANDATORY_HIGH_RID) {
+    *level = MEDIUM_INTEGRITY;
+  } else if (integrity_level >= SECURITY_MANDATORY_HIGH_RID) {
+    *level = HIGH_INTEGRITY;
+  } else {
+    NOTREACHED();
+    return false;
+  }
+
+  return true;
+}
+
+bool LaunchAppImpl(const std::wstring& cmdline,
+                   bool wait, bool start_hidden, bool inherit_handles,
+                   ProcessHandle* process_handle) {
   STARTUPINFO startup_info = {0};
   startup_info.cb = sizeof(startup_info);
   startup_info.dwFlags = STARTF_USESHOWWINDOW;
@@ -147,7 +201,7 @@ bool LaunchApp(const std::wstring& cmdline,
   PROCESS_INFORMATION process_info;
   if (!CreateProcess(NULL,
                      const_cast<wchar_t*>(cmdline.c_str()), NULL, NULL,
-                     FALSE, 0, NULL, NULL,
+                     inherit_handles, 0, NULL, NULL,
                      &startup_info, &process_info))
     return false;
 
@@ -166,14 +220,26 @@ bool LaunchApp(const std::wstring& cmdline,
   return true;
 }
 
+bool LaunchApp(const std::wstring& cmdline,
+               bool wait, bool start_hidden, ProcessHandle* process_handle) {
+  return LaunchAppImpl(cmdline, wait, start_hidden, false, process_handle);
+}
+
+bool LaunchAppWithHandleInheritance(
+    const std::wstring& cmdline, bool wait, bool start_hidden,
+    ProcessHandle* process_handle) {
+  return LaunchAppImpl(cmdline, wait, start_hidden, true, process_handle);
+}
+
 bool LaunchAppAsUser(UserTokenHandle token, const std::wstring& cmdline,
                      bool start_hidden, ProcessHandle* process_handle) {
-  return LaunchAppAsUser(token, cmdline, start_hidden, process_handle, false);
+  return LaunchAppAsUser(token, cmdline, start_hidden, process_handle,
+                         false, false);
 }
 
 bool LaunchAppAsUser(UserTokenHandle token, const std::wstring& cmdline,
                      bool start_hidden, ProcessHandle* process_handle,
-                     bool empty_desktop_name) {
+                     bool empty_desktop_name, bool inherit_handles) {
   STARTUPINFO startup_info = {0};
   startup_info.cb = sizeof(startup_info);
   if (empty_desktop_name)
@@ -191,7 +257,7 @@ bool LaunchAppAsUser(UserTokenHandle token, const std::wstring& cmdline,
 
   BOOL launched =
       CreateProcessAsUser(token, NULL, const_cast<wchar_t*>(cmdline.c_str()),
-                          NULL, NULL, FALSE, flags, enviroment_block,
+                          NULL, NULL, inherit_handles, flags, enviroment_block,
                           NULL, &startup_info, &process_info);
 
   DestroyEnvironmentBlock(enviroment_block);
@@ -211,8 +277,8 @@ bool LaunchAppAsUser(UserTokenHandle token, const std::wstring& cmdline,
 
 bool LaunchApp(const CommandLine& cl,
                bool wait, bool start_hidden, ProcessHandle* process_handle) {
-  return LaunchApp(cl.command_line_string(), wait,
-                   start_hidden, process_handle);
+  return LaunchAppImpl(cl.command_line_string(), wait,
+                       start_hidden, false, process_handle);
 }
 
 // Attempts to kill the process identified by the given process
@@ -700,13 +766,13 @@ bool ProcessMetrics::GetIOCounters(IoCounters* io_counters) const {
 }
 
 bool ProcessMetrics::CalculateFreeMemory(FreeMBytes* free) const {
-  const SIZE_T kTopAdress = 0x7F000000;
+  const SIZE_T kTopAddress = 0x7F000000;
   const SIZE_T kMegabyte = 1024 * 1024;
   SIZE_T accumulated = 0;
 
   MEMORY_BASIC_INFORMATION largest = {0};
   UINT_PTR scan = 0;
-  while (scan < kTopAdress) {
+  while (scan < kTopAddress) {
     MEMORY_BASIC_INFORMATION info;
     if (!::VirtualQueryEx(process_, reinterpret_cast<void*>(scan),
                           &info, sizeof(info)))
@@ -714,7 +780,7 @@ bool ProcessMetrics::CalculateFreeMemory(FreeMBytes* free) const {
     if (info.State == MEM_FREE) {
       accumulated += info.RegionSize;
       UINT_PTR end = scan + info.RegionSize;
-      if (info.RegionSize > (largest.RegionSize))
+      if (info.RegionSize > largest.RegionSize)
         largest = info;
     }
     scan += info.RegionSize;

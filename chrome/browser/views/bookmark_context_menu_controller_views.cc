@@ -4,7 +4,6 @@
 
 #include "chrome/browser/views/bookmark_context_menu_controller_views.h"
 
-#include "app/l10n_util.h"
 #include "base/compiler_specific.h"
 #include "chrome/browser/bookmarks/bookmark_editor.h"
 #include "chrome/browser/bookmarks/bookmark_folder_editor_controller.h"
@@ -13,7 +12,7 @@
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/pref_service.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/page_navigator.h"
 #include "chrome/common/pref_names.h"

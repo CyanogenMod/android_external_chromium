@@ -7,12 +7,13 @@
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/gtk/view_id_util.h"
+#include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
+#include "net/test/test_server.h"
 
 namespace {
 
-const wchar_t kDocRoot[] = L"chrome/test/data";
 const char kSimplePage[] = "404_is_enough_for_us.html";
 
 void OnClicked(GtkWidget* widget, bool* clicked_bit) {
@@ -27,18 +28,19 @@ class BookmarkBarGtkBrowserTest : public InProcessBrowserTest {
 // Makes sure that when you switch back to an NTP with an active findbar,
 // the findbar is above the floating bookmark bar.
 IN_PROC_BROWSER_TEST_F(BookmarkBarGtkBrowserTest, FindBarTest) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server()->Start());
 
   // Create new tab; open findbar.
   browser()->NewTab();
   browser()->Find();
 
   // Create new tab with an arbitrary URL.
-  GURL url = server->TestServerPage(kSimplePage);
+  Browser* browser_used = NULL;
+  GURL url = test_server()->GetURL(kSimplePage);
   browser()->AddTabWithURL(url, GURL(), PageTransition::TYPED, -1,
-                           TabStripModel::ADD_SELECTED, NULL, std::string());
+                           TabStripModel::ADD_SELECTED, NULL, std::string(),
+                           &browser_used);
+  EXPECT_EQ(browser(), browser_used);
 
   // Switch back to the NTP with the active findbar.
   browser()->SelectTabContentsAt(1, false);
@@ -55,9 +57,7 @@ IN_PROC_BROWSER_TEST_F(BookmarkBarGtkBrowserTest, FindBarTest) {
 
 // Makes sure that you can click on the floating bookmark bar.
 IN_PROC_BROWSER_TEST_F(BookmarkBarGtkBrowserTest, ClickOnFloatingTest) {
-  scoped_refptr<HTTPTestServer> server =
-      HTTPTestServer::CreateServer(kDocRoot, NULL);
-  ASSERT_TRUE(NULL != server.get());
+  ASSERT_TRUE(test_server()->Start());
 
   GtkWidget* other_bookmarks =
       ViewIDUtil::GetWidget(GTK_WIDGET(browser()->window()->GetNativeHandle()),

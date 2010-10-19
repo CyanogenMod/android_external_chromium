@@ -18,6 +18,7 @@
 #include "app/app_switches.h"
 #include "base/command_line.h"
 #include "base/field_trial.h"
+#include "base/histogram.h"
 #include "base/logging.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
@@ -45,6 +46,8 @@
 #include "chrome/browser/visitedlink_master.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/child_process_info.h"
+#include "chrome/common/extensions/extension.h"
+#include "chrome/common/extensions/extension_icon_set.h"
 #include "chrome/common/gpu_messages.h"
 #include "chrome/common/logging_chrome.h"
 #include "chrome/common/net/url_request_context_getter.h"
@@ -52,6 +55,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/common/process_watcher.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/render_messages_params.h"
 #include "chrome/common/result_codes.h"
 #include "chrome/renderer/render_process_impl.h"
 #include "chrome/renderer/render_thread.h"
@@ -197,6 +201,7 @@ BrowserRenderProcessHost::BrowserRenderProcessHost(Profile* profile)
       ALLOW_THIS_IN_INITIALIZER_LIST(cached_dibs_cleaner_(
             base::TimeDelta::FromSeconds(5),
             this, &BrowserRenderProcessHost::ClearTransportDIBCache)),
+      accessibility_enabled_(false),
       extension_process_(false) {
   widget_helper_ = new RenderWidgetHelper();
 
@@ -240,19 +245,16 @@ BrowserRenderProcessHost::~BrowserRenderProcessHost() {
     audio_renderer_host_->Destroy();
 
   ClearTransportDIBCache();
-
-  NotificationService::current()->Notify(
-      NotificationType::EXTENSION_PORT_DELETED_DEBUG,
-      Source<IPC::Message::Sender>(this),
-      NotificationService::NoDetails());
 }
 
-bool BrowserRenderProcessHost::Init(bool is_extensions_process,
-                                    URLRequestContextGetter* request_context) {
+bool BrowserRenderProcessHost::Init(
+    bool is_accessibility_enabled, bool is_extensions_process) {
   // calling Init() more than once does nothing, this makes it more convenient
   // for the view host which may not be sure in some cases
   if (channel_.get())
     return true;
+
+  accessibility_enabled_ = is_accessibility_enabled;
 
   // It is possible for an extension process to be reused for non-extension
   // content, e.g. if an extension calls window.open.
@@ -271,22 +273,21 @@ bool BrowserRenderProcessHost::Init(bool is_extensions_process,
                                 PluginService::GetInstance(),
                                 g_browser_process->print_job_manager(),
                                 profile(),
-                                widget_helper_,
-                                request_context);
+                                widget_helper_);
 
-  std::wstring renderer_prefix;
+  CommandLine::StringType renderer_prefix;
 #if defined(OS_POSIX)
   // A command prefix is something prepended to the command line of the spawned
   // process. It is supported only on POSIX systems.
   const CommandLine& browser_command_line = *CommandLine::ForCurrentProcess();
   renderer_prefix =
-      browser_command_line.GetSwitchValue(switches::kRendererCmdPrefix);
+      browser_command_line.GetSwitchValueNative(switches::kRendererCmdPrefix);
 #endif  // defined(OS_POSIX)
 
   // Find the renderer before creating the channel so if this fails early we
   // return without creating the channel.
-  FilePath renderer_path = ChildProcessHost::GetChildPath(
-      renderer_prefix.empty());
+  FilePath renderer_path =
+      ChildProcessHost::GetChildPath(renderer_prefix.empty());
   if (renderer_path.empty())
     return false;
 
@@ -313,11 +314,11 @@ bool BrowserRenderProcessHost::Init(bool is_extensions_process,
     in_process_renderer_.reset(new RendererMainThread(channel_id));
 
     base::Thread::Options options;
-#if !defined(OS_LINUX)
+#if !defined(TOOLKIT_USES_GTK)
     // In-process plugins require this to be a UI message loop.
     options.message_loop_type = MessageLoop::TYPE_UI;
 #else
-    // We can't have multiple UI loops on Linux, so we don't support
+    // We can't have multiple UI loops on GTK, so we don't support
     // in-process plugins.
     options.message_loop_type = MessageLoop::TYPE_DEFAULT;
 #endif
@@ -331,8 +332,7 @@ bool BrowserRenderProcessHost::Init(bool is_extensions_process,
     if (!renderer_prefix.empty())
       cmd_line->PrependWrapper(renderer_prefix);
     AppendRendererCommandLine(cmd_line);
-    cmd_line->AppendSwitchWithValue(switches::kProcessChannelID,
-                                    ASCIIToWide(channel_id));
+    cmd_line->AppendSwitchASCII(switches::kProcessChannelID, channel_id);
 
     // Spawn the child process asynchronously to avoid blocking the UI thread.
     // As long as there's no renderer prefix, we can use the zygote process
@@ -446,12 +446,15 @@ void BrowserRenderProcessHost::AppendRendererCommandLine(
   // Pass the process type first, so it shows first in process listings.
   // Extensions use a special pseudo-process type to make them distinguishable,
   // even though they're just renderers.
-  command_line->AppendSwitchWithValue(switches::kProcessType,
+  command_line->AppendSwitchASCII(switches::kProcessType,
       extension_process_ ? switches::kExtensionProcess :
                            switches::kRendererProcess);
 
   if (logging::DialogsAreSuppressed())
     command_line->AppendSwitch(switches::kNoErrorDialogs);
+
+  if (accessibility_enabled_)
+    command_line->AppendSwitch(switches::kEnableAccessibility);
 
   // Now send any options from our own command line we want to propogate.
   const CommandLine& browser_command_line = *CommandLine::ForCurrentProcess();
@@ -459,7 +462,7 @@ void BrowserRenderProcessHost::AppendRendererCommandLine(
 
   // Pass on the browser locale.
   const std::string locale = g_browser_process->GetApplicationLocale();
-  command_line->AppendSwitchWithValue(switches::kLang, ASCIIToWide(locale));
+  command_line->AppendSwitchASCII(switches::kLang, locale);
 
   // If we run FieldTrials, we want to pass to their state to the renderer so
   // that it can act in accordance with each state, or record histograms
@@ -467,23 +470,21 @@ void BrowserRenderProcessHost::AppendRendererCommandLine(
   std::string field_trial_states;
   FieldTrialList::StatesToString(&field_trial_states);
   if (!field_trial_states.empty()) {
-    command_line->AppendSwitchWithValue(switches::kForceFieldTestNameAndValue,
-        field_trial_states);
+    command_line->AppendSwitchASCII(switches::kForceFieldTestNameAndValue,
+                                    field_trial_states);
   }
 
   BrowserChildProcessHost::SetCrashReporterCommandLine(command_line);
 
   FilePath user_data_dir =
       browser_command_line.GetSwitchValuePath(switches::kUserDataDir);
-
   if (!user_data_dir.empty())
-    command_line->AppendSwitchWithValue(switches::kUserDataDir,
-                                        user_data_dir.value());
+    command_line->AppendSwitchPath(switches::kUserDataDir, user_data_dir);
 #if defined(OS_CHROMEOS)
   const std::string& profile =
-      browser_command_line.GetSwitchValueASCII(switches::kProfile);
+      browser_command_line.GetSwitchValueASCII(switches::kLoginProfile);
   if (!profile.empty())
-    command_line->AppendSwitchWithValue(switches::kProfile, profile);
+    command_line->AppendSwitchASCII(switches::kLoginProfile, profile);
 #endif
 }
 
@@ -492,7 +493,7 @@ void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
     CommandLine* renderer_cmd) const {
   // Propagate the following switches to the renderer command line (along
   // with any associated values) if present in the browser command line.
-  static const char* const switch_names[] = {
+  static const char* const kSwitchNames[] = {
     switches::kRendererAssertTest,
 #if !defined(OFFICIAL_BUILD)
     switches::kRendererCheckFalseTest,
@@ -549,7 +550,10 @@ void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
     switches::kDisableSessionStorage,
     switches::kDisableSharedWorkers,
     switches::kDisableApplicationCache,
+    switches::kDisableDeviceOrientation,
     switches::kEnableIndexedDatabase,
+    switches::kDisableSpeechInput,
+    switches::kEnableSpeechInput,
     switches::kDisableGeolocation,
     switches::kShowPaintRects,
     switches::kEnableOpenMax,
@@ -565,9 +569,10 @@ void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
     // WebGLArray constructors on the DOMWindow visible. This
     // information is needed very early during bringup. We prefer to
     // use the WebPreferences to set this flag on a page-by-page basis.
-    switches::kEnableExperimentalWebGL,
-    switches::kEnableGLSLTranslator,
+    switches::kDisableExperimentalWebGL,
+    switches::kDisableGLSLTranslator,
     switches::kInProcessWebGL,
+    switches::kDisableAcceleratedCompositing,
 #if defined(OS_MACOSX)
     // Allow this to be set when invoking the browser and relayed along.
     switches::kEnableSandboxLogging,
@@ -575,16 +580,18 @@ void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
 #endif
     switches::kRemoteShellPort,
     switches::kEnablePepperTesting,
-    switches::kEnableChromoting,
+    switches::kBlockNonSandboxedPlugins,
+    switches::kDisableOutdatedPlugins,
+    switches::kEnableRemoting,
+    switches::kDisableClickToPlay,
+    switches::kEnableResourceContentSettings,
     switches::kPrelaunchGpuProcess,
+    switches::kEnableAcceleratedDecoding,
+    switches::kEnableFileSystem,
+    switches::kEnableMatchPreview
   };
-
-  for (size_t i = 0; i < arraysize(switch_names); ++i) {
-    if (browser_cmd.HasSwitch(switch_names[i])) {
-      renderer_cmd->AppendSwitchWithValue(switch_names[i],
-          browser_cmd.GetSwitchValueASCII(switch_names[i]));
-    }
-  }
+  renderer_cmd->CopySwitchesFrom(browser_cmd, kSwitchNames,
+                                 arraysize(kSwitchNames));
 
   // Disable databases in incognito mode.
   if (profile()->IsOffTheRecord() &&
@@ -655,7 +662,7 @@ void BrowserRenderProcessHost::SendUserScriptsUpdate(
   }
 }
 
-void BrowserRenderProcessHost::SendExtensionExtentsUpdate() {
+void BrowserRenderProcessHost::SendExtensionInfo() {
   // Check if the process is still starting and we don't have a handle for it
   // yet, in which case this will happen later when InitVisitedLinks is called.
   if (!run_renderer_in_process() &&
@@ -666,19 +673,24 @@ void BrowserRenderProcessHost::SendExtensionExtentsUpdate() {
   ExtensionsService* service = profile()->GetExtensionsService();
   if (!service)
     return;
-  ViewMsg_ExtensionExtentsUpdated_Params params;
+  ViewMsg_ExtensionsUpdated_Params params;
   for (size_t i = 0; i < service->extensions()->size(); ++i) {
     Extension* extension = service->extensions()->at(i);
-    if (!extension->web_extent().is_empty()) {
-      ViewMsg_ExtensionExtentInfo info;
-      info.extension_id = extension->id();
-      info.web_extent = extension->web_extent();
-      info.browse_extent = extension->browse_extent();
-      params.extension_apps.push_back(info);
-    }
+    ViewMsg_ExtensionRendererInfo info;
+    info.id = extension->id();
+    info.web_extent = extension->web_extent();
+    info.name = extension->name();
+    info.location = extension->location();
+
+    // The icon in the page is 96px.  We'd rather not scale up, so use 128.
+    info.icon_url = extension->GetIconURL(Extension::EXTENSION_ICON_LARGE,
+                                          ExtensionIconSet::MATCH_EXACTLY);
+    if (info.icon_url.is_empty())
+      info.icon_url = GURL("chrome://theme/IDR_APP_DEFAULT_ICON");
+    params.extensions.push_back(info);
   }
 
-  Send(new ViewMsg_ExtensionExtentsUpdated(params));
+  Send(new ViewMsg_ExtensionsUpdated(params));
 }
 
 bool BrowserRenderProcessHost::FastShutdownIfPossible() {
@@ -740,9 +752,9 @@ TransportDIB* BrowserRenderProcessHost::MapTransportDIB(
   // On OSX, the browser allocates all DIBs and keeps a file descriptor around
   // for each.
   return widget_helper_->MapTransportDIB(dib_id);
-#elif defined(OS_LINUX)
+#elif defined(OS_POSIX)
   return TransportDIB::Map(dib_id);
-#endif  // defined(OS_LINUX)
+#endif  // defined(OS_POSIX)
 }
 
 TransportDIB* BrowserRenderProcessHost::GetTransportDIB(
@@ -948,9 +960,7 @@ void BrowserRenderProcessHost::Observe(NotificationType type,
     }
     case NotificationType::EXTENSION_LOADED:
     case NotificationType::EXTENSION_UNLOADED: {
-      Extension* extension = Details<Extension>(details).ptr();
-      if (!extension->web_extent().is_empty())
-        SendExtensionExtentsUpdate();
+      SendExtensionInfo();
       break;
     }
     case NotificationType::SPELLCHECK_HOST_REINITIALIZED: {
@@ -977,15 +987,23 @@ void BrowserRenderProcessHost::Observe(NotificationType type,
 }
 
 void BrowserRenderProcessHost::OnProcessLaunched() {
-  // Now that the process is created, set its backgrounding accordingly.
-  SetBackgrounded(backgrounded_);
+  // At this point, we used to set the process priority if it were marked as
+  // backgrounded_.  We don't do that anymore because when we create a process,
+  // we really don't know how it will be used.  If it is backgrounded, and not
+  // yet processed, a stray hung-cpu process (not chrome) can cause pages to
+  // not load at all.  (see http://crbug.com/21884).
+  // If we could perfectly track when a process is created as visible or not,
+  // we could potentially call SetBackgrounded() properly at this point.  But
+  // there are many cases, and no effective way to automate those cases.
+  // I'm choosing correctness over the feature of de-prioritizing this work.
 
   Send(new ViewMsg_SetIsIncognitoProcess(profile()->IsOffTheRecord()));
 
   InitVisitedLinks();
   InitUserScripts();
   InitExtensions();
-  SendExtensionExtentsUpdate();
+  SendExtensionInfo();
+
   // We don't want to initialize the spellchecker unless SpellCheckHost has been
   // created. In InitSpellChecker(), we know if GetSpellCheckHost() is NULL
   // then the spellchecker has been turned off, but here, we don't know if

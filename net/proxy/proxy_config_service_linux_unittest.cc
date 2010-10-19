@@ -13,6 +13,7 @@
 #include "base/format_macros.h"
 #include "base/logging.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/task.h"
 #include "base/thread.h"
 #include "base/waitable_event.h"
@@ -78,9 +79,9 @@ struct SettingsTable {
   map_type settings;
 };
 
-class MockEnvVarGetter : public base::EnvVarGetter {
+class MockEnvironment : public base::Environment {
  public:
-  MockEnvVarGetter() {
+  MockEnvironment() {
 #define ENTRY(x) table.settings[#x] = &values.x
     ENTRY(DESKTOP_SESSION);
     ENTRY(HOME);
@@ -104,7 +105,8 @@ class MockEnvVarGetter : public base::EnvVarGetter {
     values = zero_values;
   }
 
-  virtual bool GetEnv(const char* variable_name, std::string* result) {
+  // Begin base::Environment implementation.
+  virtual bool GetVar(const char* variable_name, std::string* result) {
     const char* env_value = table.Get(variable_name);
     if (env_value) {
       // Note that the variable may be defined but empty.
@@ -114,10 +116,16 @@ class MockEnvVarGetter : public base::EnvVarGetter {
     return false;
   }
 
-  virtual bool SetEnv(const char* variable_name, const std::string& new_value) {
-    NOTIMPLEMENTED();
+  virtual bool SetVar(const char* variable_name, const std::string& new_value) {
+    ADD_FAILURE();
     return false;
   }
+
+  virtual bool UnSetVar(const char* variable_name) {
+    ADD_FAILURE();
+    return false;
+  }
+  // End base::Environment implementation.
 
   // Intentionally public, for convenience when setting up a test.
   EnvVarValues values;
@@ -239,7 +247,7 @@ class MockGConfSettingGetter
 }  // namespace
 }  // namespace net
 
-// This helper class runs ProxyConfigServiceLinux::GetProxyConfig() on
+// This helper class runs ProxyConfigServiceLinux::GetLatestProxyConfig() on
 // the IO thread and synchronously waits for the result.
 // Some code duplicated from proxy_script_fetcher_unittest.cc.
 class SynchConfigGetter {
@@ -282,12 +290,12 @@ class SynchConfigGetter {
         static_cast<MessageLoopForIO*>(file_loop));
   }
   // Synchronously gets the proxy config.
-  int SyncGetProxyConfig(net::ProxyConfig* config) {
+  bool SyncGetLatestProxyConfig(net::ProxyConfig* config) {
     io_thread_.message_loop()->PostTask(FROM_HERE, NewRunnableMethod(
-        this, &SynchConfigGetter::GetConfigOnIOThread));
+        this, &SynchConfigGetter::GetLatestConfigOnIOThread));
     Wait();
     *config = proxy_config_;
-    return get_config_result_;
+    return get_latest_config_result_;
   }
 
  private:
@@ -296,10 +304,11 @@ class SynchConfigGetter {
     event_.Signal();
   }
 
-  // Calls GetProxyConfig, running on |io_thread_|] Signals |event_|
+  // Calls GetLatestProxyConfig, running on |io_thread_| Signals |event_|
   // on completion.
-  void GetConfigOnIOThread() {
-    get_config_result_ = config_service_->GetProxyConfig(&proxy_config_);
+  void GetLatestConfigOnIOThread() {
+    get_latest_config_result_ =
+        config_service_->GetLatestProxyConfig(&proxy_config_);
     event_.Signal();
   }
 
@@ -322,7 +331,7 @@ class SynchConfigGetter {
   // The config obtained by |io_thread_| and read back by the main
   // thread.
   net::ProxyConfig proxy_config_;
-  int get_config_result_;  // Return value from GetProxyConfig().
+  bool get_latest_config_result_;  // Return value from GetLatestProxyConfig().
 };
 
 DISABLE_RUNNABLE_METHOD_REFCOUNT(SynchConfigGetter);
@@ -368,7 +377,7 @@ class ProxyConfigServiceLinuxTest : public PlatformTest {
 };
 
 // Builds an identifier for each test in an array.
-#define TEST_DESC(desc) StringPrintf("at line %d <%s>", __LINE__, desc)
+#define TEST_DESC(desc) base::StringPrintf("at line %d <%s>", __LINE__, desc)
 
 TEST_F(ProxyConfigServiceLinuxTest, BasicGConfTest) {
   std::vector<std::string> empty_ignores;
@@ -573,7 +582,7 @@ TEST_F(ProxyConfigServiceLinuxTest, BasicGConfTest) {
       false,                                          // auto_detect
       GURL(),                                         // pac_url
       ProxyRulesExpectation::Single(
-          "socks4://socks.com:99",  // single proxy
+          "socks5://socks.com:99",  // single proxy
           "")                       // bypass rules
     },
 
@@ -597,16 +606,16 @@ TEST_F(ProxyConfigServiceLinuxTest, BasicGConfTest) {
   };
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
-    SCOPED_TRACE(StringPrintf("Test[%" PRIuS "] %s", i,
-                              tests[i].description.c_str()));
-    MockEnvVarGetter* env_getter = new MockEnvVarGetter;
+    SCOPED_TRACE(base::StringPrintf("Test[%" PRIuS "] %s", i,
+                                    tests[i].description.c_str()));
+    MockEnvironment* env = new MockEnvironment;
     MockGConfSettingGetter* gconf_getter = new MockGConfSettingGetter;
     SynchConfigGetter sync_config_getter(
-        new ProxyConfigServiceLinux(env_getter, gconf_getter));
+        new ProxyConfigServiceLinux(env, gconf_getter));
     ProxyConfig config;
     gconf_getter->values = tests[i].values;
     sync_config_getter.SetupAndInitialFetch();
-    sync_config_getter.SyncGetProxyConfig(&config);
+    sync_config_getter.SyncGetLatestProxyConfig(&config);
 
     EXPECT_EQ(tests[i].auto_detect, config.auto_detect());
     EXPECT_EQ(tests[i].pac_url, config.pac_url());
@@ -816,12 +825,12 @@ TEST_F(ProxyConfigServiceLinuxTest, BasicEnvTest) {
       false,                                   // auto_detect
       GURL(),                                  // pac_url
       ProxyRulesExpectation::Single(
-          "socks4://socks.com:888",  // single proxy
+          "socks5://socks.com:888",  // single proxy
           ""),                       // bypass rules
     },
 
     {
-      TEST_DESC("socks5"),
+      TEST_DESC("socks4"),
       { // Input.
         NULL,  // DESKTOP_SESSION
         NULL,  // HOME
@@ -830,7 +839,7 @@ TEST_F(ProxyConfigServiceLinuxTest, BasicEnvTest) {
         NULL,  // auto_proxy
         "",  // all_proxy
         NULL, NULL, NULL,  // per-proto proxies
-        "socks.com:888", "5",  // SOCKS
+        "socks.com:888", "4",  // SOCKS
         NULL,  // no_proxy
       },
 
@@ -838,7 +847,7 @@ TEST_F(ProxyConfigServiceLinuxTest, BasicEnvTest) {
       false,                                   // auto_detect
       GURL(),                                  // pac_url
       ProxyRulesExpectation::Single(
-          "socks5://socks.com:888",  // single proxy
+          "socks4://socks.com:888",  // single proxy
           ""),                       // bypass rules
     },
 
@@ -860,7 +869,7 @@ TEST_F(ProxyConfigServiceLinuxTest, BasicEnvTest) {
       false,                                   // auto_detect
       GURL(),                                  // pac_url
       ProxyRulesExpectation::Single(
-          "socks4://socks.com:1080",  // single proxy
+          "socks5://socks.com:1080",  // single proxy
           ""),                        // bypass rules
     },
 
@@ -887,16 +896,16 @@ TEST_F(ProxyConfigServiceLinuxTest, BasicEnvTest) {
   };
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
-    SCOPED_TRACE(StringPrintf("Test[%" PRIuS "] %s", i,
-                              tests[i].description.c_str()));
-    MockEnvVarGetter* env_getter = new MockEnvVarGetter;
+    SCOPED_TRACE(base::StringPrintf("Test[%" PRIuS "] %s", i,
+                                    tests[i].description.c_str()));
+    MockEnvironment* env = new MockEnvironment;
     MockGConfSettingGetter* gconf_getter = new MockGConfSettingGetter;
     SynchConfigGetter sync_config_getter(
-        new ProxyConfigServiceLinux(env_getter, gconf_getter));
+        new ProxyConfigServiceLinux(env, gconf_getter));
     ProxyConfig config;
-    env_getter->values = tests[i].values;
+    env->values = tests[i].values;
     sync_config_getter.SetupAndInitialFetch();
-    sync_config_getter.SyncGetProxyConfig(&config);
+    sync_config_getter.SyncGetLatestProxyConfig(&config);
 
     EXPECT_EQ(tests[i].auto_detect, config.auto_detect());
     EXPECT_EQ(tests[i].pac_url, config.pac_url());
@@ -905,24 +914,24 @@ TEST_F(ProxyConfigServiceLinuxTest, BasicEnvTest) {
 }
 
 TEST_F(ProxyConfigServiceLinuxTest, GconfNotification) {
-  MockEnvVarGetter* env_getter = new MockEnvVarGetter;
+  MockEnvironment* env = new MockEnvironment;
   MockGConfSettingGetter* gconf_getter = new MockGConfSettingGetter;
   ProxyConfigServiceLinux* service =
-      new ProxyConfigServiceLinux(env_getter, gconf_getter);
+      new ProxyConfigServiceLinux(env, gconf_getter);
   SynchConfigGetter sync_config_getter(service);
   ProxyConfig config;
 
   // Start with no proxy.
   gconf_getter->values.mode = "none";
   sync_config_getter.SetupAndInitialFetch();
-  sync_config_getter.SyncGetProxyConfig(&config);
+  sync_config_getter.SyncGetLatestProxyConfig(&config);
   EXPECT_FALSE(config.auto_detect());
 
   // Now set to auto-detect.
   gconf_getter->values.mode = "auto";
   // Simulate gconf notification callback.
   service->OnCheckProxyConfigSettings();
-  sync_config_getter.SyncGetProxyConfig(&config);
+  sync_config_getter.SyncGetLatestProxyConfig(&config);
   EXPECT_TRUE(config.auto_detect());
 }
 
@@ -1284,21 +1293,21 @@ TEST_F(ProxyConfigServiceLinuxTest, KDEConfigParser) {
   };
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(tests); ++i) {
-    SCOPED_TRACE(StringPrintf("Test[%" PRIuS "] %s", i,
-                              tests[i].description.c_str()));
-    MockEnvVarGetter* env_getter = new MockEnvVarGetter;
-    env_getter->values = tests[i].env_values;
+    SCOPED_TRACE(base::StringPrintf("Test[%" PRIuS "] %s", i,
+                                    tests[i].description.c_str()));
+    MockEnvironment* env = new MockEnvironment;
+    env->values = tests[i].env_values;
     // Force the KDE getter to be used and tell it where the test is.
-    env_getter->values.DESKTOP_SESSION = "kde4";
-    env_getter->values.KDEHOME = kde_home_.value().c_str();
+    env->values.DESKTOP_SESSION = "kde4";
+    env->values.KDEHOME = kde_home_.value().c_str();
     SynchConfigGetter sync_config_getter(
-        new ProxyConfigServiceLinux(env_getter));
+        new ProxyConfigServiceLinux(env));
     ProxyConfig config;
     // Overwrite the kioslaverc file.
     file_util::WriteFile(kioslaverc_, tests[i].kioslaverc.c_str(),
                          tests[i].kioslaverc.length());
     sync_config_getter.SetupAndInitialFetch();
-    sync_config_getter.SyncGetProxyConfig(&config);
+    sync_config_getter.SyncGetLatestProxyConfig(&config);
 
     EXPECT_EQ(tests[i].auto_detect, config.auto_detect());
     EXPECT_EQ(tests[i].pac_url, config.pac_url());
@@ -1322,14 +1331,14 @@ TEST_F(ProxyConfigServiceLinuxTest, KDEHomePicker) {
   CHECK(!file_util::DirectoryExists(kde4_home_));
 
   { SCOPED_TRACE("KDE4, no .kde4 directory, verify fallback");
-    MockEnvVarGetter* env_getter = new MockEnvVarGetter;
-    env_getter->values.DESKTOP_SESSION = "kde4";
-    env_getter->values.HOME = user_home_.value().c_str();
+    MockEnvironment* env = new MockEnvironment;
+    env->values.DESKTOP_SESSION = "kde4";
+    env->values.HOME = user_home_.value().c_str();
     SynchConfigGetter sync_config_getter(
-        new ProxyConfigServiceLinux(env_getter));
+        new ProxyConfigServiceLinux(env));
     ProxyConfig config;
     sync_config_getter.SetupAndInitialFetch();
-    sync_config_getter.SyncGetProxyConfig(&config);
+    sync_config_getter.SyncGetLatestProxyConfig(&config);
     EXPECT_TRUE(config.auto_detect());
     EXPECT_EQ(GURL(), config.pac_url());
   }
@@ -1341,41 +1350,41 @@ TEST_F(ProxyConfigServiceLinuxTest, KDEHomePicker) {
   CHECK(file_util::PathExists(kioslaverc4_));
 
   { SCOPED_TRACE("KDE4, .kde4 directory present, use it");
-    MockEnvVarGetter* env_getter = new MockEnvVarGetter;
-    env_getter->values.DESKTOP_SESSION = "kde4";
-    env_getter->values.HOME = user_home_.value().c_str();
+    MockEnvironment* env = new MockEnvironment;
+    env->values.DESKTOP_SESSION = "kde4";
+    env->values.HOME = user_home_.value().c_str();
     SynchConfigGetter sync_config_getter(
-        new ProxyConfigServiceLinux(env_getter));
+        new ProxyConfigServiceLinux(env));
     ProxyConfig config;
     sync_config_getter.SetupAndInitialFetch();
-    sync_config_getter.SyncGetProxyConfig(&config);
+    sync_config_getter.SyncGetLatestProxyConfig(&config);
     EXPECT_FALSE(config.auto_detect());
     EXPECT_EQ(slaverc4_pac_url, config.pac_url());
   }
 
   { SCOPED_TRACE("KDE3, .kde4 directory present, ignore it");
-    MockEnvVarGetter* env_getter = new MockEnvVarGetter;
-    env_getter->values.DESKTOP_SESSION = "kde";
-    env_getter->values.HOME = user_home_.value().c_str();
+    MockEnvironment* env = new MockEnvironment;
+    env->values.DESKTOP_SESSION = "kde";
+    env->values.HOME = user_home_.value().c_str();
     SynchConfigGetter sync_config_getter(
-        new ProxyConfigServiceLinux(env_getter));
+        new ProxyConfigServiceLinux(env));
     ProxyConfig config;
     sync_config_getter.SetupAndInitialFetch();
-    sync_config_getter.SyncGetProxyConfig(&config);
+    sync_config_getter.SyncGetLatestProxyConfig(&config);
     EXPECT_TRUE(config.auto_detect());
     EXPECT_EQ(GURL(), config.pac_url());
   }
 
   { SCOPED_TRACE("KDE4, .kde4 directory present, KDEHOME set to .kde");
-    MockEnvVarGetter* env_getter = new MockEnvVarGetter;
-    env_getter->values.DESKTOP_SESSION = "kde4";
-    env_getter->values.HOME = user_home_.value().c_str();
-    env_getter->values.KDEHOME = kde_home_.value().c_str();
+    MockEnvironment* env = new MockEnvironment;
+    env->values.DESKTOP_SESSION = "kde4";
+    env->values.HOME = user_home_.value().c_str();
+    env->values.KDEHOME = kde_home_.value().c_str();
     SynchConfigGetter sync_config_getter(
-        new ProxyConfigServiceLinux(env_getter));
+        new ProxyConfigServiceLinux(env));
     ProxyConfig config;
     sync_config_getter.SetupAndInitialFetch();
-    sync_config_getter.SyncGetProxyConfig(&config);
+    sync_config_getter.SyncGetLatestProxyConfig(&config);
     EXPECT_TRUE(config.auto_detect());
     EXPECT_EQ(GURL(), config.pac_url());
   }
@@ -1385,14 +1394,14 @@ TEST_F(ProxyConfigServiceLinuxTest, KDEHomePicker) {
   file_util::SetLastModifiedTime(kde4_config_, base::Time());
 
   { SCOPED_TRACE("KDE4, very old .kde4 directory present, use .kde");
-    MockEnvVarGetter* env_getter = new MockEnvVarGetter;
-    env_getter->values.DESKTOP_SESSION = "kde4";
-    env_getter->values.HOME = user_home_.value().c_str();
+    MockEnvironment* env = new MockEnvironment;
+    env->values.DESKTOP_SESSION = "kde4";
+    env->values.HOME = user_home_.value().c_str();
     SynchConfigGetter sync_config_getter(
-        new ProxyConfigServiceLinux(env_getter));
+        new ProxyConfigServiceLinux(env));
     ProxyConfig config;
     sync_config_getter.SetupAndInitialFetch();
-    sync_config_getter.SyncGetProxyConfig(&config);
+    sync_config_getter.SyncGetLatestProxyConfig(&config);
     EXPECT_TRUE(config.auto_detect());
     EXPECT_EQ(GURL(), config.pac_url());
   }

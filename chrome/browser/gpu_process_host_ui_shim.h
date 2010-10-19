@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_GPU_PROCESS_HOST_UI_SHIM_H_
 #define CHROME_BROWSER_GPU_PROCESS_HOST_UI_SHIM_H_
+#pragma once
 
 // This class lives on the UI thread and supports classes like the
 // BackingStoreProxy, which must live on the UI thread. The IO thread
@@ -40,6 +41,10 @@ class GpuProcessHostUIShim : public IPC::Channel::Sender,
   // See documentation on MessageRouter for AddRoute and RemoveRoute
   void AddRoute(int32 routing_id, IPC::Channel::Listener* listener);
   void RemoveRoute(int32 routing_id);
+
+  // Sends a message to the browser process to collect the information from the
+  // graphics card.
+  void CollectGraphicsInfoAsynchronously();
 
  private:
   friend struct DefaultSingletonTraits<GpuProcessHostUIShim>;

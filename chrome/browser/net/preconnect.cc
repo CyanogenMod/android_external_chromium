@@ -6,11 +6,14 @@
 
 #include "base/histogram.h"
 #include "base/logging.h"
+#include "base/string_util.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "net/base/host_port_pair.h"
 #include "net/http/http_network_session.h"
+#include "net/http/http_request_info.h"
+#include "net/http/http_stream.h"
 #include "net/http/http_transaction_factory.h"
 #include "net/proxy/proxy_service.h"
 #include "net/url_request/url_request_context.h"
@@ -18,43 +21,26 @@
 namespace chrome_browser_net {
 
 // static
-bool Preconnect::preconnect_despite_proxy_ = false;
-
-// We will deliberately leak this singular instance, which is used only for
-// callbacks.
-// static
-Preconnect* Preconnect::callback_instance_;
-
-// static
-bool Preconnect::PreconnectOnUIThread(const GURL& url) {
-  // Try to do connection warming for this search provider.
-  URLRequestContextGetter* getter = Profile::GetDefaultRequestContext();
-  if (!getter)
-    return false;
+void Preconnect::PreconnectOnUIThread(const GURL& url,
+    UrlInfo::ResolutionMotivation motivation) {
   // Prewarm connection to Search URL.
   ChromeThread::PostTask(
       ChromeThread::IO,
       FROM_HERE,
-      NewRunnableFunction(Preconnect::PreconnectOnIOThread, url));
-  return true;
-}
-
-enum ProxyStatus {
-  PROXY_STATUS_IGNORED,
-  PROXY_UNINITIALIZED,
-  PROXY_NOT_USED,
-  PROXY_PAC_RESOLVER,
-  PROXY_HAS_RULES,
-  PROXY_MAX,
-};
-
-static void HistogramPreconnectStatus(ProxyStatus status) {
-  UMA_HISTOGRAM_ENUMERATION("Net.PreconnectProxyStatus", status, PROXY_MAX);
+      NewRunnableFunction(Preconnect::PreconnectOnIOThread, url, motivation));
+  return;
 }
 
 // static
-void Preconnect::PreconnectOnIOThread(const GURL& url) {
-  // TODO(jar): This does not handle proxies currently.
+void Preconnect::PreconnectOnIOThread(const GURL& url,
+    UrlInfo::ResolutionMotivation motivation) {
+  Preconnect* preconnect = new Preconnect(motivation);
+  // TODO(jar): Should I use PostTask for LearnedSubresources to delay the
+  // preconnection a tad?
+  preconnect->Connect(url);
+}
+
+void Preconnect::Connect(const GURL& url) {
   URLRequestContextGetter* getter = Profile::GetDefaultRequestContext();
   if (!getter)
     return;
@@ -62,74 +48,84 @@ void Preconnect::PreconnectOnIOThread(const GURL& url) {
     LOG(DFATAL) << "This must be run only on the IO thread.";
     return;
   }
+
+  // We are now commited to doing the async preconnection call.
+  UMA_HISTOGRAM_ENUMERATION("Net.PreconnectMotivation", motivation_,
+                            UrlInfo::MAX_MOTIVATED);
+
   URLRequestContext* context = getter->GetURLRequestContext();
-
-  if (preconnect_despite_proxy_) {
-    HistogramPreconnectStatus(PROXY_STATUS_IGNORED);
-  } else {
-    // Currently we avoid all preconnects if there is a proxy configuration.
-    net::ProxyService* proxy_service = context->proxy_service();
-    if (!proxy_service->config_has_been_initialized()) {
-      HistogramPreconnectStatus(PROXY_UNINITIALIZED);
-    } else {
-      if (proxy_service->config().MayRequirePACResolver()) {
-        HistogramPreconnectStatus(PROXY_PAC_RESOLVER);
-        return;
-      }
-      if (!proxy_service->config().proxy_rules().empty()) {
-        HistogramPreconnectStatus(PROXY_HAS_RULES);
-        return;
-      }
-      HistogramPreconnectStatus(PROXY_NOT_USED);
-    }
-  }
-
   net::HttpTransactionFactory* factory = context->http_transaction_factory();
   net::HttpNetworkSession* session = factory->GetSession();
 
-  net::ClientSocketHandle handle;
-  if (!callback_instance_)
-    callback_instance_ = new Preconnect;
+  request_info_.reset(new net::HttpRequestInfo());
+  request_info_->url = url;
+  request_info_->method = "GET";
+  // It almost doesn't matter whether we use net::LOWEST or net::HIGHEST
+  // priority here, as we won't make a request, and will surrender the created
+  // socket to the pool as soon as we can.  However, we would like to mark the
+  // speculative socket as such, and IF we use a net::LOWEST priority, and if
+  // a navigation asked for a socket (after us) then it would get our socket,
+  // and we'd get its later-arriving socket, which might make us record that
+  // the speculation didn't help :-/.  By using net::HIGHEST, we ensure that
+  // a socket is given to us if "we asked first" and this allows us to mark it
+  // as speculative, and better detect stats (if it gets used).
+  // TODO(jar): histogram to see how often we accidentally use a previously-
+  // unused socket, when a previously used socket was available.
+  request_info_->priority = net::HIGHEST;
 
-  scoped_refptr<net::TCPSocketParams> tcp_params =
-      new net::TCPSocketParams(url.host(), url.EffectiveIntPort(), net::LOW,
-                               GURL(), false);
-
-  net::HostPortPair endpoint(url.host(), url.EffectiveIntPort());
-  std::string group_name = endpoint.ToString();
-
-  if (url.SchemeIs("https")) {
-    group_name = StringPrintf("ssl/%s", group_name.c_str());
-
-    net::SSLConfig ssl_config;
-    session->ssl_config_service()->GetSSLConfig(&ssl_config);
-    // All preconnects should be for main pages.
-    ssl_config.verify_ev_cert = true;
-
-    scoped_refptr<net::SSLSocketParams> ssl_params =
-        new net::SSLSocketParams(tcp_params, NULL, NULL,
-                                 net::ProxyServer::SCHEME_DIRECT,
-                                 url.HostNoBrackets(), ssl_config,
-                                 0, false);
-
-    const scoped_refptr<net::SSLClientSocketPool>& pool =
-        session->ssl_socket_pool();
-
-    handle.Init(group_name, ssl_params, net::LOWEST, callback_instance_, pool,
-                net::BoundNetLog());
-    handle.Reset();
-    return;
+  // Translate the motivation from UrlRequest motivations to HttpRequest
+  // motivations.
+  switch (motivation_) {
+    case UrlInfo::OMNIBOX_MOTIVATED:
+      request_info_->motivation = net::HttpRequestInfo::OMNIBOX_MOTIVATED;
+      break;
+    case UrlInfo::LEARNED_REFERAL_MOTIVATED:
+      request_info_->motivation = net::HttpRequestInfo::PRECONNECT_MOTIVATED;
+      break;
+    case UrlInfo::EARLY_LOAD_MOTIVATED:
+      break;
+    default:
+      // Other motivations should never happen here.
+      NOTREACHED();
+      break;
   }
 
-  const scoped_refptr<net::TCPClientSocketPool>& pool =
-      session->tcp_socket_pool();
-  handle.Init(group_name, tcp_params, net::LOWEST, callback_instance_, pool,
-              net::BoundNetLog());
-  handle.Reset();
+  // Setup the SSL Configuration.
+  ssl_config_.reset(new net::SSLConfig());
+  session->ssl_config_service()->GetSSLConfig(ssl_config_.get());
+  if (session->http_stream_factory()->next_protos())
+    ssl_config_->next_protos = *session->http_stream_factory()->next_protos();
+
+  // All preconnects should be for main pages.
+  ssl_config_->verify_ev_cert = true;
+
+  proxy_info_.reset(new net::ProxyInfo());
+  net::StreamFactory* stream_factory = session->http_stream_factory();
+  stream_factory->RequestStream(request_info_.get(), ssl_config_.get(),
+                                proxy_info_.get(), this, net_log_, session,
+                                &stream_request_job_);
 }
 
-void Preconnect::RunWithParams(const Tuple1<int>& params) {
-  // This will rarely be called, as we reset the connection just after creating.
-  NOTREACHED();
+void Preconnect::OnStreamReady(net::HttpStream* stream) {
+  delete stream;
+  delete this;
 }
+
+void Preconnect::OnStreamFailed(int status) {
+  delete this;
+}
+
+void Preconnect::OnCertificateError(int status, const net::SSLInfo& ssl_info) {
+  delete this;
+}
+
+void Preconnect::OnNeedsProxyAuth(const net::HttpResponseInfo& proxy_response,
+                                  net::HttpAuthController* auth_controller) {
+  delete this;
+}
+
+void Preconnect::OnNeedsClientAuth(net::SSLCertRequestInfo* cert_info) {
+  delete this;
+}
+
 }  // chrome_browser_net

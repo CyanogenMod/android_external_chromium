@@ -13,9 +13,6 @@
 
 #include <algorithm>
 
-#if defined(OS_WIN)
-#include "app/win_util.h"
-#endif
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
@@ -673,7 +670,7 @@ bool VisitedLinkMaster::CreateURLTable(int32 num_entries, bool init_to_empty) {
   if (!shared_memory_)
     return false;
 
-  if (!shared_memory_->Create(std::wstring() /* anonymous */,
+  if (!shared_memory_->Create(std::string() /* anonymous */,
                               false /* read-write */, false /* create */,
                               alloc_size)) {
     return false;

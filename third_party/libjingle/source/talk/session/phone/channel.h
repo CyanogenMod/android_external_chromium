@@ -28,12 +28,12 @@
 #ifndef TALK_SESSION_PHONE_CHANNEL_H_
 #define TALK_SESSION_PHONE_CHANNEL_H_
 
+#include <string>
 #include <vector>
 
 #include "talk/base/asyncudpsocket.h"
 #include "talk/base/network.h"
 #include "talk/base/sigslot.h"
-#include "talk/base/windowpicker.h"
 #include "talk/p2p/client/socketmonitor.h"
 #include "talk/p2p/base/session.h"
 #include "talk/session/phone/audiomonitor.h"
@@ -44,7 +44,7 @@
 
 namespace cricket {
 
-class MediaSessionDescription;
+class MediaContentDescription;
 struct CryptoParams;
 
 enum {
@@ -52,8 +52,8 @@ enum {
   MSG_DISABLE = 2,
   MSG_MUTE = 3,
   MSG_UNMUTE = 4,
-  MSG_SETREMOTEDESCRIPTION = 5,
-  MSG_SETLOCALDESCRIPTION = 6,
+  MSG_SETREMOTECONTENT = 5,
+  MSG_SETLOCALCONTENT = 6,
   MSG_EARLYMEDIATIMEOUT = 8,
   MSG_PRESSDTMF = 9,
   MSG_SETRENDERER = 10,
@@ -63,7 +63,8 @@ enum {
   MSG_PLAYRINGBACKTONE = 14,
   MSG_SETMAXSENDBANDWIDTH = 15,
   MSG_ADDSCREENCAST = 16,
-  MSG_REMOVESCREENCAST = 17
+  MSG_REMOVESCREENCAST = 17,
+  MSG_SETRTCPCNAME = 18
 };
 
 // TODO(juberti): Move to own file.
@@ -75,10 +76,10 @@ class RtcpMuxFilter {
   bool IsActive() const;
 
   // Specifies whether the offer indicates the use of RTCP mux.
-  bool SetOffer(bool offer_enable, DescriptionSource src);
+  bool SetOffer(bool offer_enable, ContentSource src);
 
   // Specifies whether the answer indicates the use of RTCP mux.
-  bool SetAnswer(bool answer_enable, DescriptionSource src);
+  bool SetAnswer(bool answer_enable, ContentSource src);
 
   // Determines whether the specified packet is RTCP.
   bool DemuxRtcp(const char* data, int len);
@@ -115,10 +116,11 @@ class BaseChannel
   bool secure() const { return srtp_filter_.IsActive(); }
 
   // Channel control
-  bool SetLocalDescription(const MediaSessionDescription& desc,
-                           DescriptionType type);
-  bool SetRemoteDescription(const MediaSessionDescription& desc,
-                            DescriptionType type);
+  bool SetRtcpCName(const std::string& cname);
+  bool SetLocalContent(const MediaContentDescription* content,
+                       ContentAction action);
+  bool SetRemoteContent(const MediaContentDescription* content,
+                        ContentAction action);
   bool SetMaxSendBandwidth(int max_bandwidth);
 
   bool Enable(bool enable);
@@ -178,22 +180,35 @@ class BaseChannel
   virtual void RemoveStream_w(uint32 ssrc) = 0;
 
   virtual void ChangeState() = 0;
-  struct SetDescriptionData : public talk_base::MessageData {
-    SetDescriptionData(const MediaSessionDescription& desc,
-                       DescriptionType type)
-        : desc(desc), type(type), result(false) {}
-    const MediaSessionDescription& desc;
-    DescriptionType type;
+
+  struct SetRtcpCNameData : public talk_base::MessageData {
+    explicit SetRtcpCNameData(const std::string& cname)
+        : cname(cname), result(false) {}
+    std::string cname;
     bool result;
   };
-  virtual bool SetLocalDescription_w(const MediaSessionDescription& desc,
-                                     DescriptionType type) = 0;
-  virtual bool SetRemoteDescription_w(const MediaSessionDescription& desc,
-                                      DescriptionType type) = 0;
+  bool SetRtcpCName_w(const std::string& cname);
 
-  bool SetSrtp_w(const std::vector<CryptoParams>& params, DescriptionType type,
-                 DescriptionSource src);
-  bool SetRtcpMux_w(bool enable, DescriptionType type, DescriptionSource src);
+  struct SetContentData : public talk_base::MessageData {
+    SetContentData(const MediaContentDescription* content,
+                   ContentAction action)
+        : content(content), action(action), result(false) {}
+    const MediaContentDescription* content;
+    ContentAction action;
+    bool result;
+  };
+
+  // Gets the content appropriate to the channel (audio or video).
+  virtual const MediaContentDescription* GetFirstContent(
+      const SessionDescription* sdesc) = 0;
+  virtual bool SetLocalContent_w(const MediaContentDescription* content,
+                                 ContentAction action) = 0;
+  virtual bool SetRemoteContent_w(const MediaContentDescription* content,
+                                  ContentAction action) = 0;
+
+  bool SetSrtp_w(const std::vector<CryptoParams>& params, ContentAction action,
+                 ContentSource src);
+  bool SetRtcpMux_w(bool enable, ContentAction action, ContentSource src);
 
   struct SetBandwidthData : public talk_base::MessageData {
     explicit SetBandwidthData(int value) : value(value), result(false) {}
@@ -301,10 +316,12 @@ class VoiceChannel : public BaseChannel {
   virtual void OnChannelRead(TransportChannel* channel,
                              const char *data, size_t len);
   virtual void ChangeState();
-  virtual bool SetLocalDescription_w(const MediaSessionDescription& desc,
-                                     DescriptionType type);
-  virtual bool SetRemoteDescription_w(const MediaSessionDescription& desc,
-                                      DescriptionType type);
+  virtual const MediaContentDescription* GetFirstContent(
+      const SessionDescription* sdesc);
+  virtual bool SetLocalContent_w(const MediaContentDescription* content,
+                                 ContentAction action);
+  virtual bool SetRemoteContent_w(const MediaContentDescription* content,
+                                  ContentAction action);
 
   void AddStream_w(uint32 ssrc);
   void RemoveStream_w(uint32 ssrc);
@@ -345,8 +362,6 @@ class VideoChannel : public BaseChannel {
 
   bool SetRenderer(uint32 ssrc, VideoRenderer* renderer);
 
-  bool AddScreencast(uint32 ssrc, talk_base::WindowId id);
-  bool RemoveScreencast(uint32 ssrc);
 
   sigslot::signal2<VideoChannel*, const std::vector<ConnectionInfo> &>
       SignalConnectionMonitor;
@@ -358,10 +373,12 @@ class VideoChannel : public BaseChannel {
  private:
   // overrides from BaseChannel
   virtual void ChangeState();
-  virtual bool SetLocalDescription_w(const MediaSessionDescription& desc,
-                                     DescriptionType type);
-  virtual bool SetRemoteDescription_w(const MediaSessionDescription& desc,
-                                      DescriptionType type);
+  virtual const MediaContentDescription* GetFirstContent(
+      const SessionDescription* sdesc);
+  virtual bool SetLocalContent_w(const MediaContentDescription* content,
+                                 ContentAction action);
+  virtual bool SetRemoteContent_w(const MediaContentDescription* content,
+                                  ContentAction action);
 
   void AddStream_w(uint32 ssrc, uint32 voice_ssrc);
   void RemoveStream_w(uint32 ssrc);
@@ -372,17 +389,9 @@ class VideoChannel : public BaseChannel {
     VideoRenderer* renderer;
   };
 
-  struct ScreencastMessageData : public talk_base::MessageData {
-    ScreencastMessageData(uint32 s, talk_base::WindowId id)
-        : ssrc(s), window_id(id) {}
-    uint32 ssrc;
-    talk_base::WindowId window_id;
-  };
 
   void SetRenderer_w(uint32 ssrc, VideoRenderer* renderer);
 
-  void AddScreencast_w(uint32 ssrc, talk_base::WindowId);
-  void RemoveScreencast_w(uint32 ssrc);
 
   virtual void OnMessage(talk_base::Message *pmsg);
   virtual void OnConnectionMonitorUpdate(

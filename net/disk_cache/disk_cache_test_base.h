@@ -4,13 +4,21 @@
 
 #ifndef NET_DISK_CACHE_DISK_CACHE_TEST_BASE_H_
 #define NET_DISK_CACHE_DISK_CACHE_TEST_BASE_H_
+#pragma once
 
 #include "base/basictypes.h"
 #include "base/thread.h"
+#include "net/base/cache_type.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
 
 class FilePath;
+
+namespace net {
+
+class IOBuffer;
+
+}  // namespace net
 
 namespace disk_cache {
 
@@ -34,9 +42,10 @@ class DiskCacheTestWithCache : public DiskCacheTest {
  protected:
   DiskCacheTestWithCache()
       : cache_(NULL), cache_impl_(NULL), mem_cache_(NULL), mask_(0), size_(0),
-        memory_only_(false), implementation_(false), force_creation_(false),
-        new_eviction_(false), first_cleanup_(true), integrity_(true),
-        use_current_thread_(false), cache_thread_("CacheThread") {}
+        type_(net::DISK_CACHE), memory_only_(false), implementation_(false),
+        force_creation_(false), new_eviction_(false), first_cleanup_(true),
+        integrity_(true), use_current_thread_(false),
+        cache_thread_("CacheThread") {}
 
   void InitCache();
   virtual void TearDown();
@@ -79,6 +88,10 @@ class DiskCacheTestWithCache : public DiskCacheTest {
     use_current_thread_ = true;
   }
 
+  void SetCacheType(net::CacheType type) {
+    type_ = type;
+  }
+
   // Utility methods to access the cache and wait for each operation to finish.
   int OpenEntry(const std::string& key, disk_cache::Entry** entry);
   int CreateEntry(const std::string& key, disk_cache::Entry** entry);
@@ -89,6 +102,15 @@ class DiskCacheTestWithCache : public DiskCacheTest {
   int DoomEntriesSince(const base::Time initial_time);
   int OpenNextEntry(void** iter, disk_cache::Entry** next_entry);
   void FlushQueueForTest();
+  void RunTaskForTest(Task* task);
+  int ReadData(disk_cache::Entry* entry, int index, int offset,
+               net::IOBuffer* buf, int len);
+  int WriteData(disk_cache::Entry* entry, int index, int offset,
+                net::IOBuffer* buf, int len, bool truncate);
+  int ReadSparseData(disk_cache::Entry* entry, int64 offset, net::IOBuffer* buf,
+                     int len);
+  int WriteSparseData(disk_cache::Entry* entry, int64 offset,
+                      net::IOBuffer* buf, int len);
 
   // cache_ will always have a valid object, regardless of how the cache was
   // initialized. The implementation pointers can be NULL.
@@ -98,6 +120,7 @@ class DiskCacheTestWithCache : public DiskCacheTest {
 
   uint32 mask_;
   int size_;
+  net::CacheType type_;
   bool memory_only_;
   bool implementation_;
   bool force_creation_;

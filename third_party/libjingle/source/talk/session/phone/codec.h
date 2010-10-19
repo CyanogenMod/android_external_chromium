@@ -32,7 +32,7 @@
 
 namespace cricket {
 
-struct Codec {
+struct AudioCodec {
   int id;
   std::string name;
   int clockrate;
@@ -42,20 +42,43 @@ struct Codec {
   int preference;
 
   // Creates a codec with the given parameters.
-  Codec(int pt, const std::string& nm, int cr, int br, int cs, int pr)
+  AudioCodec(int pt, const std::string& nm, int cr, int br, int cs, int pr)
       : id(pt), name(nm), clockrate(cr), bitrate(br),
         channels(cs), preference(pr) {}
 
   // Creates an empty codec.
-  Codec() : id(0), clockrate(0), bitrate(0), channels(0), preference(0) {}
+  AudioCodec() : id(0), clockrate(0), bitrate(0), channels(0), preference(0) {}
 
   bool Matches(int payload, const std::string& nm) const;
 
-  static bool Preferable(const Codec& first, const Codec& other) {
+  static bool Preferable(const AudioCodec& first, const AudioCodec& other) {
     return first.preference > other.preference;
   }
 
   std::string ToString() const;
+
+  AudioCodec& operator=(const AudioCodec& c) {
+    this->id = c.id;  // id is reserved in objective-c
+    name = c.name;
+    clockrate = c.clockrate;
+    bitrate = c.bitrate;
+    channels = c.channels;
+    preference =  c.preference;
+    return *this;
+  }
+
+  bool operator==(const AudioCodec& c) const {
+    return this->id == c.id &&  // id is reserved in objective-c
+           name == c.name &&
+           clockrate == c.clockrate &&
+           bitrate == c.bitrate &&
+           channels == c.channels &&
+           preference == c.preference;
+  }
+
+  bool operator!=(const AudioCodec& c) const {
+    return !(*this == c);
+  }
 };
 
 struct VideoCodec {
@@ -82,9 +105,75 @@ struct VideoCodec {
   }
 
   std::string ToString() const;
+
+  VideoCodec& operator=(const VideoCodec& c) {
+    this->id = c.id;  // id is reserved in objective-c
+    name = c.name;
+    width = c.width;
+    height = c.height;
+    framerate = c.framerate;
+    preference =  c.preference;
+    return *this;
+  }
+
+  bool operator==(const VideoCodec& c) const {
+    return this->id == c.id &&  // id is reserved in objective-c
+           name == c.name &&
+           width == c.width &&
+           height == c.height &&
+           framerate == c.framerate &&
+           preference == c.preference;
+  }
+
+  bool operator!=(const VideoCodec& c) const {
+    return !(*this == c);
+  }
+};
+
+struct VideoEncoderConfig {
+  static const int kDefaultMaxThreads = -1;
+  static const int kDefaultCpuProfile = -1;
+
+  VideoEncoderConfig()
+      : max_codec(),
+        num_threads(kDefaultMaxThreads),
+        cpu_profile(kDefaultCpuProfile) {
+  }
+
+  VideoEncoderConfig(const VideoCodec& c)
+      : max_codec(c),
+        num_threads(kDefaultMaxThreads),
+        cpu_profile(kDefaultCpuProfile) {
+  }
+
+  VideoEncoderConfig(const VideoCodec& c, int t, int p)
+      : max_codec(c),
+        num_threads(t),
+        cpu_profile(p) {
+  }
+
+  VideoEncoderConfig& operator=(const VideoEncoderConfig& config) {
+    max_codec = config.max_codec;
+    num_threads = config.num_threads;
+    cpu_profile = config.cpu_profile;
+    return *this;
+  }
+
+  bool operator==(const VideoEncoderConfig& config) const {
+    return max_codec == config.max_codec &&
+           num_threads == config.num_threads &&
+           cpu_profile == config.cpu_profile;
+  }
+
+  bool operator!=(const VideoEncoderConfig& config) const {
+    return !(*this == config);
+  }
+
+  VideoCodec max_codec;
+  int num_threads;
+  int cpu_profile;
 };
 
 }  // namespace cricket
 
 #endif  // TALK_SESSION_PHONE_CODEC_H_
-

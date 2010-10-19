@@ -1,11 +1,10 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/dock_info.h"
 
 #include "base/basictypes.h"
-#include "base/logging.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
@@ -75,6 +74,22 @@ class TopMostFinder : public BaseWindowFinder {
     RECT r;
     if (!GetWindowRect(hwnd, &r) || !PtInRect(&r, screen_loc_.ToPOINT())) {
       // The window doesn't contain the point, keep iterating.
+      return false;
+    }
+
+    LONG ex_styles = GetWindowLong(hwnd, GWL_EXSTYLE);
+    if (ex_styles & WS_EX_TRANSPARENT || ex_styles & WS_EX_LAYERED) {
+      // Mouse events fall through WS_EX_TRANSPARENT windows, so we ignore them.
+      //
+      // WS_EX_LAYERED is trickier. Apps like Switcher create a totally
+      // transparent WS_EX_LAYERED window that is always on top. If we don't
+      // ignore WS_EX_LAYERED windows and there are totally transparent
+      // WS_EX_LAYERED windows then there are effectively holes on the screen
+      // that the user can't reattach tabs to. So we ignore them. This is a bit
+      // problematic in so far as WS_EX_LAYERED windows need not be totally
+      // transparent in which case we treat chrome windows as not being obscured
+      // when they really are, but this is better than not being able to
+      // reattach tabs.
       return false;
     }
 

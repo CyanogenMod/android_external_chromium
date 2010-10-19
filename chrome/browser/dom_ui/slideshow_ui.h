@@ -4,12 +4,8 @@
 
 #ifndef CHROME_BROWSER_DOM_UI_SLIDESHOW_UI_H_
 #define CHROME_BROWSER_DOM_UI_SLIDESHOW_UI_H_
+#pragma once
 
-#include <vector>
-
-#include "base/file_path.h"
-#include "base/scoped_ptr.h"
-#include "base/values.h"
 #include "chrome/browser/dom_ui/dom_ui.h"
 
 class SlideshowUI : public DOMUI {

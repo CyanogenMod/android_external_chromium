@@ -4,6 +4,7 @@
 
 #ifndef CHROME_BROWSER_CHROMEOS_CROS_MOCK_UPDATE_LIBRARY_H_
 #define CHROME_BROWSER_CHROMEOS_CROS_MOCK_UPDATE_LIBRARY_H_
+#pragma once
 
 #include "base/observer_list.h"
 #include "chrome/browser/chromeos/cros/update_library.h"
@@ -17,7 +18,8 @@ class MockUpdateLibrary : public UpdateLibrary {
   virtual ~MockUpdateLibrary() {}
   MOCK_METHOD1(AddObserver, void(Observer*));  // NOLINT
   MOCK_METHOD1(RemoveObserver, void(Observer*));  // NOLINT
-
+  MOCK_METHOD0(CheckForUpdate, bool(void));
+  MOCK_METHOD0(RebootAfterUpdate, bool(void));
   MOCK_CONST_METHOD0(status, const Status&(void));
 
  private:

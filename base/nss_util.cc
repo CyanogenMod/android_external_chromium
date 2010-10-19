@@ -1,4 +1,4 @@
-// Copyright (c) 2008-2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,17 +21,19 @@
 #include "base/file_util.h"
 #include "base/logging.h"
 #include "base/singleton.h"
-#include "base/string_util.h"
+#include "base/stringprintf.h"
 
 // USE_NSS means we use NSS for everything crypto-related.  If USE_NSS is not
 // defined, such as on Mac and Windows, we use NSS for SSL only -- we don't
 // use NSS for crypto or certificate verification, and we don't use the NSS
 // certificate and key databases.
 #if defined(USE_NSS)
-#include "base/env_var.h"
+#include "base/environment.h"
 #include "base/lock.h"
 #include "base/scoped_ptr.h"
 #endif  // defined(USE_NSS)
+
+namespace base {
 
 namespace {
 
@@ -80,10 +82,10 @@ void UseLocalCacheOfNSSDatabaseIfNFS(const FilePath& database_dir) {
   struct statfs buf;
   if (statfs(database_dir.value().c_str(), &buf) == 0) {
     if (buf.f_type == NFS_SUPER_MAGIC) {
-      scoped_ptr<base::EnvVarGetter> env(base::EnvVarGetter::Create());
+      scoped_ptr<base::Environment> env(base::Environment::Create());
       const char* use_cache_env_var = "NSS_SDB_USE_CACHE";
-      if (!env->HasEnv(use_cache_env_var))
-        env->SetEnv(use_cache_env_var, "yes");
+      if (!env->HasVar(use_cache_env_var))
+        env->SetVar(use_cache_env_var, "yes");
     }
   }
 #endif  // defined(OS_LINUX)
@@ -127,6 +129,7 @@ class NSSInitSingleton {
  public:
   NSSInitSingleton()
       : real_db_slot_(NULL),
+        test_db_slot_(NULL),
         root_(NULL),
         chromeos_user_logged_in_(false) {
     base::EnsureNSPRInit();
@@ -218,6 +221,7 @@ class NSSInitSingleton {
       PK11_FreeSlot(real_db_slot_);
       real_db_slot_ = NULL;
     }
+    CloseTestNSSDB();
     if (root_) {
       SECMOD_UnloadUserModule(root_);
       SECMOD_DestroyModule(root_);
@@ -237,23 +241,30 @@ class NSSInitSingleton {
   void OpenPersistentNSSDB() {
     if (!chromeos_user_logged_in_) {
       chromeos_user_logged_in_ = true;
-
-      const std::string modspec =
-          StringPrintf("configDir='%s' tokenDescription='Real NSS database'",
-                       GetDefaultConfigDirectory().value().c_str());
-      real_db_slot_ = SECMOD_OpenUserDB(modspec.c_str());
-      if (real_db_slot_ == NULL) {
-        LOG(ERROR) << "Error opening persistent database (" << modspec
-                   << "): NSS error code " << PR_GetError();
-      } else {
-        if (PK11_NeedUserInit(real_db_slot_))
-          PK11_InitPin(real_db_slot_, NULL, NULL);
-      }
+      real_db_slot_ = OpenUserDB(GetDefaultConfigDirectory(),
+                                 "Real NSS database");
     }
   }
 #endif  // defined(OS_CHROMEOS)
 
+  bool OpenTestNSSDB(const FilePath& path, const char* description) {
+    test_db_slot_ = OpenUserDB(path, description);
+    return !!test_db_slot_;
+  }
+
+  void CloseTestNSSDB() {
+    if (test_db_slot_) {
+      SECStatus status = SECMOD_CloseUserDB(test_db_slot_);
+      if (status != SECSuccess)
+        LOG(ERROR) << "SECMOD_CloseUserDB failed: " << PORT_GetError();
+      PK11_FreeSlot(test_db_slot_);
+      test_db_slot_ = NULL;
+    }
+  }
+
   PK11SlotInfo* GetDefaultKeySlot() {
+    if (test_db_slot_)
+      return PK11_ReferenceSlot(test_db_slot_);
     if (real_db_slot_)
       return PK11_ReferenceSlot(real_db_slot_);
     return PK11_GetInternalKeySlot();
@@ -266,7 +277,25 @@ class NSSInitSingleton {
 #endif  // defined(USE_NSS)
 
  private:
+  static PK11SlotInfo* OpenUserDB(const FilePath& path,
+                                  const char* description) {
+    const std::string modspec =
+        StringPrintf("configDir='sql:%s' tokenDescription='%s'",
+                     path.value().c_str(), description);
+    PK11SlotInfo* db_slot = SECMOD_OpenUserDB(modspec.c_str());
+    if (db_slot) {
+      if (PK11_NeedUserInit(db_slot))
+        PK11_InitPin(db_slot, NULL, NULL);
+    }
+    else {
+      LOG(ERROR) << "Error opening persistent database (" << modspec
+                 << "): NSS error code " << PR_GetError();
+    }
+    return db_slot;
+  }
+
   PK11SlotInfo* real_db_slot_;  // Overrides internal key slot if non-NULL.
+  PK11SlotInfo* test_db_slot_;  // Overrides internal key slot and real_db_slot_
   SECMODModule *root_;
   bool chromeos_user_logged_in_;
 #if defined(USE_NSS)
@@ -275,8 +304,6 @@ class NSSInitSingleton {
 };
 
 }  // namespace
-
-namespace base {
 
 void EnsureNSPRInit() {
   Singleton<NSPRInitSingleton>::get();
@@ -287,6 +314,14 @@ void EnsureNSSInit() {
 }
 
 #if defined(USE_NSS)
+bool OpenTestNSSDB(const FilePath& path, const char* description) {
+  return Singleton<NSSInitSingleton>::get()->OpenTestNSSDB(path, description);
+}
+
+void CloseTestNSSDB() {
+  Singleton<NSSInitSingleton>::get()->CloseTestNSSDB();
+}
+
 Lock* GetNSSWriteLock() {
   return Singleton<NSSInitSingleton>::get()->write_lock();
 }

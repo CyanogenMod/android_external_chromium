@@ -15,6 +15,7 @@
 #include "base/string16.h"
 #include "base/sys_string_conversions.h"
 #include "base/time.h"
+#include "base/values.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/importer/importer_bridge.h"
 #include "chrome/browser/importer/importer_data_types.h"
@@ -316,7 +317,7 @@ void SafariImporter::ImportHistory() {
   ParseHistoryItems(&rows);
 
   if (!rows.empty() && !cancelled()) {
-    bridge_->SetHistoryItems(rows);
+    bridge_->SetHistoryItems(rows, history::SOURCE_SAFARI_IMPORTED);
   }
 }
 
