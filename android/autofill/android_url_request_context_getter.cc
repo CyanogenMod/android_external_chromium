@@ -30,7 +30,7 @@ scoped_refptr<AndroidURLRequestContextGetter> AndroidURLRequestContextGetter::in
 
 URLRequestContext* AndroidURLRequestContextGetter::GetURLRequestContext()
 {
-  return (*context_getter_function_)();
+  return (*context_getter_function_)(false /* isPrivateBrowsing */);
 }
 
 scoped_refptr<base::MessageLoopProxy> AndroidURLRequestContextGetter::GetIOMessageLoopProxy()
