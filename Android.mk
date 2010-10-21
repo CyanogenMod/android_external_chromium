@@ -148,7 +148,6 @@ LOCAL_SRC_FILES := \
     net/base/host_resolver_impl.cc \
     net/base/host_resolver_proc.cc \
     net/base/io_buffer.cc \
-    net/base/load_log.cc \
     net/base/mime_util.cc \
     net/base/net_errors.cc \
     net/base/net_log.cc \
