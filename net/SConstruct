@@ -1,2 +1,0 @@
-# This file is generated; do not edit.
-SConscript('net_main.scons')
