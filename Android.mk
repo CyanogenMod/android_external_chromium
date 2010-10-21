@@ -9,29 +9,32 @@ LOCAL_MODULE_CLASS := STATIC_LIBRARIES
 INTERMEDIATES := $(call local-intermediates-dir)
 
 LOCAL_SRC_FILES := \
-	googleurl/src/gurl.cc \
-	googleurl/src/url_canon_etc.cc \
-	googleurl/src/url_canon_fileurl.cc \
-	googleurl/src/url_canon_host.cc \
-	googleurl/src/url_canon_icu.cc \
-	googleurl/src/url_canon_internal.cc \
-	googleurl/src/url_canon_ip.cc \
-	googleurl/src/url_canon_mailtourl.cc \
-	googleurl/src/url_canon_path.cc \
-	googleurl/src/url_canon_pathurl.cc \
-	googleurl/src/url_canon_query.cc \
-	googleurl/src/url_canon_relative.cc \
-	googleurl/src/url_canon_stdurl.cc \
-	googleurl/src/url_parse.cc \
-	googleurl/src/url_parse_file.cc \
-	googleurl/src/url_util.cc \
-	\
-	app/sql/connection.cc \
-	app/sql/meta_table.cc \
-	app/sql/statement.cc \
-	app/sql/transaction.cc \
-	\
-	base/at_exit.cc \
+    googleurl/src/gurl.cc \
+    googleurl/src/url_canon_etc.cc \
+    googleurl/src/url_canon_fileurl.cc \
+    googleurl/src/url_canon_host.cc \
+    googleurl/src/url_canon_icu.cc \
+    googleurl/src/url_canon_internal.cc \
+    googleurl/src/url_canon_ip.cc \
+    googleurl/src/url_canon_mailtourl.cc \
+    googleurl/src/url_canon_path.cc \
+    googleurl/src/url_canon_pathurl.cc \
+    googleurl/src/url_canon_query.cc \
+    googleurl/src/url_canon_relative.cc \
+    googleurl/src/url_canon_stdurl.cc \
+    googleurl/src/url_parse.cc \
+    googleurl/src/url_parse_file.cc \
+    googleurl/src/url_util.cc \
+    \
+    android/jni/mime_utils.cc \
+    android/jni/jni_utils.cc \
+    \
+    app/sql/connection.cc \
+    app/sql/meta_table.cc \
+    app/sql/statement.cc \
+    app/sql/transaction.cc \
+    \
+    base/at_exit.cc \
     base/base64.cc \
     base/cancellation_flag.cc \
     base/condition_variable_posix.cc \
@@ -156,6 +159,7 @@ LOCAL_SRC_FILES := \
     net/base/network_change_notifier_linux.cc \
     net/base/network_change_notifier_netlink_linux.cc \
     net/base/pem_tokenizer.cc \
+    net/base/platform_mime_util_android.cc \
     net/base/registry_controlled_domain.cc \
     net/base/sdch_manager.cc \
     net/base/sdch_filter.cc \
@@ -367,6 +371,7 @@ LOCAL_C_INCLUDES := \
     external/sqlite/dist \
     external/webkit/WebKit/chromium \
     external/webkit/WebKit/android \
+    external/webkit/WebKit/android/WebCoreSupport \
     external/zlib \
     external \
     $(LOCAL_PATH)/base/third_party/dmg_fp \
