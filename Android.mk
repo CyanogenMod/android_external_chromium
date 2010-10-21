@@ -44,6 +44,7 @@ LOCAL_SRC_FILES := \
     base/file_util_posix.cc \
     base/histogram.cc \
     base/lazy_instance.cc \
+    base/lock.cc \
     base/lock_impl_posix.cc \
     base/logging.cc \
     base/message_loop.cc \
@@ -54,6 +55,7 @@ LOCAL_SRC_FILES := \
     base/message_pump_libevent.cc \
     base/md5.cc \
     base/native_library_linux.cc \
+    base/non_thread_safe.cc \
     base/pickle.cc \
     base/platform_file_posix.cc \
     base/platform_thread_posix.cc \
@@ -79,6 +81,8 @@ LOCAL_SRC_FILES := \
     base/sys_string_conversions_linux.cc \
     base/task.cc \
     base/thread.cc \
+    base/thread_checker.cc \
+    base/thread_collision_warner.cc \
     base/thread_local_posix.cc \
     base/thread_local_storage_posix.cc \
     base/time.cc \
@@ -86,6 +90,7 @@ LOCAL_SRC_FILES := \
     base/timer.cc \
     base/trace_event.cc \
     base/tracked.cc \
+    base/tracked_objects.cc \
     base/waitable_event_posix.cc \
     base/utf_offset_string_conversions.cc \
     base/utf_string_conversions.cc \
