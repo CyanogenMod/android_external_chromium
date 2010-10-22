@@ -69,7 +69,7 @@ LOCAL_SRC_FILES := \
     base/rand_util_posix.cc \
     base/ref_counted.cc \
     base/safe_strerror_posix.cc \
-    base/sha1.cc \
+    base/sha1_portable.cc \
     base/sha2.cc \
     base/stats_counters.cc \
     base/stats_table.cc \
