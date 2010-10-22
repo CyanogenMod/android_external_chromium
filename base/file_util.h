@@ -18,10 +18,6 @@
 #endif
 #elif defined(OS_POSIX)
 #include <sys/stat.h>
-#ifdef ANDROID
-// TODO: Upstream this missing header.
-#include <unistd.h>
-#endif
 #endif
 
 #include <stdio.h>

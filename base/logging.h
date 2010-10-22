@@ -342,16 +342,8 @@ const LogSeverity LOG_DFATAL_LEVEL = LOG_FATAL;
 #define VLOG_IF(verboselevel, condition) \
   LOG_IF(INFO, (condition) && VLOG_IS_ON(verboselevel))
 
-#ifdef ANDROID
-#ifndef LOG_ASSERT
 #define LOG_ASSERT(condition)  \
   LOG_IF(FATAL, !(condition)) << "Assert failed: " #condition ". "
-#endif // ifndef LOG_ASSERT
-#else
-#define LOG_ASSERT(condition)  \
-  LOG_IF(FATAL, !(condition)) << "Assert failed: " #condition ". "
-#endif // ANDROID
-
 #define SYSLOG_ASSERT(condition) \
   SYSLOG_IF(FATAL, !(condition)) << "Assert failed: " #condition ". "
 

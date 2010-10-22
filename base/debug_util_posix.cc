@@ -104,6 +104,9 @@ void DemangleSymbols(std::string* text) {
 bool GetBacktraceStrings(void **trace, int size,
                          std::vector<std::string>* trace_strings,
                          std::string* error_message) {
+#ifdef ANDROID
+  return false;
+#else
   bool symbolized = false;
 
 #if defined(USE_SYMBOLIZE)
@@ -123,8 +126,6 @@ bool GetBacktraceStrings(void **trace, int size,
     }
   }
 #else
-    return false; // For now on Android
-/*
   scoped_ptr_malloc<char*> trace_symbols(backtrace_symbols(trace, size));
   if (trace_symbols.get()) {
     for (int i = 0; i < size; ++i) {
@@ -140,10 +141,10 @@ bool GetBacktraceStrings(void **trace, int size,
       trace_strings->push_back(base::StringPrintf("%p", trace[i]));
     }
   }
-*/
 #endif  // defined(USE_SYMBOLIZE)
 
   return symbolized;
+#endif // ANDROID
 }
 
 }  // namespace

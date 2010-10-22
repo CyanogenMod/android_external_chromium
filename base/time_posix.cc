@@ -79,8 +79,12 @@ Time Time::FromExploded(bool is_local, const Exploded& exploded) {
   if (is_local)
     seconds = mktime(&timestruct);
   else
+#ifdef ANDROID
+    // TODO: Fix in bionic
     seconds = mktime(&timestruct);
-//    seconds = timegm(&timestruct);
+#else
+    seconds = timegm(&timestruct);
+#endif
 
   int64 milliseconds;
   // Handle overflow.  Clamping the range to what mktime and timegm might

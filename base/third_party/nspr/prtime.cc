@@ -74,10 +74,6 @@
 #include <errno.h>  /* for EINVAL */
 #include <time.h>
 
-#if defined(ANDROID)
-#include "ctype.h" // for isalpha
-#endif // ANDROID
-
 /* Implements the Unix localtime_r() function for windows */
 #if defined(OS_WIN)
 static void localtime_r(const time_t* secs, struct tm* time) {
@@ -163,7 +159,7 @@ PR_ImplodeTime(const PRExplodedTime *exploded)
     exp_tm.tm_year = exploded->tm_year - 1900;
 
 #if defined(ANDROID)
-// grrr
+    // TODO: Fix in bionic
     time_t absolute_time = mktime(&exp_tm);
 #else
     time_t absolute_time = timegm(&exp_tm);

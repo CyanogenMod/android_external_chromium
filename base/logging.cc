@@ -32,7 +32,6 @@ typedef HANDLE MutexHandle;
 #include <unistd.h>
 #define MAX_PATH PATH_MAX
 typedef FILE* FileHandle;
-#include "pthread.h"
 typedef pthread_mutex_t* MutexHandle;
 #endif
 
