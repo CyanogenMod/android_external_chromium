@@ -150,7 +150,6 @@ int TCPConnectJob::DoTCPConnect() {
 
 int TCPConnectJob::DoTCPConnectComplete(int result) {
   if (result == OK) {
-#ifndef ANDROID
     DCHECK(connect_start_time_ != base::TimeTicks());
     DCHECK(start_time_ != base::TimeTicks());
     base::TimeTicks now = base::TimeTicks::Now();
@@ -168,7 +167,6 @@ int TCPConnectJob::DoTCPConnectComplete(int result) {
         base::TimeDelta::FromMilliseconds(1),
         base::TimeDelta::FromMinutes(10),
         100);
-#endif
   } else {
     // Delete the socket on error.
     set_socket(NULL);

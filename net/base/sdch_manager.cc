@@ -34,7 +34,7 @@ SdchManager* SdchManager::Global() {
 
 // static
 void SdchManager::SdchErrorRecovery(ProblemCodes problem) {
-//  UMA_HISTOGRAM_ENUMERATION("Sdch3.ProblemCodes_4", problem, MAX_PROBLEM_CODE);
+  UMA_HISTOGRAM_ENUMERATION("Sdch3.ProblemCodes_4", problem, MAX_PROBLEM_CODE);
 }
 
 // static
@@ -274,7 +274,7 @@ bool SdchManager::AddSdchDictionary(const std::string& dictionary_text,
     return false;
   }
 
-//  UMA_HISTOGRAM_COUNTS("Sdch3.Dictionary size loaded", dictionary_text.size());
+  UMA_HISTOGRAM_COUNTS("Sdch3.Dictionary size loaded", dictionary_text.size());
   DLOG(INFO) << "Loaded dictionary with client hash " << client_hash <<
       " and server hash " << server_hash;
   Dictionary* dictionary =
@@ -314,8 +314,8 @@ void SdchManager::GetAvailDictionaryList(const GURL& target_url,
     list->append(it->second->client_hash());
   }
   // Watch to see if we have corrupt or numerous dictionaries.
-//  if (count > 0)
-//    UMA_HISTOGRAM_COUNTS("Sdch3.Advertisement_Count", count);
+  if (count > 0)
+    UMA_HISTOGRAM_COUNTS("Sdch3.Advertisement_Count", count);
 }
 
 SdchManager::Dictionary::Dictionary(const std::string& dictionary_text,

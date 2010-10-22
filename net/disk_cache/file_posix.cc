@@ -300,7 +300,6 @@ bool File::Write(const void* buffer, size_t buffer_len, size_t offset) {
     return false;
 
   int ret = pwrite(platform_file_, buffer, buffer_len, offset);
-
   return (static_cast<size_t>(ret) == buffer_len);
 }
 

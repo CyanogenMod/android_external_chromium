@@ -16,11 +16,6 @@
 #define MOZ_Z_inflateInit_ inflateInit_
 #define MOZ_Z_inflateReset inflateReset
 #else
-#define MOZ_Z_inflate inflate
-#define MOZ_Z_inflateEnd inflateEnd
-#define MOZ_Z_inflateInit2_ inflateInit2_
-#define MOZ_Z_inflateInit_ inflateInit_
-#define MOZ_Z_inflateReset inflateReset
 #include "third_party/zlib/zlib.h"
 #endif
 

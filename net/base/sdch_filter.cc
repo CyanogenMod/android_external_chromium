@@ -33,7 +33,6 @@ SdchFilter::SdchFilter(const FilterContext& filter_context)
 }
 
 SdchFilter::~SdchFilter() {
-#ifndef ANDROID
   // All code here is for gathering stats, and can be removed when SDCH is
   // considered stable.
 
@@ -111,7 +110,6 @@ SdchFilter::~SdchFilter() {
       return;
     }
   }  // end of switch.
-#endif
 }
 
 bool SdchFilter::InitDecoding(Filter::FilterType filter_type) {

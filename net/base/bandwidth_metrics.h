@@ -96,9 +96,7 @@ class BandwidthMetrics {
         LOG(INFO) << "Bandwidth: " << kbps
                   << "Kbps (avg " << bandwidth() << "Kbps)";
         int kbps_int = static_cast<int>(kbps);
-#ifndef ANDROID
         UMA_HISTOGRAM_COUNTS_10000("Net.DownloadBandwidth", kbps_int);
-#endif
       }
     }
   }

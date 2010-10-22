@@ -1884,7 +1884,7 @@ void HttpCache::Transaction::HistogramHeaders(
 
   // |value| goes from 0 to 63. Actually, the max value should be 47 (0x2f)
   // but we'll see.
-//  UMA_HISTOGRAM_ENUMERATION("HttpCache.ResponseHeaders", value, 65);
+  UMA_HISTOGRAM_ENUMERATION("HttpCache.ResponseHeaders", value, 65);
 }
 
 void HttpCache::Transaction::OnIOComplete(int result) {
