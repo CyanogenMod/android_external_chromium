@@ -44,7 +44,7 @@ public:
 
   static AndroidURLRequestContextGetter* Get();
 
-  typedef URLRequestContext* (URLRequestContextGetterFunction)(bool);
+  typedef URLRequestContext* (URLRequestContextGetterFunction)();
   void SetURLRequestContextGetterFunction(
       URLRequestContextGetterFunction* function);
   void SetIOThread(base::Thread* io_thread) { io_thread_ = io_thread; }
