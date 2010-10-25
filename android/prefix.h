@@ -81,4 +81,7 @@ friend class test_case_name##_##test_name##_Test
 // Disable langinfo in icu
 #define U_GAVE_NL_LANGINFO_CODESET 0
 
+// We use the C99 style, but this is not defined
+#define HAVE_UINT16_T 1
+
 #endif
