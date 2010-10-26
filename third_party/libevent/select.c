@@ -60,13 +60,12 @@
 #define        howmany(x, y)   (((x)+((y)-1))/(y))
 #endif
 
-//#ifndef _EVENT_HAVE_FD_MASK
-#ifdef __BIONIC__
+#ifndef _EVENT_HAVE_FD_MASK
 /* This type is mandatory, but Android doesn't define it. */
 #undef NFDBITS
 #define NFDBITS (sizeof(long)*8)
 typedef unsigned long fd_mask;
-#endif // ANDROID
+#endif
 
 struct selectop {
 	int event_fds;		/* Highest fd in fd set */

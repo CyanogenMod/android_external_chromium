@@ -7,6 +7,8 @@
 
 #if defined(__APPLE__)
 #include "mac/event-config.h"
+#elif defined(ANDROID) // Android has to be defined before linux
+#include "android/event-config.h"
 #elif defined(__linux__)
 #include "linux/event-config.h"
 #else

@@ -25,11 +25,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 #ifdef HAVE_CONFIG_H
-#ifdef ANDROID // maybe libevent should be in a seperate lib ...
-#include "android/config.h"
-#else
 #include "config.h"
-#endif //Android
 #endif
 
 #ifdef WIN32

@@ -1,4 +1,33 @@
+####################################
+# Build libevent as separate library
+
 LOCAL_PATH := $(call my-dir)
+
+include $(CLEAR_VARS)
+
+LOCAL_MODULE:= libevent
+LOCAL_MODULE_TAGS:= optional
+
+LOCAL_SRC_FILES := \
+    third_party/libevent/event.c \
+    third_party/libevent/evutil.c \
+    third_party/libevent/epoll.c \
+    third_party/libevent/log.c \
+    third_party/libevent/poll.c \
+    third_party/libevent/select.c \
+    third_party/libevent/signal.c
+
+LOCAL_C_INCLUDES := \
+    $(LOCAL_PATH)/third_party/libevent \
+    $(LOCAL_PATH)/third_party/libevent/android \
+
+LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -fvisibility=hidden
+
+include $(BUILD_STATIC_LIBRARY)
+
+
+###################################
+# Build the libchromium_net library
 
 include $(CLEAR_VARS)
 
@@ -296,14 +325,6 @@ LOCAL_SRC_FILES := \
     sdch/open-vcdiff/src/vcdecoder.cc \
     sdch/open-vcdiff/src/vcdiffengine.cc \
     sdch/open-vcdiff/src/vcencoder.cc \
-    \
-    third_party/libevent/event.c \
-    third_party/libevent/evutil.c \
-    third_party/libevent/epoll.c \
-    third_party/libevent/log.c \
-    third_party/libevent/poll.c \
-    third_party/libevent/select.c \
-    third_party/libevent/signal.c
 
 # AutoFill++ source files.
 LOCAL_SRC_FILES += \
@@ -438,6 +459,9 @@ LOCAL_CFLAGS += -include "android/prefix.h"
 LOCAL_C_INCLUDES := \
 	$(LOCAL_PATH)/android \
 	$(LOCAL_C_INCLUDES)
+
+#LOCAL_STATIC_LIBRARIES += libevent
+LOCAL_WHOLE_STATIC_LIBRARIES += libevent
 
 # Including this will modify the include path
 include external/stlport/libstlport.mk
