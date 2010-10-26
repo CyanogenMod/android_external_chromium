@@ -379,6 +379,7 @@ LOCAL_SRC_FILES += \
     webkit/glue/form_data.cc
 
 LOCAL_C_INCLUDES := \
+    $(LOCAL_PATH) \
     $(LOCAL_PATH)/chrome \
     $(LOCAL_PATH)/chrome/browser \
     $(LOCAL_PATH)/sdch/open-vcdiff/src \

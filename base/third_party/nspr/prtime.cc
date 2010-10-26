@@ -63,7 +63,7 @@
  * 3. prlong.h
  */
 
-#include "prtime.h"
+#include "base/third_party/nspr/prtime.h"
 #include "build/build_config.h"
 
 #if defined(OS_WIN)
