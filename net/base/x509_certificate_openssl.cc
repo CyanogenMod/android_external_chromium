@@ -23,6 +23,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+// ANDROID
+
 #include "net/base/x509_certificate.h"
 
 #include "openssl/x509.h"

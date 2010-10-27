@@ -533,7 +533,6 @@ bool LowerCaseEqualsASCII(string16::const_iterator a_begin,
 }
 #endif
 
-// weird string library ...
 #if !defined(ANDROID)
 bool LowerCaseEqualsASCII(const char* a_begin,
                           const char* a_end,
@@ -542,7 +541,6 @@ bool LowerCaseEqualsASCII(const char* a_begin,
 }
 #endif // !ANDROID
 
-// weird string library ...
 #if !defined(ANDROID)
 bool LowerCaseEqualsASCII(const wchar_t* a_begin,
                           const wchar_t* a_end,

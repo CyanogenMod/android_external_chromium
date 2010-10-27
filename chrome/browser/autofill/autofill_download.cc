@@ -168,6 +168,7 @@ bool AutoFillDownloadManager::StartRequest(
     // We have it disabled - return true as if it succeeded, but do nothing.
     return true;
   }
+
   // Id is ignored for regular chrome, in unit test id's for fake fetcher
   // factory will be 0, 1, 2, ...
   URLFetcher *fetcher = URLFetcher::Create(fetcher_id_for_unittest_++,
@@ -264,3 +265,4 @@ void AutoFillDownloadManager::OnURLFetchComplete(const URLFetcher* source,
   delete it->first;
   url_fetchers_.erase(it);
 }
+

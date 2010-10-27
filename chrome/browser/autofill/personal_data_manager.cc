@@ -262,7 +262,7 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
   if (!wds)
     return;
 
-  // FIXME: AutoLock does not build on Android as of the initial checkin.
+  // ANDROID FIXME: AutoLock does not build on Android as of the initial checkin.
   AutoLock lock(unique_ids_lock_);
 
   // Remove the unique IDs of the new set of profiles from the unique ID set.
@@ -275,7 +275,7 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
   // Any remaining IDs are not in the new profile list and should be removed
   // from the web database.
 
-  // TODO: Need a web database service on Android
+  // ANDROID TODO: Need a web database service on Android
   for (std::set<int>::iterator iter = unique_profile_ids_.begin();
        iter != unique_profile_ids_.end(); ++iter) {
     wds->RemoveAutoFillProfile(*iter);
@@ -367,7 +367,7 @@ void PersonalDataManager::SetCreditCards(
   // from the web database.
   for (std::set<int>::iterator iter = unique_creditcard_ids_.begin();
        iter != unique_creditcard_ids_.end(); ++iter) {
-    // TODO: Android needs some sort of WebDatabaseService backing store for sensitive data
+    // ANDROID TODO: Android needs some sort of WebDatabaseService backing store for sensitive data
     // like credit cards.
     wds->RemoveCreditCard(*iter);
 

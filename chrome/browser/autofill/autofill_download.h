@@ -144,3 +144,4 @@ class AutoFillDownloadManager : public URLFetcher::Delegate {
 };
 
 #endif  // CHROME_BROWSER_AUTOFILL_AUTOFILL_DOWNLOAD_H_
+

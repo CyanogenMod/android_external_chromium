@@ -15,8 +15,8 @@
 #include "base/ref_counted.h"
 #include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/search_engines/template_url_id.h"
-#include "third_party/skia/include/core/SkBitmap.h"
 #ifdef ANDROID
+#include "third_party/skia/include/core/SkBitmap.h"
 #include <WebCoreSupport/autofill/FormFieldAndroid.h>
 #else
 #include "webkit/glue/form_field.h"

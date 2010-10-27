@@ -186,11 +186,9 @@ string16 AutoFillProfile::PreviewSummary() const {
   // Name separator defaults to "". Space if we have first and last name.
   string16 name_separator;
 
-
   if (have_first_name && have_last_name) {
     name_separator = l10n_util::GetStringUTF16(
         IDS_AUTOFILL_DIALOG_ADDRESS_NAME_SEPARATOR);
-
   }
 
   // E.g. "John Smith", or "John", or "Smith", or "".

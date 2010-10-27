@@ -248,7 +248,9 @@ __declspec(noinline) void MessageLoop::RunInternalInSEHFrame() {
 void MessageLoop::RunInternal() {
   DCHECK(this == current());
 
-//  StartHistogrammer();
+#ifndef ANDROID
+  StartHistogrammer();
+#endif
 
 #if !defined(OS_MACOSX)
   if (state_->dispatcher && type() == TYPE_UI) {
