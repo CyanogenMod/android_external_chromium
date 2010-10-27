@@ -29,6 +29,9 @@
 #include <netdb.h>
 #include <net/if.h>
 #include <netinet/in.h>
+#if defined(__BIONIC__) && defined(ANDROID)
+#include <netinet/in6.h>
+#endif
 #include <sys/socket.h>
 #endif
 
@@ -70,10 +73,6 @@
 #endif
 #include "unicode/datefmt.h"
 
-
-#ifdef __BIONIC__
-#include "netinet/in6.h"
-#endif
 
 using base::Time;
 

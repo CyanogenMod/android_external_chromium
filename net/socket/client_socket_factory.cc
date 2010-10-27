@@ -13,7 +13,7 @@
 #include "net/socket/ssl_client_socket_openssl.h"
 #elif defined(USE_NSS)
 #include "net/socket/ssl_client_socket_nss.h"
-#elif defined(USE_OPENSSL)
+#elif defined(USE_OPENSSL) && defined(ANDROID)
 #include "net/socket/ssl_client_socket_openssl.h"
 #elif defined(OS_MACOSX)
 #include "net/socket/ssl_client_socket_mac.h"
@@ -35,7 +35,7 @@ SSLClientSocket* DefaultSSLClientSocketFactory(
   return new SSLClientSocketOpenSSL(transport_socket, hostname, ssl_config);
 #elif defined(USE_NSS)
   return new SSLClientSocketNSS(transport_socket, hostname, ssl_config);
-#elif defined(USE_OPENSSL)
+#elif defined(USE_OPENSSL) && defined(ANDROID)
   return new SSLClientSocketOpenSSL(transport_socket, hostname, ssl_config);
 #elif defined(OS_MACOSX)
   // TODO(wtc): SSLClientSocketNSS can't do SSL client authentication using

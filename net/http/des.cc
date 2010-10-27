@@ -215,7 +215,7 @@ void DESEncrypt(const uint8* key, const uint8* src, uint8* hash) {
     CryptReleaseContext(provider, 0);
 }
 
-#elif defined(USE_OPENSSL)
+#elif defined(USE_OPENSSL) && defined(ANDROID)
 
 // To be implemented with openssl
 void DESEncrypt(const uint8* key, const uint8* src, uint8* hash) {
