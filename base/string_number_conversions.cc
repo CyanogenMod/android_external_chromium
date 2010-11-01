@@ -394,6 +394,7 @@ bool StringToInt(const std::string& input, int* output) {
                                                                  output);
 }
 
+#if !defined(ANDROID)
 bool StringToInt(std::string::const_iterator begin,
                  std::string::const_iterator end,
                  int* output) {
@@ -401,6 +402,7 @@ bool StringToInt(std::string::const_iterator begin,
                                                                  end,
                                                                  output);
 }
+#endif
 
 bool StringToInt(const char* begin, const char* end, int* output) {
   return IteratorRangeToNumber<CharBufferToIntTraits>::Invoke(begin,
@@ -413,6 +415,7 @@ bool StringToInt(const string16& input, int* output) {
     input.begin(), input.end(), output);
 }
 
+#if !defined(ANDROID)
 bool StringToInt(string16::const_iterator begin,
                  string16::const_iterator end,
                  int* output) {
@@ -420,6 +423,7 @@ bool StringToInt(string16::const_iterator begin,
                                                                      end,
                                                                      output);
 }
+#endif
 
 bool StringToInt(const char16* begin, const char16* end, int* output) {
   return IteratorRangeToNumber<WideCharBufferToIntTraits>::Invoke(begin,
@@ -432,6 +436,7 @@ bool StringToInt64(const std::string& input, int64* output) {
     input.begin(), input.end(), output);
 }
 
+#if !defined(ANDROID)
 bool StringToInt64(std::string::const_iterator begin,
                  std::string::const_iterator end,
                  int64* output) {
@@ -439,6 +444,7 @@ bool StringToInt64(std::string::const_iterator begin,
                                                                  end,
                                                                  output);
 }
+#endif
 
 bool StringToInt64(const char* begin, const char* end, int64* output) {
   return IteratorRangeToNumber<CharBufferToInt64Traits>::Invoke(begin,
@@ -451,6 +457,7 @@ bool StringToInt64(const string16& input, int64* output) {
     input.begin(), input.end(), output);
 }
 
+#if !defined(ANDROID)
 bool StringToInt64(string16::const_iterator begin,
                  string16::const_iterator end,
                  int64* output) {
@@ -458,6 +465,7 @@ bool StringToInt64(string16::const_iterator begin,
                                                                      end,
                                                                      output);
 }
+#endif
 
 bool StringToInt64(const char16* begin, const char16* end, int64* output) {
   return IteratorRangeToNumber<WideCharBufferToInt64Traits>::Invoke(begin,
@@ -512,6 +520,7 @@ bool HexStringToInt(const std::string& input, int* output) {
     input.begin(), input.end(), output);
 }
 
+#if !defined(ANDROID)
 bool HexStringToInt(std::string::const_iterator begin,
                     std::string::const_iterator end,
                     int* output) {
@@ -519,6 +528,7 @@ bool HexStringToInt(std::string::const_iterator begin,
                                                                     end,
                                                                     output);
 }
+#endif
 
 bool HexStringToInt(const char* begin, const char* end, int* output) {
   return IteratorRangeToNumber<HexCharBufferToIntTraits>::Invoke(begin,
