@@ -19,11 +19,8 @@
 #include "chrome/browser/autofill/fax_number.h"
 #include "chrome/browser/autofill/home_address.h"
 #include "chrome/browser/autofill/home_phone_number.h"
-<<<<<<< HEAD
-#ifndef ANDROID
-=======
 #include "chrome/browser/guid.h"
->>>>>>> chromium.org at r63472
+#ifndef ANDROID
 #include "grit/generated_resources.h"
 #endif
 

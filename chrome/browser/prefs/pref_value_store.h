@@ -16,13 +16,9 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/values.h"
-<<<<<<< HEAD
 #ifndef ANDROID
-#include "chrome/browser/chrome_thread.h"
-#endif
-=======
 #include "chrome/browser/browser_thread.h"
->>>>>>> chromium.org at r63472
+#endif
 #include "chrome/browser/prefs/pref_notifier.h"
 #include "chrome/common/pref_store.h"
 
@@ -169,28 +165,13 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
 
 #ifndef ANDROID
   // Called as a result of a notification of policy change. Triggers a
-<<<<<<< HEAD
-  // reload of managed preferences from policy. Caller must pass in
-  // new, uninitialized managed and recommended PrefStores in
-  // |managed_pref_store| and |recommended_pref_store| respectively, since
-  // PrefValueStore doesn't know about policy-specific PrefStores.
-  // |callback| is called with the set of preferences changed by the policy
-  // refresh. |callback| is called on the caller's thread as a Task
-  // after RefreshPolicyPrefs has returned. RefreshPolicyPrefs takes ownership
-  // of the |callback| object.
-  void RefreshPolicyPrefs(PrefStore* managed_pref_store,
-                          PrefStore* recommended_pref_store,
-                          AfterRefreshCallback* callback);
-#endif
-
- protected:
-=======
   // reload of managed preferences from policy from a Task on the FILE
   // thread. The Task will take ownership of the |callback|. |callback| is
   // called with the set of preferences changed by the policy refresh.
   // |callback| is called on the caller's thread as a Task after
   // RefreshPolicyPrefs has returned.
   void RefreshPolicyPrefs(AfterRefreshCallback* callback);
+#endif
 
   // Returns true if there are proxy preferences in user-modifiable
   // preference stores (e.g. CommandLinePrefStore, ExtensionPrefStore)
@@ -198,7 +179,6 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
   bool HasPolicyConflictingUserProxySettings();
 
       protected:
->>>>>>> chromium.org at r63472
   // In decreasing order of precedence:
   //   |managed_prefs| contains all managed (policy) preference values.
   //   |extension_prefs| contains preference values set by extensions.
@@ -236,15 +216,12 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
   bool PrefValueInStore(const char* name,
                         PrefNotifier::PrefStoreType store) const;
 
-<<<<<<< HEAD
-#ifndef ANDROID
-=======
   // Get a value from the specified store type.
   bool GetValueFromStore(const char* name,
                          PrefNotifier::PrefStoreType store,
                          Value** out_value) const;
 
->>>>>>> chromium.org at r63472
+#ifndef ANDROID
   // Called during policy refresh after ReadPrefs completes on the thread
   // that initiated the policy refresh. RefreshPolicyPrefsCompletion takes
   // ownership of the |callback| object.

@@ -37,14 +37,8 @@ SSLClientSocket* DefaultSSLClientSocketFactory(
 #elif defined(USE_OPENSSL)
   return new SSLClientSocketOpenSSL(transport_socket, hostname, ssl_config);
 #elif defined(USE_NSS)
-<<<<<<< HEAD
-  return new SSLClientSocketNSS(transport_socket, hostname, ssl_config);
-#elif defined(USE_OPENSSL) && defined(ANDROID)
-  return new SSLClientSocketOpenSSL(transport_socket, hostname, ssl_config);
-=======
   return new SSLClientSocketNSS(transport_socket, hostname, ssl_config,
                                 shi.release());
->>>>>>> chromium.org at r63472
 #elif defined(OS_MACOSX)
   // TODO(wtc): SSLClientSocketNSS can't do SSL client authentication using
   // Mac OS X CDSA/CSSM yet (http://crbug.com/45369), so fall back on

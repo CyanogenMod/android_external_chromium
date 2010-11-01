@@ -106,13 +106,7 @@ class StatsTable::Private {
   static Private* New(const std::string& name, int size,
                                 int max_threads, int max_counters);
 
-<<<<<<< HEAD:base/stats_table.cc
-#ifndef ANDROID
-  base::SharedMemory* shared_memory() { return &shared_memory_; }
-#endif
-=======
   SharedMemory* shared_memory() { return &shared_memory_; }
->>>>>>> chromium.org at r63472:base/metrics/stats_table.cc
 
   // Accessors for our header pointers
   TableHeader* table_header() const { return table_header_; }
@@ -152,14 +146,7 @@ class StatsTable::Private {
   // Initializes our in-memory pointers into a pre-created StatsTable.
   void ComputeMappedPointers(void* memory);
 
-<<<<<<< HEAD:base/stats_table.cc
-#ifndef ANDROID
-  base::SharedMemory shared_memory_;
-#endif
-
-=======
   SharedMemory shared_memory_;
->>>>>>> chromium.org at r63472:base/metrics/stats_table.cc
   TableHeader* table_header_;
   char* thread_names_table_;
   PlatformThreadId* thread_tid_table_;
@@ -169,22 +156,14 @@ class StatsTable::Private {
 };
 
 // static
-<<<<<<< HEAD:base/stats_table.cc
-StatsTablePrivate* StatsTablePrivate::New(const std::string& name,
-                                          int size,
-                                          int max_threads,
-                                          int max_counters) {
-#ifdef ANDROID
-  return NULL;
-#else
-  scoped_ptr<StatsTablePrivate> priv(new StatsTablePrivate());
-=======
 StatsTable::Private* StatsTable::Private::New(const std::string& name,
                                               int size,
                                               int max_threads,
                                               int max_counters) {
+#ifdef ANDROID
+  return NULL;
+#else
   scoped_ptr<Private> priv(new Private());
->>>>>>> chromium.org at r63472:base/metrics/stats_table.cc
   if (!priv->shared_memory_.Create(name, false, true, size))
     return NULL;
   if (!priv->shared_memory_.Map(size))

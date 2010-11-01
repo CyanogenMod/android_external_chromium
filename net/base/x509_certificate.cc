@@ -41,38 +41,6 @@ const char kPKCS7Header[] = "PKCS7";
 
 }  // namespace
 
-<<<<<<< HEAD
-// static
-bool X509Certificate::IsSameOSCert(X509Certificate::OSCertHandle a,
-                                   X509Certificate::OSCertHandle b) {
-  DCHECK(a && b);
-  if (a == b)
-    return true;
-#if defined(OS_WIN)
-  return a->cbCertEncoded == b->cbCertEncoded &&
-      memcmp(a->pbCertEncoded, b->pbCertEncoded, a->cbCertEncoded) == 0;
-#elif defined(OS_MACOSX)
-  if (CFEqual(a, b))
-    return true;
-  CSSM_DATA a_data, b_data;
-  return SecCertificateGetData(a, &a_data) == noErr &&
-      SecCertificateGetData(b, &b_data) == noErr &&
-      a_data.Length == b_data.Length &&
-      memcmp(a_data.Data, b_data.Data, a_data.Length) == 0;
-#elif defined(USE_NSS)
-  return a->derCert.len == b->derCert.len &&
-      memcmp(a->derCert.data, b->derCert.data, a->derCert.len) == 0;
-#elif defined(USE_OPENSSL) && defined(ANDROID)
-  return false;
-#else
-  // TODO(snej): not implemented
-  UNREACHED();
-  return false;
-#endif
-}
-
-=======
->>>>>>> chromium.org at r63472
 bool X509Certificate::LessThan::operator()(X509Certificate* lhs,
                                            X509Certificate* rhs) const {
   if (lhs == rhs)

@@ -125,15 +125,10 @@ class RRResolverHandle {
   RRResponse* const response_;
 };
 
-<<<<<<< HEAD
-#if defined(OS_POSIX) && !defined(ANDROID)
-class ResolveTask : public Task {
-=======
 
 // RRResolverWorker runs on a worker thread and takes care of the blocking
 // process of performing the DNS resolution.
 class RRResolverWorker {
->>>>>>> chromium.org at r63472
  public:
   RRResolverWorker(const std::string& name, uint16 rrtype, uint16 flags,
                    DnsRRResolver* dnsrr_resolver)
@@ -164,7 +159,7 @@ class RRResolverWorker {
 
  private:
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) && !defined(ANDROID)
 
   void Run() {
     // Runs on a worker thread.
