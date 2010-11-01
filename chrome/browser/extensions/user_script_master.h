@@ -10,7 +10,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
 #include "base/shared_memory.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/extensions/user_script.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
@@ -118,7 +118,7 @@ class UserScriptMaster : public base::RefCountedThreadSafe<UserScriptMaster>,
 
     // The message loop to call our master back on.
     // Expected to always outlive us.
-    ChromeThread::ID master_thread_id_;
+    BrowserThread::ID master_thread_id_;
 
     DISALLOW_COPY_AND_ASSIGN(ScriptReloader);
   };

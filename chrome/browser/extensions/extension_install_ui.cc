@@ -37,7 +37,6 @@
 #endif
 
 #if defined(TOOLKIT_VIEWS)
-#include "chrome/browser/views/app_launcher.h"
 #include "chrome/browser/views/extensions/extension_installed_bubble.h"
 #endif
 
@@ -138,20 +137,10 @@ void ExtensionInstallUI::OnInstallSuccess(Extension* extension) {
     std::string hash_params = "app-id=";
     hash_params += extension->id();
 
-    if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kAppsPanel)) {
-#if defined(TOOLKIT_VIEWS)
-      AppLauncher::ShowForNewTab(browser, hash_params);
-#else
-      NOTREACHED();
-#endif
-    } else {
-      std::string url(chrome::kChromeUINewTabURL);
-      url += "/#";
-      url += hash_params;
-      browser->AddTabWithURL(GURL(url), GURL(), PageTransition::TYPED, -1,
-                             TabStripModel::ADD_SELECTED, NULL, std::string(),
-                             NULL);
-    }
+    std::string url(chrome::kChromeUINewTabURL);
+    url += "/#";
+    url += hash_params;
+    browser->AddSelectedTabWithURL(GURL(url), PageTransition::TYPED);
 
     return;
   }

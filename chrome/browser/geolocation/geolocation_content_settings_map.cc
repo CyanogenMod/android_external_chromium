@@ -17,7 +17,7 @@
 
 #include "base/string_piece.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/scoped_pref_update.h"
 #include "chrome/browser/profile.h"
@@ -34,7 +34,7 @@ const ContentSetting
 
 GeolocationContentSettingsMap::GeolocationContentSettingsMap(Profile* profile)
     : profile_(profile) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 // static
@@ -45,7 +45,7 @@ void GeolocationContentSettingsMap::RegisterUserPrefs(PrefService* prefs) {
 }
 
 ContentSetting GeolocationContentSettingsMap::GetDefaultContentSetting() const {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   const PrefService* prefs = profile_->GetPrefs();
   const ContentSetting default_content_setting = IntToContentSetting(
       prefs->GetInteger(prefs::kGeolocationDefaultContentSetting));
@@ -56,7 +56,7 @@ ContentSetting GeolocationContentSettingsMap::GetDefaultContentSetting() const {
 ContentSetting GeolocationContentSettingsMap::GetContentSetting(
     const GURL& requesting_url,
     const GURL& embedding_url) const {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(requesting_url.is_valid() && embedding_url.is_valid());
   GURL requesting_origin(requesting_url.GetOrigin());
   GURL embedding_origin(embedding_url.GetOrigin());
@@ -85,7 +85,7 @@ ContentSetting GeolocationContentSettingsMap::GetContentSetting(
 
 GeolocationContentSettingsMap::AllOriginsSettings
     GeolocationContentSettingsMap::GetAllOriginsSettings() const {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   AllOriginsSettings content_settings;
   const DictionaryValue* all_settings_dictionary =
       profile_->GetPrefs()->GetDictionary(prefs::kGeolocationContentSettings);
@@ -113,17 +113,22 @@ GeolocationContentSettingsMap::AllOriginsSettings
 
 void GeolocationContentSettingsMap::SetDefaultContentSetting(
     ContentSetting setting) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   profile_->GetPrefs()->SetInteger(prefs::kGeolocationDefaultContentSetting,
                                    setting == CONTENT_SETTING_DEFAULT ?
                                        kDefaultSetting : setting);
+
+  NotificationService::current()->Notify(
+      NotificationType::GEOLOCATION_DEFAULT_CHANGED,
+      Source<GeolocationContentSettingsMap>(this),
+      NotificationService::NoDetails());
 }
 
 void GeolocationContentSettingsMap::SetContentSetting(
     const GURL& requesting_url,
     const GURL& embedding_url,
     ContentSetting setting) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(requesting_url.is_valid());
   DCHECK(embedding_url.is_valid() || embedding_url.is_empty());
   GURL requesting_origin(requesting_url.GetOrigin());
@@ -157,10 +162,15 @@ void GeolocationContentSettingsMap::SetContentSetting(
     requesting_origin_settings_dictionary->SetWithoutPathExpansion(
         embedding_origin.spec(), Value::CreateIntegerValue(setting));
   }
+
+  NotificationService::current()->Notify(
+      NotificationType::GEOLOCATION_SETTINGS_CHANGED,
+      Source<GeolocationContentSettingsMap>(this),
+      NotificationService::NoDetails());
 }
 
 void GeolocationContentSettingsMap::ResetToDefault() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   PrefService* prefs = profile_->GetPrefs();
   prefs->ClearPref(prefs::kGeolocationDefaultContentSetting);

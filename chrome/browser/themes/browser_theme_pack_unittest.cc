@@ -10,7 +10,7 @@
 #include "base/path_service.h"
 #include "base/scoped_temp_dir.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/json_value_serializer.h"
@@ -22,8 +22,8 @@ class BrowserThemePackTest : public ::testing::Test {
  public:
   BrowserThemePackTest()
       : message_loop(),
-        fake_ui_thread(ChromeThread::UI, &message_loop),
-        fake_file_thread(ChromeThread::FILE, &message_loop),
+        fake_ui_thread(BrowserThread::UI, &message_loop),
+        fake_file_thread(BrowserThread::FILE, &message_loop),
         theme_pack_(new BrowserThemePack) {
   }
 
@@ -191,8 +191,8 @@ class BrowserThemePackTest : public ::testing::Test {
   }
 
   MessageLoop message_loop;
-  ChromeThread fake_ui_thread;
-  ChromeThread fake_file_thread;
+  BrowserThread fake_ui_thread;
+  BrowserThread fake_file_thread;
 
   scoped_refptr<BrowserThemePack> theme_pack_;
 };

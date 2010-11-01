@@ -30,11 +30,11 @@
 #include "base/thread.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_plugin_util.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/browser/chrome_thread.h"
 #include "gfx/codec/png_codec.h"
 #include "googleurl/src/gurl.h"
 
@@ -213,7 +213,7 @@ bool ShellIntegration::SetAsDefaultBrowser() {
 
 // static
 ShellIntegration::DefaultBrowserState ShellIntegration::IsDefaultBrowser() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
   scoped_ptr<base::Environment> env(base::Environment::Create());
 
@@ -249,7 +249,7 @@ bool ShellIntegration::IsFirefoxDefaultBrowser() {
 // static
 bool ShellIntegration::GetDesktopShortcutTemplate(
     base::Environment* env, std::string* output) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
   std::vector<FilePath> search_paths;
 
@@ -279,9 +279,9 @@ bool ShellIntegration::GetDesktopShortcutTemplate(
   for (std::vector<FilePath>::const_iterator i = search_paths.begin();
        i != search_paths.end(); ++i) {
     FilePath path = (*i).Append(template_filename);
-    LOG(INFO) << "Looking for desktop file template in " << path.value();
+    VLOG(1) << "Looking for desktop file template in " << path.value();
     if (file_util::PathExists(path)) {
-      LOG(INFO) << "Found desktop file template at " << path.value();
+      VLOG(1) << "Found desktop file template at " << path.value();
       return file_util::ReadFileToString(path, output);
     }
   }
@@ -370,7 +370,7 @@ void ShellIntegration::CreateDesktopShortcut(
     const ShortcutInfo& shortcut_info, const std::string& shortcut_template) {
   // TODO(phajdan.jr): Report errors from this function, possibly as infobars.
 
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
   FilePath shortcut_filename = GetDesktopShortcutFilename(shortcut_info.url);
   if (shortcut_filename.empty())

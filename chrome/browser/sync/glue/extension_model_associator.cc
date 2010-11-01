@@ -5,7 +5,7 @@
 #include "chrome/browser/sync/glue/extension_model_associator.h"
 
 #include "base/logging.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/sync/glue/extension_data.h"
 #include "chrome/browser/sync/glue/extension_sync_traits.h"
 #include "chrome/browser/sync/glue/extension_sync.h"
@@ -16,16 +16,16 @@ namespace browser_sync {
 ExtensionModelAssociator::ExtensionModelAssociator(
     const ExtensionSyncTraits& traits, ProfileSyncService* sync_service)
     : traits_(traits), sync_service_(sync_service) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(sync_service_);
 }
 
 ExtensionModelAssociator::~ExtensionModelAssociator() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 bool ExtensionModelAssociator::AssociateModels() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   ExtensionDataMap extension_data_map;
   if (!SlurpExtensionData(traits_, sync_service_, &extension_data_map)) {
     return false;
@@ -38,13 +38,13 @@ bool ExtensionModelAssociator::AssociateModels() {
 }
 
 bool ExtensionModelAssociator::DisassociateModels() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   // Nothing to do.
   return true;
 }
 
 bool ExtensionModelAssociator::SyncModelHasUserCreatedNodes(bool* has_nodes) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   return RootNodeHasChildren(traits_.root_node_tag, sync_service_, has_nodes);
 }
 

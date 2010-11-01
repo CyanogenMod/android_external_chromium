@@ -21,6 +21,7 @@ class Profile;
 class StatusBubble;
 class TabContents;
 class TemplateURL;
+class TemplateURLModel;
 #if !defined(OS_MACOSX)
 class ToolbarView;
 #endif
@@ -179,8 +180,17 @@ class BrowserWindow {
   // provided here since the functionality is Windows-specific.
   virtual void DisableInactiveFrame() {}
 
+  // Shows a confirmation dialog box for setting the default search engine
+  // described by |template_url|. Takes ownership of |template_url|.
+  virtual void ConfirmSetDefaultSearchProvider(
+      TabContents* tab_contents,
+      TemplateURL* template_url,
+      TemplateURLModel* template_url_model) {
+    // TODO(levin): Implement this for non-Windows platforms and make it pure.
+  }
+
   // Shows a confirmation dialog box for adding a search engine described by
-  // |template_url|.
+  // |template_url|. Takes ownership of |template_url|.
   virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
                                         Profile* profile) = 0;
 
@@ -312,16 +322,16 @@ class BrowserWindow {
   virtual void OpenTabpose() = 0;
 #endif
 
-  // Invoked when the match preview's tab contents should be shown.
-  virtual void ShowMatchPreview() = 0;
+  // Invoked when instant's tab contents should be shown.
+  virtual void ShowInstant(TabContents* preview_contents) = 0;
 
-  // Invoked when the match preview's tab contents should be hidden.
-  virtual void HideMatchPreview() = 0;
+  // Invoked when the instant's tab contents should be hidden.
+  virtual void HideInstant() = 0;
 
-  // Returns the desired bounds for match preview in screen coordinates. Note
-  // that if match preview isn't currently visible this returns the bounds the
-  // match preview would be placed at.
-  virtual gfx::Rect GetMatchPreviewBounds() = 0;
+  // Returns the desired bounds for instant in screen coordinates. Note that if
+  // instant isn't currently visible this returns the bounds instant would be
+  // placed at.
+  virtual gfx::Rect GetInstantBounds() = 0;
 
   // Construct a BrowserWindow implementation for the specified |browser|.
   static BrowserWindow* CreateBrowserWindow(Browser* browser);

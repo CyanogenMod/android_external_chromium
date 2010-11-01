@@ -19,10 +19,10 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/chrome_thread.h"
 #import "chrome/browser/cocoa/about_window_controller.h"
-#import "chrome/browser/cocoa/bookmark_menu_bridge.h"
+#import "chrome/browser/cocoa/bookmarks/bookmark_menu_bridge.h"
 #import "chrome/browser/cocoa/browser_window_cocoa.h"
 #import "chrome/browser/cocoa/browser_window_controller.h"
 #import "chrome/browser/cocoa/bug_report_window_controller.h"
@@ -39,6 +39,7 @@
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/options_window.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/profile_manager.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sync/profile_sync_service.h"
@@ -133,8 +134,8 @@ void RecordLastRunAppBundlePath() {
                            app_mode::kAppPrefsID);
 
   // Sync after a delay avoid I/O contention on startup; 1500 ms is plenty.
-  ChromeThread::PostDelayedTask(ChromeThread::FILE, FROM_HERE,
-                                new PrefsSyncTask(), 1500);
+  BrowserThread::PostDelayedTask(BrowserThread::FILE, FROM_HERE,
+                                 new PrefsSyncTask(), 1500);
 }
 
 }  // anonymous namespace
@@ -242,6 +243,10 @@ void RecordLastRunAppBundlePath() {
   // though.) http://crbug.com/40861
 
   size_t num_browsers = BrowserList::size();
+
+  // Give any print jobs in progress time to finish.
+  if (!browser_shutdown::IsTryingToQuit())
+    g_browser_process->print_job_manager()->StopJobs(true);
 
   // Initiate a shutdown (via BrowserList::CloseAllBrowsers()) if we aren't
   // already shutting down.
@@ -933,7 +938,7 @@ void RecordLastRunAppBundlePath() {
     browser->window()->Show();
   }
 
-  CommandLine dummy(CommandLine::ARGUMENTS_ONLY);
+  CommandLine dummy(CommandLine::NO_PROGRAM);
   BrowserInit::LaunchWithProfile launch(FilePath(), dummy);
   launch.OpenURLsInBrowser(browser, false, urls);
 }

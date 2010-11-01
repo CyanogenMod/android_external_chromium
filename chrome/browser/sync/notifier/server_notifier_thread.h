@@ -16,8 +16,11 @@
 #include <string>
 #include <vector>
 
+#include "base/observer_list_threadsafe.h"
+#include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/sync/notifier/chrome_invalidation_client.h"
+#include "chrome/browser/sync/notifier/state_writer.h"
 #include "chrome/browser/sync/syncable/model_type.h"
 #include "jingle/notifier/listener/mediator_thread_impl.h"
 
@@ -29,10 +32,14 @@ namespace sync_notifier {
 
 class ServerNotifierThread
     : public notifier::MediatorThreadImpl,
-      public ChromeInvalidationClient::Listener {
+      public ChromeInvalidationClient::Listener,
+      public StateWriter {
  public:
+  // Does not take ownership of |state_writer| (which may not
+  // be NULL).
   explicit ServerNotifierThread(
-      const notifier::NotifierOptions& notifier_options);
+      const notifier::NotifierOptions& notifier_options,
+      const std::string& state, StateWriter* state_writer);
 
   virtual ~ServerNotifierThread();
 
@@ -52,10 +59,11 @@ class ServerNotifierThread
   virtual void SendNotification(const OutgoingNotificationData& data);
 
   // ChromeInvalidationClient::Listener implementation.
-
   virtual void OnInvalidate(syncable::ModelType model_type);
-
   virtual void OnInvalidateAll();
+
+  // StateWriter implementation.
+  virtual void WriteState(const std::string& state);
 
  protected:
   virtual void OnDisconnect();
@@ -67,16 +75,16 @@ class ServerNotifierThread
   // Posted to the worker thread by SubscribeForUpdates().
   void RegisterTypesAndSignalSubscribed();
 
-  // Signal to the delegate that we're subscribed.
-  void SignalSubscribed();
-
-  // Signal to the delegate that we have an incoming notification.
-  void SignalIncomingNotification();
-
   // Called by StartInvalidationListener() and posted to the worker
   // thread by Stop().
   void StopInvalidationListener();
 
+  std::string state_;
+  // Hack to get the nice thread-safe behavior for |state_writer_|.
+  scoped_refptr<ObserverListThreadSafe<StateWriter> > state_writers_;
+  // We still need to keep |state_writer_| around to remove it from
+  // |state_writers_|.
+  StateWriter* state_writer_;
   scoped_ptr<ChromeInvalidationClient> chrome_invalidation_client_;
 };
 

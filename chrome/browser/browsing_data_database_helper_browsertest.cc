@@ -5,7 +5,7 @@
 #include "base/file_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browsing_data_database_helper.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/testing_profile.h"
 #include "chrome/test/ui_test_utils.h"
@@ -60,7 +60,7 @@ class StopTestOnCallback {
 
   void Callback(const std::vector<BrowsingDataDatabaseHelper::DatabaseInfo>&
                 database_info_list) {
-    DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
     ASSERT_EQ(1UL, database_info_list.size());
     EXPECT_EQ(std::string(kTestIdentifier1),
               database_info_list.at(0).origin_identifier);

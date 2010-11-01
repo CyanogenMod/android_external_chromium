@@ -12,7 +12,7 @@
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
 #include "chrome/browser/browser_child_process_host.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/importer/profile_writer.h"
@@ -35,7 +35,7 @@ class ProfileImportProcessHost : public BrowserChildProcessHost {
   class ImportProcessClient :
       public base::RefCountedThreadSafe<ImportProcessClient> {
    public:
-    ImportProcessClient() {}
+    ImportProcessClient();
 
     // These methods are used by the ProfileImportProcessHost to pass messages
     // received from the external process back to the ImportProcessClient in
@@ -79,7 +79,7 @@ class ProfileImportProcessHost : public BrowserChildProcessHost {
    protected:
     friend class base::RefCountedThreadSafe<ImportProcessClient>;
 
-    virtual ~ImportProcessClient() {}
+    virtual ~ImportProcessClient();
 
    private:
     friend class ProfileImportProcessHost;
@@ -97,7 +97,8 @@ class ProfileImportProcessHost : public BrowserChildProcessHost {
   // ProfileImportProcessHost spawns tasks on this thread for the client.
   ProfileImportProcessHost(ResourceDispatcherHost* resource_dispatcher,
                            ImportProcessClient* import_process_client,
-                           ChromeThread::ID thread_id);
+                           BrowserThread::ID thread_id);
+  virtual ~ProfileImportProcessHost();
 
   // |profile_info|, |items|, and |import_to_bookmark_bar| are all needed by
   // the external importer process.
@@ -126,18 +127,16 @@ class ProfileImportProcessHost : public BrowserChildProcessHost {
 
   // Overridden from BrowserChildProcessHost:
   virtual void OnProcessCrashed();
-  virtual bool CanShutdown() { return true; }
+  virtual bool CanShutdown();
   virtual URLRequestContext* GetRequestContext(
       uint32 request_id,
-      const ViewHostMsg_Resource_Request& request_data) {
-    return NULL;
-  }
+      const ViewHostMsg_Resource_Request& request_data);
 
   // Receives messages to be passed back to the importer host.
   scoped_refptr<ImportProcessClient> import_process_client_;
 
   // The thread where the import_process_client_ lives.
-  ChromeThread::ID thread_id_;
+  BrowserThread::ID thread_id_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileImportProcessHost);
 };

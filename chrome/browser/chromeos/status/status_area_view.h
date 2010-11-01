@@ -7,21 +7,21 @@
 #pragma once
 
 #include "base/basictypes.h"
-#include "chrome/browser/views/accessible_toolbar_view.h"
+#include "chrome/browser/views/accessible_pane_view.h"
 #include "views/view.h"
 
 namespace chromeos {
 
 class ClockMenuButton;
 class FeedbackMenuButton;
-class LanguageMenuButton;
+class InputMethodMenuButton;
 class NetworkMenuButton;
 class PowerMenuButton;
 class StatusAreaHost;
 
 // This class is used to wrap the small informative widgets in the upper-right
 // of the window title bar. It is used on ChromeOS only.
-class StatusAreaView : public AccessibleToolbarView {
+class StatusAreaView : public AccessiblePaneView {
  public:
   explicit StatusAreaView(StatusAreaHost* host);
   virtual ~StatusAreaView() {}
@@ -35,7 +35,7 @@ class StatusAreaView : public AccessibleToolbarView {
 
   ClockMenuButton* clock_view() { return clock_view_; }
   FeedbackMenuButton* feedback_view() { return feedback_view_; }
-  LanguageMenuButton* language_view() { return language_view_; }
+  InputMethodMenuButton* input_method_view() { return input_method_view_; }
   NetworkMenuButton* network_view() { return network_view_; }
   PowerMenuButton* power_view() { return power_view_; }
 
@@ -44,7 +44,7 @@ class StatusAreaView : public AccessibleToolbarView {
 
   ClockMenuButton* clock_view_;
   FeedbackMenuButton* feedback_view_;
-  LanguageMenuButton* language_view_;
+  InputMethodMenuButton* input_method_view_;
   NetworkMenuButton* network_view_;
   PowerMenuButton* power_view_;
 

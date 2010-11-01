@@ -17,18 +17,32 @@
 
 namespace chromeos {
 
+// Cellular network is considered low data when less than 60 minues.
+static const int kCellularDataLowSecs = 60 * 60;
+
+// Cellular network is considered low data when less than 30 minues.
+static const int kCellularDataVeryLowSecs = 30 * 60;
+
+// Cellular network is considered low data when less than 100MB.
+static const int kCellularDataLowBytes = 100 * 1024 * 1024;
+
+// Cellular network is considered very low data when less than 50MB.
+static const int kCellularDataVeryLowBytes = 50 * 1024 * 1024;
+
 class Network {
  public:
   const std::string& service_path() const { return service_path_; }
   const std::string& device_path() const { return device_path_; }
   const std::string& ip_address() const { return ip_address_; }
   ConnectionType type() const { return type_; }
+  ConnectionState connection_state() const { return state_; }
   bool connecting() const { return state_ == STATE_ASSOCIATION ||
       state_ == STATE_CONFIGURATION || state_ == STATE_CARRIER; }
   bool connected() const { return state_ == STATE_READY; }
   bool connecting_or_connected() const { return connecting() || connected(); }
   bool failed() const { return state_ == STATE_FAILURE; }
   ConnectionError error() const { return error_; }
+  ConnectionState state() const { return state_; }
 
   void set_service_path(const std::string& service_path) {
       service_path_ = service_path; }
@@ -44,12 +58,10 @@ class Network {
   virtual void ConfigureFromService(const ServiceInfo& service);
 
   // Return a string representation of the state code.
-  // This not translated and should be only used for debugging purposes.
-  std::string GetStateString();
+  std::string GetStateString() const;
 
   // Return a string representation of the error code.
-  // This not translated and should be only used for debugging purposes.
-  std::string GetErrorString();
+  std::string GetErrorString() const;
 
  protected:
   Network()
@@ -62,13 +74,15 @@ class Network {
   std::string device_path_;
   std::string ip_address_;
   ConnectionType type_;
-  int state_;
+  ConnectionState state_;
   ConnectionError error_;
 };
 
 class EthernetNetwork : public Network {
  public:
-  EthernetNetwork() : Network() {}
+  EthernetNetwork() : Network() {
+    type_ = TYPE_ETHERNET;
+  }
 };
 
 class WirelessNetwork : public Network {
@@ -116,45 +130,95 @@ class WirelessNetwork : public Network {
 
 class CellularNetwork : public WirelessNetwork {
  public:
-  CellularNetwork() : WirelessNetwork() {}
+  enum DataLeft {
+    DATA_NORMAL,
+    DATA_LOW,
+    DATA_VERY_LOW,
+    DATA_NONE
+  };
+
+  CellularNetwork();
   explicit CellularNetwork(const ServiceInfo& service)
       : WirelessNetwork() {
     ConfigureFromService(service);
   }
+
   // Starts device activation process. Returns false if the device state does
   // not permit activation.
   bool StartActivation() const;
   const ActivationState activation_state() const { return activation_state_; }
+  const NetworkTechnology network_technology() const {
+    return network_technology_;
+  }
+  const NetworkRoamingState roaming_state() const { return roaming_state_; }
+  bool restricted_pool() const { return restricted_pool_; }
+  const std::string& service_name() const { return service_name_; }
+  const std::string& operator_name() const { return operator_name_; }
+  const std::string& operator_code() const { return operator_code_; }
   const std::string& payment_url() const { return payment_url_; }
   const std::string& meid() const { return meid_; }
   const std::string& imei() const { return imei_; }
   const std::string& imsi() const { return imsi_; }
   const std::string& esn() const { return esn_; }
   const std::string& mdn() const { return mdn_; }
+  const std::string& min() const { return min_; }
+  const std::string& model_id() const { return model_id_; }
+  const std::string& manufacturer() const { return manufacturer_; }
+  const std::string& firmware_revision() const { return firmware_revision_; }
+  const std::string& hardware_revision() const { return hardware_revision_; }
+  const std::string& last_update() const { return last_update_; }
+  const unsigned int prl_version() const { return prl_version_; }
+  bool is_gsm() const;
+  DataLeft data_left() const;
 
   // WirelessNetwork overrides.
   virtual void Clear();
   virtual void ConfigureFromService(const ServiceInfo& service);
 
+  const CellularDataPlanList& GetDataPlans() const {
+    return data_plans_;
+  }
+
+  void SetDataPlans(const CellularDataPlanList& data_plans) {
+    data_plans_ = data_plans;
+  }
+  // Return a string representation of network technology.
+  std::string GetNetworkTechnologyString() const;
+  // Return a string representation of activation state.
+  std::string GetActivationStateString() const;
+  // Return a string representation of roaming state.
+  std::string GetRoamingStateString() const;
+
  protected:
   ActivationState activation_state_;
+  NetworkTechnology network_technology_;
+  NetworkRoamingState roaming_state_;
+  bool restricted_pool_;
+  std::string service_name_;
+  // Carrier Info
+  std::string operator_name_;
+  std::string operator_code_;
   std::string payment_url_;
+  // Device Info
   std::string meid_;
   std::string imei_;
   std::string imsi_;
   std::string esn_;
   std::string mdn_;
+  std::string min_;
+  std::string model_id_;
+  std::string manufacturer_;
+  std::string firmware_revision_;
+  std::string hardware_revision_;
+  std::string last_update_;
+  unsigned int prl_version_;
+  CellularDataPlanList data_plans_;
 };
 
 class WifiNetwork : public WirelessNetwork {
  public:
-  WifiNetwork()
-      : WirelessNetwork(),
-        encryption_(SECURITY_NONE) {}
-  explicit WifiNetwork(const ServiceInfo& service)
-      : WirelessNetwork() {
-    ConfigureFromService(service);
-  }
+  WifiNetwork();
+  explicit WifiNetwork(const ServiceInfo& service);
 
   bool encrypted() const { return encryption_ != SECURITY_NONE; }
   ConnectionSecurity encryption() const { return encryption_; }
@@ -183,6 +247,9 @@ class WifiNetwork : public WirelessNetwork {
   // This not translated and should be only used for debugging purposes.
   std::string GetEncryptionString();
 
+  // Return true if cert_path_ indicates that we have loaded the certificate.
+  bool IsCertificateLoaded() const;
+
  protected:
   ConnectionSecurity encryption_;
   std::string passphrase_;
@@ -203,10 +270,10 @@ struct CellTower {
   int mobile_network_code;        //   MNC          SID
   int location_area_code;         //   LAC          NID
   int cell_id;                    //   CID          BID
-  base::Time timestamp; // Timestamp when this cell was primary
-  int signal_strength;  // Radio signal strength measured in dBm.
-  int timing_advance;   // Represents the distance from the cell tower. Each
-                        // unit is roughly 550 meters.
+  base::Time timestamp;  // Timestamp when this cell was primary
+  int signal_strength;   // Radio signal strength measured in dBm.
+  int timing_advance;    // Represents the distance from the cell tower.
+                         // Each unit is roughly 550 meters.
 };
 
 struct WifiAccessPoint {
@@ -239,7 +306,7 @@ struct NetworkIPConfig {
 
   std::string device_path;
   IPConfigType type;
-  std::string address;
+  std::string address;  // This looks like "/device/0011aa22bb33"
   std::string netmask;
   std::string gateway;
   std::string name_servers;
@@ -255,25 +322,28 @@ class NetworkLibrary {
    public:
     // Called when the network has changed. (wifi networks, and ethernet)
     virtual void NetworkChanged(NetworkLibrary* obj) = 0;
+    // Called when the cellular data plan has changed.
+    virtual void CellularDataPlanChanged(NetworkLibrary* obj) {}
   };
 
   virtual ~NetworkLibrary() {}
   virtual void AddObserver(Observer* observer) = 0;
   virtual void RemoveObserver(Observer* observer) = 0;
 
+  // Return the active Ethernet network (or a default structure if inactive).
   virtual const EthernetNetwork& ethernet_network() const = 0;
   virtual bool ethernet_connecting() const = 0;
   virtual bool ethernet_connected() const = 0;
 
-  virtual const std::string& wifi_name() const = 0;
+  // Return the active Wifi network (or a default structure if none active).
+  virtual const WifiNetwork& wifi_network() const = 0;
   virtual bool wifi_connecting() const = 0;
   virtual bool wifi_connected() const = 0;
-  virtual int wifi_strength() const = 0;
 
-  virtual const std::string& cellular_name() const = 0;
+  // Return the active Cellular network (or a default structure if none active).
+  virtual const CellularNetwork& cellular_network() const = 0;
   virtual bool cellular_connecting() const = 0;
   virtual bool cellular_connected() const = 0;
-  virtual int cellular_strength() const = 0;
 
   // Return true if any network is currently connected.
   virtual bool Connected() const = 0;
@@ -335,6 +405,10 @@ class NetworkLibrary {
   // Connect to the specified cellular network.
   virtual void ConnectToCellularNetwork(CellularNetwork network) = 0;
 
+  // Initiates cellular data plan refresh. Plan data will be passed through
+  // Network::Observer::CellularDataPlanChanged callback.
+  virtual void RefreshCellularDataPlans(const CellularNetwork& network) = 0;
+
   // Disconnect from the specified wireless (either cellular or wifi) network.
   virtual void DisconnectFromWirelessNetwork(
       const WirelessNetwork& network) = 0;
@@ -368,9 +442,13 @@ class NetworkLibrary {
   // Enables/disables offline mode.
   virtual void EnableOfflineMode(bool enable) = 0;
 
-  // Fetches IP configs for a given device_path
+  // Fetches IP configs and hardware address for a given device_path.
+  // The hardware address is usually a MAC address like "0011AA22BB33".
+  // |hardware_address| will be an empty string, if no hardware address is
+  // found.
   virtual NetworkIPConfigVector GetIPConfigs(
-      const std::string& device_path) = 0;
+      const std::string& device_path,
+      std::string* hardware_address) = 0;
 
   // Fetches debug network info for display in about:network.
   // The page will have a meta refresh of |refresh| seconds if |refresh| > 0.

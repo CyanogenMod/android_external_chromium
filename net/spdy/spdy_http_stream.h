@@ -70,6 +70,8 @@ class SpdyHttpStream : public SpdyStream::Delegate, public HttpStream {
   // Closes the stream.
   virtual void Close(bool not_reusable);
 
+  virtual HttpStream* RenewStreamForAuth() { return NULL; }
+
   // Indicates if the response body has been completely read.
   virtual bool IsResponseBodyComplete() const {
     if (!stream_)

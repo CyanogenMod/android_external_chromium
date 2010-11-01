@@ -4,59 +4,9 @@
 
 #include "chrome/common/gpu_video_common.h"
 
+const int32 kGpuVideoInvalidFrameId = -1;
+
 namespace IPC {
-
-void ParamTraits<GpuVideoServiceInfoParam>::Write(
-    Message* m, const GpuVideoServiceInfoParam& p) {
-  WriteParam(m, p.video_service_route_id);
-  WriteParam(m, p.video_service_host_route_id);
-  WriteParam(m, p.service_available);
-}
-
-bool ParamTraits<GpuVideoServiceInfoParam>::Read(
-    const Message* m, void** iter, GpuVideoServiceInfoParam* r) {
-  if (!ReadParam(m, iter, &r->video_service_route_id) ||
-      !ReadParam(m, iter, &r->video_service_host_route_id) ||
-      !ReadParam(m, iter, &r->service_available))
-    return false;
-  return true;
-}
-
-void ParamTraits<GpuVideoServiceInfoParam>::Log(
-    const GpuVideoServiceInfoParam& p, std::string* l) {
-  l->append(StringPrintf("(%d, %d, %d)",
-            p.video_service_route_id,
-            p.video_service_host_route_id,
-            p.service_available));
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-void ParamTraits<GpuVideoDecoderInfoParam>::Write(
-    Message* m, const GpuVideoDecoderInfoParam& p) {
-  WriteParam(m, p.context_id);
-  WriteParam(m, p.decoder_id);
-  WriteParam(m, p.decoder_route_id);
-  WriteParam(m, p.decoder_host_route_id);
-}
-
-bool ParamTraits<GpuVideoDecoderInfoParam>::Read(
-    const Message* m, void** iter, GpuVideoDecoderInfoParam* r) {
-  if (!ReadParam(m, iter, &r->context_id) ||
-      !ReadParam(m, iter, &r->decoder_id) ||
-      !ReadParam(m, iter, &r->decoder_route_id) ||
-      !ReadParam(m, iter, &r->decoder_host_route_id))
-    return false;
-  return true;
-}
-
-void ParamTraits<GpuVideoDecoderInfoParam>::Log(
-    const GpuVideoDecoderInfoParam& p, std::string* l) {
-  l->append(StringPrintf("(%d, %d, %d)",
-            p.decoder_id,
-            p.decoder_route_id,
-            p.decoder_host_route_id));
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 

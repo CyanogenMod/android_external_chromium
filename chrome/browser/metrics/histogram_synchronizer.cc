@@ -4,10 +4,10 @@
 
 #include "chrome/browser/metrics/histogram_synchronizer.h"
 
-#include "base/histogram.h"
+#include "base/metrics/histogram.h"
 #include "base/logging.h"
 #include "base/thread.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/render_messages.h"
@@ -98,8 +98,8 @@ void HistogramSynchronizer::FetchRendererHistogramsAsynchronously(
   }
 
   // callback_task_ member can only be accessed on IO thread.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           current_synchronizer,
           &HistogramSynchronizer::SetCallbackTaskToCallAfterGettingHistograms,
@@ -117,8 +117,8 @@ void HistogramSynchronizer::FetchRendererHistogramsAsynchronously(
   }
 
   // Post a task that would be called after waiting for wait_time.
-  ChromeThread::PostDelayedTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostDelayedTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           current_synchronizer,
           &HistogramSynchronizer::ForceHistogramSynchronizationDoneCallback,
@@ -140,7 +140,7 @@ void HistogramSynchronizer::DeserializeHistogramList(
   for (std::vector<std::string>::const_iterator it = histograms.begin();
        it < histograms.end();
        ++it) {
-    Histogram::DeserializeHistogramInfo(*it);
+    base::Histogram::DeserializeHistogramInfo(*it);
   }
 
   // Record that we have received a histogram from renderer process.

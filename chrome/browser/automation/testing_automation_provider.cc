@@ -27,7 +27,7 @@
 #include "chrome/browser/automation/ui_controls.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_storage.h"
-#include "chrome/browser/blocked_popup_container.h"
+#include "chrome/browser/blocked_content_container.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/browser_window.h"
@@ -46,6 +46,7 @@
 #include "chrome/browser/profile_manager.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
+#include "chrome/browser/search_engines/keyword_editor_controller.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
@@ -97,8 +98,8 @@ std::string GetCookiesForURL(
   std::string cookies;
   base::WaitableEvent event(true /* manual reset */,
                             false /* not initially signaled */);
-  CHECK(ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  CHECK(BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       new GetCookiesTask(url, context_getter, &event, &cookies)));
   event.Wait();
   return cookies;
@@ -139,8 +140,8 @@ bool SetCookieForURL(
   base::WaitableEvent event(true /* manual reset */,
                             false /* not initially signaled */);
   bool rv = false;
-  CHECK(ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  CHECK(BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       new SetCookieTask(url, value, context_getter, &event, &rv)));
   event.Wait();
   return rv;
@@ -314,7 +315,6 @@ void TestingAutomationProvider::OnMessageReceived(
                                     ExecuteJavascript)
     IPC_MESSAGE_HANDLER(AutomationMsg_ConstrainedWindowCount,
                         GetConstrainedWindowCount)
-    IPC_MESSAGE_HANDLER(AutomationMsg_FindInPage, HandleFindInPageRequest)
 #if defined(TOOLKIT_VIEWS)
     IPC_MESSAGE_HANDLER(AutomationMsg_GetFocusedViewID, GetFocusedViewID)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(AutomationMsg_WaitForFocusedViewIDToChange,
@@ -431,25 +431,6 @@ void TestingAutomationProvider::OnChannelError() {
   AutomationProvider::OnChannelError();
 }
 
-ListValue* TestingAutomationProvider::ExtractSearchEngineInfo(
-    TemplateURLModel* url_model) {
-  ListValue* search_engines = new ListValue;
-  std::vector<const TemplateURL*> template_urls = url_model->GetTemplateURLs();
-  for (std::vector<const TemplateURL*>::const_iterator it =
-      template_urls.begin();
-      it != template_urls.end(); ++it) {
-    DictionaryValue* search_engine = new DictionaryValue;
-    search_engine->SetString("short_name", WideToUTF8((*it)->short_name()));
-    search_engine->SetString("description", WideToUTF8((*it)->description()));
-    search_engine->SetString("keyword", WideToUTF8((*it)->keyword()));
-    search_engine->SetBoolean("in_default_list", (*it)->ShowInDefaultList());
-    search_engine->SetBoolean("is_default",
-        (*it) == url_model->GetDefaultSearchProvider());
-    search_engines->Append(search_engine);
-  }
-  return search_engines;
-}
-
 void TestingAutomationProvider::CloseBrowser(int browser_handle,
                                              IPC::Message* reply_message) {
   if (browser_tracker_->ContainsHandle(browser_handle)) {
@@ -492,12 +473,11 @@ void TestingAutomationProvider::AppendTab(int handle, const GURL& url,
   if (browser_tracker_->ContainsHandle(handle)) {
     Browser* browser = browser_tracker_->GetResource(handle);
     observer = AddTabStripObserver(browser, reply_message);
-    TabContents* tab_contents = browser->AddTabWithURL(
-        url, GURL(), PageTransition::TYPED, -1, TabStripModel::ADD_SELECTED,
-        NULL, std::string(), &browser);
-    if (tab_contents) {
+    TabContents* contents =
+        browser->AddSelectedTabWithURL(url, PageTransition::TYPED);
+    if (contents) {
       append_tab_response =
-          GetIndexForNavigationController(&tab_contents->controller(), browser);
+          GetIndexForNavigationController(&contents->controller(), browser);
     }
   }
 
@@ -573,8 +553,8 @@ void TestingAutomationProvider::DeleteCookie(const GURL& url,
   *success = false;
   if (url.is_valid() && tab_tracker_->ContainsHandle(handle)) {
     NavigationController* tab = tab_tracker_->GetResource(handle);
-    ChromeThread::PostTask(
-        ChromeThread::IO, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
         new DeleteCookieTask(url, cookie_name,
                              tab->profile()->GetRequestContext()));
     *success = true;
@@ -1218,18 +1198,6 @@ void TestingAutomationProvider::GetConstrainedWindowCount(int handle,
   }
 }
 
-void TestingAutomationProvider::HandleFindInPageRequest(
-    int handle,
-    const std::wstring& find_request,
-    int forward,
-    int match_case,
-    int* active_ordinal,
-    int* matches_found) {
-  LOG(ERROR) << "HandleFindInPageRequest has been deprecated."
-             << "Please use HandleFindRequest instead.";
-  *matches_found = -1;
-}
-
 void TestingAutomationProvider::HandleInspectElementRequest(
     int handle, int x, int y, IPC::Message* reply_message) {
   TabContents* tab_contents = GetTabContentsForHandle(handle, NULL);
@@ -1866,8 +1834,14 @@ void TestingAutomationProvider::SetBooleanPreference(int handle,
 
 void TestingAutomationProvider::GetShowingAppModalDialog(bool* showing_dialog,
                                                          int* dialog_button) {
-  NativeAppModalDialog* native_dialog =
-      Singleton<AppModalDialogQueue>()->active_dialog()->native_dialog();
+  AppModalDialog* active_dialog =
+      Singleton<AppModalDialogQueue>()->active_dialog();
+  if (!active_dialog) {
+    *showing_dialog = false;
+    *dialog_button = MessageBoxFlags::DIALOGBUTTON_NONE;
+    return;
+  }
+  NativeAppModalDialog* native_dialog = active_dialog->native_dialog();
   *showing_dialog = (native_dialog != NULL);
   if (*showing_dialog)
     *dialog_button = native_dialog->GetAppModalDialogButtons();
@@ -1982,10 +1956,10 @@ void TestingAutomationProvider::GetBlockedPopupCount(int handle, int* count) {
       NavigationController* nav_controller = tab_tracker_->GetResource(handle);
       TabContents* tab_contents = nav_controller->tab_contents();
       if (tab_contents) {
-        BlockedPopupContainer* container =
-            tab_contents->blocked_popup_container();
+        BlockedContentContainer* container =
+            tab_contents->blocked_content_container();
         if (container) {
-          *count = static_cast<int>(container->GetBlockedPopupCount());
+          *count = static_cast<int>(container->GetBlockedContentsCount());
         } else {
           // If we don't have a container, we don't have any blocked popups to
           // contain!
@@ -2056,8 +2030,14 @@ void TestingAutomationProvider::SendJSONRequest(int handle,
   handler_map["OmniboxMovePopupSelection"] =
       &TestingAutomationProvider::OmniboxMovePopupSelection;
 
+  handler_map["LoadSearchEngineInfo"] =
+      &TestingAutomationProvider::LoadSearchEngineInfo;
   handler_map["GetSearchEngineInfo"] =
       &TestingAutomationProvider::GetSearchEngineInfo;
+  handler_map["AddOrEditSearchEngine"] =
+      &TestingAutomationProvider::AddOrEditSearchEngine;
+  handler_map["PerformActionOnSearchEngine"] =
+      &TestingAutomationProvider::PerformActionOnSearchEngine;
 
   handler_map["GetPrefsInfo"] = &TestingAutomationProvider::GetPrefsInfo;
   handler_map["SetPrefs"] = &TestingAutomationProvider::SetPrefs;
@@ -2089,6 +2069,11 @@ void TestingAutomationProvider::SendJSONRequest(int handle,
   handler_map["ClearBrowsingData"] =
       &TestingAutomationProvider::ClearBrowsingData;
 
+  handler_map["GetBlockedPopupsInfo"] =
+      &TestingAutomationProvider::GetBlockedPopupsInfo;
+  handler_map["UnblockAndLaunchBlockedPopup"] =
+      &TestingAutomationProvider::UnblockAndLaunchBlockedPopup;
+
   // SetTheme() implemented using InstallExtension().
   handler_map["GetThemeInfo"] = &TestingAutomationProvider::GetThemeInfo;
 
@@ -2097,6 +2082,8 @@ void TestingAutomationProvider::SendJSONRequest(int handle,
       &TestingAutomationProvider::GetExtensionsInfo;
   handler_map["UninstallExtensionById"] =
       &TestingAutomationProvider::UninstallExtensionById;
+
+  handler_map["FindInPage"] = &TestingAutomationProvider::FindInPage;
 
   handler_map["SelectTranslateOption"] =
       &TestingAutomationProvider::SelectTranslateOption;
@@ -2270,7 +2257,7 @@ class GetChildProcessHostInfoTask : public Task {
       child_processes_(child_processes) {}
 
   virtual void Run() {
-    DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
     for (BrowserChildProcessHost::Iterator iter; !iter.Done(); ++iter) {
       // Only add processes which are already started,
       // since we need their handle.
@@ -2382,8 +2369,8 @@ void TestingAutomationProvider::GetBrowserInfo(
   ListValue* child_processes = new ListValue;
   base::WaitableEvent event(true   /* manual reset */,
                             false  /* not initially signaled */);
-  CHECK(ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  CHECK(BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       new GetChildProcessHostInfoTask(&event, child_processes)));
   event.Wait();
   return_value->Set("child_processes", child_processes);
@@ -2681,19 +2668,127 @@ void TestingAutomationProvider::PerformActionOnDownload(
   }
 }
 
-void TestingAutomationProvider::GetSearchEngineInfo(
+// Sample JSON input { "command": "LoadSearchEngineInfo" }
+void TestingAutomationProvider::LoadSearchEngineInfo(
     Browser* browser,
     DictionaryValue* args,
     IPC::Message* reply_message) {
   TemplateURLModel* url_model(profile_->GetTemplateURLModel());
   if (url_model->loaded()) {
-    scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
-    return_value->Set("search_engines", ExtractSearchEngineInfo(url_model));
-    AutomationJSONReply(this, reply_message).SendSuccess(return_value.get());
+    AutomationJSONReply(this, reply_message).SendSuccess(NULL);
+    return;
+  }
+  url_model->AddObserver(new AutomationProviderSearchEngineObserver(
+      this, reply_message));
+  url_model->Load();
+}
+
+// Sample JSON input { "command": "GetSearchEngineInfo" }
+// Refer to pyauto.py for sample output.
+void TestingAutomationProvider::GetSearchEngineInfo(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  TemplateURLModel* url_model(profile_->GetTemplateURLModel());
+  scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
+  ListValue* search_engines = new ListValue;
+  std::vector<const TemplateURL*> template_urls = url_model->GetTemplateURLs();
+  for (std::vector<const TemplateURL*>::const_iterator it =
+       template_urls.begin(); it != template_urls.end(); ++it) {
+    DictionaryValue* search_engine = new DictionaryValue;
+    search_engine->SetString("short_name", WideToUTF8((*it)->short_name()));
+    search_engine->SetString("description", WideToUTF8((*it)->description()));
+    search_engine->SetString("keyword", WideToUTF8((*it)->keyword()));
+    search_engine->SetBoolean("in_default_list", (*it)->ShowInDefaultList());
+    search_engine->SetBoolean("is_default",
+        (*it) == url_model->GetDefaultSearchProvider());
+    search_engine->SetBoolean("is_valid", (*it)->url()->IsValid());
+    search_engine->SetBoolean("supports_replacement",
+                              (*it)->url()->SupportsReplacement());
+    search_engine->SetString("url", (*it)->url()->url());
+    search_engine->SetString("host", (*it)->url()->GetHost());
+    search_engine->SetString("path", (*it)->url()->GetPath());
+    search_engine->SetString("display_url",
+                             WideToUTF8((*it)->url()->DisplayURL()));
+    search_engines->Append(search_engine);
+  }
+  return_value->Set("search_engines", search_engines);
+  AutomationJSONReply(this, reply_message).SendSuccess(return_value.get());
+}
+
+// Refer to pyauto.py for sample JSON input.
+void TestingAutomationProvider::AddOrEditSearchEngine(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  TemplateURLModel* url_model(profile_->GetTemplateURLModel());
+  const TemplateURL* template_url;
+  string16 new_title;
+  string16 new_keyword;
+  std::string new_url;
+  std::string keyword;
+  if (!args->GetString("new_title", &new_title) ||
+      !args->GetString("new_keyword", &new_keyword) ||
+      !args->GetString("new_url", &new_url)) {
+    AutomationJSONReply(this, reply_message).SendError(
+        "One or more inputs invalid");
+    return;
+  }
+  std::string new_ref_url = TemplateURLRef::DisplayURLToURLRef(
+      UTF8ToWide(new_url));
+  scoped_ptr<KeywordEditorController> controller(
+      new KeywordEditorController(profile_));
+  if (args->GetString("keyword", &keyword)) {
+    template_url = url_model->GetTemplateURLForKeyword(UTF8ToWide(keyword));
+    if (template_url == NULL) {
+      AutomationJSONReply(this, reply_message).SendError(
+          StringPrintf("No match for keyword: %s", keyword.c_str()));
+      return;
+    }
+    url_model->AddObserver(new AutomationProviderSearchEngineObserver(
+        this, reply_message));
+    controller->ModifyTemplateURL(template_url, new_title, new_keyword,
+                                  new_ref_url);
   } else {
     url_model->AddObserver(new AutomationProviderSearchEngineObserver(
+        this, reply_message));
+    controller->AddTemplateURL(new_title, new_keyword, new_ref_url);
+  }
+}
+
+// Sample json input: { "command": "PerformActionOnSearchEngine",
+//                      "keyword": keyword, "action": action }
+void TestingAutomationProvider::PerformActionOnSearchEngine(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  TemplateURLModel* url_model(profile_->GetTemplateURLModel());
+  std::string keyword;
+  std::string action;
+  if (!args->GetString("keyword", &keyword) ||
+      !args->GetString("action", &action)) {
+    AutomationJSONReply(this, reply_message).SendError(
+        "One or more inputs invalid");
+    return;
+  }
+  const TemplateURL* template_url(
+      url_model->GetTemplateURLForKeyword(UTF8ToWide(keyword)));
+  if (template_url == NULL) {
+    AutomationJSONReply(this, reply_message).SendError(
+        StringPrintf("No match for keyword: %s", keyword.c_str()));
+    return;
+  }
+  if (action == "delete") {
+    url_model->AddObserver(new AutomationProviderSearchEngineObserver(
       this, reply_message));
-    url_model->Load();
+    url_model->Remove(template_url);
+  } else if (action == "default") {
+    url_model->AddObserver(new AutomationProviderSearchEngineObserver(
+      this, reply_message));
+    url_model->SetDefaultSearchProvider(template_url);
+  } else {
+    AutomationJSONReply(this, reply_message).SendError(
+        StringPrintf("Invalid action: %s", action.c_str()));
   }
 }
 
@@ -3290,8 +3385,51 @@ namespace {
     // No translate infobar.
     return NULL;
   }
-
 }  // namespace
+
+void TestingAutomationProvider::FindInPage(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  std::string error_message;
+  TabContents* tab_contents = GetTabContentsFromDict(browser, args,
+                                                     &error_message);
+  if (!tab_contents) {
+    AutomationJSONReply(this, reply_message).SendError(error_message);
+    return;
+  }
+  string16 search_string;
+  bool forward;
+  bool match_case;
+  bool find_next;
+  if (!args->GetString("search_string", &search_string)) {
+    AutomationJSONReply(this, reply_message).
+        SendError("Must include search_string string.");
+    return;
+  }
+  if (!args->GetBoolean("forward", &forward)) {
+    AutomationJSONReply(this, reply_message).
+        SendError("Must include forward boolean.");
+    return;
+  }
+  if (!args->GetBoolean("match_case", &match_case)) {
+    AutomationJSONReply(this, reply_message).
+        SendError("Must include match_case boolean.");
+    return;
+  }
+  if (!args->GetBoolean("find_next", &find_next)) {
+    AutomationJSONReply(this, reply_message).
+        SendError("Must include find_next boolean.");
+    return;
+  }
+  SendFindRequest(tab_contents,
+                  true,
+                  search_string,
+                  forward,
+                  match_case,
+                  find_next,
+                  reply_message);
+}
 
 // See GetTranslateInfo() in chrome/test/pyautolib/pyauto.py for sample json
 // input and output.
@@ -3442,6 +3580,72 @@ void TestingAutomationProvider::SelectTranslateOption(
   } else {
     reply.SendError("Invalid string found for option.");
   }
+}
+
+// Sample json input: { "command": "GetBlockedPopupsInfo",
+//                      "tab_index": 1 }
+// Refer GetBlockedPopupsInfo() in pyauto.py for sample output.
+void TestingAutomationProvider::GetBlockedPopupsInfo(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  AutomationJSONReply reply(this, reply_message);
+  std::string error_message;
+  TabContents* tab_contents = GetTabContentsFromDict(
+      browser, args, &error_message);
+  if (!tab_contents) {
+    reply.SendError(error_message);
+    return;
+  }
+  scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
+  BlockedContentContainer* popup_container =
+      tab_contents->blocked_content_container();
+  ListValue* blocked_popups_list = new ListValue;
+  if (popup_container) {
+    std::vector<TabContents*> blocked_contents;
+    popup_container->GetBlockedContents(&blocked_contents);
+    for (std::vector<TabContents*>::const_iterator it =
+             blocked_contents.begin(); it != blocked_contents.end(); ++it) {
+      DictionaryValue* item = new DictionaryValue;
+      item->SetString("url", (*it)->GetURL().spec());
+      item->SetString("title", (*it)->GetTitle());
+      blocked_popups_list->Append(item);
+    }
+  }
+  return_value->Set("blocked_popups", blocked_popups_list);
+  reply.SendSuccess(return_value.get());
+}
+
+// Refer UnblockAndLaunchBlockedPopup() in pyauto.py for sample input.
+void TestingAutomationProvider::UnblockAndLaunchBlockedPopup(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  AutomationJSONReply reply(this, reply_message);
+  std::string error_message;
+  TabContents* tab_contents = GetTabContentsFromDict(
+      browser, args, &error_message);
+  if (!tab_contents) {
+    reply.SendError(error_message);
+    return;
+  }
+  int popup_index;
+  if (!args->GetInteger("popup_index", &popup_index)) {
+    reply.SendError("Need popup_index arg");
+    return;
+  }
+  scoped_ptr<DictionaryValue> return_value(new DictionaryValue);
+  BlockedContentContainer* content_container =
+      tab_contents->blocked_content_container();
+  if (!content_container ||
+      popup_index >= (int)content_container->GetBlockedContentsCount()) {
+    reply.SendError(StringPrintf("No popup at index %d", popup_index));
+    return;
+  }
+  std::vector<TabContents*> blocked_contents;
+  content_container->GetBlockedContents(&blocked_contents);
+  content_container->LaunchForContents(blocked_contents[popup_index]);
+  reply.SendSuccess(NULL);
 }
 
 // Sample json input: { "command": "GetThemeInfo" }
@@ -3878,11 +4082,11 @@ void TestingAutomationProvider::OnRedirectQueryComplete(
 void TestingAutomationProvider::OnBrowserAdded(const Browser* browser) {
 }
 
-void TestingAutomationProvider::OnBrowserRemoving(const Browser* browser) {
+void TestingAutomationProvider::OnBrowserRemoved(const Browser* browser) {
   // For backwards compatibility with the testing automation interface, we
   // want the automation provider (and hence the process) to go away when the
   // last browser goes away.
-  if (BrowserList::size() == 1 && !CommandLine::ForCurrentProcess()->HasSwitch(
+  if (BrowserList::empty() && !CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kKeepAliveForTest)) {
     // If you change this, update Observer for NotificationType::SESSION_END
     // below.
@@ -3895,9 +4099,9 @@ void TestingAutomationProvider::Observe(NotificationType type,
                                         const NotificationSource& source,
                                         const NotificationDetails& details) {
   DCHECK(type == NotificationType::SESSION_END);
-  // OnBrowserRemoving does a ReleaseLater. When session end is received we exit
+  // OnBrowserRemoved does a ReleaseLater. When session end is received we exit
   // before the task runs resulting in this object not being deleted. This
-  // Release balance out the Release scheduled by OnBrowserRemoving.
+  // Release balance out the Release scheduled by OnBrowserRemoved.
   Release();
 }
 

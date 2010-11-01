@@ -6,11 +6,11 @@
 
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/field_trial.h"
 #include "base/message_loop.h"
+#include "base/metrics/field_trial.h"
 #include "base/task.h"
 #include "base/string_util.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/chrome_switches.h"
 #include "net/base/host_resolver.h"
 #include "net/base/net_errors.h"
@@ -28,16 +28,20 @@ static scoped_refptr<WebSocketExperimentRunner> runner;
 void WebSocketExperimentRunner::Start() {
   DCHECK(!runner.get());
 
-  scoped_refptr<FieldTrial> trial = new FieldTrial("WebSocketExperiment", 1000);
+  scoped_refptr<base::FieldTrial> trial =
+      new base::FieldTrial("WebSocketExperiment", 1000);
   trial->AppendGroup("active", 5);  // 0.5% in active group.
 
-  bool run_experiment = (trial->group() != FieldTrial::kNotParticipating);
+  bool run_experiment =
+      (trial->group() != base::FieldTrial::kNotParticipating);
 #ifndef NDEBUG
   const CommandLine& command_line = *CommandLine::ForCurrentProcess();
   std::string experiment_host = command_line.GetSwitchValueASCII(
       switches::kWebSocketLiveExperimentHost);
   if (!experiment_host.empty())
     run_experiment = true;
+#else
+  run_experiment = false;
 #endif
   if (!run_experiment)
     return;
@@ -70,8 +74,8 @@ WebSocketExperimentRunner::~WebSocketExperimentRunner() {
 void WebSocketExperimentRunner::Run() {
   DCHECK_EQ(next_state_, STATE_NONE);
   next_state_ = STATE_RUN_WS;
-  ChromeThread::PostDelayedTask(
-      ChromeThread::IO,
+  BrowserThread::PostDelayedTask(
+      BrowserThread::IO,
       FROM_HERE,
       NewRunnableMethod(this, &WebSocketExperimentRunner::DoLoop),
       config_.initial_delay_ms);
@@ -79,8 +83,8 @@ void WebSocketExperimentRunner::Run() {
 
 void WebSocketExperimentRunner::Cancel() {
   next_state_ = STATE_NONE;
-  ChromeThread::PostTask(
-      ChromeThread::IO,
+  BrowserThread::PostTask(
+      BrowserThread::IO,
       FROM_HERE,
       NewRunnableMethod(this, &WebSocketExperimentRunner::DoLoop));
 }
@@ -186,8 +190,8 @@ void WebSocketExperimentRunner::DoLoop() {
     case STATE_IDLE:
       task_.reset();
       next_state_ = STATE_RUN_WS;
-      ChromeThread::PostDelayedTask(
-          ChromeThread::IO,
+      BrowserThread::PostDelayedTask(
+          BrowserThread::IO,
           FROM_HERE,
           NewRunnableMethod(this, &WebSocketExperimentRunner::DoLoop),
           config_.next_delay_ms);

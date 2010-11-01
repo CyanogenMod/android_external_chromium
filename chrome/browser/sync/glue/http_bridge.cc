@@ -7,9 +7,8 @@
 #include "base/message_loop.h"
 #include "base/message_loop_proxy.h"
 #include "base/string_number_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/profile.h"
-#include "chrome/browser/chrome_thread.h"
 #include "net/base/cookie_monster.h"
 #include "net/base/host_resolver.h"
 #include "net/base/load_flags.h"
@@ -46,7 +45,7 @@ URLRequestContext* HttpBridge::RequestContextGetter::GetURLRequestContext() {
 
 scoped_refptr<base::MessageLoopProxy>
 HttpBridge::RequestContextGetter::GetIOMessageLoopProxy() {
-  return ChromeThread::GetMessageLoopProxyForThread(ChromeThread::IO);
+  return BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO);
 }
 
 HttpBridgeFactory::HttpBridgeFactory(
@@ -107,7 +106,7 @@ HttpBridge::RequestContext::RequestContext(URLRequestContext* baseline_context)
 }
 
 HttpBridge::RequestContext::~RequestContext() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   delete http_transaction_factory_;
 }
 
@@ -174,8 +173,8 @@ bool HttpBridge::MakeSynchronousPost(int* os_error_code, int* response_code) {
   DCHECK(url_for_request_.is_valid()) << "Invalid URL for request";
   DCHECK(!content_type_.empty()) << "Payload not set";
 
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(this, &HttpBridge::CallMakeAsynchronousPost));
 
   if (!http_post_completed_.Wait())  // Block until network request completes.
@@ -188,7 +187,7 @@ bool HttpBridge::MakeSynchronousPost(int* os_error_code, int* response_code) {
 }
 
 void HttpBridge::MakeAsynchronousPost() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   DCHECK(!request_completed_);
 
   url_poster_ = new URLFetcher(url_for_request_, URLFetcher::POST, this);
@@ -225,7 +224,7 @@ void HttpBridge::OnURLFetchComplete(const URLFetcher *source, const GURL &url,
                                     int response_code,
                                     const ResponseCookies &cookies,
                                     const std::string &data) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   request_completed_ = true;
   request_succeeded_ = (URLRequestStatus::SUCCESS == status.status());

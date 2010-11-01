@@ -4,7 +4,7 @@
 
 #include "chrome/browser/gpu_process_host_ui_shim.h"
 
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/gpu_process_host.h"
 #include "chrome/common/gpu_messages.h"
 
@@ -44,9 +44,9 @@ int32 GpuProcessHostUIShim::NewRenderWidgetHostView(
 }
 
 bool GpuProcessHostUIShim::Send(IPC::Message* msg) {
-  ChromeThread::PostTask(ChromeThread::IO,
-                         FROM_HERE,
-                         new SendOnIOThreadTask(msg));
+  BrowserThread::PostTask(BrowserThread::IO,
+                          FROM_HERE,
+                          new SendOnIOThreadTask(msg));
   return true;
 }
 
@@ -68,9 +68,9 @@ void GpuProcessHostUIShim::OnMessageReceived(const IPC::Message& message) {
 }
 
 void GpuProcessHostUIShim::CollectGraphicsInfoAsynchronously() {
-  DCHECK(!ChromeThread::CurrentlyOn(ChromeThread::IO));
-  ChromeThread::PostTask(
-      ChromeThread::IO,
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
+  BrowserThread::PostTask(
+      BrowserThread::IO,
       FROM_HERE,
       new SendOnIOThreadTask(new GpuMsg_CollectGraphicsInfo()));
 }

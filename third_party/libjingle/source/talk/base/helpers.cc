@@ -187,7 +187,7 @@ class TestRandomGenerator : public RandomGenerator {
   int seed_;
 };
 
-// TODO(juberti): Use Base64::Base64Table instead.
+// TODO: Use Base64::Base64Table instead.
 static const char BASE64[64] = {
   'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
   'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',

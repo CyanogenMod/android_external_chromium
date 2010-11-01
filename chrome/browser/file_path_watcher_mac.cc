@@ -10,7 +10,7 @@
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/logging.h"
-#include "base/scoped_cftyperef.h"
+#include "base/mac/scoped_cftyperef.h"
 #include "base/singleton.h"
 #include "base/time.h"
 
@@ -68,7 +68,7 @@ void FSEventsCallback(ConstFSEventStreamRef stream,
                       void* event_watcher, size_t num_events,
                       void* event_paths, const FSEventStreamEventFlags flags[],
                       const FSEventStreamEventId event_ids[]) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   FilePathWatcherImpl* watcher =
       reinterpret_cast<FilePathWatcherImpl*>(event_watcher);
@@ -87,12 +87,12 @@ void FSEventsCallback(ConstFSEventStreamRef stream,
   if (root_changed) {
     // Resetting the event stream from within the callback fails (FSEvents spews
     // bad file descriptor errors), so post a task to do the reset.
-    ChromeThread::PostTask(ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(watcher, &FilePathWatcherImpl::UpdateEventStream,
                           root_change_at));
   }
 
-  ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(watcher, &FilePathWatcherImpl::OnFilePathChanged));
 }
 
@@ -104,7 +104,7 @@ FilePathWatcherImpl::FilePathWatcherImpl()
 }
 
 void FilePathWatcherImpl::OnFilePathChanged() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
   DCHECK(!target_.empty());
 
   base::PlatformFileInfo file_info;
@@ -156,7 +156,7 @@ bool FilePathWatcherImpl::Watch(const FilePath& path,
     first_notification_ = base::Time::Now();
   }
 
-  ChromeThread::PostTask(ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(this, &FilePathWatcherImpl::UpdateEventStream,
                         start_event));
 
@@ -165,8 +165,8 @@ bool FilePathWatcherImpl::Watch(const FilePath& path,
 
 void FilePathWatcherImpl::Cancel() {
   // Switch to the UI thread if necessary, so we can tear down the event stream.
-  if (!ChromeThread::CurrentlyOn(ChromeThread::UI)) {
-    ChromeThread::PostTask(ChromeThread::UI, FROM_HERE,
+  if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
+    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(this, &FilePathWatcherImpl::Cancel));
     return;
   }
@@ -177,7 +177,7 @@ void FilePathWatcherImpl::Cancel() {
 }
 
 void FilePathWatcherImpl::UpdateEventStream(FSEventStreamEventId start_event) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   // It can happen that the watcher gets canceled while tasks that call this
   // function are still in flight, so abort if this situation is detected.
@@ -187,12 +187,12 @@ void FilePathWatcherImpl::UpdateEventStream(FSEventStreamEventId start_event) {
   if (fsevent_stream_)
     DestroyEventStream();
 
-  scoped_cftyperef<CFStringRef> cf_path(CFStringCreateWithCString(
+  base::mac::ScopedCFTypeRef<CFStringRef> cf_path(CFStringCreateWithCString(
       NULL, target_.value().c_str(), kCFStringEncodingMacHFS));
-  scoped_cftyperef<CFStringRef> cf_dir_path(CFStringCreateWithCString(
+  base::mac::ScopedCFTypeRef<CFStringRef> cf_dir_path(CFStringCreateWithCString(
       NULL, target_.DirName().value().c_str(), kCFStringEncodingMacHFS));
   CFStringRef paths_array[] = { cf_path.get(), cf_dir_path.get() };
-  scoped_cftyperef<CFArrayRef> watched_paths(CFArrayCreate(
+  base::mac::ScopedCFTypeRef<CFArrayRef> watched_paths(CFArrayCreate(
       NULL, reinterpret_cast<const void**>(paths_array), arraysize(paths_array),
       &kCFTypeArrayCallBacks));
 
@@ -211,14 +211,14 @@ void FilePathWatcherImpl::UpdateEventStream(FSEventStreamEventId start_event) {
   FSEventStreamScheduleWithRunLoop(fsevent_stream_, CFRunLoopGetCurrent(),
                                    kCFRunLoopDefaultMode);
   if (!FSEventStreamStart(fsevent_stream_)) {
-    ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
+    BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
         NewRunnableMethod(delegate_.get(),
                           &FilePathWatcher::Delegate::OnError));
   }
 }
 
 void FilePathWatcherImpl::DestroyEventStream() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   FSEventStreamStop(fsevent_stream_);
   FSEventStreamInvalidate(fsevent_stream_);
   FSEventStreamRelease(fsevent_stream_);

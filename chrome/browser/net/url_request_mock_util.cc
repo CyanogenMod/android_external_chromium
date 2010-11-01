@@ -7,7 +7,7 @@
 #include <string>
 
 #include "base/path_service.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/net/url_request_failed_dns_job.h"
 #include "chrome/browser/net/url_request_mock_http_job.h"
 #include "chrome/browser/net/url_request_mock_link_doctor_job.h"
@@ -21,7 +21,7 @@ namespace chrome_browser_net {
 void SetUrlRequestMocksEnabled(bool enabled) {
   // Since this involves changing the URLRequest ProtocolFactory, we need to
   // run on the IO thread.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   if (enabled) {
     URLRequestFilter::GetInstance()->ClearHandlers();

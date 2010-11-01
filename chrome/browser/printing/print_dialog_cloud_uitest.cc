@@ -13,7 +13,7 @@
 #include "base/singleton.h"
 #include "base/values.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_url.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -69,7 +69,7 @@ class SimpleTestJob : public URLRequestTestJob {
                                    base::Time::Now() +
                                    base::TimeDelta::FromDays(kLifetimeDays));
       info->ssl_info.cert_status = 0;
-      info->ssl_info.security_bits = 0;
+      info->ssl_info.security_bits = -1;
     }
   }
 
@@ -130,8 +130,8 @@ class PrintDialogCloudTest : public InProcessBrowserTest {
     AutoQuitDelegate() {}
 
     virtual void OnResponseCompleted(URLRequest* request) {
-      ChromeThread::PostTask(ChromeThread::UI, FROM_HERE,
-                             new MessageLoop::QuitTask());
+      BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                              new MessageLoop::QuitTask());
     }
   };
 
@@ -179,8 +179,8 @@ class PrintDialogCloudTest : public InProcessBrowserTest {
   void CreateDialogForTest() {
     FilePath path_to_pdf =
         test_data_directory_.AppendASCII("printing/cloud_print_uitest.pdf");
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableFunction(&PrintDialogCloud::CreateDialogImpl, path_to_pdf));
   }
 

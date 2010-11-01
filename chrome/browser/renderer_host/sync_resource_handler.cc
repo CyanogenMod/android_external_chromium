@@ -5,6 +5,7 @@
 #include "chrome/browser/renderer_host/sync_resource_handler.h"
 
 #include "base/logging.h"
+#include "chrome/browser/debugger/devtools_netlog_observer.h"
 #include "chrome/browser/net/load_timing_observer.h"
 #include "chrome/browser/renderer_host/global_request_id.h"
 #include "chrome/common/render_messages.h"
@@ -41,7 +42,7 @@ bool SyncResourceHandler::OnRequestRedirected(int request_id,
   URLRequest* request = rdh_->GetURLRequest(
       GlobalRequestID(process_id_, request_id));
   LoadTimingObserver::PopulateTimingInfo(request, response);
-
+  DevToolsNetLogObserver::PopulateResponseInfo(request, response);
   // TODO(darin): It would be much better if this could live in WebCore, but
   // doing so requires API changes at all levels.  Similar code exists in
   // WebCore/platform/network/cf/ResourceHandleCFNet.cpp :-(
@@ -58,6 +59,7 @@ bool SyncResourceHandler::OnResponseStarted(int request_id,
   URLRequest* request = rdh_->GetURLRequest(
       GlobalRequestID(process_id_, request_id));
   LoadTimingObserver::PopulateTimingInfo(request, response);
+  DevToolsNetLogObserver::PopulateResponseInfo(request, response);
 
   // We don't care about copying the status here.
   result_.headers = response->response_head.headers;
@@ -69,6 +71,7 @@ bool SyncResourceHandler::OnResponseStarted(int request_id,
   result_.connection_id = response->response_head.connection_id;
   result_.connection_reused = response->response_head.connection_reused;
   result_.load_timing = response->response_head.load_timing;
+  result_.devtools_info = response->response_head.devtools_info;
   return true;
 }
 

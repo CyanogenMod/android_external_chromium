@@ -4,9 +4,8 @@
 
 #include "net/spdy/spdy_framer.h"
 
+#include "base/metrics/stats_counters.h"
 #include "base/scoped_ptr.h"
-#include "base/stats_counters.h"
-
 #include "net/spdy/spdy_frame_builder.h"
 #include "net/spdy/spdy_bitmasks.h"
 
@@ -33,9 +32,8 @@ int SpdyFramer::spdy_version_ = kSpdyProtocolVersion;
 #define CHANGE_STATE(newstate) \
 { \
   do { \
-    LOG(INFO) << "Changing state from: " \
-      << StateToString(state_) \
-      << " to " << StateToString(newstate) << "\n"; \
+    VLOG(1) << "Changing state from: " << StateToString(state_) \
+            << " to " << StateToString(newstate); \
     state_ = newstate; \
   } while (false); \
 }
@@ -74,7 +72,7 @@ void SpdyFramer::Reset() {
   current_frame_len_ = 0;
   if (current_frame_capacity_ != kControlFrameBufferInitialSize) {
     delete [] current_frame_buffer_;
-    current_frame_buffer_ = 0;
+    current_frame_buffer_ = NULL;
     current_frame_capacity_ = 0;
     ExpandControlFrameBuffer(kControlFrameBufferInitialSize);
   }
@@ -915,9 +913,9 @@ SpdyFrame* SpdyFramer::CompressFrameWithZStream(const SpdyFrame& frame,
   int header_length;
   const char* payload;
 
-  static StatsCounter compressed_frames("spdy.CompressedFrames");
-  static StatsCounter pre_compress_bytes("spdy.PreCompressSize");
-  static StatsCounter post_compress_bytes("spdy.PostCompressSize");
+  static base::StatsCounter compressed_frames("spdy.CompressedFrames");
+  static base::StatsCounter pre_compress_bytes("spdy.PreCompressSize");
+  static base::StatsCounter post_compress_bytes("spdy.PostCompressSize");
 
   if (!enable_compression_)
     return DuplicateFrame(frame);
@@ -968,9 +966,9 @@ SpdyFrame* SpdyFramer::DecompressFrameWithZStream(const SpdyFrame& frame,
   int header_length;
   const char* payload;
 
-  static StatsCounter decompressed_frames("spdy.DecompressedFrames");
-  static StatsCounter pre_decompress_bytes("spdy.PreDeCompressSize");
-  static StatsCounter post_decompress_bytes("spdy.PostDeCompressSize");
+  static base::StatsCounter decompressed_frames("spdy.DecompressedFrames");
+  static base::StatsCounter pre_decompress_bytes("spdy.PreDeCompressSize");
+  static base::StatsCounter post_decompress_bytes("spdy.PostDeCompressSize");
 
   if (!enable_compression_)
     return DuplicateFrame(frame);

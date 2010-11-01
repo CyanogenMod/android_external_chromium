@@ -32,7 +32,7 @@ class FileSystemDispatcher {
 
   bool OnMessageReceived(const IPC::Message& msg);
 
-  void OpenFileSystem(const GURL& origin_url,
+  bool OpenFileSystem(const GURL& origin_url,
                       fileapi::FileSystemType type,
                       long long size,
                       fileapi::FileSystemCallbackDispatcher* dispatcher);
@@ -43,6 +43,7 @@ class FileSystemDispatcher {
             const FilePath& dest_path,
             fileapi::FileSystemCallbackDispatcher* dispatcher);
   bool Remove(const FilePath& path,
+              bool recursive,
               fileapi::FileSystemCallbackDispatcher* dispatcher);
   bool ReadMetadata(const FilePath& path,
                     fileapi::FileSystemCallbackDispatcher* dispatcher);

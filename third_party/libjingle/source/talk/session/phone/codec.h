@@ -49,7 +49,9 @@ struct AudioCodec {
   // Creates an empty codec.
   AudioCodec() : id(0), clockrate(0), bitrate(0), channels(0), preference(0) {}
 
+  // Indicates if this codec is compatible with the specified codec.
   bool Matches(int payload, const std::string& nm) const;
+  bool Matches(const AudioCodec& codec) const;
 
   static bool Preferable(const AudioCodec& first, const AudioCodec& other) {
     return first.preference > other.preference;
@@ -99,6 +101,7 @@ struct VideoCodec {
       : id(0), width(0), height(0), framerate(0), preference(0) {}
 
   bool Matches(int payload, const std::string& nm) const;
+  bool Matches(const VideoCodec& codec) const;
 
   static bool Preferable(const VideoCodec& first, const VideoCodec& other) {
     return first.preference > other.preference;

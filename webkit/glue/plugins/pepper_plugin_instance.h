@@ -25,8 +25,11 @@ struct PP_Var;
 struct PPB_Instance;
 struct PPB_Find_Dev;
 struct PPB_Fullscreen_Dev;
+struct PPB_Zoom_Dev;
 struct PPP_Find_Dev;
 struct PPP_Instance;
+struct PPP_Private;
+struct PPP_Selection_Dev;
 struct PPP_Zoom_Dev;
 
 class SkBitmap;
@@ -51,6 +54,10 @@ class PluginModule;
 class URLLoader;
 class FullscreenContainer;
 
+// Represents one time a plugin appears on one web page.
+//
+// Note: to get from a PP_Instance to a PluginInstance*, use the
+// ResourceTracker.
 class PluginInstance : public base::RefCounted<PluginInstance> {
  public:
   PluginInstance(PluginDelegate* delegate,
@@ -60,13 +67,11 @@ class PluginInstance : public base::RefCounted<PluginInstance> {
 
   static const PPB_Instance* GetInterface();
 
-  // Converts the given instance ID to an actual instance object.
-  static PluginInstance* FromPPInstance(PP_Instance instance);
-
   // Returns a pointer to the interface implementing PPB_Find that is
   // exposed to the plugin.
   static const PPB_Find_Dev* GetFindInterface();
   static const PPB_Fullscreen_Dev* GetFullscreenInterface();
+  static const PPB_Zoom_Dev* GetZoomInterface();
 
   PluginDelegate* delegate() const { return delegate_; }
   PluginModule* module() const { return module_.get(); }
@@ -80,7 +85,9 @@ class PluginInstance : public base::RefCounted<PluginInstance> {
 
   void set_always_on_top(bool on_top) { always_on_top_ = on_top; }
 
-  PP_Instance GetPPInstance();
+  // Returns the PP_Instance uniquely identifying this instance. Guaranteed
+  // nonzero.
+  PP_Instance pp_instance() const { return pp_instance_; }
 
   // Paints the current backing store to the web page.
   void Paint(WebKit::WebCanvas* canvas,
@@ -134,7 +141,8 @@ class PluginInstance : public base::RefCounted<PluginInstance> {
       gfx::Rect* clip);
 
   string16 GetSelectedText(bool html);
-  void Zoom(float factor, bool text_only);
+  string16 GetLinkAtPosition(const gfx::Point& point);
+  void Zoom(double factor, bool text_only);
   bool StartFind(const string16& search_text,
                  bool case_sensitive,
                  int identifier);
@@ -154,6 +162,8 @@ class PluginInstance : public base::RefCounted<PluginInstance> {
 
  private:
   bool LoadFindInterface();
+  bool LoadPrivateInterface();
+  bool LoadSelectionInterface();
   bool LoadZoomInterface();
 
   // Determines if we think the plugin has focus, both content area and webkit
@@ -180,6 +190,8 @@ class PluginInstance : public base::RefCounted<PluginInstance> {
   PluginDelegate* delegate_;
   scoped_refptr<PluginModule> module_;
   const PPP_Instance* instance_interface_;
+
+  PP_Instance pp_instance_;
 
   // NULL until we have been initialized.
   WebKit::WebPluginContainer* container_;
@@ -211,8 +223,10 @@ class PluginInstance : public base::RefCounted<PluginInstance> {
   // The id of the current find operation, or -1 if none is in process.
   int find_identifier_;
 
-  // The plugin find and zoom interfaces.
+  // The plugin-provided interfaces.
   const PPP_Find_Dev* plugin_find_interface_;
+  const PPP_Private* plugin_private_interface_;
+  const PPP_Selection_Dev* plugin_selection_interface_;
   const PPP_Zoom_Dev* plugin_zoom_interface_;
 
   // This is only valid between a successful PrintBegin call and a PrintEnd

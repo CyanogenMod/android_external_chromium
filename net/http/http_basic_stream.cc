@@ -56,6 +56,13 @@ void HttpBasicStream::Close(bool not_reusable) {
   parser_->Close(not_reusable);
 }
 
+HttpStream* HttpBasicStream::RenewStreamForAuth() {
+  DCHECK(IsResponseBodyComplete());
+  DCHECK(!IsMoreDataBuffered());
+  parser_.reset();
+  return new HttpBasicStream(connection_.release());
+}
+
 bool HttpBasicStream::IsResponseBodyComplete() const {
   return parser_->IsResponseBodyComplete();
 }

@@ -154,7 +154,7 @@ NSImage* AutocompleteEditViewMac::ImageForResource(int resource_id) {
   }
 
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  return rb.GetNSImageNamed(resource_id);
+  return rb.GetNativeImageNamed(resource_id);
 }
 
 AutocompleteEditViewMac::AutocompleteEditViewMac(
@@ -429,6 +429,9 @@ void AutocompleteEditViewMac::UpdatePopup() {
 }
 
 void AutocompleteEditViewMac::ClosePopup() {
+  if (popup_view_->GetModel()->IsOpen())
+    controller_->OnAutocompleteWillClosePopup();
+
   popup_view_->GetModel()->StopAutocomplete();
 }
 
@@ -762,6 +765,7 @@ void AutocompleteEditViewMac::OnSetFocus(bool control_down) {
 
 void AutocompleteEditViewMac::OnKillFocus() {
   // Tell the model to reset itself.
+  controller_->OnAutocompleteLosingFocus(NULL);
   model_->OnKillFocus();
   controller_->OnKillFocus();
 }
@@ -854,6 +858,7 @@ void AutocompleteEditViewMac::OnFrameChanged() {
   // things even cheaper by refactoring between the popup-placement
   // code and the matrix-population code.
   popup_view_->UpdatePopupAppearance();
+  model_->PopupBoundsChangedTo(popup_view_->GetTargetBounds());
 
   // Give controller a chance to rearrange decorations.
   controller_->OnChanged();

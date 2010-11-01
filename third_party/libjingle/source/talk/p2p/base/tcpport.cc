@@ -121,7 +121,7 @@ int TCPPort::SendTo(const void* data, size_t size,
   if (!socket) {
     LOG_J(LS_ERROR, this) << "Attempted to send to an unknown destination, "
                           << addr.ToString();
-    return -1;  // TODO(juberti): Set error_
+    return -1;  // TODO: Set error_
   }
 
   int sent = socket->Send(data, size);
@@ -147,7 +147,7 @@ void TCPPort::OnAcceptEvent(talk_base::AsyncSocket* socket) {
   Incoming incoming;
   talk_base::AsyncSocket* newsocket = socket->Accept(&incoming.addr);
   if (!newsocket) {
-    // TODO(juberti): Do something better like forwarding the error to the user.
+    // TODO: Do something better like forwarding the error to the user.
     LOG_J(LS_ERROR, this) << "TCP accept failed with error "
                           << socket_->GetError();
     return;
@@ -189,7 +189,7 @@ TCPConnection::TCPConnection(TCPPort* port, const Candidate& candidate,
     : Connection(port, 0, candidate), socket_(socket), error_(0) {
   bool outgoing = (socket_ == NULL);
   if (outgoing) {
-    // TODO(juberti): Handle failures here (unlikely since TCP)
+    // TODO: Handle failures here (unlikely since TCP)
     socket_ = static_cast<talk_base::AsyncTCPSocket*>(port->CreatePacketSocket(
         (candidate.protocol() == "ssltcp") ? PROTO_SSLTCP : PROTO_TCP));
   } else {
@@ -215,7 +215,7 @@ TCPConnection::~TCPConnection() {
 
 int TCPConnection::Send(const void* data, size_t size) {
   if (write_state() != STATE_WRITABLE) {
-    // TODO(bpm): Should STATE_WRITE_TIMEOUT return a non-blocking error?
+    // TODO: Should STATE_WRITE_TIMEOUT return a non-blocking error?
     error_ = EWOULDBLOCK;
     return SOCKET_ERROR;
   }

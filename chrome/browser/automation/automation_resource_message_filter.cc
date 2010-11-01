@@ -4,10 +4,11 @@
 
 #include "chrome/browser/automation/automation_resource_message_filter.h"
 
-#include "base/histogram.h"
 #include "base/path_service.h"
+#include "base/metrics/histogram.h"
 #include "base/stl_util-inl.h"
 #include "chrome/browser/automation/url_request_automation_job.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/net/url_request_failed_dns_job.h"
 #include "chrome/browser/net/url_request_mock_http_job.h"
 #include "chrome/browser/net/url_request_mock_util.h"
@@ -15,7 +16,6 @@
 #include "chrome/browser/net/url_request_slow_http_job.h"
 #include "chrome/browser/renderer_host/resource_message_filter.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/test/automation/automation_messages.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/net_errors.h"
@@ -82,6 +82,26 @@ class AutomationCookieStore : public net::CookieStore {
   DISALLOW_COPY_AND_ASSIGN(AutomationCookieStore);
 };
 
+AutomationResourceMessageFilter::AutomationDetails::AutomationDetails()
+    : tab_handle(0),
+      ref_count(1),
+      is_pending_render_view(false) {
+}
+
+AutomationResourceMessageFilter::AutomationDetails::AutomationDetails(
+    int tab,
+    AutomationResourceMessageFilter* flt,
+    bool pending_view)
+    : tab_handle(tab), ref_count(1), filter(flt),
+      is_pending_render_view(pending_view) {
+}
+
+AutomationResourceMessageFilter::AutomationDetails::~AutomationDetails() {}
+
+struct AutomationResourceMessageFilter::CookieCompletionInfo {
+  net::CompletionCallback* completion_callback;
+  scoped_refptr<net::CookieStore> cookie_store;
+};
 
 AutomationResourceMessageFilter::AutomationResourceMessageFilter()
     : channel_(NULL) {
@@ -90,8 +110,8 @@ AutomationResourceMessageFilter::AutomationResourceMessageFilter()
   // Ensure that an instance of the render view map is created.
   filtered_render_views_.Get();
 
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableFunction(
           URLRequestAutomationJob::EnsureProtocolFactoryRegistered));
 }
@@ -144,6 +164,12 @@ bool AutomationResourceMessageFilter::OnMessageReceived(
         job->OnMessage(message);
         return true;
       }
+    } else {
+      // This could occur if the request was stopped from Chrome which would
+      // delete it from the request map. If we receive data for this request
+      // from the host we should ignore it.
+      LOG(ERROR) << "Failed to find request id:" << request_id;
+      return true;
     }
   }
 
@@ -166,7 +192,7 @@ bool AutomationResourceMessageFilter::OnMessageReceived(
 // Called on the IPC thread:
 bool AutomationResourceMessageFilter::Send(IPC::Message* message) {
   // This has to be called on the IO thread.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   if (!channel_) {
     delete message;
     return false;
@@ -181,7 +207,7 @@ bool AutomationResourceMessageFilter::RegisterRequest(
     NOTREACHED();
     return false;
   }
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   // Register pending jobs in the pending request map for servicing later.
   if (job->is_pending()) {
@@ -203,7 +229,7 @@ void AutomationResourceMessageFilter::UnRegisterRequest(
     NOTREACHED();
     return;
   }
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   if (job->is_pending()) {
     DCHECK(ContainsKey(pending_request_map_, job->id()));
@@ -222,18 +248,22 @@ bool AutomationResourceMessageFilter::RegisterRenderView(
     return false;
   }
 
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableFunction(
           AutomationResourceMessageFilter::RegisterRenderViewInIOThread,
-          renderer_pid, renderer_id, tab_handle, filter, pending_view));
+          renderer_pid,
+          renderer_id,
+          tab_handle,
+          make_scoped_refptr(filter),
+          pending_view));
   return true;
 }
 
 void AutomationResourceMessageFilter::UnRegisterRenderView(
     int renderer_pid, int renderer_id) {
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableFunction(
           AutomationResourceMessageFilter::UnRegisterRenderViewInIOThread,
           renderer_pid, renderer_id));
@@ -247,11 +277,14 @@ bool AutomationResourceMessageFilter::ResumePendingRenderView(
     return false;
   }
 
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableFunction(
           AutomationResourceMessageFilter::ResumePendingRenderViewInIOThread,
-          renderer_pid, renderer_id, tab_handle, filter));
+          renderer_pid,
+          renderer_id,
+          tab_handle,
+          make_scoped_refptr(filter)));
   return true;
 }
 
@@ -300,7 +333,7 @@ void AutomationResourceMessageFilter::UnRegisterRenderViewInIOThread(
 bool AutomationResourceMessageFilter::ResumePendingRenderViewInIOThread(
     int renderer_pid, int renderer_id, int tab_handle,
     AutomationResourceMessageFilter* filter) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   RendererId renderer_key(renderer_pid, renderer_id);
 
@@ -349,7 +382,7 @@ bool AutomationResourceMessageFilter::LookupRegisteredRenderView(
 
 bool AutomationResourceMessageFilter::GetAutomationRequestId(
     int request_id, int* automation_request_id) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   RequestMap::iterator it = request_map_.begin();
   while (it != request_map_.end()) {
@@ -390,7 +423,7 @@ void AutomationResourceMessageFilter::OnGetFilteredInetHitCount(
 void AutomationResourceMessageFilter::OnRecordHistograms(
     const std::vector<std::string>& histogram_list) {
   for (size_t index = 0; index < histogram_list.size(); ++index) {
-    Histogram::DeserializeHistogramInfo(histogram_list[index]);
+    base::Histogram::DeserializeHistogramInfo(histogram_list[index]);
   }
 }
 

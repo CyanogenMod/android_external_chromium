@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -8,7 +8,7 @@
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/profile_manager.h"
@@ -21,7 +21,7 @@
 
 class ProfileManagerTest : public testing::Test {
  protected:
-  ProfileManagerTest() : ui_thread_(ChromeThread::UI, &message_loop_) {
+  ProfileManagerTest() : ui_thread_(BrowserThread::UI, &message_loop_) {
   }
 
   virtual void SetUp() {
@@ -40,7 +40,7 @@ class ProfileManagerTest : public testing::Test {
   }
 
   MessageLoopForUI message_loop_;
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
 
   // the path to temporary directory used to contain the test operations
   FilePath test_dir_;
@@ -109,7 +109,7 @@ TEST_F(ProfileManagerTest, LoggedInProfileDir) {
   FilePath expected_logged_in(profile_dir);
   EXPECT_EQ(expected_logged_in.value(),
             profile_manager.GetCurrentProfileDir().value());
-  LOG(INFO) << test_dir_.Append(profile_manager.GetCurrentProfileDir()).value();
+  VLOG(1) << test_dir_.Append(profile_manager.GetCurrentProfileDir()).value();
 }
 
 #endif

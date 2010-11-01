@@ -83,7 +83,7 @@ class HttpAuth {
   // Helper structure used by HttpNetworkTransaction to track
   // the current identity being used for authorization.
   struct Identity {
-    Identity() : source(IDENT_SRC_NONE), invalid(true) { }
+    Identity();
 
     IdentitySource source;
     bool invalid;
@@ -121,7 +121,26 @@ class HttpAuth {
       const BoundNetLog& net_log,
       scoped_ptr<HttpAuthHandler>* handler);
 
-  // Handle a response to a previous authentication attempt.
+  // Handle a 401/407 response from a server/proxy after a previous
+  // authentication attempt. For connection-based authentication schemes, the
+  // new response may be another round in a multi-round authentication sequence.
+  // For request-based schemes, a 401/407 response is typically treated like a
+  // rejection of the previous challenge, except in the Digest case when a
+  // "stale" attribute is present.
+  //
+  // |handler| must be non-NULL, and is the HttpAuthHandler from the previous
+  // authentication round.
+  //
+  // |headers| must be non-NULL and contain the new HTTP response.
+  //
+  // |target| specifies whether the headers came from a server or proxy.
+  //
+  // |disabled_schemes| are the authentication schemes to ignore.
+  //
+  // |challenge_used| is the text of the authentication challenge used in
+  // support of the returned AuthorizationResult. If no headers were used for
+  // the result (for example, all headers have unknown authentication schemes),
+  // the value is cleared.
   static AuthorizationResult HandleChallengeResponse(
       HttpAuthHandler* handler,
       const HttpResponseHeaders* headers,
@@ -129,23 +148,24 @@ class HttpAuth {
       const std::set<std::string>& disabled_schemes,
       std::string* challenge_used);
 
-  // ChallengeTokenizer breaks up a challenge string into the the auth scheme
-  // and parameter list, according to RFC 2617 Sec 1.2:
+  // Breaks up a challenge string into the the auth scheme and parameter list,
+  // according to RFC 2617 Sec 1.2:
   //    challenge = auth-scheme 1*SP 1#auth-param
   //
-  // Check valid() after each iteration step in case it was malformed.
-  // Also note that value() will give whatever is to the right of the equals
-  // sign, quotemarks and all. Use unquoted_value() to get the logical value.
+  // Depending on the challenge scheme, it may be appropriate to interpret the
+  // parameters as either a base-64 encoded string or a comma-delimited list
+  // of name-value pairs. param_pairs() and base64_param() methods are provided
+  // to support either usage.
   class ChallengeTokenizer {
    public:
     ChallengeTokenizer(std::string::const_iterator begin,
                        std::string::const_iterator end)
-        : props_(begin, end, ','),
-          valid_(true),
-          begin_(begin),
+        : begin_(begin),
           end_(end),
-          value_is_quoted_(false),
-          expect_base64_token_(false) {
+          scheme_begin_(begin),
+          scheme_end_(begin),
+          params_begin_(end),
+          params_end_(end) {
       Init(begin, end);
     }
 
@@ -161,52 +181,12 @@ class HttpAuth {
       return std::string(scheme_begin_, scheme_end_);
     }
 
-    // Returns false if there was a parse error.
-    bool valid() const {
-      return valid_;
-    }
-
-    // Advances the iterator to the next name-value pair, if any.
-    // Returns true if there is none to consume.
-    bool GetNext();
-
-    // Inform the tokenizer whether the next token should be treated as a base64
-    // encoded value. If |expect_base64_token| is true, |GetNext| will treat the
-    // next token as a base64 encoded value, and will include the trailing '='
-    // padding rather than attempt to split the token into a name/value pair.
-    // In this case, |name| will be empty, and |value| will contain the token.
-    // Subsequent calls to |GetNext()| will not treat the token like a base64
-    // encoded token unless the caller again calls |set_expect_base64_token|.
-    void set_expect_base64_token(bool expect_base64_token) {
-      expect_base64_token_ = expect_base64_token;
-    }
-
-    // The name of the current name-value pair.
-    std::string::const_iterator name_begin() const { return name_begin_; }
-    std::string::const_iterator name_end() const { return name_end_; }
-    std::string name() const {
-      return std::string(name_begin_, name_end_);
-    }
-
-    // The value of the current name-value pair.
-    std::string::const_iterator value_begin() const { return value_begin_; }
-    std::string::const_iterator value_end() const { return value_end_; }
-    std::string value() const {
-      return std::string(value_begin_, value_end_);
-    }
-
-    // If value() has quotemarks, unquote it.
-    std::string unquoted_value() const;
-
-    // True if the name-value pair's value has quote marks.
-    bool value_is_quoted() const { return value_is_quoted_; }
+    HttpUtil::NameValuePairsIterator param_pairs() const;
+    std::string base64_param() const;
 
    private:
     void Init(std::string::const_iterator begin,
               std::string::const_iterator end);
-
-    HttpUtil::ValuesIterator props_;
-    bool valid_;
 
     std::string::const_iterator begin_;
     std::string::const_iterator end_;
@@ -214,14 +194,8 @@ class HttpAuth {
     std::string::const_iterator scheme_begin_;
     std::string::const_iterator scheme_end_;
 
-    std::string::const_iterator name_begin_;
-    std::string::const_iterator name_end_;
-
-    std::string::const_iterator value_begin_;
-    std::string::const_iterator value_end_;
-
-    bool value_is_quoted_;
-    bool expect_base64_token_;
+    std::string::const_iterator params_begin_;
+    std::string::const_iterator params_end_;
   };
 };
 

@@ -13,6 +13,8 @@
 namespace prefs {
 
 // Profile prefs
+extern const char kAppsPromoCounter[];
+extern const char kDefaultAppsInstalled[];
 extern const char kHomePageIsNewTabPage[];
 extern const char kHomePage[];
 extern const char kSessionExitedCleanly[];
@@ -52,8 +54,10 @@ extern const char kFormAutofillEnabled[];  // OBSOLETE
 extern const char kSafeBrowsingEnabled[];
 extern const char kSearchSuggestEnabled[];
 extern const char kCookieBehavior[];  // OBSOLETE
+extern const char kDefaultSearchProviderEnabled[];
 extern const char kDefaultSearchProviderSearchURL[];
 extern const char kDefaultSearchProviderSuggestURL[];
+extern const char kDefaultSearchProviderInstantURL[];
 extern const char kDefaultSearchProviderIconURL[];
 extern const char kDefaultSearchProviderEncodings[];
 extern const char kDefaultSearchProviderName[];
@@ -67,7 +71,10 @@ extern const char kAlternateErrorPagesEnabled[];
 extern const char kDnsPrefetchingEnabled[];
 extern const char kDnsStartupPrefetchList[];
 extern const char kDnsHostReferralList[];
+extern const char kDisableSpdy[];
 extern const char kCookiePromptExpanded[];
+extern const char kInstantConfirmDialogShown[];
+extern const char kInstantEnabled[];
 #if defined(USE_NSS)
 extern const char kCertRevocationCheckingEnabled[];
 extern const char kSSL2Enabled[];
@@ -140,6 +147,7 @@ extern const char kAccessibilityEnabled[];
 extern const char kLabsAdvancedFilesystemEnabled[];
 extern const char kLabsMediaplayerEnabled[];
 extern const char kLabsTalkEnabled[];
+extern const char kEnableScreenLock[];
 #endif
 extern const char kIpcDisabledMessages[];
 extern const char kShowHomeButton[];
@@ -154,6 +162,7 @@ extern const char kDeleteFormData[];
 extern const char kEnableSpellCheck[];
 extern const char kEnabledLabsExperiments[];
 extern const char kEnableAutoSpellCorrect[];
+extern const char kSavingBrowserHistoryDisabled[];
 extern const char kDeleteTimePeriod[];
 extern const char kPrintingEnabled[];
 extern const char kPrintingPageHeaderLeft[];
@@ -199,6 +208,7 @@ extern const char kAutoFillAuxiliaryProfilesEnabled[];
 extern const char kAutoFillDialogPlacement[];
 extern const char kAutoFillPositiveUploadRate[];
 extern const char kAutoFillNegativeUploadRate[];
+extern const char kAutoFillPersonalDataManagerFirstRun[];
 
 extern const char kUseVerticalTabs[];
 extern const char kEnableTranslate[];

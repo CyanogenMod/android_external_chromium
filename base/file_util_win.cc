@@ -14,14 +14,16 @@
 
 #include "base/file_path.h"
 #include "base/logging.h"
-#include "base/pe_image.h"
-#include "base/scoped_comptr_win.h"
-#include "base/scoped_handle.h"
+#include "base/metrics/histogram.h"
+#include "base/win/pe_image.h"
+#include "base/win/scoped_handle.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/win_util.h"
+#include "base/win/scoped_comptr.h"
+#include "base/win/windows_version.h"
 
 namespace file_util {
 
@@ -260,7 +262,7 @@ bool CopyDirectory(const FilePath& from_path, const FilePath& to_path,
   if (!PathExists(to_path)) {
     // Except that Vista fails to do that, and instead do a recursive copy if
     // the target directory doesn't exist.
-    if (win_util::GetWinVersion() >= win_util::WINVERSION_VISTA)
+    if (base::win::GetVersion() >= base::win::VERSION_VISTA)
       CreateDirectory(to_path);
     else
       ShellCopy(from_path, to_path, false);
@@ -326,7 +328,7 @@ bool GetFileCreationLocalTimeFromHandle(HANDLE file_handle,
 
 bool GetFileCreationLocalTime(const std::wstring& filename,
                               LPSYSTEMTIME creation_time) {
-  ScopedHandle file_handle(
+  base::win::ScopedHandle file_handle(
       CreateFile(filename.c_str(), GENERIC_READ, kFileShareAll, NULL,
                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL));
   return GetFileCreationLocalTimeFromHandle(file_handle.Get(), creation_time);
@@ -334,14 +336,14 @@ bool GetFileCreationLocalTime(const std::wstring& filename,
 
 bool ResolveShortcut(FilePath* path) {
   HRESULT result;
-  ScopedComPtr<IShellLink> i_shell_link;
+  base::win::ScopedComPtr<IShellLink> i_shell_link;
   bool is_resolved = false;
 
   // Get pointer to the IShellLink interface
   result = i_shell_link.CreateInstance(CLSID_ShellLink, NULL,
                                        CLSCTX_INPROC_SERVER);
   if (SUCCEEDED(result)) {
-    ScopedComPtr<IPersistFile> persist;
+    base::win::ScopedComPtr<IPersistFile> persist;
     // Query IShellLink for the IPersistFile interface
     result = persist.QueryFrom(i_shell_link);
     if (SUCCEEDED(result)) {
@@ -372,8 +374,8 @@ bool CreateShortcutLink(const wchar_t *source, const wchar_t *destination,
   DCHECK(lstrlen(arguments) < MAX_PATH);
   DCHECK(lstrlen(description) < MAX_PATH);
 
-  ScopedComPtr<IShellLink> i_shell_link;
-  ScopedComPtr<IPersistFile> i_persist_file;
+  base::win::ScopedComPtr<IShellLink> i_shell_link;
+  base::win::ScopedComPtr<IPersistFile> i_persist_file;
 
   // Get pointer to the IShellLink interface
   HRESULT result = i_shell_link.CreateInstance(CLSID_ShellLink, NULL,
@@ -401,8 +403,8 @@ bool CreateShortcutLink(const wchar_t *source, const wchar_t *destination,
   if (icon && FAILED(i_shell_link->SetIconLocation(icon, icon_index)))
     return false;
 
-  if (app_id && (win_util::GetWinVersion() >= win_util::WINVERSION_WIN7)) {
-    ScopedComPtr<IPropertyStore> property_store;
+  if (app_id && (base::win::GetVersion() >= base::win::VERSION_WIN7)) {
+    base::win::ScopedComPtr<IPropertyStore> property_store;
     if (FAILED(property_store.QueryFrom(i_shell_link)))
       return false;
 
@@ -424,12 +426,12 @@ bool UpdateShortcutLink(const wchar_t *source, const wchar_t *destination,
   DCHECK(lstrlen(description) < MAX_PATH);
 
   // Get pointer to the IPersistFile interface and load existing link
-  ScopedComPtr<IShellLink> i_shell_link;
+  base::win::ScopedComPtr<IShellLink> i_shell_link;
   if (FAILED(i_shell_link.CreateInstance(CLSID_ShellLink, NULL,
                                          CLSCTX_INPROC_SERVER)))
     return false;
 
-  ScopedComPtr<IPersistFile> i_persist_file;
+  base::win::ScopedComPtr<IPersistFile> i_persist_file;
   if (FAILED(i_persist_file.QueryFrom(i_shell_link)))
     return false;
 
@@ -451,8 +453,8 @@ bool UpdateShortcutLink(const wchar_t *source, const wchar_t *destination,
   if (icon && FAILED(i_shell_link->SetIconLocation(icon, icon_index)))
     return false;
 
-  if (app_id && win_util::GetWinVersion() >= win_util::WINVERSION_WIN7) {
-    ScopedComPtr<IPropertyStore> property_store;
+  if (app_id && base::win::GetVersion() >= base::win::VERSION_WIN7) {
+    base::win::ScopedComPtr<IPropertyStore> property_store;
     if (FAILED(property_store.QueryFrom(i_shell_link)))
       return false;
 
@@ -466,7 +468,7 @@ bool UpdateShortcutLink(const wchar_t *source, const wchar_t *destination,
 
 bool TaskbarPinShortcutLink(const wchar_t* shortcut) {
   // "Pin to taskbar" is only supported after Win7.
-  if (win_util::GetWinVersion() < win_util::WINVERSION_WIN7)
+  if (base::win::GetVersion() < base::win::VERSION_WIN7)
     return false;
 
   int result = reinterpret_cast<int>(ShellExecute(NULL, L"taskbarpin", shortcut,
@@ -476,7 +478,7 @@ bool TaskbarPinShortcutLink(const wchar_t* shortcut) {
 
 bool TaskbarUnpinShortcutLink(const wchar_t* shortcut) {
   // "Unpin from taskbar" is only supported after Win7.
-  if (win_util::GetWinVersion() < win_util::WINVERSION_WIN7)
+  if (base::win::GetVersion() < base::win::VERSION_WIN7)
     return false;
 
   int result = reinterpret_cast<int>(ShellExecute(NULL, L"taskbarunpin",
@@ -559,8 +561,7 @@ bool CreateTemporaryDirInDir(const FilePath& base_dir,
   FilePath path_to_create;
   srand(static_cast<uint32>(time(NULL)));
 
-  int count = 0;
-  while (count < 50) {
+  for (int count = 0; count < 50; ++count) {
     // Try create a new temporary directory with random generated name. If
     // the one exists, keep trying another path name until we reach some limit.
     path_to_create = base_dir;
@@ -570,17 +571,13 @@ bool CreateTemporaryDirInDir(const FilePath& base_dir,
     new_dir_name.append(base::IntToString16(rand() % kint16max));
 
     path_to_create = path_to_create.Append(new_dir_name);
-    if (::CreateDirectory(path_to_create.value().c_str(), NULL))
-      break;
-    count++;
+    if (::CreateDirectory(path_to_create.value().c_str(), NULL)) {
+      *new_dir = path_to_create;
+      return true;
+    }
   }
 
-  if (count == 50) {
-    return false;
-  }
-
-  *new_dir = path_to_create;
-  return true;
+  return false;
 }
 
 bool CreateNewTempDirectory(const FilePath::StringType& prefix,
@@ -598,14 +595,13 @@ bool CreateDirectory(const FilePath& full_path) {
   DWORD fileattr = ::GetFileAttributes(full_path_str);
   if (fileattr != INVALID_FILE_ATTRIBUTES) {
     if ((fileattr & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-      DLOG(INFO) << "CreateDirectory(" << full_path_str << "), "
-                 << "directory already exists.";
+      DVLOG(1) << "CreateDirectory(" << full_path_str << "), "
+               << "directory already exists.";
       return true;
-    } else {
-      LOG(WARNING) << "CreateDirectory(" << full_path_str << "), "
-                   << "conflicts with existing file.";
-      return false;
     }
+    LOG(WARNING) << "CreateDirectory(" << full_path_str << "), "
+                 << "conflicts with existing file.";
+    return false;
   }
 
   // Invariant:  Path does not exist as file or directory.
@@ -670,13 +666,13 @@ FILE* OpenFile(const std::string& filename, const char* mode) {
 }
 
 int ReadFile(const FilePath& filename, char* data, int size) {
-  ScopedHandle file(CreateFile(filename.value().c_str(),
-                               GENERIC_READ,
-                               FILE_SHARE_READ | FILE_SHARE_WRITE,
-                               NULL,
-                               OPEN_EXISTING,
-                               FILE_FLAG_SEQUENTIAL_SCAN,
-                               NULL));
+  base::win::ScopedHandle file(CreateFile(filename.value().c_str(),
+                                          GENERIC_READ,
+                                          FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                          NULL,
+                                          OPEN_EXISTING,
+                                          FILE_FLAG_SEQUENTIAL_SCAN,
+                                          NULL));
   if (!file)
     return -1;
 
@@ -688,13 +684,13 @@ int ReadFile(const FilePath& filename, char* data, int size) {
 }
 
 int WriteFile(const FilePath& filename, const char* data, int size) {
-  ScopedHandle file(CreateFile(filename.value().c_str(),
-                               GENERIC_WRITE,
-                               0,
-                               NULL,
-                               CREATE_ALWAYS,
-                               0,
-                               NULL));
+  base::win::ScopedHandle file(CreateFile(filename.value().c_str(),
+                                          GENERIC_WRITE,
+                                          0,
+                                          NULL,
+                                          CREATE_ALWAYS,
+                                          0,
+                                          NULL));
   if (!file) {
     LOG(WARNING) << "CreateFile failed for path " << filename.value() <<
         " error code=" << GetLastError() <<
@@ -771,7 +767,7 @@ FileEnumerator::FileEnumerator(const FilePath& root_path,
                                FileEnumerator::FILE_TYPE file_type)
     : recursive_(recursive),
       file_type_(file_type),
-      is_in_find_op_(false),
+      has_find_data_(false),
       find_handle_(INVALID_HANDLE_VALUE) {
   // INCLUDE_DOT_DOT must not be specified if recursive.
   DCHECK(!(recursive && (INCLUDE_DOT_DOT & file_type_)));
@@ -784,7 +780,7 @@ FileEnumerator::FileEnumerator(const FilePath& root_path,
                                const FilePath::StringType& pattern)
     : recursive_(recursive),
       file_type_(file_type),
-      is_in_find_op_(false),
+      has_find_data_(false),
       pattern_(pattern),
       find_handle_(INVALID_HANDLE_VALUE) {
   // INCLUDE_DOT_DOT must not be specified if recursive.
@@ -800,7 +796,7 @@ FileEnumerator::~FileEnumerator() {
 void FileEnumerator::GetFindInfo(FindInfo* info) {
   DCHECK(info);
 
-  if (!is_in_find_op_)
+  if (!has_find_data_)
     return;
 
   memcpy(info, &find_data_, sizeof(*info));
@@ -816,63 +812,64 @@ FilePath FileEnumerator::GetFilename(const FindInfo& find_info) {
 }
 
 FilePath FileEnumerator::Next() {
-  if (!is_in_find_op_) {
-    if (pending_paths_.empty())
-      return FilePath();
+  while (has_find_data_ || !pending_paths_.empty()) {
+    if (!has_find_data_) {
+      // The last find FindFirstFile operation is done, prepare a new one.
+      root_path_ = pending_paths_.top();
+      pending_paths_.pop();
 
-    // The last find FindFirstFile operation is done, prepare a new one.
-    root_path_ = pending_paths_.top();
-    pending_paths_.pop();
+      // Start a new find operation.
+      FilePath src = root_path_;
 
-    // Start a new find operation.
-    FilePath src = root_path_;
+      if (pattern_.empty())
+        src = src.Append(L"*");  // No pattern = match everything.
+      else
+        src = src.Append(pattern_);
 
-    if (pattern_.empty())
-      src = src.Append(L"*");  // No pattern = match everything.
-    else
-      src = src.Append(pattern_);
-
-    find_handle_ = FindFirstFile(src.value().c_str(), &find_data_);
-    is_in_find_op_ = true;
-
-  } else {
-    // Search for the next file/directory.
-    if (!FindNextFile(find_handle_, &find_data_)) {
-      FindClose(find_handle_);
-      find_handle_ = INVALID_HANDLE_VALUE;
+      find_handle_ = FindFirstFile(src.value().c_str(), &find_data_);
+      has_find_data_ = true;
+    } else {
+      // Search for the next file/directory.
+      if (!FindNextFile(find_handle_, &find_data_)) {
+        FindClose(find_handle_);
+        find_handle_ = INVALID_HANDLE_VALUE;
+      }
     }
-  }
 
-  if (INVALID_HANDLE_VALUE == find_handle_) {
-    is_in_find_op_ = false;
+    if (INVALID_HANDLE_VALUE == find_handle_) {
+      has_find_data_ = false;
 
-    // This is reached when we have finished a directory and are advancing to
-    // the next one in the queue. We applied the pattern (if any) to the files
-    // in the root search directory, but for those directories which were
-    // matched, we want to enumerate all files inside them. This will happen
-    // when the handle is empty.
-    pattern_ = FilePath::StringType();
+      // This is reached when we have finished a directory and are advancing to
+      // the next one in the queue. We applied the pattern (if any) to the files
+      // in the root search directory, but for those directories which were
+      // matched, we want to enumerate all files inside them. This will happen
+      // when the handle is empty.
+      pattern_ = FilePath::StringType();
 
-    return Next();
-  }
-
-  FilePath cur_file(find_data_.cFileName);
-  if (ShouldSkip(cur_file))
-    return Next();
-
-  // Construct the absolute filename.
-  cur_file = root_path_.Append(cur_file);
-
-  if (find_data_.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-    if (recursive_) {
-      // If |cur_file| is a directory, and we are doing recursive searching, add
-      // it to pending_paths_ so we scan it after we finish scanning this
-      // directory.
-      pending_paths_.push(cur_file);
+      continue;
     }
-    return (file_type_ & FileEnumerator::DIRECTORIES) ? cur_file : Next();
+
+    FilePath cur_file(find_data_.cFileName);
+    if (ShouldSkip(cur_file))
+      continue;
+
+    // Construct the absolute filename.
+    cur_file = root_path_.Append(find_data_.cFileName);
+
+    if (find_data_.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+      if (recursive_) {
+        // If |cur_file| is a directory, and we are doing recursive searching,
+        // add it to pending_paths_ so we scan it after we finish scanning this
+        // directory.
+        pending_paths_.push(cur_file);
+      }
+      if (file_type_ & FileEnumerator::DIRECTORIES)
+        return cur_file;
+    } else if (file_type_ & FileEnumerator::FILES)
+      return cur_file;
   }
-  return (file_type_ & FileEnumerator::FILES) ? cur_file : Next();
+
+  return FilePath();
 }
 
 ///////////////////////////////////////////////
@@ -897,11 +894,20 @@ bool MemoryMappedFile::MapFileToMemoryInternal() {
   // therefore the cast here is safe.
   file_mapping_ = ::CreateFileMapping(file_, NULL, PAGE_READONLY,
                                       0, static_cast<DWORD>(length_), NULL);
-  if (file_mapping_ == INVALID_HANDLE_VALUE)
+  if (!file_mapping_) {
+    // According to msdn, system error codes are only reserved up to 15999.
+    // http://msdn.microsoft.com/en-us/library/ms681381(v=VS.85).aspx.
+    UMA_HISTOGRAM_ENUMERATION("MemoryMappedFile.CreateFileMapping",
+                              logging::GetLastSystemErrorCode(), 16000);
     return false;
+  }
 
   data_ = static_cast<uint8*>(
       ::MapViewOfFile(file_mapping_, FILE_MAP_READ, 0, 0, length_));
+  if (!data_) {
+    UMA_HISTOGRAM_ENUMERATION("MemoryMappedFile.MapViewOfFile",
+                              logging::GetLastSystemErrorCode(), 16000);
+  }
   return data_ != NULL;
 }
 
@@ -942,7 +948,7 @@ bool NormalizeToNativeFilePath(const FilePath& path, FilePath* nt_path) {
   // code below to a call to GetFinalPathNameByHandle().  The method this
   // function uses is explained in the following msdn article:
   // http://msdn.microsoft.com/en-us/library/aa366789(VS.85).aspx
-  ScopedHandle file_handle(
+  base::win::ScopedHandle file_handle(
       ::CreateFile(path.value().c_str(),
                    GENERIC_READ,
                    kFileShareAll,
@@ -956,7 +962,7 @@ bool NormalizeToNativeFilePath(const FilePath& path, FilePath* nt_path) {
   // Create a file mapping object.  Can't easily use MemoryMappedFile, because
   // we only map the first byte, and need direct access to the handle. You can
   // not map an empty file, this call fails in that case.
-  ScopedHandle file_map_handle(
+  base::win::ScopedHandle file_map_handle(
       ::CreateFileMapping(file_handle.Get(),
                           NULL,
                           PAGE_READONLY,
@@ -992,11 +998,11 @@ bool NormalizeToNativeFilePath(const FilePath& path, FilePath* nt_path) {
 
 bool PreReadImage(const wchar_t* file_path, size_t size_to_read,
                   size_t step_size) {
-  if (win_util::GetWinVersion() > win_util::WINVERSION_XP) {
+  if (base::win::GetVersion() > base::win::VERSION_XP) {
     // Vista+ branch. On these OSes, the forced reads through the DLL actually
     // slows warm starts. The solution is to sequentially read file contents
     // with an optional cap on total amount to read.
-    ScopedHandle file(
+    base::win::ScopedHandle file(
         CreateFile(file_path,
                    GENERIC_READ,
                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -1039,7 +1045,7 @@ bool PreReadImage(const wchar_t* file_path, size_t size_to_read,
     if (!dll_module)
       return false;
 
-    PEImage pe_image(dll_module);
+    base::win::PEImage pe_image(dll_module);
     PIMAGE_NT_HEADERS nt_headers = pe_image.GetNTHeaders();
     size_t actual_size_to_read = size_to_read ? size_to_read :
                                  nt_headers->OptionalHeader.SizeOfImage;

@@ -52,7 +52,7 @@ inline void Unused(const void *) { }
 #define strnicmp(x,y,n) strncasecmp(x,y,n)
 #define stricmp(x,y) strcasecmp(x,y)
 
-// TODO(sergeyu): Remove this. std::max should be used everywhere in the code.
+// TODO: Remove this. std::max should be used everywhere in the code.
 // NOMINMAX must be defined where we include <windows.h>.
 #define stdmax(x,y) std::max(x,y)
 #else

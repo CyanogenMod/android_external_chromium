@@ -154,7 +154,7 @@ void CallClient::ParseLine(const std::string& line) {
     }
   } else if (call_) {
     if ((words.size() == 1) && (words[0] == "hangup")) {
-      // TODO(juberti): do more shutdown here, move to Terminate()
+      // TODO: do more shutdown here, move to Terminate()
       call_->Terminate();
       call_ = NULL;
       session_ = NULL;
@@ -163,6 +163,9 @@ void CallClient::ParseLine(const std::string& line) {
       call_->Mute(true);
     } else if ((words.size() == 1) && (words[0] == "unmute")) {
       call_->Mute(false);
+    } else if ((words.size() == 2) && (words[0] == "dtmf")) {
+      int ev = std::string("0123456789*#").find(words[1][0]);
+      call_->PressDTMF(ev);
     } else {
       console_->Print(CALL_COMMANDS);
     }
@@ -292,7 +295,7 @@ void CallClient::InitPhone() {
 
   network_manager_ = new talk_base::NetworkManager();
 
-  // TODO(juberti): Decide if the relay address should be specified here.
+  // TODO: Decide if the relay address should be specified here.
   talk_base::SocketAddress stun_addr("stun.l.google.com", 19302);
   port_allocator_ =
       new cricket::BasicPortAllocator(network_manager_, stun_addr,
@@ -480,6 +483,10 @@ void CallClient::MakeCallTo(const std::string& name, bool video) {
     found_jid = mucs_.begin()->first;
     found = true;
     is_muc = true;
+  } else if (name[0] == '+') {
+    // if the first character is a +, assume it's a phone number
+    found_jid = callto_jid;
+    found = true;
   } else if (callto_jid.resource() == "voicemail") {
     // if the resource is /voicemail, allow that
     found_jid = callto_jid;
@@ -535,7 +542,7 @@ void CallClient::PlaceCall(const buzz::Jid& jid, bool is_muc, bool video) {
   media_client_->SetFocus(call_);
   if (call_->video()) {
     call_->SetLocalRenderer(local_renderer_);
-    // TODO(tschmelcher): Call this once for every different remote SSRC
+    // TODO: Call this once for every different remote SSRC
     // once we get to testing multiway video.
     call_->SetVideoRenderer(session_, 0, remote_renderer_);
   }

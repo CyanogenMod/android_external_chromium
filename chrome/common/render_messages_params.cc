@@ -24,6 +24,7 @@ ViewMsg_Navigate_Params::~ViewMsg_Navigate_Params() {
 
 ViewHostMsg_FrameNavigate_Params::ViewHostMsg_FrameNavigate_Params()
     : page_id(0),
+      frame_id(0),
       transition(PageTransition::TYPED),
       should_update_history(false),
       gesture(NavigationGestureUser),
@@ -40,6 +41,8 @@ ViewHostMsg_UpdateRect_Params::ViewHostMsg_UpdateRect_Params()
     : dx(0),
       dy(0),
       flags(0) {
+    // On windows, bitmap is of type "struct HandleAndSequenceNum"
+    memset(&bitmap, 0, sizeof(bitmap));
 }
 
 ViewHostMsg_UpdateRect_Params::~ViewHostMsg_UpdateRect_Params() {
@@ -172,7 +175,8 @@ ViewMsg_DOMStorageEvent_Params::~ViewMsg_DOMStorageEvent_Params() {
 
 ViewHostMsg_IDBFactoryOpen_Params::ViewHostMsg_IDBFactoryOpen_Params()
     : routing_id_(0),
-      response_id_(0) {
+      response_id_(0),
+      maximum_size_(0) {
 }
 
 ViewHostMsg_IDBFactoryOpen_Params::~ViewHostMsg_IDBFactoryOpen_Params() {
@@ -180,13 +184,49 @@ ViewHostMsg_IDBFactoryOpen_Params::~ViewHostMsg_IDBFactoryOpen_Params() {
 
 ViewHostMsg_IDBDatabaseCreateObjectStore_Params::
     ViewHostMsg_IDBDatabaseCreateObjectStore_Params()
-    : response_id_(0),
-      auto_increment_(false) {
+    : auto_increment_(false),
+      transaction_id_(0),
+      idb_database_id_(0) {
 }
 
 ViewHostMsg_IDBDatabaseCreateObjectStore_Params::
     ~ViewHostMsg_IDBDatabaseCreateObjectStore_Params() {
 }
+
+ViewHostMsg_IDBIndexOpenCursor_Params::ViewHostMsg_IDBIndexOpenCursor_Params()
+    : response_id_(0),
+      key_flags_(0),
+      direction_(0),
+      idb_index_id_(0),
+      transaction_id_(0) {
+}
+
+ViewHostMsg_IDBIndexOpenCursor_Params::
+    ~ViewHostMsg_IDBIndexOpenCursor_Params() {
+}
+
+
+ViewHostMsg_IDBObjectStorePut_Params::ViewHostMsg_IDBObjectStorePut_Params()
+    : idb_object_store_id_(0),
+      response_id_(0),
+      add_only_(false),
+      transaction_id_(0) {
+}
+
+ViewHostMsg_IDBObjectStorePut_Params::~ViewHostMsg_IDBObjectStorePut_Params() {
+}
+
+ViewHostMsg_IDBObjectStoreCreateIndex_Params::
+ViewHostMsg_IDBObjectStoreCreateIndex_Params()
+    : unique_(false),
+      transaction_id_(0),
+      idb_object_store_id_(0) {
+}
+
+ViewHostMsg_IDBObjectStoreCreateIndex_Params::
+~ViewHostMsg_IDBObjectStoreCreateIndex_Params() {
+}
+
 
 ViewHostMsg_IDBObjectStoreOpenCursor_Params::
     ViewHostMsg_IDBObjectStoreOpenCursor_Params()
@@ -207,12 +247,11 @@ ViewMsg_ExecuteCode_Params::ViewMsg_ExecuteCode_Params() {
 ViewMsg_ExecuteCode_Params::ViewMsg_ExecuteCode_Params(
     int request_id,
     const std::string& extension_id,
-    const std::vector<URLPattern>& host_permissions,
     bool is_javascript,
     const std::string& code,
     bool all_frames)
     : request_id(request_id), extension_id(extension_id),
-      host_permissions(host_permissions), is_javascript(is_javascript),
+      is_javascript(is_javascript),
       code(code), all_frames(all_frames) {
 }
 
@@ -267,7 +306,8 @@ ViewHostMsg_RunFileChooser_Params::~ViewHostMsg_RunFileChooser_Params() {
 }
 
 ViewMsg_ExtensionRendererInfo::ViewMsg_ExtensionRendererInfo()
-    : location(Extension::INVALID) {
+    : location(Extension::INVALID),
+      allowed_to_execute_script_everywhere(false) {
 }
 
 ViewMsg_ExtensionRendererInfo::~ViewMsg_ExtensionRendererInfo() {
@@ -505,7 +545,7 @@ struct ParamTraits
     int val = 0;
     if (!ReadParam(m, iter, &val) ||
         val < params::NOTIFICATION_TYPE_CHECK_STATE_CHANGED ||
-        val > params::NOTIFICATION_TYPE_VALUE_CHANGED) {
+        val > params::NOTIFICATION_TYPE_SELECTED_TEXT_CHANGED) {
       return false;
     }
     *p = static_cast<param_type>(val);
@@ -633,6 +673,41 @@ void ParamTraits<ViewMsg_StopFinding_Params>::Log(const param_type& p,
   LogParam(action, l);
 }
 
+void ParamTraits<ViewHostMsg_PageHasOSDD_Type>::Write(Message* m,
+                                                      const param_type& p) {
+  m->WriteInt(p.type);
+}
+
+bool ParamTraits<ViewHostMsg_PageHasOSDD_Type>::Read(const Message* m,
+                                                     void** iter,
+                                                     param_type* p) {
+  int type;
+  if (!m->ReadInt(iter, &type))
+    return false;
+  p->type = static_cast<param_type::Type>(type);
+  return true;
+}
+
+void ParamTraits<ViewHostMsg_PageHasOSDD_Type>::Log(const param_type& p,
+                                                    std::string* l) {
+  std::string type;
+  switch (p.type) {
+    case ViewHostMsg_PageHasOSDD_Type::AUTODETECTED_PROVIDER:
+      type = "ViewHostMsg_PageHasOSDD_Type::AUTODETECTED_PROVIDER";
+      break;
+    case ViewHostMsg_PageHasOSDD_Type::EXPLICIT_PROVIDER:
+      type = "ViewHostMsg_PageHasOSDD_Type::EXPLICIT_PROVIDER";
+      break;
+    case ViewHostMsg_PageHasOSDD_Type::EXPLICIT_DEFAULT_PROVIDER:
+      type = "ViewHostMsg_PageHasOSDD_Type::EXPLICIT_DEFAULT_PROVIDER";
+      break;
+    default:
+      type = "UNKNOWN";
+      break;
+  }
+  LogParam(type, l);
+}
+
 void ParamTraits<ViewHostMsg_GetSearchProviderInstallState_Params>::Write(
     Message* m, const param_type& p) {
   m->WriteInt(p.state);
@@ -678,6 +753,7 @@ void ParamTraits<ViewHostMsg_GetSearchProviderInstallState_Params>::Log(
 void ParamTraits<ViewHostMsg_FrameNavigate_Params>::Write(Message* m,
                                                           const param_type& p) {
   WriteParam(m, p.page_id);
+  WriteParam(m, p.frame_id);
   WriteParam(m, p.url);
   WriteParam(m, p.referrer);
   WriteParam(m, p.transition);
@@ -700,6 +776,7 @@ bool ParamTraits<ViewHostMsg_FrameNavigate_Params>::Read(const Message* m,
                                                          param_type* p) {
   return
       ReadParam(m, iter, &p->page_id) &&
+      ReadParam(m, iter, &p->frame_id) &&
       ReadParam(m, iter, &p->url) &&
       ReadParam(m, iter, &p->referrer) &&
       ReadParam(m, iter, &p->transition) &&
@@ -721,6 +798,8 @@ void ParamTraits<ViewHostMsg_FrameNavigate_Params>::Log(const param_type& p,
                                                         std::string* l) {
   l->append("(");
   LogParam(p.page_id, l);
+  l->append(", ");
+  LogParam(p.frame_id, l);
   l->append(", ");
   LogParam(p.url, l);
   l->append(", ");
@@ -1172,6 +1251,7 @@ void ParamTraits<ViewHostMsg_IDBFactoryOpen_Params>::Write(
   WriteParam(m, p.origin_);
   WriteParam(m, p.name_);
   WriteParam(m, p.description_);
+  WriteParam(m, p.maximum_size_);
 }
 
 bool ParamTraits<ViewHostMsg_IDBFactoryOpen_Params>::Read(const Message* m,
@@ -1182,7 +1262,8 @@ bool ParamTraits<ViewHostMsg_IDBFactoryOpen_Params>::Read(const Message* m,
       ReadParam(m, iter, &p->response_id_) &&
       ReadParam(m, iter, &p->origin_) &&
       ReadParam(m, iter, &p->name_) &&
-      ReadParam(m, iter, &p->description_);
+      ReadParam(m, iter, &p->description_) &&
+      ReadParam(m, iter, &p->maximum_size_);
 }
 
 void ParamTraits<ViewHostMsg_IDBFactoryOpen_Params>::Log(const param_type& p,
@@ -1197,16 +1278,18 @@ void ParamTraits<ViewHostMsg_IDBFactoryOpen_Params>::Log(const param_type& p,
   LogParam(p.name_, l);
   l->append(", ");
   LogParam(p.description_, l);
+  l->append(", ");
+  LogParam(p.maximum_size_, l);
   l->append(")");
 }
 
 void ParamTraits<ViewHostMsg_IDBDatabaseCreateObjectStore_Params>::Write(
     Message* m,
     const param_type& p) {
-  WriteParam(m, p.response_id_);
   WriteParam(m, p.name_);
   WriteParam(m, p.key_path_);
   WriteParam(m, p.auto_increment_);
+  WriteParam(m, p.transaction_id_);
   WriteParam(m, p.idb_database_id_);
 }
 
@@ -1215,10 +1298,10 @@ bool ParamTraits<ViewHostMsg_IDBDatabaseCreateObjectStore_Params>::Read(
     void** iter,
     param_type* p) {
   return
-      ReadParam(m, iter, &p->response_id_) &&
       ReadParam(m, iter, &p->name_) &&
       ReadParam(m, iter, &p->key_path_) &&
       ReadParam(m, iter, &p->auto_increment_) &&
+      ReadParam(m, iter, &p->transaction_id_) &&
       ReadParam(m, iter, &p->idb_database_id_);
 }
 
@@ -1226,13 +1309,13 @@ void ParamTraits<ViewHostMsg_IDBDatabaseCreateObjectStore_Params>::Log(
     const param_type& p,
     std::string* l) {
   l->append("(");
-  LogParam(p.response_id_, l);
-  l->append(", ");
   LogParam(p.name_, l);
   l->append(", ");
   LogParam(p.key_path_, l);
   l->append(", ");
   LogParam(p.auto_increment_, l);
+  l->append(", ");
+  LogParam(p.transaction_id_, l);
   l->append(", ");
   LogParam(p.idb_database_id_, l);
   l->append(")");
@@ -1329,10 +1412,10 @@ void ParamTraits<ViewHostMsg_IDBObjectStorePut_Params>::Log(
 void ParamTraits<ViewHostMsg_IDBObjectStoreCreateIndex_Params>::Write(
     Message* m,
     const param_type& p) {
-  WriteParam(m, p.response_id_);
   WriteParam(m, p.name_);
   WriteParam(m, p.key_path_);
   WriteParam(m, p.unique_);
+  WriteParam(m, p.transaction_id_);
   WriteParam(m, p.idb_object_store_id_);
 }
 
@@ -1341,10 +1424,10 @@ bool ParamTraits<ViewHostMsg_IDBObjectStoreCreateIndex_Params>::Read(
     void** iter,
     param_type* p) {
   return
-      ReadParam(m, iter, &p->response_id_) &&
       ReadParam(m, iter, &p->name_) &&
       ReadParam(m, iter, &p->key_path_) &&
       ReadParam(m, iter, &p->unique_) &&
+      ReadParam(m, iter, &p->transaction_id_) &&
       ReadParam(m, iter, &p->idb_object_store_id_);
 }
 
@@ -1352,13 +1435,13 @@ void ParamTraits<ViewHostMsg_IDBObjectStoreCreateIndex_Params>::Log(
     const param_type& p,
     std::string* l) {
   l->append("(");
-  LogParam(p.response_id_, l);
-  l->append(", ");
   LogParam(p.name_, l);
   l->append(", ");
   LogParam(p.key_path_, l);
   l->append(", ");
   LogParam(p.unique_, l);
+  l->append(", ");
+  LogParam(p.transaction_id_, l);
   l->append(", ");
   LogParam(p.idb_object_store_id_, l);
   l->append(")");
@@ -1414,7 +1497,6 @@ void ParamTraits<ViewMsg_ExecuteCode_Params>::Write(Message* m,
                                                     const param_type& p) {
   WriteParam(m, p.request_id);
   WriteParam(m, p.extension_id);
-  WriteParam(m, p.host_permissions);
   WriteParam(m, p.is_javascript);
   WriteParam(m, p.code);
   WriteParam(m, p.all_frames);
@@ -1426,7 +1508,6 @@ bool ParamTraits<ViewMsg_ExecuteCode_Params>::Read(const Message* m,
   return
       ReadParam(m, iter, &p->request_id) &&
       ReadParam(m, iter, &p->extension_id) &&
-      ReadParam(m, iter, &p->host_permissions) &&
       ReadParam(m, iter, &p->is_javascript) &&
       ReadParam(m, iter, &p->code) &&
       ReadParam(m, iter, &p->all_frames);
@@ -1671,6 +1752,8 @@ void ParamTraits<ViewMsg_ExtensionRendererInfo>::Write(Message* m,
   WriteParam(m, p.name);
   WriteParam(m, p.icon_url);
   WriteParam(m, p.location);
+  WriteParam(m, p.allowed_to_execute_script_everywhere);
+  WriteParam(m, p.host_permissions);
 }
 
 bool ParamTraits<ViewMsg_ExtensionRendererInfo>::Read(const Message* m,
@@ -1680,7 +1763,9 @@ bool ParamTraits<ViewMsg_ExtensionRendererInfo>::Read(const Message* m,
       ReadParam(m, iter, &p->web_extent) &&
       ReadParam(m, iter, &p->name) &&
       ReadParam(m, iter, &p->icon_url) &&
-      ReadParam(m, iter, &p->location);
+      ReadParam(m, iter, &p->location) &&
+      ReadParam(m, iter, &p->allowed_to_execute_script_everywhere) &&
+      ReadParam(m, iter, &p->host_permissions);
 }
 
 void ParamTraits<ViewMsg_ExtensionRendererInfo>::Log(const param_type& p,

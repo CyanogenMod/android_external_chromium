@@ -27,14 +27,6 @@ class TOOLS_SANITY_TEST_CONCURRENT_THREAD : public PlatformThread::Delegate {
   bool *value_;
 };
 
-}
-
-// A memory leak detector should report an error in this test.
-TEST(ToolsSanityTest, MemoryLeak) {
-  int *leak = new int[256];  // Leak some memory intentionally.
-  leak[4] = 1;  // Make sure the allocated memory is used.
-}
-
 void ReadUninitializedValue(char *ptr) {
   if (*ptr == '\0') {
     (*ptr)++;
@@ -44,11 +36,13 @@ void ReadUninitializedValue(char *ptr) {
 }
 
 void ReadValueOutOfArrayBoundsLeft(char *ptr) {
-  LOG(INFO) << "Reading a byte out of bounds: " << ptr[-2];
+  char c = ptr[-2];
+  VLOG(1) << "Reading a byte out of bounds: " << c;
 }
 
 void ReadValueOutOfArrayBoundsRight(char *ptr, size_t size) {
-  LOG(INFO) << "Reading a byte out of bounds: " << ptr[size + 1];
+  char c = ptr[size + 1];
+  VLOG(1) << "Reading a byte out of bounds: " << c;
 }
 
 // This is harmless if you run it under Valgrind thanks to redzones.
@@ -65,8 +59,24 @@ void MakeSomeErrors(char *ptr, size_t size) {
   ReadUninitializedValue(ptr);
   ReadValueOutOfArrayBoundsLeft(ptr);
   ReadValueOutOfArrayBoundsRight(ptr, size);
+
+  // We execute this function only under memory checking tools -
+  // Valgrind on Linux and Mac, Dr. Memory on Windows.
+  // Currently writing values out-of-bounds makes Dr. Memory a bit crazy when
+  // this code is linked with /MTd, so skip these writes on Windows.
+  // See http://code.google.com/p/drmemory/issues/detail?id=51
+#if !defined(OS_WIN)
   WriteValueOutOfArrayBoundsLeft(ptr);
   WriteValueOutOfArrayBoundsRight(ptr, size);
+#endif
+}
+
+}  // namespace
+
+// A memory leak detector should report an error in this test.
+TEST(ToolsSanityTest, MemoryLeak) {
+  int *leak = new int[256];  // Leak some memory intentionally.
+  leak[4] = 1;  // Make sure the allocated memory is used.
 }
 
 TEST(ToolsSanityTest, AccessesToNewMemory) {

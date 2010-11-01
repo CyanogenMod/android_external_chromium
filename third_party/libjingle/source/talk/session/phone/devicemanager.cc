@@ -82,7 +82,7 @@ class DeviceWatcher : public talk_base::Win32Window {
   HDEVNOTIFY video_notify_;
 };
 #else
-// TODO(juberti): Implement this for other platforms.
+// TODO: Implement this for other platforms.
 class DeviceWatcher {
  public:
   explicit DeviceWatcher(DeviceManager* dm) {}
@@ -417,7 +417,7 @@ bool DeviceManager::GetAudioDevicesByPlatform(bool input,
       char name[128];
       talk_base::sprintfn(name, sizeof(name), "%s (%s)", card_name,
           snd_pcm_info_get_name(pcminfo));
-      // TODO(tschmelcher): We might want to identify devices with something
+      // TODO: We might want to identify devices with something
       // more specific than just their card number (e.g., the PCM names that
       // aplay -L prints out).
       devs->push_back(Device(name, card));
@@ -436,7 +436,7 @@ bool DeviceManager::GetAudioDevicesByPlatform(bool input,
 
 #if defined(WIN32)
 bool GetVideoDevices(std::vector<Device>* devices) {
-  // TODO(juberti): Move the CoInit stuff to Initialize/Terminate.
+  // TODO: Move the CoInit stuff to Initialize/Terminate.
   HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
   if (FAILED(hr)) {
     LOG(LS_ERROR) << "CoInitialize failed, hr=" << hr;
@@ -902,7 +902,7 @@ static bool GetVideoDevices(std::vector<Device>* devices) {
 }
 #endif
 
-// TODO(tommyw): Try to get hold of a copy of Final Cut to understand why we
+// TODO: Try to get hold of a copy of Final Cut to understand why we
 //               crash while scanning their components on OS X.
 #ifndef LINUX
 static bool ShouldDeviceBeIgnored(const std::string& device_name) {

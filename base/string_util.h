@@ -23,12 +23,6 @@
 // and then remove this.
 #include "base/stringprintf.h"
 
-#ifdef RLZ_WIN_LIB_RLZ_LIB_H_
-// TODO(tfarina): Fix the rlz library to include this instead and remove
-// this include.
-#include "base/string_split.h"
-#endif  // RLZ_WIN_LIB_RLZ_LIB_H_
-
 // Safe standard library wrappers for all platforms.
 
 namespace base {
@@ -258,7 +252,6 @@ bool WideToLatin1(const std::wstring& wide, std::string* latin1);
 // to have the maximum 'discriminating' power from other encodings. If
 // there's a use case for just checking the structural validity, we have to
 // add a new function for that.
-bool IsString8Bit(const std::wstring& str);
 bool IsStringUTF8(const std::string& str);
 bool IsStringASCII(const std::wstring& str);
 bool IsStringASCII(const base::StringPiece& str);
@@ -510,7 +503,6 @@ size_t Tokenize(const base::StringPiece& str,
                 std::vector<base::StringPiece>* tokens);
 
 // Does the opposite of SplitString().
-std::wstring JoinString(const std::vector<std::wstring>& parts, wchar_t s);
 string16 JoinString(const std::vector<string16>& parts, char16 s);
 std::string JoinString(const std::vector<std::string>& parts, char s);
 
@@ -558,6 +550,7 @@ bool ElideString(const std::wstring& input, int max_len, std::wstring* output);
 // string can contain wildcards like * and ?
 // The backslash character (\) is an escape character for * and ?
 // We limit the patterns to having a max of 16 * or ? characters.
+// ? matches 0 or 1 character, while * matches 0 or more characters.
 bool MatchPattern(const base::StringPiece& string,
                   const base::StringPiece& pattern);
 bool MatchPattern(const string16& string, const string16& pattern);

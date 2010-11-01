@@ -10,7 +10,7 @@
 #include "base/pickle.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 
 using std::string;
 using std::vector;
@@ -549,7 +549,7 @@ bool NativeBackendKWallet::CheckError() {
 }
 
 int NativeBackendKWallet::WalletHandle() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   // Open the wallet.
   int handle = kInvalidKWalletHandle;
   dbus_g_proxy_call(proxy_, "open", &error_,

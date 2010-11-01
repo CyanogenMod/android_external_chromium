@@ -13,7 +13,7 @@
 #include "base/logging.h"
 #include "base/string_number_conversions.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/chrome_switches.h"
 
 namespace {
@@ -108,10 +108,10 @@ void ShutdownDetector::ThreadMain() {
     bytes_read += ret;
   } while (bytes_read < sizeof(signal));
 
-  LOG(INFO) << "Handling shutdown for signal " << signal << ".";
+  VLOG(1) << "Handling shutdown for signal " << signal << ".";
 
-  if (!ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  if (!BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableFunction(BrowserList::CloseAllBrowsersAndExit))) {
     // Without a UI thread to post the exit task to, there aren't many
     // options.  Raise the signal again.  The default handler will pick it up
@@ -219,8 +219,8 @@ void BrowserMainPartsPosix::PostMainMessageLoopStart() {
   }
 }
 
-// Mac further subclasses BrowserMainPartsPosix
-#if !defined(OS_MACOSX)
+// Mac and Chromeos further subclass BrowserMainPartsPosix.
+#if !defined(OS_MACOSX) && !defined(OS_CHROMEOS)
 // static
 BrowserMainParts* BrowserMainParts::CreateBrowserMainParts(
     const MainFunctionParams& parameters) {

@@ -36,6 +36,7 @@ class Profile;
 class RenderViewHost;
 class TabContents;
 class TemplateURL;
+class TemplateURLModel;
 struct ContextMenuParams;
 
 // Objects implement this interface to get notified about changes in the
@@ -225,8 +226,15 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
   // Returns true if the context menu command was handled
   virtual bool ExecuteContextMenuCommand(int command);
 
-  // Shows a confirmation UI that the specified |template_url| is to be added as
-  // a search engine.
+  // Shows a confirmation dialog box for setting the default search engine
+  // described by |template_url|. Takes ownership of |template_url|.
+  virtual void ConfirmSetDefaultSearchProvider(
+      TabContents* tab_contents,
+      TemplateURL* template_url,
+      TemplateURLModel* template_url_model);
+
+  // Shows a confirmation dialog box for adding a search engine described by
+  // |template_url|. Takes ownership of |template_url|.
   virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
                                         Profile* profile);
 
@@ -296,13 +304,12 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
   // Only called if ShouldEnablePreferredSizeNotifications() returns true.
   virtual void UpdatePreferredSize(const gfx::Size& pref_size);
 
-  // Notifies the delegate that something has changed about what content the
-  // TabContents is displaying. Currently this is only fired when displaying
-  // PDF using the internal PDF plugin.
-  virtual void ContentTypeChanged(TabContents* source);
-
   // Notifies the delegate that the page has a suggest result.
   virtual void OnSetSuggestResult(int32 page_id, const std::string& result);
+
+  // Notifies the delegate that the content restrictions for this tab has
+  // changed.
+  virtual void ContentRestrictionsChanged(TabContents* source);
 
  protected:
   virtual ~TabContentsDelegate();

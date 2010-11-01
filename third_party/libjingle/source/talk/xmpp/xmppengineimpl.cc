@@ -110,7 +110,7 @@ XmppEngineImpl::HandleInput(const char * bytes, size_t len) {
 
   EnterExit ee(this);
 
-  // TODO(jliaw): The return value of the xml parser is not checked.
+  // TODO: The return value of the xml parser is not checked.
   stanzaParser_.Parse(bytes, len, false);
 
   return XMPP_RETURN_OK;

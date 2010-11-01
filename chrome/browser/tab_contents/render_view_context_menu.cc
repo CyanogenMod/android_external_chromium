@@ -9,8 +9,8 @@
 
 #include "app/l10n_util.h"
 #include "base/command_line.h"
-#include "base/histogram.h"
 #include "base/logging.h"
+#include "base/metrics/histogram.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/time.h"
@@ -42,6 +42,7 @@
 #include "chrome/browser/translate/translate_manager.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/content_restriction.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "gfx/favicon_size.h"
@@ -735,6 +736,12 @@ ExtensionMenuItem* RenderViewContextMenu::GetExtensionMenuItem(int id) const {
 // Menu delegate functions -----------------------------------------------------
 
 bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
+  if (id == IDC_PRINT &&
+      (source_tab_contents_->content_restrictions() &
+          CONTENT_RESTRICTION_PRINT)) {
+    return false;
+  }
+
   // Allow Spell Check language items on sub menu for text area context menu.
   if ((id >= IDC_SPELLCHECK_LANGUAGES_FIRST) &&
       (id < IDC_SPELLCHECK_LANGUAGES_LAST)) {

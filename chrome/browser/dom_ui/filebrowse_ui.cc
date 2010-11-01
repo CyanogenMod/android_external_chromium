@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -21,8 +21,8 @@
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
 #include "chrome/browser/dom_ui/mediaplayer_ui.h"
 #include "chrome/browser/download/download_item.h"
@@ -386,8 +386,8 @@ FilebrowseHandler::~FilebrowseHandler() {
   if (fetch) {
     TaskProxy* task = new TaskProxy(AsWeakPtr(), currentpath_);
     task->AddRef();
-    ChromeThread::PostTask(
-        ChromeThread::FILE, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::FILE, FROM_HERE,
         NewRunnableMethod(
             task, &TaskProxy::DeleteFetcher, fetch));
   }
@@ -395,8 +395,8 @@ FilebrowseHandler::~FilebrowseHandler() {
 
 DOMMessageHandler* FilebrowseHandler::Attach(DOMUI* dom_ui) {
   // Create our favicon data source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,
@@ -416,8 +416,8 @@ void FilebrowseHandler::Init() {
   if (!sent_request) {
     // If we have not sent a request before, we should do one in order to
     // ensure that we have the correct cookies. This is for uploads.
-    ChromeThread::PostTask(
-        ChromeThread::FILE, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::FILE, FROM_HERE,
         NewRunnableMethod(
             task, &TaskProxy::SendPicasawebRequestProxy));
     sent_request = true;
@@ -521,11 +521,11 @@ void FilebrowseHandler::OnURLFetchComplete(const URLFetcher* source,
                                            const ResponseCookies& cookies,
                                            const std::string& data) {
   upload_response_code_ = response_code;
-  LOG(INFO) << "Response code:" << response_code;
-  LOG(INFO) << "request url" << url;
+  VLOG(1) << "Response code: " << response_code;
+  VLOG(1) << "Request url: " << url;
   if (StartsWithASCII(url.spec(), kPicasawebUserPrefix, true)) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(current_task_, &TaskProxy::FireUploadCompleteProxy));
   }
   fetch_.reset();
@@ -696,15 +696,14 @@ void FilebrowseHandler::OpenNewWindow(const ListValue* args, bool popup) {
   Browser* browser = popup ?
       Browser::CreateForType(Browser::TYPE_APP_PANEL, profile_) :
       BrowserList::GetLastActive();
-  browser->AddTabWithURL(GURL(url), GURL(), PageTransition::LINK, -1,
-                         TabStripModel::ADD_SELECTED, NULL, std::string(),
-                         &browser);
+  Browser::AddTabWithURLParams params(GURL(url), PageTransition::LINK);
+  browser->AddTabWithURL(&params);
   if (popup) {
     // TODO(dhg): Remove these from being hardcoded. Allow javascript
     // to specify.
-    browser->window()->SetBounds(gfx::Rect(0, 0, 400, 300));
+    params.target->window()->SetBounds(gfx::Rect(0, 0, 400, 300));
   }
-  browser->window()->Show();
+  params.target->window()->Show();
 }
 
 void FilebrowseHandler::SendPicasawebRequest() {
@@ -781,8 +780,8 @@ void FilebrowseHandler::UploadToPicasaweb(const ListValue* args) {
   TaskProxy* task = new TaskProxy(AsWeakPtr(), current_path);
   task->AddRef();
   current_task_ = task;
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(
           task, &TaskProxy::ReadInFileProxy));
 #endif
@@ -917,8 +916,8 @@ void FilebrowseHandler::DeleteFile(const FilePath& path) {
   if (!file_util::Delete(path, true)) {
     LOG(ERROR) << "unable to delete directory";
   }
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(current_task_, &TaskProxy::FireDeleteCompleteProxy));
 }
 
@@ -932,8 +931,8 @@ void FilebrowseHandler::CopyFile(const FilePath& src, const FilePath& dest) {
       LOG(ERROR) << "unable to copy file" << src.value();
     }
   }
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(current_task_, &TaskProxy::FireCopyCompleteProxy));
 }
 
@@ -954,8 +953,8 @@ void FilebrowseHandler::HandleDeleteFile(const ListValue* args) {
   TaskProxy* task = new TaskProxy(AsWeakPtr(), currentpath);
   task->AddRef();
   current_task_ = task;
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(
           task, &TaskProxy::DeleteFileProxy));
 #endif
@@ -977,8 +976,8 @@ void FilebrowseHandler::HandleCopyFile(const ListValue* value) {
       TaskProxy* task = new TaskProxy(AsWeakPtr(), SrcPath, DestPath);
       task->AddRef();
       current_task_ = task;
-      ChromeThread::PostTask(
-          ChromeThread::FILE, FROM_HERE,
+      BrowserThread::PostTask(
+          BrowserThread::FILE, FROM_HERE,
           NewRunnableMethod(
               task, &TaskProxy::CopyFileProxy));
     } else {
@@ -1035,8 +1034,8 @@ FileBrowseUI::FileBrowseUI(TabContents* contents) : HtmlDialogUI(contents) {
   FileBrowseUIHTMLSource* html_source = new FileBrowseUIHTMLSource();
 
   // Set up the chrome://filebrowse/ source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,
@@ -1062,16 +1061,14 @@ Browser* FileBrowseUI::OpenPopup(Profile* profile,
       url.append(hashArgument);
     }
 
-    browser->AddTabWithURL(
-        GURL(url), GURL(), PageTransition::LINK, -1,
-        TabStripModel::ADD_SELECTED, NULL, std::string(),
-        &browser);
-    browser->window()->SetBounds(gfx::Rect(kPopupLeft,
-                                           kPopupTop,
-                                           width,
-                                           height));
+    Browser::AddTabWithURLParams params(GURL(url), PageTransition::LINK);
+    browser->AddTabWithURL(&params);
+    params.target->window()->SetBounds(gfx::Rect(kPopupLeft,
+                                                 kPopupTop,
+                                                 width,
+                                                 height));
 
-    browser->window()->Show();
+    params.target->window()->Show();
   } else {
     browser->window()->Show();
   }

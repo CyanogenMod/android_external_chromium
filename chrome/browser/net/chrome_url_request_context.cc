@@ -10,7 +10,7 @@
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/extensions/user_script_master.h"
 #include "chrome/browser/io_thread.h"
@@ -51,11 +51,11 @@ namespace {
 // ----------------------------------------------------------------------------
 
 void CheckCurrentlyOnIOThread() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 }
 
 void CheckCurrentlyOnMainThread() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 // ----------------------------------------------------------------------------
@@ -74,7 +74,7 @@ net::ProxyConfigService* CreateProxyConfigService(Profile* profile) {
     // Use system settings.
     // TODO(port): the IO and FILE message loops are only used by Linux.  Can
     // that code be moved to chrome/browser instead of being in net, so that it
-    // can use ChromeThread instead of raw MessageLoop pointers? See bug 25354.
+    // can use BrowserThread instead of raw MessageLoop pointers? See bug 25354.
 #if defined(OS_CHROMEOS)
     return new chromeos::ProxyConfigService(
         profile->GetChromeOSProxyConfigServiceImpl());
@@ -95,7 +95,7 @@ net::ProxyService* CreateProxyService(
     URLRequestContext* context,
     net::ProxyConfigService* proxy_config_service,
     const CommandLine& command_line,
-    MessageLoop* io_loop) {
+    IOThread* io_thread) {
   CheckCurrentlyOnIOThread();
 
   bool use_v8 = !command_line.HasSwitch(switches::kWinHttpProxyResolver);
@@ -122,13 +122,19 @@ net::ProxyService* CreateProxyService(
     }
   }
 
-  return net::ProxyService::Create(
+  if (use_v8) {
+    return net::ProxyService::CreateUsingV8ProxyResolver(
+        proxy_config_service,
+        num_pac_threads,
+        io_thread->CreateAndRegisterProxyScriptFetcher(context),
+        context->host_resolver(),
+        net_log);
+  }
+
+  return net::ProxyService::CreateUsingSystemProxyResolver(
       proxy_config_service,
-      use_v8,
       num_pac_threads,
-      context,
-      net_log,
-      io_loop);
+      net_log);
 }
 
 // ----------------------------------------------------------------------------
@@ -145,8 +151,8 @@ class ChromeCookieMonsterDelegate : public net::CookieMonster::Delegate {
   virtual void OnCookieChanged(
       const net::CookieMonster::CanonicalCookie& cookie,
       bool removed) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(this,
             &ChromeCookieMonsterDelegate::OnCookieChangedAsyncHelper,
             cookie,
@@ -161,7 +167,7 @@ class ChromeCookieMonsterDelegate : public net::CookieMonster::Delegate {
   // thread.
   class ProfileGetter
       : public base::RefCountedThreadSafe<ProfileGetter,
-                                          ChromeThread::DeleteOnUIThread>,
+                                          BrowserThread::DeleteOnUIThread>,
         public NotificationObserver {
    public:
     explicit ProfileGetter(Profile* profile) : profile_(profile) {
@@ -189,7 +195,7 @@ class ChromeCookieMonsterDelegate : public net::CookieMonster::Delegate {
     }
 
    private:
-    friend class ::ChromeThread;
+    friend class ::BrowserThread;
     friend class DeleteTask<ProfileGetter>;
 
     virtual ~ProfileGetter() {}
@@ -254,7 +260,7 @@ ChromeURLRequestContext* FactoryForOriginal::Create() {
   IOThread::Globals* io_thread_globals = io_thread()->globals();
 
   // Global host resolver for the context.
-  context->set_host_resolver(io_thread_globals->host_resolver);
+  context->set_host_resolver(io_thread_globals->host_resolver.get());
   context->set_http_auth_handler_factory(
       io_thread_globals->http_auth_handler_factory.get());
 
@@ -265,13 +271,14 @@ ChromeURLRequestContext* FactoryForOriginal::Create() {
                          context,
                          proxy_config_service_.release(),
                          command_line,
-                         MessageLoop::current() /*io_loop*/));
+                         io_thread()));
 
   net::HttpCache::DefaultBackend* backend = new net::HttpCache::DefaultBackend(
       net::DISK_CACHE, disk_cache_path_, cache_size_,
-      ChromeThread::GetMessageLoopProxyForThread(ChromeThread::CACHE));
+      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::CACHE));
   net::HttpCache* cache =
       new net::HttpCache(context->host_resolver(),
+                         context->dnsrr_resolver(),
                          context->proxy_service(),
                          context->ssl_config_service(),
                          context->http_auth_handler_factory(),
@@ -312,11 +319,6 @@ ChromeURLRequestContext* FactoryForOriginal::Create() {
       new ChromeCookiePolicy(host_content_settings_map_));
 
   appcache_service_->set_request_context(context);
-
-#if defined(USE_NSS)
-  // TODO(ukai): find a better way to set the URLRequestContext for OCSP.
-  net::SetURLRequestContextForOCSP(context);
-#endif
 
   context->set_net_log(io_thread_globals->net_log.get());
   return context;
@@ -404,6 +406,7 @@ ChromeURLRequestContext* FactoryForOffTheRecord::Create() {
 
   net::HttpCache* cache =
       new net::HttpCache(context->host_resolver(),
+                         context->dnsrr_resolver(),
                          context->proxy_service(),
                          context->ssl_config_service(),
                          context->http_auth_handler_factory(),
@@ -478,7 +481,7 @@ ChromeURLRequestContext* FactoryForMedia::Create() {
   // TODO(hclam): make the maximum size of media cache configurable.
   net::HttpCache::DefaultBackend* backend = new net::HttpCache::DefaultBackend(
       net::MEDIA_CACHE, disk_cache_path_, cache_size_,
-      ChromeThread::GetMessageLoopProxyForThread(ChromeThread::CACHE));
+      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::CACHE));
 
   net::HttpCache* main_cache =
       main_context->http_transaction_factory()->GetCache();
@@ -499,6 +502,7 @@ ChromeURLRequestContext* FactoryForMedia::Create() {
     // If original HttpCache doesn't exist, simply construct one with a whole
     // new set of network stack.
     cache = new net::HttpCache(main_context->host_resolver(),
+                               main_context->dnsrr_resolver(),
                                main_context->proxy_service(),
                                main_context->ssl_config_service(),
                                main_context->http_auth_handler_factory(),
@@ -556,6 +560,14 @@ URLRequestContext* ChromeURLRequestContextGetter::GetURLRequestContext() {
   if (!url_request_context_) {
     DCHECK(factory_.get());
     url_request_context_ = factory_->Create();
+    if (is_main()) {
+      url_request_context_->set_is_main(true);
+#if defined(USE_NSS)
+      // TODO(ukai): find a better way to set the URLRequestContext for OCSP.
+      net::SetURLRequestContextForOCSP(url_request_context_);
+#endif
+    }
+
     factory_.reset();
   }
 
@@ -573,7 +585,7 @@ void ChromeURLRequestContextGetter::RegisterUserPrefs(
 
 net::CookieStore* ChromeURLRequestContextGetter::GetCookieStore() {
   // If we are running on the IO thread this is real easy.
-  if (ChromeThread::CurrentlyOn(ChromeThread::IO))
+  if (BrowserThread::CurrentlyOn(BrowserThread::IO))
     return GetURLRequestContext()->cookie_store();
 
   // If we aren't running on the IO thread, we cannot call
@@ -583,8 +595,8 @@ net::CookieStore* ChromeURLRequestContextGetter::GetCookieStore() {
   base::WaitableEvent completion(false, false);
   net::CookieStore* result = NULL;
 
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(this,
           &ChromeURLRequestContextGetter::GetCookieStoreAsyncHelper,
           &completion,
@@ -597,7 +609,7 @@ net::CookieStore* ChromeURLRequestContextGetter::GetCookieStore() {
 
 scoped_refptr<base::MessageLoopProxy>
 ChromeURLRequestContextGetter::GetIOMessageLoopProxy() {
-  return ChromeThread::GetMessageLoopProxyForThread(ChromeThread::IO);
+  return BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO);
 }
 
 // static
@@ -655,17 +667,6 @@ void ChromeURLRequestContextGetter::CleanupOnUIThread() {
   registrar_.RemoveAll();
 }
 
-void ChromeURLRequestContextGetter::OnNewExtensions(
-    const std::string& id,
-    ChromeURLRequestContext::ExtensionInfo* info) {
-  GetIOContext()->OnNewExtensions(id, info);
-}
-
-void ChromeURLRequestContextGetter::OnUnloadedExtension(
-    const std::string& id) {
-  GetIOContext()->OnUnloadedExtension(id);
-}
-
 // NotificationObserver implementation.
 void ChromeURLRequestContextGetter::Observe(
     NotificationType type,
@@ -680,8 +681,8 @@ void ChromeURLRequestContextGetter::Observe(
     if (*pref_name_in == prefs::kAcceptLanguages) {
       std::string accept_language =
           prefs->GetString(prefs::kAcceptLanguages);
-      ChromeThread::PostTask(
-          ChromeThread::IO, FROM_HERE,
+      BrowserThread::PostTask(
+          BrowserThread::IO, FROM_HERE,
           NewRunnableMethod(
               this,
               &ChromeURLRequestContextGetter::OnAcceptLanguageChange,
@@ -689,8 +690,8 @@ void ChromeURLRequestContextGetter::Observe(
     } else if (*pref_name_in == prefs::kDefaultCharset) {
       std::string default_charset =
           prefs->GetString(prefs::kDefaultCharset);
-      ChromeThread::PostTask(
-          ChromeThread::IO, FROM_HERE,
+      BrowserThread::PostTask(
+          BrowserThread::IO, FROM_HERE,
           NewRunnableMethod(
               this,
               &ChromeURLRequestContextGetter::OnDefaultCharsetChange,
@@ -764,7 +765,8 @@ ChromeURLRequestContext::~ChromeURLRequestContext() {
   }
 
 #if defined(USE_NSS)
-  if (this == net::GetURLRequestContextForOCSP()) {
+  if (is_main()) {
+    DCHECK_EQ(this, net::GetURLRequestContextForOCSP());
     // We are releasing the URLRequestContext used by OCSP handlers.
     net::SetURLRequestContextForOCSP(NULL);
   }
@@ -784,115 +786,9 @@ ChromeURLRequestContext::~ChromeURLRequestContext() {
   cookie_policy_ = NULL;
 }
 
-std::string ChromeURLRequestContext::GetNameForExtension(
-    const std::string& id) {
-  ExtensionInfoMap::iterator iter = extension_info_.find(id);
-  if (iter != extension_info_.end())
-    return iter->second->name;
-  else
-    return std::string();
-}
-
-FilePath ChromeURLRequestContext::GetPathForExtension(const std::string& id) {
-  ExtensionInfoMap::iterator iter = extension_info_.find(id);
-  if (iter != extension_info_.end())
-    return iter->second->path;
-  else
-    return FilePath();
-}
-
-bool ChromeURLRequestContext::ExtensionHasWebExtent(const std::string& id) {
-  ExtensionInfoMap::iterator iter = extension_info_.find(id);
-  return iter != extension_info_.end() && !iter->second->extent.is_empty();
-}
-
-bool ChromeURLRequestContext::ExtensionCanLoadInIncognito(
-    const std::string& id) {
-  ExtensionInfoMap::iterator iter = extension_info_.find(id);
-  // Only split-mode extensions can load in incognito profiles.
-  return iter != extension_info_.end() && iter->second->incognito_split_mode;
-}
-
-std::string ChromeURLRequestContext::GetDefaultLocaleForExtension(
-    const std::string& id) {
-  ExtensionInfoMap::iterator iter = extension_info_.find(id);
-  std::string result;
-  if (iter != extension_info_.end())
-    result = iter->second->default_locale;
-
-  return result;
-}
-
-ExtensionExtent
-    ChromeURLRequestContext::GetEffectiveHostPermissionsForExtension(
-        const std::string& id) {
-  ExtensionInfoMap::iterator iter = extension_info_.find(id);
-  ExtensionExtent result;
-  if (iter != extension_info_.end())
-    result = iter->second->effective_host_permissions;
-
-  return result;
-}
-
-bool ChromeURLRequestContext::CheckURLAccessToExtensionPermission(
-    const GURL& url,
-    const char* permission_name) {
-  ExtensionInfoMap::iterator info;
-  if (url.SchemeIs(chrome::kExtensionScheme)) {
-    // If the url is an extension scheme, we just look it up by extension id.
-    std::string id = url.host();
-    info = extension_info_.find(id);
-  } else {
-    // Otherwise, we scan for a matching extent. Overlapping extents are
-    // disallowed, so only one will match.
-    info = extension_info_.begin();
-    while (info != extension_info_.end() &&
-           !info->second->extent.ContainsURL(url))
-      ++info;
-  }
-
-  if (info == extension_info_.end())
-    return false;
-
-  std::set<std::string>& api_permissions = info->second->api_permissions;
-  return api_permissions.count(permission_name) != 0;
-}
-
-bool ChromeURLRequestContext::URLIsForExtensionIcon(const GURL& url) {
-  DCHECK(url.SchemeIs(chrome::kExtensionScheme));
-
-  ExtensionInfoMap::iterator iter = extension_info_.find(url.host());
-  if (iter == extension_info_.end())
-    return false;
-
-  std::string path = url.path();
-  DCHECK(path.length() > 0 && path[0] == '/');
-  path = path.substr(1);
-  return iter->second->icons.ContainsPath(path);
-}
-
 const std::string& ChromeURLRequestContext::GetUserAgent(
     const GURL& url) const {
   return webkit_glue::GetUserAgent(url);
-}
-
-void ChromeURLRequestContext::OnNewExtensions(const std::string& id,
-                                              ExtensionInfo* info) {
-  extension_info_[id] = linked_ptr<ExtensionInfo>(info);
-}
-
-void ChromeURLRequestContext::OnUnloadedExtension(const std::string& id) {
-  CheckCurrentlyOnIOThread();
-  ExtensionInfoMap::iterator iter = extension_info_.find(id);
-  if (iter != extension_info_.end()) {
-    extension_info_.erase(iter);
-  } else {
-    // NOTE: This can currently happen if we receive multiple unload
-    // notifications, e.g. setting incognito-enabled state for a
-    // disabled extension (e.g., via sync).  See
-    // http://code.google.com/p/chromium/issues/detail?id=50582 .
-    NOTREACHED() << id;
-  }
 }
 
 bool ChromeURLRequestContext::IsExternal() const {
@@ -925,7 +821,6 @@ ChromeURLRequestContext::ChromeURLRequestContext(
   http_auth_handler_factory_ = other->http_auth_handler_factory_;
 
   // Set ChromeURLRequestContext members
-  extension_info_ = other->extension_info_;
   user_script_dir_path_ = other->user_script_dir_path_;
   appcache_service_ = other->appcache_service_;
   database_tracker_ = other->database_tracker_;
@@ -936,6 +831,7 @@ ChromeURLRequestContext::ChromeURLRequestContext(
   is_off_the_record_ = other->is_off_the_record_;
   blob_storage_context_ = other->blob_storage_context_;
   file_system_host_context_ = other->file_system_host_context_;
+  extension_info_map_ = other->extension_info_map_;
 }
 
 void ChromeURLRequestContext::OnAcceptLanguageChange(
@@ -993,25 +889,6 @@ ChromeURLRequestContextFactory::ChromeURLRequestContextFactory(Profile* profile)
   host_zoom_map_ = profile->GetHostZoomMap();
   transport_security_state_ = profile->GetTransportSecurityState();
 
-  if (profile->GetExtensionsService()) {
-    const ExtensionList* extensions =
-        profile->GetExtensionsService()->extensions();
-    for (ExtensionList::const_iterator iter = extensions->begin();
-        iter != extensions->end(); ++iter) {
-      extension_info_[(*iter)->id()] =
-          linked_ptr<ChromeURLRequestContext::ExtensionInfo>(
-              new ChromeURLRequestContext::ExtensionInfo(
-                  (*iter)->name(),
-                  (*iter)->path(),
-                  (*iter)->default_locale(),
-                  (*iter)->incognito_split_mode(),
-                  (*iter)->web_extent(),
-                  (*iter)->GetEffectiveHostPermissions(),
-                  (*iter)->api_permissions(),
-                  (*iter)->icons()));
-    }
-  }
-
   if (profile->GetUserScriptMaster())
     user_script_dir_path_ = profile->GetUserScriptMaster()->user_script_dir();
 
@@ -1022,6 +899,7 @@ ChromeURLRequestContextFactory::ChromeURLRequestContextFactory(Profile* profile)
   database_tracker_ = profile->GetDatabaseTracker();
   blob_storage_context_ = profile->GetBlobStorageContext();
   file_system_host_context_ = profile->GetFileSystemHostContext();
+  extension_info_map_ = profile->GetExtensionInfoMap();
 }
 
 ChromeURLRequestContextFactory::~ChromeURLRequestContextFactory() {
@@ -1037,7 +915,6 @@ void ChromeURLRequestContextFactory::ApplyProfileParametersToContext(
   context->set_accept_language(accept_language_);
   context->set_accept_charset(accept_charset_);
   context->set_referrer_charset(referrer_charset_);
-  context->set_extension_info(extension_info_);
   context->set_user_script_dir_path(user_script_dir_path_);
   context->set_host_content_settings_map(host_content_settings_map_);
   context->set_host_zoom_map(host_zoom_map_);
@@ -1048,6 +925,7 @@ void ChromeURLRequestContextFactory::ApplyProfileParametersToContext(
   context->set_database_tracker(database_tracker_);
   context->set_blob_storage_context(blob_storage_context_);
   context->set_file_system_host_context(file_system_host_context_);
+  context->set_extension_info_map(extension_info_map_);
 }
 
 // ----------------------------------------------------------------------------

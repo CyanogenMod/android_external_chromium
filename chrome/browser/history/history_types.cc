@@ -95,6 +95,14 @@ VisitRow::VisitRow(URLID arg_url_id,
 VisitRow::~VisitRow() {
 }
 
+// Favicons -------------------------------------------------------------------
+
+ImportedFavIconUsage::ImportedFavIconUsage() {
+}
+
+ImportedFavIconUsage::~ImportedFavIconUsage() {
+}
+
 // StarredEntry ----------------------------------------------------------------
 
 StarredEntry::StarredEntry()
@@ -292,6 +300,43 @@ void QueryResults::AdjustResultMap(size_t begin, size_t end, ptrdiff_t delta) {
   }
 }
 
+// QueryOptions ----------------------------------------------------------------
+
+QueryOptions::QueryOptions() : max_count(0) {}
+
+void QueryOptions::SetRecentDayRange(int days_ago) {
+  end_time = base::Time::Now();
+  begin_time = end_time - base::TimeDelta::FromDays(days_ago);
+}
+
+// KeywordSearchTermVisit -----------------------------------------------------
+
+KeywordSearchTermVisit::KeywordSearchTermVisit() {}
+
+KeywordSearchTermVisit::~KeywordSearchTermVisit() {}
+
+// MostVisitedURL --------------------------------------------------------------
+
+MostVisitedURL::MostVisitedURL() {}
+
+MostVisitedURL::MostVisitedURL(const GURL& in_url,
+                               const GURL& in_favicon_url,
+                               const string16& in_title)
+    : url(in_url),
+      favicon_url(in_favicon_url),
+      title(in_title) {
+}
+
+MostVisitedURL::~MostVisitedURL() {}
+
+// Images ---------------------------------------------------------------------
+
+Images::Images() {}
+
+Images::~Images() {}
+
+// HistoryAddPageArgs ---------------------------------------------------------
+
 HistoryAddPageArgs::HistoryAddPageArgs(
     const GURL& arg_url,
     base::Time arg_time,
@@ -313,8 +358,7 @@ HistoryAddPageArgs::HistoryAddPageArgs(
         did_replace_entry(arg_did_replace_entry) {
 }
 
-HistoryAddPageArgs::~HistoryAddPageArgs() {
-}
+HistoryAddPageArgs::~HistoryAddPageArgs() {}
 
 HistoryAddPageArgs* HistoryAddPageArgs::Clone() const {
   return new HistoryAddPageArgs(

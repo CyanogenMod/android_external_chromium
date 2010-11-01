@@ -9,7 +9,7 @@
 
 #include "base/logging.h"
 #include "base/stl_util-inl.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/password_manager/password_store_change.h"
 #include "chrome/common/notification_service.h"
 
@@ -17,9 +17,9 @@ using std::vector;
 using webkit_glue::PasswordForm;
 
 PasswordStoreX::PasswordStoreX(LoginDatabase* login_db,
-                                   Profile* profile,
-                                   WebDataService* web_data_service,
-                                   NativeBackend* backend)
+                               Profile* profile,
+                               WebDataService* web_data_service,
+                               NativeBackend* backend)
     : PasswordStoreDefault(login_db, profile, web_data_service),
       backend_(backend), migration_checked_(!backend), allow_fallback_(false) {
 }
@@ -34,7 +34,7 @@ void PasswordStoreX::AddLoginImpl(const PasswordForm& form) {
     changes.push_back(PasswordStoreChange(PasswordStoreChange::ADD, form));
     NotificationService::current()->Notify(
         NotificationType::LOGINS_CHANGED,
-        NotificationService::AllSources(),
+        Source<PasswordStore>(this),
         Details<PasswordStoreChangeList>(&changes));
     allow_fallback_ = false;
   } else if (allow_default_store()) {
@@ -49,7 +49,7 @@ void PasswordStoreX::UpdateLoginImpl(const PasswordForm& form) {
     changes.push_back(PasswordStoreChange(PasswordStoreChange::UPDATE, form));
     NotificationService::current()->Notify(
         NotificationType::LOGINS_CHANGED,
-        NotificationService::AllSources(),
+        Source<PasswordStore>(this),
         Details<PasswordStoreChangeList>(&changes));
     allow_fallback_ = false;
   } else if (allow_default_store()) {
@@ -64,7 +64,7 @@ void PasswordStoreX::RemoveLoginImpl(const PasswordForm& form) {
     changes.push_back(PasswordStoreChange(PasswordStoreChange::REMOVE, form));
     NotificationService::current()->Notify(
         NotificationType::LOGINS_CHANGED,
-        NotificationService::AllSources(),
+        Source<PasswordStore>(this),
         Details<PasswordStoreChangeList>(&changes));
     allow_fallback_ = false;
   } else if (allow_default_store()) {
@@ -88,7 +88,7 @@ void PasswordStoreX::RemoveLoginsCreatedBetweenImpl(
     }
     NotificationService::current()->Notify(
         NotificationType::LOGINS_CHANGED,
-        NotificationService::AllSources(),
+        Source<PasswordStore>(this),
         Details<PasswordStoreChangeList>(&changes));
     allow_fallback_ = false;
   } else if (allow_default_store()) {
@@ -164,13 +164,13 @@ bool PasswordStoreX::FillBlacklistLogins(vector<PasswordForm*>* forms) {
 }
 
 void PasswordStoreX::CheckMigration() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   if (migration_checked_ || !backend_.get())
     return;
   migration_checked_ = true;
   ssize_t migrated = MigrateLogins();
   if (migrated > 0) {
-    LOG(INFO) << "Migrated " << migrated << " passwords to native store.";
+    VLOG(1) << "Migrated " << migrated << " passwords to native store.";
   } else if (migrated == 0) {
     // As long as we are able to migrate some passwords, we know the native
     // store is working. But if there is nothing to migrate, the "migration"

@@ -220,11 +220,6 @@ template <size_t N>
 int GetVlogLevel(const char (&file)[N]) {
   return GetVlogLevelHelper(file, N);
 }
-// Sets the log filter prefix.  Any log message below LOG_ERROR severity that
-// doesn't start with this prefix with be silently ignored.  The filter defaults
-// to NULL (everything is logged) if this function is not called.  Messages
-// with severity of LOG_ERROR or higher will not be filtered.
-void SetLogFilterPrefix(const char* filter);
 
 // Sets the common items you want to be prepended to each log message.
 // process and thread IDs default to off, the timestamp defaults to on.
@@ -266,11 +261,11 @@ const LogSeverity LOG_ERROR_REPORT = 3;
 const LogSeverity LOG_FATAL = 4;
 const LogSeverity LOG_NUM_SEVERITIES = 5;
 
-// LOG_DFATAL_LEVEL is LOG_FATAL in debug mode, ERROR in normal mode
+// LOG_DFATAL is LOG_FATAL in debug mode, ERROR in normal mode
 #ifdef NDEBUG
-const LogSeverity LOG_DFATAL_LEVEL = LOG_ERROR;
+const LogSeverity LOG_DFATAL = LOG_ERROR;
 #else
-const LogSeverity LOG_DFATAL_LEVEL = LOG_FATAL;
+const LogSeverity LOG_DFATAL = LOG_FATAL;
 #endif
 
 // A few definitions of macros that don't generate much code. These are used
@@ -288,8 +283,7 @@ const LogSeverity LOG_DFATAL_LEVEL = LOG_FATAL;
 #define COMPACT_GOOGLE_LOG_EX_FATAL(ClassName, ...) \
   logging::ClassName(__FILE__, __LINE__, logging::LOG_FATAL , ##__VA_ARGS__)
 #define COMPACT_GOOGLE_LOG_EX_DFATAL(ClassName, ...) \
-  logging::ClassName(__FILE__, __LINE__, \
-                     logging::LOG_DFATAL_LEVEL , ##__VA_ARGS__)
+  logging::ClassName(__FILE__, __LINE__, logging::LOG_DFATAL , ##__VA_ARGS__)
 
 #define COMPACT_GOOGLE_LOG_INFO \
   COMPACT_GOOGLE_LOG_EX_INFO(LogMessage)
@@ -313,6 +307,23 @@ const LogSeverity LOG_DFATAL_LEVEL = LOG_FATAL;
 #define COMPACT_GOOGLE_LOG_EX_0(ClassName, ...) \
   COMPACT_GOOGLE_LOG_EX_ERROR(ClassName , ##__VA_ARGS__)
 #define COMPACT_GOOGLE_LOG_0 COMPACT_GOOGLE_LOG_ERROR
+// Needed for LOG_IS_ON(ERROR).
+const LogSeverity LOG_0 = LOG_ERROR;
+
+#define LOG_IS_ON(severity) \
+  ((::logging::LOG_ ## severity) >= ::logging::GetMinLogLevel())
+
+// We can't do any caching tricks with VLOG_IS_ON() like the
+// google-glog version since it requires GCC extensions.  This means
+// that using the v-logging functions in conjunction with --vmodule
+// may be slow.
+#define VLOG_IS_ON(verboselevel) \
+  ((verboselevel) <= ::logging::GetVlogLevel(__FILE__))
+
+// Helper macro which avoids evaluating the arguments to a stream if
+// the condition doesn't hold.
+#define LAZY_STREAM(stream, condition)                                  \
+  !(condition) ? (void) 0 : ::logging::LogMessageVoidify() & (stream)
 
 // We use the preprocessor's merging operator, "##", so that, e.g.,
 // LOG(INFO) becomes the token COMPACT_GOOGLE_LOG_INFO.  There's some funny
@@ -322,25 +333,20 @@ const LogSeverity LOG_DFATAL_LEVEL = LOG_FATAL;
 // impossible to stream something like a string directly to an unnamed
 // ostream. We employ a neat hack by calling the stream() member
 // function of LogMessage which seems to avoid the problem.
-//
-// We can't do any caching tricks with VLOG_IS_ON() like the
-// google-glog version since it requires GCC extensions.  This means
-// that using the v-logging functions in conjunction with --vmodule
-// may be slow.
-#define VLOG_IS_ON(verboselevel) \
-  (logging::GetVlogLevel(__FILE__) >= (verboselevel))
+#define LOG_STREAM(severity) COMPACT_GOOGLE_LOG_ ## severity.stream()
 
-#define LOG(severity) COMPACT_GOOGLE_LOG_ ## severity.stream()
+#define LOG(severity) LAZY_STREAM(LOG_STREAM(severity), LOG_IS_ON(severity))
+#define LOG_IF(severity, condition) \
+  LAZY_STREAM(LOG_STREAM(severity), LOG_IS_ON(severity) && (condition))
+
 #define SYSLOG(severity) LOG(severity)
+#define SYSLOG_IF(severity, condition) LOG_IF(severity, condition)
+
 #define VLOG(verboselevel) LOG_IF(INFO, VLOG_IS_ON(verboselevel))
+#define VLOG_IF(verboselevel, condition) \
+  LOG_IF(INFO, VLOG_IS_ON(verboselevel) && (condition))
 
 // TODO(akalin): Add more VLOG variants, e.g. VPLOG.
-
-#define LOG_IF(severity, condition) \
-  !(condition) ? (void) 0 : logging::LogMessageVoidify() & LOG(severity)
-#define SYSLOG_IF(severity, condition) LOG_IF(severity, condition)
-#define VLOG_IF(verboselevel, condition) \
-  LOG_IF(INFO, (condition) && VLOG_IS_ON(verboselevel))
 
 #define LOG_ASSERT(condition)  \
   LOG_IF(FATAL, !(condition)) << "Assert failed: " #condition ". "
@@ -348,36 +354,54 @@ const LogSeverity LOG_DFATAL_LEVEL = LOG_FATAL;
   SYSLOG_IF(FATAL, !(condition)) << "Assert failed: " #condition ". "
 
 #if defined(OS_WIN)
-#define LOG_GETLASTERROR(severity) \
+#define LOG_GETLASTERROR_STREAM(severity) \
   COMPACT_GOOGLE_LOG_EX_ ## severity(Win32ErrorLogMessage, \
       ::logging::GetLastSystemErrorCode()).stream()
-#define LOG_GETLASTERROR_MODULE(severity, module) \
+#define LOG_GETLASTERROR(severity) \
+  LAZY_STREAM(LOG_GETLASTERROR_STREAM(severity), LOG_IS_ON(severity))
+#define LOG_GETLASTERROR_MODULE_STREAM(severity, module) \
   COMPACT_GOOGLE_LOG_EX_ ## severity(Win32ErrorLogMessage, \
       ::logging::GetLastSystemErrorCode(), module).stream()
-// PLOG is the usual error logging macro for each platform.
-#define PLOG(severity) LOG_GETLASTERROR(severity)
-#define DPLOG(severity) DLOG_GETLASTERROR(severity)
+#define LOG_GETLASTERROR_MODULE(severity, module)                       \
+  LAZY_STREAM(LOG_GETLASTERROR_STREAM(severity, module),                \
+              LOG_IS_ON(severity))
+// PLOG_STREAM is used by PLOG, which is the usual error logging macro
+// for each platform.
+#define PLOG_STREAM(severity) LOG_GETLASTERROR_STREAM(severity)
 #elif defined(OS_POSIX)
-#define LOG_ERRNO(severity) \
+#define LOG_ERRNO_STREAM(severity) \
   COMPACT_GOOGLE_LOG_EX_ ## severity(ErrnoLogMessage, \
       ::logging::GetLastSystemErrorCode()).stream()
-// PLOG is the usual error logging macro for each platform.
-#define PLOG(severity) LOG_ERRNO(severity)
-#define DPLOG(severity) DLOG_ERRNO(severity)
+#define LOG_ERRNO(severity) \
+  LAZY_STREAM(LOG_ERRNO_STREAM(severity), LOG_IS_ON(severity))
+// PLOG_STREAM is used by PLOG, which is the usual error logging macro
+// for each platform.
+#define PLOG_STREAM(severity) LOG_ERRNO_STREAM(severity)
 // TODO(tschmelcher): Should we add OSStatus logging for Mac?
 #endif
 
+#define PLOG(severity)                                          \
+  LAZY_STREAM(PLOG_STREAM(severity), LOG_IS_ON(severity))
+
 #define PLOG_IF(severity, condition) \
-  !(condition) ? (void) 0 : logging::LogMessageVoidify() & PLOG(severity)
+  LAZY_STREAM(PLOG_STREAM(severity), LOG_IS_ON(severity) && (condition))
 
 // CHECK dies with a fatal error if condition is not true.  It is *not*
 // controlled by NDEBUG, so the check will be executed regardless of
 // compilation mode.
-#define CHECK(condition) \
-  LOG_IF(FATAL, !(condition)) << "Check failed: " #condition ". "
+//
+// We make sure CHECK et al. always evaluates their arguments, as
+// doing CHECK(FunctionWithSideEffect()) is a common idiom.
+//
+// TODO(akalin): Fix the problem where if the min log level is >
+// FATAL, CHECK() et al. won't terminate the program.
+#define CHECK(condition)                       \
+  LAZY_STREAM(LOG_STREAM(FATAL), !(condition)) \
+  << "Check failed: " #condition ". "
 
 #define PCHECK(condition) \
-  PLOG_IF(FATAL, !(condition)) << "Check failed: " #condition ". "
+  LAZY_STREAM(PLOG_STREAM(FATAL), !(condition)) \
+  << "Check failed: " #condition ". "
 
 // A container for a string pointer which can be evaluated to a bool -
 // true iff the pointer is NULL.
@@ -400,24 +424,38 @@ std::string* MakeCheckOpString(const t1& v1, const t2& v2, const char* names) {
   return msg;
 }
 
-extern std::string* MakeCheckOpStringIntInt(int v1, int v2, const char* names);
-
-template<int, int>
-std::string* MakeCheckOpString(const int& v1,
-                               const int& v2,
-                               const char* names) {
-  return MakeCheckOpStringIntInt(v1, v2, names);
-}
+// MSVC doesn't like complex extern templates and DLLs.
+#if !defined(COMPILER_MSVC)
+// Commonly used instantiations of MakeCheckOpString<>. Explicitly instantiated
+// in logging.cc.
+extern template std::string* MakeCheckOpString<int, int>(
+    const int&, const int&, const char* names);
+extern template std::string* MakeCheckOpString<unsigned long, unsigned long>(
+    const unsigned long&, const unsigned long&, const char* names);
+extern template std::string* MakeCheckOpString<unsigned long, unsigned int>(
+    const unsigned long&, const unsigned int&, const char* names);
+extern template std::string* MakeCheckOpString<unsigned int, unsigned long>(
+    const unsigned int&, const unsigned long&, const char* names);
+extern template std::string* MakeCheckOpString<std::string, std::string>(
+    const std::string&, const std::string&, const char* name);
+#endif
 
 // Helper macro for binary operators.
 // Don't use this macro directly in your code, use CHECK_EQ et al below.
-#define CHECK_OP(name, op, val1, val2)  \
-  if (logging::CheckOpString _result = \
-      logging::Check##name##Impl((val1), (val2), #val1 " " #op " " #val2)) \
+//
+// TODO(akalin): Rewrite this so that constructs like if (...)
+// CHECK_EQ(...) else { ... } work properly.
+#define CHECK_OP(name, op, val1, val2)                          \
+  if (logging::CheckOpString _result =                          \
+      logging::Check##name##Impl((val1), (val2),                \
+                                 #val1 " " #op " " #val2))      \
     logging::LogMessage(__FILE__, __LINE__, _result).stream()
 
 // Helper functions for string comparisons.
 // To avoid bloat, the definitions are in logging.cc.
+//
+// TODO(akalin): Actually have the implementations in logging.cc, or
+// remove these.
 #define DECLARE_CHECK_STROP_IMPL(func, expected) \
   std::string* Check##func##expected##Impl(const char* s1, \
                                            const char* s2, \
@@ -458,218 +496,147 @@ DECLARE_CHECK_STROP_IMPL(_stricmp, false)
 #define CHECK_GE(val1, val2) CHECK_OP(GE, >=, val1, val2)
 #define CHECK_GT(val1, val2) CHECK_OP(GT, > , val1, val2)
 
-// Plus some debug-logging macros that get compiled to nothing for production
-//
+// http://crbug.com/16512 is open for a real fix for this.  For now, Windows
+// uses OFFICIAL_BUILD and other platforms use the branding flag when NDEBUG is
+// defined.
+#if ( defined(OS_WIN) && defined(OFFICIAL_BUILD)) || \
+    (!defined(OS_WIN) && defined(NDEBUG) && defined(GOOGLE_CHROME_BUILD))
+// Used by unit tests.
+#define LOGGING_IS_OFFICIAL_BUILD
+
+// In order to have optimized code for official builds, remove DLOGs and
+// DCHECKs.
+#define ENABLE_DLOG 0
+#define ENABLE_DCHECK 0
+
+#elif defined(NDEBUG)
+// Otherwise, if we're a release build, remove DLOGs but not DCHECKs
+// (since those can still be turned on via a command-line flag).
+#define ENABLE_DLOG 0
+#define ENABLE_DCHECK 1
+
+#else
+// Otherwise, we're a debug build so enable DLOGs and DCHECKs.
+#define ENABLE_DLOG 1
+#define ENABLE_DCHECK 1
+#endif
+
+// Definitions for DLOG et al.
+
+#if ENABLE_DLOG
+
+#define DLOG_IF(severity, condition) LOG_IF(severity, condition)
+#define DLOG_ASSERT(condition) LOG_ASSERT(condition)
+#define DPLOG_IF(severity, condition) PLOG_IF(severity, condition)
+#define DVLOG_IF(verboselevel, condition) VLOG_IF(verboselevel, condition)
+
+#else  // ENABLE_DLOG
+
+// If ENABLE_DLOG is off, we want to avoid emitting any references to
+// |condition| (which may reference a variable defined only if NDEBUG
+// is not defined).  Contrast this with DCHECK et al., which has
+// different behavior.
+
+#define DLOG_EAT_STREAM_PARAMETERS                                      \
+  true ? (void) 0 : ::logging::LogMessageVoidify() & LOG_STREAM(FATAL)
+
+#define DLOG_IF(severity, condition) DLOG_EAT_STREAM_PARAMETERS
+#define DLOG_ASSERT(condition) DLOG_EAT_STREAM_PARAMETERS
+#define DPLOG_IF(severity, condition) DLOG_EAT_STREAM_PARAMETERS
+#define DVLOG_IF(verboselevel, condition) DLOG_EAT_STREAM_PARAMETERS
+
+#endif  // ENABLE_DLOG
+
 // DEBUG_MODE is for uses like
 //   if (DEBUG_MODE) foo.CheckThatFoo();
 // instead of
 //   #ifndef NDEBUG
 //     foo.CheckThatFoo();
 //   #endif
-
-// http://crbug.com/16512 is open for a real fix for this.  For now, Windows
-// uses OFFICIAL_BUILD and other platforms use the branding flag when NDEBUG is
-// defined.
-#if ( defined(OS_WIN) && defined(OFFICIAL_BUILD)) || \
-    (!defined(OS_WIN) && defined(NDEBUG) && defined(GOOGLE_CHROME_BUILD))
-// In order to have optimized code for official builds, remove DLOGs and
-// DCHECKs.
-#define OMIT_DLOG_AND_DCHECK 1
-#endif
-
-#ifdef OMIT_DLOG_AND_DCHECK
-
-#define DLOG(severity) \
-  true ? (void) 0 : logging::LogMessageVoidify() & LOG(severity)
-
-#define DLOG_IF(severity, condition) \
-  true ? (void) 0 : logging::LogMessageVoidify() & LOG(severity)
-
-#define DLOG_ASSERT(condition) \
-  true ? (void) 0 : LOG_ASSERT(condition)
-
-#if defined(OS_WIN)
-#define DLOG_GETLASTERROR(severity) \
-  true ? (void) 0 : logging::LogMessageVoidify() & LOG_GETLASTERROR(severity)
-#define DLOG_GETLASTERROR_MODULE(severity, module) \
-  true ? (void) 0 : logging::LogMessageVoidify() & \
-      LOG_GETLASTERROR_MODULE(severity, module)
-#elif defined(OS_POSIX)
-#define DLOG_ERRNO(severity) \
-  true ? (void) 0 : logging::LogMessageVoidify() & LOG_ERRNO(severity)
-#endif
-
-#define DPLOG_IF(severity, condition) \
-  true ? (void) 0 : logging::LogMessageVoidify() & PLOG(severity)
-
-enum { DEBUG_MODE = 0 };
-
-// This macro can be followed by a sequence of stream parameters in
-// non-debug mode. The DCHECK and friends macros use this so that
-// the expanded expression DCHECK(foo) << "asdf" is still syntactically
-// valid, even though the expression will get optimized away.
-// In order to avoid variable unused warnings for code that only uses a
-// variable in a CHECK, we make sure to use the macro arguments.
-#define NDEBUG_EAT_STREAM_PARAMETERS \
-  logging::LogMessage(__FILE__, __LINE__).stream()
-
-#define DCHECK(condition) \
-  while (false && (condition)) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DPCHECK(condition) \
-  while (false && (condition)) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_EQ(val1, val2) \
-  while (false && (val1) == (val2)) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_NE(val1, val2) \
-  while (false && (val1) == (val2)) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_LE(val1, val2) \
-  while (false && (val1) == (val2)) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_LT(val1, val2) \
-  while (false && (val1) == (val2)) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_GE(val1, val2) \
-  while (false && (val1) == (val2)) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_GT(val1, val2) \
-  while (false && (val1) == (val2)) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_STREQ(str1, str2) \
-  while (false && (str1) == (str2)) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_STRCASEEQ(str1, str2) \
-  while (false && (str1) == (str2)) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_STRNE(str1, str2) \
-  while (false && (str1) == (str2)) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_STRCASENE(str1, str2) \
-  while (false && (str1) == (str2)) NDEBUG_EAT_STREAM_PARAMETERS
-
-#else  // OMIT_DLOG_AND_DCHECK
-
-#ifndef NDEBUG
-// On a regular debug build, we want to have DCHECKS and DLOGS enabled.
-
-#define DLOG(severity) LOG(severity)
-#define DLOG_IF(severity, condition) LOG_IF(severity, condition)
-#define DLOG_ASSERT(condition) LOG_ASSERT(condition)
-
-#if defined(OS_WIN)
-#define DLOG_GETLASTERROR(severity) LOG_GETLASTERROR(severity)
-#define DLOG_GETLASTERROR_MODULE(severity, module) \
-  LOG_GETLASTERROR_MODULE(severity, module)
-#elif defined(OS_POSIX)
-#define DLOG_ERRNO(severity) LOG_ERRNO(severity)
-#endif
-
-#define DPLOG_IF(severity, condition) PLOG_IF(severity, condition)
-
-// debug-only checking.  not executed in NDEBUG mode.
-enum { DEBUG_MODE = 1 };
-#define DCHECK(condition) CHECK(condition)
-#define DPCHECK(condition) PCHECK(condition)
-
-// Helper macro for binary operators.
-// Don't use this macro directly in your code, use DCHECK_EQ et al below.
-#define DCHECK_OP(name, op, val1, val2)  \
-  if (logging::CheckOpString _result = \
-      logging::Check##name##Impl((val1), (val2), #val1 " " #op " " #val2)) \
-    logging::LogMessage(__FILE__, __LINE__, _result).stream()
-
-// Helper macro for string comparisons.
-// Don't use this macro directly in your code, use CHECK_STREQ et al below.
-#define DCHECK_STROP(func, op, expected, s1, s2) \
-  while (CheckOpString _result = \
-      logging::Check##func##expected##Impl((s1), (s2), \
-                                           #s1 " " #op " " #s2)) \
-    LOG(FATAL) << *_result.str_
-
-// String (char*) equality/inequality checks.
-// CASE versions are case-insensitive.
 //
-// Note that "s1" and "s2" may be temporary strings which are destroyed
-// by the compiler at the end of the current "full expression"
-// (e.g. DCHECK_STREQ(Foo().c_str(), Bar().c_str())).
+// We tie its state to ENABLE_DLOG.
+enum { DEBUG_MODE = ENABLE_DLOG };
 
-#define DCHECK_STREQ(s1, s2) DCHECK_STROP(strcmp, ==, true, s1, s2)
-#define DCHECK_STRNE(s1, s2) DCHECK_STROP(strcmp, !=, false, s1, s2)
-#define DCHECK_STRCASEEQ(s1, s2) DCHECK_STROP(_stricmp, ==, true, s1, s2)
-#define DCHECK_STRCASENE(s1, s2) DCHECK_STROP(_stricmp, !=, false, s1, s2)
+#undef ENABLE_DLOG
 
-#define DCHECK_INDEX(I,A) DCHECK(I < (sizeof(A)/sizeof(A[0])))
-#define DCHECK_BOUND(B,A) DCHECK(B <= (sizeof(A)/sizeof(A[0])))
+#define DLOG_IS_ON(severity) (::logging::DEBUG_MODE && LOG_IS_ON(severity))
 
-#else  // NDEBUG
-// On a regular release build we want to be able to enable DCHECKS through the
-// command line.
-#define DLOG(severity) \
-  true ? (void) 0 : logging::LogMessageVoidify() & LOG(severity)
-
-#define DLOG_IF(severity, condition) \
-  true ? (void) 0 : logging::LogMessageVoidify() & LOG(severity)
-
-#define DLOG_ASSERT(condition) \
-  true ? (void) 0 : LOG_ASSERT(condition)
+#define DLOG(severity)                                          \
+  LAZY_STREAM(LOG_STREAM(severity), DLOG_IS_ON(severity))
 
 #if defined(OS_WIN)
 #define DLOG_GETLASTERROR(severity) \
-  true ? (void) 0 : logging::LogMessageVoidify() & LOG_GETLASTERROR(severity)
-#define DLOG_GETLASTERROR_MODULE(severity, module) \
-  true ? (void) 0 : logging::LogMessageVoidify() & \
-      LOG_GETLASTERROR_MODULE(severity, module)
+  LAZY_STREAM(LOG_GETLASTERROR_STREAM(severity), DLOG_IS_ON(severity))
+#define DLOG_GETLASTERROR_MODULE(severity, module)                      \
+  LAZY_STREAM(LOG_GETLASTERROR_STREAM(severity, module),                \
+              DLOG_IS_ON(severity))
 #elif defined(OS_POSIX)
-#define DLOG_ERRNO(severity) \
-  true ? (void) 0 : logging::LogMessageVoidify() & LOG_ERRNO(severity)
+#define DLOG_ERRNO(severity)                                    \
+  LAZY_STREAM(LOG_ERRNO_STREAM(severity), DLOG_IS_ON(severity))
 #endif
 
-#define DPLOG_IF(severity, condition) \
-  true ? (void) 0 : logging::LogMessageVoidify() & PLOG(severity)
+#define DPLOG(severity)                                         \
+  LAZY_STREAM(PLOG_STREAM(severity), DLOG_IS_ON(severity))
 
-enum { DEBUG_MODE = 0 };
+#define DVLOG(verboselevel) DLOG_IF(INFO, VLOG_IS_ON(verboselevel))
 
-// This macro can be followed by a sequence of stream parameters in
-// non-debug mode. The DCHECK and friends macros use this so that
-// the expanded expression DCHECK(foo) << "asdf" is still syntactically
-// valid, even though the expression will get optimized away.
-#define NDEBUG_EAT_STREAM_PARAMETERS \
-  logging::LogMessage(__FILE__, __LINE__).stream()
+// Definitions for DCHECK et al.
+
+#if ENABLE_DCHECK
+
+#if defined(NDEBUG)
 
 // Set to true in InitLogging when we want to enable the dchecks in release.
 extern bool g_enable_dcheck;
-#define DCHECK(condition) \
-    !logging::g_enable_dcheck ? void (0) : \
-        LOG_IF(ERROR_REPORT, !(condition)) << "Check failed: " #condition ". "
+#define DCHECK_IS_ON() (::logging::g_enable_dcheck)
+#define DCHECK_SEVERITY ERROR_REPORT
+const LogSeverity LOG_DCHECK = LOG_ERROR_REPORT;
 
-#define DPCHECK(condition) \
-    !logging::g_enable_dcheck ? void (0) : \
-        PLOG_IF(ERROR_REPORT, !(condition)) << "Check failed: " #condition ". "
+#else  // defined(NDEBUG)
+
+// On a regular debug build, we want to have DCHECKS enabled.
+#define DCHECK_IS_ON() (true)
+#define DCHECK_SEVERITY FATAL
+const LogSeverity LOG_DCHECK = LOG_FATAL;
+
+#endif  // defined(NDEBUG)
+
+#else  // ENABLE_DCHECK
+
+#define DCHECK_IS_ON() (false)
+#define DCHECK_SEVERITY FATAL
+const LogSeverity LOG_DCHECK = LOG_FATAL;
+
+#endif  // ENABLE_DCHECK
+
+// Unlike CHECK et al., DCHECK et al. *does* evaluate their arguments
+// lazily.
+
+// DCHECK et al. also make sure to reference |condition| regardless of
+// whether DCHECKs are enabled; this is so that we don't get unused
+// variable warnings if the only use of a variable is in a DCHECK.
+// This behavior is different from DLOG_IF et al.
+
+#define DCHECK(condition)                       \
+  !DCHECK_IS_ON() ? (void) 0 :                  \
+  LOG_IF(DCHECK_SEVERITY, !(condition))         \
+  << "Check failed: " #condition ". "
+
+#define DPCHECK(condition)                      \
+  !DCHECK_IS_ON() ? (void) 0 :                  \
+  PLOG_IF(DCHECK_SEVERITY, !(condition))        \
+  << "Check failed: " #condition ". "
 
 // Helper macro for binary operators.
 // Don't use this macro directly in your code, use DCHECK_EQ et al below.
-#define DCHECK_OP(name, op, val1, val2)  \
-  if (logging::g_enable_dcheck) \
-    if (logging::CheckOpString _result = \
-        logging::Check##name##Impl((val1), (val2), #val1 " " #op " " #val2)) \
-      logging::LogMessage(__FILE__, __LINE__, logging::LOG_ERROR_REPORT, \
-                          _result).stream()
-
-#define DCHECK_STREQ(str1, str2) \
-  while (false) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_STRCASEEQ(str1, str2) \
-  while (false) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_STRNE(str1, str2) \
-  while (false) NDEBUG_EAT_STREAM_PARAMETERS
-
-#define DCHECK_STRCASENE(str1, str2) \
-  while (false) NDEBUG_EAT_STREAM_PARAMETERS
-
-#endif  // NDEBUG
+#define DCHECK_OP(name, op, val1, val2)                         \
+  if (DLOG_IS_ON(DCHECK_SEVERITY))                              \
+    if (logging::CheckOpString _result =                        \
+        logging::Check##name##Impl((val1), (val2),              \
+                                   #val1 " " #op " " #val2))    \
+      logging::LogMessage(                                      \
+          __FILE__, __LINE__, ::logging::LOG_DCHECK,            \
+          _result).stream()
 
 // Equality/Inequality checks - compare two values, and log a LOG_FATAL message
 // including the two values when the result is not as expected.  The values
@@ -696,9 +663,25 @@ extern bool g_enable_dcheck;
 #define DCHECK_GE(val1, val2) DCHECK_OP(GE, >=, val1, val2)
 #define DCHECK_GT(val1, val2) DCHECK_OP(GT, > , val1, val2)
 
-#endif  // OMIT_DLOG_AND_DCHECK
-#undef OMIT_DLOG_AND_DCHECK
+// Helper macro for string comparisons.
+// Don't use this macro directly in your code, use DCHECK_STREQ et al below.
+#define DCHECK_STROP(func, op, expected, s1, s2)        \
+  if (DCHECK_IS_ON()) CHECK_STROP(func, op, expected, s1, s2)
 
+// String (char*) equality/inequality checks.
+// CASE versions are case-insensitive.
+//
+// Note that "s1" and "s2" may be temporary strings which are destroyed
+// by the compiler at the end of the current "full expression"
+// (e.g. DCHECK_STREQ(Foo().c_str(), Bar().c_str())).
+
+#define DCHECK_STREQ(s1, s2) DCHECK_STROP(strcmp, ==, true, s1, s2)
+#define DCHECK_STRNE(s1, s2) DCHECK_STROP(strcmp, !=, false, s1, s2)
+#define DCHECK_STRCASEEQ(s1, s2) DCHECK_STROP(_stricmp, ==, true, s1, s2)
+#define DCHECK_STRCASENE(s1, s2) DCHECK_STROP(_stricmp, !=, false, s1, s2)
+
+#define DCHECK_INDEX(I,A) DCHECK(I < (sizeof(A)/sizeof(A[0])))
+#define DCHECK_BOUND(B,A) DCHECK(B <= (sizeof(A)/sizeof(A[0])))
 
 // Helper functions for CHECK_OP macro.
 // The (int, int) specialization works around the issue that the compiler

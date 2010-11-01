@@ -9,15 +9,14 @@
 #include <string>
 #include <map>
 
-#include "net/http/http_request_info.h"
-
 // Meta information about an HTTP request.
 // This is geared toward servers in that it keeps a map of the headers and
 // values rather than just a list of header strings (which net::HttpRequestInfo
 // does).
 class HttpServerRequestInfo {
  public:
-  HttpServerRequestInfo() {}
+  HttpServerRequestInfo();
+  ~HttpServerRequestInfo();
 
   // Request method.
   std::string method;

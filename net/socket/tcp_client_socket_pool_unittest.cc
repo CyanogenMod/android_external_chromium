@@ -15,6 +15,7 @@
 #include "net/socket/client_socket_handle.h"
 #include "net/socket/client_socket_pool_histograms.h"
 #include "net/socket/socket_test_util.h"
+#include "net/socket/ssl_host_info.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -245,8 +246,10 @@ class MockClientSocketFactory : public ClientSocketFactory {
   virtual SSLClientSocket* CreateSSLClientSocket(
       ClientSocketHandle* transport_socket,
       const std::string& hostname,
-      const SSLConfig& ssl_config) {
+      const SSLConfig& ssl_config,
+      SSLHostInfo* ssl_host_info) {
     NOTIMPLEMENTED();
+    delete ssl_host_info;
     return NULL;
   }
 
@@ -285,7 +288,7 @@ class TCPClientSocketPoolTest : public testing::Test {
         pool_(kMaxSockets,
               kMaxSocketsPerGroup,
               histograms_.get(),
-              host_resolver_,
+              host_resolver_.get(),
               &client_socket_factory_,
               NULL) {
   }
@@ -315,7 +318,7 @@ class TCPClientSocketPoolTest : public testing::Test {
   scoped_refptr<TCPSocketParams> params_;
   scoped_refptr<TCPSocketParams> low_params_;
   scoped_ptr<ClientSocketPoolHistograms> histograms_;
-  scoped_refptr<MockHostResolver> host_resolver_;
+  scoped_ptr<MockHostResolver> host_resolver_;
   MockClientSocketFactory client_socket_factory_;
   TCPClientSocketPool pool_;
   ClientSocketPoolTest test_base_;

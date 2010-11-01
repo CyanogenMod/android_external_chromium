@@ -20,7 +20,7 @@
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/history/history_types.h"
@@ -123,8 +123,8 @@ BrowsingHistoryHandler2::~BrowsingHistoryHandler2() {
 
 DOMMessageHandler* BrowsingHistoryHandler2::Attach(DOMUI* dom_ui) {
   // Create our favicon data source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,
@@ -395,8 +395,8 @@ HistoryUI2::HistoryUI2(TabContents* contents) : DOMUI(contents) {
   HistoryUIHTMLSource2* html_source = new HistoryUIHTMLSource2();
 
   // Set up the chrome://history2/ source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,

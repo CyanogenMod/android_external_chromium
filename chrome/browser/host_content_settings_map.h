@@ -17,7 +17,7 @@
 #include "base/basictypes.h"
 #include "base/lock.h"
 #include "base/ref_counted.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/common/content_settings.h"
 #include "chrome/common/notification_observer.h"
@@ -31,7 +31,7 @@ class Profile;
 class HostContentSettingsMap
     : public NotificationObserver,
       public base::RefCountedThreadSafe<HostContentSettingsMap,
-                                        ChromeThread::DeleteOnUIThread> {
+                                        BrowserThread::DeleteOnUIThread> {
  public:
   // A hostname pattern. See |IsValid| for a description of possible patterns.
   class Pattern {
@@ -62,6 +62,10 @@ class HostContentSettingsMap
     bool operator==(const Pattern& other) const {
       return pattern_ == other.pattern_;
     }
+
+    // Canonicalizes the pattern so that it's ASCII only, either
+    // in original or punycode form.
+    std::string CanonicalizePattern() const;
 
    private:
     std::string pattern_;
@@ -107,7 +111,6 @@ class HostContentSettingsMap
     ContentSettingsType type_;
     std::string resource_identifier_;
   };
-
 
   typedef std::pair<Pattern, ContentSetting> PatternSettingPair;
   typedef std::vector<PatternSettingPair> SettingsForOneType;
@@ -244,11 +247,7 @@ class HostContentSettingsMap
   typedef std::map<ContentSettingsTypeResourceIdentifierPair, ContentSetting>
       ResourceContentSettings;
 
-  struct ExtendedContentSettings {
-    ContentSettings content_settings;
-    ResourceContentSettings content_settings_for_resources;
-  };
-
+  struct ExtendedContentSettings;
   typedef std::map<std::string, ExtendedContentSettings> HostContentSettings;
 
   // Sets the fields of |settings| based on the values in |dictionary|.
@@ -281,6 +280,17 @@ class HostContentSettingsMap
   void NotifyObservers(const ContentSettingsDetails& details);
 
   void UnregisterObservers();
+
+  // Various migration methods (old cookie, popup and per-host data gets
+  // migrated to the new format).
+  void MigrateObsoleteCookiePref(PrefService* prefs);
+  void MigrateObsoletePopupsPref(PrefService* prefs);
+  void MigrateObsoletePerhostPref(PrefService* prefs);
+
+  // Converts all exceptions that have non-canonicalized pattern into
+  // canonicalized pattern. If such pattern already exists, we just remove the
+  // old exception.
+  void CanonicalizeContentSettingsExceptions(DictionaryValue* settings);
 
   // The profile we're associated with.
   Profile* profile_;

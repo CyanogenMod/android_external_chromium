@@ -30,9 +30,9 @@ PasswordChangeProcessor::PasswordChangeProcessor(
   DCHECK(model_associator);
   DCHECK(error_handler);
 #if defined(OS_MACOSX)
-  DCHECK(!ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::UI));
 #else
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
 #endif
   StartObserving();
 }
@@ -200,7 +200,7 @@ void PasswordChangeProcessor::StartImpl(Profile* profile) {
 }
 
 void PasswordChangeProcessor::StopImpl() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   observing_ = false;
 }
 
@@ -209,14 +209,14 @@ void PasswordChangeProcessor::StartObserving() {
   DCHECK(expected_loop_ == MessageLoop::current());
   notification_registrar_.Add(this,
                               NotificationType::LOGINS_CHANGED,
-                              NotificationService::AllSources());
+                              Source<PasswordStore>(password_store_));
 }
 
 void PasswordChangeProcessor::StopObserving() {
   DCHECK(expected_loop_ == MessageLoop::current());
   notification_registrar_.Remove(this,
                                  NotificationType::LOGINS_CHANGED,
-                                 NotificationService::AllSources());
+                                 Source<PasswordStore>(password_store_));
 }
 
 }  // namespace browser_sync

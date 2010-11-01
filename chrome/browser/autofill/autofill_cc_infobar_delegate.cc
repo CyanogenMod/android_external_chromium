@@ -6,9 +6,10 @@
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
-#include "base/histogram.h"
+#include "base/metrics/histogram.h"
 #include "chrome/browser/autofill/autofill_cc_infobar.h"
 #include "chrome/browser/autofill/autofill_manager.h"
+#include "chrome/browser/browser_list.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -92,8 +93,9 @@ string16 AutoFillCCInfoBarDelegate::GetLinkText() {
 }
 
 bool AutoFillCCInfoBarDelegate::LinkClicked(WindowOpenDisposition disposition) {
-  host_->tab_contents()->OpenURL(GURL(kAutoFillLearnMoreUrl), GURL(),
-                                 NEW_FOREGROUND_TAB, PageTransition::TYPED);
+  Browser* browser = BrowserList::GetLastActive();
+  DCHECK(browser);
+  browser->OpenAutoFillHelpTabAndActivate();
   return false;
 }
 

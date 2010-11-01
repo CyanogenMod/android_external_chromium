@@ -52,14 +52,22 @@ typedef char int8;
 #ifdef COMPILER_MSVC
 typedef unsigned __int64 uint64;
 typedef __int64 int64;
+#ifndef INT64_C
 #define INT64_C(x) x ## I64
+#endif
+#ifndef UINT64_C
 #define UINT64_C(x) x ## UI64
+#endif
 #define INT64_F "I64"
 #else
 typedef unsigned long long uint64;
 typedef long long int64;
+#ifndef INT64_C
 #define INT64_C(x) x ## LL
+#endif
+#ifndef UINT64_C
 #define UINT64_C(x) x ## ULL
+#endif
 #define INT64_F "ll"
 #endif /* COMPILER_MSVC */
 typedef unsigned int uint32;
@@ -85,7 +93,7 @@ namespace talk_base {
 #else  // !WIN32
 #define alignof(t) __alignof__(t)
 #endif  // !WIN32
-#define IS_ALIGNED(p, t) (0==(reinterpret_cast<uintptr_t>(p) & (alignof(t)-1)))
+#define IS_ALIGNED(p, a) (0==(reinterpret_cast<uintptr_t>(p) & ((a)-1)))
 #define ALIGNP(p, t) \
   (reinterpret_cast<uint8*>(((reinterpret_cast<uintptr_t>(p) + \
   ((t)-1)) & ~((t)-1))))

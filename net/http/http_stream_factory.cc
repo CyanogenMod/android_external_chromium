@@ -20,6 +20,8 @@ const HostMappingRules* HttpStreamFactory::host_mapping_rules_ = NULL;
 // static
 const std::string* HttpStreamFactory::next_protos_ = NULL;
 // static
+bool HttpStreamFactory::spdy_enabled_ = true;
+// static
 bool HttpStreamFactory::use_alternate_protocols_ = false;
 // static
 bool HttpStreamFactory::force_spdy_over_ssl_ = true;
@@ -40,19 +42,41 @@ HttpStreamFactory::HttpStreamFactory() {
 }
 
 HttpStreamFactory::~HttpStreamFactory() {
+  RequestCallbackMap request_callback_map;
+  request_callback_map.swap(request_callback_map_);
+  for (RequestCallbackMap::iterator it = request_callback_map.begin();
+       it != request_callback_map.end(); ++it) {
+    delete it->first;
+    // We don't invoke the callback in the destructor.
+  }
 }
 
-void HttpStreamFactory::RequestStream(
+StreamRequest* HttpStreamFactory::RequestStream(
     const HttpRequestInfo* request_info,
     SSLConfig* ssl_config,
     ProxyInfo* proxy_info,
-    StreamFactory::StreamRequestDelegate* delegate,
+    HttpNetworkSession* session,
+    StreamRequest::Delegate* delegate,
+    const BoundNetLog& net_log) {
+  HttpStreamRequest* stream = new HttpStreamRequest(this, session);
+  stream->Start(request_info, ssl_config, proxy_info, delegate, net_log);
+  return stream;
+}
+
+int HttpStreamFactory::PreconnectStreams(
+    int num_streams,
+    const HttpRequestInfo* request_info,
+    SSLConfig* ssl_config,
+    ProxyInfo* proxy_info,
+    HttpNetworkSession* session,
     const BoundNetLog& net_log,
-    const scoped_refptr<HttpNetworkSession>& session,
-    scoped_refptr<StreamRequestJob>* stream) {
-  DCHECK(stream != NULL);
-  *stream = new HttpStreamRequest(this, session);
-  (*stream)->Start(request_info, ssl_config, proxy_info, delegate, net_log);
+    CompletionCallback* callback) {
+  HttpStreamRequest* stream = new HttpStreamRequest(this, session);
+  int rv = stream->Preconnect(num_streams, request_info, ssl_config,
+                              proxy_info, this, net_log);
+  DCHECK_EQ(ERR_IO_PENDING, rv);
+  request_callback_map_[stream] = callback;
+  return rv;
 }
 
 void HttpStreamFactory::AddTLSIntolerantServer(const GURL& url) {
@@ -68,7 +92,7 @@ void HttpStreamFactory::ProcessAlternateProtocol(
     const std::string& alternate_protocol_str,
     const HostPortPair& http_host_port_pair) {
   std::vector<std::string> port_protocol_vector;
-  SplitString(alternate_protocol_str, ':', &port_protocol_vector);
+  base::SplitString(alternate_protocol_str, ':', &port_protocol_vector);
   if (port_protocol_vector.size() != 2) {
     DLOG(WARNING) << HttpAlternateProtocols::kHeader
                   << " header has too many tokens: "
@@ -128,6 +152,16 @@ GURL HttpStreamFactory::ApplyHostMappingRules(const GURL& url,
     return url.ReplaceComponents(replacements);
   }
   return url;
+}
+
+void HttpStreamFactory::OnPreconnectsComplete(
+    HttpStreamRequest* request, int result) {
+  RequestCallbackMap::iterator it = request_callback_map_.find(request);
+  DCHECK(it != request_callback_map_.end());
+  CompletionCallback* callback = it->second;
+  request_callback_map_.erase(it);
+  delete request;
+  callback->Run(result);
 }
 
 }  // namespace net

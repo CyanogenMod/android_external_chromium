@@ -13,8 +13,8 @@
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_accessibility_api.h"
 #include "chrome/browser/extensions/extension_accessibility_api_constants.h"
+#include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
-#include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/extensions/extension.h"
@@ -40,6 +40,9 @@ ExtensionAccessibilityEventRouter*
   return Singleton<ExtensionAccessibilityEventRouter>::get();
 }
 
+ExtensionAccessibilityEventRouter::ExtensionAccessibilityEventRouter()
+    : enabled_(false) {}
+
 ExtensionAccessibilityEventRouter::~ExtensionAccessibilityEventRouter() {
   STLDeleteElements(&on_enabled_listeners_);
   STLDeleteElements(&on_disabled_listeners_);
@@ -63,6 +66,12 @@ void ExtensionAccessibilityEventRouter::ObserveProfile(Profile* profile) {
                    NotificationService::AllSources());
     registrar_.Add(this,
                    NotificationType::ACCESSIBILITY_TEXT_CHANGED,
+                   NotificationService::AllSources());
+    registrar_.Add(this,
+                   NotificationType::ACCESSIBILITY_MENU_OPENED,
+                   NotificationService::AllSources());
+    registrar_.Add(this,
+                   NotificationType::ACCESSIBILITY_MENU_CLOSED,
                    NotificationService::AllSources());
   }
 }
@@ -175,9 +184,9 @@ void ExtensionAccessibilityEventRouter::DispatchEvent(
     Profile* profile,
     const char* event_name,
     const std::string& json_args) {
-  if (enabled_ && profile && profile->GetExtensionMessageService()) {
-    profile->GetExtensionMessageService()->DispatchEventToRenderers(
-        event_name, json_args, profile, GURL());
+  if (enabled_ && profile && profile->GetExtensionEventRouter()) {
+    profile->GetExtensionEventRouter()->DispatchEventToRenderers(
+        event_name, json_args, NULL, GURL());
   }
 }
 

@@ -60,7 +60,7 @@ class TabCloseableStateWatcher : public ::TabCloseableStateWatcher,
 
   // BrowserList::Observer implementation:
   virtual void OnBrowserAdded(const Browser* browser);
-  virtual void OnBrowserRemoving(const Browser* browser);
+  virtual void OnBrowserRemoved(const Browser* browser);
 
   // NotificationObserver implementation:
   virtual void Observe(NotificationType type, const NotificationSource& source,
@@ -98,8 +98,8 @@ class TabCloseableStateWatcher : public ::TabCloseableStateWatcher,
   // allow closing of all tabs and browsers in this situation.
   bool signing_off_;
 
-  // In BWSI session?
-  bool bwsi_session_;
+  // Is in guest session?
+  bool guest_session_;
 
   NotificationRegistrar notification_registrar_;
 
@@ -116,7 +116,9 @@ class TabCloseableStateWatcher : public ::TabCloseableStateWatcher,
     // TabStripModelObserver implementation:
     virtual void TabInsertedAt(TabContents* contents, int index,
                                bool foreground);
-    virtual void TabClosingAt(TabContents* contents, int index);
+    virtual void TabClosingAt(TabStripModel* tab_strip_model,
+                              TabContents* contents,
+                              int index);
     virtual void TabDetachedAt(TabContents* contents, int index);
     virtual void TabChangedAt(TabContents* contents, int index,
                               TabChangeType change_type);

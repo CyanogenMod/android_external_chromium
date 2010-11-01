@@ -17,7 +17,7 @@ namespace chromeos {
 
 // An interface for objects that will authenticate a Chromium OS user.
 // When authentication successfully completes, will call
-// consumer_->OnLoginSuccess(|username|) on the UI thread.
+// consumer_->OnLoginSuccess() on the UI thread.
 // On failure, will call consumer_->OnLoginFailure() on the UI thread.
 // On password change detected, will call
 // consumer_->OnPasswordChangeDetected() on the UI thread.
@@ -47,10 +47,15 @@ class Authenticator : public base::RefCountedThreadSafe<Authenticator> {
   // Initiates off the record ("browse without signing in") login.
   virtual void LoginOffTheRecord() = 0;
 
-  // These methods must be called on the UI thread, as they make DBus calls
-  // and also call back to the login UI.
+  // |credentials| are the tokens that we get back from the ClientLogin API.
+  // |request_pending| is true if we still plan to call consumer_ with the
+  // results of more requests.
+  // Must be called on the UI thread.
   virtual void OnLoginSuccess(
-      const GaiaAuthConsumer::ClientLoginResult& credentials) = 0;
+      const GaiaAuthConsumer::ClientLoginResult& credentials,
+      bool request_pending) = 0;
+
+  // Must be called on the UI thread.
   virtual void OnLoginFailure(const LoginFailure& error) = 0;
 
   // Call these methods on the UI thread.
@@ -70,6 +75,13 @@ class Authenticator : public base::RefCountedThreadSafe<Authenticator> {
   // data passed back through OnPasswordChangeDetected().
   virtual void ResyncEncryptedData(
       const GaiaAuthConsumer::ClientLoginResult& credentials) = 0;
+
+  // Attempt to authenticate online again.
+  virtual void RetryAuth(Profile* profile,
+                         const std::string& username,
+                         const std::string& password,
+                         const std::string& login_token,
+                         const std::string& login_captcha) = 0;
 
   // Perform basic canonicalization of |email_address|, taking into account
   // that gmail does not consider '.' or caps inside a username to matter.

@@ -12,7 +12,7 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/url_fetcher.h"
@@ -120,10 +120,10 @@ class WebResourceService::UnpackerClient
         web_resource_service_->resource_dispatcher_host_ != NULL &&
         !CommandLine::ForCurrentProcess()->HasSwitch(switches::kSingleProcess);
     if (use_utility_process) {
-      ChromeThread::ID thread_id;
-      CHECK(ChromeThread::GetCurrentThreadIdentifier(&thread_id));
-      ChromeThread::PostTask(
-          ChromeThread::IO, FROM_HERE,
+      BrowserThread::ID thread_id;
+      CHECK(BrowserThread::GetCurrentThreadIdentifier(&thread_id));
+      BrowserThread::PostTask(
+          BrowserThread::IO, FROM_HERE,
           NewRunnableMethod(this, &UnpackerClient::StartProcessOnIOThread,
                             web_resource_service_->resource_dispatcher_host_,
                             thread_id));
@@ -170,7 +170,7 @@ class WebResourceService::UnpackerClient
   }
 
   void StartProcessOnIOThread(ResourceDispatcherHost* rdh,
-                              ChromeThread::ID thread_id) {
+                              BrowserThread::ID thread_id) {
     UtilityProcessHost* host = new UtilityProcessHost(rdh, this, thread_id);
     // TODO(mrc): get proper file path when we start using web resources
     // that need to be unpacked.
@@ -352,16 +352,16 @@ void WebResourceService::UnpackLogoSignal(const DictionaryValue& parsed_json) {
     }
   }
 
-  // If logo start or end times have changed, trigger a theme change so that
-  // the logo on the NTP is updated. This check is outside the reading of the
-  // web resource data, because the absence of dates counts as a triggering
-  // change if there were dates before.
+  // If logo start or end times have changed, trigger a new web resource
+  // notification, so that the logo on the NTP is updated. This check is
+  // outside the reading of the web resource data, because the absence of
+  // dates counts as a triggering change if there were dates before.
   if (!(old_logo_start == logo_start) ||
       !(old_logo_end == logo_end)) {
     prefs_->SetReal(prefs::kNTPCustomLogoStart, logo_start);
     prefs_->SetReal(prefs::kNTPCustomLogoEnd, logo_end);
     NotificationService* service = NotificationService::current();
-    service->Notify(NotificationType::BROWSER_THEME_CHANGED,
+    service->Notify(NotificationType::WEB_RESOURCE_AVAILABLE,
                     Source<WebResourceService>(this),
                     NotificationService::NoDetails());
   }

@@ -7,8 +7,8 @@
 #include "base/message_loop_proxy.h"
 #include "base/path_service.h"
 #include "base/string_util.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chrome_plugin_host.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/net/url_request_context_getter.h"
@@ -34,7 +34,7 @@ class TestURLRequestContextGetter : public URLRequestContextGetter {
     return context_;
   }
   virtual scoped_refptr<base::MessageLoopProxy> GetIOMessageLoopProxy() {
-    return ChromeThread::GetMessageLoopProxyForThread(ChromeThread::IO);
+    return BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO);
   }
 
  private:
@@ -45,7 +45,7 @@ class TestURLRequestContextGetter : public URLRequestContextGetter {
 class ChromePluginTest : public testing::Test, public URLRequest::Delegate {
  public:
   ChromePluginTest()
-      : io_thread_(ChromeThread::IO, &message_loop_),
+      : io_thread_(BrowserThread::IO, &message_loop_),
         request_(NULL),
         response_buffer_(new net::IOBuffer(kResponseBufferSize)),
         plugin_(NULL),
@@ -94,7 +94,7 @@ class ChromePluginTest : public testing::Test, public URLRequest::Delegate {
   }
  protected:
   MessageLoopForIO message_loop_;
-  ChromeThread io_thread_;
+  BrowserThread io_thread_;
 
   // Note: we use URLRequest (instead of URLFetcher) because this allows the
   // request to be intercepted.

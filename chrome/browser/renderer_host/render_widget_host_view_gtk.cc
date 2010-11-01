@@ -22,8 +22,8 @@
 #include "app/x11_util.h"
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/histogram.h"
 #include "base/message_loop.h"
+#include "base/metrics/histogram.h"
 #include "base/string_number_conversions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
@@ -32,6 +32,8 @@
 #include "chrome/browser/renderer_host/gpu_view_host.h"
 #include "chrome/browser/renderer_host/gtk_im_context_wrapper.h"
 #include "chrome/browser/renderer_host/gtk_key_bindings_handler.h"
+#include "chrome/browser/renderer_host/render_view_host.h"
+#include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/browser/renderer_host/video_layer_x.h"
 #include "chrome/common/chrome_switches.h"
@@ -848,10 +850,11 @@ void RenderWidgetHostViewGtk::Paint(const gfx::Rect& damage_rect) {
     return;
   }
 
-  // Don't do any painting if the GPU process is rendering directly
-  // into the View.
+  // If the GPU process is rendering directly into the View,
+  // call the compositor directly.
   RenderWidgetHost* render_widget_host = GetRenderWidgetHost();
   if (render_widget_host->is_gpu_rendering_active()) {
+    host_->ScheduleComposite();
     return;
   }
 
@@ -873,7 +876,14 @@ void RenderWidgetHostViewGtk::Paint(const gfx::Rect& damage_rect) {
     // period where this object isn't attached to a window but hasn't been
     // Destroy()ed yet and it receives paint messages...
     if (window) {
-      if (!visually_deemphasized_) {
+      gfx::Rect drop_shadow_area(0, 0, kMaxWindowWidth,
+                                 gtk_util::kInfoBarDropShadowHeight);
+      bool drop_shadow = host_->IsRenderView() &&
+          static_cast<RenderViewHost*>(host_)->delegate()->GetViewDelegate()->
+              ShouldDrawDropShadow() &&
+          drop_shadow_area.Intersects(paint_rect);
+
+      if (!visually_deemphasized_ && !drop_shadow) {
         // In the common case, use XCopyArea. We don't draw more than once, so
         // we don't need to double buffer.
         backing_store->XShowRect(
@@ -889,17 +899,31 @@ void RenderWidgetHostViewGtk::Paint(const gfx::Rect& damage_rect) {
       } else {
         // If the grey blend is showing, we make two drawing calls. Use double
         // buffering to prevent flicker. Use CairoShowRect because XShowRect
-        // shortcuts GDK's double buffering.
-        GdkRectangle rect = { paint_rect.x(), paint_rect.y(),
-                              paint_rect.width(), paint_rect.height() };
+        // shortcuts GDK's double buffering. We won't be able to draw outside
+        // of |damage_rect|, so invalidate the difference between |paint_rect|
+        // and |damage_rect|.
+        if (paint_rect != damage_rect) {
+          GdkRectangle extra_gdk_rect =
+              paint_rect.Subtract(damage_rect).ToGdkRectangle();
+          gdk_window_invalidate_rect(window, &extra_gdk_rect, false);
+        }
+
+        GdkRectangle rect = { damage_rect.x(), damage_rect.y(),
+                              damage_rect.width(), damage_rect.height() };
         gdk_window_begin_paint_rect(window, &rect);
 
-        backing_store->CairoShowRect(paint_rect, GDK_DRAWABLE(window));
+        backing_store->CairoShowRect(damage_rect, GDK_DRAWABLE(window));
 
         cairo_t* cr = gdk_cairo_create(window);
-        gdk_cairo_rectangle(cr, &rect);
-        cairo_set_source_rgba(cr, 0, 0, 0, 0.7);
-        cairo_fill(cr);
+        if (visually_deemphasized_) {
+          gdk_cairo_rectangle(cr, &rect);
+          cairo_set_source_rgba(cr, 0, 0, 0, 0.7);
+          cairo_fill(cr);
+        }
+        if (drop_shadow) {
+          gtk_util::DrawTopDropShadowForRenderView(
+              cr, gfx::Point(), damage_rect);
+        }
         cairo_destroy(cr);
 
         gdk_window_end_paint(window);

@@ -8,6 +8,7 @@
 #include "app/l10n_util.h"
 #include "app/message_box_flags.h"
 #include "chrome/browser/app_modal_dialog.h"
+#include "chrome/browser/views/window.h"
 #include "grit/generated_resources.h"
 #include "views/controls/message_box_view.h"
 #include "views/window/window.h"
@@ -100,7 +101,7 @@ void JSModalDialogViews::DeleteDelegate() {
 }
 
 bool JSModalDialogViews::Cancel() {
-  parent_->OnCancel();
+  parent_->OnCancel(message_box_view_->IsCheckBoxSelected());
   return true;
 }
 
@@ -148,6 +149,7 @@ NativeAppModalDialog* NativeAppModalDialog::CreateNativeJavaScriptPrompt(
     JavaScriptAppModalDialog* dialog,
     gfx::NativeWindow parent_window) {
   JSModalDialogViews* d = new JSModalDialogViews(dialog);
-  views::Window::CreateChromeWindow(parent_window, gfx::Rect(), d);
+
+  browser::CreateViewsWindow(parent_window, gfx::Rect(), d);
   return d;
 }

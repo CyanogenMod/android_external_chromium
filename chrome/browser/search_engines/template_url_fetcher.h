@@ -12,7 +12,7 @@
 class GURL;
 class Profile;
 class TemplateURL;
-class TabContents;
+class TemplateURLFetcherCallbacks;
 
 // TemplateURLFetcher is responsible for downloading OpenSearch description
 // documents, creating a TemplateURL from the OSDD, and adding the TemplateURL
@@ -20,18 +20,27 @@ class TabContents;
 //
 class TemplateURLFetcher {
  public:
+  enum ProviderType {
+    AUTODETECTED_PROVIDER,
+    EXPLICIT_PROVIDER,  // Supplied by Javascript.
+    EXPLICIT_DEFAULT_PROVIDER  // Supplied by Javascript as default provider.
+  };
+
   // Creates a TemplateURLFetcher with the specified Profile.
   explicit TemplateURLFetcher(Profile* profile);
   ~TemplateURLFetcher();
 
   // If TemplateURLFetcher is not already downloading the OSDD for osdd_url,
   // it is downloaded. If successful and the result can be parsed, a TemplateURL
-  // is added to the TemplateURLModel.
+  // is added to the TemplateURLModel. Takes ownership of |callbacks|.
   void ScheduleDownload(const std::wstring& keyword,
                         const GURL& osdd_url,
                         const GURL& favicon_url,
-                        TabContents* source,
-                        bool autodetected);
+                        TemplateURLFetcherCallbacks* callbacks,
+                        ProviderType provider_type);
+
+  // The current number of outstanding requests.
+  int requests_count() const { return requests_->size(); }
 
  private:
   friend class RequestDelegate;

@@ -823,7 +823,7 @@ OpenSSLAdapter::SSLVerifyCallback(int ok, X509_STORE_CTX* store) {
 
 bool OpenSSLAdapter::ConfigureTrustedRootCertificates(SSL_CTX* ctx) {
   // Add the root cert to the SSL context
-  // TODO(sdoyon): this cert appears to be the wrong one.
+  // TODO: this cert appears to be the wrong one.
 #if OPENSSL_VERSION_NUMBER >= 0x0090800fL
    const unsigned char* cert_buffer
 #else

@@ -4,7 +4,7 @@
 
 #include "chrome/browser/ssl/ssl_client_auth_handler.h"
 
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/renderer_host/render_view_host_notification_task.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
@@ -27,7 +27,7 @@ void SSLClientAuthHandler::OnRequestCancelled() {
 }
 
 void SSLClientAuthHandler::SelectCertificate() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   int render_process_host_id;
   int render_view_host_id;
@@ -48,14 +48,14 @@ void SSLClientAuthHandler::SelectCertificate() {
 
 // Notify the IO thread that we have selected a cert.
 void SSLClientAuthHandler::CertificateSelected(net::X509Certificate* cert) {
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           this, &SSLClientAuthHandler::DoCertificateSelected, cert));
 }
 
 void SSLClientAuthHandler::DoCertificateSelected(net::X509Certificate* cert) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   // request_ could have been NULLed if the request was cancelled while the
   // user was choosing a cert, or because we have already responded to the
   // certificate.

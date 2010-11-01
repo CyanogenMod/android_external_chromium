@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_CHROMEOS_CROS_CROS_MOCK_H_
 
 #include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "cros/chromeos_input_method.h"
 
@@ -77,6 +78,7 @@ class CrosMock {
   void SetInputMethodLibraryStatusAreaExpectations();
   void SetNetworkLibraryStatusAreaExpectations();
   void SetPowerLibraryStatusAreaExpectations();
+  void SetPowerLibraryExpectations();
   void SetSpeechSynthesisLibraryExpectations();
   void SetSystemLibraryStatusAreaExpectations();
   void SetSystemLibraryExpectations();
@@ -101,6 +103,12 @@ class CrosMock {
   MockTouchpadLibrary* mock_touchpad_library_;
 
   ImePropertyList ime_properties_;
+  WifiNetwork wifi_network_;
+  WifiNetworkVector wifi_networks_;
+  CellularNetwork cellular_network_;
+  CellularNetworkVector cellular_networks_;
+  std::string empty_string_;
+
   DISALLOW_COPY_AND_ASSIGN(CrosMock);
 };
 

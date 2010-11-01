@@ -13,6 +13,7 @@
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/browser_window.h"
 #include "chrome/browser/platform_util.h"
 #import "chrome/browser/cocoa/background_tile_view.h"
 #import "chrome/browser/cocoa/keystone_glue.h"
@@ -152,10 +153,10 @@ static BOOL recentShownUserActionFailedStatus = NO;
 
   // Put the two images into the UI.
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  NSImage* backgroundImage = rb.GetNSImageNamed(IDR_ABOUT_BACKGROUND_COLOR);
+  NSImage* backgroundImage = rb.GetNativeImageNamed(IDR_ABOUT_BACKGROUND_COLOR);
   DCHECK(backgroundImage);
   [backgroundView_ setTileImage:backgroundImage];
-  NSImage* logoImage = rb.GetNSImageNamed(IDR_ABOUT_BACKGROUND);
+  NSImage* logoImage = rb.GetNativeImageNamed(IDR_ABOUT_BACKGROUND);
   DCHECK(logoImage);
   [logoView_ setImage:logoImage];
 
@@ -365,7 +366,7 @@ static BOOL recentShownUserActionFailedStatus = NO;
   [spinner_ setHidden:YES];
 
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  NSImage* statusImage = rb.GetNSImageNamed(imageID);
+  NSImage* statusImage = rb.GetNativeImageNamed(imageID);
   DCHECK(statusImage);
   [updateStatusIndicator_ setImage:statusImage];
   [updateStatusIndicator_ setHidden:NO];
@@ -620,10 +621,9 @@ static BOOL recentShownUserActionFailedStatus = NO;
   // We always create a new window, so there's no need to try to re-use
   // an existing one just to pass in the NEW_WINDOW disposition.
   Browser* browser = Browser::Create(profile_);
-  if (browser) {
-    browser->OpenURL(GURL([link UTF8String]), GURL(), NEW_WINDOW,
-                     PageTransition::LINK);
-  }
+  browser->OpenURL(GURL([link UTF8String]), GURL(), NEW_FOREGROUND_TAB,
+                   PageTransition::LINK);
+  browser->window()->Show();
   return YES;
 }
 

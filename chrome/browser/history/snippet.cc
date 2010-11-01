@@ -167,7 +167,7 @@ void Snippet::ExtractMatchPositions(const std::string& offsets_str,
   if (offsets_str.empty())
     return;
   std::vector<std::string> offsets;
-  SplitString(offsets_str, ' ', &offsets);
+  base::SplitString(offsets_str, ' ', &offsets);
   // SQLite offsets are sets of four integers:
   //   column, query term, match offset, match length
   // Matches within a string are marked by (start, end) pairs.
@@ -198,6 +198,12 @@ void Snippet::ConvertMatchPositionsToWide(
     i->second = AdvanceAndReturnUTF16Pos(utf8_cstring, utf8_length,
                                          i->second, &utf8_pos, &utf16_pos);
   }
+}
+
+Snippet::Snippet() {
+}
+
+Snippet::~Snippet() {
 }
 
 void Snippet::ComputeSnippet(const MatchPositions& match_positions,
@@ -283,4 +289,9 @@ void Snippet::ComputeSnippet(const MatchPositions& match_positions,
 
   utext_close(document_utext);
   swap(text_, snippet);
+}
+
+void Snippet::Swap(Snippet* other) {
+  text_.swap(other->text_);
+  matches_.swap(other->matches_);
 }

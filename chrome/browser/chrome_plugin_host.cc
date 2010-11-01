@@ -10,16 +10,16 @@
 #include "base/command_line.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
-#include "base/histogram.h"
 #include "base/message_loop.h"
+#include "base/metrics/histogram.h"
 #include "base/path_service.h"
 #include "base/perftimer.h"
 #include "base/singleton.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chrome_plugin_browsing_context.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_ui/html_dialog_ui.h"
 #include "chrome/browser/gears_integration.h"
 #include "chrome/browser/plugin_process_host.h"
@@ -737,8 +737,8 @@ CPError STDCALL CPB_SendSyncMessage(CPID id, const void *data, uint32 data_len,
 CPError STDCALL CPB_PluginThreadAsyncCall(CPID id,
                                           void (*func)(void *),
                                           void *user_data) {
-  bool posted = ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  bool posted = BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableFunction(func, user_data));
   return posted ? CPERR_SUCCESS : CPERR_FAILURE;
 }
@@ -813,14 +813,20 @@ CPBrowserFuncs* GetCPBrowserFuncsForBrowser() {
   return &browser_funcs;
 }
 
+void CPCommandInterface::OnCommandInvoked(CPError retval) {
+  delete this;
+}
+
+void CPCommandInterface::OnCommandResponse(CPError retval) {}
+
 void CPHandleCommand(int command, CPCommandInterface* data,
                      CPBrowsingContext context) {
   // Sadly if we try and pass context through, we seem to break cl's little
   // brain trying to compile the Tuple3 ctor. This cast works.
   int32 context_as_int32 = static_cast<int32>(context);
   // Plugins can only be accessed on the IO thread.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableFunction(PluginCommandHandler::HandleCommand,
                           command, data, context_as_int32));
 }

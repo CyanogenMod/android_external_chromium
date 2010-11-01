@@ -13,7 +13,7 @@
 #include "base/nss_util.h"
 #include "base/scoped_ptr.h"
 #include "base/scoped_temp_dir.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/login/mock_owner_key_utils.h"
 #include "chrome/browser/chromeos/login/owner_manager_unittest.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -34,8 +34,8 @@ class OwnershipServiceTest : public ::testing::Test {
  public:
   OwnershipServiceTest()
       : message_loop_(MessageLoop::TYPE_UI),
-        ui_thread_(ChromeThread::UI, &message_loop_),
-        file_thread_(ChromeThread::FILE),
+        ui_thread_(BrowserThread::UI, &message_loop_),
+        file_thread_(BrowserThread::FILE),
         mock_(new MockKeyUtils),
         injector_(mock_) /* injector_ takes ownership of mock_ */ {
   }
@@ -69,8 +69,8 @@ class OwnershipServiceTest : public ::testing::Test {
   FilePath tmpfile_;
 
   MessageLoop message_loop_;
-  ChromeThread ui_thread_;
-  ChromeThread file_thread_;
+  BrowserThread ui_thread_;
+  BrowserThread file_thread_;
 
   std::vector<uint8> fake_public_key_;
   scoped_ptr<RSAPrivateKey> fake_private_key_;

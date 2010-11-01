@@ -36,6 +36,7 @@
         'base/cert_database.h',
         'base/cert_database_mac.cc',
         'base/cert_database_nss.cc',
+        'base/cert_database_openssl.cc',
         'base/cert_database_win.cc',
         'base/cert_status_flags.cc',
         'base/cert_status_flags.h',
@@ -49,6 +50,7 @@
         'base/cookie_monster.h',
         'base/cookie_options.h',
         'base/cookie_policy.h',
+        'base/cookie_store.cc',
         'base/cookie_store.h',
         'base/data_url.cc',
         'base/data_url.h',
@@ -97,6 +99,7 @@
         'base/keygen_handler.h',
         'base/keygen_handler_mac.cc',
         'base/keygen_handler_nss.cc',
+        'base/keygen_handler_openssl.cc',
         'base/keygen_handler_win.cc',
         'base/listen_socket.cc',
         'base/listen_socket.h',
@@ -139,6 +142,8 @@
         'base/network_config_watcher_mac.h',
         'base/nss_memio.c',
         'base/nss_memio.h',
+        'base/openssl_util.cc',
+        'base/openssl_util.h',
         'base/pem_tokenizer.cc',
         'base/pem_tokenizer.h',
         'base/platform_mime_util.h',
@@ -186,6 +191,7 @@
         'base/x509_certificate.h',
         'base/x509_certificate_mac.cc',
         'base/x509_certificate_nss.cc',
+        'base/x509_certificate_openssl.cc',
         'base/x509_certificate_win.cc',
         'base/x509_cert_types.cc',
         'base/x509_cert_types.h',
@@ -246,6 +252,33 @@
             ],
           },
         ],
+        [ 'use_openssl == 1 and OS == "linux"', {
+            # When building for OpenSSL, we need to exclude some NSS files.
+            # TODO(bulach): remove once we fully support OpenSSL.
+            'sources!': [
+              'base/cert_database_nss.cc',
+              'base/keygen_handler_nss.cc',
+              'base/x509_certificate_nss.cc',
+              'third_party/mozilla_security_manager/nsKeygenHandler.cpp',
+              'third_party/mozilla_security_manager/nsKeygenHandler.h',
+              'third_party/mozilla_security_manager/nsNSSCertificateDB.cpp',
+              'third_party/mozilla_security_manager/nsNSSCertificateDB.h',
+              'third_party/mozilla_security_manager/nsNSSCertTrust.cpp',
+              'third_party/mozilla_security_manager/nsNSSCertTrust.h',
+              'third_party/mozilla_security_manager/nsPKCS12Blob.cpp',
+              'third_party/mozilla_security_manager/nsPKCS12Blob.h',
+            ],
+          },
+          { # else: not using openssl.
+            'sources!': [
+              'base/cert_database_openssl.cc',
+              'base/keygen_handler_openssl.cc',
+              'base/openssl_util.cc',
+              'base/openssl_util.h',
+              'base/x509_certificate_openssl.cc',
+             ],
+          },
+        ],
         [ 'OS == "win"', {
             'dependencies': [
               '../third_party/nss/nss.gyp:nss',
@@ -289,6 +322,7 @@
         '../third_party/zlib/zlib.gyp:zlib',
         'net_base',
         'net_resources',
+        'ssl_host_info',
       ],
       'sources': [
         'disk_cache/addr.cc',
@@ -303,6 +337,7 @@
         'disk_cache/cache_util_posix.cc',
         'disk_cache/cache_util_win.cc',
         'disk_cache/disk_cache.h',
+        'disk_cache/disk_format.cc',
         'disk_cache/disk_format.h',
         'disk_cache/entry_impl.cc',
         'disk_cache/entry_impl.h',
@@ -310,6 +345,7 @@
         'disk_cache/eviction.cc',
         'disk_cache/eviction.h',
         'disk_cache/experiments.h',
+        'disk_cache/file.cc',
         'disk_cache/file.h',
         'disk_cache/file_block.h',
         'disk_cache/file_lock.cc',
@@ -352,6 +388,8 @@
         'ftp/ftp_directory_listing_buffer.h',
         'ftp/ftp_directory_listing_parser.cc',
         'ftp/ftp_directory_listing_parser.h',
+        'ftp/ftp_directory_listing_parser_hprc.cc',
+        'ftp/ftp_directory_listing_parser_hprc.h',
         'ftp/ftp_directory_listing_parser_ls.cc',
         'ftp/ftp_directory_listing_parser_ls.h',
         'ftp/ftp_directory_listing_parser_mlsd.cc',
@@ -364,6 +402,7 @@
         'ftp/ftp_directory_listing_parser_windows.h',
         'ftp/ftp_network_layer.cc',
         'ftp/ftp_network_layer.h',
+        'ftp/ftp_network_session.cc',
         'ftp/ftp_network_session.h',
         'ftp/ftp_network_transaction.cc',
         'ftp/ftp_network_transaction.h',
@@ -419,16 +458,19 @@
         'http/http_cache_transaction.h',
         'http/http_chunked_decoder.cc',
         'http/http_chunked_decoder.h',
+        'http/http_net_log_params.cc',
         'http/http_net_log_params.h',
         'http/http_network_delegate.h',
         'http/http_network_layer.cc',
         'http/http_network_layer.h',
         'http/http_network_session.cc',
         'http/http_network_session.h',
+        'http/http_network_session_peer.h',
         'http/http_network_transaction.cc',
         'http/http_network_transaction.h',
         'http/http_request_headers.cc',
         'http/http_request_headers.h',
+        'http/http_request_info.cc',
         'http/http_request_info.h',
         'http/http_response_body_drainer.cc',
         'http/http_response_body_drainer.h',
@@ -453,6 +495,8 @@
         'http/http_proxy_client_socket.h',
         'http/http_proxy_client_socket_pool.cc',
         'http/http_proxy_client_socket_pool.h',
+        'http/http_proxy_utils.cc',
+        'http/http_proxy_utils.h',
         'http/http_util.cc',
         'http/http_util_icu.cc',
         'http/http_util.h',
@@ -502,8 +546,9 @@
         'proxy/proxy_resolver_winhttp.cc',
         'proxy/proxy_resolver_winhttp.h',
         'proxy/proxy_retry_info.h',
-        'proxy/proxy_script_fetcher.cc',
         'proxy/proxy_script_fetcher.h',
+        'proxy/proxy_script_fetcher_impl.cc',
+        'proxy/proxy_script_fetcher_impl.h',
         'proxy/proxy_server.cc',
         'proxy/proxy_server_mac.cc',
         'proxy/proxy_server.h',
@@ -574,6 +619,8 @@
         'spdy/spdy_io_buffer.cc',
         'spdy/spdy_io_buffer.h',
         'spdy/spdy_protocol.h',
+        'spdy/spdy_proxy_client_socket.cc',
+        'spdy/spdy_proxy_client_socket.h',
         'spdy/spdy_session.cc',
         'spdy/spdy_session.h',
         'spdy/spdy_session_pool.cc',
@@ -657,7 +704,13 @@
         ['use_openssl==1 and OS == "linux"', {
             'dependencies': [
               '../build/linux/system.gyp:openssl',
-            ]
+            ],
+            'sources!': [
+              'socket/ssl_client_socket_nss.cc',
+              'socket/ssl_client_socket_nss.h',
+              'socket/ssl_client_socket_nss_factory.cc',
+              'socket/ssl_client_socket_nss_factory.h',
+            ],
           },
           {  # else !use_openssl: remove the unneeded files
             'sources!': [
@@ -786,6 +839,7 @@
         'disk_cache/backend_unittest.cc',
         'disk_cache/bitmap_unittest.cc',
         'disk_cache/block_files_unittest.cc',
+        'disk_cache/cache_util_unittest.cc',
         'disk_cache/disk_cache_test_base.cc',
         'disk_cache/disk_cache_test_base.h',
         'disk_cache/entry_unittest.cc',
@@ -795,6 +849,7 @@
         'ftp/ftp_ctrl_response_buffer_unittest.cc',
         'ftp/ftp_directory_listing_buffer_unittest.cc',
         'ftp/ftp_directory_listing_parser_ls_unittest.cc',
+        'ftp/ftp_directory_listing_parser_hprc_unittest.cc',
         'ftp/ftp_directory_listing_parser_mlsd_unittest.cc',
         'ftp/ftp_directory_listing_parser_netware_unittest.cc',
         'ftp/ftp_directory_listing_parser_vms_unittest.cc',
@@ -824,6 +879,7 @@
         'http/http_request_headers_unittest.cc',
         'http/http_response_body_drainer_unittest.cc',
         'http/http_response_headers_unittest.cc',
+        'http/http_stream_factory_unittest.cc',
         'http/http_transaction_unittest.cc',
         'http/http_transaction_unittest.h',
         'http/http_util_unittest.cc',
@@ -843,11 +899,12 @@
         'proxy/proxy_list_unittest.cc',
         'proxy/proxy_resolver_js_bindings_unittest.cc',
         'proxy/proxy_resolver_v8_unittest.cc',
-        'proxy/proxy_script_fetcher_unittest.cc',
+        'proxy/proxy_script_fetcher_impl_unittest.cc',
         'proxy/proxy_server_unittest.cc',
         'proxy/proxy_service_unittest.cc',
         'proxy/sync_host_resolver_bridge_unittest.cc',
         'socket/client_socket_pool_base_unittest.cc',
+        'socket/deterministic_socket_data_unittest.cc',
         'socket/socks5_client_socket_unittest.cc',
         'socket/socks_client_socket_pool_unittest.cc',
         'socket/socks_client_socket_unittest.cc',
@@ -861,6 +918,7 @@
         'spdy/spdy_http_stream_unittest.cc',
         'spdy/spdy_network_transaction_unittest.cc',
         'spdy/spdy_protocol_test.cc',
+        'spdy/spdy_proxy_client_socket_unittest.cc',
         'spdy/spdy_session_unittest.cc',
         'spdy/spdy_stream_unittest.cc',
         'spdy/spdy_test_util.cc',
@@ -905,7 +963,7 @@
             ],
           }
         ],
-        ['OS == "linux"', {
+        [ 'OS == "linux"', {
           'conditions': [
             ['linux_use_tcmalloc==1', {
               'dependencies': [
@@ -914,6 +972,14 @@
             }],
           ],
         }],
+        [ 'use_openssl == 1 and OS == "linux"', {
+            # When building for OpenSSL, we need to exclude some NSS files.
+            # TODO(bulach): remove once we fully support OpenSSL.
+            'sources!': [
+              'base/cert_database_nss_unittest.cc',
+            ],
+          },
+        ],
         [ 'OS == "win"', {
             'sources!': [
               'http/http_auth_gssapi_posix_unittest.cc',
@@ -925,6 +991,46 @@
             ],
           },
         ],
+      ],
+    },
+    {
+      # This is a separate target in order to limit the scope of the protobuf
+      # includes.
+      'target_name': 'ssl_host_info',
+      'type': '<(library)',
+      'dependencies': [
+        '../base/base.gyp:base',
+        '../third_party/protobuf/protobuf.gyp:protobuf_lite',
+        '../third_party/protobuf/protobuf.gyp:protoc#host',
+      ],
+      'sources': [
+        'socket/ssl_host_info.proto',
+        'socket/ssl_host_info.cc',
+        'socket/ssl_host_info.h',
+      ],
+      'rules': [
+        {
+          'rule_name': 'genproto',
+          'extension': 'proto',
+          'inputs': [
+            '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)protoc<(EXECUTABLE_SUFFIX)',
+          ],
+          'outputs': [
+            '<(SHARED_INTERMEDIATE_DIR)/protoc_out/net/socket/<(RULE_INPUT_ROOT).pb.h',
+            '<(SHARED_INTERMEDIATE_DIR)/protoc_out/net/socket/<(RULE_INPUT_ROOT).pb.cc',
+          ],
+          'action': [
+            '<(PRODUCT_DIR)/<(EXECUTABLE_PREFIX)protoc<(EXECUTABLE_SUFFIX)',
+            'socket/<(RULE_INPUT_ROOT)<(RULE_INPUT_EXT)',
+            '--cpp_out=<(SHARED_INTERMEDIATE_DIR)/protoc_out/net',
+          ],
+          'message': 'Generating C++ code from <(RULE_INPUT_PATH)',
+          'process_outputs_as_sources': 1,
+        },
+      ],
+      'include_dirs': [
+        '<(SHARED_INTERMEDIATE_DIR)/protoc_out/net',
+        '<(SHARED_INTERMEDIATE_DIR)/protoc_out',
       ],
     },
     {
@@ -1036,7 +1142,7 @@
         ['inside_chromium_build==1', {
           'dependencies': [
             '../chrome/browser/sync/protocol/sync_proto.gyp:sync_proto',
-            '../third_party/protobuf2/protobuf.gyp:py_proto',
+            '../third_party/protobuf/protobuf.gyp:py_proto',
           ],
         }],
         ['OS == "linux" or OS == "freebsd" or OS == "openbsd"', {
@@ -1052,6 +1158,11 @@
               ],
             }],
           ],
+        }],
+        ['use_openssl == 1 and OS == "linux"', {
+            'dependencies': [
+              '../build/linux/system.gyp:openssl',
+            ]
         }],
       ],
     },
@@ -1144,6 +1255,7 @@
       'sources': [
         'server/http_listen_socket.cc',
         'server/http_listen_socket.h',
+        'server/http_server_request_info.cc',
         'server/http_server_request_info.h',
       ],
     },
@@ -1199,6 +1311,11 @@
     #         ],
     #       },
     #       'sources': [
+    #         'tools/dump_cache/url_to_filename_encoder.cc',
+    #         'tools/dump_cache/url_to_filename_encoder.h',
+    #         'tools/dump_cache/url_utilities.h',
+    #         'tools/dump_cache/url_utilities.cc',
+
     #         'tools/flip_server/balsa_enums.h',
     #         'tools/flip_server/balsa_frame.cc',
     #         'tools/flip_server/balsa_frame.h',

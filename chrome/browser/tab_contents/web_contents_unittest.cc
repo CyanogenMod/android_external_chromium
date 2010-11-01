@@ -7,13 +7,13 @@
 #include "app/message_box_flags.h"
 #include "base/logging.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/pref_value_store.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/tab_contents/interstitial_page.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
@@ -186,7 +186,7 @@ class TabContentsTest : public RenderViewHostTestHarness {
  public:
   TabContentsTest()
       : RenderViewHostTestHarness(),
-        ui_thread_(ChromeThread::UI, &message_loop_) {
+        ui_thread_(BrowserThread::UI, &message_loop_) {
   }
 
  private:
@@ -224,7 +224,7 @@ class TabContentsTest : public RenderViewHostTestHarness {
     profile_.reset(NULL);
   }
 
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
 };
 
 // Test to make sure that title updates get stripped of whitespace.
@@ -258,7 +258,7 @@ TEST_F(TabContentsTest, NTPViewSource) {
   controller().RendererDidNavigate(params, 0, &details);
   // Also check title and url.
   EXPECT_EQ(ASCIIToUTF16(kUrl), contents()->GetTitle());
-  EXPECT_EQ(true, contents()->ShouldDisplayURL());
+  EXPECT_TRUE(contents()->ShouldDisplayURL());
 }
 
 // Test simple same-SiteInstance navigation.
@@ -760,8 +760,8 @@ TEST_F(TabContentsTest, WebKitPrefs) {
   // These values have been overridden by the profile preferences.
   EXPECT_EQ("UTF-8", webkit_prefs.default_encoding);
   EXPECT_EQ(20, webkit_prefs.default_font_size);
-  EXPECT_EQ(false, webkit_prefs.text_areas_are_resizable);
-  EXPECT_EQ(true, webkit_prefs.uses_universal_detector);
+  EXPECT_FALSE(webkit_prefs.text_areas_are_resizable);
+  EXPECT_TRUE(webkit_prefs.uses_universal_detector);
 
   // These should still be the default values.
 #if defined(OS_MACOSX)
@@ -772,7 +772,7 @@ TEST_F(TabContentsTest, WebKitPrefs) {
   const wchar_t kDefaultFont[] = L"Times New Roman";
 #endif
   EXPECT_EQ(kDefaultFont, webkit_prefs.standard_font_family);
-  EXPECT_EQ(true, webkit_prefs.javascript_enabled);
+  EXPECT_TRUE(webkit_prefs.javascript_enabled);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1553,7 +1553,7 @@ TEST_F(TabContentsTest, CopyStateFromAndPruneSourceInterstitial) {
   scoped_ptr<TestTabContents> other_contents(CreateTestTabContents());
   NavigationController& other_controller = other_contents->controller();
   other_contents->NavigateAndCommit(url3);
-  other_controller.CopyStateFromAndPrune(controller());
+  other_controller.CopyStateFromAndPrune(&controller());
 
   // The merged controller should only have two entries: url1 and url2.
   ASSERT_EQ(2, other_controller.entry_count());
@@ -1594,7 +1594,7 @@ TEST_F(TabContentsTest, CopyStateFromAndPruneTargetInterstitial) {
   EXPECT_TRUE(interstitial->is_showing());
   EXPECT_EQ(2, other_controller.entry_count());
 
-  other_controller.CopyStateFromAndPrune(controller());
+  other_controller.CopyStateFromAndPrune(&controller());
 
   // The merged controller should only have two entries: url1 and url2.
   ASSERT_EQ(2, other_controller.entry_count());

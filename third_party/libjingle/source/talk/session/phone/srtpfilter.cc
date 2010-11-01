@@ -35,7 +35,7 @@
 #include "talk/base/base64.h"
 #include "talk/base/logging.h"
 
-// TODO(juberti): For the XCode build, we force SRTP (b/2500074)
+// TODO: For the XCode build, we force SRTP (b/2500074)
 #if defined(OSX) && !defined(HAVE_SRTP)
 #define HAVE_SRTP 1
 #endif
@@ -175,7 +175,7 @@ bool SrtpFilter::NegotiateParams(const std::vector<CryptoParams>& answer_params,
 
 bool SrtpFilter::ApplyParams(const CryptoParams& send_params,
                              const CryptoParams& recv_params) {
-  // TODO(juberti): Zero these buffers after use.
+  // TODO: Zero these buffers after use.
   bool ret;
   uint8 send_key[SRTP_MASTER_KEY_LEN], recv_key[SRTP_MASTER_KEY_LEN];
   ret = (ParseKeyParams(send_params.key_params, send_key, sizeof(send_key)) &&
@@ -334,7 +334,7 @@ bool SrtpSession::SetKey(int type, const std::string& cs,
   policy.ssrc.type = static_cast<ssrc_type_t>(type);
   policy.ssrc.value = 0;
   policy.key = const_cast<uint8*>(key);
-  // TODO(astor) parse window size from WSH session-param
+  // TODO parse window size from WSH session-param
   policy.window_size = 1024;
   policy.allow_repeat_tx = 1;
   policy.next = NULL;
@@ -375,7 +375,7 @@ bool SrtpSession::Init() {
 }
 
 void SrtpSession::HandleEvent(const srtp_event_data_t* ev) {
-  // TODO(juberti): Do something about events.
+  // TODO: Do something about events.
 }
 
 void SrtpSession::HandleEventThunk(srtp_event_data_t* ev) {

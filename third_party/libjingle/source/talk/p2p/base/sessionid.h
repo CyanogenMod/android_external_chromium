@@ -28,69 +28,9 @@
 #ifndef TALK_P2P_BASE_SESSIONID_H_
 #define TALK_P2P_BASE_SESSIONID_H_
 
-#include <string>
-#include <sstream>
-#include "talk/base/basictypes.h"
+// TODO: Remove this file.
 
 namespace cricket {
-
-// Each session is identified by a pair (from,id), where id is only
-// assumed to be unique to the machine identified by from.
-class SessionID {
- public:
-  SessionID() : id_str_("0") {
-  }
-  SessionID(const std::string& initiator, uint32 id)
-    : initiator_(initiator) {
-    set_id(id);
-  }
-  SessionID(const std::string& initiator, const std::string& id_str)
-    : id_str_(id_str), initiator_(initiator) {
-  }
-  SessionID(const SessionID& sid)
-    : id_str_(sid.id_str_), initiator_(sid.initiator_) {
-  }
-
-  void set_id(uint32 id) {
-    std::stringstream st;
-    st << id;
-    st >> id_str_;
-  }
-  const std::string id_str() const {
-    return id_str_;
-  }
-  void set_id_str(const std::string &id_str) {
-    id_str_ = id_str;
-  }
-
-  const std::string &initiator() const {
-    return initiator_;
-  }
-  void set_initiator(const std::string &initiator) {
-    initiator_ = initiator;
-  }
-
-  bool operator <(const SessionID& sid) const {
-    int r = initiator_.compare(sid.initiator_);
-    if (r == 0)
-      r = id_str_.compare(sid.id_str_);
-    return r < 0;
-  }
-
-  bool operator ==(const SessionID& sid) const {
-    return (id_str_ == sid.id_str_) && (initiator_ == sid.initiator_);
-  }
-
-  SessionID& operator =(const SessionID& sid) {
-    id_str_ = sid.id_str_;
-    initiator_ = sid.initiator_;
-    return *this;
-  }
-
- private:
-  std::string id_str_;
-  std::string initiator_;
-};
 
 }  // namespace cricket
 

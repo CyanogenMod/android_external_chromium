@@ -62,6 +62,8 @@ class AutocompletePopupViewMac : public AutocompletePopupView {
   }
   virtual void UpdatePopupAppearance();
 
+  virtual gfx::Rect GetTargetBounds();
+
   // Set |line| to be selected.
   void SetSelectedLine(size_t line);
 
@@ -73,8 +75,6 @@ class AutocompletePopupViewMac : public AutocompletePopupView {
 
   // Returns the popup's model.
   virtual AutocompletePopupModel* GetModel();
-
-  virtual int GetMaxYCoordinate();
 
   // Opens the URL corresponding to the given |row|.  If |force_background| is
   // true, forces the URL to open in a background tab.  Otherwise, determines
@@ -95,7 +95,7 @@ class AutocompletePopupViewMac : public AutocompletePopupView {
   static NSMutableAttributedString* DecorateMatchedString(
       const std::wstring &matchString,
       const AutocompleteMatch::ACMatchClassifications &classifications,
-      NSColor* textColor, gfx::Font& font);
+      NSColor* textColor, NSColor* dimTextColor, gfx::Font& font);
 
   // Helper for MatchText() to elide a marked-up string using
   // gfx::ElideText() as a model.  Modifies |aString| in place.

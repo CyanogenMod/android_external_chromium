@@ -6,11 +6,11 @@
 
 #include "app/l10n_util.h"
 #include "base/message_loop.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/repost_form_warning_controller.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/common/notification_type.h"
 #include "grit/generated_resources.h"
 
@@ -82,7 +82,7 @@ void RepostFormWarningGtk::OnCancel(GtkWidget* widget) {
 
 void RepostFormWarningGtk::OnHierarchyChanged(GtkWidget* root,
                                               GtkWidget* previous_toplevel) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (!GTK_WIDGET_TOPLEVEL(gtk_widget_get_toplevel(cancel_))) {
     return;
   }

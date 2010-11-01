@@ -53,10 +53,12 @@ static void SaveSUIDUnsafeEnvironmentVariables() {
 }
 
 ZygoteHost::ZygoteHost()
-    : pid_(-1),
+    : control_fd_(-1),
+      pid_(-1),
       init_(false),
       using_suid_sandbox_(false),
-      have_read_sandbox_status_word_(false) {
+      have_read_sandbox_status_word_(false),
+      sandbox_status_(0) {
 }
 
 ZygoteHost::~ZygoteHost() {
@@ -91,6 +93,8 @@ void ZygoteHost::Init(const std::string& sandbox_cmd) {
     switches::kAllowSandboxDebugging,
     switches::kLoggingLevel,
     switches::kEnableLogging,  // Support, e.g., --enable-logging=stderr.
+    switches::kV,
+    switches::kVModule,
     switches::kUserDataDir,  // Make logs go to the right file.
     // Load (in-process) Pepper plugins in-process in the zygote pre-sandbox.
     switches::kRegisterPepperPlugins,

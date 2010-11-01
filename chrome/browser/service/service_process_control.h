@@ -7,13 +7,15 @@
 
 #include <queue>
 #include <string>
+#include <vector>
 
 #include "base/id_map.h"
 #include "base/callback.h"
 #include "base/process.h"
 #include "base/scoped_ptr.h"
 #include "base/task.h"
-#include "chrome/common/service_process_type.h"
+#include "chrome/common/notification_observer.h"
+#include "chrome/common/notification_registrar.h"
 #include "ipc/ipc_sync_channel.h"
 
 class Profile;
@@ -29,7 +31,8 @@ class Profile;
 // This class is accessed on the UI thread through some UI actions. It then
 // talks to the IPC channel on the IO thread.
 class ServiceProcessControl : public IPC::Channel::Sender,
-                              public IPC::Channel::Listener {
+                              public IPC::Channel::Listener,
+                              public NotificationObserver {
  public:
   typedef IDMap<ServiceProcessControl>::iterator iterator;
   typedef std::queue<IPC::Message> MessageQueue;
@@ -43,25 +46,29 @@ class ServiceProcessControl : public IPC::Channel::Sender,
     virtual void OnGoodDay() = 0;
   };
 
-  // Construct a ServiceProcessControl with |profile| and a specific |type|.
-  ServiceProcessControl(Profile* profile, ServiceProcessType type);
+  // Construct a ServiceProcessControl with |profile|..
+  explicit ServiceProcessControl(Profile* profile);
   virtual ~ServiceProcessControl();
 
   // Return the user profile associated with this service process.
   Profile* profile() const { return profile_; }
 
-  // Return the type of this object.
-  ServiceProcessType type() const { return type_; }
-
   // Return true if this object is connected to the service.
   bool is_connected() const { return channel_.get() != NULL; }
 
-  // Create a new service process and connects to it.
-  // |launch_done_task| is called if launching the service process has failed
-  // or we have successfully launched the process and connected to it.
-  // If the service process is already running this method will try to connect
-  // to the service process.
-  void Launch(Task* launch_done_task);
+  // If no service process is currently running, creates a new service process
+  // and connects to it.
+  // If a service process is already running this method will try to connect
+  // to it.
+  // |success_task| is called when we have successfully launched the process
+  // and connected to it.
+  // |failure_task| is called when we failed to connect to the service process.
+  // It is OK to pass the same value for |success_task| and |failure_task|. In
+  // this case, the task is invoked on success or failure.
+  // Note that if we are already connected to service process then
+  // |success_task| can be invoked in the context of the Launch call.
+  // Takes ownership of |success_task| and |failure_task|.
+  void Launch(Task* success_task, Task* failure_task);
 
   // IPC::Channel::Listener implementation.
   virtual void OnMessageReceived(const IPC::Message& message);
@@ -70,6 +77,11 @@ class ServiceProcessControl : public IPC::Channel::Sender,
 
   // IPC::Channel::Sender implementation
   virtual bool Send(IPC::Message* message);
+
+  // NotificationObserver implementation.
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
 
   // Message handlers
   void OnGoodDay();
@@ -105,16 +117,20 @@ class ServiceProcessControl : public IPC::Channel::Sender,
 
  private:
   class Launcher;
+  typedef std::vector<Task*> TaskList;
+
+  // Helper method to invoke all the callbacks based on success on failure.
+  void RunConnectDoneTasks();
 
   // Method called by Launcher when the service process is launched.
-  void OnProcessLaunched(Task* launch_done_task);
+  void OnProcessLaunched();
 
-  // Used internally to connect to the service process. |task| is executed
-  // when the connection is made or an error occurred.
-  void ConnectInternal(Task* task);
+  // Used internally to connect to the service process.
+  void ConnectInternal();
+
+  static void RunAllTasksHelper(TaskList* task_list);
 
   Profile* profile_;
-  ServiceProcessType type_;
 
   // IPC channel to the service process.
   scoped_ptr<IPC::SyncChannel> channel_;
@@ -122,9 +138,13 @@ class ServiceProcessControl : public IPC::Channel::Sender,
   // Service process launcher.
   scoped_refptr<Launcher> launcher_;
 
-  // Callback that gets invoked when the channel is connected or failed to
-  // connect.
-  scoped_ptr<Task> connect_done_task_;
+  // Callbacks that get invoked when the channel is successfully connected or
+  // if there was a failure in connecting.
+  TaskList connect_done_tasks_;
+  // Callbacks that get invoked ONLY when the channel is successfully connected.
+  TaskList connect_success_tasks_;
+  // Callbacks that get invoked ONLY when there was a connection failure.
+  TaskList connect_failure_tasks_;
 
   // Callback that gets invoked when a status message is received from
   // the cloud print proxy.
@@ -132,6 +152,8 @@ class ServiceProcessControl : public IPC::Channel::Sender,
 
   // Handler for messages from service process.
   MessageHandler* message_handler_;
+
+  NotificationRegistrar registrar_;
 };
 
 #endif  // CHROME_BROWSER_SERVICE_SERVICE_PROCESS_CONTROL_H_

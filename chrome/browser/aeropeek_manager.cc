@@ -13,11 +13,11 @@
 #include "base/scoped_handle_win.h"
 #include "base/scoped_native_library.h"
 #include "base/waitable_event.h"
-#include "base/win_util.h"
+#include "base/win/windows_version.h"
 #include "chrome/browser/app_icon_win.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/renderer_host/backing_store.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -261,36 +261,14 @@ class RegisterThumbnailTask : public Task {
     // message.
     // TODO(hbono): we need to check this registered message?
     ScopedComPtr<ITaskbarList3> taskbar;
-    HRESULT result = taskbar.CreateInstance(CLSID_TaskbarList, NULL,
-                                            CLSCTX_INPROC_SERVER);
-    if (FAILED(result)) {
-      LOG(INFO) << "failed creating a TaskbarList object: " << result;
+    if (FAILED(taskbar.CreateInstance(CLSID_TaskbarList, NULL,
+                                      CLSCTX_INPROC_SERVER)) ||
+        FAILED(taskbar->HrInit()) ||
+        FAILED(taskbar->RegisterTab(window_, frame_window_)) ||
+        FAILED(taskbar->SetTabOrder(window_, NULL)))
       return;
-    }
-
-    result = taskbar->HrInit();
-    if (FAILED(result)) {
-      LOG(INFO) << "failed initializing a TaskbarList obejct: " << result;
-      return;
-    }
-
-    result = taskbar->RegisterTab(window_, frame_window_);
-    if (FAILED(result)) {
-      LOG(INFO) << "failed registering a thumbnail window: " << result;
-      return;
-    }
-
-    result = taskbar->SetTabOrder(window_, NULL);
-    if (FAILED(result)) {
-      LOG(INFO) << "failed adding a thumbnail window: " << result;
-      return;
-    }
-
-    if (active_) {
-      result = taskbar->SetTabActive(window_, frame_window_, 0);
-      if (FAILED(result))
-        LOG(INFO) << "failed activating a thumbnail window: " << result;
-    }
+    if (active_)
+      taskbar->SetTabActive(window_, frame_window_, 0);
   }
 
  private:
@@ -916,11 +894,11 @@ LRESULT AeroPeekWindow::OnCreate(LPCREATESTRUCT create_struct) {
   // may take some time. (For example, when we create an ITaskbarList3
   // interface for the first time, Windows loads DLLs and we need to wait for
   // some time.)
-  ChromeThread::PostTask(ChromeThread::IO,
-                         FROM_HERE,
-                         new RegisterThumbnailTask(frame_window_,
-                                                   hwnd(),
-                                                   tab_active_));
+  BrowserThread::PostTask(
+      BrowserThread::IO,
+      FROM_HERE,
+      new RegisterThumbnailTask(frame_window_, hwnd(), tab_active_));
+
   return 0;
 }
 
@@ -955,13 +933,13 @@ LRESULT AeroPeekWindow::OnDwmSendIconicThumbnail(UINT message,
   delegate_->GetTabThumbnail(tab_id_, &thumbnail);
 
   gfx::Size aeropeek_size(HIWORD(lparam), LOWORD(lparam));
-  ChromeThread::PostTask(ChromeThread::IO,
-                         FROM_HERE,
-                         new SendThumbnailTask(hwnd(),
-                                               GetContentBounds(),
-                                               aeropeek_size,
-                                               thumbnail,
-                                               &ready_to_update_thumbnail_));
+  BrowserThread::PostTask(BrowserThread::IO,
+                          FROM_HERE,
+                          new SendThumbnailTask(hwnd(),
+                                                GetContentBounds(),
+                                                aeropeek_size,
+                                                thumbnail,
+                                                &ready_to_update_thumbnail_));
   return 0;
 }
 
@@ -979,11 +957,11 @@ LRESULT AeroPeekWindow::OnDwmSendIconicLivePreviewBitmap(UINT message,
   SkBitmap preview;
   delegate_->GetTabPreview(tab_id_, &preview);
 
-  ChromeThread::PostTask(ChromeThread::IO,
-                         FROM_HERE,
-                         new SendLivePreviewTask(hwnd(),
-                                                 GetContentBounds(),
-                                                 preview));
+  BrowserThread::PostTask(
+      BrowserThread::IO,
+      FROM_HERE,
+      new SendLivePreviewTask(hwnd(), GetContentBounds(), preview));
+
   return 0;
 }
 
@@ -1029,7 +1007,7 @@ bool AeroPeekManager::Enabled() {
   // TODO(hbono): Bug 37957 <http://crbug.com/37957>: find solutions that avoid
   // flooding users with tab thumbnails.
   const CommandLine* command_line = CommandLine::ForCurrentProcess();
-  return win_util::GetWinVersion() >= win_util::WINVERSION_WIN7 &&
+  return base::win::GetVersion() >= base::win::VERSION_WIN7 &&
       win_util::ShouldUseVistaFrame() &&
       !command_line->HasSwitch(switches::kApp) &&
       command_line->HasSwitch(switches::kEnableAeroPeekTabs);
@@ -1097,7 +1075,11 @@ void AeroPeekManager::TabInsertedAt(TabContents* contents,
   tab_list_.push_back(window);
 }
 
-void AeroPeekManager::TabClosingAt(TabContents* contents, int index) {
+void AeroPeekManager::TabClosingAt(TabStripModel* tab_strip_model,
+                                   TabContents* contents,
+                                   int index) {
+  // |tab_strip_model| is NULL when this is being called from TabDetachedAt
+  // below.
   // Delete the AeroPeekWindow object associated with this tab and all its
   // resources. (AeroPeekWindow::Destory() also removes this tab from the tab
   // list of Windows.)
@@ -1115,7 +1097,7 @@ void AeroPeekManager::TabDetachedAt(TabContents* contents, int index) {
   // Chrome will call TabInsertedAt() when this tab is inserted to another
   // TabStrip. We will re-create an AeroPeekWindow object for this tab and
   // re-add it to the tab list there.
-  TabClosingAt(contents, index);
+  TabClosingAt(NULL, contents, index);
 }
 
 void AeroPeekManager::TabSelectedAt(TabContents* old_contents,

@@ -30,6 +30,8 @@ Version* Version::GetVersionFromString(const std::string& version_str) {
 
 Version::Version() : is_valid_(false) {}
 
+Version::~Version() {}
+
 bool Version::Equals(const Version& that) const {
   DCHECK(is_valid_);
   DCHECK(that.is_valid_);
@@ -73,7 +75,7 @@ const std::string Version::GetString() const {
 bool Version::InitFromString(const std::string& version_str) {
   DCHECK(!is_valid_);
   std::vector<std::string> numbers;
-  SplitString(version_str, '.', &numbers);
+  base::SplitString(version_str, '.', &numbers);
   if (numbers.empty())
     return false;
   for (std::vector<std::string>::iterator i = numbers.begin();

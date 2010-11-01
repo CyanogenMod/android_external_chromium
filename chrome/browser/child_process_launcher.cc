@@ -11,7 +11,7 @@
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/thread.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/chrome_descriptors.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/process_watcher.h"
@@ -42,7 +42,9 @@ class ChildProcessLauncher::Context
     : public base::RefCountedThreadSafe<ChildProcessLauncher::Context> {
  public:
   Context()
-      : starting_(true)
+      : client_(NULL),
+        client_thread_id_(BrowserThread::UI),
+        starting_(true)
 #if defined(OS_LINUX)
         , zygote_(false)
 #endif
@@ -61,10 +63,10 @@ class ChildProcessLauncher::Context
       Client* client) {
     client_ = client;
 
-    CHECK(ChromeThread::GetCurrentThreadIdentifier(&client_thread_id_));
+    CHECK(BrowserThread::GetCurrentThreadIdentifier(&client_thread_id_));
 
-    ChromeThread::PostTask(
-        ChromeThread::PROCESS_LAUNCHER, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::PROCESS_LAUNCHER, FROM_HERE,
         NewRunnableMethod(
             this,
             &Context::LaunchInternal,
@@ -81,7 +83,7 @@ class ChildProcessLauncher::Context
   void ResetClient() {
     // No need for locking as this function gets called on the same thread that
     // client_ would be used.
-    CHECK(ChromeThread::CurrentlyOn(client_thread_id_));
+    CHECK(BrowserThread::CurrentlyOn(client_thread_id_));
     client_ = NULL;
   }
 
@@ -191,7 +193,7 @@ class ChildProcessLauncher::Context
     }
 #endif  // else defined(OS_POSIX)
 
-    ChromeThread::PostTask(
+    BrowserThread::PostTask(
         client_thread_id_, FROM_HERE,
         NewRunnableMethod(
             this,
@@ -225,8 +227,8 @@ class ChildProcessLauncher::Context
 
     // On Posix, EnsureProcessTerminated can lead to 2 seconds of sleep!  So
     // don't this on the UI/IO threads.
-    ChromeThread::PostTask(
-        ChromeThread::PROCESS_LAUNCHER, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::PROCESS_LAUNCHER, FROM_HERE,
         NewRunnableFunction(
             &ChildProcessLauncher::Context::TerminateInternal,
 #if defined(OS_LINUX)
@@ -262,7 +264,7 @@ class ChildProcessLauncher::Context
   }
 
   Client* client_;
-  ChromeThread::ID client_thread_id_;
+  BrowserThread::ID client_thread_id_;
   base::Process process_;
   bool starting_;
 

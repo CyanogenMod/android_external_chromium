@@ -10,7 +10,7 @@
 #include "base/string_piece.h"
 #include "base/thread.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/dom_ui/downloads_dom_handler.h"
@@ -132,8 +132,8 @@ DownloadsUI::DownloadsUI(TabContents* contents) : DOMUI(contents) {
   DownloadsUIHTMLSource* html_source = new DownloadsUIHTMLSource();
 
   // Set up the chrome://downloads/ source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(html_source)));

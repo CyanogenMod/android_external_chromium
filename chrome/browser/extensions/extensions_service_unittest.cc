@@ -22,7 +22,8 @@
 #include "base/utf_string_conversions.h"
 #include "base/version.h"
 #include "chrome/browser/appcache/chrome_appcache_service.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
+#include "chrome/browser/file_system/file_system_host_context.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/extension_creator.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
@@ -247,8 +248,8 @@ class ExtensionTestingProfile : public TestingProfile {
   virtual ChromeAppCacheService* GetAppCacheService() {
     if (!appcache_service_) {
       appcache_service_ = new ChromeAppCacheService;
-      ChromeThread::PostTask(
-          ChromeThread::IO, FROM_HERE,
+      BrowserThread::PostTask(
+          BrowserThread::IO, FROM_HERE,
           NewRunnableMethod(appcache_service_.get(),
                             &ChromeAppCacheService::InitializeOnIOThread,
                             GetPath(), IsOffTheRecord(),
@@ -257,26 +258,34 @@ class ExtensionTestingProfile : public TestingProfile {
     return appcache_service_;
   }
 
+  virtual FileSystemHostContext* GetFileSystemHostContext() {
+    if (!file_system_host_context_)
+      file_system_host_context_ = new FileSystemHostContext(
+          GetPath(), IsOffTheRecord());
+    return file_system_host_context_;
+  }
+
  private:
   ExtensionsService* service_;
   scoped_refptr<ChromeAppCacheService> appcache_service_;
+  scoped_refptr<FileSystemHostContext> file_system_host_context_;
 };
 
 // Our message loop may be used in tests which require it to be an IO loop.
 ExtensionsServiceTestBase::ExtensionsServiceTestBase()
     : total_successes_(0),
       loop_(MessageLoop::TYPE_IO),
-      ui_thread_(ChromeThread::UI, &loop_),
-      db_thread_(ChromeThread::DB, &loop_),
-      webkit_thread_(ChromeThread::WEBKIT, &loop_),
-      file_thread_(ChromeThread::FILE, &loop_),
-      io_thread_(ChromeThread::IO, &loop_) {
+      ui_thread_(BrowserThread::UI, &loop_),
+      db_thread_(BrowserThread::DB, &loop_),
+      webkit_thread_(BrowserThread::WEBKIT, &loop_),
+      file_thread_(BrowserThread::FILE, &loop_),
+      io_thread_(BrowserThread::IO, &loop_) {
 }
 
 ExtensionsServiceTestBase::~ExtensionsServiceTestBase() {
   // Drop our reference to ExtensionsService and TestingProfile, so that they
-  // can be destroyed while ChromeThreads and MessageLoop are still around (they
-  // are used in the destruction process).
+  // can be destroyed while BrowserThreads and MessageLoop are still around
+  // (they are used in the destruction process).
   service_ = NULL;
   profile_.reset(NULL);
   MessageLoop::current()->RunAllPending();
@@ -1707,7 +1716,7 @@ TEST_F(ExtensionsServiceTest, UpdatePendingExtensionAlreadyInstalled) {
       good->id(), good->update_url(),
       PendingExtensionInfo::EXTENSION,
       kGoodIsFromSync, kGoodInstallSilently, kGoodInitialState,
-      kGoodInitialIncognitoEnabled);
+      kGoodInitialIncognitoEnabled, Extension::INTERNAL);
   UpdateExtension(good->id(), path, INSTALLED);
 
   EXPECT_FALSE(ContainsKey(service_->pending_extensions(), kGoodId));
@@ -2032,6 +2041,47 @@ TEST_F(ExtensionsServiceTest, UninstallExtension) {
 
   // The directory should be gone.
   EXPECT_FALSE(file_util::PathExists(extension_path));
+}
+
+// Tests the uninstaller helper.
+TEST_F(ExtensionsServiceTest, UninstallExtensionHelper) {
+  InitializeEmptyExtensionsService();
+  FilePath extensions_path;
+  ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &extensions_path));
+  extensions_path = extensions_path.AppendASCII("extensions");
+
+  // A simple extension that should install without error.
+  FilePath path = extensions_path.AppendASCII("good.crx");
+  InstallExtension(path, true);
+
+  // The directory should be there now.
+  const char* extension_id = good_crx;
+  FilePath extension_path = extensions_install_dir_.AppendASCII(extension_id);
+  EXPECT_TRUE(file_util::PathExists(extension_path));
+
+  bool result = ExtensionsService::UninstallExtensionHelper(service_,
+                                                            extension_id);
+  total_successes_ = 0;
+
+  EXPECT_TRUE(result);
+
+  // We should get an unload notification.
+  ASSERT_TRUE(unloaded_id_.length());
+  EXPECT_EQ(extension_id, unloaded_id_);
+
+  ValidatePrefKeyCount(0);
+
+  // The extension should not be in the service anymore.
+  ASSERT_FALSE(service_->GetExtensionById(extension_id, false));
+  loop_.RunAllPending();
+
+  // The directory should be gone.
+  EXPECT_FALSE(file_util::PathExists(extension_path));
+
+  // Attempt to uninstall again. This should fail as we just removed the
+  // extension.
+  result = ExtensionsService::UninstallExtensionHelper(service_, extension_id);
+  EXPECT_FALSE(result);
 }
 
 // Verifies extension state is removed upon uninstall
@@ -2474,15 +2524,15 @@ TEST(ExtensionsServiceTestSimple, Enabledness) {
   ExtensionsReadyRecorder recorder;
   scoped_ptr<TestingProfile> profile(new TestingProfile());
   MessageLoop loop;
-  ChromeThread ui_thread(ChromeThread::UI, &loop);
-  ChromeThread file_thread(ChromeThread::FILE, &loop);
+  BrowserThread ui_thread(BrowserThread::UI, &loop);
+  BrowserThread file_thread(BrowserThread::FILE, &loop);
   scoped_ptr<CommandLine> command_line;
   scoped_refptr<ExtensionsService> service;
   FilePath install_dir = profile->GetPath()
       .AppendASCII(ExtensionsService::kInstallDirectoryName);
 
   // By default, we are enabled.
-  command_line.reset(new CommandLine(CommandLine::ARGUMENTS_ONLY));
+  command_line.reset(new CommandLine(CommandLine::NO_PROGRAM));
   service = profile->CreateExtensionsService(command_line.get(),
                                              install_dir);
   EXPECT_TRUE(service->extensions_enabled());
@@ -2514,13 +2564,17 @@ TEST(ExtensionsServiceTestSimple, Enabledness) {
   recorder.set_ready(false);
   profile.reset(new TestingProfile());
   profile->GetPrefs()->SetBoolean(prefs::kDisableExtensions, true);
-  command_line.reset(new CommandLine(CommandLine::ARGUMENTS_ONLY));
+  command_line.reset(new CommandLine(CommandLine::NO_PROGRAM));
   service = profile->CreateExtensionsService(command_line.get(),
                                              install_dir);
   EXPECT_FALSE(service->extensions_enabled());
   service->Init();
   loop.RunAllPending();
   EXPECT_TRUE(recorder.ready());
+
+  // Explicitly delete all the resources used in this test.
+  profile.reset();
+  service = NULL;
 }
 
 // Test loading extensions that require limited and unlimited storage quotas.
@@ -2586,6 +2640,9 @@ TEST_F(ExtensionsServiceTest, StorageQuota) {
 // Tests ExtensionsService::register_component_extension().
 TEST_F(ExtensionsServiceTest, ComponentExtensions) {
   InitializeEmptyExtensionsService();
+
+  // Component extensions should work even when extensions are disabled.
+  set_extensions_enabled(false);
 
   FilePath path;
   ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &path));

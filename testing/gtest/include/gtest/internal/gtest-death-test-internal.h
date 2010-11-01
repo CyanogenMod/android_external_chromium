@@ -37,7 +37,7 @@
 #ifndef GTEST_INCLUDE_GTEST_INTERNAL_GTEST_DEATH_TEST_INTERNAL_H_
 #define GTEST_INCLUDE_GTEST_INTERNAL_GTEST_DEATH_TEST_INTERNAL_H_
 
-#include <gtest/internal/gtest-internal.h>
+#include "gtest/internal/gtest-internal.h"
 
 namespace testing {
 namespace internal {
@@ -176,6 +176,8 @@ GTEST_API_ bool ExitedUnsuccessfully(int exit_status);
           gtest_dt->Abort(::testing::internal::DeathTest::TEST_DID_NOT_DIE); \
           break; \
         } \
+        default: \
+          break; \
       } \
     } \
   } else \

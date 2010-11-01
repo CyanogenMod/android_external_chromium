@@ -9,7 +9,7 @@
 
 #include "base/logging.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/search_engines/template_url_prepopulate_data.h"
@@ -41,7 +41,7 @@ static void RemoveDuplicatePrepopulateIDs(
     std::vector<TemplateURL*>* template_urls,
     WebDataService* service) {
   DCHECK(template_urls);
-  DCHECK(service == NULL || ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(service == NULL || BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   std::set<int> ids;
   for (std::vector<TemplateURL*>::iterator i = template_urls->begin();
@@ -70,7 +70,7 @@ void MergeEnginesFromPrepopulateData(
     WebDataService* service,
     std::vector<TemplateURL*>* template_urls,
     const TemplateURL** default_search_provider) {
-  DCHECK(service == NULL || ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(service == NULL || BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(template_urls);
   DCHECK(default_search_provider);
 
@@ -84,49 +84,51 @@ void MergeEnginesFromPrepopulateData(
       id_to_turl[prepopulate_id] = *i;
   }
 
-  std::vector<TemplateURL*> loaded_urls;
+  std::vector<TemplateURL*> prepopulated_urls;
   size_t default_search_index;
   TemplateURLPrepopulateData::GetPrepopulatedEngines(prefs,
-                                                     &loaded_urls,
+                                                     &prepopulated_urls,
                                                      &default_search_index);
 
   std::set<int> updated_ids;
-  for (size_t i = 0; i < loaded_urls.size(); ++i) {
-    // We take ownership of |t_url|.
-    scoped_ptr<TemplateURL> t_url(loaded_urls[i]);
-    const int t_url_id = t_url->prepopulate_id();
-    if (!t_url_id || updated_ids.count(t_url_id)) {
+  for (size_t i = 0; i < prepopulated_urls.size(); ++i) {
+    // We take ownership of |prepopulated_urls[i]|.
+    scoped_ptr<TemplateURL> prepopulated_url(prepopulated_urls[i]);
+    const int prepopulated_id = prepopulated_url->prepopulate_id();
+    if (!prepopulated_id || updated_ids.count(prepopulated_id)) {
       // Prepopulate engines need a unique id.
       NOTREACHED();
       continue;
     }
 
-    TemplateURL* current_t_url = t_url.get();
-    IDMap::iterator existing_url_iter(id_to_turl.find(t_url_id));
+    TemplateURL* existing_url = NULL;
+    IDMap::iterator existing_url_iter(id_to_turl.find(prepopulated_id));
     if (existing_url_iter != id_to_turl.end()) {
-      current_t_url = existing_url_iter->second;
-      if (!current_t_url->safe_for_autoreplace()) {
+      existing_url = existing_url_iter->second;
+      if (!existing_url->safe_for_autoreplace()) {
         // User edited the entry, preserve the keyword and description.
-        t_url->set_safe_for_autoreplace(false);
-        t_url->set_keyword(current_t_url->keyword());
-        t_url->set_autogenerate_keyword(
-            current_t_url->autogenerate_keyword());
-        t_url->set_short_name(current_t_url->short_name());
+        prepopulated_url->set_safe_for_autoreplace(false);
+        prepopulated_url->set_keyword(existing_url->keyword());
+        prepopulated_url->set_autogenerate_keyword(
+            existing_url->autogenerate_keyword());
+        prepopulated_url->set_short_name(existing_url->short_name());
       }
-      t_url->set_id(current_t_url->id());
+      prepopulated_url->set_id(existing_url->id());
 
-      *current_t_url = *t_url;
+      *existing_url = *prepopulated_url;
       if (service) {
-        service->UpdateKeyword(*current_t_url);
+        service->UpdateKeyword(*existing_url);
       }
       id_to_turl.erase(existing_url_iter);
     } else {
-      template_urls->push_back(t_url.release());
+      existing_url = prepopulated_url.get();
+      template_urls->push_back(prepopulated_url.release());
     }
+    DCHECK(existing_url);
     if (i == default_search_index && !*default_search_provider)
-      *default_search_provider = current_t_url;
+      *default_search_provider = existing_url;
 
-    updated_ids.insert(t_url_id);
+    updated_ids.insert(prepopulated_id);
   }
 
   // Remove any prepopulated engines which are no longer in the master list, as
@@ -154,7 +156,7 @@ void GetSearchProvidersUsingKeywordResult(
     std::vector<TemplateURL*>* template_urls,
     const TemplateURL** default_search_provider,
     int* new_resource_keyword_version) {
-  DCHECK(service == NULL || ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(service == NULL || BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(template_urls);
   DCHECK(template_urls->empty());
   DCHECK(default_search_provider);
@@ -194,3 +196,4 @@ void GetSearchProvidersUsingKeywordResult(
     *new_resource_keyword_version = resource_keyword_version;
   }
 }
+

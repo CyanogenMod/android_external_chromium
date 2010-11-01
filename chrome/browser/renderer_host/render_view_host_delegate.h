@@ -47,6 +47,7 @@ struct ThumbnailScore;
 struct ViewHostMsg_DidPrintPage_Params;
 struct ViewHostMsg_DomMessage_Params;
 struct ViewHostMsg_FrameNavigate_Params;
+struct ViewHostMsg_PageHasOSDD_Type;
 struct ViewHostMsg_RunFileChooser_Params;
 struct WebDropData;
 class WebKeyboardEvent;
@@ -197,6 +198,10 @@ class RenderViewHostDelegate {
     // The contents' preferred size changed.
     virtual void UpdatePreferredSize(const gfx::Size& pref_size) = 0;
 
+    // Called to determine whether the render view needs to draw a drop shadow
+    // at the top (currently used for infobars).
+    virtual bool ShouldDrawDropShadow();
+
    protected:
     virtual ~View() {}
   };
@@ -302,6 +307,7 @@ class RenderViewHostDelegate {
     // The RenderView is starting a provisional load.
     virtual void DidStartProvisionalLoadForFrame(
         RenderViewHost* render_view_host,
+        long long frame_id,
         bool is_main_frame,
         const GURL& url) = 0;
 
@@ -341,6 +347,7 @@ class RenderViewHostDelegate {
     // The RenderView failed a provisional load with an error.
     virtual void DidFailProvisionalLoadWithError(
         RenderViewHost* render_view_host,
+        long long frame_id,
         bool is_main_frame,
         int error_code,
         const GURL& url,
@@ -709,9 +716,9 @@ class RenderViewHostDelegate {
 
   // Inspector setting was changed and should be persisted.
   virtual void UpdateInspectorSetting(const std::string& key,
-                                      const std::string& value) {}
+                                      const std::string& value) = 0;
 
-  virtual void ClearInspectorSettings() {}
+  virtual void ClearInspectorSettings() = 0;
 
   // The page is trying to close the RenderView's representation in the client.
   virtual void Close(RenderViewHost* render_view_host) {}
@@ -784,7 +791,7 @@ class RenderViewHostDelegate {
   // Notification that the page has an OpenSearch description document.
   virtual void PageHasOSDD(RenderViewHost* render_view_host,
                            int32 page_id, const GURL& doc_url,
-                           bool autodetected) {}
+                           const ViewHostMsg_PageHasOSDD_Type& provider_type) {}
 
   // |url| is assigned to a server that can provide alternate error pages.  If
   // the returned URL is empty, the default error page built into WebKit will
@@ -835,8 +842,13 @@ class RenderViewHostDelegate {
   // A different node in the page got focused.
   virtual void FocusedNodeChanged() {}
 
-  // The content being displayed is a PDF.
-  virtual void SetDisplayingPDFContent() {}
+  // Updates the minimum and maximum zoom percentages.
+  virtual void UpdateZoomLimits(int minimum_percent,
+                                int maximum_percent,
+                                bool remember) {}
+
+  // Update the content restrictions, i.e. disable print/copy.
+  virtual void UpdateContentRestrictions(int restrictions) {}
 
  protected:
   virtual ~RenderViewHostDelegate() {}

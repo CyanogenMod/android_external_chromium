@@ -429,20 +429,7 @@ extern const QName QN_GOOGLE_MUC_USER_MEDIA;
 extern const QName QN_GOOGLE_MUC_USER_TYPE;
 extern const QName QN_GOOGLE_MUC_USER_SRC_ID;
 extern const QName QN_GOOGLE_MUC_USER_STATUS;
-extern const std::string NS_JINGLE;
-extern const QName QN_JINGLE_SRC_ID;
 extern const QName QN_LABEL;
-
-// Call terminate reasons
-extern const std::string STR_TERMINATE_CALL_ENDED;
-extern const std::string STR_TERMINATE_RECIPIENT_UNAVAILABLE;
-extern const std::string STR_TERMINATE_RECIPIENT_BUSY;
-extern const std::string STR_TERMINATE_INSUFFICIENT_FUNDS;
-extern const std::string STR_TERMINATE_NUMBER_MALFORMED;
-extern const std::string STR_TERMINATE_NUMBER_DISALLOWED;
-extern const std::string STR_TERMINATE_PROTOCOL_ERROR;
-extern const std::string STR_TERMINATE_INTERNAL_SERVER_ERROR;
-extern const std::string STR_TERMINATE_UNKNOWN_ERROR;
 
 }  // namespace buzz
 

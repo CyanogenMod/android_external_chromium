@@ -8,7 +8,7 @@
 #include "base/ref_counted_memory.h"
 #include "base/singleton.h"
 #include "base/string_piece.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/url_constants.h"
@@ -20,8 +20,8 @@
 KeyboardUI::KeyboardUI(TabContents* contents)
     : DOMUI(contents) {
   KeyboardHTMLSource* html_source = new KeyboardHTMLSource();
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,

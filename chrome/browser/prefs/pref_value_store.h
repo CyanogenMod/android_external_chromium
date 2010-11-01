@@ -16,9 +16,13 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/values.h"
+<<<<<<< HEAD
 #ifndef ANDROID
 #include "chrome/browser/chrome_thread.h"
 #endif
+=======
+#include "chrome/browser/browser_thread.h"
+>>>>>>> chromium.org at r63472
 #include "chrome/browser/prefs/pref_notifier.h"
 #include "chrome/common/pref_store.h"
 
@@ -60,6 +64,9 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
   // was found in any of the available PrefStores. Most callers should use
   // Preference::GetValue() instead of calling this method directly.
   bool GetValue(const std::string& name, Value** out_value) const;
+
+  // Same as GetValue but only searches USER_STORE.
+  bool GetUserValue(const std::string& name, Value** out_value) const;
 
   // Adds a preference to the mapping of names to types.
   void RegisterPreferenceType(const std::string& name, Value::ValueType type);
@@ -128,6 +135,14 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
   bool PrefValueInExtensionStore(const char* name) const;
   bool PrefValueInUserStore(const char* name) const;
 
+  // Returns true if a preference has an explicit value in any of the
+  // stores in the range specified by |first_checked_store| and
+  // |last_checked_store|, even if that value is currently being
+  // overridden by a higher-priority store.
+  bool PrefValueInStoreRange(const char* name,
+                             PrefNotifier::PrefStoreType first_checked_store,
+                             PrefNotifier::PrefStoreType last_checked_store);
+
   // These methods return true if a preference with the given name is actually
   // being controlled by the indicated pref store and not being overridden by
   // a higher-priority source.
@@ -154,6 +169,7 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
 
 #ifndef ANDROID
   // Called as a result of a notification of policy change. Triggers a
+<<<<<<< HEAD
   // reload of managed preferences from policy. Caller must pass in
   // new, uninitialized managed and recommended PrefStores in
   // |managed_pref_store| and |recommended_pref_store| respectively, since
@@ -168,6 +184,21 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
 #endif
 
  protected:
+=======
+  // reload of managed preferences from policy from a Task on the FILE
+  // thread. The Task will take ownership of the |callback|. |callback| is
+  // called with the set of preferences changed by the policy refresh.
+  // |callback| is called on the caller's thread as a Task after
+  // RefreshPolicyPrefs has returned.
+  void RefreshPolicyPrefs(AfterRefreshCallback* callback);
+
+  // Returns true if there are proxy preferences in user-modifiable
+  // preference stores (e.g. CommandLinePrefStore, ExtensionPrefStore)
+  // that conflict with proxy settings specified by proxy policy.
+  bool HasPolicyConflictingUserProxySettings();
+
+      protected:
+>>>>>>> chromium.org at r63472
   // In decreasing order of precedence:
   //   |managed_prefs| contains all managed (policy) preference values.
   //   |extension_prefs| contains preference values set by extensions.
@@ -205,7 +236,15 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
   bool PrefValueInStore(const char* name,
                         PrefNotifier::PrefStoreType store) const;
 
+<<<<<<< HEAD
 #ifndef ANDROID
+=======
+  // Get a value from the specified store type.
+  bool GetValueFromStore(const char* name,
+                         PrefNotifier::PrefStoreType store,
+                         Value** out_value) const;
+
+>>>>>>> chromium.org at r63472
   // Called during policy refresh after ReadPrefs completes on the thread
   // that initiated the policy refresh. RefreshPolicyPrefsCompletion takes
   // ownership of the |callback| object.
@@ -217,7 +256,7 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
   // Called during policy refresh to do the ReadPrefs on the FILE thread.
   // RefreshPolicyPrefsOnFileThread takes ownership of the |callback| object.
   void RefreshPolicyPrefsOnFileThread(
-      ChromeThread::ID calling_thread_id,
+      BrowserThread::ID calling_thread_id,
       PrefStore* new_managed_pref_store,
       PrefStore* new_recommended_pref_store,
       AfterRefreshCallback* callback);

@@ -53,6 +53,8 @@ class HttpBasicStream : public HttpStream {
 
   virtual void Close(bool not_reusable);
 
+  virtual HttpStream* RenewStreamForAuth();
+
   virtual bool IsResponseBodyComplete() const;
 
   virtual bool CanFindEndOfResponse() const;

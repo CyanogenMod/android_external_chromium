@@ -14,7 +14,7 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/most_visited_handler.h"
 #include "chrome/browser/history/history_notifications.h"
 #include "chrome/browser/history/page_usage_data.h"
@@ -85,7 +85,7 @@ void TopSites::Init(const FilePath& db_name) {
     return;
   }
 
-  ChromeThread::PostTask(ChromeThread::DB, FROM_HERE, NewRunnableMethod(
+  BrowserThread::PostTask(BrowserThread::DB, FROM_HERE, NewRunnableMethod(
       this, &TopSites::ReadDatabase));
 
   // Start the one-shot timer.
@@ -94,7 +94,7 @@ void TopSites::Init(const FilePath& db_name) {
 }
 
 void TopSites::ReadDatabase() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   std::map<GURL, Images> thumbnails;
 
   DCHECK(db_.get());
@@ -138,7 +138,7 @@ bool TopSites::SetPageThumbnail(const GURL& url,
   SkAutoLockPixels thumbnail_lock(thumbnail);
   bool encoded = gfx::JPEGCodec::Encode(
       reinterpret_cast<unsigned char*>(thumbnail.getAddr32(0, 0)),
-      gfx::JPEGCodec::FORMAT_BGRA, thumbnail.width(),
+      gfx::JPEGCodec::FORMAT_SkBitmap, thumbnail.width(),
       thumbnail.height(),
       static_cast<int>(thumbnail.rowBytes()), 90,
       &thumbnail_data->data);
@@ -169,7 +169,7 @@ bool TopSites::SetPageThumbnailEncoded(const GURL& url,
   size_t index = found->second;
 
   MostVisitedURL& most_visited = top_sites_[index];
-  ChromeThread::PostTask(ChromeThread::DB, FROM_HERE, NewRunnableMethod(
+  BrowserThread::PostTask(BrowserThread::DB, FROM_HERE, NewRunnableMethod(
       this, &TopSites::WriteThumbnailToDB,
       most_visited, index, top_images_[most_visited.url]));
   return true;
@@ -179,7 +179,7 @@ void TopSites::WriteThumbnailToDB(const MostVisitedURL& url,
                                   int url_rank,
                                   const Images& thumbnail) {
   DCHECK(db_.get());
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   db_->SetPageThumbnail(url, url_rank, thumbnail);
 }
 
@@ -279,11 +279,10 @@ bool TopSites::AddPrepopulatedPages(MostVisitedURLList* urls) {
   bool added = false;
   GURL welcome_url(l10n_util::GetStringUTF8(IDS_CHROME_WELCOME_URL));
   if (urls->size() < kTopSitesNumber && IndexOf(*urls, welcome_url) == -1) {
-    MostVisitedURL url = {
-      welcome_url,
-      GURL("chrome://theme/IDR_NEWTAB_CHROME_WELCOME_PAGE_FAVICON"),
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_CHROME_WELCOME_PAGE_TITLE)
-    };
+    MostVisitedURL url(
+        welcome_url,
+        GURL("chrome://theme/IDR_NEWTAB_CHROME_WELCOME_PAGE_FAVICON"),
+        l10n_util::GetStringUTF16(IDS_NEW_TAB_CHROME_WELCOME_PAGE_TITLE));
     url.redirects.push_back(welcome_url);
     urls->push_back(url);
     added = true;
@@ -291,11 +290,10 @@ bool TopSites::AddPrepopulatedPages(MostVisitedURLList* urls) {
 
   GURL themes_url(l10n_util::GetStringUTF8(IDS_THEMES_GALLERY_URL));
   if (urls->size() < kTopSitesNumber && IndexOf(*urls, themes_url) == -1) {
-    MostVisitedURL url = {
-      themes_url,
-      GURL("chrome://theme/IDR_NEWTAB_THEMES_GALLERY_FAVICON"),
-      l10n_util::GetStringUTF16(IDS_NEW_TAB_THEMES_GALLERY_PAGE_TITLE)
-    };
+    MostVisitedURL url(
+        themes_url,
+        GURL("chrome://theme/IDR_NEWTAB_THEMES_GALLERY_FAVICON"),
+        l10n_util::GetStringUTF16(IDS_NEW_TAB_THEMES_GALLERY_PAGE_TITLE));
     url.redirects.push_back(themes_url);
     urls->push_back(url);
     added = true;
@@ -389,7 +387,7 @@ std::string TopSites::GetURLHash(const GURL& url) {
 }
 
 void TopSites::UpdateMostVisited(MostVisitedURLList most_visited) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
 
   std::vector<size_t> added;    // Indices into most_visited.
   std::vector<size_t> deleted;  // Indices into top_sites_.
@@ -518,7 +516,7 @@ void TopSites::GenerateCanonicalURLs() {
 }
 
 void TopSites::StoreMostVisited(MostVisitedURLList* most_visited) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   MostVisitedURLList filtered_urls;
   PendingCallbackSet callbacks;
   {
@@ -660,13 +658,13 @@ void TopSites::StartQueryForMostVisited() {
           &cancelable_consumer_,
           NewCallback(this, &TopSites::OnTopSitesAvailable));
     } else {
-      LOG(INFO) << "History Service not available.";
+      VLOG(1) << "History Service not available.";
     }
   }
 }
 
 void TopSites::StartMigration() {
-  LOG(INFO) << "Starting migration to TopSites.";
+  VLOG(1) << "Starting migration to TopSites.";
   migration_in_progress_ = true;
   StartQueryForMostVisited();
   MigratePinnedURLs();
@@ -750,11 +748,11 @@ bool TopSites::GetPinnedURLAtIndex(size_t index, GURL* url) {
 void TopSites::DeleteTopSites(scoped_refptr<TopSites>& ptr) {
   if (!ptr.get() || !MessageLoop::current())
     return;
-  if (ChromeThread::IsWellKnownThread(ChromeThread::UI)) {
+  if (BrowserThread::IsWellKnownThread(BrowserThread::UI)) {
     ptr = NULL;
   } else {
     // Need to roll our own UI thread.
-    ChromeThread ui_loop(ChromeThread::UI, MessageLoop::current());
+    BrowserThread ui_loop(BrowserThread::UI, MessageLoop::current());
     ptr = NULL;
     MessageLoop::current()->RunAllPending();
   }
@@ -779,7 +777,7 @@ void TopSites::OnTopSitesAvailable(
     CancelableRequestProvider::Handle handle,
     MostVisitedURLList pages) {
   AddPrepopulatedPages(&pages);
-  ChromeThread::PostTask(ChromeThread::DB, FROM_HERE, NewRunnableMethod(
+  BrowserThread::PostTask(BrowserThread::DB, FROM_HERE, NewRunnableMethod(
       this, &TopSites::UpdateMostVisited, pages));
 }
 
@@ -838,8 +836,9 @@ void TopSites::Observe(NotificationType type,
     Details<history::URLsDeletedDetails> deleted_details(details);
     if (deleted_details->all_history) {
       top_sites_.clear();
-      ChromeThread::PostTask(ChromeThread::DB, FROM_HERE,
-                             NewRunnableMethod(this, &TopSites::ResetDatabase));
+      BrowserThread::PostTask(
+          BrowserThread::DB, FROM_HERE,
+          NewRunnableMethod(this, &TopSites::ResetDatabase));
     } else {
       std::set<size_t> indices_to_delete;  // Indices into top_sites_.
       std::set<GURL>::iterator it;
@@ -884,7 +883,7 @@ void TopSites::Observe(NotificationType type,
 }
 
 void TopSites::ResetDatabase() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   db_.reset(new TopSitesDatabaseImpl());
   file_util::Delete(db_path_, false);
   if (!db_->Init(db_path_)) {

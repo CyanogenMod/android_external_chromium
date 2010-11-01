@@ -10,8 +10,8 @@
 
 #include "base/logging.h"
 #include "base/command_line.h"
-#include "base/histogram.h"
 #include "base/message_loop.h"
+#include "base/metrics/histogram.h"
 #include "base/scoped_ptr.h"
 #include "base/shared_memory.h"
 #include "base/stl_util-inl.h"
@@ -241,17 +241,17 @@ ResourceDispatcherHost::~ResourceDispatcherHost() {
 }
 
 void ResourceDispatcherHost::Initialize() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   webkit_thread_->Initialize();
   safe_browsing_->Initialize();
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableFunction(&appcache::AppCacheInterceptor::EnsureRegistered));
 }
 
 void ResourceDispatcherHost::Shutdown() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
-  ChromeThread::PostTask(ChromeThread::IO, FROM_HERE, new ShutdownTask(this));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE, new ShutdownTask(this));
 }
 
 void ResourceDispatcherHost::SetRequestInfo(
@@ -261,7 +261,7 @@ void ResourceDispatcherHost::SetRequestInfo(
 }
 
 void ResourceDispatcherHost::OnShutdown() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   is_shutdown_ = true;
   resource_queue_.Shutdown();
   STLDeleteValues(&pending_requests_);
@@ -297,8 +297,8 @@ bool ResourceDispatcherHost::HandleExternalProtocol(int request_id,
   if (!ResourceType::IsFrame(type) || URLRequest::IsHandledURL(url))
     return false;
 
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableFunction(
           &ExternalProtocolHandler::LaunchUrl, url, child_id, route_id));
 
@@ -457,6 +457,15 @@ void ResourceDispatcherHost::BeginRequest(
   } else if (request_data.resource_type == ResourceType::SUB_FRAME) {
     load_flags |= net::LOAD_SUB_FRAME;
   }
+  // Raw headers are sensitive, as they inclide Cookie/Set-Cookie, so only
+  // allow requesting them if requestor has ReadRawCookies permission.
+  if ((load_flags & net::LOAD_REPORT_RAW_HEADERS)
+      && !ChildProcessSecurityPolicy::GetInstance()->
+              CanReadRawCookies(child_id)) {
+    LOG(INFO) << "Denied unathorized request for raw headers";
+    load_flags &= ~net::LOAD_REPORT_RAW_HEADERS;
+  }
+
   request->set_load_flags(load_flags);
   request->set_context(context);
   request->set_priority(DetermineRequestPriority(request_data.resource_type));
@@ -591,8 +600,10 @@ void ResourceDispatcherHost::UnregisterDownloadedTempFile(
   DeletableFilesMap::iterator found = map.find(request_id);
   if (found == map.end())
     return;
+
+  ChildProcessSecurityPolicy::GetInstance()->RevokeAllPermissionsForFile(
+      receiver_id, found->second->path());
   map.erase(found);
-  // TODO(michaeln): Revoke access to this file.
 }
 
 bool ResourceDispatcherHost::Send(IPC::Message* message) {
@@ -649,9 +660,9 @@ ResourceDispatcherHost::CreateRequestInfoForBrowserRequest(
                                                ResourceType::SUB_RESOURCE,
                                                0,  // upload_size
                                                download,  // is_download
-                                               download, // allow_download
-                                               -1, // Host renderer id
-                                               -1); // Host render view id
+                                               download,  // allow_download
+                                               -1,  // Host renderer id
+                                               -1);  // Host render view id
 }
 
 void ResourceDispatcherHost::OnClosePageACK(
@@ -1550,7 +1561,7 @@ void ResourceDispatcherHost::RemoveObserver(Observer* obs) {
 URLRequest* ResourceDispatcherHost::GetURLRequest(
     const GlobalRequestID& request_id) const {
   // This should be running in the IO loop.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   PendingRequestList::const_iterator i = pending_requests_.find(request_id);
   if (i == pending_requests_.end())
@@ -1734,7 +1745,7 @@ void ResourceDispatcherHost::UpdateLoadStates() {
 
   LoadInfoUpdateTask* task = new LoadInfoUpdateTask;
   task->info_map.swap(info_map);
-  ChromeThread::PostTask(ChromeThread::UI, FROM_HERE, task);
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE, task);
 }
 
 // Calls the ResourceHandler to send upload progress messages to the renderer.

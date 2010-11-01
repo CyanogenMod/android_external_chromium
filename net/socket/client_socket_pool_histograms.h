@@ -8,8 +8,12 @@
 
 #include <string>
 
-#include "base/histogram.h"
+#include "base/time.h"
 #include "base/ref_counted.h"
+
+namespace base {
+class Histogram;
+}
 
 namespace net {
 
@@ -24,10 +28,10 @@ class ClientSocketPoolHistograms {
   void AddReusedIdleTime(base::TimeDelta time) const;
 
  private:
-  scoped_refptr<Histogram> socket_type_;
-  scoped_refptr<Histogram> request_time_;
-  scoped_refptr<Histogram> unused_idle_time_;
-  scoped_refptr<Histogram> reused_idle_time_;
+  scoped_refptr<base::Histogram> socket_type_;
+  scoped_refptr<base::Histogram> request_time_;
+  scoped_refptr<base::Histogram> unused_idle_time_;
+  scoped_refptr<base::Histogram> reused_idle_time_;
 
   bool is_http_proxy_connection_;
   bool is_socks_connection_;

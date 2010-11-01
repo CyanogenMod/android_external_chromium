@@ -66,7 +66,7 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/shared_memory.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "ipc/ipc_message.h"
 #include "media/audio/audio_io.h"
 #include "media/audio/audio_output_controller.h"
@@ -77,7 +77,7 @@ struct ViewHostMsg_Audio_CreateStream_Params;
 
 class AudioRendererHost : public base::RefCountedThreadSafe<
                               AudioRendererHost,
-                              ChromeThread::DeleteOnIOThread>,
+                              BrowserThread::DeleteOnIOThread>,
                           public media::AudioOutputController::EventHandler {
  public:
   typedef std::pair<int32, int> AudioEntryId;
@@ -148,7 +148,7 @@ class AudioRendererHost : public base::RefCountedThreadSafe<
 
  private:
   friend class AudioRendererHostTest;
-  friend class ChromeThread;
+  friend class BrowserThread;
   friend class DeleteTask<AudioRendererHost>;
   friend class MockAudioRendererHost;
   FRIEND_TEST_ALL_PREFIXES(AudioRendererHostTest, CreateMockStream);

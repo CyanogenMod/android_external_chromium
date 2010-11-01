@@ -193,7 +193,7 @@ void FactoryRegistry::ResetFunctions() {
   RegisterFunction<PopupShowFunction>();
 
   // Processes.
-  RegisterFunction<GetProcessForTabFunction>();
+  RegisterFunction<GetProcessIdForTabFunction>();
 
   // Metrics.
   RegisterFunction<MetricsRecordUserActionFunction>();
@@ -228,6 +228,7 @@ void FactoryRegistry::ResetFunctions() {
   RegisterFunction<ExtensionTestQuotaResetFunction>();
   RegisterFunction<ExtensionTestCreateIncognitoTabFunction>();
   RegisterFunction<ExtensionTestSendMessageFunction>();
+  RegisterFunction<ExtensionTestGetConfigFunction>();
 
   // Accessibility.
   RegisterFunction<GetFocusedControlFunction>();
@@ -278,10 +279,11 @@ void FactoryRegistry::ResetFunctions() {
   RegisterFunction<UninstallFunction>();
 
   // WebstorePrivate.
-  RegisterFunction<GetSyncLoginFunction>();
+  RegisterFunction<GetBrowserLoginFunction>();
   RegisterFunction<GetStoreLoginFunction>();
   RegisterFunction<InstallFunction>();
   RegisterFunction<SetStoreLoginFunction>();
+  RegisterFunction<PromptBrowserLoginFunction>();
 }
 
 void FactoryRegistry::GetAllNames(std::vector<std::string>* names) {
@@ -371,16 +373,13 @@ ExtensionFunctionDispatcher::ExtensionFunctionDispatcher(
   epm->RegisterExtensionProcess(extension_id(),
                                 render_view_host->process()->id());
 
-  bool incognito_enabled =
-      profile()->GetExtensionsService()->IsIncognitoEnabled(extension);
-
   // If the extension has permission to load chrome://favicon/ resources we need
   // to make sure that the DOMUIFavIconSource is registered with the
   // ChromeURLDataManager.
   if (extension->HasHostPermission(GURL(chrome::kChromeUIFavIconURL))) {
     DOMUIFavIconSource* favicon_source = new DOMUIFavIconSource(profile_);
-    ChromeThread::PostTask(
-        ChromeThread::IO, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
         NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
                           &ChromeURLDataManager::AddDataSource,
                           make_scoped_refptr(favicon_source)));
@@ -393,8 +392,6 @@ ExtensionFunctionDispatcher::ExtensionFunctionDispatcher(
       extension->id(), extension->api_permissions()));
   render_view_host->Send(new ViewMsg_Extension_SetHostPermissions(
       extension->url(), extension->host_permissions()));
-  render_view_host->Send(new ViewMsg_Extension_ExtensionSetIncognitoEnabled(
-      extension->id(), incognito_enabled, extension->incognito_split_mode()));
 
   NotificationService::current()->Notify(
       NotificationType::EXTENSION_FUNCTION_DISPATCHER_CREATED,

@@ -12,6 +12,7 @@
 #include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/login/helper.h"
+#include "chrome/browser/chromeos/login/keyboard_switch_menu.h"
 #include "chrome/browser/chromeos/login/language_switch_menu.h"
 #include "chrome/browser/chromeos/login/network_screen_delegate.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
@@ -24,6 +25,7 @@
 #include "views/controls/button/native_button.h"
 #include "views/controls/label.h"
 #include "views/controls/throbber.h"
+#include "views/fill_layout.h"
 #include "views/grid_layout.h"
 #include "views/standard_layout.h"
 #include "views/widget/widget.h"
@@ -58,17 +60,17 @@ const int kPaddingColumnWidth = 55;
 const int kMediumPaddingColumnWidth = 20;
 const int kControlPaddingRow = 15;
 
-// Fixed size for language/network controls height.
+// Fixed size for language/keyboard/network controls height.
 const int kSelectionBoxHeight = 29;
 
 // Menu button is drawn using our custom icons in resources. See
 // TextButtonBorder::Paint() for details. So this offset compensate
 // horizontal size, eaten by those icons.
-const int kMenuHorizontalOffset = -1;
+const int kMenuHorizontalOffset = -3;
 
 // Vertical addition to the menu window to make it appear exactly below
 // MenuButton.
-const int kMenuVerticalOffset = 3;
+const int kMenuVerticalOffset = -1;
 
 // Offset that compensates menu width so that it matches
 // menu button visual width when being in pushed state.
@@ -76,31 +78,23 @@ const int kMenuWidthOffset = 6;
 
 const SkColor kWelcomeColor = 0xFFCDD3D6;
 
+// Hints for size of proxy settings dialog.
+static const int kProxySettingsDialogReasonableWidth = 700;
+static const int kProxySettingsDialogReasonableHeight = 460;
+static const int kProxySettingsDialogReasonableWidthRatio = 0.4;
+static const int kProxySettingsDialogReasonableHeightRatio = 0.4;
 }  // namespace
 
 namespace chromeos {
 
-// NetworkDropdownButton with custom accelerator enabled.
-class NetworkControlWithAccelerators : public NetworkDropdownButton {
+// NetworkDropdownButton with custom Activate() behavior.
+class NetworkControlReportOnActivate : public NetworkDropdownButton {
  public:
-  NetworkControlWithAccelerators(bool browser_mode,
+  NetworkControlReportOnActivate(bool browser_mode,
                                  gfx::NativeWindow parent_window,
                                  NetworkScreenDelegate* delegate)
       : NetworkDropdownButton(browser_mode, parent_window),
-        delegate_(delegate),
-        accel_clear_errors_(views::Accelerator(app::VKEY_ESCAPE,
-                                               false, false, false)) {
-    AddAccelerator(accel_clear_errors_);
-  }
-
-  // Overridden from View:
-  bool AcceleratorPressed(const views::Accelerator& accel) {
-    if (accel == accel_clear_errors_) {
-      delegate_->ClearErrors();
-      return true;
-    }
-    return false;
-  }
+        delegate_(delegate) {}
 
   // Overridden from MenuButton:
   virtual bool Activate() {
@@ -111,10 +105,7 @@ class NetworkControlWithAccelerators : public NetworkDropdownButton {
  private:
   NetworkScreenDelegate* delegate_;
 
-  // ESC accelerator for closing error info bubble.
-  views::Accelerator accel_clear_errors_;
-
-  DISALLOW_COPY_AND_ASSIGN(NetworkControlWithAccelerators);
+  DISALLOW_COPY_AND_ASSIGN(NetworkControlReportOnActivate);
 };
 
 // MenuButton with custom processing on focus events.
@@ -140,16 +131,20 @@ class NotifyingMenuButton : public views::MenuButton {
 };
 
 NetworkSelectionView::NetworkSelectionView(NetworkScreenDelegate* delegate)
-    : contents_view_(NULL),
+    : entire_screen_view_(NULL),
+      contents_view_(NULL),
       languages_menubutton_(NULL),
+      keyboards_menubutton_(NULL),
       welcome_label_(NULL),
       select_language_label_(NULL),
+      select_keyboard_label_(NULL),
       select_network_label_(NULL),
       connecting_network_label_(NULL),
       network_dropdown_(NULL),
       continue_button_(NULL),
       throbber_(CreateDefaultSmoothedThrobber()),
       proxy_settings_link_(NULL),
+      show_keyboard_button_(false),
       delegate_(delegate) {
 }
 
@@ -158,28 +153,34 @@ NetworkSelectionView::~NetworkSelectionView() {
   throbber_ = NULL;
 }
 
-void NetworkSelectionView::AddControlsToLayout(const gfx::Size& size,
+void NetworkSelectionView::AddControlsToLayout(
     views::GridLayout* contents_layout) {
+  // Padding rows will be resized.
+  const int kPadding = 0;
   if (IsConnecting()) {
-    const int v_padding = (size.height() -
-        throbber_->GetPreferredSize().height()) / 2;
-    contents_layout->AddPaddingRow(0, v_padding);
+    contents_layout->AddPaddingRow(1, kPadding);
     contents_layout->StartRow(0, THROBBER_ROW);
     contents_layout->AddView(connecting_network_label_);
     contents_layout->AddView(throbber_);
-    contents_layout->AddPaddingRow(0, v_padding);
+    contents_layout->AddPaddingRow(1, kPadding);
   } else {
-    const int v_padding = (size.height() -
-        3 * kControlPaddingRow - 2 * kSelectionBoxHeight -
-        proxy_settings_link_->GetPreferredSize().height() -
-        continue_button_->GetPreferredSize().height()) / 2;
-    contents_layout->AddPaddingRow(0, v_padding);
+    contents_layout->AddPaddingRow(1, kPadding);
     contents_layout->StartRow(0, STANDARD_ROW);
     contents_layout->AddView(select_language_label_);
     contents_layout->AddView(languages_menubutton_, 1, 1,
                     GridLayout::FILL, GridLayout::FILL,
                     languages_menubutton_->GetPreferredSize().width(),
                     kSelectionBoxHeight);
+    if (show_keyboard_button_) {
+      contents_layout->AddPaddingRow(0, kControlPaddingRow);
+      contents_layout->StartRow(0, STANDARD_ROW);
+      contents_layout->AddView(select_keyboard_label_);
+      contents_layout->AddView(
+          keyboards_menubutton_, 1, 1,
+          GridLayout::FILL, GridLayout::FILL,
+          keyboards_menubutton_->GetPreferredSize().width(),
+          kSelectionBoxHeight);
+    }
     contents_layout->AddPaddingRow(0, kControlPaddingRow);
     contents_layout->StartRow(0, STANDARD_ROW);
     contents_layout->AddView(select_network_label_);
@@ -197,23 +198,30 @@ void NetworkSelectionView::AddControlsToLayout(const gfx::Size& size,
     contents_layout->SkipColumns(1);
     contents_layout->AddView(continue_button_, 1, 1,
                     GridLayout::LEADING, GridLayout::CENTER);
-    contents_layout->AddPaddingRow(0, v_padding);
+    contents_layout->AddPaddingRow(1, kPadding);
   }
 }
 
 void NetworkSelectionView::InitLayout() {
   gfx::Size screen_size = delegate_->size();
   const int widest_label = std::max(
-      select_language_label_->GetPreferredSize().width(),
+      std::max(
+          select_language_label_->GetPreferredSize().width(),
+          select_keyboard_label_->GetPreferredSize().width()),
       select_network_label_->GetPreferredSize().width());
   const int dropdown_width = screen_size.width() - 2 * kBorderSize -
       2 * kPaddingColumnWidth - kMediumPaddingColumnWidth - widest_label;
   delegate_->language_switch_menu()->SetFirstLevelMenuWidth(
       dropdown_width - kMenuWidthOffset);
+  delegate_->keyboard_switch_menu()->SetMinimumWidth(
+      dropdown_width - kMenuWidthOffset);
+  network_dropdown_->SetFirstLevelMenuWidth(dropdown_width - kMenuWidthOffset);
 
-  // Define layout and column set for entire screen (welcome + screen).
-  views::GridLayout* screen_layout = new views::GridLayout(this);
-  SetLayoutManager(screen_layout);
+  // Define layout and column set for entire screen (title + screen).
+  SetLayoutManager(new views::FillLayout);
+  views::GridLayout* screen_layout = new views::GridLayout(entire_screen_view_);
+  entire_screen_view_->SetLayoutManager(screen_layout);
+
   views::ColumnSet* column_set = screen_layout->AddColumnSet(WELCOME_ROW);
   const int welcome_width = screen_size.width() - 2 * kWelcomeTitlePadding -
       2 * kBorderSize;
@@ -226,20 +234,15 @@ void NetworkSelectionView::InitLayout() {
       GridLayout::FIXED, screen_size.width(), screen_size.width());
   screen_layout->StartRow(0, WELCOME_ROW);
   screen_layout->AddView(welcome_label_);
-  screen_layout->StartRow(0, CONTENTS_ROW);
+  screen_layout->StartRow(1, CONTENTS_ROW);
   screen_layout->AddView(contents_view_);
-
-  // Welcome label size might have been changed after adding to grid layout.
-  // Screen size includes welcome label height & border on each side.
-  screen_size.set_height(screen_size.height() - 2 * kBorderSize -
-                         welcome_label_->GetPreferredSize().height());
 
   // Define layout and column set for screen contents.
   views::GridLayout* contents_layout = new views::GridLayout(contents_view_);
   contents_view_->SetLayoutManager(contents_layout);
 
   column_set = contents_layout->AddColumnSet(STANDARD_ROW);
-  column_set->AddPaddingColumn(0, kPaddingColumnWidth);
+  column_set->AddPaddingColumn(1, kPaddingColumnWidth);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::FILL, 0,
                         GridLayout::FIXED, widest_label, widest_label);
   column_set->AddPaddingColumn(0, kMediumPaddingColumnWidth);
@@ -247,23 +250,26 @@ void NetworkSelectionView::InitLayout() {
                         GridLayout::FIXED, dropdown_width, dropdown_width);
   column_set->AddPaddingColumn(1, kPaddingColumnWidth);
 
-  const int h_padding = (screen_size.width() - 2 * kBorderSize -
+  const int h_padding = 30/*(screen_size.width() - 2 * kBorderSize -
       connecting_network_label_->GetPreferredSize().width() -
-      throbber_->GetPreferredSize().width()) / 2;
+      throbber_->GetPreferredSize().width()) / 2*/;
   column_set = contents_layout->AddColumnSet(THROBBER_ROW);
-  column_set->AddPaddingColumn(0, h_padding);
+  column_set->AddPaddingColumn(1, h_padding);
   column_set->AddColumn(GridLayout::TRAILING, GridLayout::CENTER, 0,
                         GridLayout::USE_PREF, 0, 0);
   column_set->AddPaddingColumn(0, kRelatedControlHorizontalSpacing);
   column_set->AddColumn(GridLayout::LEADING, GridLayout::CENTER, 1,
                         GridLayout::USE_PREF, 0, 0);
-  column_set->AddPaddingColumn(0, h_padding);
+  column_set->AddPaddingColumn(1, h_padding);
 
-  AddControlsToLayout(screen_size, contents_layout);
+  AddControlsToLayout(contents_layout);
 }
 
 void NetworkSelectionView::Init() {
   contents_view_ = new views::View();
+
+  entire_screen_view_ = new views::View();
+  AddChildView(entire_screen_view_);
 
   // Use rounded rect background.
   views::Painter* painter = CreateWizardPainter(
@@ -287,18 +293,35 @@ void NetworkSelectionView::Init() {
       NULL, std::wstring(), delegate_->language_switch_menu(), true, delegate_);
   languages_menubutton_->SetFocusable(true);
   languages_menubutton_->SetNormalHasBorder(true);
+  languages_menubutton_->set_animate_on_state_change(false);
   // Menu is positioned by bottom right corner of the MenuButton.
-  delegate_->language_switch_menu()->set_menu_offset(kMenuHorizontalOffset,
-                                                     kMenuVerticalOffset);
+  languages_menubutton_->set_menu_offset(kMenuHorizontalOffset,
+                                         kMenuVerticalOffset);
+
+  select_keyboard_label_ = new views::Label();
+  select_keyboard_label_->SetFont(rb.GetFont(ResourceBundle::MediumFont));
+
+  keyboards_menubutton_ = new views::MenuButton(
+      NULL /* listener */, L"", delegate_->keyboard_switch_menu(),
+      true /* show_menu_marker */);
+  keyboards_menubutton_->SetFocusable(true);
+  keyboards_menubutton_->SetNormalHasBorder(true);
+  keyboards_menubutton_->set_animate_on_state_change(false);
+  keyboards_menubutton_->set_menu_offset(kMenuHorizontalOffset,
+                                         kMenuVerticalOffset);
 
   select_network_label_ = new views::Label();
   select_network_label_->SetFont(rb.GetFont(ResourceBundle::MediumFont));
 
-  network_dropdown_ = new NetworkControlWithAccelerators(false,
+  network_dropdown_ = new NetworkControlReportOnActivate(false,
                                                          GetNativeWindow(),
                                                          delegate_);
+
+  network_dropdown_->set_menu_offset(kMenuHorizontalOffset,
+                                     kMenuVerticalOffset);
   network_dropdown_->SetNormalHasBorder(true);
   network_dropdown_->SetFocusable(true);
+  network_dropdown_->set_animate_on_state_change(false);
 
   connecting_network_label_ = new views::Label();
   connecting_network_label_->SetFont(rb.GetFont(ResourceBundle::MediumFont));
@@ -315,10 +338,14 @@ void NetworkSelectionView::Init() {
 void NetworkSelectionView::UpdateLocalizedStrings() {
   languages_menubutton_->SetText(
       delegate_->language_switch_menu()->GetCurrentLocaleName());
+  keyboards_menubutton_->SetText(
+      delegate_->keyboard_switch_menu()->GetCurrentKeyboardName());
   welcome_label_->SetText(l10n_util::GetStringF(IDS_NETWORK_SELECTION_TITLE,
                           l10n_util::GetString(IDS_PRODUCT_OS_NAME)));
   select_language_label_->SetText(
       l10n_util::GetString(IDS_LANGUAGE_SELECTION_SELECT));
+  select_keyboard_label_->SetText(
+      l10n_util::GetString(IDS_KEYBOARD_SELECTION_SELECT));
   select_network_label_->SetText(
       l10n_util::GetString(IDS_NETWORK_SELECTION_SELECT));
   proxy_settings_link_->SetText(
@@ -332,7 +359,16 @@ void NetworkSelectionView::UpdateLocalizedStrings() {
 ////////////////////////////////////////////////////////////////////////////////
 // views::View: implementation:
 
+bool NetworkSelectionView::OnKeyPressed(const views::KeyEvent&) {
+  if (delegate_->is_error_shown()) {
+    delegate_->ClearErrors();
+    return true;
+  }
+  return false;
+}
+
 void NetworkSelectionView::OnLocaleChanged() {
+  show_keyboard_button_ = true;
   UpdateLocalizedStrings();
   // Proxy settings dialog contains localized title.  Zap it.
   proxy_settings_dialog_.reset(NULL);
@@ -365,6 +401,8 @@ void NetworkSelectionView::ShowConnectingStatus(bool connecting,
   UpdateConnectingNetworkLabel();
   select_language_label_->SetVisible(!connecting);
   languages_menubutton_->SetVisible(!connecting);
+  select_keyboard_label_->SetVisible(!connecting);
+  keyboards_menubutton_->SetVisible(!connecting);
   select_network_label_->SetVisible(!connecting);
   network_dropdown_->SetVisible(!connecting);
   continue_button_->SetVisible(!connecting);
@@ -399,12 +437,26 @@ bool NetworkSelectionView::IsContinueEnabled() const {
 void NetworkSelectionView::LinkActivated(views::Link* source, int) {
   if (source == proxy_settings_link_) {
     if (!proxy_settings_dialog_.get()) {
-      static const char kProxySettingsURL[] = "chrome://settings/proxy";
+      static const char kProxySettingsURL[] =
+          "chrome://settings/proxy?menu=off";
       proxy_settings_dialog_.reset(new LoginHtmlDialog(
           this,
           GetNativeWindow(),
-          l10n_util::GetString(IDS_OPTIONS_PROXY_TAB_LABEL),
-          GURL(kProxySettingsURL)));
+          std::wstring(),
+          GURL(kProxySettingsURL),
+          LoginHtmlDialog::STYLE_BUBBLE));
+      gfx::Rect screen_bounds(chromeos::CalculateScreenBounds(gfx::Size()));
+      proxy_settings_dialog_->SetDialogSize(
+          std::min(
+              screen_bounds.width(),
+              std::max(kProxySettingsDialogReasonableWidth, static_cast<int>(
+                  kProxySettingsDialogReasonableWidthRatio *
+                      screen_bounds.width()))),
+          std::min(
+              screen_bounds.height(),
+              std::max(kProxySettingsDialogReasonableHeight, static_cast<int>(
+                  kProxySettingsDialogReasonableHeightRatio *
+                      screen_bounds.height()))));
     }
     proxy_settings_dialog_->Show();
   }

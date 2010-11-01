@@ -5,7 +5,7 @@
 #include "chrome/browser/tab_contents/web_drag_source_win.h"
 
 #include "base/task.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/web_drag_utils_win.h"
@@ -32,7 +32,7 @@ static void GetCursorPositions(gfx::NativeWindow wnd, gfx::Point* client,
 
 WebDragSource::WebDragSource(gfx::NativeWindow source_wnd,
                              TabContents* tab_contents)
-    : BaseDragSource(),
+    : app::win::DragSource(),
       source_wnd_(source_wnd),
       render_view_host_(tab_contents->render_view_host()),
       effect_(DROPEFFECT_NONE) {
@@ -42,11 +42,14 @@ WebDragSource::WebDragSource(gfx::NativeWindow source_wnd,
                  Source<TabContents>(tab_contents));
 }
 
+WebDragSource::~WebDragSource() {
+}
+
 void WebDragSource::OnDragSourceCancel() {
   // Delegate to the UI thread if we do drag-and-drop in the background thread.
-  if (!ChromeThread::CurrentlyOn(ChromeThread::UI)) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+  if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(this, &WebDragSource::OnDragSourceCancel));
     return;
   }
@@ -68,8 +71,8 @@ void WebDragSource::OnDragSourceDrop() {
   // event to happen after the "drop" event. Since  Windows calls these two
   // directly after each other we can just post a task to handle the
   // OnDragSourceDrop after the current task.
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(this, &WebDragSource::DelayedOnDragSourceDrop));
 }
 
@@ -87,9 +90,9 @@ void WebDragSource::DelayedOnDragSourceDrop() {
 
 void WebDragSource::OnDragSourceMove() {
   // Delegate to the UI thread if we do drag-and-drop in the background thread.
-  if (!ChromeThread::CurrentlyOn(ChromeThread::UI)) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+  if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(this, &WebDragSource::OnDragSourceMove));
     return;
   }

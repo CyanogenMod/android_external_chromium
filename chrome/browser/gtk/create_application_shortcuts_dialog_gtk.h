@@ -9,7 +9,7 @@
 #include "app/gtk_signal.h"
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/shell_integration.h"
 #include "googleurl/src/gurl.h"
 
@@ -21,13 +21,13 @@ class TabContents;
 
 class CreateApplicationShortcutsDialogGtk
     : public base::RefCountedThreadSafe<CreateApplicationShortcutsDialogGtk,
-                                        ChromeThread::DeleteOnUIThread> {
+                                        BrowserThread::DeleteOnUIThread> {
  public:
   // Displays the dialog box to create application shortcuts for |tab_contents|.
   static void Show(GtkWindow* parent, TabContents* tab_contents);
 
  private:
-  friend class ChromeThread;
+  friend class BrowserThread;
   friend class DeleteTask<CreateApplicationShortcutsDialogGtk>;
 
   CreateApplicationShortcutsDialogGtk(GtkWindow* parent,

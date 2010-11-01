@@ -33,6 +33,16 @@ View.prototype.isVisible = function() {
   return this.isVisible_;
 };
 
+/**
+ * Method of the observer class.
+ *
+ * Called to check if an observer needs the data it is
+ * observing to be actively updated.
+ */
+View.prototype.isActive = function() {
+  return this.isVisible();
+};
+
 View.prototype.getLeft = function() {
   return this.left_;
 };
@@ -57,6 +67,7 @@ View.prototype.getBottom = function() {
   return this.getTop() + this.getHeight();
 };
 
+View.prototype.setParameters = function(params) {};
 
 //-----------------------------------------------------------------------------
 
@@ -81,7 +92,7 @@ inherits(DivView, View);
 DivView.prototype.setGeometry = function(left, top, width, height) {
   DivView.superClass_.setGeometry.call(this, left, top, width, height);
 
-  this.node_.style.position = "absolute";
+  this.node_.style.position = 'absolute';
   setNodePosition(this.node_, left, top, width, height);
 };
 
@@ -109,7 +120,7 @@ DivView.prototype.getNode = function() {
 function WindowView(childView) {
   View.call(this);
   this.childView_ = childView;
-  window.addEventListener("resize", this.resetGeometry.bind(this), true);
+  window.addEventListener('resize', this.resetGeometry.bind(this), true);
 }
 
 inherits(WindowView, View);

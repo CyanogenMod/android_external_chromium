@@ -50,22 +50,18 @@
         },
       ],
       'dependencies': [
-        '../../../../third_party/protobuf2/protobuf.gyp:protoc#host',
+        '../../../../third_party/protobuf/protobuf.gyp:protoc#host',
       ],
     },
     {
       'target_name': 'sync_proto_cpp',
       'type': 'none',
       'export_dependent_settings': [
-        # TODO(akalin): Change back to protobuf_lite once it supports
-        # preserving unknown fields.
-        '../../../../third_party/protobuf2/protobuf.gyp:protobuf',
+        '../../../../third_party/protobuf/protobuf.gyp:protobuf_lite',
         'sync_proto',
       ],
       'dependencies': [
-        # TODO(akalin): Change back to protobuf_lite once it supports
-        # preserving unknown fields.
-        '../../../../third_party/protobuf2/protobuf.gyp:protobuf',
+        '../../../../third_party/protobuf/protobuf.gyp:protobuf_lite',
         'sync_proto',
       ],
       'direct_dependent_settings': {

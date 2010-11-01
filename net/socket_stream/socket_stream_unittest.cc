@@ -117,8 +117,8 @@ class SocketStreamEventRecorder : public net::SocketStream::Delegate {
     event->socket->Close();
   }
   void DoRestartWithAuth(SocketStreamEvent* event) {
-    LOG(INFO) << "RestartWithAuth username=" << username_
-              << " password=" << password_;
+    VLOG(1) << "RestartWithAuth username=" << username_
+            << " password=" << password_;
     event->socket->RestartWithAuth(username_, password_);
   }
   void SetAuthInfo(const string16& username,
@@ -238,11 +238,13 @@ TEST_F(SocketStreamTest, CloseFlushPendingWrite) {
   delegate->SetOnReceivedData(NewCallback(
       test, &SocketStreamTest::DoCloseFlushPendingWriteTest));
 
+  MockHostResolver host_resolver;
+
   scoped_refptr<SocketStream> socket_stream =
       new SocketStream(GURL("ws://example.com/demo"), delegate.get());
 
   socket_stream->set_context(new TestURLRequestContext());
-  socket_stream->SetHostResolver(new MockHostResolver());
+  socket_stream->SetHostResolver(&host_resolver);
 
   MockWrite data_writes[] = {
     MockWrite(SocketStreamTest::kWebSocketHandshakeRequest),
@@ -333,7 +335,8 @@ TEST_F(SocketStreamTest, BasicAuthProxy) {
       new SocketStream(GURL("ws://example.com/demo"), delegate.get());
 
   socket_stream->set_context(new TestURLRequestContext("myproxy:70"));
-  socket_stream->SetHostResolver(new MockHostResolver());
+  MockHostResolver host_resolver;
+  socket_stream->SetHostResolver(&host_resolver);
   socket_stream->SetClientSocketFactory(&mock_socket_factory);
 
   socket_stream->Connect();

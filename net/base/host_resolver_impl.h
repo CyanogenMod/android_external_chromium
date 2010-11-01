@@ -82,6 +82,11 @@ class HostResolverImpl : public HostResolver,
                    size_t max_jobs,
                    NetLog* net_log);
 
+  // If any completion callbacks are pending when the resolver is destroyed,
+  // the host resolutions are cancelled, and the completion callbacks will not
+  // be called.
+  virtual ~HostResolverImpl();
+
   // HostResolver methods:
   virtual int Resolve(const RequestInfo& info,
                       AddressList* addresses,
@@ -94,6 +99,7 @@ class HostResolverImpl : public HostResolver,
 
   // Set address family, and disable IPv6 probe support.
   virtual void SetDefaultAddressFamily(AddressFamily address_family);
+  virtual AddressFamily GetDefaultAddressFamily() const;
 
   // Continuously observe whether IPv6 is supported, and set the allowable
   // address family to IPv4 iff IPv6 is not supported.
@@ -131,11 +137,6 @@ class HostResolverImpl : public HostResolver,
   typedef HostCache::Key Key;
   typedef std::map<Key, scoped_refptr<Job> > JobMap;
   typedef std::vector<HostResolver::Observer*> ObserversList;
-
-  // If any completion callbacks are pending when the resolver is destroyed,
-  // the host resolutions are cancelled, and the completion callbacks will not
-  // be called.
-  virtual ~HostResolverImpl();
 
   // Returns the HostResolverProc to use for this instance.
   HostResolverProc* effective_resolver_proc() const {

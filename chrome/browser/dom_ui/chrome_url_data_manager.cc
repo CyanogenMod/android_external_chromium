@@ -15,13 +15,14 @@
 #include "base/thread.h"
 #include "base/values.h"
 #if defined(OS_WIN)
-#include "base/win_util.h"
+#include "base/win/windows_version.h"
 #endif
 #include "chrome/browser/appcache/view_appcache_internals_job_factory.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/shared_resources_data_source.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
+#include "chrome/browser/net/view_blob_internals_job_factory.h"
 #include "chrome/browser/net/view_http_cache_job_factory.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/ref_counted_util.h"
@@ -282,8 +283,8 @@ ChromeURLDataManager::DataSource::~DataSource() {
 void ChromeURLDataManager::DataSource::SendResponse(
     RequestID request_id,
     RefCountedMemory* bytes) {
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
                         &ChromeURLDataManager::DataAvailable,
                         request_id, scoped_refptr<RefCountedMemory>(bytes)));
@@ -304,7 +305,7 @@ void ChromeURLDataManager::DataSource::SetFontAndTextDirection(
 #if defined(OS_WIN)
   // Some fonts used for some languages changed a lot in terms of the font
   // metric in Vista. So, we need to use different size before Vista.
-  if (win_util::GetWinVersion() < win_util::WINVERSION_VISTA)
+  if (base::win::GetVersion() < base::win::VERSION_VISTA)
     web_font_size_id = IDS_WEB_FONT_SIZE_XP;
 #endif
   localized_strings->SetString("fontsize",
@@ -328,6 +329,10 @@ URLRequestJob* ChromeURLDataManager::Factory(URLRequest* request,
   // Next check for chrome://appcache-internals/, which uses its own job type.
   if (ViewAppCacheInternalsJobFactory::IsSupportedURL(request->url()))
     return ViewAppCacheInternalsJobFactory::CreateJobForRequest(request);
+
+  // Next check for chrome://blob-internals/, which uses its own job type.
+  if (ViewBlobInternalsJobFactory::IsSupportedURL(request->url()))
+    return ViewBlobInternalsJobFactory::CreateJobForRequest(request);
 
   // Fall back to using a custom handler
   return new URLRequestChromeJob(request);

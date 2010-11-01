@@ -7,11 +7,11 @@
 #pragma once
 
 #include "base/basictypes.h"
-#include "base/field_trial.h"
+#include "base/metrics/field_trial.h"
 #include "base/scoped_ptr.h"
 #include "base/tracked_objects.h"
 
-class ChromeThread;
+class BrowserThread;
 class CommandLine;
 class HighResolutionTimerManager;
 struct MainFunctionParams;
@@ -140,14 +140,14 @@ class BrowserMainParts {
 #endif
 
   // Statistical testing infrastructure for the entire browser.
-  FieldTrialList field_trial_;
+  base::FieldTrialList field_trial_;
 
   // Members initialized in |MainMessageLoopStart()| ---------------------------
   scoped_ptr<MessageLoop> main_message_loop_;
   scoped_ptr<SystemMonitor> system_monitor_;
   scoped_ptr<HighResolutionTimerManager> hi_res_timer_manager_;
   scoped_ptr<net::NetworkChangeNotifier> network_change_notifier_;
-  scoped_ptr<ChromeThread> main_thread_;
+  scoped_ptr<BrowserThread> main_thread_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserMainParts);
 };

@@ -36,7 +36,7 @@
 namespace talk_base {
 
 std::string GetHostName() {
-  // TODO(juberti): fix or get rid of this
+  // TODO: fix or get rid of this
 #if 0
   struct utsname nm;
   if (uname(&nm) < 0)

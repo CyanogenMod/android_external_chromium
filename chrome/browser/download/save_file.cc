@@ -5,18 +5,18 @@
 #include "chrome/browser/download/save_file.h"
 
 #include "base/logging.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "net/base/file_stream.h"
 
 SaveFile::SaveFile(const SaveFileCreateInfo* info)
     : BaseFile(FilePath(), info->url, GURL(), 0, linked_ptr<net::FileStream>()),
       info_(info) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
   DCHECK(info);
   DCHECK(info->path.empty());
 }
 
 SaveFile::~SaveFile() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 }

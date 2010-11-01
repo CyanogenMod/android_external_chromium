@@ -13,6 +13,8 @@
 
 #elif defined(WCHAR_T_IS_UTF32)
 
+#include <ostream>
+
 #include "base/utf_string_conversions.h"
 
 namespace base {
@@ -69,8 +71,10 @@ char16* c16memset(char16* s, char16 c, size_t n) {
 
 template class std::basic_string<char16, base::string16_char_traits>;
 
+namespace base {
 std::ostream& operator<<(std::ostream& out, const string16& str) {
   return out << UTF16ToUTF8(str);
+}
 }
 
 #endif  // WCHAR_T_IS_UTF32

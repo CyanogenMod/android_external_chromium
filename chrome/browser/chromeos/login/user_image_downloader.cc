@@ -11,7 +11,7 @@
 #include "base/stringprintf.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/login/authenticator.h"
 #include "chrome/browser/chromeos/login/image_downloader.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
@@ -41,7 +41,7 @@ UserImageDownloader::UserImageDownloader(const std::string& username,
                                          const std::string& auth_token)
     : username_(username),
       auth_token_(auth_token) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (auth_token_.empty())
     return;
 
@@ -64,7 +64,7 @@ void UserImageDownloader::OnURLFetchComplete(const URLFetcher* source,
                                              int response_code,
                                              const ResponseCookies& cookies,
                                              const std::string& data) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (response_code != 200) {
     LOG(ERROR) << "Response code is " << response_code;
     LOG(ERROR) << "Url is " << url.spec();
@@ -78,7 +78,7 @@ void UserImageDownloader::OnURLFetchComplete(const URLFetcher* source,
       LOG(ERROR) << "Didn't find image url in " << data;
       return;
     }
-    LOG(INFO) << "Sending request to " << image_url;
+    VLOG(1) << "Sending request to " << image_url;
     new ImageDownloader(this, GURL(image_url), auth_token_);
   }
 }

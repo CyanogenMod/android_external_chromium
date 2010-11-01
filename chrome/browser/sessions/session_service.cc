@@ -10,8 +10,8 @@
 
 #include "base/callback.h"
 #include "base/file_util.h"
-#include "base/histogram.h"
 #include "base/message_loop.h"
+#include "base/metrics/histogram.h"
 #include "base/pickle.h"
 #include "base/scoped_vector.h"
 #include "base/thread.h"
@@ -215,6 +215,9 @@ void SessionService::SetPinnedState(const SessionID& window_id,
 void SessionService::TabClosed(const SessionID& window_id,
                                const SessionID& tab_id,
                                bool closed_by_user_gesture) {
+  if (!tab_id.id())
+    return;  // Hapens when the tab is replaced.
+
   if (!ShouldTrackChangesToWindow(window_id))
     return;
 
@@ -444,7 +447,7 @@ void SessionService::Save() {
         &last_updated_save_time_);
     NotificationService::current()->Notify(
         NotificationType::SESSION_SERVICE_SAVED,
-        NotificationService::AllSources(),
+        Source<Profile>(profile()),
         NotificationService::NoDetails());
   }
 }
@@ -1470,4 +1473,3 @@ void SessionService::RecordUpdatedSaveTime(base::TimeDelta delta,
         50);
   }
 }
-

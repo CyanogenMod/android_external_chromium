@@ -37,8 +37,10 @@ class SSLClientSocketPoolTest : public testing::Test {
   SSLClientSocketPoolTest()
       : host_resolver_(new MockHostResolver),
         http_auth_handler_factory_(HttpAuthHandlerFactory::CreateDefault(
-            host_resolver_)),
-        session_(new HttpNetworkSession(host_resolver_,
+            host_resolver_.get())),
+        session_(new HttpNetworkSession(host_resolver_.get(),
+                                        NULL /* dnsrr_resolver */,
+                                        NULL /* ssl_host_info_factory */,
                                         ProxyService::CreateDirect(),
                                         &socket_factory_,
                                         new SSLConfigServiceDefaults,
@@ -70,13 +72,15 @@ class SSLClientSocketPoolTest : public testing::Test {
             HostPortPair("host", 80),
             session_->auth_cache(),
             session_->http_auth_handler_factory(),
+            session_->spdy_session_pool(),
+            session_->mutable_spdy_settings(),
             true)),
         http_proxy_histograms_("MockHttpProxy"),
         http_proxy_socket_pool_(
             kMaxSockets,
             kMaxSocketsPerGroup,
             &http_proxy_histograms_,
-            new MockHostResolver,
+            host_resolver_.get(),
             &tcp_socket_pool_,
             NULL,
             NULL) {
@@ -92,6 +96,8 @@ class SSLClientSocketPoolTest : public testing::Test {
         kMaxSocketsPerGroup,
         ssl_histograms_.get(),
         NULL,
+        NULL /* dnsrr_resolver */,
+        NULL /* ssl_host_info_factory */,
         &socket_factory_,
         tcp_pool ? &tcp_socket_pool_ : NULL,
         socks_pool ? &socks_socket_pool_ : NULL,
@@ -122,7 +128,7 @@ class SSLClientSocketPoolTest : public testing::Test {
   }
 
   MockClientSocketFactory socket_factory_;
-  scoped_refptr<HostResolver> host_resolver_;
+  scoped_ptr<HostResolver> host_resolver_;
   scoped_ptr<HttpAuthHandlerFactory> http_auth_handler_factory_;
   scoped_refptr<HttpNetworkSession> session_;
 

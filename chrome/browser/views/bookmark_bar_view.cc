@@ -20,7 +20,7 @@
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_shutdown.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -143,9 +143,10 @@ static std::wstring CreateToolTipForURLAndTitle(const gfx::Point& screen_loc,
   // First the title.
   if (!title.empty()) {
     std::wstring localized_title;
-    result.append(gfx::ElideText(
-        base::i18n::AdjustStringForLocaleDirection(title, &localized_title) ?
-        localized_title : title, tt_font, max_width, false));
+    if (!base::i18n::AdjustStringForLocaleDirection(title, &localized_title))
+      localized_title = title;
+    result.append(UTF16ToWideHack(gfx::ElideText(WideToUTF16Hack(
+        localized_title), tt_font, max_width, false)));
   }
 
   // Only show the URL if the url and title differ.
@@ -711,6 +712,10 @@ void BookmarkBarView::ShowContextMenu(const gfx::Point& p,
 
 bool BookmarkBarView::IsAccessibleViewTraversable(views::View* view) {
   return view != bookmarks_separator_view_ && view != instructions_;
+}
+
+AccessibilityTypes::Role BookmarkBarView::GetAccessibleRole() {
+  return AccessibilityTypes::ROLE_TOOLBAR;
 }
 
 void BookmarkBarView::OnStateChanged() {

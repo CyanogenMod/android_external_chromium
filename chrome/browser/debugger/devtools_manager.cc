@@ -11,8 +11,10 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browsing_instance.h"
 #include "chrome/browser/child_process_security_policy.h"
-#include "chrome/browser/debugger/devtools_window.h"
 #include "chrome/browser/debugger/devtools_client_host.h"
+#include "chrome/browser/debugger/devtools_netlog_observer.h"
+#include "chrome/browser/debugger/devtools_window.h"
+#include "chrome/browser/io_thread.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -145,7 +147,8 @@ void DevToolsManager::ToggleDevToolsWindow(
 void DevToolsManager::RuntimePropertyChanged(RenderViewHost* inspected_rvh,
                                              const std::string& name,
                                              const std::string& value) {
-  RuntimePropertiesMap::iterator it = runtime_properties_map_.find(inspected_rvh);
+  RuntimePropertiesMap::iterator it =
+      runtime_properties_map_.find(inspected_rvh);
   if (it == runtime_properties_map_.end()) {
     std::pair<RenderViewHost*, DevToolsRuntimeProperties> value(
         inspected_rvh,
@@ -185,7 +188,6 @@ void DevToolsManager::ClientHostClosing(DevToolsClientHost* host) {
       Source<Profile>(inspected_rvh->site_instance()->GetProcess()->profile()),
       Details<RenderViewHost>(inspected_rvh));
 
-  SendDetachToAgent(inspected_rvh);
   UnbindClientHost(inspected_rvh, host);
 }
 
@@ -203,25 +205,8 @@ void DevToolsManager::UnregisterDevToolsClientHostFor(
   DevToolsClientHost* host = GetDevToolsClientHostFor(inspected_rvh);
   if (!host)
     return;
-  SendDetachToAgent(inspected_rvh);
   UnbindClientHost(inspected_rvh, host);
-
-  if (inspected_rvh_for_reopen_ == inspected_rvh)
-    inspected_rvh_for_reopen_ = NULL;
-
-  // Issue tab closing event post unbound.
   host->InspectedTabClosing();
-
-  int process_id = inspected_rvh->process()->id();
-  for (InspectedRvhToClientHostMap::iterator it =
-           inspected_rvh_to_client_host_.begin();
-       it != inspected_rvh_to_client_host_.end();
-       ++it) {
-    if (it->first->process()->id() == process_id)
-      return;
-  }
-  // We've disconnected from the last renderer -> revoke cookie permissions.
-  ChildProcessSecurityPolicy::GetInstance()->RevokeReadRawCookies(process_id);
 }
 
 void DevToolsManager::OnNavigatingToPendingEntry(RenderViewHost* rvh,
@@ -386,6 +371,13 @@ void DevToolsManager::BindClientHost(
   DCHECK(client_host_to_inspected_rvh_.find(client_host) ==
       client_host_to_inspected_rvh_.end());
 
+  if (client_host_to_inspected_rvh_.empty()) {
+    BrowserThread::PostTask(
+        BrowserThread::IO,
+        FROM_HERE,
+        NewRunnableFunction(&DevToolsNetLogObserver::Attach,
+                            g_browser_process->io_thread()));
+  }
   inspected_rvh_to_client_host_[inspected_rvh] = client_host;
   client_host_to_inspected_rvh_[client_host] = inspected_rvh;
   runtime_properties_map_[inspected_rvh] = runtime_properties;
@@ -401,4 +393,25 @@ void DevToolsManager::UnbindClientHost(RenderViewHost* inspected_rvh,
   inspected_rvh_to_client_host_.erase(inspected_rvh);
   client_host_to_inspected_rvh_.erase(client_host);
   runtime_properties_map_.erase(inspected_rvh);
+
+  if (client_host_to_inspected_rvh_.empty()) {
+    BrowserThread::PostTask(
+        BrowserThread::IO,
+        FROM_HERE,
+        NewRunnableFunction(&DevToolsNetLogObserver::Detach));
+  }
+  SendDetachToAgent(inspected_rvh);
+  if (inspected_rvh_for_reopen_ == inspected_rvh)
+    inspected_rvh_for_reopen_ = NULL;
+
+  int process_id = inspected_rvh->process()->id();
+  for (InspectedRvhToClientHostMap::iterator it =
+           inspected_rvh_to_client_host_.begin();
+       it != inspected_rvh_to_client_host_.end();
+       ++it) {
+    if (it->first->process()->id() == process_id)
+      return;
+  }
+  // We've disconnected from the last renderer -> revoke cookie permissions.
+  ChildProcessSecurityPolicy::GetInstance()->RevokeReadRawCookies(process_id);
 }

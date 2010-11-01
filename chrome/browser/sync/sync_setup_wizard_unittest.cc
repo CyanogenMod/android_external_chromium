@@ -42,7 +42,8 @@ class ProfileSyncServiceForWizardTest : public ProfileSyncService {
 
   virtual void OnUserSubmittedAuth(const std::string& username,
                                    const std::string& password,
-                                   const std::string& captcha) {
+                                   const std::string& captcha,
+                                   const std::string& access_code) {
     username_ = username;
     password_ = password;
     captcha_ = captcha;
@@ -58,6 +59,10 @@ class ProfileSyncServiceForWizardTest : public ProfileSyncService {
     user_cancelled_dialog_ = true;
   }
 
+  virtual void SetSecondaryPassphrase(const std::string& passphrase) {
+    passphrase_ = passphrase;
+  }
+
   virtual string16 GetAuthenticatedUsername() const {
     return UTF8ToUTF16(username_);
   }
@@ -66,6 +71,10 @@ class ProfileSyncServiceForWizardTest : public ProfileSyncService {
                       const AuthError& error) {
     last_attempted_user_email_ = last_email;
     last_auth_error_ = error;
+  }
+
+  void set_passphrase_required(bool required) {
+    observed_passphrase_required_ = required;
   }
 
   void ResetTestStats() {
@@ -85,6 +94,8 @@ class ProfileSyncServiceForWizardTest : public ProfileSyncService {
   bool user_chose_data_types_;
   bool keep_everything_synced_;
   syncable::ModelTypeSet chosen_data_types_;
+
+  std::string passphrase_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ProfileSyncServiceForWizardTest);
@@ -165,7 +176,7 @@ class TestBrowserWindowForWizardTest : public TestBrowserWindow {
 class SyncSetupWizardTest : public BrowserWithTestWindowTest {
  public:
   SyncSetupWizardTest()
-      : file_thread_(ChromeThread::FILE, MessageLoop::current()),
+      : file_thread_(BrowserThread::FILE, MessageLoop::current()),
         test_window_(NULL),
         wizard_(NULL) { }
   virtual ~SyncSetupWizardTest() { }
@@ -190,7 +201,7 @@ class SyncSetupWizardTest : public BrowserWithTestWindowTest {
     wizard_.reset();
   }
 
-  ChromeThread file_thread_;
+  BrowserThread file_thread_;
   TestBrowserWindowForWizardTest* test_window_;
   scoped_ptr<SyncSetupWizard> wizard_;
   ProfileSyncServiceForWizardTest* service_;
@@ -217,7 +228,8 @@ TEST_F(SyncSetupWizardTest, InitialStepLogin) {
   std::string auth = "{\"user\":\"";
   auth += std::string(kTestUser) + "\",\"pass\":\"";
   auth += std::string(kTestPassword) + "\",\"captcha\":\"";
-  auth += std::string(kTestCaptcha) + "\"}";
+  auth += std::string(kTestCaptcha) + "\",\"access_code\":\"";
+  auth += std::string() + "\"}";
   credentials.Append(new StringValue(auth));
 
   EXPECT_FALSE(wizard_->IsVisible());
@@ -283,12 +295,13 @@ TEST_F(SyncSetupWizardTest, InitialStepLogin) {
   EXPECT_TRUE(wizard_->IsVisible());
   EXPECT_FALSE(test_window_->TestAndResetWasShowHTMLDialogCalled());
   // In a non-discrete run, GAIA_SUCCESS immediately transitions you to
-  // CHOOSE_DATA_TYPES.
-  EXPECT_EQ(SyncSetupWizard::CHOOSE_DATA_TYPES,
+  // CONFIGURE.
+  EXPECT_EQ(SyncSetupWizard::CONFIGURE,
             test_window_->flow()->current_state_);
 
   // That's all we're testing here, just move on to DONE.  We'll test the
   // "choose data types" scenarios elsewhere.
+  wizard_->Step(SyncSetupWizard::SETTING_UP);  // No merge and sync.
   wizard_->Step(SyncSetupWizard::DONE);  // No merge and sync.
   EXPECT_TRUE(wizard_->IsVisible());
   EXPECT_FALSE(test_window_->TestAndResetWasShowHTMLDialogCalled());
@@ -298,7 +311,7 @@ TEST_F(SyncSetupWizardTest, InitialStepLogin) {
 TEST_F(SyncSetupWizardTest, ChooseDataTypesSetsPrefs) {
   SKIP_TEST_ON_MACOSX();
   wizard_->Step(SyncSetupWizard::GAIA_LOGIN);
-  wizard_->Step(SyncSetupWizard::CHOOSE_DATA_TYPES);
+  wizard_->Step(SyncSetupWizard::CONFIGURE);
 
   ListValue data_type_choices_value;
   std::string data_type_choices = "{\"keepEverythingSynced\":false,";
@@ -306,12 +319,12 @@ TEST_F(SyncSetupWizardTest, ChooseDataTypesSetsPrefs) {
   data_type_choices += "\"syncThemes\":false,\"syncPasswords\":false,";
   data_type_choices += "\"syncAutofill\":false,\"syncExtensions\":false,";
   data_type_choices += "\"syncTypedUrls\":true,\"syncApps\":true,";
-  data_type_choices += "\"syncSessions\":false}";
+  data_type_choices += "\"syncSessions\":false,\"usePassphrase\":false}";
   data_type_choices_value.Append(new StringValue(data_type_choices));
 
   // Simulate the user choosing data types; bookmarks, prefs, typed
   // URLS, and apps are on, the rest are off.
-  test_window_->flow()->flow_handler_->HandleChooseDataTypes(
+  test_window_->flow()->flow_handler_->HandleConfigure(
       &data_type_choices_value);
   EXPECT_TRUE(wizard_->IsVisible());
   EXPECT_TRUE(test_window_->TestAndResetWasShowHTMLDialogCalled());
@@ -326,6 +339,22 @@ TEST_F(SyncSetupWizardTest, ChooseDataTypesSetsPrefs) {
   EXPECT_EQ(service_->chosen_data_types_.count(syncable::APPS), 1U);
 
   test_window_->CloseDialog();
+}
+
+TEST_F(SyncSetupWizardTest, EnterPassphraseRequired) {
+  SKIP_TEST_ON_MACOSX();
+  wizard_->Step(SyncSetupWizard::GAIA_LOGIN);
+  wizard_->Step(SyncSetupWizard::GAIA_SUCCESS);
+  wizard_->Step(SyncSetupWizard::CONFIGURE);
+  wizard_->Step(SyncSetupWizard::SETTING_UP);
+  service_->set_passphrase_required(true);
+  wizard_->Step(SyncSetupWizard::ENTER_PASSPHRASE);
+  EXPECT_EQ(SyncSetupWizard::ENTER_PASSPHRASE,
+            test_window_->flow()->current_state_);
+  ListValue value;
+  value.Append(new StringValue("{\"passphrase\":\"myPassphrase\"}"));
+  test_window_->flow()->flow_handler_->HandlePassphraseEntry(&value);
+  EXPECT_EQ("myPassphrase", service_->passphrase_);
 }
 
 TEST_F(SyncSetupWizardTest, DialogCancelled) {
@@ -377,7 +406,7 @@ TEST_F(SyncSetupWizardTest, InvalidTransitions) {
             test_window_->flow()->current_state_);
 
   wizard_->Step(SyncSetupWizard::GAIA_SUCCESS);
-  EXPECT_EQ(SyncSetupWizard::CHOOSE_DATA_TYPES,
+  EXPECT_EQ(SyncSetupWizard::CONFIGURE,
             test_window_->flow()->current_state_);
 
   wizard_->Step(SyncSetupWizard::FATAL_ERROR);
@@ -388,6 +417,7 @@ TEST_F(SyncSetupWizardTest, FullSuccessfulRunSetsPref) {
   SKIP_TEST_ON_MACOSX();
   wizard_->Step(SyncSetupWizard::GAIA_LOGIN);
   wizard_->Step(SyncSetupWizard::GAIA_SUCCESS);
+  wizard_->Step(SyncSetupWizard::SETTING_UP);
   wizard_->Step(SyncSetupWizard::DONE);
   test_window_->CloseDialog();
   EXPECT_FALSE(wizard_->IsVisible());
@@ -399,6 +429,7 @@ TEST_F(SyncSetupWizardTest, FirstFullSuccessfulRunSetsPref) {
   SKIP_TEST_ON_MACOSX();
   wizard_->Step(SyncSetupWizard::GAIA_LOGIN);
   wizard_->Step(SyncSetupWizard::GAIA_SUCCESS);
+  wizard_->Step(SyncSetupWizard::SETTING_UP);
   wizard_->Step(SyncSetupWizard::DONE_FIRST_TIME);
   test_window_->CloseDialog();
   EXPECT_FALSE(wizard_->IsVisible());
@@ -426,7 +457,7 @@ TEST_F(SyncSetupWizardTest, DiscreteRunChooseDataTypes) {
   test_window_->CloseDialog();
   EXPECT_TRUE(test_window_->TestAndResetWasShowHTMLDialogCalled());
 
-  wizard_->Step(SyncSetupWizard::CHOOSE_DATA_TYPES);
+  wizard_->Step(SyncSetupWizard::CONFIGURE);
   EXPECT_TRUE(test_window_->TestAndResetWasShowHTMLDialogCalled());
   EXPECT_EQ(SyncSetupWizard::DONE, test_window_->flow()->end_state_);
 
@@ -444,7 +475,7 @@ TEST_F(SyncSetupWizardTest, DiscreteRunChooseDataTypesAbortedByPendingClear) {
   test_window_->CloseDialog();
   EXPECT_TRUE(test_window_->TestAndResetWasShowHTMLDialogCalled());
 
-  wizard_->Step(SyncSetupWizard::CHOOSE_DATA_TYPES);
+  wizard_->Step(SyncSetupWizard::CONFIGURE);
   EXPECT_TRUE(test_window_->TestAndResetWasShowHTMLDialogCalled());
   EXPECT_EQ(SyncSetupWizard::DONE, test_window_->flow()->end_state_);
    wizard_->Step(SyncSetupWizard::SETUP_ABORTED_BY_PENDING_CLEAR);
@@ -461,6 +492,7 @@ TEST_F(SyncSetupWizardTest, DiscreteRunGaiaLogin) {
   // For a discrete run, we need to have ran through setup once.
   wizard_->Step(SyncSetupWizard::GAIA_LOGIN);
   wizard_->Step(SyncSetupWizard::GAIA_SUCCESS);
+  wizard_->Step(SyncSetupWizard::SETTING_UP);
   wizard_->Step(SyncSetupWizard::DONE);
   test_window_->CloseDialog();
   EXPECT_TRUE(test_window_->TestAndResetWasShowHTMLDialogCalled());

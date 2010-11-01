@@ -32,7 +32,7 @@
 // Tests for Google Test itself.  This verifies that the basic constructs of
 // Google Test work.
 
-#include <gtest/gtest.h>
+#include "gtest/gtest.h"
 #include <vector>
 
 // Verifies that the command line flag variables can be accessed
@@ -52,11 +52,12 @@ TEST(CommandLineFlagsTest, CanBeAccessedInCodeOnceGTestHIsIncluded) {
       || testing::GTEST_FLAG(show_internal_stack_frames)
       || testing::GTEST_FLAG(shuffle)
       || testing::GTEST_FLAG(stack_trace_depth) > 0
+      || testing::GTEST_FLAG(stream_result_to) != "unknown"
       || testing::GTEST_FLAG(throw_on_failure);
   EXPECT_TRUE(dummy || !dummy);  // Suppresses warning that dummy is unused.
 }
 
-#include <gtest/gtest-spi.h>
+#include "gtest/gtest-spi.h"
 
 // Indicates that this translation unit is part of Google Test's
 // implementation.  It must come before gtest-internal-inl.h is
@@ -125,6 +126,7 @@ using testing::GTEST_FLAG(repeat);
 using testing::GTEST_FLAG(show_internal_stack_frames);
 using testing::GTEST_FLAG(shuffle);
 using testing::GTEST_FLAG(stack_trace_depth);
+using testing::GTEST_FLAG(stream_result_to);
 using testing::GTEST_FLAG(throw_on_failure);
 using testing::IsNotSubstring;
 using testing::IsSubstring;
@@ -178,6 +180,7 @@ using testing::internal::ShouldShard;
 using testing::internal::ShouldUseColor;
 using testing::internal::Shuffle;
 using testing::internal::ShuffleRange;
+using testing::internal::SkipPrefix;
 using testing::internal::StreamableToString;
 using testing::internal::String;
 using testing::internal::TestEventListenersAccessor;
@@ -190,18 +193,14 @@ using testing::internal::kReference;
 using testing::internal::kTestTypeIdInGoogleTest;
 using testing::internal::scoped_ptr;
 
-#if GTEST_HAS_STREAM_REDIRECTION_
+#if GTEST_HAS_STREAM_REDIRECTION
 using testing::internal::CaptureStdout;
 using testing::internal::GetCapturedStdout;
-#endif  // GTEST_HAS_STREAM_REDIRECTION_
+#endif
 
 #if GTEST_IS_THREADSAFE
 using testing::internal::ThreadWithParam;
 #endif
-
-#if GTEST_HAS_PROTOBUF_
-using ::testing::internal::TestMessage;
-#endif  // GTEST_HAS_PROTOBUF_
 
 class TestingVector : public std::vector<int> {
 };
@@ -373,7 +372,11 @@ TEST(CodePointToUtf8Test, CanEncode8To11Bits) {
   EXPECT_STREQ("\xC3\x93", CodePointToUtf8(L'\xD3', buffer));
 
   // 101 0111 0110 => 110-10101 10-110110
-  EXPECT_STREQ("\xD5\xB6", CodePointToUtf8(L'\x576', buffer));
+  // Some compilers (e.g., GCC on MinGW) cannot handle non-ASCII codepoints
+  // in wide strings and wide chars. In order to accomodate them, we have to
+  // introduce such character constants as integers.
+  EXPECT_STREQ("\xD5\xB6",
+               CodePointToUtf8(static_cast<wchar_t>(0x576), buffer));
 }
 
 // Tests that Unicode code-points that have 12 to 16 bits are encoded
@@ -381,10 +384,12 @@ TEST(CodePointToUtf8Test, CanEncode8To11Bits) {
 TEST(CodePointToUtf8Test, CanEncode12To16Bits) {
   char buffer[32];
   // 0000 1000 1101 0011 => 1110-0000 10-100011 10-010011
-  EXPECT_STREQ("\xE0\xA3\x93", CodePointToUtf8(L'\x8D3', buffer));
+  EXPECT_STREQ("\xE0\xA3\x93",
+               CodePointToUtf8(static_cast<wchar_t>(0x8D3), buffer));
 
   // 1100 0111 0100 1101 => 1110-1100 10-011101 10-001101
-  EXPECT_STREQ("\xEC\x9D\x8D", CodePointToUtf8(L'\xC74D', buffer));
+  EXPECT_STREQ("\xEC\x9D\x8D",
+               CodePointToUtf8(static_cast<wchar_t>(0xC74D), buffer));
 }
 
 #if !GTEST_WIDE_STRING_USES_UTF16_
@@ -439,20 +444,23 @@ TEST(WideStringToUtf8Test, CanEncode8To11Bits) {
   EXPECT_STREQ("\xC3\x93", WideStringToUtf8(L"\xD3", -1).c_str());
 
   // 101 0111 0110 => 110-10101 10-110110
-  EXPECT_STREQ("\xD5\xB6", WideStringToUtf8(L"\x576", 1).c_str());
-  EXPECT_STREQ("\xD5\xB6", WideStringToUtf8(L"\x576", -1).c_str());
+  const wchar_t s[] = { 0x576, '\0' };
+  EXPECT_STREQ("\xD5\xB6", WideStringToUtf8(s, 1).c_str());
+  EXPECT_STREQ("\xD5\xB6", WideStringToUtf8(s, -1).c_str());
 }
 
 // Tests that Unicode code-points that have 12 to 16 bits are encoded
 // as 1110xxxx 10xxxxxx 10xxxxxx.
 TEST(WideStringToUtf8Test, CanEncode12To16Bits) {
   // 0000 1000 1101 0011 => 1110-0000 10-100011 10-010011
-  EXPECT_STREQ("\xE0\xA3\x93", WideStringToUtf8(L"\x8D3", 1).c_str());
-  EXPECT_STREQ("\xE0\xA3\x93", WideStringToUtf8(L"\x8D3", -1).c_str());
+  const wchar_t s1[] = { 0x8D3, '\0' };
+  EXPECT_STREQ("\xE0\xA3\x93", WideStringToUtf8(s1, 1).c_str());
+  EXPECT_STREQ("\xE0\xA3\x93", WideStringToUtf8(s1, -1).c_str());
 
   // 1100 0111 0100 1101 => 1110-1100 10-011101 10-001101
-  EXPECT_STREQ("\xEC\x9D\x8D", WideStringToUtf8(L"\xC74D", 1).c_str());
-  EXPECT_STREQ("\xEC\x9D\x8D", WideStringToUtf8(L"\xC74D", -1).c_str());
+  const wchar_t s2[] = { 0xC74D, '\0' };
+  EXPECT_STREQ("\xEC\x9D\x8D", WideStringToUtf8(s2, 1).c_str());
+  EXPECT_STREQ("\xEC\x9D\x8D", WideStringToUtf8(s2, -1).c_str());
 }
 
 // Tests that the conversion stops when the function encounters \0 character.
@@ -465,7 +473,6 @@ TEST(WideStringToUtf8Test, StopsOnNulCharacter) {
 TEST(WideStringToUtf8Test, StopsWhenLengthLimitReached) {
   EXPECT_STREQ("ABC", WideStringToUtf8(L"ABCDEF", 3).c_str());
 }
-
 
 #if !GTEST_WIDE_STRING_USES_UTF16_
 // Tests that Unicode code-points that have 17 to 21 bits are encoded
@@ -490,25 +497,29 @@ TEST(WideStringToUtf8Test, CanEncodeInvalidCodePoint) {
 // Tests that surrogate pairs are encoded correctly on the systems using
 // UTF-16 encoding in the wide strings.
 TEST(WideStringToUtf8Test, CanEncodeValidUtf16SUrrogatePairs) {
-  EXPECT_STREQ("\xF0\x90\x90\x80",
-               WideStringToUtf8(L"\xD801\xDC00", -1).c_str());
+  const wchar_t s[] = { 0xD801, 0xDC00, '\0' };
+  EXPECT_STREQ("\xF0\x90\x90\x80", WideStringToUtf8(s, -1).c_str());
 }
 
 // Tests that encoding an invalid UTF-16 surrogate pair
 // generates the expected result.
 TEST(WideStringToUtf8Test, CanEncodeInvalidUtf16SurrogatePair) {
   // Leading surrogate is at the end of the string.
-  EXPECT_STREQ("\xED\xA0\x80", WideStringToUtf8(L"\xD800", -1).c_str());
+  const wchar_t s1[] = { 0xD800, '\0' };
+  EXPECT_STREQ("\xED\xA0\x80", WideStringToUtf8(s1, -1).c_str());
   // Leading surrogate is not followed by the trailing surrogate.
-  EXPECT_STREQ("\xED\xA0\x80$", WideStringToUtf8(L"\xD800$", -1).c_str());
+  const wchar_t s2[] = { 0xD800, 'M', '\0' };
+  EXPECT_STREQ("\xED\xA0\x80M", WideStringToUtf8(s2, -1).c_str());
   // Trailing surrogate appearas without a leading surrogate.
-  EXPECT_STREQ("\xED\xB0\x80PQR", WideStringToUtf8(L"\xDC00PQR", -1).c_str());
+  const wchar_t s3[] = { 0xDC00, 'P', 'Q', 'R', '\0' };
+  EXPECT_STREQ("\xED\xB0\x80PQR", WideStringToUtf8(s3, -1).c_str());
 }
 #endif  // !GTEST_WIDE_STRING_USES_UTF16_
 
 // Tests that codepoint concatenation works correctly.
 #if !GTEST_WIDE_STRING_USES_UTF16_
 TEST(WideStringToUtf8Test, ConcatenatesCodepointsCorrectly) {
+  const wchar_t s[] = { 0x108634, 0xC74D, '\n', 0x576, 0x8D3, 0x108634, '\0'};
   EXPECT_STREQ(
       "\xF4\x88\x98\xB4"
           "\xEC\x9D\x8D"
@@ -516,13 +527,14 @@ TEST(WideStringToUtf8Test, ConcatenatesCodepointsCorrectly) {
           "\xD5\xB6"
           "\xE0\xA3\x93"
           "\xF4\x88\x98\xB4",
-      WideStringToUtf8(L"\x108634\xC74D\n\x576\x8D3\x108634", -1).c_str());
+      WideStringToUtf8(s, -1).c_str());
 }
 #else
 TEST(WideStringToUtf8Test, ConcatenatesCodepointsCorrectly) {
+  const wchar_t s[] = { 0xC74D, '\n', 0x576, 0x8D3, '\0'};
   EXPECT_STREQ(
       "\xEC\x9D\x8D" "\n" "\xD5\xB6" "\xE0\xA3\x93",
-      WideStringToUtf8(L"\xC74D\n\x576\x8D3", -1).c_str());
+      WideStringToUtf8(s, -1).c_str());
 }
 #endif  // !GTEST_WIDE_STRING_USES_UTF16_
 
@@ -1336,6 +1348,17 @@ TEST_F(ExpectFatalFailureTest, CatchesFatalFaliure) {
   EXPECT_FATAL_FAILURE(AddFatalFailure(), "Expected fatal failure.");
 }
 
+#if GTEST_HAS_GLOBAL_STRING
+TEST_F(ExpectFatalFailureTest, AcceptsStringObject) {
+  EXPECT_FATAL_FAILURE(AddFatalFailure(), ::string("Expected fatal failure."));
+}
+#endif
+
+TEST_F(ExpectFatalFailureTest, AcceptsStdStringObject) {
+  EXPECT_FATAL_FAILURE(AddFatalFailure(),
+                       ::std::string("Expected fatal failure."));
+}
+
 TEST_F(ExpectFatalFailureTest, CatchesFatalFailureOnAllThreads) {
   // We have another test below to verify that the macro catches fatal
   // failures generated on another thread.
@@ -1411,6 +1434,18 @@ typedef ScopedFakeTestPartResultReporterTest ExpectNonfatalFailureTest;
 TEST_F(ExpectNonfatalFailureTest, CatchesNonfatalFailure) {
   EXPECT_NONFATAL_FAILURE(AddNonfatalFailure(),
                           "Expected non-fatal failure.");
+}
+
+#if GTEST_HAS_GLOBAL_STRING
+TEST_F(ExpectNonfatalFailureTest, AcceptsStringObject) {
+  EXPECT_NONFATAL_FAILURE(AddNonfatalFailure(),
+                          ::string("Expected non-fatal failure."));
+}
+#endif
+
+TEST_F(ExpectNonfatalFailureTest, AcceptsStdStringObject) {
+  EXPECT_NONFATAL_FAILURE(AddNonfatalFailure(),
+                          ::std::string("Expected non-fatal failure."));
 }
 
 TEST_F(ExpectNonfatalFailureTest, CatchesNonfatalFailureOnAllThreads) {
@@ -1717,6 +1752,7 @@ class GTestFlagSaverTest : public Test {
     GTEST_FLAG(repeat) = 1;
     GTEST_FLAG(shuffle) = false;
     GTEST_FLAG(stack_trace_depth) = kMaxStackTraceDepth;
+    GTEST_FLAG(stream_result_to) = "";
     GTEST_FLAG(throw_on_failure) = false;
   }
 
@@ -1743,6 +1779,7 @@ class GTestFlagSaverTest : public Test {
     EXPECT_EQ(1, GTEST_FLAG(repeat));
     EXPECT_FALSE(GTEST_FLAG(shuffle));
     EXPECT_EQ(kMaxStackTraceDepth, GTEST_FLAG(stack_trace_depth));
+    EXPECT_STREQ("", GTEST_FLAG(stream_result_to).c_str());
     EXPECT_FALSE(GTEST_FLAG(throw_on_failure));
 
     GTEST_FLAG(also_run_disabled_tests) = true;
@@ -1758,6 +1795,7 @@ class GTestFlagSaverTest : public Test {
     GTEST_FLAG(repeat) = 100;
     GTEST_FLAG(shuffle) = true;
     GTEST_FLAG(stack_trace_depth) = 1;
+    GTEST_FLAG(stream_result_to) = "localhost:1234";
     GTEST_FLAG(throw_on_failure) = true;
   }
  private:
@@ -3766,6 +3804,17 @@ TEST(AssertionTest, ExpectWorksWithUncopyableObject) {
     "Value of: y\n  Actual: -1\nExpected: x\nWhich is: 5");
 }
 
+enum NamedEnum {
+  kE1 = 0,
+  kE2 = 1,
+};
+
+TEST(AssertionTest, NamedEnum) {
+  EXPECT_EQ(kE1, kE1);
+  EXPECT_LT(kE1, kE2);
+  EXPECT_NONFATAL_FAILURE(EXPECT_EQ(kE1, kE2), "Which is: 0");
+  EXPECT_NONFATAL_FAILURE(EXPECT_EQ(kE1, kE2), "Actual: 1");
+}
 
 // The version of gcc used in XCode 2.2 has a bug and doesn't allow
 // anonymous enums in assertions.  Therefore the following test is not
@@ -3775,7 +3824,7 @@ TEST(AssertionTest, ExpectWorksWithUncopyableObject) {
 
 // Tests using assertions with anonymous enums.
 enum {
-  CASE_A = -1,
+  kCaseA = -1,
 #if GTEST_OS_LINUX
   // We want to test the case where the size of the anonymous enum is
   // larger than sizeof(int), to make sure our implementation of the
@@ -3783,37 +3832,44 @@ enum {
   // (incorrectly) doesn't allow an enum value to exceed the range of
   // an int, so this has to be conditionally compiled.
   //
-  // On Linux, CASE_B and CASE_A have the same value when truncated to
+  // On Linux, kCaseB and kCaseA have the same value when truncated to
   // int size.  We want to test whether this will confuse the
   // assertions.
-  CASE_B = testing::internal::kMaxBiggestInt,
+  kCaseB = testing::internal::kMaxBiggestInt,
 #else
-  CASE_B = INT_MAX,
+  kCaseB = INT_MAX,
 #endif  // GTEST_OS_LINUX
+  kCaseC = 42,
 };
 
 TEST(AssertionTest, AnonymousEnum) {
 #if GTEST_OS_LINUX
-  EXPECT_EQ(static_cast<int>(CASE_A), static_cast<int>(CASE_B));
+  EXPECT_EQ(static_cast<int>(kCaseA), static_cast<int>(kCaseB));
 #endif  // GTEST_OS_LINUX
 
-  EXPECT_EQ(CASE_A, CASE_A);
-  EXPECT_NE(CASE_A, CASE_B);
-  EXPECT_LT(CASE_A, CASE_B);
-  EXPECT_LE(CASE_A, CASE_B);
-  EXPECT_GT(CASE_B, CASE_A);
-  EXPECT_GE(CASE_A, CASE_A);
-  EXPECT_NONFATAL_FAILURE(EXPECT_GE(CASE_A, CASE_B),
-                          "(CASE_A) >= (CASE_B)");
+  EXPECT_EQ(kCaseA, kCaseA);
+  EXPECT_NE(kCaseA, kCaseB);
+  EXPECT_LT(kCaseA, kCaseB);
+  EXPECT_LE(kCaseA, kCaseB);
+  EXPECT_GT(kCaseB, kCaseA);
+  EXPECT_GE(kCaseA, kCaseA);
+  EXPECT_NONFATAL_FAILURE(EXPECT_GE(kCaseA, kCaseB),
+                          "(kCaseA) >= (kCaseB)");
+  EXPECT_NONFATAL_FAILURE(EXPECT_GE(kCaseA, kCaseC),
+                          "-1 vs 42");
 
-  ASSERT_EQ(CASE_A, CASE_A);
-  ASSERT_NE(CASE_A, CASE_B);
-  ASSERT_LT(CASE_A, CASE_B);
-  ASSERT_LE(CASE_A, CASE_B);
-  ASSERT_GT(CASE_B, CASE_A);
-  ASSERT_GE(CASE_A, CASE_A);
-  EXPECT_FATAL_FAILURE(ASSERT_EQ(CASE_A, CASE_B),
-                       "Value of: CASE_B");
+  ASSERT_EQ(kCaseA, kCaseA);
+  ASSERT_NE(kCaseA, kCaseB);
+  ASSERT_LT(kCaseA, kCaseB);
+  ASSERT_LE(kCaseA, kCaseB);
+  ASSERT_GT(kCaseB, kCaseA);
+  ASSERT_GE(kCaseA, kCaseA);
+  EXPECT_FATAL_FAILURE(ASSERT_EQ(kCaseA, kCaseB),
+                       "Value of: kCaseB");
+  EXPECT_FATAL_FAILURE(ASSERT_EQ(kCaseA, kCaseC),
+                       "Actual: 42");
+  EXPECT_FATAL_FAILURE(ASSERT_EQ(kCaseA, kCaseC),
+                       "Which is: -1");
 }
 
 #endif  // !GTEST_OS_MAC && !defined(__SUNPRO_CC)
@@ -4392,6 +4448,21 @@ TEST(MacroTest, ADD_FAILURE) {
   EXPECT_FALSE(aborted);
 }
 
+// Tests ADD_FAILURE_AT.
+TEST(MacroTest, ADD_FAILURE_AT) {
+  // Verifies that ADD_FAILURE_AT does generate a nonfatal failure and
+  // the failure message contains the user-streamed part.
+  EXPECT_NONFATAL_FAILURE(ADD_FAILURE_AT("foo.cc", 42) << "Wrong!", "Wrong!");
+
+  // Verifies that the user-streamed part is optional.
+  EXPECT_NONFATAL_FAILURE(ADD_FAILURE_AT("foo.cc", 42), "Failed");
+
+  // Unfortunately, we cannot verify that the failure message contains
+  // the right file path and line number the same way, as
+  // EXPECT_NONFATAL_FAILURE() doesn't get to see the file path and
+  // line number.  Instead, we do that in gtest_output_test_.cc.
+}
+
 // Tests FAIL.
 TEST(MacroTest, FAIL) {
   EXPECT_FATAL_FAILURE(FAIL(),
@@ -4461,8 +4532,8 @@ TEST(EqAssertionTest, WideChar) {
   wchar = L'b';
   EXPECT_NONFATAL_FAILURE(EXPECT_EQ(L'a', wchar),
                           "wchar");
-  wchar = L'\x8119';
-  EXPECT_FATAL_FAILURE(ASSERT_EQ(L'\x8120', wchar),
+  wchar = 0x8119;
+  EXPECT_FATAL_FAILURE(ASSERT_EQ(static_cast<wchar_t>(0x8120), wchar),
                        "Value of: wchar");
 }
 
@@ -4500,20 +4571,22 @@ TEST(EqAssertionTest, StdString) {
 
 // Tests using ::std::wstring values in {EXPECT|ASSERT}_EQ.
 TEST(EqAssertionTest, StdWideString) {
-  // Compares an std::wstring to a const wchar_t* that has identical
-  // content.
-  EXPECT_EQ(::std::wstring(L"Test\x8119"), L"Test\x8119");
-
   // Compares two identical std::wstrings.
   const ::std::wstring wstr1(L"A * in the middle");
   const ::std::wstring wstr2(wstr1);
   ASSERT_EQ(wstr1, wstr2);
 
+  // Compares an std::wstring to a const wchar_t* that has identical
+  // content.
+  const wchar_t kTestX8119[] = { 'T', 'e', 's', 't', 0x8119, '\0' };
+  EXPECT_EQ(::std::wstring(kTestX8119), kTestX8119);
+
   // Compares an std::wstring to a const wchar_t* that has different
   // content.
+  const wchar_t kTestX8120[] = { 'T', 'e', 's', 't', 0x8120, '\0' };
   EXPECT_NONFATAL_FAILURE({  // NOLINT
-    EXPECT_EQ(::std::wstring(L"Test\x8119"), L"Test\x8120");
-  }, "L\"Test\\x8120\"");
+    EXPECT_EQ(::std::wstring(kTestX8119), kTestX8120);
+  }, "kTestX8120");
 
   // Compares two std::wstrings that have different contents, one of
   // which having a NUL character in the middle.
@@ -4565,18 +4638,20 @@ TEST(EqAssertionTest, GlobalString) {
 
 // Tests using ::wstring values in {EXPECT|ASSERT}_EQ.
 TEST(EqAssertionTest, GlobalWideString) {
-  // Compares a const wchar_t* to a ::wstring that has identical content.
-  ASSERT_EQ(L"Test\x8119", ::wstring(L"Test\x8119"));
-
   // Compares two identical ::wstrings.
   static const ::wstring wstr1(L"A * in the middle");
   static const ::wstring wstr2(wstr1);
   EXPECT_EQ(wstr1, wstr2);
 
+  // Compares a const wchar_t* to a ::wstring that has identical content.
+  const wchar_t kTestX8119[] = { 'T', 'e', 's', 't', 0x8119, '\0' };
+  ASSERT_EQ(kTestX8119, ::wstring(kTestX8119));
+
   // Compares a const wchar_t* to a ::wstring that has different
   // content.
+  const wchar_t kTestX8120[] = { 'T', 'e', 's', 't', 0x8120, '\0' };
   EXPECT_NONFATAL_FAILURE({  // NOLINT
-    EXPECT_EQ(L"Test\x8120", ::wstring(L"Test\x8119"));
+    EXPECT_EQ(kTestX8120, ::wstring(kTestX8119));
   }, "Test\\x8119");
 
   // Compares a wchar_t* to a ::wstring that has different content.
@@ -4649,6 +4724,65 @@ TEST(EqAssertionTest, OtherPointer) {
   EXPECT_FATAL_FAILURE(ASSERT_EQ(static_cast<const int*>(NULL),
                                  reinterpret_cast<const int*>(0x1234)),
                        "0x1234");
+}
+
+// A class that supports binary comparison operators but not streaming.
+class UnprintableChar {
+ public:
+  explicit UnprintableChar(char ch) : char_(ch) {}
+
+  bool operator==(const UnprintableChar& rhs) const {
+    return char_ == rhs.char_;
+  }
+  bool operator!=(const UnprintableChar& rhs) const {
+    return char_ != rhs.char_;
+  }
+  bool operator<(const UnprintableChar& rhs) const {
+    return char_ < rhs.char_;
+  }
+  bool operator<=(const UnprintableChar& rhs) const {
+    return char_ <= rhs.char_;
+  }
+  bool operator>(const UnprintableChar& rhs) const {
+    return char_ > rhs.char_;
+  }
+  bool operator>=(const UnprintableChar& rhs) const {
+    return char_ >= rhs.char_;
+  }
+
+ private:
+  char char_;
+};
+
+// Tests that ASSERT_EQ() and friends don't require the arguments to
+// be printable.
+TEST(ComparisonAssertionTest, AcceptsUnprintableArgs) {
+  const UnprintableChar x('x'), y('y');
+  ASSERT_EQ(x, x);
+  EXPECT_NE(x, y);
+  ASSERT_LT(x, y);
+  EXPECT_LE(x, y);
+  ASSERT_GT(y, x);
+  EXPECT_GE(x, x);
+
+  EXPECT_NONFATAL_FAILURE(EXPECT_EQ(x, y), "1-byte object <78>");
+  EXPECT_NONFATAL_FAILURE(EXPECT_EQ(x, y), "1-byte object <79>");
+  EXPECT_NONFATAL_FAILURE(EXPECT_LT(y, y), "1-byte object <79>");
+  EXPECT_NONFATAL_FAILURE(EXPECT_GT(x, y), "1-byte object <78>");
+  EXPECT_NONFATAL_FAILURE(EXPECT_GT(x, y), "1-byte object <79>");
+
+  // Code tested by EXPECT_FATAL_FAILURE cannot reference local
+  // variables, so we have to write UnprintableChar('x') instead of x.
+  EXPECT_FATAL_FAILURE(ASSERT_NE(UnprintableChar('x'), UnprintableChar('x')),
+                       "1-byte object <78>");
+  EXPECT_FATAL_FAILURE(ASSERT_LE(UnprintableChar('y'), UnprintableChar('x')),
+                       "1-byte object <78>");
+  EXPECT_FATAL_FAILURE(ASSERT_LE(UnprintableChar('y'), UnprintableChar('x')),
+                       "1-byte object <79>");
+  EXPECT_FATAL_FAILURE(ASSERT_GE(UnprintableChar('x'), UnprintableChar('y')),
+                       "1-byte object <78>");
+  EXPECT_FATAL_FAILURE(ASSERT_GE(UnprintableChar('x'), UnprintableChar('y')),
+                       "1-byte object <79>");
 }
 
 // Tests the FRIEND_TEST macro.
@@ -5049,6 +5183,7 @@ struct Flags {
             repeat(1),
             shuffle(false),
             stack_trace_depth(kMaxStackTraceDepth),
+            stream_result_to(""),
             throw_on_failure(false) {}
 
   // Factory methods.
@@ -5149,6 +5284,14 @@ struct Flags {
     return flags;
   }
 
+  // Creates a Flags struct where the GTEST_FLAG(stream_result_to) flag has
+  // the given value.
+  static Flags StreamResultTo(const char* stream_result_to) {
+    Flags flags;
+    flags.stream_result_to = stream_result_to;
+    return flags;
+  }
+
   // Creates a Flags struct where the gtest_throw_on_failure flag has
   // the given value.
   static Flags ThrowOnFailure(bool throw_on_failure) {
@@ -5170,6 +5313,7 @@ struct Flags {
   Int32 repeat;
   bool shuffle;
   Int32 stack_trace_depth;
+  const char* stream_result_to;
   bool throw_on_failure;
 };
 
@@ -5190,6 +5334,7 @@ class InitGoogleTestTest : public Test {
     GTEST_FLAG(repeat) = 1;
     GTEST_FLAG(shuffle) = false;
     GTEST_FLAG(stack_trace_depth) = kMaxStackTraceDepth;
+    GTEST_FLAG(stream_result_to) = "";
     GTEST_FLAG(throw_on_failure) = false;
   }
 
@@ -5218,8 +5363,10 @@ class InitGoogleTestTest : public Test {
     EXPECT_EQ(expected.random_seed, GTEST_FLAG(random_seed));
     EXPECT_EQ(expected.repeat, GTEST_FLAG(repeat));
     EXPECT_EQ(expected.shuffle, GTEST_FLAG(shuffle));
-    EXPECT_EQ(expected.throw_on_failure, GTEST_FLAG(throw_on_failure));
     EXPECT_EQ(expected.stack_trace_depth, GTEST_FLAG(stack_trace_depth));
+    EXPECT_STREQ(expected.stream_result_to,
+                 GTEST_FLAG(stream_result_to).c_str());
+    EXPECT_EQ(expected.throw_on_failure, GTEST_FLAG(throw_on_failure));
   }
 
   // Parses a command line (specified by argc1 and argv1), then
@@ -5232,16 +5379,16 @@ class InitGoogleTestTest : public Test {
     const bool saved_help_flag = ::testing::internal::g_help_flag;
     ::testing::internal::g_help_flag = false;
 
-#if GTEST_HAS_STREAM_REDIRECTION_
+#if GTEST_HAS_STREAM_REDIRECTION
     CaptureStdout();
-#endif  // GTEST_HAS_STREAM_REDIRECTION_
+#endif
 
     // Parses the command line.
     internal::ParseGoogleTestFlagsOnly(&argc1, const_cast<CharType**>(argv1));
 
-#if GTEST_HAS_STREAM_REDIRECTION_
+#if GTEST_HAS_STREAM_REDIRECTION
     const String captured_stdout = GetCapturedStdout();
-#endif  // GTEST_HAS_STREAM_REDIRECTION_
+#endif
 
     // Verifies the flag values.
     CheckFlags(expected);
@@ -5254,7 +5401,7 @@ class InitGoogleTestTest : public Test {
     // help message for the flags it recognizes.
     EXPECT_EQ(should_print_help, ::testing::internal::g_help_flag);
 
-#if GTEST_HAS_STREAM_REDIRECTION_
+#if GTEST_HAS_STREAM_REDIRECTION
     const char* const expected_help_fragment =
         "This program contains tests written using";
     if (should_print_help) {
@@ -5263,7 +5410,7 @@ class InitGoogleTestTest : public Test {
       EXPECT_PRED_FORMAT2(IsNotSubstring,
                           expected_help_fragment, captured_stdout);
     }
-#endif  // GTEST_HAS_STREAM_REDIRECTION_
+#endif  // GTEST_HAS_STREAM_REDIRECTION
 
     ::testing::internal::g_help_flag = saved_help_flag;
   }
@@ -5878,6 +6025,22 @@ TEST_F(InitGoogleTestTest, StackTraceDepth) {
   };
 
   GTEST_TEST_PARSING_FLAGS_(argv, argv2, Flags::StackTraceDepth(5), false);
+}
+
+TEST_F(InitGoogleTestTest, StreamResultTo) {
+  const char* argv[] = {
+    "foo.exe",
+    "--gtest_stream_result_to=localhost:1234",
+    NULL
+  };
+
+  const char* argv2[] = {
+    "foo.exe",
+    NULL
+  };
+
+  GTEST_TEST_PARSING_FLAGS_(
+      argv, argv2, Flags::StreamResultTo("localhost:1234"), false);
 }
 
 // Tests parsing --gtest_throw_on_failure.
@@ -6743,6 +6906,41 @@ GTEST_TEST(AlternativeNameTest, Works) {  // GTEST_TEST is the same as TEST.
   // GTEST_FAIL is the same as FAIL.
   EXPECT_FATAL_FAILURE(GTEST_FAIL() << "An expected failure",
                        "An expected failure");
+
+  // GTEST_ASSERT_XY is the same as ASSERT_XY.
+
+  GTEST_ASSERT_EQ(0, 0);
+  EXPECT_FATAL_FAILURE(GTEST_ASSERT_EQ(0, 1) << "An expected failure",
+                       "An expected failure");
+  EXPECT_FATAL_FAILURE(GTEST_ASSERT_EQ(1, 0) << "An expected failure",
+                       "An expected failure");
+
+  GTEST_ASSERT_NE(0, 1);
+  GTEST_ASSERT_NE(1, 0);
+  EXPECT_FATAL_FAILURE(GTEST_ASSERT_NE(0, 0) << "An expected failure",
+                       "An expected failure");
+
+  GTEST_ASSERT_LE(0, 0);
+  GTEST_ASSERT_LE(0, 1);
+  EXPECT_FATAL_FAILURE(GTEST_ASSERT_LE(1, 0) << "An expected failure",
+                       "An expected failure");
+
+  GTEST_ASSERT_LT(0, 1);
+  EXPECT_FATAL_FAILURE(GTEST_ASSERT_LT(0, 0) << "An expected failure",
+                       "An expected failure");
+  EXPECT_FATAL_FAILURE(GTEST_ASSERT_LT(1, 0) << "An expected failure",
+                       "An expected failure");
+
+  GTEST_ASSERT_GE(0, 0);
+  GTEST_ASSERT_GE(1, 0);
+  EXPECT_FATAL_FAILURE(GTEST_ASSERT_GE(0, 1) << "An expected failure",
+                       "An expected failure");
+
+  GTEST_ASSERT_GT(1, 0);
+  EXPECT_FATAL_FAILURE(GTEST_ASSERT_GT(0, 1) << "An expected failure",
+                       "An expected failure");
+  EXPECT_FATAL_FAILURE(GTEST_ASSERT_GT(1, 1) << "An expected failure",
+                       "An expected failure");
 }
 
 // Tests for internal utilities necessary for implementation of the universal
@@ -6760,13 +6958,10 @@ TEST(IsAProtocolMessageTest, ValueIsCompileTimeConstant) {
 }
 
 // Tests that IsAProtocolMessage<T>::value is true when T is
-// ProtocolMessage or a sub-class of it.
+// proto2::Message or a sub-class of it.
 TEST(IsAProtocolMessageTest, ValueIsTrueWhenTypeIsAProtocolMessage) {
   EXPECT_TRUE(IsAProtocolMessage< ::proto2::Message>::value);
   EXPECT_TRUE(IsAProtocolMessage<ProtocolMessage>::value);
-#if GTEST_HAS_PROTOBUF_
-  EXPECT_TRUE(IsAProtocolMessage<const TestMessage>::value);
-#endif  // GTEST_HAS_PROTOBUF_
 }
 
 // Tests that IsAProtocolMessage<T>::value is false when T is neither
@@ -7074,4 +7269,30 @@ TEST(NativeArrayTest, WorksForTwoDimensionalArray) {
   NativeArray<char[3]> na(a, 2, kReference);
   ASSERT_EQ(2U, na.size());
   EXPECT_EQ(a, na.begin());
+}
+
+// Tests SkipPrefix().
+
+TEST(SkipPrefixTest, SkipsWhenPrefixMatches) {
+  const char* const str = "hello";
+
+  const char* p = str;
+  EXPECT_TRUE(SkipPrefix("", &p));
+  EXPECT_EQ(str, p);
+
+  p = str;
+  EXPECT_TRUE(SkipPrefix("hell", &p));
+  EXPECT_EQ(str + 4, p);
+}
+
+TEST(SkipPrefixTest, DoesNotSkipWhenPrefixDoesNotMatch) {
+  const char* const str = "world";
+
+  const char* p = str;
+  EXPECT_FALSE(SkipPrefix("W", &p));
+  EXPECT_EQ(str, p);
+
+  p = str;
+  EXPECT_FALSE(SkipPrefix("world!", &p));
+  EXPECT_EQ(str, p);
 }

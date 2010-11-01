@@ -21,6 +21,7 @@
 #include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/credit_card.h"
 #include "chrome/browser/diagnostics/sqlite_diagnostics.h"
+#include "chrome/browser/guid.h"
 #include "chrome/browser/history/history_database.h"
 #include "chrome/browser/password_manager/encryptor.h"
 #include "chrome/browser/search_engines/template_url.h"
@@ -68,6 +69,8 @@ using webkit_glue::PasswordForm;
 //   logo_id                See TemplateURL::logo_id
 //   created_by_policy      See TemplateURL::created_by_policy.  This was added
 //                          in version 26.
+//   instant_url            See TemplateURL::instant_url.  This was added
+//                          in version 29.
 //
 // logins
 //   origin_url
@@ -122,6 +125,14 @@ using webkit_glue::PasswordForm;
 //   country
 //   phone
 //   fax
+//   date_modified      The date on which this profile was last modified.
+//                      Added in version 30.
+//   guid               A guid string to uniquely identify the profile.  This
+//                      will eventually replace the unique_id above.  We need
+//                      to keep both during the transition.
+//                      Added in version 31.
+//                      TODO(dhollowa): Deprecate and remove unique_id.
+//                      http://crbug.com/58813
 //
 // credit_cards         This table contains credit card data added by the user
 //                      with the AutoFill dialog.  Most of the columns are
@@ -147,6 +158,14 @@ using webkit_glue::PasswordForm;
 //     chrome/browser/sync/protocol/autofill_specifics.proto
 //   card_number_encrypted Stores encrypted credit card number.
 //   verification_code_encrypted  The CVC/CVV/CVV2 card security code.
+//   date_modified      The date on which this entry was last modified.
+//                      Added in version 30.
+//   guid               A guid string to uniquely identify the profile.  This
+//                      will eventually replace the unique_id above.  We need
+//                      to keep both during the transition.
+//                      Added in version 31.
+//                      TODO(dhollowa): Deprecate and remove unique_id.
+//                      http://crbug.com/58813
 //
 // web_app_icons
 //   url         URL of the web app.
@@ -169,9 +188,11 @@ typedef std::vector<Tuple3<int64, string16, string16> > AutofillElementList;
 // Current version number.  Note: when changing the current version number,
 // corresponding changes must happen in the unit tests, and new migration test
 // added.  See |WebDatabaseMigrationTest::kCurrentTestedVersionNumber|.
-const int kCurrentVersionNumber = 27;
-const int kCompatibleVersionNumber = 27;
-const int kUrlIdPosition = 15;
+const int kCurrentVersionNumber = 31;
+const int kCompatibleVersionNumber = 31;
+
+// ID of the url column in keywords.
+const int kUrlIdPosition = 16;
 
 // Keys used in the meta table.
 const char* kDefaultSearchProviderKey = "Default Search Provider ID";
@@ -190,10 +211,7 @@ void BindURLToStatement(const TemplateURL& url, sql::Statement* s) {
     s->BindString(2, history::HistoryDatabase::GURLToDatabaseURL(
                        url.GetFavIconURL()));
   }
-  if (url.url())
-    s->BindString(3, url.url()->url());
-  else
-    s->BindString(3, std::string());
+  s->BindString(3, url.url() ? url.url()->url() : std::string());
   s->BindInt(4, url.safe_for_autoreplace() ? 1 : 0);
   if (!url.originating_url().is_valid()) {
     s->BindString(5, std::string());
@@ -205,14 +223,14 @@ void BindURLToStatement(const TemplateURL& url, sql::Statement* s) {
   s->BindInt(7, url.usage_count());
   s->BindString(8, JoinString(url.input_encodings(), ';'));
   s->BindInt(9, url.show_in_default_list() ? 1 : 0);
-  if (url.suggestions_url())
-    s->BindString(10, url.suggestions_url()->url());
-  else
-    s->BindString(10, std::string());
+  s->BindString(10, url.suggestions_url() ? url.suggestions_url()->url() :
+                std::string());
   s->BindInt(11, url.prepopulate_id());
   s->BindInt(12, url.autogenerate_keyword() ? 1 : 0);
   s->BindInt(13, url.logo_id());
   s->BindBool(14, url.created_by_policy());
+  s->BindString(15, url.instant_url() ? url.instant_url()->url() :
+                std::string());
 }
 
 void InitPasswordFormFromStatement(PasswordForm* form, sql::Statement* s) {
@@ -289,11 +307,14 @@ void BindAutoFillProfileToStatement(const AutoFillProfile& profile,
   s->BindString16(13, LimitDataSize(text));
   text = profile.GetFieldText(AutoFillType(PHONE_FAX_WHOLE_NUMBER));
   s->BindString16(14, LimitDataSize(text));
+  s->BindInt64(15, Time::Now().ToTimeT());
+  DCHECK(guid::IsValidGUID(profile.guid()));
+  s->BindString(16, profile.guid());
 }
 
 AutoFillProfile* AutoFillProfileFromStatement(const sql::Statement& s) {
-  AutoFillProfile* profile = new AutoFillProfile(
-      s.ColumnString16(0), s.ColumnInt(1));
+  AutoFillProfile* profile = new AutoFillProfile(s.ColumnString16(0),
+                                                 s.ColumnInt(1));
   profile->SetInfo(AutoFillType(NAME_FIRST),
                    s.ColumnString16(2));
   profile->SetInfo(AutoFillType(NAME_MIDDLE),
@@ -320,6 +341,9 @@ AutoFillProfile* AutoFillProfileFromStatement(const sql::Statement& s) {
                    s.ColumnString16(13));
   profile->SetInfo(AutoFillType(PHONE_FAX_WHOLE_NUMBER),
                    s.ColumnString16(14));
+  // Intentionally skip column 15, which stores the profile's modification date.
+  profile->set_guid(s.ColumnString(16));
+  DCHECK(guid::IsValidGUID(profile->guid()));
 
   return profile;
 }
@@ -353,11 +377,13 @@ void BindCreditCardToStatement(const CreditCard& credit_card,
   // We don't store the CVV anymore.
   text.clear();
   s->BindBlob(11, text.data(), static_cast<int>(text.length()));
+  s->BindInt64(12, Time::Now().ToTimeT());
+  DCHECK(guid::IsValidGUID(credit_card.guid()));
+  s->BindString(13, credit_card.guid());
 }
 
 CreditCard* CreditCardFromStatement(const sql::Statement& s) {
-  CreditCard* credit_card = new CreditCard(
-      s.ColumnString16(0), s.ColumnInt(1));
+  CreditCard* credit_card = new CreditCard(s.ColumnString16(0), s.ColumnInt(1));
   credit_card->SetInfo(AutoFillType(CREDIT_CARD_NAME),
                        s.ColumnString16(2));
   credit_card->SetInfo(AutoFillType(CREDIT_CARD_TYPE),
@@ -385,7 +411,10 @@ CreditCard* CreditCardFromStatement(const sql::Statement& s) {
   credit_card->set_billing_address_id(s.ColumnInt(8));
   // We don't store the shipping address anymore.
   // Column 10 is processed above.
-  // Column 11 is processed above.
+  // We don't store the encrypted CVV anymore.
+  // Intentionally skip column 12, which stores the modification date.
+  credit_card->set_guid(s.ColumnString(13));
+  DCHECK(guid::IsValidGUID(credit_card->guid()));
 
   return credit_card;
 }
@@ -454,7 +483,11 @@ sql::InitStatus WebDatabase::Init(const FilePath& db_name) {
   }
 
   // If the file on disk is an older database version, bring it up to date.
-  MigrateOldVersionsAsNeeded();
+  // If the migration fails we return an error to caller and do not commit
+  // the migration.
+  sql::InitStatus migration_status = MigrateOldVersionsAsNeeded();
+  if (migration_status != sql::INIT_OK)
+    return migration_status;
 
   return transaction.Commit() ? sql::INIT_OK : sql::INIT_FAILURE;
 }
@@ -629,7 +662,8 @@ bool WebDatabase::InitKeywordsTable() {
                      "prepopulate_id INTEGER DEFAULT 0,"
                      "autogenerate_keyword INTEGER DEFAULT 0,"
                      "logo_id INTEGER DEFAULT 0,"
-                     "created_by_policy INTEGER DEFAULT 0)")) {
+                     "created_by_policy INTEGER DEFAULT 0,"
+                     "instant_url VARCHAR)")) {
       NOTREACHED();
       return false;
     }
@@ -746,7 +780,9 @@ bool WebDatabase::InitAutoFillProfilesTable() {
                      "zipcode VARCHAR, "
                      "country VARCHAR, "
                      "phone VARCHAR, "
-                     "fax VARCHAR)")) {
+                     "fax VARCHAR, "
+                     "date_modified INTEGER NOT NULL DEFAULT 0, "
+                     "guid VARCHAR NOT NULL DEFAULT \"\")")) {
       NOTREACHED();
       return false;
     }
@@ -773,7 +809,9 @@ bool WebDatabase::InitCreditCardsTable() {
                      "billing_address VARCHAR, "
                      "shipping_address VARCHAR, "
                      "card_number_encrypted BLOB, "
-                     "verification_code_encrypted BLOB)")) {
+                     "verification_code_encrypted BLOB, "
+                     "date_modified INTEGER NOT NULL DEFAULT 0, "
+                     "guid VARCHAR NOT NULL DEFAULT \"\")")) {
       NOTREACHED();
       return false;
     }
@@ -783,6 +821,7 @@ bool WebDatabase::InitCreditCardsTable() {
       return false;
     }
   }
+
   return true;
 }
 
@@ -836,8 +875,9 @@ bool WebDatabase::AddKeyword(const TemplateURL& url) {
       "(short_name, keyword, favicon_url, url, safe_for_autoreplace, "
       "originating_url, date_created, usage_count, input_encodings, "
       "show_in_default_list, suggest_url, prepopulate_id, "
-      "autogenerate_keyword, logo_id, created_by_policy, id) VALUES "
-      "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"));
+      "autogenerate_keyword, logo_id, created_by_policy, instant_url, "
+      "id) VALUES "
+      "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
     return false;
@@ -868,7 +908,7 @@ bool WebDatabase::GetKeywords(std::vector<TemplateURL*>* urls) {
       "safe_for_autoreplace, originating_url, date_created, "
       "usage_count, input_encodings, show_in_default_list, "
       "suggest_url, prepopulate_id, autogenerate_keyword, logo_id, "
-      "created_by_policy "
+      "created_by_policy, instant_url "
       "FROM keywords ORDER BY id ASC"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
@@ -883,15 +923,13 @@ bool WebDatabase::GetKeywords(std::vector<TemplateURL*>* urls) {
     DCHECK(!tmp.empty());
     template_url->set_short_name(UTF8ToWide(tmp));
 
-    tmp = s.ColumnString(2);
-    template_url->set_keyword(UTF8ToWide(tmp));
+    template_url->set_keyword(UTF8ToWide(s.ColumnString(2)));
 
     tmp = s.ColumnString(3);
     if (!tmp.empty())
       template_url->SetFavIconURL(GURL(tmp));
 
-    tmp = s.ColumnString(4);
-    template_url->SetURL(tmp, 0, 0);
+    template_url->SetURL(s.ColumnString(4), 0, 0);
 
     template_url->set_safe_for_autoreplace(s.ColumnInt(5) == 1);
 
@@ -904,13 +942,12 @@ bool WebDatabase::GetKeywords(std::vector<TemplateURL*>* urls) {
     template_url->set_usage_count(s.ColumnInt(8));
 
     std::vector<std::string> encodings;
-    SplitString(s.ColumnString(9), ';', &encodings);
+    base::SplitString(s.ColumnString(9), ';', &encodings);
     template_url->set_input_encodings(encodings);
 
     template_url->set_show_in_default_list(s.ColumnInt(10) == 1);
 
-    tmp = s.ColumnString(11);
-    template_url->SetSuggestionsURL(tmp, 0, 0);
+    template_url->SetSuggestionsURL(s.ColumnString(11), 0, 0);
 
     template_url->set_prepopulate_id(s.ColumnInt(12));
 
@@ -919,6 +956,8 @@ bool WebDatabase::GetKeywords(std::vector<TemplateURL*>* urls) {
     template_url->set_logo_id(s.ColumnInt(14));
 
     template_url->set_created_by_policy(s.ColumnBool(15));
+
+    template_url->SetInstantURL(s.ColumnString(16), 0, 0);
 
     urls->push_back(template_url);
   }
@@ -934,7 +973,7 @@ bool WebDatabase::UpdateKeyword(const TemplateURL& url) {
       "safe_for_autoreplace=?, originating_url=?, date_created=?, "
       "usage_count=?, input_encodings=?, show_in_default_list=?, "
       "suggest_url=?, prepopulate_id=?, autogenerate_keyword=?, "
-      "logo_id=?, created_by_policy=? WHERE id=?"));
+      "logo_id=?, created_by_policy=?, instant_url=? WHERE id=?"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
     return false;
@@ -1622,8 +1661,8 @@ bool WebDatabase::AddAutoFillProfile(const AutoFillProfile& profile) {
       "INSERT INTO autofill_profiles"
       "(label, unique_id, first_name, middle_name, last_name, email,"
       " company_name, address_line_1, address_line_2, city, state, zipcode,"
-      " country, phone, fax)"
-      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"));
+      " country, phone, fax, date_modified, guid)"
+      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
     return false;
@@ -1643,7 +1682,10 @@ bool WebDatabase::GetAutoFillProfileForLabel(const string16& label,
                                              AutoFillProfile** profile) {
   DCHECK(profile);
   sql::Statement s(db_.GetUniqueStatement(
-      "SELECT * FROM autofill_profiles "
+      "SELECT label, unique_id, first_name, middle_name, last_name, email, "
+      "company_name, address_line_1, address_line_2, city, state, zipcode, "
+      "country, phone, fax, date_modified, guid "
+      "FROM autofill_profiles "
       "WHERE label = ?"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
@@ -1659,12 +1701,40 @@ bool WebDatabase::GetAutoFillProfileForLabel(const string16& label,
   return s.Succeeded();
 }
 
+bool WebDatabase::GetAutoFillProfileForGUID(const std::string& guid,
+                                            AutoFillProfile** profile) {
+  DCHECK(guid::IsValidGUID(guid));
+  DCHECK(profile);
+  sql::Statement s(db_.GetUniqueStatement(
+      "SELECT label, unique_id, first_name, middle_name, last_name, email, "
+      "company_name, address_line_1, address_line_2, city, state, zipcode, "
+      "country, phone, fax, date_modified, guid "
+      "FROM autofill_profiles "
+      "WHERE guid = ?"));
+  if (!s) {
+    NOTREACHED() << "Statement prepare failed";
+    return false;
+  }
+
+  s.BindString(0, guid);
+  if (!s.Step())
+    return false;
+
+  *profile = AutoFillProfileFromStatement(s);
+
+  return s.Succeeded();
+}
+
 bool WebDatabase::GetAutoFillProfiles(
     std::vector<AutoFillProfile*>* profiles) {
   DCHECK(profiles);
   profiles->clear();
 
-  sql::Statement s(db_.GetUniqueStatement("SELECT * FROM autofill_profiles"));
+  sql::Statement s(db_.GetUniqueStatement(
+      "SELECT label, unique_id, first_name, middle_name, last_name, email, "
+      "company_name, address_line_1, address_line_2, city, state, zipcode, "
+      "country, phone, fax, date_modified, guid "
+      "FROM autofill_profiles"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
     return false;
@@ -1682,7 +1752,8 @@ bool WebDatabase::UpdateAutoFillProfile(const AutoFillProfile& profile) {
       "UPDATE autofill_profiles "
       "SET label=?, unique_id=?, first_name=?, middle_name=?, last_name=?, "
       "    email=?, company_name=?, address_line_1=?, address_line_2=?, "
-      "    city=?, state=?, zipcode=?, country=?, phone=?, fax=? "
+      "    city=?, state=?, zipcode=?, country=?, phone=?, fax=?, "
+      "    date_modified=?, guid=? "
       "WHERE unique_id=?"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
@@ -1690,7 +1761,7 @@ bool WebDatabase::UpdateAutoFillProfile(const AutoFillProfile& profile) {
   }
 
   BindAutoFillProfileToStatement(profile, &s);
-  s.BindInt(15, profile.unique_id());
+  s.BindInt(17, profile.unique_id());
   bool result = s.Run();
   DCHECK_GT(db_.GetLastChangeCount(), 0);
   return result;
@@ -1709,10 +1780,26 @@ bool WebDatabase::RemoveAutoFillProfile(int profile_id) {
   return s.Run();
 }
 
+bool WebDatabase::RemoveAutoFillProfile(const std::string& guid) {
+  DCHECK(guid::IsValidGUID(guid));
+  sql::Statement s(db_.GetUniqueStatement(
+      "DELETE FROM autofill_profiles WHERE guid = ?"));
+  if (!s) {
+    NOTREACHED() << "Statement prepare failed";
+    return false;
+  }
+
+  s.BindString(0, guid);
+  return s.Run();
+}
+
 bool WebDatabase::GetAutoFillProfileForID(int profile_id,
     AutoFillProfile** profile) {
   sql::Statement s(db_.GetUniqueStatement(
-      "SELECT * FROM autofill_profiles "
+      "SELECT label, unique_id, first_name, middle_name, last_name, email, "
+      "company_name, address_line_1, address_line_2, city, state, zipcode, "
+      "country, phone, fax, date_modified, guid "
+      "FROM autofill_profiles "
       "WHERE unique_id = ?"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
@@ -1729,10 +1816,11 @@ bool WebDatabase::GetAutoFillProfileForID(int profile_id,
 bool WebDatabase::AddCreditCard(const CreditCard& credit_card) {
   sql::Statement s(db_.GetUniqueStatement(
       "INSERT INTO credit_cards"
-      "(label, unique_id, name_on_card, type, card_number,"
-      " expiration_month, expiration_year, verification_code, billing_address,"
-      " shipping_address, card_number_encrypted, verification_code_encrypted)"
-      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"));
+      "(label, unique_id, name_on_card, type, card_number, expiration_month,"
+      " expiration_year, verification_code, billing_address, shipping_address,"
+      " card_number_encrypted, verification_code_encrypted, date_modified,"
+      " guid)"
+      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
     return false;
@@ -1753,7 +1841,11 @@ bool WebDatabase::GetCreditCardForLabel(const string16& label,
                                         CreditCard** credit_card) {
   DCHECK(credit_card);
   sql::Statement s(db_.GetUniqueStatement(
-      "SELECT * FROM credit_cards "
+      "SELECT label, unique_id, name_on_card, type, card_number, "
+      "expiration_month, expiration_year, verification_code, billing_address, "
+      "shipping_address, card_number_encrypted, verification_code_encrypted, "
+      "date_modified, guid "
+      "FROM credit_cards "
       "WHERE label = ?"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
@@ -1772,7 +1864,11 @@ bool WebDatabase::GetCreditCardForLabel(const string16& label,
 bool WebDatabase::GetCreditCardForID(int credit_card_id,
                                      CreditCard** credit_card) {
   sql::Statement s(db_.GetUniqueStatement(
-      "SELECT * FROM credit_cards "
+      "SELECT label, unique_id, name_on_card, type, card_number, "
+      "expiration_month, expiration_year, verification_code, billing_address, "
+      "shipping_address, card_number_encrypted, verification_code_encrypted, "
+      "date_modified, guid "
+      "FROM credit_cards "
       "WHERE unique_id = ?"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
@@ -1788,12 +1884,41 @@ bool WebDatabase::GetCreditCardForID(int credit_card_id,
   return s.Succeeded();
 }
 
+bool WebDatabase::GetCreditCardForGUID(const std::string& guid,
+                                       CreditCard** credit_card) {
+  DCHECK(guid::IsValidGUID(guid));
+  sql::Statement s(db_.GetUniqueStatement(
+      "SELECT label, unique_id, name_on_card, type, card_number, "
+      "expiration_month, expiration_year, verification_code, billing_address, "
+      "shipping_address, card_number_encrypted, verification_code_encrypted, "
+      "date_modified, guid "
+      "FROM credit_cards "
+      "WHERE guid = ?"));
+  if (!s) {
+    NOTREACHED() << "Statement prepare failed";
+    return false;
+  }
+
+  s.BindString(0, guid);
+  if (!s.Step())
+    return false;
+
+  *credit_card = CreditCardFromStatement(s);
+
+  return s.Succeeded();
+}
+
 bool WebDatabase::GetCreditCards(
     std::vector<CreditCard*>* credit_cards) {
   DCHECK(credit_cards);
   credit_cards->clear();
 
-  sql::Statement s(db_.GetUniqueStatement("SELECT * FROM credit_cards"));
+  sql::Statement s(db_.GetUniqueStatement(
+      "SELECT label, unique_id, name_on_card, type, card_number, "
+      "expiration_month, expiration_year, verification_code, billing_address, "
+      "shipping_address, card_number_encrypted, verification_code_encrypted, "
+      "date_modified, guid "
+      "FROM credit_cards"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
     return false;
@@ -1812,7 +1937,7 @@ bool WebDatabase::UpdateCreditCard(const CreditCard& credit_card) {
       "SET label=?, unique_id=?, name_on_card=?, type=?, card_number=?, "
       "    expiration_month=?, expiration_year=?, verification_code=?, "
       "    billing_address=?, shipping_address=?, card_number_encrypted=?, "
-      "    verification_code_encrypted=? "
+      "    verification_code_encrypted=?, date_modified=?, guid=?"
       "WHERE unique_id=?"));
   if (!s) {
     NOTREACHED() << "Statement prepare failed";
@@ -1820,7 +1945,7 @@ bool WebDatabase::UpdateCreditCard(const CreditCard& credit_card) {
   }
 
   BindCreditCardToStatement(credit_card, &s);
-  s.BindInt(12, credit_card.unique_id());
+  s.BindInt(14, credit_card.unique_id());
   bool result = s.Run();
   DCHECK_GT(db_.GetLastChangeCount(), 0);
   return result;
@@ -1837,6 +1962,68 @@ bool WebDatabase::RemoveCreditCard(int credit_card_id) {
 
   s.BindInt(0, credit_card_id);
   return s.Run();
+}
+
+bool WebDatabase::RemoveCreditCard(const std::string& guid) {
+  DCHECK(guid::IsValidGUID(guid));
+  sql::Statement s(db_.GetUniqueStatement(
+      "DELETE FROM credit_cards WHERE guid = ?"));
+  if (!s) {
+    NOTREACHED() << "Statement prepare failed";
+    return false;
+  }
+
+  s.BindString(0, guid);
+  return s.Run();
+}
+
+bool WebDatabase::RemoveAutoFillProfilesAndCreditCardsModifiedBetween(
+    base::Time delete_begin,
+    base::Time delete_end) {
+  DCHECK(delete_end.is_null() || delete_begin < delete_end);
+
+  time_t delete_begin_t = delete_begin.ToTimeT();
+  time_t delete_end_t = delete_end.is_null() ?
+      std::numeric_limits<time_t>::max() :
+      delete_end.ToTimeT();
+
+  // Remove AutoFill profiles in the time range.
+  sql::Statement s_profiles(db_.GetUniqueStatement(
+      "DELETE FROM autofill_profiles "
+      "WHERE date_modified >= ? AND date_modified < ?"));
+  if (!s_profiles) {
+    NOTREACHED() << "AutoFill profiles statement prepare failed";
+    return false;
+  }
+
+  s_profiles.BindInt64(0, delete_begin_t);
+  s_profiles.BindInt64(1, delete_end_t);
+  s_profiles.Run();
+
+  if (!s_profiles.Succeeded()) {
+    NOTREACHED();
+    return false;
+  }
+
+  // Remove AutoFill profiles in the time range.
+  sql::Statement s_credit_cards(db_.GetUniqueStatement(
+      "DELETE FROM credit_cards "
+      "WHERE date_modified >= ? AND date_modified < ?"));
+  if (!s_credit_cards) {
+    NOTREACHED() << "AutoFill credit cards statement prepare failed";
+    return false;
+  }
+
+  s_credit_cards.BindInt64(0, delete_begin_t);
+  s_credit_cards.BindInt64(1, delete_end_t);
+  s_credit_cards.Run();
+
+  if (!s_credit_cards.Succeeded()) {
+    NOTREACHED();
+    return false;
+  }
+
+  return true;
 }
 
 bool WebDatabase::AddToCountOfFormElement(int64 pair_id,
@@ -1875,27 +2062,31 @@ bool WebDatabase::RemoveFormElementForID(int64 pair_id) {
   return false;
 }
 
-void WebDatabase::MigrateOldVersionsAsNeeded(){
+sql::InitStatus WebDatabase::MigrateOldVersionsAsNeeded(){
   // Migrate if necessary.
   int current_version = meta_table_.GetVersionNumber();
   switch (current_version) {
     // Versions 1 - 19 are unhandled.  Version numbers greater than
     // kCurrentVersionNumber should have already been weeded out by the caller.
     default:
-      // When the version is too old, we just try to continue anyway.  There
-      // should not be a released product that makes a database too old for us
-      // to handle.
+      // When the version is too old, we return failure error code.  The schema
+      // is too out of date to migrate.
+      // There should not be a released product that makes a database too old to
+      // migrate. If we do encounter such a legacy database, we will need a
+      // better solution to handle it (i.e., pop up a dialog to tell the user,
+      // erase all their prefs and start over, etc.).
       LOG(WARNING) << "Web database version " << current_version <<
           " is too old to handle.";
-      return;
+      NOTREACHED();
+      return sql::INIT_FAILURE;
 
     case 20:
       // Add the autogenerate_keyword column.
       if (!db_.Execute("ALTER TABLE keywords ADD COLUMN autogenerate_keyword "
                        "INTEGER DEFAULT 0")) {
-        NOTREACHED();
         LOG(WARNING) << "Unable to update web database to version 21.";
-        return;
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
       meta_table_.SetVersionNumber(21);
       meta_table_.SetCompatibleVersionNumber(
@@ -1904,7 +2095,9 @@ void WebDatabase::MigrateOldVersionsAsNeeded(){
 
     case 21:
       if (!ClearAutofillEmptyValueElements()) {
-        NOTREACHED() << "Failed to clean-up autofill DB.";
+        LOG(WARNING) << "Failed to clean-up autofill DB.";
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
       meta_table_.SetVersionNumber(22);
       // No change in the compatibility version number.
@@ -1941,23 +2134,24 @@ void WebDatabase::MigrateOldVersionsAsNeeded(){
       // we allow for the faulty assumption described above by checking for
       // the existence of the columns only AFTER we've executed the commands
       // to add them.
-      if (!db_.Execute("ALTER TABLE credit_cards ADD COLUMN "
-                       "card_number_encrypted BLOB DEFAULT NULL")) {
-        LOG(WARNING) << "Could not add card_number_encrypted to "
-                        "credit_cards table.";
+      if (!db_.DoesColumnExist("credit_cards", "card_number_encrypted")) {
+        if (!db_.Execute("ALTER TABLE credit_cards ADD COLUMN "
+                         "card_number_encrypted BLOB DEFAULT NULL")) {
+          LOG(WARNING) << "Could not add card_number_encrypted to "
+                          "credit_cards table.";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
+        }
       }
-      if (!db_.Execute("ALTER TABLE credit_cards ADD COLUMN "
-                       "verification_code_encrypted BLOB DEFAULT NULL")) {
-        LOG(WARNING) << "Could not add verification_code_encrypted to "
-                        "credit_cards table.";
-      }
-      if (!db_.Execute(
-              "SELECT card_number_encrypted FROM credit_cards limit 1") ||
-          !db_.Execute(
-              "SELECT verification_code_encrypted FROM credit_cards limit 1")) {
-        NOTREACHED();
-        LOG(WARNING) << "Unable to update web database to version 23.";
-        return;
+
+      if (!db_.DoesColumnExist("credit_cards", "verification_code_encrypted")) {
+        if (!db_.Execute("ALTER TABLE credit_cards ADD COLUMN "
+                         "verification_code_encrypted BLOB DEFAULT NULL")) {
+          LOG(WARNING) << "Could not add verification_code_encrypted to "
+                          "credit_cards table.";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
+        }
       }
       meta_table_.SetVersionNumber(23);
       // FALL THROUGH
@@ -1989,30 +2183,30 @@ void WebDatabase::MigrateOldVersionsAsNeeded(){
       std::string query = "DELETE FROM autofill_dates WHERE pair_id IN ("
           "SELECT pair_id FROM autofill WHERE " + autofill_is_too_big + ")";
       if (!db_.Execute(query.c_str())) {
-        NOTREACHED();
         LOG(WARNING) << "Unable to update web database to version 24.";
-        return;
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
       query = "DELETE FROM autofill WHERE " + autofill_is_too_big;
       if (!db_.Execute(query.c_str())) {
-        NOTREACHED();
         LOG(WARNING) << "Unable to update web database to version 24.";
-        return;
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
       query = "DELETE FROM credit_cards WHERE (" + credit_cards_is_too_big +
           ") OR label IN (SELECT label FROM autofill_profiles WHERE " +
           autofill_profiles_is_too_big + ")";
       if (!db_.Execute(query.c_str())) {
-        NOTREACHED();
         LOG(WARNING) << "Unable to update web database to version 24.";
-        return;
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
       query = "DELETE FROM autofill_profiles WHERE " +
           autofill_profiles_is_too_big;
       if (!db_.Execute(query.c_str())) {
-        NOTREACHED();
         LOG(WARNING) << "Unable to update web database to version 24.";
-        return;
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
 
       meta_table_.SetVersionNumber(24);
@@ -2024,9 +2218,9 @@ void WebDatabase::MigrateOldVersionsAsNeeded(){
       // Add the logo_id column if keyword table was not created in this build.
       if (!db_.Execute("ALTER TABLE keywords ADD COLUMN logo_id "
                        "INTEGER DEFAULT 0")) {
-        NOTREACHED();
         LOG(WARNING) << "Unable to update web database to version 25.";
-        return;
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
       meta_table_.SetVersionNumber(25);
       meta_table_.SetCompatibleVersionNumber(
@@ -2037,9 +2231,9 @@ void WebDatabase::MigrateOldVersionsAsNeeded(){
       // Add the created_by_policy column.
       if (!db_.Execute("ALTER TABLE keywords ADD COLUMN created_by_policy "
                        "INTEGER DEFAULT 0")) {
-        NOTREACHED();
         LOG(WARNING) << "Unable to update web database to version 26.";
-        return;
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
 
       meta_table_.SetVersionNumber(26);
@@ -2058,8 +2252,9 @@ void WebDatabase::MigrateOldVersionsAsNeeded(){
           "WHERE credit_cards.billing_address = autofill_profiles.label";
       sql::Statement s(db_.GetUniqueStatement(stmt.c_str()));
       if (!s) {
-        NOTREACHED() << "Statement prepare failed";
-        return;
+        LOG(WARNING) << "Statement prepare failed";
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
 
       std::map<int, int> cc_billing_map;
@@ -2073,8 +2268,9 @@ void WebDatabase::MigrateOldVersionsAsNeeded(){
           "SELECT unique_id,billing_address FROM credit_cards";
         sql::Statement s(db_.GetUniqueStatement(stmt.c_str()));
         if (!s) {
-          NOTREACHED() << "Statement prepare failed";
-          return;
+          LOG(WARNING) << "Statement prepare failed";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
         }
 
         while (s.Step()) {
@@ -2097,9 +2293,9 @@ void WebDatabase::MigrateOldVersionsAsNeeded(){
                        "shipping_address VARCHAR, "
                        "card_number_encrypted BLOB, "
                        "verification_code_encrypted BLOB)")) {
-        NOTREACHED();
         LOG(WARNING) << "Unable to update web database to version 27.";
-        return;
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
 
       if (!db_.Execute(
@@ -2108,28 +2304,23 @@ void WebDatabase::MigrateOldVersionsAsNeeded(){
           "expiration_month,expiration_year,verification_code,0,"
           "shipping_address,card_number_encrypted,verification_code_encrypted "
           "FROM credit_cards")) {
-        NOTREACHED();
         LOG(WARNING) << "Unable to update web database to version 27.";
-        return;
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
 
       if (!db_.Execute("DROP TABLE credit_cards")) {
-        NOTREACHED();
         LOG(WARNING) << "Unable to update web database to version 27.";
-        return;
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
 
       if (!db_.Execute(
           "ALTER TABLE credit_cards_temp RENAME TO credit_cards")) {
-        NOTREACHED();
         LOG(WARNING) << "Unable to update web database to version 27.";
-        return;
+        NOTREACHED();
+        return sql::INIT_FAILURE;
       }
-
-      meta_table_.SetVersionNumber(26);
-      meta_table_.SetCompatibleVersionNumber(
-          std::min(26, kCompatibleVersionNumber));
-      // FALL THROUGH
 
       for (std::map<int, int>::const_iterator iter = cc_billing_map.begin();
            iter != cc_billing_map.end(); ++iter) {
@@ -2137,17 +2328,18 @@ void WebDatabase::MigrateOldVersionsAsNeeded(){
             SQL_FROM_HERE,
             "UPDATE credit_cards SET billing_address=? WHERE unique_id=?"));
         if (!s) {
-          NOTREACHED() << "Statement prepare failed";
-          return;
+          LOG(WARNING) << "Statement prepare failed";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
         }
 
         s.BindInt(0, (*iter).second);
         s.BindInt(1, (*iter).first);
 
         if (!s.Run()) {
-          NOTREACHED();
           LOG(WARNING) << "Unable to update web database to version 27.";
-          return;
+          NOTREACHED();
+          return sql::INIT_FAILURE;
         }
       }
 
@@ -2158,12 +2350,242 @@ void WebDatabase::MigrateOldVersionsAsNeeded(){
       // FALL THROUGH
     }
 
+    case 27:
+      // Add supports_instant to keywords.
+      if (!db_.Execute("ALTER TABLE keywords ADD COLUMN supports_instant "
+                       "INTEGER DEFAULT 0")) {
+        LOG(WARNING) << "Unable to update web database to version 28.";
+        NOTREACHED();
+        return sql::INIT_FAILURE;
+      }
+      meta_table_.SetVersionNumber(28);
+      meta_table_.SetCompatibleVersionNumber(
+          std::min(28, kCompatibleVersionNumber));
+
+      // FALL THROUGH
+
+    case 28:
+      // Keywords loses the column supports_instant and gets instant_url.
+      if (!db_.Execute("ALTER TABLE keywords ADD COLUMN instant_url "
+                       "VARCHAR")) {
+        LOG(WARNING) << "Unable to update web database to version 29.";
+        NOTREACHED();
+        return sql::INIT_FAILURE;
+      }
+      if (!db_.Execute("CREATE TABLE keywords_temp ("
+                       "id INTEGER PRIMARY KEY,"
+                       "short_name VARCHAR NOT NULL,"
+                       "keyword VARCHAR NOT NULL,"
+                       "favicon_url VARCHAR NOT NULL,"
+                       "url VARCHAR NOT NULL,"
+                       "show_in_default_list INTEGER,"
+                       "safe_for_autoreplace INTEGER,"
+                       "originating_url VARCHAR,"
+                       "date_created INTEGER DEFAULT 0,"
+                       "usage_count INTEGER DEFAULT 0,"
+                       "input_encodings VARCHAR,"
+                       "suggest_url VARCHAR,"
+                       "prepopulate_id INTEGER DEFAULT 0,"
+                       "autogenerate_keyword INTEGER DEFAULT 0,"
+                       "logo_id INTEGER DEFAULT 0,"
+                       "created_by_policy INTEGER DEFAULT 0,"
+                       "instant_url VARCHAR)")) {
+        LOG(WARNING) << "Unable to update web database to version 29.";
+        NOTREACHED();
+        return sql::INIT_FAILURE;
+      }
+
+      if (!db_.Execute(
+          "INSERT INTO keywords_temp "
+          "SELECT id, short_name, keyword, favicon_url, url, "
+          "show_in_default_list, safe_for_autoreplace, originating_url, "
+          "date_created, usage_count, input_encodings, suggest_url, "
+          "prepopulate_id, autogenerate_keyword, logo_id, created_by_policy, "
+          "instant_url FROM keywords")) {
+        LOG(WARNING) << "Unable to update web database to version 29.";
+        NOTREACHED();
+        return sql::INIT_FAILURE;
+      }
+
+      if (!db_.Execute("DROP TABLE keywords")) {
+        LOG(WARNING) << "Unable to update web database to version 29.";
+        NOTREACHED();
+        return sql::INIT_FAILURE;
+      }
+
+      if (!db_.Execute(
+          "ALTER TABLE keywords_temp RENAME TO keywords")) {
+        LOG(WARNING) << "Unable to update web database to version 29.";
+        NOTREACHED();
+        return sql::INIT_FAILURE;
+      }
+
+      meta_table_.SetVersionNumber(29);
+      meta_table_.SetCompatibleVersionNumber(
+          std::min(29, kCompatibleVersionNumber));
+
+      // FALL THROUGH
+
+    case 29:
+      // Add date_modified to autofill_profiles.
+      if (!db_.DoesColumnExist("autofill_profiles", "date_modified")) {
+        if (!db_.Execute("ALTER TABLE autofill_profiles ADD COLUMN "
+                         "date_modified INTEGER NON NULL DEFAULT 0")) {
+          LOG(WARNING) << "Unable to update web database to version 30";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
+        }
+
+        sql::Statement s(db_.GetUniqueStatement(
+            "UPDATE autofill_profiles SET date_modified=?"));
+        if (!s) {
+          LOG(WARNING) << "Unable to update web database to version 30.";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
+        }
+
+        s.BindInt64(0, Time::Now().ToTimeT());
+
+        if (!s.Run()) {
+          LOG(WARNING) << "Unable to update web database to version 30.";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
+        }
+
+      }
+
+      // Add date_modified to credit_cards.
+      if (!db_.DoesColumnExist("credit_cards", "date_modified")) {
+        if (!db_.Execute("ALTER TABLE credit_cards ADD COLUMN "
+                         "date_modified INTEGER NON NULL DEFAULT 0")) {
+          LOG(WARNING) << "Unable to update web database to version 30";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
+        }
+
+        sql::Statement s(db_.GetUniqueStatement(
+            "UPDATE credit_cards SET date_modified=?"));
+        if (!s) {
+          LOG(WARNING) << "Unable to update web database to version 30.";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
+        }
+
+        s.BindInt64(0, Time::Now().ToTimeT());
+
+        if (!s.Run()) {
+          LOG(WARNING) << "Unable to update web database to version 30.";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
+        }
+      }
+
+      meta_table_.SetVersionNumber(30);
+      meta_table_.SetCompatibleVersionNumber(
+          std::min(30, kCompatibleVersionNumber));
+
+      // FALL THROUGH
+
+    case 30:
+      // Add |guid| column to |autofill_profiles| table.
+      // Note that we need to check for the guid column's existence due to the
+      // fact that for a version 22 database the |autofill_profiles| table
+      // gets created fresh with |InitAutoFillProfilesTable|.
+      if (!db_.DoesColumnExist("autofill_profiles", "guid")) {
+        if (!db_.Execute("ALTER TABLE autofill_profiles ADD COLUMN "
+                         "guid VARCHAR NOT NULL DEFAULT \"\"")) {
+          LOG(WARNING) << "Unable to update web database to version 30.";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
+        }
+      }
+
+      // Set all the |guid| fields to valid values.
+      {
+        sql::Statement s(db_.GetUniqueStatement("SELECT unique_id "
+                                                "FROM autofill_profiles"));
+
+        if (!s) {
+          LOG(WARNING) << "Unable to update web database to version 30.";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
+        }
+
+        while (s.Step()) {
+          sql::Statement update_s(
+              db_.GetUniqueStatement("UPDATE autofill_profiles "
+                                     "SET guid=? WHERE unique_id=?"));
+          if (!update_s) {
+            LOG(WARNING) << "Unable to update web database to version 30.";
+            NOTREACHED();
+            return sql::INIT_FAILURE;
+          }
+          update_s.BindString(0, guid::GenerateGUID());
+          update_s.BindInt(1, s.ColumnInt(0));
+
+          if (!update_s.Run()) {
+            LOG(WARNING) << "Unable to update web database to version 30.";
+            NOTREACHED();
+            return sql::INIT_FAILURE;
+          }
+        }
+      }
+
+      // Add |guid| column to |credit_cards| table.
+      // Note that we need to check for the guid column's existence due to the
+      // fact that for a version 22 database the |autofill_profiles| table
+      // gets created fresh with |InitAutoFillProfilesTable|.
+      if (!db_.DoesColumnExist("credit_cards", "guid")) {
+        if (!db_.Execute("ALTER TABLE credit_cards ADD COLUMN "
+                         "guid VARCHAR NOT NULL DEFAULT \"\"")) {
+          LOG(WARNING) << "Unable to update web database to version 30.";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
+        }
+      }
+
+      // Set all the |guid| fields to valid values.
+      {
+        sql::Statement s(db_.GetUniqueStatement("SELECT unique_id "
+                                                "FROM credit_cards"));
+        if (!s) {
+          LOG(WARNING) << "Unable to update web database to version 30.";
+          NOTREACHED();
+          return sql::INIT_FAILURE;
+        }
+
+        while (s.Step()) {
+          sql::Statement update_s(
+              db_.GetUniqueStatement("UPDATE credit_cards "
+                                     "set guid=? WHERE unique_id=?"));
+          if (!update_s) {
+            LOG(WARNING) << "Unable to update web database to version 30.";
+            NOTREACHED();
+            return sql::INIT_FAILURE;
+          }
+          update_s.BindString(0, guid::GenerateGUID());
+          update_s.BindInt(1, s.ColumnInt(0));
+
+          if (!update_s.Run()) {
+            LOG(WARNING) << "Unable to update web database to version 30.";
+            NOTREACHED();
+            return sql::INIT_FAILURE;
+          }
+        }
+      }
+
+      meta_table_.SetVersionNumber(31);
+      meta_table_.SetCompatibleVersionNumber(
+          std::min(31, kCompatibleVersionNumber));
+
+      // FALL THROUGH
+
     // Add successive versions here.  Each should set the version number and
     // compatible version number as appropriate, then fall through to the next
     // case.
 
     case kCurrentVersionNumber:
       // No migration needed.
-      return;
+      return sql::INIT_OK;
   }
 }

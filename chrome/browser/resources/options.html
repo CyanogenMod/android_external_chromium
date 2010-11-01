@@ -1,7 +1,8 @@
 <!DOCTYPE HTML>
 <html
     i18n-values="dir:textdirection;
-                 enable-background-mode:enable-background-mode"
+                 enable-background-mode:enable-background-mode;
+                 enable-cloud-print-proxy:enable-cloud-print-proxy"
     id="t">
 <head>
 <meta charset="utf-8">
@@ -13,6 +14,7 @@
 <link rel="stylesheet" href="dom_ui.css">
 <link rel="stylesheet" href="options/options_page.css">
 <link rel="stylesheet" href="options/add_startup_page_overlay.css">
+<link rel="stylesheet" href="options/advanced_options.css">
 <link rel="stylesheet" href="options/alert_overlay.css">
 <link rel="stylesheet" href="options/autofill_edit_address_overlay.css">
 <link rel="stylesheet" href="options/autofill_edit_creditcard_overlay.css">
@@ -24,6 +26,7 @@
 <link rel="stylesheet" href="options/cookies_view.css">
 <link rel="stylesheet" href="options/edit_search_engine_overlay.css">
 <link rel="stylesheet" href="options/passwords_exceptions_list.css">
+<link rel="stylesheet" href="options/personal_options.css">
 <link rel="stylesheet" href="options/import_data_overlay.css">
 <link rel="stylesheet" href="options/search_engine_manager.css">
 <link rel="stylesheet" href="options/subpages_tab_controls.css">
@@ -40,8 +43,8 @@
 
 <script src="chrome://resources/css/tree.css.js"></script>
 
-<script src="chrome://resources/js/class_list.js"></script>
 <script src="chrome://resources/js/cr.js"></script>
+<script src="chrome://resources/js/cr/command_line.js"></script>
 <script src="chrome://resources/js/cr/event_target.js"></script>
 <script src="chrome://resources/js/cr/ui.js"></script>
 <script src="chrome://resources/js/cr/ui/array_data_model.js"></script>
@@ -82,8 +85,16 @@
 <if expr="not pp_ifdef('win32') and not pp_ifdef('darwin')">
   <script src="options/certificate_tree.js"></script>
   <script src="options/certificate_manager.js"></script>
+  <script src="options/certificate_restore_overlay.js"></script>
+  <script src="options/certificate_backup_overlay.js"></script>
+  <script src="options/certificate_edit_ca_trust_overlay.js"></script>
+  <script src="options/certificate_import_error_overlay.js"></script>
   <script>
     var CertificateManager = options.CertificateManager;
+    var CertificateRestoreOverlay = options.CertificateRestoreOverlay;
+    var CertificateBackupOverlay = options.CertificateBackupOverlay;
+    var CertificateEditCaTrustOverlay = options.CertificateEditCaTrustOverlay;
+    var CertificateImportErrorOverlay = options.CertificateImportErrorOverlay;
   </script>
 </if>
 <script src="options/add_startup_page_overlay.js"></script>
@@ -103,6 +114,7 @@
 <script src="options/cookies_view.js"></script>
 <script src="options/edit_search_engine_overlay.js"></script>
 <script src="options/font_settings.js"></script>
+<script src="options/font_settings_ui.js"></script>
 <script src="options/import_data_overlay.js"></script>
 <script src="options/passwords_exceptions.js"></script>
 <script src="options/passwords_exceptions_list.js"></script>
@@ -139,6 +151,10 @@ var SyncOptions = options.SyncOptions;
 function load() {
   var start = new Date();
 
+  var menuOffPattern = /(^\?|&)menu=off($|&)/;
+  var menuDisabled = menuOffPattern.test(window.location.search);
+  document.documentElement.setAttribute('hide-menu', menuDisabled);
+
   localStrings = new LocalStrings();
 
   if (cr.isChromeOS) {
@@ -159,6 +175,10 @@ function load() {
   OptionsPage.registerSubPage(SyncOptions.getInstance());
   if (!cr.isWindows && !cr.isMac) {
     OptionsPage.registerSubPage(CertificateManager.getInstance());
+    OptionsPage.registerOverlay(CertificateRestoreOverlay.getInstance());
+    OptionsPage.registerOverlay(CertificateBackupOverlay.getInstance());
+    OptionsPage.registerOverlay(CertificateEditCaTrustOverlay.getInstance());
+    OptionsPage.registerOverlay(CertificateImportErrorOverlay.getInstance());
   }
   OptionsPage.registerOverlay(AddStartupPageOverlay.getInstance());
   OptionsPage.registerOverlay(AlertOverlay.getInstance());
@@ -230,6 +250,11 @@ function load() {
       OptionsPage.showTab(event.srcElement);
     }
   }
+
+  // Allow platform specific CSS rules.
+  if (cr.isMac)
+    document.documentElement.setAttribute('os', 'mac');
+
   var end = new Date();
   var total = end - start;
   console.log('time took to run load():'+ total);
@@ -259,6 +284,12 @@ window.onpopstate = function(e) {
      <include
          src="options/chromeos_language_customize_modifier_keys_overlay.html">
      <include src="options/chromeos_internet_detail.html">
+  </if>
+  <if expr="not pp_ifdef('win32') and not pp_ifdef('darwin')">
+    <include src="options/certificate_restore_overlay.html">
+    <include src="options/certificate_backup_overlay.html">
+    <include src="options/certificate_edit_ca_trust_overlay.html">
+    <include src="options/certificate_import_error_overlay.html">
   </if>
 </div>
 <div id="main-content">
@@ -317,6 +348,8 @@ cr.ui.decorate('input[pref][type=text]', options.PrefTextField);
 cr.ui.decorate('input[pref][type=url]', options.PrefTextField);
 cr.ui.decorate('#contentSettingsPage input[type=radio]',
     options.ContentSettingsRadio);
+cr.ui.decorate('#fontSettingsMinimumSizeSelector',
+    options.MinimumFontSizeSelect);
 console.log('in bottom script');
 </script>
 </body>

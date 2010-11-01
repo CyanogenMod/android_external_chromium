@@ -68,7 +68,7 @@ class SoundclipMedia {
 // between both media types.
 class MediaEngine {
  public:
-  // TODO(juberti): Move this to a global location (also used in DeviceManager)
+  // TODO: Move this to a global location (also used in DeviceManager)
   // Capabilities of the media engine.
   enum Capabilities {
     AUDIO_RECV = 1 << 0,
@@ -124,7 +124,7 @@ class MediaEngine {
       = 0;
 
   // Device selection
-  // TODO(tschmelcher): Add method for selecting the soundclip device.
+  // TODO: Add method for selecting the soundclip device.
   virtual bool SetSoundDevices(const Device* in_device,
                                const Device* out_device) = 0;
   virtual bool SetVideoCaptureDevice(const Device* cam_device) = 0;

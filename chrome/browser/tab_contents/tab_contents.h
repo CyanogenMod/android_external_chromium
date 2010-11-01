@@ -53,7 +53,7 @@ private:
 #include "chrome/browser/fav_icon_helper.h"
 #include "chrome/browser/find_bar_controller.h"
 #include "chrome/browser/find_notification_details.h"
-#include "chrome/browser/jsmessage_box_client.h"
+#include "chrome/browser/js_modal_dialog.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
 #include "chrome/browser/password_manager/password_manager_delegate.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
@@ -95,8 +95,8 @@ struct PasswordForm;
 
 class AutocompleteHistoryManager;
 class AutoFillManager;
+class BlockedContentContainer;
 class BlockedPluginManager;
-class BlockedPopupContainer;
 class DOMUI;
 class DownloadItem;
 class Extension;
@@ -130,7 +130,7 @@ class TabContents : public PageNavigator,
                     public RenderViewHostDelegate::BrowserIntegration,
                     public RenderViewHostDelegate::Resource,
                     public RenderViewHostManager::Delegate,
-                    public JavaScriptMessageBoxClient,
+                    public JavaScriptAppModalDialogDelegate,
                     public ImageLoadingTracker::Observer,
                     public PasswordManagerDelegate,
                     public TabSpecificContentSettings::Delegate {
@@ -427,7 +427,6 @@ class TabContents : public PageNavigator,
   // Execute code in this tab. Returns true if the message was successfully
   // sent.
   bool ExecuteCode(int request_id, const std::string& extension_id,
-                   const std::vector<URLPattern>& host_permissions,
                    bool is_js_code, const std::string& code_string,
                    bool all_frames);
 
@@ -516,8 +515,8 @@ class TabContents : public PageNavigator,
   // Called when a ConstrainedWindow we own is about to be closed.
   void WillClose(ConstrainedWindow* window);
 
-  // Called when a BlockedPopupContainer we own is about to be closed.
-  void WillCloseBlockedPopupContainer(BlockedPopupContainer* container);
+  // Called when a BlockedContentContainer we own is about to be closed.
+  void WillCloseBlockedContentContainer(BlockedContentContainer* container);
 
   // Called when a ConstrainedWindow we own is moved or resized.
   void DidMoveOrResize(ConstrainedWindow* window);
@@ -651,8 +650,14 @@ class TabContents : public PageNavigator,
 
   void WindowMoveOrResizeStarted();
 
-  BlockedPopupContainer* blocked_popup_container() const {
-    return blocked_popups_;
+  // Sets whether all TabContents added by way of |AddNewContents| should be
+  // blocked. Transitioning from all blocked to not all blocked results in
+  // reevaluating any blocked TabContents, which may result in unblocking some
+  // of the blocked TabContents.
+  void SetAllContentsBlocked(bool value);
+
+  BlockedContentContainer* blocked_content_container() const {
+    return blocked_contents_;
   }
 
   RendererPreferences* GetMutableRendererPrefs() {
@@ -684,13 +689,6 @@ class TabContents : public PageNavigator,
   // Returns true if underlying TabContentsView should accept drag-n-drop.
   bool ShouldAcceptDragAndDrop() const;
 
-  // Creates a duplicate of this TabContents. The returned TabContents is
-  // configured such that the renderer has not been loaded (it'll load the first
-  // time it is selected).
-  // This is intended for use with apps.
-  // The caller owns the returned object.
-  TabContents* CloneAndMakePhantom();
-
   // Indicates if this tab was explicitly closed by the user (control-w, close
   // tab menu item...). This is false for actions that indirectly close the tab,
   // such as closing the window.  The setter is maintained by TabStripModel, and
@@ -700,14 +698,12 @@ class TabContents : public PageNavigator,
   }
   bool closed_by_user_gesture() const { return closed_by_user_gesture_; }
 
-  bool is_displaying_pdf_content() const { return displaying_pdf_content_; }
-
-  // JavaScriptMessageBoxClient ------------------------------------------------
-  virtual gfx::NativeWindow GetMessageBoxRootWindow();
+  // Overridden from JavaScriptAppModalDialogDelegate:
   virtual void OnMessageBoxClosed(IPC::Message* reply_msg,
                                   bool success,
                                   const std::wstring& prompt);
   virtual void SetSuppressMessageBoxes(bool suppress_message_boxes);
+  virtual gfx::NativeWindow GetMessageBoxRootWindow();
   virtual TabContents* AsTabContents();
   virtual ExtensionHost* AsExtensionHost();
 
@@ -740,6 +736,15 @@ class TabContents : public PageNavigator,
   // Sends the page title to the history service. This is called when we receive
   // the page title and we know we want to update history.
   void UpdateHistoryPageTitle(const NavigationEntry& entry);
+
+  // Gets the zoom percent for this tab.
+  int GetZoomPercent(bool* enable_increment, bool* enable_decrement);
+
+  // Gets the minimum/maximum zoom percent.
+  int minimum_zoom_percent() const { return minimum_zoom_percent_; }
+  int maximum_zoom_percent() const { return maximum_zoom_percent_; }
+
+  int content_restrictions() const { return content_restrictions_; }
 
  private:
   friend class NavigationController;
@@ -776,7 +781,7 @@ class TabContents : public PageNavigator,
   void SetIsLoading(bool is_loading,
                     LoadNotificationDetails* details);
 
-  // Adds the incoming |new_contents| to the |blocked_popups_| container.
+  // Adds the incoming |new_contents| to the |blocked_contents_| container.
   void AddPopup(TabContents* new_contents,
                 const gfx::Rect& initial_pos);
 
@@ -902,6 +907,7 @@ class TabContents : public PageNavigator,
 
   // RenderViewHostDelegate::Resource implementation.
   virtual void DidStartProvisionalLoadForFrame(RenderViewHost* render_view_host,
+                                               long long frame_id,
                                                bool is_main_frame,
                                                const GURL& url);
   virtual void DidStartReceivingResourceResponse(
@@ -920,6 +926,7 @@ class TabContents : public PageNavigator,
   virtual void DidRunInsecureContent(const std::string& security_origin);
   virtual void DidFailProvisionalLoadWithError(
       RenderViewHost* render_view_host,
+      long long frame_id,
       bool is_main_frame,
       int error_code,
       const GURL& url,
@@ -999,7 +1006,9 @@ class TabContents : public PageNavigator,
   virtual void PasswordFormsVisible(
       const std::vector<webkit_glue::PasswordForm>& visible_forms);
   virtual void PageHasOSDD(RenderViewHost* render_view_host,
-                           int32 page_id, const GURL& url, bool autodetected);
+                           int32 page_id,
+                           const GURL& url,
+                           const ViewHostMsg_PageHasOSDD_Type& provider_type);
   virtual GURL GetAlternateErrorPageURL() const;
   virtual RendererPreferences GetRendererPrefs(Profile* profile) const;
   virtual WebPreferences GetWebkitPrefs();
@@ -1016,7 +1025,10 @@ class TabContents : public PageNavigator,
   virtual bool IsExternalTabContainer() const;
   virtual void DidInsertCSS();
   virtual void FocusedNodeChanged();
-  virtual void SetDisplayingPDFContent();
+  virtual void UpdateZoomLimits(int minimum_percent,
+                                int maximum_percent,
+                                bool remember);
+  virtual void UpdateContentRestrictions(int restrictions);
 
   // RenderViewHostManager::Delegate -------------------------------------------
 
@@ -1179,8 +1191,11 @@ class TabContents : public PageNavigator,
   // Character encoding. TODO(jungshik) : convert to std::string
   std::string encoding_;
 
-  // Object that holds any blocked popups frmo the current page.
-  BlockedPopupContainer* blocked_popups_;
+  // Object that holds any blocked TabContents spawned from this TabContents.
+  BlockedContentContainer* blocked_contents_;
+
+  // Should we block all child TabContents this attempts to spawn.
+  bool all_contents_blocked_;
 
   // TODO(pkasting): Hack to try and fix Linux browser tests.
   bool dont_notify_render_view_;
@@ -1304,8 +1319,17 @@ class TabContents : public PageNavigator,
   // See description above setter.
   bool closed_by_user_gesture_;
 
-  // See description in RenderViewHostDelegate::SetDisplayingPDFContent.
-  bool displaying_pdf_content_;
+  // Minimum/maximum zoom percent.
+  int minimum_zoom_percent_;
+  int maximum_zoom_percent_;
+  // If true, the default zoom limits have been overriden for this tab, in which
+  // case we don't want saved settings to apply to it and we don't want to
+  // remember it.
+  bool temporary_zoom_settings_;
+
+  // Content restrictions, used to disable print/copy etc based on content's
+  // (full-page plugins for now only) permissions.
+  int content_restrictions_;
 
   // ---------------------------------------------------------------------------
 

@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/gtest_prod_util.h"
 #include "base/hash_tables.h"
 #include "base/singleton.h"
 #include "base/task.h"
@@ -62,13 +63,30 @@ class AccessibilityEventRouterGtk {
   // Internal information about a particular widget to override the
   // information we get directly from gtk.
   struct WidgetInfo {
-    WidgetInfo() : ignore(false) { }
+    WidgetInfo() : refcount(0) { }
+
+    // The number of times that AddWidgetNameOverride has been called on this
+    // widget. When RemoveWidget has been called an equal number of
+    // times and the refcount reaches zero, this entry will be deleted.
+    int refcount;
 
     // If nonempty, will use this name instead of the widget's label.
     std::string name;
+  };
 
-    // If true, will ignore this widget and not send accessibility events.
-    bool ignore;
+  // Internal information about a root widget
+  struct RootWidgetInfo {
+    RootWidgetInfo() : refcount(0), profile(NULL) { }
+
+    // The number of times that AddRootWidget has been called on this
+    // widget. When RemoveRootWidget has been called an equal number of
+    // times and the refcount reaches zero, this entry will be deleted.
+    int refcount;
+
+    // The profile associated with this root widget; accessibility
+    // notifications for any descendant of this root widget will get routed
+    // to this profile.
+    Profile* profile;
   };
 
   // Get the single instance of this class.
@@ -76,21 +94,23 @@ class AccessibilityEventRouterGtk {
 
   // Start sending accessibility events for this widget and all of its
   // descendants.  Notifications will go to the specified profile.
+  // Uses reference counting, so it's safe to call this twice on the
+  // same widget, as long as each call is paired with a call to
+  // RemoveRootWidget.
   void AddRootWidget(GtkWidget* root_widget, Profile* profile);
 
   // Stop sending accessibility events for this widget and all of its
   // descendants.
   void RemoveRootWidget(GtkWidget* root_widget);
 
-  // Don't send any events for this widget.
-  void IgnoreWidget(GtkWidget* widget);
-
   // Use the following string as the name of this widget, instead of the
-  // gtk label associated with the widget.
-  void SetWidgetName(GtkWidget* widget, std::string name);
+  // gtk label associated with the widget. Must be paired with a call to
+  // RemoveWidgetNameOverride.
+  void AddWidgetNameOverride(GtkWidget* widget, std::string name);
 
-  // Forget all information about this widget.
-  void RemoveWidget(GtkWidget* widget);
+  // Forget widget name override. Must be paired with a call to
+  // AddWidgetNameOverride (uses reference counting).
+  void RemoveWidgetNameOverride(GtkWidget* widget);
 
   //
   // The following methods are only for use by gtk signal handlers.
@@ -158,7 +178,7 @@ class AccessibilityEventRouterGtk {
 
   // The set of all root widgets; only descendants of these will generate
   // accessibility notifications.
-  base::hash_map<GtkWidget*, Profile*> root_widget_profile_map_;
+  base::hash_map<GtkWidget*, RootWidgetInfo> root_widget_info_map_;
 
   // Extra information about specific widgets.
   base::hash_map<GtkWidget*, WidgetInfo> widget_info_map_;
@@ -180,6 +200,9 @@ class AccessibilityEventRouterGtk {
   // Used to schedule invocations of StartListening() and to defer handling
   // of some events until the next time through the event loop.
   ScopedRunnableMethodFactory<AccessibilityEventRouterGtk> method_factory_;
+
+  friend class AccessibilityEventRouterGtkTest;
+  FRIEND_TEST_ALL_PREFIXES(AccessibilityEventRouterGtkTest, AddRootWidgetTwice);
 };
 
 #endif  // CHROME_BROWSER_GTK_ACCESSIBILITY_EVENT_ROUTER_GTK_H_

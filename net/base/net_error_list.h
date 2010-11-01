@@ -25,7 +25,7 @@
 // finally completed.
 NET_ERROR(IO_PENDING, -1)
 
-// A generic failure occured.
+// A generic failure occurred.
 NET_ERROR(FAILED, -2)
 
 // An operation was aborted (due to user action).
@@ -65,6 +65,9 @@ NET_ERROR(OUT_OF_MEMORY, -13)
 // The file upload failed because the file's modification time was different
 // from the expectation.
 NET_ERROR(UPLOAD_FILE_CHANGED, -14)
+
+// The socket is not connected
+NET_ERROR(SOCKET_NOT_CONNECTED, -15)
 
 // A connection was closed (corresponding to a TCP FIN).
 NET_ERROR(CONNECTION_CLOSED, -100)
@@ -154,7 +157,7 @@ NET_ERROR(SSL_NO_RENEGOTIATION, -123)
 NET_ERROR(WINSOCK_UNEXPECTED_WRITTEN_BYTES, -124)
 
 // An SSL peer sent us a fatal decompression_failure alert. This typically
-// occurs when a peer selects DEFLATE compression in the mismaken belief that
+// occurs when a peer selects DEFLATE compression in the mistaken belief that
 // it supports it.
 NET_ERROR(SSL_DECOMPRESSION_FAILURE_ALERT, -125)
 
@@ -171,11 +174,39 @@ NET_ERROR(SSL_UNSAFE_NEGOTIATION, -128)
 // The SSL server attempted to use a weak ephemeral Diffie-Hellman key.
 NET_ERROR(SSL_WEAK_SERVER_EPHEMERAL_DH_KEY, -129)
 
-// Could not create a TCP connection to the proxy server. An error occurred
+// Could not create a connection to the proxy server. An error occurred
 // either in resolving its name, or in connecting a socket to it.
 // Note that this does NOT include failures during the actual "CONNECT" method
 // of an HTTP proxy.
 NET_ERROR(PROXY_CONNECTION_FAILED, -130)
+
+// We tried a Snap Start connection and sent a request, predicting the server's
+// NPN protocol support. However, after doing the actual handshake, our
+// prediction turned out to be incorrect so we sent a request in the wrong
+// protocol.
+NET_ERROR(SSL_SNAP_START_NPN_MISPREDICTION, -131)
+
+// We detected an ESET product intercepting our HTTPS connections. Since these
+// products are False Start intolerant, we return this error so that we can
+// give the user a helpful error message rather than have the connection hang.
+NET_ERROR(ESET_ANTI_VIRUS_SSL_INTERCEPTION, -132)
+
+// We detected NetNanny intercepting our HTTPS connections. Since this product
+// is False Start intolerant, we return this error so that we can give the user
+// a helpful error message rather than have the connection hang.
+NET_ERROR(NETNANNY_SSL_INTERCEPTION, -133)
+
+// The permission to use the SSL client certificate's private key was denied.
+NET_ERROR(SSL_CLIENT_AUTH_PRIVATE_KEY_ACCESS_DENIED, -134)
+
+// The SSL client certificate has no private key.
+NET_ERROR(SSL_CLIENT_AUTH_CERT_NO_PRIVATE_KEY, -135)
+
+// The certificate presented by the HTTPS Proxy was invalid.
+NET_ERROR(PROXY_CERTIFICATE_INVALID, -136)
+
+// An error occurred when trying to do a name resolution (DNS).
+NET_ERROR(NAME_RESOLUTION_FAILED, -137)
 
 // Certificate error codes
 //
@@ -269,13 +300,16 @@ NET_ERROR(CERT_WEAK_SIGNATURE_ALGORITHM, -208)
 // valid fingerprints. But the certificate presented was not in this list.
 NET_ERROR(CERT_NOT_IN_DNS, -209)
 
+// The host name specified in the certificate is not unique.
+NET_ERROR(CERT_NON_UNIQUE_NAME, -210)
+
 // Add new certificate error codes here.
 //
 // Update the value of CERT_END whenever you add a new certificate error
 // code.
 
 // The value immediately past the last certificate error code.
-NET_ERROR(CERT_END, -210)
+NET_ERROR(CERT_END, -211)
 
 // The URL is invalid.
 NET_ERROR(INVALID_URL, -300)
@@ -356,7 +390,7 @@ NET_ERROR(NO_SUPPORTED_PROXIES, -336)
 // There is a SPDY protocol framing error.
 NET_ERROR(SPDY_PROTOCOL_ERROR, -337)
 
-// Credentials could not be estalished during HTTP Authentication.
+// Credentials could not be established during HTTP Authentication.
 NET_ERROR(INVALID_AUTH_CREDENTIALS, -338)
 
 // An HTTP Authentication scheme was tried which is not supported on this
@@ -462,8 +496,11 @@ NET_ERROR(IMPORT_CA_CERT_NOT_CA, -703)
 
 // Import failed - certificate already exists in database.
 // Note it's a little weird this is an error but reimporting a PKCS12 is ok
-// (no-op).  That's how mozilla does it, though.
+// (no-op).  That's how Mozilla does it, though.
 NET_ERROR(IMPORT_CERT_ALREADY_EXISTS, -704)
 
 // CA import failed due to some other error.
 NET_ERROR(IMPORT_CA_CERT_FAILED, -705)
+
+// Server certificate import failed due to some internal error.
+NET_ERROR(IMPORT_SERVER_CERT_FAILED, -706)

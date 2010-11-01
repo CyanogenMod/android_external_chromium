@@ -60,7 +60,7 @@ CommandLine::~CommandLine() {
 }
 
 #if defined(OS_WIN)
-CommandLine::CommandLine(ArgumentsOnly args_only) {
+CommandLine::CommandLine(NoProgram no_program) {
 }
 
 void CommandLine::ParseFromString(const std::wstring& command_line) {
@@ -121,7 +121,7 @@ CommandLine::CommandLine(const FilePath& program) {
 }
 
 #elif defined(OS_POSIX)
-CommandLine::CommandLine(ArgumentsOnly args_only) {
+CommandLine::CommandLine(NoProgram no_program) {
   // Push an empty argument, because we always assume argv_[0] is a program.
   argv_.push_back("");
 }
@@ -297,7 +297,16 @@ bool CommandLine::HasSwitch(const std::wstring& switch_string) const {
 
 std::string CommandLine::GetSwitchValueASCII(
     const std::string& switch_string) const {
-  return WideToASCII(GetSwitchValue(switch_string));
+  CommandLine::StringType value = GetSwitchValueNative(switch_string);
+  if (!IsStringASCII(value)) {
+    LOG(WARNING) << "Value of --" << switch_string << " must be ASCII.";
+    return "";
+  }
+#if defined(OS_WIN)
+  return WideToASCII(value);
+#else
+  return value;
+#endif
 }
 
 FilePath CommandLine::GetSwitchValuePath(
@@ -322,37 +331,14 @@ CommandLine::StringType CommandLine::GetSwitchValueNative(
   }
 }
 
-std::wstring CommandLine::GetSwitchValue(
-    const std::string& switch_string) const {
-  // TODO(evanm): deprecate.
-  CommandLine::StringType value = GetSwitchValueNative(switch_string);
-#if defined(OS_WIN)
-  return value;
-#else
-  return base::SysNativeMBToWide(value);
-#endif
-}
-
-std::wstring CommandLine::GetSwitchValue(
-    const std::wstring& switch_string) const {
-  // TODO(evanm): deprecate.
-  return GetSwitchValue(WideToASCII(switch_string));
-}
-
 FilePath CommandLine::GetProgram() const {
-  return FilePath::FromWStringHack(program());
-}
-
 #if defined(OS_WIN)
-std::wstring CommandLine::program() const {
-  return program_;
-}
+  return FilePath(program_);
 #else
-std::wstring CommandLine::program() const {
   DCHECK_GT(argv_.size(), 0U);
-  return base::SysNativeMBToWide(argv_[0]);
-}
+  return FilePath(argv_[0]);
 #endif
+}
 
 #if defined(OS_POSIX)
 std::string CommandLine::command_line_string() const {
@@ -457,7 +443,7 @@ void CommandLine::PrependWrapper(const std::wstring& wrapper) {
   // The wrapper may have embedded arguments (like "gdb --args"). In this case,
   // we don't pretend to do anything fancy, we just split on spaces.
   std::vector<std::wstring> wrapper_and_args;
-  SplitString(wrapper, ' ', &wrapper_and_args);
+  base::SplitString(wrapper, ' ', &wrapper_and_args);
   program_ = wrapper_and_args[0];
   command_line_string_ = wrapper + L" " + command_line_string_;
 }
@@ -508,7 +494,7 @@ void CommandLine::PrependWrapper(const std::string& wrapper) {
   // The wrapper may have embedded arguments (like "gdb --args"). In this case,
   // we don't pretend to do anything fancy, we just split on spaces.
   std::vector<std::string> wrapper_and_args;
-  SplitString(wrapper, ' ', &wrapper_and_args);
+  base::SplitString(wrapper, ' ', &wrapper_and_args);
   argv_.insert(argv_.begin(), wrapper_and_args.begin(), wrapper_and_args.end());
 }
 

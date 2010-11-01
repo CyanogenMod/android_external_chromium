@@ -43,9 +43,11 @@ static const char* PacketType(bool rtcp) {
 
 BaseChannel::BaseChannel(talk_base::Thread* thread, MediaEngine* media_engine,
                          MediaChannel* media_channel, BaseSession* session,
+                         const std::string& content_name,
                          TransportChannel* transport_channel)
     : worker_thread_(thread), media_engine_(media_engine),
       session_(session), media_channel_(media_channel),
+      content_name_(content_name),
       transport_channel_(transport_channel), rtcp_transport_channel_(NULL),
       enabled_(false), writable_(false), has_codec_(false), muted_(false) {
   ASSERT(worker_thread_ == talk_base::Thread::Current());
@@ -58,7 +60,6 @@ BaseChannel::BaseChannel(talk_base::Thread* thread, MediaEngine* media_engine,
   LOG(LS_INFO) << "Created channel";
 
   session->SignalState.connect(this, &BaseChannel::OnSessionState);
-  OnSessionState(session, session->state());
 }
 
 BaseChannel::~BaseChannel() {
@@ -71,7 +72,7 @@ BaseChannel::~BaseChannel() {
   delete media_channel_;
   set_rtcp_transport_channel(NULL);
   if (transport_channel_ != NULL)
-    session_->DestroyChannel(transport_channel_);
+    session_->DestroyChannel(content_name_, transport_channel_->name());
   LOG(LS_INFO) << "Destroyed channel";
 }
 
@@ -138,7 +139,7 @@ void BaseChannel::StopConnectionMonitor() {
 void BaseChannel::set_rtcp_transport_channel(TransportChannel* channel) {
   if (rtcp_transport_channel_ != channel) {
     if (rtcp_transport_channel_) {
-      session_->DestroyChannel(rtcp_transport_channel_);
+      session_->DestroyChannel(content_name_, rtcp_transport_channel_->name());
     }
     rtcp_transport_channel_ = channel;
     if (rtcp_transport_channel_) {
@@ -154,7 +155,7 @@ int BaseChannel::SendPacket(const void *data, size_t len) {
   // SendPacket gets called from MediaEngine; send to socket
   // MediaEngine will call us on a random thread. The Send operation on the
   // socket is special in that it can handle this.
-  // TODO(juberti): Actually, SendPacket cannot handle this. Need to fix ASAP.
+  // TODO: Actually, SendPacket cannot handle this. Need to fix ASAP.
 
   return SendPacket(false, data, len);
 }
@@ -274,7 +275,7 @@ void BaseChannel::HandlePacket(bool rtcp, const char* data, size_t len) {
 
 void BaseChannel::OnSessionState(BaseSession* session,
                                  BaseSession::State state) {
-  // TODO(juberti): tear down the call via session->SetError() if the
+  // TODO: tear down the call via session->SetError() if the
   // SetXXXXDescription calls fail.
   const MediaContentDescription* content = NULL;
   switch (state) {
@@ -482,13 +483,17 @@ VoiceChannel::VoiceChannel(talk_base::Thread* thread,
                            MediaEngine* media_engine,
                            VoiceMediaChannel* media_channel,
                            BaseSession* session,
+                           const std::string& content_name,
                            bool rtcp)
-    : BaseChannel(thread, media_engine, media_channel, session,
-                  session->CreateChannel("rtp")),
+    : BaseChannel(thread, media_engine, media_channel, session, content_name,
+                  session->CreateChannel(content_name, "rtp")),
       received_media_(false) {
   if (rtcp) {
-    set_rtcp_transport_channel(session->CreateChannel("rtcp"));
+    set_rtcp_transport_channel(session->CreateChannel(content_name, "rtcp"));
   }
+  // Can't go in BaseChannel because certain session states will
+  // trigger pure virtual functions, such as GetFirstContent().
+  OnSessionState(session, session->state());
 }
 
 VoiceChannel::~VoiceChannel() {
@@ -510,7 +515,7 @@ bool VoiceChannel::SetRingbackTone(const void* buf, int len) {
   return true;
 }
 
-// TODO(juberti): Handle early media the right way. We should get an explicit
+// TODO: Handle early media the right way. We should get an explicit
 // ringing message telling us to start playing local ringback, which we cancel
 // if any early media actually arrives. For now, we do the opposite, which is
 // to wait 1 second for early media, and start playing local ringback if none
@@ -664,6 +669,8 @@ bool VoiceChannel::SetRemoteContent_w(const MediaContentDescription* content,
   if (ret) {
     ret = media_channel()->SetSendCodecs(audio->codecs());
   }
+
+
   // update state
   if (ret) {
     set_has_codec(true);
@@ -765,14 +772,20 @@ void VoiceChannel::OnAudioMonitorUpdate(AudioMonitor* monitor,
 VideoChannel::VideoChannel(talk_base::Thread* thread,
                            MediaEngine* media_engine,
                            VideoMediaChannel* media_channel,
-                           BaseSession* session, bool rtcp,
+                           BaseSession* session,
+                           const std::string& content_name,
+                           bool rtcp,
                            VoiceChannel* voice_channel)
-    : BaseChannel(thread, media_engine, media_channel, session,
-                  session->CreateChannel("video_rtp")),
+    : BaseChannel(thread, media_engine, media_channel, session, content_name,
+                  session->CreateChannel(content_name, "video_rtp")),
       voice_channel_(voice_channel), renderer_(NULL) {
   if (rtcp) {
-    set_rtcp_transport_channel(session->CreateChannel("video_rtcp"));
+    set_rtcp_transport_channel(
+        session->CreateChannel(content_name, "video_rtcp"));
   }
+  // Can't go in BaseChannel because certain session states will
+  // trigger pure virtual functions, such as GetFirstContent()
+  OnSessionState(session, session->state());
 }
 
 VideoChannel::~VideoChannel() {
@@ -867,7 +880,7 @@ bool VideoChannel::SetRemoteContent_w(const MediaContentDescription* content,
 
   bool ret;
   // set the sending SSRC, if the remote side gave us one
-  // TODO(juberti): remove this, since it's not needed.
+  // TODO: remove this, since it's not needed.
   if (video->ssrc_set()) {
     media_channel()->SetSendSsrc(video->ssrc());
   }
@@ -877,7 +890,7 @@ bool VideoChannel::SetRemoteContent_w(const MediaContentDescription* content,
   if (ret) {
     ret = SetRtcpMux_w(video->rtcp_mux(), action, CS_REMOTE);
   }
-  // TODO(juberti): Set bandwidth appropriately here.
+  // TODO: Set bandwidth appropriately here.
   if (ret) {
     ret = media_channel()->SetSendCodecs(video->codecs());
   }
@@ -931,7 +944,7 @@ void VideoChannel::OnMediaMonitorUpdate(
   SignalMediaMonitor(this, info);
 }
 
-// TODO(juberti): Move to own file in a future CL.
+// TODO: Move to own file in a future CL.
 // Leaving here for now to avoid having to mess with the Mac build.
 RtcpMuxFilter::RtcpMuxFilter() : state_(ST_INIT), offer_enable_(false) {
 }

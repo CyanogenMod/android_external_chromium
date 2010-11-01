@@ -4,12 +4,11 @@
 
 #include "chrome/browser/extensions/test_extension_prefs.h"
 
-
 #include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/pref_value_store.h"
@@ -35,7 +34,7 @@ void TestExtensionPrefs::RecreateExtensionPrefs() {
     // need to wait for any pending I/O to complete before creating a new
     // PrefService.
     MessageLoop file_loop;
-    ChromeThread file_thread(ChromeThread::FILE, &file_loop);
+    BrowserThread file_thread(BrowserThread::FILE, &file_loop);
     pref_service_->SavePersistentPrefs();
     file_loop.RunAllPending();
   }
@@ -50,18 +49,18 @@ Extension* TestExtensionPrefs::AddExtension(std::string name) {
   DictionaryValue dictionary;
   dictionary.SetString(extension_manifest_keys::kName, name);
   dictionary.SetString(extension_manifest_keys::kVersion, "0.1");
-  return AddExtensionWithManifest(dictionary);
+  return AddExtensionWithManifest(dictionary, Extension::INTERNAL);
 }
 
 Extension* TestExtensionPrefs::AddExtensionWithManifest(
-    const DictionaryValue& manifest) {
+    const DictionaryValue& manifest, Extension::Location location) {
   std::string name;
   EXPECT_TRUE(manifest.GetString(extension_manifest_keys::kName, &name));
   FilePath path =  extensions_dir_.AppendASCII(name);
   Extension* extension = new Extension(path);
   std::string errors;
+  extension->set_location(location);
   EXPECT_TRUE(extension->InitFromValue(manifest, false, &errors));
-  extension->set_location(Extension::INTERNAL);
   EXPECT_TRUE(Extension::IdIsValid(extension->id()));
   const bool kInitialIncognitoEnabled = false;
   prefs_->OnExtensionInstalled(extension, Extension::ENABLED,

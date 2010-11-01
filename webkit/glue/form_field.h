@@ -22,7 +22,7 @@ class FormField {
             const string16& value,
             const string16& form_control_type,
             int size);
-  ~FormField();
+  virtual ~FormField();
 
   const string16& label() const { return label_; }
   const string16& name() const { return name_; }
@@ -67,7 +67,7 @@ class FormField {
 };
 
 // So we can compare FormFields with EXPECT_EQ().
-std::ostream& operator<<(std::ostream& os, const FormField& profile);
+std::ostream& operator<<(std::ostream& os, const FormField& field);
 
 }  // namespace webkit_glue
 

@@ -4,7 +4,7 @@
 
 #include "chrome/browser/geolocation/geolocation_exceptions_table_model.h"
 
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/common/content_settings_helper.h"
 #include "chrome/test/testing_profile.h"
@@ -20,7 +20,7 @@ const GURL kUrl2("http://www.example2.com");
 class GeolocationExceptionsTableModelTest : public RenderViewHostTestHarness {
  public:
   GeolocationExceptionsTableModelTest()
-      : ui_thread_(ChromeThread::UI, MessageLoop::current()) {}
+      : ui_thread_(BrowserThread::UI, MessageLoop::current()) {}
 
   virtual ~GeolocationExceptionsTableModelTest() {}
 
@@ -50,7 +50,7 @@ class GeolocationExceptionsTableModelTest : public RenderViewHostTestHarness {
   }
 
  protected:
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
   scoped_ptr<GeolocationExceptionsTableModel> model_;
 };
 

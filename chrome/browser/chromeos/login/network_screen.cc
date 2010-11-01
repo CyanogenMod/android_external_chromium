@@ -16,6 +16,7 @@
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "views/controls/menu/menu_2.h"
 #include "views/widget/widget.h"
 #include "views/window/window.h"
 
@@ -43,6 +44,7 @@ NetworkScreen::NetworkScreen(WizardScreenDelegate* delegate)
       is_network_subscribed_(false),
       continue_pressed_(false),
       bubble_(NULL) {
+  language_switch_menu_.set_menu_alignment(views::Menu2::ALIGN_TOPLEFT);
 }
 
 NetworkScreen::~NetworkScreen() {
@@ -151,6 +153,7 @@ void NetworkScreen::OnConnectionTimeout() {
                             UTF16ToWide(network_id_)),
       l10n_util::GetString(IDS_NETWORK_SELECTION_ERROR_HELP),
       this);
+  network_control->RequestFocus();
 }
 
 void NetworkScreen::UpdateStatus(NetworkLibrary* network) {
@@ -161,18 +164,18 @@ void NetworkScreen::UpdateStatus(NetworkLibrary* network) {
     StopWaitingForConnection(
         l10n_util::GetStringUTF16(IDS_STATUSBAR_NETWORK_DEVICE_ETHERNET));
   } else if (network->wifi_connected()) {
-    StopWaitingForConnection(ASCIIToUTF16(network->wifi_name()));
+    StopWaitingForConnection(ASCIIToUTF16(network->wifi_network().name()));
   } else if (network->cellular_connected()) {
-    StopWaitingForConnection(ASCIIToUTF16(network->cellular_name()));
+    StopWaitingForConnection(ASCIIToUTF16(network->cellular_network().name()));
   } else if (network->ethernet_connecting()) {
     WaitForConnection(
         l10n_util::GetStringUTF16(IDS_STATUSBAR_NETWORK_DEVICE_ETHERNET));
   } else if (network->wifi_connecting()) {
-    WaitForConnection(ASCIIToUTF16(network->wifi_name()));
+    WaitForConnection(ASCIIToUTF16(network->wifi_network().name()));
   } else if (network->cellular_connecting()) {
-    WaitForConnection(ASCIIToUTF16(network->cellular_name()));
+    WaitForConnection(ASCIIToUTF16(network->cellular_network().name()));
   } else {
-    view()->EnableContinue(network->Connected());
+    StopWaitingForConnection(network_id_);
   }
 }
 
@@ -193,13 +196,15 @@ void NetworkScreen::StopWaitingForConnection(const string16& network_id) {
 }
 
 void NetworkScreen::WaitForConnection(const string16& network_id) {
-  connection_timer_.Stop();
-  connection_timer_.Start(base::TimeDelta::FromSeconds(kConnectionTimeoutSec),
-                          this,
-                          &NetworkScreen::OnConnectionTimeout);
+  if (network_id_ != network_id || !connection_timer_.IsRunning()) {
+    connection_timer_.Stop();
+    connection_timer_.Start(base::TimeDelta::FromSeconds(kConnectionTimeoutSec),
+                            this,
+                            &NetworkScreen::OnConnectionTimeout);
+  }
 
   network_id_ = network_id;
-  view()->ShowConnectingStatus(true, network_id_);
+  view()->ShowConnectingStatus(continue_pressed_, network_id_);
 
   view()->EnableContinue(false);
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -9,10 +9,9 @@
 #include <algorithm>
 #include <string>
 
-#include "base/field_trial.h"
 #include "base/format_macros.h"
-#include "base/histogram.h"
 #include "base/logging.h"
+#include "base/metrics/histogram.h"
 #include "base/string_util.h"
 
 using base::Time;
@@ -31,6 +30,17 @@ void EnablePredictorDetailedLog(bool enable) {
 // static
 int UrlInfo::sequence_counter = 1;
 
+UrlInfo::UrlInfo()
+    : state_(PENDING),
+      old_prequeue_state_(state_),
+      resolve_duration_(kNullDuration),
+      queue_duration_(kNullDuration),
+      sequence_number_(0),
+      motivation_(NO_PREFETCH_MOTIVATION),
+      was_linked_(false) {
+}
+
+UrlInfo::~UrlInfo() {}
 
 bool UrlInfo::NeedsDnsUpdate() {
   switch (state_) {
@@ -110,9 +120,10 @@ void UrlInfo::RemoveFromQueue() {
   }
   // Make a custom linear histogram for the region from 0 to boundary.
   const size_t kBucketCount = 52;
-  static scoped_refptr<Histogram> histogram = LinearHistogram::FactoryTimeGet(
-      "DNS.QueueRecycledUnder2", TimeDelta(), kBoundary, kBucketCount,
-      Histogram::kUmaTargetedHistogramFlag);
+  static scoped_refptr<base::Histogram> histogram =
+      base::LinearHistogram::FactoryTimeGet(
+          "DNS.QueueRecycledUnder2", TimeDelta(), kBoundary, kBucketCount,
+          base::Histogram::kUmaTargetedHistogramFlag);
   histogram->AddTime(queue_duration_);
 }
 

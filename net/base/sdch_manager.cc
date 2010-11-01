@@ -5,9 +5,8 @@
 #include "net/base/sdch_manager.h"
 
 #include "base/base64.h"
-#include "base/field_trial.h"
-#include "base/histogram.h"
 #include "base/logging.h"
+#include "base/metrics/histogram.h"
 #include "base/sha2.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
@@ -275,8 +274,8 @@ bool SdchManager::AddSdchDictionary(const std::string& dictionary_text,
   }
 
   UMA_HISTOGRAM_COUNTS("Sdch3.Dictionary size loaded", dictionary_text.size());
-  DLOG(INFO) << "Loaded dictionary with client hash " << client_hash <<
-      " and server hash " << server_hash;
+  DVLOG(1) << "Loaded dictionary with client hash " << client_hash
+           << " and server hash " << server_hash;
   Dictionary* dictionary =
       new Dictionary(dictionary_text, header_end + 2, client_hash,
                      dictionary_url, domain, path, expiration, ports);

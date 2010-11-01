@@ -15,8 +15,8 @@
 
 #include "base/scoped_nsobject.h"
 #include "base/scoped_ptr.h"
-#import "chrome/browser/cocoa/bookmark_bar_controller.h"
-#import "chrome/browser/cocoa/bookmark_bubble_controller.h"
+#import "chrome/browser/cocoa/bookmarks/bookmark_bar_controller.h"
+#import "chrome/browser/cocoa/bookmarks/bookmark_bubble_controller.h"
 #import "chrome/browser/cocoa/browser_command_executor.h"
 #import "chrome/browser/cocoa/tab_strip_controller.h"
 #import "chrome/browser/cocoa/tab_window_controller.h"
@@ -38,6 +38,7 @@ class ConstrainedWindowMac;
 @class IncognitoImageView;
 @class InfoBarContainerController;
 class LocationBarViewMac;
+@class PreviewableContentsController;
 @class SidebarController;
 class StatusBubbleMac;
 class TabContents;
@@ -68,6 +69,7 @@ class TabContents;
   scoped_nsobject<BookmarkBarController> bookmarkBarController_;
   scoped_nsobject<DevToolsController> devToolsController_;
   scoped_nsobject<SidebarController> sidebarController_;
+  scoped_nsobject<PreviewableContentsController> previewableContentsController_;
   scoped_nsobject<FullscreenController> fullscreenController_;
 
   // Strong. StatusBubble is a special case of a strong reference that
@@ -258,6 +260,15 @@ class TabContents;
 // disabling vertical tabs for this browser. Re-flows the contents of the
 // browser.
 - (void)toggleTabStripDisplayMode;
+
+// Shows or hides the Instant preview contents.
+- (void)showInstant:(TabContents*)previewContents;
+- (void)hideInstant;
+
+// Returns the frame, in Cocoa (unflipped) screen coordinates, of the area where
+// Instant results are.  If Instant is not showing, returns the frame of where
+// it would be.
+- (NSRect)instantFrame;
 
 // Called when the Add Search Engine dialog is closed.
 - (void)sheetDidEnd:(NSWindow*)sheet

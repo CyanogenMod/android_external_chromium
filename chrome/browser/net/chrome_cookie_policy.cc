@@ -6,7 +6,7 @@
 
 #include "base/string_util.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/host_content_settings_map.h"
 #include "net/base/net_errors.h"
 #include "net/base/static_cookie_policy.h"
@@ -29,7 +29,7 @@ ChromeCookiePolicy::~ChromeCookiePolicy() {
 int ChromeCookiePolicy::CanGetCookies(const GURL& url,
                                       const GURL& first_party,
                                       net::CompletionCallback* callback) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   if (host_content_settings_map_->BlockThirdPartyCookies()) {
     net::StaticCookiePolicy policy(
@@ -40,6 +40,8 @@ int ChromeCookiePolicy::CanGetCookies(const GURL& url,
   }
 
   int policy = CheckPolicy(url);
+  if (policy == net::OK_FOR_SESSION_ONLY)
+    policy = net::OK;
   if (policy != net::ERR_IO_PENDING)
     return policy;
 
@@ -64,7 +66,7 @@ int ChromeCookiePolicy::CanSetCookie(const GURL& url,
                                      const GURL& first_party,
                                      const std::string& cookie_line,
                                      net::CompletionCallback* callback) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   if (host_content_settings_map_->BlockThirdPartyCookies()) {
     net::StaticCookiePolicy policy(

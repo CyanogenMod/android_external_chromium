@@ -70,7 +70,7 @@ class TransportChannel: public sigslot::has_slots<> {
 
   // This hack is here to allow the SocketMonitor to downcast to the
   // P2PTransportChannel safely.
-  // TODO(juberti): Generalize network monitoring.
+  // TODO: Generalize network monitoring.
   virtual P2PTransportChannel* GetP2PChannel() { return NULL; }
 
   // Signalled each time a packet is received  on this channel.

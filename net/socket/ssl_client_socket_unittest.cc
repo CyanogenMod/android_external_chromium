@@ -26,18 +26,28 @@ const net::SSLConfig kDefaultSSLConfig;
 class SSLClientSocketTest : public PlatformTest {
  public:
   SSLClientSocketTest()
-      : resolver_(net::CreateSystemHostResolver(
-            net::HostResolver::kDefaultParallelism,
-            NULL)),
-        socket_factory_(net::ClientSocketFactory::GetDefaultFactory()) {
+      : socket_factory_(net::ClientSocketFactory::GetDefaultFactory()) {
   }
 
  protected:
-  scoped_refptr<net::HostResolver> resolver_;
   net::ClientSocketFactory* socket_factory_;
 };
 
 //-----------------------------------------------------------------------------
+
+// LogContainsSSLConnectEndEvent returns true if the given index in the given
+// log is an SSL connect end event. The NSS sockets will cork in an attempt to
+// merge the first application data record with the Finished message when false
+// starting. However, in order to avoid the server timing out the handshake,
+// they'll give up waiting for application data and send the Finished after a
+// timeout. This means that an SSL connect end event may appear as a socket
+// write.
+static bool LogContainsSSLConnectEndEvent(
+    const net::CapturingNetLog::EntryList& log, int i) {
+  return  net::LogContainsEndEvent(log, -1, net::NetLog::TYPE_SSL_CONNECT) ||
+          net::LogContainsEvent(log, -1, net::NetLog::TYPE_SOCKET_BYTES_SENT,
+                                net::NetLog::PHASE_NONE);
+};
 
 TEST_F(SSLClientSocketTest, Connect) {
   net::TestServer test_server(net::TestServer::TYPE_HTTPS, FilePath());
@@ -57,7 +67,8 @@ TEST_F(SSLClientSocketTest, Connect) {
 
   scoped_ptr<net::SSLClientSocket> sock(
       socket_factory_->CreateSSLClientSocket(transport,
-          test_server.host_port_pair().host(), kDefaultSSLConfig));
+          test_server.host_port_pair().host(), kDefaultSSLConfig,
+          NULL /* ssl_host_info */));
 
   EXPECT_FALSE(sock->IsConnected());
 
@@ -75,8 +86,7 @@ TEST_F(SSLClientSocketTest, Connect) {
   }
 
   EXPECT_TRUE(sock->IsConnected());
-  EXPECT_TRUE(net::LogContainsEndEvent(
-      log.entries(), -1, net::NetLog::TYPE_SSL_CONNECT));
+  EXPECT_TRUE(LogContainsSSLConnectEndEvent(log.entries(), -1));
 
   sock->Disconnect();
   EXPECT_FALSE(sock->IsConnected());
@@ -101,7 +111,8 @@ TEST_F(SSLClientSocketTest, ConnectExpired) {
 
   scoped_ptr<net::SSLClientSocket> sock(
       socket_factory_->CreateSSLClientSocket(transport,
-          test_server.host_port_pair().host(), kDefaultSSLConfig));
+          test_server.host_port_pair().host(), kDefaultSSLConfig,
+          NULL /* ssl_host_info */));
 
   EXPECT_FALSE(sock->IsConnected());
 
@@ -121,9 +132,7 @@ TEST_F(SSLClientSocketTest, ConnectExpired) {
   // We cannot test sock->IsConnected(), as the NSS implementation disconnects
   // the socket when it encounters an error, whereas other implementations
   // leave it connected.
-
-  EXPECT_TRUE(net::LogContainsEndEvent(
-      log.entries(), -1, net::NetLog::TYPE_SSL_CONNECT));
+  EXPECT_TRUE(LogContainsSSLConnectEndEvent(log.entries(), -1));
 }
 
 TEST_F(SSLClientSocketTest, ConnectMismatched) {
@@ -145,7 +154,8 @@ TEST_F(SSLClientSocketTest, ConnectMismatched) {
 
   scoped_ptr<net::SSLClientSocket> sock(
       socket_factory_->CreateSSLClientSocket(transport,
-          test_server.host_port_pair().host(), kDefaultSSLConfig));
+          test_server.host_port_pair().host(), kDefaultSSLConfig,
+          NULL /* ssl_host_info */));
 
   EXPECT_FALSE(sock->IsConnected());
 
@@ -166,9 +176,7 @@ TEST_F(SSLClientSocketTest, ConnectMismatched) {
   // We cannot test sock->IsConnected(), as the NSS implementation disconnects
   // the socket when it encounters an error, whereas other implementations
   // leave it connected.
-
-  EXPECT_TRUE(net::LogContainsEndEvent(
-      log.entries(), -1, net::NetLog::TYPE_SSL_CONNECT));
+  EXPECT_TRUE(LogContainsSSLConnectEndEvent(log.entries(), -1));
 }
 
 // Attempt to connect to a page which requests a client certificate. It should
@@ -192,7 +200,8 @@ TEST_F(SSLClientSocketTest, FLAKY_ConnectClientAuthCertRequested) {
 
   scoped_ptr<net::SSLClientSocket> sock(
       socket_factory_->CreateSSLClientSocket(transport,
-          test_server.host_port_pair().host(), kDefaultSSLConfig));
+          test_server.host_port_pair().host(), kDefaultSSLConfig,
+          NULL /* ssl_host_info */));
 
   EXPECT_FALSE(sock->IsConnected());
 
@@ -212,9 +221,7 @@ TEST_F(SSLClientSocketTest, FLAKY_ConnectClientAuthCertRequested) {
   // We cannot test sock->IsConnected(), as the NSS implementation disconnects
   // the socket when it encounters an error, whereas other implementations
   // leave it connected.
-
-  EXPECT_TRUE(net::LogContainsEndEvent(
-      log.entries(), -1, net::NetLog::TYPE_SSL_CONNECT));
+  EXPECT_TRUE(LogContainsSSLConnectEndEvent(log.entries(), -1));
 }
 
 // Connect to a server requesting optional client authentication. Send it a
@@ -244,7 +251,8 @@ TEST_F(SSLClientSocketTest, ConnectClientAuthSendNullCert) {
 
   scoped_ptr<net::SSLClientSocket> sock(
       socket_factory_->CreateSSLClientSocket(transport,
-          test_server.host_port_pair().host(), ssl_config));
+          test_server.host_port_pair().host(), ssl_config,
+          NULL /* ssl_host_info */));
 
   EXPECT_FALSE(sock->IsConnected());
 
@@ -264,8 +272,7 @@ TEST_F(SSLClientSocketTest, ConnectClientAuthSendNullCert) {
   }
 
   EXPECT_TRUE(sock->IsConnected());
-  EXPECT_TRUE(net::LogContainsEndEvent(
-      log.entries(), -1, net::NetLog::TYPE_SSL_CONNECT));
+  EXPECT_TRUE(LogContainsSSLConnectEndEvent(log.entries(), -1));
 
   sock->Disconnect();
   EXPECT_FALSE(sock->IsConnected());
@@ -292,9 +299,11 @@ TEST_F(SSLClientSocketTest, Read) {
   EXPECT_EQ(net::OK, rv);
 
   scoped_ptr<net::SSLClientSocket> sock(
-      socket_factory_->CreateSSLClientSocket(transport,
-                                             test_server.host_port_pair().host(),
-                                             kDefaultSSLConfig));
+      socket_factory_->CreateSSLClientSocket(
+          transport,
+          test_server.host_port_pair().host(),
+          kDefaultSSLConfig,
+          NULL /* ssl_host_info */));
 
   rv = sock->Connect(&callback);
   if (rv != net::OK) {
@@ -351,9 +360,11 @@ TEST_F(SSLClientSocketTest, Read_FullDuplex) {
   EXPECT_EQ(net::OK, rv);
 
   scoped_ptr<net::SSLClientSocket> sock(
-      socket_factory_->CreateSSLClientSocket(transport,
-                                             test_server.host_port_pair().host(),
-                                             kDefaultSSLConfig));
+      socket_factory_->CreateSSLClientSocket(
+          transport,
+          test_server.host_port_pair().host(),
+          kDefaultSSLConfig,
+          NULL /* ssl_host_info */));
 
   rv = sock->Connect(&callback);
   if (rv != net::OK) {
@@ -410,7 +421,8 @@ TEST_F(SSLClientSocketTest, Read_SmallChunks) {
 
   scoped_ptr<net::SSLClientSocket> sock(
       socket_factory_->CreateSSLClientSocket(transport,
-          test_server.host_port_pair().host(), kDefaultSSLConfig));
+          test_server.host_port_pair().host(), kDefaultSSLConfig,
+          NULL /* ssl_host_info */));
 
   rv = sock->Connect(&callback);
   if (rv != net::OK) {
@@ -463,7 +475,8 @@ TEST_F(SSLClientSocketTest, Read_Interrupted) {
 
   scoped_ptr<net::SSLClientSocket> sock(
       socket_factory_->CreateSSLClientSocket(transport,
-          test_server.host_port_pair().host(), kDefaultSSLConfig));
+          test_server.host_port_pair().host(), kDefaultSSLConfig,
+          NULL /* ssl_host_info */));
 
   rv = sock->Connect(&callback);
   if (rv != net::OK) {
@@ -536,7 +549,8 @@ TEST_F(SSLClientSocketTest, PrematureApplicationData) {
 
   scoped_ptr<net::SSLClientSocket> sock(
       socket_factory_->CreateSSLClientSocket(
-          transport, test_server.host_port_pair().host(), kDefaultSSLConfig));
+          transport, test_server.host_port_pair().host(), kDefaultSSLConfig,
+          NULL /* ssl_host_info */));
 
   rv = sock->Connect(&callback);
   EXPECT_EQ(net::ERR_SSL_PROTOCOL_ERROR, rv);

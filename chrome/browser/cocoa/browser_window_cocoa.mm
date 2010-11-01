@@ -19,14 +19,13 @@
 #import "chrome/browser/cocoa/clear_browsing_data_controller.h"
 #import "chrome/browser/cocoa/collected_cookies_mac.h"
 #import "chrome/browser/cocoa/content_settings_dialog_controller.h"
-#import "chrome/browser/cocoa/download_shelf_controller.h"
+#import "chrome/browser/cocoa/download/download_shelf_controller.h"
 #import "chrome/browser/cocoa/edit_search_engine_cocoa_controller.h"
 #import "chrome/browser/cocoa/html_dialog_window_controller.h"
 #import "chrome/browser/cocoa/import_settings_dialog.h"
 #import "chrome/browser/cocoa/keyword_editor_cocoa_controller.h"
 #import "chrome/browser/cocoa/location_bar/location_bar_view_mac.h"
 #import "chrome/browser/cocoa/nsmenuitem_additions.h"
-#include "chrome/browser/cocoa/page_info_window_mac.h"
 #include "chrome/browser/cocoa/repost_form_warning_mac.h"
 #include "chrome/browser/cocoa/restart_browser.h"
 #include "chrome/browser/cocoa/status_bubble_mac.h"
@@ -35,6 +34,7 @@
 #import "chrome/browser/cocoa/toolbar_controller.h"
 #include "chrome/browser/download/download_shelf.h"
 #include "chrome/browser/global_keyboard_shortcuts_mac.h"
+#include "chrome/browser/page_info_window.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/sidebar/sidebar_container.h"
@@ -401,11 +401,7 @@ void BrowserWindowCocoa::ShowPageInfo(Profile* profile,
                                       const GURL& url,
                                       const NavigationEntry::SSLStatus& ssl,
                                       bool show_history) {
-  const CommandLine* command_line(CommandLine::ForCurrentProcess());
-  if (command_line->HasSwitch(switches::kEnableNewPageInfoBubble))
-    browser::ShowPageInfoBubble(window(), profile, url, ssl, show_history);
-  else
-    browser::ShowPageInfo(window(), profile, url, ssl, show_history);
+  browser::ShowPageInfoBubble(window(), profile, url, ssl, show_history);
 }
 
 void BrowserWindowCocoa::ShowAppMenu() {
@@ -564,20 +560,22 @@ void BrowserWindowCocoa::OpenTabpose() {
   [controller_ openTabpose];
 }
 
-void BrowserWindowCocoa::ShowMatchPreview() {
-  // TODO: implement me
-  NOTIMPLEMENTED();
+void BrowserWindowCocoa::ShowInstant(TabContents* preview_contents) {
+  [controller_ showInstant:preview_contents];
 }
 
-void BrowserWindowCocoa::HideMatchPreview() {
-  // TODO: implement me
-  NOTIMPLEMENTED();
+void BrowserWindowCocoa::HideInstant() {
+  [controller_ hideInstant];
 }
 
-gfx::Rect BrowserWindowCocoa::GetMatchPreviewBounds() {
-  // TODO: implement me
-  NOTIMPLEMENTED();
-  return gfx::Rect();
+gfx::Rect BrowserWindowCocoa::GetInstantBounds() {
+  // Flip coordinates based on the primary screen.
+  NSScreen* screen = [[NSScreen screens] objectAtIndex:0];
+  NSRect monitorFrame = [screen frame];
+  NSRect frame = [controller_ instantFrame];
+  gfx::Rect bounds(NSRectToCGRect(frame));
+  bounds.set_y(NSHeight(monitorFrame) - bounds.y() - bounds.height());
+  return bounds;
 }
 
 void BrowserWindowCocoa::Observe(NotificationType type,

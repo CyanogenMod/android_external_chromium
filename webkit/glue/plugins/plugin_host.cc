@@ -310,7 +310,7 @@ uint32_t NPN_MemFlush(uint32_t size) {
 // Should force a re-scan of the plugins directory to load new ones.
 void NPN_ReloadPlugins(NPBool reloadPages) {
   // TODO: implement me
-  DLOG(INFO) << "NPN_ReloadPlugin is not implemented yet.";
+  DVLOG(1) << "NPN_ReloadPlugin is not implemented yet.";
 }
 
 // Requests a range of bytes for a seekable stream.
@@ -526,7 +526,7 @@ NPError NPN_NewStream(NPP id,
   // Browser should put this stream into a window target.
   //
   // TODO: implement me
-  DLOG(INFO) << "NPN_NewStream is not implemented yet.";
+  DVLOG(1) << "NPN_NewStream is not implemented yet.";
   return NPERR_GENERIC_ERROR;
 }
 
@@ -534,7 +534,7 @@ int32_t NPN_Write(NPP id, NPStream* stream, int32_t len, void* buffer) {
   // Writes data to an existing Plugin-created stream.
 
   // TODO: implement me
-  DLOG(INFO) << "NPN_Write is not implemented yet.";
+  DVLOG(1) << "NPN_Write is not implemented yet.";
   return NPERR_GENERIC_ERROR;
 }
 
@@ -594,7 +594,7 @@ void NPN_Status(NPP id, const char* message) {
   // Displays a message on the status line of the browser window.
 
   // TODO: implement me
-  DLOG(INFO) << "NPN_Status is not implemented yet.";
+  DVLOG(1) << "NPN_Status is not implemented yet.";
 }
 
 void NPN_InvalidateRect(NPP id, NPRect *invalidRect) {
@@ -797,13 +797,18 @@ NPError NPN_GetValue(NPP id, NPNVariable variable, void* value) {
       rv = NPERR_NO_ERROR;
       break;
     }
-    case NPNVsupportsCoreAnimationBool:
-    case NPNVsupportsInvalidatingCoreAnimationBool: {
+    case NPNVsupportsCoreAnimationBool: {
       // We only support the Core Animation model on 10.6 and higher
       // TODO(stuartmorgan): Once existing CA plugins have implemented the
-      // invalidating version, remove support for the other version.
+      // invalidating version, remove support for this one.
       NPBool* supports_model = reinterpret_cast<NPBool*>(value);
       *supports_model = SupportsSharingAcceleratedSurfaces() ? true : false;
+      rv = NPERR_NO_ERROR;
+      break;
+    }
+    case NPNVsupportsInvalidatingCoreAnimationBool: {
+      NPBool* supports_model = reinterpret_cast<NPBool*>(value);
+      *supports_model = true;
       rv = NPERR_NO_ERROR;
       break;
     }
@@ -824,7 +829,7 @@ NPError NPN_GetValue(NPP id, NPNVariable variable, void* value) {
       rv = NPAPI::GetPepperExtensionsFunctions(value);
       break;
     default:
-      DLOG(INFO) << "NPN_GetValue(" << variable << ") is not implemented yet.";
+      DVLOG(1) << "NPN_GetValue(" << variable << ") is not implemented yet.";
       break;
   }
   return rv;
@@ -859,24 +864,22 @@ NPError NPN_SetValue(NPP id, NPPVariable variable, void* value) {
       // Specifies whether you are pushing or popping the JSContext off.
       // the stack
       // TODO: implement me
-      DLOG(INFO) <<
-          "NPN_SetValue(NPPVJavascriptPushCallerBool) is not implemented.";
+      DVLOG(1) << "NPN_SetValue(NPPVJavascriptPushCallerBool) is not "
+                  "implemented.";
       return NPERR_GENERIC_ERROR;
     case NPPVpluginKeepLibraryInMemory:
       // Tells browser that plugin library should live longer than usual.
       // TODO: implement me
-      DLOG(INFO) <<
-          "NPN_SetValue(NPPVpluginKeepLibraryInMemory) is not implemented.";
+      DVLOG(1) << "NPN_SetValue(NPPVpluginKeepLibraryInMemory) is not "
+                  "implemented.";
       return NPERR_GENERIC_ERROR;
   #if defined(OS_MACOSX)
     case NPPVpluginDrawingModel: {
       int model = reinterpret_cast<int>(value);
-      if (model == NPDrawingModelCoreGraphics) {
-        plugin->set_drawing_model(static_cast<NPDrawingModel>(model));
-        return NPERR_NO_ERROR;
-      } else if ((model == NPDrawingModelCoreAnimation ||
-                  model == NPDrawingModelInvalidatingCoreAnimation) &&
-                 SupportsSharingAcceleratedSurfaces()) {
+      if (model == NPDrawingModelCoreGraphics ||
+          model == NPDrawingModelInvalidatingCoreAnimation ||
+          (model == NPDrawingModelCoreAnimation &&
+           SupportsSharingAcceleratedSurfaces())) {
         plugin->set_drawing_model(static_cast<NPDrawingModel>(model));
         return NPERR_NO_ERROR;
       }
@@ -899,7 +902,7 @@ NPError NPN_SetValue(NPP id, NPPVariable variable, void* value) {
   #endif
     default:
       // TODO: implement me
-      DLOG(INFO) << "NPN_SetValue(" << variable << ") is not implemented.";
+      DVLOG(1) << "NPN_SetValue(" << variable << ") is not implemented.";
       break;
   }
 
@@ -909,13 +912,13 @@ NPError NPN_SetValue(NPP id, NPPVariable variable, void* value) {
 
 void* NPN_GetJavaEnv() {
   // TODO: implement me
-  DLOG(INFO) << "NPN_GetJavaEnv is not implemented.";
+  DVLOG(1) << "NPN_GetJavaEnv is not implemented.";
   return NULL;
 }
 
 void* NPN_GetJavaPeer(NPP) {
   // TODO: implement me
-  DLOG(INFO) << "NPN_GetJavaPeer is not implemented.";
+  DVLOG(1) << "NPN_GetJavaPeer is not implemented.";
   return NULL;
 }
 

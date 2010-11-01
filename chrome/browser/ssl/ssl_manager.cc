@@ -6,7 +6,7 @@
 
 #include "app/l10n_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/load_from_memory_cache_details.h"
 #include "chrome/browser/net/url_request_tracking.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -27,8 +27,8 @@ void SSLManager::OnSSLCertificateError(ResourceDispatcherHost* rdh,
                                        URLRequest* request,
                                        int cert_error,
                                        net::X509Certificate* cert) {
-  DLOG(INFO) << "OnSSLCertificateError() cert_error: " << cert_error <<
-                " url: " << request->url().spec();
+  DVLOG(1) << "OnSSLCertificateError() cert_error: " << cert_error
+           << " url: " << request->url().spec();
 
   ResourceDispatcherHostRequestInfo* info =
       ResourceDispatcherHost::InfoForRequest(request);
@@ -36,8 +36,8 @@ void SSLManager::OnSSLCertificateError(ResourceDispatcherHost* rdh,
 
   // A certificate error occurred.  Construct a SSLCertErrorHandler object and
   // hand it over to the UI thread for processing.
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(new SSLCertErrorHandler(rdh,
                                                 request,
                                                 info->resource_type(),

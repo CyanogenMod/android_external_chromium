@@ -22,6 +22,7 @@
 namespace net {
 class CookiePolicy;
 class CookieStore;
+class DnsRRResolver;
 class FtpTransactionFactory;
 class HostResolver;
 class HttpAuthHandlerFactory;
@@ -44,6 +45,10 @@ class URLRequestContext
 
   net::HostResolver* host_resolver() const {
     return host_resolver_;
+  }
+
+  net::DnsRRResolver* dnsrr_resolver() const {
+    return dnsrr_resolver_;
   }
 
   // Get the proxy service for this context.
@@ -109,6 +114,11 @@ class URLRequestContext
     referrer_charset_ = charset;
   }
 
+  // Controls whether or not the URLRequestContext considers itself to be the
+  // "main" URLRequestContext.
+  bool is_main() const { return is_main_; }
+  void set_is_main(bool is_main) { is_main_ = is_main; }
+
  protected:
   friend class base::RefCountedThreadSafe<URLRequestContext>;
 
@@ -117,7 +127,8 @@ class URLRequestContext
   // The following members are expected to be initialized and owned by
   // subclasses.
   net::NetLog* net_log_;
-  scoped_refptr<net::HostResolver> host_resolver_;
+  net::HostResolver* host_resolver_;
+  net::DnsRRResolver* dnsrr_resolver_;
   scoped_refptr<net::ProxyService> proxy_service_;
   scoped_refptr<net::SSLConfigService> ssl_config_service_;
   net::HttpTransactionFactory* http_transaction_factory_;
@@ -136,6 +147,9 @@ class URLRequestContext
   std::string referrer_charset_;
 
  private:
+  // Indicates whether or not this is the main URLRequestContext.
+  bool is_main_;
+
   DISALLOW_COPY_AND_ASSIGN(URLRequestContext);
 };
 

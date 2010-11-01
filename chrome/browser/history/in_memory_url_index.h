@@ -74,6 +74,9 @@ class InMemoryURLIndex {
   typedef std::vector<string16> String16Vector;
 
   // Open and index the URL history database.
+  // |languages| gives a list of language encodings with which the history
+  // URLs and omnibox searches are interpreted, i.e. when each is broken
+  // down into words and each word is broken down into characters.
   bool Init(URLDatabase* history_db, const std::string& languages);
 
   // Reset the history index.
@@ -117,18 +120,7 @@ class InMemoryURLIndex {
 
   // Support caching of term character intersections so that we can optimize
   // searches which build upon a previous search.
-  struct TermCharWordSet {
-    TermCharWordSet(Char16Set char_set, WordIDSet word_id_set, bool used)
-        : char_set_(char_set),
-          word_id_set_(word_id_set),
-          used_(used) {}
-
-    bool IsNotUsed() const { return !used_; }
-
-    Char16Set char_set_;
-    WordIDSet word_id_set_;
-    bool used_;  // true if this set has been used for the current term search.
-  };
+  struct TermCharWordSet;
   typedef std::vector<TermCharWordSet> TermCharWordSetVector;
 
   // TODO(rohitrao): Probably replace this with QueryResults.
@@ -140,12 +132,11 @@ class InMemoryURLIndex {
   // A helper class which performs the final filter on each candidate
   // history URL match, inserting accepted matches into |scored_matches_|
   // and trimming the maximum number of matches to 10.
-  class AddHistoryMatch : std::unary_function<HistoryID, void> {
+  class AddHistoryMatch : public std::unary_function<HistoryID, void> {
    public:
     AddHistoryMatch(const InMemoryURLIndex& index,
-                    const String16Vector& lower_terms)
-        : index_(index),
-          lower_terms_(lower_terms) {}
+                    const String16Vector& lower_terms);
+    ~AddHistoryMatch();
 
     void operator()(const HistoryID history_id);
 

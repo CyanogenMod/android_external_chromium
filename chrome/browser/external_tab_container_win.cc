@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "app/l10n_util.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
 #include "base/trace_event.h"
@@ -26,6 +27,7 @@
 #include "chrome/browser/tab_contents/provisional_load_details.h"
 #include "chrome/browser/views/tab_contents/render_view_context_menu_views.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/views/page_info_bubble_view.h"
 #include "chrome/browser/views/tab_contents/tab_contents_container.h"
 #include "chrome/common/bindings_policy.h"
 #include "chrome/common/chrome_constants.h"
@@ -36,11 +38,39 @@
 #include "chrome/common/page_transition_types.h"
 #include "chrome/test/automation/automation_messages.h"
 #include "grit/generated_resources.h"
+#include "grit/locale_settings.h"
 #include "views/grid_layout.h"
 #include "views/widget/root_view.h"
 #include "views/window/window.h"
 
 static const wchar_t kWindowObjectKey[] = L"ChromeWindowObject";
+
+// This class overrides the LinkActivated function in the PageInfoBubbleView
+// class and routes the help center link navigation to the host browser.
+class ExternalTabPageInfoBubbleView : public PageInfoBubbleView {
+ public:
+  ExternalTabPageInfoBubbleView(ExternalTabContainer* container,
+                                gfx::NativeWindow parent_window,
+                                Profile* profile,
+                                const GURL& url,
+                                const NavigationEntry::SSLStatus& ssl,
+                                bool show_history)
+      : PageInfoBubbleView(parent_window, profile, url, ssl, show_history),
+        container_(container) {
+    DLOG(INFO) << __FUNCTION__;
+  }
+  virtual ~ExternalTabPageInfoBubbleView() {
+    DLOG(INFO) << __FUNCTION__;
+  }
+  // LinkController methods:
+  virtual void LinkActivated(views::Link* source, int event_flags) {
+    GURL url = GURL(l10n_util::GetStringUTF16(IDS_PAGE_INFO_HELP_CENTER));
+    container_->OpenURLFromTab(container_->tab_contents(), url, GURL(),
+                               NEW_FOREGROUND_TAB, PageTransition::LINK);
+  }
+ private:
+  scoped_refptr<ExternalTabContainer> container_;
+};
 
 base::LazyInstance<ExternalTabContainer::PendingTabs>
     ExternalTabContainer::pending_tabs_(base::LINKER_INITIALIZED);
@@ -61,7 +91,8 @@ ExternalTabContainer::ExternalTabContainer(
       infobars_enabled_(true),
       focus_manager_(NULL),
       external_tab_view_(NULL),
-      unload_reply_message_(NULL) {
+      unload_reply_message_(NULL),
+      route_all_top_level_navigations_(false) {
 }
 
 ExternalTabContainer::~ExternalTabContainer() {
@@ -77,7 +108,8 @@ bool ExternalTabContainer::Init(Profile* profile,
                                 TabContents* existing_contents,
                                 const GURL& initial_url,
                                 const GURL& referrer,
-                                bool infobars_enabled) {
+                                bool infobars_enabled,
+                                bool route_all_top_level_navigations) {
   if (IsWindow()) {
     NOTREACHED();
     return false;
@@ -86,6 +118,7 @@ bool ExternalTabContainer::Init(Profile* profile,
   load_requests_via_automation_ = load_requests_via_automation;
   handle_top_level_requests_ = handle_top_level_requests;
   infobars_enabled_ = infobars_enabled;
+  route_all_top_level_navigations_ = route_all_top_level_navigations;
 
   set_window_style(WS_POPUP | WS_CLIPCHILDREN);
   views::WidgetWin::Init(NULL, bounds);
@@ -356,8 +389,22 @@ void ExternalTabContainer::AddNewContents(TabContents* source,
     return;
   }
 
-  scoped_refptr<ExternalTabContainer> new_container =
-      new ExternalTabContainer(NULL, NULL);
+  scoped_refptr<ExternalTabContainer> new_container;
+  // If the host is a browser like IE8, then the URL being navigated to in the
+  // new tab contents could potentially navigate back to Chrome from a new
+  // IE process. We support full tab mode only for IE and hence we use that as
+  // a determining factor in whether the new ExternalTabContainer instance is
+  // created as pending or not.
+  if (!route_all_top_level_navigations_) {
+    new_container = new ExternalTabContainer(NULL, NULL);
+  } else {
+    // Reuse the same tab handle here as the new container instance is a dummy
+    // instance which does not have an automation client connected at the other
+    // end.
+    new_container = new TemporaryPopupExternalTabContainer(
+        automation_, automation_resource_message_filter_.get());
+    new_container->SetTabHandle(tab_handle_);
+  }
 
   // Make sure that ExternalTabContainer instance is initialized with
   // an unwrapped Profile.
@@ -371,9 +418,13 @@ void ExternalTabContainer::AddNewContents(TabContents* source,
       new_contents,
       GURL(),
       GURL(),
-      true);
+      true,
+      route_all_top_level_navigations_);
 
   if (result) {
+    if (route_all_top_level_navigations_) {
+      return;
+    }
     uintptr_t cookie = reinterpret_cast<uintptr_t>(new_container.get());
     pending_tabs_.Get()[cookie] = new_container;
     new_container->set_pending(true);
@@ -485,7 +536,7 @@ bool ExternalTabContainer::CanDownload(int request_id) {
       // In case the host needs to show UI that needs to take the focus.
       ::AllowSetForegroundWindow(ASFW_ANY);
 
-      ChromeThread::PostTask(ChromeThread::IO, FROM_HERE,
+      BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
           NewRunnableMethod(automation_resource_message_filter_.get(),
               &AutomationResourceMessageFilter::SendDownloadRequestToHost,
               0, tab_handle_, request_id));
@@ -503,7 +554,20 @@ void ExternalTabContainer::ShowPageInfo(Profile* profile,
                                         const GURL& url,
                                         const NavigationEntry::SSLStatus& ssl,
                                         bool show_history) {
-  browser::ShowPageInfo(GetNativeView(), profile, url, ssl, show_history);
+  POINT cursor_pos = {0};
+  GetCursorPos(&cursor_pos);
+
+  gfx::Rect bounds;
+  bounds.set_origin(gfx::Point(cursor_pos));
+
+  PageInfoBubbleView* page_info_bubble =
+      new ExternalTabPageInfoBubbleView(this, NULL, profile, url,
+                                        ssl, show_history);
+  InfoBubble* info_bubble =
+      InfoBubble::Show(this, bounds,
+                       BubbleBorder::TOP_LEFT,
+                       page_info_bubble, page_info_bubble);
+  page_info_bubble->set_info_bubble(info_bubble);
 }
 
 void ExternalTabContainer::RegisterRenderViewHostForAutomation(
@@ -545,7 +609,6 @@ bool ExternalTabContainer::HandleContextMenu(const ContextMenuParams& params) {
     NOTREACHED();
     return false;
   }
-
   external_context_menu_.reset(
       new RenderViewContextMenuViews(tab_contents(), params));
   external_context_menu_->SetExternal();
@@ -607,7 +670,8 @@ void ExternalTabContainer::HandleKeyboardEvent(
 void ExternalTabContainer::ShowHtmlDialog(HtmlDialogUIDelegate* delegate,
                                           gfx::NativeWindow parent_window) {
   if (!browser_.get()) {
-    browser_.reset(Browser::CreateForPopup(tab_contents_->profile()));
+    browser_.reset(Browser::CreateForType(Browser::TYPE_POPUP,
+                                          tab_contents_->profile()));
   }
 
   gfx::NativeWindow parent = parent_window ? parent_window
@@ -1019,4 +1083,30 @@ void ExternalTabContainer::SetupExternalTabView() {
   SetContentsView(external_tab_view_);
   // Note that SetTabContents must be called after AddChildView is called
   tab_contents_container_->ChangeTabContents(tab_contents_);
+}
+
+TemporaryPopupExternalTabContainer::TemporaryPopupExternalTabContainer(
+    AutomationProvider* automation,
+    AutomationResourceMessageFilter* filter)
+    : ExternalTabContainer(automation, filter) {
+}
+
+TemporaryPopupExternalTabContainer::~TemporaryPopupExternalTabContainer() {
+  DVLOG(1) << __FUNCTION__;
+}
+
+void TemporaryPopupExternalTabContainer::OpenURLFromTab(
+    TabContents* source, const GURL& url, const GURL& referrer,
+    WindowOpenDisposition disposition, PageTransition::Type transition) {
+  if (!automation_)
+    return;
+
+  if (disposition == CURRENT_TAB) {
+    DCHECK(route_all_top_level_navigations_);
+    disposition = NEW_FOREGROUND_TAB;
+  }
+  ExternalTabContainer::OpenURLFromTab(source, url, referrer, disposition,
+                                       transition);
+  // support only one navigation for a dummy tab before it is killed.
+  ::DestroyWindow(GetNativeView());
 }

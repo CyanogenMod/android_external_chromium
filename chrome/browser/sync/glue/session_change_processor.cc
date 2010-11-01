@@ -6,12 +6,15 @@
 
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "base/logging.h"
-#include "chrome/browser/chrome_thread.h"
+#include "base/scoped_vector.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/session_model_associator.h"
 #include "chrome/common/notification_details.h"
+#include "chrome/common/notification_service.h"
 #include "chrome/common/notification_source.h"
 
 namespace browser_sync {
@@ -22,27 +25,25 @@ SessionChangeProcessor::SessionChangeProcessor(
     : ChangeProcessor(error_handler),
       session_model_associator_(session_model_associator),
       profile_(NULL) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(error_handler);
   DCHECK(session_model_associator_);
 }
 
 SessionChangeProcessor::~SessionChangeProcessor() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 void SessionChangeProcessor::Observe(NotificationType type,
                                      const NotificationSource& source,
                                      const NotificationDetails& details) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(running());
   DCHECK(profile_);
   switch (type.value) {
     case NotificationType::SESSION_SERVICE_SAVED: {
       std::string tag = session_model_associator_->GetCurrentMachineTag();
       DCHECK_EQ(Source<Profile>(source).ptr(), profile_);
-      LOG(INFO) << "Got change notification of type " << type.value
-                << " for session " << tag;
       session_model_associator_->UpdateSyncModelDataFromClient();
       break;
     }
@@ -57,49 +58,29 @@ void SessionChangeProcessor::ApplyChangesFromSyncModel(
     const sync_api::BaseTransaction* trans,
     const sync_api::SyncManager::ChangeRecord* changes,
     int change_count) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (!running()) {
     return;
   }
-  for (int i = 0; i < change_count; ++i) {
-    const sync_api::SyncManager::ChangeRecord& change = changes[i];
-    switch (change.action) {
-      case sync_api::SyncManager::ChangeRecord::ACTION_ADD:
-        UpdateModel(trans, change, true);
-        break;
-      case sync_api::SyncManager::ChangeRecord::ACTION_UPDATE:
-        UpdateModel(trans, change, true);
-        break;
-      case sync_api::SyncManager::ChangeRecord::ACTION_DELETE:
-        UpdateModel(trans, change, false);
-        break;
-    }
-  }
-}
 
-void SessionChangeProcessor::UpdateModel(const sync_api::BaseTransaction* trans,
-    const sync_api::SyncManager::ChangeRecord& change, bool associate) {
-  sync_api::ReadNode node(trans);
-  if (!node.InitByIdLookup(change.id)) {
-    std::stringstream error;
-    error << "Session node lookup failed for change " << change.id
-      << " of action type " << change.action;
-    error_handler()->OnUnrecoverableError(FROM_HERE, error.str());
-    return;
-  }
-  DCHECK_EQ(node.GetModelType(), syncable::SESSIONS);
   StopObserving();
-  if (associate) {
-    session_model_associator_->Associate(
-      (const sync_pb::SessionSpecifics *) NULL, node.GetId());
-  } else {
-    session_model_associator_->Disassociate(node.GetId());
-  }
+
+  // This currently ignores the tracked changes and rebuilds the sessions from
+  // all the session sync nodes.
+  // TODO(zea): Make use of |changes| to adjust only modified sessions.
+  session_model_associator_->UpdateFromSyncModel(trans);
+
+  // Notify foreign session handlers that there are new sessions.
+  NotificationService::current()->Notify(
+      NotificationType::FOREIGN_SESSION_UPDATED,
+      NotificationService::AllSources(),
+      NotificationService::NoDetails());
+
   StartObserving();
 }
 
 void SessionChangeProcessor::StartImpl(Profile* profile) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(profile);
   DCHECK(profile_ == NULL);
   profile_ = profile;
@@ -107,26 +88,23 @@ void SessionChangeProcessor::StartImpl(Profile* profile) {
 }
 
 void SessionChangeProcessor::StopImpl() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   StopObserving();
   profile_ = NULL;
 }
 
 void SessionChangeProcessor::StartObserving() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(profile_);
-  LOG(INFO) << "Observing SESSION_SERVICE_SAVED";
   notification_registrar_.Add(
       this, NotificationType::SESSION_SERVICE_SAVED,
       Source<Profile>(profile_));
 }
 
 void SessionChangeProcessor::StopObserving() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(profile_);
-  LOG(INFO) << "removing observation of all notifications";
   notification_registrar_.RemoveAll();
 }
 
 }  // namespace browser_sync
-

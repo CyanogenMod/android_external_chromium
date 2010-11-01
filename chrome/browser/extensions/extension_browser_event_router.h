@@ -44,7 +44,7 @@ class ExtensionBrowserEventRouter : public TabStripModelObserver,
 
   // BrowserList::Observer
   virtual void OnBrowserAdded(const Browser* browser);
-  virtual void OnBrowserRemoving(const Browser* browser);
+  virtual void OnBrowserRemoved(const Browser* browser);
   virtual void OnBrowserSetLastActive(const Browser* browser);
 
 #if defined(TOOLKIT_VIEWS)
@@ -60,7 +60,9 @@ class ExtensionBrowserEventRouter : public TabStripModelObserver,
 
   // TabStripModelObserver
   virtual void TabInsertedAt(TabContents* contents, int index, bool foreground);
-  virtual void TabClosingAt(TabContents* contents, int index);
+  virtual void TabClosingAt(TabStripModel* tab_strip_model,
+                            TabContents* contents,
+                            int index);
   virtual void TabDetachedAt(TabContents* contents, int index);
   virtual void TabSelectedAt(TabContents* old_contents,
                              TabContents* new_contents,
@@ -71,8 +73,7 @@ class ExtensionBrowserEventRouter : public TabStripModelObserver,
                             TabChangeType change_type);
   virtual void TabReplacedAt(TabContents* old_contents,
                              TabContents* new_contents,
-                             int index,
-                             TabReplaceType type);
+                             int index);
   virtual void TabStripEmpty();
 
   // Page Action execute event.
@@ -121,6 +122,7 @@ class ExtensionBrowserEventRouter : public TabStripModelObserver,
   void UnregisterForTabNotifications(TabContents* contents);
 
   ExtensionBrowserEventRouter();
+  ~ExtensionBrowserEventRouter();
   friend struct DefaultSingletonTraits<ExtensionBrowserEventRouter>;
 
   NotificationRegistrar registrar_;

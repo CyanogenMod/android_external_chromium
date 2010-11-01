@@ -7,7 +7,7 @@
 #include "chrome/browser/bookmarks/bookmark_context_menu_controller.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/page_navigator.h"
@@ -36,8 +36,8 @@ class TestingPageNavigator : public PageNavigator {
 class BookmarkContextMenuControllerTest : public testing::Test {
  public:
   BookmarkContextMenuControllerTest()
-      : ui_thread_(ChromeThread::UI, &message_loop_),
-        file_thread_(ChromeThread::FILE, &message_loop_),
+      : ui_thread_(BrowserThread::UI, &message_loop_),
+        file_thread_(BrowserThread::FILE, &message_loop_),
         model_(NULL) {
   }
 
@@ -67,8 +67,8 @@ class BookmarkContextMenuControllerTest : public testing::Test {
 
  protected:
   MessageLoopForUI message_loop_;
-  ChromeThread ui_thread_;
-  ChromeThread file_thread_;
+  BrowserThread ui_thread_;
+  BrowserThread file_thread_;
   scoped_ptr<TestingProfile> profile_;
   BookmarkModel* model_;
   TestingPageNavigator navigator_;

@@ -10,7 +10,7 @@
 #include "base/logging.h"
 #include "base/ref_counted.h"
 #include "base/task.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/search_engines/search_host_to_urls_map.h"
 #include "chrome/browser/search_engines/search_terms_data.h"
 #include "chrome/browser/search_engines/template_url.h"
@@ -62,9 +62,11 @@ std::string IOThreadSearchTermsData::GetApplicationLocale() const {
 }
 
 // Handles telling SearchProviderInstallData about changes to the google base
-// url.
+// url. (Ensure that this is deleted on the I/O thread so that the WeakPtr is
+// deleted on the correct thread.)
 class GoogleURLChangeNotifier
-    : public base::RefCountedThreadSafe<GoogleURLChangeNotifier> {
+    : public base::RefCountedThreadSafe<GoogleURLChangeNotifier,
+                                        BrowserThread::DeleteOnIOThread> {
  public:
   explicit GoogleURLChangeNotifier(
       const base::WeakPtr<SearchProviderInstallData>& install_data);
@@ -74,7 +76,9 @@ class GoogleURLChangeNotifier
   void OnChange(const std::string& google_base_url);
 
  private:
-  friend class base::RefCountedThreadSafe<GoogleURLChangeNotifier>;
+  friend struct BrowserThread::DeleteOnThread<BrowserThread::IO>;
+  friend class DeleteTask<GoogleURLChangeNotifier>;
+
   ~GoogleURLChangeNotifier() {}
 
   base::WeakPtr<SearchProviderInstallData> install_data_;
@@ -88,7 +92,7 @@ GoogleURLChangeNotifier::GoogleURLChangeNotifier(
 }
 
 void GoogleURLChangeNotifier::OnChange(const std::string& google_base_url) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   if (install_data_)
     install_data_->OnGoogleURLChange(google_base_url);
 }
@@ -121,7 +125,7 @@ GoogleURLObserver::GoogleURLObserver(
       NotificationType ui_death_notification,
       const NotificationSource& ui_death_source)
     : change_notifier_(change_notifier) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   registrar_.Add(this, NotificationType::GOOGLE_URL_UPDATED,
                  NotificationService::AllSources());
   registrar_.Add(this, ui_death_notification, ui_death_source);
@@ -131,11 +135,10 @@ void GoogleURLObserver::Observe(NotificationType type,
                                 const NotificationSource& source,
                                 const NotificationDetails& details) {
   if (type == NotificationType::GOOGLE_URL_UPDATED) {
-    ChromeThread::PostTask(ChromeThread::IO, FROM_HERE,
-                           NewRunnableMethod(
-                               change_notifier_.get(),
-                               &GoogleURLChangeNotifier::OnChange,
-                               UIThreadSearchTermsData().GoogleBaseURLValue()));
+    BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
+        NewRunnableMethod(change_notifier_.get(),
+                          &GoogleURLChangeNotifier::OnChange,
+                          UIThreadSearchTermsData().GoogleBaseURLValue()));
   } else {
     // This must be the death notification.
     delete this;
@@ -168,10 +171,11 @@ SearchProviderInstallData::SearchProviderInstallData(
   // the given notification occurs.
   new GoogleURLObserver(new GoogleURLChangeNotifier(AsWeakPtr()),
                         ui_death_notification, ui_death_source);
+  DetachFromThread();
 }
 
 SearchProviderInstallData::~SearchProviderInstallData() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   if (load_handle_) {
     DCHECK(web_service_.get());
@@ -180,7 +184,7 @@ SearchProviderInstallData::~SearchProviderInstallData() {
 }
 
 void SearchProviderInstallData::CallWhenLoaded(Task* task) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   if (provider_map_.get()) {
     task->Run();
@@ -200,7 +204,7 @@ void SearchProviderInstallData::CallWhenLoaded(Task* task) {
 
 SearchProviderInstallData::State SearchProviderInstallData::GetInstallState(
     const GURL& requested_origin) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   DCHECK(provider_map_.get());
 
   // First check to see if the origin is the default search provider.
@@ -231,7 +235,7 @@ void SearchProviderInstallData::OnGoogleURLChange(
 void SearchProviderInstallData::OnWebDataServiceRequestDone(
     WebDataService::Handle h,
     const WDTypedResult* result) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   // Reset the load_handle so that we don't try and cancel the load in
   // the destructor.
@@ -264,7 +268,7 @@ void SearchProviderInstallData::OnWebDataServiceRequestDone(
 }
 
 void SearchProviderInstallData::SetDefault(const TemplateURL* template_url) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   if (!template_url) {
     default_search_origin_.clear();
@@ -282,7 +286,7 @@ void SearchProviderInstallData::SetDefault(const TemplateURL* template_url) {
 }
 
 void SearchProviderInstallData::OnLoadFailed() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   provider_map_.reset(new SearchHostToURLsMap());
   IOThreadSearchTermsData search_terms_data(google_base_url_);
@@ -292,7 +296,7 @@ void SearchProviderInstallData::OnLoadFailed() {
 }
 
 void SearchProviderInstallData::NotifyLoaded() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   task_queue_.Run();
 

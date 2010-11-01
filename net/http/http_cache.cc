@@ -25,6 +25,7 @@
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
 #include "net/disk_cache/disk_cache.h"
+#include "net/http/disk_cache_based_ssl_host_info.h"
 #include "net/http/http_cache_transaction.h"
 #include "net/http/http_network_layer.h"
 #include "net/http/http_network_session.h"
@@ -32,9 +33,27 @@
 #include "net/http/http_response_headers.h"
 #include "net/http/http_response_info.h"
 #include "net/http/http_util.h"
+#include "net/socket/ssl_host_info.h"
 #include "net/spdy/spdy_session_pool.h"
 
 namespace net {
+
+HttpCache::DefaultBackend::DefaultBackend(CacheType type,
+                                          const FilePath& path,
+                                          int max_bytes,
+                                          base::MessageLoopProxy* thread)
+    : type_(type),
+      path_(path),
+      max_bytes_(max_bytes),
+      thread_(thread) {
+}
+
+HttpCache::DefaultBackend::~DefaultBackend() {}
+
+// static
+HttpCache::BackendFactory* HttpCache::DefaultBackend::InMemory(int max_bytes) {
+  return new DefaultBackend(MEMORY_CACHE, FilePath(), max_bytes, NULL);
+}
 
 int HttpCache::DefaultBackend::CreateBackend(disk_cache::Backend** backend,
                                              CompletionCallback* callback) {
@@ -99,8 +118,7 @@ class HttpCache::WorkItem {
 
   // Calls back the transaction with the result of the operation.
   void NotifyTransaction(int result, ActiveEntry* entry) {
-    // TODO(rvargas): convert to DCHECK after fixing bug 47895.
-    CHECK(!entry || entry->disk_entry);
+    DCHECK(!entry || entry->disk_entry);
     if (entry_)
       *entry_ = entry;
     if (trans_)
@@ -243,7 +261,25 @@ void HttpCache::MetadataWriter::OnIOComplete(int result) {
 
 //-----------------------------------------------------------------------------
 
-HttpCache::HttpCache(HostResolver* host_resolver, ProxyService* proxy_service,
+class HttpCache::SSLHostInfoFactoryAdaptor : public SSLHostInfoFactory {
+ public:
+  SSLHostInfoFactoryAdaptor(HttpCache* http_cache)
+      : http_cache_(http_cache) {
+  }
+
+  SSLHostInfo* GetForHost(const std::string& hostname) {
+    return new DiskCacheBasedSSLHostInfo(hostname, http_cache_);
+  }
+
+ private:
+  HttpCache* const http_cache_;
+};
+
+//-----------------------------------------------------------------------------
+
+HttpCache::HttpCache(HostResolver* host_resolver,
+                     DnsRRResolver* dnsrr_resolver,
+                     ProxyService* proxy_service,
                      SSLConfigService* ssl_config_service,
                      HttpAuthHandlerFactory* http_auth_handler_factory,
                      HttpNetworkDelegate* network_delegate,
@@ -252,9 +288,12 @@ HttpCache::HttpCache(HostResolver* host_resolver, ProxyService* proxy_service,
     : backend_factory_(backend_factory),
       building_backend_(false),
       mode_(NORMAL),
+      ssl_host_info_factory_(new SSLHostInfoFactoryAdaptor(
+            ALLOW_THIS_IN_INITIALIZER_LIST(this))),
       network_layer_(HttpNetworkLayer::CreateFactory(host_resolver,
-          proxy_service, ssl_config_service, http_auth_handler_factory,
-          network_delegate, net_log)),
+          dnsrr_resolver, ssl_host_info_factory_.get(),
+          proxy_service, ssl_config_service,
+          http_auth_handler_factory, network_delegate, net_log)),
       ALLOW_THIS_IN_INITIALIZER_LIST(task_factory_(this)),
       enable_range_support_(true) {
 }
@@ -365,6 +404,14 @@ void HttpCache::Suspend(bool suspend) {
 bool HttpCache::ParseResponseInfo(const char* data, int len,
                                   HttpResponseInfo* response_info,
                                   bool* response_truncated) {
+  // This block is here just to debug a Linux-only crash (bug 56449).
+  // TODO(rvargas): Remove this.
+  if (len < 4)
+    return false;
+  int payload_size = *reinterpret_cast<const int*>(data);
+  if (payload_size < 4)
+    return false;
+
   Pickle pickle(data, len);
   return response_info->InitFromPickle(pickle, response_truncated);
 }
@@ -563,21 +610,20 @@ HttpCache::ActiveEntry* HttpCache::ActivateEntry(
 }
 
 void HttpCache::DeactivateEntry(ActiveEntry* entry) {
-  // TODO(rvargas): convert to DCHECKs after fixing bug 47895.
-  CHECK(!entry->will_process_pending_queue);
-  CHECK(!entry->doomed);
-  CHECK(!entry->writer);
-  CHECK(entry->disk_entry);
-  CHECK(entry->readers.empty());
-  CHECK(entry->pending_queue.empty());
+  DCHECK(!entry->will_process_pending_queue);
+  DCHECK(!entry->doomed);
+  DCHECK(!entry->writer);
+  DCHECK(entry->disk_entry);
+  DCHECK(entry->readers.empty());
+  DCHECK(entry->pending_queue.empty());
 
   std::string key = entry->disk_entry->GetKey();
   if (key.empty())
     return SlowDeactivateEntry(entry);
 
   ActiveEntriesMap::iterator it = active_entries_.find(key);
-  CHECK(it != active_entries_.end());
-  CHECK(it->second == entry);
+  DCHECK(it != active_entries_.end());
+  DCHECK(it->second == entry);
 
   active_entries_.erase(it);
   delete entry;
@@ -696,9 +742,8 @@ void HttpCache::DestroyEntry(ActiveEntry* entry) {
 }
 
 int HttpCache::AddTransactionToEntry(ActiveEntry* entry, Transaction* trans) {
-  // TODO(rvargas): convert to DCHECKs after fixing bug 47895.
-  CHECK(entry);
-  CHECK(entry->disk_entry);
+  DCHECK(entry);
+  DCHECK(entry->disk_entry);
 
   // We implement a basic reader/writer lock for the disk cache entry.  If
   // there is already a writer, then everyone has to wait for the writer to
@@ -905,8 +950,7 @@ void HttpCache::ProcessPendingQueue(ActiveEntry* entry) {
 
 void HttpCache::OnProcessPendingQueue(ActiveEntry* entry) {
   entry->will_process_pending_queue = false;
-  // TODO(rvargas): convert to DCHECK after fixing bug 47895.
-  CHECK(!entry->writer);
+  DCHECK(!entry->writer);
 
   // If no one is interested in this entry, then we can de-activate it.
   if (entry->pending_queue.empty()) {

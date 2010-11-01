@@ -46,7 +46,7 @@ AutoDetectProxy::~AutoDetectProxy() {
 }
 
 void AutoDetectProxy::DoWork() {
-  // TODO(oja): Try connecting to server_url without proxy first here?
+  // TODO: Try connecting to server_url without proxy first here?
   if (!server_url_.empty()) {
     LOG(LS_INFO) << "GetProxySettingsForUrl(" << server_url_ << ") - start";
     GetProxySettingsForUrl(agent_.c_str(), server_url_.c_str(), proxy_, true);
@@ -66,7 +66,7 @@ void AutoDetectProxy::DoWork() {
     // Clean up the autodetect socket, from the thread that created it
     delete socket_;
   }
-  // TODO(oja): If we found a proxy, try to use it to verify that it
+  // TODO: If we found a proxy, try to use it to verify that it
   // works by sending a request to server_url. This could either be
   // done here or by the HttpPortAllocator.
 }

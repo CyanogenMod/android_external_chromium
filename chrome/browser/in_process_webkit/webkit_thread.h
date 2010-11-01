@@ -10,7 +10,7 @@
 #include "base/lock.h"
 #include "base/scoped_ptr.h"
 #include "base/thread.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 
 class BrowserWebKitClientImpl;
 
@@ -25,7 +25,7 @@ class WebKitThread {
 
  private:
   // Must be private so that we can carefully control its lifetime.
-  class InternalWebKitThread : public ChromeThread {
+  class InternalWebKitThread : public BrowserThread {
    public:
     InternalWebKitThread();
     virtual ~InternalWebKitThread();

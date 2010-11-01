@@ -14,12 +14,13 @@
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/mock_cryptohome_library.h"
 #include "chrome/browser/chromeos/cros/mock_library_loader.h"
 #include "chrome/browser/chromeos/login/client_login_response_handler.h"
 #include "chrome/browser/chromeos/login/issue_response_handler.h"
 #include "chrome/browser/chromeos/login/mock_auth_response_handler.h"
+#include "chrome/browser/chromeos/login/mock_login_status_consumer.h"
 #include "chrome/browser/chromeos/login/mock_url_fetchers.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/net/gaia/gaia_authenticator2_unittest.h"
@@ -40,18 +41,6 @@ using ::testing::SetArgumentPointee;
 using ::testing::_;
 
 namespace chromeos {
-
-class MockConsumer : public LoginStatusConsumer {
- public:
-  MockConsumer() {}
-  ~MockConsumer() {}
-  MOCK_METHOD1(OnLoginFailure, void(const LoginFailure& error));
-  MOCK_METHOD2(OnLoginSuccess, void(const std::string& username,
-      const GaiaAuthConsumer::ClientLoginResult& result));
-  MOCK_METHOD0(OnOffTheRecordLoginSuccess, void(void));
-  MOCK_METHOD1(OnPasswordChangeDetected,
-      void(const GaiaAuthConsumer::ClientLoginResult& result));
-};
 
 class GoogleAuthenticatorTest : public ::testing::Test {
  public:
@@ -119,11 +108,11 @@ class GoogleAuthenticatorTest : public ::testing::Test {
 
   void ReadLocalaccountFile(GoogleAuthenticator* auth,
                             const std::string& filename) {
-    ChromeThread file_thread(ChromeThread::FILE);
+    BrowserThread file_thread(BrowserThread::FILE);
     file_thread.Start();
 
-    ChromeThread::PostTask(
-        ChromeThread::FILE, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::FILE, FROM_HERE,
         NewRunnableMethod(auth,
                           &GoogleAuthenticator::LoadLocalaccount,
                           filename));
@@ -136,8 +125,8 @@ class GoogleAuthenticatorTest : public ::testing::Test {
   }
 
   void CancelLogin(GoogleAuthenticator* auth) {
-    ChromeThread::PostTask(
-        ChromeThread::UI,
+    BrowserThread::PostTask(
+        BrowserThread::UI,
         FROM_HERE,
         NewRunnableMethod(auth,
                           &GoogleAuthenticator::CancelClientLogin));
@@ -203,7 +192,7 @@ TEST_F(GoogleAuthenticatorTest, ReadNoLocalaccount) {
 
 TEST_F(GoogleAuthenticatorTest, OnLoginSuccess) {
   MockConsumer consumer;
-  EXPECT_CALL(consumer, OnLoginSuccess(username_, _))
+  EXPECT_CALL(consumer, OnLoginSuccess(username_, _, false))
       .Times(1)
       .RetiresOnSaturation();
 
@@ -214,7 +203,7 @@ TEST_F(GoogleAuthenticatorTest, OnLoginSuccess) {
   scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
   auth->set_password_hash(hash_ascii_);
   auth->set_username(username_);
-  auth->OnLoginSuccess(result_);
+  auth->OnLoginSuccess(result_, false);
 }
 
 TEST_F(GoogleAuthenticatorTest, MountFailure) {
@@ -229,7 +218,7 @@ TEST_F(GoogleAuthenticatorTest, MountFailure) {
 
   scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
   PrepForLogin(auth.get());
-  auth->OnLoginSuccess(result_);
+  auth->OnLoginSuccess(result_, false);
 }
 
 TEST_F(GoogleAuthenticatorTest, PasswordChange) {
@@ -237,7 +226,7 @@ TEST_F(GoogleAuthenticatorTest, PasswordChange) {
   EXPECT_CALL(consumer, OnPasswordChangeDetected(result_))
       .Times(1)
       .RetiresOnSaturation();
-  EXPECT_CALL(consumer, OnLoginSuccess(username_, result_))
+  EXPECT_CALL(consumer, OnLoginSuccess(username_, result_, false))
       .Times(1)
       .RetiresOnSaturation();
 
@@ -258,7 +247,7 @@ TEST_F(GoogleAuthenticatorTest, PasswordChange) {
 
   scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
   PrepForLogin(auth.get());
-  auth->OnLoginSuccess(result_);
+  auth->OnLoginSuccess(result_, false);
   auth->RecoverEncryptedData("whaty", result_);
 }
 
@@ -283,7 +272,7 @@ TEST_F(GoogleAuthenticatorTest, PasswordChangeWrongPassword) {
 
   scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
   PrepForLogin(auth.get());
-  auth->OnLoginSuccess(result_);
+  auth->OnLoginSuccess(result_, false);
   auth->RecoverEncryptedData("whaty", result_);
 }
 
@@ -292,7 +281,7 @@ TEST_F(GoogleAuthenticatorTest, ForgetOldData) {
   EXPECT_CALL(consumer, OnPasswordChangeDetected(result_))
       .Times(1)
       .RetiresOnSaturation();
-  EXPECT_CALL(consumer, OnLoginSuccess(username_, result_))
+  EXPECT_CALL(consumer, OnLoginSuccess(username_, result_, false))
       .Times(1)
       .RetiresOnSaturation();
 
@@ -310,13 +299,13 @@ TEST_F(GoogleAuthenticatorTest, ForgetOldData) {
 
   scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
   PrepForLogin(auth.get());
-  auth->OnLoginSuccess(result_);
+  auth->OnLoginSuccess(result_, false);
   auth->ResyncEncryptedData(result_);
 }
 
 TEST_F(GoogleAuthenticatorTest, LoginNetFailure) {
   MessageLoopForUI message_loop;
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
 
   GoogleServiceAuthError error =
       GoogleServiceAuthError::FromConnectionError(net::ERR_CONNECTION_RESET);
@@ -340,7 +329,7 @@ TEST_F(GoogleAuthenticatorTest, LoginNetFailure) {
 
 TEST_F(GoogleAuthenticatorTest, LoginDenied) {
   MessageLoopForUI message_loop;
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
 
   GoogleServiceAuthError client_error(
       GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS);
@@ -358,7 +347,7 @@ TEST_F(GoogleAuthenticatorTest, LoginDenied) {
 
 TEST_F(GoogleAuthenticatorTest, LoginAccountDisabled) {
   MessageLoopForUI message_loop;
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
 
   GoogleServiceAuthError client_error(
       GoogleServiceAuthError::ACCOUNT_DISABLED);
@@ -376,7 +365,7 @@ TEST_F(GoogleAuthenticatorTest, LoginAccountDisabled) {
 
 TEST_F(GoogleAuthenticatorTest, LoginAccountDeleted) {
   MessageLoopForUI message_loop;
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
 
   GoogleServiceAuthError client_error(
       GoogleServiceAuthError::ACCOUNT_DELETED);
@@ -394,7 +383,7 @@ TEST_F(GoogleAuthenticatorTest, LoginAccountDeleted) {
 
 TEST_F(GoogleAuthenticatorTest, LoginServiceUnavailable) {
   MessageLoopForUI message_loop;
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
 
   GoogleServiceAuthError client_error(
       GoogleServiceAuthError::SERVICE_UNAVAILABLE);
@@ -412,7 +401,7 @@ TEST_F(GoogleAuthenticatorTest, LoginServiceUnavailable) {
 
 TEST_F(GoogleAuthenticatorTest, CaptchaErrorOutputted) {
   MessageLoopForUI message_loop;
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
 
   GoogleServiceAuthError auth_error =
       GoogleServiceAuthError::FromCaptchaChallenge(
@@ -435,13 +424,13 @@ TEST_F(GoogleAuthenticatorTest, CaptchaErrorOutputted) {
 
 TEST_F(GoogleAuthenticatorTest, OfflineLogin) {
   MessageLoopForUI message_loop;
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
 
   GoogleServiceAuthError auth_error(
       GoogleServiceAuthError::FromConnectionError(net::ERR_CONNECTION_RESET));
 
   MockConsumer consumer;
-  EXPECT_CALL(consumer, OnLoginSuccess(username_, result_))
+  EXPECT_CALL(consumer, OnLoginSuccess(username_, result_, false))
       .Times(1)
       .RetiresOnSaturation();
   EXPECT_CALL(*mock_library_, CheckKey(username_, hash_ascii_))
@@ -459,10 +448,10 @@ TEST_F(GoogleAuthenticatorTest, OfflineLogin) {
 
 TEST_F(GoogleAuthenticatorTest, OnlineLogin) {
   MessageLoopForUI message_loop;
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
 
   MockConsumer consumer;
-  EXPECT_CALL(consumer, OnLoginSuccess(username_, result_))
+  EXPECT_CALL(consumer, OnLoginSuccess(username_, result_, false))
       .Times(1)
       .RetiresOnSaturation();
   EXPECT_CALL(*mock_library_, Mount(username_, hash_ascii_, _))
@@ -480,7 +469,7 @@ TEST_F(GoogleAuthenticatorTest, CheckLocalaccount) {
   URLRequestStatus status(URLRequestStatus::SUCCESS, 0);
 
   MockConsumer consumer;
-  EXPECT_CALL(consumer, OnLoginSuccess(username_, _))
+  EXPECT_CALL(consumer, OnLoginSuccess(username_, _, false))
       .Times(1)
       .RetiresOnSaturation();
   EXPECT_CALL(*mock_library_, MountForBwsi(_))
@@ -499,13 +488,15 @@ namespace {
 // Compatible with LoginStatusConsumer::OnLoginSuccess()
 static void OnSuccessQuit(
     const std::string& username,
-    const GaiaAuthConsumer::ClientLoginResult& credentials) {
+    const GaiaAuthConsumer::ClientLoginResult& credentials,
+    bool pending_requests) {
   MessageLoop::current()->Quit();
 }
 
 static void OnSuccessQuitAndFail(
     const std::string& username,
-    const GaiaAuthConsumer::ClientLoginResult& credentials) {
+    const GaiaAuthConsumer::ClientLoginResult& credentials,
+    bool pending_requests) {
   ADD_FAILURE() << "Login should NOT have succeeded!";
   MessageLoop::current()->Quit();
 }
@@ -527,10 +518,10 @@ TEST_F(GoogleAuthenticatorTest, LocalaccountLogin) {
   // localaccount name off disk and trying to authenticate against it
   // simultaneously.
   MessageLoop message_loop(MessageLoop::TYPE_UI);
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
 
   MockConsumer consumer;
-  EXPECT_CALL(consumer, OnLoginSuccess(username_, _))
+  EXPECT_CALL(consumer, OnLoginSuccess(username_, _, false))
       .WillOnce(Invoke(OnSuccessQuit))
       .RetiresOnSaturation();
   EXPECT_CALL(*mock_library_, MountForBwsi(_))
@@ -547,8 +538,8 @@ TEST_F(GoogleAuthenticatorTest, LocalaccountLogin) {
 
   // First, force a check of username_ against the localaccount -- which we
   // haven't yet gotten off disk.
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(auth.get(),
                         &GoogleAuthenticator::CheckLocalaccount,
                         LoginFailure(LoginFailure::LOGIN_TIMED_OUT)));
@@ -569,11 +560,11 @@ TEST_F(GoogleAuthenticatorTest, LocalaccountLogin) {
 
 TEST_F(GoogleAuthenticatorTest, FullLogin) {
   MessageLoopForUI message_loop;
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
   chromeos::CryptohomeBlob salt_v(fake_hash_, fake_hash_ + sizeof(fake_hash_));
 
   MockConsumer consumer;
-  EXPECT_CALL(consumer, OnLoginSuccess(username_, result_))
+  EXPECT_CALL(consumer, OnLoginSuccess(username_, result_, false))
       .Times(1)
       .RetiresOnSaturation();
   EXPECT_CALL(*mock_library_, Mount(username_, _, _))
@@ -599,7 +590,7 @@ TEST_F(GoogleAuthenticatorTest, FullLogin) {
 
 TEST_F(GoogleAuthenticatorTest, CancelLogin) {
   MessageLoop message_loop(MessageLoop::TYPE_UI);
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
   chromeos::CryptohomeBlob salt_v(fake_hash_, fake_hash_ + sizeof(fake_hash_));
 
   MockConsumer consumer;
@@ -609,7 +600,7 @@ TEST_F(GoogleAuthenticatorTest, CancelLogin) {
       .RetiresOnSaturation();
 
   // A failure case, but we still want the test to finish gracefully.
-  ON_CALL(consumer, OnLoginSuccess(username_, _))
+  ON_CALL(consumer, OnLoginSuccess(username_, _, _))
       .WillByDefault(Invoke(OnSuccessQuitAndFail));
 
   // Stuff we expect to happen along the way.
@@ -632,7 +623,7 @@ TEST_F(GoogleAuthenticatorTest, CancelLogin) {
   scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
 
   // For when |auth| tries to load the localaccount file.
-  ChromeThread file_thread(ChromeThread::FILE);
+  BrowserThread file_thread(BrowserThread::FILE);
   file_thread.Start();
 
   // Start an authentication attempt, which will kick off a URL "fetch" that
@@ -651,7 +642,7 @@ TEST_F(GoogleAuthenticatorTest, CancelLogin) {
 
 TEST_F(GoogleAuthenticatorTest, CancelLoginAlreadyGotLocalaccount) {
   MessageLoop message_loop(MessageLoop::TYPE_UI);
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
   chromeos::CryptohomeBlob salt_v(fake_hash_, fake_hash_ + sizeof(fake_hash_));
 
   MockConsumer consumer;
@@ -661,7 +652,7 @@ TEST_F(GoogleAuthenticatorTest, CancelLoginAlreadyGotLocalaccount) {
       .RetiresOnSaturation();
 
   // A failure case, but we still want the test to finish gracefully.
-  ON_CALL(consumer, OnLoginSuccess(username_, _))
+  ON_CALL(consumer, OnLoginSuccess(username_, _, _))
       .WillByDefault(Invoke(OnSuccessQuitAndFail));
 
   // Stuff we expect to happen along the way.

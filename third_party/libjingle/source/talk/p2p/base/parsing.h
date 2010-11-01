@@ -61,6 +61,10 @@ struct ParseError {
 // The error type for writing.
 struct WriteError {
   std::string text;
+
+  void SetText(const std::string& text) {
+    this->text = text;
+  }
 };
 
 // Convenience method for returning a message when parsing fails.

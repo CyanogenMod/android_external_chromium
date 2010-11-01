@@ -77,10 +77,12 @@ enum {
   MSG_CONNECTING = 12,
 };
 
-Transport::Transport(talk_base::Thread* worker_thread, const std::string& name,
+Transport::Transport(talk_base::Thread* signaling_thread,
+                     talk_base::Thread* worker_thread,
+                     const std::string& type,
                      PortAllocator* allocator)
-  : signaling_thread_(talk_base::Thread::Current()),
-    worker_thread_(worker_thread), name_(name), allocator_(allocator),
+  : signaling_thread_(signaling_thread),
+    worker_thread_(worker_thread), type_(type), allocator_(allocator),
     destroyed_(false), readable_(false), writable_(false),
     connect_requested_(false), allow_local_ips_(false) {
 }
@@ -244,6 +246,30 @@ void Transport::CallChannels_w(TransportChannelFunc func) {
   }
 }
 
+bool Transport::VerifyCandidate(const Candidate& cand, ParseError* error) {
+  if (cand.address().IsLocalIP() && !allow_local_ips_)
+    return BadParse("candidate has local IP address", error);
+
+  // No address zero.
+  if (cand.address().IsAny()) {
+    return BadParse("candidate has address of zero", error);
+  }
+
+  // Disallow all ports below 1024, except for 80 and 443 on public addresses.
+  int port = cand.address().port();
+  if (port < 1024) {
+    if ((port != 80) && (port != 443))
+      return BadParse(
+          "candidate has port below 1024, but not 80 or 443", error);
+    if (cand.address().IsPrivateIP()) {
+      return BadParse(
+          "candidate has port of 80 or 443 with private IP address", error);
+    }
+  }
+
+  return true;
+}
+
 void Transport::OnRemoteCandidates(const std::vector<Candidate>& candidates) {
   for (std::vector<Candidate>::const_iterator iter = candidates.begin();
        iter != candidates.end();
@@ -404,40 +430,21 @@ void Transport::OnMessage(talk_base::Message* msg) {
   }
 }
 
-bool Transport::ParseAddress(const buzz::XmlElement* elem,
-                             const buzz::QName& address_name,
-                             const buzz::QName& port_name,
-                             talk_base::SocketAddress* address,
-                             ParseError* error) {
-  ASSERT(elem->HasAttr(address_name));
-  ASSERT(elem->HasAttr(port_name));
+bool TransportParser::ParseAddress(const buzz::XmlElement* elem,
+                                   const buzz::QName& address_name,
+                                   const buzz::QName& port_name,
+                                   talk_base::SocketAddress* address,
+                                   ParseError* error) {
+  if (!elem->HasAttr(address_name))
+    return BadParse("address does not have " + address_name.LocalPart(), error);
+  if (!elem->HasAttr(port_name))
+    return BadParse("address does not have " + port_name.LocalPart(), error);
 
-  // Record the parts of the address.
   address->SetIP(elem->Attr(address_name));
   std::istringstream ist(elem->Attr(port_name));
   int port;
   ist >> port;
   address->SetPort(port);
-
-  // No address zero.
-  if (address->IsAny()) {
-    return BadParse("candidate has address of zero", error);
-  }
-
-  // Always disallow addresses that refer to the local host.
-  if (address->IsLocalIP() && !allow_local_ips_)
-    return BadParse("candidate has local IP address", error);
-
-  // Disallow all ports below 1024, except for 80 and 443 on public addresses.
-  if (port < 1024) {
-    if ((port != 80) && (port != 443))
-      return BadParse(
-          "candidate has port below 1024, but not 80 or 443", error);
-    if (address->IsPrivateIP()) {
-      return BadParse(
-          "candidate has port of 80 or 443 with private IP address", error);
-    }
-  }
 
   return true;
 }

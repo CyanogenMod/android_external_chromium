@@ -31,9 +31,9 @@
 //
 // Tests for death tests.
 
-#include <gtest/gtest-death-test.h>
-#include <gtest/gtest.h>
-#include <gtest/internal/gtest-filepath.h>
+#include "gtest/gtest-death-test.h"
+#include "gtest/gtest.h"
+#include "gtest/internal/gtest-filepath.h"
 
 using testing::internal::AlwaysFalse;
 using testing::internal::AlwaysTrue;
@@ -52,7 +52,7 @@ using testing::internal::AlwaysTrue;
 #include <signal.h>
 #include <stdio.h>
 
-#include <gtest/gtest-spi.h>
+#include "gtest/gtest-spi.h"
 
 // Indicates that this translation unit is part of Google Test's
 // implementation.  It must come before gtest-internal-inl.h is
@@ -614,17 +614,6 @@ TEST(PopUpDeathTest, DoesNotShowPopUpOnAbort) {
     abort();
   }, "");
 }
-
-TEST(PopUpDeathTest, DoesNotShowPopUpOnThrow) {
-  printf("This test should be considered failing if it shows "
-         "any pop-up dialogs.\n");
-  fflush(stdout);
-
-  EXPECT_DEATH({
-    testing::GTEST_FLAG(catch_exceptions) = false;
-    throw 1;
-  }, "");
-}
 #endif  // GTEST_OS_WINDOWS
 
 // Tests that EXPECT_DEBUG_DEATH in debug mode does not abort
@@ -1005,7 +994,7 @@ TEST(AutoHandleTest, AutoHandleWorks) {
 typedef unsigned __int64 BiggestParsable;
 typedef signed __int64 BiggestSignedParsable;
 const BiggestParsable kBiggestParsableMax = ULLONG_MAX;
-const BiggestParsable kBiggestSignedParsableMax = LLONG_MAX;
+const BiggestSignedParsable kBiggestSignedParsableMax = LLONG_MAX;
 #else
 typedef unsigned long long BiggestParsable;
 typedef signed long long BiggestSignedParsable;

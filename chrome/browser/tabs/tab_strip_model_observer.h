@@ -7,6 +7,7 @@
 #pragma once
 
 class TabContents;
+class TabStripModel;
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -37,17 +38,6 @@ class TabStripModelObserver {
     ALL
   };
 
-  // Enum used by ReplaceTabContentsAt.
-  // TODO(sky): nuke this, pinned is being removed so there is no point in the
-  // enum.
-  enum TabReplaceType {
-    // The replace is the result of the tab being made phantom.
-    REPLACE_MADE_PHANTOM,
-
-    // The replace is the result of the match preview being committed.
-    REPLACE_MATCH_PREVIEW
-  };
-
   // A new TabContents was inserted into the TabStripModel at the specified
   // index. |foreground| is whether or not it was opened in the foreground
   // (selected).
@@ -56,8 +46,10 @@ class TabStripModelObserver {
                              bool foreground);
 
   // The specified TabContents at |index| is being closed (and eventually
-  // destroyed).
-  virtual void TabClosingAt(TabContents* contents, int index);
+  // destroyed). |tab_strip_model| is the TabStripModel the tab was part of.
+  virtual void TabClosingAt(TabStripModel* tab_strip_model,
+                            TabContents* contents,
+                            int index);
 
   // The specified TabContents at |index| is being detached, perhaps to be
   // inserted in another TabStripModel. The implementer should take whatever
@@ -95,18 +87,9 @@ class TabStripModelObserver {
   // The tab contents was replaced at the specified index. This is invoked when
   // a tab becomes phantom. See description of phantom tabs in class description
   // of TabStripModel for details.
-  // TODO(sky): nuke this in favor of the 4 arg variant.
   virtual void TabReplacedAt(TabContents* old_contents,
                              TabContents* new_contents,
                              int index);
-
-  // The tab contents was replaced at the specified index. |type| describes
-  // the type of replace.
-  // This invokes TabReplacedAt with three args.
-  virtual void TabReplacedAt(TabContents* old_contents,
-                             TabContents* new_contents,
-                             int index,
-                             TabReplaceType type);
 
   // Invoked when the pinned state of a tab changes. This is not invoked if the
   // tab ends up moving as a result of the mini state changing.

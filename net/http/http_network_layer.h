@@ -16,6 +16,7 @@
 namespace net {
 
 class ClientSocketFactory;
+class DnsRRResolver;
 class HostResolver;
 class HttpAuthHandlerFactory;
 class HttpNetworkDelegate;
@@ -24,6 +25,7 @@ class NetLog;
 class ProxyService;
 class SpdySessionPool;
 class SSLConfigService;
+class SSLHostInfoFactory;
 
 class HttpNetworkLayer : public HttpTransactionFactory, public NonThreadSafe {
  public:
@@ -31,6 +33,8 @@ class HttpNetworkLayer : public HttpTransactionFactory, public NonThreadSafe {
   // the lifetime of HttpNetworkLayer.
   HttpNetworkLayer(ClientSocketFactory* socket_factory,
                    HostResolver* host_resolver,
+                   DnsRRResolver* dnsrr_resolver,
+                   SSLHostInfoFactory* ssl_host_info_factory,
                    ProxyService* proxy_service,
                    SSLConfigService* ssl_config_service,
                    HttpAuthHandlerFactory* http_auth_handler_factory,
@@ -41,6 +45,8 @@ class HttpNetworkLayer : public HttpTransactionFactory, public NonThreadSafe {
   HttpNetworkLayer(
       ClientSocketFactory* socket_factory,
       HostResolver* host_resolver,
+      DnsRRResolver* dnsrr_resolver,
+      SSLHostInfoFactory* ssl_host_info_factory,
       ProxyService* proxy_service,
       SSLConfigService* ssl_config_service,
       SpdySessionPool* spdy_session_pool,
@@ -55,6 +61,8 @@ class HttpNetworkLayer : public HttpTransactionFactory, public NonThreadSafe {
   // and allows other implementations to be substituted.
   static HttpTransactionFactory* CreateFactory(
       HostResolver* host_resolver,
+      DnsRRResolver* dnsrr_resolver,
+      SSLHostInfoFactory* ssl_host_info_factory,
       ProxyService* proxy_service,
       SSLConfigService* ssl_config_service,
       HttpAuthHandlerFactory* http_auth_handler_factory,
@@ -90,14 +98,16 @@ class HttpNetworkLayer : public HttpTransactionFactory, public NonThreadSafe {
 
   // The host resolver and proxy service that will be used when lazily
   // creating |session_|.
-  scoped_refptr<HostResolver> host_resolver_;
+  HostResolver* host_resolver_;
+  DnsRRResolver* dnsrr_resolver_;
+  SSLHostInfoFactory* ssl_host_info_factory_;
   scoped_refptr<ProxyService> proxy_service_;
 
   // The SSL config service being used for the session.
   scoped_refptr<SSLConfigService> ssl_config_service_;
 
   scoped_refptr<HttpNetworkSession> session_;
-  scoped_refptr<SpdySessionPool> spdy_session_pool_;
+  scoped_ptr<SpdySessionPool> spdy_session_pool_;
 
   HttpAuthHandlerFactory* http_auth_handler_factory_;
   HttpNetworkDelegate* network_delegate_;

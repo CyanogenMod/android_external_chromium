@@ -19,6 +19,8 @@ namespace chromeos {
 
 class MessageBubble;
 
+// This screen is obsolete, used only on test images. http://crosbug.com/7214
+// TODO(nkostylev): Use ExistingUserController sign in screen for test images.
 class LoginScreen : public ViewScreen<NewUserView>,
                     public NewUserView::Delegate,
                     public LoginStatusConsumer,
@@ -42,8 +44,10 @@ class LoginScreen : public ViewScreen<NewUserView>,
 
   // Overridden from LoginStatusConsumer.
   virtual void OnLoginFailure(const LoginFailure& error);
-  virtual void OnLoginSuccess(const std::string& username,
-      const GaiaAuthConsumer::ClientLoginResult& credentials);
+  virtual void OnLoginSuccess(
+      const std::string& username,
+      const GaiaAuthConsumer::ClientLoginResult& credentials,
+      bool pending_requests);
   virtual void OnOffTheRecordLoginSuccess();
 
   // Overridden from views::InfoBubbleDelegate.

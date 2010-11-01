@@ -9,6 +9,95 @@ var MAX_MINIVIEW_ITEMS = 15;
 // Extra spacing at the top of the layout.
 var LAYOUT_SPACING_TOP = 25;
 
+function getSectionCloseButton(sectionId) {
+  return document.querySelector('#' + sectionId + ' .section-close-button');
+}
+
+function getSectionMenuButton(sectionId) {
+  return $(sectionId + '-button');
+}
+
+function getSectionMenuButtonTextId(sectionId) {
+  return sectionId.replace(/-/g, '');
+}
+
+function setSectionVisible(sectionId, section, visible, hideMask) {
+  if (visible && !(shownSections & hideMask) ||
+      !visible && (shownSections & hideMask))
+    return;
+
+  if (visible) {
+    // Because sections are collapsed when they are minimized, it is not
+    // necessary to restore the maxiview here. It will happen if the section
+    // header is clicked.
+    var el = $(sectionId);
+    el.classList.remove('disabled');
+    el = getSectionMenuButton(sectionId);
+    el.classList.add('disabled');
+    shownSections &= ~hideMask;
+  } else {
+    if (section) {
+      hideSection(section);  // To hide the maxiview.
+    }
+    var el = $(sectionId);
+    el.classList.add('disabled');
+    el = getSectionMenuButton(sectionId);
+    el.classList.remove('disabled');
+    shownSections |= hideMask;
+  }
+  layoutSections();
+}
+
+function clearClosedMenu(menu) {
+  menu.innerHTML = '';
+}
+
+function addClosedMenuEntryWithLink(menu, a) {
+  var span = document.createElement('span');
+  a.className += ' item menuitem';
+  span.appendChild(a);
+  menu.appendChild(span);
+}
+
+function addClosedMenuEntry(menu, url, title, imageUrl) {
+  var a = document.createElement('a');
+  a.href = url;
+  a.textContent = title;
+  a.style.backgroundImage = 'url(' + imageUrl + ')';
+  addClosedMenuEntryWithLink(menu, a);
+}
+
+function addClosedMenuFooter(menu, sectionId, mask, opt_section) {
+  menu.appendChild(document.createElement('hr'));
+
+  var span = document.createElement('span');
+  var a = span.appendChild(document.createElement('a'));
+  a.href = '';
+  a.textContent =
+      localStrings.getString(getSectionMenuButtonTextId(sectionId));
+  a.className = 'item';
+  a.addEventListener(
+      'click',
+      function(e) {
+        getSectionMenuButton(sectionId).hideMenu();
+        e.preventDefault();
+        setSectionVisible(sectionId, opt_section, true, mask);
+        shownSections &= ~mask;
+        saveShownSections();
+      });
+  menu.appendChild(span);
+}
+
+function initializeSection(sectionId, mask, opt_section) {
+  var button = getSectionCloseButton(sectionId);
+  button.addEventListener(
+    'click',
+    function() {
+      setSectionVisible(sectionId, opt_section, false, mask);
+      saveShownSections();
+    });
+}
+
 function updateSimpleSection(id, section) {
   var elm = $(id);
   var maxiview = getSectionMaxiview(elm);
@@ -23,6 +112,77 @@ function updateSimpleSection(id, section) {
   }
 }
 
+var sessionItems = [];
+
+function foreignSessions(data) {
+  logEvent('received foreign sessions');
+  // We need to store the foreign sessions so we can update the layout on a
+  // resize.
+  sessionItems = data;
+  renderForeignSessions();
+  layoutSections();
+}
+
+function renderForeignSessions() {
+  // Remove all existing items and create new items.
+  var sessionElement = $('foreign-sessions');
+  var parentSessionElement = sessionElement.lastElementChild;
+  parentSessionElement.textContent = '';
+
+  // For each client, create entries and append the lists together.
+  sessionItems.forEach(function(item, i) {
+    // TODO(zea): Get real client names. See issue 59672
+    var name = 'Client ' + i;
+    parentSessionElement.appendChild(createForeignSession(item, name));
+  });
+
+  layoutForeignSessions();
+}
+
+function layoutForeignSessions() {
+  var sessionElement = $('foreign-sessions');
+  // We cannot use clientWidth here since the width has a transition.
+  var availWidth = useSmallGrid() ? 692 : 920;
+  var parentSessEl = sessionElement.lastElementChild;
+
+  if (parentSessEl.hasChildNodes()) {
+    sessionElement.classList.remove('disabled');
+  } else {
+    sessionElement.classList.add('disabled');
+  }
+}
+
+function createForeignSession(client, name) {
+  // Vertically stack the windows in a client.
+  var stack = document.createElement('div');
+  stack.className = 'foreign-session-client';
+  stack.textContent = name;
+
+  client.forEach(function(win) {
+    // We know these are lists of multiple tabs, don't need the special case for
+    // single url + favicon.
+    var el = document.createElement('p');
+    el.className = 'item link window';
+    el.tabItems = win.tabs;
+    el.tabIndex = 0;
+    el.textContent = formatTabsText(win.tabs.length);
+
+    el.sessionId = win.sessionId;
+    el.xtitle = win.title;
+    el.sessionTag = win.sessionTag;
+
+    // Add the actual tab listing.
+    stack.appendChild(el);
+
+    // TODO(zea): Should there be a clickHandler as well? We appear to be
+    // breaking windowTooltip's hide: removeEventListener(onMouseOver) when we
+    // click.
+  });
+  return stack;
+}
+
+var recentItems = [];
+
 function recentlyClosedTabs(data) {
   logEvent('received recently closed tabs');
   // We need to store the recent items so we can update the layout on a resize.
@@ -31,17 +191,19 @@ function recentlyClosedTabs(data) {
   layoutSections();
 }
 
-var recentItems = [];
-
 function renderRecentlyClosed() {
   // Remove all existing items and create new items.
   var recentElement = $('recently-closed');
   var parentEl = recentElement.lastElementChild;
   parentEl.textContent = '';
+  var recentMenu = $('recently-closed-menu');
+  clearClosedMenu(recentMenu);
 
   recentItems.forEach(function(item) {
     parentEl.appendChild(createRecentItem(item));
+    addRecentMenuItem(recentMenu, item);
   });
+  addClosedMenuFooter(recentMenu, 'recently-closed', MINIMIZED_RECENT);
 
   layoutRecentlyClosed();
 }
@@ -65,9 +227,30 @@ function createRecentItem(data) {
   }
   el.sessionId = data.sessionId;
   el.xtitle = data.title;
+  el.sessionTag = data.sessionTag;
   var wrapperEl = document.createElement('span');
   wrapperEl.appendChild(el);
   return wrapperEl;
+}
+
+function addRecentMenuItem(menu, data) {
+  var isWindow = data.type == 'window';
+  var a = document.createElement('a');
+  if (isWindow) {
+    a.textContent = formatTabsText(data.tabs.length);
+    a.className = 'window';  // To get the icon from the CSS .window rule.
+    a.href = '';  // To make underline show up.
+  } else {
+    a.href = data.url;
+    a.style.backgroundImage = 'url(chrome://favicon/' + data.url + ')';
+    a.textContent = data.title;
+  }
+  function clickHandler(e) {
+    chrome.send('reopenTab', [String(data.sessionId)]);
+    e.preventDefault();
+  }
+  a.addEventListener('click', clickHandler);
+  addClosedMenuEntryWithLink(menu, a);
 }
 
 function saveShownSections() {
@@ -95,6 +278,7 @@ function handleWindowResize() {
     mostVisited.useSmallGrid = b;
     mostVisited.layout();
     renderRecentlyClosed();
+    renderForeignSessions();
     updateAllMiniviewClippings();
   }
 
@@ -105,8 +289,8 @@ function handleWindowResize() {
 // instance is constructed for each section on each layout.
 function SectionLayoutInfo(section) {
   this.section = section;
-  this.header = section.getElementsByTagName('h2')[0];
-  this.miniview = section.getElementsByClassName('miniview')[0];
+  this.header = section.querySelector('h2');
+  this.miniview = section.querySelector('.miniview');
   this.maxiview = getSectionMaxiview(section);
   this.expanded = this.maxiview && !section.classList.contains('hidden');
   this.fixedHeight = this.section.offsetHeight;
@@ -202,6 +386,9 @@ function layoutSections() {
   for (; section = sections[i]; i++) {
     footerHeight += section.fixedHeight;
   }
+  // Leave room for bottom bar if it's visible.
+  footerHeight += $('closed-sections-bar').offsetHeight;
+
 
   // Determine the height to use for the expanded section. If there isn't enough
   // space to show the expanded section completely, this will be the available
@@ -305,6 +492,7 @@ function getSectionMaxiview(section) {
   return $(section.id + '-maxiview');
 }
 
+// You usually want to call |showOnlySection()| instead of this.
 function showSection(section) {
   if (!(section & shownSections)) {
     shownSections |= section;
@@ -328,6 +516,17 @@ function showSection(section) {
   }
 }
 
+// Show this section and hide all other sections - at most one section can
+// be open at one time.
+function showOnlySection(section) {
+  for (var p in Section) {
+    if (p == section)
+      showSection(Section[p]);
+    else
+      hideSection(Section[p]);
+  }
+}
+
 function hideSection(section) {
   if (section & shownSections) {
     shownSections &= ~section;
@@ -345,9 +544,9 @@ function hideSection(section) {
 
       var maxiview = getSectionMaxiview(el);
       if (maxiview)
-        maxiview.classList.add('hiding');
+        maxiview.classList.add(isDoneLoading() ? 'hiding' : 'hidden');
 
-      var miniview = el.getElementsByClassName('miniview')[0];
+      var miniview = el.querySelector('.miniview');
       if (miniview)
         updateMiniviewClipping(miniview);
     }
@@ -374,6 +573,15 @@ function setShownSections(newShownSections) {
     else
       hideSection(Section[key]);
   }
+  setSectionVisible(
+      'apps', Section.APPS,
+      !(newShownSections & MINIMIZED_APPS), MINIMIZED_APPS);
+  setSectionVisible(
+      'most-visited', Section.THUMB,
+      !(newShownSections & MINIMIZED_THUMB), MINIMIZED_THUMB);
+  setSectionVisible(
+      'recently-closed', undefined,
+      !(newShownSections & MINIMIZED_RECENT), MINIMIZED_RECENT);
   layoutSections();
 }
 
@@ -381,25 +589,14 @@ function setShownSections(newShownSections) {
 
 function layoutRecentlyClosed() {
   var recentElement = $('recently-closed');
-  // We cannot use clientWidth here since the width has a transition.
-  var availWidth = useSmallGrid() ? 692 : 920;
-  var parentEl = recentElement.lastElementChild;
+  var miniview = recentElement.querySelector('.miniview');
 
-  // Now go backwards and hide as many elements as needed.
-  var elementsToHide = [];
-  for (var el = parentEl.lastElementChild; el;
-       el = el.previousElementSibling) {
-    if (el.offsetLeft + el.offsetWidth > availWidth) {
-      elementsToHide.push(el);
+  updateMiniviewClipping(miniview);
+
+  if (miniview.hasChildNodes()) {
+    if (!(shownSections & MINIMIZED_RECENT)) {
+      recentElement.classList.remove('disabled');
     }
-  }
-
-  elementsToHide.forEach(function(el) {
-    parentEl.removeChild(el);
-  });
-
-  if (parentEl.hasChildNodes()) {
-    recentElement.classList.remove('disabled');
   } else {
     recentElement.classList.add('disabled');
   }
@@ -698,12 +895,7 @@ function toggleSectionVisibilityAndAnimate(section) {
   if (shownSections & Section[section]) {
     hideSection(Section[section]);
   } else {
-    for (var p in Section) {
-      if (p == section)
-        showSection(Section[p]);
-      else
-        hideSection(Section[p]);
-    }
+    showOnlySection(section);
   }
   layoutSections();
   saveShownSections();
@@ -724,13 +916,28 @@ function maybeReopenTab(e) {
     chrome.send('reopenTab', [String(el.sessionId)]);
     e.preventDefault();
 
-    // HACK(arv): After the window onblur event happens we get a mouseover event
-    // on the next item and we want to make sure that we do not show a tooltip
-    // for that.
-    window.setTimeout(function() {
-      windowTooltip.hide();
-    }, 2 * WindowTooltip.DELAY);
+    setWindowTooltipTimeout();
   }
+}
+
+function maybeReopenSession(e) {
+  var el = findAncestor(e.target, function(el) {
+    return el.sessionId;
+  });
+  if (el) {
+    chrome.send('reopenForeignSession', [String(el.sessionTag)]);
+
+    setWindowTooltipTimeout();
+  }
+}
+
+// HACK(arv): After the window onblur event happens we get a mouseover event
+// on the next item and we want to make sure that we do not show a tooltip
+// for that.
+function setWindowTooltipTimeout(e) {
+  window.setTimeout(function() {
+    windowTooltip.hide();
+  }, 2 * WindowTooltip.DELAY);
 }
 
 function maybeShowWindowTooltip(e) {
@@ -753,6 +960,15 @@ recentlyClosedElement.addEventListener('keydown',
 
 recentlyClosedElement.addEventListener('mouseover', maybeShowWindowTooltip);
 recentlyClosedElement.addEventListener('focus', maybeShowWindowTooltip, true);
+
+var foreignSessionElement = $('foreign-sessions');
+
+foreignSessionElement.addEventListener('click', maybeReopenSession);
+foreignSessionElement.addEventListener('keydown',
+                                       handleIfEnterKey(maybeReopenSession));
+
+foreignSessionElement.addEventListener('mouseover', maybeShowWindowTooltip);
+foreignSessionElement.addEventListener('focus', maybeShowWindowTooltip, true);
 
 /**
  * This object represents a tooltip representing a closed window. It is
@@ -938,9 +1154,21 @@ function fixLinkUnderline(el) {
 
 updateAttribution();
 
+function initializeLogin() {
+  chrome.send('initializeLogin', []);
+}
+
+function updateLogin(login) {
+  $('login-container').style.display = login ? 'block' : '';
+  if (login)
+    $('login-username').textContent = login;
+
+}
+
 var mostVisited = new MostVisited(
     $('most-visited-maxiview'),
     document.querySelector('#most-visited .miniview'),
+    $('most-visited-menu'),
     useSmallGrid(),
     shownSections & Section.THUMB);
 
@@ -973,3 +1201,16 @@ function maybeDoneLoading() {
 function isDoneLoading() {
   return !document.body.classList.contains('loading');
 }
+
+// Initialize the apps promo.
+document.addEventListener('DOMContentLoaded', function() {
+  var promoText1 = $('apps-promo-text1');
+  promoText1.innerHTML = promoText1.textContent;
+  promoText1.querySelector('a').href = localStrings.getString('web_store_url');
+
+  $('apps-promo-hide').addEventListener('click', function() {
+    chrome.send('hideAppsPromo', []);
+    document.documentElement.classList.remove('apps-promo-visible');
+    layoutSections();
+  });
+});

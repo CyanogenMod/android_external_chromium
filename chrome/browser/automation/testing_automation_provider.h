@@ -12,6 +12,7 @@
 #include "chrome/browser/history/history.h"
 #include "chrome/common/notification_registrar.h"
 
+class DictionaryValue;
 class TemplateURLModel;
 
 // This is an automation provider containing testing calls.
@@ -22,19 +23,12 @@ class TestingAutomationProvider : public AutomationProvider,
   explicit TestingAutomationProvider(Profile* profile);
 
   // BrowserList::Observer implementation
-  // Called immediately after a browser is added to the list
   virtual void OnBrowserAdded(const Browser* browser);
-  // Called immediately before a browser is removed from the list
-  virtual void OnBrowserRemoving(const Browser* browser);
+  virtual void OnBrowserRemoved(const Browser* browser);
 
   // IPC implementations
   virtual void OnMessageReceived(const IPC::Message& msg);
   virtual void OnChannelError();
-
-  // Helper to extract search engine info.
-  // Caller owns returned DictionaryValue.
-  // This will only yield data if url model has loaded.
-  ListValue* ExtractSearchEngineInfo(TemplateURLModel* url_model);
 
  private:
   class PopupMenuWaiter;
@@ -154,14 +148,6 @@ class TestingAutomationProvider : public AutomationProvider,
                          IPC::Message* reply_message);
 
   void GetConstrainedWindowCount(int handle, int* count);
-
-  // This function has been deprecated, please use HandleFindRequest.
-  void HandleFindInPageRequest(int handle,
-                               const std::wstring& find_request,
-                               int forward,
-                               int match_case,
-                               int* active_ordinal,
-                               int* matches_found);
 
 #if defined(TOOLKIT_VIEWS)
   void GetFocusedViewID(int handle, int* view_id);
@@ -433,11 +419,32 @@ class TestingAutomationProvider : public AutomationProvider,
                       DictionaryValue* args,
                       IPC::Message* reply_message);
 
+  // Invoke loading of template url model.
+  // Uses the JSON interface for input/output.
+  void LoadSearchEngineInfo(Browser* browser,
+                            DictionaryValue* args,
+                            IPC::Message* reply_message);
+
   // Get search engines list.
+  // Assumes that the profile's template url model is loaded.
   // Uses the JSON interface for input/output.
   void GetSearchEngineInfo(Browser* browser,
                            DictionaryValue* args,
                            IPC::Message* reply_message);
+
+  // Add or edit search engine.
+  // Assumes that the profile's template url model is loaded.
+  // Uses the JSON interface for input/output.
+  void AddOrEditSearchEngine(Browser* browser,
+                             DictionaryValue* args,
+                             IPC::Message* reply_message);
+
+  // Perform a given action on an existing search engine.
+  // Assumes that the profile's template url model is loaded.
+  // Uses the JSON interface for input/output.
+  void PerformActionOnSearchEngine(Browser* browser,
+                                   DictionaryValue* args,
+                                   IPC::Message* reply_message);
 
   // Get info about preferences.
   // Uses the JSON interface for input/output.
@@ -546,6 +553,18 @@ class TestingAutomationProvider : public AutomationProvider,
                          DictionaryValue* args,
                          IPC::Message* reply_message);
 
+  // Get info about blocked popups in a tab.
+  // Uses the JSON interface for input/output.
+  void GetBlockedPopupsInfo(Browser* browser,
+                            DictionaryValue* args,
+                            IPC::Message* reply_message);
+
+  // Launch a blocked popup.
+  // Uses the JSON interface for input/output.
+  void UnblockAndLaunchBlockedPopup(Browser* browser,
+                                    DictionaryValue* args,
+                                    IPC::Message* reply_message);
+
   // Get info about theme.
   // Uses the JSON interface for input/output.
   void GetThemeInfo(Browser* browser,
@@ -563,6 +582,11 @@ class TestingAutomationProvider : public AutomationProvider,
   void UninstallExtensionById(Browser* browser,
                               DictionaryValue* args,
                               IPC::Message* reply_message);
+
+  // Responds to the Find request and returns the match count.
+  void FindInPage(Browser* browser,
+                  DictionaryValue* args,
+                  IPC::Message* reply_message);
 
   // Returns information about translation for a given tab. Includes
   // information about the translate bar if it is showing.

@@ -80,6 +80,7 @@ TabContentsViewMac::~TabContentsViewMac() {
 void TabContentsViewMac::CreateView(const gfx::Size& initial_size) {
   TabContentsViewCocoa* view =
       [[TabContentsViewCocoa alloc] initWithTabContentsViewMac:this];
+  [view setAutoresizingMask:(NSViewWidthSizable | NSViewHeightSizable)];
   cocoa_view_.reset(view);
 }
 
@@ -234,7 +235,7 @@ void TabContentsViewMac::GotFocus() {
   // all subclasses. http://crbug.com/21875
 }
 
-// This is called when we the renderer asks us to take focus back (i.e., it has
+// This is called when the renderer asks us to take focus back (i.e., it has
 // iterated past the last focusable element on the page).
 void TabContentsViewMac::TakeFocus(bool reverse) {
   if (reverse) {
@@ -247,7 +248,7 @@ void TabContentsViewMac::TakeFocus(bool reverse) {
 void TabContentsViewMac::ShowContextMenu(const ContextMenuParams& params) {
   RenderViewContextMenuMac menu(tab_contents(),
                                 params,
-                                GetNativeView());
+                                GetContentNativeView());
   menu.Init();
 }
 

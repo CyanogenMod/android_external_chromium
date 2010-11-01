@@ -9,9 +9,17 @@
 #include "base/path_service.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/browser/chrome_thread.h"
+
+ShellIntegration::ShortcutInfo::ShortcutInfo()
+    : create_on_desktop(false),
+      create_in_applications_menu(false),
+      create_in_quick_launch_bar(false) {
+}
+
+ShellIntegration::ShortcutInfo::~ShortcutInfo() {}
 
 std::string ShellIntegration::GetCommandLineArgumentsCommon(const GURL& url,
     const string16& extension_app_id) {
@@ -42,7 +50,7 @@ std::string ShellIntegration::GetCommandLineArgumentsCommon(const GURL& url,
   // If |extension_app_id| is present, we use the kAppId switch rather than
   // the kApp switch (the launch url will be read from the extension app
   // during launch.
-  if (!cmd.HasSwitch(switches::kDisableApps) && !extension_app_id.empty()) {
+  if (!extension_app_id.empty()) {
     arguments_w += std::wstring(L"--") + ASCIIToWide(switches::kAppId) +
         L"=\"" + ASCIIToWide(UTF16ToASCII(extension_app_id));
   } else {
@@ -75,16 +83,16 @@ ShellIntegration::DefaultBrowserWorker::DefaultBrowserWorker(
 
 void ShellIntegration::DefaultBrowserWorker::StartCheckDefaultBrowser() {
   observer_->SetDefaultBrowserUIState(STATE_PROCESSING);
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(
           this, &DefaultBrowserWorker::ExecuteCheckDefaultBrowser));
 }
 
 void ShellIntegration::DefaultBrowserWorker::StartSetAsDefaultBrowser() {
   observer_->SetDefaultBrowserUIState(STATE_PROCESSING);
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(
           this, &DefaultBrowserWorker::ExecuteSetAsDefaultBrowser));
 }
@@ -99,31 +107,31 @@ void ShellIntegration::DefaultBrowserWorker::ObserverDestroyed() {
 // DefaultBrowserWorker, private:
 
 void ShellIntegration::DefaultBrowserWorker::ExecuteCheckDefaultBrowser() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
   DefaultBrowserState state = ShellIntegration::IsDefaultBrowser();
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(
           this, &DefaultBrowserWorker::CompleteCheckDefaultBrowser, state));
 }
 
 void ShellIntegration::DefaultBrowserWorker::CompleteCheckDefaultBrowser(
     DefaultBrowserState state) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   UpdateUI(state);
 }
 
 void ShellIntegration::DefaultBrowserWorker::ExecuteSetAsDefaultBrowser() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
   ShellIntegration::SetAsDefaultBrowser();
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(
           this, &DefaultBrowserWorker::CompleteSetAsDefaultBrowser));
 }
 
 void ShellIntegration::DefaultBrowserWorker::CompleteSetAsDefaultBrowser() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (observer_) {
     // Set as default completed, check again to make sure it stuck...
     StartCheckDefaultBrowser();

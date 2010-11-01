@@ -2,16 +2,16 @@ import talk
 Import("env")
 
 talk.Library(env, name = "expat",
-             CPPPATH = [
-               "third_party/expat-2.0.1/",
-             ],
-             CPPDEFINES = [
+             cppdefines = [
                "XML_STATIC",
              ],
              srcs = [
                "third_party/expat-2.0.1/lib/xmlparse.c",
                "third_party/expat-2.0.1/lib/xmlrole.c",
                "third_party/expat-2.0.1/lib/xmltok.c",
+             ],
+             includedirs = [
+               "third_party/expat-2.0.1/",
              ],
              win_cppdefines = [
                "COMPILED_FROM_DSP",
@@ -45,13 +45,13 @@ talk.Library(env, name = "libsrtp",
                "third_party/srtp/srtp/ekt.c",
                "third_party/srtp/srtp/srtp.c",
              ],
+             includedirs = [
+               "third_party/srtp/include",
+               "third_party/srtp/crypto/include",
+             ],
              win_ccflags = [
                "/wd4701",
                "/wd4702",
-             ],
-             CPPPATH = [
-               "third_party/srtp/include",
-               "third_party/srtp/crypto/include",
              ],
 )
 talk.Library(env, name = "libjingle",
@@ -71,7 +71,7 @@ talk.Library(env, name = "libjingle",
                "base/sslidentity.cc",
                "base/sslstreamadapter.cc",
              ],
-             CPPDEFINES = [
+             cppdefines = [
                "FEATURE_ENABLE_VOICEMAIL",
                "EXPAT_RELATIVE_PATH",
                "SRTP_RELATIVE_PATH",
@@ -164,9 +164,11 @@ talk.Library(env, name = "libjingle",
                "session/phone/channelmanager.cc",
                "session/phone/codec.cc",
                "session/phone/devicemanager.cc",
+               "session/phone/filemediaengine.cc",
                "session/phone/mediaengine.cc",
                "session/phone/mediamonitor.cc",
                "session/phone/mediasessionclient.cc",
+               "session/phone/rtpdump.cc",
                "session/phone/soundclip.cc",
                "session/phone/srtpfilter.cc",
                "xmllite/qname.cc",
@@ -187,6 +189,11 @@ talk.Library(env, name = "libjingle",
                "xmpp/xmppstanzaparser.cc",
                "xmpp/xmpptask.cc",
              ],
+             includedirs = [
+               "third_party/expat-2.0.1/",
+               "third_party/srtp/include",
+               "third_party/srtp/crypto/include",
+             ],
              win_srcs = [
                "base/schanneladapter.cc",
                "base/win32.cc",
@@ -197,11 +204,6 @@ talk.Library(env, name = "libjingle",
                "base/win32window.cc",
                "base/winfirewall.cc",
                "base/winping.cc",
-             ],
-             CPPPATH = [
-               "third_party/expat-2.0.1/",
-               "third_party/srtp/include",
-               "third_party/srtp/crypto/include",
              ],
 )
 talk.App(env, name = "login",
@@ -234,7 +236,7 @@ talk.Library(env, name = "libxmpphelp",
              ],
 )
 talk.App(env, name = "call",
-         mac_FRAMEWORKS = [
+         mac_frameworks = [
            "AudioToolbox",
            "AudioUnit",
            "Cocoa",
@@ -255,7 +257,7 @@ talk.App(env, name = "call",
            "crypto",
            "ssl",
          ],
-         CPPDEFINES = [
+         cppdefines = [
            "FEATURE_ENABLE_VOICEMAIL",
          ],
          lin_libs = [

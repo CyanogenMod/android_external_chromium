@@ -507,17 +507,8 @@ bool UnixFilesystem::GetDiskFreeSpace(const Pathname& path, int64 *freebytes) {
 
 Pathname UnixFilesystem::GetCurrentDirectory() {
   Pathname cwd;
-#if defined(LINUX) || defined(OSX)
-  // Both Linux and Mac supported malloc()'ing the string themselves, although
-  // that is not required by POSIX.
-  char *path = getcwd(NULL, 0);
-#elif defined(ANDROID)
-  // Android requires the buffer to be allocated before getcwd is called.
   char buffer[PATH_MAX];
   char *path = getcwd(buffer, PATH_MAX);
-#else
-#error GetCurrentDirectory() not implemented on this platform
-#endif
 
   if (!path) {
     LOG_ERR(LS_ERROR) << "getcwd() failed";
@@ -525,9 +516,6 @@ Pathname UnixFilesystem::GetCurrentDirectory() {
   }
   cwd.SetFolder(std::string(path));
 
-#if defined(LINUX) || defined(OSX)
-  free(path);
-#endif
   return cwd;
 }
 

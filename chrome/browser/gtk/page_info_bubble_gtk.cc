@@ -7,7 +7,6 @@
 #include "build/build_config.h"
 
 #include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/i18n/rtl.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
@@ -28,7 +27,6 @@
 #include "googleurl/src/gurl.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
-#include "grit/theme_resources.h"
 
 class Profile;
 
@@ -202,7 +200,7 @@ void PageInfoBubbleGtk::InitContents() {
   links_.push_back(help_link);
   GtkWidget* help_link_hbox = gtk_hbox_new(FALSE, 0);
   // Stick it in an hbox so it doesn't expand to the whole width.
-  gtk_box_pack_start(GTK_BOX(help_link_hbox), help_link, TRUE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(help_link_hbox), help_link, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(contents_), help_link_hbox, FALSE, FALSE, 0);
   g_signal_connect(help_link, "clicked",
                    G_CALLBACK(OnHelpLinkClickedThunk), this);
@@ -213,41 +211,12 @@ void PageInfoBubbleGtk::InitContents() {
 
 GtkWidget* PageInfoBubbleGtk::CreateSection(
     const PageInfoModel::SectionInfo& section) {
-  GtkWidget* section_box = gtk_hbox_new(FALSE, 0);
+  GtkWidget* section_box = gtk_hbox_new(FALSE, gtk_util::kControlSpacing);
 
-  if (section.type == PageInfoModel::SECTION_INFO_IDENTITY ||
-      section.type == PageInfoModel::SECTION_INFO_CONNECTION) {
-    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-    GdkPixbuf* pixbuf = NULL;
-    switch (section.state) {
-      case PageInfoModel::SECTION_STATE_OK:
-        pixbuf = rb.GetPixbufNamed(IDR_PAGEINFO_GOOD);
-        break;
-      case PageInfoModel::SECTION_STATE_WARNING_MINOR:
-        DCHECK(section.type == PageInfoModel::SECTION_INFO_CONNECTION);
-        pixbuf = rb.GetPixbufNamed(IDR_PAGEINFO_WARNING_MINOR);
-        break;
-      case PageInfoModel::SECTION_STATE_WARNING_MAJOR:
-        pixbuf = rb.GetPixbufNamed(IDR_PAGEINFO_WARNING_MAJOR);
-        break;
-      case PageInfoModel::SECTION_STATE_ERROR:
-        pixbuf = rb.GetPixbufNamed(IDR_PAGEINFO_BAD);
-        break;
-      default:
-        NOTREACHED();
-    }
+  GdkPixbuf* pixbuf = model_.GetIconImage(section.icon_id);
+  if (pixbuf) {
     GtkWidget* image = gtk_image_new_from_pixbuf(pixbuf);
-    gtk_box_pack_start(GTK_BOX(section_box), image, FALSE, FALSE,
-                       gtk_util::kControlSpacing);
-    gtk_misc_set_alignment(GTK_MISC(image), 0, 0);
-  } else if (section.type == PageInfoModel::SECTION_INFO_FIRST_VISIT) {
-    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-    GdkPixbuf* pixbuf = section.state == PageInfoModel::SECTION_STATE_OK ?
-        rb.GetPixbufNamed(IDR_PAGEINFO_INFO) :
-        rb.GetPixbufNamed(IDR_PAGEINFO_WARNING_MAJOR);
-    GtkWidget* image = gtk_image_new_from_pixbuf(pixbuf);
-    gtk_box_pack_start(GTK_BOX(section_box), image, FALSE, FALSE,
-                       gtk_util::kControlSpacing);
+    gtk_box_pack_start(GTK_BOX(section_box), image, FALSE, FALSE, 0);
     gtk_misc_set_alignment(GTK_MISC(image), 0, 0);
   }
 

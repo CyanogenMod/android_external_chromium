@@ -5,7 +5,7 @@
 #include "chrome/browser/renderer_host/resource_queue.h"
 
 #include "base/stl_util-inl.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/renderer_host/global_request_id.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
 
@@ -13,7 +13,7 @@ ResourceQueueDelegate::~ResourceQueueDelegate() {
 }
 
 ResourceQueue::ResourceQueue() : shutdown_(false) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 ResourceQueue::~ResourceQueue() {
@@ -21,13 +21,13 @@ ResourceQueue::~ResourceQueue() {
 }
 
 void ResourceQueue::Initialize(const DelegateSet& delegates) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(delegates_.empty());
   delegates_ = delegates;
 }
 
 void ResourceQueue::Shutdown() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   shutdown_ = true;
   for (DelegateSet::iterator i = delegates_.begin();
@@ -39,7 +39,7 @@ void ResourceQueue::Shutdown() {
 void ResourceQueue::AddRequest(
     URLRequest* request,
     const ResourceDispatcherHostRequestInfo& request_info) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   DCHECK(!shutdown_);
 
   GlobalRequestID request_id(request_info.child_id(),
@@ -68,13 +68,13 @@ void ResourceQueue::AddRequest(
 }
 
 void ResourceQueue::RemoveRequest(const GlobalRequestID& request_id) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   requests_.erase(request_id);
 }
 
 void ResourceQueue::StartDelayedRequest(ResourceQueueDelegate* delegate,
                                         const GlobalRequestID& request_id) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   DCHECK(!shutdown_);
 
   DCHECK(ContainsKey(interested_delegates_, request_id));

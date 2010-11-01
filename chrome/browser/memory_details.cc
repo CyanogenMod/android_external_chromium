@@ -1,16 +1,16 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "chrome/browser/memory_details.h"
 
 #include "base/file_version_info.h"
-#include "base/histogram.h"
+#include "base/metrics/histogram.h"
 #include "base/process_util.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_child_process_host.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/renderer_host/backing_store_manager.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -24,6 +24,32 @@
 #include "chrome/browser/renderer_host/render_sandbox_host_linux.h"
 #endif
 
+ProcessMemoryInformation::ProcessMemoryInformation()
+    : pid(0),
+      num_processes(0),
+      is_diagnostics(false),
+      type(ChildProcessInfo::UNKNOWN_PROCESS) {
+}
+
+ProcessMemoryInformation::~ProcessMemoryInformation() {}
+
+ProcessData::ProcessData() {}
+
+ProcessData::ProcessData(const ProcessData& rhs)
+    : name(rhs.name),
+      process_name(rhs.process_name),
+      processes(rhs.processes) {
+}
+
+ProcessData::~ProcessData() {}
+
+ProcessData& ProcessData::operator=(const ProcessData& rhs) {
+  name = rhs.name;
+  process_name = rhs.process_name;
+  processes = rhs.processes;
+  return *this;
+}
+
 // About threading:
 //
 // This operation will hit no fewer than 3 threads.
@@ -36,20 +62,21 @@
 // one task run for that long on the UI or IO threads.  So, we run the
 // expensive parts of this operation over on the file thread.
 //
-
 void MemoryDetails::StartFetch() {
-  DCHECK(!ChromeThread::CurrentlyOn(ChromeThread::IO));
-  DCHECK(!ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
   // In order to process this request, we need to use the plugin information.
   // However, plugin process information is only available from the IO thread.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(this, &MemoryDetails::CollectChildInfoOnIOThread));
 }
 
+MemoryDetails::~MemoryDetails() {}
+
 void MemoryDetails::CollectChildInfoOnIOThread() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   std::vector<ProcessMemoryInformation> child_info;
 
@@ -66,13 +93,13 @@ void MemoryDetails::CollectChildInfoOnIOThread() {
   }
 
   // Now go do expensive memory lookups from the file thread.
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(this, &MemoryDetails::CollectProcessData, child_info));
 }
 
 void MemoryDetails::CollectChildInfoOnUIThread() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
 #if defined(OS_LINUX)
   const pid_t zygote_pid = Singleton<ZygoteHost>()->pid();
@@ -94,8 +121,7 @@ void MemoryDetails::CollectChildInfoOnUIThread() {
          RenderProcessHost::AllHostsIterator()); !renderer_iter.IsAtEnd();
          renderer_iter.Advance()) {
       DCHECK(renderer_iter.GetCurrentValue());
-      // Ignore processes that don't have a connection, such as crashed tabs or
-      // phantom tabs.
+      // Ignore processes that don't have a connection, such as crashed tabs.
       if (!renderer_iter.GetCurrentValue()->HasConnection() || process.pid !=
               base::GetProcId(renderer_iter.GetCurrentValue()->GetHandle())) {
         continue;

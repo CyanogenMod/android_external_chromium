@@ -18,7 +18,11 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/field_types.h"
+<<<<<<< HEAD
 #ifndef ANDROID
+=======
+#include "chrome/browser/guid.h"
+>>>>>>> chromium.org at r63472
 #include "grit/generated_resources.h"
 #endif
 
@@ -131,24 +135,37 @@ std::string GetCreditCardType(const string16& number) {
 
 }  // namespace
 
-CreditCard::CreditCard(const string16& label, int unique_id)
+CreditCard::CreditCard(const string16& label,
+                       int unique_id)
     : expiration_month_(0),
       expiration_year_(0),
       label_(label),
       billing_address_id_(0),
-      unique_id_(unique_id) {
+      unique_id_(unique_id),
+      guid_(guid::GenerateGUID()) {
 }
 
-CreditCard::CreditCard(const CreditCard& card) : FormGroup() {
-  operator=(card);
+CreditCard::CreditCard(const std::string& guid)
+    : expiration_month_(0),
+      expiration_year_(0),
+      billing_address_id_(0),
+      unique_id_(0),
+      guid_(guid) {
 }
 
 CreditCard::CreditCard()
     : expiration_month_(0),
       expiration_year_(0),
       billing_address_id_(0),
-      unique_id_(0) {
+      unique_id_(0),
+      guid_(guid::GenerateGUID()) {
 }
+
+CreditCard::CreditCard(const CreditCard& card) : FormGroup() {
+  operator=(card);
+}
+
+CreditCard::~CreditCard() {}
 
 FormGroup* CreditCard::Clone() const {
   return new CreditCard(*this);
@@ -385,6 +402,7 @@ void CreditCard::operator=(const CreditCard& source) {
   label_ = source.label_;
   billing_address_id_ = source.billing_address_id_;
   unique_id_ = source.unique_id_;
+  guid_ = source.guid_;
 }
 
 bool CreditCard::operator==(const CreditCard& creditcard) const {
@@ -620,6 +638,8 @@ std::ostream& operator<<(std::ostream& os, const CreditCard& creditcard) {
       << UTF16ToUTF8(creditcard.Label())
       << " "
       << creditcard.unique_id()
+      << " "
+      << creditcard.guid()
       << " "
       << creditcard.billing_address_id()
       << " "

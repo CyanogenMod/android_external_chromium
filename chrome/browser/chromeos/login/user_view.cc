@@ -8,19 +8,24 @@
 #include "app/resource_bundle.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
+#include "gfx/canvas_skia.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
+#include "views/background.h"
 #include "views/controls/button/menu_button.h"
 #include "views/controls/button/text_button.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
 #include "views/controls/link.h"
 #include "views/controls/throbber.h"
+#include "views/painter.h"
 
 namespace {
 
-// Background color of the login status label and signout button.
+// Background color and corner radius of the login status label and
+// signout button.
 const SkColor kSignoutBackgroundColor = 0xFF007700;
+const int kSignoutBackgroundCornerRadius = 4;
 
 // Horiz/Vert insets for Signout view.
 const int kSignoutViewHorizontalInsets = 10;
@@ -28,6 +33,29 @@ const int kSignoutViewVerticalInsets = 5;
 
 // Padding between remove button and top right image corner.
 const int kRemoveButtonPadding = 3;
+
+// Draws green-ish background for signout view with
+// rounded corners at the bottom.
+class SignoutBackgroundPainter : public views::Painter {
+  virtual void Paint(int w, int h, gfx::Canvas* canvas) {
+    SkRect rect = {0, 0, w, h};
+    SkPath path;
+    SkScalar corners[] = {
+      0, 0,
+      0, 0,
+      kSignoutBackgroundCornerRadius,
+      kSignoutBackgroundCornerRadius,
+      kSignoutBackgroundCornerRadius,
+      kSignoutBackgroundCornerRadius,
+    };
+    path.addRoundRect(rect, corners);
+    SkPaint paint;
+    paint.setStyle(SkPaint::kFill_Style);
+    paint.setFlags(SkPaint::kAntiAlias_Flag);
+    paint.setColor(kSignoutBackgroundColor);
+    canvas->AsCanvasSkia()->drawPath(path, paint);
+  }
+};
 
 }  // namespace
 
@@ -59,8 +87,8 @@ class SignoutView : public views::View {
     AddChildView(active_user_label_);
     AddChildView(signout_link_);
 
-    set_background(views::Background::CreateSolidBackground(
-        kSignoutBackgroundColor));
+    set_background(views::Background::CreateBackgroundPainter(
+        true, new SignoutBackgroundPainter()));
   }
 
   // views::View overrides.
@@ -104,52 +132,58 @@ class RemoveButton : public views::TextButton {
     : views::TextButton(listener, std::wstring()),
       icon_(icon),
       text_(text),
-      top_right_(top_right) {
+      top_right_(top_right),
+      was_first_click_(false) {
     SetEnabledColor(SK_ColorWHITE);
     SetDisabledColor(SK_ColorWHITE);
     SetHighlightColor(SK_ColorWHITE);
     SetHoverColor(SK_ColorWHITE);
     SetIcon(icon_);
-    set_border(NULL);
     UpdatePosition();
   }
 
  protected:
   // Overridden from View:
-  virtual void OnMouseEntered(const views::MouseEvent& e) {
-    SetIcon(SkBitmap());
-    views::TextButton::SetText(text_);
-
-    const SkColor kStrokeColor = SK_ColorWHITE;
-    const SkColor kButtonColor = 0xFFE94949;
-    const int kStrokeWidth = 1;
-    const int kVerticalPadding = 4;
-    const int kHorizontalPadding = 8;
-    const int kCornerRadius = 4;
-
-    set_background(
-        CreateRoundedBackground(
-            kCornerRadius, kStrokeWidth, kButtonColor, kStrokeColor));
-
-    set_border(
-        views::Border::CreateEmptyBorder(kVerticalPadding,
-                                         kHorizontalPadding,
-                                         kVerticalPadding,
-                                         kHorizontalPadding));
-
-    UpdatePosition();
-  }
-
-  void OnMouseMoved(const views::MouseEvent& e) {
-  }
-
-  virtual void OnMouseExited(const views::MouseEvent& e) {
+  virtual void OnMouseExited(const views::MouseEvent& event) {
     SetIcon(icon_);
     views::TextButton::SetText(std::wstring());
     ClearMaxTextSize();
     set_background(NULL);
-    set_border(NULL);
+    set_border(new views::TextButtonBorder);
     UpdatePosition();
+    views::TextButton::OnMouseExited(event);
+    was_first_click_ = false;
+  }
+
+  void NotifyClick(const views::Event& event) {
+    if (!was_first_click_) {
+      // On first click transform image to "remove" label.
+      SetIcon(SkBitmap());
+      views::TextButton::SetText(text_);
+
+      const SkColor kStrokeColor = SK_ColorWHITE;
+      const SkColor kButtonColor = 0xFFE94949;
+      const int kStrokeWidth = 1;
+      const int kVerticalPadding = 4;
+      const int kHorizontalPadding = 8;
+      const int kCornerRadius = 4;
+
+      set_background(
+          CreateRoundedBackground(
+              kCornerRadius, kStrokeWidth, kButtonColor, kStrokeColor));
+
+      set_border(
+          views::Border::CreateEmptyBorder(kVerticalPadding,
+                                           kHorizontalPadding,
+                                           kVerticalPadding,
+                                           kHorizontalPadding));
+
+      UpdatePosition();
+      was_first_click_ = true;
+    } else {
+      // On second click propagate to base class to fire ButtonPressed.
+      views::TextButton::NotifyClick(event);
+    }
   }
 
   void SetText(const std::wstring& text) {
@@ -171,6 +205,7 @@ class RemoveButton : public views::TextButton {
   SkBitmap icon_;
   std::wstring text_;
   gfx::Point top_right_;
+  bool was_first_click_;
 
   DISALLOW_COPY_AND_ASSIGN(RemoveButton);
 };

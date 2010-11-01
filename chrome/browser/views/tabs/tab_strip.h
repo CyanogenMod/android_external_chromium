@@ -73,7 +73,6 @@ class TabStrip : public BaseTabStrip,
   // views::View overrides:
   virtual void PaintChildren(gfx::Canvas* canvas);
   virtual views::View* GetViewByID(int id) const;
-  virtual void Layout();
   virtual gfx::Size GetPreferredSize();
   // NOTE: the drag and drop methods are invoked from FrameView. This is done to
   // allow for a drop region that extends outside the bounds of the TabStrip.
@@ -92,6 +91,7 @@ class TabStrip : public BaseTabStrip,
   virtual void StartMoveTabAnimation();
   virtual void AnimateToIdealBounds();
   virtual bool ShouldHighlightCloseButtonAfterRemove();
+  virtual void DoLayout();
 
   // views::View implementation:
   virtual void ViewHierarchyChanged(bool is_add,
@@ -233,9 +233,6 @@ class TabStrip : public BaseTabStrip,
   // Returns true if the specified point in TabStrip coords is within the
   // hit-test region of the specified Tab.
   bool IsPointInTab(Tab* tab, const gfx::Point& point_in_tabstrip_coords);
-
-  // Returns true if any of the tabs are phantom.
-  bool HasPhantomTabs() const;
 
   // -- Member Variables ------------------------------------------------------
 

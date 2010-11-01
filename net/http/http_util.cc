@@ -14,7 +14,12 @@
 #include "base/string_number_conversions.h"
 #include "base/string_piece.h"
 #include "base/string_util.h"
+#include "net/base/load_flags.h"
 #include "net/base/net_util.h"
+#include "net/base/upload_data_stream.h"
+#include "net/http/http_request_info.h"
+#include "net/http/http_request_headers.h"
+#include "net/http/http_auth_controller.h"
 
 using std::string;
 
@@ -631,6 +636,90 @@ HttpUtil::HeadersIterator::HeadersIterator(string::const_iterator headers_begin,
     : lines_(headers_begin, headers_end, line_delimiter) {
 }
 
+namespace {
+
+bool HaveAuth(const scoped_refptr<HttpAuthController> auth_controllers[],
+              HttpAuth::Target target) {
+  return auth_controllers[target].get() &&
+      auth_controllers[target]->HaveAuth();
+}
+
+}  // namespace
+
+void HttpUtil::BuildRequestHeaders(const HttpRequestInfo* request_info,
+                                   const UploadDataStream* upload_data_stream,
+                                   const scoped_refptr<HttpAuthController>
+                                       auth_controllers[],
+                                   bool should_apply_server_auth,
+                                   bool should_apply_proxy_auth,
+                                   bool using_proxy,
+                                   HttpRequestHeaders* request_headers) {
+  request_headers->SetHeader(HttpRequestHeaders::kHost,
+                             GetHostAndOptionalPort(request_info->url));
+
+  // For compat with HTTP/1.0 servers and proxies:
+  if (using_proxy) {
+    request_headers->SetHeader(HttpRequestHeaders::kProxyConnection,
+                               "keep-alive");
+  } else {
+    request_headers->SetHeader(HttpRequestHeaders::kConnection, "keep-alive");
+  }
+
+  // Our consumer should have made sure that this is a safe referrer.  See for
+  // instance WebCore::FrameLoader::HideReferrer.
+  if (request_info->referrer.is_valid()) {
+    request_headers->SetHeader(HttpRequestHeaders::kReferer,
+                               request_info->referrer.spec());
+  }
+
+  // Add a content length header?
+  if (upload_data_stream) {
+    request_headers->SetHeader(
+        HttpRequestHeaders::kContentLength,
+        base::Uint64ToString(upload_data_stream->size()));
+  } else if (request_info->method == "POST" || request_info->method == "PUT" ||
+             request_info->method == "HEAD") {
+    // An empty POST/PUT request still needs a content length.  As for HEAD,
+    // IE and Safari also add a content length header.  Presumably it is to
+    // support sending a HEAD request to an URL that only expects to be sent a
+    // POST or some other method that normally would have a message body.
+    request_headers->SetHeader(HttpRequestHeaders::kContentLength, "0");
+  }
+
+  // Honor load flags that impact proxy caches.
+  if (request_info->load_flags & LOAD_BYPASS_CACHE) {
+    request_headers->SetHeader(HttpRequestHeaders::kPragma, "no-cache");
+    request_headers->SetHeader(HttpRequestHeaders::kCacheControl, "no-cache");
+  } else if (request_info->load_flags & LOAD_VALIDATE_CACHE) {
+    request_headers->SetHeader(HttpRequestHeaders::kCacheControl, "max-age=0");
+  }
+
+  if (should_apply_proxy_auth &&
+      HaveAuth(auth_controllers, HttpAuth::AUTH_PROXY))
+    auth_controllers[HttpAuth::AUTH_PROXY]->AddAuthorizationHeader(
+        request_headers);
+  if (should_apply_server_auth &&
+      HaveAuth(auth_controllers, HttpAuth::AUTH_SERVER))
+    auth_controllers[HttpAuth::AUTH_SERVER]->AddAuthorizationHeader(
+        request_headers);
+
+  // Headers that will be stripped from request_info->extra_headers to prevent,
+  // e.g., plugins from overriding headers that are controlled using other
+  // means. Otherwise a plugin could set a referrer although sending the
+  // referrer is inhibited.
+  // TODO(jochen): check whether also other headers should be stripped.
+  static const char* const kExtraHeadersToBeStripped[] = {
+    "Referer"
+  };
+
+  HttpRequestHeaders stripped_extra_headers;
+  stripped_extra_headers.CopyFrom(request_info->extra_headers);
+  for (size_t i = 0; i < arraysize(kExtraHeadersToBeStripped); ++i)
+    stripped_extra_headers.RemoveHeader(kExtraHeadersToBeStripped[i]);
+  request_headers->MergeFrom(stripped_extra_headers);
+}
+
+
 HttpUtil::HeadersIterator::~HeadersIterator() {
 }
 
@@ -700,6 +789,79 @@ bool HttpUtil::ValuesIterator::GetNext() {
       return true;
   }
   return false;
+}
+
+HttpUtil::NameValuePairsIterator::NameValuePairsIterator(
+    string::const_iterator begin,
+    string::const_iterator end,
+    char delimiter)
+    : props_(begin, end, delimiter),
+      valid_(true),
+      begin_(begin),
+      end_(end),
+      name_begin_(end),
+      name_end_(end),
+      value_begin_(end),
+      value_end_(end),
+      value_is_quoted_(false) {
+}
+
+// We expect properties to be formatted as one of:
+//   name="value"
+//   name='value'
+//   name='\'value\''
+//   name=value
+//   name = value
+//   name=
+// Due to buggy implementations found in some embedded devices, we also
+// accept values with missing close quotemark (http://crbug.com/39836):
+//   name="value
+bool HttpUtil::NameValuePairsIterator::GetNext() {
+  if (!props_.GetNext())
+    return false;
+
+  // Set the value as everything. Next we will split out the name.
+  value_begin_ = props_.value_begin();
+  value_end_ = props_.value_end();
+  name_begin_ = name_end_ = value_end_;
+
+  // Scan for the equals sign.
+  std::string::const_iterator equals = std::find(value_begin_, value_end_, '=');
+  if (equals == value_end_ || equals == value_begin_)
+    return valid_ = false;  // Malformed
+
+  // Verify that the equals sign we found wasn't inside of quote marks.
+  for (std::string::const_iterator it = value_begin_; it != equals; ++it) {
+    if (HttpUtil::IsQuote(*it))
+      return valid_ = false;  // Malformed
+  }
+
+  name_begin_ = value_begin_;
+  name_end_ = equals;
+  value_begin_ = equals + 1;
+
+  TrimLWS(&name_begin_, &name_end_);
+  TrimLWS(&value_begin_, &value_end_);
+  value_is_quoted_ = false;
+  if (value_begin_ != value_end_ && HttpUtil::IsQuote(*value_begin_)) {
+    // Trim surrounding quotemarks off the value
+    if (*value_begin_ != *(value_end_ - 1) || value_begin_ + 1 == value_end_)
+      // NOTE: This is not as graceful as it sounds:
+      // * quoted-pairs will no longer be unquoted
+      //   (["\"hello] should give ["hello]).
+      // * Does not detect when the final quote is escaped
+      //   (["value\"] should give [value"])
+      ++value_begin_;  // Gracefully recover from mismatching quotes.
+    else
+      value_is_quoted_ = true;
+  }
+
+  return true;
+}
+
+// If value() has quotemarks, unquote it.
+std::string HttpUtil::NameValuePairsIterator::unquoted_value() const {
+  return HttpUtil::Unquote(value_begin_, value_end_);
 }
 
 }  // namespace net

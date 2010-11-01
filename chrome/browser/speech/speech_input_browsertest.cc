@@ -43,6 +43,7 @@ class FakeSpeechInputManager : public SpeechInputManager {
                         int render_process_id,
                         int render_view_id,
                         const gfx::Rect& element_rect) {
+    VLOG(1) << "StartRecognition invoked.";
     EXPECT_EQ(0, caller_id_);
     EXPECT_EQ(NULL, delegate_);
     caller_id_ = caller_id;
@@ -52,11 +53,13 @@ class FakeSpeechInputManager : public SpeechInputManager {
         &FakeSpeechInputManager::SetFakeRecognitionResult));
   }
   void CancelRecognition(int caller_id) {
+    VLOG(1) << "CancelRecognition invoked.";
     EXPECT_EQ(caller_id_, caller_id);
     caller_id_ = 0;
     delegate_ = NULL;
   }
   void StopRecording(int caller_id) {
+    VLOG(1) << "StopRecording invoked.";
     EXPECT_EQ(caller_id_, caller_id);
     // Nothing to do here since we aren't really recording.
   }
@@ -64,12 +67,14 @@ class FakeSpeechInputManager : public SpeechInputManager {
  private:
   void SetFakeRecognitionResult() {
     if (caller_id_) {  // Do a check in case we were cancelled..
+      VLOG(1) << "Setting fake recognition result.";
       delegate_->DidCompleteRecording(caller_id_);
       delegate_->SetRecognitionResult(caller_id_,
                                       ASCIIToUTF16(kTestResult));
       delegate_->DidCompleteRecognition(caller_id_);
       caller_id_ = 0;
       delegate_ = NULL;
+      VLOG(1) << "Finished setting fake recognition result.";
     }
   }
 
@@ -92,6 +97,12 @@ class SpeechInputBrowserTest : public InProcessBrowserTest {
   }
 };
 
+// Marked as FLAKY due to http://crbug.com/51337
+//
+// TODO(satish): Once this flakiness has been fixed, add a second test here to
+// check for sending many clicks in succession to the speech button and verify
+// that it doesn't cause any crash but works as expected. This should act as the
+// test for http://crbug.com/59173
 IN_PROC_BROWSER_TEST_F(SpeechInputBrowserTest, FLAKY_TestBasicRecognition) {
   // Inject the fake manager factory so that the test result is returned to the
   // web page.
@@ -103,7 +114,7 @@ IN_PROC_BROWSER_TEST_F(SpeechInputBrowserTest, FLAKY_TestBasicRecognition) {
   GURL test_url = testUrl(FILE_PATH_LITERAL("basic_recognition.html"));
   ui_test_utils::NavigateToURL(browser(), test_url);
   std::string coords = browser()->GetSelectedTabContents()->GetURL().ref();
-  LOG(INFO) << "Coordinates given by script: " << coords;
+  VLOG(1) << "Coordinates given by script: " << coords;
   int comma_pos = coords.find(',');
   ASSERT_NE(-1, comma_pos);
   int x = 0;

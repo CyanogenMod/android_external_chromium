@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/in_process_webkit/dom_storage_context.h"
 #include "chrome/browser/in_process_webkit/webkit_context.h"
 #include "chrome/test/testing_profile.h"
@@ -16,8 +16,8 @@ class MockDOMStorageContext : public DOMStorageContext {
   }
 
   virtual void PurgeMemory() {
-    EXPECT_FALSE(ChromeThread::CurrentlyOn(ChromeThread::UI));
-    EXPECT_TRUE(ChromeThread::CurrentlyOn(ChromeThread::WEBKIT));
+    EXPECT_FALSE(BrowserThread::CurrentlyOn(BrowserThread::UI));
+    EXPECT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::WEBKIT));
     ++purge_count_;
   }
 
@@ -42,7 +42,7 @@ TEST(WebKitContextTest, Basic) {
 TEST(WebKitContextTest, PurgeMemory) {
   // Start up a WebKit thread for the WebKitContext to call the
   // DOMStorageContext on.
-  ChromeThread webkit_thread(ChromeThread::WEBKIT);
+  BrowserThread webkit_thread(BrowserThread::WEBKIT);
   webkit_thread.Start();
 
   // Create the contexts.

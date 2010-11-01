@@ -31,6 +31,7 @@ enum ImportItem {
 // settings and data from them.  Numbers added so that data can be
 // reliably cast to ints and passed across IPC.
 enum ProfileType {
+  NO_PROFILE_TYPE = -1,
 #if defined(OS_WIN)
   MS_IE = 0,
 #endif
@@ -46,6 +47,9 @@ enum ProfileType {
 
 // Information about a profile needed by an importer to do import work.
 struct ProfileInfo {
+  ProfileInfo();
+  ~ProfileInfo();
+
   std::wstring description;
   importer::ProfileType browser_type;
   FilePath source_path;

@@ -308,7 +308,7 @@ bool ParseProxy(const std::string& saddress, ProxyInfo* proxy) {
     if (const char * sep = strchr(address, kAddressSeparator)) {
       len = (sep - address);
       address += len + 1;
-      while (::strchr(kAddressSeparator, *address)) {
+      while (*address != '\0' && ::strchr(kAddressSeparator, *address)) {
         address += 1;
       }
     } else {
@@ -459,7 +459,7 @@ bool GetDefaultFirefoxProfile(Pathname* profile_path) {
       candidate.clear();
     } else if (line.find("IsRelative=") == 0 &&
                line.length() >= 12) {
-      // TODO(tschmelcher): The initial Linux public launch revealed a fairly
+      // TODO: The initial Linux public launch revealed a fairly
       // high number of machines where IsRelative= did not have anything after
       // it. Perhaps that is legal profiles.ini syntax?
       relative = (line.at(11) != '0');
@@ -767,7 +767,7 @@ bool WinHttpAutoDetectProxyForUrl(const char* agent, const char* url,
         // Either the given auto config url was valid or auto
         // detection found a proxy on this network.
         if (info.lpszProxy) {
-          // TODO(oja): Does this bypass list differ from the list
+          // TODO: Does this bypass list differ from the list
           // retreived from GetWinHttpProxySettings earlier?
           if (info.lpszProxyBypass) {
             proxy->bypass_list = ToUtf8(info.lpszProxyBypass);
@@ -946,7 +946,7 @@ bool GetIeLanProxySettings(const char* url, ProxyInfo* proxy) {
 bool GetIeProxySettings(const char* agent, const char* url, ProxyInfo* proxy) {
   bool success = GetWinHttpProxySettings(url, proxy);
   if (!success) {
-    // TODO(oja): Should always call this if no proxy were detected by
+    // TODO: Should always call this if no proxy were detected by
     // GetWinHttpProxySettings?
     // WinHttp failed. Try using the InternetOptionQuery method instead.
     return GetIeLanProxySettings(url, proxy);
@@ -1209,7 +1209,7 @@ bool GetSystemDefaultProxySettings(const char* agent, const char* url,
 #elif OSX
   return GetMacProxySettings(proxy);
 #else
-  // TODO(oja): Get System settings if browser is not firefox.
+  // TODO: Get System settings if browser is not firefox.
   return GetFirefoxProxySettings(url, proxy);
 #endif
 }
@@ -1241,7 +1241,7 @@ bool GetProxySettingsForUrl(const char* agent, const char* url,
       break;
   }
 
-  // TODO(oja): Consider using the 'long_operation' parameter to
+  // TODO: Consider using the 'long_operation' parameter to
   // decide whether to do the auto detection.
   if (result && (proxy.autodetect ||
                  !proxy.autoconfig_url.empty())) {

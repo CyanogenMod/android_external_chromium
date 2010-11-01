@@ -29,9 +29,6 @@ const int kBubbleHorizontalMargin = 5;  // Space on either sides of controls.
 - (id)initWithParentWindow:(NSWindow*)parentWindow
                   delegate:(SpeechInputBubbleDelegate*)delegate
               anchoredAt:(NSPoint)anchoredAt {
-  anchoredAt.x -= info_bubble::kBubbleArrowXOffset +
-                  info_bubble::kBubbleCornerRadius +
-                  info_bubble::kBubbleArrowWidth / 2.0;
   anchoredAt.y += info_bubble::kBubbleArrowHeight / 2.0;
   if ((self = [super initWithWindowNibPath:@"SpeechInputBubble"
                               parentWindow:parentWindow
@@ -82,7 +79,7 @@ const int kBubbleHorizontalMargin = 5;  // Space on either sides of controls.
   int newWidth = cancelSize.width + tryAgainSize.width;
 
   if (![iconImage_ isHidden]) {
-    NSImage* icon = ResourceBundle::GetSharedInstance().GetNSImageNamed(
+    NSImage* icon = ResourceBundle::GetSharedInstance().GetNativeImageNamed(
         IDR_SPEECH_INPUT_MIC_EMPTY);
     NSSize size = [icon size];
     newHeight += size.height + kBubbleControlVerticalSpacing;
@@ -150,7 +147,7 @@ const int kBubbleHorizontalMargin = 5;  // Space on either sides of controls.
     [instructionLabel_ setStringValue:l10n_util::GetNSString(
         IDS_SPEECH_INPUT_BUBBLE_HEADING)];
     if (mode == SpeechInputBubbleBase::DISPLAY_MODE_RECORDING) {
-      NSImage* icon = ResourceBundle::GetSharedInstance().GetNSImageNamed(
+      NSImage* icon = ResourceBundle::GetSharedInstance().GetNativeImageNamed(
           IDR_SPEECH_INPUT_MIC_EMPTY);
       [iconImage_ setImage:icon];
     }

@@ -112,15 +112,17 @@ void ExtensionsUIHTMLSource::StartDataRequest(const std::string& path,
   localized_strings.SetString("suggestGallery",
       l10n_util::GetStringFUTF16(IDS_EXTENSIONS_NONE_INSTALLED_SUGGEST_GALLERY,
           ASCIIToUTF16("<a href='") +
-          ASCIIToUTF16(google_util::AppendGoogleLocaleParam(
-              GURL(Extension::ChromeStoreURL())).spec()) + ASCIIToUTF16("'>"),
+              ASCIIToUTF16(google_util::AppendGoogleLocaleParam(
+                  GURL(Extension::ChromeStoreLaunchURL())).spec()) +
+              ASCIIToUTF16("'>"),
           ASCIIToUTF16("</a>")));
   localized_strings.SetString("getMoreExtensions",
       ASCIIToUTF16("<a href='") +
-          ASCIIToUTF16(google_util::AppendGoogleLocaleParam(
-              GURL(Extension::ChromeStoreURL())).spec()) + ASCIIToUTF16("'>") +
-          l10n_util::GetStringUTF16(IDS_GET_MORE_EXTENSIONS) +
-          ASCIIToUTF16("</a>"));
+      ASCIIToUTF16(google_util::AppendGoogleLocaleParam(
+          GURL(Extension::ChromeStoreLaunchURL())).spec()) +
+      ASCIIToUTF16("'>") +
+      l10n_util::GetStringUTF16(IDS_GET_MORE_EXTENSIONS) +
+      ASCIIToUTF16("</a>"));
   localized_strings.SetString("extensionDisabled",
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_DISABLED_EXTENSION));
   localized_strings.SetString("inDevelopment",
@@ -144,7 +146,8 @@ void ExtensionsUIHTMLSource::StartDataRequest(const std::string& path,
   localized_strings.SetString("allowFileAccess",
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_ALLOW_FILE_ACCESS));
   localized_strings.SetString("incognitoWarning",
-      l10n_util::GetStringUTF16(IDS_EXTENSIONS_INCOGNITO_WARNING));
+      l10n_util::GetStringFUTF16(IDS_EXTENSIONS_INCOGNITO_WARNING,
+                                 l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
   localized_strings.SetString("reload",
       l10n_util::GetStringUTF16(IDS_EXTENSIONS_RELOAD));
   localized_strings.SetString("uninstall",
@@ -198,8 +201,8 @@ ExtensionsDOMHandler::IconLoader::IconLoader(ExtensionsDOMHandler* handler)
 
 void ExtensionsDOMHandler::IconLoader::LoadIcons(
     std::vector<ExtensionResource>* icons, DictionaryValue* json) {
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(this,
           &IconLoader::LoadIconsOnFileThread, icons, json));
 }
@@ -265,8 +268,8 @@ void ExtensionsDOMHandler::IconLoader::LoadIconsOnFileThread(
     extension->SetString("icon", icon_url.spec());
   }
 
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(this, &IconLoader::ReportResultOnUIThread,
                         json_deleter.release()));
 }
@@ -439,9 +442,7 @@ void ExtensionsDOMHandler::HandleInspectMessage(const ListValue* args) {
     return;
   }
 
-  DevToolsManager::GetInstance()->ToggleDevToolsWindow(
-      host,
-      DEVTOOLS_TOGGLE_ACTION_SHOW_CONSOLE);
+  DevToolsManager::GetInstance()->OpenDevToolsWindow(host);
 }
 
 void ExtensionsDOMHandler::HandleReloadMessage(const ListValue* args) {
@@ -922,8 +923,8 @@ ExtensionsUI::ExtensionsUI(TabContents* contents) : DOMUI(contents) {
   ExtensionsUIHTMLSource* html_source = new ExtensionsUIHTMLSource();
 
   // Set up the chrome://extensions/ source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,

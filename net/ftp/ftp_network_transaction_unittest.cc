@@ -333,6 +333,33 @@ class FtpSocketDataProviderFileDownload : public FtpSocketDataProvider {
   DISALLOW_COPY_AND_ASSIGN(FtpSocketDataProviderFileDownload);
 };
 
+class FtpSocketDataProviderFileNotFound : public FtpSocketDataProvider {
+ public:
+  FtpSocketDataProviderFileNotFound() {
+  }
+
+  virtual MockWriteResult OnWrite(const std::string& data) {
+    if (InjectFault())
+      return MockWriteResult(true, data.length());
+    switch (state()) {
+      case PRE_SIZE:
+        return Verify("SIZE /file\r\n", data, PRE_CWD,
+                      "550 File Not Found\r\n");
+      case PRE_CWD:
+        return Verify("CWD /file\r\n", data, PRE_RETR,
+                      "550 File Not Found\r\n");
+      case PRE_RETR:
+        return Verify("RETR /file\r\n", data, PRE_QUIT,
+                      "550 File Not Found\r\n");
+      default:
+        return FtpSocketDataProvider::OnWrite(data);
+    }
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(FtpSocketDataProviderFileNotFound);
+};
+
 class FtpSocketDataProviderFileDownloadWithPasvFallback
     : public FtpSocketDataProviderFileDownload {
  public:
@@ -634,7 +661,7 @@ class FtpNetworkTransactionTest : public PlatformTest {
  public:
   FtpNetworkTransactionTest()
       : host_resolver_(new MockHostResolver),
-        session_(new FtpNetworkSession(host_resolver_)),
+        session_(new FtpNetworkSession(host_resolver_.get())),
         transaction_(session_.get(), &mock_socket_factory_) {
   }
 
@@ -696,7 +723,7 @@ class FtpNetworkTransactionTest : public PlatformTest {
     ExecuteTransaction(ctrl_socket, request, expected_result);
   }
 
-  scoped_refptr<MockHostResolver> host_resolver_;
+  scoped_ptr<MockHostResolver> host_resolver_;
   scoped_refptr<FtpNetworkSession> session_;
   MockClientSocketFactory mock_socket_factory_;
   FtpNetworkTransaction transaction_;
@@ -1212,16 +1239,6 @@ TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailCwd) {
                         ERR_FTP_FAILED);
 }
 
-TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFileNotFound) {
-  FtpSocketDataProviderDirectoryListing ctrl_socket;
-  TransactionFailHelper(&ctrl_socket,
-                        "ftp://host",
-                        FtpSocketDataProvider::PRE_CWD,
-                        FtpSocketDataProvider::PRE_QUIT,
-                        "550 cannot open file\r\n",
-                        ERR_FILE_NOT_FOUND);
-}
-
 TEST_F(FtpNetworkTransactionTest, DirectoryTransactionFailMlsd) {
   FtpSocketDataProviderDirectoryListing ctrl_socket;
   TransactionFailHelper(&ctrl_socket,
@@ -1326,14 +1343,9 @@ TEST_F(FtpNetworkTransactionTest, DownloadTransactionFailRetr) {
                         ERR_FTP_FAILED);
 }
 
-TEST_F(FtpNetworkTransactionTest, DownloadTransactionFileNotFound) {
-  FtpSocketDataProviderFileDownload ctrl_socket;
-  TransactionFailHelper(&ctrl_socket,
-                        "ftp://host/file;type=i",
-                        FtpSocketDataProvider::PRE_SIZE,
-                        FtpSocketDataProvider::PRE_QUIT,
-                        "550 File Not Found\r\n",
-                        ERR_FTP_FAILED);
+TEST_F(FtpNetworkTransactionTest, FileNotFound) {
+  FtpSocketDataProviderFileNotFound ctrl_socket;
+  ExecuteTransaction(&ctrl_socket, "ftp://host/file", ERR_FTP_FAILED);
 }
 
 // Test for http://crbug.com/38845.

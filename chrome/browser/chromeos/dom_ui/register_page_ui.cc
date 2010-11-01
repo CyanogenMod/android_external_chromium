@@ -14,7 +14,7 @@
 #include "base/values.h"
 #include "base/weak_ptr.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/browser/chromeos/cros/system_library.h"
@@ -222,7 +222,7 @@ void RegisterPageHandler::HandleGetRegistrationUrl(const ListValue* args) {
       WizardController::default_controller()->GetCustomization()) {
     const std::string& url = WizardController::default_controller()->
         GetCustomization()->registration_url();
-    LOG(INFO) << "Loading registration form with URL: " << url;
+    VLOG(1) << "Loading registration form with URL: " << url;
     GURL register_url(url);
     if (!register_url.is_valid()) {
       SkipRegistration("Registration URL defined in manifest is invalid.");
@@ -240,8 +240,10 @@ void RegisterPageHandler::HandleGetUserInfo(const ListValue* args) {
 #if defined(OS_CHROMEOS)
   if (chromeos::CrosLibrary::Get()->EnsureLoaded()) {
      version_loader_.GetVersion(
-         &version_consumer_, NewCallback(this,
-                                         &RegisterPageHandler::OnVersion));
+         &version_consumer_,
+         NewCallback(this,
+                     &RegisterPageHandler::OnVersion),
+         true);
   } else {
     SkipRegistration("CrosLibrary is not loaded.");
   }
@@ -321,8 +323,8 @@ RegisterPageUI::RegisterPageUI(TabContents* contents) : DOMUI(contents){
   RegisterPageUIHTMLSource* html_source = new RegisterPageUIHTMLSource();
 
   // Set up the chrome://register/ source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,

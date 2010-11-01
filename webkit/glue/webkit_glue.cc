@@ -321,6 +321,8 @@ WebKit::WebFileError PlatformFileErrorToWebFileError(
     case base::PLATFORM_FILE_ERROR_INVALID_OPERATION:
     case base::PLATFORM_FILE_ERROR_EXISTS:
     case base::PLATFORM_FILE_ERROR_NOT_A_DIRECTORY:
+    case base::PLATFORM_FILE_ERROR_NOT_A_FILE:
+    case base::PLATFORM_FILE_ERROR_NOT_EMPTY:
       return WebKit::WebFileErrorInvalidModification;
     case base::PLATFORM_FILE_ERROR_ACCESS_DENIED:
       return WebKit::WebFileErrorNoModificationAllowed;
@@ -328,6 +330,10 @@ WebKit::WebFileError PlatformFileErrorToWebFileError(
       return WebKit::WebFileErrorInvalidState;
     case base::PLATFORM_FILE_ERROR_ABORT:
       return WebKit::WebFileErrorAbort;
+    case base::PLATFORM_FILE_ERROR_SECURITY:
+      return WebKit::WebFileErrorSecurity;
+    case base::PLATFORM_FILE_ERROR_NO_SPACE:
+      return WebKit::WebFileErrorQuotaExceeded;
     default:
       return WebKit::WebFileErrorInvalidModification;
   }

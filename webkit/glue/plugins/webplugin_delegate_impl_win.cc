@@ -8,18 +8,18 @@
 #include <string>
 #include <vector>
 
+#include "app/win/iat_patch_function.h"
 #include "base/file_util.h"
-#include "base/iat_patch.h"
 #include "base/lazy_instance.h"
 #include "base/message_loop.h"
-#include "base/registry.h"
+#include "base/metrics/stats_counters.h"
 #include "base/scoped_ptr.h"
-#include "base/stats_counters.h"
 #include "base/string_number_conversions.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
-#include "base/win_util.h"
+#include "base/win/registry.h"
+#include "base/win/windows_version.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebInputEvent.h"
 #include "webkit/glue/plugins/default_plugin_shared.h"
@@ -70,15 +70,15 @@ base::LazyInstance<std::map<HWND, WNDPROC> > g_window_handle_proc_map(
 
 
 // Helper object for patching the TrackPopupMenu API.
-base::LazyInstance<iat_patch::IATPatchFunction> g_iat_patch_track_popup_menu(
+base::LazyInstance<app::win::IATPatchFunction> g_iat_patch_track_popup_menu(
     base::LINKER_INITIALIZED);
 
 // Helper object for patching the SetCursor API.
-base::LazyInstance<iat_patch::IATPatchFunction> g_iat_patch_set_cursor(
+base::LazyInstance<app::win::IATPatchFunction> g_iat_patch_set_cursor(
     base::LINKER_INITIALIZED);
 
 // Helper object for patching the RegEnumKeyExW API.
-base::LazyInstance<iat_patch::IATPatchFunction> g_iat_patch_reg_enum_key_ex_w(
+base::LazyInstance<app::win::IATPatchFunction> g_iat_patch_reg_enum_key_ex_w(
     base::LINKER_INITIALIZED);
 
 // http://crbug.com/16114
@@ -289,7 +289,7 @@ WebPluginDelegateImpl::WebPluginDelegateImpl(
   } else if (filename == kAcrobatReaderPlugin) {
     // Check for the version number above or equal 9.
     std::vector<std::wstring> version;
-    SplitString(plugin_info.version, L'.', &version);
+    base::SplitString(plugin_info.version, L'.', &version);
     if (version.size() > 0) {
       int major;
       base::StringToInt(version[0], &major);
@@ -415,8 +415,8 @@ bool WebPluginDelegateImpl::PlatformInitialize() {
   // name of the current process.  We do it in the installer for admin users,
   // for the rest patch this function.
   if ((quirks_ & PLUGIN_QUIRK_PATCH_REGENUMKEYEXW) &&
-      win_util::GetWinVersion() == win_util::WINVERSION_XP &&
-      !RegKey().Open(HKEY_LOCAL_MACHINE,
+      base::win::GetVersion() == base::win::VERSION_XP &&
+      !base::win::RegKey().Open(HKEY_LOCAL_MACHINE,
           L"SOFTWARE\\Microsoft\\MediaPlayer\\ShimInclusionList\\chrome.exe",
           KEY_READ) &&
       !g_iat_patch_reg_enum_key_ex_w.Pointer()->is_patched()) {
@@ -1020,6 +1020,8 @@ void WebPluginDelegateImpl::WindowlessPaint(HDC hdc,
   damage_rect_win.right  = damage_rect_win.left + damage_rect.width();
   damage_rect_win.bottom = damage_rect_win.top + damage_rect.height();
 
+  // Save away the old HDC as this could be a nested invocation.
+  void* old_dc = window_.window;
   window_.window = hdc;
 
   NPEvent paint_event;
@@ -1027,9 +1029,10 @@ void WebPluginDelegateImpl::WindowlessPaint(HDC hdc,
   // NOTE: NPAPI is not 64bit safe.  It puts pointers into 32bit values.
   paint_event.wParam = PtrToUlong(hdc);
   paint_event.lParam = PtrToUlong(&damage_rect_win);
-  static StatsRate plugin_paint("Plugin.Paint");
-  StatsScope<StatsRate> scope(plugin_paint);
+  static base::StatsRate plugin_paint("Plugin.Paint");
+  base::StatsScope<base::StatsRate> scope(plugin_paint);
   instance()->NPP_HandleEvent(&paint_event);
+  window_.window = old_dc;
 }
 
 void WebPluginDelegateImpl::WindowlessSetWindow() {

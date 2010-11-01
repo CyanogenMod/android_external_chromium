@@ -9,7 +9,7 @@
 #include "base/nss_util.h"
 #include "base/scoped_temp_dir.h"
 #include "base/stringprintf.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/login/mock_owner_key_utils.h"
 #include "chrome/browser/chromeos/login/mock_ownership_service.h"
@@ -69,8 +69,8 @@ class SignedSettingsTest : public ::testing::Test {
         fake_prop_("prop_name"),
         fake_value_("stub"),
         message_loop_(MessageLoop::TYPE_UI),
-        ui_thread_(ChromeThread::UI, &message_loop_),
-        file_thread_(ChromeThread::FILE),
+        ui_thread_(BrowserThread::UI, &message_loop_),
+        file_thread_(BrowserThread::FILE),
         mock_(new MockKeyUtils),
         injector_(mock_) /* injector_ takes ownership of mock_ */ {
   }
@@ -84,6 +84,7 @@ class SignedSettingsTest : public ::testing::Test {
 
   virtual void TearDown() {
     OwnerKeyUtils::set_factory(NULL);
+    chromeos::CrosLibrary::Get()->GetTestApi()->ResetUseStubImpl();
   }
 
   void mock_service(SignedSettings* s, MockOwnershipService* m) {
@@ -155,8 +156,8 @@ class SignedSettingsTest : public ::testing::Test {
   FilePath tmpfile_;
 
   MessageLoop message_loop_;
-  ChromeThread ui_thread_;
-  ChromeThread file_thread_;
+  BrowserThread ui_thread_;
+  BrowserThread file_thread_;
 
   std::vector<uint8> fake_public_key_;
   scoped_ptr<RSAPrivateKey> fake_private_key_;

@@ -26,6 +26,10 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 
+RenderViewHostDelegateViewHelper::RenderViewHostDelegateViewHelper() {}
+
+RenderViewHostDelegateViewHelper::~RenderViewHostDelegateViewHelper() {}
+
 BackgroundContents*
 RenderViewHostDelegateViewHelper::MaybeCreateBackgroundContents(
     int route_id,
@@ -289,6 +293,8 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
         command_line.HasSwitch(switches::kEnableAccelerated2dCanvas);
     web_prefs.memory_info_enabled =
         command_line.HasSwitch(switches::kEnableMemoryInfo);
+    web_prefs.hyperlink_auditing_enabled =
+        !command_line.HasSwitch(switches::kNoPings);
     // The user stylesheet watcher may not exist in a testing profile.
     if (profile->GetUserStyleSheetWatcher()) {
       web_prefs.user_style_sheet_enabled = true;
@@ -320,4 +326,20 @@ WebPreferences RenderViewHostDelegateHelper::GetWebkitPrefs(
   }
 
   return web_prefs;
+}
+
+void RenderViewHostDelegateHelper::UpdateInspectorSetting(
+    Profile* profile, const std::string& key, const std::string& value) {
+  DictionaryValue* inspector_settings =
+      profile->GetPrefs()->GetMutableDictionary(
+          prefs::kWebKitInspectorSettings);
+  inspector_settings->SetWithoutPathExpansion(key,
+                                              Value::CreateStringValue(value));
+}
+
+void RenderViewHostDelegateHelper::ClearInspectorSettings(Profile* profile) {
+  DictionaryValue* inspector_settings =
+      profile->GetPrefs()->GetMutableDictionary(
+          prefs::kWebKitInspectorSettings);
+  inspector_settings->Clear();
 }

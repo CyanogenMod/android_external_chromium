@@ -19,14 +19,14 @@
 #include "app/win_util.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
-#include "base/registry.h"
 #include "base/scoped_comptr_win.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/time.h"
 #include "base/values.h"
 #include "base/utf_string_conversions.h"
-#include "base/win_util.h"
+#include "base/win/registry.h"
+#include "base/win/windows_version.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/importer/importer_bridge.h"
 #include "chrome/browser/importer/importer_data_types.h"
@@ -40,6 +40,8 @@
 #include "webkit/glue/password_form.h"
 
 using base::Time;
+using base::win::RegKey;
+using base::win::RegistryValueIterator;
 using webkit_glue::PasswordForm;
 
 namespace {
@@ -190,7 +192,7 @@ void IEImporter::ImportPasswordsIE6() {
         ac.key.erase(i);
         ac.is_url = (ac.key.find(L"://") != std::wstring::npos);
         ac_list.push_back(ac);
-        SplitString(data, L'\0', &ac_list[ac_list.size() - 1].data);
+        base::SplitString(data, L'\0', &ac_list[ac_list.size() - 1].data);
       }
       CoTaskMemFree(buffer);
     }
@@ -354,14 +356,15 @@ void IEImporter::ImportSearchEngines() {
   const TemplateURL* default_search_engine = NULL;
   std::map<std::string, TemplateURL*> search_engines_map;
   key.ReadValue(L"DefaultScope", &default_search_engine_name);
-  RegistryKeyIterator key_iterator(HKEY_CURRENT_USER, kSearchScopePath);
+  base::win::RegistryKeyIterator key_iterator(HKEY_CURRENT_USER,
+                                              kSearchScopePath);
   while (key_iterator.Valid()) {
     std::wstring sub_key_name = kSearchScopePath;
     sub_key_name.append(L"\\").append(key_iterator.Name());
     RegKey sub_key(HKEY_CURRENT_USER, sub_key_name.c_str(), KEY_READ);
     std::wstring wide_url;
     if (!sub_key.ReadValue(L"URL", &wide_url) || wide_url.empty()) {
-      LOG(INFO) << "No URL for IE search engine at " << key_iterator.Name();
+      VLOG(1) << "No URL for IE search engine at " << key_iterator.Name();
       ++key_iterator;
       continue;
     }
@@ -372,7 +375,7 @@ void IEImporter::ImportSearchEngines() {
     if (!sub_key.ReadValue(NULL, &name) || name.empty()) {
       // Try the displayable name.
       if (!sub_key.ReadValue(L"DisplayName", &name) || name.empty()) {
-        LOG(INFO) << "No name for IE search engine at " << key_iterator.Name();
+        VLOG(1) << "No name for IE search engine at " << key_iterator.Name();
         ++key_iterator;
         continue;
       }
@@ -463,7 +466,7 @@ bool IEImporter::GetFavoritesInfo(IEImporter::FavoritesInfo *info) {
   // is not recording in Vista's registry. So in Vista, we assume the Links
   // folder is under Favorites folder since it looks like there is not name
   // different in every language version of Windows Vista.
-  if (win_util::GetWinVersion() < win_util::WINVERSION_VISTA) {
+  if (base::win::GetVersion() < base::win::VERSION_VISTA) {
     // The Link folder name is stored in the registry.
     DWORD buffer_length = sizeof(buffer);
     RegKey reg_key(HKEY_CURRENT_USER,

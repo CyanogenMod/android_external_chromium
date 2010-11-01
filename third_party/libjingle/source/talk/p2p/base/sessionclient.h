@@ -40,10 +40,12 @@ class SessionDescription;
 
 class ContentParser {
  public:
-  virtual bool ParseContent(const buzz::XmlElement* elem,
+  virtual bool ParseContent(SignalingProtocol protocol,
+                            const buzz::XmlElement* elem,
                             const ContentDescription** content,
                             ParseError* error) = 0;
-  virtual bool WriteContent(const ContentDescription* content,
+  virtual bool WriteContent(SignalingProtocol protocol,
+                            const ContentDescription* content,
                             buzz::XmlElement** elem,
                             WriteError* error) = 0;
   virtual ~ContentParser() {}
@@ -65,13 +67,14 @@ class SessionClient : public ContentParser {
   virtual void OnSessionCreate(Session* session, bool received_initiate) = 0;
   virtual void OnSessionDestroy(Session* session) = 0;
 
-  virtual bool ParseContent(const buzz::XmlElement* elem,
+  virtual bool ParseContent(SignalingProtocol protocol,
+                            const buzz::XmlElement* elem,
                             const ContentDescription** content,
                             ParseError* error) = 0;
-  virtual bool WriteContent(const ContentDescription* content,
+  virtual bool WriteContent(SignalingProtocol protocol,
+                            const ContentDescription* content,
                             buzz::XmlElement** elem,
                             WriteError* error) = 0;
-
  protected:
   // The SessionClient interface explicitly does not include destructor
   virtual ~SessionClient() { }

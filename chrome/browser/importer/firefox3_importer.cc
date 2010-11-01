@@ -35,9 +35,20 @@ using importer::ProfileInfo;
 using importer::SEARCH_ENGINES;
 using webkit_glue::PasswordForm;
 
+struct Firefox3Importer::BookmarkItem {
+  int parent;
+  int id;
+  GURL url;
+  std::wstring title;
+  int type;
+  std::string keyword;
+  base::Time date_added;
+  int64 favicon;
+};
+
 Firefox3Importer::Firefox3Importer() {
 #if defined(OS_LINUX)
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   locale_ = g_browser_process->GetApplicationLocale();
 #endif
 }
@@ -49,7 +60,7 @@ void Firefox3Importer::StartImport(importer::ProfileInfo profile_info,
                                    uint16 items,
                                    ImporterBridge* bridge) {
 #if defined(OS_LINUX)
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 #endif
   bridge_ = bridge;
   source_path_ = profile_info.source_path;

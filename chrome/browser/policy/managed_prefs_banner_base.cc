@@ -6,6 +6,7 @@
 
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/prefs/pref_set_observer.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
@@ -22,6 +23,8 @@ ManagedPrefsBannerBase::ManagedPrefsBannerBase(PrefService* local_state,
                                                OptionsPage page) {
   Init(local_state, user_prefs, page);
 }
+
+ManagedPrefsBannerBase::~ManagedPrefsBannerBase() {}
 
 void ManagedPrefsBannerBase::AddLocalStatePref(const char* pref) {
   local_state_set_->AddPref(pref);
@@ -56,16 +59,27 @@ void ManagedPrefsBannerBase::Init(PrefService* local_state,
       AddUserPref(prefs::kShowHomeButton);
       AddUserPref(prefs::kRestoreOnStartup);
       AddUserPref(prefs::kURLsToRestoreOnStartup);
+      AddUserPref(prefs::kDefaultSearchProviderEnabled);
+      AddUserPref(prefs::kDefaultSearchProviderName);
+      AddUserPref(prefs::kDefaultSearchProviderKeyword);
+      AddUserPref(prefs::kDefaultSearchProviderSearchURL);
+      AddUserPref(prefs::kDefaultSearchProviderSuggestURL);
+      AddUserPref(prefs::kDefaultSearchProviderIconURL);
+      AddUserPref(prefs::kDefaultSearchProviderEncodings);
       break;
     case OPTIONS_PAGE_CONTENT:
       AddUserPref(prefs::kSyncManaged);
       AddUserPref(prefs::kAutoFillEnabled);
       AddUserPref(prefs::kPasswordManagerEnabled);
+#if defined(OS_CHROMEOS)
+      AddUserPref(prefs::kEnableScreenLock);
+#endif
       break;
     case OPTIONS_PAGE_ADVANCED:
       AddUserPref(prefs::kAlternateErrorPagesEnabled);
       AddUserPref(prefs::kSearchSuggestEnabled);
       AddUserPref(prefs::kDnsPrefetchingEnabled);
+      AddUserPref(prefs::kDisableSpdy);
       AddUserPref(prefs::kSafeBrowsingEnabled);
 #if defined(GOOGLE_CHROME_BUILD)
       AddLocalStatePref(prefs::kMetricsReportingEnabled);

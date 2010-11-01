@@ -77,9 +77,6 @@ LoggingDestination logging_destination = LOG_ONLY_TO_FILE;
 LoggingDestination logging_destination = LOG_ONLY_TO_SYSTEM_DEBUG_LOG;
 #endif
 
-const int kMaxFilteredLogLevel = LOG_WARNING;
-std::string* log_filter_prefix;
-
 // For LOG_ERROR and above, always print to stderr.
 const int kAlwaysPrintErrorLevel = LOG_ERROR;
 
@@ -170,20 +167,22 @@ void DeleteFilePath(const PathString& log_name) {
 #endif
 }
 
-void GetDefaultLogFile(PathString default_log_file) {
+PathString GetDefaultLogFile() {
 #if defined(OS_WIN)
   // On Windows we use the same path as the exe.
   wchar_t module_name[MAX_PATH];
   GetModuleFileName(NULL, module_name, MAX_PATH);
-  default_log_file = module_name;
-  std::wstring::size_type last_backslash =
-      default_log_file.rfind('\\', default_log_file.size());
-  if (last_backslash != std::wstring::npos)
-    default_log_file.erase(last_backslash + 1);
-  default_log_file += L"debug.log";
+
+  PathString log_file = module_name;
+  PathString::size_type last_backslash =
+      log_file.rfind('\\', log_file.size());
+  if (last_backslash != PathString::npos)
+    log_file.erase(last_backslash + 1);
+  log_file += L"debug.log";
+  return log_file;
 #elif defined(OS_POSIX)
   // On other platforms we just use the current directory.
-  default_log_file = "debug.log";
+  return PathString("debug.log");
 #endif
 }
 
@@ -214,12 +213,22 @@ class LoggingLock {
         if (new_log_file)
           safe_name = new_log_file;
         else
-          GetDefaultLogFile(safe_name);
+          safe_name = GetDefaultLogFile();
         // \ is not a legal character in mutex names so we replace \ with /
         std::replace(safe_name.begin(), safe_name.end(), '\\', '/');
         std::wstring t(L"Global\\");
         t.append(safe_name);
         log_mutex = ::CreateMutex(NULL, FALSE, t.c_str());
+
+        if (log_mutex == NULL) {
+#if DEBUG
+          // Keep the error code for debugging
+          int error = GetLastError();  // NOLINT
+          DebugUtil::BreakDebugger();
+#endif
+          // Return nicely without putting initialized to true.
+          return;
+        }
       }
 #endif
     } else {
@@ -300,8 +309,7 @@ bool InitializeLogFileHandle() {
   if (!log_file_name) {
     // Nobody has called InitLogging to specify a debug log file, so here we
     // initialize the log file name to a default.
-    log_file_name = new PathString();
-    GetDefaultLogFile(*log_file_name);
+    log_file_name = new PathString(GetDefaultLogFile());
   }
 
   if (logging_destination == LOG_ONLY_TO_FILE ||
@@ -378,7 +386,6 @@ void BaseInitLoggingImpl(const PathChar* new_log_file,
     DeleteFilePath(*log_file_name);
 
   InitializeLogFileHandle();
-
 }
 
 void SetMinLogLevel(int level) {
@@ -398,16 +405,6 @@ int GetVlogLevelHelper(const char* file, size_t N) {
       g_vlog_info->GetVlogLevel(base::StringPiece(file, N - 1)) :
       VlogInfo::kDefaultVlogLevel;
 #endif
-}
-
-void SetLogFilterPrefix(const char* filter)  {
-  if (log_filter_prefix) {
-    delete log_filter_prefix;
-    log_filter_prefix = NULL;
-  }
-
-  if (filter)
-    log_filter_prefix = new std::string(filter);
 }
 
 void SetLogItems(bool enable_process_id, bool enable_thread_id,
@@ -434,6 +431,20 @@ void SetLogMessageHandler(LogMessageHandlerFunction handler) {
   log_message_handler = handler;
 }
 
+// MSVC doesn't like complex extern templates and DLLs.
+#if !defined(COMPILER_MSVC)
+// Explicit instantiations for commonly used comparisons.
+template std::string* MakeCheckOpString<int, int>(
+    const int&, const int&, const char* names);
+template std::string* MakeCheckOpString<unsigned long, unsigned long>(
+    const unsigned long&, const unsigned long&, const char* names);
+template std::string* MakeCheckOpString<unsigned long, unsigned int>(
+    const unsigned long&, const unsigned int&, const char* names);
+template std::string* MakeCheckOpString<unsigned int, unsigned long>(
+    const unsigned int&, const unsigned long&, const char* names);
+template std::string* MakeCheckOpString<std::string, std::string>(
+    const std::string&, const std::string&, const char* name);
+#endif
 
 // Displays a message box to the user with the error message in it.
 // Used for fatal messages, where we close the app simultaneously.
@@ -572,8 +583,9 @@ void LogMessage::Init(const char* file, int line) {
 }
 
 LogMessage::~LogMessage() {
-  // TODO(brettw) modify the macros so that nothing is executed when the log
-  // level is too high.
+  // The macros in logging.h should already avoid creating LogMessages
+  // when this holds, but it's possible that users create LogMessages
+  // directly (e.g., using LOG_STREAM() directly).
   if (severity_ < min_log_level)
     return;
 
@@ -591,12 +603,6 @@ LogMessage::~LogMessage() {
   // Give any log message handler first dibs on the message.
   if (log_message_handler && log_message_handler(severity_, str_newline))
     return;
-
-  if (log_filter_prefix && severity_ <= kMaxFilteredLogLevel &&
-      str_newline.compare(message_start_, log_filter_prefix->size(),
-                          log_filter_prefix->data()) != 0) {
-    return;
-  }
 
   if (logging_destination == LOG_ONLY_TO_SYSTEM_DEBUG_LOG ||
       logging_destination == LOG_TO_BOTH_FILE_AND_SYSTEM_DEBUG_LOG) {
@@ -712,7 +718,7 @@ Win32ErrorLogMessage::Win32ErrorLogMessage(const char* file,
 Win32ErrorLogMessage::~Win32ErrorLogMessage() {
   const int error_message_buffer_size = 256;
   char msgbuf[error_message_buffer_size];
-  DWORD flags = FORMAT_MESSAGE_FROM_SYSTEM;
+  DWORD flags = FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
   HMODULE hmod;
   if (module_) {
     hmod = GetModuleHandleA(module_);
@@ -731,7 +737,7 @@ Win32ErrorLogMessage::~Win32ErrorLogMessage() {
   DWORD len = FormatMessageA(flags,
                              hmod,
                              err_,
-                             MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                             0,
                              msgbuf,
                              sizeof(msgbuf) / sizeof(msgbuf[0]),
                              NULL);

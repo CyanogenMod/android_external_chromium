@@ -25,7 +25,7 @@ const FilePath kTestIndexedDBFile(
 class TestOnWebKitThread : public ThreadTestHelper {
  public:
   TestOnWebKitThread()
-      : ThreadTestHelper(ChromeThread::WEBKIT) {
+      : ThreadTestHelper(BrowserThread::WEBKIT) {
   }
 
   const std::string& database_name() const { return database_name_; }
@@ -57,23 +57,9 @@ class IndexedDBBrowserTest : public InProcessBrowserTest {
     EnableDOMAutomation();
   }
 
-  // From InProcessBrowserTest.
-  virtual void SetUpCommandLine(CommandLine* command_line) {
-    command_line->AppendSwitch(switches::kEnableIndexedDatabase);
-  }
-
   GURL testUrl(const FilePath& file_path) {
     const FilePath kTestDir(FILE_PATH_LITERAL("indexeddb"));
     return ui_test_utils::GetTestUrl(kTestDir, file_path);
-  }
-
-  std::string GetTestLog() {
-    std::string script = "window.domAutomationController.send(getLog())";
-    std::string js_result;
-    ui_test_utils::ExecuteJavaScriptAndExtractString(
-        browser()->GetSelectedTabContents()->render_view_host(),
-        L"", UTF8ToWide(script), &js_result);
-    return js_result;
   }
 
   void SimpleTest(const GURL& test_url) {
@@ -83,24 +69,14 @@ class IndexedDBBrowserTest : public InProcessBrowserTest {
         browser(), test_url, 2);
     std::string result = browser()->GetSelectedTabContents()->GetURL().ref();
     if (result != "pass") {
-      std::string js_result = GetTestLog();
+      std::string js_result;
+      ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractString(
+          browser()->GetSelectedTabContents()->render_view_host(), L"",
+          L"window.domAutomationController.send(getLog())", &js_result));
       FAIL() << "Failed: " << js_result;
     }
   }
 };
-
-// TODO(jorlow): Re-enable once the other side of the transaction changes lands.
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_CursorTest) {
-  SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("cursor_test.html"))));
-}
-
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_IndexTest) {
-  SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("index_test.html"))));
-}
-
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_KeyPathTest) {
-  SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("key_path_test.html"))));
-}
 
 IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, SplitFilename) {
   scoped_refptr<TestOnWebKitThread> test_on_webkit_thread(
@@ -113,6 +89,18 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, SplitFilename) {
   EXPECT_EQ("http://host:1", origin_str);
 }
 
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DISABLED_TransactionGetTest) {
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, CursorTest) {
+  SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("cursor_test.html"))));
+}
+
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, IndexTest) {
+  SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("index_test.html"))));
+}
+
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, KeyPathTest) {
+  SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("key_path_test.html"))));
+}
+
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, TransactionGetTest) {
   SimpleTest(testUrl(FilePath(FILE_PATH_LITERAL("transaction_get_test.html"))));
 }

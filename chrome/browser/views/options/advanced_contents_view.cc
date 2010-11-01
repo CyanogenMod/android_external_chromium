@@ -28,18 +28,20 @@
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/gears_integration.h"
-#include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/options_util.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/prefs/pref_set_observer.h"
+#include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
 #include "chrome/browser/printing/cloud_print/cloud_print_setup_flow.h"
+#include "chrome/browser/printing/cloud_print/cloud_print_url.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/shell_dialogs.h"
+#include "chrome/browser/show_options_url.h"
 #include "chrome/browser/views/browser_dialogs.h"
-#include "chrome/browser/views/clear_data_view.h"
+#include "chrome/browser/views/clear_browsing_data.h"
 #include "chrome/browser/views/list_background.h"
 #include "chrome/browser/views/options/content_settings_window_view.h"
 #include "chrome/browser/views/options/fonts_languages_window_view.h"
@@ -74,10 +76,6 @@ const int kFileIconSize = 16;
 const int kFileIconVerticalSpacing = 3;
 const int kFileIconHorizontalSpacing = 3;
 const int kFileIconTextFieldSpacing = 3;
-
-}
-
-namespace {
 
 ////////////////////////////////////////////////////////////////////////////////
 // FileDisplayArea
@@ -505,7 +503,6 @@ void PrivacySection::ButtonPressed(
                                 "Options_DnsPrefetchCheckbox_Disable"),
                             profile()->GetPrefs());
     dns_prefetch_enabled_.SetValue(enabled);
-    chrome_browser_net::EnablePredictor(enabled);
   } else if (sender == enable_safe_browsing_checkbox_) {
     bool enabled = enable_safe_browsing_checkbox_->checked();
     UserMetricsRecordAction(UserMetricsAction(enabled ?
@@ -537,18 +534,15 @@ void PrivacySection::ButtonPressed(
     views::Window::CreateChromeWindow(
         GetWindow()->GetNativeWindow(),
         gfx::Rect(),
-        new ClearDataView(profile()))->Show();
+        new ClearBrowsingDataView(profile()))->Show();
   }
 }
 
 void PrivacySection::LinkActivated(views::Link* source, int event_flags) {
-  if (source == learn_more_link_) {
-    // We open a new browser window so the Options dialog doesn't get lost
-    // behind other windows.
-    Browser* browser = Browser::Create(profile());
-    browser->OpenURL(GURL(l10n_util::GetString(IDS_LEARN_MORE_PRIVACY_URL)),
-                     GURL(), NEW_WINDOW, PageTransition::LINK);
-  }
+  DCHECK(source == learn_more_link_);
+  browser::ShowOptionsURL(
+      profile(),
+      GURL(l10n_util::GetString(IDS_LEARN_MORE_PRIVACY_URL)));
 }
 
 void PrivacySection::InitControlLayout() {
@@ -654,7 +648,6 @@ void PrivacySection::NotifyPrefChanged(const std::string* pref_name) {
         !dns_prefetch_enabled_.IsManaged());
     bool enabled = dns_prefetch_enabled_.GetValue();
     enable_dns_prefetching_checkbox_->SetChecked(enabled);
-    chrome_browser_net::EnablePredictor(enabled);
   }
   if (!pref_name || *pref_name == prefs::kSafeBrowsingEnabled) {
     enable_safe_browsing_checkbox_->SetEnabled(!safe_browsing_.IsManaged());
@@ -796,6 +789,8 @@ class SecuritySection : public AdvancedSection,
   // Controls for this section:
   views::Label* ssl_info_label_;
   views::Checkbox* enable_ssl2_checkbox_;
+  views::Checkbox* enable_ssl3_checkbox_;
+  views::Checkbox* enable_tls1_checkbox_;
   views::Checkbox* check_for_cert_revocation_checkbox_;
   views::Label* manage_certificates_label_;
   views::NativeButton* manage_certificates_button_;
@@ -806,6 +801,8 @@ class SecuritySection : public AdvancedSection,
 SecuritySection::SecuritySection(Profile* profile)
     : ssl_info_label_(NULL),
       enable_ssl2_checkbox_(NULL),
+      enable_ssl3_checkbox_(NULL),
+      enable_tls1_checkbox_(NULL),
       check_for_cert_revocation_checkbox_(NULL),
       manage_certificates_label_(NULL),
       manage_certificates_button_(NULL),
@@ -823,6 +820,22 @@ void SecuritySection::ButtonPressed(
       UserMetricsRecordAction(UserMetricsAction("Options_SSL2_Disable"), NULL);
     }
     net::SSLConfigServiceWin::SetSSL2Enabled(enabled);
+  } else if (sender == enable_ssl3_checkbox_) {
+    bool enabled = enable_ssl3_checkbox_->checked();
+    if (enabled) {
+      UserMetricsRecordAction(UserMetricsAction("Options_SSL3_Enable"), NULL);
+    } else {
+      UserMetricsRecordAction(UserMetricsAction("Options_SSL3_Disable"), NULL);
+    }
+    net::SSLConfigServiceWin::SetSSL3Enabled(enabled);
+  } else if (sender == enable_tls1_checkbox_) {
+    bool enabled = enable_tls1_checkbox_->checked();
+    if (enabled) {
+      UserMetricsRecordAction(UserMetricsAction("Options_TLS1_Enable"), NULL);
+    } else {
+      UserMetricsRecordAction(UserMetricsAction("Options_TLS1_Disable"), NULL);
+    }
+    net::SSLConfigServiceWin::SetTLS1Enabled(enabled);
   } else if (sender == check_for_cert_revocation_checkbox_) {
     bool enabled = check_for_cert_revocation_checkbox_->checked();
     if (enabled) {
@@ -850,6 +863,12 @@ void SecuritySection::InitControlLayout() {
   enable_ssl2_checkbox_ = new views::Checkbox(
       l10n_util::GetString(IDS_OPTIONS_SSL_USESSL2));
   enable_ssl2_checkbox_->set_listener(this);
+  enable_ssl3_checkbox_ = new views::Checkbox(
+      l10n_util::GetString(IDS_OPTIONS_SSL_USESSL3));
+  enable_ssl3_checkbox_->set_listener(this);
+  enable_tls1_checkbox_ = new views::Checkbox(
+      l10n_util::GetString(IDS_OPTIONS_SSL_USETLS1));
+  enable_tls1_checkbox_->set_listener(this);
   check_for_cert_revocation_checkbox_ = new views::Checkbox(
       l10n_util::GetString(IDS_OPTIONS_SSL_CHECKREVOCATION));
   check_for_cert_revocation_checkbox_->set_listener(this);
@@ -881,6 +900,10 @@ void SecuritySection::InitControlLayout() {
                       true);
   AddWrappingCheckboxRow(layout, enable_ssl2_checkbox_,
                          indented_column_set_id, true);
+  AddWrappingCheckboxRow(layout, enable_ssl3_checkbox_,
+                         indented_column_set_id, true);
+  AddWrappingCheckboxRow(layout, enable_tls1_checkbox_,
+                         indented_column_set_id, true);
   AddWrappingCheckboxRow(layout, check_for_cert_revocation_checkbox_,
                          indented_column_set_id, false);
 }
@@ -892,10 +915,14 @@ void SecuritySection::NotifyPrefChanged(const std::string* pref_name) {
     net::SSLConfig config;
     if (net::SSLConfigServiceWin::GetSSLConfigNow(&config)) {
       enable_ssl2_checkbox_->SetChecked(config.ssl2_enabled);
+      enable_ssl3_checkbox_->SetChecked(config.ssl3_enabled);
+      enable_tls1_checkbox_->SetChecked(config.tls1_enabled);
       check_for_cert_revocation_checkbox_->SetChecked(
           config.rev_checking_enabled);
     } else {
       enable_ssl2_checkbox_->SetEnabled(false);
+      enable_ssl3_checkbox_->SetEnabled(false);
+      enable_tls1_checkbox_->SetEnabled(false);
       check_for_cert_revocation_checkbox_->SetEnabled(false);
     }
   }
@@ -1331,9 +1358,9 @@ void ChromeAppsSection::ButtonPressed(
 
 void ChromeAppsSection::LinkActivated(views::Link* source, int event_flags) {
   DCHECK(source == learn_more_link_);
-  Browser::Create(profile())->OpenURL(
-      GURL(l10n_util::GetString(IDS_LEARN_MORE_BACKGROUND_MODE_URL)), GURL(),
-      NEW_WINDOW, PageTransition::LINK);
+  browser::ShowOptionsURL(
+      profile(),
+      GURL(l10n_util::GetString(IDS_LEARN_MORE_BACKGROUND_MODE_URL)));
 }
 
 void ChromeAppsSection::InitControlLayout() {
@@ -1379,9 +1406,6 @@ class CloudPrintProxySection : public AdvancedSection,
   // Overridden from views::ButtonListener:
   virtual void ButtonPressed(views::Button* sender, const views::Event& event);
 
-  // Callback that gets the cloud print proxy status.
-  void StatusCallback(bool enabled, std::string email);
-
   // CloudPrintSetupFlow::Delegate implementation.
   virtual void OnDialogClosed();
 
@@ -1423,7 +1447,7 @@ void CloudPrintProxySection::ButtonPressed(views::Button* sender,
       // Enabled, we must be the disable button.
       UserMetricsRecordAction(
           UserMetricsAction("Options_DisableCloudPrintProxy"), NULL);
-      CloudPrintSetupFlow::DisableCloudPrintProxy(profile());
+      profile()->GetCloudPrintProxyService()->DisableForUser();
     } else {
       UserMetricsRecordAction(
           UserMetricsAction("Options_EnableCloudPrintProxy"), NULL);
@@ -1432,35 +1456,30 @@ void CloudPrintProxySection::ButtonPressed(views::Button* sender,
       enable_disable_button_->SetEnabled(false);
       enable_disable_button_->SetLabel(
           l10n_util::GetString(IDS_OPTIONS_CLOUD_PRINT_PROXY_ENABLING_BUTTON));
+      enable_disable_button_->InvalidateLayout();
+      Layout();
       CloudPrintSetupFlow::OpenDialog(profile(), this,
                                       GetWindow()->GetNativeWindow());
     }
   } else if (sender == manage_printer_button_) {
     UserMetricsRecordAction(
         UserMetricsAction("Options_ManageCloudPrinters"), NULL);
-    // Open a new browser window for the management tab.  The browser
-    // will go away when the user closes that tab.
-    Browser* browser = Browser::Create(profile());
-    // FIXME(scottbyer): Refactor Cloud Print URL creation.
-    // http://code.google.com/p/chromium/issues/detail?id=56850
-    browser->OpenURL(GURL("https://www.google.com/cloudprint/manage.html"),
-                     GURL(), NEW_WINDOW, PageTransition::LINK);
+    browser::ShowOptionsURL(
+        profile(),
+        CloudPrintURL(profile()).GetCloudPrintServiceManageURL());
   }
 }
 
-void CloudPrintProxySection::StatusCallback(bool enabled, std::string email) {
-  profile()->GetPrefs()->SetString(prefs::kCloudPrintEmail,
-                                   enabled ? email : std::string());
-}
-
 void CloudPrintProxySection::OnDialogClosed() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   enable_disable_button_->SetEnabled(true);
   // If the dialog is canceled, the preference won't change, and so we
   // have to revert the button text back to the disabled state.
   if (!Enabled()) {
     enable_disable_button_->SetLabel(
         l10n_util::GetString(IDS_OPTIONS_CLOUD_PRINT_PROXY_DISABLED_BUTTON));
+    enable_disable_button_->InvalidateLayout();
+    Layout();
   }
 }
 
@@ -1502,9 +1521,7 @@ void CloudPrintProxySection::InitControlLayout() {
 
   // Kick off a task to ask the background service what the real
   // answer is.
-  CloudPrintSetupFlow::RefreshPreferencesFromService(
-      profile(),
-      factory_.NewCallback(&CloudPrintProxySection::StatusCallback));
+  profile()->GetCloudPrintProxyService()->RefreshStatusFromService();
 }
 
 void CloudPrintProxySection::NotifyPrefChanged(const std::string* pref_name) {
@@ -1533,7 +1550,24 @@ void CloudPrintProxySection::NotifyPrefChanged(const std::string* pref_name) {
       enable_disable_button_->InvalidateLayout();
       manage_printer_button_->SetVisible(false);
     }
-    Layout();
+
+    // Find the parent ScrollView, and ask it to re-layout since it's
+    // possible that the section_description_label_ has changed
+    // heights.  And scroll us back to being visible in that case, to
+    // be nice to the user.
+    views::View* view = section_description_label_->GetParent();
+    while (view && view->GetClassName() != views::ScrollView::kViewClassName)
+      view = view->GetParent();
+    if (view) {
+      gfx::Rect visible_bounds = GetVisibleBounds();
+      bool was_all_visible = (visible_bounds.size() == bounds().size());
+      // Our bounds can change across this call, so we have to use the
+      // new bounds if we want to stay completely visible.
+      view->Layout();
+      ScrollRectToVisible(was_all_visible ? bounds() : visible_bounds);
+    } else {
+      Layout();
+    }
   }
 }
 

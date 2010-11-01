@@ -47,7 +47,6 @@ namespace login {
 
 // Command tag for buttons on the lock screen.
 enum Command {
-  UNLOCK,
   SIGN_OUT,
 };
 
@@ -65,8 +64,8 @@ const SkColor kTextColor = SK_ColorWHITE;
 
 // Default size of the OOBE screen. Includes 10px shadow from each side.
 // See rounded_rect_painter.cc for border definitions.
-const int kWizardScreenWidth = 700;
-const int kWizardScreenHeight = 416;
+const int kWizardScreenWidth = 800;
+const int kWizardScreenHeight = 450;
 
 const int kScreenCornerRadius = 10;
 const int kUserCornerRadius = 5;

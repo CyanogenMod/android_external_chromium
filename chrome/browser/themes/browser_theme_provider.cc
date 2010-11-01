@@ -238,6 +238,8 @@ SkColor BrowserThemeProvider::GetColor(int id) const {
       return IncreaseLightness(GetColor(COLOR_NTP_TEXT), 0.70);
     case COLOR_NTP_SECTION_HEADER_RULE_LIGHT:
       return IncreaseLightness(GetColor(COLOR_NTP_TEXT), 0.86);
+    case COLOR_NTP_TEXT_LIGHT:
+      return IncreaseLightness(GetColor(COLOR_NTP_TEXT), 0.40);
   }
 
   return GetDefaultColor(id);
@@ -572,7 +574,7 @@ void BrowserThemeProvider::LoadThemePrefs() {
 }
 
 void BrowserThemeProvider::NotifyThemeChanged(Extension* extension) {
-  LOG(INFO) << "Sending BROWSER_THEME_CHANGED";
+  VLOG(1) << "Sending BROWSER_THEME_CHANGED";
   // Redraw!
   NotificationService* service = NotificationService::current();
   service->Notify(NotificationType::BROWSER_THEME_CHANGED,
@@ -610,8 +612,8 @@ void BrowserThemeProvider::BuildFromExtension(Extension* extension) {
 
   // Write the packed file to disk.
   FilePath pack_path = extension->path().Append(chrome::kThemePackFilename);
-  ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
-                         new WritePackToDiskTask(pack, pack_path));
+  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
+                          new WritePackToDiskTask(pack, pack_path));
 
   SavePackName(pack_path);
   theme_pack_ = pack;

@@ -171,12 +171,7 @@ class SafeBrowsingService
   typedef base::hash_map<SBPrefix, GetHashRequestors> GetHashRequests;
 
   // Used for whitelisting a render view when the user ignores our warning.
-  struct WhiteListedEntry {
-    int render_process_host_id;
-    int render_view_id;
-    std::string domain;
-    UrlCheckResult result;
-  };
+  struct WhiteListedEntry;
 
   // Clients that we've queued up for checking later once the database is ready.
   struct QueuedCheck {
@@ -269,12 +264,13 @@ class SafeBrowsingService
   // Invoked on the UI thread to show the blocking page.
   void DoDisplayBlockingPage(const UnsafeResource& resource);
 
-  // Report any pages that contain malware sub-resources to the SafeBrowsing
+  // Report any pages that contain malware or phishing to the SafeBrowsing
   // service.
-  void ReportMalware(const GURL& malware_url,
-                     const GURL& page_url,
-                     const GURL& referrer_url,
-                     bool is_subresource);
+  void ReportSafeBrowsingHit(const GURL& malicious_url,
+                             const GURL& page_url,
+                             const GURL& referrer_url,
+                             bool is_subresource,
+                             UrlCheckResult threat_type);
 
   CurrentChecks checks_;
 

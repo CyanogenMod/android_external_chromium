@@ -9,9 +9,9 @@
 #include "base/scoped_temp_dir.h"
 #include "base/scoped_vector.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
+#include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extension_menu_manager.h"
-#include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/extensions/test_extension_prefs.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension.h"
@@ -331,25 +331,26 @@ TEST_F(ExtensionMenuManagerTest, ExtensionUnloadRemovesMenuItems) {
 }
 
 // A mock message service for tests of ExtensionMenuManager::ExecuteCommand.
-class MockExtensionMessageService : public ExtensionMessageService {
+class MockExtensionEventRouter : public ExtensionEventRouter {
  public:
-  explicit MockExtensionMessageService(Profile* profile) :
-      ExtensionMessageService(profile) {}
+  explicit MockExtensionEventRouter(Profile* profile) :
+      ExtensionEventRouter(profile) {}
 
-  MOCK_METHOD4(DispatchEventToRenderers, void(const std::string& event_name,
-                                              const std::string& event_args,
-                                              Profile* source_profile,
-                                              const GURL& event_url));
+  MOCK_METHOD5(DispatchEventImpl, void(const std::string& extension_id,
+                                       const std::string& event_name,
+                                       const std::string& event_args,
+                                       Profile* source_profile,
+                                       const GURL& event_url));
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(MockExtensionMessageService);
+  DISALLOW_COPY_AND_ASSIGN(MockExtensionEventRouter);
 };
 
 // A mock profile for tests of ExtensionMenuManager::ExecuteCommand.
 class MockTestingProfile : public TestingProfile {
  public:
   MockTestingProfile() {}
-  MOCK_METHOD0(GetExtensionMessageService, ExtensionMessageService*());
+  MOCK_METHOD0(GetExtensionEventRouter, ExtensionEventRouter*());
   MOCK_METHOD0(IsOffTheRecord, bool());
 
  private:
@@ -390,12 +391,12 @@ TEST_F(ExtensionMenuManagerTest, RemoveAll) {
 
 TEST_F(ExtensionMenuManagerTest, ExecuteCommand) {
   MessageLoopForUI message_loop;
-  ChromeThread ui_thread(ChromeThread::UI, &message_loop);
+  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
 
   MockTestingProfile profile;
 
-  scoped_refptr<MockExtensionMessageService> mock_message_service =
-      new MockExtensionMessageService(&profile);
+  scoped_ptr<MockExtensionEventRouter> mock_event_router(
+      new MockExtensionEventRouter(&profile));
 
   ContextMenuParams params;
   params.media_type = WebKit::WebContextMenuData::MediaTypeImage;
@@ -409,20 +410,22 @@ TEST_F(ExtensionMenuManagerTest, ExecuteCommand) {
   ExtensionMenuItem::Id id = item->id();
   ASSERT_TRUE(manager_.AddContextItem(extension, item));
 
-  EXPECT_CALL(profile, GetExtensionMessageService())
+  EXPECT_CALL(profile, GetExtensionEventRouter())
       .Times(1)
-      .WillOnce(Return(mock_message_service.get()));
+      .WillOnce(Return(mock_event_router.get()));
 
   // Use the magic of googlemock to save a parameter to our mock's
-  // DispatchEventToRenderers method into event_args.
+  // DispatchEventImpl method into event_args.
   std::string event_args;
-  std::string expected_event_name = "contextMenus/" + item->extension_id();
-  EXPECT_CALL(*mock_message_service.get(),
-              DispatchEventToRenderers(expected_event_name, _,
-                                       &profile,
-                                       GURL()))
+  std::string expected_event_name = "contextMenus";
+  EXPECT_CALL(*mock_event_router.get(),
+              DispatchEventImpl(item->extension_id(),
+                                expected_event_name,
+                                _,
+                                &profile,
+                                GURL()))
       .Times(1)
-      .WillOnce(SaveArg<1>(&event_args));
+      .WillOnce(SaveArg<2>(&event_args));
 
   manager_.ExecuteCommand(&profile, NULL /* tab_contents */, params, id);
 

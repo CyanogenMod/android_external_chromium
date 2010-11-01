@@ -6,7 +6,7 @@
 
 #include "base/singleton.h"
 #include "base/stl_util-inl.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/service/service_process_control.h"
 
@@ -18,8 +18,8 @@ ServiceProcessControlManager::~ServiceProcessControlManager() {
 }
 
 ServiceProcessControl* ServiceProcessControlManager::GetProcessControl(
-    Profile* profile, ServiceProcessType type) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+    Profile* profile) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   // TODO(hclam): We will have different service process for different types of
   // service, but now we only create a new process for a different profile.
@@ -30,7 +30,7 @@ ServiceProcessControl* ServiceProcessControlManager::GetProcessControl(
   }
 
   // Couldn't find a ServiceProcess so construct a new one.
-  ServiceProcessControl* process  = new ServiceProcessControl(profile, type);
+  ServiceProcessControl* process  = new ServiceProcessControl(profile);
   process_control_list_.push_back(process);
   return process;
 }

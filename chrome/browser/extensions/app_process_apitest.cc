@@ -23,13 +23,8 @@ static void WindowOpenHelper(Browser* browser,
                              RenderViewHost* opener_host,
                              const GURL& url,
                              bool newtab_process_should_equal_opener) {
-  bool result = false;
-  ui_test_utils::ExecuteJavaScriptAndExtractBool(
-      opener_host, L"",
-      L"window.open('" + UTF8ToWide(url.spec()) + L"');"
-      L"window.domAutomationController.send(true);",
-      &result);
-  ASSERT_TRUE(result);
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScript(
+      opener_host, L"", L"window.open('" + UTF8ToWide(url.spec()) + L"');"));
 
   // The above window.open call is not user-initiated, it will create
   // a popup window instead of a new tab in current window.
@@ -51,13 +46,13 @@ static void WindowOpenHelper(Browser* browser,
 // Simulates a page navigating itself to an URL, and waits for the navigation.
 static void NavigateTabHelper(TabContents* contents, const GURL& url) {
   bool result = false;
-  ui_test_utils::ExecuteJavaScriptAndExtractBool(
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
       contents->render_view_host(), L"",
       L"window.addEventListener('unload', function() {"
       L"    window.domAutomationController.send(true);"
       L"}, false);"
       L"window.location = '" + UTF8ToWide(url.spec()) + L"';",
-      &result);
+      &result));
   ASSERT_TRUE(result);
 
   if (!contents->controller().GetLastCommittedEntry() ||
@@ -66,7 +61,14 @@ static void NavigateTabHelper(TabContents* contents, const GURL& url) {
   EXPECT_EQ(url, contents->controller().GetLastCommittedEntry()->url());
 }
 
-IN_PROC_BROWSER_TEST_F(AppApiTest, AppProcess) {
+#if defined(OS_WIN)
+// AppProcess sometimes hangs on Windows
+// http://crbug.com/58810
+#define MAYBE_AppProcess DISABLED_AppProcess
+#else
+#define MAYBE_AppProcess AppProcess
+#endif
+IN_PROC_BROWSER_TEST_F(AppApiTest, MAYBE_AppProcess) {
   CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kDisablePopupBlocking);
 
@@ -76,7 +78,15 @@ IN_PROC_BROWSER_TEST_F(AppApiTest, AppProcess) {
   ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("app_process")));
 
   // Open two tabs in the app, one outside it.
-  GURL base_url("http://localhost:1337/files/extensions/api_test/app_process/");
+  GURL base_url = test_server()->GetURL(
+      "files/extensions/api_test/app_process/");
+
+  // The app under test acts on URLs whose host is "localhost",
+  // so the URLs we navigate to must have host "localhost".
+  GURL::Replacements replace_host;
+  replace_host.SetHostStr("localhost");
+  base_url = base_url.ReplaceComponents(replace_host);
+
   browser()->NewTab();
   ui_test_utils::NavigateToURL(browser(), base_url.Resolve("path1/empty.html"));
   browser()->NewTab();

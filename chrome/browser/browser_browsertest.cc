@@ -86,7 +86,9 @@ class MockTabStripModelObserver : public TabStripModelObserver {
  public:
   MockTabStripModelObserver() : closing_count_(0) {}
 
-  virtual void TabClosingAt(TabContents* contents, int index) {
+  virtual void TabClosingAt(TabStripModel* tab_strip_model,
+                            TabContents* contents,
+                            int index) {
     closing_count_++;
   }
 
@@ -98,43 +100,41 @@ class MockTabStripModelObserver : public TabStripModelObserver {
   DISALLOW_COPY_AND_ASSIGN(MockTabStripModelObserver);
 };
 
+// Used by CloseWithAppMenuOpen. Invokes CloseWindow on the supplied browser.
+class CloseWindowTask : public Task {
+ public:
+  explicit CloseWindowTask(Browser* browser) : browser_(browser) {}
+
+  virtual void Run() {
+    browser_->CloseWindow();
+  }
+
+ private:
+  Browser* browser_;
+
+  DISALLOW_COPY_AND_ASSIGN(CloseWindowTask);
+};
+
+// Used by CloseWithAppMenuOpen. Posts a CloseWindowTask and shows the app menu.
+class RunCloseWithAppMenuTask : public Task {
+ public:
+  explicit RunCloseWithAppMenuTask(Browser* browser) : browser_(browser) {}
+
+  virtual void Run() {
+    // ShowAppMenu is modal under views. Schedule a task that closes the window.
+    MessageLoop::current()->PostTask(FROM_HERE, new CloseWindowTask(browser_));
+    browser_->ShowAppMenu();
+  }
+
+ private:
+  Browser* browser_;
+
+  DISALLOW_COPY_AND_ASSIGN(RunCloseWithAppMenuTask);
+};
+
 }  // namespace
 
 class BrowserTest : public ExtensionBrowserTest {
- public:
-  // Used by phantom tab tests. Creates two tabs, pins the first and makes it
-  // a phantom tab (by closing it).
-  void PhantomTabTest() {
-    ASSERT_TRUE(test_server()->Start());
-    host_resolver()->AddRule("www.example.com", "127.0.0.1");
-    GURL url(test_server()->GetURL("empty.html"));
-    TabStripModel* model = browser()->tabstrip_model();
-
-    ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("app/")));
-
-    Extension* extension_app = GetExtension();
-
-    ui_test_utils::NavigateToURL(browser(), url);
-
-    TabContents* app_contents = new TabContents(browser()->profile(), NULL,
-                                                MSG_ROUTING_NONE, NULL, NULL);
-    app_contents->SetExtensionApp(extension_app);
-
-    model->AddTabContents(app_contents, 0, 0, TabStripModel::ADD_NONE);
-    model->SetTabPinned(0, true);
-    ui_test_utils::NavigateToURL(browser(), url);
-
-    // Close the first, which should make it a phantom.
-    model->CloseTabContentsAt(0, TabStripModel::CLOSE_CREATE_HISTORICAL_TAB);
-
-    // There should still be two tabs.
-    ASSERT_EQ(2, browser()->tab_count());
-    // The first tab should be a phantom.
-    EXPECT_TRUE(model->IsPhantomTab(0));
-    // And the tab contents of the first tab should have changed.
-    EXPECT_TRUE(model->GetTabContentsAt(0) != app_contents);
-  }
-
  protected:
   // In RTL locales wrap the page title with RTL embedding characters so that it
   // matches the value returned by GetWindowTitle().
@@ -155,7 +155,7 @@ class BrowserTest : public ExtensionBrowserTest {
 #endif
   }
 
-  // Returns the app extension installed by PhantomTabTest.
+  // Returns the app extension aptly named "App Test".
   Extension* GetExtension() {
     const ExtensionList* extensions =
         browser()->profile()->GetExtensionsService()->extensions();
@@ -206,11 +206,10 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_JavascriptAlertActivatesTab) {
   GURL url(ui_test_utils::GetTestUrl(FilePath(FilePath::kCurrentDirectory),
                                      FilePath(kTitle1File)));
   ui_test_utils::NavigateToURL(browser(), url);
-  Browser* browser_used = NULL;
-  browser()->AddTabWithURL(url, GURL(), PageTransition::TYPED, 0,
-                           TabStripModel::ADD_SELECTED, NULL, std::string(),
-                           &browser_used);
-  EXPECT_EQ(browser(), browser_used);
+  Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
+  params.index = 0;
+  browser()->AddTabWithURL(&params);
+  EXPECT_EQ(browser(), params.target);
   EXPECT_EQ(2, browser()->tab_count());
   EXPECT_EQ(0, browser()->selected_index());
   TabContents* second_tab = browser()->GetTabContentsAt(1);
@@ -235,11 +234,10 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, ThirtyFourTabs) {
 
   // There is one initial tab.
   for (int ix = 0; ix != 33; ++ix) {
-    Browser* browser_used = NULL;
-    browser()->AddTabWithURL(url, GURL(), PageTransition::TYPED, 0,
-                             TabStripModel::ADD_SELECTED, NULL, std::string(),
-                             &browser_used);
-    EXPECT_EQ(browser(), browser_used);
+    Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
+    params.index = 0;
+    browser()->AddTabWithURL(&params);
+    EXPECT_EQ(browser(), params.target);
   }
   EXPECT_EQ(34, browser()->tab_count());
 
@@ -418,35 +416,6 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, FaviconChange) {
   EXPECT_EQ(expected_favicon_url.spec(), entry->favicon().url().spec());
 }
 
-// TODO(sky): get these to run on a Mac.
-#if !defined(OS_MACOSX)
-IN_PROC_BROWSER_TEST_F(BrowserTest, PhantomTab) {
-  if (!browser_defaults::kPhantomTabsEnabled)
-    return;
-
-  PhantomTabTest();
-}
-
-IN_PROC_BROWSER_TEST_F(BrowserTest, RevivePhantomTab) {
-  if (!browser_defaults::kPhantomTabsEnabled)
-    return;
-
-  PhantomTabTest();
-
-  if (HasFatalFailure())
-    return;
-
-  TabStripModel* model = browser()->tabstrip_model();
-
-  // Revive the phantom tab by selecting it.
-  browser()->SelectTabContentsAt(0, true);
-
-  // There should still be two tabs.
-  ASSERT_EQ(2, browser()->tab_count());
-  // The first tab should no longer be a phantom.
-  EXPECT_FALSE(model->IsPhantomTab(0));
-}
-
 // Makes sure TabClosing is sent when uninstalling an extension that is an app
 // tab.
 IN_PROC_BROWSER_TEST_F(BrowserTest, TabClosingWhenRemovingExtension) {
@@ -482,20 +451,6 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, TabClosingWhenRemovingExtension) {
   // There should only be one tab now.
   ASSERT_EQ(1, browser()->tab_count());
 }
-
-IN_PROC_BROWSER_TEST_F(BrowserTest, AppTabRemovedWhenExtensionUninstalled) {
-  if (!browser_defaults::kPhantomTabsEnabled)
-    return;
-
-  PhantomTabTest();
-
-  Extension* extension = GetExtension();
-  UninstallExtension(extension->id());
-
-  // The uninstall should have removed the tab.
-  ASSERT_EQ(1, browser()->tab_count());
-}
-#endif  // !defined(OS_MACOSX)
 
 #if defined(OS_WIN)
 // http://crbug.com/46198. On XP/Vista, the failure rate is 5 ~ 6%.
@@ -575,7 +530,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
   PinnedTabCodec::WritePinnedTabs(browser()->profile());
 
   // Simulate launching again.
-  CommandLine dummy(CommandLine::ARGUMENTS_ONLY);
+  CommandLine dummy(CommandLine::NO_PROGRAM);
   BrowserInit::LaunchWithProfile launch(FilePath(), dummy);
   launch.profile_ = browser()->profile();
   launch.ProcessStartupURLs(std::vector<GURL>());
@@ -609,6 +564,22 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
 }
 #endif  // !defined(OS_CHROMEOS)
 
+#if defined(OS_CHROMEOS)
+// crosbug.com/7773
+#define MAYBE_CloseWithAppMenuOpen DISABLED_CloseWithAppMenuOpen
+#else
+#define MAYBE_CloseWithAppMenuOpen CloseWithAppMenuOpen
+#endif
+// This test verifies we don't crash when closing the last window and the app
+// menu is showing.
+IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_CloseWithAppMenuOpen) {
+  if (browser_defaults::kBrowserAliveWithNoWindows)
+    return;
+
+  // We need a message loop running for menus on windows.
+  MessageLoop::current()->PostTask(FROM_HERE,
+                                   new RunCloseWithAppMenuTask(browser()));
+}
 
 // TODO(ben): this test was never enabled. It has bit-rotted since being added.
 // It originally lived in browser_unittest.cc, but has been moved here to make
@@ -636,16 +607,15 @@ IN_PROC_BROWSER_TEST_F(BrowserTest2, NoTabsInPopups) {
   EXPECT_EQ(1, browser()->tab_count());
 
   // Open a popup browser with a single blank foreground tab.
-  Browser* popup_browser = browser()->CreateForPopup(browser()->profile());
+  Browser* popup_browser = browser()->CreateForType(Browser::TYPE_POPUP,
+                                                    browser()->profile());
   popup_browser->AddBlankTab(true);
   EXPECT_EQ(1, popup_browser->tab_count());
 
   // Now try opening another tab in the popup browser.
-  Browser* browser_used = NULL;
-  popup_browser->AddTabWithURL(
-      GURL(chrome::kAboutBlankURL), GURL(), PageTransition::TYPED, -1,
-      TabStripModel::ADD_SELECTED, NULL, std::string(), &browser_used);
-  EXPECT_EQ(popup_browser, browser_used);
+  AddTabWithURLParams params1(url, PageTransition::TYPED);
+  popup_browser->AddTabWithURL(&params1);
+  EXPECT_EQ(popup_browser, params1.target);
 
   // The popup should still only have one tab.
   EXPECT_EQ(1, popup_browser->tab_count());
@@ -660,10 +630,10 @@ IN_PROC_BROWSER_TEST_F(BrowserTest2, NoTabsInPopups) {
   EXPECT_EQ(1, app_browser->tab_count());
 
   // Now try opening another tab in the app browser.
-  app_browser->AddTabWithURL(
-      GURL(chrome::kAboutBlankURL), GURL(), PageTransition::TYPED, -1,
-      TabStripModel::ADD_SELECTED, NULL, std::string(), &browser_used);
-  EXPECT_EQ(app_browser, browser_used);
+  AddTabWithURLParams params2(GURL(chrome::kAboutBlankURL),
+                              PageTransition::TYPED);
+  app_browser->AddTabWithURL(&params2);
+  EXPECT_EQ(app_browser, params2.target);
 
   // The popup should still only have one tab.
   EXPECT_EQ(1, app_browser->tab_count());
@@ -678,10 +648,10 @@ IN_PROC_BROWSER_TEST_F(BrowserTest2, NoTabsInPopups) {
   EXPECT_EQ(1, app_popup_browser->tab_count());
 
   // Now try opening another tab in the app popup browser.
-  app_popup_browser->AddTabWithURL(
-      GURL(chrome::kAboutBlankURL), GURL(), PageTransition::TYPED, -1,
-      TabStripModel::ADD_SELECTED, NULL, std::string(), &browser_used);
-  EXPECT_EQ(app_popup_browser, browser_used);
+  AddTabWithURLParams params3(GURL(chrome::kAboutBlankURL),
+                              PageTransition::TYPED);
+  app_popup_browser->AddTabWithURL(&params3);
+  EXPECT_EQ(app_popup_browser, params3.target);
 
   // The popup should still only have one tab.
   EXPECT_EQ(1, app_popup_browser->tab_count());

@@ -1,13 +1,14 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/base/ssl_config_service_win.h"
 
-#include "base/registry.h"
+#include "base/win/registry.h"
 
 using base::TimeDelta;
 using base::TimeTicks;
+using base::win::RegKey;
 
 namespace net {
 
@@ -92,15 +93,30 @@ void SSLConfigServiceWin::SetRevCheckingEnabled(bool enabled) {
 
 // static
 void SSLConfigServiceWin::SetSSL2Enabled(bool enabled) {
+  SetSSLVersionEnabled(SSL2, enabled);
+}
+
+// static
+void SSLConfigServiceWin::SetSSL3Enabled(bool enabled) {
+  SetSSLVersionEnabled(SSL3, enabled);
+}
+
+// static
+void SSLConfigServiceWin::SetTLS1Enabled(bool enabled) {
+  SetSSLVersionEnabled(TLS1, enabled);
+}
+
+// static
+void SSLConfigServiceWin::SetSSLVersionEnabled(int version, bool enabled) {
   RegKey internet_settings(HKEY_CURRENT_USER, kInternetSettingsSubKeyName,
                            KEY_READ | KEY_WRITE);
   DWORD value;
   if (!internet_settings.ReadValueDW(kProtocolsValueName, &value))
     value = PROTOCOLS_DEFAULT;
   if (enabled)
-    value |= SSL2;
+    value |= version;
   else
-    value &= ~SSL2;
+    value &= ~version;
   internet_settings.WriteValue(kProtocolsValueName, value);
   // TODO(mattm): We should call UpdateConfig after updating settings, but these
   // methods are static.

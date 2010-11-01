@@ -10,14 +10,18 @@
 #include "app/sql/transaction.h"
 #include "base/basictypes.h"
 #include "base/file_util.h"
-#include "base/histogram.h"
 #include "base/logging.h"
+#include "base/metrics/histogram.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/thread.h"
+<<<<<<< HEAD
 #ifndef ANDROID
 #include "chrome/browser/chrome_thread.h"
+=======
+#include "chrome/browser/browser_thread.h"
+>>>>>>> chromium.org at r63472
 #include "chrome/browser/diagnostics/sqlite_diagnostics.h"
 #endif
 
@@ -142,9 +146,13 @@ void SQLitePersistentCookieStore::Backend::BatchOperation(
   static const int kCommitIntervalMs = 30 * 1000;
   // Commit right away if we have more than 512 outstanding operations.
   static const size_t kCommitAfterBatchSize = 512;
+<<<<<<< HEAD
 #ifndef ANDROID
   DCHECK(!ChromeThread::CurrentlyOn(ChromeThread::DB));
 #endif
+=======
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::DB));
+>>>>>>> chromium.org at r63472
 
   // We do a full copy of the cookie here, and hopefully just here.
   scoped_ptr<PendingOperation> po(new PendingOperation(op, cc));
@@ -164,29 +172,44 @@ void SQLitePersistentCookieStore::Backend::BatchOperation(
 
   if (num_pending == 1) {
     // We've gotten our first entry for this batch, fire off the timer.
+<<<<<<< HEAD
 #ifdef ANDROID
     loop->PostDelayedTask(FROM_HERE, NewRunnableMethod(
         this, &Backend::Commit), kCommitIntervalMs);
 #else
     ChromeThread::PostDelayedTask(
         ChromeThread::DB, FROM_HERE,
+=======
+    BrowserThread::PostDelayedTask(
+        BrowserThread::DB, FROM_HERE,
+>>>>>>> chromium.org at r63472
         NewRunnableMethod(this, &Backend::Commit), kCommitIntervalMs);
 #endif
   } else if (num_pending == kCommitAfterBatchSize) {
     // We've reached a big enough batch, fire off a commit now.
+<<<<<<< HEAD
 #ifdef ANDROID
     loop->PostTask(FROM_HERE, NewRunnableMethod(this, &Backend::Commit));
 #else
     ChromeThread::PostTask(
         ChromeThread::DB, FROM_HERE, NewRunnableMethod(this, &Backend::Commit));
 #endif
+=======
+    BrowserThread::PostTask(
+        BrowserThread::DB, FROM_HERE,
+        NewRunnableMethod(this, &Backend::Commit));
+>>>>>>> chromium.org at r63472
   }
 }
 
 void SQLitePersistentCookieStore::Backend::Commit() {
+<<<<<<< HEAD
 #ifndef ANDROID
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
 #endif
+=======
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
+>>>>>>> chromium.org at r63472
   PendingOperationsList ops;
   {
     AutoLock locked(pending_lock_);
@@ -277,6 +300,7 @@ void SQLitePersistentCookieStore::Backend::Commit() {
 // pending commit timer that will be holding a reference on us, but if/when
 // this fires we will already have been cleaned up and it will be ignored.
 void SQLitePersistentCookieStore::Backend::Close() {
+<<<<<<< HEAD
 #ifndef ANDROID
   DCHECK(!ChromeThread::CurrentlyOn(ChromeThread::DB));
 #endif
@@ -289,17 +313,24 @@ void SQLitePersistentCookieStore::Backend::Close() {
   loop->PostTask(FROM_HERE,
       NewRunnableMethod(this, &Backend::InternalBackgroundClose));
 #else
+=======
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::DB));
+>>>>>>> chromium.org at r63472
   // Must close the backend on the background thread.
-  ChromeThread::PostTask(
-      ChromeThread::DB, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::DB, FROM_HERE,
       NewRunnableMethod(this, &Backend::InternalBackgroundClose));
 #endif
 }
 
 void SQLitePersistentCookieStore::Backend::InternalBackgroundClose() {
+<<<<<<< HEAD
 #ifndef ANDROID
   DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
 #endif
+=======
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
+>>>>>>> chromium.org at r63472
   // Commit any pending operations
   Commit();
 

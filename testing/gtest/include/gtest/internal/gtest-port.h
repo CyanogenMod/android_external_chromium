@@ -50,6 +50,8 @@
 //   GTEST_HAS_GLOBAL_WSTRING - Define it to 1/0 to indicate that ::string
 //                              is/isn't available (some systems define
 //                              ::wstring, which is different to std::wstring).
+//   GTEST_HAS_POSIX_RE       - Define it to 1/0 to indicate that POSIX regular
+//                              expressions are/aren't available.
 //   GTEST_HAS_PTHREAD        - Define it to 1/0 to indicate that <pthread.h>
 //                              is/isn't available.
 //   GTEST_HAS_RTTI           - Define it to 1/0 to indicate that RTTI is/isn't
@@ -62,6 +64,10 @@
 //   GTEST_HAS_SEH            - Define it to 1/0 to indicate whether the
 //                              compiler supports Microsoft's "Structured
 //                              Exception Handling".
+//   GTEST_HAS_STREAM_REDIRECTION
+//                            - Define it to 1/0 to indicate whether the
+//                              platform supports I/O stream redirection using
+//                              dup() and dup2().
 //   GTEST_USE_OWN_TR1_TUPLE  - Define it to 1/0 to indicate whether Google
 //                              Test's own tr1 tuple implementation should be
 //                              used.  Unused when the user sets
@@ -107,7 +113,9 @@
 //   GTEST_HAS_PARAM_TEST   - value-parameterized tests
 //   GTEST_HAS_TYPED_TEST   - typed tests
 //   GTEST_HAS_TYPED_TEST_P - type-parameterized tests
-//   GTEST_USES_POSIX_RE    - enhanced POSIX regex is used.
+//   GTEST_USES_POSIX_RE    - enhanced POSIX regex is used. Do not confuse with
+//                            GTEST_HAS_POSIX_RE (see above) which users can
+//                            define themselves.
 //   GTEST_USES_SIMPLE_RE   - our own simple regex is used;
 //                            the above two are mutually exclusive.
 //   GTEST_CAN_COMPARE_NULL - accepts untyped NULL in EXPECT_EQ().
@@ -135,8 +143,9 @@
 //
 // Regular expressions:
 //   RE             - a simple regular expression class using the POSIX
-//                    Extended Regular Expression syntax.  Not available on
-//                    Windows.
+//                    Extended Regular Expression syntax on UNIX-like
+//                    platforms, or a reduced regular exception syntax on
+//                    other platforms, including Windows.
 //
 // Logging:
 //   GTEST_LOG_()   - logs messages at the specified severity level.
@@ -169,11 +178,13 @@
 //   Int32FromGTestEnv()  - parses an Int32 environment variable.
 //   StringFromGTestEnv() - parses a string environment variable.
 
-#include <stddef.h>  // For ptrdiff_t
+#include <ctype.h>   // for isspace, etc
+#include <stddef.h>  // for ptrdiff_t
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #ifndef _WIN32_WCE
+#include <sys/types.h>
 #include <sys/stat.h>
 #endif  // !_WIN32_WCE
 
@@ -221,27 +232,36 @@
 #define GTEST_OS_AIX 1
 #endif  // __CYGWIN__
 
-#if GTEST_OS_CYGWIN || GTEST_OS_LINUX || GTEST_OS_MAC || GTEST_OS_SYMBIAN || \
-    GTEST_OS_SOLARIS || GTEST_OS_AIX
+// Brings in definitions for functions used in the testing::internal::posix
+// namespace (read, write, close, chdir, isatty, stat). We do not currently
+// use them on Windows Mobile.
+#if !GTEST_OS_WINDOWS
+// This assumes that non-Windows OSes provide unistd.h. For OSes where this
+// is not the case, we need to include headers that provide the functions
+// mentioned above.
+#include <unistd.h>
+#include <strings.h>
+#elif !GTEST_OS_WINDOWS_MOBILE
+#include <direct.h>
+#include <io.h>
+#endif
+
+// Defines this to true iff Google Test can use POSIX regular expressions.
+#ifndef GTEST_HAS_POSIX_RE
+#define GTEST_HAS_POSIX_RE (!GTEST_OS_WINDOWS)
+#endif
+
+#if GTEST_HAS_POSIX_RE
 
 // On some platforms, <regex.h> needs someone to define size_t, and
 // won't compile otherwise.  We can #include it here as we already
 // included <stdlib.h>, which is guaranteed to define size_t through
 // <stddef.h>.
 #include <regex.h>  // NOLINT
-#include <strings.h>  // NOLINT
-#include <sys/types.h>  // NOLINT
-#include <time.h>  // NOLINT
-#include <unistd.h>  // NOLINT
 
 #define GTEST_USES_POSIX_RE 1
 
 #elif GTEST_OS_WINDOWS
-
-#if !GTEST_OS_WINDOWS_MOBILE
-#include <direct.h>  // NOLINT
-#include <io.h>  // NOLINT
-#endif
 
 // <regex.h> is not available on Windows.  Use our own simple regex
 // implementation instead.
@@ -253,8 +273,7 @@
 // simple regex implementation instead.
 #define GTEST_USES_SIMPLE_RE 1
 
-#endif  // GTEST_OS_CYGWIN || GTEST_OS_LINUX || GTEST_OS_MAC ||
-        // GTEST_OS_SYMBIAN || GTEST_OS_SOLARIS || GTEST_OS_AIX
+#endif  // GTEST_HAS_POSIX_RE
 
 #ifndef GTEST_HAS_EXCEPTIONS
 // The user didn't tell us whether exceptions are enabled, so we need
@@ -308,8 +327,7 @@
 // TODO(wan@google.com): uses autoconf to detect whether ::std::wstring
 //   is available.
 
-// Cygwin 1.5 and below doesn't support ::std::wstring.
-// Cygwin 1.7 might add wstring support; this should be updated when clear.
+// Cygwin 1.7 and below doesn't support ::std::wstring.
 // Solaris' libc++ doesn't support it either.
 #define GTEST_HAS_STD_WSTRING (!(GTEST_OS_CYGWIN || GTEST_OS_SOLARIS))
 
@@ -379,6 +397,15 @@
 #define GTEST_HAS_PTHREAD (GTEST_OS_LINUX || GTEST_OS_MAC)
 #endif  // GTEST_HAS_PTHREAD
 
+#if GTEST_HAS_PTHREAD
+// gtest-port.h guarantees to #include <pthread.h> when GTEST_HAS_PTHREAD is
+// true.
+#include <pthread.h>  // NOLINT
+
+// For timespec and nanosleep, used below.
+#include <time.h>  // NOLINT
+#endif
+
 // Determines whether Google Test can use tr1/tuple.  You can define
 // this macro to 0 to prevent Google Test from using tuple (any
 // feature depending on tuple with be disabled in this mode).
@@ -414,7 +441,7 @@
 #if GTEST_HAS_TR1_TUPLE
 
 #if GTEST_USE_OWN_TR1_TUPLE
-#include <gtest/internal/gtest-tuple.h>
+#include "gtest/internal/gtest-tuple.h"
 #elif GTEST_OS_SYMBIAN
 
 // On Symbian, BOOST_HAS_TR1_TUPLE causes Boost's TR1 tuple library to
@@ -474,9 +501,15 @@
 
 // Determines whether to support stream redirection. This is used to test
 // output correctness and to implement death tests.
-#if !GTEST_OS_WINDOWS_MOBILE && !GTEST_OS_SYMBIAN
-#define GTEST_HAS_STREAM_REDIRECTION_ 1
+#ifndef GTEST_HAS_STREAM_REDIRECTION
+// By default, we assume that stream redirection is supported on all
+// platforms except known mobile ones.
+#if GTEST_OS_WINDOWS_MOBILE || GTEST_OS_SYMBIAN
+#define GTEST_HAS_STREAM_REDIRECTION 0
+#else
+#define GTEST_HAS_STREAM_REDIRECTION 1
 #endif  // !GTEST_OS_WINDOWS_MOBILE && !GTEST_OS_SYMBIAN
+#endif  // GTEST_HAS_STREAM_REDIRECTION
 
 // Determines whether to support death tests.
 // Google Test does not support death tests for VC 7.1 and earlier as
@@ -516,6 +549,11 @@
 #define GTEST_WIDE_STRING_USES_UTF16_ \
     (GTEST_OS_WINDOWS || GTEST_OS_CYGWIN || GTEST_OS_SYMBIAN || GTEST_OS_AIX)
 
+// Determines whether test results can be streamed to a socket.
+#if GTEST_OS_LINUX
+#define GTEST_CAN_STREAM_RESULTS_ 1
+#endif
+
 // Defines some utility macros.
 
 // The GNU compiler emits a warning if nested "if" statements are followed by
@@ -529,7 +567,7 @@
 #ifdef __INTEL_COMPILER
 #define GTEST_AMBIGUOUS_ELSE_BLOCKER_
 #else
-#define GTEST_AMBIGUOUS_ELSE_BLOCKER_ switch (0) case 0:  // NOLINT
+#define GTEST_AMBIGUOUS_ELSE_BLOCKER_ switch (0) case 0: default:  // NOLINT
 #endif
 
 // Use this annotation at the end of a struct/class definition to
@@ -693,8 +731,6 @@ typedef ::wstring wstring;
 #elif GTEST_HAS_STD_WSTRING
 typedef ::std::wstring wstring;
 #endif  // GTEST_HAS_GLOBAL_WSTRING
-
-typedef ::std::stringstream StrStream;
 
 // A helper for suppressing warnings on constant condition.  It just
 // returns 'condition'.
@@ -942,7 +978,7 @@ Derived* CheckedDowncastToActualType(Base* base) {
 #endif
 }
 
-#if GTEST_HAS_STREAM_REDIRECTION_
+#if GTEST_HAS_STREAM_REDIRECTION
 
 // Defines the stderr capturer:
 //   CaptureStdout     - starts capturing stdout.
@@ -955,7 +991,7 @@ GTEST_API_ String GetCapturedStdout();
 GTEST_API_ void CaptureStderr();
 GTEST_API_ String GetCapturedStderr();
 
-#endif  // GTEST_HAS_STREAM_REDIRECTION_
+#endif  // GTEST_HAS_STREAM_REDIRECTION
 
 
 #if GTEST_HAS_DEATH_TEST
@@ -1088,10 +1124,6 @@ class ThreadWithParam : public ThreadWithParamBase {
 
   GTEST_DISALLOW_COPY_AND_ASSIGN_(ThreadWithParam);
 };
-
-// gtest-port.h guarantees to #include <pthread.h> when GTEST_HAS_PTHREAD is
-// true.
-#include <pthread.h>
 
 // MutexBase and Mutex implement mutex on pthreads-based platforms. They
 // are used in conjunction with class MutexLock:
@@ -1396,6 +1428,39 @@ typedef __int64 BiggestInt;
 #define GTEST_HAS_ALT_PATH_SEP_ 0
 typedef long long BiggestInt;  // NOLINT
 #endif  // GTEST_OS_WINDOWS
+
+// Utilities for char.
+
+// isspace(int ch) and friends accept an unsigned char or EOF.  char
+// may be signed, depending on the compiler (or compiler flags).
+// Therefore we need to cast a char to unsigned char before calling
+// isspace(), etc.
+
+inline bool IsAlpha(char ch) {
+  return isalpha(static_cast<unsigned char>(ch)) != 0;
+}
+inline bool IsAlNum(char ch) {
+  return isalnum(static_cast<unsigned char>(ch)) != 0;
+}
+inline bool IsDigit(char ch) {
+  return isdigit(static_cast<unsigned char>(ch)) != 0;
+}
+inline bool IsLower(char ch) {
+  return islower(static_cast<unsigned char>(ch)) != 0;
+}
+inline bool IsSpace(char ch) {
+  return isspace(static_cast<unsigned char>(ch)) != 0;
+}
+inline bool IsUpper(char ch) {
+  return isupper(static_cast<unsigned char>(ch)) != 0;
+}
+
+inline char ToLower(char ch) {
+  return static_cast<char>(tolower(static_cast<unsigned char>(ch)));
+}
+inline char ToUpper(char ch) {
+  return static_cast<char>(toupper(static_cast<unsigned char>(ch)));
+}
 
 // The testing::internal::posix namespace holds wrappers for common
 // POSIX functions.  These wrappers hide the differences between

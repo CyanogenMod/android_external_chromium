@@ -107,6 +107,9 @@ class WriteTransaction;
 // This encompasses all pieces required to build transaction objects on the
 // syncable share.
 struct UserShare {
+  UserShare();
+  ~UserShare();
+
   // The DirectoryManager itself, which is the parent of Transactions and can
   // be shared across multiple threads (unlike Directory).
   scoped_ptr<syncable::DirectoryManager> dir_manager;
@@ -574,7 +577,9 @@ class SyncManager {
       ACTION_DELETE,
       ACTION_UPDATE,
     };
-    ChangeRecord() : id(kInvalidId), action(ACTION_ADD) {}
+    ChangeRecord();
+    ~ChangeRecord();
+
     int64 id;
     Action action;
     sync_pb::EntitySpecifics specifics;
@@ -585,9 +590,9 @@ class SyncManager {
   // access to unencrypted bits.
   class ExtraPasswordChangeRecordData : public ExtraChangeRecordData {
    public:
-    ExtraPasswordChangeRecordData(const sync_pb::PasswordSpecificsData& data)
-        : unencrypted_(data) {}
-    virtual ~ExtraPasswordChangeRecordData() {}
+    explicit ExtraPasswordChangeRecordData(
+        const sync_pb::PasswordSpecificsData& data);
+    virtual ~ExtraPasswordChangeRecordData();
     const sync_pb::PasswordSpecificsData& unencrypted() {
       return unencrypted_;
     }

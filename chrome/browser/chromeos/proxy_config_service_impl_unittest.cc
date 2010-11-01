@@ -12,7 +12,7 @@
 #include "base/logging.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "net/proxy/proxy_config_service_common_unittest.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -222,13 +222,14 @@ const struct {
 class ProxyConfigServiceImplTest : public PlatformTest {
  protected:
   ProxyConfigServiceImplTest()
-      : ui_thread_(ChromeThread::UI, &message_loop_),
-        io_thread_(ChromeThread::IO, &message_loop_) {
+      : ui_thread_(BrowserThread::UI, &message_loop_),
+        io_thread_(BrowserThread::IO, &message_loop_) {
     chromeos::CrosLibrary::Get()->GetTestApi()->SetUseStubImpl();
   }
 
   virtual ~ProxyConfigServiceImplTest() {
     config_service_ = NULL;
+    chromeos::CrosLibrary::Get()->GetTestApi()->ResetUseStubImpl();
     MessageLoop::current()->RunAllPending();
   }
 
@@ -311,8 +312,8 @@ class ProxyConfigServiceImplTest : public PlatformTest {
 
  private:
   MessageLoop message_loop_;
-  ChromeThread ui_thread_;
-  ChromeThread io_thread_;
+  BrowserThread ui_thread_;
+  BrowserThread io_thread_;
 
   scoped_refptr<ProxyConfigServiceImpl> config_service_;
 };

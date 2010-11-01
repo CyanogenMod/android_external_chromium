@@ -4,6 +4,7 @@
 
 #include "chrome/browser/prefs/browser_prefs.h"
 
+#include "chrome/browser/about_flags.h"
 #include "chrome/browser/autofill/autofill_manager.h"
 #include "chrome/browser/background_contents_service.h"
 #include "chrome/browser/background_mode_manager.h"
@@ -11,7 +12,7 @@
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/debugger/devtools_manager.h"
-#include "chrome/browser/dom_ui/labs_ui.h"
+#include "chrome/browser/dom_ui/flags_ui.h"
 #include "chrome/browser/dom_ui/new_tab_ui.h"
 #include "chrome/browser/dom_ui/plugins_ui.h"
 #include "chrome/browser/download/download_prefs.h"
@@ -22,23 +23,25 @@
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
 #include "chrome/browser/geolocation/geolocation_prefs.h"
 #include "chrome/browser/google/google_url_tracker.h"
-#include "chrome/browser/gtk/certificate_manager.h"
 #include "chrome/browser/host_content_settings_map.h"
 #include "chrome/browser/host_zoom_map.h"
 #include "chrome/browser/intranet_redirect_detector.h"
-#include "chrome/browser/labs.h"
+#include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/metrics/metrics_log.h"
 #include "chrome/browser/metrics/metrics_service.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/net/predictor_api.h"
+#include "chrome/browser/net/net_pref_observer.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/page_info_model.h"
 #include "chrome/browser/password_manager/password_manager.h"
 #include "chrome/browser/prefs/session_startup_pref.h"
+#include "chrome/browser/profile_impl.h"
 #include "chrome/browser/renderer_host/browser_render_process_host.h"
 #include "chrome/browser/renderer_host/web_cache_manager.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/search_engines/keyword_editor_controller.h"
+#include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/search_engines/template_url_prepopulate_data.h"
 #include "chrome/browser/ssl/ssl_manager.h"
 #include "chrome/browser/sync/signin_manager.h"
@@ -63,7 +66,7 @@
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/preferences.h"
-#include "chrome/browser/chromeos/status/language_menu_button.h"
+#include "chrome/browser/chromeos/status/input_method_menu_button.h"
 #endif
 
 namespace browser {
@@ -98,7 +101,7 @@ void RegisterLocalState(PrefService* local_state) {
   chromeos::UserManager::RegisterPrefs(local_state);
   chromeos::UserCrosSettingsProvider::RegisterPrefs(local_state);
   WizardController::RegisterPrefs(local_state);
-  chromeos::LanguageMenuButton::RegisterPrefs(local_state);
+  chromeos::InputMethodMenuButton::RegisterPrefs(local_state);
   chromeos::ApplyServicesCustomization::RegisterPrefs(local_state);
 #endif
 }
@@ -117,10 +120,10 @@ void RegisterUserPrefs(PrefService* user_prefs) {
   TemplateURLPrepopulateData::RegisterUserPrefs(user_prefs);
   ExtensionDOMUI::RegisterUserPrefs(user_prefs);
   ExtensionsUI::RegisterUserPrefs(user_prefs);
-  if (about_labs::IsEnabled())
-    LabsUI::RegisterUserPrefs(user_prefs);
+  FlagsUI::RegisterUserPrefs(user_prefs);
   NewTabUI::RegisterUserPrefs(user_prefs);
   PluginsUI::RegisterUserPrefs(user_prefs);
+  ProfileImpl::RegisterUserPrefs(user_prefs);
   HostContentSettingsMap::RegisterUserPrefs(user_prefs);
   HostZoomMap::RegisterUserPrefs(user_prefs);
   DevToolsManager::RegisterUserPrefs(user_prefs);
@@ -134,13 +137,15 @@ void RegisterUserPrefs(PrefService* user_prefs) {
   BrowserActionsContainer::RegisterUserPrefs(user_prefs);
 #elif defined(TOOLKIT_GTK)
   BrowserWindowGtk::RegisterUserPrefs(user_prefs);
-  certificate_manager_util::RegisterUserPrefs(user_prefs);
 #endif
 #if defined(OS_CHROMEOS)
   chromeos::Preferences::RegisterUserPrefs(user_prefs);
 #endif
   BackgroundContentsService::RegisterUserPrefs(user_prefs);
   SigninManager::RegisterUserPrefs(user_prefs);
+  TemplateURLModel::RegisterUserPrefs(user_prefs);
+  InstantController::RegisterUserPrefs(user_prefs);
+  NetPrefObserver::RegisterPrefs(user_prefs);
 }
 
 }  // namespace browser

@@ -30,7 +30,7 @@
 
 namespace cricket {
 
-// TODO(pthatcher): according to thaloun, HAVE_GIPSVIDEO will always
+// TODO: according to thaloun, HAVE_GIPSVIDEO will always
 // be false, so we can get rid of it.
 
 MediaEngine* MediaEngine::Create(

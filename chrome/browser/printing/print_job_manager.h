@@ -29,6 +29,10 @@ class PrintJobManager : public NotificationObserver {
   // On browser quit, we should wait to have the print job finished.
   void OnQuit();
 
+  // Stops all printing jobs. If wait_for_finish is true, tries to give jobs
+  // a chance to complete before stopping them.
+  void StopJobs(bool wait_for_finish);
+
   // Queues a semi-initialized worker thread. Can be called from any thread.
   // Current use case is queuing from the I/O thread.
   // TODO(maruel):  Have them vanish after a timeout (~5 minutes?)
@@ -43,6 +47,10 @@ class PrintJobManager : public NotificationObserver {
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
+  bool printing_enabled();
+
+  void set_printing_enabled(bool printing_enabled);
+
  private:
   typedef std::vector<scoped_refptr<PrintJob> > PrintJobs;
   typedef std::vector<scoped_refptr<PrinterQuery> > PrinterQueries;
@@ -56,10 +64,19 @@ class PrintJobManager : public NotificationObserver {
   // Used to serialize access to queued_workers_.
   Lock lock_;
 
+  // Used to serialize access to printing_enabled_
+  Lock enabled_lock_;
+
   PrinterQueries queued_queries_;
 
   // Current print jobs that are active.
   PrintJobs current_jobs_;
+
+  // Printing is enabled/disabled. This variable is checked at only one place,
+  // by ResourceMessageFilter::OnGetDefaultPrintSettings. If its value is true
+  // at that point, then the initiated print flow will complete itself,
+  // even if the value of this variable changes afterwards.
+  bool printing_enabled_;
 
   DISALLOW_COPY_AND_ASSIGN(PrintJobManager);
 };

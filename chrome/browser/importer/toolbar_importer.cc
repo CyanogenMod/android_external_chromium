@@ -12,7 +12,7 @@
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/importer/importer_bridge.h"
 #include "chrome/browser/importer/importer_data_types.h"
@@ -43,7 +43,7 @@ bool toolbar_importer_utils::IsGoogleGAIACookieInstalled() {
   options.set_include_httponly();  // The SID cookie might be httponly.
   std::string cookies = store->GetCookiesWithOptions(url, options);
   std::vector<std::string> cookie_list;
-  SplitString(cookies, kSplitStringToken, &cookie_list);
+  base::SplitString(cookies, kSplitStringToken, &cookie_list);
   for (std::vector<std::string>::iterator current = cookie_list.begin();
        current != cookie_list.end();
        ++current) {
@@ -123,11 +123,11 @@ void Toolbar5Importer::Cancel() {
 
   // If we are conducting network operations, post a message to the importer
   // thread for synchronization.
-  if (ChromeThread::CurrentlyOn(ChromeThread::UI)) {
+  if (BrowserThread::CurrentlyOn(BrowserThread::UI)) {
     EndImport();
   } else {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(this, &Toolbar5Importer::Cancel));
   }
 }
@@ -206,7 +206,8 @@ void Toolbar5Importer::EndImport() {
       data_fetcher_ = NULL;
     }
 
-    bridge_->NotifyEnded();
+    if (bridge_)
+      bridge_->NotifyEnded();
   }
 }
 
@@ -580,7 +581,7 @@ bool Toolbar5Importer::ExtractFoldersFromXmlReader(
     // IE or Firefox folder.  We undo the label creation and recreate the
     // correct folder.
     std::vector<std::wstring> folder_names;
-    SplitString(label_vector[index], L':', &folder_names);
+    base::SplitString(label_vector[index], L':', &folder_names);
     (*bookmark_folders)[index].insert((*bookmark_folders)[index].end(),
         folder_names.begin(), folder_names.end());
   }

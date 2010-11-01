@@ -191,6 +191,14 @@ class SyncBackendHost : public browser_sync::ModelSafeWorkerRegistrar {
   // ONLY CALL THIS IF OnInitializationComplete was called!
   bool HasUnsyncedItems() const;
 
+  // Whether or not we are syncing encryption keys.
+  bool IsNigoriEnabled() const;
+
+  // True if the cryptographer has any keys available to attempt decryption.
+  // Could mean we've downloaded and loaded Nigori objects, or we bootstrapped
+  // using a token previously received.
+  bool IsCryptographerReady() const;
+
  protected:
   // The real guts of SyncBackendHost, to keep the public client API clean.
   class Core : public base::RefCountedThreadSafe<SyncBackendHost::Core>,
@@ -238,13 +246,10 @@ class SyncBackendHost : public browser_sync::ModelSafeWorkerRegistrar {
             setup_for_test_mode(setup_for_test_mode) {}
 
       GURL service_url;
-      bool attempt_last_user_authentication;
       sync_api::HttpPostProviderFactory* http_bridge_factory;
       sync_api::SyncCredentials credentials;
       std::string lsid;
       bool delete_sync_data_folder;
-      bool invalidate_sync_login;
-      bool invalidate_sync_xmpp_login;
       notifier::NotifierOptions notifier_options;
       std::string restored_key_for_bootstrapping;
       bool setup_for_test_mode;
@@ -466,7 +471,7 @@ class SyncBackendHost : public browser_sync::ModelSafeWorkerRegistrar {
   // pointer value", and then invoke methods), because lifetimes are managed on
   // the UI thread.  Of course, this comment only applies to ModelSafeWorker
   // impls that are themselves thread-safe, such as UIModelWorker.
-  Lock registrar_lock_;
+  mutable Lock registrar_lock_;
 
   // The frontend which we serve (and are owned by).
   SyncFrontend* frontend_;

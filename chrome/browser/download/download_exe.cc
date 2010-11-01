@@ -57,6 +57,30 @@ namespace download_util {
  * ***** END LICENSE BLOCK ***** */
 
 static const char* const g_executables[] = {
+  "class",
+  "htm",
+  "html",
+  "jar",
+  "pdf",
+  "pdfxml",
+  "mars",
+  "fdf",
+  "xfdf",
+  "xdp",
+  "xfd",
+  "pl",
+  "py",
+  "rb",
+  "shtm",
+  "shtml",
+  "svg",
+  "swf",
+  "xht",
+  "xhtm",
+  "xhtml",
+  "xml",
+  "xsl",
+  "xslt",
 #if defined(OS_WIN)
   "ad",
   "ade",
@@ -77,13 +101,10 @@ static const char* const g_executables[] = {
   "fxp",
   "hlp",
   "hta",
-  "htm",
-  "html",
   "htt",
   "inf",
   "ins",
   "isp",
-  "jar",
   "js",
   "jse",
   "lnk",
@@ -126,9 +147,6 @@ static const char* const g_executables[] = {
   "sct",
   "shb",
   "shs",
-  "shtm",
-  "shtml",
-  "svg",
   "url",
   "vb",
   "vbe",
@@ -143,14 +161,9 @@ static const char* const g_executables[] = {
   "wsf",
   "wsh",
   "xbap",
-  "xht",
-  "xhtm",
-  "xhtml",
-  "xml",
-  "xsl",
-  "xslt",
 #elif defined(OS_MACOSX)
   // TODO(thakis): Figure out what makes sense here -- crbug.com/19096
+  "app",
   "dmg",
 #elif defined(OS_POSIX)
   // TODO(estade): lengthen this list.
@@ -159,9 +172,6 @@ static const char* const g_executables[] = {
   "deb",
   "exe",
   "ksh",
-  "pl",
-  "py",
-  "rb",
   "rpm",
   "sh",
   "tcsh",
@@ -198,9 +208,11 @@ static const char* kExecutableWhiteList[] = {
   // JavaScript is just as powerful as EXE.
   "text/javascript",
   "text/javascript;version=*",
+  "text/html",
   // Registry files can cause critical changes to the MS OS behavior.
   // Addition of this mimetype also addresses bug 7337.
   "text/x-registry",
+  "text/x-sh",
   // Some sites use binary/octet-stream to mean application/octet-stream.
   // See http://code.google.com/p/chromium/issues/detail?id=1573
   "binary/octet-stream"

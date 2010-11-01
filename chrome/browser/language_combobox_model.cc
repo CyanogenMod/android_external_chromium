@@ -32,6 +32,8 @@ LanguageList::LanguageList(
   InitNativeNames(locale_codes);
 }
 
+LanguageList::~LanguageList() {}
+
 void LanguageList::InitNativeNames(
     const std::vector<std::string>& locale_codes) {
   const std::string app_locale = g_browser_process->GetApplicationLocale();
@@ -60,7 +62,7 @@ void LanguageList::InitNativeNames(
 void LanguageList::CopySpecifiedLanguagesUp(const std::string& locale_codes) {
   DCHECK(!locale_names_.empty());
   std::vector<std::string> locale_codes_vector;
-  SplitString(locale_codes, ',', &locale_codes_vector);
+  base::SplitString(locale_codes, ',', &locale_codes_vector);
   for (size_t i = 0; i != locale_codes_vector.size(); i++) {
     const int locale_index = GetIndexFromLocale(locale_codes_vector[i]);
     CHECK_NE(locale_index, -1);
@@ -151,6 +153,8 @@ LanguageComboboxModel::LanguageComboboxModel(
     : LanguageList(locale_codes),
       profile_(profile) {
 }
+
+LanguageComboboxModel::~LanguageComboboxModel() {}
 
 int LanguageComboboxModel::GetItemCount() {
   return get_languages_count();

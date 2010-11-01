@@ -13,7 +13,7 @@
 #include "base/file_path.h"
 #include "base/lock.h"
 #include "base/ref_counted.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/search_engines/template_url_id.h"
 #ifdef ANDROID
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -75,7 +75,7 @@ typedef enum {
   AUTOFILL_VALUE_RESULT,       // WDResult<std::vector<string16>>
   AUTOFILL_CHANGES,            // WDResult<std::vector<AutofillChange>>
   AUTOFILL_PROFILE_RESULT,     // WDResult<AutoFillProfile>
-  AUTOFILL_PROFILES_RESULT,     // WDResult<std::vector<AutoFillProfile*>>
+  AUTOFILL_PROFILES_RESULT,    // WDResult<std::vector<AutoFillProfile*>>
   AUTOFILL_CREDITCARD_RESULT,  // WDResult<CreditCard>
   AUTOFILL_CREDITCARDS_RESULT  // WDResult<std::vector<CreditCard*>>
 } WDResultType;
@@ -95,6 +95,9 @@ struct WDAppImagesResult {
 };
 
 struct WDKeywordsResult {
+  WDKeywordsResult();
+  ~WDKeywordsResult();
+
   std::vector<TemplateURL*> keywords;
   // Identifies the ID of the TemplateURL that is the default search. A value of
   // 0 indicates there is no default search provider.
@@ -164,7 +167,7 @@ class WebDataServiceConsumer;
 
 class WebDataService
     : public base::RefCountedThreadSafe<WebDataService,
-                                        ChromeThread::DeleteOnUIThread> {
+                                        BrowserThread::DeleteOnUIThread> {
  public:
   // All requests return an opaque handle of the following type.
   typedef int Handle;
@@ -446,7 +449,13 @@ class WebDataService
 
   // Schedules a task to remove an AutoFill profile from the web database.
   // |profile_id| is the unique ID of the profile to remove.
+  // DEPRECATED
+  // TODO(dhollowa): Remove unique IDs.  http://crbug.com/58813
   void RemoveAutoFillProfile(int profile_id);
+
+  // Schedules a task to remove an AutoFill profile from the web database.
+  // |guid| is the identifer of the profile to remove.
+  void RemoveAutoFillProfile(const std::string& guid);
 
   // Initiates the request for all AutoFill profiles.  The method
   // OnWebDataServiceRequestDone of |consumer| gets called when the request is
@@ -462,13 +471,24 @@ class WebDataService
 
   // Schedules a task to remove a credit card from the web database.
   // |creditcard_id| is the unique ID of the credit card to remove.
+  // DEPRECATED
+  // TODO(dhollowa): Remove unique IDs.  http://crbug.com/58813
   void RemoveCreditCard(int creditcard_id);
+
+  // Schedules a task to remove a credit card from the web database.
+  // |guid| is identifer of the credit card to remove.
+  void RemoveCreditCard(const std::string& guid);
 
   // Initiates the request for all credit cards.  The method
   // OnWebDataServiceRequestDone of |consumer| gets called when the request is
   // finished, with the credit cards included in the argument |result|.  The
   // consumer owns the credit cards.
   Handle GetCreditCards(WebDataServiceConsumer* consumer);
+
+  // Removes AutoFill records from the database.
+  void RemoveAutoFillProfilesAndCreditCardsModifiedBetween(
+      const base::Time& delete_begin,
+      const base::Time& delete_end);
 
   // Testing
 #ifdef UNIT_TEST
@@ -499,7 +519,7 @@ class WebDataService
   //////////////////////////////////////////////////////////////////////////////
  private:
   friend class base::RefCountedThreadSafe<WebDataService>;
-  friend class ChromeThread;
+  friend class BrowserThread;
   friend class DeleteTask<WebDataService>;
   friend class ShutdownTask;
 
@@ -597,12 +617,18 @@ class WebDataService
       GenericRequest2<string16, string16>* request);
   void AddAutoFillProfileImpl(GenericRequest<AutoFillProfile>* request);
   void UpdateAutoFillProfileImpl(GenericRequest<AutoFillProfile>* request);
+  // TODO(dhollowa): Remove unique IDs.  http://crbug.com/58813
   void RemoveAutoFillProfileImpl(GenericRequest<int>* request);
+  void RemoveAutoFillProfileGUIDImpl(GenericRequest<std::string>* request);
   void GetAutoFillProfilesImpl(WebDataRequest* request);
   void AddCreditCardImpl(GenericRequest<CreditCard>* request);
   void UpdateCreditCardImpl(GenericRequest<CreditCard>* request);
+  // TODO(dhollowa): Remove unique IDs.  http://crbug.com/58813
   void RemoveCreditCardImpl(GenericRequest<int>* request);
+  void RemoveCreditCardGUIDImpl(GenericRequest<std::string>* request);
   void GetCreditCardsImpl(WebDataRequest* request);
+  void RemoveAutoFillProfilesAndCreditCardsModifiedBetweenImpl(
+      GenericRequest2<base::Time, base::Time>* request);
 
   // True once initialization has started.
   bool is_running_;

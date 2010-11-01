@@ -14,8 +14,8 @@
 #include "base/values.h"
 #include "base/waitable_event.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chrome_plugin_host.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/plugin_process_host.h"
 #include "chrome/browser/plugin_updater.h"
@@ -40,10 +40,15 @@
 #endif
 #include "webkit/glue/plugins/plugin_constants_win.h"
 #include "webkit/glue/plugins/plugin_list.h"
+#include "webkit/glue/plugins/webplugininfo.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/plugin_selection_policy.h"
+#endif
 
 #if defined(OS_MACOSX)
 static void NotifyPluginsOfActivation() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   for (BrowserChildProcessHost::Iterator iter(ChildProcessInfo::PLUGIN_PROCESS);
        !iter.Done(); ++iter) {
@@ -56,16 +61,24 @@ static void NotifyPluginsOfActivation() {
 // static
 bool PluginService::enable_chrome_plugins_ = true;
 
+void LoadPluginsFromDiskHook() {
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::UI) &&
+         !BrowserThread::CurrentlyOn(BrowserThread::IO)) <<
+         "Can't load plugins on the IO/UI threads since it's very slow.";
+}
+
 // static
 void PluginService::InitGlobalInstance(Profile* profile) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
+  NPAPI::PluginList::Singleton()->SetPluginLoadHook(LoadPluginsFromDiskHook);
 
   // We first group the plugins and then figure out which groups to disable.
   PluginUpdater::GetPluginUpdater()->DisablePluginGroupsFromPrefs(profile);
 
   if (CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kDisableOutdatedPlugins)) {
-    PluginUpdater::GetPluginUpdater()->DisableOutdatedPluginGroups();
+    NPAPI::PluginList::Singleton()->DisableOutdatedPluginGroups();
   }
 
   // Have Chrome plugins write their data to the profile directory.
@@ -115,6 +128,11 @@ PluginService::PluginService()
   }
 #endif
 
+#if defined(OS_CHROMEOS)
+  plugin_selection_policy_ = new chromeos::PluginSelectionPolicy;
+  plugin_selection_policy_->StartInit();
+#endif
+
   chrome::RegisterInternalGPUPlugin();
 
 #if defined(OS_WIN)
@@ -151,6 +169,8 @@ PluginService::PluginService()
   registrar_.Add(this, NotificationType::APP_ACTIVATED,
                  NotificationService::AllSources());
 #endif
+  registrar_.Add(this, NotificationType::PLUGIN_ENABLE_STATUS_CHANGED,
+                 NotificationService::AllSources());
 }
 
 PluginService::~PluginService() {
@@ -186,7 +206,7 @@ const std::string& PluginService::GetUILocale() {
 
 PluginProcessHost* PluginService::FindPluginProcess(
     const FilePath& plugin_path) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   if (plugin_path.value().empty()) {
     NOTREACHED() << "should only be called if we have a plugin to load";
@@ -205,7 +225,7 @@ PluginProcessHost* PluginService::FindPluginProcess(
 
 PluginProcessHost* PluginService::FindOrStartPluginProcess(
     const FilePath& plugin_path) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   PluginProcessHost *plugin_host = FindPluginProcess(plugin_path);
   if (plugin_host)
@@ -233,16 +253,44 @@ void PluginService::OpenChannelToPlugin(
     ResourceMessageFilter* renderer_msg_filter,
     const GURL& url,
     const std::string& mime_type,
-    const std::string& locale,
     IPC::Message* reply_msg) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
-  bool allow_wildcard = true;
+  // The PluginList::GetFirstAllowedPluginInfo may need to load the
+  // plugins.  Don't do it on the IO thread.
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
+      NewRunnableMethod(
+          this, &PluginService::GetAllowedPluginForOpenChannelToPlugin,
+          make_scoped_refptr(renderer_msg_filter), url, mime_type, reply_msg));
+}
+
+void PluginService::GetAllowedPluginForOpenChannelToPlugin(
+    ResourceMessageFilter* renderer_msg_filter,
+    const GURL& url,
+    const std::string& mime_type,
+    IPC::Message* reply_msg) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
   WebPluginInfo info;
+  bool found = GetFirstAllowedPluginInfo(url, mime_type, &info, NULL);
   FilePath plugin_path;
-  if (NPAPI::PluginList::Singleton()->GetPluginInfo(
-      url, mime_type, allow_wildcard, &info, NULL) && info.enabled) {
-    plugin_path = info.path;
-  }
+  if (found && info.enabled)
+    plugin_path = FilePath(info.path);
+
+  // Now we jump back to the IO thread to finish opening the channel.
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
+      NewRunnableMethod(
+          this, &PluginService::FinishOpenChannelToPlugin,
+          make_scoped_refptr(renderer_msg_filter), mime_type, plugin_path,
+          reply_msg));
+}
+
+void PluginService::FinishOpenChannelToPlugin(
+    ResourceMessageFilter* renderer_msg_filter,
+    const std::string& mime_type,
+    const FilePath& plugin_path,
+    IPC::Message* reply_msg) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+
   PluginProcessHost* plugin_host = FindOrStartPluginProcess(plugin_path);
   if (plugin_host) {
     plugin_host->OpenChannelToPlugin(renderer_msg_filter, mime_type, reply_msg);
@@ -250,6 +298,37 @@ void PluginService::OpenChannelToPlugin(
     PluginProcessHost::ReplyToRenderer(
         renderer_msg_filter, IPC::ChannelHandle(), WebPluginInfo(), reply_msg);
   }
+}
+
+bool PluginService::GetFirstAllowedPluginInfo(
+    const GURL& url,
+    const std::string& mime_type,
+    WebPluginInfo* info,
+    std::string* actual_mime_type) {
+  // GetPluginInfoArray may need to load the plugins, so we need to be
+  // on the FILE thread.
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  bool allow_wildcard = true;
+#if defined(OS_CHROMEOS)
+  std::vector<WebPluginInfo> info_array;
+  std::vector<std::string> actual_mime_types;
+  NPAPI::PluginList::Singleton()->GetPluginInfoArray(
+      url, mime_type, allow_wildcard, &info_array, &actual_mime_types);
+
+  // Now we filter by the plugin selection policy.
+  int allowed_index = plugin_selection_policy_->FindFirstAllowed(url,
+                                                                 info_array);
+  if (!info_array.empty() && allowed_index >= 0) {
+    *info = info_array[allowed_index];
+    if (actual_mime_type)
+      *actual_mime_type = actual_mime_types[allowed_index];
+    return true;
+  }
+  return false;
+#else
+  return NPAPI::PluginList::Singleton()->GetPluginInfo(
+      url, mime_type, allow_wildcard, info, actual_mime_type);
+#endif
 }
 
 static void PurgePluginListCache(bool reload_pages) {
@@ -305,9 +384,9 @@ void PluginService::Observe(NotificationType type,
       bool plugins_changed = false;
       for (size_t i = 0; i < extension->plugins().size(); ++i) {
         const Extension::PluginInfo& plugin = extension->plugins()[i];
-        ChromeThread::PostTask(ChromeThread::IO, FROM_HERE,
-                               NewRunnableFunction(&ForceShutdownPlugin,
-                                                   plugin.path));
+        BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
+                                NewRunnableFunction(&ForceShutdownPlugin,
+                                                    plugin.path));
         NPAPI::PluginList::Singleton()->RefreshPlugins();
         NPAPI::PluginList::Singleton()->RemoveExtraPluginPath(plugin.path);
         plugins_changed = true;
@@ -321,12 +400,16 @@ void PluginService::Observe(NotificationType type,
 
 #if defined(OS_MACOSX)
     case NotificationType::APP_ACTIVATED: {
-      ChromeThread::PostTask(ChromeThread::IO, FROM_HERE,
-                             NewRunnableFunction(&NotifyPluginsOfActivation));
+      BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
+                              NewRunnableFunction(&NotifyPluginsOfActivation));
       break;
     }
 #endif
 
+    case NotificationType::PLUGIN_ENABLE_STATUS_CHANGED: {
+      PurgePluginListCache(false);
+      break;
+    }
     default:
       DCHECK(false);
   }

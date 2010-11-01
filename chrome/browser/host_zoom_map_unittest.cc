@@ -6,7 +6,7 @@
 #include "base/ref_counted.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/host_zoom_map.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/notification_details.h"
@@ -26,9 +26,9 @@ using testing::Property;
 
 class HostZoomMapTest : public testing::Test {
  public:
-  static const int kZoomLevel;
+  static const double kZoomLevel;
   HostZoomMapTest()
-      : ui_thread_(ChromeThread::UI, &message_loop_),
+      : ui_thread_(BrowserThread::UI, &message_loop_),
         prefs_(profile_.GetPrefs()),
         per_host_zoom_levels_pref_(prefs::kPerHostZoomLevels),
         url_("http://example.com/test"),
@@ -45,7 +45,7 @@ class HostZoomMapTest : public testing::Test {
   }
 
   MessageLoopForUI message_loop_;
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
   TestingProfile profile_;
   PrefService* prefs_;
   std::string per_host_zoom_levels_pref_;  // For the observe matcher.
@@ -53,7 +53,7 @@ class HostZoomMapTest : public testing::Test {
   std::string host_;
   NotificationObserverMock pref_observer_;
 };
-const int HostZoomMapTest::kZoomLevel = 42;
+const double HostZoomMapTest::kZoomLevel = 4;
 
 TEST_F(HostZoomMapTest, LoadNoPrefs) {
   scoped_refptr<HostZoomMap> map(new HostZoomMap(&profile_));
@@ -63,7 +63,7 @@ TEST_F(HostZoomMapTest, LoadNoPrefs) {
 TEST_F(HostZoomMapTest, Load) {
   DictionaryValue* dict =
       prefs_->GetMutableDictionary(prefs::kPerHostZoomLevels);
-  dict->SetWithoutPathExpansion(host_, Value::CreateIntegerValue(kZoomLevel));
+  dict->SetWithoutPathExpansion(host_, Value::CreateRealValue(kZoomLevel));
   scoped_refptr<HostZoomMap> map(new HostZoomMap(&profile_));
   EXPECT_EQ(kZoomLevel, map->GetZoomLevel(url_));
 }
@@ -78,8 +78,8 @@ TEST_F(HostZoomMapTest, SetZoomLevel) {
   EXPECT_EQ(kZoomLevel, map->GetZoomLevel(url_));
   const DictionaryValue* dict =
       prefs_->GetDictionary(prefs::kPerHostZoomLevels);
-  int zoom_level = 0;
-  EXPECT_TRUE(dict->GetIntegerWithoutPathExpansion(host_, &zoom_level));
+  double zoom_level = 0;
+  EXPECT_TRUE(dict->GetRealWithoutPathExpansion(host_, &zoom_level));
   EXPECT_EQ(kZoomLevel, zoom_level);
 
   SetPrefObserverExpectation();
@@ -106,7 +106,7 @@ TEST_F(HostZoomMapTest, ReloadOnPrefChange) {
   map->SetZoomLevel(url_, kZoomLevel);
 
   DictionaryValue dict;
-  dict.SetWithoutPathExpansion(host_, Value::CreateIntegerValue(0));
+  dict.SetWithoutPathExpansion(host_, Value::CreateRealValue(0));
   prefs_->Set(prefs::kPerHostZoomLevels, dict);
   EXPECT_EQ(0, map->GetZoomLevel(url_));
 }

@@ -8,10 +8,11 @@
 #include "base/command_line.h"
 #include "base/thread.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/gpu_process_host_ui_shim.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
+#include "chrome/browser/renderer_host/resource_message_filter.h"
 #include "chrome/common/child_process_logging.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/gpu_info.h"
@@ -19,6 +20,7 @@
 #include "chrome/common/render_messages.h"
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_switches.h"
+#include "media/base/media_switches.h"
 
 #if defined(OS_LINUX)
 #include "gfx/gtk_native_view_id_manager.h"
@@ -91,7 +93,9 @@ bool GpuProcessHost::Init() {
   // Propagate relevant command line switches.
   static const char* const kSwitchNames[] = {
     switches::kUseGL,
+    switches::kDisableGpuVsync,
     switches::kDisableLogging,
+    switches::kEnableAcceleratedDecoding,
     switches::kEnableLogging,
     switches::kGpuStartupDialog,
     switches::kLoggingLevel,
@@ -145,9 +149,9 @@ void GpuProcessHost::OnMessageReceived(const IPC::Message& message) {
   } else {
     // Need to transfer this message to the UI thread and the
     // GpuProcessHostUIShim for dispatching via its message router.
-    ChromeThread::PostTask(ChromeThread::UI,
-                           FROM_HERE,
-                           new RouteOnUIThreadTask(message));
+    BrowserThread::PostTask(BrowserThread::UI,
+                            FROM_HERE,
+                            new RouteOnUIThreadTask(message));
   }
 }
 
@@ -170,6 +174,21 @@ GPUInfo GpuProcessHost::gpu_info() const {
   return gpu_info_;
 }
 
+GpuProcessHost::ChannelRequest::ChannelRequest(ResourceMessageFilter* filter)
+    : filter(filter) {
+}
+
+GpuProcessHost::ChannelRequest::~ChannelRequest() {}
+
+GpuProcessHost::SynchronizationRequest::SynchronizationRequest(
+    IPC::Message* reply,
+    ResourceMessageFilter* filter)
+    : reply(reply),
+      filter(filter) {
+}
+
+GpuProcessHost::SynchronizationRequest::~SynchronizationRequest() {}
+
 void GpuProcessHost::OnControlMessageReceived(const IPC::Message& message) {
   IPC_BEGIN_MESSAGE_MAP(GpuProcessHost, message)
     IPC_MESSAGE_HANDLER(GpuHostMsg_ChannelEstablished, OnChannelEstablished)
@@ -177,7 +196,7 @@ void GpuProcessHost::OnControlMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(GpuHostMsg_GraphicsInfoCollected,
                         OnGraphicsInfoCollected)
 #if defined(OS_LINUX)
-    IPC_MESSAGE_HANDLER(GpuHostMsg_GetViewXID, OnGetViewXID)
+    IPC_MESSAGE_HANDLER_DELAY_REPLY(GpuHostMsg_GetViewXID, OnGetViewXID)
 #elif defined(OS_MACOSX)
     IPC_MESSAGE_HANDLER(GpuHostMsg_AcceleratedSurfaceSetIOSurface,
                         OnAcceleratedSurfaceSetIOSurface)
@@ -210,12 +229,38 @@ void GpuProcessHost::OnGraphicsInfoCollected(const GPUInfo& gpu_info) {
 }
 
 #if defined(OS_LINUX)
-void GpuProcessHost::OnGetViewXID(gfx::NativeViewId id, unsigned long* xid) {
+
+namespace {
+
+void SendDelayedReply(IPC::Message* reply_msg) {
+  GpuProcessHost::Get()->Send(reply_msg);
+}
+
+void GetViewXIDDispatcher(gfx::NativeViewId id, IPC::Message* reply_msg) {
+  unsigned long xid;
+
   GtkNativeViewManager* manager = Singleton<GtkNativeViewManager>::get();
-  if (!manager->GetXIDForId(xid, id)) {
+  if (!manager->GetPermanentXIDForId(&xid, id)) {
     DLOG(ERROR) << "Can't find XID for view id " << id;
-    *xid = 0;
+    xid = 0;
   }
+
+  GpuHostMsg_GetViewXID::WriteReplyParams(reply_msg, xid);
+
+  // Have to reply from IO thread.
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
+      NewRunnableFunction(&SendDelayedReply, reply_msg));
+}
+
+}
+
+void GpuProcessHost::OnGetViewXID(gfx::NativeViewId id,
+                                  IPC::Message *reply_msg) {
+  // Have to request a permanent overlay from UI thread.
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
+      NewRunnableFunction(&GetViewXIDDispatcher, id, reply_msg));
 }
 
 #elif defined(OS_MACOSX)
@@ -253,8 +298,8 @@ class SetIOSurfaceDispatcher : public Task {
 
 void GpuProcessHost::OnAcceleratedSurfaceSetIOSurface(
     const GpuHostMsg_AcceleratedSurfaceSetIOSurface_Params& params) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       new SetIOSurfaceDispatcher(params));
 }
 
@@ -294,8 +339,8 @@ void GpuProcessHost::OnAcceleratedSurfaceBuffersSwapped(
     int32 renderer_id,
     int32 render_view_id,
     gfx::PluginWindowHandle window) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       new BuffersSwappedDispatcher(renderer_id, render_view_id, window));
 }
 #endif

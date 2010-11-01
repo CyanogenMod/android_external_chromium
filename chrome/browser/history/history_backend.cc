@@ -9,7 +9,7 @@
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/file_util.h"
-#include "base/histogram.h"
+#include "base/metrics/histogram.h"
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
 #include "base/scoped_vector.h"
@@ -239,9 +239,9 @@ HistoryBackend::~HistoryBackend() {
   }
 }
 
-void HistoryBackend::Init(bool force_fail) {
+void HistoryBackend::Init(const std::string& languages, bool force_fail) {
   if (!force_fail)
-    InitImpl();
+    InitImpl(languages);
   delegate_->DBLoaded();
 }
 
@@ -509,7 +509,7 @@ void HistoryBackend::AddPage(scoped_refptr<HistoryAddPageArgs> request) {
   ScheduleCommit();
 }
 
-void HistoryBackend::InitImpl() {
+void HistoryBackend::InitImpl(const std::string& languages) {
   DCHECK(!db_.get()) << "Initializing HistoryBackend twice";
   // In the rare case where the db fails to initialize a dialog may get shown
   // the blocks the caller, yet allows other messages through. For this reason
@@ -548,7 +548,7 @@ void HistoryBackend::InitImpl() {
   // Fill the in-memory database and send it back to the history service on the
   // main thread.
   InMemoryHistoryBackend* mem_backend = new InMemoryHistoryBackend;
-  if (mem_backend->Init(history_name, db_.get()))
+  if (mem_backend->Init(history_name, db_.get(), languages))
     delegate_->SetInMemoryBackend(mem_backend);  // Takes ownership of pointer.
   else
     delete mem_backend;  // Error case, run without the in-memory DB.
@@ -602,7 +602,7 @@ void HistoryBackend::InitImpl() {
   if (history::TopSites::IsEnabled()) {
     // TODO(sky): fix when reenabling top sites migration.
     // if (db_->needs_version_18_migration()) {
-    // LOG(INFO) << "Starting TopSites migration";
+    // VLOG(1) << "Starting TopSites migration";
     // delegate_->StartTopSitesMigration();
     // }
   }

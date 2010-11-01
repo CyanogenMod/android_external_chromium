@@ -25,6 +25,7 @@ class URLRequestContext;
 
 namespace net {
 
+class HostResolver;
 class InitProxyResolver;
 class ProxyResolver;
 class ProxyScriptFetcher;
@@ -137,8 +138,6 @@ class ProxyService : public base::RefCountedThreadSafe<ProxyService>,
 
   // Creates a proxy service that polls |proxy_config_service| to notice when
   // the proxy settings change. We take ownership of |proxy_config_service|.
-  // Iff |use_v8_resolver| is true, then the V8 implementation is
-  // used.
   //
   // |num_pac_threads| specifies the maximum number of threads to use for
   // executing PAC scripts. Threads are created lazily on demand.
@@ -155,27 +154,42 @@ class ProxyService : public base::RefCountedThreadSafe<ProxyService>,
   //   (b) increases the memory used by proxy resolving, as each thread will
   //       duplicate its own script context.
 
-  // |url_request_context| is only used when use_v8_resolver is true:
-  // it specifies the URL request context that will be used if a PAC
-  // script needs to be fetched.
-  // |io_loop| points to the IO thread's message loop. It is only used
-  // when pc is NULL.
+  // |proxy_script_fetcher| specifies the dependency to use for downloading
+  // any PAC scripts. The resulting ProxyService will take ownership of it.
+  //
+  // |host_resolver| points to the host resolving dependency the PAC script
+  // should use for any DNS queries. It must remain valid throughout the
+  // lifetime of the ProxyService.
+  //
   // ##########################################################################
   // # See the warnings in net/proxy/proxy_resolver_v8.h describing the
   // # multi-threading model. In order for this to be safe to use, *ALL* the
   // # other V8's running in the process must use v8::Locker.
   // ##########################################################################
-  static ProxyService* Create(
+  static ProxyService* CreateUsingV8ProxyResolver(
       ProxyConfigService* proxy_config_service,
-      bool use_v8_resolver,
       size_t num_pac_threads,
-      URLRequestContext* url_request_context,
-      NetLog* net_log,
-      MessageLoop* io_loop);
+      ProxyScriptFetcher* proxy_script_fetcher,
+      HostResolver* host_resolver,
+      NetLog* net_log);
 
-  // Convenience method that creates a proxy service using the
-  // specified fixed settings. |pc| must not be NULL.
+  // Same as CreateUsingV8ProxyResolver, except it uses system libraries
+  // for evaluating the PAC script if available, otherwise skips
+  // proxy autoconfig.
+  static ProxyService* CreateUsingSystemProxyResolver(
+      ProxyConfigService* proxy_config_service,
+      size_t num_pac_threads,
+      NetLog* net_log);
+
+  // Creates a ProxyService without support for proxy autoconfig.
+  static ProxyService* CreateWithoutProxyResolver(
+      ProxyConfigService* proxy_config_service,
+      NetLog* net_log);
+
+  // Convenience methods that creates a proxy service using the
+  // specified fixed settings.
   static ProxyService* CreateFixed(const ProxyConfig& pc);
+  static ProxyService* CreateFixed(const std::string& proxy);
 
   // Creates a proxy service that uses a DIRECT connection for all requests.
   static ProxyService* CreateDirect();
@@ -217,7 +231,7 @@ class ProxyService : public base::RefCountedThreadSafe<ProxyService>,
     STATE_READY,
   };
 
-  ~ProxyService();
+  virtual ~ProxyService();
 
   // Resets all the variables associated with the current proxy configuration,
   // and rewinds the current state to |STATE_NONE|. Returns the previous value
@@ -341,7 +355,7 @@ class SyncProxyServiceHelper
  private:
   friend class base::RefCountedThreadSafe<SyncProxyServiceHelper>;
 
-  ~SyncProxyServiceHelper() {}
+  virtual ~SyncProxyServiceHelper();
 
   void StartAsyncResolve(const GURL& url, const BoundNetLog& net_log);
   void StartAsyncReconsider(const GURL& url, const BoundNetLog& net_log);

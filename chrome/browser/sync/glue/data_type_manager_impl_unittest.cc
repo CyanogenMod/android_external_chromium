@@ -8,7 +8,7 @@
 #include "base/scoped_ptr.h"
 #include "base/stl_util-inl.h"
 #include "base/task.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/sync/glue/data_type_controller.h"
 #include "chrome/browser/sync/glue/data_type_controller_mock.h"
 #include "chrome/browser/sync/glue/data_type_manager_impl.h"
@@ -45,7 +45,7 @@ ACTION_P(InvokeCallback, callback_result) {
 class DataTypeManagerImplTest : public testing::Test {
  public:
   DataTypeManagerImplTest()
-      : ui_thread_(ChromeThread::UI, &message_loop_) {}
+      : ui_thread_(BrowserThread::UI, &message_loop_) {}
 
   virtual ~DataTypeManagerImplTest() {
   }
@@ -127,7 +127,7 @@ class DataTypeManagerImplTest : public testing::Test {
   }
 
   MessageLoopForUI message_loop_;
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
   DataTypeController::TypeMap controllers_;
   SyncBackendHostMock backend_;
   NotificationObserverMock observer_;

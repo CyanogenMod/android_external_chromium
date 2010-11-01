@@ -10,7 +10,7 @@
 #include "app/text_elider.h"
 #include "base/basictypes.h"
 #include "base/callback.h"
-#include "base/histogram.h"
+#include "base/metrics/histogram.h"
 #include "base/string_util.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
@@ -111,6 +111,26 @@ class DownloadShelfContextMenuGtk : public DownloadShelfContextMenu,
   virtual void StoppedShowing() {
     download_item_->menu_showing_ = false;
     gtk_widget_queue_draw(download_item_->menu_button_);
+  }
+
+  virtual GtkWidget* GetImageForCommandId(int command_id) const {
+    const char* stock = NULL;
+    switch (command_id) {
+      case SHOW_IN_FOLDER:
+      case OPEN_WHEN_COMPLETE:
+        stock = GTK_STOCK_OPEN;
+        break;
+
+      case CANCEL:
+        stock = GTK_STOCK_CANCEL;
+        break;
+
+      case ALWAYS_OPEN_TYPE:
+      case TOGGLE_PAUSE:
+        stock = NULL;
+    }
+
+    return stock ? gtk_image_new_from_stock(stock, GTK_ICON_SIZE_MENU) : NULL;
   }
 
  private:

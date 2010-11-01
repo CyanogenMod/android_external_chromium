@@ -297,7 +297,7 @@ private:
     permanentSubviews_.reset([[NSMutableArray alloc] init]);
 
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-    defaultFavIcon_.reset([rb.GetNSImageNamed(IDR_DEFAULT_FAVICON) retain]);
+    defaultFavIcon_.reset([rb.GetNativeImageNamed(IDR_DEFAULT_FAVICON) retain]);
 
     [self setIndentForControls:[[self class] defaultIndentForControls]];
 
@@ -971,10 +971,8 @@ private:
 
   // Make a new tab. Load the contents of this tab from the nib and associate
   // the new controller with |contents| so it can be looked up later.
-  TabContentsController* contentsController =
-      [[[TabContentsController alloc] initWithNibName:@"TabContents"
-                                             contents:contents]
-          autorelease];
+  scoped_nsobject<TabContentsController> contentsController(
+      [[TabContentsController alloc] initWithContents:contents]);
   [tabContentsArray_ insertObject:contentsController atIndex:index];
 
   // Make a new tab and add it to the strip. Keep track of its controller.
@@ -1036,10 +1034,6 @@ private:
       [oldController willBecomeUnselectedTab];
       oldContents->view()->StoreFocus();
       oldContents->WasHidden();
-      // If the selection changed because the tab was made phantom, update the
-      // Cocoa side of the state.
-      TabController* tabController = [tabArray_ objectAtIndex:oldIndex];
-      [tabController setPhantom:tabStripModel_->IsPhantomTab(oldModelIndex)];
     }
   }
 
@@ -1071,6 +1065,26 @@ private:
     if (newContents->find_ui_active())
       browser_->GetFindBarController()->find_bar()->SetFocusAndSelection();
   }
+}
+
+- (void)tabReplacedWithContents:(TabContents*)newContents
+               previousContents:(TabContents*)oldContents
+                        atIndex:(NSInteger)modelIndex {
+  NSInteger index = [self indexFromModelIndex:modelIndex];
+  TabContentsController* oldController =
+      [tabContentsArray_ objectAtIndex:index];
+  DCHECK_EQ(oldContents, [oldController tabContents]);
+
+  // Simply create a new TabContentsController for |newContents| and place it
+  // into the array, replacing |oldContents|.  A TabSelectedAt notification will
+  // follow, at which point we will install the new view.
+  scoped_nsobject<TabContentsController> newController(
+      [[TabContentsController alloc] initWithContents:newContents]);
+
+  // Bye bye, |oldController|.
+  [tabContentsArray_ replaceObjectAtIndex:index withObject:newController];
+
+  [delegate_ onReplaceTabWithContents:newContents];
 }
 
 // Remove all knowledge about this tab and its associated controller, and remove
@@ -1207,25 +1221,18 @@ private:
     return;
 
   static NSImage* throbberWaitingImage =
-      [ResourceBundle::GetSharedInstance().GetNSImageNamed(IDR_THROBBER_WAITING)
-        retain];
+      [ResourceBundle::GetSharedInstance().GetNativeImageNamed(
+          IDR_THROBBER_WAITING) retain];
   static NSImage* throbberLoadingImage =
-      [ResourceBundle::GetSharedInstance().GetNSImageNamed(IDR_THROBBER)
+      [ResourceBundle::GetSharedInstance().GetNativeImageNamed(IDR_THROBBER)
         retain];
   static NSImage* sadFaviconImage =
-      [ResourceBundle::GetSharedInstance().GetNSImageNamed(IDR_SAD_FAVICON)
+      [ResourceBundle::GetSharedInstance().GetNativeImageNamed(IDR_SAD_FAVICON)
         retain];
 
   // Take closing tabs into account.
   NSInteger index = [self indexFromModelIndex:modelIndex];
-
   TabController* tabController = [tabArray_ objectAtIndex:index];
-
-  // Since the tab is loading, it cannot be phantom any more.
-  if ([tabController phantom]) {
-    [tabController setPhantom:NO];
-    [[tabController view] setNeedsDisplay:YES];
-  }
 
   bool oldHasIcon = [tabController iconView] != nil;
   bool newHasIcon = contents->ShouldDisplayFavIcon() ||
@@ -1299,11 +1306,6 @@ private:
 
   if (change != TabStripModelObserver::LOADING_ONLY)
     [self setTabTitle:tabController withContents:contents];
-
-  // See if the change was to/from phantom.
-  bool isPhantom = tabStripModel_->IsPhantomTab(modelIndex);
-  if (isPhantom != [tabController phantom])
-    [tabController setPhantom:isPhantom];
 
   [self updateFavIconForContents:contents atIndex:modelIndex];
 
@@ -1692,14 +1694,16 @@ private:
 
   // Either insert a new tab or open in a current tab.
   switch (disposition) {
-    case NEW_FOREGROUND_TAB:
+    case NEW_FOREGROUND_TAB: {
       UserMetrics::RecordAction(UserMetricsAction("Tab_DropURLBetweenTabs"),
                                 browser_->profile());
-      browser_->AddTabWithURL(url, GURL(), PageTransition::TYPED, index,
-                              TabStripModel::ADD_SELECTED |
-                                  TabStripModel::ADD_FORCE_INDEX,
-                              NULL, std::string(), NULL);
+      Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
+      params.index = index;
+      params.add_types =
+          TabStripModel::ADD_SELECTED | TabStripModel::ADD_FORCE_INDEX;
+      browser_->AddTabWithURL(&params);
       break;
+    }
     case CURRENT_TAB:
       UserMetrics::RecordAction(UserMetricsAction("Tab_DropURLOnTab"),
                                 browser_->profile());

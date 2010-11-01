@@ -146,7 +146,7 @@ class RenderWidgetHost : public IPC::Channel::Listener,
 
   RenderProcessHost* process() const { return process_; }
   int routing_id() const { return routing_id_; }
-  static bool renderer_accessible() { return renderer_accessible_; }
+  bool renderer_accessible() { return renderer_accessible_; }
 
   // Set the PaintObserver on this object. Takes ownership.
   void set_paint_observer(PaintObserver* paint_observer) {
@@ -242,6 +242,11 @@ class RenderWidgetHost : public IPC::Channel::Listener,
   // when it is done with the DIB. We will then forward a message to the
   // renderer to send another paint.
   void DonePaintingToBackingStore();
+
+  // GPU accelerated version of GetBackingStore function. This will
+  // trigger a re-composite to the view. If a resize is pending, it will
+  // block briefly waiting for an ack from the renderer.
+  void ScheduleComposite();
 
   // Returns the video layer if it exists, NULL otherwise.
   VideoLayer* video_layer() const { return video_layer_.get(); }
@@ -494,6 +499,7 @@ class RenderWidgetHost : public IPC::Channel::Listener,
                           WebKit::WebScreenInfo* results);
   void OnMsgGetWindowRect(gfx::NativeViewId window_id, gfx::Rect* results);
   void OnMsgGetRootWindowRect(gfx::NativeViewId window_id, gfx::Rect* results);
+  void OnMsgSetPluginImeEnabled(bool enabled, int plugin_id);
   void OnAllocateFakePluginWindowHandle(bool opaque,
                                         bool root,
                                         gfx::PluginWindowHandle* id);
@@ -545,7 +551,7 @@ class RenderWidgetHost : public IPC::Channel::Listener,
 
   // True if renderer accessibility is enabled. This should only be set when a
   // screenreader is detected as it can potentially slow down Chrome.
-  static bool renderer_accessible_;
+  bool renderer_accessible_;
 
   // The View associated with the RenderViewHost. The lifetime of this object
   // is associated with the lifetime of the Render process. If the Renderer

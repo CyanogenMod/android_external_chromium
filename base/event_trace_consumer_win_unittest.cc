@@ -72,7 +72,8 @@ const wchar_t* const kTestSessionName = L"TestLogSession";
 class EtwTraceConsumerBaseTest: public testing::Test {
  public:
   virtual void SetUp() {
-    EtwTraceController::Stop(kTestSessionName, NULL);
+    EtwTraceProperties ignore;
+    EtwTraceController::Stop(kTestSessionName, &ignore);
   }
 };
 
@@ -178,7 +179,7 @@ TEST_F(EtwTraceConsumerRealtimeTest, ConsumerReturnsWhenSessionClosed) {
 
   HRESULT hr = controller.StartRealtimeSession(kTestSessionName, 100 * 1024);
   if (hr == E_ACCESSDENIED) {
-    LOG(INFO) << "You must be an administrator to run this test on Vista";
+    VLOG(1) << "You must be an administrator to run this test on Vista";
     return;
   }
 
@@ -210,7 +211,7 @@ TEST_F(EtwTraceConsumerRealtimeTest, ConsumeEvent) {
   EtwTraceController controller;
   HRESULT hr = controller.StartRealtimeSession(kTestSessionName, 100 * 1024);
   if (hr == E_ACCESSDENIED) {
-    LOG(INFO) << "You must be an administrator to run this test on Vista";
+    VLOG(1) << "You must be an administrator to run this test on Vista";
     return;
   }
 
@@ -245,14 +246,16 @@ class EtwTraceConsumerDataTest: public testing::Test {
   }
 
   virtual void SetUp() {
-    EtwTraceController::Stop(kTestSessionName, NULL);
+    EtwTraceProperties prop;
+    EtwTraceController::Stop(kTestSessionName, &prop);
     // Construct a temp file name.
     ASSERT_TRUE(file_util::CreateTemporaryFile(&temp_file_));
   }
 
   virtual void TearDown() {
     EXPECT_TRUE(file_util::Delete(temp_file_, false));
-    EtwTraceController::Stop(kTestSessionName, NULL);
+    EtwTraceProperties ignore;
+    EtwTraceController::Stop(kTestSessionName, &ignore);
   }
 
   HRESULT LogEventToTempSession(PEVENT_TRACE_HEADER header) {
@@ -328,7 +331,7 @@ TEST_F(EtwTraceConsumerDataTest, RoundTrip) {
   PEVENT_TRACE trace = NULL;
   HRESULT hr = RoundTripEvent(&event.header, &trace);
   if (hr == E_ACCESSDENIED) {
-    LOG(INFO) << "You must be an administrator to run this test on Vista";
+    VLOG(1) << "You must be an administrator to run this test on Vista";
     return;
   }
   ASSERT_TRUE(NULL != trace);

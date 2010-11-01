@@ -5,7 +5,7 @@
 #include "chrome/browser/history/in_memory_history_backend.h"
 
 #include "base/command_line.h"
-#include "base/histogram.h"
+#include "base/metrics/histogram.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
@@ -33,20 +33,22 @@ InMemoryHistoryBackend::~InMemoryHistoryBackend() {
 }
 
 bool InMemoryHistoryBackend::Init(const FilePath& history_filename,
-                                  URLDatabase* db) {
+                                  URLDatabase* db,
+                                  const std::string& languages) {
   db_.reset(new InMemoryDatabase);
   bool success = db_->InitFromDisk(history_filename);
-
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableInMemoryURLIndex)) {
+#if 0
+  // TODO(mrossetti): Temporary removal to help determine if the
+  // InMemoryURLIndex is contributing to a startup slowdown.
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kDisableHistoryQuickProvider)) {
     index_.reset(new InMemoryURLIndex());
     base::TimeTicks beginning_time = base::TimeTicks::Now();
-    // TODO(mrossetti): Provide languages when profile is available.
-    index_->Init(db, std::string());
+    index_->Init(db, languages);
     UMA_HISTOGRAM_TIMES("Autocomplete.HistoryDatabaseIndexingTime",
                         base::TimeTicks::Now() - beginning_time);
   }
-
+#endif
   return success;
 }
 

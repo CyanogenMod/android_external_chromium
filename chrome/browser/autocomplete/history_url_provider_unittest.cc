@@ -8,7 +8,7 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/history_url_provider.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/test/testing_profile.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -96,8 +96,8 @@ class HistoryURLProviderTest : public testing::Test,
                                public ACProviderListener {
  public:
   HistoryURLProviderTest()
-      : ui_thread_(ChromeThread::UI, &message_loop_),
-        file_thread_(ChromeThread::FILE, &message_loop_) {}
+      : ui_thread_(BrowserThread::UI, &message_loop_),
+        file_thread_(BrowserThread::FILE, &message_loop_) {}
 
   // ACProviderListener
   virtual void OnProviderUpdate(bool updated_matches);
@@ -126,8 +126,8 @@ class HistoryURLProviderTest : public testing::Test,
   void RunAdjustOffsetTest(const std::wstring text, size_t expected_offset);
 
   MessageLoopForUI message_loop_;
-  ChromeThread ui_thread_;
-  ChromeThread file_thread_;
+  BrowserThread ui_thread_;
+  BrowserThread file_thread_;
   ACMatches matches_;
   scoped_ptr<TestingProfile> profile_;
   HistoryService* history_service_;
@@ -153,7 +153,7 @@ void HistoryURLProviderTest::SetUpImpl(bool no_db) {
   profile_->CreateHistoryService(true, no_db);
   history_service_ = profile_->GetHistoryService(Profile::EXPLICIT_ACCESS);
 
-  autocomplete_ = new HistoryURLProvider(this, profile_.get(), L"en-US,en,ko");
+  autocomplete_ = new HistoryURLProvider(this, profile_.get(), "en-US,en,ko");
 
   FillData();
 }

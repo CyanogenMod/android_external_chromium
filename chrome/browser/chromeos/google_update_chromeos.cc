@@ -10,7 +10,7 @@
 #include "base/task.h"
 #include "base/thread.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "cros/chromeos_update.h"
 #include "views/window/window.h"
@@ -34,8 +34,8 @@ GoogleUpdate::~GoogleUpdate() {
 void GoogleUpdate::CheckForUpdate(bool install_if_newer, Window* window) {
   // We need to shunt this request over to InitiateGoogleUpdateCheck and have
   // it run in the file thread.
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(
           this, &GoogleUpdate::InitiateGoogleUpdateCheck, install_if_newer,
           window, MessageLoop::current()));

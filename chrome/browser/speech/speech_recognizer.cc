@@ -7,7 +7,7 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/time.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "third_party/speex/include/speex/speex.h"
@@ -70,6 +70,8 @@ class SpeexEncoder {
 };
 
 SpeexEncoder::SpeexEncoder() {
+  // speex_bits_init() does not initialize all of the |bits_| struct.
+  memset(&bits_, 0, sizeof(bits_));
   speex_bits_init(&bits_);
   encoder_state_ = speex_encoder_init(&speex_wb_mode);
   DCHECK(encoder_state_);
@@ -79,6 +81,7 @@ SpeexEncoder::SpeexEncoder() {
   speex_encoder_ctl(encoder_state_, SPEEX_SET_QUALITY, &quality);
   int vbr = 1;
   speex_encoder_ctl(encoder_state_, SPEEX_SET_VBR, &vbr);
+  memset(encoded_frame_data_, 0, sizeof(encoded_frame_data_));
 }
 
 SpeexEncoder::~SpeexEncoder() {
@@ -111,6 +114,7 @@ SpeechRecognizer::SpeechRecognizer(Delegate* delegate, int caller_id)
       caller_id_(caller_id),
       encoder_(new SpeexEncoder()),
       endpointer_(kAudioSampleRate),
+      num_samples_recorded_(0),
       audio_level_(0.0f) {
   endpointer_.set_speech_input_complete_silence_length(
       base::Time::kMicrosecondsPerSecond / 2);
@@ -130,7 +134,7 @@ SpeechRecognizer::~SpeechRecognizer() {
 }
 
 bool SpeechRecognizer::StartRecording() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   DCHECK(!audio_controller_.get());
   DCHECK(!request_.get() || !request_->HasPendingRequest());
 
@@ -146,7 +150,7 @@ bool SpeechRecognizer::StartRecording() {
   audio_controller_ =
       AudioInputController::Create(this, params, samples_per_packet);
   DCHECK(audio_controller_.get());
-  LOG(INFO) << "SpeechRecognizer starting record.";
+  VLOG(1) << "SpeechRecognizer starting record.";
   num_samples_recorded_ = 0;
   audio_controller_->Record();
 
@@ -154,30 +158,30 @@ bool SpeechRecognizer::StartRecording() {
 }
 
 void SpeechRecognizer::CancelRecognition() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   DCHECK(audio_controller_.get() || request_.get());
 
   // Stop recording if required.
   if (audio_controller_.get()) {
-    LOG(INFO) << "SpeechRecognizer stopping record.";
+    VLOG(1) << "SpeechRecognizer stopping record.";
     audio_controller_->Close();
     audio_controller_ = NULL;  // Releases the ref ptr.
   }
 
-  LOG(INFO) << "SpeechRecognizer canceling recognition.";
+  VLOG(1) << "SpeechRecognizer canceling recognition.";
   ReleaseAudioBuffers();
   request_.reset();
 }
 
 void SpeechRecognizer::StopRecording() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   // If audio recording has already stopped and we are in recognition phase,
   // silently ignore any more calls to stop recording.
   if (!audio_controller_.get())
     return;
 
-  LOG(INFO) << "SpeechRecognizer stopping record.";
+  VLOG(1) << "SpeechRecognizer stopping record.";
   audio_controller_->Close();
   audio_controller_ = NULL;  // Releases the ref ptr.
 
@@ -224,7 +228,7 @@ void SpeechRecognizer::ReleaseAudioBuffers() {
 // Invoked in the audio thread.
 void SpeechRecognizer::OnError(AudioInputController* controller,
                                int error_code) {
-  ChromeThread::PostTask(ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
                          NewRunnableMethod(this,
                                            &SpeechRecognizer::HandleOnError,
                                            error_code));
@@ -248,7 +252,7 @@ void SpeechRecognizer::OnData(AudioInputController* controller,
     return;
 
   string* str_data = new string(reinterpret_cast<const char*>(data), size);
-  ChromeThread::PostTask(ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
                          NewRunnableMethod(this,
                                            &SpeechRecognizer::HandleOnData,
                                            str_data));

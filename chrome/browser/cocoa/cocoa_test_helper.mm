@@ -3,8 +3,10 @@
 // found in the LICENSE file.
 
 #import "chrome/browser/cocoa/cocoa_test_helper.h"
+
+#include "base/logging.h"
+#include "base/test/test_timeouts.h"
 #import "chrome/browser/chrome_browser_application_mac.h"
-#import "base/logging.h"
 
 @implementation CocoaTestHelperWindow
 
@@ -99,9 +101,9 @@ void CocoaTest::TearDown() {
 
   while (windows_left.size() > 0) {
     // Cover delayed actions by spinning the loop at least once after
-    // this timeout.  Made large to accomocate valgrind and the wall
-    // clock delay of a [NSApplication endSheet:].
-    const NSTimeInterval kCloseTimeout = 5.0;
+    // this timeout.
+    const NSTimeInterval kCloseTimeoutSeconds =
+        TestTimeouts::action_timeout_ms() / 1000.0;
 
     // Cover chains of delayed actions by spinning the loop at least
     // this many times.
@@ -118,11 +120,11 @@ void CocoaTest::TearDown() {
            (spins < kCloseSpins || one_more_time)) {
       // Check the timeout before pumping events, so that we'll spin
       // the loop once after the timeout.
-      one_more_time = ([start_date timeIntervalSinceNow] > -kCloseTimeout);
+      one_more_time = ([start_date timeIntervalSinceNow] > -kCloseTimeoutSeconds);
 
       // Autorelease anything thrown up by the event loop.
       {
-        base::ScopedNSAutoreleasePool pool;
+        base::mac::ScopedNSAutoreleasePool pool;
         ++spins;
         NSEvent *next_event = [NSApp nextEventMatchingMask:NSAnyEventMask
                                                  untilDate:nil
@@ -140,7 +142,7 @@ void CocoaTest::TearDown() {
     if (still_left.size() == windows_left.size()) {
       // NOTE(shess): Failing this expectation means that the test
       // opened windows which have not been fully released.  Either
-      // there is a leak, or perhaps one of |kCloseTimeout| or
+      // there is a leak, or perhaps one of |kCloseTimeoutSeconds| or
       // |kCloseSpins| needs adjustment.
       EXPECT_EQ(0U, windows_left.size());
       for (std::set<NSWindow*>::iterator iter = windows_left.begin();
@@ -162,7 +164,7 @@ std::set<NSWindow*> CocoaTest::ApplicationWindows() {
 
   // Must create a pool here because [NSApp windows] has created an array
   // with retains on all the windows in it.
-  base::ScopedNSAutoreleasePool pool;
+  base::mac::ScopedNSAutoreleasePool pool;
   NSArray *appWindows = [NSApp windows];
   for (NSWindow *window in appWindows) {
     windows.insert(window);

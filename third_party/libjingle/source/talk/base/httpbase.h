@@ -27,7 +27,7 @@
 
 // Copyright 2005 Google Inc.  All Rights Reserved.
 //
-// Author: <bpm@google.com> (Brian McBarron)
+
 
 #ifndef TALK_BASE_HTTPBASE_H__
 #define TALK_BASE_HTTPBASE_H__

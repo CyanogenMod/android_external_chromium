@@ -25,7 +25,7 @@
 #include "base/string_util.h"
 #include "base/task.h"
 #include "base/timer.h"
-#include "base/xdg_util.h"
+#include "base/nix/xdg_util.h"
 #include "googleurl/src/url_canon.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_util.h"
@@ -205,7 +205,7 @@ class GConfSettingGetterImplGConf
         // We are on the UI thread so we can clean it safely. This is
         // the case at least for ui_tests running under Valgrind in
         // bug 16076.
-        LOG(INFO) << "~GConfSettingGetterImplGConf: releasing gconf client";
+        VLOG(1) << "~GConfSettingGetterImplGConf: releasing gconf client";
         Shutdown();
       } else {
         LOG(WARNING) << "~GConfSettingGetterImplGConf: leaking gconf client";
@@ -400,8 +400,8 @@ class GConfSettingGetterImplGConf
   static void OnGConfChangeNotification(
       GConfClient* client, guint cnxn_id,
       GConfEntry* entry, gpointer user_data) {
-    LOG(INFO) << "gconf change notification for key "
-              << gconf_entry_get_key(entry);
+    VLOG(1) << "gconf change notification for key "
+            << gconf_entry_get_key(entry);
     // We don't track which key has changed, just that something did change.
     GConfSettingGetterImplGConf* setting_getter =
         reinterpret_cast<GConfSettingGetterImplGConf*>(user_data);
@@ -442,8 +442,8 @@ class GConfSettingGetterImplKDE
       if (!env_var_getter->GetVar(base::env_vars::kHome, &home))
         // User has no $HOME? Give up. Later we'll report the failure.
         return;
-      if (base::GetDesktopEnvironment(env_var_getter) ==
-          base::DESKTOP_ENVIRONMENT_KDE3) {
+      if (base::nix::GetDesktopEnvironment(env_var_getter) ==
+          base::nix::DESKTOP_ENVIRONMENT_KDE3) {
         // KDE3 always uses .kde for its configuration.
         FilePath kde_path = FilePath(home).Append(".kde");
         kde_config_dir_ = KDEHomeToConfigPath(kde_path);
@@ -809,7 +809,7 @@ class GConfSettingGetterImplKDE
   // This is the callback from the debounce timer.
   void OnDebouncedNotification() {
     DCHECK(MessageLoop::current() == file_loop_);
-    LOG(INFO) << "inotify change notification for kioslaverc";
+    VLOG(1) << "inotify change notification for kioslaverc";
     UpdateCachedSettings();
     DCHECK(notify_delegate_);
     // Forward to a method on the proxy config service delegate object.
@@ -1062,16 +1062,16 @@ ProxyConfigServiceLinux::Delegate::Delegate(base::Environment* env_var_getter)
     : env_var_getter_(env_var_getter),
       glib_default_loop_(NULL), io_loop_(NULL) {
   // Figure out which GConfSettingGetterImpl to use, if any.
-  switch (base::GetDesktopEnvironment(env_var_getter)) {
-    case base::DESKTOP_ENVIRONMENT_GNOME:
+  switch (base::nix::GetDesktopEnvironment(env_var_getter)) {
+    case base::nix::DESKTOP_ENVIRONMENT_GNOME:
       gconf_getter_.reset(new GConfSettingGetterImplGConf());
       break;
-    case base::DESKTOP_ENVIRONMENT_KDE3:
-    case base::DESKTOP_ENVIRONMENT_KDE4:
+    case base::nix::DESKTOP_ENVIRONMENT_KDE3:
+    case base::nix::DESKTOP_ENVIRONMENT_KDE4:
       gconf_getter_.reset(new GConfSettingGetterImplKDE(env_var_getter));
       break;
-    case base::DESKTOP_ENVIRONMENT_XFCE:
-    case base::DESKTOP_ENVIRONMENT_OTHER:
+    case base::nix::DESKTOP_ENVIRONMENT_XFCE:
+    case base::nix::DESKTOP_ENVIRONMENT_OTHER:
       break;
   }
 }
@@ -1095,7 +1095,7 @@ void ProxyConfigServiceLinux::Delegate::SetupAndFetchInitialConfig(
   // proxy setting change notifications. This should not be the usual
   // case but is intended to simplify test setups.
   if (!io_loop_ || !file_loop)
-    LOG(INFO) << "Monitoring of proxy setting changes is disabled";
+    VLOG(1) << "Monitoring of proxy setting changes is disabled";
 
   // Fetch and cache the current proxy config. The config is left in
   // cached_config_, where GetLatestProxyConfig() running on the IO thread
@@ -1116,8 +1116,8 @@ void ProxyConfigServiceLinux::Delegate::SetupAndFetchInitialConfig(
       if (GetConfigFromGConf(&cached_config_)) {
         cached_config_.set_id(1);  // mark it as valid
         got_config = true;
-        LOG(INFO) << "Obtained proxy settings from " <<
-            gconf_getter_->GetDataSource();
+        VLOG(1) << "Obtained proxy settings from "
+                << gconf_getter_->GetDataSource();
         // If gconf proxy mode is "none", meaning direct, then we take
         // that to be a valid config and will not check environment
         // variables. The alternative would have been to look for a proxy
@@ -1141,7 +1141,7 @@ void ProxyConfigServiceLinux::Delegate::SetupAndFetchInitialConfig(
     // work.
     if (GetConfigFromEnv(&cached_config_)) {
       cached_config_.set_id(1);  // mark it as valid
-      LOG(INFO) << "Obtained proxy settings from environment variables";
+      VLOG(1) << "Obtained proxy settings from environment variables";
     }
   }
 }
@@ -1201,7 +1201,7 @@ void ProxyConfigServiceLinux::Delegate::OnCheckProxyConfigSettings() {
 void ProxyConfigServiceLinux::Delegate::SetNewProxyConfig(
     const ProxyConfig& new_config) {
   DCHECK(MessageLoop::current() == io_loop_);
-  LOG(INFO) << "Proxy configuration changed";
+  VLOG(1) << "Proxy configuration changed";
   cached_config_ = new_config;
   FOR_EACH_OBSERVER(Observer, observers_, OnProxyConfigChanged(new_config));
 }

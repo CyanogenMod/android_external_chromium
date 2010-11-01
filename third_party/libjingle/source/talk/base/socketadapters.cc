@@ -67,7 +67,7 @@ BufferedReadAdapter::~BufferedReadAdapter() {
 
 int BufferedReadAdapter::Send(const void *pv, size_t cb) {
   if (buffering_) {
-    // TODO(juberti): Spoof error better; Signal Writeable
+    // TODO: Spoof error better; Signal Writeable
     socket_->SetError(EWOULDBLOCK);
     return -1;
   }
@@ -122,7 +122,7 @@ void BufferedReadAdapter::OnReadEvent(AsyncSocket * socket) {
 
   int len = socket_->Recv(buffer_ + data_len_, buffer_size_ - data_len_);
   if (len < 0) {
-    // TODO(juberti): Do something better like forwarding the error to the user.
+    // TODO: Do something better like forwarding the error to the user.
     LOG_ERR(INFO) << "Recv";
     return;
   }
@@ -135,7 +135,7 @@ void BufferedReadAdapter::OnReadEvent(AsyncSocket * socket) {
 ///////////////////////////////////////////////////////////////////////////////
 
 // This is a SSL v2 CLIENT_HELLO message.
-// TODO(juberti): Should this have a session id? The response doesn't have a
+// TODO: Should this have a session id? The response doesn't have a
 // certificate, so the hello should have a session id.
 static const uint8 kSslClientHello[] = {
   0x80, 0x46,                                            // msg len
@@ -187,7 +187,7 @@ int AsyncSSLSocket::Connect(const SocketAddress& addr) {
 
 void AsyncSSLSocket::OnConnectEvent(AsyncSocket * socket) {
   ASSERT(socket == socket_);
-  // TODO(juberti): we could buffer output too...
+  // TODO: we could buffer output too...
   VERIFY(sizeof(kSslClientHello) ==
       DirectSend(kSslClientHello, sizeof(kSslClientHello)));
 }
@@ -198,7 +198,7 @@ void AsyncSSLSocket::ProcessInput(char* data, size_t* len) {
 
   if (memcmp(kSslServerHello, data, sizeof(kSslServerHello)) != 0) {
     Close();
-    SignalCloseEvent(this, 0);  // TODO(juberti): error code?
+    SignalCloseEvent(this, 0);  // TODO: error code?
     return;
   }
 
@@ -271,7 +271,7 @@ int AsyncHttpsProxySocket::Connect(const SocketAddress& addr) {
     BufferInput(true);
   }
   ret = BufferedReadAdapter::Connect(proxy_);
-  // TODO(juberti): Set state_ appropriately if Connect fails.
+  // TODO: Set state_ appropriately if Connect fails.
   return ret;
 }
 
@@ -358,11 +358,11 @@ void AsyncHttpsProxySocket::ProcessInput(char* data, size_t* len) {
 
   // FIX: if SignalConnect causes the socket to be destroyed, we are in trouble
   if (remainder)
-    SignalReadEvent(this);  // TODO(juberti): signal this??
+    SignalReadEvent(this);  // TODO: signal this??
 }
 
 bool AsyncHttpsProxySocket::ShouldIssueConnect() const {
-  // TODO(juberti): Think about whether a more sophisticated test
+  // TODO: Think about whether a more sophisticated test
   // than dest port == 80 is needed.
   return force_connect_ || (dest_.port() != 80);
 }
@@ -421,7 +421,7 @@ void AsyncHttpsProxySocket::ProcessLine(char * data, size_t len) {
         MessageBoxA(0, msg.c_str(), "Oops!", MB_OK);
 #endif
 #ifdef POSIX
-        // TODO(juberti): Raise a signal so the UI can be separated.
+        // TODO: Raise a signal so the UI can be separated.
         LOG(LS_ERROR) << "Oops!\n\n" << msg;
 #endif
       }
@@ -499,7 +499,7 @@ void AsyncHttpsProxySocket::EndResponse() {
   }
 
   // No point in waiting for the server to close... let's close now
-  // TODO(juberti): Refactor out PS_WAIT_CLOSE
+  // TODO: Refactor out PS_WAIT_CLOSE
   state_ = PS_WAIT_CLOSE;
   BufferedReadAdapter::Close();
   OnCloseEvent(this, 0);
@@ -528,7 +528,7 @@ int AsyncSocksProxySocket::Connect(const SocketAddress& addr) {
   state_ = SS_INIT;
   BufferInput(true);
   ret = BufferedReadAdapter::Connect(proxy_);
-  // TODO(juberti): Set state_ appropriately if Connect fails.
+  // TODO: Set state_ appropriately if Connect fails.
   return ret;
 }
 
@@ -647,7 +647,7 @@ void AsyncSocksProxySocket::ProcessInput(char* data, size_t* len) {
 
   // FIX: if SignalConnect causes the socket to be destroyed, we are in trouble
   if (remainder)
-    SignalReadEvent(this);  // TODO(juberti): signal this??
+    SignalReadEvent(this);  // TODO: signal this??
 }
 
 void AsyncSocksProxySocket::SendHello() {
@@ -714,7 +714,7 @@ AsyncSocksProxyServerSocket::AsyncSocksProxyServerSocket(AsyncSocket* socket)
 }
 
 void AsyncSocksProxyServerSocket::ProcessInput(char* data, size_t* len) {
-  // TODO(juberti): See if the whole message has arrived
+  // TODO: See if the whole message has arrived
   ASSERT(state_ < SS_CONNECT_PENDING);
 
   ByteBuffer response(data, *len);
@@ -755,7 +755,7 @@ void AsyncSocksProxyServerSocket::HandleHello(ByteBuffer* request) {
     return;
   }
 
-  // TODO(juberti): Ask the server which method to use.
+  // TODO: Ask the server which method to use.
   SendHelloReply(method);
   if (method == 0) {
     state_ = SS_CONNECT;
@@ -785,7 +785,7 @@ void AsyncSocksProxyServerSocket::HandleAuth(ByteBuffer* request) {
     return;
   }
 
-  // TODO(juberti): Allow for checking of credentials.
+  // TODO: Allow for checking of credentials.
   SendAuthReply(0);
   state_ = SS_CONNECT;
 }

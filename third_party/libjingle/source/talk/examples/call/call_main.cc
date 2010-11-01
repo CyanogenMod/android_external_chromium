@@ -32,6 +32,8 @@
 #include <vector>
 #include "talk/base/logging.h"
 #include "talk/base/flags.h"
+#include "talk/base/pathutils.h"
+#include "talk/base/stream.h"
 #include "talk/base/ssladapter.h"
 #include "talk/base/win32socketserver.h"
 #include "talk/xmpp/xmppclientsettings.h"
@@ -40,6 +42,7 @@
 #include "talk/examples/login/xmpppump.h"
 #include "talk/examples/call/callclient.h"
 #include "talk/examples/call/console.h"
+#include "talk/session/phone/filemediaengine.h"
 
 class DebugLog : public sigslot::has_slots<> {
  public:
@@ -114,8 +117,8 @@ class DebugLog : public sigslot::has_slots<> {
           time_string[time_len-1] = 0;    // trim off terminating \n
         }
       }
-      LOG(INFO) << (output ? "SEND >>>>>>>>>>>>>>>>>>>>>>>>>" : "RECV <<<<<<<<<<<<<<<<<<<<<<<<<")
-        << " : " << time_string;
+      LOG(INFO) << (output ? "SEND >>>>>>>>>>>>>>>>" : "RECV <<<<<<<<<<<<<<<<")
+                << " : " << time_string;
 
       bool indent;
       int start = 0, nest = 3;
@@ -131,7 +134,8 @@ class DebugLog : public sigslot::has_slots<> {
           }
 
           // Output a tag
-          LOG(INFO) << std::setw(nest) << " " << std::string(buf + start, i + 1 - start);
+          LOG(INFO) << std::setw(nest) << " "
+                    << std::string(buf + start, i + 1 - start);
 
           if (indent)
             nest += 2;
@@ -150,7 +154,8 @@ class DebugLog : public sigslot::has_slots<> {
             LOG(INFO) << std::setw(nest) << " " << "## TEXT REMOVED ##";
             censor_password_ = false;
           } else {
-            LOG(INFO) << std::setw(nest) << " " << std::string(buf + start, i - start);
+            LOG(INFO) << std::setw(nest) << " "
+                      << std::string(buf + start, i - start);
           }
           start = i;
         }
@@ -166,6 +171,39 @@ static DebugLog debug_log_;
 static const int DEFAULT_PORT = 5222;
 
 
+cricket::MediaEngine* CreateFileMediaEngine(const char* voice_in,
+                                            const char* voice_out,
+                                            const char* video_in,
+                                            const char* video_out) {
+  cricket::FileMediaEngine* file_media_engine = new cricket::FileMediaEngine;
+  // Set the RTP dump file names.
+  if (voice_in) {
+    file_media_engine->set_voice_input_filename(voice_in);
+  }
+  if (voice_out) {
+    file_media_engine->set_voice_output_filename(voice_out);
+  }
+  if (video_in) {
+    file_media_engine->set_video_input_filename(video_in);
+  }
+  if (video_out) {
+    file_media_engine->set_video_output_filename(video_out);
+  }
+
+  // Set voice and video codecs. TODO: The codecs actually depend on
+  // the the input voice and video streams.
+  std::vector<cricket::AudioCodec> voice_codecs;
+  voice_codecs.push_back(
+      cricket::AudioCodec(9, "G722", 16000, 64000, 1, 0));
+  file_media_engine->set_voice_codecs(voice_codecs);
+  std::vector<cricket::VideoCodec> video_codecs;
+  video_codecs.push_back(
+      cricket::VideoCodec(97, "H264", 320, 240, 30, 0));
+  file_media_engine->set_video_codecs(video_codecs);
+
+  return file_media_engine;
+}
+
 int main(int argc, char **argv) {
   // This app has three threads. The main thread will run the XMPP client,
   // which will print to the screen in its own thread. A second thread
@@ -176,15 +214,24 @@ int main(int argc, char **argv) {
   // define options
   DEFINE_bool(a, false, "Turn on auto accept.");
   DEFINE_bool(d, false, "Turn on debugging.");
-  DEFINE_bool(filemedia, false, "Use File media");
   DEFINE_bool(testserver, false, "Use test server");
   DEFINE_int(portallocator, 0, "Filter out unwanted connection types.");
   DEFINE_string(filterhost, NULL, "Filter out the host from all candidates.");
   DEFINE_string(pmuc, "groupchat.google.com", "The persistant muc domain.");
   DEFINE_string(s, "talk.google.com", "The connection server to use.");
+  DEFINE_string(voiceinput, NULL, "RTP dump file for voice input.");
+  DEFINE_string(voiceoutput, NULL, "RTP dump file for voice output.");
+  DEFINE_string(videoinput, NULL, "RTP dump file for video input.");
+  DEFINE_string(videooutput, NULL, "RTP dump file for video output.");
+  DEFINE_bool(help, false, "Prints this message");
 
   // parse options
   FlagList::SetFlagsFromCommandLine(&argc, argv, true);
+  if (FLAG_help) {
+    FlagList::Print(NULL, false);
+    return 0;
+  }
+
   bool auto_accept = FLAG_a;
   bool debug = FLAG_d;
   bool test_server = FLAG_testserver;
@@ -265,6 +312,17 @@ int main(int argc, char **argv) {
 
   XmppPump pump;
   CallClient *client = new CallClient(pump.client());
+
+  if (FLAG_voiceinput || FLAG_voiceoutput ||
+      FLAG_videoinput || FLAG_videooutput) {
+    // If any dump file is specified, we use FileMediaEngine.
+    cricket::MediaEngine* engine = CreateFileMediaEngine(FLAG_voiceinput,
+                                                         FLAG_voiceoutput,
+                                                         FLAG_videoinput,
+                                                         FLAG_videooutput);
+    // The engine will be released by the client later.
+    client->SetMediaEngine(engine);
+  }
 
   Console *console = new Console(main_thread, client);
   client->SetConsole(console);

@@ -11,7 +11,7 @@
 #include "base/environment.h"
 #include "base/event_recorder.h"
 #include "base/file_path.h"
-#include "base/histogram.h"
+#include "base/metrics/histogram.h"
 #include "base/path_service.h"
 #include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
@@ -22,9 +22,9 @@
 #include "chrome/browser/automation/testing_automation_provider.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/child_process_security_policy.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/extensions/extension_creator.h"
 #include "chrome/browser/extensions/extensions_service.h"
@@ -230,8 +230,8 @@ class CheckDefaultBrowserTask : public Task {
       return;
 #endif
 
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE, new NotifyNotDefaultBrowserTask());
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE, new NotifyNotDefaultBrowserTask());
   }
 
  private:
@@ -361,6 +361,14 @@ void UrlsToTabs(const std::vector<GURL>& urls,
 
 }  // namespace
 
+BrowserInit::BrowserInit() {}
+
+BrowserInit::~BrowserInit() {}
+
+void BrowserInit::AddFirstRunTab(const GURL& url) {
+  first_run_tabs_.push_back(url);
+}
+
 // static
 bool BrowserInit::InProcessStartup() {
   return in_startup;
@@ -441,6 +449,12 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
   return true;
 }
 
+// Tab ------------------------------------------------------------------------
+
+BrowserInit::LaunchWithProfile::Tab::Tab() : is_app(false), is_pinned(true) {}
+
+BrowserInit::LaunchWithProfile::Tab::~Tab() {}
+
 // LaunchWithProfile ----------------------------------------------------------
 
 BrowserInit::LaunchWithProfile::LaunchWithProfile(
@@ -476,7 +490,7 @@ bool BrowserInit::LaunchWithProfile::Launch(Profile* profile,
     chrome_browser_net::EnablePredictor(false);
 
   if (command_line_.HasSwitch(switches::kDumpHistogramsOnExit))
-    StatisticsRecorder::set_dump_on_exit(true);
+    base::StatisticsRecorder::set_dump_on_exit(true);
 
   if (command_line_.HasSwitch(switches::kRemoteShellPort)) {
     std::string port_str =
@@ -515,7 +529,7 @@ bool BrowserInit::LaunchWithProfile::Launch(Profile* profile,
     if (IsAppLaunch(NULL, &app_id) && !app_id.empty()) {
       // TODO(erikkay): This could fail if |app_id| is invalid (the app was
       // uninstalled).  We may want to show some reasonable error here.
-      Browser::OpenApplication(profile, app_id);
+      Browser::OpenApplication(profile, app_id, NULL);
     }
 
     if (process_startup) {
@@ -573,8 +587,7 @@ bool BrowserInit::LaunchWithProfile::IsAppLaunch(std::string* app_url,
       *app_url = command_line_.GetSwitchValueASCII(switches::kApp);
     return true;
   }
-  if (!command_line_.HasSwitch(switches::kDisableApps) &&
-      command_line_.HasSwitch(switches::kAppId)) {
+  if (command_line_.HasSwitch(switches::kAppId)) {
     if (app_id)
       *app_id = command_line_.GetSwitchValueASCII(switches::kAppId);
     return true;
@@ -597,7 +610,7 @@ bool BrowserInit::LaunchWithProfile::OpenApplicationWindow(Profile* profile) {
   // TODO(rafaelw): Do something reasonable here. Pop up a warning panel?
   // Open an URL to the gallery page of the extension id?
   if (!app_id.empty())
-    return Browser::OpenApplication(profile, app_id) != NULL;
+    return Browser::OpenApplication(profile, app_id, NULL) != NULL;
 
   if (url_string.empty())
     return false;
@@ -613,7 +626,7 @@ bool BrowserInit::LaunchWithProfile::OpenApplicationWindow(Profile* profile) {
         ChildProcessSecurityPolicy::GetInstance();
     if (policy->IsWebSafeScheme(url.scheme()) ||
         url.SchemeIs(chrome::kFileScheme)) {
-      Browser::OpenApplicationWindow(profile, url, NULL);
+      Browser::OpenApplicationWindow(profile, url);
       return true;
     }
   }
@@ -625,14 +638,8 @@ void BrowserInit::LaunchWithProfile::ProcessLaunchURLs(
     const std::vector<GURL>& urls_to_open) {
   // If we're starting up in "background mode" (no open browser window) then
   // don't open any browser windows.
-  if (process_startup && command_line_.HasSwitch(switches::kNoStartupWindow)) {
-    BrowserList::StartKeepAlive();
-    // Keep the app alive while the system initializes, then allow it to
-    // shutdown if no other module wants to keep it running.
-    MessageLoop::current()->PostTask(
-        FROM_HERE, NewRunnableFunction(BrowserList::EndKeepAlive));
+  if (process_startup && command_line_.HasSwitch(switches::kNoStartupWindow))
     return;
-  }
 
   if (process_startup && ProcessStartupURLs(urls_to_open)) {
     // ProcessStartupURLs processed the urls, nothing else to do.
@@ -757,9 +764,12 @@ Browser* BrowserInit::LaunchWithProfile::OpenTabsInBrowser(
       add_types |= TabStripModel::ADD_PINNED;
     int index = browser->GetIndexForInsertionDuringRestore(i);
 
-    TabContents* tab = browser->AddTabWithURL(
-        tabs[i].url, GURL(), PageTransition::START_PAGE, index, add_types, NULL,
-        tabs[i].app_id, NULL);
+    Browser::AddTabWithURLParams params(tabs[i].url,
+                                        PageTransition::START_PAGE);
+    params.index = index;
+    params.add_types = add_types;
+    params.extension_app_id = tabs[i].app_id;
+    TabContents* tab = browser->AddTabWithURL(&params);
 
     if (profile_ && first_tab && process_startup) {
       AddCrashedInfoBarIfNecessary(tab);
@@ -905,56 +915,8 @@ void BrowserInit::LaunchWithProfile::CheckDefaultBrowser(Profile* profile) {
       FirstRun::IsChromeFirstRun()) {
     return;
   }
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE, new CheckDefaultBrowserTask());
-}
-
-class PackExtensionLogger : public PackExtensionJob::Client {
- public:
-  PackExtensionLogger() {}
-  virtual void OnPackSuccess(const FilePath& crx_path,
-                             const FilePath& output_private_key_path);
-  virtual void OnPackFailure(const std::string& error_message);
-
- private:
-  void ShowPackExtensionMessage(const std::wstring& caption,
-                                const std::wstring& message);
-
-  DISALLOW_COPY_AND_ASSIGN(PackExtensionLogger);
-};
-
-void PackExtensionLogger::OnPackSuccess(const FilePath& crx_path,
-                                        const FilePath& output_private_key_path)
-{
-  ShowPackExtensionMessage(L"Extension Packaging Success",
-                           PackExtensionJob::StandardSuccessMessage(
-                               crx_path, output_private_key_path));
-}
-
-void PackExtensionLogger::OnPackFailure(const std::string& error_message) {
-  ShowPackExtensionMessage(L"Extension Packaging Error",
-                           UTF8ToWide(error_message));
-}
-
-void PackExtensionLogger::ShowPackExtensionMessage(const std::wstring& caption,
-                                                   const std::wstring& message)
-{
-#if defined(OS_WIN)
-  win_util::MessageBox(NULL, message, caption, MB_OK | MB_SETFOREGROUND);
-#else
-  // Just send caption & text to stdout on mac & linux.
-  std::string out_text = WideToASCII(caption);
-  out_text.append("\n\n");
-  out_text.append(WideToASCII(message));
-  out_text.append("\n");
-  printf("%s", out_text.c_str());
-#endif
-
-  // We got the notification and processed it; we don't expect any further tasks
-  // to be posted to the current thread, so we should stop blocking and exit.
-  // This call to |Quit()| matches the call to |Run()| in
-  // |ProcessCmdLineImpl()|.
-  MessageLoop::current()->Quit();
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE, new CheckDefaultBrowserTask());
 }
 
 bool BrowserInit::ProcessCmdLineImpl(const CommandLine& command_line,
@@ -991,34 +953,6 @@ bool BrowserInit::ProcessCmdLineImpl(const CommandLine& command_line,
           testing_channel_id,
           profile,
           static_cast<size_t>(expected_tab_count));
-    }
-
-    if (command_line.HasSwitch(switches::kPackExtension)) {
-      // Input Paths.
-      FilePath src_dir = command_line.GetSwitchValuePath(
-          switches::kPackExtension);
-      FilePath private_key_path;
-      if (command_line.HasSwitch(switches::kPackExtensionKey)) {
-        private_key_path = command_line.GetSwitchValuePath(
-            switches::kPackExtensionKey);
-      }
-
-      // Launch a job to perform the packing on the file thread.
-      PackExtensionLogger pack_client;
-      scoped_refptr<PackExtensionJob> pack_job =
-          new PackExtensionJob(&pack_client, src_dir, private_key_path);
-      pack_job->Start();
-
-      // The job will post a notification task to the current thread's message
-      // loop when it is finished.  We manually run the loop here so that we
-      // block and catch the notification.  Otherwise, the process would exit;
-      // in particular, this would mean that |pack_client| would be destroyed
-      // and we wouldn't be able to report success or failure back to the user.
-      // This call to |Run()| is matched by a call to |Quit()| in the
-      // |PackExtensionLogger|'s notification handling code.
-      MessageLoop::current()->Run();
-
-      return false;
     }
   }
 

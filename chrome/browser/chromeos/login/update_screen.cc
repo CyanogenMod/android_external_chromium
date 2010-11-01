@@ -24,12 +24,18 @@ const int kProgressComplete = 100;
 // Defines what part of update progress does download part takes.
 const int kDownloadProgressIncrement = 60;
 
+// Considering 10px shadow from each side.
+const int kUpdateScreenWidth = 580;
+const int kUpdateScreenHeight = 305;
+
 }  // anonymous namespace
 
 namespace chromeos {
 
 UpdateScreen::UpdateScreen(WizardScreenDelegate* delegate)
-    : DefaultViewScreen<chromeos::UpdateView>(delegate),
+    : DefaultViewScreen<chromeos::UpdateView>(delegate,
+                                              kUpdateScreenWidth,
+                                              kUpdateScreenHeight),
       checking_for_update_(true),
       maximal_curtain_time_(0),
       reboot_check_delay_(0) {
@@ -55,7 +61,7 @@ void UpdateScreen::UpdateStatusChanged(UpdateLibrary* library) {
       break;
     case UPDATE_STATUS_UPDATE_AVAILABLE:
       view()->SetProgress(kBeforeDownloadProgress);
-      LOG(INFO) << "Update available: " << library->status().new_version;
+      VLOG(1) << "Update available: " << library->status().new_version;
       break;
     case UPDATE_STATUS_DOWNLOADING:
       {
@@ -75,7 +81,7 @@ void UpdateScreen::UpdateStatusChanged(UpdateLibrary* library) {
       view()->SetProgress(kProgressComplete);
       view()->ShowCurtain(false);
       CrosLibrary::Get()->GetUpdateLibrary()->RebootAfterUpdate();
-      LOG(INFO) << "Reboot API was called. Waiting for reboot.";
+      VLOG(1) << "Reboot API was called. Waiting for reboot.";
       reboot_timer_.Start(base::TimeDelta::FromSeconds(reboot_check_delay_),
                           this,
                           &UpdateScreen::OnWaitForRebootTimeElapsed);
@@ -112,7 +118,7 @@ void UpdateScreen::StartUpdate() {
     LOG(ERROR) << "Error loading CrosLibrary";
   } else {
     CrosLibrary::Get()->GetUpdateLibrary()->AddObserver(this);
-    LOG(INFO) << "Checking for update";
+    VLOG(1) << "Checking for update";
     if (!CrosLibrary::Get()->GetUpdateLibrary()->CheckForUpdate()) {
       ExitUpdate();
     }

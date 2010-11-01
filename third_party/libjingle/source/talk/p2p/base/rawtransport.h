@@ -37,16 +37,19 @@ namespace cricket {
 // Implements a transport that only sends raw packets, no STUN.  As a result,
 // it cannot do pings to determine connectivity, so it only uses a single port
 // that it thinks will work.
-class RawTransport: public Transport {
+class RawTransport: public Transport, public TransportParser {
  public:
-  RawTransport(talk_base::Thread* worker_thread, PortAllocator* allocator);
+  RawTransport(talk_base::Thread* signaling_thread,
+               talk_base::Thread* worker_thread,
+               PortAllocator* allocator);
   virtual ~RawTransport();
 
-  virtual bool ParseCandidates(const buzz::XmlElement* elem,
+  virtual bool ParseCandidates(SignalingProtocol protocol,
+                               const buzz::XmlElement* elem,
                                Candidates* candidates,
                                ParseError* error);
-  virtual bool WriteCandidates(const Candidates& candidates,
-                               SignalingProtocol protocol,
+  virtual bool WriteCandidates(SignalingProtocol protocol,
+                               const Candidates& candidates,
                                XmlElements* candidate_elems,
                                WriteError* error);
 

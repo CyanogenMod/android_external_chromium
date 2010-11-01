@@ -41,7 +41,7 @@ namespace speech_input {
 // state.
 class EnergyEndpointer::HistoryRing {
  public:
-  HistoryRing() {}
+  HistoryRing() : insertion_index_(0) {}
 
   // Resets the ring to |size| elements each with state |initial_state|
   void SetRing(int size, bool initial_state);
@@ -119,9 +119,21 @@ float EnergyEndpointer::HistoryRing::RingSum(float duration_sec) {
 }
 
 EnergyEndpointer::EnergyEndpointer()
-    : endpointer_time_us_(0),
+    : status_(EP_PRE_SPEECH),
+      offset_confirm_dur_sec_(0),
+      endpointer_time_us_(0),
+      fast_update_frames_(0),
+      frame_counter_(0),
       max_window_dur_(4.0),
-      history_(new HistoryRing()) {
+      sample_rate_(0),
+      history_(new HistoryRing()),
+      decision_threshold_(0),
+      estimating_environment_(false),
+      noise_level_(0),
+      rms_adapt_(0),
+      start_lag_(0),
+      end_lag_(0),
+      user_input_start_time_us_(0) {
 }
 
 EnergyEndpointer::~EnergyEndpointer() {
@@ -227,7 +239,7 @@ void EnergyEndpointer::ProcessAudioFrame(int64 time_us,
     if ((endpointer_time_us_ - user_input_start_time_us_) <
         Secs2Usecs(params_.contamination_rejection_period())) {
       decision = false;
-      DLOG(INFO) << "decision: forced to false, time: " << endpointer_time_us_;
+      DVLOG(1) << "decision: forced to false, time: " << endpointer_time_us_;
     } else {
       decision = (rms > decision_threshold_);
     }
@@ -330,8 +342,8 @@ void EnergyEndpointer::UpdateLevels(float rms) {
     float alpha = static_cast<float>(frame_counter_) /
         static_cast<float>(fast_update_frames_);
     noise_level_ = (alpha * noise_level_) + ((1 - alpha) * rms);
-    DLOG(INFO) << "FAST UPDATE, frame_counter_ " << frame_counter_
-               << "fast_update_frames_ " << fast_update_frames_;
+    DVLOG(1) << "FAST UPDATE, frame_counter_ " << frame_counter_
+             << ", fast_update_frames_ " << fast_update_frames_;
   } else {
     // Update Noise level. The noise level adapts quickly downward, but
     // slowly upward. The noise_level_ parameter is not currently used

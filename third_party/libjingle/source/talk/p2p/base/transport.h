@@ -83,20 +83,33 @@ typedef std::vector<Candidate> Candidates;
 // Create/Translate.
 class TransportParser {
  public:
-  virtual bool ParseCandidates(const buzz::XmlElement* elem,
+  virtual bool ParseCandidates(SignalingProtocol protocol,
+                               const buzz::XmlElement* elem,
                                Candidates* candidates,
                                ParseError* error) = 0;
-  virtual bool WriteCandidates(const Candidates& candidates,
-                               SignalingProtocol protocol,
+  virtual bool WriteCandidates(SignalingProtocol protocol,
+                               const Candidates& candidates,
                                XmlElements* candidate_elems,
                                WriteError* error) = 0;
+
+  // Helper function to parse an element describing an address.  This
+  // retrieves the IP and port from the given element and verifies
+  // that they look like plausible values.
+  bool ParseAddress(const buzz::XmlElement* elem,
+                    const buzz::QName& address_name,
+                    const buzz::QName& port_name,
+                    talk_base::SocketAddress* address,
+                    ParseError* error);
+
   virtual ~TransportParser() {}
 };
 
-class Transport : public talk_base::MessageHandler, public sigslot::has_slots<>,
-                  public TransportParser {
+class Transport : public talk_base::MessageHandler,
+                  public sigslot::has_slots<> {
  public:
-  Transport(talk_base::Thread* worker_thread, const std::string& name,
+  Transport(talk_base::Thread* signaling_thread,
+            talk_base::Thread* worker_thread,
+            const std::string& type,
             PortAllocator* allocator);
   virtual ~Transport();
 
@@ -105,8 +118,8 @@ class Transport : public talk_base::MessageHandler, public sigslot::has_slots<>,
   // Returns the worker thread. The actual networking is done on this thread.
   talk_base::Thread* worker_thread() { return worker_thread_; }
 
-  // Returns the name of this transport.
-  const std::string& name() const { return name_; }
+  // Returns the type of this transport.
+  const std::string& type() const { return type_; }
 
   // Returns the port allocator object for this transport.
   PortAllocator* port_allocator() { return allocator_; }
@@ -160,11 +173,16 @@ class Transport : public talk_base::MessageHandler, public sigslot::has_slots<>,
                    const std::vector<Candidate>&> SignalCandidatesReady;
   void OnRemoteCandidates(const std::vector<Candidate>& candidates);
 
+  // If candidate is not acceptable, returns false and sets error.
+  // Call this before calling OnRemoteCandidates.
+  virtual bool VerifyCandidate(const Candidate& candidate,
+                               ParseError* error);
+
   // A transport message has generated an transport-specific error.  The
   // stanza that caused the error is available in session_msg.  If false is
   // returned, the error is considered unrecoverable, and the session is
   // terminated.
-  // TODO(pthatcher): Make OnTransportError take an abstract data type
+  // TODO: Make OnTransportError take an abstract data type
   // rather than an XmlElement.  It isn't needed yet, but it might be
   // later for Jingle compliance.
   virtual void OnTransportError(const buzz::XmlElement* error) {}
@@ -190,14 +208,6 @@ class Transport : public talk_base::MessageHandler, public sigslot::has_slots<>,
   // Informs the subclass that we received the signaling ready message.
   virtual void OnTransportSignalingReady() {}
 
-  // Helper function to parse an element describing an address.  This
-  // retrieves the IP and port from the given element and verifies
-  // that they look like plausible values.
-  bool ParseAddress(const buzz::XmlElement* elem,
-                    const buzz::QName& address_name,
-                    const buzz::QName& port_name,
-                    talk_base::SocketAddress* address,
-                    ParseError* error);
  private:
   typedef std::map<std::string, TransportChannelImpl*> ChannelMap;
 
@@ -243,7 +253,7 @@ class Transport : public talk_base::MessageHandler, public sigslot::has_slots<>,
 
   talk_base::Thread* signaling_thread_;
   talk_base::Thread* worker_thread_;
-  std::string name_;
+  std::string type_;
   PortAllocator* allocator_;
   bool destroyed_;
   bool readable_;

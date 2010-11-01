@@ -4,8 +4,8 @@
 
 #include <string>
 
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/child_process_security_policy.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/chromeos/login/account_screen.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/login/wizard_in_process_browser_test.h"
@@ -55,20 +55,21 @@ static bool inspector_called = false;  // had to use global flag as
 
 static URLRequestJob* InspectorHook(URLRequest* request,
                                     const std::string& scheme) {
-  LOG(INFO) << "Intercepted: " << request->url() << ", scheme: " << scheme;
+  VLOG(1) << "Intercepted: " << request->url() << ", scheme: " << scheme;
 
   // Expect that the parameters are the same as new_account.html gave us.
   EXPECT_STREQ("cros://inspector/?param1=value1+param2",
                request->url().spec().c_str());
   inspector_called = true;
-  ChromeThread::PostTask(ChromeThread::UI, FROM_HERE,
-                         NewRunnableFunction(QuitUIMessageLoop));
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                          NewRunnableFunction(QuitUIMessageLoop));
 
   // Do not navigate to the given URL. Navigate to about:blank instead.
   return new URLRequestAboutJob(request);
 }
 
-IN_PROC_BROWSER_TEST_F(AccountScreenTest, TestSchemeInspector) {
+// Flaky per http://crbug.com/60050.
+IN_PROC_BROWSER_TEST_F(AccountScreenTest, FLAKY_TestSchemeInspector) {
   ChildProcessSecurityPolicy::GetInstance()->RegisterWebSafeScheme(
       chrome::kCrosScheme);
   URLRequestFilter::GetInstance()->AddHostnameHandler(chrome::kCrosScheme,

@@ -14,13 +14,14 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/appcache/appcache_dispatcher_host.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/file_system/file_system_dispatcher_host.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/blob_dispatcher_host.h"
 #include "chrome/browser/renderer_host/database_dispatcher_host.h"
+#include "chrome/browser/renderer_host/file_utilities_dispatcher_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/renderer_host/resource_message_filter.h"
@@ -33,6 +34,7 @@
 #include "chrome/common/render_messages_params.h"
 #include "chrome/common/result_codes.h"
 #include "chrome/common/worker_messages.h"
+#include "net/base/mime_util.h"
 #include "ipc/ipc_switches.h"
 #include "net/base/registry_controlled_domain.h"
 
@@ -70,9 +72,9 @@ WorkerProcessHost::WorkerProcessHost(
           new BlobDispatcherHost(
               this->id(), request_context->blob_storage_context()))),
       ALLOW_THIS_IN_INITIALIZER_LIST(file_system_dispatcher_host_(
-          new FileSystemDispatcherHost(this,
-              request_context->file_system_host_context(),
-              request_context->host_content_settings_map()))) {
+          new FileSystemDispatcherHost(this, request_context))),
+      ALLOW_THIS_IN_INITIALIZER_LIST(file_utilities_dispatcher_host_(
+          new FileUtilitiesDispatcherHost(this, this->id()))) {
   next_route_id_callback_.reset(NewCallbackWithReturnValue(
       WorkerService::GetInstance(), &WorkerService::next_worker_route_id));
   db_dispatcher_host_ = new DatabaseDispatcherHost(
@@ -91,6 +93,9 @@ WorkerProcessHost::~WorkerProcessHost() {
   // Shut down the file system dispatcher host.
   file_system_dispatcher_host_->Shutdown();
 
+  // Shut down the file utilities dispatcher host.
+  file_utilities_dispatcher_host_->Shutdown();
+
   // Let interested observers know we are being deleted.
   NotificationService::current()->Notify(
       NotificationType::WORKER_PROCESS_HOST_SHUTDOWN,
@@ -103,8 +108,8 @@ WorkerProcessHost::~WorkerProcessHost() {
         i->worker_document_set()->documents();
     for (WorkerDocumentSet::DocumentInfoSet::const_iterator parent_iter =
              parents.begin(); parent_iter != parents.end(); ++parent_iter) {
-      ChromeThread::PostTask(
-          ChromeThread::UI, FROM_HERE,
+      BrowserThread::PostTask(
+          BrowserThread::UI, FROM_HERE,
           new WorkerCrashTask(parent_iter->renderer_id(),
                               parent_iter->render_view_route_id()));
     }
@@ -137,7 +142,7 @@ bool WorkerProcessHost::Init() {
 #if defined(OS_WIN)
     switches::kDisableDesktopNotifications,
 #endif
-    switches::kEnableFileSystem,
+    switches::kDisableFileSystem,
   };
   cmd_line->CopySwitchesFrom(*CommandLine::ForCurrentProcess(), kSwitchNames,
                              arraysize(kSwitchNames));
@@ -251,6 +256,7 @@ void WorkerProcessHost::OnMessageReceived(const IPC::Message& message) {
       db_dispatcher_host_->OnMessageReceived(message, &msg_is_ok) ||
       blob_dispatcher_host_->OnMessageReceived(message, &msg_is_ok) ||
       file_system_dispatcher_host_->OnMessageReceived(message, &msg_is_ok) ||
+      file_utilities_dispatcher_host_->OnMessageReceived(message, &msg_is_ok) ||
       MessagePortDispatcher::GetInstance()->OnMessageReceived(
           message, this, next_route_id_callback_.get(), &msg_is_ok);
 
@@ -265,6 +271,12 @@ void WorkerProcessHost::OnMessageReceived(const IPC::Message& message) {
                           OnWorkerContextClosed);
       IPC_MESSAGE_HANDLER(ViewHostMsg_ForwardToWorker,
                           OnForwardToWorker)
+      IPC_MESSAGE_HANDLER(ViewHostMsg_GetMimeTypeFromExtension,
+                          OnGetMimeTypeFromExtension)
+      IPC_MESSAGE_HANDLER(ViewHostMsg_GetMimeTypeFromFile,
+                          OnGetMimeTypeFromFile)
+      IPC_MESSAGE_HANDLER(ViewHostMsg_GetPreferredExtensionForMimeType,
+                          OnGetPreferredExtensionForMimeType)
       IPC_MESSAGE_UNHANDLED(handled = false)
     IPC_END_MESSAGE_MAP_EX()
   }
@@ -300,6 +312,7 @@ void WorkerProcessHost::OnMessageReceived(const IPC::Message& message) {
 void WorkerProcessHost::OnProcessLaunched() {
   db_dispatcher_host_->Init(handle());
   file_system_dispatcher_host_->Init(handle());
+  file_utilities_dispatcher_host_->Init(handle());
 }
 
 CallbackWithReturnValue<int>::Type* WorkerProcessHost::GetNextRouteIdCallback(
@@ -414,7 +427,7 @@ void WorkerProcessHost::UpdateTitle() {
     // the name of the extension.
     std::string extension_name = static_cast<ChromeURLRequestContext*>(
         Profile::GetDefaultRequestContext()->GetURLRequestContext())->
-        GetNameForExtension(title);
+        extension_info_map()->GetNameForExtension(title);
     if (!extension_name.empty()) {
       titles.insert(extension_name);
       continue;
@@ -487,6 +500,21 @@ void WorkerProcessHost::OnCancelCreateDedicatedWorker(int route_id) {
 
 void WorkerProcessHost::OnForwardToWorker(const IPC::Message& message) {
   WorkerService::GetInstance()->ForwardMessage(message, this);
+}
+
+void WorkerProcessHost::OnGetMimeTypeFromExtension(
+    const FilePath::StringType& ext, std::string* mime_type) {
+  net::GetMimeTypeFromExtension(ext, mime_type);
+}
+
+void WorkerProcessHost::OnGetMimeTypeFromFile(
+    const FilePath& file_path, std::string* mime_type) {
+  net::GetMimeTypeFromFile(file_path, mime_type);
+}
+
+void WorkerProcessHost::OnGetPreferredExtensionForMimeType(
+    const std::string& mime_type, FilePath::StringType* ext) {
+  net::GetPreferredExtensionForMimeType(mime_type, ext);
 }
 
 void WorkerProcessHost::DocumentDetached(IPC::Message::Sender* parent,

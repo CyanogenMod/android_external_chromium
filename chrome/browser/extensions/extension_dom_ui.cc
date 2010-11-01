@@ -11,7 +11,7 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_bookmark_manager_api.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/extensions/image_loading_tracker.h"
@@ -146,6 +146,8 @@ ExtensionDOMUI::ExtensionDOMUI(TabContents* tab_contents, GURL url)
   }
 }
 
+ExtensionDOMUI::~ExtensionDOMUI() {}
+
 void ExtensionDOMUI::ResetExtensionFunctionDispatcher(
     RenderViewHost* render_view_host) {
   // Use the NavigationController to get the URL rather than the TabContents
@@ -189,8 +191,17 @@ Browser* ExtensionDOMUI::GetBrowser() const {
   return BrowserList::FindBrowserWithProfile(DOMUI::GetProfile());
 }
 
+TabContents* ExtensionDOMUI::associated_tab_contents() const {
+  return tab_contents();
+}
+
 Profile* ExtensionDOMUI::GetProfile() {
   return DOMUI::GetProfile();
+}
+
+ExtensionBookmarkManagerEventRouter*
+ExtensionDOMUI::extension_bookmark_manager_event_router() {
+  return extension_bookmark_manager_event_router_.get();
 }
 
 gfx::NativeWindow ExtensionDOMUI::GetCustomFrameNativeWindow() {

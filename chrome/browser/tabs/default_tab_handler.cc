@@ -18,8 +18,8 @@ DefaultTabHandler::DefaultTabHandler(TabHandlerDelegate* delegate)
 }
 
 DefaultTabHandler::~DefaultTabHandler() {
-  // The tab strip should not have any significant tabs at this point.
-  DCHECK(!model_->HasNonPhantomTabs());
+  // The tab strip should not have any tabs at this point.
+  DCHECK(model_->empty());
   model_->RemoveObserver(this);
 }
 
@@ -145,8 +145,10 @@ void DefaultTabHandler::TabInsertedAt(TabContents* contents,
   delegate_->AsBrowser()->TabInsertedAt(contents, index, foreground);
 }
 
-void DefaultTabHandler::TabClosingAt(TabContents* contents, int index) {
-  delegate_->AsBrowser()->TabClosingAt(contents, index);
+void DefaultTabHandler::TabClosingAt(TabStripModel* tab_strip_model,
+                                     TabContents* contents,
+                                     int index) {
+  delegate_->AsBrowser()->TabClosingAt(tab_strip_model, contents, index);
 }
 
 void DefaultTabHandler::TabDetachedAt(TabContents* contents, int index) {

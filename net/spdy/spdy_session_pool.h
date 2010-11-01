@@ -35,11 +35,11 @@ class SpdySettingsStorage;
 // This is a very simple pool for open SpdySessions.
 // TODO(mbelshe): Make this production ready.
 class SpdySessionPool
-    : public base::RefCounted<SpdySessionPool>,
-      public NetworkChangeNotifier::Observer,
+    : public NetworkChangeNotifier::Observer,
       public SSLConfigService::Observer {
  public:
   explicit SpdySessionPool(SSLConfigService* ssl_config_service);
+  virtual ~SpdySessionPool();
 
   // Either returns an existing SpdySession or creates a new SpdySession for
   // use.
@@ -88,6 +88,10 @@ class SpdySessionPool
   // by SpdySession, because otherwise session->state_ is not set to CLOSED.
   void Remove(const scoped_refptr<SpdySession>& session);
 
+  // Creates a Value summary of the state of the spdy session pool. The caller
+  // responsible for deleting the returned value.
+  Value* SpdySessionPoolInfoToValue();
+
   // NetworkChangeNotifier::Observer methods:
 
   // We flush all idle sessions and release references to the active ones so
@@ -101,15 +105,12 @@ class SpdySessionPool
   virtual void OnSSLConfigChanged();
 
  private:
-  friend class base::RefCounted<SpdySessionPool>;
   friend class SpdySessionPoolPeer;  // For testing.
   friend class SpdyNetworkTransactionTest;  // For testing.
   FRIEND_TEST_ALL_PREFIXES(SpdyNetworkTransactionTest, WindowUpdateOverflow);
 
   typedef std::list<scoped_refptr<SpdySession> > SpdySessionList;
   typedef std::map<HostPortProxyPair, SpdySessionList*> SpdySessionsMap;
-
-  virtual ~SpdySessionPool();
 
   // Helper functions for manipulating the lists.
   SpdySessionList* AddSessionList(

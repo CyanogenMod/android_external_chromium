@@ -5,7 +5,7 @@
 #include "chrome/browser/geolocation/geolocation_permission_context.h"
 
 #include "base/scoped_vector.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
 #include "chrome/browser/geolocation/geolocation_permission_context.h"
 #include "chrome/browser/geolocation/location_arbitrator.h"
@@ -56,7 +56,7 @@ class GeolocationPermissionContextTests : public RenderViewHostTestHarness {
  public:
   GeolocationPermissionContextTests()
     : RenderViewHostTestHarness(),
-      ui_thread_(ChromeThread::UI, MessageLoop::current()),
+      ui_thread_(BrowserThread::UI, MessageLoop::current()),
       tab_contents_with_pending_infobar_(NULL) {
   }
 
@@ -150,7 +150,7 @@ class GeolocationPermissionContextTests : public RenderViewHostTestHarness {
   }
 
  protected:
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
   TestTabContentsWithPendingInfoBar* tab_contents_with_pending_infobar_;
   scoped_refptr<GeolocationPermissionContext> geolocation_permission_context_;
   ScopedVector<TestTabContentsWithPendingInfoBar> extra_tabs_;

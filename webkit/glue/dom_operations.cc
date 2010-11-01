@@ -190,6 +190,9 @@ static bool FillFormImpl(FormElements* fe, const FormData& data) {
         (!element.isEnabledFormControl() || element.hasAttribute("readonly"))) {
       continue;  // Don't fill uneditable password fields.
     }
+    if (!element.isValidValue(data_map[it->first]))
+      continue;
+
     element.setValue(data_map[it->first]);
     element.setAutofilled(true);
     element.dispatchFormControlChangeEvent();
@@ -424,6 +427,10 @@ static gfx::Size ParseIconSize(const string16& text) {
   return gfx::Size(ParseSingleIconSize(sizes[0]),
                    ParseSingleIconSize(sizes[1]));
 }
+
+WebApplicationInfo::WebApplicationInfo() {}
+
+WebApplicationInfo::~WebApplicationInfo() {}
 
 bool ParseIconSizes(const string16& text,
                     std::vector<gfx::Size>* sizes,

@@ -15,6 +15,7 @@
 #include "chrome/common/extensions/extension_localization_peer.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
+#include "chrome/common/resource_response.h"
 #include "chrome/common/security_filter_peer.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_util.h"
@@ -22,15 +23,6 @@
 #include "net/http/http_response_headers.h"
 #include "webkit/glue/resource_type.h"
 #include "webkit/glue/webkit_glue.h"
-
-// Uncomment to enable logging of request traffic
-// #define LOG_RESOURCE_REQUESTS
-
-#ifdef LOG_RESOURCE_REQUESTS
-# define RESOURCE_LOG(stuff) LOG(INFO) << stuff
-#else
-# define RESOURCE_LOG(stuff)
-#endif
 
 // Each resource request is assigned an ID scoped to this process.
 static int MakeRequestID() {
@@ -67,10 +59,6 @@ class IPCResourceLoaderBridge : public ResourceLoaderBridge {
   virtual void SetDefersLoading(bool value);
   virtual void SyncLoad(SyncLoadResponse* response);
 
-#ifdef LOG_RESOURCE_REQUESTS
-  const std::string& url() const { return url_; }
-#endif
-
  private:
   ResourceLoaderBridge::Peer* peer_;
 
@@ -87,11 +75,6 @@ class IPCResourceLoaderBridge : public ResourceLoaderBridge {
 
   // The routing id used when sending IPC messages.
   int routing_id_;
-
-#ifdef LOG_RESOURCE_REQUESTS
-  // indicates the URL of this resource request for help debugging
-  std::string url_;
-#endif
 
   // The following two members are specified if the request is initiated by
   // a plugin like Gears.
@@ -130,10 +113,6 @@ IPCResourceLoaderBridge::IPCResourceLoaderBridge(
   request_.download_to_file = request_info.download_to_file;
   request_.host_renderer_id = host_renderer_id_;
   request_.host_render_view_id = host_render_view_id_;
-
-#ifdef LOG_RESOURCE_REQUESTS
-  url_ = request_.url.possibly_invalid_spec();
-#endif
 }
 
 IPCResourceLoaderBridge::~IPCResourceLoaderBridge() {
@@ -198,8 +177,6 @@ bool IPCResourceLoaderBridge::Start(Peer* peer) {
     return false;
   }
 
-  RESOURCE_LOG("Starting request for " << url_);
-
   peer_ = peer;
 
   // generate the request ID, and append it to the message
@@ -215,8 +192,6 @@ void IPCResourceLoaderBridge::Cancel() {
     NOTREACHED() << "Trying to cancel an unstarted request";
     return;
   }
-
-  RESOURCE_LOG("Canceling request for " << url_);
 
   dispatcher_->CancelPendingRequest(routing_id_, request_id_);
 
@@ -241,8 +216,6 @@ void IPCResourceLoaderBridge::SyncLoad(SyncLoadResponse* response) {
     return;
   }
 
-  RESOURCE_LOG("Making sync request for " << url_);
-
   request_id_ = MakeRequestID();
 
   SyncLoadResult result;
@@ -264,6 +237,7 @@ void IPCResourceLoaderBridge::SyncLoad(SyncLoadResponse* response) {
   response->connection_id = result.connection_id;
   response->connection_reused = result.connection_reused;
   response->load_timing = result.load_timing;
+  response->devtools_info = result.devtools_info;
   response->data.swap(result.data);
   response->download_file_path = result.download_file_path;
 }
@@ -341,8 +315,6 @@ void ResourceDispatcher::OnUploadProgress(
   if (!request_info)
     return;
 
-  RESOURCE_LOG("Dispatching upload progress for " <<
-      request_info->peer->GetURLForDebugging().possibly_invalid_spec());
   request_info->peer->OnUploadProgress(position, size);
 
   // Acknowledge receipt
@@ -365,8 +337,6 @@ void ResourceDispatcher::OnReceivedResponse(
       request_info->peer = new_peer;
   }
 
-  RESOURCE_LOG("Dispatching response for " <<
-      request_info->peer->GetURLForDebugging().possibly_invalid_spec());
   request_info->peer->OnReceivedResponse(response_head, false);
 }
 
@@ -376,11 +346,8 @@ void ResourceDispatcher::OnReceivedCachedMetadata(
   if (!request_info)
     return;
 
-  if (data.size()) {
-    RESOURCE_LOG("Dispatching " << data.size() << " metadata bytes for " <<
-        request_info->peer->GetURLForDebugging().possibly_invalid_spec());
+  if (data.size())
     request_info->peer->OnReceivedCachedMetadata(&data.front(), data.size());
-  }
 }
 
 void ResourceDispatcher::OnReceivedData(const IPC::Message& message,
@@ -400,8 +367,6 @@ void ResourceDispatcher::OnReceivedData(const IPC::Message& message,
     return;
 
   if (data_len > 0 && shared_mem.Map(data_len)) {
-    RESOURCE_LOG("Dispatching " << data_len << " bytes for " <<
-        request_info->peer->GetURLForDebugging().possibly_invalid_spec());
     const char* data = static_cast<char*>(shared_mem.memory());
     request_info->peer->OnReceivedData(data, data_len);
   }
@@ -418,8 +383,6 @@ void ResourceDispatcher::OnDownloadedData(const IPC::Message& message,
   if (!request_info)
     return;
 
-  RESOURCE_LOG("Dispatching " << data_len << " downloaded for " <<
-      request_info->peer->GetURLForDebugging().possibly_invalid_spec());
   request_info->peer->OnDownloadedData(data_len);
 }
 
@@ -427,14 +390,10 @@ void ResourceDispatcher::OnReceivedRedirect(
     const IPC::Message& message,
     int request_id,
     const GURL& new_url,
-    const webkit_glue::ResourceLoaderBridge::ResponseInfo& info) {
+    const webkit_glue::ResourceResponseInfo& info) {
   PendingRequestInfo* request_info = GetPendingRequestInfo(request_id);
   if (!request_info)
     return;
-
-  RESOURCE_LOG(
-      "Dispatching redirect for " <<
-      request_info->peer->GetURLForDebugging().possibly_invalid_spec());
 
   bool has_new_first_party_for_cookies = false;
   GURL new_first_party_for_cookies;
@@ -459,9 +418,6 @@ void ResourceDispatcher::OnRequestComplete(int request_id,
     return;
 
   webkit_glue::ResourceLoaderBridge::Peer* peer = request_info->peer;
-
-  RESOURCE_LOG("Dispatching complete for " <<
-               peer->GetURLForDebugging().possibly_invalid_spec());
 
   if (status.status() == URLRequestStatus::CANCELED &&
       status.os_error() != net::ERR_ABORTED) {

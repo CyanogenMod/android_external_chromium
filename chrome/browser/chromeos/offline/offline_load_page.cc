@@ -6,14 +6,14 @@
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
-#include "base/histogram.h"
 #include "base/i18n/rtl.h"
+#include "base/metrics/histogram.h"
 #include "base/string_piece.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -40,7 +40,7 @@ namespace chromeos {
 // static
 void OfflineLoadPage::Show(int process_host_id, int render_view_id,
                            const GURL& url, Delegate* delegate) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (NetworkStateNotifier::is_connected()) {
     // Check again in UI thread and proceed if it's connected.
     delegate->OnBlockingPageComplete(true);

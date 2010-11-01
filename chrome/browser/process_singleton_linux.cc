@@ -76,7 +76,7 @@
 #include "base/timer.h"
 #include "chrome/browser/browser_init.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #if defined(TOOLKIT_GTK)
 #include "chrome/browser/gtk/process_singleton_dialog.h"
 #endif
@@ -601,7 +601,7 @@ void ProcessSingleton::LinuxWatcher::OnFileCanReadWithoutBlocking(int fd) {
 }
 
 void ProcessSingleton::LinuxWatcher::StartListening(int socket) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   // Watch for client connections on this socket.
   MessageLoopForIO* ml = MessageLoopForIO::current();
   ml->AddDestructionObserver(this);
@@ -710,7 +710,7 @@ void ProcessSingleton::LinuxWatcher::SocketReader::OnFileCanReadWithoutBlocking(
 
   std::string str(buf_, bytes_read_);
   std::vector<std::string> tokens;
-  SplitString(str, kTokenDelimiter, &tokens);
+  base::SplitString(str, kTokenDelimiter, &tokens);
 
   if (tokens.size() < 3 || tokens[0] != kStartToken) {
     LOG(ERROR) << "Wrong message format: " << str;
@@ -978,7 +978,7 @@ bool ProcessSingleton::Create() {
   if (listen(sock, 5) < 0)
     NOTREACHED() << "listen failed: " << safe_strerror(errno);
 
-  // Normally we would use ChromeThread, but the IO thread hasn't started yet.
+  // Normally we would use BrowserThread, but the IO thread hasn't started yet.
   // Using g_browser_process, we start the thread so we can listen on the
   // socket.
   MessageLoop* ml = g_browser_process->io_thread()->message_loop();

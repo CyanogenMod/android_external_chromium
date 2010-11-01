@@ -127,6 +127,10 @@ class TemplateURLRef {
   // {google:baseURL} or {google:baseSuggestURL}.
   bool HasGoogleBaseURLs() const;
 
+  // Returns true if both refs are NULL or have the same values.
+  static bool SameUrlRefs(const TemplateURLRef* ref1,
+                          const TemplateURLRef* ref2);
+
  private:
   friend class SearchHostToURLsMapTest;
   friend class TemplateURL;
@@ -297,10 +301,6 @@ class TemplateURL {
   }
   const std::wstring& short_name() const { return short_name_; }
 
-  // Returns true if this search engine supports showing instant results.
-  // TODO(sky): make this real.
-  bool supports_instant() const { return false; }
-
   // An accessor for the short_name, but adjusted so it can be appropriately
   // displayed even if it is LTR and the UI is RTL.
   std::wstring AdjustedShortNameForLocaleDirection() const;
@@ -319,9 +319,7 @@ class TemplateURL {
                          int index_offset,
                          int page_offset);
   const TemplateURLRef* suggestions_url() const {
-    if (suggestions_url_.url().empty())
-      return NULL;
-    return &suggestions_url_;
+    return suggestions_url_.url().empty() ? NULL : &suggestions_url_;
   }
 
   // Parameterized URL for providing the results. This may be NULL.
@@ -331,9 +329,17 @@ class TemplateURL {
   // Returns the TemplateURLRef that may be used for search results. This
   // returns NULL if a url element was not specified.
   const TemplateURLRef* url() const {
-    if (url_.url().empty())
-      return NULL;
-    return &url_;
+    return url_.url().empty() ? NULL : &url_;
+  }
+
+  // Parameterized URL for instant results. This may be NULL.  Be sure and check
+  // the resulting TemplateURLRef for SupportsReplacement before using. See
+  // TemplateURLRef for a description of |index_offset| and |page_offset|.
+  void SetInstantURL(const std::string& url, int index_offset, int page_offset);
+  // Returns the TemplateURLRef that may be used for search results. This
+  // returns NULL if a url element was not specified.
+  const TemplateURLRef* instant_url() const {
+    return instant_url_.url().empty() ? NULL : &instant_url_;
   }
 
   // URL to the OSD file this came from. May be empty.
@@ -485,6 +491,7 @@ class TemplateURL {
   std::wstring description_;
   TemplateURLRef suggestions_url_;
   TemplateURLRef url_;
+  TemplateURLRef instant_url_;
   GURL originating_url_;
   mutable std::wstring keyword_;
   bool autogenerate_keyword_;  // If this is set, |keyword_| holds the cached

@@ -91,7 +91,7 @@ class SrtpSession {
 // Initialize by calling SetSend with the local security params, then call
 // SetRecv once the remote security params are received. At that point
 // Protect/UnprotectRt(c)p can be called to encrypt/decrypt data.
-// TODO(juberti): Figure out concurrency policy for SrtpFilter.
+// TODO: Figure out concurrency policy for SrtpFilter.
 class SrtpFilter {
  public:
   SrtpFilter();

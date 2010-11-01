@@ -9,11 +9,12 @@
 #include "base/environment.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
-#include "base/histogram.h"
+#include "base/metrics/histogram.h"
 #include "base/path_service.h"
 #include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
+#include "chrome/browser/about_flags.h"
 #include "chrome/browser/appcache/chrome_appcache_service.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
@@ -22,12 +23,15 @@
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chrome_blob_storage_context.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_ui/ntp_resource_cache.h"
 #include "chrome/browser/download/download_manager.h"
+#include "chrome/browser/extensions/default_apps.h"
 #include "chrome/browser/extensions/extension_devtools_manager.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
+#include "chrome/browser/extensions/extension_info_map.h"
+#include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/extensions/extensions_service.h"
@@ -44,6 +48,7 @@
 #include "chrome/browser/in_process_webkit/webkit_context.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/net/gaia/token_service.h"
+#include "chrome/browser/net/net_pref_observer.h"
 #include "chrome/browser/net/ssl_config_service_manager.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/password_manager/password_store_default.h"
@@ -93,7 +98,7 @@
 #elif defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/proxy_config_service_impl.h"
 #elif defined(OS_POSIX) && !defined(OS_CHROMEOS)
-#include "base/xdg_util.h"
+#include "base/nix/xdg_util.h"
 #if defined(USE_GNOME_KEYRING)
 #include "chrome/browser/password_manager/native_backend_gnome_x.h"
 #endif
@@ -165,47 +170,6 @@ bool HasACacheSubdir(const FilePath &dir) {
          file_util::PathExists(GetMediaCachePath(dir));
 }
 
-void PostExtensionLoadedToContextGetter(ChromeURLRequestContextGetter* getter,
-                                        Extension* extension) {
-  if (!getter)
-    return;
-  // Callee takes ownership of new ExtensionInfo struct.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
-      NewRunnableMethod(getter,
-                        &ChromeURLRequestContextGetter::OnNewExtensions,
-                        extension->id(),
-                        new ChromeURLRequestContext::ExtensionInfo(
-                        extension->name(),
-                        extension->path(),
-                        extension->default_locale(),
-                        extension->incognito_split_mode(),
-                        extension->web_extent(),
-                        extension->GetEffectiveHostPermissions(),
-                        extension->api_permissions(),
-                        extension->icons())));
-}
-
-void PostExtensionUnloadedToContextGetter(ChromeURLRequestContextGetter* getter,
-                                          Extension* extension) {
-  if (!getter)
-    return;
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
-      NewRunnableMethod(getter,
-                        &ChromeURLRequestContextGetter::OnUnloadedExtension,
-                        extension->id()));
-}
-
-// Returns true if the default apps should be loaded (so that the app panel is
-// not empty).
-bool IncludeDefaultApps() {
-#if defined(OS_CHROMEOS) && defined(GOOGLE_CHROME_BUILD)
-  return true;
-#endif
-  return false;
-}
-
 // Simple task to log the size of the current profile.
 class ProfileSizeTask : public Task {
  public:
@@ -266,6 +230,12 @@ Profile* Profile::CreateProfile(const FilePath& path) {
   return new ProfileImpl(path);
 }
 
+// static
+void ProfileImpl::RegisterUserPrefs(PrefService* prefs) {
+  prefs->RegisterBooleanPref(prefs::kSavingBrowserHistoryDisabled, false);
+  DefaultApps::RegisterUserPrefs(prefs);
+}
+
 ProfileImpl::ProfileImpl(const FilePath& path)
     : path_(path),
       visited_link_event_listener_(new VisitedLinkEventListener()),
@@ -296,6 +266,9 @@ ProfileImpl::ProfileImpl(const FilePath& path)
   pref_change_registrar_.Add(prefs::kSpellCheckDictionary, this);
   pref_change_registrar_.Add(prefs::kEnableSpellCheck, this);
   pref_change_registrar_.Add(prefs::kEnableAutoSpellCorrect, this);
+
+  // Convert active labs into switches. Modifies the current command line.
+  about_flags::ConvertFlagsToSwitches(prefs, CommandLine::ForCurrentProcess());
 
 #if defined(OS_MACOSX)
   // If the profile directory doesn't already have a cache directory and it
@@ -363,9 +336,11 @@ ProfileImpl::ProfileImpl(const FilePath& path)
   background_contents_service_.reset(
       new BackgroundContentsService(this, CommandLine::ForCurrentProcess()));
 
+  extension_info_map_ = new ExtensionInfoMap();
+
   // Log the profile size after a reasonable startup delay.
-  ChromeThread::PostDelayedTask(ChromeThread::FILE, FROM_HERE,
-                                new ProfileSizeTask(path_), 112000);
+  BrowserThread::PostDelayedTask(BrowserThread::FILE, FROM_HERE,
+                                 new ProfileSizeTask(path_), 112000);
 }
 
 void ProfileImpl::InitExtensions() {
@@ -379,6 +354,7 @@ void ProfileImpl::InitExtensions() {
   }
 
   extension_process_manager_.reset(ExtensionProcessManager::Create(this));
+  extension_event_router_.reset(new ExtensionEventRouter(this));
   extension_message_service_ = new ExtensionMessageService(this);
 
   ExtensionErrorReporter::Init(true);  // allow noisy errors.
@@ -394,6 +370,18 @@ void ProfileImpl::InitExtensions() {
       GetPath().AppendASCII(ExtensionsService::kInstallDirectoryName),
       true);
 
+  RegisterComponentExtensions();
+  extensions_service_->Init();
+  InstallDefaultApps();
+
+  // Load any extensions specified with --load-extension.
+  if (command_line->HasSwitch(switches::kLoadExtension)) {
+    FilePath path = command_line->GetSwitchValuePath(switches::kLoadExtension);
+    extensions_service_->LoadExtension(path);
+  }
+}
+
+void ProfileImpl::RegisterComponentExtensions() {
   // Register the component extensions.
   typedef std::list<std::pair<std::string, int> > ComponentExtensionList;
   ComponentExtensionList component_extensions;
@@ -411,22 +399,9 @@ void ProfileImpl::InitExtensions() {
   component_extensions.push_back(
       std::make_pair("web_store", IDR_WEBSTORE_MANIFEST));
 
-  // Some sample apps to make our lives easier while we are developing extension
-  // apps. This way we don't have to constantly install these over and over.
-  if (Extension::AppsAreEnabled() && IncludeDefaultApps()) {
-    component_extensions.push_back(
-        std::make_pair("gmail_app", IDR_GMAIL_APP_MANIFEST));
-    component_extensions.push_back(
-        std::make_pair("calendar_app", IDR_CALENDAR_APP_MANIFEST));
-    component_extensions.push_back(
-        std::make_pair("docs_app", IDR_DOCS_APP_MANIFEST));
-  }
-
 #if defined(OS_CHROMEOS) && defined(GOOGLE_CHROME_BUILD)
-  if (Extension::AppsAreEnabled()) {
-    component_extensions.push_back(
-        std::make_pair("chat_manager", IDR_TALK_APP_MANIFEST));
-  }
+  component_extensions.push_back(
+      std::make_pair("chat_manager", IDR_TALK_APP_MANIFEST));
 #endif
 
   for (ComponentExtensionList::iterator iter = component_extensions.begin();
@@ -444,13 +419,31 @@ void ProfileImpl::InitExtensions() {
     extensions_service_->register_component_extension(
         ExtensionsService::ComponentExtensionInfo(manifest, path));
   }
+}
 
-  extensions_service_->Init();
+void ProfileImpl::InstallDefaultApps() {
+#if !defined(OS_CHROMEOS)
+  // On desktop Chrome, we don't have default apps on by, err, default yet.
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableDefaultApps)) {
+    return;
+  }
+#endif
 
-  // Load any extensions specified with --load-extension.
-  if (command_line->HasSwitch(switches::kLoadExtension)) {
-    FilePath path = command_line->GetSwitchValuePath(switches::kLoadExtension);
-    extensions_service_->LoadExtension(path);
+  // The web store only supports en-US at the moment, so we don't install
+  // default apps in other locales.
+  if (g_browser_process->GetApplicationLocale() != "en-US")
+    return;
+
+  ExtensionsService* extensions_service = GetExtensionsService();
+  const ExtensionIdSet* app_ids =
+      extensions_service->default_apps()->GetAppsToInstall();
+  if (!app_ids)
+    return;
+
+  for (ExtensionIdSet::const_iterator iter = app_ids->begin();
+       iter != app_ids->end(); ++iter) {
+    extensions_service->AddPendingExtensionFromDefaultAppList(*iter);
   }
 }
 
@@ -573,6 +566,11 @@ Profile* ProfileImpl::GetOffTheRecordProfile() {
   if (!off_the_record_profile_.get()) {
     scoped_ptr<Profile> p(CreateOffTheRecordProfile());
     off_the_record_profile_.swap(p);
+
+    NotificationService::current()->Notify(
+        NotificationType::OTR_PROFILE_CREATED,
+        Source<Profile>(off_the_record_profile_.get()),
+        NotificationService::NoDetails());
   }
   return off_the_record_profile_.get();
 }
@@ -592,8 +590,8 @@ Profile* ProfileImpl::GetOriginalProfile() {
 ChromeAppCacheService* ProfileImpl::GetAppCacheService() {
   if (!appcache_service_) {
     appcache_service_ = new ChromeAppCacheService;
-    ChromeThread::PostTask(
-        ChromeThread::IO, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
         NewRunnableMethod(appcache_service_.get(),
                           &ChromeAppCacheService::InitializeOnIOThread,
                           GetPath(), IsOffTheRecord(),
@@ -652,6 +650,10 @@ ExtensionMessageService* ProfileImpl::GetExtensionMessageService() {
   return extension_message_service_.get();
 }
 
+ExtensionEventRouter* ProfileImpl::GetExtensionEventRouter() {
+  return extension_event_router_.get();
+}
+
 SSLHostState* ProfileImpl::GetSSLHostState() {
   if (!ssl_host_state_.get())
     ssl_host_state_.reset(new SSLHostState());
@@ -691,6 +693,9 @@ PrefService* ProfileImpl::GetPrefs() {
     prefs_->SetBoolean(prefs::kSessionExitedCleanly, false);
     // Make sure we save to disk that the session has opened.
     prefs_->ScheduleSavePersistentPrefs();
+
+    DCHECK(!net_pref_observer_.get());
+    net_pref_observer_.reset(new NetPrefObserver(prefs_.get()));
   }
 
   return prefs_.get();
@@ -719,6 +724,7 @@ URLRequestContextGetter* ProfileImpl::GetRequestContext() {
     // created first.
     if (!default_request_context_) {
       default_request_context_ = request_context_;
+      request_context_->set_is_main(true);
       // TODO(eroman): this isn't terribly useful anymore now that the
       // URLRequestContext is constructed by the IO thread...
       NotificationService::current()->Notify(
@@ -767,65 +773,23 @@ URLRequestContextGetter* ProfileImpl::GetRequestContextForExtensions() {
   return extensions_request_context_;
 }
 
-// TODO(mpcomplete): This is lame. 5+ copies of the extension data on the IO
-// thread. We should have 1 shared data object that all the contexts get access
-// to. Fix by M8.
-void ProfileImpl::RegisterExtensionWithRequestContexts(
-    Extension* extension) {
-  // Notify the default, extension and media contexts on the IO thread.
-  PostExtensionLoadedToContextGetter(
-      static_cast<ChromeURLRequestContextGetter*>(GetRequestContext()),
-                                                  extension);
-  PostExtensionLoadedToContextGetter(
-      static_cast<ChromeURLRequestContextGetter*>(
-          GetRequestContextForExtensions()),
-      extension);
-  PostExtensionLoadedToContextGetter(
-      static_cast<ChromeURLRequestContextGetter*>(
-          GetRequestContextForMedia()),
-      extension);
-
-  // Ditto for OTR if it's active, except for the media context which is the
-  // same as the regular context.
-  if (off_the_record_profile_.get()) {
-    PostExtensionLoadedToContextGetter(
-        static_cast<ChromeURLRequestContextGetter*>(
-            off_the_record_profile_->GetRequestContext()),
-        extension);
-    PostExtensionLoadedToContextGetter(
-        static_cast<ChromeURLRequestContextGetter*>(
-            off_the_record_profile_->GetRequestContextForExtensions()),
-        extension);
-  }
+void ProfileImpl::RegisterExtensionWithRequestContexts(Extension* extension) {
+  // AddRef to ensure the data lives until the other thread gets it. Balanced in
+  // OnNewExtensions.
+  extension->static_data()->AddRef();
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
+      NewRunnableMethod(extension_info_map_.get(),
+                        &ExtensionInfoMap::AddExtension,
+                        extension->static_data()));
 }
 
-void ProfileImpl::UnregisterExtensionWithRequestContexts(
-    Extension* extension) {
-  // Notify the default, extension and media contexts on the IO thread.
-  PostExtensionUnloadedToContextGetter(
-      static_cast<ChromeURLRequestContextGetter*>(GetRequestContext()),
-                                                  extension);
-  PostExtensionUnloadedToContextGetter(
-      static_cast<ChromeURLRequestContextGetter*>(
-          GetRequestContextForExtensions()),
-      extension);
-  PostExtensionUnloadedToContextGetter(
-      static_cast<ChromeURLRequestContextGetter*>(
-          GetRequestContextForMedia()),
-      extension);
-
-  // Ditto for OTR if it's active, except for the media context which is the
-  // same as the regular context.
-  if (off_the_record_profile_.get()) {
-    PostExtensionUnloadedToContextGetter(
-        static_cast<ChromeURLRequestContextGetter*>(
-            off_the_record_profile_->GetRequestContext()),
-        extension);
-    PostExtensionUnloadedToContextGetter(
-        static_cast<ChromeURLRequestContextGetter*>(
-            off_the_record_profile_->GetRequestContextForExtensions()),
-        extension);
-  }
+void ProfileImpl::UnregisterExtensionWithRequestContexts(Extension* extension) {
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
+      NewRunnableMethod(extension_info_map_.get(),
+                        &ExtensionInfoMap::RemoveExtension,
+                        extension->id()));
 }
 
 net::SSLConfigService* ProfileImpl::GetSSLConfigService() {
@@ -872,6 +836,11 @@ FindBarState* ProfileImpl::GetFindBarState() {
 }
 
 HistoryService* ProfileImpl::GetHistoryService(ServiceAccessType sat) {
+  // If saving history is disabled, only allow explicit access.
+  if (GetPrefs()->GetBoolean(prefs::kSavingBrowserHistoryDisabled) &&
+      sat != EXPLICIT_ACCESS)
+    return NULL;
+
   if (!history_service_created_) {
     history_service_created_ = true;
     scoped_refptr<HistoryService> history(new HistoryService(this));
@@ -960,49 +929,49 @@ void ProfileImpl::CreatePasswordStore() {
   // On POSIX systems, we try to use the "native" password management system of
   // the desktop environment currently running, allowing GNOME Keyring in XFCE.
   // (In all cases we fall back on the default store in case of failure.)
-  base::DesktopEnvironment desktop_env;
+  base::nix::DesktopEnvironment desktop_env;
   std::string store_type =
       CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
           switches::kPasswordStore);
   if (store_type == "kwallet") {
-    desktop_env = base::DESKTOP_ENVIRONMENT_KDE4;
+    desktop_env = base::nix::DESKTOP_ENVIRONMENT_KDE4;
   } else if (store_type == "gnome") {
-    desktop_env = base::DESKTOP_ENVIRONMENT_GNOME;
+    desktop_env = base::nix::DESKTOP_ENVIRONMENT_GNOME;
   } else if (store_type == "detect") {
     scoped_ptr<base::Environment> env(base::Environment::Create());
-    desktop_env = base::GetDesktopEnvironment(env.get());
-    LOG(INFO) << "Password storage detected desktop environment: " <<
-              base::GetDesktopEnvironmentName(desktop_env);
+    desktop_env = base::nix::GetDesktopEnvironment(env.get());
+    VLOG(1) << "Password storage detected desktop environment: "
+            << base::nix::GetDesktopEnvironmentName(desktop_env);
   } else {
     // TODO(mdm): If the flag is not given, or has an unknown value, use the
     // default store for now. Once we're confident in the other stores, we can
     // default to detecting the desktop environment instead.
-    desktop_env = base::DESKTOP_ENVIRONMENT_OTHER;
+    desktop_env = base::nix::DESKTOP_ENVIRONMENT_OTHER;
   }
 
   scoped_ptr<PasswordStoreX::NativeBackend> backend;
-  if (desktop_env == base::DESKTOP_ENVIRONMENT_KDE4) {
+  if (desktop_env == base::nix::DESKTOP_ENVIRONMENT_KDE4) {
     // KDE3 didn't use DBus, which our KWallet store uses.
-    LOG(INFO) << "Trying KWallet for password storage.";
+    VLOG(1) << "Trying KWallet for password storage.";
     backend.reset(new NativeBackendKWallet());
     if (backend->Init())
-      LOG(INFO) << "Using KWallet for password storage.";
+      VLOG(1) << "Using KWallet for password storage.";
     else
       backend.reset();
-  } else if (desktop_env == base::DESKTOP_ENVIRONMENT_GNOME ||
-             desktop_env == base::DESKTOP_ENVIRONMENT_XFCE) {
+  } else if (desktop_env == base::nix::DESKTOP_ENVIRONMENT_GNOME ||
+             desktop_env == base::nix::DESKTOP_ENVIRONMENT_XFCE) {
 #if defined(USE_GNOME_KEYRING)
-    LOG(INFO) << "Trying GNOME keyring for password storage.";
+    VLOG(1) << "Trying GNOME keyring for password storage.";
     backend.reset(new NativeBackendGnome());
     if (backend->Init())
-      LOG(INFO) << "Using GNOME keyring for password storage.";
+      VLOG(1) << "Using GNOME keyring for password storage.";
     else
       backend.reset();
 #endif  // defined(USE_GNOME_KEYRING)
   }
   // TODO(mdm): this can change to a WARNING when we detect by default.
   if (!backend.get())
-    LOG(INFO) << "Using default (unencrypted) store for password storage.";
+    VLOG(1) << "Using default (unencrypted) store for password storage.";
 
   ps = new PasswordStoreX(login_db, this,
                           GetWebDataService(Profile::IMPLICIT_ACCESS),
@@ -1211,7 +1180,7 @@ WebKitContext* ProfileImpl::GetWebKitContext() {
 }
 
 DesktopNotificationService* ProfileImpl::GetDesktopNotificationService() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (!desktop_notification_service_.get()) {
      desktop_notification_service_.reset(new DesktopNotificationService(
          this, g_browser_process->notification_ui_manager()));
@@ -1295,19 +1264,23 @@ void ProfileImpl::InitSyncService(const std::string& cros_user) {
 }
 
 void ProfileImpl::InitCloudPrintProxyService() {
-  cloud_print_proxy_service_.reset(new CloudPrintProxyService(this));
+  cloud_print_proxy_service_ = new CloudPrintProxyService(this);
   cloud_print_proxy_service_->Initialize();
 }
 
 ChromeBlobStorageContext* ProfileImpl::GetBlobStorageContext() {
   if (!blob_storage_context_) {
     blob_storage_context_ = new ChromeBlobStorageContext();
-    ChromeThread::PostTask(
-        ChromeThread::IO, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
         NewRunnableMethod(blob_storage_context_.get(),
                           &ChromeBlobStorageContext::InitializeOnIOThread));
   }
   return blob_storage_context_;
+}
+
+ExtensionInfoMap* ProfileImpl::GetExtensionInfoMap() {
+  return extension_info_map_.get();
 }
 
 #if defined(OS_CHROMEOS)

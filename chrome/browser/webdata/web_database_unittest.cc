@@ -22,12 +22,14 @@
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/credit_card.h"
+#include "chrome/browser/guid.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/password_manager/encryptor.h"
 #include "chrome/browser/webdata/autofill_change.h"
 #include "chrome/browser/webdata/autofill_entry.h"
 #include "chrome/browser/webdata/web_database.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/test/ui_test_utils.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webkit/glue/form_field.h"
@@ -62,6 +64,8 @@ std::ostream& operator<<(std::ostream& os, const AutofillChange& change) {
   return os << " " << change.key();
 }
 
+namespace {
+
 bool CompareAutofillEntries(const AutofillEntry& a, const AutofillEntry& b) {
   std::set<base::Time> timestamps1(a.timestamps().begin(),
                                     a.timestamps().end());
@@ -90,6 +94,8 @@ bool CompareAutofillEntries(const AutofillEntry& a, const AutofillEntry& b) {
   return timestamps2.size() != 0U;
 }
 
+}  // namespace
+
 class WebDatabaseTest : public testing::Test {
  public:
   WebDatabaseTest() {}
@@ -107,7 +113,7 @@ class WebDatabaseTest : public testing::Test {
 #endif
     PathService::Get(chrome::DIR_TEST_DATA, &file_);
     const std::string test_db = "TestWebDatabase" +
-        base::Int64ToString(base::Time::Now().ToInternalValue()) +
+        base::Int64ToString(base::Time::Now().ToTimeT()) +
         ".db";
     file_ = file_.AppendASCII(test_db);
     file_util::Delete(file_, false);
@@ -207,6 +213,7 @@ TEST_F(WebDatabaseTest, Keywords) {
   set_prepopulate_id(&template_url, 10);
   set_logo_id(&template_url, 1000);
   template_url.set_created_by_policy(true);
+  template_url.SetInstantURL("http://instant/", 0, 0);
   SetID(1, &template_url);
 
   EXPECT_TRUE(db.AddKeyword(template_url));
@@ -247,6 +254,9 @@ TEST_F(WebDatabaseTest, Keywords) {
   EXPECT_EQ(1000, restored_url->logo_id());
 
   EXPECT_TRUE(restored_url->created_by_policy());
+
+  ASSERT_TRUE(restored_url->instant_url());
+  EXPECT_EQ("http://instant/", restored_url->instant_url()->url());
 
   EXPECT_TRUE(db.RemoveKeyword(restored_url->id()));
 
@@ -299,6 +309,7 @@ TEST_F(WebDatabaseTest, UpdateKeyword) {
   template_url.add_input_encoding("Shift_JIS");
   set_prepopulate_id(&template_url, 5);
   set_logo_id(&template_url, 2000);
+  template_url.SetInstantURL("http://instant2/", 0, 0);
   EXPECT_TRUE(db.UpdateKeyword(template_url));
 
   std::vector<TemplateURL*> template_urls;
@@ -334,6 +345,10 @@ TEST_F(WebDatabaseTest, UpdateKeyword) {
   EXPECT_EQ(template_url.prepopulate_id(), restored_url->prepopulate_id());
 
   EXPECT_EQ(template_url.logo_id(), restored_url->logo_id());
+
+  EXPECT_TRUE(restored_url->instant_url());
+  EXPECT_EQ(template_url.instant_url()->url(),
+            restored_url->instant_url()->url());
 
   delete restored_url;
 }
@@ -1264,12 +1279,21 @@ TEST_F(WebDatabaseTest, AutoFillProfile) {
   home_profile.SetInfo(AutoFillType(PHONE_FAX_WHOLE_NUMBER),
                        ASCIIToUTF16("1915243678"));
 
+  Time pre_creation_time = Time::Now();
   EXPECT_TRUE(db.AddAutoFillProfile(home_profile));
+  Time post_creation_time = Time::Now();
 
   // Get the 'Home' profile.
   AutoFillProfile* db_profile;
   ASSERT_TRUE(db.GetAutoFillProfileForLabel(ASCIIToUTF16("Home"), &db_profile));
   EXPECT_EQ(home_profile, *db_profile);
+  sql::Statement s_home(db.db_.GetUniqueStatement(
+      "SELECT * FROM autofill_profiles WHERE label='Home'"));
+  ASSERT_TRUE(s_home);
+  ASSERT_TRUE(s_home.Step());
+  EXPECT_GE(s_home.ColumnInt64(15), pre_creation_time.ToTimeT());
+  EXPECT_LE(s_home.ColumnInt64(15), post_creation_time.ToTimeT());
+  EXPECT_FALSE(s_home.Step());
   delete db_profile;
 
   // Add a 'Billing' profile.
@@ -1280,25 +1304,77 @@ TEST_F(WebDatabaseTest, AutoFillProfile) {
                           ASCIIToUTF16("5678 Bottom Street"));
   billing_profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE2),
                           ASCIIToUTF16("suite 3"));
+  billing_profile.set_guid(guid::GenerateGUID());
 
+  pre_creation_time = Time::Now();
   EXPECT_TRUE(db.AddAutoFillProfile(billing_profile));
+  post_creation_time = Time::Now();
+
+  // Get the 'Billing' profile.
   ASSERT_TRUE(db.GetAutoFillProfileForLabel(ASCIIToUTF16("Billing"),
                                             &db_profile));
   EXPECT_EQ(billing_profile, *db_profile);
+  sql::Statement s_billing(db.db_.GetUniqueStatement(
+      "SELECT * FROM autofill_profiles WHERE label='Billing'"));
+  ASSERT_TRUE(s_billing);
+  ASSERT_TRUE(s_billing.Step());
+  EXPECT_GE(s_billing.ColumnInt64(15), pre_creation_time.ToTimeT());
+  EXPECT_LE(s_billing.ColumnInt64(15), post_creation_time.ToTimeT());
+  EXPECT_FALSE(s_billing.Step());
   delete db_profile;
 
   // Update the 'Billing' profile.
   billing_profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Jane"));
+  Time pre_modification_time = Time::Now();
   EXPECT_TRUE(db.UpdateAutoFillProfile(billing_profile));
+  Time post_modification_time = Time::Now();
   ASSERT_TRUE(db.GetAutoFillProfileForLabel(ASCIIToUTF16("Billing"),
                                             &db_profile));
   EXPECT_EQ(billing_profile, *db_profile);
+  sql::Statement s_billing_updated(db.db_.GetUniqueStatement(
+      "SELECT * FROM autofill_profiles WHERE label='Billing'"));
+  ASSERT_TRUE(s_billing_updated);
+  ASSERT_TRUE(s_billing_updated.Step());
+  EXPECT_GE(s_billing_updated.ColumnInt64(15),
+            pre_modification_time.ToTimeT());
+  EXPECT_LE(s_billing_updated.ColumnInt64(15),
+            post_modification_time.ToTimeT());
+  EXPECT_FALSE(s_billing_updated.Step());
   delete db_profile;
 
   // Remove the 'Billing' profile.
   EXPECT_TRUE(db.RemoveAutoFillProfile(billing_profile.unique_id()));
   EXPECT_FALSE(db.GetAutoFillProfileForLabel(ASCIIToUTF16("Billing"),
                                              &db_profile));
+
+  // Add a 'GUID' profile.
+  AutoFillProfile guid_profile = home_profile;
+  guid_profile.set_label(ASCIIToUTF16("GUID"));
+  guid_profile.set_unique_id(14);
+  guid_profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE1),
+                       ASCIIToUTF16("5678 Top Street"));
+  guid_profile.SetInfo(AutoFillType(ADDRESS_HOME_LINE2),
+                       ASCIIToUTF16("suite 4"));
+  guid_profile.set_guid(guid::GenerateGUID());
+
+  EXPECT_TRUE(db.AddAutoFillProfile(guid_profile));
+  ASSERT_TRUE(db.GetAutoFillProfileForGUID(guid_profile.guid(),
+                                           &db_profile));
+  EXPECT_EQ(guid_profile, *db_profile);
+  delete db_profile;
+
+  // Update the 'GUID' profile.
+  guid_profile.SetInfo(AutoFillType(NAME_FIRST), ASCIIToUTF16("Jimmy"));
+  EXPECT_TRUE(db.UpdateAutoFillProfile(guid_profile));
+  ASSERT_TRUE(db.GetAutoFillProfileForGUID(guid_profile.guid(),
+                                           &db_profile));
+  EXPECT_EQ(guid_profile, *db_profile);
+  delete db_profile;
+
+  // Remove the 'GUID' profile.
+  EXPECT_TRUE(db.RemoveAutoFillProfile(guid_profile.guid()));
+  EXPECT_FALSE(db.GetAutoFillProfileForGUID(guid_profile.guid(),
+                                            &db_profile));
 }
 
 TEST_F(WebDatabaseTest, CreditCard) {
@@ -1320,15 +1396,24 @@ TEST_F(WebDatabaseTest, CreditCard) {
                           ASCIIToUTF16("2013"));
   work_creditcard.set_billing_address_id(1);
 
+  Time pre_creation_time = Time::Now();
   EXPECT_TRUE(db.AddCreditCard(work_creditcard));
+  Time post_creation_time = Time::Now();
 
   // Get the 'Work' credit card.
   CreditCard* db_creditcard;
   ASSERT_TRUE(db.GetCreditCardForLabel(ASCIIToUTF16("Work"), &db_creditcard));
   EXPECT_EQ(work_creditcard, *db_creditcard);
+  sql::Statement s_work(db.db_.GetUniqueStatement(
+      "SELECT * FROM credit_cards WHERE label='Work'"));
+  ASSERT_TRUE(s_work);
+  ASSERT_TRUE(s_work.Step());
+  EXPECT_GE(s_work.ColumnInt64(12), pre_creation_time.ToTimeT());
+  EXPECT_LE(s_work.ColumnInt64(12), post_creation_time.ToTimeT());
+  EXPECT_FALSE(s_work.Step());
   delete db_creditcard;
 
-  // Add a 'Target' profile.
+  // Add a 'Target' credit card.
   CreditCard target_creditcard(ASCIIToUTF16("Target"), 7);
   target_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NAME),
                             ASCIIToUTF16("Jack Torrance"));
@@ -1342,24 +1427,165 @@ TEST_F(WebDatabaseTest, CreditCard) {
                             ASCIIToUTF16("2012"));
   target_creditcard.set_billing_address_id(1);
 
+  pre_creation_time = Time::Now();
   EXPECT_TRUE(db.AddCreditCard(target_creditcard));
+  post_creation_time = Time::Now();
   ASSERT_TRUE(db.GetCreditCardForLabel(ASCIIToUTF16("Target"),
                                        &db_creditcard));
   EXPECT_EQ(target_creditcard, *db_creditcard);
+  sql::Statement s_target(db.db_.GetUniqueStatement(
+      "SELECT * FROM credit_cards WHERE label='Target'"));
+  ASSERT_TRUE(s_target);
+  ASSERT_TRUE(s_target.Step());
+  EXPECT_GE(s_target.ColumnInt64(12), pre_creation_time.ToTimeT());
+  EXPECT_LE(s_target.ColumnInt64(12), post_creation_time.ToTimeT());
+  EXPECT_FALSE(s_target.Step());
   delete db_creditcard;
 
-  // Update the 'Target' profile.
+  // Update the 'Target' credit card.
   target_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NAME),
                             ASCIIToUTF16("Charles Grady"));
+  Time pre_modification_time = Time::Now();
   EXPECT_TRUE(db.UpdateCreditCard(target_creditcard));
+  Time post_modification_time = Time::Now();
   ASSERT_TRUE(db.GetCreditCardForLabel(ASCIIToUTF16("Target"), &db_creditcard));
   EXPECT_EQ(target_creditcard, *db_creditcard);
+  sql::Statement s_target_updated(db.db_.GetUniqueStatement(
+      "SELECT * FROM credit_cards WHERE label='Target'"));
+  ASSERT_TRUE(s_target_updated);
+  ASSERT_TRUE(s_target_updated.Step());
+  EXPECT_GE(s_target_updated.ColumnInt64(12),
+            pre_modification_time.ToTimeT());
+  EXPECT_LE(s_target_updated.ColumnInt64(12),
+            post_modification_time.ToTimeT());
+  EXPECT_FALSE(s_target_updated.Step());
   delete db_creditcard;
 
-  // Remove the 'Billing' profile.
+  // Remove the 'Target' credit card.
   EXPECT_TRUE(db.RemoveCreditCard(target_creditcard.unique_id()));
   EXPECT_FALSE(db.GetCreditCardForLabel(ASCIIToUTF16("Target"),
                                         &db_creditcard));
+
+  // Add a 'GUID' profile.
+  CreditCard guid_creditcard(ASCIIToUTF16("GUID"), 7);
+  guid_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NAME),
+                          ASCIIToUTF16("Jimmy Jones"));
+  guid_creditcard.SetInfo(AutoFillType(CREDIT_CARD_TYPE),
+                          ASCIIToUTF16("Amex"));
+  guid_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NUMBER),
+                          ASCIIToUTF16("9999222233334444"));
+  guid_creditcard.SetInfo(AutoFillType(CREDIT_CARD_EXP_MONTH),
+                          ASCIIToUTF16("07"));
+  guid_creditcard.SetInfo(AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR),
+                          ASCIIToUTF16("2013"));
+  guid_creditcard.set_billing_address_id(1);
+
+  EXPECT_TRUE(db.AddCreditCard(guid_creditcard));
+  ASSERT_TRUE(db.GetCreditCardForGUID(guid_creditcard.guid(),
+                                      &db_creditcard));
+  EXPECT_EQ(guid_creditcard, *db_creditcard);
+  delete db_creditcard;
+
+  // Update the 'GUID' profile.
+  guid_creditcard.SetInfo(AutoFillType(CREDIT_CARD_NAME),
+                            ASCIIToUTF16("Jimmy Grady"));
+  EXPECT_TRUE(db.UpdateCreditCard(guid_creditcard));
+  ASSERT_TRUE(db.GetCreditCardForGUID(guid_creditcard.guid(), &db_creditcard));
+  EXPECT_EQ(guid_creditcard, *db_creditcard);
+  delete db_creditcard;
+
+  // Remove the 'GUID' profile.
+  EXPECT_TRUE(db.RemoveCreditCard(guid_creditcard.guid()));
+  EXPECT_FALSE(db.GetCreditCardForGUID(guid_creditcard.guid(),
+                                       &db_creditcard));
+}
+
+TEST_F(WebDatabaseTest, RemoveAutoFillProfilesAndCreditCardsModifiedBetween) {
+  WebDatabase db;
+  ASSERT_EQ(sql::INIT_OK, db.Init(file_));
+
+  // Populate the autofill_profiles and credit_cards tables.
+  ASSERT_TRUE(db.db_.Execute(
+      "INSERT INTO \"autofill_profiles\" VALUES('P1',1,'','','','','','','','',"
+        "'','','','','',11,'00000000-0000-0000-0000-000000000000');"
+      "INSERT INTO \"autofill_profiles\" VALUES('P2',2,'','','','','','','','',"
+        "'','','','','',21,'00000000-0000-0000-0000-000000000001');"
+      "INSERT INTO \"autofill_profiles\" VALUES('P3',3,'','','','','','','','',"
+        "'','','','','',31,'00000000-0000-0000-0000-000000000002');"
+      "INSERT INTO \"autofill_profiles\" VALUES('P4',4,'','','','','','','','',"
+        "'','','','','',41,'00000000-0000-0000-0000-000000000003');"
+      "INSERT INTO \"autofill_profiles\" VALUES('P5',5,'','','','','','','','',"
+        "'','','','','',51,'00000000-0000-0000-0000-000000000004');"
+      "INSERT INTO \"autofill_profiles\" VALUES('P6',6,'','','','','','','','',"
+        "'','','','','',61,'00000000-0000-0000-0000-000000000005');"
+      "INSERT INTO \"credit_cards\" VALUES('C10',10,'','','',10,2010,'','','',"
+        "X'',X'',17,'00000000-0000-0000-0000-000000000006');"
+      "INSERT INTO \"credit_cards\" VALUES('C20',20,'','','',10,2010,'','','',"
+        "X'',X'',27,'00000000-0000-0000-0000-000000000007');"
+      "INSERT INTO \"credit_cards\" VALUES('C30',30,'','','',10,2010,'','','',"
+        "X'',X'',37,'00000000-0000-0000-0000-000000000008');"
+      "INSERT INTO \"credit_cards\" VALUES('C40',40,'','','',10,2010,'','','',"
+        "X'',X'',47,'00000000-0000-0000-0000-000000000009');"
+      "INSERT INTO \"credit_cards\" VALUES('C50',50,'','','',10,2010,'','','',"
+        "X'',X'',57,'00000000-0000-0000-0000-000000000010');"
+      "INSERT INTO \"credit_cards\" VALUES('C60',60,'','','',10,2010,'','','',"
+        "X'',X'',67,'00000000-0000-0000-0000-000000000011');"));
+
+  // Remove all entries modified in the bounded time range [17,41).
+  db.RemoveAutoFillProfilesAndCreditCardsModifiedBetween(
+      base::Time::FromTimeT(17), base::Time::FromTimeT(41));
+  sql::Statement s_autofill_profiles_bounded(db.db_.GetUniqueStatement(
+      "SELECT * FROM autofill_profiles"));
+  ASSERT_TRUE(s_autofill_profiles_bounded);
+  ASSERT_TRUE(s_autofill_profiles_bounded.Step());
+  EXPECT_EQ(11, s_autofill_profiles_bounded.ColumnInt64(15));
+  ASSERT_TRUE(s_autofill_profiles_bounded.Step());
+  EXPECT_EQ(41, s_autofill_profiles_bounded.ColumnInt64(15));
+  ASSERT_TRUE(s_autofill_profiles_bounded.Step());
+  EXPECT_EQ(51, s_autofill_profiles_bounded.ColumnInt64(15));
+  ASSERT_TRUE(s_autofill_profiles_bounded.Step());
+  EXPECT_EQ(61, s_autofill_profiles_bounded.ColumnInt64(15));
+  EXPECT_FALSE(s_autofill_profiles_bounded.Step());
+  sql::Statement s_credit_cards_bounded(db.db_.GetUniqueStatement(
+      "SELECT * FROM credit_cards"));
+  ASSERT_TRUE(s_credit_cards_bounded);
+  ASSERT_TRUE(s_credit_cards_bounded.Step());
+  EXPECT_EQ(47, s_credit_cards_bounded.ColumnInt64(12));
+  ASSERT_TRUE(s_credit_cards_bounded.Step());
+  EXPECT_EQ(57, s_credit_cards_bounded.ColumnInt64(12));
+  ASSERT_TRUE(s_credit_cards_bounded.Step());
+  EXPECT_EQ(67, s_credit_cards_bounded.ColumnInt64(12));
+  EXPECT_FALSE(s_credit_cards_bounded.Step());
+
+  // Remove all entries modified on or after time 51 (unbounded range).
+  db.RemoveAutoFillProfilesAndCreditCardsModifiedBetween(
+      base::Time::FromTimeT(51), base::Time());
+  sql::Statement s_autofill_profiles_unbounded(db.db_.GetUniqueStatement(
+      "SELECT * FROM autofill_profiles"));
+  ASSERT_TRUE(s_autofill_profiles_unbounded);
+  ASSERT_TRUE(s_autofill_profiles_unbounded.Step());
+  EXPECT_EQ(11, s_autofill_profiles_unbounded.ColumnInt64(15));
+  ASSERT_TRUE(s_autofill_profiles_unbounded.Step());
+  EXPECT_EQ(41, s_autofill_profiles_unbounded.ColumnInt64(15));
+  EXPECT_FALSE(s_autofill_profiles_unbounded.Step());
+  sql::Statement s_credit_cards_unbounded(db.db_.GetUniqueStatement(
+      "SELECT * FROM credit_cards"));
+  ASSERT_TRUE(s_credit_cards_unbounded);
+  ASSERT_TRUE(s_credit_cards_unbounded.Step());
+  EXPECT_EQ(47, s_credit_cards_unbounded.ColumnInt64(12));
+  EXPECT_FALSE(s_credit_cards_unbounded.Step());
+
+  // Remove all remaining entries.
+  db.RemoveAutoFillProfilesAndCreditCardsModifiedBetween(base::Time(),
+                                                         base::Time());
+  sql::Statement s_autofill_profiles_empty(db.db_.GetUniqueStatement(
+      "SELECT * FROM autofill_profiles"));
+  ASSERT_TRUE(s_autofill_profiles_empty);
+  EXPECT_FALSE(s_autofill_profiles_empty.Step());
+  sql::Statement s_credit_cards_empty(db.db_.GetUniqueStatement(
+      "SELECT * FROM credit_cards"));
+  ASSERT_TRUE(s_credit_cards_empty);
+  EXPECT_FALSE(s_credit_cards_empty.Step());
 }
 
 TEST_F(WebDatabaseTest, Autofill_GetAllAutofillEntries_NoResults) {
@@ -1553,6 +1779,16 @@ class WebDatabaseMigrationTest : public testing::Test {
     return temp_dir_.path().Append(FilePath(kWebDatabaseFilename));
   }
 
+  // The textual contents of |file| are read from
+  // "chrome/test/data/web_database" and returned in the string |contents|.
+  // Returns true if the file exists and is read successfully, false otherwise.
+  bool GetWebDatabaseData(const FilePath& file, std::string* contents) {
+    FilePath path = ui_test_utils::GetTestFilePath(
+        FilePath(FILE_PATH_LITERAL("web_database")), file);
+    return file_util::PathExists(path) &&
+        file_util::ReadFileToString(path, contents);
+  }
+
   static int VersionFromConnection(sql::Connection* connection) {
     // Get version.
     sql::Statement s(connection->GetUniqueStatement(
@@ -1562,17 +1798,17 @@ class WebDatabaseMigrationTest : public testing::Test {
     return s.ColumnInt(0);
   }
 
-  // The tables in these "Setup" routines were generated by launching the
-  // Chromium application prior to schema change, then using the sqlite
-  // command-line application to dump the contents of the "Web Data" database.
+  // The sql files located in "chrome/test/data/web_database" were generated by
+  // launching the Chromium application prior to schema change, then using the
+  // sqlite3 command-line application to dump the contents of the "Web Data"
+  // database.
   // Like this:
-  //   > .output foo_dump.sql
+  //   > .output version_nn.sql
   //   > .dump
-  void SetUpVersion22Database();
-  void SetUpVersion22CorruptDatabase();
-  void SetUpVersion24Database();
-  void SetUpVersion25Database();
-  void SetUpVersion26Database();
+  void LoadDatabase(const FilePath& path);
+
+  // Assertion testing for migrating from version 27 and 28.
+  void MigrateVersion28Assertions();
 
  private:
   ScopedTempDir temp_dir_;
@@ -1580,354 +1816,75 @@ class WebDatabaseMigrationTest : public testing::Test {
   DISALLOW_COPY_AND_ASSIGN(WebDatabaseMigrationTest);
 };
 
-const int WebDatabaseMigrationTest::kCurrentTestedVersionNumber = 27;
+const int WebDatabaseMigrationTest::kCurrentTestedVersionNumber = 31;
 
-// This schema is taken from a build prior to the addition of the |credit_card|
-// table.  Version 22 of the schema.  Contrast this with the corrupt version
-// below.
-void WebDatabaseMigrationTest::SetUpVersion22Database() {
+void WebDatabaseMigrationTest::LoadDatabase(const FilePath& file) {
+  std::string contents;
+  ASSERT_TRUE(GetWebDatabaseData(file, &contents));
+
   sql::Connection connection;
   ASSERT_TRUE(connection.Open(GetDatabasePath()));
-  ASSERT_TRUE(connection.BeginTransaction());
-  ASSERT_TRUE(connection.Execute(
-    "CREATE TABLE meta(key LONGVARCHAR NOT NULL UNIQUE PRIMARY KEY,"
-        "value LONGVARCHAR);"
-    "INSERT INTO \"meta\" VALUES('version','22');"
-    "INSERT INTO \"meta\" VALUES('last_compatible_version','21');"
-    "INSERT INTO \"meta\" VALUES('Builtin Keyword Version','27');"
-    "INSERT INTO \"meta\" VALUES('Default Search Provider ID','7');"
-    "CREATE TABLE keywords (id INTEGER PRIMARY KEY,short_name VARCHAR NOT NULL,"
-        "keyword VARCHAR NOT NULL,favicon_url VARCHAR NOT NULL,"
-        "url VARCHAR NOT NULL,show_in_default_list INTEGER,"
-        "safe_for_autoreplace INTEGER,originating_url VARCHAR,"
-        "date_created INTEGER DEFAULT 0,usage_count INTEGER DEFAULT 0,"
-        "input_encodings VARCHAR,suggest_url VARCHAR,"
-        "prepopulate_id INTEGER DEFAULT 0,"
-        "autogenerate_keyword INTEGER DEFAULT 0);"
-    "INSERT INTO \"keywords\" VALUES(2,'Google','google.com',"
-        "'http://www.google.com/favicon.ico',"
-        "'{google:baseURL}search?{google:RLZ}{google:acceptedSuggestion}"
-        "{google:originalQueryForSuggestion}sourceid=chrome&ie={inputEncoding}"
-        "&q={searchTerms}',1,1,'',0,0,'UTF-8','{google:baseSuggestURL}search?"
-        "client=chrome&hl={language}&q={searchTerms}',1,1);"
-    "INSERT INTO \"keywords\" VALUES(3,'Yahoo!','yahoo.com',"
-        "'http://search.yahoo.com/favicon.ico','http://search.yahoo.com/search?"
-        "ei={inputEncoding}&fr=crmas&p={searchTerms}',1,1,'',0,0,'UTF-8',"
-        "'http://ff.search.yahoo.com/gossip?output=fxjson&"
-        "command={searchTerms}',2,0);"
-    "INSERT INTO \"keywords\" VALUES(4,'Bing','bing.com',"
-        "'http://www.bing.com/s/wlflag.ico','http://www.bing.com/search?"
-        "setmkt=en-US&q={searchTerms}',1,1,'',0,0,'UTF-8',"
-        "'http://api.bing.com/osjson.aspx?query={searchTerms}&"
-        "language={language}',3,0);"
-    "INSERT INTO \"keywords\" VALUES(5,'Wikipedia (en)','en.wikipedia.org','',"
-        "'http://en.wikipedia.org/w/index.php?title=Special:Search&"
-        "search={searchTerms}',1,0,'',1283287335,0,'','',0,0);"
-    "INSERT INTO \"keywords\" VALUES(6,'NYTimes','query.nytimes.com','',"
-        "'http://query.nytimes.com/gst/handler.html?query={searchTerms}&"
-        "opensearch=1',1,0,'',1283287335,0,'','',0,0);"
-    "INSERT INTO \"keywords\" VALUES(7,'eBay','rover.ebay.com','',"
-        "'http://rover.ebay.com/rover/1/711-43047-14818-1/4?"
-        "satitle={searchTerms}',1,0,'',1283287335,0,'','',0,0);"
-    "INSERT INTO \"keywords\" VALUES(8,'ff','ff','','http://ff{searchTerms}',"
-        "0,0,'',1283287356,0,'','',0,0);"
-    "CREATE TABLE logins (origin_url VARCHAR NOT NULL, action_url VARCHAR, "
-        "username_element VARCHAR, username_value VARCHAR, "
-        "password_element VARCHAR, password_value BLOB, submit_element VARCHAR,"
-        "signon_realm VARCHAR NOT NULL,ssl_valid INTEGER NOT NULL,"
-        "preferred INTEGER NOT NULL,date_created INTEGER NOT NULL,"
-        "blacklisted_by_user INTEGER NOT NULL,scheme INTEGER NOT NULL,"
-        "UNIQUE (origin_url, username_element, username_value, "
-        "password_element, submit_element, signon_realm));"
-    "CREATE TABLE ie7_logins (url_hash VARCHAR NOT NULL, password_value BLOB, "
-        "date_created INTEGER NOT NULL,UNIQUE (url_hash));"
-    "CREATE TABLE web_app_icons (url LONGVARCHAR,width int,height int,"
-        "image BLOB, UNIQUE (url, width, height));"
-    "CREATE TABLE web_apps (url LONGVARCHAR UNIQUE,"
-        "has_all_images INTEGER NOT NULL);"
-    "CREATE TABLE autofill (name VARCHAR, value VARCHAR, value_lower VARCHAR, "
-        "pair_id INTEGER PRIMARY KEY, count INTEGER DEFAULT 1);"
-    "CREATE TABLE autofill_dates ( pair_id INTEGER DEFAULT 0,"
-        "date_created INTEGER DEFAULT 0);"
-    "CREATE INDEX logins_signon ON logins (signon_realm);"
-    "CREATE INDEX ie7_logins_hash ON ie7_logins (url_hash);"
-    "CREATE INDEX web_apps_url_index ON web_apps (url);"
-    "CREATE INDEX autofill_name ON autofill (name);"
-    "CREATE INDEX autofill_name_value_lower ON autofill (name, value_lower);"
-    "CREATE INDEX autofill_dates_pair_id ON autofill_dates (pair_id);"));
-  ASSERT_TRUE(connection.CommitTransaction());
+  ASSERT_TRUE(connection.Execute(contents.data()));
 }
 
-// This schema is taken from a build after the addition of the |credit_card|
-// table.  Due to a bug in the migration logic the version is set incorrectly to
-// 22 (it should have been updated to 23 at least).
-void WebDatabaseMigrationTest::SetUpVersion22CorruptDatabase() {
-  sql::Connection connection;
-  ASSERT_TRUE(connection.Open(GetDatabasePath()));
-  ASSERT_TRUE(connection.BeginTransaction());
-  ASSERT_TRUE(connection.Execute(
-      "CREATE TABLE meta(key LONGVARCHAR NOT NULL UNIQUE PRIMARY KEY,"
-          "value LONGVARCHAR);"
-      "INSERT INTO \"meta\" VALUES('version','22');"
-      "INSERT INTO \"meta\" VALUES('last_compatible_version','21');"
-      "INSERT INTO \"meta\" VALUES('Default Search Provider ID','2');"
-      "INSERT INTO \"meta\" VALUES('Builtin Keyword Version','29');"
-      "CREATE TABLE keywords (id INTEGER PRIMARY KEY,"
-          "short_name VARCHAR NOT NULL,keyword VARCHAR NOT NULL,"
-          "favicon_url VARCHAR NOT NULL,url VARCHAR NOT NULL,"
-          "show_in_default_list INTEGER,safe_for_autoreplace INTEGER,"
-          "originating_url VARCHAR,date_created INTEGER DEFAULT 0,"
-          "usage_count INTEGER DEFAULT 0,input_encodings VARCHAR,"
-          "suggest_url VARCHAR,prepopulate_id INTEGER DEFAULT 0,"
-          "autogenerate_keyword INTEGER DEFAULT 0);"
-      "INSERT INTO \"keywords\" VALUES(2,'Google','google.com',"
-          "'http://www.google.com/favicon.ico','{google:baseURL}search?"
-          "{google:RLZ}{google:acceptedSuggestion}"
-          "{google:originalQueryForSuggestion}sourceid=chrome&"
-          "ie={inputEncoding}&q={searchTerms}',1,1,'',0,0,'UTF-8',"
-          "'{google:baseSuggestURL}search?client=chrome&hl={language}&"
-          "q={searchTerms}',1,1);"
-      "INSERT INTO \"keywords\" VALUES(3,'Yahoo!','yahoo.com',"
-          "'http://search.yahoo.com/favicon.ico',"
-          "'http://search.yahoo.com/search?ei={inputEncoding}&fr=crmas&"
-          "p={searchTerms}',1,1,'',0,0,'UTF-8',"
-          "'http://ff.search.yahoo.com/gossip?output=fxjson&"
-          "command={searchTerms}',2,0);"
-      "INSERT INTO \"keywords\" VALUES(4,'Bing','bing.com',"
-          "'http://www.bing.com/s/wlflag.ico','http://www.bing.com/search?"
-          "setmkt=en-US&q={searchTerms}',1,1,'',0,0,'UTF-8',"
-          "'http://api.bing.com/osjson.aspx?query={searchTerms}&"
-          "language={language}',3,0);"
-      "INSERT INTO \"keywords\" VALUES(5,'Wikipedia (en)','en.wikipedia.org',"
-          "'','http://en.wikipedia.org/w/index.php?title=Special:Search&"
-          "search={searchTerms}',1,0,'',1283287335,0,'','',0,0);"
-      "INSERT INTO \"keywords\" VALUES(6,'NYTimes','query.nytimes.com','',"
-          "'http://query.nytimes.com/gst/handler.html?query={searchTerms}&"
-          "opensearch=1',1,0,'',1283287335,0,'','',0,0);"
-      "INSERT INTO \"keywords\" VALUES(7,'eBay','rover.ebay.com','',"
-          "'http://rover.ebay.com/rover/1/711-43047-14818-1/4?"
-          "satitle={searchTerms}',1,0,'',1283287335,0,'','',0,0);"
-      "INSERT INTO \"keywords\" VALUES(8,'ff','ff','','http://ff{searchTerms}'"
-          ",0,0,'',1283287356,0,'','',0,0);"
-      "CREATE TABLE logins (origin_url VARCHAR NOT NULL, action_url VARCHAR, "
-          "username_element VARCHAR, username_value VARCHAR, "
-          "password_element VARCHAR, password_value BLOB, "
-          "submit_element VARCHAR, signon_realm VARCHAR NOT NULL,"
-          "ssl_valid INTEGER NOT NULL,preferred INTEGER NOT NULL,"
-          "date_created INTEGER NOT NULL,blacklisted_by_user INTEGER NOT NULL,"
-          "scheme INTEGER NOT NULL,UNIQUE (origin_url, username_element, "
-          "username_value, password_element, submit_element, signon_realm));"
-      "CREATE TABLE ie7_logins (url_hash VARCHAR NOT NULL, password_value BLOB,"
-          "date_created INTEGER NOT NULL,UNIQUE (url_hash));"
-      "CREATE TABLE web_app_icons (url LONGVARCHAR,width int,height int,"
-          "image BLOB, UNIQUE (url, width, height));"
-      "CREATE TABLE web_apps (url LONGVARCHAR UNIQUE,"
-          "has_all_images INTEGER NOT NULL);"
-      "CREATE TABLE autofill (name VARCHAR, value VARCHAR, value_lower VARCHAR,"
-          "pair_id INTEGER PRIMARY KEY, count INTEGER DEFAULT 1);"
-      "CREATE TABLE autofill_dates ( pair_id INTEGER DEFAULT 0,"
-          "date_created INTEGER DEFAULT 0);"
-      "CREATE TABLE autofill_profiles ( label VARCHAR, "
-          "unique_id INTEGER PRIMARY KEY, first_name VARCHAR, "
-          "middle_name VARCHAR, last_name VARCHAR, email VARCHAR, "
-          "company_name VARCHAR, address_line_1 VARCHAR, "
-          "address_line_2 VARCHAR, city VARCHAR, state VARCHAR, "
-          "zipcode VARCHAR, country VARCHAR, phone VARCHAR, fax VARCHAR);"
-      "CREATE TABLE credit_cards ( label VARCHAR, "
-          "unique_id INTEGER PRIMARY KEY, name_on_card VARCHAR, type VARCHAR,"
-          "card_number VARCHAR, expiration_month INTEGER, "
-          "expiration_year INTEGER, verification_code VARCHAR, "
-          "billing_address VARCHAR, shipping_address VARCHAR, "
-          "card_number_encrypted BLOB, verification_code_encrypted BLOB);"
-      "CREATE INDEX logins_signon ON logins (signon_realm);"
-      "CREATE INDEX ie7_logins_hash ON ie7_logins (url_hash);"
-      "CREATE INDEX web_apps_url_index ON web_apps (url);"
-      "CREATE INDEX autofill_name ON autofill (name);"
-      "CREATE INDEX autofill_name_value_lower ON autofill (name, value_lower);"
-      "CREATE INDEX autofill_dates_pair_id ON autofill_dates (pair_id);"
-      "CREATE INDEX autofill_profiles_label_index ON autofill_profiles (label);"
-      "CREATE INDEX credit_cards_label_index ON credit_cards (label);"));
-  ASSERT_TRUE(connection.CommitTransaction());
-}
+void WebDatabaseMigrationTest::MigrateVersion28Assertions() {
+  // Load the database via the WebDatabase class and migrate the database to
+  // the current version.
+  {
+    WebDatabase db;
+    ASSERT_EQ(sql::INIT_OK, db.Init(GetDatabasePath()));
+  }
 
-// This schema is taken from a build prior to the addition of the |keywords|
-// |logo_id| column.
-void WebDatabaseMigrationTest::SetUpVersion24Database() {
-  sql::Connection connection;
-  ASSERT_TRUE(connection.Open(GetDatabasePath()));
-  ASSERT_TRUE(connection.BeginTransaction());
-  ASSERT_TRUE(connection.Execute(
-    "CREATE TABLE meta(key LONGVARCHAR NOT NULL UNIQUE PRIMARY KEY,"
-        "value LONGVARCHAR);"
-    "INSERT INTO \"meta\" VALUES('version','24');"
-    "INSERT INTO \"meta\" VALUES('last_compatible_version','24');"
-    "CREATE TABLE keywords (id INTEGER PRIMARY KEY,short_name VARCHAR NOT NULL,"
-        "keyword VARCHAR NOT NULL,favicon_url VARCHAR NOT NULL,"
-        "url VARCHAR NOT NULL,show_in_default_list INTEGER,"
-        "safe_for_autoreplace INTEGER,originating_url VARCHAR,"
-        "date_created INTEGER DEFAULT 0,usage_count INTEGER DEFAULT 0,"
-        "input_encodings VARCHAR,suggest_url VARCHAR,"
-        "prepopulate_id INTEGER DEFAULT 0,"
-        "autogenerate_keyword INTEGER DEFAULT 0);"
-    "CREATE TABLE logins (origin_url VARCHAR NOT NULL, action_url VARCHAR,"
-        "username_element VARCHAR, username_value VARCHAR,"
-        "password_element VARCHAR, password_value BLOB, submit_element VARCHAR,"
-        "signon_realm VARCHAR NOT NULL,"
-        "ssl_valid INTEGER NOT NULL,preferred INTEGER NOT NULL,"
-        "date_created INTEGER NOT NULL,blacklisted_by_user INTEGER NOT NULL,"
-        "scheme INTEGER NOT NULL,UNIQUE (origin_url, username_element,"
-        "username_value, password_element, submit_element, signon_realm));"
-    "CREATE TABLE web_app_icons (url LONGVARCHAR,width int,height int,"
-        "image BLOB, UNIQUE (url, width, height));"
-    "CREATE TABLE web_apps (url LONGVARCHAR UNIQUE,"
-        "has_all_images INTEGER NOT NULL);"
-    "CREATE TABLE autofill (name VARCHAR, value VARCHAR, value_lower VARCHAR,"
-        "pair_id INTEGER PRIMARY KEY, count INTEGER DEFAULT 1);"
-    "CREATE TABLE autofill_dates ( pair_id INTEGER DEFAULT 0,"
-        "date_created INTEGER DEFAULT 0);"
-    "CREATE TABLE autofill_profiles ( label VARCHAR,"
-        "unique_id INTEGER PRIMARY KEY, first_name VARCHAR,"
-        "middle_name VARCHAR, last_name VARCHAR, email VARCHAR,"
-        "company_name VARCHAR, address_line_1 VARCHAR, address_line_2 VARCHAR,"
-        "city VARCHAR, state VARCHAR, zipcode VARCHAR, country VARCHAR,"
-        "phone VARCHAR, fax VARCHAR);"
-    "CREATE TABLE credit_cards ( label VARCHAR, unique_id INTEGER PRIMARY KEY,"
-        "name_on_card VARCHAR, type VARCHAR, card_number VARCHAR,"
-        "expiration_month INTEGER, expiration_year INTEGER,"
-        "verification_code VARCHAR, billing_address VARCHAR,"
-        "shipping_address VARCHAR, card_number_encrypted BLOB,"
-        "verification_code_encrypted BLOB);"
-    "CREATE TABLE token_service (service VARCHAR PRIMARY KEY NOT NULL,"
-        "encrypted_token BLOB);"
-    "CREATE INDEX logins_signon ON logins (signon_realm);"
-    "CREATE INDEX web_apps_url_index ON web_apps (url);"
-    "CREATE INDEX autofill_name ON autofill (name);"
-    "CREATE INDEX autofill_name_value_lower ON autofill (name, value_lower);"
-    "CREATE INDEX autofill_dates_pair_id ON autofill_dates (pair_id);"
-    "CREATE INDEX autofill_profiles_label_index ON autofill_profiles (label);"
-    "CREATE INDEX credit_cards_label_index ON credit_cards (label);"));
-  ASSERT_TRUE(connection.CommitTransaction());
-}
+  // Verify post-conditions.  These are expectations for current version of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
 
-// This schema is taken from a build prior to the addition of the |keywords|
-// |created_by_policy| column.
-void WebDatabaseMigrationTest::SetUpVersion25Database() {
-  sql::Connection connection;
-  ASSERT_TRUE(connection.Open(GetDatabasePath()));
-  ASSERT_TRUE(connection.BeginTransaction());
-  ASSERT_TRUE(connection.Execute(
-    "CREATE TABLE meta(key LONGVARCHAR NOT NULL UNIQUE PRIMARY KEY,"
-        "value LONGVARCHAR);"
-    "INSERT INTO \"meta\" VALUES('version','25');"
-    "INSERT INTO \"meta\" VALUES('last_compatible_version','25');"
-    "CREATE TABLE keywords (id INTEGER PRIMARY KEY,short_name VARCHAR NOT NULL,"
-        "keyword VARCHAR NOT NULL,favicon_url VARCHAR NOT NULL,"
-        "url VARCHAR NOT NULL,show_in_default_list INTEGER,"
-        "safe_for_autoreplace INTEGER,originating_url VARCHAR,"
-        "date_created INTEGER DEFAULT 0,usage_count INTEGER DEFAULT 0,"
-        "input_encodings VARCHAR,suggest_url VARCHAR,"
-        "prepopulate_id INTEGER DEFAULT 0,"
-        "autogenerate_keyword INTEGER DEFAULT 0,"
-        "logo_id INTEGER DEFAULT 0);"
-    "CREATE TABLE logins (origin_url VARCHAR NOT NULL, action_url VARCHAR,"
-        "username_element VARCHAR, username_value VARCHAR,"
-        "password_element VARCHAR, password_value BLOB, submit_element VARCHAR,"
-        "signon_realm VARCHAR NOT NULL,"
-        "ssl_valid INTEGER NOT NULL,preferred INTEGER NOT NULL,"
-        "date_created INTEGER NOT NULL,blacklisted_by_user INTEGER NOT NULL,"
-        "scheme INTEGER NOT NULL,UNIQUE (origin_url, username_element,"
-        "username_value, password_element, submit_element, signon_realm));"
-    "CREATE TABLE web_app_icons (url LONGVARCHAR,width int,height int,"
-        "image BLOB, UNIQUE (url, width, height));"
-    "CREATE TABLE web_apps (url LONGVARCHAR UNIQUE,"
-        "has_all_images INTEGER NOT NULL);"
-    "CREATE TABLE autofill (name VARCHAR, value VARCHAR, value_lower VARCHAR,"
-        "pair_id INTEGER PRIMARY KEY, count INTEGER DEFAULT 1);"
-    "CREATE TABLE autofill_dates ( pair_id INTEGER DEFAULT 0,"
-        "date_created INTEGER DEFAULT 0);"
-    "CREATE TABLE autofill_profiles ( label VARCHAR,"
-        "unique_id INTEGER PRIMARY KEY, first_name VARCHAR,"
-        "middle_name VARCHAR, last_name VARCHAR, email VARCHAR,"
-        "company_name VARCHAR, address_line_1 VARCHAR, address_line_2 VARCHAR,"
-        "city VARCHAR, state VARCHAR, zipcode VARCHAR, country VARCHAR,"
-        "phone VARCHAR, fax VARCHAR);"
-    "CREATE TABLE credit_cards ( label VARCHAR, unique_id INTEGER PRIMARY KEY,"
-        "name_on_card VARCHAR, type VARCHAR, card_number VARCHAR,"
-        "expiration_month INTEGER, expiration_year INTEGER,"
-        "verification_code VARCHAR, billing_address VARCHAR,"
-        "shipping_address VARCHAR, card_number_encrypted BLOB,"
-        "verification_code_encrypted BLOB);"
-    "CREATE TABLE token_service (service VARCHAR PRIMARY KEY NOT NULL,"
-        "encrypted_token BLOB);"
-    "CREATE INDEX logins_signon ON logins (signon_realm);"
-    "CREATE INDEX web_apps_url_index ON web_apps (url);"
-    "CREATE INDEX autofill_name ON autofill (name);"
-    "CREATE INDEX autofill_name_value_lower ON autofill (name, value_lower);"
-    "CREATE INDEX autofill_dates_pair_id ON autofill_dates (pair_id);"
-    "CREATE INDEX autofill_profiles_label_index ON autofill_profiles (label);"
-    "CREATE INDEX credit_cards_label_index ON credit_cards (label);"));
-  ASSERT_TRUE(connection.CommitTransaction());
-}
+    // Check version.
+    EXPECT_EQ(kCurrentTestedVersionNumber, VersionFromConnection(&connection));
 
-// This schema is taken from a build prior to the change of column type for
-// credit_cards.billing_address from string to int.
-void WebDatabaseMigrationTest::SetUpVersion26Database() {
-  sql::Connection connection;
-  ASSERT_TRUE(connection.Open(GetDatabasePath()));
-  ASSERT_TRUE(connection.BeginTransaction());
-  ASSERT_TRUE(connection.Execute(
-    "CREATE TABLE meta(key LONGVARCHAR NOT NULL UNIQUE PRIMARY KEY,"
-        "value LONGVARCHAR);"
-    "INSERT INTO \"meta\" VALUES('version','25');"
-    "INSERT INTO \"meta\" VALUES('last_compatible_version','25');"
-    "CREATE TABLE keywords (id INTEGER PRIMARY KEY,short_name VARCHAR NOT NULL,"
-        "keyword VARCHAR NOT NULL,favicon_url VARCHAR NOT NULL,"
-        "url VARCHAR NOT NULL,show_in_default_list INTEGER,"
-        "safe_for_autoreplace INTEGER,originating_url VARCHAR,"
-        "date_created INTEGER DEFAULT 0,usage_count INTEGER DEFAULT 0,"
-        "input_encodings VARCHAR,suggest_url VARCHAR,"
-        "prepopulate_id INTEGER DEFAULT 0,"
-        "autogenerate_keyword INTEGER DEFAULT 0,"
-        "logo_id INTEGER DEFAULT 0,"
-        "created_by_policy INTEGER DEFAULT 0);"
-    "CREATE TABLE logins (origin_url VARCHAR NOT NULL, action_url VARCHAR,"
-        "username_element VARCHAR, username_value VARCHAR,"
-        "password_element VARCHAR, password_value BLOB, submit_element VARCHAR,"
-        "signon_realm VARCHAR NOT NULL,"
-        "ssl_valid INTEGER NOT NULL,preferred INTEGER NOT NULL,"
-        "date_created INTEGER NOT NULL,blacklisted_by_user INTEGER NOT NULL,"
-        "scheme INTEGER NOT NULL,UNIQUE (origin_url, username_element,"
-        "username_value, password_element, submit_element, signon_realm));"
-    "CREATE TABLE web_app_icons (url LONGVARCHAR,width int,height int,"
-        "image BLOB, UNIQUE (url, width, height));"
-    "CREATE TABLE web_apps (url LONGVARCHAR UNIQUE,"
-        "has_all_images INTEGER NOT NULL);"
-    "CREATE TABLE autofill (name VARCHAR, value VARCHAR, value_lower VARCHAR,"
-        "pair_id INTEGER PRIMARY KEY, count INTEGER DEFAULT 1);"
-    "CREATE TABLE autofill_dates ( pair_id INTEGER DEFAULT 0,"
-        "date_created INTEGER DEFAULT 0);"
-    "CREATE TABLE autofill_profiles ( label VARCHAR,"
-        "unique_id INTEGER PRIMARY KEY, first_name VARCHAR,"
-        "middle_name VARCHAR, last_name VARCHAR, email VARCHAR,"
-        "company_name VARCHAR, address_line_1 VARCHAR, address_line_2 VARCHAR,"
-        "city VARCHAR, state VARCHAR, zipcode VARCHAR, country VARCHAR,"
-        "phone VARCHAR, fax VARCHAR);"
-    "CREATE TABLE credit_cards ( label VARCHAR, unique_id INTEGER PRIMARY KEY,"
-        "name_on_card VARCHAR, type VARCHAR, card_number VARCHAR,"
-        "expiration_month INTEGER, expiration_year INTEGER,"
-        "verification_code VARCHAR, billing_address VARCHAR,"
-        "shipping_address VARCHAR, card_number_encrypted BLOB,"
-        "verification_code_encrypted BLOB);"
-    "CREATE TABLE token_service (service VARCHAR PRIMARY KEY NOT NULL,"
-        "encrypted_token BLOB);"
-    "CREATE INDEX logins_signon ON logins (signon_realm);"
-    "CREATE INDEX web_apps_url_index ON web_apps (url);"
-    "CREATE INDEX autofill_name ON autofill (name);"
-    "CREATE INDEX autofill_name_value_lower ON autofill (name, value_lower);"
-    "CREATE INDEX autofill_dates_pair_id ON autofill_dates (pair_id);"
-    "CREATE INDEX autofill_profiles_label_index ON autofill_profiles (label);"
-    "CREATE INDEX credit_cards_label_index ON credit_cards (label);"));
-  ASSERT_TRUE(connection.CommitTransaction());
+    // Make sure supports_instant was dropped and instant_url was added.
+    EXPECT_FALSE(connection.DoesColumnExist("keywords", "supports_instant"));
+    EXPECT_TRUE(connection.DoesColumnExist("keywords", "instant_url"));
+
+    // Check that instant_url is empty.
+    std::string stmt = "SELECT instant_url FROM keywords";
+    sql::Statement s(connection.GetUniqueStatement(stmt.c_str()));
+    ASSERT_TRUE(s.Step());
+    EXPECT_EQ(std::string(), s.ColumnString(0));
+
+    // Verify the data made it over.
+    stmt = "SELECT id, short_name, keyword, favicon_url, url, "
+        "show_in_default_list, safe_for_autoreplace, originating_url, "
+        "date_created, usage_count, input_encodings, suggest_url, "
+        "prepopulate_id, autogenerate_keyword, logo_id, created_by_policy, "
+        "instant_url FROM keywords";
+    sql::Statement s2(connection.GetUniqueStatement(stmt.c_str()));
+    ASSERT_TRUE(s2.Step());
+    EXPECT_EQ(2, s2.ColumnInt(0));
+    EXPECT_EQ("Google", s2.ColumnString(1));
+    EXPECT_EQ("google.com", s2.ColumnString(2));
+    EXPECT_EQ("http://www.google.com/favicon.ico", s2.ColumnString(3));
+    EXPECT_EQ("{google:baseURL}search?{google:RLZ}{google:acceptedSuggestion}"\
+        "{google:originalQueryForSuggestion}sourceid=chrome&ie={inputEncoding}"\
+        "&q={searchTerms}",
+        s2.ColumnString(4));
+    EXPECT_EQ(1, s2.ColumnInt(5));
+    EXPECT_EQ(1, s2.ColumnInt(6));
+    EXPECT_EQ(std::string(), s2.ColumnString(7));
+    EXPECT_EQ(0, s2.ColumnInt(8));
+    EXPECT_EQ(0, s2.ColumnInt(9));
+    EXPECT_EQ(std::string("UTF-8"), s2.ColumnString(10));
+    EXPECT_EQ(std::string("{google:baseSuggestURL}search?client=chrome&hl="
+                          "{language}&q={searchTerms}"), s2.ColumnString(11));
+    EXPECT_EQ(1, s2.ColumnInt(12));
+    EXPECT_EQ(1, s2.ColumnInt(13));
+    EXPECT_EQ(6245, s2.ColumnInt(14));
+    EXPECT_EQ(0, s2.ColumnInt(15));
+    EXPECT_EQ(0, s2.ColumnInt(16));
+    EXPECT_EQ(std::string(), s2.ColumnString(17));
+  }
 }
 
 // Tests that the all migrations from an empty database succeed.
@@ -1965,8 +1922,11 @@ TEST_F(WebDatabaseMigrationTest, MigrateEmptyToCurrent) {
 // Tests that the |credit_card| table gets added to the schema for a version 22
 // database.
 TEST_F(WebDatabaseMigrationTest, MigrateVersion22ToCurrent) {
-  // Initialize the database.
-  SetUpVersion22Database();
+  // This schema is taken from a build prior to the addition of the
+  // |credit_card| table.  Version 22 of the schema.  Contrast this with the
+  // corrupt version below.
+  ASSERT_NO_FATAL_FAILURE(
+      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_22.sql"))));
 
   // Verify pre-conditions.
   {
@@ -2008,8 +1968,11 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion22ToCurrent) {
 // test exercises code introduced to fix bug http://crbug.com/50699 that
 // resulted from the corruption.
 TEST_F(WebDatabaseMigrationTest, MigrateVersion22CorruptedToCurrent) {
-  // Initialize the database.
-  SetUpVersion22CorruptDatabase();
+  // This schema is taken from a build after the addition of the |credit_card|
+  // table.  Due to a bug in the migration logic the version is set incorrectly
+  // to 22 (it should have been updated to 23 at least).
+  ASSERT_NO_FATAL_FAILURE(
+      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_22_corrupt.sql"))));
 
   // Verify pre-conditions.  These are expectations for corrupt version 22 of
   // the database.
@@ -2054,8 +2017,10 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion22CorruptedToCurrent) {
 // Tests that the |keywords| |logo_id| column gets added to the schema for a
 // version 24 database.
 TEST_F(WebDatabaseMigrationTest, MigrateVersion24ToCurrent) {
-  // Initialize the database.
-  SetUpVersion24Database();
+  // This schema is taken from a build prior to the addition of the |keywords|
+  // |logo_id| column.
+  ASSERT_NO_FATAL_FAILURE(
+      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_24.sql"))));
 
   // Verify pre-conditions.  These are expectations for version 24 of the
   // database.
@@ -2093,8 +2058,10 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion24ToCurrent) {
 // Tests that the |keywords| |created_by_policy| column gets added to the schema
 // for a version 25 database.
 TEST_F(WebDatabaseMigrationTest, MigrateVersion25ToCurrent) {
-  // Initialize the database.
-  SetUpVersion25Database();
+  // This schema is taken from a build prior to the addition of the |keywords|
+  // |created_by_policy| column.
+  ASSERT_NO_FATAL_FAILURE(
+      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_25.sql"))));
 
   // Verify pre-conditions.  These are expectations for version 25 of the
   // database.
@@ -2129,18 +2096,18 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion25ToCurrent) {
 // to an int whilst preserving the associated billing address. This version of
 // the test makes sure a stored label is converted to an ID.
 TEST_F(WebDatabaseMigrationTest, MigrateVersion26ToCurrentStringLabels) {
-  // Initialize the database.
-  SetUpVersion25Database();
+  // This schema is taken from a build prior to the change of column type for
+  // credit_cards.billing_address from string to int.
+  ASSERT_NO_FATAL_FAILURE(
+      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_26.sql"))));
 
-  // Verify pre-conditions. These are expectations for version 25 of the
+  // Verify pre-conditions. These are expectations for version 26 of the
   // database.
   {
     sql::Connection connection;
     ASSERT_TRUE(connection.Open(GetDatabasePath()));
 
     // Columns existing and not existing before current version.
-    ASSERT_TRUE(connection.DoesColumnExist("keywords", "id"));
-    ASSERT_FALSE(connection.DoesColumnExist("keywords", "created_by_policy"));
     EXPECT_TRUE(connection.DoesColumnExist("credit_cards", "billing_address"));
 
     std::string stmt = "INSERT INTO autofill_profiles"
@@ -2207,10 +2174,12 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion26ToCurrentStringLabels) {
 // to an int whilst preserving the associated billing address. This version of
 // the test makes sure a stored string ID is converted to an integer ID.
 TEST_F(WebDatabaseMigrationTest, MigrateVersion26ToCurrentStringIDs) {
-  // Initialize the database.
-  SetUpVersion25Database();
+  // This schema is taken from a build prior to the change of column type for
+  // credit_cards.billing_address from string to int.
+  ASSERT_NO_FATAL_FAILURE(
+      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_26.sql"))));
 
-  // Verify pre-conditions. These are expectations for version 25 of the
+  // Verify pre-conditions. These are expectations for version 26 of the
   // database.
   {
     sql::Connection connection;
@@ -2278,5 +2247,163 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion26ToCurrentStringIDs) {
     EXPECT_EQ(std::string(), s.ColumnString(7));
     EXPECT_EQ(1, s.ColumnInt(8));
     // The remaining columns are unused or blobs.
+  }
+}
+
+// Tests migration from 27->current. This test is now the same as 28->current
+// as the column added in 28 was nuked in 29.
+TEST_F(WebDatabaseMigrationTest, MigrateVersion27ToCurrent) {
+  // Initialize the database.
+  ASSERT_NO_FATAL_FAILURE(
+      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_27.sql"))));
+
+  // Verify pre-conditions. These are expectations for version 28 of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+
+    ASSERT_FALSE(connection.DoesColumnExist("keywords", "supports_instant"));
+    ASSERT_FALSE(connection.DoesColumnExist("keywords", "instant_url"));
+  }
+
+  MigrateVersion28Assertions();
+}
+
+// Makes sure instant_url is added correctly to keywords.
+TEST_F(WebDatabaseMigrationTest, MigrateVersion28ToCurrent) {
+  // Initialize the database.
+  ASSERT_NO_FATAL_FAILURE(
+      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_28.sql"))));
+
+  // Verify pre-conditions. These are expectations for version 28 of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+
+    ASSERT_TRUE(connection.DoesColumnExist("keywords", "supports_instant"));
+    ASSERT_FALSE(connection.DoesColumnExist("keywords", "instant_url"));
+  }
+
+  MigrateVersion28Assertions();
+}
+
+// Makes sure date_modified is added correctly to autofill_profiles and
+// credit_cards.
+TEST_F(WebDatabaseMigrationTest, MigrateVersion29ToCurrent) {
+  // Initialize the database.
+  ASSERT_NO_FATAL_FAILURE(
+      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_29.sql"))));
+
+  // Verify pre-conditions.  These are expectations for version 29 of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+
+    EXPECT_FALSE(connection.DoesColumnExist("autofill_profiles",
+                                            "date_modified"));
+    EXPECT_FALSE(connection.DoesColumnExist("credit_cards",
+                                            "date_modified"));
+  }
+
+  // Load the database via the WebDatabase class and migrate the database to
+  // the current version.
+  Time pre_creation_time = Time::Now();
+  {
+    WebDatabase db;
+    ASSERT_EQ(sql::INIT_OK, db.Init(GetDatabasePath()));
+  }
+  Time post_creation_time = Time::Now();
+
+  // Verify post-conditions.  These are expectations for current version of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+
+    // Check version.
+    EXPECT_EQ(kCurrentTestedVersionNumber, VersionFromConnection(&connection));
+
+    // Check that the columns were created.
+    EXPECT_TRUE(connection.DoesColumnExist("autofill_profiles",
+                                           "date_modified"));
+    EXPECT_TRUE(connection.DoesColumnExist("credit_cards",
+                                           "date_modified"));
+
+    sql::Statement s_profiles(connection.GetUniqueStatement(
+        "SELECT * FROM autofill_profiles "));
+    ASSERT_TRUE(s_profiles);
+    while (s_profiles.Step()) {
+      EXPECT_GE(s_profiles.ColumnInt64(15),
+                pre_creation_time.ToTimeT());
+      EXPECT_LE(s_profiles.ColumnInt64(15),
+                post_creation_time.ToTimeT());
+    }
+    EXPECT_TRUE(s_profiles.Succeeded());
+
+    sql::Statement s_credit_cards(connection.GetUniqueStatement(
+        "SELECT * FROM credit_cards "));
+    ASSERT_TRUE(s_credit_cards);
+    while (s_credit_cards.Step()) {
+      EXPECT_GE(s_credit_cards.ColumnInt64(12),
+                pre_creation_time.ToTimeT());
+      EXPECT_LE(s_credit_cards.ColumnInt64(12),
+                post_creation_time.ToTimeT());
+    }
+    EXPECT_TRUE(s_credit_cards.Succeeded());
+  }
+}
+
+// Makes sure guids are added to autofill_profiles and credit_cards tables.
+TEST_F(WebDatabaseMigrationTest, MigrateVersion30ToCurrent) {
+  // Initialize the database.
+  ASSERT_NO_FATAL_FAILURE(
+      LoadDatabase(FilePath(FILE_PATH_LITERAL("version_30.sql"))));
+
+  // Verify pre-conditions. These are expectations for version 29 of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+
+    EXPECT_FALSE(connection.DoesColumnExist("autofill_profiles", "guid"));
+    EXPECT_FALSE(connection.DoesColumnExist("credit_cards", "guid"));
+  }
+
+  // Load the database via the WebDatabase class and migrate the database to
+  // the current version.
+  {
+    WebDatabase db;
+    ASSERT_EQ(sql::INIT_OK, db.Init(GetDatabasePath()));
+  }
+
+  // Verify post-conditions.  These are expectations for current version of the
+  // database.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+
+    // Check version.
+    EXPECT_EQ(kCurrentTestedVersionNumber, VersionFromConnection(&connection));
+
+    ASSERT_TRUE(connection.DoesColumnExist("autofill_profiles", "guid"));
+    ASSERT_TRUE(connection.DoesColumnExist("credit_cards", "guid"));
+
+    // Check that guids are non-null, non-empty, conforms to guid format, and
+    // are different.
+    sql::Statement s(
+        connection.GetUniqueStatement("SELECT guid FROM autofill_profiles"));
+
+    ASSERT_TRUE(s.Step());
+    std::string guid1 = s.ColumnString(0);
+    EXPECT_TRUE(guid::IsValidGUID(guid1));
+
+    ASSERT_TRUE(s.Step());
+    std::string guid2 = s.ColumnString(0);
+    EXPECT_TRUE(guid::IsValidGUID(guid2));
+
+    EXPECT_NE(guid1, guid2);
   }
 }

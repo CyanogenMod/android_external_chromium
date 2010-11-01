@@ -11,6 +11,12 @@
 #include "chrome/test/ui_test_utils.h"
 #include "net/base/mock_host_resolver.h"
 
+// crbug.com/60156
+#if defined(OS_MACOSX)
+// On mac, this test basically never succeeds.
+#define FLAKY_WindowOpen DISABLED_WindowOpen
+#endif
+
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, FLAKY_WindowOpen) {
   CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableExperimentalExtensionApis);
@@ -41,7 +47,8 @@ void WaitForTabsAndPopups(Browser* browser, int num_tabs, int num_popups) {
       if (*iter == browser)
         continue;
 
-      ASSERT_EQ(Browser::TYPE_POPUP, (*iter)->type());
+      // Check for TYPE_POPUP or TYPE_APP_POPUP/PANEL.
+      ASSERT_TRUE((*iter)->type() & Browser::TYPE_POPUP);
     }
 
     break;
@@ -50,7 +57,7 @@ void WaitForTabsAndPopups(Browser* browser, int num_tabs, int num_popups) {
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, PopupBlockingExtension) {
   host_resolver()->AddRule("*", "127.0.0.1");
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(StartTestServer());
 
   ASSERT_TRUE(LoadExtension(
       test_data_dir_.AppendASCII("window_open").AppendASCII("popup_blocking")
@@ -67,12 +74,27 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, PopupBlockingHostedApp) {
       test_data_dir_.AppendASCII("window_open").AppendASCII("popup_blocking")
       .AppendASCII("hosted_app")));
 
-  std::string app_base("http://a.com:1337/files/extensions/api_test/"
-                       "window_open/popup_blocking/hosted_app/");
-  browser()->OpenURL(GURL(app_base + "open_tab.html"), GURL(),
-                     NEW_FOREGROUND_TAB, PageTransition::TYPED);
-  browser()->OpenURL(GURL(app_base + "open_popup.html"), GURL(),
-                     NEW_FOREGROUND_TAB, PageTransition::TYPED);
+  // The app being tested owns the domain a.com .  The test URLs we navigate
+  // to below must be within that domain, so that they fall within the app's
+  // web extent.
+  GURL::Replacements replace_host;
+  std::string a_dot_com = "a.com";
+  replace_host.SetHostStr(a_dot_com);
+
+  const std::string popup_app_contents_path(
+    "files/extensions/api_test/window_open/popup_blocking/hosted_app/");
+
+  GURL open_tab =
+      test_server()->GetURL(popup_app_contents_path + "open_tab.html")
+          .ReplaceComponents(replace_host);
+  GURL open_popup =
+      test_server()->GetURL(popup_app_contents_path + "open_popup.html")
+          .ReplaceComponents(replace_host);
+
+  browser()->OpenURL(open_tab, GURL(), NEW_FOREGROUND_TAB,
+                     PageTransition::TYPED);
+  browser()->OpenURL(open_popup, GURL(), NEW_FOREGROUND_TAB,
+                     PageTransition::TYPED);
 
   WaitForTabsAndPopups(browser(), 3, 1);
 }

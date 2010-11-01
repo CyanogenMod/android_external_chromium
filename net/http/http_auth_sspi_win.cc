@@ -21,7 +21,7 @@ namespace {
 
 int MapAcquireCredentialsStatusToError(SECURITY_STATUS status,
                                        const SEC_WCHAR* package) {
-  LOG(INFO) << "AcquireCredentialsHandle returned 0x" << std::hex << status;
+  VLOG(1) << "AcquireCredentialsHandle returned 0x" << std::hex << status;
   switch (status) {
     case SEC_E_OK:
       return OK;
@@ -102,7 +102,7 @@ int AcquireDefaultCredentials(SSPILibrary* library, const SEC_WCHAR* package,
 }
 
 int MapInitializeSecurityContextStatusToError(SECURITY_STATUS status) {
-  LOG(INFO) << "InitializeSecurityContext returned 0x" << std::hex << status;
+  VLOG(1) << "InitializeSecurityContext returned 0x" << std::hex << status;
   switch (status) {
     case SEC_E_OK:
     case SEC_I_CONTINUE_NEEDED:
@@ -146,7 +146,7 @@ int MapInitializeSecurityContextStatusToError(SECURITY_STATUS status) {
 }
 
 int MapQuerySecurityPackageInfoStatusToError(SECURITY_STATUS status) {
-  LOG(INFO) << "QuerySecurityPackageInfo returned 0x" << std::hex << status;
+  VLOG(1) << "QuerySecurityPackageInfo returned 0x" << std::hex << status;
   switch (status) {
     case SEC_E_OK:
       return OK;
@@ -163,7 +163,7 @@ int MapQuerySecurityPackageInfoStatusToError(SECURITY_STATUS status) {
 }
 
 int MapFreeContextBufferStatusToError(SECURITY_STATUS status) {
-  LOG(INFO) << "FreeContextBuffer returned 0x" << std::hex << status;
+  VLOG(1) << "FreeContextBuffer returned 0x" << std::hex << status;
   switch (status) {
     case SEC_E_OK:
       return OK;
@@ -222,12 +222,11 @@ void HttpAuthSSPI::ResetSecurityContext() {
 HttpAuth::AuthorizationResult HttpAuthSSPI::ParseChallenge(
     HttpAuth::ChallengeTokenizer* tok) {
   // Verify the challenge's auth-scheme.
-  if (!tok->valid() ||
-      !LowerCaseEqualsASCII(tok->scheme(), StringToLowerASCII(scheme_).c_str()))
+  if (!LowerCaseEqualsASCII(tok->scheme(), StringToLowerASCII(scheme_).c_str()))
     return HttpAuth::AUTHORIZATION_RESULT_INVALID;
 
-  tok->set_expect_base64_token(true);
-  if (!tok->GetNext()) {
+  std::string encoded_auth_token = tok->base64_param();
+  if (encoded_auth_token.empty()) {
     // If a context has already been established, an empty challenge
     // should be treated as a rejection of the current attempt.
     if (SecIsValidHandle(&ctxt_))
@@ -241,7 +240,6 @@ HttpAuth::AuthorizationResult HttpAuthSSPI::ParseChallenge(
       return HttpAuth::AUTHORIZATION_RESULT_INVALID;
   }
 
-  std::string encoded_auth_token = tok->value();
   std::string decoded_auth_token;
   bool base64_rv = base::Base64Decode(encoded_auth_token, &decoded_auth_token);
   if (!base64_rv)

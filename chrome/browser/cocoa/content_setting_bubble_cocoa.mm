@@ -9,7 +9,7 @@
 #include "base/logging.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/blocked_popup_container.h"
+#include "chrome/browser/blocked_content_container.h"
 #import "chrome/browser/cocoa/content_settings_dialog_controller.h"
 #import "chrome/browser/cocoa/hyperlink_button_cell.h"
 #import "chrome/browser/cocoa/info_bubble_view.h"
@@ -18,7 +18,6 @@
 #include "chrome/browser/host_content_settings_map.h"
 #include "chrome/browser/plugin_updater.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/plugin_group.h"
 #include "grit/generated_resources.h"
 #include "skia/ext/skia_utils_mac.h"
 #import "third_party/GTM/AppKit/GTMUILocalizerAndLayoutTweaker.h"
@@ -244,8 +243,8 @@ NSTextField* LabelWithFrame(NSString* text, const NSRect& frame) {
     for (std::set<std::string>::iterator it = plugins.begin();
          it != plugins.end(); ++it) {
       NSString* name;
-      PluginUpdater::PluginMap groups;
-      PluginUpdater::GetPluginUpdater()->GetPluginGroups(&groups);
+      NPAPI::PluginList::PluginMap groups;
+      NPAPI::PluginList::Singleton()->GetPluginGroups(false, &groups);
       if (groups.find(*it) != groups.end())
         name = base::SysUTF16ToNSString(groups[*it]->GetGroupName());
       else

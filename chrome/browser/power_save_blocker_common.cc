@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/power_save_blocker.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 
 // Accessed only from the UI thread.
 int PowerSaveBlocker::blocker_count_ = 0;
@@ -35,14 +35,14 @@ void PowerSaveBlocker::Disable() {
 
 
 void PowerSaveBlocker::PostAdjustBlockCount(int delta) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableFunction(&PowerSaveBlocker::AdjustBlockCount, delta));
 }
 
 // Called only from UI thread.
 void PowerSaveBlocker::AdjustBlockCount(int delta) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   bool was_blocking = (blocker_count_ != 0);
 

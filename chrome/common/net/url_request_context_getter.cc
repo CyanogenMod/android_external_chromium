@@ -10,6 +10,10 @@ net::CookieStore* URLRequestContextGetter::GetCookieStore() {
   return GetURLRequestContext()->cookie_store();
 }
 
+URLRequestContextGetter::URLRequestContextGetter() : is_main_(false) {}
+
+URLRequestContextGetter::~URLRequestContextGetter() {}
+
 void URLRequestContextGetter::OnDestruct() {
   scoped_refptr<base::MessageLoopProxy> io_message_loop_proxy =
       GetIOMessageLoopProxy();
@@ -24,4 +28,3 @@ void URLRequestContextGetter::OnDestruct() {
   // If no IO message loop proxy was available, we will just leak memory.
   // This is also true if the IO thread is gone.
 }
-

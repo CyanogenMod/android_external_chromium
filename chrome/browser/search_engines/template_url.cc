@@ -513,6 +513,12 @@ bool TemplateURLRef::HasGoogleBaseURLs() const {
   return false;
 }
 
+// static
+bool TemplateURLRef::SameUrlRefs(const TemplateURLRef* ref1,
+ const TemplateURLRef* ref2) {
+  return ref1 == ref2 || (ref1 && ref2 && ref1->url() == ref2->url());
+}
+
 void TemplateURLRef::InvalidateCachedValues() const {
   supports_replacements_ = valid_ = parsed_ = false;
   host_.clear();
@@ -588,6 +594,12 @@ void TemplateURL::SetURL(const std::string& url,
                          int index_offset,
                          int page_offset) {
   url_.Set(url, index_offset, page_offset);
+}
+
+void TemplateURL::SetInstantURL(const std::string& url,
+                                int index_offset,
+                                int page_offset) {
+  instant_url_.Set(url, index_offset, page_offset);
 }
 
 void TemplateURL::set_keyword(const std::wstring& keyword) {

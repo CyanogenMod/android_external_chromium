@@ -5,6 +5,7 @@
 #ifndef WEBKIT_GLUE_PLUGINS_PLUGIN_LIST_H_
 #define WEBKIT_GLUE_PLUGINS_PLUGIN_LIST_H_
 
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -12,8 +13,10 @@
 
 #include "base/basictypes.h"
 #include "base/file_path.h"
+#include "base/linked_ptr.h"
 #include "base/lock.h"
 #include "third_party/npapi/bindings/nphostapi.h"
+#include "webkit/glue/plugins/plugin_group.h"
 #include "webkit/glue/plugins/webplugininfo.h"
 
 class GURL;
@@ -60,6 +63,8 @@ struct PluginVersionInfo {
   PluginEntryPoints entry_points;
 };
 
+typedef void (*LoadPluginsFromDiskHookFunc)();
+
 // The PluginList is responsible for loading our NPAPI based plugins. It does
 // so in whatever manner is appropriate for the platform. On Windows, it loads
 // plugins from a known directory by looking for DLLs which start with "NP",
@@ -72,6 +77,9 @@ class PluginList {
  public:
   // Gets the one instance of the PluginList.
   static PluginList* Singleton();
+
+  // Set a hook that is called whenever we load plugins from the disk.
+  static void SetPluginLoadHook(LoadPluginsFromDiskHookFunc hook);
 
   // Returns true if we're in debug-plugin-loading mode. This is controlled
   // by a command line switch.
@@ -125,12 +133,24 @@ class PluginList {
   // Get all the enabled plugins.
   void GetEnabledPlugins(bool refresh, std::vector<WebPluginInfo>* plugins);
 
-  // Returns true if a plugin is found for the given url and mime type
-  // (including disabled plugins, for which |info->enabled| is false).
-  // The mime type which corresponds to the URL is optionally returned
-  // back.
-  // The allow_wildcard parameter controls whether this function returns
-  // plugins which support wildcard mime types (* as the mime type).
+  // Returns a list in |info| containing plugins that are found for
+  // the given url and mime type (including disabled plugins, for
+  // which |info->enabled| is false).  The mime type which corresponds
+  // to the URL is optionally returned back in |actual_mime_types| (if
+  // it is non-NULL), one for each of the plugin info objects found.
+  // The |allow_wildcard| parameter controls whether this function
+  // returns plugins which support wildcard mime types (* as the mime
+  // type).  The |info| parameter is required to be non-NULL.  The
+  // list is in order of "most desirable" to "least desirable",
+  // meaning that the default plugin is at the end of the list.
+  void GetPluginInfoArray(const GURL& url,
+                          const std::string& mime_type,
+                          bool allow_wildcard,
+                          std::vector<WebPluginInfo>* info,
+                          std::vector<std::string>* actual_mime_types);
+
+  // Returns the first item from the list returned in GetPluginInfo in |info|.
+  // Returns true if it found a match.  |actual_mime_type| may be NULL.
   bool GetPluginInfo(const GURL& url,
                      const std::string& mime_type,
                      bool allow_wildcard,
@@ -141,6 +161,14 @@ class PluginList {
   // if the plugin is found and WebPluginInfo has been filled in |info|.
   bool GetPluginInfoByPath(const FilePath& plugin_path,
                            WebPluginInfo* info);
+
+  typedef std::map<std::string, linked_ptr<PluginGroup> > PluginMap;
+
+  // Fill the map from identifier to plugin group for all plugin groups.  If
+  // |load_if_necessary| is set, the plugins will be loaded if they haven't
+  // already been loaded, or if Refresh() has been called in the meantime;
+  // otherwise a possibly empty or stale list may be returned.
+  void GetPluginGroups(bool load_if_necessary, PluginMap* plugin_groups);
 
   // Load a specific plugin with full path.
   void LoadPlugin(const FilePath& filename,
@@ -158,6 +186,21 @@ class PluginList {
   // of return value, if a plugin is found in the future with the given name, it
   // will be disabled.
   bool DisablePlugin(const FilePath& filename);
+
+  // Enable/disable a plugin group, specified by group_name.  Returns |true| iff
+  // a plugin currently in the plugin list was actually enabled/disabled as a
+  // result; regardless of return value, if a plugin is found in the future with
+  // the given name, it will be enabled/disabled. Note that plugins are enabled
+  // by default as far as |PluginList| is concerned.
+  bool EnableGroup(bool enable, const string16& name);
+
+  // Disable all plugins groups that are known to be outdated, according to
+  // the information hardcoded in PluginGroup, to make sure that they can't
+  // be loaded on a web page and instead show a UI to update to the latest
+  // version.
+  void DisableOutdatedPluginGroups();
+
+  ~PluginList();
 
  private:
   // Constructors are private for singletons
@@ -180,23 +223,15 @@ class PluginList {
   bool ShouldLoadPlugin(const WebPluginInfo& info,
                         std::vector<WebPluginInfo>* plugins);
 
-  // Find a plugin by mime type; only searches enabled plugins.
-  // The allow_wildcard parameter controls whether this function returns
-  // plugins which support wildcard mime types (* as the mime type)
-  bool FindPlugin(const std::string &mime_type,
-                  bool allow_wildcard,
-                  WebPluginInfo* info);
+  // Return whether a plug-in group with the given name should be disabled,
+  // either because it already is on the list of disabled groups, or because it
+  // is blacklisted by a policy. In the latter case, add the plugin group to the
+  // list of disabled groups as well.
+  bool ShouldDisableGroup(const string16& group_name);
 
-  // Just like |FindPlugin| but it only looks at the disabled plug-ins.
-  bool FindDisabledPlugin(const std::string &mime_type,
-                          bool allow_wildcard,
-                          WebPluginInfo* info);
-
-  // Find a plugin by extension; only searches enabled plugins. Returns the
-  // corresponding mime type.
-  bool FindPlugin(const GURL &url,
-                  std::string* actual_mime_type,
-                  WebPluginInfo* info);
+  // Like GetPluginGroups above, but works on a given vector of plugins.
+  static void GetPluginGroups(const std::vector<WebPluginInfo>* plugins,
+                              PluginMap* plugin_groups);
 
   // Returns true if the given WebPluginInfo supports "mime-type".
   // mime_type should be all lower case.
@@ -260,6 +295,11 @@ class PluginList {
 
   // Path names of plugins to disable (the default is to enable them all).
   std::set<FilePath> disabled_plugins_;
+
+  // Group names disable (the default is to enable them all).
+  std::set<string16> disabled_groups_;
+
+  bool disable_outdated_plugins_;
 
   // Need synchronization for the above members since this object can be
   // accessed on multiple threads.

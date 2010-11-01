@@ -10,7 +10,7 @@
 #include <string>
 
 #include "base/message_loop.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/notifications/balloon_collection_impl.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification.h"
@@ -100,7 +100,7 @@ class DesktopNotificationsTest : public testing::Test {
   // Create a message loop to allow notifications code to post tasks,
   // and a thread so that notifications code runs on the expected thread.
   MessageLoopForUI message_loop_;
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
 
   // Test profile.
   scoped_ptr<TestingProfile> profile_;

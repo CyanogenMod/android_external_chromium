@@ -21,7 +21,8 @@
 #include "base/thread.h"
 #include "base/scoped_ptr.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "base/win/windows_version.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/download/download_util.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -259,7 +260,7 @@ void CreateShortcutTask::Run() {
 }
 
 bool CreateShortcutTask::CreateShortcut() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
 #if defined(OS_LINUX)
   scoped_ptr<base::Environment> env(base::Environment::Create());
@@ -293,9 +294,9 @@ bool CreateShortcutTask::CreateShortcut() {
       shortcut_info_.create_in_quick_launch_bar,
       // For Win7, create_in_quick_launch_bar means pinning to taskbar. Use
       // base::PATH_START as a flag for this case.
-      (win_util::GetWinVersion() >= win_util::WINVERSION_WIN7) ?
+      (base::win::GetVersion() >= base::win::VERSION_WIN7) ?
           base::PATH_START : base::DIR_APP_DATA,
-      (win_util::GetWinVersion() >= win_util::WINVERSION_WIN7) ?
+      (base::win::GetVersion() >= base::win::VERSION_WIN7) ?
           NULL : L"Microsoft\\Internet Explorer\\Quick Launch"
     }
   };
@@ -323,7 +324,7 @@ bool CreateShortcutTask::CreateShortcut() {
 
   bool pin_to_taskbar =
       shortcut_info_.create_in_quick_launch_bar &&
-      (win_util::GetWinVersion() >= win_util::WINVERSION_WIN7);
+      (base::win::GetVersion() >= base::win::VERSION_WIN7);
 
   // For Win7's pinning support, any shortcut could be used. So we only create
   // the shortcut file when there is no shortcut file will be created. That is,
@@ -516,7 +517,7 @@ void UpdateShortcutWorker::Observe(NotificationType type,
 void UpdateShortcutWorker::DownloadIcon() {
   // FetchIcon must run on UI thread because it relies on TabContents
   // to download the icon.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   if (tab_contents_ == NULL) {
     DeleteMe();  // We are done if underlying TabContents is gone.
@@ -557,7 +558,7 @@ void UpdateShortcutWorker::OnIconDownloaded(int download_id,
 }
 
 void UpdateShortcutWorker::CheckExistingShortcuts() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
   // Locations to check to shortcut_paths.
   struct {
@@ -577,7 +578,7 @@ void UpdateShortcutWorker::CheckExistingShortcuts() {
       shortcut_info_.create_in_quick_launch_bar,
       // For Win7, create_in_quick_launch_bar means pinning to taskbar.
       base::DIR_APP_DATA,
-      (win_util::GetWinVersion() >= win_util::WINVERSION_WIN7) ?
+      (base::win::GetVersion() >= base::win::VERSION_WIN7) ?
           L"Microsoft\\Internet Explorer\\Quick Launch\\User Pinned\\TaskBar" :
           L"Microsoft\\Internet Explorer\\Quick Launch"
     }
@@ -605,13 +606,13 @@ void UpdateShortcutWorker::CheckExistingShortcuts() {
 }
 
 void UpdateShortcutWorker::UpdateShortcuts() {
-  ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(this,
       &UpdateShortcutWorker::UpdateShortcutsOnFileThread));
 }
 
 void UpdateShortcutWorker::UpdateShortcutsOnFileThread() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
   FilePath web_app_path = GetWebAppDataDirectory(
       web_app::GetDataDir(profile_path_), shortcut_info_.url);
@@ -660,16 +661,16 @@ void UpdateShortcutWorker::OnShortcutsUpdated(bool) {
 }
 
 void UpdateShortcutWorker::DeleteMe() {
-  if (ChromeThread::CurrentlyOn(ChromeThread::UI)) {
+  if (BrowserThread::CurrentlyOn(BrowserThread::UI)) {
     DeleteMeOnUIThread();
   } else {
-    ChromeThread::PostTask(ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(this, &UpdateShortcutWorker::DeleteMeOnUIThread));
   }
 }
 
 void UpdateShortcutWorker::DeleteMeOnUIThread() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   delete this;
 }
 #endif  // defined(OS_WIN)
@@ -696,7 +697,7 @@ void CreateShortcut(
     const FilePath& data_dir,
     const ShellIntegration::ShortcutInfo& shortcut_info,
     CreateShortcutCallback* callback) {
-  ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
       new CreateShortcutTask(data_dir, shortcut_info, callback));
 }
 

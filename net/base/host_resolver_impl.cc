@@ -17,9 +17,10 @@
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/debug_util.h"
-#include "base/histogram.h"
 #include "base/lock.h"
 #include "base/message_loop.h"
+#include "base/metrics/field_trial.h"
+#include "base/metrics/histogram.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/time.h"
@@ -41,6 +42,20 @@
 namespace net {
 
 namespace {
+
+// We use a separate histogram name for each platform to facilitate the
+// display of error codes by their symbolic name (since each platform has
+// different mappings).
+const char kOSErrorsForGetAddrinfoHistogramName[] =
+#if defined(OS_WIN)
+    "Net.OSErrorsForGetAddrinfo_Win";
+#elif defined(OS_MACOSX)
+    "Net.OSErrorsForGetAddrinfo_Mac";
+#elif defined(OS_LINUX)
+    "Net.OSErrorsForGetAddrinfo_Linux";
+#else
+    "Net.OSErrorsForGetAddrinfo";
+#endif
 
 HostCache* CreateDefaultCache() {
   static const size_t kMaxHostCacheEntries = 100;
@@ -220,6 +235,8 @@ std::vector<int> GetAllGetAddrinfoOSErrors() {
     WSANOTINITIALISED,
     WSATRY_AGAIN,
     WSATYPE_NOT_FOUND,
+    // The following are not in doc, but might be to appearing in results :-(.
+    WSA_INVALID_HANDLE,
 #endif
   };
 
@@ -325,7 +342,12 @@ class HostResolverImpl::Request {
   DISALLOW_COPY_AND_ASSIGN(Request);
 };
 
-//-----------------------------------------------------------------------------
+//------------------------------------------------------------------------------
+
+// Provide a common macro to simplify code and readability. We must use a
+// macros as the underlying HISTOGRAM macro creates static varibles.
+#define DNS_HISTOGRAM(name, time) UMA_HISTOGRAM_CUSTOM_TIMES(name, time, \
+    base::TimeDelta::FromMicroseconds(1), base::TimeDelta::FromHours(1), 100)
 
 // This class represents a request to the worker pool for a "getaddrinfo()"
 // call.
@@ -487,18 +509,13 @@ class HostResolverImpl::Job
     //DCHECK_EQ(origin_loop_, MessageLoop::current());
     DCHECK(error_ || results_.head());
 
-    base::TimeDelta job_duration = base::TimeTicks::Now() - start_time_;
+    // Ideally the following code would be part of host_resolver_proc.cc,
+    // however it isn't safe to call NetworkChangeNotifier from worker
+    // threads. So we do it here on the IO thread instead.
+    if (error_ != OK && NetworkChangeNotifier::IsOffline())
+      error_ = ERR_INTERNET_DISCONNECTED;
 
-    if (had_non_speculative_request_) {
-      // TODO(eroman): Add histogram for job times of non-speculative
-      // requests.
-    }
-
-    if (error_ != OK) {
-      UMA_HISTOGRAM_CUSTOM_ENUMERATION("Net.OSErrorsForGetAddrinfo",
-                                       std::abs(os_error_),
-                                       GetAllGetAddrinfoOSErrors());
-    }
+    RecordPerformanceHistograms();
 
     if (was_cancelled())
       return;
@@ -522,6 +539,69 @@ class HostResolverImpl::Job
 
     resolver_->OnJobComplete(this, error_, os_error_, results_);
   }
+
+  void RecordPerformanceHistograms() const {
+    enum Category {  // Used in HISTOGRAM_ENUMERATION.
+      RESOLVE_SUCCESS,
+      RESOLVE_FAIL,
+      RESOLVE_SPECULATIVE_SUCCESS,
+      RESOLVE_SPECULATIVE_FAIL,
+      RESOLVE_MAX,  // Bounding value.
+    };
+    int category = RESOLVE_MAX;  // Illegal value for later DCHECK only.
+
+    base::TimeDelta duration = base::TimeTicks::Now() - start_time_;
+    if (error_ == OK) {
+      if (had_non_speculative_request_) {
+        category = RESOLVE_SUCCESS;
+        DNS_HISTOGRAM("DNS.ResolveSuccess", duration);
+      } else {
+        category = RESOLVE_SPECULATIVE_SUCCESS;
+        DNS_HISTOGRAM("DNS.ResolveSpeculativeSuccess", duration);
+      }
+    } else {
+      if (had_non_speculative_request_) {
+        category = RESOLVE_FAIL;
+        DNS_HISTOGRAM("DNS.ResolveFail", duration);
+      } else {
+        category = RESOLVE_SPECULATIVE_FAIL;
+        DNS_HISTOGRAM("DNS.ResolveSpeculativeFail", duration);
+      }
+      UMA_HISTOGRAM_CUSTOM_ENUMERATION(kOSErrorsForGetAddrinfoHistogramName,
+                                       std::abs(os_error_),
+                                       GetAllGetAddrinfoOSErrors());
+    }
+    DCHECK_LT(category, static_cast<int>(RESOLVE_MAX));  // Be sure it was set.
+
+    UMA_HISTOGRAM_ENUMERATION("DNS.ResolveCategory", category, RESOLVE_MAX);
+
+    static bool show_speculative_experiment_histograms =
+        base::FieldTrialList::Find("DnsImpact") &&
+        !base::FieldTrialList::Find("DnsImpact")->group_name().empty();
+    if (show_speculative_experiment_histograms) {
+      UMA_HISTOGRAM_ENUMERATION(
+          base::FieldTrial::MakeName("DNS.ResolveCategory", "DnsImpact"),
+          category, RESOLVE_MAX);
+      if (RESOLVE_SUCCESS == category) {
+        DNS_HISTOGRAM(base::FieldTrial::MakeName("DNS.ResolveSuccess",
+                                                 "DnsImpact"), duration);
+      }
+    }
+    static bool show_parallelism_experiment_histograms =
+        base::FieldTrialList::Find("DnsParallelism") &&
+        !base::FieldTrialList::Find("DnsParallelism")->group_name().empty();
+    if (show_parallelism_experiment_histograms) {
+      UMA_HISTOGRAM_ENUMERATION(
+          base::FieldTrial::MakeName("DNS.ResolveCategory", "DnsParallelism"),
+          category, RESOLVE_MAX);
+      if (RESOLVE_SUCCESS == category) {
+        DNS_HISTOGRAM(base::FieldTrial::MakeName("DNS.ResolveSuccess",
+                                                 "DnsParallelism"), duration);
+      }
+    }
+  }
+
+
 
   // Immutable. Can be read from either thread,
   const int id_;
@@ -1052,6 +1132,10 @@ void HostResolverImpl::SetDefaultAddressFamily(AddressFamily address_family) {
   default_address_family_ = address_family;
 }
 
+AddressFamily HostResolverImpl::GetDefaultAddressFamily() const {
+  return default_address_family_;
+}
+
 void HostResolverImpl::ProbeIPv6Support() {
   DCHECK(CalledOnValidThread());
   DCHECK(!ipv6_probe_monitoring_);
@@ -1260,10 +1344,9 @@ void HostResolverImpl::IPv6ProbeSetDefaultAddressFamily(
   DCHECK(address_family == ADDRESS_FAMILY_UNSPECIFIED ||
          address_family == ADDRESS_FAMILY_IPV4);
   if (default_address_family_ != address_family) {
-    LOG(INFO) << "IPv6Probe forced AddressFamily setting to "
-              << ((address_family == ADDRESS_FAMILY_UNSPECIFIED)
-                  ? "ADDRESS_FAMILY_UNSPECIFIED"
-                  : "ADDRESS_FAMILY_IPV4");
+    VLOG(1) << "IPv6Probe forced AddressFamily setting to "
+            << ((address_family == ADDRESS_FAMILY_UNSPECIFIED) ?
+                "ADDRESS_FAMILY_UNSPECIFIED" : "ADDRESS_FAMILY_IPV4");
   }
   default_address_family_ = address_family;
   // Drop reference since the job has called us back.

@@ -5,7 +5,7 @@
 #include "chrome/browser/search_engines/search_provider_install_state_dispatcher_host.h"
 
 #include "base/logging.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -33,12 +33,12 @@ SearchProviderInstallStateDispatcherHost(
   // This is initialized by ResourceMessageFilter. Do not add any non-trivial
   // initialization here. Instead do it lazily when required.
   DCHECK(ipc_sender);
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 SearchProviderInstallStateDispatcherHost::
 ~SearchProviderInstallStateDispatcherHost() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 }
 
 void SearchProviderInstallStateDispatcherHost::Send(IPC::Message* message) {
@@ -48,7 +48,7 @@ void SearchProviderInstallStateDispatcherHost::Send(IPC::Message* message) {
 bool SearchProviderInstallStateDispatcherHost::OnMessageReceived(
     const IPC::Message& message,
     bool* message_was_ok) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP_EX(SearchProviderInstallStateDispatcherHost, message,
                            *message_was_ok)

@@ -4,9 +4,12 @@
 
 #include "chrome/browser/printing/print_job_manager.h"
 
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/printing/print_job.h"
 #include "chrome/browser/printing/printer_query.h"
 #include "chrome/common/notification_service.h"
+#include "chrome/common/pref_names.h"
 #include "printing/printed_document.h"
 #include "printing/printed_page.h"
 
@@ -23,25 +26,36 @@ PrintJobManager::~PrintJobManager() {
 }
 
 void PrintJobManager::OnQuit() {
-  // Common case, no print job pending.
+#if defined(OS_MACOSX)
+  // OnQuit is too late to try to wait for jobs on the Mac, since the runloop
+  // has already been torn down; instead, StopJobs(true) is called earlier in
+  // the shutdown process, and this is just here in case something sneaks
+  // in after that.
+  StopJobs(false);
+#else
+  StopJobs(true);
+#endif
+  registrar_.RemoveAll();
+}
+
+void PrintJobManager::StopJobs(bool wait_for_finish) {
   if (current_jobs_.empty())
     return;
   {
-    // Don't take a chance and copy the array since it can be modified in
-    // transit.
+    // Copy the array since it can be modified in transit.
     PrintJobs current_jobs(current_jobs_);
-    // Wait for every jobs to finish.
+    // Wait for each job to finish.
     for (size_t i = 0; i < current_jobs.size(); ++i) {
       PrintJob* job = current_jobs[i];
       if (!job)
         continue;
       // Wait for 120 seconds for the print job to be spooled.
-      job->FlushJob(120000);
+      if (wait_for_finish)
+        job->FlushJob(120000);
       job->Stop();
     }
   }
   current_jobs_.clear();
-  registrar_.RemoveAll();
 }
 
 void PrintJobManager::QueuePrinterQuery(PrinterQuery* job) {
@@ -76,6 +90,14 @@ void PrintJobManager::Observe(NotificationType type,
     case NotificationType::PRINT_JOB_EVENT: {
       OnPrintJobEvent(Source<PrintJob>(source).ptr(),
                       *Details<JobEventDetails>(details).ptr());
+      break;
+    }
+    case NotificationType::PREF_CHANGED: {
+      const std::string* pref_name = Details<std::string>(details).ptr();
+      if (*pref_name == prefs::kPrintingEnabled) {
+        PrefService *local_state = g_browser_process->local_state();
+        set_printing_enabled(local_state->GetBoolean(prefs::kPrintingEnabled));
+      }
       break;
     }
     default: {
@@ -137,6 +159,16 @@ void PrintJobManager::OnPrintJobEvent(
       break;
     }
   }
+}
+
+bool PrintJobManager::printing_enabled() {
+  AutoLock lock(enabled_lock_);
+  return printing_enabled_;
+}
+
+void PrintJobManager::set_printing_enabled(bool printing_enabled) {
+  AutoLock lock(enabled_lock_);
+  printing_enabled_ = printing_enabled;
 }
 
 }  // namespace printing

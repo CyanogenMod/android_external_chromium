@@ -50,6 +50,8 @@ MockHostResolverBase::MockHostResolverBase(bool use_caching)
   Reset(NULL);
 }
 
+MockHostResolverBase::~MockHostResolverBase() {}
+
 int MockHostResolverBase::Resolve(const RequestInfo& info,
                                   AddressList* addresses,
                                   CompletionCallback* callback,
@@ -102,7 +104,7 @@ void MockHostResolverBase::Reset(HostResolverProc* interceptor) {
         base::TimeDelta::FromSeconds(0));
   }
 
-  impl_ = new HostResolverImpl(proc, cache, 50u, NULL);
+  impl_.reset(new HostResolverImpl(proc, cache, 50u, NULL));
 }
 
 //-----------------------------------------------------------------------------
@@ -257,6 +259,29 @@ int RuleBasedHostResolverProc::Resolve(const std::string& host,
 }
 
 //-----------------------------------------------------------------------------
+
+WaitingHostResolverProc::WaitingHostResolverProc(HostResolverProc* previous)
+    : HostResolverProc(previous), event_(false, false) {}
+
+void WaitingHostResolverProc::Signal() {
+  event_.Signal();
+}
+
+int WaitingHostResolverProc::Resolve(const std::string& host,
+                                     AddressFamily address_family,
+                                     HostResolverFlags host_resolver_flags,
+                                     AddressList* addrlist,
+                                     int* os_error) {
+  event_.Wait();
+  return ResolveUsingPrevious(host, address_family, host_resolver_flags,
+                              addrlist, os_error);
+}
+
+WaitingHostResolverProc::~WaitingHostResolverProc() {}
+
+//-----------------------------------------------------------------------------
+
+ScopedDefaultHostResolverProc::ScopedDefaultHostResolverProc() {}
 
 ScopedDefaultHostResolverProc::ScopedDefaultHostResolverProc(
     HostResolverProc* proc) {

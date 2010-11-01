@@ -7,7 +7,7 @@
 #include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
-#include "base/histogram.h"
+#include "base/metrics/histogram.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser.h"
@@ -479,10 +479,8 @@ void TranslateManager::ReportLanguageDetectionError(TabContents* tab_contents) {
     NOTREACHED();
     return;
   }
-  browser->AddTabWithURL(GURL(report_error_url), GURL(),
-                         PageTransition::AUTO_BOOKMARK, -1,
-                         TabStripModel::ADD_SELECTED, NULL, std::string(),
-                         NULL);
+  browser->AddSelectedTabWithURL(GURL(report_error_url),
+                                 PageTransition::AUTO_BOOKMARK);
 }
 
 void TranslateManager::DoTranslatePage(TabContents* tab,
@@ -549,7 +547,7 @@ void TranslateManager::InitAcceptLanguages(PrefService* prefs) {
   std::string accept_langs_str = prefs->GetString(prefs::kAcceptLanguages);
   std::vector<std::string> accept_langs_list;
   LanguageSet accept_langs_set;
-  SplitString(accept_langs_str, ',', &accept_langs_list);
+  base::SplitString(accept_langs_str, ',', &accept_langs_list);
   std::vector<std::string>::const_iterator iter;
   std::string ui_lang =
       GetLanguageCode(g_browser_process->GetApplicationLocale());

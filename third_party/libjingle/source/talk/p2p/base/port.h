@@ -79,7 +79,7 @@ class RateTracker {
   size_t total_bytes_;
   size_t bytes_second_;
   uint32 last_bytes_second_time_;
-  size_t last_bytes_second_calc_;  
+  size_t last_bytes_second_calc_;
 };
 
 // Represents a local communication mechanism that can be used to create
@@ -106,8 +106,17 @@ class Port : public talk_base::MessageHandler, public sigslot::has_slots<> {
   // In order to establish a connection to this Port (so that real data can be
   // sent through), the other side must send us a STUN binding request that is
   // authenticated with this username and password.
+  // Fills in the username fragment and password.  These will be initially set
+  // in the constructor to random values.  Subclasses or tests can override.
+  // TODO: Change this to "username" rather than "username_fragment".
   const std::string& username_fragment() const { return username_frag_; }
+  void set_username_fragment(const std::string& username) {
+    username_frag_ = username;
+  }
+
   const std::string& password() const { return password_; }
+  void set_password(const std::string& password) { password_ = password; }
+
 
   // A value in [0,1] that indicates the preference for this port versus other
   // ports on this client.  (Larger indicates more preference.)
@@ -230,13 +239,6 @@ class Port : public talk_base::MessageHandler, public sigslot::has_slots<> {
   AddressMap connections_;
   enum Lifetime { LT_PRESTART, LT_PRETIMEOUT, LT_POSTTIMEOUT } lifetime_;
   bool enable_port_packets_;
-
-  // Fills in the username fragment and password.  These will be initially set
-  // in the constructor to random values.  Subclasses can override, though.
-  void set_username_fragment(const std::string& username_fragment) {
-    username_frag_ = username_fragment;
-  }
-  void set_password(const std::string& password) { password_ = password; }
 
   // Fills in the local address of the port.
   void AddAddress(const talk_base::SocketAddress& address,

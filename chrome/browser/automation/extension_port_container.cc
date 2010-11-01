@@ -10,7 +10,7 @@
 #include "base/values.h"
 #include "chrome/browser/automation/automation_provider.h"
 #include "chrome/browser/automation/extension_automation_constants.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
@@ -107,9 +107,9 @@ bool ExtensionPortContainer::Send(IPC::Message *message) {
 }
 
 void ExtensionPortContainer::OnExtensionMessageInvoke(
+    const std::string& extension_id,
     const std::string& function_name,
     const ListValue& args,
-    bool requires_incognito_access,
     const GURL& event_url) {
   if (function_name == ExtensionMessageService::kDispatchOnMessage) {
     DCHECK_EQ(args.GetSize(), 2u);

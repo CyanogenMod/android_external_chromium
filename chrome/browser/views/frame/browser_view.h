@@ -37,7 +37,7 @@
 // NOTE: For more information about the objects and files in this directory,
 // view: http://dev.chromium.org/developers/design-documents/browser-window
 
-class AccessibleToolbarView;
+class AccessiblePaneView;
 class AccessibleViewHelper;
 class BookmarkBarView;
 class Browser;
@@ -280,8 +280,12 @@ class BrowserView : public BrowserBubbleHost,
   virtual bool IsToolbarVisible() const;
   virtual gfx::Rect GetRootWindowResizerRect() const;
   virtual void DisableInactiveFrame();
+  virtual void ConfirmSetDefaultSearchProvider(
+      TabContents* tab_contents,
+      TemplateURL* template_url,
+      TemplateURLModel* template_url_model);
   virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
-                                      Profile* profile);
+                                        Profile* profile);
   virtual void ToggleBookmarkBar();
   virtual views::Window* ShowAboutChromeDialog();
   virtual void ShowUpdateChromeDialog();
@@ -321,9 +325,9 @@ class BrowserView : public BrowserBubbleHost,
   virtual void Copy();
   virtual void Paste();
   virtual void ToggleTabStripMode();
-  virtual void ShowMatchPreview();
-  virtual void HideMatchPreview();
-  virtual gfx::Rect GetMatchPreviewBounds();
+  virtual void ShowInstant(TabContents* preview_contents);
+  virtual void HideInstant();
+  virtual gfx::Rect GetInstantBounds();
 
   // Overridden from BrowserWindowTesting:
   virtual BookmarkBarView* GetBookmarkBarView() const;
@@ -346,8 +350,7 @@ class BrowserView : public BrowserBubbleHost,
                              bool user_gesture);
   virtual void TabReplacedAt(TabContents* old_contents,
                              TabContents* new_contents,
-                             int index,
-                             TabStripModelObserver::TabReplaceType type);
+                             int index);
   virtual void TabStripEmpty();
 
   // Overridden from menus::SimpleMenuModel::Delegate:
@@ -388,11 +391,11 @@ class BrowserView : public BrowserBubbleHost,
   virtual void InfoBarSizeChanged(bool is_animating);
 
  protected:
-  // Appends to |toolbars| a pointer to each AccessibleToolbarView that
+  // Appends to |toolbars| a pointer to each AccessiblePaneView that
   // can be traversed using F6, in the order they should be traversed.
   // Abstracted here so that it can be extended for Chrome OS.
-  virtual void GetAccessibleToolbars(
-      std::vector<AccessibleToolbarView*>* toolbars);
+  virtual void GetAccessiblePanes(
+      std::vector<AccessiblePaneView*>* panes);
 
   // Save the current focused view to view storage
   void SaveFocusedView();
@@ -435,7 +438,7 @@ class BrowserView : public BrowserBubbleHost,
   BrowserViewLayout* GetBrowserViewLayout() const;
 
   // Layout the Status Bubble.
-  void LayoutStatusBubble(int top);
+  void LayoutStatusBubble();
 
   // Prepare to show the Bookmark Bar for the specified TabContents. Returns
   // true if the Bookmark Bar can be shown (i.e. it's supported for this
@@ -497,7 +500,7 @@ class BrowserView : public BrowserBubbleHost,
   // Initialize the hung plugin detector.
   void InitHangMonitor();
 
-  // Invoked from TabSelectedAt or when the match preview is made active.  Is
+  // Invoked from TabSelectedAt or when instant is made active.  Is
   // |change_tab_contents| is true, |new_contents| is added to the view
   // hierarchy, if |change_tab_contents| is false, it's assumed |new_contents|
   // has already been added to the view hierarchy.
@@ -585,7 +588,7 @@ class BrowserView : public BrowserBubbleHost,
   // The view that contains devtools window for the selected TabContents.
   TabContentsContainer* devtools_container_;
 
-  // The view that contains the match preview TabContents.
+  // The view that contains instant's TabContents.
   TabContentsContainer* preview_container_;
 
   // The view managing both the contents_container_ and preview_container_.

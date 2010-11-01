@@ -49,11 +49,11 @@ const char kAboutCacheURL[] = "about:cache";
 const char kAboutCrashURL[] = "about:crash";
 const char kAboutCreditsURL[] = "about:credits";
 const char kAboutDNSURL[] = "about:dns";
+const char kAboutFlagsURL[] = "about:flags";
 const char kAboutGpuCrashURL[] = "about:gpucrash";
 const char kAboutGpuHangURL[] = "about:gpuhang";
 const char kAboutHangURL[] = "about:hang";
 const char kAboutHistogramsURL[] = "about:histograms";
-const char kAboutLabsURL[] = "about:labs";
 const char kAboutMemoryURL[] = "about:memory";
 const char kAboutNetInternalsURL[] = "about:net-internals";
 const char kAboutPluginsURL[] = "about:plugins";
@@ -66,19 +66,21 @@ const char kAboutVersionURL[] = "about:version";
 // to be used for testing.
 const char kAboutBrowserCrash[] = "about:inducebrowsercrashforrealz";
 
+const char kChromeUIAboutAboutURL[] = "chrome://about/about";
 const char kChromeUIAboutURL[] = "chrome://settings/about";
 const char kChromeUIAppLauncherURL[] = "chrome://newtab/#mode=app-launcher";
 const char kChromeUIBookmarksURL[] = "chrome://bookmarks/";
 const char kChromeUIBugReportURL[] = "chrome://bugreport/";
+const char kChromeUIConstrainedHTMLTestURL[] = "chrome://constrained-test/";
 const char kChromeUIDevToolsURL[] = "chrome://devtools/";
 const char kChromeUIDownloadsURL[] = "chrome://downloads/";
 const char kChromeUIExtensionsURL[] = "chrome://extensions/";
 const char kChromeUIFavIconURL[] = "chrome://favicon/";
+const char kChromeUIFlagsURL[] = "chrome://flags/";
 const char kChromeUIHistory2URL[] = "chrome://history2/";
 const char kChromeUIHistoryURL[] = "chrome://history/";
 const char kChromeUIIPCURL[] = "chrome://about/ipc";
 const char kChromeUIKeyboardURL[] = "chrome://keyboard/";
-const char kChromeUILabsURL[] = "chrome://labs/";
 const char kChromeUINewTabURL[] = "chrome://newtab";
 const char kChromeUIPluginsURL[] = "chrome://plugins/";
 const char kChromeUIPrintURL[] = "chrome://print/";
@@ -102,11 +104,11 @@ const char kChromeUIDialogHost[] = "dialog";
 const char kChromeUIDownloadsHost[] = "downloads";
 const char kChromeUIExtensionsHost[] = "extensions";
 const char kChromeUIFavIconHost[] = "favicon";
+const char kChromeUIFlagsHost[] = "flags";
 const char kChromeUIHistoryHost[] = "history";
 const char kChromeUIHistory2Host[] = "history2";
 const char kChromeUIInspectorHost[] = "inspector";
 const char kChromeUIKeyboardHost[] = "keyboard";
-const char kChromeUILabsHost[] = "labs";
 const char kChromeUINetInternalsHost[] = "net-internals";
 const char kChromeUINewTabHost[] = "newtab";
 const char kChromeUIPluginsHost[] = "plugins";
@@ -128,9 +130,14 @@ const char kChromeUIMobileSetupHost[] = "mobilesetup";
 const char kChromeUIRegisterPageHost[] = "register";
 const char kChromeUISlideshowHost[] = "slideshow";
 const char kChromeUISystemInfoHost[] = "system";
+const char kChromeUIMenu[] = "menu";
+const char kChromeUIWrenchMenu[] = "wrench-menu";
+const char kChromeUINetworkMenu[] = "network-menu";
 #endif
 
 const char kAppCacheViewInternalsURL[] = "chrome://appcache-internals/";
+
+const char kBlobViewInternalsURL[] = "chrome://blob-internals/";
 
 const char kCloudPrintResourcesURL[] = "chrome://cloudprintresources/";
 const char kCloudPrintResourcesHost[] = "cloudprintresources";
@@ -139,19 +146,20 @@ const char kNetworkViewInternalsURL[] = "chrome://net-internals/";
 const char kNetworkViewCacheURL[] = "chrome://view-http-cache/";
 
 // Option sub pages.
-const char kDefaultOptionsSubPage[] =  "";
-const char kBrowserOptionsSubPage[] =  "browser";
-const char kPersonalOptionsSubPage[] =  "personal";
 const char kAdvancedOptionsSubPage[] =  "advanced";
 const char kAutoFillSubPage[] = "autoFillOptions";
-const char kSearchEnginesOptionsSubPage[] = "editSearchEngineOverlay";
+const char kBrowserOptionsSubPage[] =  "browser";
 const char kClearBrowserDataSubPage[] = "clearBrowserDataOverlay";
-const char kImportDataSubPage[] = "importDataOverlay";
 const char kContentSettingsSubPage[] = "content";
+const char kDefaultOptionsSubPage[] =  "";
+const char kImportDataSubPage[] = "importDataOverlay";
+const char kPersonalOptionsSubPage[] =  "personal";
+const char kSearchEnginesOptionsSubPage[] = "editSearchEngineOverlay";
+const char kSearchEnginesSubPage[] = "searchEngines";
 #if defined(OS_CHROMEOS)
-const char kSystemOptionsSubPage[] = "system";
-const char kLanguageOptionsSubPage[] = "language";
 const char kInternetOptionsSubPage[] = "internet";
+const char kLanguageOptionsSubPage[] = "language";
+const char kSystemOptionsSubPage[] = "system";
 #endif
 
 void RegisterChromeSchemes() {

@@ -20,6 +20,7 @@
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/view_ids.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "net/test/test_server.h"
@@ -217,11 +218,9 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, TabsRememberFocus) {
 
   // Create several tabs.
   for (int i = 0; i < 4; ++i) {
-    Browser* browser_used = NULL;
-    browser()->AddTabWithURL(url, GURL(), PageTransition::TYPED, -1,
-                             TabStripModel::ADD_SELECTED, NULL, std::string(),
-                             &browser_used);
-    EXPECT_EQ(browser(), browser_used);
+    Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
+    browser()->AddTabWithURL(&params);
+    EXPECT_EQ(browser(), params.target);
   }
 
   // Alternate focus for the tab.
@@ -297,11 +296,9 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_TabsRememberFocusFindInPage) {
   browser()->FocusLocationBar();
 
   // Create a 2nd tab.
-  Browser* browser_used = NULL;
-  browser()->AddTabWithURL(url, GURL(), PageTransition::TYPED, -1,
-                           TabStripModel::ADD_SELECTED, NULL, std::string(),
-                           &browser_used);
-  EXPECT_EQ(browser(), browser_used);
+  Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
+  browser()->AddTabWithURL(&params);
+  EXPECT_EQ(browser(), params.target);
 
   // Focus should be on the recently opened tab page.
   ASSERT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER_FOCUS_VIEW));
@@ -326,10 +323,6 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, BackgroundBrowserDontStealFocus) {
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
   ASSERT_TRUE(test_server()->Start());
 
-  // First we navigate to our test page.
-  GURL url = test_server()->GetURL(kSimplePage);
-  ui_test_utils::NavigateToURL(browser(), url);
-
   // Open a new browser window.
   Browser* browser2 = Browser::Create(browser()->profile());
   ASSERT_TRUE(browser2);
@@ -348,7 +341,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, BackgroundBrowserDontStealFocus) {
     focused_browser = browser();
     unfocused_browser = browser2;
   } else {
-    ASSERT_TRUE(false);
+    FAIL() << "Could not determine which browser has focus";
   }
 #elif defined(OS_WIN)
   focused_browser = browser();
@@ -365,16 +358,12 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, BackgroundBrowserDontStealFocus) {
   // Activate the first browser.
   focused_browser->window()->Activate();
 
-  // Wait for the focus to be stolen by the other browser.
-  MessageLoop::current()->PostDelayedTask(
-      FROM_HERE, new MessageLoop::QuitTask(), 2000);
-  ui_test_utils::RunMessageLoop();
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScript(
+      unfocused_browser->GetSelectedTabContents()->render_view_host(), L"",
+      L"stealFocus();"));
 
   // Make sure the first browser is still active.
   EXPECT_TRUE(focused_browser->window()->IsActive());
-
-  // Close the 2nd browser to avoid a DCHECK().
-  browser2->window()->Close();
 }
 
 // Page cannot steal focus when focus is on location bar.
@@ -388,8 +377,9 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, LocationBarLockFocus) {
 
   browser()->FocusLocationBar();
 
-  // Wait for the page to steal focus.
-  PlatformThread::Sleep(2000);
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScript(
+      browser()->GetSelectedTabContents()->render_view_host(), L"",
+      L"stealFocus();"));
 
   // Make sure the location bar is still focused.
   ASSERT_TRUE(IsViewFocused(VIEW_ID_LOCATION_BAR));
@@ -715,29 +705,33 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, FindFocusTest) {
 
 // Makes sure the focus is in the right location when opening the different
 // types of tabs.
-// Flaky, http://crbug.com/50763.
-IN_PROC_BROWSER_TEST_F(BrowserFocusTest, FLAKY_TabInitialFocus) {
+IN_PROC_BROWSER_TEST_F(BrowserFocusTest, TabInitialFocus) {
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
 
   // Open the history tab, focus should be on the tab contents.
   browser()->ShowHistoryTab();
-  ui_test_utils::RunAllPendingInMessageLoop();
-  ASSERT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER_FOCUS_VIEW));
+  ASSERT_NO_FATAL_FAILURE(ui_test_utils::WaitForLoadStop(
+      &browser()->GetSelectedTabContents()->controller()));
+  EXPECT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER_FOCUS_VIEW));
 
   // Open the new tab, focus should be on the location bar.
   browser()->NewTab();
-  ASSERT_TRUE(IsViewFocused(VIEW_ID_LOCATION_BAR));
+  ASSERT_NO_FATAL_FAILURE(ui_test_utils::WaitForLoadStop(
+      &browser()->GetSelectedTabContents()->controller()));
+  EXPECT_TRUE(IsViewFocused(VIEW_ID_LOCATION_BAR));
 
   // Open the download tab, focus should be on the tab contents.
   browser()->ShowDownloadsTab();
-  ASSERT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER_FOCUS_VIEW));
+  ASSERT_NO_FATAL_FAILURE(ui_test_utils::WaitForLoadStop(
+      &browser()->GetSelectedTabContents()->controller()));
+  EXPECT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER_FOCUS_VIEW));
 
   // Open about:blank, focus should be on the location bar.
-  browser()->AddTabWithURL(GURL("about:blank"), GURL(), PageTransition::LINK,
-                           -1, TabStripModel::ADD_SELECTED, NULL,
-                           std::string(),
-                           NULL);
-  ASSERT_TRUE(IsViewFocused(VIEW_ID_LOCATION_BAR));
+  browser()->AddSelectedTabWithURL(GURL(chrome::kAboutBlankURL),
+                                   PageTransition::LINK);
+  ASSERT_NO_FATAL_FAILURE(ui_test_utils::WaitForLoadStop(
+      &browser()->GetSelectedTabContents()->controller()));
+  EXPECT_TRUE(IsViewFocused(VIEW_ID_LOCATION_BAR));
 }
 
 // Tests that focus goes where expected when using reload.

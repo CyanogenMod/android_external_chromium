@@ -6,6 +6,7 @@
 
 #include "build/build_config.h"
 #include "net/socket/ssl_client_socket_nss.h"
+#include "net/socket/ssl_host_info.h"
 #if defined(OS_WIN)
 #include "net/socket/ssl_client_socket_win.h"
 #endif
@@ -20,7 +21,9 @@ namespace net {
 SSLClientSocket* SSLClientSocketNSSFactory(
     ClientSocketHandle* transport_socket,
     const std::string& hostname,
-    const SSLConfig& ssl_config) {
+    const SSLConfig& ssl_config,
+    SSLHostInfo* ssl_host_info) {
+  scoped_ptr<SSLHostInfo> shi(ssl_host_info);
   // TODO(wtc): SSLClientSocketNSS can't do SSL client authentication using
   // CryptoAPI yet (http://crbug.com/37560), so we fall back on
   // SSLClientSocketWin.
@@ -29,7 +32,8 @@ SSLClientSocket* SSLClientSocketNSSFactory(
     return new SSLClientSocketWin(transport_socket, hostname, ssl_config);
 #endif
 
-  return new SSLClientSocketNSS(transport_socket, hostname, ssl_config);
+  return new SSLClientSocketNSS(transport_socket, hostname, ssl_config,
+                                shi.release());
 }
 
 }  // namespace net

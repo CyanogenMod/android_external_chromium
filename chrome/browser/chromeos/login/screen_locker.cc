@@ -17,8 +17,8 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/chromeos/cros/input_method_library.h"
 #include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
@@ -75,7 +75,7 @@ class ScreenLockObserver : public chromeos::ScreenLockLibrary::Observer,
   }
 
   virtual void LockScreen(chromeos::ScreenLockLibrary* obj) {
-    LOG(INFO) << "In: ScreenLockObserver::LockScreen";
+    VLOG(1) << "In: ScreenLockObserver::LockScreen";
     SetupInputMethodsForScreenLocker();
     chromeos::ScreenLocker::Show();
   }
@@ -196,7 +196,7 @@ class LockWindow : public views::WidgetGtk {
   }
 
   virtual void OnDestroy(GtkWidget* object) {
-    LOG(INFO) << "OnDestroy: LockWindow destroyed";
+    VLOG(1) << "OnDestroy: LockWindow destroyed";
     views::WidgetGtk::OnDestroy(object);
   }
 
@@ -320,7 +320,7 @@ void GrabWidget::TryGrabAllInputs() {
         << "Failed to grab keyboard input:" << kbd_grab_status_;
     CHECK_EQ(GDK_GRAB_SUCCESS, mouse_grab_status_)
         << "Failed to grab pointer input:" << mouse_grab_status_;
-    DLOG(INFO) << "Grab Success";
+    DVLOG(1) << "Grab Success";
     screen_locker_->OnGrabInputs();
   }
 }
@@ -340,8 +340,7 @@ class ScreenLockerBackgroundView : public chromeos::BackgroundView {
   virtual void Layout() {
     chromeos::BackgroundView::Layout();
     gfx::Rect screen = bounds();
-    gfx::Rect size;
-    lock_widget_->GetBounds(&size, false);
+    gfx::Size size = lock_widget_->GetRootView()->GetPreferredSize();
     lock_widget_->SetBounds(
         gfx::Rect((screen.width() - size.width()) / 2,
                   (screen.height() - size.height()) / 2,
@@ -441,7 +440,7 @@ class InputEventObserver : public MessageLoopForUI::Observer {
       activated_ = true;
       std::string not_used_string;
       GaiaAuthConsumer::ClientLoginResult not_used;
-      screen_locker_->OnLoginSuccess(not_used_string, not_used);
+      screen_locker_->OnLoginSuccess(not_used_string, not_used, false);
     }
   }
 
@@ -504,7 +503,8 @@ ScreenLocker::ScreenLocker(const UserManager::User& user)
       input_grabbed_(false),
       // TODO(oshima): support auto login mode (this is not implemented yet)
       // http://crosbug.com/1881
-      unlock_on_input_(user_.email().empty()) {
+      unlock_on_input_(user_.email().empty()),
+      locked_(false) {
   DCHECK(!screen_locker_);
   screen_locker_ = this;
 }
@@ -523,11 +523,10 @@ void ScreenLocker::Init() {
                    G_CALLBACK(OnClientEventThunk), this);
 
   // GTK does not like zero width/height.
-  gfx::Size size(1, 1);
   if (!unlock_on_input_) {
     screen_lock_view_ = new ScreenLockView(this);
     screen_lock_view_->Init();
-    size = screen_lock_view_->GetPreferredSize();
+    screen_lock_view_->SetEnabled(false);
   } else {
     input_event_observer_.reset(new InputEventObserver(this));
     MessageLoopForUI::current()->AddObserver(input_event_observer_.get());
@@ -535,10 +534,9 @@ void ScreenLocker::Init() {
 
   lock_widget_ = new GrabWidget(this);
   lock_widget_->MakeTransparent();
-  lock_widget_->InitWithWidget(lock_window_, gfx::Rect(size));
+  lock_widget_->InitWithWidget(lock_window_, gfx::Rect());
   if (screen_lock_view_)
     lock_widget_->SetContentsView(screen_lock_view_);
-  lock_widget_->GetRootView()->SetVisible(false);
   lock_widget_->Show();
 
   // Configuring the background url.
@@ -547,6 +545,8 @@ void ScreenLocker::Init() {
           switches::kScreenSaverUrl);
   background_view_ = new ScreenLockerBackgroundView(lock_widget_);
   background_view_->Init(GURL(url_string));
+  if (background_view_->ScreenSaverEnabled())
+    StartScreenSaver();
 
   DCHECK(GTK_WIDGET_REALIZED(lock_window_->GetNativeView()));
   WmIpc::instance()->SetWindowType(
@@ -567,7 +567,7 @@ void ScreenLocker::Init() {
 }
 
 void ScreenLocker::OnLoginFailure(const LoginFailure& error) {
-  DLOG(INFO) << "OnLoginFailure";
+  DVLOG(1) << "OnLoginFailure";
   EnableInput();
   // Don't enable signout button here as we're showing
   // MessageBubble.
@@ -606,9 +606,11 @@ void ScreenLocker::OnLoginFailure(const LoginFailure& error) {
   MessageLoopForUI::current()->AddObserver(mouse_event_relay_.get());
 }
 
-void ScreenLocker::OnLoginSuccess(const std::string& username,
-    const GaiaAuthConsumer::ClientLoginResult& unused) {
-  LOG(INFO) << "OnLoginSuccess: Sending Unlock request.";
+void ScreenLocker::OnLoginSuccess(
+    const std::string& username,
+    const GaiaAuthConsumer::ClientLoginResult& unused,
+    bool pending_requests) {
+  VLOG(1) << "OnLoginSuccess: Sending Unlock request.";
   if (CrosLibrary::Get()->EnsureLoaded())
     CrosLibrary::Get()->GetScreenLockLibrary()->NotifyScreenUnlockRequested();
 }
@@ -626,8 +628,8 @@ void ScreenLocker::InfoBubbleClosing(InfoBubble* info_bubble,
 void ScreenLocker::Authenticate(const string16& password) {
   screen_lock_view_->SetEnabled(false);
   screen_lock_view_->SetSignoutEnabled(false);
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(authenticator_.get(),
                         &Authenticator::AuthenticateToUnlock,
                         user_.email(),
@@ -661,7 +663,7 @@ void ScreenLocker::Signout() {
 }
 
 void ScreenLocker::OnGrabInputs() {
-  DLOG(INFO) << "OnGrabInputs";
+  DVLOG(1) << "OnGrabInputs";
   input_grabbed_ = true;
   if (drawn_)
     ScreenLockReady();
@@ -669,7 +671,7 @@ void ScreenLocker::OnGrabInputs() {
 
 // static
 void ScreenLocker::Show() {
-  LOG(INFO) << "In ScreenLocker::Show";
+  VLOG(1) << "In ScreenLocker::Show";
   DCHECK(MessageLoop::current()->type() == MessageLoop::TYPE_UI);
 
   // Exit fullscreen.
@@ -681,7 +683,7 @@ void ScreenLocker::Show() {
   }
 
   if (!screen_locker_) {
-    LOG(INFO) << "Show: Locking screen";
+    VLOG(1) << "Show: Locking screen";
     ScreenLocker* locker =
         new ScreenLocker(UserManager::Get()->logged_in_user());
     locker->Init();
@@ -689,8 +691,7 @@ void ScreenLocker::Show() {
     // PowerManager re-sends lock screen signal if it doesn't
     // receive the response within timeout. Just send complete
     // signal.
-    LOG(INFO) << "Show: locker already exists. "
-              << "just sending completion event";
+    VLOG(1) << "Show: locker already exists. Just sending completion event.";
     if (CrosLibrary::Get()->EnsureLoaded())
       CrosLibrary::Get()->GetScreenLockLibrary()->NotifyScreenLockCompleted();
   }
@@ -700,7 +701,7 @@ void ScreenLocker::Show() {
 void ScreenLocker::Hide() {
   DCHECK(MessageLoop::current()->type() == MessageLoop::TYPE_UI);
   DCHECK(screen_locker_);
-  LOG(INFO) << "Hide: Deleting ScreenLocker:" << screen_locker_;
+  VLOG(1) << "Hide: Deleting ScreenLocker: " << screen_locker_;
   MessageLoopForUI::current()->DeleteSoon(FROM_HERE, screen_locker_);
 }
 
@@ -711,14 +712,14 @@ void ScreenLocker::UnlockScreenFailed() {
     // Power manager decided no to unlock the screen even if a user
     // typed in password, for example, when a user closed the lid
     // immediately after typing in the password.
-    LOG(INFO) << "UnlockScreenFailed: re-enabling screen locker";
+    VLOG(1) << "UnlockScreenFailed: re-enabling screen locker.";
     screen_locker_->EnableInput();
   } else {
     // This can happen when a user requested unlock, but PowerManager
     // rejected because the computer is closed, then PowerManager unlocked
     // because it's open again and the above failure message arrives.
     // This'd be extremely rare, but may still happen.
-    LOG(INFO) << "UnlockScreenFailed: screen is already unlocked.";
+    VLOG(1) << "UnlockScreenFailed: screen is already unlocked.";
   }
 }
 
@@ -746,7 +747,7 @@ ScreenLocker::~ScreenLocker() {
   gdk_pointer_ungrab(GDK_CURRENT_TIME);
 
   DCHECK(lock_window_);
-  LOG(INFO) << "~ScreenLocker(): Closing ScreenLocker window";
+  VLOG(1) << "~ScreenLocker(): Closing ScreenLocker window.";
   lock_window_->Close();
   // lock_widget_ will be deleted by gtk's destroy signal.
   screen_locker_ = NULL;
@@ -764,17 +765,16 @@ void ScreenLocker::SetAuthenticator(Authenticator* authenticator) {
 }
 
 void ScreenLocker::ScreenLockReady() {
-  LOG(INFO) << "ScreenLockReady: sending completed signal to power manager.";
-  // Don't show the password field until we grab all inputs.
-  lock_widget_->GetRootView()->SetVisible(true);
+  VLOG(1) << "ScreenLockReady: sending completed signal to power manager.";
+  locked_ = true;
   if (background_view_->ScreenSaverEnabled()) {
     lock_widget_->GetFocusManager()->RegisterAccelerator(
         views::Accelerator(app::VKEY_ESCAPE, false, false, false), this);
     locker_input_event_observer_.reset(new LockerInputEventObserver(this));
     MessageLoopForUI::current()->AddObserver(
         locker_input_event_observer_.get());
-    StartScreenSaver();
   } else {
+    // Don't enable the password field until we grab all inputs.
     EnableInput();
   }
 
@@ -796,7 +796,7 @@ void ScreenLocker::OnClientEvent(GtkWidget* widge, GdkEventClient* event) {
 }
 
 void ScreenLocker::OnWindowManagerReady() {
-  DLOG(INFO) << "OnClientEvent: drawn for lock";
+  DVLOG(1) << "OnClientEvent: drawn for lock";
   drawn_ = true;
   if (input_grabbed_)
     ScreenLockReady();
@@ -804,7 +804,7 @@ void ScreenLocker::OnWindowManagerReady() {
 
 void ScreenLocker::StopScreenSaver() {
   if (background_view_->IsScreenSaverVisible()) {
-    LOG(INFO) << "StopScreenSaver";
+    VLOG(1) << "StopScreenSaver";
     background_view_->HideScreenSaver();
     if (screen_lock_view_) {
       screen_lock_view_->SetVisible(true);
@@ -816,7 +816,7 @@ void ScreenLocker::StopScreenSaver() {
 
 void ScreenLocker::StartScreenSaver() {
   if (!background_view_->IsScreenSaverVisible()) {
-    LOG(INFO) << "StartScreenSaver";
+    VLOG(1) << "StartScreenSaver";
     background_view_->ShowScreenSaver();
     if (screen_lock_view_) {
       screen_lock_view_->SetEnabled(false);

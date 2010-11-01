@@ -12,7 +12,7 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/dom_ui/fileicon_source.h"
 #include "chrome/browser/download/download_history.h"
@@ -49,8 +49,8 @@ DownloadsDOMHandler::DownloadsDOMHandler(DownloadManager* dlm)
       download_manager_(dlm),
       callback_factory_(ALLOW_THIS_IN_INITIALIZER_LIST(this)) {
   // Create our fileicon data source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,

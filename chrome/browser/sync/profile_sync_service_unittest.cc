@@ -14,7 +14,7 @@
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/net/gaia/token_service.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
@@ -54,10 +54,10 @@ using testing::Invoke;
 
 class TestBookmarkModelAssociator : public BookmarkModelAssociator {
  public:
-  TestBookmarkModelAssociator(ProfileSyncService* service,
+  TestBookmarkModelAssociator(TestProfileSyncService* service,
       UnrecoverableErrorHandler* persist_ids_error_handler)
       : BookmarkModelAssociator(service, persist_ids_error_handler),
-        helper_(new TestModelAssociatorHelper()) {
+        helper_(new TestModelAssociatorHelper(service->id_factory())) {
   }
   virtual bool GetSyncIdForTaggedNode(const std::string& tag, int64* sync_id) {
     return helper_->GetSyncIdForTaggedNode(this, tag, sync_id);
@@ -217,8 +217,8 @@ class ProfileSyncServiceTest : public testing::Test {
   enum LoadOption { LOAD_FROM_STORAGE, DELETE_EXISTING_STORAGE };
   enum SaveOption { SAVE_TO_STORAGE, DONT_SAVE_TO_STORAGE };
   ProfileSyncServiceTest()
-      : ui_thread_(ChromeThread::UI, &message_loop_),
-        file_thread_(ChromeThread::FILE, &message_loop_),
+      : ui_thread_(BrowserThread::UI, &message_loop_),
+        file_thread_(BrowserThread::FILE, &message_loop_),
         model_(NULL),
         model_associator_(NULL),
         change_processor_(NULL) {
@@ -443,8 +443,8 @@ class ProfileSyncServiceTest : public testing::Test {
   // avoid leaking the ProfileSyncService (the PostTask will retain the callee
   // and caller until the task is run).
   MessageLoop message_loop_;
-  ChromeThread ui_thread_;
-  ChromeThread file_thread_;
+  BrowserThread ui_thread_;
+  BrowserThread file_thread_;
 
   scoped_ptr<TestProfileSyncService> service_;
   scoped_ptr<TestingProfile> profile_;

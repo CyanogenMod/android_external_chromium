@@ -47,7 +47,7 @@ bool IsIgnoredRequestHeader(const std::string& name) {
 }
 
 PP_Resource Create(PP_Module module_id) {
-  PluginModule* module = PluginModule::FromPPModule(module_id);
+  PluginModule* module = ResourceTracker::Get()->GetModule(module_id);
   if (!module)
     return 0;
 
@@ -80,17 +80,13 @@ bool SetProperty(PP_Resource request_id,
   return false;
 }
 
-bool AppendDataToBody(PP_Resource request_id, PP_Var var) {
+bool AppendDataToBody(PP_Resource request_id, const char* data, uint32_t len) {
   scoped_refptr<URLRequestInfo> request(
       Resource::GetAs<URLRequestInfo>(request_id));
   if (!request)
     return false;
 
-  scoped_refptr<StringVar> data(StringVar::FromPPVar(var));
-  if (!data)
-    return false;
-
-  return request->AppendDataToBody(data->value());
+  return request->AppendDataToBody(std::string(data, len));
 }
 
 bool AppendFileToBody(PP_Resource request_id,
@@ -122,6 +118,31 @@ const PPB_URLRequestInfo_Dev ppb_urlrequestinfo = {
 };
 
 }  // namespace
+
+struct URLRequestInfo::BodyItem {
+  BodyItem(const std::string& data)
+      : data(data),
+        start_offset(0),
+        number_of_bytes(-1),
+        expected_last_modified_time(0.0) {
+  }
+
+  BodyItem(FileRef* file_ref,
+           int64_t start_offset,
+           int64_t number_of_bytes,
+           PP_Time expected_last_modified_time)
+      : file_ref(file_ref),
+        start_offset(start_offset),
+        number_of_bytes(number_of_bytes),
+        expected_last_modified_time(expected_last_modified_time) {
+  }
+
+  std::string data;
+  scoped_refptr<FileRef> file_ref;
+  int64_t start_offset;
+  int64_t number_of_bytes;
+  PP_Time expected_last_modified_time;
+};
 
 URLRequestInfo::URLRequestInfo(PluginModule* module)
     : Resource(module),
@@ -217,7 +238,8 @@ WebURLRequest URLRequestInfo::ToWebURLRequest(WebFrame* frame) const {
     for (size_t i = 0; i < body_.size(); ++i) {
       if (body_[i].file_ref) {
         http_body.appendFileRange(
-            webkit_glue::FilePathToWebString(body_[i].file_ref->system_path()),
+            webkit_glue::FilePathToWebString(
+                body_[i].file_ref->GetSystemPath()),
             body_[i].start_offset,
             body_[i].number_of_bytes,
             body_[i].expected_last_modified_time);

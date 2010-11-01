@@ -20,14 +20,14 @@
 #include "views/widget/widget_delegate.h"
 
 namespace views {
-class NativeButton;
 class WidgetGtk;
 }
 
 namespace chromeos {
 
-class UserView;
 class ExistingUserView;
+class GuestUserView;
+class UserView;
 
 // UserController manages the set of windows needed to login a single existing
 // user or first time login for a new user. ExistingUserController creates
@@ -57,8 +57,8 @@ class UserController : public views::ButtonListener,
     virtual ~Delegate() {}
   };
 
-  // Creates a UserController representing new user or bwsi login.
-  UserController(Delegate* delegate, bool is_bwsi);
+  // Creates a UserController representing new user or guest login.
+  UserController(Delegate* delegate, bool is_guest);
 
   // Creates a UserController for the specified user.
   UserController(Delegate* delegate, const UserManager::User& user);
@@ -77,7 +77,7 @@ class UserController : public views::ButtonListener,
   int user_index() const { return user_index_; }
   bool is_user_selected() const { return is_user_selected_; }
   bool is_new_user() const { return is_new_user_; }
-  bool is_bwsi() const { return is_bwsi_; }
+  bool is_guest() const { return is_guest_; }
   NewUserView* new_user_view() const { return new_user_view_; }
 
   const UserManager::User& user() const { return user_; }
@@ -131,9 +131,8 @@ class UserController : public views::ButtonListener,
   // UserView::Delegate implementation:
   virtual void OnRemoveUser();
 
-  // Selects user entry with specified |index|, |is_click| is true if the entry
-  // was selected by mouse click.
-  void SelectUser(int index, bool is_click);
+  // Selects user entry with specified |index|.
+  void SelectUser(int index);
 
   // Sets focus on password field.
   void FocusPasswordField();
@@ -173,10 +172,6 @@ class UserController : public views::ButtonListener,
   // Returns tooltip text for user name.
   std::wstring GetNameTooltip() const;
 
-  // Enable or disable the 'Submit' button based on the contents of
-  // |password_field_|. Enabled if there is text, otherwise disabled.
-  void UpdateSubmitButtonState();
-
   // User index within all the users.
   int user_index_;
 
@@ -186,14 +181,17 @@ class UserController : public views::ButtonListener,
   // Is this the new user pod?
   const bool is_new_user_;
 
-  // Is this the bwsi pod?
-  const bool is_bwsi_;
+  // Is this the guest pod?
+  const bool is_guest_;
+
+  // Is this user the owner?
+  const bool is_owner_;
 
   // Should we show tooltips above user image and label to help distinguish
   // users with the same display name.
   bool show_name_tooltip_;
 
-  // If is_new_user_ and is_bwsi_ are false, this is the user being shown.
+  // If is_new_user_ and is_guest_ are false, this is the user being shown.
   UserManager::User user_;
 
   Delegate* delegate_;
@@ -213,6 +211,9 @@ class UserController : public views::ButtonListener,
 
   // View that is used for existing user login.
   ExistingUserView* existing_user_view_;
+
+  // View that is used for guest user login.
+  GuestUserView* guest_user_view_;
 
   // Views that show display name of the user.
   views::Label* label_view_;

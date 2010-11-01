@@ -462,20 +462,6 @@ const QName QN_GOOGLE_MUC_USER_MEDIA(true, NS_GOOGLE_MUC_USER, "media");
 const QName QN_GOOGLE_MUC_USER_TYPE(true, NS_GOOGLE_MUC_USER, "type");
 const QName QN_GOOGLE_MUC_USER_SRC_ID(true, NS_GOOGLE_MUC_USER, "src-id");
 const QName QN_GOOGLE_MUC_USER_STATUS(true, NS_GOOGLE_MUC_USER, "status");
-const std::string NS_JINGLE("google:jingle");
-const QName QN_JINGLE_SRC_ID(true, NS_JINGLE, "src-id");
 const QName QN_LABEL(true, STR_EMPTY, "label");
-
-// Call terminate reasons
-const std::string STR_TERMINATE_CALL_ENDED("call-ended");
-const std::string STR_TERMINATE_RECIPIENT_UNAVAILABLE("recipient-unavailable");
-const std::string STR_TERMINATE_RECIPIENT_BUSY("recipient-busy");
-const std::string STR_TERMINATE_INSUFFICIENT_FUNDS("insufficient-funds");
-const std::string STR_TERMINATE_NUMBER_MALFORMED("number-malformed");
-const std::string STR_TERMINATE_NUMBER_DISALLOWED("number-disallowed");
-const std::string STR_TERMINATE_PROTOCOL_ERROR("protocol-error");
-const std::string STR_TERMINATE_INTERNAL_SERVER_ERROR("internal-server-error");
-const std::string STR_TERMINATE_UNKNOWN_ERROR("unknown-error");
-
 
 }

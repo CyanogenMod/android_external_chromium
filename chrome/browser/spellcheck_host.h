@@ -13,7 +13,7 @@
 #include "base/platform_file.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/net/url_fetcher.h"
 
 class Profile;
@@ -21,7 +21,7 @@ class SpellCheckHostObserver;
 class URLRequestContextGetter;
 
 class SpellCheckHost : public base::RefCountedThreadSafe<SpellCheckHost,
-                           ChromeThread::DeleteOnFileThread>,
+                           BrowserThread::DeleteOnFileThread>,
                        public URLFetcher::Delegate {
  public:
   SpellCheckHost(SpellCheckHostObserver* observer,
@@ -57,7 +57,7 @@ class SpellCheckHost : public base::RefCountedThreadSafe<SpellCheckHost,
 
  private:
   // These two classes can destruct us.
-  friend class ChromeThread;
+  friend class BrowserThread;
   friend class DeleteTask<SpellCheckHost>;
 
   virtual ~SpellCheckHost();

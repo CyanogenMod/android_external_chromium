@@ -37,6 +37,7 @@ extern const char kTitleKey[];
 extern const char kToIndexKey[];
 extern const char kTopKey[];
 extern const char kUrlKey[];
+extern const char kWindowClosing[];
 extern const char kWidthKey[];
 extern const char kWindowIdKey[];
 extern const char kIncognitoKey[];
@@ -69,7 +70,6 @@ extern const char kNoCodeOrFileToExecuteError[];
 extern const char kMoreThanOneValuesError[];
 extern const char kLoadFileError[];
 extern const char kCannotUpdatePinnedTab[];
-extern const char kCannotRemovePhantomTab[];
 extern const char kCannotDetermineLanguageOfUnloadedTab[];
 
 };  // namespace extension_tabs_module_constants

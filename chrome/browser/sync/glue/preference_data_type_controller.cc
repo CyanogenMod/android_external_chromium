@@ -2,12 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/histogram.h"
-#include "base/logging.h"
-#include "base/time.h"
-#include "chrome/browser/chrome_thread.h"
-#include "chrome/browser/sync/glue/preference_change_processor.h"
 #include "chrome/browser/sync/glue/preference_data_type_controller.h"
+
+#include "base/logging.h"
+#include "base/metrics/histogram.h"
+#include "base/time.h"
+#include "chrome/browser/browser_thread.h"
+#include "chrome/browser/sync/glue/preference_change_processor.h"
 #include "chrome/browser/sync/glue/preference_model_associator.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_factory.h"
@@ -21,17 +22,17 @@ PreferenceDataTypeController::PreferenceDataTypeController(
     : profile_sync_factory_(profile_sync_factory),
       sync_service_(sync_service),
       state_(NOT_RUNNING) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(profile_sync_factory);
   DCHECK(sync_service);
 }
 
 PreferenceDataTypeController::~PreferenceDataTypeController() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 void PreferenceDataTypeController::Start(StartCallback* start_callback) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(start_callback);
   if (state_ != NOT_RUNNING) {
     start_callback->Run(BUSY);
@@ -70,7 +71,7 @@ void PreferenceDataTypeController::Start(StartCallback* start_callback) {
 }
 
 void PreferenceDataTypeController::Stop() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   if (change_processor_ != NULL)
     sync_service_->DeactivateDataType(this, change_processor_.get());
@@ -88,19 +89,19 @@ void PreferenceDataTypeController::Stop() {
 void PreferenceDataTypeController::OnUnrecoverableError(
     const tracked_objects::Location& from_here,
     const std::string& message) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   UMA_HISTOGRAM_COUNTS("Sync.PreferenceRunFailures", 1);
   sync_service_->OnUnrecoverableError(from_here, message);
 }
 
 void PreferenceDataTypeController::FinishStart(StartResult result) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   start_callback_->Run(result);
   start_callback_.reset();
 }
 
 void PreferenceDataTypeController::StartFailed(StartResult result) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   model_associator_.reset();
   change_processor_.reset();
   start_callback_->Run(result);

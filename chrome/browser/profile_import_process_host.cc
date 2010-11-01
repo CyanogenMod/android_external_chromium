@@ -18,16 +18,19 @@
 ProfileImportProcessHost::ProfileImportProcessHost(
     ResourceDispatcherHost* resource_dispatcher,
     ImportProcessClient* import_process_client,
-    ChromeThread::ID thread_id)
+    BrowserThread::ID thread_id)
     : BrowserChildProcessHost(PROFILE_IMPORT_PROCESS, resource_dispatcher),
       import_process_client_(import_process_client),
       thread_id_(thread_id) {
 }
 
+ProfileImportProcessHost::~ProfileImportProcessHost() {
+}
+
 bool ProfileImportProcessHost::StartProfileImportProcess(
     const importer::ProfileInfo& profile_info, int items,
     bool import_to_bookmark_bar) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   if (!StartProcess())
     return false;
 
@@ -56,14 +59,14 @@ bool ProfileImportProcessHost::StartProfileImportProcess(
 }
 
 bool ProfileImportProcessHost::CancelProfileImportProcess() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   Send(new ProfileImportProcessMsg_CancelImport());
   return true;
 }
 
 bool ProfileImportProcessHost::ReportImportItemFinished(
     importer::ImportItem item) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   Send(new ProfileImportProcessMsg_ReportImportItemFinished(item));
   return true;
 }
@@ -116,8 +119,8 @@ bool ProfileImportProcessHost::StartProcess() {
 }
 
 void ProfileImportProcessHost::OnMessageReceived(const IPC::Message& message) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
-  ChromeThread::PostTask(
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  BrowserThread::PostTask(
       thread_id_, FROM_HERE,
       NewRunnableMethod(import_process_client_.get(),
                         &ImportProcessClient::OnMessageReceived,
@@ -125,12 +128,26 @@ void ProfileImportProcessHost::OnMessageReceived(const IPC::Message& message) {
 }
 
 void ProfileImportProcessHost::OnProcessCrashed() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
-  ChromeThread::PostTask(
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  BrowserThread::PostTask(
       thread_id_, FROM_HERE,
       NewRunnableMethod(import_process_client_.get(),
                         &ImportProcessClient::OnProcessCrashed));
 }
+
+bool ProfileImportProcessHost::CanShutdown() {
+  return true;
+}
+
+URLRequestContext* ProfileImportProcessHost::GetRequestContext(
+    uint32 request_id,
+    const ViewHostMsg_Resource_Request& request_data) {
+  return NULL;
+}
+
+ProfileImportProcessHost::ImportProcessClient::ImportProcessClient() {}
+
+ProfileImportProcessHost::ImportProcessClient::~ImportProcessClient() {}
 
 void ProfileImportProcessHost::ImportProcessClient::OnMessageReceived(
     const IPC::Message& message) {

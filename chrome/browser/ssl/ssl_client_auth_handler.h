@@ -8,7 +8,7 @@
 
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "net/base/ssl_cert_request_info.h"
 
 namespace net {
@@ -22,7 +22,7 @@ class URLRequest;
 // when the URLRequest is cancelled.
 class SSLClientAuthHandler
     : public base::RefCountedThreadSafe<SSLClientAuthHandler,
-                                        ChromeThread::DeleteOnIOThread> {
+                                        BrowserThread::DeleteOnIOThread> {
  public:
   SSLClientAuthHandler(URLRequest* request,
                        net::SSLCertRequestInfo* cert_request_info);
@@ -45,10 +45,10 @@ class SSLClientAuthHandler
   net::SSLCertRequestInfo* cert_request_info() { return cert_request_info_; }
 
  private:
-  friend class ChromeThread;
+  friend class BrowserThread;
   friend class DeleteTask<SSLClientAuthHandler>;
 
-  ~SSLClientAuthHandler();
+  virtual ~SSLClientAuthHandler();
 
   // Notifies that the user has selected a cert.
   // Called on the IO thread.

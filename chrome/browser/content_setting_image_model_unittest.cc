@@ -4,7 +4,7 @@
 
 #include "chrome/browser/content_setting_image_model.h"
 
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/host_content_settings_map.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
@@ -16,10 +16,10 @@ class ContentSettingImageModelTest : public RenderViewHostTestHarness {
  public:
   ContentSettingImageModelTest()
       : RenderViewHostTestHarness(),
-        ui_thread_(ChromeThread::UI, &message_loop_) {}
+        ui_thread_(BrowserThread::UI, &message_loop_) {}
 
  private:
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
 
   DISALLOW_COPY_AND_ASSIGN(ContentSettingImageModelTest);
 };

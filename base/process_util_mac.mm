@@ -30,6 +30,8 @@
 #include "base/sys_info.h"
 #include "base/sys_string_conversions.h"
 #include "base/time.h"
+#include "third_party/apple_apsl/CFBase.h"
+#include "third_party/apple_apsl/malloc.h"
 
 namespace base {
 
@@ -129,14 +131,23 @@ bool ProcessIterator::CheckForNextProcess() {
       continue;
     }
 
-    // Data starts w/ the full path null termed, so we have to extract just the
-    // executable name from the path.
+    // |data| contains all the command line parameters of the process, separated
+    // by blocks of one or more null characters. We tokenize |data| into a
+    // vector of strings using '\0' as a delimiter and populate
+    // |entry_.cmd_line_args_|.
+    std::string delimiters;
+    delimiters.push_back('\0');
+    Tokenize(data, delimiters, &entry_.cmd_line_args_);
 
+    // |data| starts with the full executable path followed by a null character.
+    // We search for the first instance of '\0' and extract everything before it
+    // to populate |entry_.exe_file_|.
     size_t exec_name_end = data.find('\0');
     if (exec_name_end == std::string::npos) {
       LOG(ERROR) << "command line data didn't match expected format";
       continue;
     }
+
     entry_.pid_ = kinfo.kp_proc.p_pid;
     entry_.ppid_ = kinfo.kp_eproc.e_ppid;
     entry_.gid_ = kinfo.kp_eproc.e_pgid;
@@ -361,32 +372,6 @@ bool g_oom_killer_enabled;
 
 // === C malloc/calloc/valloc/realloc/posix_memalign ===
 
-// The extended version of malloc_zone_t from the 10.6 SDK's <malloc/malloc.h>,
-// included here to allow for compilation in 10.5. (10.5 has version 3 zone
-// allocators, while 10.6 has version 6 allocators.)
-struct ChromeMallocZone {
-  void* reserved1;
-  void* reserved2;
-  size_t (*size)(struct _malloc_zone_t* zone, const void* ptr);
-  void* (*malloc)(struct _malloc_zone_t* zone, size_t size);
-  void* (*calloc)(struct _malloc_zone_t* zone, size_t num_items, size_t size);
-  void* (*valloc)(struct _malloc_zone_t* zone, size_t size);
-  void (*free)(struct _malloc_zone_t* zone, void* ptr);
-  void* (*realloc)(struct _malloc_zone_t* zone, void* ptr, size_t size);
-  void (*destroy)(struct _malloc_zone_t* zone);
-  const char* zone_name;
-  unsigned (*batch_malloc)(struct _malloc_zone_t* zone, size_t size,
-                           void** results, unsigned num_requested);
-  void (*batch_free)(struct _malloc_zone_t* zone, void** to_be_freed,
-                     unsigned num_to_be_freed);
-  struct malloc_introspection_t* introspect;
-  unsigned version;
-  void* (*memalign)(struct _malloc_zone_t* zone, size_t alignment,
-                    size_t size);  // version >= 5
-  void (*free_definite_size)(struct _malloc_zone_t* zone, void* ptr,
-                             size_t size);  // version >= 6
-};
-
 typedef void* (*malloc_type)(struct _malloc_zone_t* zone,
                              size_t size);
 typedef void* (*calloc_type)(struct _malloc_zone_t* zone,
@@ -517,37 +502,6 @@ void oom_killer_new() {
 
 // === Core Foundation CFAllocators ===
 
-// This is the real structure of a CFAllocatorRef behind the scenes. See
-// http://opensource.apple.com/source/CF/CF-476.19/CFBase.c (10.5.8) and
-// http://opensource.apple.com/source/CF/CF-550/CFBase.c (10.6) for details.
-struct ChromeCFRuntimeBase {
-  uintptr_t _cfisa;
-  uint8_t _cfinfo[4];
-#if __LP64__
-  uint32_t _rc;
-#endif
-};
-
-struct ChromeCFAllocator {
-  ChromeCFRuntimeBase cf_runtime_base;
-  size_t (*size)(struct _malloc_zone_t* zone, const void* ptr);
-  void* (*malloc)(struct _malloc_zone_t* zone, size_t size);
-  void* (*calloc)(struct _malloc_zone_t* zone, size_t num_items, size_t size);
-  void* (*valloc)(struct _malloc_zone_t* zone, size_t size);
-  void (*free)(struct _malloc_zone_t* zone, void* ptr);
-  void* (*realloc)(struct _malloc_zone_t* zone, void* ptr, size_t size);
-  void (*destroy)(struct _malloc_zone_t* zone);
-  const char* zone_name;
-  unsigned (*batch_malloc)(struct _malloc_zone_t* zone, size_t size,
-                           void** results, unsigned num_requested);
-  void (*batch_free)(struct _malloc_zone_t* zone, void** to_be_freed,
-                     unsigned num_to_be_freed);
-  struct malloc_introspection_t* introspect;
-  void* reserved5;
-
-  void* allocator;
-  CFAllocatorContext context;
-};
 typedef ChromeCFAllocator* ChromeCFAllocatorRef;
 
 CFAllocatorAllocateCallBack g_old_cfallocator_system_default;
@@ -764,24 +718,24 @@ void EnableTerminationOnOutOfMemory() {
   if (cf_allocator_internals_known) {
     ChromeCFAllocatorRef allocator = const_cast<ChromeCFAllocatorRef>(
         reinterpret_cast<const ChromeCFAllocator*>(kCFAllocatorSystemDefault));
-    g_old_cfallocator_system_default = allocator->context.allocate;
+    g_old_cfallocator_system_default = allocator->_context.allocate;
     CHECK(g_old_cfallocator_system_default)
         << "Failed to get kCFAllocatorSystemDefault allocation function.";
-    allocator->context.allocate = oom_killer_cfallocator_system_default;
+    allocator->_context.allocate = oom_killer_cfallocator_system_default;
 
     allocator = const_cast<ChromeCFAllocatorRef>(
         reinterpret_cast<const ChromeCFAllocator*>(kCFAllocatorMalloc));
-    g_old_cfallocator_malloc = allocator->context.allocate;
+    g_old_cfallocator_malloc = allocator->_context.allocate;
     CHECK(g_old_cfallocator_malloc)
         << "Failed to get kCFAllocatorMalloc allocation function.";
-    allocator->context.allocate = oom_killer_cfallocator_malloc;
+    allocator->_context.allocate = oom_killer_cfallocator_malloc;
 
     allocator = const_cast<ChromeCFAllocatorRef>(
         reinterpret_cast<const ChromeCFAllocator*>(kCFAllocatorMallocZone));
-    g_old_cfallocator_malloc_zone = allocator->context.allocate;
+    g_old_cfallocator_malloc_zone = allocator->_context.allocate;
     CHECK(g_old_cfallocator_malloc_zone)
         << "Failed to get kCFAllocatorMallocZone allocation function.";
-    allocator->context.allocate = oom_killer_cfallocator_malloc_zone;
+    allocator->_context.allocate = oom_killer_cfallocator_malloc_zone;
   } else {
     NSLog(@"Internals of CFAllocator not known; out-of-memory failures via "
         "CFAllocator will not result in termination. http://crbug.com/45650");

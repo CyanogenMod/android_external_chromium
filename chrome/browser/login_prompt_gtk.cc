@@ -9,7 +9,7 @@
 #include "app/l10n_util.h"
 #include "app/gtk_signal.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/gtk/constrained_window_gtk.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/login_model.h"
@@ -36,7 +36,10 @@ class LoginHandlerGtk : public LoginHandler,
                         public ConstrainedWindowGtkDelegate {
  public:
   LoginHandlerGtk(net::AuthChallengeInfo* auth_info, URLRequest* request)
-      : LoginHandler(auth_info, request) {
+      : LoginHandler(auth_info, request),
+        username_entry_(NULL),
+        password_entry_(NULL),
+        ok_(NULL) {
   }
 
   virtual ~LoginHandlerGtk() {
@@ -46,7 +49,7 @@ class LoginHandlerGtk : public LoginHandler,
   // LoginModelObserver implementation.
   virtual void OnAutofillDataAvailable(const std::wstring& username,
                                        const std::wstring& password) {
-    DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
     // NOTE: Would be nice to use gtk_entry_get_text_length, but it is fairly
     // new and not always in our GTK version.
@@ -62,7 +65,7 @@ class LoginHandlerGtk : public LoginHandler,
   // LoginHandler:
   virtual void BuildViewForPasswordManager(PasswordManager* manager,
                                            std::wstring explanation) {
-    DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
     root_.Own(gtk_vbox_new(FALSE, gtk_util::kContentAreaBorder));
     GtkWidget* label = gtk_label_new(WideToUTF8(explanation).c_str());
@@ -119,7 +122,7 @@ class LoginHandlerGtk : public LoginHandler,
   }
 
   virtual void DeleteDelegate() {
-    DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
     // The constrained window is going to delete itself; clear our pointer.
     SetDialog(NULL);
@@ -160,7 +163,7 @@ void LoginHandlerGtk::OnCancelClicked(GtkWidget* sender) {
 
 void LoginHandlerGtk::OnPromptHierarchyChanged(GtkWidget* sender,
                                                GtkWidget* previous_toplevel) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   if (!GTK_WIDGET_TOPLEVEL(gtk_widget_get_toplevel(ok_)))
     return;

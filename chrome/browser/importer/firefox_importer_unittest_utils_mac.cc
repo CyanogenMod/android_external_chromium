@@ -9,6 +9,7 @@
 #include "base/debug_on_start.h"
 #include "base/file_path.h"
 #include "base/message_loop.h"
+#include "base/test/test_timeouts.h"
 #include "chrome/browser/importer/firefox_importer_utils.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_descriptors.h"
@@ -136,7 +137,7 @@ bool FFUnitTestDecryptorProxy::Setup(const std::wstring& nss_path) {
   channel_.reset(new IPC::Channel(kTestChannelID,
                                   IPC::Channel::MODE_SERVER,
                                   listener_.get()));
-  channel_->Connect();
+  CHECK(channel_->Connect());
   listener_->SetSender(channel_.get());
 
   // Spawn child and set up sync IPC connection.
@@ -170,8 +171,6 @@ class CancellableQuitMsgLoop : public base::RefCounted<CancellableQuitMsgLoop> {
 
 // Spin until either a client response arrives or a timeout occurs.
 bool FFUnitTestDecryptorProxy::WaitForClientResponse() {
-  const int64 kLoopTimeoutMS = 10 * 1000;  // 10 seconds.
-
   // What we're trying to do here is to wait for an RPC message to go over the
   // wire and the client to reply.  If the client does not replyy by a given
   // timeout we kill the message loop.
@@ -181,8 +180,10 @@ bool FFUnitTestDecryptorProxy::WaitForClientResponse() {
   // a message comes in.
   scoped_refptr<CancellableQuitMsgLoop> quit_task =
       new CancellableQuitMsgLoop();
-  MessageLoop::current()->PostDelayedTask(FROM_HERE, NewRunnableMethod(
-      quit_task.get(), &CancellableQuitMsgLoop::QuitNow), kLoopTimeoutMS);
+  MessageLoop::current()->PostDelayedTask(
+      FROM_HERE,
+      NewRunnableMethod(quit_task.get(), &CancellableQuitMsgLoop::QuitNow),
+      TestTimeouts::action_max_timeout_ms());
 
   message_loop_->Run();
   bool ret = !quit_task->cancelled_;
@@ -261,7 +262,7 @@ MULTIPROCESS_TEST_MAIN(NSSDecrypterChildProcess) {
   FFDecryptorClientChannelListener listener;
 
   IPC::Channel channel(kTestChannelID, IPC::Channel::MODE_CLIENT, &listener);
-  channel.Connect();
+  CHECK(channel.Connect());
   listener.SetSender(&channel);
 
   // run message loop

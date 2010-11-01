@@ -12,7 +12,7 @@
 #include "base/process_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/boot_times_loader.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
@@ -50,8 +50,8 @@ void LoginScreen::OnLogin(const std::string& username,
                           const std::string& password) {
   BootTimesLoader::Get()->RecordLoginAttempted();
   Profile* profile = g_browser_process->profile_manager()->GetDefaultProfile();
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(authenticator_.get(),
                         &Authenticator::AuthenticateToLogin,
                         profile, username, password,
@@ -59,8 +59,8 @@ void LoginScreen::OnLogin(const std::string& username,
 }
 
 void LoginScreen::OnLoginOffTheRecord() {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(authenticator_.get(),
                         &Authenticator::LoginOffTheRecord));
 }
@@ -77,7 +77,7 @@ void LoginScreen::ClearErrors() {
 
 void LoginScreen::OnLoginFailure(const LoginFailure& failure) {
   const std::string error = failure.GetErrorString();
-  LOG(INFO) << "LoginManagerView: OnLoginFailure() " << error;
+  VLOG(1) << "LoginManagerView: OnLoginFailure() " << error;
   NetworkLibrary* network = CrosLibrary::Get()->GetNetworkLibrary();
 
   // Check networking after trying to login in case user is
@@ -93,8 +93,10 @@ void LoginScreen::OnLoginFailure(const LoginFailure& failure) {
   view()->ClearAndEnablePassword();
 }
 
-void LoginScreen::OnLoginSuccess(const std::string& username,
-    const GaiaAuthConsumer::ClientLoginResult& credentials) {
+void LoginScreen::OnLoginSuccess(
+    const std::string& username,
+    const GaiaAuthConsumer::ClientLoginResult& credentials,
+    bool pending_requests) {
 
   delegate()->GetObserver(this)->OnExit(ScreenObserver::LOGIN_SIGN_IN_SELECTED);
   AppendStartUrlToCmdline();
@@ -102,7 +104,7 @@ void LoginScreen::OnLoginSuccess(const std::string& username,
 }
 
 void LoginScreen::OnOffTheRecordLoginSuccess() {
-  delegate()->GetObserver(this)->OnExit(ScreenObserver::LOGIN_GUEST_SELECTED);
+  LoginUtils::Get()->CompleteOffTheRecordLogin(start_url_);
 }
 
 void LoginScreen::OnHelpLinkActivated() {

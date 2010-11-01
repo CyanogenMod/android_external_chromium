@@ -17,8 +17,8 @@
 #include "base/timer.h"
 #include "base/ref_counted.h"
 #include "base/ref_counted_memory.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/cancelable_request.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/history/page_usage_data.h"
@@ -50,7 +50,7 @@ typedef std::vector<MostVisitedURL> MostVisitedURLList;
 // the UI thread is busy.
 class TopSites :
       public base::RefCountedThreadSafe<TopSites,
-                                        ChromeThread::DeleteOnUIThread>,
+                                        BrowserThread::DeleteOnUIThread>,
       public NotificationObserver,
       public CancelableRequestProvider {
  public:
@@ -142,7 +142,7 @@ class TopSites :
   void ClearProfile();
 
  private:
-  friend struct ChromeThread::DeleteOnThread<ChromeThread::UI>;
+  friend struct BrowserThread::DeleteOnThread<BrowserThread::UI>;
   friend class DeleteTask<TopSites>;
   friend class TopSitesTest;
   FRIEND_TEST_ALL_PREFIXES(TopSitesTest, GetMostVisited);

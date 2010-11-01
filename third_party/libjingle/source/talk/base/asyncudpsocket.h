@@ -54,7 +54,7 @@ class AsyncUDPSocket : public AsyncPacketSocket {
   size_t size_;
 };
 
-// TODO(juberti): This is now deprecated. Remove it.
+// TODO: This is now deprecated. Remove it.
 inline AsyncUDPSocket* CreateAsyncUDPSocket(SocketFactory* factory) {
   return AsyncUDPSocket::Create(factory);
 }

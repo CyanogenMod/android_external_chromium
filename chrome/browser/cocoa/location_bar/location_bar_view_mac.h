@@ -91,6 +91,9 @@ class LocationBarViewMac : public AutocompleteEditController,
   // Get the point on the star for the bookmark bubble to aim at.
   NSPoint GetBookmarkBubblePoint() const;
 
+  // Get the point in the security icon at which the page info bubble aims.
+  NSPoint GetPageInfoBubblePoint() const;
+
   // Updates the location bar.  Resets the bar's permanent text and
   // security style, and if |should_restore_state| is true, restores
   // saved state from the tab (for tab switching).
@@ -122,6 +125,12 @@ class LocationBarViewMac : public AutocompleteEditController,
   // visible.
   NSRect GetBlockedPopupRect() const;
 
+  // AutocompleteEditController implementation.
+  virtual void OnAutocompleteWillClosePopup();
+  virtual void OnAutocompleteLosingFocus(gfx::NativeView unused);
+  virtual void OnAutocompleteWillAccept();
+  virtual bool OnCommitSuggestedText(const std::wstring& typed_text);
+  virtual void OnPopupBoundsChanged(const gfx::Rect& bounds);
   virtual void OnAutocompleteAccept(const GURL& url,
       WindowOpenDisposition disposition,
       PageTransition::Type transition,
@@ -204,6 +213,9 @@ class LocationBarViewMac : public AutocompleteEditController,
   Browser* browser_;
 
   ToolbarModel* toolbar_model_;  // Weak, owned by Browser.
+
+  // Whether or not to update the instant preview.
+  bool update_instant_;
 
   // The transition type to use for the navigation.
   PageTransition::Type transition_;

@@ -6,8 +6,8 @@
 
 #include "base/compiler_specific.h"
 #include "base/message_loop.h"
+#include "base/metrics/stats_counters.h"
 #include "base/singleton.h"
-#include "base/stats_counters.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_log.h"
@@ -490,14 +490,14 @@ void URLRequest::OrphanJob() {
 }
 
 int URLRequest::Redirect(const GURL& location, int http_status_code) {
-  if (net_log_.IsLoggingAll()) {
+  if (net_log_.IsLoggingAllEvents()) {
     net_log_.AddEvent(
         net::NetLog::TYPE_URL_REQUEST_REDIRECTED,
         new net::NetLogStringParameter(
             "location", location.possibly_invalid_spec()));
   }
   if (redirect_limit_ <= 0) {
-    DLOG(INFO) << "disallowing redirect: exceeds limit";
+    DVLOG(1) << "disallowing redirect: exceeds limit";
     return net::ERR_TOO_MANY_REDIRECTS;
   }
 
@@ -505,7 +505,7 @@ int URLRequest::Redirect(const GURL& location, int http_status_code) {
     return net::ERR_INVALID_URL;
 
   if (!job_->IsSafeRedirect(location)) {
-    DLOG(INFO) << "disallowing redirect: unsafe protocol";
+    DVLOG(1) << "disallowing redirect: unsafe protocol";
     return net::ERR_UNSAFE_REDIRECT;
   }
 

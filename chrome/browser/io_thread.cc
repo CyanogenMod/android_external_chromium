@@ -7,24 +7,32 @@
 #include "base/command_line.h"
 #include "base/leak_tracker.h"
 #include "base/logging.h"
+#include "base/metrics/field_trial.h"
+#include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/gpu_process_host.h"
 #include "chrome/browser/net/chrome_net_log.h"
-#include "chrome/browser/net/predictor_api.h"
+#include "chrome/browser/net/connect_interceptor.h"
 #include "chrome/browser/net/passive_log_collector.h"
+#include "chrome/browser/net/predictor_api.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/url_fetcher.h"
-#include "net/base/mapped_host_resolver.h"
+#include "net/base/dnsrr_resolver.h"
 #include "net/base/host_cache.h"
 #include "net/base/host_resolver.h"
 #include "net/base/host_resolver_impl.h"
+#include "net/base/mapped_host_resolver.h"
 #include "net/base/net_util.h"
 #include "net/http/http_auth_filter.h"
 #include "net/http/http_auth_handler_factory.h"
+#if defined(USE_NSS)
+#include "net/ocsp/nss_ocsp.h"
+#endif  // defined(USE_NSS)
+#include "net/proxy/proxy_script_fetcher_impl.h"
 
 namespace {
 
@@ -45,6 +53,37 @@ net::HostResolver* CreateGlobalHostResolver(net::NetLog* net_log) {
     } else {
       LOG(ERROR) << "Invalid switch for host resolver parallelism: " << s;
     }
+  } else {
+    // Set up a field trial to see what impact the total number of concurrent
+    // resolutions have on DNS resolutions.
+    base::FieldTrial::Probability kDivisor = 1000;
+    // For each option (i.e., non-default), we have a fixed probability.
+    base::FieldTrial::Probability kProbabilityPerGroup = 100;  // 10%.
+
+    scoped_refptr<base::FieldTrial> trial =
+        new base::FieldTrial("DnsParallelism", kDivisor);
+
+    // List options with different counts.
+    // Firefox limits total to 8 in parallel, and default is currently 50.
+    int parallel_6 = trial->AppendGroup("parallel_6", kProbabilityPerGroup);
+    int parallel_8 = trial->AppendGroup("parallel_8", kProbabilityPerGroup);
+    int parallel_10 = trial->AppendGroup("parallel_10", kProbabilityPerGroup);
+    int parallel_14 = trial->AppendGroup("parallel_14", kProbabilityPerGroup);
+    int parallel_20 = trial->AppendGroup("parallel_20", kProbabilityPerGroup);
+
+    trial->AppendGroup("parallel_default",
+                        base::FieldTrial::kAllRemainingProbability);
+
+    if (trial->group() == parallel_6)
+      parallelism = 6;
+    else if (trial->group() == parallel_8)
+      parallelism = 8;
+    else if (trial->group() == parallel_10)
+      parallelism = 10;
+    else if (trial->group() == parallel_14)
+      parallelism = 14;
+    else if (trial->group() == parallel_20)
+      parallelism = 20;
   }
 
   net::HostResolver* global_host_resolver =
@@ -91,7 +130,7 @@ class LoggingNetworkChangeObserver
   }
 
   virtual void OnIPAddressChanged() {
-    LOG(INFO) << "Observed a change to the network IP addresses";
+    VLOG(1) << "Observed a change to the network IP addresses";
 
     net_log_->AddEntry(net::NetLog::TYPE_NETWORK_IP_ADDRESSES_CHANGED,
                        base::TimeTicks::Now(),
@@ -107,12 +146,44 @@ class LoggingNetworkChangeObserver
 
 }  // namespace
 
+// This is a wrapper class around ProxyScriptFetcherImpl that will
+// keep track of live instances.
+class IOThread::ManagedProxyScriptFetcher
+    : public net::ProxyScriptFetcherImpl {
+ public:
+  ManagedProxyScriptFetcher(URLRequestContext* context,
+                            IOThread* io_thread)
+      : net::ProxyScriptFetcherImpl(context),
+        io_thread_(io_thread) {
+    DCHECK(!ContainsKey(*fetchers(), this));
+    fetchers()->insert(this);
+  }
+
+  virtual ~ManagedProxyScriptFetcher() {
+    DCHECK(ContainsKey(*fetchers(), this));
+    fetchers()->erase(this);
+  }
+
+ private:
+  ProxyScriptFetchers* fetchers() {
+    return &io_thread_->fetchers_;
+  }
+
+  IOThread* io_thread_;
+
+  DISALLOW_COPY_AND_ASSIGN(ManagedProxyScriptFetcher);
+};
+
 // The IOThread object must outlive any tasks posted to the IO thread before the
 // Quit task.
 DISABLE_RUNNABLE_METHOD_REFCOUNT(IOThread);
 
+IOThread::Globals::Globals() {}
+
+IOThread::Globals::~Globals() {}
+
 IOThread::IOThread()
-    : BrowserProcessSubThread(ChromeThread::IO),
+    : BrowserProcessSubThread(BrowserThread::IO),
       globals_(NULL),
       speculative_interceptor_(NULL),
       predictor_(NULL) {}
@@ -125,7 +196,7 @@ IOThread::~IOThread() {
 }
 
 IOThread::Globals* IOThread::globals() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   return globals_;
 }
 
@@ -136,7 +207,7 @@ void IOThread::InitNetworkPredictor(
     const chrome_common_net::UrlList& startup_urls,
     ListValue* referral_list,
     bool preconnect_enabled) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   message_loop()->PostTask(
       FROM_HERE,
       NewRunnableMethod(
@@ -147,7 +218,7 @@ void IOThread::InitNetworkPredictor(
 }
 
 void IOThread::ChangedToOnTheRecord() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   message_loop()->PostTask(
       FROM_HERE,
       NewRunnableMethod(
@@ -155,8 +226,19 @@ void IOThread::ChangedToOnTheRecord() {
           &IOThread::ChangedToOnTheRecordOnIOThread));
 }
 
+net::ProxyScriptFetcher* IOThread::CreateAndRegisterProxyScriptFetcher(
+    URLRequestContext* url_request_context) {
+  return new ManagedProxyScriptFetcher(url_request_context, this);
+}
+
 void IOThread::Init() {
   BrowserProcessSubThread::Init();
+
+  DCHECK_EQ(MessageLoop::TYPE_IO, message_loop()->type());
+
+#if defined(USE_NSS)
+  net::SetMessageLoopForOCSP();
+#endif  // defined(USE_NSS)
 
   DCHECK(!globals_);
   globals_ = new Globals;
@@ -169,12 +251,21 @@ void IOThread::Init() {
   network_change_observer_.reset(
       new LoggingNetworkChangeObserver(globals_->net_log.get()));
 
-  globals_->host_resolver = CreateGlobalHostResolver(globals_->net_log.get());
+  globals_->host_resolver.reset(
+      CreateGlobalHostResolver(globals_->net_log.get()));
+  globals_->dnsrr_resolver.reset(new net::DnsRRResolver);
   globals_->http_auth_handler_factory.reset(CreateDefaultAuthHandlerFactory(
-      globals_->host_resolver));
+      globals_->host_resolver.get()));
 }
 
 void IOThread::CleanUp() {
+#if defined(USE_NSS)
+  net::ShutdownOCSP();
+#endif  // defined(USE_NSS)
+
+  // Destroy all URLRequests started by URLFetchers.
+  URLFetcher::CancelAll();
+
   // This must be reset before the ChromeNetLog is destroyed.
   network_change_observer_.reset();
 
@@ -201,6 +292,12 @@ void IOThread::CleanUp() {
   // TODO(eroman): hack for http://crbug.com/15513
   if (globals_->host_resolver->GetAsHostResolverImpl()) {
     globals_->host_resolver.get()->GetAsHostResolverImpl()->Shutdown();
+  }
+
+  // Break any cycles between the ProxyScriptFetcher and URLRequestContext.
+  for (ProxyScriptFetchers::const_iterator it = fetchers_.begin();
+       it != fetchers_.end(); ++it) {
+    (*it)->Cancel();
   }
 
   // We will delete the NetLog as part of CleanUpAfterMessageLoopDestruction()
@@ -256,7 +353,7 @@ net::HttpAuthHandlerFactory* IOThread::CreateDefaultAuthHandlerFactory(
     csv_auth_schemes = StringToLowerASCII(
         command_line.GetSwitchValueASCII(switches::kAuthSchemes));
   std::vector<std::string> supported_schemes;
-  SplitString(csv_auth_schemes, ',', &supported_schemes);
+  base::SplitString(csv_auth_schemes, ',', &supported_schemes);
 
   return net::HttpAuthHandlerRegistryFactory::Create(
       supported_schemes,
@@ -273,13 +370,13 @@ void IOThread::InitNetworkPredictorOnIOThread(
     const chrome_common_net::UrlList& startup_urls,
     ListValue* referral_list,
     bool preconnect_enabled) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   CHECK(!predictor_);
 
   chrome_browser_net::EnablePredictor(prefetching_enabled);
 
   predictor_ = new chrome_browser_net::Predictor(
-      globals_->host_resolver,
+      globals_->host_resolver.get(),
       max_dns_queue_delay,
       max_concurrent,
       preconnect_enabled);
@@ -293,7 +390,7 @@ void IOThread::InitNetworkPredictorOnIOThread(
 }
 
 void IOThread::ChangedToOnTheRecordOnIOThread() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   if (predictor_) {
     // Destroy all evidence of our OTR session.

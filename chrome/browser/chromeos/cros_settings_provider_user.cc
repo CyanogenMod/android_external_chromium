@@ -15,6 +15,8 @@
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/prefs/pref_service.h"
 
+namespace chromeos {
+
 namespace {
 
 Value* CreateSettingsBooleanValue(bool value, bool managed) {
@@ -24,22 +26,61 @@ Value* CreateSettingsBooleanValue(bool value, bool managed) {
   return dict;
 }
 
-void UpdateCache(const char* name, bool value) {
+// static
+void UpdateCacheBool(const char* name, bool value) {
   PrefService* prefs = g_browser_process->local_state();
   prefs->SetBoolean(name, value);
   prefs->ScheduleSavePersistentPrefs();
 }
 
+void UpdateCacheString(const char* name, const std::string& value) {
+  PrefService* prefs = g_browser_process->local_state();
+  prefs->SetString(name, value);
+  prefs->ScheduleSavePersistentPrefs();
+}
+
+bool GetUserWhitelist(ListValue* user_list) {
+  std::vector<std::string> whitelist;
+  if (!CrosLibrary::Get()->EnsureLoaded() ||
+      !CrosLibrary::Get()->GetLoginLibrary()->EnumerateWhitelisted(
+          &whitelist)) {
+    LOG(WARNING) << "Failed to retrieve user whitelist.";
+    return false;
+  }
+
+  PrefService* prefs = g_browser_process->local_state();
+  ListValue* cached_whitelist = prefs->GetMutableList(kAccountsPrefUsers);
+  cached_whitelist->Clear();
+
+  const UserManager::User& self = UserManager::Get()->logged_in_user();
+  bool is_owner = UserManager::Get()->current_user_is_owner();
+
+  for (size_t i = 0; i < whitelist.size(); ++i) {
+    const std::string& email = whitelist[i];
+
+    if (user_list) {
+      DictionaryValue* user = new DictionaryValue;
+      user->SetString("email", email);
+      user->SetString("name", "");
+      user->SetBoolean("owner", is_owner && email == self.email());
+      user_list->Append(user);
+    }
+
+    cached_whitelist->Append(Value::CreateStringValue(email));
+  }
+
+  prefs->ScheduleSavePersistentPrefs();
+
+  return true;
+}
+
 }  // namespace
 
-namespace chromeos {
-
 UserCrosSettingsProvider::UserCrosSettingsProvider() {
-  current_user_is_owner_ = UserManager::Get()->current_user_is_owner();
-
-  StartFetchingBoolSetting(kAccountsPrefAllowBWSI);
   StartFetchingBoolSetting(kAccountsPrefAllowGuest);
+  StartFetchingBoolSetting(kAccountsPrefAllowNewUser);
   StartFetchingBoolSetting(kAccountsPrefShowUserNamesOnSignIn);
+  StartFetchingStringSetting(kDeviceOwner);
 }
 
 UserCrosSettingsProvider::~UserCrosSettingsProvider() {
@@ -49,18 +90,20 @@ UserCrosSettingsProvider::~UserCrosSettingsProvider() {
 
 void UserCrosSettingsProvider::RegisterPrefs(PrefService* local_state) {
   // Cached signed settings values
-  local_state->RegisterBooleanPref(kAccountsPrefAllowBWSI, true);
   local_state->RegisterBooleanPref(kAccountsPrefAllowGuest, true);
+  local_state->RegisterBooleanPref(kAccountsPrefAllowNewUser, true);
   local_state->RegisterBooleanPref(kAccountsPrefShowUserNamesOnSignIn, true);
   local_state->RegisterListPref(kAccountsPrefUsers);
-}
-
-bool UserCrosSettingsProvider::cached_allow_bwsi() {
-  return g_browser_process->local_state()->GetBoolean(kAccountsPrefAllowBWSI);
+  local_state->RegisterStringPref(kDeviceOwner, "");
 }
 
 bool UserCrosSettingsProvider::cached_allow_guest() {
   return g_browser_process->local_state()->GetBoolean(kAccountsPrefAllowGuest);
+}
+
+bool UserCrosSettingsProvider::cached_allow_new_user() {
+  return g_browser_process->local_state()->GetBoolean(
+    kAccountsPrefAllowNewUser);
 }
 
 bool UserCrosSettingsProvider::cached_show_users_on_signin() {
@@ -69,11 +112,25 @@ bool UserCrosSettingsProvider::cached_show_users_on_signin() {
 }
 
 const ListValue* UserCrosSettingsProvider::cached_whitelist() {
-  return g_browser_process->local_state()->GetList(kAccountsPrefUsers);
+  PrefService* prefs = g_browser_process->local_state();
+  const ListValue* cached_users = prefs->GetList(kAccountsPrefUsers);
+
+  if (!cached_users) {
+    // Update whitelist cache.
+    GetUserWhitelist(NULL);
+
+    cached_users = prefs->GetList(kAccountsPrefUsers);
+  }
+
+  return cached_users;
+}
+
+std::string UserCrosSettingsProvider::cached_owner() {
+  return g_browser_process->local_state()->GetString(kDeviceOwner);
 }
 
 void UserCrosSettingsProvider::Set(const std::string& path, Value* in_value) {
-  if (!current_user_is_owner_) {
+  if (!UserManager::Get()->current_user_is_owner()) {
     LOG(WARNING) << "Changing settings from non-owner, setting=" << path;
 
     // Revert UI change.
@@ -81,17 +138,20 @@ void UserCrosSettingsProvider::Set(const std::string& path, Value* in_value) {
     return;
   }
 
-  if (path == kAccountsPrefAllowBWSI ||
-      path == kAccountsPrefAllowGuest ||
+  if (path == kAccountsPrefAllowGuest ||
+      path == kAccountsPrefAllowNewUser ||
       path == kAccountsPrefShowUserNamesOnSignIn) {
     bool bool_value = false;
     if (in_value->GetAsBoolean(&bool_value)) {
       std::string value = bool_value ? "true" : "false";
       SignedSettingsHelper::Get()->StartStorePropertyOp(path, value, this);
-      UpdateCache(path.c_str(), bool_value);
+      UpdateCacheBool(path.c_str(), bool_value);
 
       LOG(INFO) << "Set cros setting " << path << "=" << value;
     }
+  } else if (path == kDeviceOwner) {
+    LOG(INFO) << "Setting owner is not supported. "
+              << "Please use 'UpdateCachedOwner' instead.";
   } else if (path == kAccountsPrefUsers) {
     LOG(INFO) << "Setting user whitelist is not implemented."
               << "Please use whitelist/unwhitelist instead.";
@@ -102,15 +162,17 @@ void UserCrosSettingsProvider::Set(const std::string& path, Value* in_value) {
 
 bool UserCrosSettingsProvider::Get(const std::string& path,
                                    Value** out_value) const {
-  if (path == kAccountsPrefAllowBWSI ||
-      path == kAccountsPrefAllowGuest ||
+  if (path == kAccountsPrefAllowGuest ||
+      path == kAccountsPrefAllowNewUser ||
       path == kAccountsPrefShowUserNamesOnSignIn) {
     *out_value = CreateSettingsBooleanValue(
         g_browser_process->local_state()->GetBoolean(path.c_str()),
-        !current_user_is_owner_);
+        !UserManager::Get()->current_user_is_owner());
     return true;
   } else if (path == kAccountsPrefUsers) {
-    *out_value = GetUserWhitelist();
+    ListValue* user_list = new ListValue;
+    GetUserWhitelist(user_list);
+    *out_value = user_list;
     return true;
   }
 
@@ -158,7 +220,14 @@ void UserCrosSettingsProvider::OnRetrievePropertyCompleted(
 
   LOG(INFO) << "Retrieved cros setting " << name << "=" << value;
 
-  UpdateCache(name.c_str(), value == "true" ? true : false);
+  if (bool_settings_.count(name)) {
+    UpdateCacheBool(name.c_str(), value == "true" ? true : false);
+  }
+
+  if (string_settings_.count(name)) {
+    UpdateCacheString(name.c_str(), value);
+  }
+
   CrosSettings::Get()->FireObservers(name.c_str());
 }
 
@@ -181,44 +250,27 @@ void UserCrosSettingsProvider::UnwhitelistUser(const std::string& email) {
     prefs->ScheduleSavePersistentPrefs();
 }
 
+// static
+void UserCrosSettingsProvider::UpdateCachedOwner(const std::string& email) {
+  UpdateCacheString(kDeviceOwner, email);
+}
+
 void UserCrosSettingsProvider::StartFetchingBoolSetting(
+    const std::string& name) {
+  bool_settings_.insert(name);
+  StartFetchingSetting(name);
+}
+
+void UserCrosSettingsProvider::StartFetchingStringSetting(
+    const std::string& name) {
+  string_settings_.insert(name);
+  StartFetchingSetting(name);
+}
+
+void UserCrosSettingsProvider::StartFetchingSetting(
     const std::string& name) {
   if (CrosLibrary::Get()->EnsureLoaded())
     SignedSettingsHelper::Get()->StartRetrieveProperty(name, this);
-}
-
-ListValue* UserCrosSettingsProvider::GetUserWhitelist() const {
-  ListValue* user_list = new ListValue;
-
-  std::vector<std::string> whitelist;
-  if (!CrosLibrary::Get()->EnsureLoaded() ||
-      !CrosLibrary::Get()->GetLoginLibrary()->EnumerateWhitelisted(
-          &whitelist)) {
-    LOG(WARNING) << "Failed to retrieve user whitelist.";
-  } else {
-    PrefService* prefs = g_browser_process->local_state();
-    ListValue* cached_whitelist = prefs->GetMutableList(kAccountsPrefUsers);
-    cached_whitelist->Clear();
-
-    const UserManager::User& current_user =
-        UserManager::Get()->logged_in_user();
-    for (size_t i = 0; i < whitelist.size(); ++i) {
-      const std::string& email = whitelist[i];
-
-      DictionaryValue* user = new DictionaryValue;
-      user->SetString("email", email);
-      user->SetString("name", "");
-      user->SetBoolean("owner",
-          current_user_is_owner_ && email == current_user.email());
-
-      user_list->Append(user);
-      cached_whitelist->Append(Value::CreateStringValue(email));
-    }
-
-    prefs->ScheduleSavePersistentPrefs();
-  }
-
-  return user_list;
 }
 
 }  // namespace chromeos

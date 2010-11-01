@@ -4,11 +4,11 @@
 
 #include "chrome/browser/net/preconnect.h"
 
-#include "base/histogram.h"
 #include "base/logging.h"
+#include "base/metrics/histogram.h"
 #include "base/string_util.h"
 #include "chrome/browser/profile.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "net/base/host_port_pair.h"
 #include "net/http/http_network_session.h"
@@ -24,8 +24,8 @@ namespace chrome_browser_net {
 void Preconnect::PreconnectOnUIThread(const GURL& url,
     UrlInfo::ResolutionMotivation motivation) {
   // Prewarm connection to Search URL.
-  ChromeThread::PostTask(
-      ChromeThread::IO,
+  BrowserThread::PostTask(
+      BrowserThread::IO,
       FROM_HERE,
       NewRunnableFunction(Preconnect::PreconnectOnIOThread, url, motivation));
   return;
@@ -40,11 +40,15 @@ void Preconnect::PreconnectOnIOThread(const GURL& url,
   preconnect->Connect(url);
 }
 
+Preconnect::Preconnect(UrlInfo::ResolutionMotivation motivation)
+    : motivation_(motivation) {}
+Preconnect::~Preconnect() {}
+
 void Preconnect::Connect(const GURL& url) {
   URLRequestContextGetter* getter = Profile::GetDefaultRequestContext();
   if (!getter)
     return;
-  if (!ChromeThread::CurrentlyOn(ChromeThread::IO)) {
+  if (!BrowserThread::CurrentlyOn(BrowserThread::IO)) {
     LOG(DFATAL) << "This must be run only on the IO thread.";
     return;
   }
@@ -101,9 +105,10 @@ void Preconnect::Connect(const GURL& url) {
 
   proxy_info_.reset(new net::ProxyInfo());
   net::StreamFactory* stream_factory = session->http_stream_factory();
-  stream_factory->RequestStream(request_info_.get(), ssl_config_.get(),
-                                proxy_info_.get(), this, net_log_, session,
-                                &stream_request_job_);
+  stream_request_.reset(
+      stream_factory->RequestStream(request_info_.get(), ssl_config_.get(),
+                                    proxy_info_.get(), session, this,
+                                    net_log_));
 }
 
 void Preconnect::OnStreamReady(net::HttpStream* stream) {

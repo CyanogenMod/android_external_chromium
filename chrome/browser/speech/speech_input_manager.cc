@@ -7,7 +7,7 @@
 #include "app/l10n_util.h"
 #include "base/ref_counted.h"
 #include "base/singleton.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/speech/speech_input_bubble_controller.h"
 #include "chrome/browser/speech/speech_recognizer.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
@@ -222,7 +222,7 @@ void SpeechInputManagerImpl::CancelRecognitionAndInformDelegate(int caller_id) {
 
 void SpeechInputManagerImpl::InfoBubbleButtonClicked(
     int caller_id, SpeechInputBubble::Button button) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   // Ignore if the caller id was not in our active recognizers list because the
   // user might have clicked more than once, or recognition could have been
   // cancelled due to other reasons before the user click was processed.
@@ -237,7 +237,7 @@ void SpeechInputManagerImpl::InfoBubbleButtonClicked(
 }
 
 void SpeechInputManagerImpl::InfoBubbleFocusChanged(int caller_id) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   // Ignore if the caller id was not in our active recognizers list because the
   // user might have clicked more than once, or recognition could have been
   // ended due to other reasons before the user click was processed.

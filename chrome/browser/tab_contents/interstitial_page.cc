@@ -11,7 +11,7 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_operation_notification_details.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
@@ -527,7 +527,7 @@ void InterstitialPage::Disable() {
 
 void InterstitialPage::TakeActionOnResourceDispatcher(
     ResourceRequestAction action) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI)) <<
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI)) <<
       "TakeActionOnResourceDispatcher should be called on the main thread.";
 
   if (action == CANCEL || action == RESUME) {
@@ -546,8 +546,8 @@ void InterstitialPage::TakeActionOnResourceDispatcher(
   if (!rvh || !g_browser_process->resource_dispatcher_host())
     return;
 
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       new ResourceRequestTask(original_child_id_, original_rvh_id_, action));
 }
 
@@ -696,4 +696,13 @@ void InterstitialPage::InterstitialPageRVHViewDelegate::OnFindReply(
 
 int InterstitialPage::GetBrowserWindowID() const {
   return tab_->GetBrowserWindowID();
+}
+
+void InterstitialPage::UpdateInspectorSetting(const std::string& key,
+                                         const std::string& value) {
+  RenderViewHostDelegateHelper::UpdateInspectorSetting(tab_->profile(), key, value);
+}
+
+void InterstitialPage::ClearInspectorSettings() {
+  RenderViewHostDelegateHelper::ClearInspectorSettings(tab_->profile());
 }

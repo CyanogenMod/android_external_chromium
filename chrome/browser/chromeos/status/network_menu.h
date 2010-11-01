@@ -9,14 +9,18 @@
 #include <string>
 #include <vector>
 
+#include "app/menus/menu_model.h"
 #include "chrome/browser/chromeos/options/network_config_view.h"
 #include "gfx/native_widget_types.h"
-#include "views/controls/menu/menu_2.h"
 #include "views/controls/menu/view_menu_delegate.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 namespace gfx {
 class Canvas;
+}
+
+namespace views {
+class Menu2;
 }
 
 namespace chromeos {
@@ -47,8 +51,36 @@ namespace chromeos {
 class NetworkMenu : public views::ViewMenuDelegate,
                     public menus::MenuModel {
  public:
+  struct NetworkInfo {
+    NetworkInfo() : need_passphrase(false), remembered(true) {}
+    // "ethernet" | "wifi" | "cellular" | "other".
+    std::string network_type;
+    // "connected" | "connecting" | "disconnected" | "error".
+    std::string status;
+    // status message or error message, empty if unknown status.
+    std::string message;
+    // IP address (if network is active, empty otherwise)
+    std::string ip_address;
+    // true if the network requires a passphrase.
+    bool need_passphrase;
+    // true if the network is currently remembered.
+    bool remembered;
+  };
+
   NetworkMenu();
   virtual ~NetworkMenu();
+
+  // Retrieves network info for the DOMUI NetworkMenu (NetworkMenuUI).
+  // |index| is the index in menu_items_, set when the menu is built.
+  bool GetNetworkAt(int index, NetworkInfo* info) const;
+
+  // Connect or reconnect to the network at |index|.
+  // If remember >= 0, set the favorite state of the network.
+  // Returns true if a connect occurred (e.g. menu should be closed).
+  bool ConnectToNetworkAt(int index,
+                          const std::string& passphrase,
+                          const std::string& ssid,
+                          int remember) const;
 
   // menus::MenuModel implementation.
   virtual bool HasIcons() const  { return true; }
@@ -74,11 +106,6 @@ class NetworkMenu : public views::ViewMenuDelegate,
 
   void SetFirstLevelMenuWidth(int width);
 
-  void set_menu_offset(int delta_x, int delta_y) {
-    delta_x_ = delta_x;
-    delta_y_ = delta_y;
-  }
-
   // Cancels the active menu.
   void CancelMenu();
 
@@ -86,6 +113,10 @@ class NetworkMenu : public views::ViewMenuDelegate,
   // |black| is used to specify whether to return a black icon for display
   // on a light background or a white icon for display on a dark background.
   static SkBitmap IconForNetworkStrength(int strength, bool black);
+
+  // Returns the Icon for a network strength for CellularNetwork |cellular|.
+  // This returns different colored bars depending on cellular data left.
+  static SkBitmap IconForNetworkStrength(CellularNetwork cellular);
 
   // This method will convert the |icon| bitmap to the correct size for display.
   // If the |badge| icon is not empty, it will draw that on top of the icon.
@@ -100,6 +131,8 @@ class NetworkMenu : public views::ViewMenuDelegate,
   // Notify subclasses that connection to |network| was initiated.
   virtual void OnConnectNetwork(const Network& network,
                                 SkBitmap selected_icon_) {}
+  // Update the menu (e.g. when the network list or status has changed).
+  void UpdateMenu();
 
  private:
   enum MenuItemFlags {
@@ -142,19 +175,39 @@ class NetworkMenu : public views::ViewMenuDelegate,
   // Called by RunMenu to initialize our list of menu items.
   void InitMenuItems();
 
+  // Shows network details in DOM UI options window.
+  void ShowTabbedNetworkSettings(const Network& network) const;
+
+  // Show a NetworkConfigView modal dialog instance.
+  // TODO(stevenjb): deprecate this once all of the UI is embedded in the menu.
+  void ShowNetworkConfigView(NetworkConfigView* view, bool focus_login) const;
+
+  // Wrappers for the ShowNetworkConfigView / ShowTabbedNetworkSettings.
+  void ShowWifi(const WifiNetwork& wifi, bool focus_login) const;
+  void ShowCellular(const CellularNetwork& cellular, bool focus_login) const;
+  void ShowEthernet(const EthernetNetwork& ethernet) const;
+  void ShowOther() const;
+
   // Set to true if we are currently refreshing the menu.
   bool refreshing_menu_;
 
   // The number of wifi strength images.
   static const int kNumWifiImages;
 
+  // Bars image resources.
+  static const int kBarsImages[];
+  static const int kBarsImagesBlack[];
+  static const int kBarsImagesLowData[];
+  static const int kBarsImagesVLowData[];
+
   // Our menu items.
   MenuItemVector menu_items_;
 
   // The network menu.
-  views::Menu2 network_menu_;
+  scoped_ptr<views::Menu2> network_menu_;
 
-  int delta_x_, delta_y_;
+  // Holds minimum width or -1 if it wasn't set up.
+  int min_width_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkMenu);
 };

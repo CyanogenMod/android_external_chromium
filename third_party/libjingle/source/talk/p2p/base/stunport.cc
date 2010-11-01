@@ -35,7 +35,7 @@
 
 namespace cricket {
 
-// TODO(juberti): Move these to a common place (used in relayport too)
+// TODO: Move these to a common place (used in relayport too)
 const int KEEPALIVE_DELAY = 10 * 1000;  // 10 seconds - sort timeouts
 const int RETRY_DELAY = 50;             // 50ms, from ICE spec
 const int RETRY_TIMEOUT = 50 * 1000;    // ICE says 50 secs
@@ -238,7 +238,7 @@ void StunPort::OnResolveResult(talk_base::SignalThread* t) {
   PrepareAddress();
 }
 
-// TODO(juberti): merge this with SendTo above.
+// TODO: merge this with SendTo above.
 void StunPort::OnSendPacket(const void* data, size_t size, StunRequest* req) {
   StunPortBindingRequest* sreq = static_cast<StunPortBindingRequest*>(req);
   if (socket_->SendTo(data, size, sreq->server_addr()) < 0)

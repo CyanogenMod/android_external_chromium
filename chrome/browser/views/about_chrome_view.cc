@@ -14,12 +14,14 @@
 #include "base/i18n/rtl.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
+#include "base/win/windows_version.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/views/accessible_view_helper.h"
+#include "chrome/browser/views/window.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/pref_names.h"
@@ -81,7 +83,7 @@ namespace browser {
   views::Window* ShowAboutChromeView(gfx::NativeWindow parent,
                                      Profile* profile) {
       views::Window* about_chrome_window =
-        views::Window::CreateChromeWindow(parent,
+        browser::CreateViewsWindow(parent,
         gfx::Rect(),
         new AboutChromeView(profile));
       about_chrome_window->Show();
@@ -113,7 +115,7 @@ AboutChromeView::AboutChromeView(Profile* profile)
   DCHECK(profile);
 #if defined(OS_CHROMEOS)
   loader_.GetVersion(&consumer_,
-      NewCallback(this, &AboutChromeView::OnOSVersion));
+      NewCallback(this, &AboutChromeView::OnOSVersion), true);
 #endif
   Init();
 
@@ -523,12 +525,12 @@ void AboutChromeView::ViewHierarchyChanged(bool is_add,
       // work as before - enabling UAC or installing the latest service pack
       // for Vista is another option.
       int service_pack_major = 0, service_pack_minor = 0;
-      win_util::GetServicePackLevel(&service_pack_major, &service_pack_minor);
+      base::win::GetServicePackLevel(&service_pack_major, &service_pack_minor);
       if (win_util::UserAccountControlIsEnabled() ||
-          win_util::GetWinVersion() == win_util::WINVERSION_XP ||
-          (win_util::GetWinVersion() == win_util::WINVERSION_VISTA &&
+          base::win::GetVersion() == base::win::VERSION_XP ||
+          (base::win::GetVersion() == base::win::VERSION_VISTA &&
            service_pack_major >= 1) ||
-          win_util::GetWinVersion() > win_util::WINVERSION_VISTA) {
+          base::win::GetVersion() > base::win::VERSION_VISTA) {
         UpdateStatus(UPGRADE_CHECK_STARTED, GOOGLE_UPDATE_NO_ERROR);
         // CheckForUpdate(false, ...) means don't upgrade yet.
         google_updater_->CheckForUpdate(false, window());

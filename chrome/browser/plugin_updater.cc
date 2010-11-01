@@ -8,59 +8,25 @@
 #include <vector>
 
 #include "base/command_line.h"
+#include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/scoped_ptr.h"
-#include "base/sys_string_conversions.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/version.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
-#include "chrome/common/plugin_group.h"
+#include "chrome/common/pepper_plugin_registry.h"
 #include "chrome/common/pref_names.h"
-#include "webkit/glue/plugins/plugin_list.h"
 #include "webkit/glue/plugins/webplugininfo.h"
 
-PluginUpdater::PluginUpdater() : enable_internal_pdf_(true) {
-}
-
-// Convert to a List of Groups
-void PluginUpdater::GetPluginGroups(PluginMap* plugin_groups) {
-  DCHECK(plugin_groups);
-
-  plugin_groups->clear();
-  // Read all plugins and convert them to plugin groups
-  std::vector<WebPluginInfo> web_plugins;
-  NPAPI::PluginList::Singleton()->GetPlugins(false, &web_plugins);
-
-  // We first search for an existing group that matches our name,
-  // and only create a new group if we can't find any.
-  for (size_t i = 0; i < web_plugins.size(); ++i) {
-    const WebPluginInfo& web_plugin = web_plugins[i];
-    PluginGroup* group = PluginGroup::FindGroupMatchingPlugin(
-        *plugin_groups, web_plugin);
-    if (!group) {
-      group = PluginGroup::CopyOrCreatePluginGroup(web_plugin);
-      std::string identifier = group->identifier();
-      // If the identifier is not unique, use the full path. This means that we
-      // probably won't be able to search for this group by identifier, but at
-      // least it's going to be in the set of plugin groups, and if there
-      // is already a plug-in with the same filename, it's probably going to
-      // handle the same MIME types (and it has a higher priority), so this one
-      // is not going to run anyway.
-      if (plugin_groups->find(identifier) != plugin_groups->end())
-#if defined(OS_POSIX)
-        identifier = web_plugin.path.value();
-#elif defined(OS_WIN)
-        identifier = base::SysWideToUTF8(web_plugin.path.value());
-#endif
-      DCHECK(plugin_groups->find(identifier) == plugin_groups->end());
-      (*plugin_groups)[identifier] = linked_ptr<PluginGroup>(group);
-    }
-    group->AddPlugin(web_plugin, i);
-  }
+PluginUpdater::PluginUpdater()
+    : enable_internal_pdf_(true),
+      notify_pending_(false) {
 }
 
 DictionaryValue* PluginUpdater::CreatePluginFileSummary(
@@ -73,13 +39,14 @@ DictionaryValue* PluginUpdater::CreatePluginFileSummary(
   return data;
 }
 
+// static
 ListValue* PluginUpdater::GetPluginGroupsData() {
-  PluginMap plugin_groups;
-  GetPluginGroups(&plugin_groups);
+  NPAPI::PluginList::PluginMap plugin_groups;
+  NPAPI::PluginList::Singleton()->GetPluginGroups(true, &plugin_groups);
 
   // Construct DictionaryValues to return to the UI
   ListValue* plugin_groups_data = new ListValue();
-  for (PluginMap::const_iterator it =
+  for (NPAPI::PluginList::PluginMap::const_iterator it =
        plugin_groups.begin();
        it != plugin_groups.end();
        ++it) {
@@ -89,26 +56,10 @@ ListValue* PluginUpdater::GetPluginGroupsData() {
 }
 
 void PluginUpdater::EnablePluginGroup(bool enable, const string16& group_name) {
-  PluginMap plugin_groups;
-  GetPluginGroups(&plugin_groups);
-
-  for (PluginMap::const_iterator it =
-       plugin_groups.begin();
-       it != plugin_groups.end();
-       ++it) {
-    if (it->second->GetGroupName() == group_name) {
-      if (PluginGroup::IsPluginNameDisabledByPolicy(group_name))
-        enable = false;
-      if (it->second->Enabled() != enable) {
-        it->second->Enable(enable);
-        NotificationService::current()->Notify(
-            NotificationType::PLUGIN_ENABLE_STATUS_CHANGED,
-            Source<PluginUpdater>(this),
-            NotificationService::NoDetails());
-      }
-      return;
-    }
-  }
+  if (PluginGroup::IsPluginNameDisabledByPolicy(group_name))
+    enable = false;
+  NPAPI::PluginList::Singleton()->EnableGroup(enable, group_name);
+  NotifyPluginStatusChanged();
 }
 
 void PluginUpdater::EnablePluginFile(bool enable,
@@ -119,10 +70,7 @@ void PluginUpdater::EnablePluginFile(bool enable,
   else
     NPAPI::PluginList::Singleton()->DisablePlugin(file_path);
 
-  NotificationService::current()->Notify(
-      NotificationType::PLUGIN_ENABLE_STATUS_CHANGED,
-      Source<PluginUpdater>(this),
-      NotificationService::NoDetails());
+  NotifyPluginStatusChanged();
 }
 
 void PluginUpdater::Observe(NotificationType type,
@@ -158,37 +106,11 @@ void PluginUpdater::DisablePluginsFromPolicy(const ListValue* plugin_names) {
   }
   PluginGroup::SetPolicyDisabledPluginPatterns(policy_disabled_plugin_patterns);
 
-  // Disable all of the plugins and plugin groups that are disabled by policy.
-  // There's currenly a bug that makes it impossible to correctly re-enable
-  // plugins or plugin-groups to their original, "pre-policy" state, so
-  // plugins and grousp are only changed to a more "safe" state after a policy
-  // change, i.e. from enabled to disabled. See bug 54681.
-  std::vector<WebPluginInfo> plugins;
-  NPAPI::PluginList::Singleton()->GetPlugins(false, &plugins);
-  for (std::vector<WebPluginInfo>::const_iterator plugin_iter = plugins.begin();
-       plugin_iter != plugins.end(); ++plugin_iter) {
-    if (PluginGroup::IsPluginNameDisabledByPolicy(plugin_iter->name))
-      NPAPI::PluginList::Singleton()->DisablePlugin(plugin_iter->path);
-  }
-
-  PluginMap plugin_groups;
-  GetPluginGroups(&plugin_groups);
-  PluginMap::iterator it;
-  for (it = plugin_groups.begin(); it != plugin_groups.end(); ++it) {
-    string16 current_group_name = it->second->GetGroupName();
-    if (PluginGroup::IsPluginNameDisabledByPolicy(current_group_name))
-      it->second->Enable(false);
-  }
-
-  NotificationService::current()->Notify(
-      NotificationType::PLUGIN_ENABLE_STATUS_CHANGED,
-      Source<PluginUpdater>(this),
-      NotificationService::NoDetails());
+  NotifyPluginStatusChanged();
 }
 
 void PluginUpdater::DisablePluginGroupsFromPrefs(Profile* profile) {
   bool update_internal_dir = false;
-  bool update_preferences = false;
   FilePath last_internal_dir =
   profile->GetPrefs()->GetFilePath(prefs::kPluginsLastInternalDirectory);
   FilePath cur_internal_dir;
@@ -209,7 +131,7 @@ void PluginUpdater::DisablePluginGroupsFromPrefs(Profile* profile) {
 
   bool found_internal_pdf = false;
   bool force_enable_internal_pdf = false;
-  string16 pdf_group_name;
+  string16 pdf_group_name = ASCIIToUTF16(PepperPluginRegistry::kPDFPluginName);
   FilePath pdf_path;
   PathService::Get(chrome::FILE_PDF_PLUGIN, &pdf_path);
   FilePath::StringType pdf_path_str = pdf_path.value();
@@ -255,11 +177,9 @@ void PluginUpdater::DisablePluginGroupsFromPrefs(Profile* profile) {
 
         if (FilePath::CompareIgnoreCase(path, pdf_path_str) == 0) {
           found_internal_pdf = true;
-          plugin->GetString("name", &pdf_group_name);
           if (!enabled && force_enable_internal_pdf) {
             enabled = true;
             plugin->SetBoolean("enabled", true);
-            update_preferences = true;  // Can't modify the list during looping.
           }
         }
         if (!enabled)
@@ -286,20 +206,43 @@ void PluginUpdater::DisablePluginGroupsFromPrefs(Profile* profile) {
     // The internal PDF plugin is disabled by default, and the user hasn't
     // overridden the default.
     NPAPI::PluginList::Singleton()->DisablePlugin(pdf_path);
+    EnablePluginGroup(false, pdf_group_name);
   }
 
-  if (update_preferences)
-    UpdatePreferences(profile);
-}
-
-void PluginUpdater::DisableOutdatedPluginGroups() {
-  PluginMap groups;
-  GetPluginGroups(&groups);
-  for (PluginMap::iterator it = groups.begin(); it != groups.end(); ++it)
-    it->second->DisableOutdatedPlugins();
+  if (force_enable_internal_pdf) {
+    // See http://crbug.com/50105 for background.
+    EnablePluginGroup(false, ASCIIToUTF16(PluginGroup::kAdobeReader8GroupName));
+    EnablePluginGroup(false, ASCIIToUTF16(PluginGroup::kAdobeReader9GroupName));
+  }
 }
 
 void PluginUpdater::UpdatePreferences(Profile* profile) {
+  BrowserThread::PostTask(
+    BrowserThread::FILE,
+    FROM_HERE,
+    NewRunnableFunction(
+        &PluginUpdater::GetPreferencesDataOnFileThread, profile));
+}
+
+void PluginUpdater::GetPreferencesDataOnFileThread(void* profile) {
+  std::vector<WebPluginInfo> plugins;
+  NPAPI::PluginList::Singleton()->GetPlugins(false, &plugins);
+
+  NPAPI::PluginList::PluginMap groups;
+  NPAPI::PluginList::Singleton()->GetPluginGroups(false, &groups);
+
+  BrowserThread::PostTask(
+    BrowserThread::UI,
+    FROM_HERE,
+    NewRunnableFunction(
+        &PluginUpdater::OnUpdatePreferences,
+        static_cast<Profile*>(profile), plugins, groups));
+}
+
+void PluginUpdater::OnUpdatePreferences(
+    Profile* profile,
+    const std::vector<WebPluginInfo>& plugins,
+    const NPAPI::PluginList::PluginMap& groups) {
   ListValue* plugins_list = profile->GetPrefs()->GetMutableList(
       prefs::kPluginsPluginsList);
   plugins_list->Clear();
@@ -310,8 +253,6 @@ void PluginUpdater::UpdatePreferences(Profile* profile) {
                                      internal_dir);
 
   // Add the plugin files.
-  std::vector<WebPluginInfo> plugins;
-  NPAPI::PluginList::Singleton()->GetPlugins(false, &plugins);
   for (std::vector<WebPluginInfo>::const_iterator it = plugins.begin();
        it != plugins.end();
        ++it) {
@@ -319,10 +260,8 @@ void PluginUpdater::UpdatePreferences(Profile* profile) {
   }
 
   // Add the groups as well.
-  PluginMap plugin_groups;
-  GetPluginGroups(&plugin_groups);
-  for (PluginMap::iterator it = plugin_groups.begin();
-       it != plugin_groups.end(); ++it) {
+  for (NPAPI::PluginList::PluginMap::const_iterator it = groups.begin();
+       it != groups.end(); ++it) {
     // Don't save preferences for vulnerable pugins.
     if (!CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kDisableOutdatedPlugins) ||
@@ -330,6 +269,23 @@ void PluginUpdater::UpdatePreferences(Profile* profile) {
       plugins_list->Append(it->second->GetSummary());
     }
   }
+}
+
+void PluginUpdater::NotifyPluginStatusChanged() {
+  if (notify_pending_)
+    return;
+  notify_pending_ = true;
+  MessageLoop::current()->PostTask(
+      FROM_HERE,
+      NewRunnableFunction(&PluginUpdater::OnNotifyPluginStatusChanged));
+}
+
+void PluginUpdater::OnNotifyPluginStatusChanged() {
+  GetPluginUpdater()->notify_pending_ = false;
+  NotificationService::current()->Notify(
+      NotificationType::PLUGIN_ENABLE_STATUS_CHANGED,
+      Source<PluginUpdater>(GetPluginUpdater()),
+      NotificationService::NoDetails());
 }
 
 /*static*/

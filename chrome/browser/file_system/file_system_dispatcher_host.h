@@ -21,19 +21,24 @@ namespace base {
 class Time;
 }
 
-class ChromeFileSystemOperation;
+class ChromeURLRequestContext;
 class FileSystemHostContext;
 class GURL;
 class HostContentSettingsMap;
+class Profile;
 class Receiver;
 class ResourceMessageFilter;
+class URLRequestContextGetter;
 
 class FileSystemDispatcherHost
     : public base::RefCountedThreadSafe<FileSystemDispatcherHost> {
  public:
+  // Used by the renderer.
   FileSystemDispatcherHost(IPC::Message::Sender* sender,
-                           FileSystemHostContext* file_system_host_context,
-                           HostContentSettingsMap* host_content_settings_map);
+                           Profile* profile);
+  // Used by the worker, since it has the context handy already.
+  FileSystemDispatcherHost(IPC::Message::Sender* sender,
+                           ChromeURLRequestContext* context);
   ~FileSystemDispatcherHost();
   void Init(base::ProcessHandle process_handle);
   void Shutdown();
@@ -50,7 +55,7 @@ class FileSystemDispatcherHost
   void OnCopy(int request_id,
               const FilePath& src_path,
               const FilePath& dest_path);
-  void OnRemove(int request_id, const FilePath& path);
+  void OnRemove(int request_id, const FilePath& path, bool recursive);
   void OnReadMetadata(int request_id, const FilePath& path);
   void OnCreate(int request_id,
                 const FilePath& path,
@@ -76,10 +81,34 @@ class FileSystemDispatcherHost
   // Creates a new FileSystemOperation.
   fileapi::FileSystemOperation* GetNewOperation(int request_id);
 
-  // Checks the validity of a given |path|. Returns true if the given |path|
-  // is valid as a path for FileSystem API. Otherwise it sends back a
-  // security error code to the dispatcher and returns false.
-  bool CheckValidFileSystemPath(const FilePath& path, int request_id);
+  // Checks the validity of a given |path| for reading.
+  // Returns true if the given |path| is a valid FileSystem path.
+  // Otherwise it sends back PLATFORM_FILE_ERROR_SECURITY to the
+  // dispatcher and returns false.
+  bool VerifyFileSystemPathForRead(const FilePath& path, int request_id);
+
+  // Checks the validity of a given |path| for writing.
+  // Returns true if the given |path| is a valid FileSystem path, and
+  // its origin embedded in the path has the right to write as much as
+  // the given |growth|.
+  // Otherwise it sends back PLATFORM_FILE_ERROR_SECURITY if the path
+  // is not valid for writing, or sends back PLATFORM_FILE_ERROR_NO_SPACE
+  // if the origin is not allowed to increase the usage by |growth|.
+  // If |create| flag is true this also checks if the |path| contains
+  // any restricted names and chars. If it does, the call sends back
+  // PLATFORM_FILE_ERROR_SECURITY to the dispatcher.
+  bool VerifyFileSystemPathForWrite(const FilePath& path,
+                                    int request_id,
+                                    bool create,
+                                    int64 growth);
+
+  class OpenFileSystemTask;
+
+  // Checks if a given |path| does not contain any restricted names/chars
+  // for new files. Returns true if the given |path| is safe.
+  // Otherwise it sends back a security error code to the dispatcher and
+  // returns false.
+  bool CheckIfFilePathIsSafe(const FilePath& path, int request_id);
 
   // The sender to be used for sending out IPC messages.
   IPC::Message::Sender* message_sender_;
@@ -97,6 +126,11 @@ class FileSystemDispatcherHost
   // Keeps ongoing file system operations.
   typedef IDMap<fileapi::FileSystemOperation, IDMapOwnPointer> OperationsMap;
   OperationsMap operations_;
+
+  // This holds the URLRequestContextGetter until Init() can be called from the
+  // IO thread, which will extract the URLRequestContext from it.
+  scoped_refptr<URLRequestContextGetter> request_context_getter_;
+  scoped_refptr<URLRequestContext> request_context_;
 
   DISALLOW_COPY_AND_ASSIGN(FileSystemDispatcherHost);
 };

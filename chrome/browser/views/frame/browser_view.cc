@@ -26,6 +26,7 @@
 #include "chrome/browser/debugger/devtools_window.h"
 #include "chrome/browser/dom_ui/bug_report_ui.h"
 #include "chrome/browser/download/download_manager.h"
+#include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/ntp_background_util.h"
 #include "chrome/browser/page_info_window.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -33,7 +34,6 @@
 #include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sidebar/sidebar_container.h"
 #include "chrome/browser/sidebar/sidebar_manager.h"
-#include "chrome/browser/tab_contents/match_preview.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
@@ -42,6 +42,7 @@
 #include "chrome/browser/views/accessible_view_helper.h"
 #include "chrome/browser/views/bookmark_bar_view.h"
 #include "chrome/browser/views/browser_dialogs.h"
+#include "chrome/browser/views/default_search_view.h"
 #include "chrome/browser/views/download_shelf_view.h"
 #include "chrome/browser/views/frame/browser_view_layout.h"
 #include "chrome/browser/views/frame/contents_container.h"
@@ -53,6 +54,7 @@
 #include "chrome/browser/views/theme_install_bubble_view.h"
 #include "chrome/browser/views/toolbar_view.h"
 #include "chrome/browser/views/update_recommended_message_box.h"
+#include "chrome/browser/views/window.h"
 #include "chrome/browser/window_sizer.h"
 #include "chrome/browser/wrench_menu_model.h"
 #include "chrome/common/chrome_switches.h"
@@ -889,13 +891,13 @@ void BrowserView::FocusToolbar() {
   // Start the traversal within the main toolbar, passing it the storage id
   // of the view where focus should be returned if the user exits the toolbar.
   SaveFocusedView();
-  toolbar_->SetToolbarFocus(last_focused_view_storage_id_, NULL);
+  toolbar_->SetPaneFocus(last_focused_view_storage_id_, NULL);
 }
 
 void BrowserView::FocusBookmarksToolbar() {
   if (active_bookmark_bar_ && bookmark_bar_view_->IsVisible()) {
     SaveFocusedView();
-    bookmark_bar_view_->SetToolbarFocus(last_focused_view_storage_id_, NULL);
+    bookmark_bar_view_->SetPaneFocus(last_focused_view_storage_id_, NULL);
   }
 }
 
@@ -903,31 +905,35 @@ void BrowserView::FocusAppMenu() {
   // Chrome doesn't have a traditional menu bar, but it has a menu button in the
   // main toolbar that plays the same role.  If the user presses a key that
   // would typically focus the menu bar, tell the toolbar to focus the menu
-  // button.  Pass it the storage id of the view where focus should be returned
-  // if the user presses escape.
+  // button.  If the user presses the key again, return focus to the previous
+  // location.
   //
   // Not used on the Mac, which has a normal menu bar.
-  SaveFocusedView();
-  toolbar_->SetToolbarFocusAndFocusAppMenu(last_focused_view_storage_id_);
+  if (toolbar_->IsAppMenuFocused()) {
+    RestoreFocus();
+  } else {
+    SaveFocusedView();
+    toolbar_->SetPaneFocusAndFocusAppMenu(last_focused_view_storage_id_);
+  }
 }
 
 void BrowserView::RotatePaneFocus(bool forwards) {
   // This gets called when the user presses F6 (forwards) or Shift+F6
   // (backwards) to rotate to the next pane. Here, our "panes" are the
-  // tab contents and each of our accessible toolbars. When a toolbar has
-  // pane focus, all of its controls are accessible in the tab traversal,
-  // and the tab traversal is "trapped" within that pane.
-
-  // Get a vector of all panes in the order we want them to be focused -
-  // each of the accessible toolbars, then NULL to represent the tab contents
-  // getting focus. If one of these is currently invisible or has no
-  // focusable children it will be automatically skipped.
-  std::vector<AccessibleToolbarView*> accessible_toolbars;
-  GetAccessibleToolbars(&accessible_toolbars);
-  int toolbars_count = static_cast<int>(accessible_toolbars.size());
+  // tab contents and each of our accessible toolbars, infobars, downloads
+  // shelf, etc.  When a pane has focus, all of its controls are accessible
+  // in the tab traversal, and the tab traversal is "trapped" within that pane.
+  //
+  // Get a vector of all panes in the order we want them to be focused,
+  // with NULL to represent the tab contents getting focus. If one of these
+  // is currently invisible or has no focusable children it will be
+  // automatically skipped.
+  std::vector<AccessiblePaneView*> accessible_panes;
+  GetAccessiblePanes(&accessible_panes);
+  int pane_count = static_cast<int>(accessible_panes.size());
 
   std::vector<views::View*> accessible_views(
-      accessible_toolbars.begin(), accessible_toolbars.end());
+      accessible_panes.begin(), accessible_panes.end());
   accessible_views.push_back(GetTabContentsContainerView());
   if (sidebar_container_ && sidebar_container_->IsVisible())
     accessible_views.push_back(GetSidebarContainerView());
@@ -948,13 +954,13 @@ void BrowserView::RotatePaneFocus(bool forwards) {
     }
   }
 
-  // If the focus isn't currently in a toolbar, save the focus so we
+  // If the focus isn't currently in a pane, save the focus so we
   // can restore it if the user presses Escape.
-  if (focused_view && index >= toolbars_count)
+  if (focused_view && index >= pane_count)
     SaveFocusedView();
 
-  // Try to focus the next pane; if SetToolbarFocusAndFocusDefault returns
-  // false it means the toolbar didn't have any focusable controls, so skip
+  // Try to focus the next pane; if SetPaneFocusAndFocusDefault returns
+  // false it means the pane didn't have any focusable controls, so skip
   // it and try the next one.
   for (;;) {
     if (forwards)
@@ -962,8 +968,8 @@ void BrowserView::RotatePaneFocus(bool forwards) {
     else
       index = ((index - 1) + count) % count;
 
-    if (index < toolbars_count) {
-      if (accessible_toolbars[index]->SetToolbarFocusAndFocusDefault(
+    if (index < pane_count) {
+      if (accessible_panes[index]->SetPaneFocusAndFocusDefault(
               last_focused_view_storage_id_)) {
         break;
       }
@@ -1032,6 +1038,18 @@ void BrowserView::DisableInactiveFrame() {
 #if defined(OS_WIN)
   frame_->GetWindow()->DisableInactiveRendering();
 #endif  // No tricks are needed to get the right behavior on Linux.
+}
+
+void BrowserView::ConfirmSetDefaultSearchProvider(
+    TabContents* tab_contents,
+    TemplateURL* template_url,
+    TemplateURLModel* template_url_model) {
+#if defined(OS_WIN)
+  DefaultSearchView::Show(tab_contents, template_url, template_url_model);
+#else
+  // TODO(levin): Implement for other platforms. Right now this is behind
+  // a command line flag which is off.
+#endif
 }
 
 void BrowserView::ConfirmAddSearchProvider(const TemplateURL* template_url,
@@ -1159,8 +1177,8 @@ void BrowserView::ShowThemeInstallBubble() {
 void BrowserView::ConfirmBrowserCloseWithPendingDownloads() {
   DownloadInProgressConfirmDialogDelegate* delegate =
       new DownloadInProgressConfirmDialogDelegate(browser_.get());
-  views::Window::CreateChromeWindow(GetNativeHandle(), gfx::Rect(),
-                                    delegate)->Show();
+  browser::CreateViewsWindow(GetNativeHandle(), gfx::Rect(),
+                             delegate)->Show();
 }
 
 void BrowserView::ShowHTMLDialog(HtmlDialogUIDelegate* delegate,
@@ -1207,11 +1225,7 @@ void BrowserView::ShowPageInfo(Profile* profile,
   parent = GetNormalBrowserWindowForBrowser(browser(), profile);
 #endif  // defined(OS_CHROMEOS)
 
-  const CommandLine* command_line(CommandLine::ForCurrentProcess());
-  if (command_line->HasSwitch(switches::kEnableNewPageInfoBubble))
-    browser::ShowPageInfoBubble(parent, profile, url, ssl, show_history);
-  else
-    browser::ShowPageInfo(parent, profile, url, ssl, show_history);
+  browser::ShowPageInfoBubble(parent, profile, url, ssl, show_history);
 }
 
 void BrowserView::ShowAppMenu() {
@@ -1355,16 +1369,14 @@ void BrowserView::ToggleTabStripMode() {
   frame_->TabStripDisplayModeChanged();
 }
 
-void BrowserView::ShowMatchPreview() {
+void BrowserView::ShowInstant(TabContents* preview_contents) {
   if (!preview_container_)
     preview_container_ = new TabContentsContainer();
-  TabContents* preview_tab_contents =
-      browser_->match_preview()->preview_contents();
-  contents_->SetPreview(preview_container_, preview_tab_contents);
-  preview_container_->ChangeTabContents(preview_tab_contents);
+  contents_->SetPreview(preview_container_, preview_contents);
+  preview_container_->ChangeTabContents(preview_contents);
 }
 
-void BrowserView::HideMatchPreview() {
+void BrowserView::HideInstant() {
   if (!preview_container_)
     return;
 
@@ -1375,7 +1387,7 @@ void BrowserView::HideMatchPreview() {
   preview_container_ = NULL;
 }
 
-gfx::Rect BrowserView::GetMatchPreviewBounds() {
+gfx::Rect BrowserView::GetInstantBounds() {
   return contents_->GetPreviewBounds();
 }
 
@@ -1468,12 +1480,9 @@ void BrowserView::TabSelectedAt(TabContents* old_contents,
 
 void BrowserView::TabReplacedAt(TabContents* old_contents,
                                 TabContents* new_contents,
-                                int index,
-                                TabStripModelObserver::TabReplaceType type) {
-  if (type != TabStripModelObserver::REPLACE_MATCH_PREVIEW ||
-      index != browser_->tabstrip_model()->selected_index()) {
+                                int index) {
+  if (index != browser_->tabstrip_model()->selected_index())
     return;
-  }
 
   // Swap the 'active' and 'preview' and delete what was the active.
   contents_->MakePreviewContentsActiveContents();
@@ -1690,7 +1699,7 @@ bool BrowserView::CanClose() const {
   if (!browser_->ShouldCloseWindow())
     return false;
 
-  if (browser_->tabstrip_model()->HasNonPhantomTabs()) {
+  if (!browser_->tabstrip_model()->empty()) {
     // Tab strip isn't empty.  Hide the frame (so it appears to have closed
     // immediately) and close all the tabs, allowing the renderers to shut
     // down. When the tab strip is empty we'll be called back again.
@@ -1741,13 +1750,18 @@ gfx::Size BrowserView::GetMinimumSize() {
 ///////////////////////////////////////////////////////////////////////////////
 // BrowserView, protected
 
-void BrowserView::GetAccessibleToolbars(
-    std::vector<AccessibleToolbarView*>* toolbars) {
-  // This should be in the order of pane traversal of the toolbars using F6.
+void BrowserView::GetAccessiblePanes(
+    std::vector<AccessiblePaneView*>* panes) {
+  // This should be in the order of pane traversal of the panes using F6.
   // If one of these is invisible or has no focusable children, it will be
   // automatically skipped.
-  toolbars->push_back(toolbar_);
-  toolbars->push_back(bookmark_bar_view_.get());
+  panes->push_back(toolbar_);
+  if (bookmark_bar_view_.get())
+    panes->push_back(bookmark_bar_view_.get());
+  if (infobar_container_)
+    panes->push_back(infobar_container_);
+  if (download_shelf_.get())
+    panes->push_back(download_shelf_.get());
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1760,23 +1774,24 @@ std::string BrowserView::GetClassName() const {
 void BrowserView::Layout() {
   if (ignore_layout_)
     return;
-  if (GetLayoutManager()) {
-    GetLayoutManager()->Layout(this);
-    SchedulePaint();
+  views::View::Layout();
+
+  // The status bubble position requires that all other layout finish first.
+  LayoutStatusBubble();
+
 #if defined(OS_WIN)
-    // Send the margins of the "user-perceived content area" of this
-    // browser window so AeroPeekManager can render a background-tab image in
-    // the area.
-    // TODO(pkasting) correct content inset??
-    if (aeropeek_manager_.get()) {
-      gfx::Insets insets(GetFindBarBoundingBox().y() + 1,
-                         0,
-                         0,
-                         0);
-      aeropeek_manager_->SetContentInsets(insets);
-    }
-#endif
+  // Send the margins of the "user-perceived content area" of this
+  // browser window so AeroPeekManager can render a background-tab image in
+  // the area.
+  // TODO(pkasting) correct content inset??
+  if (aeropeek_manager_.get()) {
+    gfx::Insets insets(GetFindBarBoundingBox().y() + 1,
+                       0,
+                       0,
+                       0);
+    aeropeek_manager_->SetContentInsets(insets);
   }
+#endif
 }
 
 void BrowserView::ViewHierarchyChanged(bool is_add,
@@ -1948,7 +1963,7 @@ BrowserViewLayout* BrowserView::GetBrowserViewLayout() const {
   return static_cast<BrowserViewLayout*>(GetLayoutManager());
 }
 
-void BrowserView::LayoutStatusBubble(int top) {
+void BrowserView::LayoutStatusBubble() {
   // In restored mode, the client area has a client edge between it and the
   // frame.
   int overlap = StatusBubbleViews::kShadowThickness +
@@ -1957,8 +1972,8 @@ void BrowserView::LayoutStatusBubble(int top) {
   if (UseVerticalTabs() && IsTabStripVisible())
     x += tabstrip_->bounds().right();
   int height = status_bubble_->GetPreferredSize().height();
-  gfx::Point origin(
-      -overlap, contents_container_->bounds().height() - height + overlap);
+  int contents_height = status_bubble_->base_view()->bounds().height();
+  gfx::Point origin(-overlap, contents_height - height + overlap);
   status_bubble_->SetBounds(origin.x(), origin.y(), width() / 3, height);
 }
 

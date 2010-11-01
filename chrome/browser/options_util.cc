@@ -43,6 +43,7 @@ void OptionsUtil::ResetToDefaults(Profile* profile) {
 #endif
     prefs::kDownloadDefaultDirectory,
     prefs::kDownloadExtensionsToOpen,
+    prefs::kSavingBrowserHistoryDisabled,
     prefs::kEnableSpellCheck,
     prefs::kEnableTranslate,
     prefs::kAutoFillEnabled,
@@ -66,6 +67,8 @@ void OptionsUtil::ResetToDefaults(Profile* profile) {
     prefs::kWebKitPluginsEnabled,
     prefs::kWebKitSansSerifFontFamily,
     prefs::kWebKitSerifFontFamily,
+    prefs::kWebKitMinimumFontSize,
+    prefs::kWebKitMinimumLogicalFontSize,
     prefs::kWebkitTabsToLinks,
   };
   profile->GetDownloadManager()->download_prefs()->ResetToDefaults();
@@ -97,9 +100,7 @@ bool OptionsUtil::ResolveMetricsReportingEnabled(bool enabled) {
   bool update_pref = GoogleUpdateSettings::GetCollectStatsConsent();
 
   if (enabled != update_pref) {
-    DLOG(INFO) <<
-        "OptionsUtil: Unable to set crash report status to " <<
-        enabled;
+    DVLOG(1) << "OptionsUtil: Unable to set crash report status to " << enabled;
   }
 
   // Only change the pref if GoogleUpdateSettings::GetCollectStatsConsent

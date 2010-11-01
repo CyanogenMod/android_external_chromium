@@ -11,7 +11,7 @@
 #include "base/basictypes.h"
 #include "base/crypto/rsa_private_key.h"
 #include "base/file_path.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
 #include "chrome/browser/chromeos/login/owner_key_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -48,16 +48,16 @@ class MockKeyUtils : public OwnerKeyUtils {
 
   static bool ExportPublicKeyViaDbusWin(RSAPrivateKey* key,
                                         LoginLibrary::Delegate* d) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableFunction(&SetOwnerKeyCallback, d, true));
     return true;
   }
 
   static bool ExportPublicKeyViaDbusFail(RSAPrivateKey* key,
                                          LoginLibrary::Delegate* d) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableFunction(&SetOwnerKeyCallback, d, false));
     return false;
   }

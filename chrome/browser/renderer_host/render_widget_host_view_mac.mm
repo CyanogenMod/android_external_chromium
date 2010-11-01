@@ -6,16 +6,21 @@
 
 #include "chrome/browser/renderer_host/render_widget_host_view_mac.h"
 
-#include "chrome/browser/chrome_thread.h"
+#include "app/app_switches.h"
 #include "app/surface/io_surface_support_mac.h"
 #import "base/chrome_application_mac.h"
 #include "base/command_line.h"
-#include "base/histogram.h"
 #include "base/logging.h"
-#import "base/scoped_nsautorelease_pool.h"
+#include "base/mac/scoped_cftyperef.h"
+#import "base/mac/scoped_nsautorelease_pool.h"
+#include "base/metrics/histogram.h"
 #import "base/scoped_nsobject.h"
 #include "base/string_util.h"
+#include "base/sys_info.h"
 #include "base/sys_string_conversions.h"
+#import "chrome/browser/accessibility/browser_accessibility_cocoa.h"
+#include "chrome/browser/accessibility/browser_accessibility_state.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_trial.h"
 #import "chrome/browser/cocoa/rwhvm_editcommand_helper.h"
 #import "chrome/browser/cocoa/view_id_util.h"
@@ -37,6 +42,7 @@
 #include "webkit/glue/plugins/webplugin.h"
 #include "webkit/glue/webaccessibility.h"
 #include "webkit/glue/webmenurunner_mac.h"
+#import "third_party/mozilla/ComplexTextInputPanel.h"
 
 using WebKit::WebInputEvent;
 using WebKit::WebInputEventFactory;
@@ -57,7 +63,6 @@ static inline int ToWebKitModifiers(NSUInteger flags) {
 - (id)initWithRenderWidgetHostViewMac:(RenderWidgetHostViewMac*)r;
 - (void)keyEvent:(NSEvent *)theEvent wasKeyEquivalent:(BOOL)equiv;
 - (void)cancelChildPopups;
-- (void)attachPluginLayer;
 @end
 
 // This API was published since 10.6. Provide the declaration so it can be
@@ -136,6 +141,18 @@ void DisablePasswordInput() {
 // This subclass of NSView hosts the output of accelerated plugins on
 // the page.
 
+// This class takes a couple of locks, some indirectly. The lock hiearchy is:
+// 1. The DisplayLink lock, implicit to the display link owned by this view.
+//    It is taken by the framework before |DrawOneAcceleratedPluginCallback()|
+//    is called, and during CVDisplayLink* function calls.
+// 2. The CGL lock, taken explicitly.
+// 3. The AcceleratedSurfaceContainerManagerMac's lock, which it takes when any
+//    of its methods are called.
+//
+// No code should ever try to acquire a lock further up in the hierarchy if it
+// already owns a lower lock. For example, while the CGL lock is taken, no
+// CVDisplayLink* functions must be called.
+
 // Informal protocol implemented by windows that need to be informed explicitly
 // about underlay surfaces.
 @interface NSObject (UnderlayableSurface)
@@ -170,6 +187,12 @@ void DisablePasswordInput() {
                          pluginHandle:(gfx::PluginWindowHandle)pluginHandle;
 - (void)drawView;
 
+// NSViews autorelease subviews when they die. The RWHVMac gets destroyed when
+// RHWVCocoa gets dealloc'd, which means the AcceleratedPluginView child views
+// can be around a little longer than the RWHVMac. This is called when the
+// RWHVMac is about to be deleted (but it's still valid while this method runs).
+- (void)onRenderWidgetHostViewGone;
+
 // This _must_ be atomic, since it's accessed from several threads.
 @property BOOL surfaceWasSwapped;
 
@@ -184,7 +207,7 @@ void DisablePasswordInput() {
 - (CVReturn)getFrameForTime:(const CVTimeStamp*)outputTime {
   // There is no autorelease pool when this method is called because it will be
   // called from a background thread.
-  base::ScopedNSAutoreleasePool pool;
+  base::mac::ScopedNSAutoreleasePool pool;
 
   if (![self surfaceWasSwapped])
     return kCVReturnSuccess;
@@ -236,7 +259,11 @@ static CVReturn DrawOneAcceleratedPluginCallback(
     cglPixelFormat_ = (CGLPixelFormatObj)[glPixelFormat_ CGLPixelFormatObj];
 
     // Draw at beam vsync.
-    GLint swapInterval = 1;
+    GLint swapInterval;
+    if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kDisableGpuVsync))
+      swapInterval = 0;
+    else
+      swapInterval = 1;
     [glContext_ setValues:&swapInterval forParameter:NSOpenGLCPSwapInterval];
 
     // Set up a display link to do OpenGL rendering on a background thread.
@@ -247,6 +274,8 @@ static CVReturn DrawOneAcceleratedPluginCallback(
 
 - (void)dealloc {
   CVDisplayLinkRelease(displayLink_);
+  if (renderWidgetHostView_)
+    renderWidgetHostView_->DeallocFakePluginWindowHandle(pluginHandle_);
   [[NSNotificationCenter defaultCenter] removeObserver:self];
   [super dealloc];
 }
@@ -260,6 +289,14 @@ static CVReturn DrawOneAcceleratedPluginCallback(
       cglContext_, pluginHandle_, [self cachedSize]);
 
   CGLFlushDrawable(cglContext_);
+  CGLUnlockContext(cglContext_);
+}
+
+- (void)onRenderWidgetHostViewGone {
+  CGLLockContext(cglContext_);
+  // Deallocate the plugin handle while we still can.
+  renderWidgetHostView_->DeallocFakePluginWindowHandle(pluginHandle_);
+  renderWidgetHostView_ = NULL;
   CGLUnlockContext(cglContext_);
 }
 
@@ -411,10 +448,11 @@ RenderWidgetHostViewMac::RenderWidgetHostViewMac(RenderWidgetHost* widget)
                   initWithRenderWidgetHostViewMac:this] autorelease];
   render_widget_host_->set_view(this);
 
-  // Turn on accessibility only if one or both of these flags is true.
-  renderer_accessible_ = IsVoiceOverRunning() ||
-                             CommandLine::ForCurrentProcess()->HasSwitch(
-                                 switches::kForceRendererAccessibility);
+  // Turn on accessibility only if VoiceOver is running.
+  if (IsVoiceOverRunning()) {
+    Singleton<BrowserAccessibilityState>()->OnScreenReaderDetected();
+    render_widget_host_->EnableRendererAccessibility();
+  }
 }
 
 RenderWidgetHostViewMac::~RenderWidgetHostViewMac() {
@@ -512,7 +550,7 @@ gfx::NativeView RenderWidgetHostViewMac::GetNativeView() {
 
 void RenderWidgetHostViewMac::MovePluginWindows(
     const std::vector<webkit_glue::WebPluginGeometry>& moves) {
-  CHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   // Handle movement of accelerated plugins, which are the only "windowed"
   // plugins that exist on the Mac.
   for (std::vector<webkit_glue::WebPluginGeometry>::const_iterator iter =
@@ -698,11 +736,13 @@ void RenderWidgetHostViewMac::Destroy() {
     // Depth-first destroy all popups. Use ShutdownHost() to enforce
     // deepest-first ordering.
     for (NSView* subview in [cocoa_view_ subviews]) {
-      if (![subview isKindOfClass:[RenderWidgetHostViewCocoa class]])
-        continue;  // Skip accelerated views.
-
-      [static_cast<RenderWidgetHostViewCocoa*>(subview)
-          renderWidgetHostViewMac]->ShutdownHost();
+      if ([subview isKindOfClass:[RenderWidgetHostViewCocoa class]]) {
+        [static_cast<RenderWidgetHostViewCocoa*>(subview)
+            renderWidgetHostViewMac]->ShutdownHost();
+      } else if ([subview isKindOfClass:[AcceleratedPluginView class]]) {
+        [static_cast<AcceleratedPluginView*>(subview)
+            onRenderWidgetHostViewGone];
+      }
     }
 
     // We've been told to destroy.
@@ -768,6 +808,11 @@ VideoLayer* RenderWidgetHostViewMac::AllocVideoLayer(
     const gfx::Size& size) {
   NOTIMPLEMENTED();
   return NULL;
+}
+
+// Sets whether or not to accept first responder status.
+void RenderWidgetHostViewMac::SetTakesFocusOnlyOnMouseDown(bool flag) {
+  [cocoa_view_ setTakesFocusOnlyOnMouseDown:flag];
 }
 
 // Display a popup menu for WebKit using Cocoa widgets.
@@ -851,10 +896,35 @@ void RenderWidgetHostViewMac::KillSelf() {
   }
 }
 
+void RenderWidgetHostViewMac::SetPluginImeEnabled(bool enabled, int plugin_id) {
+  [cocoa_view_ setPluginImeEnabled:(enabled ? YES : NO) forPlugin:plugin_id];
+}
+
+bool RenderWidgetHostViewMac::PostProcessEventForPluginIme(
+    const NativeWebKeyboardEvent& event) {
+  // Check WebInputEvent type since multiple types of events can be sent into
+  // WebKit for the same OS event (e.g., RawKeyDown and Char), so filtering is
+  // necessary to avoid double processing.
+  // Also check the native type, since NSFlagsChanged is considered a key event
+  // for WebKit purposes, but isn't considered a key event by the OS.
+  if (event.type == WebInputEvent::RawKeyDown &&
+      [event.os_event type] == NSKeyDown)
+    return [cocoa_view_ postProcessEventForPluginIme:event.os_event];
+  return false;
+}
+
+void RenderWidgetHostViewMac::PluginImeCompositionConfirmed(
+    const string16& text, int plugin_id) {
+  if (render_widget_host_) {
+    render_widget_host_->Send(new ViewMsg_PluginImeCompositionConfirmed(
+        render_widget_host_->routing_id(), text, plugin_id));
+  }
+}
+
 gfx::PluginWindowHandle
 RenderWidgetHostViewMac::AllocateFakePluginWindowHandle(bool opaque,
                                                         bool root) {
-  CHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   // Create an NSView to host the plugin's/compositor's pixels.
   gfx::PluginWindowHandle handle =
       plugin_container_manager_.AllocateFakePluginWindowHandle(opaque, root);
@@ -872,7 +942,7 @@ RenderWidgetHostViewMac::AllocateFakePluginWindowHandle(bool opaque,
 
 void RenderWidgetHostViewMac::DestroyFakePluginWindowHandle(
     gfx::PluginWindowHandle window) {
-  CHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   PluginViewMap::iterator it = plugin_views_.find(window);
   DCHECK(plugin_views_.end() != it);
   if (plugin_views_.end() == it) {
@@ -880,6 +950,15 @@ void RenderWidgetHostViewMac::DestroyFakePluginWindowHandle(
   }
   [it->second removeFromSuperview];
   plugin_views_.erase(it);
+
+  // The view's dealloc will call DeallocFakePluginWindowHandle(), which will
+  // remove the handle from |plugin_container_manager_|. This code path is
+  // taken if a plugin is removed, but the RWHVMac itself stays alive.
+}
+
+// This is called by AcceleratedPluginView's -dealloc.
+void RenderWidgetHostViewMac::DeallocFakePluginWindowHandle(
+    gfx::PluginWindowHandle window) {
   plugin_container_manager_.DestroyFakePluginWindowHandle(window);
 }
 
@@ -888,7 +967,7 @@ void RenderWidgetHostViewMac::AcceleratedSurfaceSetIOSurface(
     int32 width,
     int32 height,
     uint64 io_surface_identifier) {
-  CHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   plugin_container_manager_.SetSizeAndIOSurface(window,
                                                 width,
                                                 height,
@@ -913,7 +992,7 @@ void RenderWidgetHostViewMac::AcceleratedSurfaceSetTransportDIB(
     int32 width,
     int32 height,
     TransportDIB::Handle transport_dib) {
-  CHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   plugin_container_manager_.SetSizeAndTransportDIB(window,
                                                    width,
                                                    height,
@@ -922,7 +1001,7 @@ void RenderWidgetHostViewMac::AcceleratedSurfaceSetTransportDIB(
 
 void RenderWidgetHostViewMac::AcceleratedSurfaceBuffersSwapped(
     gfx::PluginWindowHandle window) {
-  CHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   PluginViewMap::iterator it = plugin_views_.find(window);
   DCHECK(plugin_views_.end() != it);
   if (plugin_views_.end() == it) {
@@ -940,7 +1019,7 @@ void RenderWidgetHostViewMac::AcceleratedSurfaceBuffersSwapped(
 }
 
 void RenderWidgetHostViewMac::GpuRenderingStateDidChange() {
-  CHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   // Plugins are destroyed on page navigate. The compositor layer on the other
   // hand is created on demand and then stays alive until its renderer process
   // dies (usually on cross-domain navigation). Instead, only a flag
@@ -1007,7 +1086,7 @@ namespace {
 // Adjusts an NSRect in Cocoa screen coordinates to have an origin in the upper
 // left of the primary screen (Carbon coordinates), and stuffs it into a
 // gfx::Rect.
-gfx::Rect FlipNSRectToRectScreen(const NSRect rect) {
+gfx::Rect FlipNSRectToRectScreen(const NSRect& rect) {
   gfx::Rect new_rect(NSRectToCGRect(rect));
   if ([[NSScreen screens] count] > 0) {
     new_rect.set_y([[[NSScreen screens] objectAtIndex:0] frame].size.height -
@@ -1102,11 +1181,17 @@ bool RenderWidgetHostViewMac::ContainsNativeView(
   return false;
 }
 
-void RenderWidgetHostViewMac::UpdateAccessibilityTree(
-    const webkit_glue::WebAccessibility& tree) {
-  if (renderer_accessible_) {
-    [cocoa_view_ setAccessibilityTree:tree];
+void RenderWidgetHostViewMac::OnAccessibilityNotifications(
+    const std::vector<ViewHostMsg_AccessibilityNotification_Params>& params) {
+  if (!browser_accessibility_manager_.get()) {
+    // Use empty document to process notifications
+    webkit_glue::WebAccessibility empty_document;
+    empty_document.role = WebAccessibility::ROLE_WEB_AREA;
+    empty_document.state = 0;
+    browser_accessibility_manager_.reset(
+        BrowserAccessibilityManager::Create(cocoa_view_, empty_document, NULL));
   }
+  browser_accessibility_manager_->OnAccessibilityNotifications(params);
 }
 
 void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
@@ -1135,13 +1220,9 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
 
     renderWidgetHostView_.reset(r);
     canBeKeyView_ = YES;
+    takesFocusOnlyOnMouseDown_ = NO;
     closeOnDeactivate_ = NO;
-
-    rendererAccessible_ =
-          !CommandLine::ForCurrentProcess()->HasSwitch(
-                    switches::kDisableRendererAccessibility);
-    accessibilityRequested_ = NO;
-    accessibilityReceived_ = NO;
+    pluginImeIdentifier_ = -1;
   }
   return self;
 }
@@ -1150,11 +1231,25 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
   canBeKeyView_ = can;
 }
 
+- (void)setTakesFocusOnlyOnMouseDown:(BOOL)b {
+  takesFocusOnlyOnMouseDown_ = b;
+}
+
 - (void)setCloseOnDeactivate:(BOOL)b {
   closeOnDeactivate_ = b;
 }
 
 - (void)mouseEvent:(NSEvent*)theEvent {
+  // TODO(rohitrao): Probably need to handle other mouse down events here.
+  if ([theEvent type] == NSLeftMouseDown && takesFocusOnlyOnMouseDown_) {
+    if (renderWidgetHostView_->render_widget_host_)
+      renderWidgetHostView_->render_widget_host_->OnMouseActivate();
+
+    // Manually take focus after the click but before forwarding it to the
+    // renderer.
+    [[self window] makeFirstResponder:self];
+  }
+
   // Don't cancel child popups; killing them on a mouse click would prevent the
   // user from positioning the insertion point in the text field spawning the
   // popup. A click outside the text field would cause the text field to drop
@@ -1285,7 +1380,10 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
 
   // Sends key down events to input method first, then we can decide what should
   // be done according to input method's feedback.
-  [self interpretKeyEvents:[NSArray arrayWithObject:theEvent]];
+  // If a plugin is active, bypass this step since events are forwarded directly
+  // to the plugin IME.
+  if (pluginImeIdentifier_ == -1)
+    [self interpretKeyEvents:[NSArray arrayWithObject:theEvent]];
 
   handlingKeyDown_ = NO;
 
@@ -1588,7 +1686,7 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
         // paints.
         CGContextRef context = static_cast<CGContextRef>(
             [[NSGraphicsContext currentContext] graphicsPort]);
-        scoped_cftyperef<CGImageRef> image(
+        base::mac::ScopedCFTypeRef<CGImageRef> image(
             CGBitmapContextCreateImage(backingStore->cg_bitmap()));
         CGRect imageRect = bitmapRect.ToCGRect();
         imageRect.origin.y = yOffset;
@@ -1636,7 +1734,7 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
   if (!renderWidgetHostView_->render_widget_host_)
     return NO;
 
-  return canBeKeyView_;
+  return canBeKeyView_ && !takesFocusOnlyOnMouseDown_;
 }
 
 - (BOOL)becomeFirstResponder {
@@ -1705,18 +1803,6 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
   return ([event type] == NSKeyDown) ? YES : NO;
 }
 
-// Create the BrowserAccessibility tree from the WebAccessibility tree passed
-// from the renderer.
-- (void)setAccessibilityTree:(const webkit_glue::WebAccessibility&) tree {
-  BrowserAccessibility* root =
-      [[BrowserAccessibility alloc] initWithObject:tree
-                                          delegate:self
-                                            parent:self];
-  [root autorelease];
-  accessibilityChildren_.reset([[NSArray alloc] initWithObjects:root, nil]);
-  accessibilityReceived_ = YES;
-}
-
 - (NSArray *)accessibilityArrayAttributeValues:(NSString *)attribute
                                          index:(NSUInteger)index
                                       maxCount:(NSUInteger)maxCount {
@@ -1734,36 +1820,28 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
 }
 
 - (id)accessibilityAttributeValue:(NSString *)attribute {
-  if (!accessibilityRequested_) {
-    renderWidgetHostView_->render_widget_host_->EnableRendererAccessibility();
-    accessibilityRequested_ = YES;
-  }
-  if (accessibilityReceived_) {
-    if (rendererAccessible_ &&
-        [attribute isEqualToString:NSAccessibilityChildrenAttribute]) {
-      return accessibilityChildren_.get();
-    } else if ([attribute isEqualToString:NSAccessibilityRoleAttribute]) {
-      return NSAccessibilityScrollAreaRole;
-    }
+  BrowserAccessibilityManager* manager =
+      renderWidgetHostView_->browser_accessibility_manager_.get();
+  if ([attribute isEqualToString:NSAccessibilityChildrenAttribute] &&
+      manager) {
+    return [NSArray arrayWithObjects:manager->
+        GetRoot()->toBrowserAccessibilityCocoa(), nil];
+  } else if ([attribute isEqualToString:NSAccessibilityRoleAttribute]) {
+    return NSAccessibilityScrollAreaRole;
   }
   id ret = [super accessibilityAttributeValue:attribute];
   return ret;
 }
 
 - (id)accessibilityHitTest:(NSPoint)point {
-  if (!accessibilityRequested_) {
-    renderWidgetHostView_->render_widget_host_->EnableRendererAccessibility();
-    accessibilityRequested_ = YES;
-  }
-  if (!accessibilityReceived_) {
+  if (!renderWidgetHostView_->browser_accessibility_manager_.get())
     return self;
-  }
   NSPoint pointInWindow = [[self window] convertScreenToBase:point];
   NSPoint localPoint = [self convertPoint:pointInWindow fromView:nil];
   localPoint.y = NSHeight([self bounds]) - localPoint.y;
-  if ([accessibilityChildren_ count] == 0)
-    return self;
-  BrowserAccessibility* root = [accessibilityChildren_ objectAtIndex:0];
+  BrowserAccessibilityCocoa* root = renderWidgetHostView_->
+      browser_accessibility_manager_->
+          GetRoot()->toBrowserAccessibilityCocoa();
   id obj = [root accessibilityHitTest:localPoint];
   return obj;
 }
@@ -1773,7 +1851,32 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
 }
 
 - (NSUInteger)accessibilityIndexOfChild:(id)child {
-  return [accessibilityChildren_ indexOfObject:child];
+  BrowserAccessibilityManager* manager =
+      renderWidgetHostView_->browser_accessibility_manager_.get();
+  // Only child is root.
+  if (manager &&
+      manager->GetRoot()->toBrowserAccessibilityCocoa() == child) {
+    return 0;
+  } else {
+    return NSNotFound;
+  }
+}
+
+- (id)accessibilityFocusedUIElement {
+  BrowserAccessibilityManager* manager =
+      renderWidgetHostView_->browser_accessibility_manager_.get();
+  if (manager) {
+    BrowserAccessibility* focused_item = manager->GetFocus(NULL);
+    DCHECK(focused_item);
+    if (focused_item) {
+      BrowserAccessibilityCocoa* focused_item_cocoa =
+          focused_item->toBrowserAccessibilityCocoa();
+      DCHECK(focused_item_cocoa);
+      if (focused_item_cocoa)
+        return focused_item_cocoa;
+    }
+  }
+  return [super accessibilityFocusedUIElement];
 }
 
 - (void)doDefaultAction:(int32)accessibilityObjectId {
@@ -1783,7 +1886,8 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
 
 // Convert a web accessibility's location in web coordinates into a cocoa
 // screen coordinate.
-- (NSPoint)accessibilityPointInScreen:(BrowserAccessibility*)accessibility {
+- (NSPoint)accessibilityPointInScreen:
+    (BrowserAccessibilityCocoa*)accessibility {
   NSPoint origin = [accessibility origin];
   NSSize size = [accessibility size];
   origin.y = NSHeight([self bounds]) - origin.y;
@@ -2167,6 +2271,9 @@ extern NSString *NSTextInputReplacementRangeAttributeName;
 // nil when the caret is in non-editable content or password box to avoid
 // making input methods do their work.
 - (NSTextInputContext *)inputContext {
+  if (pluginImeIdentifier_ != -1)
+    return [[ComplexTextInputPanel sharedComplexTextInputPanel] inputContext];
+
   switch(renderWidgetHostView_->text_input_type_) {
     case WebKit::WebTextInputTypeNone:
     case WebKit::WebTextInputTypePassword:
@@ -2395,6 +2502,47 @@ extern NSString *NSTextInputReplacementRangeAttributeName;
     renderWidgetHostView_->render_widget_host_->ImeConfirmComposition();
 
   [self cancelComposition];
+}
+
+- (void)setPluginImeEnabled:(BOOL)enabled forPlugin:(int)pluginId {
+  if ((enabled && pluginId == pluginImeIdentifier_) ||
+      (!enabled && pluginId != pluginImeIdentifier_))
+    return;
+
+  // If IME was already active then either it is being cancelled, or the plugin
+  // changed; either way the current input needs to be cleared.
+  if (pluginImeIdentifier_ != -1)
+    [[ComplexTextInputPanel sharedComplexTextInputPanel] cancelInput];
+
+  pluginImeIdentifier_ = enabled ? pluginId : -1;
+}
+
+- (BOOL)postProcessEventForPluginIme:(NSEvent*)event {
+  if (pluginImeIdentifier_ == -1)
+    return false;
+
+  // ComplexTextInputPanel only works on 10.6+.
+  static BOOL sImeSupported = NO;
+  static BOOL sHaveCheckedSupport = NO;
+  if (!sHaveCheckedSupport) {
+    int32 major, minor, bugfix;
+    base::SysInfo::OperatingSystemVersionNumbers(&major, &minor, &bugfix);
+    sImeSupported = major > 10 || (major == 10 && minor > 5);
+    sHaveCheckedSupport = YES;
+  }
+  if (!sImeSupported)
+    return false;
+
+  ComplexTextInputPanel* inputPanel =
+      [ComplexTextInputPanel sharedComplexTextInputPanel];
+  NSString* composited_string = nil;
+  BOOL handled = [inputPanel interpretKeyEvent:event
+                                        string:&composited_string];
+  if (composited_string) {
+    renderWidgetHostView_->PluginImeCompositionConfirmed(
+        base::SysNSStringToUTF16(composited_string), pluginImeIdentifier_);
+  }
+  return handled;
 }
 
 - (ViewID)viewID {

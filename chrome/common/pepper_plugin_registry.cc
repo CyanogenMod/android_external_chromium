@@ -15,8 +15,16 @@
 #include "chrome/common/chrome_switches.h"
 #include "remoting/client/plugin/pepper_entrypoints.h"
 
+const char* PepperPluginRegistry::kPDFPluginName = "Chrome PDF Viewer";
+const char* PepperPluginRegistry::kPDFPluginMimeType = "application/pdf";
+const char* PepperPluginRegistry::kPDFPluginExtension = "pdf";
+const char* PepperPluginRegistry::kPDFPluginDescription =
+    "Portable Document Format";
+
 PepperPluginInfo::PepperPluginInfo() : is_internal(false) {
 }
+
+PepperPluginInfo::~PepperPluginInfo() {}
 
 // static
 PepperPluginRegistry* PepperPluginRegistry::GetInstance() {
@@ -67,17 +75,17 @@ void PepperPluginRegistry::GetPluginInfoFromSwitch(
   //                *1( LWS + ";" + LWS + <mime-type> )
 
   std::vector<std::string> modules;
-  SplitString(value, ',', &modules);
+  base::SplitString(value, ',', &modules);
   for (size_t i = 0; i < modules.size(); ++i) {
     std::vector<std::string> parts;
-    SplitString(modules[i], ';', &parts);
+    base::SplitString(modules[i], ';', &parts);
     if (parts.size() < 2) {
       DLOG(ERROR) << "Required mime-type not found";
       continue;
     }
 
     std::vector<std::string> name_parts;
-    SplitString(parts[0], '#', &name_parts);
+    base::SplitString(parts[0], '#', &name_parts);
 
     PepperPluginInfo plugin;
 #if defined(OS_WIN)
@@ -113,10 +121,10 @@ void PepperPluginRegistry::GetExtraPlugins(
     if (skip_pdf_file_check || file_util::PathExists(path)) {
       PepperPluginInfo pdf;
       pdf.path = path;
-      pdf.name = "Chrome PDF Viewer";
-      pdf.mime_types.push_back("application/pdf");
-      pdf.file_extensions = "pdf";
-      pdf.type_descriptions = "Portable Document Format";
+      pdf.name = kPDFPluginName;
+      pdf.mime_types.push_back(kPDFPluginMimeType);
+      pdf.file_extensions = kPDFPluginExtension;
+      pdf.type_descriptions = kPDFPluginDescription;
       plugins->push_back(pdf);
 
       skip_pdf_file_check = true;
@@ -168,6 +176,8 @@ pepper::PluginModule* PepperPluginRegistry::GetModule(
   return it->second;
 }
 
+PepperPluginRegistry::~PepperPluginRegistry() {}
+
 PepperPluginRegistry::PepperPluginRegistry() {
   InternalPluginInfoList internal_plugin_info;
   GetInternalPluginInfo(&internal_plugin_info);
@@ -183,6 +193,7 @@ PepperPluginRegistry::PepperPluginRegistry() {
       DLOG(ERROR) << "Failed to load pepper module: " << path.value();
       continue;
     }
+    module->set_name(it->name);
     modules_[path] = module;
   }
 
@@ -198,6 +209,7 @@ PepperPluginRegistry::PepperPluginRegistry() {
       DLOG(ERROR) << "Failed to load pepper module: " << path.value();
       continue;
     }
+    module->set_name(plugins[i].name);
     modules_[path] = module;
   }
 }

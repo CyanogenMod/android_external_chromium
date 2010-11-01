@@ -14,13 +14,13 @@
 #include "app/l10n_util.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
-#include "base/registry.h"
 #include "base/scoped_comptr_win.h"
 #include "base/string_split.h"
 #include "base/thread.h"
 #include "base/utf_string_conversions.h"
-#include "base/win_util.h"
-#include "chrome/browser/chrome_thread.h"
+#include "base/win/registry.h"
+#include "base/win/windows_version.h"
+#include "chrome/browser/browser_thread.h"
 #include "gfx/font.h"
 #include "grit/app_strings.h"
 #include "grit/generated_resources.h"
@@ -49,7 +49,7 @@ std::wstring AppendExtensionIfNeeded(const std::wstring& filename,
   std::wstring file_extension(file_util::GetFileExtensionFromPath(filename));
   std::wstring key(L"." + file_extension);
   if (!(filter_selected.empty() || filter_selected == L"*.*") &&
-      !RegKey(HKEY_CLASSES_ROOT, key.c_str(), KEY_READ).Valid() &&
+      !base::win::RegKey(HKEY_CLASSES_ROOT, key.c_str(), KEY_READ).Valid() &&
       file_extension != suggested_ext) {
     if (return_value[return_value.length() - 1] != L'.')
       return_value.append(L".");
@@ -73,10 +73,10 @@ namespace {
 static bool GetRegistryDescriptionFromExtension(const std::wstring& file_ext,
                                                 std::wstring* reg_description) {
   DCHECK(reg_description);
-  RegKey reg_ext(HKEY_CLASSES_ROOT, file_ext.c_str(), KEY_READ);
+  base::win::RegKey reg_ext(HKEY_CLASSES_ROOT, file_ext.c_str(), KEY_READ);
   std::wstring reg_app;
   if (reg_ext.ReadValue(NULL, &reg_app) && !reg_app.empty()) {
-    RegKey reg_link(HKEY_CLASSES_ROOT, reg_app.c_str(), KEY_READ);
+    base::win::RegKey reg_link(HKEY_CLASSES_ROOT, reg_app.c_str(), KEY_READ);
     if (reg_link.ReadValue(NULL, reg_description))
       return true;
   }
@@ -277,7 +277,7 @@ bool SaveFileAsWithFilter(HWND owner,
   save_as.lpstrDefExt = &def_ext[0];
   save_as.lCustData = NULL;
 
-  if (win_util::GetWinVersion() < win_util::WINVERSION_VISTA) {
+  if (base::win::GetVersion() < base::win::VERSION_VISTA) {
     // The save as on Windows XP remembers its last position,
     // and if the screen resolution changed, it will be off screen.
     save_as.Flags |= OFN_ENABLEHOOK;
@@ -309,7 +309,7 @@ bool SaveFileAsWithFilter(HWND owner,
   // instance of null to get to "*.jpg".
   std::vector<std::wstring> filters;
   if (!filter.empty() && save_as.nFilterIndex > 0)
-    SplitString(filter, '\0', &filters);
+    base::SplitString(filter, '\0', &filters);
   std::wstring filter_selected;
   if (!filters.empty())
     filter_selected = filters[(2 * (save_as.nFilterIndex - 1)) + 1];
@@ -712,8 +712,8 @@ void SelectFileDialogImpl::ExecuteSelectFile(
     std::vector<FilePath> paths;
     if (RunOpenMultiFileDialog(params.title, filter,
                                params.run_state.owner, &paths)) {
-      ChromeThread::PostTask(
-          ChromeThread::UI, FROM_HERE,
+      BrowserThread::PostTask(
+          BrowserThread::UI, FROM_HERE,
           NewRunnableMethod(
               this, &SelectFileDialogImpl::MultiFilesSelected, paths,
               params.params, params.run_state));
@@ -722,14 +722,14 @@ void SelectFileDialogImpl::ExecuteSelectFile(
   }
 
   if (success) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(
             this, &SelectFileDialogImpl::FileSelected, path, filter_index,
             params.params, params.run_state));
   } else {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(
             this, &SelectFileDialogImpl::FileNotSelected, params.params,
             params.run_state));
@@ -1026,14 +1026,14 @@ void SelectFontDialogImpl::ExecuteSelectFont(RunState run_state, void* params) {
   bool success = !!ChooseFont(&cf);
   DisableOwner(run_state.owner);
   if (success) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(
             this, &SelectFontDialogImpl::FontSelected, logfont, params,
             run_state));
   } else {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(
             this, &SelectFontDialogImpl::FontNotSelected, params, run_state));
   }
@@ -1089,14 +1089,14 @@ void SelectFontDialogImpl::ExecuteSelectFontWithNameSize(
   bool success = !!ChooseFont(&cf);
   DisableOwner(run_state.owner);
   if (success) {
-    ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(
           this, &SelectFontDialogImpl::FontSelected, logfont, params,
           run_state));
   } else {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(this, &SelectFontDialogImpl::FontNotSelected, params,
         run_state));
   }

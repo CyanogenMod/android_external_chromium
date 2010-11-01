@@ -7,7 +7,7 @@
 #pragma once
 
 #include "base/message_loop.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "googleurl/src/gurl.h"
 #include "net/url_request/url_request_status.h"
@@ -50,6 +50,40 @@ class GotCanceledFetcher : public URLFetcher {
   GURL url_;
 
   DISALLOW_COPY_AND_ASSIGN(GotCanceledFetcher);
+};
+
+class SuccessFetcher : public URLFetcher {
+ public:
+  SuccessFetcher(bool success,
+                 const GURL& url,
+                 const std::string& results,
+                 URLFetcher::RequestType request_type,
+                 URLFetcher::Delegate* d);
+  virtual ~SuccessFetcher();
+
+  void Start();
+
+ private:
+  GURL url_;
+
+  DISALLOW_COPY_AND_ASSIGN(SuccessFetcher);
+};
+
+class FailFetcher : public URLFetcher {
+ public:
+  FailFetcher(bool success,
+              const GURL& url,
+              const std::string& results,
+              URLFetcher::RequestType request_type,
+              URLFetcher::Delegate* d);
+  virtual ~FailFetcher();
+
+  void Start();
+
+ private:
+  GURL url_;
+
+  DISALLOW_COPY_AND_ASSIGN(FailFetcher);
 };
 
 }  // namespace chromeos

@@ -11,6 +11,7 @@
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/input_method_library.h"
 #include "chrome/browser/chromeos/cros/keyboard_library.h"
+#include "chrome/browser/chromeos/cros/power_library.h"
 #include "chrome/browser/chromeos/cros/touchpad_library.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/extensions/extensions_service.h"
@@ -41,7 +42,7 @@ void Preferences::RegisterUserPrefs(PrefService* prefs) {
   if (prefs->FindPreference(prefs::kAccessibilityEnabled) == NULL) {
     prefs->RegisterBooleanPref(prefs::kAccessibilityEnabled, false);
   }
-  prefs->RegisterIntegerPref(prefs::kLabsTalkEnabled, 0);
+  prefs->RegisterIntegerPref(prefs::kLabsTalkEnabled, 1);
   prefs->RegisterIntegerPref(prefs::kTouchpadSensitivity, 3);
   prefs->RegisterStringPref(prefs::kLanguageCurrentInputMethod, "");
   prefs->RegisterStringPref(prefs::kLanguagePreviousInputMethod, "");
@@ -51,8 +52,9 @@ void Preferences::RegisterUserPrefs(PrefService* prefs) {
                             language_prefs::kHotkeyPreviousEngine);
   prefs->RegisterStringPref(prefs::kLanguagePreferredLanguages,
                             kFallbackInputMethodLocale);
+  KeyboardLibrary* keyboard_library = CrosLibrary::Get()->GetKeyboardLibrary();
   prefs->RegisterStringPref(prefs::kLanguagePreloadEngines,
-                            kFallbackInputMethodId);  // EN layout
+                            keyboard_library->GetHardwareKeyboardLayoutName());
   for (size_t i = 0; i < language_prefs::kNumChewingBooleanPrefs; ++i) {
     prefs->RegisterBooleanPref(
         language_prefs::kChewingBooleanPrefs[i].pref_name,
@@ -115,6 +117,9 @@ void Preferences::RegisterUserPrefs(PrefService* prefs) {
                              language_prefs::kXkbAutoRepeatDelayInMs);
   prefs->RegisterIntegerPref(prefs::kLanguageXkbAutoRepeatInterval,
                              language_prefs::kXkbAutoRepeatIntervalInMs);
+
+  // Screen lock default to off.
+  prefs->RegisterBooleanPref(prefs::kEnableScreenLock, false);
 }
 
 void Preferences::Init(PrefService* prefs) {
@@ -181,6 +186,8 @@ void Preferences::Init(PrefService* prefs) {
       prefs::kLanguageXkbAutoRepeatInterval, prefs, this);
 
   labs_talk_enabled_.Init(prefs::kLabsTalkEnabled, prefs, this);
+
+  enable_screen_lock_.Init(prefs::kEnableScreenLock, prefs, this);
 
   // Initialize touchpad settings to what's saved in user preferences.
   NotifyPrefChanged(NULL);
@@ -343,6 +350,12 @@ void Preferences::NotifyPrefChanged(const std::string* pref_name) {
   if (pref_name && *pref_name == prefs::kLabsTalkEnabled) {
     UpdateTalkApp();
   }
+
+  // Init or update power manager config.
+  if (!pref_name || *pref_name == prefs::kEnableScreenLock) {
+    CrosLibrary::Get()->GetPowerLibrary()->EnableScreenLock(
+        enable_screen_lock_.GetValue());
+  }
 }
 
 void Preferences::SetLanguageConfigBoolean(const char* section,
@@ -395,7 +408,7 @@ void Preferences::SetLanguageConfigStringListAsCSV(const char* section,
 
   std::vector<std::string> split_values;
   if (!value.empty())
-    SplitString(value, ',', &split_values);
+    base::SplitString(value, ',', &split_values);
 
   // We should call the cros API even when |value| is empty, to disable default
   // config.

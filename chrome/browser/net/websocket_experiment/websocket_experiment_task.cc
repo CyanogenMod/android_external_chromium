@@ -5,14 +5,17 @@
 #include "chrome/browser/net/websocket_experiment/websocket_experiment_task.h"
 
 #include "base/hash_tables.h"
-#include "base/histogram.h"
-#include "chrome/browser/chrome_thread.h"
+#include "base/metrics/histogram.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "net/base/host_resolver.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
 #include "net/websockets/websocket.h"
+
+using base::Histogram;
+using base::LinearHistogram;
 
 namespace chrome_browser_net_websocket_experiment {
 
@@ -623,8 +626,8 @@ int WebSocketExperimentTask::DoWebSocketCloseComplete(int result) {
 }
 
 void WebSocketExperimentTask::SetTimeout(int64 deadline_ms) {
-  bool r = ChromeThread::PostDelayedTask(
-      ChromeThread::IO,
+  bool r = BrowserThread::PostDelayedTask(
+      BrowserThread::IO,
       FROM_HERE,
       method_factory_.NewRunnableMethod(&WebSocketExperimentTask::OnTimedOut),
       deadline_ms);

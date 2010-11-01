@@ -7,7 +7,7 @@
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "gfx/codec/png_codec.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
@@ -25,12 +25,12 @@ void UserImageLoader::Start(const std::string& username,
                             const std::string& filename) {
   target_message_loop_ = MessageLoop::current();
 
-  ChromeThread::PostTask(ChromeThread::FILE,
-                         FROM_HERE,
-                         NewRunnableMethod(this,
-                                           &UserImageLoader::LoadImage,
-                                           username,
-                                           filename));
+  BrowserThread::PostTask(BrowserThread::FILE,
+                          FROM_HERE,
+                          NewRunnableMethod(this,
+                                            &UserImageLoader::LoadImage,
+                                            username,
+                                            filename));
 }
 
 void UserImageLoader::LoadImage(const std::string& username,

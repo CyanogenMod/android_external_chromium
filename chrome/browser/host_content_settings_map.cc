@@ -7,7 +7,7 @@
 #include "base/command_line.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
@@ -101,6 +101,12 @@ static bool ShouldAllowAllContent(const GURL& url) {
 }
 }  // namespace
 
+
+struct HostContentSettingsMap::ExtendedContentSettings {
+  ContentSettings content_settings;
+  ResourceContentSettings content_settings_for_resources;
+};
+
 // static
 HostContentSettingsMap::Pattern HostContentSettingsMap::Pattern::FromURL(
     const GURL& url) {
@@ -145,6 +151,26 @@ bool HostContentSettingsMap::Pattern::Matches(const GURL& url) const {
          (match + pattern_.length() - kDomainWildcardLength == host.length());
 }
 
+std::string HostContentSettingsMap::Pattern::CanonicalizePattern() const {
+  if (!IsValid()) {
+    return "";
+  }
+
+  bool starts_with_wildcard = pattern_.length() > kDomainWildcardLength &&
+      StartsWithASCII(pattern_, kDomainWildcard, false);
+
+  const std::string host(starts_with_wildcard ?
+      pattern_.substr(kDomainWildcardLength) : pattern_);
+
+  std::string canonicalized_pattern =
+      starts_with_wildcard ? kDomainWildcard : "";
+
+  url_canon::CanonHostInfo host_info;
+  canonicalized_pattern += net::CanonicalizeHost(host, &host_info);
+
+  return canonicalized_pattern;
+}
+
 HostContentSettingsMap::HostContentSettingsMap(Profile* profile)
     : profile_(profile),
       block_third_party_cookies_(false),
@@ -152,58 +178,11 @@ HostContentSettingsMap::HostContentSettingsMap(Profile* profile)
       updating_preferences_(false) {
   PrefService* prefs = profile_->GetPrefs();
 
-  // Migrate obsolete cookie pref.
-  if (prefs->HasPrefPath(prefs::kCookieBehavior)) {
-    int cookie_behavior = prefs->GetInteger(prefs::kCookieBehavior);
-    prefs->ClearPref(prefs::kCookieBehavior);
-    if (!prefs->HasPrefPath(prefs::kDefaultContentSettings)) {
-        SetDefaultContentSetting(CONTENT_SETTINGS_TYPE_COOKIES,
-            (cookie_behavior == net::StaticCookiePolicy::BLOCK_ALL_COOKIES) ?
-                CONTENT_SETTING_BLOCK : CONTENT_SETTING_ALLOW);
-    }
-    if (!prefs->HasPrefPath(prefs::kBlockThirdPartyCookies)) {
-      SetBlockThirdPartyCookies(cookie_behavior ==
-          net::StaticCookiePolicy::BLOCK_THIRD_PARTY_COOKIES);
-    }
-  }
+  MigrateObsoleteCookiePref(prefs);
 
-  // Migrate obsolete popups pref.
-  if (prefs->HasPrefPath(prefs::kPopupWhitelistedHosts)) {
-    const ListValue* whitelist_pref =
-        prefs->GetList(prefs::kPopupWhitelistedHosts);
-    for (ListValue::const_iterator i(whitelist_pref->begin());
-         i != whitelist_pref->end(); ++i) {
-      std::string host;
-      (*i)->GetAsString(&host);
-      SetContentSetting(Pattern(host), CONTENT_SETTINGS_TYPE_POPUPS, "",
-                        CONTENT_SETTING_ALLOW);
-    }
-    prefs->ClearPref(prefs::kPopupWhitelistedHosts);
-  }
+  MigrateObsoletePopupsPref(prefs);
 
-  // Migrate obsolete per-host pref.
-  if (prefs->HasPrefPath(prefs::kPerHostContentSettings)) {
-    const DictionaryValue* all_settings_dictionary =
-        prefs->GetDictionary(prefs::kPerHostContentSettings);
-    for (DictionaryValue::key_iterator i(all_settings_dictionary->begin_keys());
-         i != all_settings_dictionary->end_keys(); ++i) {
-      const std::string& host(*i);
-      Pattern pattern(std::string(kDomainWildcard) + host);
-      DictionaryValue* host_settings_dictionary = NULL;
-      bool found = all_settings_dictionary->GetDictionaryWithoutPathExpansion(
-          host, &host_settings_dictionary);
-      DCHECK(found);
-      ContentSettings settings;
-      GetSettingsFromDictionary(host_settings_dictionary, &settings);
-      for (int j = 0; j < CONTENT_SETTINGS_NUM_TYPES; ++j) {
-        if (settings.settings[j] != CONTENT_SETTING_DEFAULT &&
-            !RequiresResourceIdentifier(ContentSettingsType(j)))
-          SetContentSetting(
-              pattern, ContentSettingsType(j), "", settings.settings[j]);
-      }
-    }
-    prefs->ClearPref(prefs::kPerHostContentSettings);
-  }
+  MigrateObsoletePerhostPref(prefs);
 
   // Read global defaults.
   DCHECK_EQ(arraysize(kTypeNames),
@@ -449,7 +428,7 @@ void HostContentSettingsMap::SetDefaultContentSetting(
     ContentSettingsType content_type,
     ContentSetting setting) {
   DCHECK(kTypeNames[content_type] != NULL);  // Don't call this for Geolocation.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   PrefService* prefs = profile_->GetPrefs();
 
   // The default settings may not be directly modified for OTR sessions.
@@ -484,14 +463,16 @@ void HostContentSettingsMap::SetDefaultContentSetting(
 }
 
 void HostContentSettingsMap::SetContentSetting(
-    const Pattern& pattern,
+    const Pattern& original_pattern,
     ContentSettingsType content_type,
     const std::string& resource_identifier,
     ContentSetting setting) {
   DCHECK(kTypeNames[content_type] != NULL);  // Don't call this for Geolocation.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK_NE(RequiresResourceIdentifier(content_type),
             resource_identifier.empty());
+
+  const Pattern pattern(original_pattern.CanonicalizePattern());
 
   bool early_exit = false;
   std::string pattern_str(pattern.AsString());
@@ -667,7 +648,7 @@ bool HostContentSettingsMap::RequiresResourceIdentifier(
 }
 
 void HostContentSettingsMap::SetBlockThirdPartyCookies(bool block) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   // This setting may not be directly modified for OTR sessions.  Instead, it
   // is synced to the main profile's setting.
@@ -689,7 +670,7 @@ void HostContentSettingsMap::SetBlockThirdPartyCookies(bool block) {
 }
 
 void HostContentSettingsMap::SetBlockNonsandboxedPlugins(bool block) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   // This setting may not be directly modified for OTR sessions.  Instead, it
   // is synced to the main profile's setting.
@@ -717,7 +698,7 @@ void HostContentSettingsMap::SetBlockNonsandboxedPlugins(bool block) {
 }
 
 void HostContentSettingsMap::ResetToDefaults() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   {
     AutoLock auto_lock(lock_);
@@ -745,7 +726,7 @@ void HostContentSettingsMap::ResetToDefaults() {
 void HostContentSettingsMap::Observe(NotificationType type,
                                      const NotificationSource& source,
                                      const NotificationDetails& details) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   if (NotificationType::PREF_CHANGED == type) {
     if (updating_preferences_)
@@ -861,8 +842,10 @@ void HostContentSettingsMap::ReadDefaultSettings(bool overwrite) {
   PrefService* prefs = profile_->GetPrefs();
   const DictionaryValue* default_settings_dictionary =
       prefs->GetDictionary(prefs::kDefaultContentSettings);
+
   if (overwrite)
     default_content_settings_ = ContentSettings();
+
   // Careful: The returned value could be NULL if the pref has never been set.
   if (default_settings_dictionary != NULL) {
     GetSettingsFromDictionary(default_settings_dictionary,
@@ -873,12 +856,17 @@ void HostContentSettingsMap::ReadDefaultSettings(bool overwrite) {
 
 void HostContentSettingsMap::ReadExceptions(bool overwrite) {
   PrefService* prefs = profile_->GetPrefs();
-  const DictionaryValue* all_settings_dictionary =
+  DictionaryValue* all_settings_dictionary =
       prefs->GetMutableDictionary(prefs::kContentSettingsPatterns);
+
   if (overwrite)
     host_content_settings_.clear();
+
   // Careful: The returned value could be NULL if the pref has never been set.
   if (all_settings_dictionary != NULL) {
+    // Convert all Unicode patterns into punycode form, then read.
+    CanonicalizeContentSettingsExceptions(all_settings_dictionary);
+
     for (DictionaryValue::key_iterator i(all_settings_dictionary->begin_keys());
          i != all_settings_dictionary->end_keys(); ++i) {
       const std::string& pattern(*i);
@@ -907,7 +895,7 @@ void HostContentSettingsMap::NotifyObservers(
 }
 
 void HostContentSettingsMap::UnregisterObservers() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (!profile_)
     return;
   pref_change_registrar_.RemoveAll();
@@ -915,3 +903,104 @@ void HostContentSettingsMap::UnregisterObservers() {
                                  Source<Profile>(profile_));
   profile_ = NULL;
 }
+
+void HostContentSettingsMap::MigrateObsoleteCookiePref(PrefService* prefs) {
+  if (prefs->HasPrefPath(prefs::kCookieBehavior)) {
+    int cookie_behavior = prefs->GetInteger(prefs::kCookieBehavior);
+    prefs->ClearPref(prefs::kCookieBehavior);
+    if (!prefs->HasPrefPath(prefs::kDefaultContentSettings)) {
+        SetDefaultContentSetting(CONTENT_SETTINGS_TYPE_COOKIES,
+            (cookie_behavior == net::StaticCookiePolicy::BLOCK_ALL_COOKIES) ?
+                CONTENT_SETTING_BLOCK : CONTENT_SETTING_ALLOW);
+    }
+    if (!prefs->HasPrefPath(prefs::kBlockThirdPartyCookies)) {
+      SetBlockThirdPartyCookies(cookie_behavior ==
+          net::StaticCookiePolicy::BLOCK_THIRD_PARTY_COOKIES);
+    }
+  }
+}
+
+void HostContentSettingsMap::MigrateObsoletePopupsPref(PrefService* prefs) {
+  if (prefs->HasPrefPath(prefs::kPopupWhitelistedHosts)) {
+    const ListValue* whitelist_pref =
+        prefs->GetList(prefs::kPopupWhitelistedHosts);
+    for (ListValue::const_iterator i(whitelist_pref->begin());
+         i != whitelist_pref->end(); ++i) {
+      std::string host;
+      (*i)->GetAsString(&host);
+      SetContentSetting(Pattern(host), CONTENT_SETTINGS_TYPE_POPUPS, "",
+                        CONTENT_SETTING_ALLOW);
+    }
+    prefs->ClearPref(prefs::kPopupWhitelistedHosts);
+  }
+}
+
+void HostContentSettingsMap::MigrateObsoletePerhostPref(PrefService* prefs) {
+  if (prefs->HasPrefPath(prefs::kPerHostContentSettings)) {
+    const DictionaryValue* all_settings_dictionary =
+        prefs->GetDictionary(prefs::kPerHostContentSettings);
+    for (DictionaryValue::key_iterator i(all_settings_dictionary->begin_keys());
+         i != all_settings_dictionary->end_keys(); ++i) {
+      const std::string& host(*i);
+      Pattern pattern(std::string(kDomainWildcard) + host);
+      DictionaryValue* host_settings_dictionary = NULL;
+      bool found = all_settings_dictionary->GetDictionaryWithoutPathExpansion(
+          host, &host_settings_dictionary);
+      DCHECK(found);
+      ContentSettings settings;
+      GetSettingsFromDictionary(host_settings_dictionary, &settings);
+      for (int j = 0; j < CONTENT_SETTINGS_NUM_TYPES; ++j) {
+        if (settings.settings[j] != CONTENT_SETTING_DEFAULT &&
+            !RequiresResourceIdentifier(ContentSettingsType(j)))
+          SetContentSetting(
+              pattern, ContentSettingsType(j), "", settings.settings[j]);
+      }
+    }
+    prefs->ClearPref(prefs::kPerHostContentSettings);
+  }
+}
+
+void HostContentSettingsMap::CanonicalizeContentSettingsExceptions(
+    DictionaryValue* all_settings_dictionary) {
+  DCHECK(all_settings_dictionary);
+
+  std::vector<std::string> remove_items;
+  std::vector<std::pair<std::string, std::string> > move_items;
+  for (DictionaryValue::key_iterator i(all_settings_dictionary->begin_keys());
+       i != all_settings_dictionary->end_keys(); ++i) {
+    const std::string& pattern(*i);
+    const std::string canonicalized_pattern =
+        Pattern(pattern).CanonicalizePattern();
+
+    if (canonicalized_pattern.empty() || canonicalized_pattern == pattern)
+      continue;
+
+    // Clear old pattern if prefs already have canonicalized pattern.
+    DictionaryValue* new_pattern_settings_dictionary = NULL;
+    if (all_settings_dictionary->GetDictionaryWithoutPathExpansion(
+            canonicalized_pattern, &new_pattern_settings_dictionary)) {
+      remove_items.push_back(pattern);
+      continue;
+    }
+
+    // Move old pattern to canonicalized pattern.
+    DictionaryValue* old_pattern_settings_dictionary = NULL;
+    if (all_settings_dictionary->GetDictionaryWithoutPathExpansion(
+            pattern, &old_pattern_settings_dictionary)) {
+      move_items.push_back(std::make_pair(pattern, canonicalized_pattern));
+    }
+  }
+
+  for (size_t i = 0; i < remove_items.size(); ++i) {
+    all_settings_dictionary->RemoveWithoutPathExpansion(remove_items[i], NULL);
+  }
+
+  for (size_t i = 0; i < move_items.size(); ++i) {
+    Value* pattern_settings_dictionary = NULL;
+    all_settings_dictionary->RemoveWithoutPathExpansion(
+        move_items[i].first, &pattern_settings_dictionary);
+    all_settings_dictionary->SetWithoutPathExpansion(
+        move_items[i].second, pattern_settings_dictionary);
+  }
+}
+

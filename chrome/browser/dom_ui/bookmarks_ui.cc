@@ -8,7 +8,7 @@
 #include "base/message_loop.h"
 #include "base/ref_counted_memory.h"
 #include "base/singleton.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/common/url_constants.h"
 #include "grit/theme_resources.h"
@@ -48,8 +48,8 @@ BookmarksUI::BookmarksUI(TabContents* contents) : DOMUI(contents) {
   BookmarksUIHTMLSource* html_source = new BookmarksUIHTMLSource();
 
   // Set up the chrome://bookmarks/ source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,

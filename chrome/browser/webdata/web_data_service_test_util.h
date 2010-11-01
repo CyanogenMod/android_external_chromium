@@ -8,7 +8,7 @@
 
 #include "base/basictypes.h"
 #include "base/message_loop.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/webdata/web_data_service.h"
 
 template <class T>
@@ -19,7 +19,7 @@ class AutofillWebDataServiceConsumer: public WebDataServiceConsumer {
 
   virtual void OnWebDataServiceRequestDone(WebDataService::Handle handle,
                                            const WDTypedResult* result) {
-    DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
     handle_ = handle;
     const WDResult<T>* wrapped_result =
         static_cast<const WDResult<T>*>(result);

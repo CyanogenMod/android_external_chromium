@@ -7,9 +7,10 @@
 #include "app/keyboard_codes.h"
 #include "base/auto_reset.h"
 #include "base/command_line.h"
-#include "base/histogram.h"
 #include "base/message_loop.h"
-#include "chrome/browser/chrome_thread.h"
+#include "base/metrics/histogram.h"
+#include "chrome/browser/accessibility/browser_accessibility_state.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/renderer_host/backing_store.h"
 #include "chrome/browser/renderer_host/backing_store_manager.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
@@ -64,15 +65,13 @@ static const int kHungRendererDelayMs = 20000;
 // in trailing scrolls after the user ends their input.
 static const int kMaxTimeBetweenWheelMessagesMs = 250;
 
-// static
-bool RenderWidgetHost::renderer_accessible_ = false;
-
 ///////////////////////////////////////////////////////////////////////////////
 // RenderWidgetHost
 
 RenderWidgetHost::RenderWidgetHost(RenderProcessHost* process,
                                    int routing_id)
     : renderer_initialized_(false),
+      renderer_accessible_(false),
       view_(NULL),
       process_(process),
       painting_observer_(NULL),
@@ -102,7 +101,8 @@ RenderWidgetHost::RenderWidgetHost(RenderProcessHost* process,
   process_->WidgetRestored();
 
   if (CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kForceRendererAccessibility)) {
+          switches::kForceRendererAccessibility) ||
+      Singleton<BrowserAccessibilityState>()->IsAccessibleBrowser()) {
     EnableRendererAccessibility();
   }
 }
@@ -168,6 +168,8 @@ void RenderWidgetHost::OnMessageReceived(const IPC::Message &msg) {
     IPC_MESSAGE_HANDLER(ViewHostMsg_GetScreenInfo, OnMsgGetScreenInfo)
     IPC_MESSAGE_HANDLER(ViewHostMsg_GetWindowRect, OnMsgGetWindowRect)
     IPC_MESSAGE_HANDLER(ViewHostMsg_GetRootWindowRect, OnMsgGetRootWindowRect)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_SetPluginImeEnabled,
+                        OnMsgSetPluginImeEnabled)
     IPC_MESSAGE_HANDLER(ViewHostMsg_AllocateFakePluginWindowHandle,
                         OnAllocateFakePluginWindowHandle)
     IPC_MESSAGE_HANDLER(ViewHostMsg_DestroyFakePluginWindowHandle,
@@ -372,6 +374,28 @@ BackingStore* RenderWidgetHost::AllocBackingStore(const gfx::Size& size) {
 
 void RenderWidgetHost::DonePaintingToBackingStore() {
   Send(new ViewMsg_UpdateRect_ACK(routing_id()));
+}
+
+void RenderWidgetHost::ScheduleComposite() {
+  DCHECK(!is_hidden_ || !is_gpu_rendering_active_) <<
+      "ScheduleCompositeAndSync called while hidden!";
+
+  // Send out a request to the renderer to paint the view if required.
+  if (!repaint_ack_pending_ && !resize_ack_pending_ && !view_being_painted_) {
+    repaint_start_time_ = TimeTicks::Now();
+    repaint_ack_pending_ = true;
+    Send(new ViewMsg_Repaint(routing_id_, current_size_));
+  }
+
+  // When we have asked the RenderWidget to resize, and we are still waiting on
+  // a response, block for a little while to see if we can't get a response.
+  // We always block on response because we do not have a backing store.
+  IPC::Message msg;
+  TimeDelta max_delay = TimeDelta::FromMilliseconds(kPaintMsgTimeoutMS);
+  if (process_->WaitForUpdateMsg(routing_id_, max_delay, &msg)) {
+    ViewHostMsg_UpdateRect::Dispatch(
+        &msg, this, &RenderWidgetHost::OnMsgUpdateRect);
+  }
 }
 
 void RenderWidgetHost::StartHangMonitorTimeout(TimeDelta delay) {
@@ -820,7 +844,7 @@ void RenderWidgetHost::OnMsgUpdateRect(
     // which attempts to move the plugin windows and in the process could
     // dispatch other window messages which could cause the view to be
     // destroyed.
-    if (view_) {
+    if (view_ && !is_gpu_rendering_active_) {
       view_being_painted_ = true;
       view_->DidUpdateBackingStore(params.scroll_rect, params.dx, params.dy,
                                    params.copy_rects);
@@ -982,6 +1006,10 @@ void RenderWidgetHost::OnMsgGetRootWindowRect(gfx::NativeViewId window_id,
   if (view_) {
     *results = view_->GetRootWindowRect();
   }
+}
+
+void RenderWidgetHost::OnMsgSetPluginImeEnabled(bool enabled, int plugin_id) {
+  view_->SetPluginImeEnabled(enabled, plugin_id);
 }
 
 void RenderWidgetHost::OnAllocateFakePluginWindowHandle(
@@ -1186,6 +1214,11 @@ void RenderWidgetHost::ProcessKeyboardEventAck(int type, bool processed) {
   } else {
     NativeWebKeyboardEvent front_item = key_queue_.front();
     key_queue_.pop_front();
+
+#if defined(OS_MACOSX)
+    if (!is_hidden_ && view_->PostProcessEventForPluginIme(front_item))
+      return;
+#endif
 
     // We only send unprocessed key event upwards if we are not hidden,
     // because the user has moved away from us and no longer expect any effect

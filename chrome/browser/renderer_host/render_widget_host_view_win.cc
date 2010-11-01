@@ -8,16 +8,18 @@
 #include "app/l10n_util_win.h"
 #include "app/resource_bundle.h"
 #include "base/command_line.h"
-#include "base/histogram.h"
 #include "base/i18n/rtl.h"
+#include "base/metrics/histogram.h"
 #include "base/process_util.h"
+#include "base/scoped_comptr_win.h"
 #include "base/thread.h"
 #include "base/win_util.h"
-#include "chrome/browser/browser_accessibility_win.h"
-#include "chrome/browser/browser_accessibility_manager_win.h"
+#include "chrome/browser/accessibility/browser_accessibility_win.h"
+#include "chrome/browser/accessibility/browser_accessibility_manager.h"
+#include "chrome/browser/accessibility/browser_accessibility_state.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_trial.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/plugin_process_host.h"
 #include "chrome/browser/renderer_host/backing_store.h"
 #include "chrome/browser/renderer_host/backing_store_win.h"
@@ -64,6 +66,10 @@ const int kTooltipMaxWidthPixels = 300;
 
 // Maximum number of characters we allow in a tooltip.
 const int kMaxTooltipLength = 1024;
+
+// A custom MSAA object id used to determine if a screen reader is actively
+// listening for MSAA events.
+const int kIdCustom = 1;
 
 const wchar_t* kRenderWidgetHostViewKey = L"__RENDER_WIDGET_HOST_VIEW__";
 
@@ -504,8 +510,8 @@ HWND RenderWidgetHostViewWin::ReparentWindow(HWND window) {
       0, 0, 0, 0, ::GetParent(window), 0, GetModuleHandle(NULL), 0);
   DCHECK(parent);
   ::SetParent(window, parent);
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       new NotifyPluginProcessHostTask(window, parent));
   return parent;
 }
@@ -889,13 +895,14 @@ void RenderWidgetHostViewWin::OnPaint(HDC unused_dc) {
     return;
   }
 
-  // Don't do any painting if the GPU process is rendering directly
-  // into the View.
+  // If the GPU process is rendering directly into the View,
+  // call the compositor directly.
   RenderWidgetHost* render_widget_host = GetRenderWidgetHost();
   if (render_widget_host->is_gpu_rendering_active()) {
     // We initialize paint_dc here so that BeginPaint()/EndPaint()
     // get called to validate the region.
     CPaintDC paint_dc(m_hWnd);
+    render_widget_host_->ScheduleComposite();
     return;
   }
 
@@ -1036,7 +1043,8 @@ LRESULT RenderWidgetHostViewWin::OnSetCursor(HWND window, UINT hittest_code,
 void RenderWidgetHostViewWin::OnSetFocus(HWND window) {
   views::FocusManager::GetWidgetFocusManager()->OnWidgetFocusEvent(window,
                                                                    m_hWnd);
-
+  if (browser_accessibility_manager_.get())
+    browser_accessibility_manager_->GotFocus();
   if (render_widget_host_)
     render_widget_host_->GotFocus();
 }
@@ -1488,7 +1496,7 @@ void RenderWidgetHostViewWin::OnAccessibilityNotifications(
     empty_document.role = WebAccessibility::ROLE_DOCUMENT;
     empty_document.state = 0;
     browser_accessibility_manager_.reset(
-        new BrowserAccessibilityManager(m_hWnd, empty_document, this));
+        BrowserAccessibilityManager::Create(m_hWnd, empty_document, this));
   }
 
   browser_accessibility_manager_->OnAccessibilityNotifications(params);
@@ -1538,27 +1546,39 @@ void RenderWidgetHostViewWin::AccessibilityDoDefaultAction(int acc_obj_id) {
 
 LRESULT RenderWidgetHostViewWin::OnGetObject(UINT message, WPARAM wparam,
                                              LPARAM lparam, BOOL& handled) {
+  if (kIdCustom == lparam) {
+    // An MSAA client requestes our custom id. Assume that we have detected an
+    // active windows screen reader.
+    Singleton<BrowserAccessibilityState>()->OnScreenReaderDetected();
+    render_widget_host_->EnableRendererAccessibility();
+
+    // Return with failure.
+    return static_cast<LRESULT>(0L);
+  }
+
   if (lparam != OBJID_CLIENT) {
     handled = false;
     return static_cast<LRESULT>(0L);
   }
 
-  if (!browser_accessibility_manager_.get()) {
-    render_widget_host_->EnableRendererAccessibility();
+  if (render_widget_host_ && !render_widget_host_->renderer_accessible()) {
+    // Attempt to detect screen readers by sending an event with our custom id.
+    NotifyWinEvent(EVENT_SYSTEM_ALERT, m_hWnd, kIdCustom, CHILDID_SELF);
+  }
 
+  if (!browser_accessibility_manager_.get()) {
     // Return busy document tree while renderer accessibility tree loads.
     webkit_glue::WebAccessibility loading_tree;
     loading_tree.role = WebAccessibility::ROLE_DOCUMENT;
     loading_tree.state = (1 << WebAccessibility::STATE_BUSY);
     browser_accessibility_manager_.reset(
-      new BrowserAccessibilityManager(m_hWnd, loading_tree, this));
+      BrowserAccessibilityManager::Create(m_hWnd, loading_tree, this));
   }
 
-  BrowserAccessibility* root = browser_accessibility_manager_->GetRoot();
-  if (root) {
-    return LresultFromObject(IID_IAccessible, wparam,
-        static_cast<IAccessible*>(root->NewReference()));
-  }
+  ScopedComPtr<IAccessible> root(
+      browser_accessibility_manager_->GetRoot()->toBrowserAccessibilityWin());
+  if (root.get())
+    return LresultFromObject(IID_IAccessible, wparam, root.Detach());
 
   handled = false;
   return static_cast<LRESULT>(0L);

@@ -6,7 +6,7 @@
 
 #include "app/resource_bundle.h"
 #include "base/singleton.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/common/url_constants.h"
 #include "grit/theme_resources.h"
@@ -64,8 +64,8 @@ RemotingUI::RemotingUI(TabContents* contents) : DOMUI(contents) {
   RemotingUIHTMLSource* html_source = new RemotingUIHTMLSource();
 
   // Set up the chrome://remoting source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(html_source)));

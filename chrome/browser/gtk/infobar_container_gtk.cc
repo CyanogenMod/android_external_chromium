@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,15 +6,22 @@
 
 #include <gtk/gtk.h>
 
+#include "base/command_line.h"
 #include "chrome/browser/browser_window.h"
+#include "chrome/browser/gtk/browser_window_gtk.h"
 #include "chrome/browser/gtk/gtk_theme_provider.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/gtk/infobar_gtk.h"
+#include "chrome/browser/platform_util.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
+#include "third_party/skia/include/core/SkPaint.h"
 
 namespace {
+
+static const char* kInfoBar = "info-bar";
 
 // If |infobar_widget| matches |info_bar_delegate|, then close the infobar.
 void AnimateClosingForDelegate(GtkWidget* infobar_widget,
@@ -22,7 +29,7 @@ void AnimateClosingForDelegate(GtkWidget* infobar_widget,
   InfoBarDelegate* delegate =
       static_cast<InfoBarDelegate*>(info_bar_delegate);
   InfoBar* infobar = reinterpret_cast<InfoBar*>(
-      g_object_get_data(G_OBJECT(infobar_widget), "info-bar"));
+      g_object_get_data(G_OBJECT(infobar_widget), kInfoBar));
 
   if (!infobar) {
     NOTREACHED();
@@ -39,7 +46,7 @@ void ClosingForDelegate(GtkWidget* infobar_widget, gpointer info_bar_delegate) {
   InfoBarDelegate* delegate =
       static_cast<InfoBarDelegate*>(info_bar_delegate);
   InfoBar* infobar = reinterpret_cast<InfoBar*>(
-      g_object_get_data(G_OBJECT(infobar_widget), "info-bar"));
+      g_object_get_data(G_OBJECT(infobar_widget), kInfoBar));
 
   if (!infobar) {
     NOTREACHED();
@@ -55,7 +62,7 @@ void ClosingForDelegate(GtkWidget* infobar_widget, gpointer info_bar_delegate) {
 void SumAnimatingBarHeight(GtkWidget* widget, gpointer userdata) {
   int* height_sum = static_cast<int*>(userdata);
   InfoBar* infobar = reinterpret_cast<InfoBar*>(
-      g_object_get_data(G_OBJECT(widget), "info-bar"));
+      g_object_get_data(G_OBJECT(widget), kInfoBar));
   if (infobar->IsAnimating())
     *height_sum += widget->allocation.height;
 }
@@ -82,6 +89,7 @@ void InfoBarContainerGtk::ChangeTabContents(TabContents* contents) {
     registrar_.RemoveAll();
 
   gtk_util::RemoveAllChildren(widget());
+  UpdateToolbarInfoBarState(NULL, false);
 
   tab_contents_ = contents;
   if (tab_contents_) {
@@ -139,12 +147,16 @@ void InfoBarContainerGtk::AddInfoBar(InfoBarDelegate* delegate, bool animate) {
   InfoBar* infobar = delegate->CreateInfoBar();
   infobar->set_container(this);
   infobar->SetThemeProvider(GtkThemeProvider::GetFrom(profile_));
-  gtk_box_pack_end(GTK_BOX(widget()), infobar->widget(),
-                   FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(widget()), infobar->widget(),
+                     FALSE, FALSE, 0);
+
   if (animate)
     infobar->AnimateOpen();
   else
     infobar->Open();
+
+  if (tab_contents_->GetInfoBarDelegateAt(0) == delegate)
+    UpdateToolbarInfoBarState(infobar, animate);
 }
 
 void InfoBarContainerGtk::RemoveInfoBar(InfoBarDelegate* delegate,
@@ -156,4 +168,46 @@ void InfoBarContainerGtk::RemoveInfoBar(InfoBarDelegate* delegate,
     gtk_container_foreach(GTK_CONTAINER(widget()), ClosingForDelegate,
                           delegate);
   }
+
+  if (tab_contents_->GetInfoBarDelegateAt(0) == delegate) {
+    InfoBar* bar = NULL;
+    // Get the next infobar, if it exists, so we can change the color of the
+    // arrow to it.
+    GList* children = gtk_container_get_children(GTK_CONTAINER(widget()));
+    if (children) {
+      if (children->next) {
+        bar = reinterpret_cast<InfoBar*>(
+            g_object_get_data(G_OBJECT(children->next->data), kInfoBar));
+      }
+      g_list_free(children);
+    }
+
+    UpdateToolbarInfoBarState(bar, animate);
+  }
+}
+
+void InfoBarContainerGtk::UpdateToolbarInfoBarState(
+    InfoBar* infobar, bool animate) {
+  if (!CommandLine::ForCurrentProcess()->
+          HasSwitch(switches::kEnableSecureInfoBars)) {
+    return;
+  }
+
+  scoped_ptr<std::pair<SkColor, SkColor> > colors;
+
+  if (infobar) {
+    double r, g, b;
+    infobar->GetTopColor(infobar->delegate()->GetInfoBarType(), &r, &g, &b);
+    SkColor top = SkColorSetRGB(r * 0xff, g * 0xff, b * 0xff);
+    infobar->GetBottomColor(infobar->delegate()->GetInfoBarType(), &r, &g, &b);
+    SkColor bottom = SkColorSetRGB(r * 0xff, g * 0xff, b * 0xff);
+
+    colors.reset(new std::pair<SkColor, SkColor>(top, bottom));
+  }
+
+  GtkWindow* parent = platform_util::GetTopLevel(widget());
+  BrowserWindowGtk* browser_window =
+      BrowserWindowGtk::GetBrowserWindowForNativeWindow(parent);
+  if (browser_window)
+    browser_window->SetInfoBarShowing(colors.get(), animate);
 }

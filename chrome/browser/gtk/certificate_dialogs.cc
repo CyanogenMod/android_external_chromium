@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// TODO(mattm): this isn't gtk specific, it shouldn't be under the gtk dir
+
 #include "chrome/browser/gtk/certificate_dialogs.h"
 
-#include <cms.h>
-#include <gtk/gtk.h>
 
 #include <vector>
 
@@ -15,14 +15,10 @@
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/task.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/shell_dialogs.h"
-#include "chrome/third_party/mozilla_security_manager/nsNSSCertHelper.h"
-#include "chrome/third_party/mozilla_security_manager/nsNSSCertificate.h"
+#include "chrome/common/net/x509_certificate_model.h"
 #include "grit/generated_resources.h"
-
-// PSM = Mozilla's Personal Security Manager.
-namespace psm = mozilla_security_manager;
 
 namespace {
 
@@ -48,34 +44,8 @@ class Writer : public Task {
 };
 
 void WriteFileOnFileThread(const FilePath& path, const std::string& data) {
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE, new Writer(path, data));
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// NSS certificate export functions.
-
-class FreeNSSCMSMessage {
- public:
-  inline void operator()(NSSCMSMessage* x) const {
-    NSS_CMSMessage_Destroy(x);
-  }
-};
-typedef scoped_ptr_malloc<NSSCMSMessage, FreeNSSCMSMessage>
-    ScopedNSSCMSMessage;
-
-class FreeNSSCMSSignedData {
- public:
-  inline void operator()(NSSCMSSignedData* x) const {
-    NSS_CMSSignedData_Destroy(x);
-  }
-};
-typedef scoped_ptr_malloc<NSSCMSSignedData, FreeNSSCMSSignedData>
-    ScopedNSSCMSSignedData;
-
-std::string GetDerString(CERTCertificate* cert) {
-  return std::string(reinterpret_cast<const char*>(cert->derCert.data),
-                     cert->derCert.len);
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE, new Writer(path, data));
 }
 
 std::string WrapAt64(const std::string &str) {
@@ -87,9 +57,10 @@ std::string WrapAt64(const std::string &str) {
   return result;
 }
 
-std::string GetBase64String(CERTCertificate* cert) {
+std::string GetBase64String(net::X509Certificate::OSCertHandle cert) {
   std::string base64;
-  if (!base::Base64Encode(GetDerString(cert), &base64)) {
+  if (!base::Base64Encode(
+      x509_certificate_model::GetDerString(cert), &base64)) {
     LOG(ERROR) << "base64 encoding error";
     return "";
   }
@@ -98,64 +69,12 @@ std::string GetBase64String(CERTCertificate* cert) {
       "-----END CERTIFICATE-----\r\n";
 }
 
-std::string GetCMSString(std::vector<CERTCertificate*> cert_chain, size_t start,
-                         size_t end) {
-  ScopedPRArenaPool arena(PORT_NewArena(1024));
-  CHECK(arena.get());
-
-  ScopedNSSCMSMessage message(NSS_CMSMessage_Create(arena.get()));
-  CHECK(message.get());
-
-  // First, create SignedData with the certificate only (no chain).
-  ScopedNSSCMSSignedData signed_data(
-      NSS_CMSSignedData_CreateCertsOnly(message.get(), cert_chain[start],
-                                        PR_FALSE));
-  if (!signed_data.get()) {
-    LOG(ERROR) << "NSS_CMSSignedData_Create failed";
-    return "";
-  }
-  // Add the rest of the chain (if any).
-  for (size_t i = start + 1; i < end; ++i) {
-    if (NSS_CMSSignedData_AddCertificate(signed_data.get(), cert_chain[i]) !=
-        SECSuccess) {
-      LOG(ERROR) << "NSS_CMSSignedData_AddCertificate failed on " << i;
-      return "";
-    }
-  }
-
-  NSSCMSContentInfo *cinfo = NSS_CMSMessage_GetContentInfo(message.get());
-  if (NSS_CMSContentInfo_SetContent_SignedData(
-      message.get(), cinfo, signed_data.get()) == SECSuccess) {
-    ignore_result(signed_data.release());
-  } else {
-    LOG(ERROR) << "NSS_CMSMessage_GetContentInfo failed";
-    return "";
-  }
-
-  SECItem cert_p7 = { siBuffer, NULL, 0 };
-  NSSCMSEncoderContext *ecx = NSS_CMSEncoder_Start(message.get(), NULL, NULL,
-                                                   &cert_p7, arena.get(), NULL,
-                                                   NULL, NULL, NULL, NULL,
-                                                   NULL);
-  if (!ecx) {
-    LOG(ERROR) << "NSS_CMSEncoder_Start failed";
-    return "";
-  }
-
-  if (NSS_CMSEncoder_Finish(ecx) != SECSuccess) {
-    LOG(ERROR) << "NSS_CMSEncoder_Finish failed";
-    return "";
-  }
-
-  return std::string(reinterpret_cast<const char*>(cert_p7.data), cert_p7.len);
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // General utility functions.
 
 class Exporter : public SelectFileDialog::Listener {
  public:
-  Exporter(gfx::NativeWindow parent, CERTCertificate* cert);
+  Exporter(gfx::NativeWindow parent, net::X509Certificate::OSCertHandle cert);
   ~Exporter();
 
   // SelectFileDialog::Listener implemenation.
@@ -166,30 +85,72 @@ class Exporter : public SelectFileDialog::Listener {
   scoped_refptr<SelectFileDialog> select_file_dialog_;
 
   // The certificate hierarchy (leaf cert first).
-  CERTCertList* cert_chain_list_;
-  // The same contents of cert_chain_list_ in a vector for easier access.
-  std::vector<CERTCertificate*> cert_chain_;
+  net::X509Certificate::OSCertHandles cert_chain_list_;
 };
 
-Exporter::Exporter(gfx::NativeWindow parent, CERTCertificate* cert)
+Exporter::Exporter(gfx::NativeWindow parent,
+                   net::X509Certificate::OSCertHandle cert)
     : select_file_dialog_(SelectFileDialog::Create(this)) {
-  cert_chain_list_ = CERT_GetCertChainFromCert(cert, PR_Now(),
-                                               certUsageSSLServer);
-  DCHECK(cert_chain_list_);
-  CERTCertListNode* node;
-  for (node = CERT_LIST_HEAD(cert_chain_list_);
-       !CERT_LIST_END(node, cert_chain_list_);
-       node = CERT_LIST_NEXT(node)) {
-    cert_chain_.push_back(node->cert);
-  }
+  x509_certificate_model::GetCertChainFromCert(cert, &cert_chain_list_);
 
   // TODO(mattm): should this default to some directory?
   // Maybe SavePackage::GetSaveDirPreference? (Except that it's private.)
   FilePath suggested_path("certificate");
-  std::string cert_title = psm::GetCertTitle(cert);
+  std::string cert_title = x509_certificate_model::GetTitle(cert);
   if (!cert_title.empty())
     suggested_path = FilePath(cert_title);
 
+  ShowCertSelectFileDialog(select_file_dialog_.get(),
+                           SelectFileDialog::SELECT_SAVEAS_FILE,
+                           suggested_path,
+                           parent,
+                           NULL);
+}
+
+Exporter::~Exporter() {
+  x509_certificate_model::DestroyCertChain(&cert_chain_list_);
+}
+
+void Exporter::FileSelected(const FilePath& path, int index, void* params) {
+  std::string data;
+  switch (index) {
+    case 2:
+      for (size_t i = 0; i < cert_chain_list_.size(); ++i)
+        data += GetBase64String(cert_chain_list_[i]);
+      break;
+    case 3:
+      data = x509_certificate_model::GetDerString(cert_chain_list_[0]);
+      break;
+    case 4:
+      data = x509_certificate_model::GetCMSString(cert_chain_list_, 0, 1);
+      break;
+    case 5:
+      data = x509_certificate_model::GetCMSString(
+          cert_chain_list_, 0, cert_chain_list_.size());
+      break;
+    case 1:
+    default:
+      data = GetBase64String(cert_chain_list_[0]);
+      break;
+  }
+
+  if (!data.empty())
+    WriteFileOnFileThread(path, data);
+
+  delete this;
+}
+
+void Exporter::FileSelectionCanceled(void* params) {
+  delete this;
+}
+
+} // namespace
+
+void ShowCertSelectFileDialog(SelectFileDialog* select_file_dialog,
+                              SelectFileDialog::Type type,
+                              const FilePath& suggested_path,
+                              gfx::NativeWindow parent,
+                              void* params) {
   SelectFileDialog::FileTypeInfo file_type_info;
   file_type_info.extensions.resize(5);
   file_type_info.extensions[0].push_back(FILE_PATH_LITERAL("pem"));
@@ -210,51 +171,14 @@ Exporter::Exporter(gfx::NativeWindow parent, CERTCertificate* cert)
   file_type_info.extension_description_overrides.push_back(
       l10n_util::GetStringUTF16(IDS_CERT_EXPORT_TYPE_PKCS7_CHAIN));
   file_type_info.include_all_files = true;
-  select_file_dialog_->SelectFile(
-      SelectFileDialog::SELECT_SAVEAS_FILE, string16(),
+  select_file_dialog->SelectFile(
+      type, string16(),
       suggested_path, &file_type_info, 1,
       FILE_PATH_LITERAL("crt"), parent,
-      NULL);
+      params);
 }
 
-Exporter::~Exporter() {
-  CERT_DestroyCertList(cert_chain_list_);
-}
-
-void Exporter::FileSelected(const FilePath& path, int index, void* params) {
-  std::string data;
-  switch (index) {
-    case 2:
-      for (size_t i = 0; i < cert_chain_.size(); ++i)
-        data += GetBase64String(cert_chain_[i]);
-      break;
-    case 3:
-      data = GetDerString(cert_chain_[0]);
-      break;
-    case 4:
-      data = GetCMSString(cert_chain_, 0, 1);
-      break;
-    case 5:
-      data = GetCMSString(cert_chain_, 0, cert_chain_.size());
-      break;
-    case 1:
-    default:
-      data = GetBase64String(cert_chain_[0]);
-      break;
-  }
-
-  if (!data.empty())
-    WriteFileOnFileThread(path, data);
-
-  delete this;
-}
-
-void Exporter::FileSelectionCanceled(void* params) {
-  delete this;
-}
-
-} // namespace
-
-void ShowCertExportDialog(gfx::NativeWindow parent, CERTCertificate* cert) {
+void ShowCertExportDialog(gfx::NativeWindow parent,
+                          net::X509Certificate::OSCertHandle cert) {
   new Exporter(parent, cert);
 }

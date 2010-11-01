@@ -10,6 +10,7 @@
 #include "app/text_elider.h"
 #include "base/stl_util-inl.h"
 #include "base/sys_string_conversions.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view_mac.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
@@ -81,13 +82,12 @@ NSColor* HoveredBackgroundColor() {
 static NSColor* ContentTextColor() {
   return [NSColor blackColor];
 }
+static NSColor* DimContentTextColor() {
+  return [NSColor darkGrayColor];
+}
 static NSColor* URLTextColor() {
   return [NSColor colorWithCalibratedRed:0.0 green:0.55 blue:0.0 alpha:1.0];
 }
-static NSColor* DescriptionTextColor() {
-  return [NSColor darkGrayColor];
-}
-
 }  // namespace
 
 // Helper for MatchText() to allow sharing code between the contents
@@ -96,7 +96,7 @@ static NSColor* DescriptionTextColor() {
 NSMutableAttributedString* AutocompletePopupViewMac::DecorateMatchedString(
     const std::wstring &matchString,
     const AutocompleteMatch::ACMatchClassifications &classifications,
-    NSColor* textColor, gfx::Font& font) {
+    NSColor* textColor, NSColor* dimTextColor, gfx::Font& font) {
   // Cache for on-demand computation of the bold version of |font|.
   NSFont* boldFont = nil;
 
@@ -133,6 +133,12 @@ NSMutableAttributedString* AutocompletePopupViewMac::DecorateMatchedString(
       }
       [as addAttribute:NSFontAttributeName value:boldFont range:range];
     }
+
+    if (0 != (i->style & ACMatchClassification::DIM)) {
+      [as addAttribute:NSForegroundColorAttributeName
+                 value:dimTextColor
+                 range:range];
+    }
   }
 
   return as;
@@ -149,7 +155,8 @@ NSMutableAttributedString* AutocompletePopupViewMac::ElideString(
   }
 
   // If ElideText() decides to do nothing, nothing to be done.
-  const std::wstring elided(ElideText(originalString, font, width, false));
+  const std::wstring elided(UTF16ToWideHack(ElideText(
+      WideToUTF16Hack(originalString), font, width, false)));
   if (0 == elided.compare(originalString)) {
     return aString;
   }
@@ -181,7 +188,9 @@ NSAttributedString* AutocompletePopupViewMac::MatchText(
   NSMutableAttributedString *as =
       DecorateMatchedString(match.contents,
                             match.contents_class,
-                            ContentTextColor(), font);
+                            ContentTextColor(),
+                            DimContentTextColor(),
+                            font);
 
   // If there is a description, append it, separated from the contents
   // with an en dash, and decorated with a distinct color.
@@ -205,9 +214,14 @@ NSAttributedString* AutocompletePopupViewMac::MatchText(
         [[[NSAttributedString alloc] initWithString:rawEnDash
                                          attributes:attributes] autorelease];
 
+    // In Windows, a boolean force_dim is passed as true for the
+    // description.  Here, we pass the dim text color for both normal and dim,
+    // to accomplish the same thing.
     NSAttributedString* description =
         DecorateMatchedString(match.description, match.description_class,
-                              DescriptionTextColor(), font);
+                              DimContentTextColor(),
+                              DimContentTextColor(),
+                              font);
 
     [as appendAttributedString:enDash];
     [as appendAttributedString:description];
@@ -260,7 +274,8 @@ AutocompletePopupViewMac::AutocompletePopupViewMac(
     : model_(new AutocompletePopupModel(this, edit_model, profile)),
       edit_view_(edit_view),
       field_(field),
-      popup_(nil) {
+      popup_(nil),
+      targetPopupFrame_(NSZeroRect) {
   DCHECK(edit_view);
   DCHECK(edit_model);
   DCHECK(profile);
@@ -448,6 +463,15 @@ void AutocompletePopupViewMac::UpdatePopupAppearance() {
   PositionPopup(rows * cellHeight);
 }
 
+gfx::Rect AutocompletePopupViewMac::GetTargetBounds() {
+  // Flip the coordinate system before returning.
+  NSScreen* screen = [[NSScreen screens] objectAtIndex:0];
+  NSRect monitorFrame = [screen frame];
+  gfx::Rect bounds(NSRectToCGRect(targetPopupFrame_));
+  bounds.set_y(monitorFrame.size.height - bounds.y() - bounds.height());
+  return bounds;
+}
+
 void AutocompletePopupViewMac::SetSelectedLine(size_t line) {
   model_->SetSelectedLine(line, false);
 }
@@ -461,12 +485,6 @@ void AutocompletePopupViewMac::PaintUpdatesNow() {
 
 AutocompletePopupModel* AutocompletePopupViewMac::GetModel() {
   return model_.get();
-}
-
-int AutocompletePopupViewMac::GetMaxYCoordinate() {
-  // TODO: implement if match preview pans out.
-  NOTIMPLEMENTED();
-  return 0;
 }
 
 void AutocompletePopupViewMac::OpenURLForRow(int row, bool force_background) {

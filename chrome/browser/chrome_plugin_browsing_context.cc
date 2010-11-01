@@ -6,11 +6,11 @@
 
 #include "base/message_loop.h"
 #include "base/singleton.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/notification_service.h"
 
 CPBrowsingContextManager* CPBrowsingContextManager::Instance() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   return Singleton<CPBrowsingContextManager>::get();
 }
 

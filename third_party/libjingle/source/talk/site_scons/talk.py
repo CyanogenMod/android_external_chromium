@@ -6,6 +6,9 @@
 #
 import os
 
+# Keep a global list of what libraries have a 64 bit version.  We use it for
+# replacements when linking a 64 bit dylib or executable.
+libs64 = []
 
 def Library(env, **kwargs):
   """Extends ComponentLibrary to support multiplatform builds.
@@ -15,7 +18,10 @@ def Library(env, **kwargs):
     kwargs: The keyword arguments.
   """
   params = CombineDicts(kwargs, {'COMPONENT_STATIC': True})
-  return ExtendComponent(env, env.ComponentLibrary, **params)
+  if params.has_key('also64bit'):
+    libs64.append(params['name'])
+
+  return ExtendComponent(env, 'ComponentLibrary', **params)
 
 
 def DynamicLibrary(env, **kwargs):
@@ -30,11 +36,11 @@ def DynamicLibrary(env, **kwargs):
     See swtoolkit ComponentLibrary
   """
   params = CombineDicts(kwargs, {'COMPONENT_STATIC': False})
-  return ExtendComponent(env, env.ComponentLibrary, **params)
+  return ExtendComponent(env, 'ComponentLibrary', **params)
 
 
 def Object(env, **kwargs):
-  return ExtendComponent(env, env.ComponentObject, **kwargs)
+  return ExtendComponent(env, 'ComponentObject', **kwargs)
 
 
 def Unittest(env, **kwargs):
@@ -73,7 +79,7 @@ def Unittest(env, **kwargs):
     ]
 
   params = CombineDicts(kwargs, common_test_params)
-  return ExtendComponent(env, env.ComponentTestProgram, **params)
+  return ExtendComponent(env, 'ComponentTestProgram', **params)
 
 
 def App(env, **kwargs):
@@ -103,7 +109,7 @@ def App(env, **kwargs):
     params = CombineDicts(kwargs, common_app_params)
   else:
     params = kwargs
-  return ExtendComponent(env, env.ComponentProgram, **params)
+  return ExtendComponent(env, 'ComponentProgram', **params)
 
 def WiX(env, **kwargs):
   """ Extends the WiX builder
@@ -114,7 +120,7 @@ def WiX(env, **kwargs):
   Returns:
     The node produced by the environment's wix builder
   """
-  return ExtendComponent(env, env.WiX, **kwargs)
+  return ExtendComponent(env, 'WiX', **kwargs)
 
 def Repository(env, at, path):
   """Maps a directory external to $MAIN_DIR to the given path so that sources
@@ -293,12 +299,6 @@ def ReadVersion(filename):
 # Helper methods for translating talk.Foo() declarations in to manipulations of
 # environmuent construction variables, including parameter parsing and merging,
 #
-def Depends(env, name, kwargs):
-  depends = GetEntry(kwargs, 'depends')
-  if depends is not None:
-    env.Depends(name, depends)
-
-
 def GetEntry(dict, key):
   """Get the value from a dictionary by key. If the key
      isn't in the dictionary then None is returned. If it is in
@@ -371,15 +371,9 @@ def MergeAndFilterByPlatform(env, params):
 def ExtendComponent(env, component, **kwargs):
   """A wrapper around a scons builder function that preprocesses and post-
      processes its inputs and outputs.  For example, it merges and filters
-     fields based on platform and build mode, factors out common includes,
-     and can make a digitally signed copy of the output.
-
-     Why do we build everything up in to the params dict and pass explicitly
-     to component?  We've just always done it that way?  It's probably more
-     conventional to clone env, append or prepend in to env's existing
-     construction variables, then call component(srcs, target) without any extra
-     paremters.  Both methods ensure settings from one target don't leak back in
-     to the original env polluting later targets.
+     certain keyword arguments before appending them to the environments
+     construction variables.  It can build signed targets and 64bit copies
+     of targets as well.
 
   Args:
     env: The hammer environment with which to build the target
@@ -392,51 +386,106 @@ def ExtendComponent(env, component, **kwargs):
     The output node returned by the call to component, or a subsequent signed
     dependant node.
   """
+  env = env.Clone()
 
-  # get our target identifier
+  # get the 'target' field
   name = GetEntry(kwargs, 'name')
 
-  signed = env.Bit('windows') and kwargs.has_key('signed') and kwargs['signed']
+  # if this is a signed binary we need to make an unsigned version first
+  signed = env.Bit('windows') and GetEntry(kwargs, 'signed')
   if signed:
     name = 'unsigned_' + name
 
-  if (kwargs.has_key('include_talk_media_libs') and
-      kwargs['include_talk_media_libs']):
+  also64bit = env.Bit('linux') and GetEntry(kwargs, 'also64bit')
+
+  # add default values
+  if GetEntry(kwargs, 'include_talk_media_libs'):
     kwargs = AddMediaLibs(env, **kwargs)
 
-  # prune parameters for inactive platforms or modes
-  # and combine the rest of the platforms
+  # prune parameters intended for other platforms, then merge
   params = MergeAndFilterByPlatform(env, kwargs)
 
-  # apply any explicit dependencies
-  Depends(env, name, kwargs)
-
-  AddToDict(params, 'CPPDEFINES', env.Dictionary('CPPDEFINES'), False)
-  AddToDict(params, 'CPPPATH', env.Dictionary('CPPPATH'), False)
-  AddToDict(params, 'CCFLAGS', env.Dictionary('CCFLAGS'), False)
-  AddToDict(params, 'LIBPATH', env.Dictionary('LIBPATH'), False)
-  AddToDict(params, 'LINKFLAGS', env.Dictionary('LINKFLAGS'), False)
-  if env.Bit('mac'):
-    AddToDict(params, 'FRAMEWORKS', env.Dictionary('FRAMEWORKS'), False)
-
-  RenameKey(params, 'cppdefines', 'CPPDEFINES')
-  if params.has_key('prepend_includedirs'):
-    RenameKey(params, 'includedirs', 'CPPPATH', False)
-  else:
-    RenameKey(params, 'includedirs', 'CPPPATH')
-  RenameKey(params, 'ccflags', 'CCFLAGS', False)
-  RenameKey(params, 'libdirs', 'LIBPATH')
-  RenameKey(params, 'link_flags', 'LINKFLAGS')
-  RenameKey(params, 'libs', 'LIBS')
-
+  # potentially exit now
   srcs = GetEntry(params, 'srcs')
-  if srcs is None or len(srcs) == 0:
+  if not srcs or not hasattr(env, component):
     return None
 
-  # invoke the builder function
-  node = component(name, srcs, **params)
+  # apply any explicit dependencies
+  dependencies = GetEntry(kwargs, 'depends')
+  if dependencies is not None:
+    env.Depends(name, dependencies)
 
-  if signed:
+  # put the contents of params into the environment
+  # some entries are renamed then appended, others renamed then prepended
+  appends = {
+    'cppdefines' : 'CPPDEFINES',
+    'libdirs' : 'LIBPATH',
+    'link_flags' : 'LINKFLAGS',
+    'libs' : 'LIBS',
+    'FRAMEWORKS' : 'FRAMEWORKS',
+  }
+  prepends = {
+    'ccflags' : 'CCFLAGS',
+  }
+  if GetEntry(params, 'prepend_includedirs'):
+    prepends['includedirs'] = 'CPPPATH'
+  else:
+    appends['includedirs'] = 'CPPPATH'
+
+  for field, var in appends.items():
+    values = GetEntry(params, field)
+    if values is not None:
+      env.Append(**{var : values})
+  for field, var in prepends.items():
+    values = GetEntry(params, field)
+    if values is not None:
+      env.Prepend(**{var : values})
+
+  # workaround for pulse stripping link flag for unknown reason
+  if env.Bit('linux'):
+    env['SHLINKCOM'] = ('$SHLINK -o $TARGET -m32 $SHLINKFLAGS $SOURCES '
+                        '$_LIBDIRFLAGS $_LIBFLAGS')
+    env['LINKCOM'] = ('$LINK -o $TARGET -m32 $LINKFLAGS $SOURCES '
+                      '$_LIBDIRFLAGS $_LIBFLAGS')
+
+  # any other parameters are replaced without renaming
+  for field, value in params.items():
+    env.Replace(**{field : value})
+
+  # invoke the builder function
+  builder = getattr(env, component)
+
+  node = builder(name, srcs)
+
+  # make a parallel 64bit version if requested
+  if also64bit:
+    env_64bit = env.Clone()
+    env_64bit.FilterOut(CCFLAGS = ['-m32'], LINKFLAGS = ['-m32'])
+    env_64bit.Prepend(CCFLAGS = ['-m64', '-fPIC'], LINKFLAGS = ['-m64'])
+    name_64bit = name + '64'
+    env_64bit.Replace(OBJSUFFIX = '64' + env_64bit['OBJSUFFIX'])
+    env_64bit.Replace(SHOBJSUFFIX = '64' + env_64bit['SHOBJSUFFIX'])
+    if ('ComponentProgram' == component or
+        ('ComponentLibrary' == component and
+         env_64bit['COMPONENT_STATIC'] == False)):
+      # link 64 bit versions of libraries
+      libs = []
+      for lib in env_64bit['LIBS']:
+        if lib in set(libs64):
+          libs.append(lib + '64')
+        else:
+          libs.append(lib)
+      env_64bit.Replace(LIBS = libs)
+
+    env_64bit['SHLINKCOM'] = ('$SHLINK -o $TARGET -m64 $SHLINKFLAGS $SOURCES '
+                              '$_LIBDIRFLAGS $_LIBFLAGS')
+    env_64bit['LINKCOM'] = ('$LINK -o $TARGET -m64 $LINKFLAGS $SOURCES '
+                            '$_LIBDIRFLAGS $_LIBFLAGS')
+    builder = getattr(env_64bit, component)
+    nodes = [node, builder(name_64bit, srcs)]
+    return nodes
+
+  if signed:  # Note currently incompatible with 64Bit flag
     # Get the name of the built binary, then get the name of the final signed
     # version from it.  We need the output path since we don't know the file
     # extension beforehand.
@@ -447,8 +496,8 @@ def ExtendComponent(env, component, **kwargs):
     )
     env.Alias('signed_binaries', signed_node)
     return signed
-  else:
-    return node
+
+  return node
 
 
 def AddToDict(dictionary, key, values, append=True):
@@ -464,7 +513,7 @@ def AddToDict(dictionary, key, values, append=True):
     return
 
   cur = dictionary[key]
-  # TODO(dape): Make sure that there are no duplicates
+  # TODO: Make sure that there are no duplicates
   # in the list. I can't use python set for this since
   # the nodes that are returned by the SCONS builders
   # are not hashable.

@@ -20,7 +20,7 @@
 #include "base/path_service.h"
 #include "base/process_util.h"
 #include "base/string_tokenizer.h"
-#include "base/xdg_util.h"
+#include "base/nix/xdg_util.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_manager.h"
@@ -32,7 +32,6 @@
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/gtk/options/content_settings_window_gtk.h"
 #include "chrome/browser/gtk/options/options_layout_gtk.h"
-#include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/options_page_base.h"
 #include "chrome/browser/options_util.h"
 #include "chrome/browser/prefs/pref_member.h"
@@ -40,6 +39,7 @@
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/browser/show_options_url.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -368,7 +368,8 @@ class NetworkSection : public OptionsPageBase {
   static bool SearchPATH(ProxyConfigCommand* commands, size_t ncommands,
                          size_t* index);
   // Start the given proxy configuration utility.
-  static void StartProxyConfigUtil(const ProxyConfigCommand& command);
+  static void StartProxyConfigUtil(Profile* profile,
+                                   const ProxyConfigCommand& command);
 
   // Tracks the state of proxy preferences.
   scoped_ptr<PrefSetObserver> proxy_prefs_;
@@ -428,8 +429,8 @@ void NetworkSection::OnChangeProxiesButtonClicked(GtkButton *button,
 
   ProxyConfigCommand command;
   bool found_command = false;
-  switch (base::GetDesktopEnvironment(env.get())) {
-    case base::DESKTOP_ENVIRONMENT_GNOME: {
+  switch (base::nix::GetDesktopEnvironment(env.get())) {
+    case base::nix::DESKTOP_ENVIRONMENT_GNOME: {
       size_t index;
       ProxyConfigCommand commands[2];
       commands[0].argv = kGNOMEProxyConfigCommand;
@@ -440,30 +441,28 @@ void NetworkSection::OnChangeProxiesButtonClicked(GtkButton *button,
       break;
     }
 
-    case base::DESKTOP_ENVIRONMENT_KDE3:
+    case base::nix::DESKTOP_ENVIRONMENT_KDE3:
       command.argv = kKDE3ProxyConfigCommand;
       found_command = SearchPATH(&command, 1, NULL);
       break;
 
-    case base::DESKTOP_ENVIRONMENT_KDE4:
+    case base::nix::DESKTOP_ENVIRONMENT_KDE4:
       command.argv = kKDE4ProxyConfigCommand;
       found_command = SearchPATH(&command, 1, NULL);
       break;
 
-    case base::DESKTOP_ENVIRONMENT_XFCE:
-    case base::DESKTOP_ENVIRONMENT_OTHER:
+    case base::nix::DESKTOP_ENVIRONMENT_XFCE:
+    case base::nix::DESKTOP_ENVIRONMENT_OTHER:
       break;
   }
 
   if (found_command) {
-    StartProxyConfigUtil(command);
+    StartProxyConfigUtil(section->profile(), command);
   } else {
-    const char* name = base::GetDesktopEnvironmentName(env.get());
+    const char* name = base::nix::GetDesktopEnvironmentName(env.get());
     if (name)
       LOG(ERROR) << "Could not find " << name << " network settings in $PATH";
-    BrowserList::GetLastActive()->
-        OpenURL(GURL(kLinuxProxyConfigUrl),
-                GURL(), NEW_FOREGROUND_TAB, PageTransition::LINK);
+    browser::ShowOptionsURL(section->profile(), GURL(kLinuxProxyConfigUrl));
   }
 }
 
@@ -492,7 +491,8 @@ bool NetworkSection::SearchPATH(ProxyConfigCommand* commands, size_t ncommands,
 }
 
 // static
-void NetworkSection::StartProxyConfigUtil(const ProxyConfigCommand& command) {
+void NetworkSection::StartProxyConfigUtil(Profile* profile,
+                                          const ProxyConfigCommand& command) {
   std::vector<std::string> argv;
   argv.push_back(command.binary);
   for (size_t i = 1; command.argv[i]; i++)
@@ -501,9 +501,7 @@ void NetworkSection::StartProxyConfigUtil(const ProxyConfigCommand& command) {
   base::ProcessHandle handle;
   if (!base::LaunchApp(argv, no_files, false, &handle)) {
     LOG(ERROR) << "StartProxyConfigUtil failed to start " << command.binary;
-    BrowserList::GetLastActive()->
-        OpenURL(GURL(kLinuxProxyConfigUrl), GURL(), NEW_FOREGROUND_TAB,
-                PageTransition::LINK);
+    browser::ShowOptionsURL(profile, GURL(kLinuxProxyConfigUrl));
     return;
   }
   ProcessWatcher::EnsureProcessGetsReaped(handle);
@@ -684,9 +682,9 @@ void ChromeAppsSection::OnBackgroundModeClicked(GtkWidget* widget) {
 }
 
 void ChromeAppsSection::OnLearnMoreLinkClicked(GtkWidget* widget) {
-  BrowserList::GetLastActive()->OpenURL(
-      GURL(l10n_util::GetStringUTF8(IDS_LEARN_MORE_BACKGROUND_MODE_URL)),
-      GURL(), NEW_WINDOW, PageTransition::LINK);
+  browser::ShowOptionsURL(
+      profile(),
+      GURL(l10n_util::GetStringUTF8(IDS_LEARN_MORE_BACKGROUND_MODE_URL)));
 }
 
 
@@ -885,9 +883,9 @@ void PrivacySection::OnClearBrowsingDataButtonClicked(GtkButton* widget,
 // static
 void PrivacySection::OnLearnMoreLinkClicked(GtkButton *button,
                                             PrivacySection* privacy_section) {
-  BrowserList::GetLastActive()->
-      OpenURL(GURL(l10n_util::GetStringUTF8(IDS_LEARN_MORE_PRIVACY_URL)),
-              GURL(), NEW_WINDOW, PageTransition::LINK);
+  browser::ShowOptionsURL(
+      privacy_section->profile(),
+      GURL(l10n_util::GetStringUTF8(IDS_LEARN_MORE_PRIVACY_URL)));
 }
 
 // static
@@ -930,7 +928,6 @@ void PrivacySection::OnDNSPrefetchingChange(GtkWidget* widget,
           UserMetricsAction("Options_DnsPrefetchCheckbox_Disable"),
       privacy_section->profile()->GetPrefs());
   privacy_section->dns_prefetch_enabled_.SetValue(enabled);
-  chrome_browser_net::EnablePredictor(enabled);
 }
 
 // static
@@ -1001,7 +998,6 @@ void PrivacySection::NotifyPrefChanged(const std::string* pref_name) {
     bool enabled = dns_prefetch_enabled_.GetValue();
     gtk_toggle_button_set_active(
         GTK_TOGGLE_BUTTON(enable_dns_prefetching_checkbox_), enabled);
-    chrome_browser_net::EnablePredictor(enabled);
   }
   if (!pref_name || *pref_name == prefs::kSafeBrowsingEnabled) {
     gtk_widget_set_sensitive(
@@ -1187,9 +1183,8 @@ void SecuritySection::NotifyPrefChanged(const std::string* pref_name) {
 // static
 void SecuritySection::OnManageCertificatesClicked(GtkButton* button,
                                                   SecuritySection* section) {
-  BrowserList::GetLastActive()->
-      OpenURL(GURL(kLinuxCertificatesConfigUrl), GURL(), NEW_WINDOW,
-              PageTransition::LINK);
+  browser::ShowOptionsURL(section->profile(),
+                          GURL(kLinuxCertificatesConfigUrl));
 }
 
 // static

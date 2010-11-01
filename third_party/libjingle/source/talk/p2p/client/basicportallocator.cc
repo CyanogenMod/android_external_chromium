@@ -625,7 +625,7 @@ void AllocationSequence::OnMessage(talk_base::Message* msg) {
     }
   }
 
-  // TODO(juberti): use different delays for each stage
+  // TODO: use different delays for each stage
   step_ += 1;
   if (running_) {
     session_->network_thread()->PostDelayed(ALLOCATION_STEP_DELAY,

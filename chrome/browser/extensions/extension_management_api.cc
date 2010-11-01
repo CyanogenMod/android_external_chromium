@@ -13,7 +13,7 @@
 #include "base/string_util.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/extensions/extension_event_names.h"
-#include "chrome/browser/extensions/extension_message_service.h"
+#include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extension_updater.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/profile.h"
@@ -120,7 +120,7 @@ bool LaunchAppFunction::RunImpl() {
   }
 
   extension_misc::LaunchContainer container = extension->launch_container();
-  Browser::OpenApplication(profile(), extension, container);
+  Browser::OpenApplication(profile(), extension, container, NULL);
 
   return true;
 }
@@ -215,9 +215,8 @@ void ExtensionManagementEventRouter::Observe(
 
   ListValue args;
   if (event_name == events::kOnExtensionUninstalled) {
-    // TODO(akalin) - change this to get the id from UninstalledExtensionInfo
-    // when re-landing change to how we send the uninstall notification.
-    std::string extension_id = Details<Extension>(details).ptr()->id();
+    const std::string& extension_id =
+        Details<UninstalledExtensionInfo>(details).ptr()->extension_id;
     args.Append(Value::CreateStringValue(extension_id));
   } else {
     Extension* extension = Details<Extension>(details).ptr();
@@ -230,10 +229,6 @@ void ExtensionManagementEventRouter::Observe(
   std::string args_json;
   base::JSONWriter::Write(&args, false /* pretty_print */, &args_json);
 
-  ExtensionMessageService* message_service =
-      profile->GetExtensionMessageService();
-  message_service->DispatchEventToRenderers(event_name,
-                                            args_json,
-                                            profile,
-                                            GURL());
+  profile->GetExtensionEventRouter()->DispatchEventToRenderers(
+      event_name, args_json, NULL, GURL());
 }

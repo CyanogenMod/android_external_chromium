@@ -19,7 +19,12 @@ namespace chromeos {
 
 class MockCryptohomeLibrary : public CryptohomeLibrary {
  public:
-  MockCryptohomeLibrary() {
+  MockCryptohomeLibrary() : outcome_(false), code_(0) {
+  }
+  virtual ~MockCryptohomeLibrary() {}
+  void SetUp(bool outcome, int code) {
+    outcome_ = outcome;
+    code_ = code;
     ON_CALL(*this, AsyncCheckKey(_, _, _))
         .WillByDefault(
             WithArgs<2>(Invoke(this, &MockCryptohomeLibrary::DoCallback)));
@@ -36,7 +41,6 @@ class MockCryptohomeLibrary : public CryptohomeLibrary {
         .WillByDefault(
             WithArgs<1>(Invoke(this, &MockCryptohomeLibrary::DoCallback)));
   }
-  virtual ~MockCryptohomeLibrary() {}
   MOCK_METHOD2(CheckKey, bool(const std::string& user_email,
                               const std::string& passhash));
   MOCK_METHOD3(AsyncCheckKey, bool(const std::string& user_email,
@@ -58,10 +62,19 @@ class MockCryptohomeLibrary : public CryptohomeLibrary {
                                 Delegate* callback));
   MOCK_METHOD1(MountForBwsi, bool(int*));
   MOCK_METHOD1(AsyncMountForBwsi, bool(Delegate* callback));
+  MOCK_METHOD0(Unmount, bool(void));
   MOCK_METHOD1(Remove, bool(const std::string& user_email));
   MOCK_METHOD2(AsyncRemove, bool(const std::string& user_email, Delegate* d));
   MOCK_METHOD0(IsMounted, bool(void));
   MOCK_METHOD0(GetSystemSalt, CryptohomeBlob(void));
+
+  MOCK_METHOD0(TpmIsReady, bool(void));
+  MOCK_METHOD0(TpmIsEnabled, bool(void));
+  MOCK_METHOD0(TpmIsOwned, bool(void));
+  MOCK_METHOD0(TpmIsBeingOwned, bool(void));
+  MOCK_METHOD1(TpmGetPassword, bool(std::string* password));
+  MOCK_METHOD0(TpmCanAttemptOwnership, void(void));
+  MOCK_METHOD0(TpmClearStoredPassword, void(void));
 
   void SetAsyncBehavior(bool outcome, int code) {
     outcome_ = outcome;

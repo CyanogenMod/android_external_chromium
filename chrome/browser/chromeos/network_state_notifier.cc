@@ -6,7 +6,7 @@
 
 #include "base/message_loop.h"
 #include "base/time.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
@@ -23,7 +23,7 @@ NetworkStateNotifier* NetworkStateNotifier::Get() {
 
 // static
 TimeDelta NetworkStateNotifier::GetOfflineDuration() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   // TODO(oshima): make this instance method so that
   // we can mock this for ui_tests.
   // http://crbug.com/4825 .
@@ -38,14 +38,11 @@ NetworkStateNotifier::NetworkStateNotifier()
 
 void NetworkStateNotifier::NetworkChanged(NetworkLibrary* cros) {
   DCHECK(CrosLibrary::Get()->EnsureLoaded());
-  // Update the state 2 seconds later using UI thread.
-  // See http://crosbug.com/4558
-  ChromeThread::PostDelayedTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       task_factory_.NewRunnableMethod(
           &NetworkStateNotifier::UpdateNetworkState,
-          RetrieveState()),
-      2000);
+          RetrieveState()));
 }
 
 void NetworkStateNotifier::UpdateNetworkState(

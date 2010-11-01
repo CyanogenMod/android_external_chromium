@@ -26,11 +26,11 @@ TypedUrlModelAssociator::TypedUrlModelAssociator(
       expected_loop_(MessageLoop::current()) {
   DCHECK(sync_service_);
   DCHECK(history_backend_);
-  DCHECK(!ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 bool TypedUrlModelAssociator::AssociateModels() {
-  LOG(INFO) << "Associating TypedUrl Models";
+  VLOG(1) << "Associating TypedUrl Models";
   DCHECK(expected_loop_ == MessageLoop::current());
 
   std::vector<history::URLRow> typed_urls;

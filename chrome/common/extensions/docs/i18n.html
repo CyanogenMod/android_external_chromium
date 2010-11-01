@@ -177,6 +177,7 @@
                   <li><a href="cookies.html">Cookies</a></li>
                   <li><a href="events.html">Events</a></li>
                   <li><a href="history.html">History</a></li>
+                  <li><a href="management.html">Management</a></li>
                   <li><a href="tabs.html">Tabs</a></li>
                   <li><a href="windows.html">Windows</a></li>
                 </ul>
@@ -493,6 +494,14 @@ The special message <code>@@extension_id</code>
 can be used in the CSS and JavaScript files of any extension,
 whether or not the extension is localized.
 This message doesn't work in manifest files.
+</p>
+
+<p class="note">
+<b>Note:</b>
+Content script CSS files can't use
+predefined messages such as <code>@@extension_id</code>.
+For details, see
+<a href="http://crbug.com/39899">bug 39899</a>.
 </p>
 
 <p>

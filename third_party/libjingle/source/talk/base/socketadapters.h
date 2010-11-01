@@ -157,7 +157,7 @@ class AsyncHttpsProxySocket : public BufferedReadAdapter {
   DISALLOW_EVIL_CONSTRUCTORS(AsyncHttpsProxySocket);
 };
 
-/* TODO(juberti): Implement this.
+/* TODO: Implement this.
 class AsyncHttpsProxyServerSocket : public AsyncProxyServerSocket {
  public:
   explicit AsyncHttpsProxyServerSocket(AsyncSocket* socket);

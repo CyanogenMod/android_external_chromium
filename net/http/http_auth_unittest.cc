@@ -42,6 +42,23 @@ HttpResponseHeaders* HeadersFromResponseText(const std::string& response) {
       HttpUtil::AssembleRawHeaders(response.c_str(), response.length()));
 }
 
+HttpAuth::AuthorizationResult HandleChallengeResponse(
+    bool connection_based,
+    const std::string& headers_text,
+    std::string* challenge_used) {
+  scoped_ptr<HttpAuthHandlerMock> mock_handler(
+      CreateMockHandler(connection_based));
+  std::set<std::string> disabled_schemes;
+  scoped_refptr<HttpResponseHeaders> headers(
+      HeadersFromResponseText(headers_text));
+  return HttpAuth::HandleChallengeResponse(
+      mock_handler.get(),
+      headers.get(),
+      HttpAuth::AUTH_SERVER,
+      disabled_schemes,
+      challenge_used);
+}
+
 }  // namespace
 
 TEST(HttpAuthTest, ChooseBestChallenge) {
@@ -98,9 +115,9 @@ TEST(HttpAuthTest, ChooseBestChallenge) {
   GURL origin("http://www.example.com");
   std::set<std::string> disabled_schemes;
   URLSecurityManagerAllow url_security_manager;
-  scoped_refptr<HostResolver> host_resolver(new MockHostResolver());
+  scoped_ptr<HostResolver> host_resolver(new MockHostResolver());
   scoped_ptr<HttpAuthHandlerRegistryFactory> http_auth_handler_factory(
-      HttpAuthHandlerFactory::CreateDefault(host_resolver));
+      HttpAuthHandlerFactory::CreateDefault(host_resolver.get()));
   http_auth_handler_factory->SetURLSecurityManager(
       "negotiate", &url_security_manager);
 
@@ -130,73 +147,112 @@ TEST(HttpAuthTest, ChooseBestChallenge) {
   }
 }
 
-TEST(HttpAuthTest, HandleChallengeResponse_RequestBased) {
-  scoped_ptr<HttpAuthHandlerMock> mock_handler(CreateMockHandler(false));
-  std::set<std::string> disabled_schemes;
-  scoped_refptr<HttpResponseHeaders> headers(
-      HeadersFromResponseText(
-          "HTTP/1.1 401 Unauthorized\n"
-          "WWW-Authenticate: Mock token_here\n"));
+TEST(HttpAuthTest, HandleChallengeResponse) {
   std::string challenge_used;
-  EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_REJECT,
-            HttpAuth::HandleChallengeResponse(
-                mock_handler.get(),
-                headers.get(),
-                HttpAuth::AUTH_SERVER,
-                disabled_schemes,
-                &challenge_used));
-  EXPECT_EQ("Mock token_here", challenge_used);
-}
+  const char* kMockChallenge =
+      "HTTP/1.1 401 Unauthorized\n"
+      "WWW-Authenticate: Mock token_here\n";
+  const char* kBasicChallenge =
+      "HTTP/1.1 401 Unauthorized\n"
+      "WWW-Authenticate: Basic realm=\"happy\"\n";
+  const char* kMissingChallenge =
+      "HTTP/1.1 401 Unauthorized\n";
+  const char* kEmptyChallenge =
+      "HTTP/1.1 401 Unauthorized\n"
+      "WWW-Authenticate: \n";
+  const char* kBasicAndMockChallenges =
+      "HTTP/1.1 401 Unauthorized\n"
+      "WWW-Authenticate: Basic realm=\"happy\"\n"
+      "WWW-Authenticate: Mock token_here\n";
+  const char* kTwoMockChallenges =
+      "HTTP/1.1 401 Unauthorized\n"
+      "WWW-Authenticate: Mock token_a\n"
+      "WWW-Authenticate: Mock token_b\n";
 
-TEST(HttpAuthTest, HandleChallengeResponse_ConnectionBased) {
-  scoped_ptr<HttpAuthHandlerMock> mock_handler(CreateMockHandler(true));
-  std::set<std::string> disabled_schemes;
-  scoped_refptr<HttpResponseHeaders> headers(
-      HeadersFromResponseText(
-          "HTTP/1.1 401 Unauthorized\n"
-          "WWW-Authenticate: Mock token_here\n"));
-  std::string challenge_used;
-  EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
-            HttpAuth::HandleChallengeResponse(
-                mock_handler.get(),
-                headers.get(),
-                HttpAuth::AUTH_SERVER,
-                disabled_schemes,
-                &challenge_used));
+  // Request based schemes should treat any new challenges as rejections of the
+  // previous authentication attempt. (There is a slight exception for digest
+  // authentication and the stale parameter, but that is covered in the
+  // http_auth_handler_digest_unittests).
+  EXPECT_EQ(
+      HttpAuth::AUTHORIZATION_RESULT_REJECT,
+      HandleChallengeResponse(false, kMockChallenge, &challenge_used));
   EXPECT_EQ("Mock token_here", challenge_used);
-}
 
-TEST(HttpAuthTest, HandleChallengeResponse_ConnectionBasedNoMatch) {
-  scoped_ptr<HttpAuthHandlerMock> mock_handler(CreateMockHandler(true));
-  std::set<std::string> disabled_schemes;
-  scoped_refptr<HttpResponseHeaders> headers(
-      HeadersFromResponseText(
-          "HTTP/1.1 401 Unauthorized\n"
-          "WWW-Authenticate: Basic realm=\"happy\"\n"));
-  std::string challenge_used;
-  EXPECT_EQ(HttpAuth::AUTHORIZATION_RESULT_REJECT,
-            HttpAuth::HandleChallengeResponse(
-                mock_handler.get(),
-                headers.get(),
-                HttpAuth::AUTH_SERVER,
-                disabled_schemes,
-                &challenge_used));
-  EXPECT_TRUE(challenge_used.empty());
+  EXPECT_EQ(
+      HttpAuth::AUTHORIZATION_RESULT_REJECT,
+      HandleChallengeResponse(false, kBasicChallenge, &challenge_used));
+  EXPECT_EQ("", challenge_used);
+
+  EXPECT_EQ(
+      HttpAuth::AUTHORIZATION_RESULT_REJECT,
+      HandleChallengeResponse(false, kMissingChallenge, &challenge_used));
+  EXPECT_EQ("", challenge_used);
+
+  EXPECT_EQ(
+      HttpAuth::AUTHORIZATION_RESULT_REJECT,
+      HandleChallengeResponse(false, kEmptyChallenge, &challenge_used));
+  EXPECT_EQ("", challenge_used);
+
+  EXPECT_EQ(
+      HttpAuth::AUTHORIZATION_RESULT_REJECT,
+      HandleChallengeResponse(false, kBasicAndMockChallenges, &challenge_used));
+  EXPECT_EQ("Mock token_here", challenge_used);
+
+  EXPECT_EQ(
+      HttpAuth::AUTHORIZATION_RESULT_REJECT,
+      HandleChallengeResponse(false, kTwoMockChallenges, &challenge_used));
+  EXPECT_EQ("Mock token_a", challenge_used);
+
+  // Connection based schemes will treat new auth challenges for the same scheme
+  // as acceptance (and continuance) of the current approach. If there are
+  // no auth challenges for the same scheme, the response will be treated as
+  // a rejection.
+  EXPECT_EQ(
+      HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
+      HandleChallengeResponse(true, kMockChallenge, &challenge_used));
+  EXPECT_EQ("Mock token_here", challenge_used);
+
+  EXPECT_EQ(
+      HttpAuth::AUTHORIZATION_RESULT_REJECT,
+      HandleChallengeResponse(true, kBasicChallenge, &challenge_used));
+  EXPECT_EQ("", challenge_used);
+
+  EXPECT_EQ(
+      HttpAuth::AUTHORIZATION_RESULT_REJECT,
+      HandleChallengeResponse(true, kMissingChallenge, &challenge_used));
+  EXPECT_EQ("", challenge_used);
+
+  EXPECT_EQ(
+      HttpAuth::AUTHORIZATION_RESULT_REJECT,
+      HandleChallengeResponse(true, kEmptyChallenge, &challenge_used));
+  EXPECT_EQ("", challenge_used);
+
+  EXPECT_EQ(
+      HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
+      HandleChallengeResponse(true, kBasicAndMockChallenges, &challenge_used));
+  EXPECT_EQ("Mock token_here", challenge_used);
+
+  EXPECT_EQ(
+      HttpAuth::AUTHORIZATION_RESULT_ACCEPT,
+      HandleChallengeResponse(true, kTwoMockChallenges, &challenge_used));
+  EXPECT_EQ("Mock token_a", challenge_used);
 }
 
 TEST(HttpAuthTest, ChallengeTokenizer) {
   std::string challenge_str = "Basic realm=\"foobar\"";
   HttpAuth::ChallengeTokenizer challenge(challenge_str.begin(),
                                          challenge_str.end());
-  EXPECT_TRUE(challenge.valid());
+  HttpUtil::NameValuePairsIterator parameters = challenge.param_pairs();
+
+  EXPECT_TRUE(parameters.valid());
   EXPECT_EQ(std::string("Basic"), challenge.scheme());
-  EXPECT_TRUE(challenge.GetNext());
-  EXPECT_TRUE(challenge.valid());
-  EXPECT_EQ(std::string("realm"), challenge.name());
-  EXPECT_EQ(std::string("foobar"), challenge.unquoted_value());
-  EXPECT_EQ(std::string("\"foobar\""), challenge.value());
-  EXPECT_TRUE(challenge.value_is_quoted());
-  EXPECT_FALSE(challenge.GetNext());
+  EXPECT_TRUE(parameters.GetNext());
+  EXPECT_TRUE(parameters.valid());
+  EXPECT_EQ(std::string("realm"), parameters.name());
+  EXPECT_EQ(std::string("foobar"), parameters.unquoted_value());
+  EXPECT_EQ(std::string("\"foobar\""), parameters.value());
+  EXPECT_TRUE(parameters.value_is_quoted());
+  EXPECT_FALSE(parameters.GetNext());
 }
 
 // Use a name=value property with no quote marks.
@@ -204,15 +260,17 @@ TEST(HttpAuthTest, ChallengeTokenizerNoQuotes) {
   std::string challenge_str = "Basic realm=foobar@baz.com";
   HttpAuth::ChallengeTokenizer challenge(challenge_str.begin(),
                                          challenge_str.end());
-  EXPECT_TRUE(challenge.valid());
+  HttpUtil::NameValuePairsIterator parameters = challenge.param_pairs();
+
+  EXPECT_TRUE(parameters.valid());
   EXPECT_EQ(std::string("Basic"), challenge.scheme());
-  EXPECT_TRUE(challenge.GetNext());
-  EXPECT_TRUE(challenge.valid());
-  EXPECT_EQ(std::string("realm"), challenge.name());
-  EXPECT_EQ(std::string("foobar@baz.com"), challenge.value());
-  EXPECT_EQ(std::string("foobar@baz.com"), challenge.unquoted_value());
-  EXPECT_FALSE(challenge.value_is_quoted());
-  EXPECT_FALSE(challenge.GetNext());
+  EXPECT_TRUE(parameters.GetNext());
+  EXPECT_TRUE(parameters.valid());
+  EXPECT_EQ(std::string("realm"), parameters.name());
+  EXPECT_EQ(std::string("foobar@baz.com"), parameters.value());
+  EXPECT_EQ(std::string("foobar@baz.com"), parameters.unquoted_value());
+  EXPECT_FALSE(parameters.value_is_quoted());
+  EXPECT_FALSE(parameters.GetNext());
 }
 
 // Use a name=value property with mismatching quote marks.
@@ -220,15 +278,17 @@ TEST(HttpAuthTest, ChallengeTokenizerMismatchedQuotes) {
   std::string challenge_str = "Basic realm=\"foobar@baz.com";
   HttpAuth::ChallengeTokenizer challenge(challenge_str.begin(),
                                          challenge_str.end());
-  EXPECT_TRUE(challenge.valid());
+  HttpUtil::NameValuePairsIterator parameters = challenge.param_pairs();
+
+  EXPECT_TRUE(parameters.valid());
   EXPECT_EQ(std::string("Basic"), challenge.scheme());
-  EXPECT_TRUE(challenge.GetNext());
-  EXPECT_TRUE(challenge.valid());
-  EXPECT_EQ(std::string("realm"), challenge.name());
-  EXPECT_EQ(std::string("foobar@baz.com"), challenge.value());
-  EXPECT_EQ(std::string("foobar@baz.com"), challenge.unquoted_value());
-  EXPECT_FALSE(challenge.value_is_quoted());
-  EXPECT_FALSE(challenge.GetNext());
+  EXPECT_TRUE(parameters.GetNext());
+  EXPECT_TRUE(parameters.valid());
+  EXPECT_EQ(std::string("realm"), parameters.name());
+  EXPECT_EQ(std::string("foobar@baz.com"), parameters.value());
+  EXPECT_EQ(std::string("foobar@baz.com"), parameters.unquoted_value());
+  EXPECT_FALSE(parameters.value_is_quoted());
+  EXPECT_FALSE(parameters.GetNext());
 }
 
 // Use a name= property without a value and with mismatching quote marks.
@@ -236,14 +296,16 @@ TEST(HttpAuthTest, ChallengeTokenizerMismatchedQuotesNoValue) {
   std::string challenge_str = "Basic realm=\"";
   HttpAuth::ChallengeTokenizer challenge(challenge_str.begin(),
                                          challenge_str.end());
-  EXPECT_TRUE(challenge.valid());
+  HttpUtil::NameValuePairsIterator parameters = challenge.param_pairs();
+
+  EXPECT_TRUE(parameters.valid());
   EXPECT_EQ(std::string("Basic"), challenge.scheme());
-  EXPECT_TRUE(challenge.GetNext());
-  EXPECT_TRUE(challenge.valid());
-  EXPECT_EQ(std::string("realm"), challenge.name());
-  EXPECT_EQ(std::string(""), challenge.value());
-  EXPECT_FALSE(challenge.value_is_quoted());
-  EXPECT_FALSE(challenge.GetNext());
+  EXPECT_TRUE(parameters.GetNext());
+  EXPECT_TRUE(parameters.valid());
+  EXPECT_EQ(std::string("realm"), parameters.name());
+  EXPECT_EQ(std::string(""), parameters.value());
+  EXPECT_FALSE(parameters.value_is_quoted());
+  EXPECT_FALSE(parameters.GetNext());
 }
 
 // Use a name=value property with mismatching quote marks and spaces in the
@@ -252,15 +314,17 @@ TEST(HttpAuthTest, ChallengeTokenizerMismatchedQuotesSpaces) {
   std::string challenge_str = "Basic realm=\"foo bar";
   HttpAuth::ChallengeTokenizer challenge(challenge_str.begin(),
                                          challenge_str.end());
-  EXPECT_TRUE(challenge.valid());
+  HttpUtil::NameValuePairsIterator parameters = challenge.param_pairs();
+
+  EXPECT_TRUE(parameters.valid());
   EXPECT_EQ(std::string("Basic"), challenge.scheme());
-  EXPECT_TRUE(challenge.GetNext());
-  EXPECT_TRUE(challenge.valid());
-  EXPECT_EQ(std::string("realm"), challenge.name());
-  EXPECT_EQ(std::string("foo bar"), challenge.value());
-  EXPECT_EQ(std::string("foo bar"), challenge.unquoted_value());
-  EXPECT_FALSE(challenge.value_is_quoted());
-  EXPECT_FALSE(challenge.GetNext());
+  EXPECT_TRUE(parameters.GetNext());
+  EXPECT_TRUE(parameters.valid());
+  EXPECT_EQ(std::string("realm"), parameters.name());
+  EXPECT_EQ(std::string("foo bar"), parameters.value());
+  EXPECT_EQ(std::string("foo bar"), parameters.unquoted_value());
+  EXPECT_FALSE(parameters.value_is_quoted());
+  EXPECT_FALSE(parameters.GetNext());
 }
 
 // Use multiple name=value properties with mismatching quote marks in the last
@@ -269,26 +333,28 @@ TEST(HttpAuthTest, ChallengeTokenizerMismatchedQuotesMultiple) {
   std::string challenge_str = "Digest qop=, algorithm=md5, realm=\"foo";
   HttpAuth::ChallengeTokenizer challenge(challenge_str.begin(),
                                          challenge_str.end());
-  EXPECT_TRUE(challenge.valid());
+  HttpUtil::NameValuePairsIterator parameters = challenge.param_pairs();
+
+  EXPECT_TRUE(parameters.valid());
   EXPECT_EQ(std::string("Digest"), challenge.scheme());
-  EXPECT_TRUE(challenge.GetNext());
-  EXPECT_TRUE(challenge.valid());
-  EXPECT_EQ(std::string("qop"), challenge.name());
-  EXPECT_EQ(std::string(""), challenge.value());
-  EXPECT_FALSE(challenge.value_is_quoted());
-  EXPECT_TRUE(challenge.GetNext());
-  EXPECT_TRUE(challenge.valid());
-  EXPECT_EQ(std::string("algorithm"), challenge.name());
-  EXPECT_EQ(std::string("md5"), challenge.value());
-  EXPECT_EQ(std::string("md5"), challenge.unquoted_value());
-  EXPECT_FALSE(challenge.value_is_quoted());
-  EXPECT_TRUE(challenge.GetNext());
-  EXPECT_TRUE(challenge.valid());
-  EXPECT_EQ(std::string("realm"), challenge.name());
-  EXPECT_EQ(std::string("foo"), challenge.value());
-  EXPECT_EQ(std::string("foo"), challenge.unquoted_value());
-  EXPECT_FALSE(challenge.value_is_quoted());
-  EXPECT_FALSE(challenge.GetNext());
+  EXPECT_TRUE(parameters.GetNext());
+  EXPECT_TRUE(parameters.valid());
+  EXPECT_EQ(std::string("qop"), parameters.name());
+  EXPECT_EQ(std::string(""), parameters.value());
+  EXPECT_FALSE(parameters.value_is_quoted());
+  EXPECT_TRUE(parameters.GetNext());
+  EXPECT_TRUE(parameters.valid());
+  EXPECT_EQ(std::string("algorithm"), parameters.name());
+  EXPECT_EQ(std::string("md5"), parameters.value());
+  EXPECT_EQ(std::string("md5"), parameters.unquoted_value());
+  EXPECT_FALSE(parameters.value_is_quoted());
+  EXPECT_TRUE(parameters.GetNext());
+  EXPECT_TRUE(parameters.valid());
+  EXPECT_EQ(std::string("realm"), parameters.name());
+  EXPECT_EQ(std::string("foo"), parameters.value());
+  EXPECT_EQ(std::string("foo"), parameters.unquoted_value());
+  EXPECT_FALSE(parameters.value_is_quoted());
+  EXPECT_FALSE(parameters.GetNext());
 }
 
 // Use a name= property which has no value.
@@ -296,14 +362,16 @@ TEST(HttpAuthTest, ChallengeTokenizerNoValue) {
   std::string challenge_str = "Digest qop=";
   HttpAuth::ChallengeTokenizer challenge(
       challenge_str.begin(), challenge_str.end());
-  EXPECT_TRUE(challenge.valid());
+  HttpUtil::NameValuePairsIterator parameters = challenge.param_pairs();
+
+  EXPECT_TRUE(parameters.valid());
   EXPECT_EQ(std::string("Digest"), challenge.scheme());
-  EXPECT_TRUE(challenge.GetNext());
-  EXPECT_TRUE(challenge.valid());
-  EXPECT_EQ(std::string("qop"), challenge.name());
-  EXPECT_EQ(std::string(""), challenge.value());
-  EXPECT_FALSE(challenge.value_is_quoted());
-  EXPECT_FALSE(challenge.GetNext());
+  EXPECT_TRUE(parameters.GetNext());
+  EXPECT_TRUE(parameters.valid());
+  EXPECT_EQ(std::string("qop"), parameters.name());
+  EXPECT_EQ(std::string(""), parameters.value());
+  EXPECT_FALSE(parameters.value_is_quoted());
+  EXPECT_FALSE(parameters.GetNext());
 }
 
 // Specify multiple properties, comma separated.
@@ -312,24 +380,26 @@ TEST(HttpAuthTest, ChallengeTokenizerMultiple) {
       "Digest algorithm=md5, realm=\"Oblivion\", qop=auth-int";
   HttpAuth::ChallengeTokenizer challenge(challenge_str.begin(),
                                          challenge_str.end());
-  EXPECT_TRUE(challenge.valid());
+  HttpUtil::NameValuePairsIterator parameters = challenge.param_pairs();
+
+  EXPECT_TRUE(parameters.valid());
   EXPECT_EQ(std::string("Digest"), challenge.scheme());
-  EXPECT_TRUE(challenge.GetNext());
-  EXPECT_TRUE(challenge.valid());
-  EXPECT_EQ(std::string("algorithm"), challenge.name());
-  EXPECT_EQ(std::string("md5"), challenge.value());
-  EXPECT_FALSE(challenge.value_is_quoted());
-  EXPECT_TRUE(challenge.GetNext());
-  EXPECT_TRUE(challenge.valid());
-  EXPECT_EQ(std::string("realm"), challenge.name());
-  EXPECT_EQ(std::string("Oblivion"), challenge.unquoted_value());
-  EXPECT_TRUE(challenge.value_is_quoted());
-  EXPECT_TRUE(challenge.GetNext());
-  EXPECT_TRUE(challenge.valid());
-  EXPECT_EQ(std::string("qop"), challenge.name());
-  EXPECT_EQ(std::string("auth-int"), challenge.value());
-  EXPECT_FALSE(challenge.value_is_quoted());
-  EXPECT_FALSE(challenge.GetNext());
+  EXPECT_TRUE(parameters.GetNext());
+  EXPECT_TRUE(parameters.valid());
+  EXPECT_EQ(std::string("algorithm"), parameters.name());
+  EXPECT_EQ(std::string("md5"), parameters.value());
+  EXPECT_FALSE(parameters.value_is_quoted());
+  EXPECT_TRUE(parameters.GetNext());
+  EXPECT_TRUE(parameters.valid());
+  EXPECT_EQ(std::string("realm"), parameters.name());
+  EXPECT_EQ(std::string("Oblivion"), parameters.unquoted_value());
+  EXPECT_TRUE(parameters.value_is_quoted());
+  EXPECT_TRUE(parameters.GetNext());
+  EXPECT_TRUE(parameters.valid());
+  EXPECT_EQ(std::string("qop"), parameters.name());
+  EXPECT_EQ(std::string("auth-int"), parameters.value());
+  EXPECT_FALSE(parameters.value_is_quoted());
+  EXPECT_FALSE(parameters.GetNext());
 }
 
 // Use a challenge which has no property.
@@ -337,9 +407,11 @@ TEST(HttpAuthTest, ChallengeTokenizerNoProperty) {
   std::string challenge_str = "NTLM";
   HttpAuth::ChallengeTokenizer challenge(
       challenge_str.begin(), challenge_str.end());
-  EXPECT_TRUE(challenge.valid());
+  HttpUtil::NameValuePairsIterator parameters = challenge.param_pairs();
+
+  EXPECT_TRUE(parameters.valid());
   EXPECT_EQ(std::string("NTLM"), challenge.scheme());
-  EXPECT_FALSE(challenge.GetNext());
+  EXPECT_FALSE(parameters.GetNext());
 }
 
 // Use a challenge with Base64 encoded token.
@@ -347,13 +419,10 @@ TEST(HttpAuthTest, ChallengeTokenizerBase64) {
   std::string challenge_str = "NTLM  SGVsbG8sIFdvcmxkCg===";
   HttpAuth::ChallengeTokenizer challenge(challenge_str.begin(),
                                          challenge_str.end());
-  EXPECT_TRUE(challenge.valid());
+
   EXPECT_EQ(std::string("NTLM"), challenge.scheme());
-  challenge.set_expect_base64_token(true);
-  EXPECT_TRUE(challenge.GetNext());
   // Notice the two equal statements below due to padding removal.
-  EXPECT_EQ(std::string("SGVsbG8sIFdvcmxkCg=="), challenge.value());
-  EXPECT_FALSE(challenge.GetNext());
+  EXPECT_EQ(std::string("SGVsbG8sIFdvcmxkCg=="), challenge.base64_param());
 }
 
 TEST(HttpAuthTest, GetChallengeHeaderName) {

@@ -10,7 +10,7 @@
 #include "base/platform_thread.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/common/child_process_info.h"
@@ -132,8 +132,8 @@ void MachBroker::PrepareForFork() {
   if (!listener_thread_started_) {
     listener_thread_started_ = true;
 
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE, new RegisterNotificationTask(this));
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE, new RegisterNotificationTask(this));
 
     // Intentional leak.  This thread is never joined or reaped.
     PlatformThread::CreateNonJoinable(0, new MachListenerThreadDelegate(this));

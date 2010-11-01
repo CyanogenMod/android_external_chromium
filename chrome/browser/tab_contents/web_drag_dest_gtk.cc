@@ -9,6 +9,7 @@
 #include "app/gtk_dnd_util.h"
 #include "base/file_path.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/bookmarks/bookmark_drag_data.h"
 #include "chrome/browser/gtk/bookmark_utils_gtk.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
@@ -17,6 +18,26 @@
 
 using WebKit::WebDragOperation;
 using WebKit::WebDragOperationNone;
+
+namespace {
+
+// Returns the bookmark target atom, based on the underlying toolkit.
+//
+// For GTK, bookmark drag data is encoded as pickle and associated with
+// gtk_dnd_util::CHROME_BOOKMARK_ITEM. See
+// bookmark_utils::WriteBookmarksToSelection() for details.
+// For Views, bookmark drag data is encoded in the same format, and
+// associated with a custom format. See BookmarkDragData::Write() for
+// details.
+GdkAtom GetBookmarkTargetAtom() {
+#if defined(TOOLKIT_VIEWS)
+  return BookmarkDragData::GetBookmarkCustomFormat();
+#else
+  return gtk_dnd_util::GetAtomForTarget(gtk_dnd_util::CHROME_BOOKMARK_ITEM);
+#endif
+}
+
+}  // namespace
 
 WebDragDestGtk::WebDragDestGtk(TabContents* tab_contents, GtkWidget* widget)
     : tab_contents_(tab_contents),
@@ -53,7 +74,7 @@ WebDragDestGtk::~WebDragDestGtk() {
 void WebDragDestGtk::UpdateDragStatus(WebDragOperation operation) {
   if (context_) {
     is_drop_target_ = operation != WebDragOperationNone;
-    gdk_drag_status(context_, gtk_dnd_util::WebDragOpToGdkDragAction(operation),
+    gdk_drag_status(context_, gtk_util::WebDragOpToGdkDragAction(operation),
                     drag_over_time_);
   }
 }
@@ -87,22 +108,24 @@ gboolean WebDragDestGtk::OnDragMotion(GtkWidget* sender,
       gtk_dnd_util::TEXT_HTML,
       gtk_dnd_util::NETSCAPE_URL,
       gtk_dnd_util::CHROME_NAMED_URL,
-      gtk_dnd_util::CHROME_BOOKMARK_ITEM,
       // TODO(estade): support image drags?
     };
 
-    data_requests_ = arraysize(supported_targets);
+    // Add the bookmark target as well.
+    data_requests_ = arraysize(supported_targets) + 1;
     for (size_t i = 0; i < arraysize(supported_targets); ++i) {
       gtk_drag_get_data(widget_, context,
                         gtk_dnd_util::GetAtomForTarget(supported_targets[i]),
                         time);
     }
+
+    gtk_drag_get_data(widget_, context, GetBookmarkTargetAtom(), time);
   } else if (data_requests_ == 0) {
     tab_contents_->render_view_host()->
         DragTargetDragOver(
             gtk_util::ClientPoint(widget_),
             gtk_util::ScreenPoint(widget_),
-            gtk_dnd_util::GdkDragActionToWebDragOp(context->actions));
+            gtk_util::GdkDragActionToWebDragOp(context->actions));
     if (tab_contents_->GetBookmarkDragDelegate())
       tab_contents_->GetBookmarkDragDelegate()->OnDragOver(bookmark_drag_data_);
     drag_over_time_ = time;
@@ -187,8 +210,9 @@ void WebDragDestGtk::OnDragDataReceived(
   // For CHROME_BOOKMARK_ITEM, we have to handle the case where the drag source
   // doesn't have any data available for us. In this case we try to synthesize a
   // URL bookmark.
-  if (data->target ==
-      gtk_dnd_util::GetAtomForTarget(gtk_dnd_util::CHROME_BOOKMARK_ITEM))  {
+  // Note that bookmark drag data is encoded in the same format for both
+  // GTK and Views, hence we can share the same logic here.
+  if (data->target == GetBookmarkTargetAtom()) {
     if (data->data && data->length > 0) {
       bookmark_drag_data_.ReadFromVector(
           bookmark_utils::GetNodesFromSelection(
@@ -209,7 +233,7 @@ void WebDragDestGtk::OnDragDataReceived(
         DragTargetDragEnter(*drop_data_.get(),
             gtk_util::ClientPoint(widget_),
             gtk_util::ScreenPoint(widget_),
-            gtk_dnd_util::GdkDragActionToWebDragOp(context->actions));
+            gtk_util::GdkDragActionToWebDragOp(context->actions));
 
     // This is non-null if tab_contents_ is showing an ExtensionDOMUI with
     // support for (at the moment experimental) drag and drop extensions.

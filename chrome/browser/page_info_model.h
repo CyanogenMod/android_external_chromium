@@ -8,6 +8,7 @@
 
 #include <vector>
 
+#include "gfx/native_widget_types.h"
 #include "base/string16.h"
 #include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/history/history.h"
@@ -23,10 +24,9 @@ class PageInfoModel {
  public:
   class PageInfoModelObserver {
    public:
-    virtual void ModelChanged() = 0;
-
-   protected:
     virtual ~PageInfoModelObserver() {}
+
+    virtual void ModelChanged() = 0;
   };
 
   enum SectionInfoType {
@@ -35,23 +35,28 @@ class PageInfoModel {
     SECTION_INFO_FIRST_VISIT,
   };
 
-  enum SectionInfoState {
-    SECTION_STATE_OK = 0,
+  enum SectionStateIcon {
+    // No icon.
+    ICON_NONE = -1,
+    // State is OK.
+    ICON_STATE_OK,
     // For example, if state is OK but contains mixed content.
-    SECTION_STATE_WARNING_MINOR,
+    ICON_STATE_WARNING_MINOR,
     // For example, if content was served over HTTP.
-    SECTION_STATE_WARNING_MAJOR,
+    ICON_STATE_WARNING_MAJOR,
     // For example, unverified identity over HTTPS.
-    SECTION_STATE_ERROR,
+    ICON_STATE_ERROR,
+    // An information icon.
+    ICON_STATE_INFO
   };
 
   struct SectionInfo {
-    SectionInfo(SectionInfoState state,
+    SectionInfo(SectionStateIcon icon_id,
                 const string16& title,
                 const string16& headline,
                 const string16& description,
                 SectionInfoType type)
-        : state(state),
+        : icon_id(icon_id),
           title(title),
           headline(headline),
           description(description),
@@ -59,7 +64,7 @@ class PageInfoModel {
     }
 
     // The overall state of the connection (error, warning, ok).
-    SectionInfoState state;
+    SectionStateIcon icon_id;
 
     // The title of the section.
     string16 title;
@@ -85,6 +90,9 @@ class PageInfoModel {
   int GetSectionCount();
   SectionInfo GetSectionInfo(int index);
 
+  // Returns the native image type for an icon with the given id.
+  gfx::NativeImage GetIconImage(SectionStateIcon icon_id);
+
   // Callback from history service with number of visits to url.
   void OnGotVisitCountToHost(HistoryService::Handle handle,
                              bool found_visits,
@@ -97,9 +105,19 @@ class PageInfoModel {
   // Testing constructor. DO NOT USE.
   PageInfoModel();
 
+  // Shared initialization for default and testing constructor.
+  void Init();
+
+  // Wrapper for ResourceBundle::GetNativeImage() so that Mac can retain its
+  // icons.
+  gfx::NativeImage GetBitmapNamed(int resource_id);
+
   PageInfoModelObserver* observer_;
 
   std::vector<SectionInfo> sections_;
+
+  // All possible icons that go next to the text descriptions to indicate state.
+  std::vector<gfx::NativeImage> icons_;
 
   // Used to request number of visits.
   CancelableRequestConsumer request_consumer_;

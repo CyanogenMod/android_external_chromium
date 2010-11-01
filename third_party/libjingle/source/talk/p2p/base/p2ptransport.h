@@ -36,16 +36,10 @@ namespace cricket {
 
 class P2PTransport: public Transport {
  public:
-  P2PTransport(talk_base::Thread* worker_thread, PortAllocator* allocator);
+  P2PTransport(talk_base::Thread* signaling_thread,
+               talk_base::Thread* worker_thread,
+               PortAllocator* allocator);
   virtual ~P2PTransport();
-
-  virtual bool ParseCandidates(const buzz::XmlElement* elem,
-                               Candidates* candidates,
-                               ParseError* error);
-  virtual bool WriteCandidates(const Candidates& candidates,
-                               SignalingProtocol protocol,
-                               XmlElements* candidate_elems,
-                               WriteError* error);
 
   virtual void OnTransportError(const buzz::XmlElement* error);
 
@@ -55,6 +49,22 @@ class P2PTransport: public Transport {
       const std::string& name, const std::string& content_type);
   virtual void DestroyTransportChannel(TransportChannelImpl* channel);
 
+  friend class P2PTransportChannel;
+
+  DISALLOW_EVIL_CONSTRUCTORS(P2PTransport);
+};
+
+class P2PTransportParser : public TransportParser {
+ public:
+  P2PTransportParser() {}
+  virtual bool ParseCandidates(SignalingProtocol protocol,
+                               const buzz::XmlElement* elem,
+                               Candidates* candidates,
+                               ParseError* error);
+  virtual bool WriteCandidates(SignalingProtocol protocol,
+                               const Candidates& candidates,
+                               XmlElements* candidate_elems,
+                               WriteError* error);
  private:
   bool ParseCandidate(const buzz::XmlElement* elem,
                       Candidate* candidate,
@@ -65,9 +75,7 @@ class P2PTransport: public Transport {
   bool VerifyUsernameFormat(const std::string& username,
                             ParseError* error);
 
-  friend class P2PTransportChannel;
-
-  DISALLOW_EVIL_CONSTRUCTORS(P2PTransport);
+  DISALLOW_EVIL_CONSTRUCTORS(P2PTransportParser);
 };
 
 }  // namespace cricket

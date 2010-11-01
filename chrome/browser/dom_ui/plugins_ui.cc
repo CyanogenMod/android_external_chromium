@@ -13,10 +13,11 @@
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/singleton.h"
+#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/plugin_updater.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -25,6 +26,7 @@
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/notification_service.h"
+#include "chrome/common/pepper_plugin_registry.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "grit/browser_resources.h"
@@ -155,12 +157,33 @@ class PluginsDOMHandler : public DOMMessageHandler,
                const NotificationDetails& details);
 
  private:
+  // This extra wrapper is used to ensure we don't leak the ListValue* pointer
+  // if the PluginsDOMHandler object goes away before the task on the UI thread
+  // to give it the plugin list runs.
+  struct ListWrapper {
+    ListValue* list;
+  };
+  // Loads the plugins on the FILE thread.
+  static void LoadPluginsOnFileThread(ListWrapper* wrapper, Task* task);
+
+  // Used in conjunction with ListWrapper to avoid any memory leaks.
+  static void EnsureListDeleted(ListWrapper* wrapper);
+
+  // Call this to start getting the plugins on the UI thread.
+  void LoadPlugins();
+
+  // Called on the UI thread when the plugin information is ready.
+  void PluginsLoaded(ListWrapper* wrapper);
+
   NotificationRegistrar registrar_;
+
+  ScopedRunnableMethodFactory<PluginsDOMHandler> get_plugins_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(PluginsDOMHandler);
 };
 
-PluginsDOMHandler::PluginsDOMHandler() {
+PluginsDOMHandler::PluginsDOMHandler()
+    : ALLOW_THIS_IN_INITIALIZER_LIST(get_plugins_factory_(this)) {
   registrar_.Add(this,
                  NotificationType::PLUGIN_ENABLE_STATUS_CHANGED,
                  NotificationService::AllSources());
@@ -176,10 +199,7 @@ void PluginsDOMHandler::RegisterMessages() {
 }
 
 void PluginsDOMHandler::HandleRequestPluginsData(const ListValue* args) {
-  DictionaryValue results;
-  results.Set("plugins",
-              PluginUpdater::GetPluginUpdater()->GetPluginGroupsData());
-  dom_ui_->CallJavascriptFunction(L"returnPluginsData", results);
+  LoadPlugins();
 }
 
 void PluginsDOMHandler::HandleEnablePluginMessage(const ListValue* args) {
@@ -192,27 +212,39 @@ void PluginsDOMHandler::HandleEnablePluginMessage(const ListValue* args) {
   std::string is_group_str;
   if (!args->GetString(1, &enable_str) || !args->GetString(2, &is_group_str))
     return;
+  bool enable = enable_str == "true";
 
+  PluginUpdater* plugin_updater = PluginUpdater::GetPluginUpdater();
   if (is_group_str == "true") {
     string16 group_name;
     if (!args->GetString(0, &group_name))
       return;
 
-    PluginUpdater::GetPluginUpdater()->EnablePluginGroup(
-        enable_str == "true", group_name);
+    plugin_updater->EnablePluginGroup(enable, group_name);
+    if (enable) {
+      // See http://crbug.com/50105 for background.
+      string16 reader8 = ASCIIToUTF16(PluginGroup::kAdobeReader8GroupName);
+      string16 reader9 = ASCIIToUTF16(PluginGroup::kAdobeReader9GroupName);
+      string16 internalpdf = ASCIIToUTF16(PepperPluginRegistry::kPDFPluginName);
+      if (group_name == reader8 || group_name == reader9) {
+        plugin_updater->EnablePluginGroup(false, internalpdf);
+      } else if (group_name == internalpdf) {
+        plugin_updater->EnablePluginGroup(false, reader8);
+        plugin_updater->EnablePluginGroup(false, reader9);
+      }
+    }
   } else {
     FilePath::StringType file_path;
     if (!args->GetString(0, &file_path))
       return;
 
-    PluginUpdater::GetPluginUpdater()->EnablePluginFile(
-        enable_str == "true", file_path);
+    plugin_updater->EnablePluginFile(enable, file_path);
   }
 
   // TODO(viettrungluu): We might also want to ensure that the plugins
   // list is always written to prefs even when the user hasn't disabled a
   // plugin. <http://crbug.com/39101>
-  PluginUpdater::GetPluginUpdater()->UpdatePreferences(dom_ui_->GetProfile());
+  plugin_updater->UpdatePreferences(dom_ui_->GetProfile());
 }
 
 void PluginsDOMHandler::HandleShowTermsOfServiceMessage(const ListValue* args) {
@@ -227,9 +259,44 @@ void PluginsDOMHandler::Observe(NotificationType type,
                                 const NotificationSource& source,
                                 const NotificationDetails& details) {
   DCHECK_EQ(NotificationType::PLUGIN_ENABLE_STATUS_CHANGED, type.value);
+  LoadPlugins();
+}
+
+void PluginsDOMHandler::LoadPluginsOnFileThread(ListWrapper* wrapper,
+                                                Task* task) {
+  wrapper->list = PluginUpdater::GetPluginUpdater()->GetPluginGroupsData();
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE, task);
+  BrowserThread::PostTask(
+      BrowserThread::UI,
+      FROM_HERE,
+      NewRunnableFunction(&PluginsDOMHandler::EnsureListDeleted, wrapper));
+}
+
+void PluginsDOMHandler::EnsureListDeleted(ListWrapper* wrapper) {
+  delete wrapper->list;
+  delete wrapper;
+}
+
+void PluginsDOMHandler::LoadPlugins() {
+  if (!get_plugins_factory_.empty())
+    return;
+
+  ListWrapper* wrapper = new ListWrapper;
+  wrapper->list = NULL;
+  Task* task = get_plugins_factory_.NewRunnableMethod(
+          &PluginsDOMHandler::PluginsLoaded, wrapper);
+
+  BrowserThread::PostTask(
+      BrowserThread::FILE,
+      FROM_HERE,
+      NewRunnableFunction(
+          &PluginsDOMHandler::LoadPluginsOnFileThread, wrapper, task));
+}
+
+void PluginsDOMHandler::PluginsLoaded(ListWrapper* wrapper) {
   DictionaryValue results;
-  results.Set("plugins",
-              PluginUpdater::GetPluginUpdater()->GetPluginGroupsData());
+  results.Set("plugins", wrapper->list);
+  wrapper->list = NULL;  // So it doesn't get deleted.
   dom_ui_->CallJavascriptFunction(L"returnPluginsData", results);
 }
 
@@ -247,8 +314,8 @@ PluginsUI::PluginsUI(TabContents* contents) : DOMUI(contents) {
   PluginsUIHTMLSource* html_source = new PluginsUIHTMLSource();
 
   // Set up the chrome://plugins/ source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,
           make_scoped_refptr(html_source)));

@@ -14,8 +14,8 @@
 #include "chrome/browser/background_contents_service.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chrome_blob_storage_context.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/file_system/file_system_host_context.h"
 #include "chrome/browser/extensions/extension_message_service.h"
@@ -62,7 +62,7 @@ URLRequestContextGetter* Profile::default_request_context_;
 
 namespace {
 
-// FIXME: Duplicated in profile_impl.cc
+// TODO(pathorn): Duplicated in profile_impl.cc
 void CleanupRequestContext(ChromeURLRequestContextGetter* context) {
   if (context)
     context->CleanupOnUIThread();
@@ -115,7 +115,7 @@ bool Profile::IsSyncAccessible() {
 //
 ////////////////////////////////////////////////////////////////////////////////
 class OffTheRecordProfileImpl : public Profile,
-                                public NotificationObserver {
+                                public BrowserList::Observer {
  public:
   explicit OffTheRecordProfileImpl(Profile* real_profile)
       : profile_(real_profile),
@@ -123,11 +123,8 @@ class OffTheRecordProfileImpl : public Profile,
     request_context_ = ChromeURLRequestContextGetter::CreateOffTheRecord(this);
     extension_process_manager_.reset(ExtensionProcessManager::Create(this));
 
-    // Register for browser close notifications so we can detect when the last
-    // off-the-record window is closed, in which case we can clean our states
-    // (cookies, downloads...).
-    registrar_.Add(this, NotificationType::BROWSER_CLOSED,
-                   NotificationService::AllSources());
+    BrowserList::AddObserver(this);
+
     background_contents_service_.reset(
         new BackgroundContentsService(this, CommandLine::ForCurrentProcess()));
   }
@@ -140,11 +137,13 @@ class OffTheRecordProfileImpl : public Profile,
     CleanupRequestContext(extensions_request_context_);
 
     // Clean up all DB files/directories
-    ChromeThread::PostTask(
-        ChromeThread::FILE, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::FILE, FROM_HERE,
         NewRunnableMethod(
             db_tracker_.get(),
             &webkit_database::DatabaseTracker::DeleteIncognitoDBDirectory));
+
+    BrowserList::RemoveObserver(this);
   }
 
   virtual ProfileId GetRuntimeId() {
@@ -177,8 +176,8 @@ class OffTheRecordProfileImpl : public Profile,
   virtual ChromeAppCacheService* GetAppCacheService() {
     if (!appcache_service_) {
       appcache_service_ = new ChromeAppCacheService;
-      ChromeThread::PostTask(
-          ChromeThread::IO, FROM_HERE,
+      BrowserThread::PostTask(
+          BrowserThread::IO, FROM_HERE,
           NewRunnableMethod(appcache_service_.get(),
                             &ChromeAppCacheService::InitializeOnIOThread,
                             GetPath(), IsOffTheRecord(),
@@ -229,6 +228,10 @@ class OffTheRecordProfileImpl : public Profile,
 
   virtual ExtensionMessageService* GetExtensionMessageService() {
     return GetOriginalProfile()->GetExtensionMessageService();
+  }
+
+  virtual ExtensionEventRouter* GetExtensionEventRouter() {
+    return GetOriginalProfile()->GetExtensionEventRouter();
   }
 
   virtual SSLHostState* GetSSLHostState() {
@@ -533,31 +536,28 @@ class OffTheRecordProfileImpl : public Profile,
     }
   }
 
-  virtual void Observe(NotificationType type,
-                       const NotificationSource& source,
-                       const NotificationDetails& details) {
-    DCHECK_EQ(NotificationType::BROWSER_CLOSED, type.value);
-    // We are only interested in OTR browser closing.
-    if (Source<Browser>(source)->profile() != this)
-      return;
+  virtual void OnBrowserAdded(const Browser* browser) {
+  }
 
-    // Let's check if we still have an Off The Record window opened.
-    // Note that we check against 1 as this notification is sent before the
-    // browser window is actually removed from the list.
-    if (BrowserList::GetBrowserCount(this) <= 1)
+  virtual void OnBrowserRemoved(const Browser* browser) {
+    if (BrowserList::GetBrowserCount(this) == 0)
       ExitedOffTheRecordMode();
   }
 
   virtual ChromeBlobStorageContext* GetBlobStorageContext() {
     if (!blob_storage_context_) {
       blob_storage_context_ = new ChromeBlobStorageContext();
-      ChromeThread::PostTask(
-          ChromeThread::IO, FROM_HERE,
+      BrowserThread::PostTask(
+          BrowserThread::IO, FROM_HERE,
           NewRunnableMethod(
               blob_storage_context_.get(),
               &ChromeBlobStorageContext::InitializeOnIOThread));
     }
     return blob_storage_context_;
+  }
+
+  virtual ExtensionInfoMap* GetExtensionInfoMap() {
+    return profile_->GetExtensionInfoMap();
   }
 
  private:
@@ -624,6 +624,6 @@ class OffTheRecordProfileImpl : public Profile,
   DISALLOW_COPY_AND_ASSIGN(OffTheRecordProfileImpl);
 };
 
-Profile *Profile::CreateOffTheRecordProfile() {
+Profile* Profile::CreateOffTheRecordProfile() {
   return new OffTheRecordProfileImpl(this);
 }

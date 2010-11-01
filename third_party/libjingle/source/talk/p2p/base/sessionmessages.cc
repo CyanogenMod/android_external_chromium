@@ -28,11 +28,13 @@
 #include "talk/p2p/base/sessionmessages.h"
 
 #include "talk/base/logging.h"
+#include "talk/base/scoped_ptr.h"
 #include "talk/xmpp/constants.h"
 #include "talk/p2p/base/constants.h"
 #include "talk/p2p/base/p2ptransport.h"
 #include "talk/p2p/base/parsing.h"
 #include "talk/p2p/base/sessionclient.h"
+#include "talk/p2p/base/sessiondescription.h"
 #include "talk/p2p/base/transport.h"
 
 namespace cricket {
@@ -50,6 +52,18 @@ ActionType ToActionType(const std::string& type) {
     return ACTION_SESSION_TERMINATE;
   if (type == GINGLE_ACTION_CANDIDATES)
     return ACTION_TRANSPORT_INFO;
+  if (type == JINGLE_ACTION_SESSION_INITIATE)
+    return ACTION_SESSION_INITIATE;
+  if (type == JINGLE_ACTION_TRANSPORT_INFO)
+    return ACTION_TRANSPORT_INFO;
+  if (type == JINGLE_ACTION_TRANSPORT_ACCEPT)
+    return ACTION_TRANSPORT_ACCEPT;
+  if (type == JINGLE_ACTION_SESSION_INFO)
+    return ACTION_SESSION_INFO;
+  if (type == JINGLE_ACTION_SESSION_ACCEPT)
+    return ACTION_SESSION_ACCEPT;
+  if (type == JINGLE_ACTION_SESSION_TERMINATE)
+    return ACTION_SESSION_TERMINATE;
   if (type == JINGLE_ACTION_TRANSPORT_INFO)
     return ACTION_TRANSPORT_INFO;
   if (type == JINGLE_ACTION_TRANSPORT_ACCEPT)
@@ -58,7 +72,29 @@ ActionType ToActionType(const std::string& type) {
   return ACTION_UNKNOWN;
 }
 
-std::string ToString(ActionType type, SignalingProtocol protocol) {
+std::string ToJingleString(ActionType type) {
+  switch (type) {
+    case ACTION_SESSION_INITIATE:
+      return JINGLE_ACTION_SESSION_INITIATE;
+    case ACTION_SESSION_INFO:
+      return JINGLE_ACTION_SESSION_INFO;
+    case ACTION_SESSION_ACCEPT:
+      return JINGLE_ACTION_SESSION_ACCEPT;
+    // Notice that reject and terminate both go to
+    // "session-terminate", but there is no "session-reject".
+    case ACTION_SESSION_REJECT:
+    case ACTION_SESSION_TERMINATE:
+      return JINGLE_ACTION_SESSION_TERMINATE;
+    case ACTION_TRANSPORT_INFO:
+      return JINGLE_ACTION_TRANSPORT_INFO;
+    case ACTION_TRANSPORT_ACCEPT:
+      return JINGLE_ACTION_TRANSPORT_ACCEPT;
+    default:
+      return "";
+  }
+}
+
+std::string ToGingleString(ActionType type) {
   switch (type) {
     case ACTION_SESSION_INITIATE:
       return GINGLE_ACTION_INITIATE;
@@ -71,61 +107,122 @@ std::string ToString(ActionType type, SignalingProtocol protocol) {
     case ACTION_SESSION_TERMINATE:
       return GINGLE_ACTION_TERMINATE;
     case ACTION_TRANSPORT_INFO:
-      if (protocol == PROTOCOL_GINGLE2)
-        return JINGLE_ACTION_TRANSPORT_INFO;
-      else
-        return GINGLE_ACTION_CANDIDATES;
+      return GINGLE_ACTION_CANDIDATES;
     default:
       return "";
   }
 }
 
+
+bool IsJingleMessage(const buzz::XmlElement* stanza) {
+  const buzz::XmlElement* jingle = stanza->FirstNamed(QN_JINGLE);
+  if (jingle == NULL)
+    return false;
+
+  return (jingle->HasAttr(buzz::QN_ACTION) &&
+          jingle->HasAttr(buzz::QN_ID));
+}
+
+bool IsGingleMessage(const buzz::XmlElement* stanza) {
+  const buzz::XmlElement* session = stanza->FirstNamed(QN_GINGLE_SESSION);
+  if (session == NULL)
+    return false;
+
+  return (session->HasAttr(buzz::QN_TYPE) &&
+          session->HasAttr(buzz::QN_ID)   &&
+          session->HasAttr(QN_INITIATOR));
+}
+
 bool IsSessionMessage(const buzz::XmlElement* stanza) {
-  if (stanza->Name() != buzz::QN_IQ ||
-      stanza->Attr(buzz::QN_TYPE) != buzz::STR_SET)
-    return false;
+  return (stanza->Name() == buzz::QN_IQ &&
+          stanza->Attr(buzz::QN_TYPE) == buzz::STR_SET &&
+          (IsJingleMessage(stanza) ||
+           IsGingleMessage(stanza)));
+}
 
-  const buzz::XmlElement* action = stanza->FirstNamed(QN_GINGLE_SESSION);
-  if (action == NULL)
-    return false;
+bool ParseGingleSessionMessage(const buzz::XmlElement* session,
+                               SessionMessage* msg,
+                               ParseError* error) {
+  msg->protocol = PROTOCOL_GINGLE;
+  std::string type_string = session->Attr(buzz::QN_TYPE);
+  msg->type = ToActionType(type_string);
+  msg->sid = session->Attr(buzz::QN_ID);
+  msg->initiator = session->Attr(QN_INITIATOR);
+  msg->action_elem = session;
 
-  return (action->HasAttr(buzz::QN_TYPE) &&
-          action->HasAttr(buzz::QN_ID)   &&
-          action->HasAttr(QN_INITIATOR));
+  if (msg->type == ACTION_UNKNOWN)
+    return BadParse("unknown action: " + type_string, error);
+
+  return true;
+}
+
+bool ParseJingleSessionMessage(const buzz::XmlElement* jingle,
+                               SessionMessage* msg,
+                               ParseError* error) {
+  msg->protocol = PROTOCOL_JINGLE;
+  std::string type_string = jingle->Attr(buzz::QN_ACTION);
+  msg->type = ToActionType(type_string);
+  msg->sid = jingle->Attr(buzz::QN_ID);
+  msg->initiator = GetXmlAttr(jingle, QN_INITIATOR, "");
+  msg->action_elem = jingle;
+
+  if (msg->type == ACTION_UNKNOWN)
+    return BadParse("unknown action: " + type_string, error);
+
+  return true;
+}
+
+bool ParseHybridSessionMessage(const buzz::XmlElement* jingle,
+                               SessionMessage* msg,
+                               ParseError* error) {
+  if (!ParseJingleSessionMessage(jingle, msg, error))
+    return false;
+  msg->protocol = PROTOCOL_HYBRID;
+
+  return true;
 }
 
 bool ParseSessionMessage(const buzz::XmlElement* stanza,
                          SessionMessage* msg,
                          ParseError* error) {
-  const buzz::XmlElement* action;
-  if (!RequireXmlChild(stanza, QN_GINGLE_SESSION.LocalPart(), &action, error))
-    return false;
-
-  std::string type_string;
-  if (!RequireXmlAttr(action, buzz::QN_TYPE, &type_string, error))
-    return false;
-
   msg->id = stanza->Attr(buzz::QN_ID);
   msg->from = stanza->Attr(buzz::QN_FROM);
   msg->to = stanza->Attr(buzz::QN_TO);
   msg->stanza = stanza;
 
-  msg->sid = action->Attr(buzz::QN_ID);
-  msg->initiator = action->Attr(QN_INITIATOR);
-  msg->type = ToActionType(type_string);
-  if (msg->type == ACTION_UNKNOWN)
-    return BadParse("unknown action: " + type_string, error);
-  msg->action_elem = action;
+  const buzz::XmlElement* jingle = stanza->FirstNamed(QN_JINGLE);
+  const buzz::XmlElement* session = stanza->FirstNamed(QN_GINGLE_SESSION);
+  if (jingle && session)
+    return ParseHybridSessionMessage(jingle, msg, error);
+  if (jingle != NULL)
+    return ParseJingleSessionMessage(jingle, msg, error);
+  if (session != NULL)
+    return ParseGingleSessionMessage(session, msg, error);
+  return false;
+}
 
-  if (type_string == GINGLE_ACTION_CANDIDATES ||
-      (msg->type == ACTION_SESSION_INITIATE &&
-       action->FirstNamed(QN_GINGLE_P2P_TRANSPORT) == NULL)) {
-    msg->protocol = PROTOCOL_GINGLE;
-  } else {
-    msg->protocol = PROTOCOL_GINGLE2;
-  }
+buzz::XmlElement* WriteGingleAction(const SessionMessage& msg,
+                                    const XmlElements& action_elems) {
+  buzz::XmlElement* session = new buzz::XmlElement(QN_GINGLE_SESSION, true);
+  session->AddAttr(buzz::QN_TYPE, ToGingleString(msg.type));
+  session->AddAttr(buzz::QN_ID, msg.sid);
+  session->AddAttr(QN_INITIATOR, msg.initiator);
+  AddXmlChildren(session, action_elems);
+  return session;
+}
 
-  return true;
+buzz::XmlElement* WriteJingleAction(const SessionMessage& msg,
+                                    const XmlElements& action_elems) {
+  buzz::XmlElement* jingle = new buzz::XmlElement(QN_JINGLE, true);
+  jingle->AddAttr(buzz::QN_ACTION, ToJingleString(msg.type));
+  jingle->AddAttr(buzz::QN_ID, msg.sid);
+  // TODO: Right now, the XMPP server rejects a jingle-only
+  // (non hybrid) message with "feature-not-implemented" if there is
+  // no initiator.  Fix the server, and then only set the initiator on
+  // session-initiate messages here.
+  jingle->AddAttr(QN_INITIATOR, msg.initiator);
+  AddXmlChildren(jingle, action_elems);
+  return jingle;
 }
 
 void WriteSessionMessage(const SessionMessage& msg,
@@ -134,15 +231,11 @@ void WriteSessionMessage(const SessionMessage& msg,
   stanza->SetAttr(buzz::QN_TO, msg.to);
   stanza->SetAttr(buzz::QN_TYPE, buzz::STR_SET);
 
-  buzz::XmlElement* action = new buzz::XmlElement(QN_GINGLE_SESSION, true);
-  action->AddAttr(buzz::QN_TYPE,
-                  ToString(msg.type, msg.protocol));
-  action->AddAttr(buzz::QN_ID, msg.sid);
-  action->AddAttr(QN_INITIATOR, msg.initiator);
-
-  AddXmlChildren(action, action_elems);
-
-  stanza->AddElement(action);
+  if (msg.protocol == PROTOCOL_GINGLE) {
+    stanza->AddElement(WriteGingleAction(msg, action_elems));
+  } else {
+    stanza->AddElement(WriteJingleAction(msg, action_elems));
+  }
 }
 
 
@@ -156,89 +249,191 @@ TransportParser* GetTransportParser(const TransportParserMap& trans_parsers,
   }
 }
 
-bool ParseCandidates(const buzz::XmlElement* candidates_elem,
+bool ParseCandidates(SignalingProtocol protocol,
+                     const buzz::XmlElement* candidates_elem,
                      const TransportParserMap& trans_parsers,
-                     const std::string& trans_name,
+                     const std::string& transport_type,
                      Candidates* candidates,
                      ParseError* error) {
-  TransportParser* trans_parser = GetTransportParser(trans_parsers, trans_name);
+  TransportParser* trans_parser =
+      GetTransportParser(trans_parsers, transport_type);
   if (trans_parser == NULL)
-    return BadParse("unknown transport type: " + trans_name, error);
+    return BadParse("unknown transport type: " + transport_type, error);
 
-  return trans_parser->ParseCandidates(candidates_elem, candidates, error);
+  return trans_parser->ParseCandidates(protocol, candidates_elem,
+                                       candidates, error);
 }
 
-// Pass in NULL candidates if you don't want them parsed.
-bool ParseGingleTransport(const buzz::XmlElement* action_elem,
-                          const TransportParserMap& trans_parsers,
-                          std::string* name,
-                          Candidates* candidates,
-                          ParseError* error) {
-  const buzz::XmlElement* candidates_elem;
-  const buzz::XmlElement* trans_elem = GetXmlChild(action_elem, LN_TRANSPORT);
-  if (trans_elem == NULL) {  // PROTCOL_GINGLE
-    *name = NS_GINGLE_P2P;
-    candidates_elem = action_elem;
-  } else {  // PROTOCOL_GINGLE2
-    *name = trans_elem->Name().Namespace();
-    candidates_elem = trans_elem;
+bool ParseGingleTransportInfos(const buzz::XmlElement* action_elem,
+                               const ContentInfos& contents,
+                               const TransportParserMap& trans_parsers,
+                               TransportInfos* tinfos,
+                               ParseError* error) {
+  TransportInfo tinfo(CN_OTHER, NS_GINGLE_P2P, Candidates());
+  if (!ParseCandidates(PROTOCOL_GINGLE, action_elem,
+                       trans_parsers, NS_GINGLE_P2P,
+                       &tinfo.candidates, error))
+    return false;
+
+  bool has_audio = FindContentInfoByName(contents, CN_AUDIO) != NULL;
+  bool has_video = FindContentInfoByName(contents, CN_VIDEO) != NULL;
+
+  // If we don't have media, no need to separate the candidates.
+  if (!has_audio && !has_audio) {
+    tinfos->push_back(tinfo);
+    return true;
   }
 
-  if (candidates != NULL) {
-    return ParseCandidates(candidates_elem, trans_parsers, *name,
-                           candidates, error);
+  // If we have media, separate the candidates.  Create the
+  // TransportInfo here to avoid copying the candidates.
+  TransportInfo audio_tinfo(CN_AUDIO, NS_GINGLE_P2P, Candidates());
+  TransportInfo video_tinfo(CN_VIDEO, NS_GINGLE_P2P, Candidates());
+  for (Candidates::iterator cand = tinfo.candidates.begin();
+       cand != tinfo.candidates.end(); cand++) {
+    if (cand->name() == GINGLE_CANDIDATE_NAME_RTP ||
+        cand->name() == GINGLE_CANDIDATE_NAME_RTCP) {
+      audio_tinfo.candidates.push_back(*cand);
+    } else if (cand->name() == GINGLE_CANDIDATE_NAME_VIDEO_RTP ||
+               cand->name() == GINGLE_CANDIDATE_NAME_VIDEO_RTCP) {
+      video_tinfo.candidates.push_back(*cand);
+    }
   }
+
+  if (has_audio) {
+    tinfos->push_back(audio_tinfo);
+  }
+
+  if (has_video) {
+    tinfos->push_back(video_tinfo);
+  }
+
   return true;
 }
 
-bool ParseGingleTransportName(const buzz::XmlElement* action_elem,
-                              std::string* name,
+bool ParseJingleTransportInfo(const buzz::XmlElement* trans_elem,
+                              const ContentInfo& content,
+                              const TransportParserMap& trans_parsers,
+                              TransportInfos* tinfos,
                               ParseError* error) {
-  return ParseGingleTransport(action_elem, TransportParserMap(),
-                              name, NULL, error);
+  std::string transport_type = trans_elem->Name().Namespace();
+  TransportInfo tinfo(content.name, transport_type, Candidates());
+  if (!ParseCandidates(PROTOCOL_JINGLE, trans_elem,
+                       trans_parsers, transport_type,
+                       &tinfo.candidates, error))
+    return false;
+
+  tinfos->push_back(tinfo);
+  return true;
+}
+
+bool ParseJingleTransportInfos(const buzz::XmlElement* jingle,
+                               const ContentInfos& contents,
+                               const TransportParserMap trans_parsers,
+                               TransportInfos* tinfos,
+                               ParseError* error) {
+  for (const buzz::XmlElement* pair_elem
+           = jingle->FirstNamed(QN_JINGLE_CONTENT);
+       pair_elem != NULL;
+       pair_elem = pair_elem->NextNamed(QN_JINGLE_CONTENT)) {
+    std::string content_name;
+    if (!RequireXmlAttr(pair_elem, QN_JINGLE_CONTENT_NAME,
+                        &content_name, error))
+      return false;
+
+    const ContentInfo* content = FindContentInfoByName(contents, content_name);
+    if (!content)
+      return BadParse("Unknown content name: " + content_name, error);
+
+    const buzz::XmlElement* trans_elem;
+    if (!RequireXmlChild(pair_elem, LN_TRANSPORT, &trans_elem, error))
+      return false;
+
+    if (!ParseJingleTransportInfo(trans_elem, *content, trans_parsers,
+                                  tinfos, error))
+      return false;
+  }
+
+  return true;
 }
 
 buzz::XmlElement* NewTransportElement(const std::string& name) {
   return new buzz::XmlElement(buzz::QName(true, name, LN_TRANSPORT), true);
 }
 
-bool WriteGingleTransport(const std::string& trans_name,
-                          const Candidates& candidates,
-                          const TransportParserMap& trans_parsers,
-                          SignalingProtocol protocol,
-                          XmlElements* elems,
-                          WriteError* error) {
-  TransportParser* trans_parser = GetTransportParser(trans_parsers, trans_name);
+bool WriteCandidates(SignalingProtocol protocol,
+                     const std::string& trans_type,
+                     const Candidates& candidates,
+                     const TransportParserMap& trans_parsers,
+                     XmlElements* elems,
+                     WriteError* error) {
+  TransportParser* trans_parser = GetTransportParser(trans_parsers, trans_type);
   if (trans_parser == NULL)
-    return BadWrite("unknown transport type: " + trans_name, error);
+    return BadWrite("unknown transport type: " + trans_type, error);
 
-  if (protocol == PROTOCOL_GINGLE2) {
-    buzz::XmlElement* trans_elem = NewTransportElement(trans_name);
-    XmlElements cand_elems;
-    if (!trans_parser->WriteCandidates(candidates, protocol,
-                                       &cand_elems, error))
-      return false;
-    AddXmlChildren(trans_elem, cand_elems);
-    elems->push_back(trans_elem);
-  } else {
-    if (!trans_parser->WriteCandidates(candidates, protocol, elems, error))
+  return trans_parser->WriteCandidates(protocol, candidates, elems, error);
+}
+
+bool WriteGingleTransportInfos(const TransportInfos& tinfos,
+                               const TransportParserMap& trans_parsers,
+                               XmlElements* elems,
+                               WriteError* error) {
+  for (TransportInfos::const_iterator tinfo = tinfos.begin();
+       tinfo != tinfos.end(); ++tinfo) {
+    if (!WriteCandidates(PROTOCOL_GINGLE,
+                         tinfo->transport_type, tinfo->candidates,
+                         trans_parsers, elems, error))
       return false;
   }
+
   return true;
 }
 
-bool WriteGingleTransportWithoutCandidates(const std::string& trans_name,
-                                           SignalingProtocol protocol,
-                                           XmlElements* elems,
-                                           WriteError* error) {
-  if (protocol == PROTOCOL_GINGLE2) {
-    elems->push_back(NewTransportElement(trans_name));
-  }
+bool WriteJingleTransportInfo(const TransportInfo& tinfo,
+                              const TransportParserMap& trans_parsers,
+                              XmlElements* elems,
+                              WriteError* error) {
+  XmlElements candidate_elems;
+  if (!WriteCandidates(PROTOCOL_JINGLE,
+                       tinfo.transport_type, tinfo.candidates, trans_parsers,
+                       &candidate_elems, error))
+    return false;
+
+  buzz::XmlElement* trans_elem = NewTransportElement(tinfo.transport_type);
+  AddXmlChildren(trans_elem, candidate_elems);
+  elems->push_back(trans_elem);
   return true;
 }
 
-ContentParser* FindContentParser(const ContentParserMap& content_parsers,
-                                 const std::string& type) {
+void WriteJingleContentPair(const std::string name,
+                            const XmlElements& pair_elems,
+                            XmlElements* elems) {
+  buzz::XmlElement* pair_elem = new buzz::XmlElement(QN_JINGLE_CONTENT);
+  pair_elem->SetAttr(QN_JINGLE_CONTENT_NAME, name);
+  pair_elem->SetAttr(QN_CREATOR, LN_INITIATOR);
+  AddXmlChildren(pair_elem, pair_elems);
+
+  elems->push_back(pair_elem);
+}
+
+bool WriteJingleTransportInfos(const TransportInfos& tinfos,
+                               const TransportParserMap& trans_parsers,
+                               XmlElements* elems,
+                               WriteError* error) {
+  for (TransportInfos::const_iterator tinfo = tinfos.begin();
+       tinfo != tinfos.end(); ++tinfo) {
+    XmlElements pair_elems;
+    if (!WriteJingleTransportInfo(*tinfo, trans_parsers,
+                                  &pair_elems, error))
+      return false;
+
+    WriteJingleContentPair(tinfo->content_name, pair_elems, elems);
+  }
+
+  return true;
+}
+
+ContentParser* GetContentParser(const ContentParserMap& content_parsers,
+                                const std::string& type) {
   ContentParserMap::const_iterator map = content_parsers.find(type);
   if (map == content_parsers.end()) {
     return NULL;
@@ -247,91 +442,106 @@ ContentParser* FindContentParser(const ContentParserMap& content_parsers,
   }
 }
 
-// Like FindContentParser, but does trickery for NS_GINGLE_AUDIO and
-// NS_GINGLE_VIDEO.  Because clients still assume only one content
-// type, but we split up the types, we need to be able to let either
-// content type work as the other.
-ContentParser* GetContentParser(const ContentParserMap& content_parsers,
-                                const std::string& type) {
-  ContentParser* parser = FindContentParser(content_parsers, type);
-  if (parser == NULL) {
-    if (type == NS_GINGLE_AUDIO) {
-      return FindContentParser(content_parsers, NS_GINGLE_VIDEO);
-    } else if (type == NS_GINGLE_VIDEO) {
-      return FindContentParser(content_parsers, NS_GINGLE_AUDIO);
-    }
-  }
-
-  return parser;
-}
-
-bool ParseContent(const std::string& name,
-                  const std::string& type,
-                  const buzz::XmlElement* elem,
-                  const ContentParserMap& parsers,
-                  std::vector<ContentInfo>* contents,
-                  ParseError* error) {
+bool ParseContentInfo(SignalingProtocol protocol,
+                      const std::string& name,
+                      const std::string& type,
+                      const buzz::XmlElement* elem,
+                      const ContentParserMap& parsers,
+                      ContentInfos* contents,
+                      ParseError* error) {
   ContentParser* parser = GetContentParser(parsers, type);
   if (parser == NULL)
     return BadParse("unknown application content: " + type, error);
 
   const ContentDescription* desc;
-  if (!parser->ParseContent(elem, &desc, error))
+  if (!parser->ParseContent(protocol, elem, &desc, error))
     return false;
 
   contents->push_back(ContentInfo(name, type, desc));
   return true;
 }
 
-bool ParseGingleContentType(const buzz::XmlElement* action_elem,
-                            std::string* content_type,
-                            const buzz::XmlElement** content_elem,
-                            ParseError* error) {
-  if (!RequireXmlChild(action_elem, LN_DESCRIPTION, content_elem, error))
+bool ParseContentType(const buzz::XmlElement* parent_elem,
+                      std::string* content_type,
+                      const buzz::XmlElement** content_elem,
+                      ParseError* error) {
+  if (!RequireXmlChild(parent_elem, LN_DESCRIPTION, content_elem, error))
     return false;
 
   *content_type = (*content_elem)->Name().Namespace();
   return true;
 }
 
-bool ParseGingleContents(const buzz::XmlElement* action_elem,
-                         const ContentParserMap& content_parsers,
-                         std::vector<ContentInfo>* contents,
-                         ParseError* error) {
+bool ParseGingleContentInfos(const buzz::XmlElement* session,
+                             const ContentParserMap& content_parsers,
+                             ContentInfos* contents,
+                             ParseError* error) {
   std::string content_type;
   const buzz::XmlElement* content_elem;
-  if (!ParseGingleContentType(action_elem, &content_type, &content_elem, error))
+  if (!ParseContentType(session, &content_type, &content_elem, error))
     return false;
 
   if (content_type == NS_GINGLE_VIDEO) {
     // A parser parsing audio or video content should look at the
     // namespace and only parse the codecs relevant to that namespace.
-    // We use this to control which codecs get parsed: first video,
-    // then audio.
-    if (!ParseContent(CN_VIDEO, NS_GINGLE_VIDEO,
-                      content_elem, content_parsers,
-                      contents, error))
-      return false;
-
+    // We use this to control which codecs get parsed: first audio,
+    // then video.
     talk_base::scoped_ptr<buzz::XmlElement> audio_elem(
         new buzz::XmlElement(QN_GINGLE_AUDIO_CONTENT));
     CopyXmlChildren(content_elem, audio_elem.get());
-    if (!ParseContent(CN_AUDIO, NS_GINGLE_AUDIO,
-                      audio_elem.get(), content_parsers,
-                      contents, error))
+    if (!ParseContentInfo(PROTOCOL_GINGLE, CN_AUDIO, NS_JINGLE_RTP,
+                          audio_elem.get(), content_parsers,
+                          contents, error))
+      return false;
+
+    if (!ParseContentInfo(PROTOCOL_GINGLE, CN_VIDEO, NS_JINGLE_RTP,
+                          content_elem, content_parsers,
+                          contents, error))
+      return false;
+  } else if (content_type == NS_GINGLE_AUDIO) {
+    if (!ParseContentInfo(PROTOCOL_GINGLE, CN_AUDIO, NS_JINGLE_RTP,
+                          content_elem, content_parsers,
+                          contents, error))
       return false;
   } else {
-    if (!ParseContent(CN_OTHER, content_type,
-                      content_elem, content_parsers,
-                      contents, error))
+    if (!ParseContentInfo(PROTOCOL_GINGLE, CN_OTHER, content_type,
+                          content_elem, content_parsers,
+                          contents, error))
       return false;
   }
   return true;
 }
 
-buzz::XmlElement* WriteContent(const ContentInfo& content,
-			       const ContentParserMap& parsers,
-			       WriteError* error) {
+bool ParseJingleContentInfos(const buzz::XmlElement* jingle,
+                             const ContentParserMap& content_parsers,
+                             ContentInfos* contents,
+                             ParseError* error) {
+  for (const buzz::XmlElement* pair_elem
+           = jingle->FirstNamed(QN_JINGLE_CONTENT);
+       pair_elem != NULL;
+       pair_elem = pair_elem->NextNamed(QN_JINGLE_CONTENT)) {
+    std::string content_name;
+    if (!RequireXmlAttr(pair_elem, QN_JINGLE_CONTENT_NAME,
+                        &content_name, error))
+      return false;
+
+    std::string content_type;
+    const buzz::XmlElement* content_elem;
+    if (!ParseContentType(pair_elem, &content_type, &content_elem, error))
+      return false;
+
+    if (!ParseContentInfo(PROTOCOL_JINGLE, content_name, content_type,
+                          content_elem, content_parsers,
+                          contents, error))
+      return false;
+  }
+  return true;
+}
+
+buzz::XmlElement* WriteContentInfo(SignalingProtocol protocol,
+                                   const ContentInfo& content,
+                                   const ContentParserMap& parsers,
+                                   WriteError* error) {
   ContentParser* parser = GetContentParser(parsers, content.type);
   if (parser == NULL) {
     BadWrite("unknown content type: " + content.type, error);
@@ -339,32 +549,35 @@ buzz::XmlElement* WriteContent(const ContentInfo& content,
   }
 
   buzz::XmlElement* elem = NULL;
-  if (!parser->WriteContent(content.description, &elem, error))
+  if (!parser->WriteContent(protocol, content.description, &elem, error))
     return NULL;
 
   return elem;
 }
 
-bool WriteGingleContents(const std::vector<ContentInfo>& contents,
-			 const ContentParserMap& parsers,
-			 XmlElements* elems,
-			 WriteError* error) {
+bool WriteGingleContentInfos(const ContentInfos& contents,
+                             const ContentParserMap& parsers,
+                             XmlElements* elems,
+                             WriteError* error) {
   if (contents.size() == 1) {
-    buzz::XmlElement* elem = WriteContent(contents.front(), parsers, error);
+    buzz::XmlElement* elem = WriteContentInfo(
+        PROTOCOL_GINGLE, contents.front(), parsers, error);
     if (!elem)
       return false;
 
     elems->push_back(elem);
   } else if (contents.size() == 2 &&
-      contents.at(0).type == NS_GINGLE_AUDIO &&
-      contents.at(1).type == NS_GINGLE_VIDEO) {
+             contents.at(0).type == NS_JINGLE_RTP &&
+             contents.at(1).type == NS_JINGLE_RTP) {
      // Special-case audio + video contents so that they are "merged"
      // into one "video" content.
-    buzz::XmlElement* audio = WriteContent(contents.at(0), parsers, error);
+    buzz::XmlElement* audio = WriteContentInfo(
+        PROTOCOL_GINGLE, contents.at(0), parsers, error);
     if (!audio)
       return false;
 
-    buzz::XmlElement* video = WriteContent(contents.at(1), parsers, error);
+    buzz::XmlElement* video = WriteContentInfo(
+        PROTOCOL_GINGLE, contents.at(1), parsers, error);
     if (!video) {
       delete audio;
       return false;
@@ -380,100 +593,229 @@ bool WriteGingleContents(const std::vector<ContentInfo>& contents,
   return true;
 }
 
-bool ParseFirstContentType(const buzz::XmlElement* action_elem,
-                           std::string* content_type,
-                           ParseError* error) {
-  const buzz::XmlElement* content_elem;
-  return ParseGingleContentType(
-      action_elem, content_type, &content_elem, error);
-}
-
-bool ParseSessionInitiate(const buzz::XmlElement* action_elem,
-                          const ContentParserMap& content_parsers,
-                          SessionInitiate* init, ParseError* error) {
-  if (!ParseGingleContents(action_elem, content_parsers,
-                           &init->contents, error))
-    return false;
-
-  if (!ParseGingleTransportName(action_elem, &(init->transport_name), error))
-    return false;
-
-  return true;
-}
-
-bool WriteSessionInitiate(const SessionInitiate& init,
-                          const ContentParserMap& content_parsers,
-                          SignalingProtocol protocol,
-                          XmlElements* elems,
-                          WriteError* error) {
-  if (!WriteGingleContents(init.contents, content_parsers, elems, error))
-    return false;
-
-  // We don't have any candidates yet, so only send the transport
-  // name.  Send candidates asynchronously later with transport-info
-  // or candidates messages.
-  if (!WriteGingleTransportWithoutCandidates(
-          init.transport_name, protocol, elems, error))
-    return false;
-
-  return true;
-}
-
-bool ParseSessionAccept(const buzz::XmlElement* action_elem,
-                        const ContentParserMap& content_parsers,
-                        SessionAccept* accept, ParseError* error) {
-  if (!ParseGingleContents(action_elem, content_parsers,
-                           &accept->contents, error))
-    return false;
-
-  return true;
-}
-
-bool WriteSessionAccept(const SessionAccept& accept,
-                        const ContentParserMap& content_parsers,
-                        XmlElements* elems,
-                        WriteError* error) {
-  return WriteGingleContents(accept.contents, content_parsers, elems, error);
-}
-
-bool ParseSessionTerminate(const buzz::XmlElement* action_elem,
-                           SessionTerminate* term, ParseError* error) {
-  const buzz::XmlElement* reason_elem = action_elem->FirstElement();
-  if (reason_elem != NULL) {
-    term->reason = reason_elem->Name().LocalPart();
-    const buzz::XmlElement *debug_elem = reason_elem->FirstElement();
-    if (debug_elem != NULL) {
-      term->debug_reason = debug_elem->Name().LocalPart();
+const TransportInfo* GetTransportInfoByContentName(
+    const TransportInfos& tinfos, const std::string& content_name) {
+  for (TransportInfos::const_iterator tinfo = tinfos.begin();
+       tinfo != tinfos.end(); ++tinfo) {
+    if (content_name == tinfo->content_name) {
+      return &*tinfo;
     }
+  }
+  return NULL;
+}
+
+bool WriteJingleContentPairs(const ContentInfos& contents,
+                             const ContentParserMap& content_parsers,
+                             const TransportInfos& tinfos,
+                             const TransportParserMap& trans_parsers,
+                             XmlElements* elems,
+                             WriteError* error) {
+  for (ContentInfos::const_iterator content = contents.begin();
+       content != contents.end(); ++content) {
+    const TransportInfo* tinfo =
+        GetTransportInfoByContentName(tinfos, content->name);
+    if (!tinfo)
+      return BadWrite("No transport for content: " + content->name, error);
+
+    XmlElements pair_elems;
+    buzz::XmlElement* elem = WriteContentInfo(
+        PROTOCOL_JINGLE, *content, content_parsers, error);
+    if (!elem)
+      return false;
+    pair_elems.push_back(elem);
+
+    if (!WriteJingleTransportInfo(*tinfo, trans_parsers,
+                                  &pair_elems, error))
+      return false;
+
+    WriteJingleContentPair(content->name, pair_elems, elems);
   }
   return true;
 }
 
-bool WriteSessionTerminate(const SessionTerminate& term,
-                           XmlElements* elems,
-                           WriteError* error) {
-  elems->push_back(new buzz::XmlElement(
-      buzz::QName(true, NS_EMPTY, term.reason)));
+bool ParseContentType(SignalingProtocol protocol,
+                      const buzz::XmlElement* action_elem,
+                      std::string* content_type,
+                      ParseError* error) {
+  const buzz::XmlElement* content_elem;
+  if (protocol == PROTOCOL_GINGLE) {
+    if (!ParseContentType(action_elem, content_type, &content_elem, error))
+      return false;
+
+    // Internally, we only use NS_JINGLE_RTP.
+    if (*content_type == NS_GINGLE_AUDIO ||
+        *content_type == NS_GINGLE_VIDEO)
+      *content_type = NS_JINGLE_RTP;
+  } else {
+    const buzz::XmlElement* pair_elem
+        = action_elem->FirstNamed(QN_JINGLE_CONTENT);
+    if (pair_elem == NULL)
+      return BadParse("No contents found", error);
+
+    if (!ParseContentType(pair_elem, content_type, &content_elem, error))
+      return false;
+
+    // If there is more than one content type, return an error.
+    for (; pair_elem != NULL;
+         pair_elem = pair_elem->NextNamed(QN_JINGLE_CONTENT)) {
+      std::string content_type2;
+      if (!ParseContentType(pair_elem, &content_type2, &content_elem, error))
+        return false;
+
+      if (content_type2 != *content_type)
+        return BadParse("More than one content type found", error);
+    }
+  }
+
   return true;
 }
 
-bool ParseTransportInfo(const buzz::XmlElement* action_elem,
-                        const TransportParserMap& trans_parsers,
-                        TransportInfo* info, ParseError* error) {
-  return ParseGingleTransport(action_elem, trans_parsers,
-                              &(info->transport_name), &(info->candidates),
-                              error);
+bool ParseSessionInitiate(SignalingProtocol protocol,
+                          const buzz::XmlElement* action_elem,
+                          const ContentParserMap& content_parsers,
+                          const TransportParserMap& trans_parsers,
+                          SessionInitiate* init,
+                          ParseError* error) {
+  init->owns_contents = true;
+  if (protocol == PROTOCOL_GINGLE) {
+    if (!ParseGingleContentInfos(action_elem, content_parsers,
+                                 &init->contents, error))
+      return false;
+
+    if (!ParseGingleTransportInfos(action_elem, init->contents, trans_parsers,
+                                   &init->transports, error))
+      return false;
+  } else {
+    if (!ParseJingleContentInfos(action_elem, content_parsers,
+                                 &init->contents, error))
+      return false;
+
+    if (!ParseJingleTransportInfos(action_elem, init->contents, trans_parsers,
+                                   &init->transports, error))
+      return false;
+  }
+
+  return true;
 }
 
-bool WriteTransportInfo(const TransportInfo& info,
-                        const TransportParserMap& trans_parsers,
-                        SignalingProtocol protocol,
+
+bool WriteSessionInitiate(SignalingProtocol protocol,
+                          const ContentInfos& contents,
+                          const TransportInfos& tinfos,
+                          const ContentParserMap& content_parsers,
+                          const TransportParserMap& transport_parsers,
+                          XmlElements* elems,
+                          WriteError* error) {
+  if (protocol == PROTOCOL_GINGLE) {
+    if (!WriteGingleContentInfos(contents, content_parsers, elems, error))
+      return false;
+
+    if (!WriteGingleTransportInfos(tinfos, transport_parsers,
+                                   elems, error))
+      return false;
+  } else {
+    if (!WriteJingleContentPairs(contents, content_parsers,
+                                 tinfos, transport_parsers,
+                                 elems, error))
+      return false;
+  }
+
+  return true;
+}
+
+bool ParseSessionAccept(SignalingProtocol protocol,
+                        const buzz::XmlElement* action_elem,
+                        const ContentParserMap& content_parsers,
+                        const TransportParserMap& transport_parsers,
+                        SessionAccept* accept,
+                        ParseError* error) {
+  return ParseSessionInitiate(protocol, action_elem,
+                              content_parsers, transport_parsers,
+                              accept, error);
+}
+
+bool WriteSessionAccept(SignalingProtocol protocol,
+                        const ContentInfos& contents,
+                        const TransportInfos& tinfos,
+                        const ContentParserMap& content_parsers,
+                        const TransportParserMap& transport_parsers,
                         XmlElements* elems,
                         WriteError* error) {
-  return WriteGingleTransport(info.transport_name, info.candidates,
-                              trans_parsers, protocol,
+  return WriteSessionInitiate(protocol, contents, tinfos,
+                              content_parsers, transport_parsers,
                               elems, error);
 }
 
+bool ParseSessionTerminate(SignalingProtocol protocol,
+                           const buzz::XmlElement* action_elem,
+                           SessionTerminate* term,
+                           ParseError* error) {
+  if (protocol == PROTOCOL_GINGLE) {
+    const buzz::XmlElement* reason_elem = action_elem->FirstElement();
+    if (reason_elem != NULL) {
+      term->reason = reason_elem->Name().LocalPart();
+      const buzz::XmlElement *debug_elem = reason_elem->FirstElement();
+      if (debug_elem != NULL) {
+        term->debug_reason = debug_elem->Name().LocalPart();
+      }
+    }
+    return true;
+  } else {
+    const buzz::XmlElement* reason_elem =
+        action_elem->FirstNamed(QN_JINGLE_REASON);
+    if (reason_elem) {
+      reason_elem = reason_elem->FirstElement();
+      if (reason_elem) {
+        term->reason = reason_elem->Name().LocalPart();
+      }
+    }
+    return true;
+  }
+}
+
+void WriteSessionTerminate(SignalingProtocol protocol,
+                           const SessionTerminate& term,
+                           XmlElements* elems) {
+  if (protocol == PROTOCOL_GINGLE) {
+    elems->push_back(new buzz::XmlElement(
+        buzz::QName(true, NS_GINGLE, term.reason)));
+  } else {
+    if (!term.reason.empty()) {
+      buzz::XmlElement* reason_elem = new buzz::XmlElement(QN_JINGLE_REASON);
+      reason_elem->AddElement(new buzz::XmlElement(
+          buzz::QName(true, NS_JINGLE, term.reason)));
+      elems->push_back(reason_elem);
+    }
+  }
+}
+
+bool ParseTransportInfos(SignalingProtocol protocol,
+                         const buzz::XmlElement* action_elem,
+                         const ContentInfos& contents,
+                         const TransportParserMap& trans_parsers,
+                         TransportInfos* tinfos,
+                         ParseError* error) {
+  if (protocol == PROTOCOL_GINGLE) {
+    return ParseGingleTransportInfos(
+        action_elem, contents, trans_parsers, tinfos, error);
+  } else {
+    return ParseJingleTransportInfos(
+        action_elem, contents, trans_parsers, tinfos, error);
+  }
+}
+
+bool WriteTransportInfos(SignalingProtocol protocol,
+                         const TransportInfos& tinfos,
+                         const TransportParserMap& trans_parsers,
+                         XmlElements* elems,
+                         WriteError* error) {
+  if (protocol == PROTOCOL_GINGLE) {
+    return WriteGingleTransportInfos(tinfos, trans_parsers,
+                                     elems, error);
+  } else {
+    return WriteJingleTransportInfos(tinfos, trans_parsers,
+                                     elems, error);
+  }
+}
 
 }  // namespace cricket

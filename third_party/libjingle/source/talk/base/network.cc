@@ -208,7 +208,7 @@ void NetworkManager::SetState(const std::string& str) {
 // Gets the default gateway for the specified interface.
 uint32 GetDefaultGateway(const std::string& name) {
 #ifdef OSX
-  // TODO(juberti): /proc/net/route doesn't exist, 
+  // TODO: /proc/net/route doesn't exist, 
   // Use ioctl to get the routing table
   return 0xFFFFFFFF;
 #endif
@@ -368,7 +368,7 @@ Network::Network(const std::string& name, const std::string& desc,
       quality_(kDefaultQuality) {
   last_data_time_ = Time();
 
-  // TODO(juberti): seed the historical data with one data point based
+  // TODO: seed the historical data with one data point based
   // on the link speed metric from XP (4.0 if < 50, 3.0 otherwise).
 }
 

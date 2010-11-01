@@ -11,9 +11,9 @@
 #include "third_party/WebKit/WebKit/chromium/public/WebPoint.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebVector.h"
 #include "webkit/glue/glue_serialize.h"
+#include "webkit/glue/web_io_operators.h"
 
 using WebKit::WebData;
-using WebKit::WebFileInfo;
 using WebKit::WebHistoryItem;
 using WebKit::WebHTTPBody;
 using WebKit::WebPoint;

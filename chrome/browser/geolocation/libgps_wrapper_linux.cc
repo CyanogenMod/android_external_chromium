@@ -26,19 +26,19 @@ enum InitMode {
 LibGpsLibraryWrapper* TryToOpen(const char* lib, InitMode mode) {
   void* dl_handle = dlopen(lib, RTLD_LAZY);
   if (!dl_handle) {
-    LOG(INFO) << "Could not open " << lib << ": " << dlerror();
+    VLOG(1) << "Could not open " << lib << ": " << dlerror();
     return NULL;
   }
-  LOG(INFO) << "Loaded " << lib;
+  VLOG(1) << "Loaded " << lib;
 
-  #define DECLARE_FN_POINTER(function, required)                        \
-    LibGpsLibraryWrapper::function##_fn function;                       \
-    function = reinterpret_cast<LibGpsLibraryWrapper::function##_fn>(   \
-        dlsym(dl_handle, #function));                                   \
-    if ((required) && !function) {                                      \
-      LOG(INFO) << "libgps " << #function << " error: " << dlerror();   \
-      dlclose(dl_handle);                                               \
-      return NULL;                                                      \
+  #define DECLARE_FN_POINTER(function, required)                         \
+    LibGpsLibraryWrapper::function##_fn function;                        \
+    function = reinterpret_cast<LibGpsLibraryWrapper::function##_fn>(    \
+        dlsym(dl_handle, #function));                                    \
+    if ((required) && !function) {                                       \
+      LOG(WARNING) << "libgps " << #function << " error: " << dlerror(); \
+      dlclose(dl_handle);                                                \
+      return NULL;                                                       \
     }
   DECLARE_FN_POINTER(gps_open, true);
   DECLARE_FN_POINTER(gps_close, true);
@@ -92,7 +92,7 @@ bool LibGps::Start() {
   }
   fail_count = 0;
   if (!StartStreaming()) {
-    LOG(INFO) << "StartStreaming failed";
+    VLOG(1) << "StartStreaming failed";
     library().close();
     return false;
   }

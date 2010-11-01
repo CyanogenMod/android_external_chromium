@@ -19,6 +19,7 @@
 #endif
 
 #include <algorithm>
+#include <cstring>
 #include <functional>
 #include <iomanip>
 #include <iterator>
@@ -154,6 +155,15 @@ bool LessPathNames::operator() (const string& a, const string& b) const {
 }
 
 ///////////////////////////////////////////////////////////////////////////
+// EntryKernel
+
+EntryKernel::EntryKernel() : dirty_(false) {
+  memset(int64_fields, 0, sizeof(int64_fields));
+}
+
+EntryKernel::~EntryKernel() {}
+
+///////////////////////////////////////////////////////////////////////////
 // Directory
 
 static const DirectoryChangeEvent kShutdownChangesEvent =
@@ -163,6 +173,21 @@ void Directory::init_kernel(const std::string& name) {
   DCHECK(kernel_ == NULL);
   kernel_ = new Kernel(FilePath(), name, KernelLoadInfo());
 }
+
+Directory::PersistedKernelInfo::PersistedKernelInfo()
+    : next_id(0) {
+  for (int i = 0; i < MODEL_TYPE_COUNT; ++i) {
+    last_download_timestamp[i] = 0;
+  }
+}
+
+Directory::PersistedKernelInfo::~PersistedKernelInfo() {}
+
+Directory::SaveChangesSnapshot::SaveChangesSnapshot()
+    : kernel_info_status(KERNEL_SHARE_INFO_INVALID) {
+}
+
+Directory::SaveChangesSnapshot::~SaveChangesSnapshot() {}
 
 Directory::Kernel::Kernel(const FilePath& db_path,
                           const string& name,
@@ -716,6 +741,14 @@ void Directory::set_last_download_timestamp_unsafe(ModelType model_type,
   kernel_->info_status = KERNEL_SHARE_INFO_DIRTY;
 }
 
+void Directory::SetNotificationStateUnsafe(
+    const std::string& notification_state) {
+  if (notification_state == kernel_->persisted_info.notification_state)
+    return;
+  kernel_->persisted_info.notification_state = notification_state;
+  kernel_->info_status = KERNEL_SHARE_INFO_DIRTY;
+}
+
 string Directory::store_birthday() const {
   ScopedKernelLock lock(this);
   return kernel_->persisted_info.store_birthday;
@@ -727,6 +760,18 @@ void Directory::set_store_birthday(string store_birthday) {
     return;
   kernel_->persisted_info.store_birthday = store_birthday;
   kernel_->info_status = KERNEL_SHARE_INFO_DIRTY;
+}
+
+std::string Directory::GetAndClearNotificationState() {
+  ScopedKernelLock lock(this);
+  std::string notification_state = kernel_->persisted_info.notification_state;
+  SetNotificationStateUnsafe(std::string());
+  return notification_state;
+}
+
+void Directory::SetNotificationState(const std::string& notification_state) {
+  ScopedKernelLock lock(this);
+  SetNotificationStateUnsafe(notification_state);
 }
 
 string Directory::cache_guid() const {
@@ -912,8 +957,9 @@ void Directory::CheckTreeInvariants(syncable::BaseTransaction* trans,
     ++entries_done;
     int64 elapsed_ms = check_timer.Elapsed().InMilliseconds();
     if (elapsed_ms > max_ms) {
-      LOG(INFO) << "Cutting Invariant check short after " << elapsed_ms << "ms."
-        " Processed " << entries_done << "/" << handles.size() << " entries";
+      VLOG(1) << "Cutting Invariant check short after " << elapsed_ms
+              << "ms. Processed " << entries_done << "/" << handles.size()
+              << " entries";
       return;
     }
   }
@@ -933,11 +979,6 @@ ScopedKernelLock::ScopedKernelLock(const Directory* dir)
 
 ///////////////////////////////////////////////////////////////////////////
 // Transactions
-#if defined LOG_ALL || !defined NDEBUG
-static const bool kLoggingInfo = true;
-#else
-static const bool kLoggingInfo = false;
-#endif
 
 void BaseTransaction::Lock() {
   base::TimeTicks start_time = base::TimeTicks::Now();
@@ -946,7 +987,10 @@ void BaseTransaction::Lock() {
 
   time_acquired_ = base::TimeTicks::Now();
   const base::TimeDelta elapsed = time_acquired_ - start_time;
-  if (kLoggingInfo && elapsed.InMilliseconds() > 200) {
+  if (LOG_IS_ON(INFO) &&
+      (1 <= logging::GetVlogLevelHelper(
+          source_file_, ::strlen(source_file_))) &&
+      (elapsed.InMilliseconds() > 200)) {
     logging::LogMessage(source_file_, line_, logging::LOG_INFO).stream()
       << name_ << " transaction waited "
       << elapsed.InSecondsF() << " seconds.";
@@ -980,7 +1024,10 @@ bool BaseTransaction::NotifyTransactionChangingAndEnding(
 
   scoped_ptr<OriginalEntries> originals(originals_arg);
   const base::TimeDelta elapsed = base::TimeTicks::Now() - time_acquired_;
-  if (kLoggingInfo && elapsed.InMilliseconds() > 50) {
+  if (LOG_IS_ON(INFO) &&
+      (1 <= logging::GetVlogLevelHelper(
+          source_file_, ::strlen(source_file_))) &&
+      (elapsed.InMilliseconds() > 50)) {
     logging::LogMessage(source_file_, line_, logging::LOG_INFO).stream()
         << name_ << " transaction completed in " << elapsed.InSecondsF()
         << " seconds.";

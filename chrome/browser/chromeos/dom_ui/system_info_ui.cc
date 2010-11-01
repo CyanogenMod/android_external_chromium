@@ -16,7 +16,7 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/weak_ptr.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/syslogs_library.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
@@ -46,7 +46,8 @@ class SystemInfoUIHTMLSource : public ChromeURLDataManager::DataSource {
  private:
   ~SystemInfoUIHTMLSource() {}
 
-  void SyslogsComplete(chromeos::LogDictionaryType* sys_info);
+  void SyslogsComplete(chromeos::LogDictionaryType* sys_info,
+                       std::string* ignored_content);
 
   CancelableRequestConsumer consumer_;
 
@@ -92,16 +93,18 @@ void SystemInfoUIHTMLSource::StartDataRequest(const std::string& path,
   chromeos::SyslogsLibrary* syslogs_lib =
       chromeos::CrosLibrary::Get()->GetSyslogsLibrary();
   if (syslogs_lib) {
-    FilePath* tmpfilename = NULL;  // use default filepath.
     syslogs_lib->RequestSyslogs(
-        tmpfilename,
+        false,
         &consumer_,
         NewCallback(this, &SystemInfoUIHTMLSource::SyslogsComplete));
   }
 }
 
 void SystemInfoUIHTMLSource::SyslogsComplete(
-    chromeos::LogDictionaryType* sys_info) {
+    chromeos::LogDictionaryType* sys_info,
+    std::string* ignored_content) {
+  DCHECK(!ignored_content);
+
   DictionaryValue strings;
   strings.SetString("title", l10n_util::GetStringUTF16(IDS_ABOUT_SYS_TITLE));
   strings.SetString("description",
@@ -176,8 +179,8 @@ SystemInfoUI::SystemInfoUI(TabContents* contents) : DOMUI(contents) {
   SystemInfoUIHTMLSource* html_source = new SystemInfoUIHTMLSource();
 
   // Set up the chrome://system/ source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,

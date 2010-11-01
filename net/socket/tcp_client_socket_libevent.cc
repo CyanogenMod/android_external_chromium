@@ -16,13 +16,14 @@
 #include "base/eintr_wrapper.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
-#include "base/stats_counters.h"
+#include "base/metrics/stats_counters.h"
 #include "base/string_util.h"
 #include "net/base/address_list_net_log_param.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_log.h"
 #include "net/base/net_util.h"
+#include "net/base/network_change_notifier.h"
 #if defined(USE_SYSTEM_LIBEVENT)
 #include <event.h>
 #else
@@ -91,6 +92,12 @@ int MapConnectError(int os_error) {
       int net_error = MapPosixError(os_error);
       if (net_error == ERR_FAILED)
         return ERR_CONNECTION_FAILED;  // More specific than ERR_FAILED.
+
+      // Give a more specific error when the user is offline.
+      if (net_error == ERR_ADDRESS_UNREACHABLE &&
+          NetworkChangeNotifier::IsOffline()) {
+        return ERR_INTERNET_DISCONNECTED;
+      }
       return net_error;
     }
   }
@@ -132,7 +139,7 @@ int TCPClientSocketLibevent::Connect(CompletionCallback* callback) {
   if (socket_ != kInvalidSocket)
     return OK;
 
-  static StatsCounter connects("tcp.connect");
+  static base::StatsCounter connects("tcp.connect");
   connects.Increment();
 
   DCHECK(!waiting_connect());
@@ -216,7 +223,7 @@ int TCPClientSocketLibevent::DoConnect() {
           socket_, true, MessageLoopForIO::WATCH_WRITE, &write_socket_watcher_,
           &write_watcher_)) {
     connect_os_error_ = errno;
-    DLOG(INFO) << "WatchFileDescriptor failed: " << connect_os_error_;
+    DVLOG(1) << "WatchFileDescriptor failed: " << connect_os_error_;
     return MapPosixError(connect_os_error_);
   }
 
@@ -321,23 +328,23 @@ int TCPClientSocketLibevent::Read(IOBuffer* buf,
 
   int nread = HANDLE_EINTR(read(socket_, buf->data(), buf_len));
   if (nread >= 0) {
-    static StatsCounter read_bytes("tcp.read_bytes");
+    static base::StatsCounter read_bytes("tcp.read_bytes");
     read_bytes.Add(nread);
     if (nread > 0)
       use_history_.set_was_used_to_convey_data();
-    net_log_.AddEvent(NetLog::TYPE_SOCKET_BYTES_RECEIVED,
-                      new NetLogIntegerParameter("num_bytes", nread));
+    LogByteTransfer(
+        net_log_, NetLog::TYPE_SOCKET_BYTES_RECEIVED, nread, buf->data());
     return nread;
   }
   if (errno != EAGAIN && errno != EWOULDBLOCK) {
-    DLOG(INFO) << "read failed, errno " << errno;
+    DVLOG(1) << "read failed, errno " << errno;
     return MapPosixError(errno);
   }
 
   if (!MessageLoopForIO::current()->WatchFileDescriptor(
           socket_, true, MessageLoopForIO::WATCH_READ,
           &read_socket_watcher_, &read_watcher_)) {
-    DLOG(INFO) << "WatchFileDescriptor failed on read, errno " << errno;
+    DVLOG(1) << "WatchFileDescriptor failed on read, errno " << errno;
     return MapPosixError(errno);
   }
 
@@ -360,12 +367,12 @@ int TCPClientSocketLibevent::Write(IOBuffer* buf,
 
   int nwrite = HANDLE_EINTR(write(socket_, buf->data(), buf_len));
   if (nwrite >= 0) {
-    static StatsCounter write_bytes("tcp.write_bytes");
+    static base::StatsCounter write_bytes("tcp.write_bytes");
     write_bytes.Add(nwrite);
     if (nwrite > 0)
       use_history_.set_was_used_to_convey_data();
-    net_log_.AddEvent(NetLog::TYPE_SOCKET_BYTES_SENT,
-                      new NetLogIntegerParameter("num_bytes", nwrite));
+    LogByteTransfer(
+        net_log_, NetLog::TYPE_SOCKET_BYTES_SENT, nwrite, buf->data());
     return nwrite;
   }
   if (errno != EAGAIN && errno != EWOULDBLOCK)
@@ -374,7 +381,7 @@ int TCPClientSocketLibevent::Write(IOBuffer* buf,
   if (!MessageLoopForIO::current()->WatchFileDescriptor(
           socket_, true, MessageLoopForIO::WATCH_WRITE,
           &write_socket_watcher_, &write_watcher_)) {
-    DLOG(INFO) << "WatchFileDescriptor failed on write, errno " << errno;
+    DVLOG(1) << "WatchFileDescriptor failed on write, errno " << errno;
     return MapPosixError(errno);
   }
 
@@ -480,12 +487,12 @@ void TCPClientSocketLibevent::DidCompleteRead() {
   int result;
   if (bytes_transferred >= 0) {
     result = bytes_transferred;
-    static StatsCounter read_bytes("tcp.read_bytes");
+    static base::StatsCounter read_bytes("tcp.read_bytes");
     read_bytes.Add(bytes_transferred);
     if (bytes_transferred > 0)
       use_history_.set_was_used_to_convey_data();
-    net_log_.AddEvent(NetLog::TYPE_SOCKET_BYTES_RECEIVED,
-                      new NetLogIntegerParameter("num_bytes", result));
+    LogByteTransfer(net_log_, NetLog::TYPE_SOCKET_BYTES_RECEIVED, result,
+                    read_buf_->data());
   } else {
     result = MapPosixError(errno);
   }
@@ -507,12 +514,12 @@ void TCPClientSocketLibevent::DidCompleteWrite() {
   int result;
   if (bytes_transferred >= 0) {
     result = bytes_transferred;
-    static StatsCounter write_bytes("tcp.write_bytes");
+    static base::StatsCounter write_bytes("tcp.write_bytes");
     write_bytes.Add(bytes_transferred);
     if (bytes_transferred > 0)
       use_history_.set_was_used_to_convey_data();
-    net_log_.AddEvent(NetLog::TYPE_SOCKET_BYTES_SENT,
-                      new NetLogIntegerParameter("num_bytes", result));
+    LogByteTransfer(net_log_, NetLog::TYPE_SOCKET_BYTES_SENT, result,
+                    write_buf_->data());
   } else {
     result = MapPosixError(errno);
   }
@@ -529,7 +536,7 @@ int TCPClientSocketLibevent::GetPeerAddress(AddressList* address) const {
   DCHECK(CalledOnValidThread());
   DCHECK(address);
   if (!IsConnected())
-    return ERR_UNEXPECTED;
+    return ERR_SOCKET_NOT_CONNECTED;
   address->Copy(current_ai_, false);
   return OK;
 }

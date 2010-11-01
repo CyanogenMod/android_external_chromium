@@ -14,7 +14,7 @@
 #include "chrome/browser/autofill/autofill_field.h"
 #include "chrome/browser/autofill/form_structure.h"
 #include "chrome/browser/autofill/phone_number.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/webdata/web_data_service.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -331,7 +331,15 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
   // Read our writes to ensure consistency with the database.
   Refresh();
 
-  FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
+  {
+    // We're now done with the unique IDs, and observers might call into a
+    // method that needs the lock, so release it.  For example, observers on Mac
+    // might call profiles() which calls LoadAuxiliaryProfiles(), which needs
+    // the lock.
+    AutoUnlock unlock(unique_ids_lock_);
+
+    FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
+  }
 }
 
 void PersonalDataManager::SetCreditCards(
@@ -410,7 +418,18 @@ void PersonalDataManager::SetCreditCards(
     credit_cards_.push_back(new CreditCard(*iter));
   }
 
-  FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
+  // Read our writes to ensure consistency with the database.
+  Refresh();
+
+  {
+    // We're now done with the unique IDs, and observers might call into a
+    // method that needs the lock, so release it.  For example, observers on Mac
+    // might call profiles() which calls LoadAuxiliaryProfiles(), which needs
+    // the lock.
+    AutoUnlock unlock(unique_ids_lock_);
+
+    FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
+  }
 }
 
 // TODO(jhawkins): Refactor SetProfiles so this isn't so hacky.
@@ -486,6 +505,15 @@ void PersonalDataManager::RemoveProfile(int unique_id) {
       profiles.end());
 
   SetProfiles(&profiles);
+}
+
+AutoFillProfile* PersonalDataManager::GetProfileById(int unique_id) {
+  for (std::vector<AutoFillProfile*>::iterator iter = web_profiles_->begin();
+       iter != web_profiles_->end(); ++iter) {
+    if ((*iter)->unique_id() == unique_id)
+      return *iter;
+  }
+  return NULL;
 }
 
 // TODO(jhawkins): Refactor SetCreditCards so this isn't so hacky.
@@ -614,7 +642,7 @@ AutoFillProfile* PersonalDataManager::CreateNewEmptyAutoFillProfileForDBThread(
   return 0;
 #else
   // See comment in header for thread details.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   AutoLock lock(unique_ids_lock_);
   AutoFillProfile* p = new AutoFillProfile(label,
       CreateNextUniqueIDFor(&unique_profile_ids_));

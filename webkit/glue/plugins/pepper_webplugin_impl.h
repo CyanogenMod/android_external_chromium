@@ -63,7 +63,8 @@ class WebPluginImpl : public WebKit::WebPlugin {
   virtual bool hasSelection() const;
   virtual WebKit::WebString selectionAsText() const;
   virtual WebKit::WebString selectionAsMarkup() const;
-  virtual void setZoomFactor(float scale, bool text_only);
+  virtual WebKit::WebURL linkAtPosition(const WebKit::WebPoint& position) const;
+  virtual void setZoomLevel(double level, bool text_only);
   virtual bool startFind(const WebKit::WebString& search_text,
                          bool case_sensitive,
                          int identifier);
@@ -75,12 +76,7 @@ class WebPluginImpl : public WebKit::WebPlugin {
   virtual bool printPage(int page_number, WebKit::WebCanvas* canvas);
   virtual void printEnd();
 
-  struct InitData {
-    scoped_refptr<PluginModule> module;
-    base::WeakPtr<PluginDelegate> delegate;
-    std::vector<std::string> arg_names;
-    std::vector<std::string> arg_values;
-  };
+  struct InitData;
 
   scoped_ptr<InitData> init_data_;  // Cleared upon successful initialization.
   // True if the instance represents the entire document in a frame instead of

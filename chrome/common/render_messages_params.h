@@ -144,6 +144,42 @@ struct ViewMsg_StopFinding_Params {
   Action action;
 };
 
+// The type of OSDD that the renderer is giving to the browser.
+struct ViewHostMsg_PageHasOSDD_Type {
+  enum Type {
+    // The Open Search Description URL was detected automatically.
+    AUTODETECTED_PROVIDER,
+
+    // The Open Search Description URL was given by Javascript.
+    EXPLICIT_PROVIDER,
+
+    // The Open Search Description URL was given by Javascript to be the new
+    // default search engine.
+    EXPLICIT_DEFAULT_PROVIDER
+  };
+
+  Type type;
+
+  ViewHostMsg_PageHasOSDD_Type() : type(AUTODETECTED_PROVIDER) {
+  }
+
+  explicit ViewHostMsg_PageHasOSDD_Type(Type t)
+      : type(t) {
+  }
+
+  static ViewHostMsg_PageHasOSDD_Type Autodetected() {
+    return ViewHostMsg_PageHasOSDD_Type(AUTODETECTED_PROVIDER);
+  }
+
+  static ViewHostMsg_PageHasOSDD_Type Explicit() {
+    return ViewHostMsg_PageHasOSDD_Type(EXPLICIT_PROVIDER);
+  }
+
+  static ViewHostMsg_PageHasOSDD_Type ExplicitDefault() {
+    return ViewHostMsg_PageHasOSDD_Type(EXPLICIT_DEFAULT_PROVIDER);
+  }
+};
+
 // The install state of the search provider (not installed, installed, default).
 struct ViewHostMsg_GetSearchProviderInstallState_Params {
   enum State {
@@ -204,6 +240,10 @@ struct ViewHostMsg_FrameNavigate_Params {
   // page IDs for user actions, and the old page IDs will be reloaded when
   // iframes are loaded automatically.
   int32 page_id;
+
+  // The frame ID for this navigation. The frame ID uniquely identifies the
+  // frame the navigation happened in for a given renderer.
+  long long frame_id;
 
   // URL of the page being loaded.
   GURL url;
@@ -629,15 +669,15 @@ struct ViewHostMsg_IDBFactoryOpen_Params {
 
   // The description of the database.
   string16 description_;
+
+  // The maximum size of the database.
+  uint64 maximum_size_;
 };
 
 // Used to create an object store.
 struct ViewHostMsg_IDBDatabaseCreateObjectStore_Params {
   ViewHostMsg_IDBDatabaseCreateObjectStore_Params();
   ~ViewHostMsg_IDBDatabaseCreateObjectStore_Params();
-
-  // The response should have this id.
-  int32 response_id_;
 
   // The name of the object store.
   string16 name_;
@@ -648,12 +688,18 @@ struct ViewHostMsg_IDBDatabaseCreateObjectStore_Params {
   // Whether the object store created should have a key generator.
   bool auto_increment_;
 
+  // The transaction this is associated with.
+  int32 transaction_id_;
+
   // The database the object store belongs to.
   int32 idb_database_id_;
 };
 
 // Used to open both cursors and object cursors in IndexedDB.
 struct ViewHostMsg_IDBIndexOpenCursor_Params {
+  ViewHostMsg_IDBIndexOpenCursor_Params();
+  ~ViewHostMsg_IDBIndexOpenCursor_Params();
+
   // The response should have this id.
   int32 response_id_;
 
@@ -678,6 +724,9 @@ struct ViewHostMsg_IDBIndexOpenCursor_Params {
 
 // Used to set a value in an object store.
 struct ViewHostMsg_IDBObjectStorePut_Params {
+  ViewHostMsg_IDBObjectStorePut_Params();
+  ~ViewHostMsg_IDBObjectStorePut_Params();
+
   // The object store's id.
   int32 idb_object_store_id_;
 
@@ -699,8 +748,8 @@ struct ViewHostMsg_IDBObjectStorePut_Params {
 
 // Used to create an index.
 struct ViewHostMsg_IDBObjectStoreCreateIndex_Params {
-  // The response should have this id.
-  int32 response_id_;
+  ViewHostMsg_IDBObjectStoreCreateIndex_Params();
+  ~ViewHostMsg_IDBObjectStoreCreateIndex_Params();
 
   // The name of the index.
   string16 name_;
@@ -710,6 +759,9 @@ struct ViewHostMsg_IDBObjectStoreCreateIndex_Params {
 
   // Whether the index created has unique keys.
   bool unique_;
+
+  // The transaction this is associated with.
+  int32 transaction_id_;
 
   // The object store the index belongs to.
   int32 idb_object_store_id_;
@@ -746,7 +798,6 @@ struct ViewHostMsg_IDBObjectStoreOpenCursor_Params {
 struct ViewMsg_ExecuteCode_Params {
   ViewMsg_ExecuteCode_Params();
   ViewMsg_ExecuteCode_Params(int request_id, const std::string& extension_id,
-                             const std::vector<URLPattern>& host_permissions,
                              bool is_javascript, const std::string& code,
                              bool all_frames);
   ~ViewMsg_ExecuteCode_Params();
@@ -757,10 +808,6 @@ struct ViewMsg_ExecuteCode_Params {
   // The ID of the requesting extension. To know which isolated world to
   // execute the code inside of.
   std::string extension_id;
-
-  // The host permissions of the requesting extension. So that we can check them
-  // right before injecting, to avoid any race conditions.
-  std::vector<URLPattern> host_permissions;
 
   // Whether the code is JavaScript or CSS.
   bool is_javascript;
@@ -921,6 +968,8 @@ struct ViewMsg_ExtensionRendererInfo {
   std::string name;
   GURL icon_url;
   Extension::Location location;
+  bool allowed_to_execute_script_everywhere;
+  std::vector<URLPattern> host_permissions;
 };
 
 struct ViewMsg_ExtensionsUpdated_Params {
@@ -984,6 +1033,9 @@ struct ViewHostMsg_AccessibilityNotification_Params {
 
     // The node value has changed.
     NOTIFICATION_TYPE_VALUE_CHANGED,
+
+    // The text cursor or selection changed.
+    NOTIFICATION_TYPE_SELECTED_TEXT_CHANGED,
   };
 
   // Type of notification.
@@ -1017,6 +1069,14 @@ struct ParamTraits<ViewMsg_AudioStreamState_Params> {
 template <>
 struct ParamTraits<ViewMsg_StopFinding_Params> {
   typedef ViewMsg_StopFinding_Params param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, void** iter, param_type* p);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct ParamTraits<ViewHostMsg_PageHasOSDD_Type> {
+  typedef ViewHostMsg_PageHasOSDD_Type param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* p);
   static void Log(const param_type& p, std::string* l);

@@ -14,6 +14,8 @@ PrefSetObserver::PrefSetObserver(PrefService* pref_service,
   registrar_.Init(pref_service);
 }
 
+PrefSetObserver::~PrefSetObserver() {}
+
 void PrefSetObserver::AddPref(const std::string& pref) {
   if (!prefs_.count(pref) && pref_service_->FindPreference(pref.c_str())) {
     prefs_.insert(pref);
@@ -59,6 +61,7 @@ PrefSetObserver* PrefSetObserver::CreateDefaultSearchPrefSetObserver(
     PrefService* pref_service,
     NotificationObserver* observer) {
   PrefSetObserver* pref_set = new PrefSetObserver(pref_service, observer);
+  pref_set->AddPref(prefs::kDefaultSearchProviderEnabled);
   pref_set->AddPref(prefs::kDefaultSearchProviderName);
   pref_set->AddPref(prefs::kDefaultSearchProviderKeyword);
   pref_set->AddPref(prefs::kDefaultSearchProviderSearchURL);

@@ -30,16 +30,16 @@ class LanguageSwitchMenu : public views::ViewMenuDelegate,
   // Initializes language selection menu contents.
   void InitLanguageMenu();
 
+  // Sets menu's alignment.
+  void set_menu_alignment(views::Menu2::Alignment alignment) {
+    menu_alignment_ = alignment;
+  }
+
   // Returns current locale name to be placed on the language menu-button.
   std::wstring GetCurrentLocaleName() const;
 
   // Sets the minimum width of the first level menu to be shown.
   void SetFirstLevelMenuWidth(int width);
-
-  void set_menu_offset(int delta_x, int delta_y) {
-    delta_x_ = delta_x;
-    delta_y_ = delta_y;
-  }
 
   // Switches the current locale, saves the new locale in preferences.
   static void SwitchLanguage(const std::string& locale);
@@ -63,7 +63,8 @@ class LanguageSwitchMenu : public views::ViewMenuDelegate,
   // Language locale name storage.
   scoped_ptr<LanguageList> language_list_;
 
-  int delta_x_, delta_y_;
+  // Menu alignment.
+  views::Menu2::Alignment menu_alignment_;
 
   FRIEND_TEST(::WizardControllerTest, SwitchLanguage);
   DISALLOW_COPY_AND_ASSIGN(LanguageSwitchMenu);

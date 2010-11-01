@@ -86,9 +86,6 @@ class BackgroundModeManager
   // Invoked when the kBackgroundModeEnabled preference has changed.
   void OnBackgroundModePrefChanged();
 
-  // Returns true if the passed extension is a background app.
-  bool IsBackgroundApp(Extension* extension);
-
   // Returns true if the background mode preference is enabled
   bool IsBackgroundModeEnabled();
 
@@ -109,6 +106,12 @@ class BackgroundModeManager
   // Invoked to take Chrome out of KeepAlive mode - chrome stops running in
   // the background and removes its status bar icon.
   void EndBackgroundMode();
+
+  // If --no-startup-window is passed, BackgroundModeManager will manually keep
+  // chrome running while waiting for apps to load. This is called when we no
+  // longer need to do this (either because the user has chosen to exit chrome
+  // manually, or all apps have been loaded).
+  void EndKeepAliveForStartup();
 
   // Create a status tray icon to allow the user to shutdown Chrome when running
   // in background mode. Virtual to enable testing.
@@ -135,6 +138,11 @@ class BackgroundModeManager
   // current background state so we can take the appropriate action when the
   // user disables/enables background mode via preferences.
   bool in_background_mode_;
+
+  // Set when we are keeping chrome running during the startup process - this
+  // is required when running with the --no-startup-window flag, as otherwise
+  // chrome would immediately exit due to having no open windows.
+  bool keep_alive_for_startup_;
 
   // Reference to our status tray (owned by our parent profile). If null, the
   // platform doesn't support status icons.

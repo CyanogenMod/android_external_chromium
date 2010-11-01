@@ -13,7 +13,7 @@
 #include "base/scoped_handle.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"  // TODO(viettrungluu): delete me.
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/common/chrome_switches.h"
@@ -34,14 +34,14 @@ SandboxedExtensionUnpacker::SandboxedExtensionUnpacker(
     ResourceDispatcherHost* rdh,
     SandboxedExtensionUnpackerClient* client)
     : crx_path_(crx_path), temp_path_(temp_path),
-      thread_identifier_(ChromeThread::ID_COUNT),
+      thread_identifier_(BrowserThread::ID_COUNT),
       rdh_(rdh), client_(client), got_response_(false) {
 }
 
 void SandboxedExtensionUnpacker::Start() {
   // We assume that we are started on the thread that the client wants us to do
   // file IO on.
-  CHECK(ChromeThread::GetCurrentThreadIdentifier(&thread_identifier_));
+  CHECK(BrowserThread::GetCurrentThreadIdentifier(&thread_identifier_));
 
   // Create a temporary directory to work in.
   if (!temp_dir_.CreateUniqueTempDirUnderPath(temp_path_)) {
@@ -98,8 +98,8 @@ void SandboxedExtensionUnpacker::Start() {
       return;
     }
 
-    ChromeThread::PostTask(
-        ChromeThread::IO, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
         NewRunnableMethod(
             this,
             &SandboxedExtensionUnpacker::StartProcessOnIOThread,
@@ -116,6 +116,8 @@ void SandboxedExtensionUnpacker::Start() {
   }
 }
 
+SandboxedExtensionUnpacker::~SandboxedExtensionUnpacker() {}
+
 void SandboxedExtensionUnpacker::StartProcessOnIOThread(
     const FilePath& temp_crx_path) {
   UtilityProcessHost* host = new UtilityProcessHost(
@@ -126,8 +128,8 @@ void SandboxedExtensionUnpacker::StartProcessOnIOThread(
 void SandboxedExtensionUnpacker::OnUnpackExtensionSucceeded(
     const DictionaryValue& manifest) {
   // Skip check for unittests.
-  if (thread_identifier_ != ChromeThread::ID_COUNT)
-    DCHECK(ChromeThread::CurrentlyOn(thread_identifier_));
+  if (thread_identifier_ != BrowserThread::ID_COUNT)
+    DCHECK(BrowserThread::CurrentlyOn(thread_identifier_));
   got_response_ = true;
 
   scoped_ptr<DictionaryValue> final_manifest(RewriteManifestFile(manifest));
@@ -165,7 +167,7 @@ void SandboxedExtensionUnpacker::OnUnpackExtensionSucceeded(
 
 void SandboxedExtensionUnpacker::OnUnpackExtensionFailed(
     const std::string& error) {
-  DCHECK(ChromeThread::CurrentlyOn(thread_identifier_));
+  DCHECK(BrowserThread::CurrentlyOn(thread_identifier_));
   got_response_ = true;
   ReportFailure(error);
 }

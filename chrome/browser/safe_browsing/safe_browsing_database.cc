@@ -4,19 +4,16 @@
 
 #include "chrome/browser/safe_browsing/safe_browsing_database.h"
 
-#include "base/command_line.h"
 #include "base/file_util.h"
-#include "base/histogram.h"
+#include "base/metrics/histogram.h"
+#include "base/metrics/stats_counters.h"
 #include "base/time.h"
 #include "base/message_loop.h"
 #include "base/process_util.h"
 #include "base/sha2.h"
-#include "base/stats_counters.h"
 #include "chrome/browser/safe_browsing/bloom_filter.h"
-#include "chrome/browser/safe_browsing/safe_browsing_database_bloom.h"
 #include "chrome/browser/safe_browsing/safe_browsing_store_file.h"
 #include "chrome/browser/safe_browsing/safe_browsing_store_sqlite.h"
-#include "chrome/common/chrome_switches.h"
 #include "googleurl/src/gurl.h"
 
 namespace {
@@ -146,38 +143,13 @@ bool SBAddFullHashPrefixLess(const SBAddFullHash& a, const SBAddFullHash& b) {
 }  // namespace
 
 // Factory method.
-// TODO(shess): Proposed staging of the rolling:
-// - Ship "old" to dev channel to provide a safe fallback.
-// - If that proves stable, change to "newsqlite".  This changes the
-//   code which manipulates the data, without changing the data
-//   format.  At this point all changes could be reverted without
-//   having to resync everyone's database from scratch.
-// - If SafeBrowsingDatabaseNew proves stable, change the default to
-//   "newfile", which will change the file format.  Changing back
-//   would require resync from scratch.
-// - Once enough users are converted to "newfile", remove all of the
-//   redundent indirection classes and functions, perhaps leaving
-//   SafeBrowsingStoreSqlite for on-the-fly conversions.
-// - Once there are few remaining SQLite-format users, remove
-//   SafeBrowsingStoreSqlite.  Remaining users will resync their
-//   safe-browsing database from scratch.  If users haven't sync'ed
-//   their database in months, this probably won't be more expensive
-//   than an incremental sync.
+// TODO(shess): Milestone-7 is converting from SQLite-based
+// SafeBrowsingDatabaseBloom to the new file format with
+// SafeBrowsingDatabaseNew.  Once that conversion is too far along to
+// consider reversing, circle back and lift SafeBrowsingDatabaseNew up
+// to SafeBrowsingDatabase and get rid of the abstract class.
 SafeBrowsingDatabase* SafeBrowsingDatabase::Create() {
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
-  std::string value =
-      command_line.GetSwitchValueASCII(switches::kSafeBrowsingDatabaseStore);
-  if (!value.compare("newfile")) {
-    return new SafeBrowsingDatabaseNew(new SafeBrowsingStoreFile);
-  } else if (!value.compare("newsqlite")) {
-    return new SafeBrowsingDatabaseNew(new SafeBrowsingStoreSqlite);
-  } else if (!value.compare("old")) {
-    return new SafeBrowsingDatabaseBloom;
-  } else {
-    // Default.
-    DCHECK(value.empty());
-    return new SafeBrowsingDatabaseNew(new SafeBrowsingStoreFile);
-  }
+  return new SafeBrowsingDatabaseNew(new SafeBrowsingStoreFile);
 }
 
 SafeBrowsingDatabase::~SafeBrowsingDatabase() {
@@ -187,6 +159,11 @@ SafeBrowsingDatabase::~SafeBrowsingDatabase() {
 FilePath SafeBrowsingDatabase::BloomFilterForFilename(
     const FilePath& db_filename) {
   return FilePath(db_filename.value() + kBloomFilterFile);
+}
+
+// static
+void SafeBrowsingDatabase::RecordFailure(FailureType failure_type) {
+  UMA_HISTOGRAM_ENUMERATION("SB2.DatabaseFailure", failure_type, FAILURE_MAX);
 }
 
 SafeBrowsingDatabaseNew::SafeBrowsingDatabaseNew(SafeBrowsingStore* store)
@@ -509,6 +486,7 @@ bool SafeBrowsingDatabaseNew::UpdateStarted(
 
   // If |BeginUpdate()| fails, reset the database.
   if (!store_->BeginUpdate()) {
+    RecordFailure(FAILURE_DATABASE_UPDATE_BEGIN);
     HandleCorruptDatabase();
     return false;
   }
@@ -553,12 +531,6 @@ void SafeBrowsingDatabaseNew::UpdateFinished(bool update_succeeded) {
                               pending_hashes_.begin(), pending_hashes_.end());
   }
 
-  std::vector<SBAddPrefix> add_prefixes;
-  std::vector<SBAddFullHash> add_full_hashes;
-  if (!store_->FinishUpdate(pending_add_hashes,
-                            &add_prefixes, &add_full_hashes))
-    return;
-
   // Measure the amount of IO during the bloom filter build.
   base::IoCounters io_before, io_after;
   base::ProcessHandle handle = base::Process::Current().handle();
@@ -577,6 +549,14 @@ void SafeBrowsingDatabaseNew::UpdateFinished(bool update_succeeded) {
   const bool got_counters = metric->GetIOCounters(&io_before);
 
   const base::Time before = base::Time::Now();
+
+  std::vector<SBAddPrefix> add_prefixes;
+  std::vector<SBAddFullHash> add_full_hashes;
+  if (!store_->FinishUpdate(pending_add_hashes,
+                            &add_prefixes, &add_full_hashes)) {
+    RecordFailure(FAILURE_DATABASE_UPDATE_FINISH);
+    return;
+  }
 
   // Create and populate |filter| from |add_prefixes|.
   // TODO(shess): The bloom filter doesn't need to be a
@@ -616,12 +596,12 @@ void SafeBrowsingDatabaseNew::UpdateFinished(bool update_succeeded) {
 
   // Gather statistics.
   if (got_counters && metric->GetIOCounters(&io_after)) {
-    UMA_HISTOGRAM_COUNTS("SB2.BuildReadBytes",
+    UMA_HISTOGRAM_COUNTS("SB2.BuildReadKilobytes",
                          static_cast<int>(io_after.ReadTransferCount -
-                                          io_before.ReadTransferCount));
-    UMA_HISTOGRAM_COUNTS("SB2.BuildWriteBytes",
+                                          io_before.ReadTransferCount) / 1024);
+    UMA_HISTOGRAM_COUNTS("SB2.BuildWriteKilobytes",
                          static_cast<int>(io_after.WriteTransferCount -
-                                          io_before.WriteTransferCount));
+                                          io_before.WriteTransferCount) / 1024);
     UMA_HISTOGRAM_COUNTS("SB2.BuildReadOperations",
                          static_cast<int>(io_after.ReadOperationCount -
                                           io_before.ReadOperationCount));
@@ -633,23 +613,28 @@ void SafeBrowsingDatabaseNew::UpdateFinished(bool update_succeeded) {
                 << bloom_gen.InMilliseconds()
                 << " ms total.  prefix count: "<< add_prefixes.size();
   UMA_HISTOGRAM_LONG_TIMES("SB2.BuildFilter", bloom_gen);
-  UMA_HISTOGRAM_COUNTS("SB2.FilterSize", bloom_filter_->size());
+  UMA_HISTOGRAM_COUNTS("SB2.FilterKilobytes", bloom_filter_->size() / 1024);
   int64 size_64;
-  if (file_util::GetFileSize(filename_, &size_64))
-    UMA_HISTOGRAM_COUNTS("SB2.DatabaseBytes", static_cast<int>(size_64));
+  if (file_util::GetFileSize(filename_, &size_64)) {
+    UMA_HISTOGRAM_COUNTS("SB2.DatabaseKilobytes",
+                         static_cast<int>(size_64 / 1024));
+  }
 }
 
 void SafeBrowsingDatabaseNew::HandleCorruptDatabase() {
   // Reset the database after the current task has unwound (but only
   // reset once within the scope of a given task).
-  if (reset_factory_.empty())
+  if (reset_factory_.empty()) {
+    RecordFailure(FAILURE_DATABASE_CORRUPT);
     MessageLoop::current()->PostTask(FROM_HERE,
         reset_factory_.NewRunnableMethod(
             &SafeBrowsingDatabaseNew::OnHandleCorruptDatabase));
+  }
 }
 
 void SafeBrowsingDatabaseNew::OnHandleCorruptDatabase() {
   UMA_HISTOGRAM_COUNTS("SB2.HandleCorrupt", 1);
+  RecordFailure(FAILURE_DATABASE_CORRUPT_HANDLER);
   corruption_detected_ = true;  // Stop updating the database.
   ResetDatabase();
   DCHECK(false) << "SafeBrowsing database was corrupt and reset";
@@ -672,6 +657,7 @@ void SafeBrowsingDatabaseNew::LoadBloomFilter() {
   if (!file_util::GetFileSize(bloom_filter_filename_, &size_64) ||
       size_64 == 0) {
     UMA_HISTOGRAM_COUNTS("SB2.FilterMissing", 1);
+    RecordFailure(FAILURE_DATABASE_FILTER_MISSING);
     return;
   }
 
@@ -680,15 +666,21 @@ void SafeBrowsingDatabaseNew::LoadBloomFilter() {
   SB_DLOG(INFO) << "SafeBrowsingDatabaseNew read bloom filter in "
                 << (base::TimeTicks::Now() - before).InMilliseconds() << " ms";
 
-  if (!bloom_filter_.get())
+  if (!bloom_filter_.get()) {
     UMA_HISTOGRAM_COUNTS("SB2.FilterReadFail", 1);
+    RecordFailure(FAILURE_DATABASE_FILTER_READ);
+  }
 }
 
 bool SafeBrowsingDatabaseNew::Delete() {
   DCHECK_EQ(creation_loop_, MessageLoop::current());
 
   const bool r1 = store_->Delete();
+  if (!r1)
+    RecordFailure(FAILURE_DATABASE_STORE_DELETE);
   const bool r2 = file_util::Delete(bloom_filter_filename_, false);
+  if (!r2)
+    RecordFailure(FAILURE_DATABASE_FILTER_DELETE);
   return r1 && r2;
 }
 
@@ -703,6 +695,8 @@ void SafeBrowsingDatabaseNew::WriteBloomFilter() {
   SB_DLOG(INFO) << "SafeBrowsingDatabaseNew wrote bloom filter in " <<
       (base::TimeTicks::Now() - before).InMilliseconds() << " ms";
 
-  if (!write_ok)
+  if (!write_ok) {
     UMA_HISTOGRAM_COUNTS("SB2.FilterWriteFail", 1);
+    RecordFailure(FAILURE_DATABASE_FILTER_WRITE);
+  }
 }

@@ -9,25 +9,16 @@
 #include "chrome/browser/profile.h"
 #include "chrome/common/pref_names.h"
 
-// Tabs started crashing on CrOS and hanging browser tests
-// http://crbug.com/56479
-#if defined(OS_CHROMEOS)
-#define MAYBE_Tabs DISABLED_Tabs
-// Tabs is flaky on chromeos, windows, linux views and linux dbg.
-// http://crbug.com/48920
-#elif defined(OS_LINUX) || defined(OS_WIN)
-#define MAYBE_Tabs FLAKY_Tabs
-#elif defined(OS_MACOSX)
-// Tabs appears to timeout, or maybe crash on mac.
-// http://crbug.com/53779
+#if defined(OS_WIN)
+// This test times out on win.
+// http://crbug.com/58269
 #define MAYBE_Tabs FAILS_Tabs
 #else
 #define MAYBE_Tabs Tabs
 #endif
 
-// TabOnRemoved is flaky on chromeos and linux views debug build.
-// http://crbug.com/49258
-#if defined(OS_LINUX) && defined(TOOLKIT_VIEWS) && !defined(NDEBUG)
+// Possible race in ChromeURLDataManager. http://crbug.com/59198
+#if defined(OS_MACOSX) || defined(OS_LINUX)
 #define MAYBE_TabOnRemoved FLAKY_TabOnRemoved
 #else
 #define MAYBE_TabOnRemoved TabOnRemoved
@@ -46,34 +37,33 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_Tabs) {
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabGetCurrent) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(StartTestServer());
   ASSERT_TRUE(RunExtensionTest("tabs/get_current")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabConnect) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(StartTestServer());
   ASSERT_TRUE(RunExtensionTest("tabs/connect")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_TabOnRemoved) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(StartTestServer());
   ASSERT_TRUE(RunExtensionTest("tabs/on_removed")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, CaptureVisibleTabJpeg) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(StartTestServer());
   ASSERT_TRUE(RunExtensionSubtest("tabs/capture_visible_tab",
                                   "test_jpeg.html")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, CaptureVisibleTabPng) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(StartTestServer());
   ASSERT_TRUE(RunExtensionSubtest("tabs/capture_visible_tab",
                                   "test_png.html")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabsOnUpdated) {
-  ASSERT_TRUE(test_server()->Start());
-
+  ASSERT_TRUE(StartTestServer());
   ASSERT_TRUE(RunExtensionTest("tabs/on_updated")) << message_;
 }

@@ -206,7 +206,11 @@ int SystemHostResolverProc(const std::string& host,
   // If we fail, re-initialise the resolver just in case there have been any
   // changes to /etc/resolv.conf and retry. See http://crbug.com/11380 for info.
   if (err && DnsReloadTimerHasExpired()) {
-    res_nclose(&_res);
+    // When there's no network connection, _res may not be initialized by
+    // getaddrinfo. Therefore, we call res_nclose only when there are ns
+    // entries.
+    if (_res.nscount > 0)
+      res_nclose(&_res);
     if (!res_ninit(&_res))
       should_retry = true;
   }
@@ -235,13 +239,24 @@ int SystemHostResolverProc(const std::string& host,
   }
 
   if (err) {
-    if (os_error) {
 #if defined(OS_WIN)
-      *os_error = WSAGetLastError();
-#else
-      *os_error = err;
+    err = WSAGetLastError();
 #endif
-    }
+
+    // Return the OS error to the caller.
+    if (os_error)
+      *os_error = err;
+
+    // If the call to getaddrinfo() failed because of a system error, report
+    // it separately from ERR_NAME_NOT_RESOLVED.
+#if defined(OS_WIN)
+    if (err != WSAHOST_NOT_FOUND && err != WSANO_DATA)
+      return ERR_NAME_RESOLUTION_FAILED;
+#elif defined(OS_POSIX)
+    if (err != EAI_NONAME && err != EAI_NODATA)
+      return ERR_NAME_RESOLUTION_FAILED;
+#endif
+
     return ERR_NAME_NOT_RESOLVED;
   }
 

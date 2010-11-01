@@ -1,6 +1,6 @@
 /*
  * Copyright 2009, Google Inc.
- * Author: lexnikitin
+ * Author: lexnikitin@google.com (Alexey Nikitin)
  *
  * V4LLookup provides basic functionality to work with V2L2 devices in Linux
  * The functionality is implemented as a class with virtual methods for

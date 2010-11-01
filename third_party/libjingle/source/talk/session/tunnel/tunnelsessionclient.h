@@ -29,8 +29,10 @@
 #define __TUNNELSESSIONCLIENT_H__
 
 #include <vector>
+
 #include "talk/base/criticalsection.h"
 #include "talk/base/stream.h"
+#include "talk/p2p/base/constants.h"
 #include "talk/p2p/base/pseudotcp.h"
 #include "talk/p2p/base/session.h"
 #include "talk/p2p/base/sessiondescription.h"
@@ -110,10 +112,12 @@ public:
                       const std::string &ns);
   virtual ~TunnelSessionClient();
 
-  virtual bool ParseContent(const buzz::XmlElement* elem,
+  virtual bool ParseContent(SignalingProtocol protocol,
+                            const buzz::XmlElement* elem,
                             const ContentDescription** content,
                             ParseError* error);
-  virtual bool WriteContent(const ContentDescription* content,
+  virtual bool WriteContent(SignalingProtocol protocol,
+                            const ContentDescription* content,
                             buzz::XmlElement** elem,
                             WriteError* error);
 
@@ -140,7 +144,7 @@ public:
 ///////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////
 // TunnelStream
-// Note: Because TunnelStream provides a stream interface, it's lifetime is
+// Note: Because TunnelStream provides a stream interface, its lifetime is
 // controlled by the owner of the stream pointer.  As a result, we must support
 // both the TunnelSession disappearing before TunnelStream, and vice versa.
 ///////////////////////////////////////////////////////////////////////////////

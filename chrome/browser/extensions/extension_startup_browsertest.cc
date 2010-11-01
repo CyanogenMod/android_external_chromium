@@ -116,19 +116,19 @@ class ExtensionStartupTestBase : public InProcessBrowserTest {
     ui_test_utils::NavigateToURL(browser(), net::FilePathToFileURL(test_file));
 
     bool result = false;
-    ui_test_utils::ExecuteJavaScriptAndExtractBool(
+    ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
         browser()->GetSelectedTabContents()->render_view_host(), L"",
         L"window.domAutomationController.send("
         L"document.defaultView.getComputedStyle(document.body, null)."
         L"getPropertyValue('background-color') == 'rgb(245, 245, 220)')",
-        &result);
+        &result));
     EXPECT_EQ(expect_css, result);
 
     result = false;
-    ui_test_utils::ExecuteJavaScriptAndExtractBool(
+    ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
         browser()->GetSelectedTabContents()->render_view_host(), L"",
         L"window.domAutomationController.send(document.title == 'Modified')",
-        &result);
+        &result));
     EXPECT_EQ(expect_script, result);
   }
 
@@ -200,13 +200,7 @@ class ExtensionsLoadTest : public ExtensionStartupTestBase {
   }
 };
 
-// Flaky (times out) on Mac/Windows. http://crbug.com/46301.
-#if defined(OS_MACOSX) || defined(OS_WIN)
-#define MAYBE_Test FLAKY_Test
-#else
-#define MAYBE_Test Test
-#endif
-IN_PROC_BROWSER_TEST_F(ExtensionsLoadTest, MAYBE_Test) {
+IN_PROC_BROWSER_TEST_F(ExtensionsLoadTest, Test) {
   WaitForServicesToStart(1, false);
   TestInjection(true, true);
 }

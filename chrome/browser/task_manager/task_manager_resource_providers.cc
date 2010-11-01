@@ -17,9 +17,9 @@
 #include "base/thread.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/browser_child_process_host.h"
-#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
 #include "chrome/browser/notifications/balloon_collection.h"
@@ -354,6 +354,36 @@ base::ProcessHandle TaskManagerChildProcessResource::GetProcess() const {
   return child_process_.handle();
 }
 
+TaskManager::Resource::Type TaskManagerChildProcessResource::GetType() const {
+  // Translate types to TaskManager::ResourceType, since ChildProcessInfo's type
+  // is not available for all TaskManager resources.
+  switch (child_process_.type()) {
+    case ChildProcessInfo::BROWSER_PROCESS:
+      return TaskManager::Resource::BROWSER;
+    case ChildProcessInfo::RENDER_PROCESS:
+      return TaskManager::Resource::RENDERER;
+    case ChildProcessInfo::PLUGIN_PROCESS:
+      return TaskManager::Resource::PLUGIN;
+    case ChildProcessInfo::WORKER_PROCESS:
+      return TaskManager::Resource::WORKER;
+    case ChildProcessInfo::NACL_LOADER_PROCESS:
+    case ChildProcessInfo::NACL_BROKER_PROCESS:
+      return TaskManager::Resource::NACL;
+    case ChildProcessInfo::UTILITY_PROCESS:
+      return TaskManager::Resource::UTILITY;
+    case ChildProcessInfo::PROFILE_IMPORT_PROCESS:
+      return TaskManager::Resource::PROFILE_IMPORT;
+    case ChildProcessInfo::ZYGOTE_PROCESS:
+      return TaskManager::Resource::ZYGOTE;
+    case ChildProcessInfo::SANDBOX_HELPER_PROCESS:
+      return TaskManager::Resource::SANDBOX_HELPER;
+    case ChildProcessInfo::GPU_PROCESS:
+      return TaskManager::Resource::GPU;
+    default:
+      return TaskManager::Resource::UNKNOWN;
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // TaskManagerChildProcessResourceProvider class
 ////////////////////////////////////////////////////////////////////////////////
@@ -391,8 +421,8 @@ void TaskManagerChildProcessResourceProvider::StartUpdating() {
                  NotificationService::AllSources());
 
   // Get the existing child processes.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           this,
           &TaskManagerChildProcessResourceProvider::RetrieveChildProcessInfo));
@@ -496,8 +526,8 @@ void TaskManagerChildProcessResourceProvider::RetrieveChildProcessInfo() {
   }
   // Now notify the UI thread that we have retrieved information about child
   // processes.
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(this,
           &TaskManagerChildProcessResourceProvider::ChildProcessInfoRetreived));
 }

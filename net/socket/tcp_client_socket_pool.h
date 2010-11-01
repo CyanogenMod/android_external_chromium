@@ -131,6 +131,11 @@ class TCPClientSocketPool : public ClientSocketPool {
                             CompletionCallback* callback,
                             const BoundNetLog& net_log);
 
+  virtual void RequestSockets(const std::string& group_name,
+                              const void* params,
+                              int num_sockets,
+                              const BoundNetLog& net_log);
+
   virtual void CancelRequest(const std::string& group_name,
                              ClientSocketHandle* handle);
 
@@ -191,7 +196,7 @@ class TCPClientSocketPool : public ClientSocketPool {
 
    private:
     ClientSocketFactory* const client_socket_factory_;
-    const scoped_refptr<HostResolver> host_resolver_;
+    HostResolver* const host_resolver_;
     NetLog* net_log_;
 
     DISALLOW_COPY_AND_ASSIGN(TCPConnectJobFactory);

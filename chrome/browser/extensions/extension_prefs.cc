@@ -37,13 +37,6 @@ const char kPrefBlacklist[] = "blacklist";
 // Indicates whether to show an install warning when the user enables.
 const char kExtensionDidEscalatePermissions[] = "install_warning_on_enable";
 
-// A preference that tracks admin policy regarding which extensions the user
-// can and can not install. This preference is a list object, containing
-// strings that list extension ids. Denylist can contain "*" meaning all
-// extensions.
-const char kExtensionInstallAllowList[] = "extensions.install.allowlist";
-const char kExtensionInstallDenyList[] = "extensions.install.denylist";
-
 // A preference that tracks browser action toolbar configuration. This is a list
 // object stored in the Preferences file. The extensions are stored by ID.
 const char kExtensionToolbar[] = "extensions.toolbar";
@@ -78,6 +71,9 @@ const char kWebStoreLogin[] = "extensions.webstore_login";
 // A preference set by the the NTP to persist the desired launch container type
 // used for apps.
 const char kPrefLaunchType[] = "launchType";
+
+// A preference determining the order of which the apps appear on the NTP.
+const char kPrefAppLaunchIndex[] = "app_launcher_index";
 
 }  // namespace
 
@@ -121,6 +117,8 @@ ExtensionPrefs::ExtensionPrefs(PrefService* prefs, const FilePath& root_dir)
 
   MakePathsRelative();
 }
+
+ExtensionPrefs::~ExtensionPrefs() {}
 
 // static
 const char ExtensionPrefs::kExtensionsPref[] = "extensions.settings";
@@ -279,12 +277,14 @@ bool ExtensionPrefs::IsExtensionAllowedByPolicy(
     const std::string& extension_id) {
   std::string string_value;
 
-  const ListValue* blacklist = prefs_->GetList(kExtensionInstallDenyList);
+  const ListValue* blacklist =
+      prefs_->GetList(prefs::kExtensionInstallDenyList);
   if (!blacklist || blacklist->empty())
     return true;
 
   // Check the whitelist first.
-  const ListValue* whitelist = prefs_->GetList(kExtensionInstallAllowList);
+  const ListValue* whitelist =
+      prefs_->GetList(prefs::kExtensionInstallAllowList);
   if (whitelist) {
     for (ListValue::const_iterator it = whitelist->begin();
          it != whitelist->end(); ++it) {
@@ -455,7 +455,7 @@ ExtensionPrefs::LaunchType ExtensionPrefs::GetLaunchType(
       value == LAUNCH_FULLSCREEN)) {
     return static_cast<LaunchType>(value);
   }
-  return LAUNCH_PINNED;
+  return LAUNCH_REGULAR;
 }
 
 void ExtensionPrefs::SetLaunchType(const std::string& extension_id,
@@ -536,6 +536,8 @@ void ExtensionPrefs::OnExtensionInstalled(
     UpdateExtensionPref(id, kPrefManifest,
                         extension->manifest_value()->DeepCopy());
   }
+  UpdateExtensionPref(id, kPrefAppLaunchIndex,
+                      Value::CreateIntegerValue(GetNextAppLaunchIndex()));
   SavePrefsAndNotify();
 }
 
@@ -862,13 +864,44 @@ void ExtensionPrefs::SetWebStoreLogin(const std::string& login) {
   SavePrefsAndNotify();
 }
 
+int ExtensionPrefs::GetAppLaunchIndex(const std::string& extension_id) {
+  int value;
+  if (ReadExtensionPrefInteger(extension_id, kPrefAppLaunchIndex, &value))
+    return value;
+
+  return -1;
+}
+
+void ExtensionPrefs::SetAppLaunchIndex(const std::string& extension_id,
+                                       int index) {
+  DCHECK_GE(index, 0);
+  UpdateExtensionPref(extension_id, kPrefAppLaunchIndex,
+                      Value::CreateIntegerValue(index));
+  SavePrefsAndNotify();
+}
+
+int ExtensionPrefs::GetNextAppLaunchIndex() {
+  const DictionaryValue* extensions = prefs_->GetDictionary(kExtensionsPref);
+  if (!extensions)
+    return 0;
+
+  int max_value = -1;
+  for (DictionaryValue::key_iterator extension_id = extensions->begin_keys();
+       extension_id != extensions->end_keys(); ++extension_id) {
+    int value = GetAppLaunchIndex(*extension_id);
+    if (value > max_value)
+      max_value = value;
+  }
+  return max_value + 1;
+}
+
 // static
 void ExtensionPrefs::RegisterUserPrefs(PrefService* prefs) {
   prefs->RegisterDictionaryPref(kExtensionsPref);
   prefs->RegisterListPref(kExtensionToolbar);
   prefs->RegisterIntegerPref(prefs::kExtensionToolbarSize, -1);
   prefs->RegisterDictionaryPref(kExtensionsBlacklistUpdate);
-  prefs->RegisterListPref(kExtensionInstallAllowList);
-  prefs->RegisterListPref(kExtensionInstallDenyList);
+  prefs->RegisterListPref(prefs::kExtensionInstallAllowList);
+  prefs->RegisterListPref(prefs::kExtensionInstallDenyList);
   prefs->RegisterStringPref(kWebStoreLogin, std::string() /* default_value */);
 }

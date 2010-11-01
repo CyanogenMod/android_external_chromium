@@ -111,12 +111,18 @@ class DOMUI {
                               const Value& arg2,
                               const Value& arg3,
                               const Value& arg4);
+  void CallJavascriptFunction(const std::wstring& function_name,
+                              const std::vector<const Value*>& args);
 
   ThemeProvider* GetThemeProvider() const;
 
-  TabContents* tab_contents() const { return tab_contents_; }
+  // May be overridden by DOMUI's which do not have a tab contents.
+  virtual Profile* GetProfile() const;
 
-  Profile* GetProfile() const;
+  // May be overridden by DOMUI's which do not have a tab contents.
+  virtual RenderViewHost* GetRenderViewHost() const;
+
+  TabContents* tab_contents() const { return tab_contents_; }
 
  protected:
   void AddMessageHandler(DOMMessageHandler* handler);
@@ -135,12 +141,12 @@ class DOMUI {
   // The DOMMessageHandlers we own.
   std::vector<DOMMessageHandler*> handlers_;
 
+  // Non-owning pointer to the TabContents this DOMUI is associated with.
+  TabContents* tab_contents_;
+
  private:
   // Execute a string of raw Javascript on the page.
   void ExecuteJavascript(const std::wstring& javascript);
-
-  // Non-owning pointer to the TabContents this DOMUI is associated with.
-  TabContents* tab_contents_;
 
   // A map of message name -> message handling callback.
   typedef std::map<std::string, MessageCallback*> MessageCallbackMap;

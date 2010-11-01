@@ -6,11 +6,12 @@
 
 #include "base/string_util.h"
 #include "build/build_config.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/download/download_file.h"
 #include "chrome/browser/download/download_file_manager.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_prefs.h"
+#include "chrome/browser/download/download_status_updater.h"
 #include "chrome/browser/download/download_util.h"
 #include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -22,7 +23,8 @@
 
 class MockDownloadManager : public DownloadManager {
  public:
-  MockDownloadManager() : DownloadManager(NULL) {
+  explicit MockDownloadManager(DownloadStatusUpdater* updater)
+      : DownloadManager(updater) {
   }
 
   // Override some functions.
@@ -34,8 +36,8 @@ class DownloadManagerTest : public testing::Test {
  public:
   DownloadManagerTest()
       : profile_(new TestingProfile()),
-        download_manager_(new MockDownloadManager()),
-        ui_thread_(ChromeThread::UI, &message_loop_) {
+        download_manager_(new MockDownloadManager(&download_status_updater_)),
+        ui_thread_(BrowserThread::UI, &message_loop_) {
     download_manager_->Init(profile_.get());
   }
 
@@ -53,11 +55,12 @@ class DownloadManagerTest : public testing::Test {
   }
 
  protected:
+  DownloadStatusUpdater download_status_updater_;
   scoped_ptr<TestingProfile> profile_;
   scoped_refptr<DownloadManager> download_manager_;
   scoped_refptr<DownloadFileManager> file_manager_;
   MessageLoopForUI message_loop_;
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
 
   DownloadFileManager* file_manager() {
     if (!file_manager_) {
@@ -109,11 +112,11 @@ const struct {
     true,
     false,
     true, },
-  { "http://www.foo.com/auto-open.pdf",
+  { "http://www.foo.com/always_prompt.pdf",
     "application/pdf",
     false,
     true,
-    false, },
+    true, },
 };
 
 }  // namespace
@@ -210,7 +213,7 @@ TEST_F(DownloadManagerTest, DownloadRenameTest) {
   using ::testing::Invoke;
   using ::testing::Return;
 
-  ChromeThread file_thread(ChromeThread::FILE, &message_loop_);
+  BrowserThread file_thread(BrowserThread::FILE, &message_loop_);
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kDownloadRenameCases); ++i) {
     // |info| will be destroyed in download_manager_.

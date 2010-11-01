@@ -45,17 +45,16 @@ cr.define('options', function() {
       this.addEventListener('visibleChange', this.handleVisibleChange_);
     },
 
-    userListInitalized_: false,
-
     /**
      * Handler for OptionsPage's visible property change event.
      * @private
      * @param {Event} e Property change event.
      */
     handleVisibleChange_: function(e) {
-      if (!this.userListInitalized_ && this.visible) {
-        this.userListInitalized_ = true;
-        $('userList').redraw();
+      if (this.visible) {
+        // fetchUserPictures calls back AccountsOptions.setUserPictures and
+        // triggers redraw.
+        chrome.send('fetchUserPictures', []);
       }
     },
 
@@ -75,6 +74,13 @@ cr.define('options', function() {
   AccountsOptions.currentUserIsOwner = function() {
     return localStrings.getString('current_user_is_owner') == 'true';
   };
+
+  /**
+   * Updates user picture cache in UserList.
+   */
+  AccountsOptions.setUserPictures = function(cache) {
+    $('userList').setUserPictures(cache);
+  }
 
   // Export
   return {

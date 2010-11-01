@@ -259,7 +259,7 @@ void SocketStream::Finish(int result) {
   if (result == OK)
     result = ERR_CONNECTION_CLOSED;
   DCHECK_EQ(next_state_, STATE_NONE);
-  DLOG(INFO) << "Finish result=" << net::ErrorToString(result);
+  DVLOG(1) << "Finish result=" << net::ErrorToString(result);
   if (delegate_)
     delegate_->OnError(this, result);
 
@@ -482,7 +482,7 @@ int SocketStream::DoResolveProxyComplete(int result) {
       GURL::Replacements repl;
       repl.SetSchemeStr(scheme);
       proxy_url_ = url_.ReplaceComponents(repl);
-      DLOG(INFO) << "Try https proxy: " << proxy_url_;
+      DVLOG(1) << "Try https proxy: " << proxy_url_;
       next_state_ = STATE_RESOLVE_PROXY;
       return OK;
     }
@@ -519,8 +519,8 @@ int SocketStream::DoResolveHost() {
 
   HostResolver::RequestInfo resolve_info(host_port_pair);
 
-  DCHECK(host_resolver_.get());
-  resolver_.reset(new SingleRequestHostResolver(host_resolver_.get()));
+  DCHECK(host_resolver_);
+  resolver_.reset(new SingleRequestHostResolver(host_resolver_));
   return resolver_->Resolve(resolve_info, &addresses_, &io_callback_,
                             net_log_);
 }
@@ -771,7 +771,7 @@ int SocketStream::DoSOCKSConnect() {
   if (proxy_info_.proxy_server().scheme() == ProxyServer::SCHEME_SOCKS5)
     s = new SOCKS5ClientSocket(s, req_info);
   else
-    s = new SOCKSClientSocket(s, req_info, host_resolver_.get());
+    s = new SOCKSClientSocket(s, req_info, host_resolver_);
   socket_.reset(s);
   metrics_->OnSOCKSProxy();
   return socket_->Connect(&io_callback_);
@@ -793,8 +793,10 @@ int SocketStream::DoSOCKSConnectComplete(int result) {
 
 int SocketStream::DoSSLConnect() {
   DCHECK(factory_);
+  // TODO(agl): look into plumbing SSLHostInfo here.
   socket_.reset(factory_->CreateSSLClientSocket(
-      socket_.release(), url_.HostNoBrackets(), ssl_config_));
+      socket_.release(), url_.HostNoBrackets(), ssl_config_,
+      NULL /* ssl_host_info */));
   next_state_ = STATE_SSL_CONNECT_COMPLETE;
   metrics_->OnSSLConnection();
   return socket_->Connect(&io_callback_);
@@ -924,7 +926,7 @@ GURL SocketStream::ProxyAuthOrigin() const {
 int SocketStream::HandleAuthChallenge(const HttpResponseHeaders* headers) {
   GURL auth_origin(ProxyAuthOrigin());
 
-  LOG(INFO) << "The proxy " << auth_origin << " requested auth";
+  VLOG(1) << "The proxy " << auth_origin << " requested auth";
 
   // TODO(cbentzel): Since SocketStream only suppports basic authentication
   // right now, another challenge is always treated as a rejection.

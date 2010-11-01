@@ -6,35 +6,42 @@
 #define CHROME_BROWSER_IO_THREAD_H_
 #pragma once
 
+#include <set>
+
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/browser_process_sub_thread.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
 #include "chrome/common/net/predictor_common.h"
-#include "chrome/browser/net/connect_interceptor.h"
-#include "net/base/host_resolver.h"
 #include "net/base/network_change_notifier.h"
 
 class ChromeNetLog;
 class ListValue;
+class URLRequestContext;
 
 namespace chrome_browser_net {
+class ConnectInterceptor;
 class Predictor;
 }  // namespace chrome_browser_net
 
 namespace net {
+class DnsRRResolver;
+class HostResolver;
 class HttpAuthHandlerFactory;
+class ProxyScriptFetcher;
 class URLSecurityManager;
 }  // namespace net
 
 class IOThread : public BrowserProcessSubThread {
  public:
   struct Globals {
+    Globals();
+    ~Globals();
+
     scoped_ptr<ChromeNetLog> net_log;
-    // TODO(willchan): Stop reference counting HostResolver.  It's owned by
-    // IOThread now.
-    scoped_refptr<net::HostResolver> host_resolver;
+    scoped_ptr<net::HostResolver> host_resolver;
+    scoped_ptr<net::DnsRRResolver> dnsrr_resolver;
     scoped_ptr<net::HttpAuthHandlerFactory> http_auth_handler_factory;
     scoped_ptr<net::URLSecurityManager> url_security_manager;
     ChromeNetworkDelegate network_delegate;
@@ -63,12 +70,22 @@ class IOThread : public BrowserProcessSubThread {
   // IOThread's message loop.
   void ChangedToOnTheRecord();
 
+  // Creates a ProxyScriptFetcherImpl which will be automatically aborted
+  // during shutdown.
+  // This is used to avoid cycles between the ProxyScriptFetcher and the
+  // URLRequestContext that owns it (indirectly via the ProxyService).
+  net::ProxyScriptFetcher* CreateAndRegisterProxyScriptFetcher(
+      URLRequestContext* url_request_context);
+
  protected:
   virtual void Init();
   virtual void CleanUp();
   virtual void CleanUpAfterMessageLoopDestruction();
 
  private:
+  class ManagedProxyScriptFetcher;
+  typedef std::set<ManagedProxyScriptFetcher*> ProxyScriptFetchers;
+
   net::HttpAuthHandlerFactory* CreateDefaultAuthHandlerFactory(
       net::HostResolver* resolver);
 
@@ -111,6 +128,9 @@ class IOThread : public BrowserProcessSubThread {
   // down.
   chrome_browser_net::ConnectInterceptor* speculative_interceptor_;
   chrome_browser_net::Predictor* predictor_;
+
+  // List of live ProxyScriptFetchers.
+  ProxyScriptFetchers fetchers_;
 
   DISALLOW_COPY_AND_ASSIGN(IOThread);
 };

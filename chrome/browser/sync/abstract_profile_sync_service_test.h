@@ -11,7 +11,7 @@
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
 #include "base/task.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/net/gaia/token_service.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/autofill_model_associator.h"
@@ -51,6 +51,28 @@ using syncable::WriteTransaction;
 
 class ProfileSyncServiceTestHelper {
  public:
+  static const std::string GetTagForType(ModelType type) {
+    switch (type) {
+      case syncable::AUTOFILL:
+        return browser_sync::kAutofillTag;
+      case syncable::PREFERENCES:
+        return browser_sync::kPreferencesTag;
+      case syncable::PASSWORDS:
+        return browser_sync::kPasswordTag;
+      case syncable::NIGORI:
+        return browser_sync::kNigoriTag;
+      case syncable::TYPED_URLS:
+        return browser_sync::kTypedUrlTag;
+      case syncable::SESSIONS:
+        return browser_sync::kSessionsTag;
+      case syncable::BOOKMARKS:
+        return "google_chrome_bookmarks";
+      default:
+        NOTREACHED();
+        return std::string();
+    }
+  }
+
   static bool CreateRoot(ModelType model_type, ProfileSyncService* service,
                          TestIdFactory* ids) {
     UserShare* user_share = service->backend()->GetUserShareHandle();
@@ -60,30 +82,7 @@ class ProfileSyncServiceTestHelper {
     if (!dir.good())
       return false;
 
-    std::string tag_name;
-    switch (model_type) {
-      case syncable::AUTOFILL:
-        tag_name = browser_sync::kAutofillTag;
-        break;
-      case syncable::PREFERENCES:
-        tag_name = browser_sync::kPreferencesTag;
-        break;
-      case syncable::PASSWORDS:
-        tag_name = browser_sync::kPasswordTag;
-        break;
-      case syncable::NIGORI:
-        tag_name = browser_sync::kNigoriTag;
-        break;
-      case syncable::TYPED_URLS:
-        tag_name = browser_sync::kTypedUrlTag;
-        break;
-      case syncable::SESSIONS:
-        tag_name = browser_sync::kSessionsTag;
-        break;
-      default:
-        return false;
-    }
-
+    std::string tag_name = GetTagForType(model_type);
     WriteTransaction wtrans(dir, UNITTEST, __FILE__, __LINE__);
     MutableEntry node(&wtrans,
                       CREATE,
@@ -97,7 +96,7 @@ class ProfileSyncServiceTestHelper {
     node.Put(SERVER_VERSION, 20);
     node.Put(BASE_VERSION, 20);
     node.Put(IS_DEL, false);
-    node.Put(syncable::ID, ids->MakeServer(tag_name));
+    EXPECT_TRUE(node.Put(syncable::ID, ids->MakeServer(tag_name)));
     sync_pb::EntitySpecifics specifics;
     syncable::AddDefaultExtensionValue(model_type, &specifics);
     node.Put(SPECIFICS, specifics);
@@ -109,21 +108,21 @@ class ProfileSyncServiceTestHelper {
 class AbstractProfileSyncServiceTest : public testing::Test {
  public:
   AbstractProfileSyncServiceTest()
-      : ui_thread_(ChromeThread::UI, &message_loop_) {}
+      : ui_thread_(BrowserThread::UI, &message_loop_) {}
 
   bool CreateRoot(ModelType model_type) {
     return ProfileSyncServiceTestHelper::CreateRoot(model_type,
-                                                    service_.get(), &ids_);
+                                                    service_.get(),
+                                                    service_->id_factory());
   }
 
  protected:
 
   MessageLoopForUI message_loop_;
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
   ProfileSyncFactoryMock factory_;
   TokenService token_service_;
   scoped_ptr<TestProfileSyncService> service_;
-  TestIdFactory ids_;
 };
 
 class CreateRootTask : public Task {

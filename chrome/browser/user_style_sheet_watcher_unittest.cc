@@ -9,7 +9,7 @@
 #include "base/message_loop.h"
 #include "base/scoped_temp_dir.h"
 #include "base/string_util.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 TEST(UserStyleSheetWatcherTest, StyleLoad) {
@@ -26,8 +26,8 @@ TEST(UserStyleSheetWatcherTest, StyleLoad) {
   scoped_refptr<UserStyleSheetWatcher> style_sheet_watcher =
       new UserStyleSheetWatcher(dir.path());
   MessageLoop loop;
-  ChromeThread ui_thread(ChromeThread::UI, &loop);
-  ChromeThread file_thread(ChromeThread::FILE, &loop);
+  BrowserThread ui_thread(BrowserThread::UI, &loop);
+  BrowserThread file_thread(BrowserThread::FILE, &loop);
   style_sheet_watcher->Init();
 
   loop.RunAllPending();

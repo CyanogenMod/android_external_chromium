@@ -9,6 +9,8 @@
 #include "base/basictypes.h"
 #include "base/process.h"
 #include "chrome/common/common_param_traits.h"
+#include "chrome/common/dx_diag_node.h"
+#include "chrome/common/gpu_create_command_buffer_config.h"
 #include "chrome/common/gpu_info.h"
 #include "chrome/common/gpu_native_window_handle.h"
 #include "gfx/native_widget_types.h"
@@ -52,12 +54,29 @@ struct ParamTraits<GPUInfo> {
 };
 
 template <>
+struct ParamTraits<DxDiagNode> {
+  typedef DxDiagNode param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, void** iter, param_type* p);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
 struct ParamTraits<gpu::CommandBuffer::State> {
   typedef gpu::CommandBuffer::State param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
+
+template <>
+struct ParamTraits<GPUCreateCommandBufferConfig> {
+  typedef GPUCreateCommandBufferConfig param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, void** iter, param_type* p);
+  static void Log(const param_type& p, std::string* l);
+};
+
 }  // namespace IPC
 
 #endif  // CHROME_COMMON_GPU_PARAM_TRAITS_H_

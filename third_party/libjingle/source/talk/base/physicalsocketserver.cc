@@ -487,7 +487,7 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
         *slevel = IPPROTO_IP;
         *sopt = IP_DONTFRAGMENT;
         break;
-#elif defined(OSX)
+#elif defined(OSX) || defined(BSD)
         LOG(LS_WARNING) << "Socket::OPT_DONTFRAGMENT not supported.";
         return -1;
 #elif defined(POSIX)
@@ -1311,7 +1311,7 @@ bool PhysicalSocketServer::Wait(int cmsWait, bool process_io) {
         int errcode = 0;
 
         // Reap any error code, which can be signaled through reads or writes.
-        // TODO(juberti): Should we set errcode if getsockopt fails?
+        // TODO: Should we set errcode if getsockopt fails?
         if (FD_ISSET(fd, &fdsRead) || FD_ISSET(fd, &fdsWrite)) {
           socklen_t len = sizeof(errcode);
           ::getsockopt(fd, SOL_SOCKET, SO_ERROR, &errcode, &len);
@@ -1320,7 +1320,7 @@ bool PhysicalSocketServer::Wait(int cmsWait, bool process_io) {
         // Check readable descriptors. If we're waiting on an accept, signal
         // that. Otherwise we're waiting for data, check to see if we're
         // readable or really closed.
-        // TODO(juberti): Only peek at TCP descriptors.
+        // TODO: Only peek at TCP descriptors.
         if (FD_ISSET(fd, &fdsRead)) {
           FD_CLR(fd, &fdsRead);
           if (pdispatcher->GetRequestedEvents() & kfAccept) {
@@ -1505,7 +1505,7 @@ bool PhysicalSocketServer::Wait(int cmsWait, bool process_io) {
 
     if (dw == WSA_WAIT_FAILED) {
       // Failed?
-      // TODO(juberti): need a better strategy than this!
+      // TODO: need a better strategy than this!
       int error = WSAGetLastError();
       ASSERT(false);
       return false;

@@ -59,14 +59,14 @@ void AsyncUDPSocket::OnReadEvent(AsyncSocket* socket) {
     // An error here typically means we got an ICMP error in response to our
     // send datagram, indicating the remote address was unreachable.
     // When doing ICE, this kind of thing will often happen.
-    // TODO(juberti): Do something better like forwarding the error to the user.
+    // TODO: Do something better like forwarding the error to the user.
     SocketAddress local_addr = socket_->GetLocalAddress();
     LOG(LS_INFO) << "AsyncUDPSocket[" << local_addr.ToString() << "] "
                  << "receive failed with error " << socket_->GetError();
     return;
   }
 
-  // TODO(juberti): Make sure that we got all of the packet.
+  // TODO: Make sure that we got all of the packet.
   // If we did not, then we should resize our buffer to be large enough.
   SignalReadPacket(buf_, (size_t)len, remote_addr, this);
 }

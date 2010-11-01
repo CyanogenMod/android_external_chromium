@@ -11,8 +11,8 @@
 #include "app/sql/statement.h"
 #include "app/sql/transaction.h"
 #include "base/file_util.h"
-#include "base/histogram.h"
 #include "base/logging.h"
+#include "base/metrics/histogram.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -57,6 +57,10 @@ const char kBodyColumnIndex[] = "2";
 const FilePath::CharType kFilePrefix[] = FILE_PATH_LITERAL("History Index ");
 
 }  // namespace
+
+TextDatabase::Match::Match() {}
+
+TextDatabase::Match::~Match() {}
 
 TextDatabase::TextDatabase(const FilePath& path,
                            DBIdent id,

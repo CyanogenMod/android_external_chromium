@@ -32,16 +32,29 @@ class NetworkMessageObserver : public NetworkLibrary::Observer {
   typedef std::map<std::string, CellularNetwork> ServicePathCellularMap;
  private:
   virtual void CreateModalPopup(views::WindowDelegate* view);
+  virtual void MobileSetup(const ListValue* args);
 
   // NetworkLibrary::Observer implementation.
   virtual void NetworkChanged(NetworkLibrary* obj);
+  virtual void CellularDataPlanChanged(NetworkLibrary* obj);
 
   bool initialized_;
   // Wifi networks by service path.
   ServicePathWifiMap wifi_networks_;
   // Cellular networks by service path.
   ServicePathCellularMap cellular_networks_;
-  SystemNotification notification_;
+
+  // Current connect celluar service path.
+  std::string cellular_service_path_;
+  // Last cellular data plan data.
+  CellularDataPlan cellular_data_plan_;
+
+  // Notification for connection errors
+  SystemNotification notification_connection_error_;
+  // Notification for showing low data warning
+  SystemNotification notification_low_data_;
+  // Notification for showing no data warning
+  SystemNotification notification_no_data_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkMessageObserver);
 };

@@ -9,7 +9,7 @@
 #include "chrome/browser/autocomplete/autocomplete.h"
 #include "chrome/browser/autocomplete/history_contents_provider.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/test/testing_profile.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -33,8 +33,8 @@ class HistoryContentsProviderTest : public testing::Test,
                                     public ACProviderListener {
  public:
   HistoryContentsProviderTest()
-      : ui_thread_(ChromeThread::UI, &message_loop_),
-        file_thread_(ChromeThread::FILE, &message_loop_) {}
+      : ui_thread_(BrowserThread::UI, &message_loop_),
+        file_thread_(BrowserThread::FILE, &message_loop_) {}
 
   void RunQuery(const AutocompleteInput& input,
                 bool minimal_changes) {
@@ -94,8 +94,8 @@ class HistoryContentsProviderTest : public testing::Test,
   }
 
   MessageLoopForUI message_loop_;
-  ChromeThread ui_thread_;
-  ChromeThread file_thread_;
+  BrowserThread ui_thread_;
+  BrowserThread file_thread_;
 
   std::wstring history_dir_;
 

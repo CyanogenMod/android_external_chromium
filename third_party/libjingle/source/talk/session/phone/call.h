@@ -40,7 +40,6 @@
 #include "talk/session/phone/voicechannel.h"
 #include "talk/session/phone/audiomonitor.h"
 
-
 namespace cricket {
 
 class MediaSessionClient;
@@ -66,7 +65,7 @@ class Call : public talk_base::MessageHandler, public sigslot::has_slots<> {
   void StartAudioMonitor(BaseSession *session, int cms);
   void StopAudioMonitor(BaseSession *session);
   void Mute(bool mute);
-
+  void PressDTMF(int event);
 
   const std::vector<Session *> &sessions();
   uint32 id();
@@ -85,13 +84,18 @@ class Call : public talk_base::MessageHandler, public sigslot::has_slots<> {
   sigslot::signal0<> SignalSetupToCallVoicemail;
   sigslot::signal2<Call *, Session *> SignalAddSession;
   sigslot::signal2<Call *, Session *> SignalRemoveSession;
-  sigslot::signal3<Call *, BaseSession *, BaseSession::State> SignalSessionState;
-  sigslot::signal3<Call *, BaseSession *, Session::Error> SignalSessionError;
-  sigslot::signal3<Call *, Session *, const std::string &> SignalReceivedTerminateReason;
-  sigslot::signal2<Call *, const std::vector<ConnectionInfo> &> SignalConnectionMonitor;
+  sigslot::signal3<Call *, BaseSession *, BaseSession::State>
+      SignalSessionState;
+  sigslot::signal3<Call *, BaseSession *, Session::Error>
+      SignalSessionError;
+  sigslot::signal3<Call *, Session *, const std::string &>
+      SignalReceivedTerminateReason;
+  sigslot::signal2<Call *, const std::vector<ConnectionInfo> &>
+      SignalConnectionMonitor;
   sigslot::signal2<Call *, const MediaInfo&> SignalMediaMonitor;
   sigslot::signal2<Call *, const AudioInfo&> SignalAudioMonitor;
-  sigslot::signal2<Call *, const std::vector<ConnectionInfo> &> SignalVideoConnectionMonitor;
+  sigslot::signal2<Call *, const std::vector<ConnectionInfo> &>
+      SignalVideoConnectionMonitor;
   sigslot::signal2<Call *, const MediaInfo&> SignalVideoMediaMonitor;
 
  private:
@@ -99,8 +103,9 @@ class Call : public talk_base::MessageHandler, public sigslot::has_slots<> {
   void OnSessionState(BaseSession *session, BaseSession::State state);
   void OnSessionError(BaseSession *session, Session::Error error);
   void OnReceivedTerminateReason(Session *session, const std::string &reason);
+  void IncomingSession(Session *session, const SessionDescription* offer);
   // Returns true on success.
-  bool AddSession(Session *session);
+  bool AddSession(Session *session, const SessionDescription* offer);
   void RemoveSession(Session *session);
   void EnableChannels(bool enable);
   void Join(Call *call, bool enable);
@@ -113,22 +118,29 @@ class Call : public talk_base::MessageHandler, public sigslot::has_slots<> {
   void OnMediaMonitor(VideoChannel *channel, const MediaInfo& info);
   VoiceChannel* GetVoiceChannel(BaseSession* session);
   VideoChannel* GetVideoChannel(BaseSession* session);
+  void ContinuePlayDTMF();
 
   uint32 id_;
   MediaSessionClient *session_client_;
   std::vector<Session *> sessions_;
-  std::map<SessionID, VoiceChannel *> voice_channel_map_;
-  std::map<SessionID, VideoChannel *> video_channel_map_;
+  std::map<std::string, VoiceChannel *> voice_channel_map_;
+  std::map<std::string, VideoChannel *> video_channel_map_;
   VideoRenderer* local_renderer_;
   bool video_;
   bool mux_;
   bool muted_;
   bool send_to_voicemail_;
 
+  // DTMF tones have to be queued up so that we don't flood the call.  We
+  // keep a deque (doubely ended queue) of them around.  While one is playing we
+  // set the playing_dtmf_ bit and schedule a message in XX msec to clear that
+  // bit or start the next tone playing.
+  std::deque<int> queued_dtmf_;
+  bool playing_dtmf_;
 
   friend class MediaSessionClient;
 };
 
-}
+}  // namespace cricket
 
 #endif  // TALK_SESSION_PHONE_CALL_H_

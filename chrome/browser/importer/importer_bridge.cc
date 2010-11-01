@@ -10,7 +10,7 @@
 #include "base/string16.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/importer/importer.h"
 #if defined(OS_WIN)
@@ -21,6 +21,10 @@
 #include "chrome/profile_import/profile_import_thread.h"
 #include "webkit/glue/password_form.h"
 
+ImporterBridge::ImporterBridge() { }
+
+ImporterBridge::~ImporterBridge() { }
+
 InProcessImporterBridge::InProcessImporterBridge(ProfileWriter* writer,
                                                  ImporterHost* host)
     : writer_(writer), host_(host) {
@@ -30,24 +34,24 @@ void InProcessImporterBridge::AddBookmarkEntries(
     const std::vector<ProfileWriter::BookmarkEntry>& bookmarks,
     const std::wstring& first_folder_name,
     int options) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(
           writer_, &ProfileWriter::AddBookmarkEntry, bookmarks,
           first_folder_name, options));
 }
 
 void InProcessImporterBridge::AddHomePage(const GURL &home_page) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(writer_, &ProfileWriter::AddHomepage, home_page));
 }
 
 #if defined(OS_WIN)
 void InProcessImporterBridge::AddIE7PasswordInfo(
     const IE7PasswordInfo password_info) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(writer_, &ProfileWriter::AddIE7PasswordInfo,
       password_info));
 }
@@ -55,16 +59,16 @@ void InProcessImporterBridge::AddIE7PasswordInfo(
 
 void InProcessImporterBridge::SetFavIcons(
     const std::vector<history::ImportedFavIconUsage>& fav_icons) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(writer_, &ProfileWriter::AddFavicons, fav_icons));
 }
 
 void InProcessImporterBridge::SetHistoryItems(
     const std::vector<history::URLRow> &rows,
     history::VisitSource visit_source) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(writer_, &ProfileWriter::AddHistoryPage,
                         rows, visit_source));
 }
@@ -73,8 +77,8 @@ void InProcessImporterBridge::SetKeywords(
     const std::vector<TemplateURL*>& template_urls,
     int default_keyword_index,
     bool unique_on_host_and_path) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(
           writer_, &ProfileWriter::AddKeywords, template_urls,
           default_keyword_index, unique_on_host_and_path));
@@ -83,38 +87,40 @@ void InProcessImporterBridge::SetKeywords(
 void InProcessImporterBridge::SetPasswordForm(
     const webkit_glue::PasswordForm& form) {
   LOG(ERROR) << "IPImporterBridge::SetPasswordForm";
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(writer_, &ProfileWriter::AddPasswordForm, form));
 }
 
 void InProcessImporterBridge::NotifyItemStarted(importer::ImportItem item) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(host_, &ImporterHost::ImportItemStarted, item));
 }
 
 void InProcessImporterBridge::NotifyItemEnded(importer::ImportItem item) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(host_, &ImporterHost::ImportItemEnded, item));
 }
 
 void InProcessImporterBridge::NotifyStarted() {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(host_, &ImporterHost::ImportStarted));
 }
 
 void InProcessImporterBridge::NotifyEnded() {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(host_, &ImporterHost::ImportEnded));
 }
 
 std::wstring InProcessImporterBridge::GetLocalizedString(int message_id) {
   return l10n_util::GetString(message_id);
 }
+
+InProcessImporterBridge::~InProcessImporterBridge() {}
 
 ExternalProcessImporterBridge::ExternalProcessImporterBridge(
     ProfileImportThread* profile_import_thread,
@@ -194,3 +200,5 @@ std::wstring ExternalProcessImporterBridge::GetLocalizedString(
   localized_strings_->GetString(base::IntToString(message_id), &message);
   return UTF16ToWideHack(message);
 }
+
+ExternalProcessImporterBridge::~ExternalProcessImporterBridge() {}

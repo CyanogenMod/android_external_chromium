@@ -32,11 +32,13 @@ class SearchEngineObserver;
 // search engines.
 - (NSArray*)searchEngines;
 
-// The index into |-searchEngines| of the current default search engine. The
-// setter changes the back-end preference.
-- (NSUInteger)defaultIndex;
-- (void)setDefaultIndex:(NSUInteger)index;
-
+// The index into |-searchEngines| of the current default search engine. If
+// there is no default search engine, the value is -1. The setter changes the
+// back-end preference.
+- (NSInteger)defaultIndex;
+- (void)setDefaultIndex:(NSInteger)index;
+// Return TRUE if the default is managed via policy.
+- (BOOL)isDefaultManaged;
 @end
 
 // Broadcast when the cross-platform model changes. This can be used to update

@@ -105,6 +105,11 @@ class MockHttpStream : public HttpStream {
     closed_ = true;
     result_waiter_->set_result(not_reusable);
   }
+
+  virtual HttpStream* RenewStreamForAuth() {
+    return NULL;
+  }
+
   virtual bool IsResponseBodyComplete() const { return is_complete_; }
 
   // Methods to tweak/observer mock behavior:
@@ -171,6 +176,8 @@ class HttpResponseBodyDrainerTest : public testing::Test {
   HttpResponseBodyDrainerTest()
       : session_(new HttpNetworkSession(
           NULL,
+          NULL,
+          NULL /* ssl_host_info_factory */,
           ProxyService::CreateDirect(),
           NULL,
           new SSLConfigServiceDefaults,

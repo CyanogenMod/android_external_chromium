@@ -20,9 +20,9 @@
 #include "base/path_service.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/chrome_plugin_browsing_context.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/net/url_request_tracking.h"
 #include "chrome/browser/plugin_download_helper.h"
 #include "chrome/browser/plugin_service.h"
@@ -123,22 +123,22 @@ PluginProcessHost::~PluginProcessHost() {
   for (window_index = plugin_fullscreen_windows_set_.begin();
        window_index != plugin_fullscreen_windows_set_.end();
        window_index++) {
-    if (ChromeThread::CurrentlyOn(ChromeThread::UI)) {
+    if (BrowserThread::CurrentlyOn(BrowserThread::UI)) {
       mac_util::ReleaseFullScreen(mac_util::kFullScreenModeHideAll);
     } else {
-      ChromeThread::PostTask(
-          ChromeThread::UI, FROM_HERE,
+      BrowserThread::PostTask(
+          BrowserThread::UI, FROM_HERE,
           NewRunnableFunction(mac_util::ReleaseFullScreen,
                               mac_util::kFullScreenModeHideAll));
     }
   }
   // If the plugin hid the cursor, reset that.
   if (!plugin_cursor_visible_) {
-    if (ChromeThread::CurrentlyOn(ChromeThread::UI)) {
+    if (BrowserThread::CurrentlyOn(BrowserThread::UI)) {
       mac_util::SetCursorVisibility(true);
     } else {
-      ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+      BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableFunction(mac_util::SetCursorVisibility,
                             true));
     }
@@ -254,7 +254,7 @@ bool PluginProcessHost::Init(const WebPluginInfo& info,
 }
 
 void PluginProcessHost::ForceShutdown() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   Send(new PluginProcessMsg_NotifyRenderersOfPendingShutdown());
   BrowserChildProcessHost::ForceShutdown();
 }
@@ -380,7 +380,7 @@ void PluginProcessHost::OnAccessFiles(int renderer_id,
   for (size_t i = 0; i < files.size(); ++i) {
     const FilePath path = FilePath::FromWStringHack(UTF8ToWide(files[i]));
     if (!policy->CanReadFile(renderer_id, path)) {
-      LOG(INFO) << "Denied unauthorized request for file " << files[i];
+      VLOG(1) << "Denied unauthorized request for file " << files[i];
       *allowed = false;
       return;
     }
@@ -464,7 +464,7 @@ void PluginProcessHost::OnGetPluginFinderUrl(std::string* plugin_finder_url) {
 
 void PluginProcessHost::OnPluginMessage(
     const std::vector<uint8>& data) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
 
   ChromePluginLib *chrome_plugin = ChromePluginLib::Find(info_.path);
   if (chrome_plugin) {
@@ -473,3 +473,14 @@ void PluginProcessHost::OnPluginMessage(
     chrome_plugin->functions().on_message(data_ptr, data_len);
   }
 }
+
+PluginProcessHost::ChannelRequest::ChannelRequest(
+    ResourceMessageFilter* renderer_message_filter,
+    const std::string& m,
+    IPC::Message* r)
+    : mime_type(m),
+      reply_msg(r),
+      renderer_message_filter_(renderer_message_filter) {
+}
+
+PluginProcessHost::ChannelRequest::~ChannelRequest() {}

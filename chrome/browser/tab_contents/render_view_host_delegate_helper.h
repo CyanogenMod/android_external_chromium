@@ -30,8 +30,8 @@ class TabContents;
 // RenderViewHostDelegate::View methods.
 class RenderViewHostDelegateViewHelper {
  public:
-  RenderViewHostDelegateViewHelper() {}
-  virtual ~RenderViewHostDelegateViewHelper() {}
+  RenderViewHostDelegateViewHelper();
+  virtual ~RenderViewHostDelegateViewHelper();
 
   // Creates a new renderer for window.open. This will either be a
   // BackgroundContents (if the window_container_type ==
@@ -98,6 +98,11 @@ class RenderViewHostDelegateViewHelper {
 class RenderViewHostDelegateHelper {
  public:
   static WebPreferences GetWebkitPrefs(Profile* profile, bool is_dom_ui);
+
+  static void UpdateInspectorSetting(Profile* profile,
+                                     const std::string& key,
+                                     const std::string& value);
+  static void ClearInspectorSettings(Profile* profile);
 
  private:
   RenderViewHostDelegateHelper();

@@ -11,19 +11,20 @@
 #include "app/l10n_util.h"
 #include "base/callback.h"
 #include "base/command_line.h"
-#include "base/histogram.h"
 #include "base/i18n/rtl.h"
+#include "base/metrics/histogram.h"
 #include "base/singleton.h"
 #include "base/string_number_conversions.h"
 #include "base/thread.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/app_launcher_handler.h"
 #include "chrome/browser/dom_ui/dom_ui_theme_source.h"
 #include "chrome/browser/dom_ui/foreign_session_handler.h"
 #include "chrome/browser/dom_ui/most_visited_handler.h"
 #include "chrome/browser/dom_ui/new_tab_page_sync_handler.h"
+#include "chrome/browser/dom_ui/ntp_login_handler.h"
 #include "chrome/browser/dom_ui/ntp_resource_cache.h"
 #include "chrome/browser/dom_ui/shown_sections_handler.h"
 #include "chrome/browser/dom_ui/tips_handler.h"
@@ -433,6 +434,7 @@ NewTabUI::NewTabUI(TabContents* contents)
 
   if (!GetProfile()->IsOffTheRecord()) {
     PrefService* pref_service = GetProfile()->GetPrefs();
+    AddMessageHandler((new NTPLoginHandler())->Attach(this));
     AddMessageHandler((new ShownSectionsHandler(pref_service))->Attach(this));
     AddMessageHandler((new browser_sync::ForeignSessionHandler())->
       Attach(this));
@@ -441,13 +443,11 @@ NewTabUI::NewTabUI(TabContents* contents)
     AddMessageHandler((new MetricsHandler())->Attach(this));
     if (GetProfile()->IsSyncAccessible())
       AddMessageHandler((new NewTabPageSyncHandler())->Attach(this));
-    if (Extension::AppsAreEnabled()) {
-      ExtensionsService* service = GetProfile()->GetExtensionsService();
-      // We might not have an ExtensionsService (on ChromeOS when not logged in
-      // for example).
-      if (service)
-        AddMessageHandler((new AppLauncherHandler(service))->Attach(this));
-    }
+    ExtensionsService* service = GetProfile()->GetExtensionsService();
+    // We might not have an ExtensionsService (on ChromeOS when not logged in
+    // for example).
+    if (service)
+      AddMessageHandler((new AppLauncherHandler(service))->Attach(this));
 
     AddMessageHandler((new NewTabPageSetHomePageHandler())->Attach(this));
   }
@@ -458,8 +458,8 @@ NewTabUI::NewTabUI(TabContents* contents)
   InitializeCSSCaches();
   NewTabHTMLSource* html_source =
       new NewTabHTMLSource(GetProfile()->GetOriginalProfile());
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,
@@ -505,8 +505,8 @@ void NewTabUI::Observe(NotificationType type,
 
 void NewTabUI::InitializeCSSCaches() {
   DOMUIThemeSource* theme = new DOMUIThemeSource(GetProfile());
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,
@@ -618,7 +618,7 @@ NewTabUI::NewTabHTMLSource::NewTabHTMLSource(Profile* profile)
 void NewTabUI::NewTabHTMLSource::StartDataRequest(const std::string& path,
                                                   bool is_off_the_record,
                                                   int request_id) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   if (!path.empty() && path[0] != '#') {
     // A path under new-tab was requested; it's likely a bad relative

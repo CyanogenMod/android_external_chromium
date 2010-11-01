@@ -58,7 +58,7 @@ class SOCKSConnectJob : public ConnectJob {
                   const scoped_refptr<SOCKSSocketParams>& params,
                   const base::TimeDelta& timeout_duration,
                   TCPClientSocketPool* tcp_pool,
-                  const scoped_refptr<HostResolver> &host_resolver,
+                  HostResolver* host_resolver,
                   Delegate* delegate,
                   NetLog* net_log);
   virtual ~SOCKSConnectJob();
@@ -92,7 +92,7 @@ class SOCKSConnectJob : public ConnectJob {
 
   scoped_refptr<SOCKSSocketParams> socks_params_;
   TCPClientSocketPool* const tcp_pool_;
-  const scoped_refptr<HostResolver> resolver_;
+  HostResolver* const resolver_;
 
   State next_state_;
   CompletionCallbackImpl<SOCKSConnectJob> callback_;
@@ -108,7 +108,7 @@ class SOCKSClientSocketPool : public ClientSocketPool {
       int max_sockets,
       int max_sockets_per_group,
       ClientSocketPoolHistograms* histograms,
-      const scoped_refptr<HostResolver>& host_resolver,
+      HostResolver* host_resolver,
       TCPClientSocketPool* tcp_pool,
       NetLog* net_log);
 
@@ -121,6 +121,11 @@ class SOCKSClientSocketPool : public ClientSocketPool {
                             ClientSocketHandle* handle,
                             CompletionCallback* callback,
                             const BoundNetLog& net_log);
+
+  virtual void RequestSockets(const std::string& group_name,
+                              const void* params,
+                              int num_sockets,
+                              const BoundNetLog& net_log);
 
   virtual void CancelRequest(const std::string& group_name,
                              ClientSocketHandle* handle);
@@ -178,7 +183,7 @@ class SOCKSClientSocketPool : public ClientSocketPool {
 
    private:
     TCPClientSocketPool* const tcp_pool_;
-    const scoped_refptr<HostResolver> host_resolver_;
+    HostResolver* const host_resolver_;
     NetLog* net_log_;
 
     DISALLOW_COPY_AND_ASSIGN(SOCKSConnectJobFactory);

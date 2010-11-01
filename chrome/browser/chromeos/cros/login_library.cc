@@ -5,7 +5,7 @@
 #include "chrome/browser/chromeos/cros/login_library.h"
 
 #include "base/message_loop.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 
 namespace chromeos {
@@ -132,22 +132,24 @@ class LoginLibraryImpl : public LoginLibrary {
   }
 
   void CompleteSetOwnerKey(bool result) {
-    CHECK(set_owner_key_callback_) << "CompleteSetOwnerKey() called without "
-                                      "a registered callback!";
-    set_owner_key_callback_->OnComplete(result);
-    set_owner_key_callback_ = NULL;
+    if (set_owner_key_callback_) {
+      set_owner_key_callback_->OnComplete(result);
+      set_owner_key_callback_ = NULL;
+    }
   }
 
   void CompleteWhitelistOp(bool result) {
-    CHECK(whitelist_op_callback_);
-    whitelist_op_callback_->OnComplete(result);
-    whitelist_op_callback_ = NULL;
+    if (whitelist_op_callback_) {
+      whitelist_op_callback_->OnComplete(result);
+      whitelist_op_callback_ = NULL;
+    }
   }
 
   void CompletePropertyOp(bool result) {
-    CHECK(property_op_callback_);
-    property_op_callback_->OnComplete(result);
-    property_op_callback_ = NULL;
+    if (property_op_callback_) {
+      property_op_callback_->OnComplete(result);
+      property_op_callback_ = NULL;
+    }
   }
 
   chromeos::SessionConnection session_connection_;
@@ -179,8 +181,8 @@ class LoginLibraryStubImpl : public LoginLibrary {
   }
   bool SetOwnerKeyAsync(const std::vector<uint8>& public_key_der,
                         Delegate* callback) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableFunction(&DoStubCallback, callback));
     return true;
   }
@@ -188,24 +190,24 @@ class LoginLibraryStubImpl : public LoginLibrary {
                           const std::string& value,
                           const std::vector<uint8>& signature,
                           Delegate* callback) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableFunction(&DoStubCallback, callback));
     return true;
   }
   bool UnwhitelistAsync(const std::string& email,
                         const std::vector<uint8>& signature,
                         Delegate* callback) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableFunction(&DoStubCallback, callback));
     return true;
   }
   bool WhitelistAsync(const std::string& email,
                       const std::vector<uint8>& signature,
                       Delegate* callback) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableFunction(&DoStubCallback, callback));
     return true;
   }

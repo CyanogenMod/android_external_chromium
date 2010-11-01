@@ -29,9 +29,11 @@
 
 #include <string>
 #include <vector>
+
 #include "talk/base/base64.h"
 #include "talk/base/common.h"
-#include "talk/p2p/base/candidate.h"
+#include "talk/base/stringencode.h"
+#include "talk/base/stringutils.h"
 #include "talk/p2p/base/constants.h"
 #include "talk/p2p/base/p2ptransportchannel.h"
 #include "talk/p2p/base/parsing.h"
@@ -50,9 +52,11 @@ const size_t kMaxUsernameSize = 16;
 
 namespace cricket {
 
-P2PTransport::P2PTransport(talk_base::Thread* worker_thread,
+P2PTransport::P2PTransport(talk_base::Thread* signaling_thread,
+                           talk_base::Thread* worker_thread,
                            PortAllocator* allocator)
-    : Transport(worker_thread, NS_GINGLE_P2P, allocator) {
+    : Transport(signaling_thread, worker_thread,
+                NS_GINGLE_P2P, allocator) {
 }
 
 P2PTransport::~P2PTransport() {
@@ -61,7 +65,7 @@ P2PTransport::~P2PTransport() {
 
 void P2PTransport::OnTransportError(const buzz::XmlElement* error) {
   // Need to know if it was <unknown-channel name="xxx">.
-  ASSERT(error->Name().Namespace() == name());
+  ASSERT(error->Name().Namespace() == type());
   if ((error->Name() == QN_GINGLE_P2P_UNKNOWN_CHANNEL_NAME)
       && error->HasAttr(buzz::QN_NAME)) {
     std::string channel_name = error->Attr(buzz::QN_NAME);
@@ -71,9 +75,13 @@ void P2PTransport::OnTransportError(const buzz::XmlElement* error) {
   }
 }
 
-bool P2PTransport::ParseCandidates(const buzz::XmlElement* elem,
-                                   Candidates* candidates,
-                                   ParseError* error) {
+
+bool P2PTransportParser::ParseCandidates(SignalingProtocol protocol,
+                                         const buzz::XmlElement* elem,
+                                         Candidates* candidates,
+                                         ParseError* error) {
+  // TODO: Once we implement standard ICE-UDP, parse the
+  // candidates according to XEP-176.
   for (const buzz::XmlElement* candidate_elem = elem->FirstElement();
        candidate_elem != NULL;
        candidate_elem = candidate_elem->NextElement()) {
@@ -89,9 +97,9 @@ bool P2PTransport::ParseCandidates(const buzz::XmlElement* elem,
   return true;
 }
 
-bool P2PTransport::ParseCandidate(const buzz::XmlElement* elem,
-                                  Candidate* candidate,
-                                  ParseError* error) {
+bool P2PTransportParser::ParseCandidate(const buzz::XmlElement* elem,
+                                        Candidate* candidate,
+                                        ParseError* error) {
   if (!elem->HasAttr(buzz::QN_NAME) ||
       !elem->HasAttr(QN_ADDRESS) ||
       !elem->HasAttr(QN_PORT) ||
@@ -122,19 +130,11 @@ bool P2PTransport::ParseCandidate(const buzz::XmlElement* elem,
   if (!VerifyUsernameFormat(candidate->username(), error))
     return false;
 
-  if (!HasChannel(candidate->name())) {
-    buzz::XmlElement* extra_info =
-        new buzz::XmlElement(QN_GINGLE_P2P_UNKNOWN_CHANNEL_NAME);
-    extra_info->AddAttr(buzz::QN_NAME, candidate->name());
-    error->extra = extra_info;
-    return BadParse("channel named in candidate does not exist", error);
-  }
-
   return true;
 }
 
-bool P2PTransport::VerifyUsernameFormat(const std::string& username,
-                                        ParseError* error) {
+bool P2PTransportParser::VerifyUsernameFormat(const std::string& username,
+                                              ParseError* error) {
   if (username.size() > kMaxUsernameSize)
     return BadParse("candidate username is too long", error);
   if (!talk_base::Base64::IsBase64Encoded(username))
@@ -144,21 +144,23 @@ bool P2PTransport::VerifyUsernameFormat(const std::string& username,
 }
 
 const buzz::QName& GetCandidateQName(SignalingProtocol protocol) {
-  if (protocol == PROTOCOL_GINGLE2) {
-    return QN_GINGLE2_P2P_CANDIDATE;
+  if (protocol == PROTOCOL_GINGLE) {
+    return QN_GINGLE_CANDIDATE;
   } else {
+    // TODO: Once we implement standard ICE-UDP, use the
+    // XEP-176 namespace.
     return QN_GINGLE_P2P_CANDIDATE;
   }
 }
 
-bool P2PTransport::WriteCandidates(const Candidates& candidates,
-                                   SignalingProtocol protocol,
-                                   XmlElements* candidate_elems,
-                                   WriteError* error) {
-  for (std::vector<Candidate>::const_iterator
-       iter = candidates.begin();
-       iter != candidates.end();
-       ++iter) {
+bool P2PTransportParser::WriteCandidates(SignalingProtocol protocol,
+                                         const Candidates& candidates,
+                                         XmlElements* candidate_elems,
+                                         WriteError* error) {
+  // TODO: Once we implement standard ICE-UDP, parse the
+  // candidates according to XEP-176.
+  for (std::vector<Candidate>::const_iterator iter = candidates.begin();
+       iter != candidates.end(); ++iter) {
     buzz::XmlElement* cand_elem =
         new buzz::XmlElement(GetCandidateQName(protocol));
     if (!WriteCandidate(*iter, cand_elem, error))
@@ -168,9 +170,9 @@ bool P2PTransport::WriteCandidates(const Candidates& candidates,
   return true;
 }
 
-bool P2PTransport::WriteCandidate(const Candidate& candidate,
-                                  buzz::XmlElement* elem,
-                                  WriteError* error) {
+bool P2PTransportParser::WriteCandidate(const Candidate& candidate,
+                                        buzz::XmlElement* elem,
+                                        WriteError* error) {
   elem->SetAttr(buzz::QN_NAME, candidate.name());
   elem->SetAttr(QN_ADDRESS, candidate.address().IPAsString());
   elem->SetAttr(QN_PORT, candidate.address().PortAsString());

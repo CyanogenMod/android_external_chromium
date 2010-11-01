@@ -9,8 +9,10 @@ var LogEventType = null;
 var LogEventPhase = null;
 var ClientInfo = null;
 var LogSourceType = null;
+var LogLevelType = null;
 var NetError = null;
 var LoadFlag = null;
+var AddressFamily = null;
 
 /**
  * Object to communicate between the renderer and the browser.
@@ -37,61 +39,70 @@ function onLoaded() {
                                   'sortByDescription',
 
                                   // IDs for the details view.
-                                  "detailsTabHandles",
-                                  "detailsLogTab",
-                                  "detailsTimelineTab",
-                                  "detailsLogBox",
-                                  "detailsTimelineBox",
+                                  'detailsTabHandles',
+                                  'detailsLogTab',
+                                  'detailsTimelineTab',
+                                  'detailsLogBox',
+                                  'detailsTimelineBox',
 
                                   // IDs for the layout boxes.
-                                  "filterBox",
-                                  "eventsBox",
-                                  "actionBox",
-                                  "splitterBox");
+                                  'filterBox',
+                                  'eventsBox',
+                                  'actionBox',
+                                  'splitterBox');
 
   // Create a view which will display info on the proxy setup.
-  var proxyView = new ProxyView("proxyTabContent",
-                                "proxyOriginalSettings",
-                                "proxyEffectiveSettings",
-                                "proxyReloadSettings",
-                                "badProxiesTableBody",
-                                "clearBadProxies");
+  var proxyView = new ProxyView('proxyTabContent',
+                                'proxyOriginalSettings',
+                                'proxyEffectiveSettings',
+                                'proxyReloadSettings',
+                                'badProxiesTableBody',
+                                'clearBadProxies');
 
   // Create a view which will display information on the host resolver.
-  var dnsView = new DnsView("dnsTabContent",
-                            "hostResolverCacheTbody",
-                            "clearHostResolverCache",
-                            "hostResolverCacheCapacity",
-                            "hostResolverCacheTTLSuccess",
-                            "hostResolverCacheTTLFailure");
+  var dnsView = new DnsView('dnsTabContent',
+                            'hostResolverCacheTbody',
+                            'clearHostResolverCache',
+                            'hostResolverDefaultFamily',
+                            'hostResolverIPv6Disabled',
+                            'hostResolverEnableIPv6',
+                            'hostResolverCacheCapacity',
+                            'hostResolverCacheTTLSuccess',
+                            'hostResolverCacheTTLFailure');
 
   // Create a view which will display import/export options to control the
   // captured data.
-  var dataView = new DataView("dataTabContent", "exportedDataText",
-                              "exportToText", "securityStrippingCheckbox",
-                              "passivelyCapturedCount",
-                              "activelyCapturedCount",
-                              "dataViewDeleteAll");
+  var dataView = new DataView('dataTabContent', 'exportedDataText',
+                              'exportToText', 'securityStrippingCheckbox',
+                              'byteLoggingCheckbox',
+                              'passivelyCapturedCount',
+                              'activelyCapturedCount',
+                              'dataViewDeleteAll');
 
   // Create a view which will display the results and controls for connection
   // tests.
-  var testView = new TestView("testTabContent", "testUrlInput",
-                              "connectionTestsForm", "testSummary");
+  var testView = new TestView('testTabContent', 'testUrlInput',
+                              'connectionTestsForm', 'testSummary');
 
-  var httpCacheView = new HttpCacheView("httpCacheTabContent",
-                                        "httpCacheStats");
+  var httpCacheView = new HttpCacheView('httpCacheTabContent',
+                                        'httpCacheStats');
 
-  var socketsView = new SocketsView("socketsTabContent",
-                                    "socketPoolDiv",
-                                    "socketPoolGroupsDiv");
+  var socketsView = new SocketsView('socketsTabContent',
+                                    'socketPoolDiv',
+                                    'socketPoolGroupsDiv');
+
+  var spdyView = new SpdyView('spdyTabContent',
+                              'spdySessionNoneSpan',
+                              'spdySessionLinkSpan',
+                              'spdySessionDiv');
 
 
   var serviceView;
   if (g_browser.isPlatformWindows()) {
-    serviceView = new ServiceProvidersView("serviceProvidersTab",
-                                           "serviceProvidersTabContent",
-                                           "serviceProvidersTbody",
-                                           "namespaceProvidersTbody");
+    serviceView = new ServiceProvidersView('serviceProvidersTab',
+                                           'serviceProvidersTabContent',
+                                           'serviceProvidersTbody',
+                                           'namespaceProvidersTbody');
   }
 
   // Create a view which lets you tab between the different sub-views.
@@ -103,6 +114,7 @@ function onLoaded() {
   categoryTabSwitcher.addTab('proxyTab', proxyView, false);
   categoryTabSwitcher.addTab('dnsTab', dnsView, false);
   categoryTabSwitcher.addTab('socketsTab', socketsView, false);
+  categoryTabSwitcher.addTab('spdyTab', spdyView, false);
   categoryTabSwitcher.addTab('httpCacheTab', httpCacheView, false);
   categoryTabSwitcher.addTab('dataTab', dataView, false);
   if (g_browser.isPlatformWindows())
@@ -120,11 +132,8 @@ function onLoaded() {
   // Default the empty hash to the data tab.
   anchorMap['#'] = anchorMap[''] = 'dataTab';
 
-  window.onhashchange = function() {
-    var tabId = anchorMap[window.location.hash];
-    if (tabId)
-      categoryTabSwitcher.switchToTab(tabId);
-  };
+  window.onhashchange = onUrlHashChange.bind(null, anchorMap,
+                                             categoryTabSwitcher);
 
   // Make this category tab widget the primary view, that fills the whole page.
   var windowView = new WindowView(categoryTabSwitcher);
@@ -149,13 +158,31 @@ function BrowserBridge() {
   // List of observers for various bits of browser state.
   this.logObservers_ = [];
   this.connectionTestsObservers_ = [];
-  this.proxySettings_ = new PollableDataHelper('onProxySettingsChanged');
-  this.badProxies_ = new PollableDataHelper('onBadProxiesChanged');
-  this.httpCacheInfo_ = new PollableDataHelper('onHttpCacheInfoChanged');
-  this.hostResolverCache_ =
-      new PollableDataHelper('onHostResolverCacheChanged');
-  this.socketPoolInfo_ = new PollableDataHelper('onSocketPoolInfoChanged');
-  this.serviceProviders_ = new PollableDataHelper('onServiceProvidersChanged');
+
+  this.pollableDataHelpers_ = {};
+  this.pollableDataHelpers_.proxySettings =
+      new PollableDataHelper('onProxySettingsChanged',
+                             this.sendGetProxySettings.bind(this));
+  this.pollableDataHelpers_.badProxies =
+      new PollableDataHelper('onBadProxiesChanged',
+                             this.sendGetBadProxies.bind(this));
+  this.pollableDataHelpers_.httpCacheInfo =
+      new PollableDataHelper('onHttpCacheInfoChanged',
+                             this.sendGetHttpCacheInfo.bind(this));
+  this.pollableDataHelpers_.hostResolverInfo =
+      new PollableDataHelper('onHostResolverInfoChanged',
+                             this.sendGetHostResolverInfo.bind(this));
+  this.pollableDataHelpers_.socketPoolInfo =
+      new PollableDataHelper('onSocketPoolInfoChanged',
+                             this.sendGetSocketPoolInfo.bind(this));
+  this.pollableDataHelpers_.spdySessionInfo =
+      new PollableDataHelper('onSpdySessionInfoChanged',
+                             this.sendGetSpdySessionInfo.bind(this));
+  if (this.isPlatformWindows()) {
+    this.pollableDataHelpers_.serviceProviders =
+        new PollableDataHelper('onServiceProvidersChanged',
+                               this.sendGetServiceProviders.bind(this));
+  }
 
   // Cache of the data received.
   this.numPassivelyCapturedEvents_ = 0;
@@ -166,8 +193,39 @@ function BrowserBridge() {
   this.nextSourcelessEventId_ = -1;
 }
 
+/*
+ * Takes the current hash in form of "#tab&param1=value1&param2=value2&...".
+ * Puts the parameters in an object, and passes the resulting object to
+ * |categoryTabSwitcher|.  Uses tab and |anchorMap| to find a tab ID,
+ * which it also passes to the tab switcher.
+ *
+ * Parameters and values are decoded with decodeURIComponent().
+ */
+function onUrlHashChange(anchorMap, categoryTabSwitcher) {
+  var parameters = window.location.hash.split('&');
+
+  var tabId = anchorMap[parameters[0]];
+  if (!tabId)
+    return;
+
+  // Split each string except the first around the '='.
+  var paramDict = null;
+  for (var i = 1; i < parameters.length; i++) {
+    var paramStrings = parameters[i].split('=');
+    if (paramStrings.length != 2)
+      continue;
+    if (paramDict == null)
+      paramDict = {};
+    var key = decodeURIComponent(paramStrings[0]);
+    var value = decodeURIComponent(paramStrings[1]);
+    paramDict[key] = value;
+  }
+
+  categoryTabSwitcher.switchToTab(tabId, paramDict);
+}
+
 /**
- * Delay in milliseconds between polling of certain browser information.
+ * Delay in milliseconds between updates of certain browser information.
  */
 BrowserBridge.POLL_INTERVAL_MS = 5000;
 
@@ -181,8 +239,8 @@ BrowserBridge.prototype.sendReady = function() {
   // Some of the data we are interested is not currently exposed as a stream,
   // so we will poll the browser to find out when it changes and then notify
   // the observers.
-  window.setInterval(
-      this.doPolling_.bind(this), BrowserBridge.POLL_INTERVAL_MS);
+  window.setInterval(this.checkForUpdatedInfo.bind(this, false),
+                     BrowserBridge.POLL_INTERVAL_MS);
 };
 
 BrowserBridge.prototype.isPlatformWindows = function() {
@@ -203,9 +261,9 @@ BrowserBridge.prototype.sendGetBadProxies = function() {
   chrome.send('getBadProxies');
 };
 
-BrowserBridge.prototype.sendGetHostResolverCache = function() {
-  // The browser will call receivedHostResolverCache on completion.
-  chrome.send('getHostResolverCache');
+BrowserBridge.prototype.sendGetHostResolverInfo = function() {
+  // The browser will call receivedHostResolverInfo on completion.
+  chrome.send('getHostResolverInfo');
 };
 
 BrowserBridge.prototype.sendClearBadProxies = function() {
@@ -228,9 +286,21 @@ BrowserBridge.prototype.sendGetSocketPoolInfo = function() {
   chrome.send('getSocketPoolInfo');
 };
 
+BrowserBridge.prototype.sendGetSpdySessionInfo = function() {
+  chrome.send('getSpdySessionInfo');
+};
+
 BrowserBridge.prototype.sendGetServiceProviders = function() {
   chrome.send('getServiceProviders');
 };
+
+BrowserBridge.prototype.enableIPv6 = function() {
+  chrome.send('enableIPv6');
+};
+
+BrowserBridge.prototype.setLogLevel = function(logLevel) {
+  chrome.send('setLogLevel', ['' + logLevel]);
+}
 
 //------------------------------------------------------------------------------
 // Messages received from the browser
@@ -269,6 +339,11 @@ function(constantsMap) {
   LogSourceType = constantsMap;
 };
 
+BrowserBridge.prototype.receivedLogLevelConstants =
+function(constantsMap) {
+  LogLevelType = constantsMap;
+};
+
 BrowserBridge.prototype.receivedLoadFlagConstants = function(constantsMap) {
   LoadFlag = constantsMap;
 };
@@ -277,29 +352,38 @@ BrowserBridge.prototype.receivedNetErrorConstants = function(constantsMap) {
   NetError = constantsMap;
 };
 
+BrowserBridge.prototype.receivedAddressFamilyConstants =
+function(constantsMap) {
+  AddressFamily = constantsMap;
+};
+
 BrowserBridge.prototype.receivedTimeTickOffset = function(timeTickOffset) {
   this.timeTickOffset_ = timeTickOffset;
 };
 
 BrowserBridge.prototype.receivedProxySettings = function(proxySettings) {
-  this.proxySettings_.update(proxySettings);
+  this.pollableDataHelpers_.proxySettings.update(proxySettings);
 };
 
 BrowserBridge.prototype.receivedBadProxies = function(badProxies) {
-  this.badProxies_.update(badProxies);
+  this.pollableDataHelpers_.badProxies.update(badProxies);
 };
 
-BrowserBridge.prototype.receivedHostResolverCache =
-function(hostResolverCache) {
-  this.hostResolverCache_.update(hostResolverCache);
+BrowserBridge.prototype.receivedHostResolverInfo =
+function(hostResolverInfo) {
+  this.pollableDataHelpers_.hostResolverInfo.update(hostResolverInfo);
 };
 
 BrowserBridge.prototype.receivedSocketPoolInfo = function(socketPoolInfo) {
-  this.socketPoolInfo_.update(socketPoolInfo);
+  this.pollableDataHelpers_.socketPoolInfo.update(socketPoolInfo);
+};
+
+BrowserBridge.prototype.receivedSpdySessionInfo = function(spdySessionInfo) {
+  this.pollableDataHelpers_.spdySessionInfo.update(spdySessionInfo);
 };
 
 BrowserBridge.prototype.receivedServiceProviders = function(serviceProviders) {
-  this.serviceProviders_.update(serviceProviders);
+  this.pollableDataHelpers_.serviceProviders.update(serviceProviders);
 };
 
 BrowserBridge.prototype.receivedPassiveLogEntries = function(entries) {
@@ -339,14 +423,14 @@ BrowserBridge.prototype.receivedCompletedConnectionTestSuite = function() {
 };
 
 BrowserBridge.prototype.receivedHttpCacheInfo = function(info) {
-  this.httpCacheInfo_.update(info);
+  this.pollableDataHelpers_.httpCacheInfo.update(info);
 };
 
 BrowserBridge.prototype.areLogTypesReady_ = function() {
   return (LogEventType  != null &&
           LogEventPhase != null &&
           LogSourceType != null);
-}
+};
 
 //------------------------------------------------------------------------------
 
@@ -380,7 +464,7 @@ BrowserBridge.prototype.addLogObserver = function(observer) {
  * TODO(eroman): send a dictionary instead.
  */
 BrowserBridge.prototype.addProxySettingsObserver = function(observer) {
-  this.proxySettings_.addObserver(observer);
+  this.pollableDataHelpers_.proxySettings.addObserver(observer);
 };
 
 /**
@@ -394,18 +478,18 @@ BrowserBridge.prototype.addProxySettingsObserver = function(observer) {
  *   badProxies[i].bad_until: The time when the proxy stops being considered
  *                            bad. Note the time is in time ticks.
  */
-BrowserBridge.prototype.addBadProxiesObsever = function(observer) {
-  this.badProxies_.addObserver(observer);
+BrowserBridge.prototype.addBadProxiesObserver = function(observer) {
+  this.pollableDataHelpers_.badProxies.addObserver(observer);
 };
 
 /**
- * Adds a listener of the host resolver cache. |observer| will be called back
+ * Adds a listener of the host resolver info. |observer| will be called back
  * when data is received, through:
  *
- *   observer.onHostResolverCacheChanged(hostResolverCache)
+ *   observer.onHostResolverInfoChanged(hostResolverInfo)
  */
-BrowserBridge.prototype.addHostResolverCacheObserver = function(observer) {
-  this.hostResolverCache_.addObserver(observer);
+BrowserBridge.prototype.addHostResolverInfoObserver = function(observer) {
+  this.pollableDataHelpers_.hostResolverInfo.addObserver(observer);
 };
 
 /**
@@ -415,7 +499,17 @@ BrowserBridge.prototype.addHostResolverCacheObserver = function(observer) {
  *   observer.onSocketPoolInfoChanged(socketPoolInfo)
  */
 BrowserBridge.prototype.addSocketPoolInfoObserver = function(observer) {
-  this.socketPoolInfo_.addObserver(observer);
+  this.pollableDataHelpers_.socketPoolInfo.addObserver(observer);
+};
+
+/**
+ * Adds a listener of the SPDY info. |observer| will be called back
+ * when data is received, through:
+ *
+ *   observer.onSpdySessionInfoChanged(spdySessionInfo)
+ */
+BrowserBridge.prototype.addSpdySessionInfoObserver = function(observer) {
+  this.pollableDataHelpers_.spdySessionInfo.addObserver(observer);
 };
 
 /**
@@ -425,7 +519,7 @@ BrowserBridge.prototype.addSocketPoolInfoObserver = function(observer) {
  *   observer.onServiceProvidersChanged(serviceProviders)
  */
 BrowserBridge.prototype.addServiceProvidersObserver = function(observer) {
-  this.serviceProviders_.addObserver(observer);
+  this.pollableDataHelpers_.serviceProviders.addObserver(observer);
 };
 
 /**
@@ -448,7 +542,7 @@ BrowserBridge.prototype.addConnectionTestsObserver = function(observer) {
  *   observer.onHttpCacheInfoChanged(info);
  */
 BrowserBridge.prototype.addHttpCacheInfoObserver = function(observer) {
-  this.httpCacheInfo_.addObserver(observer);
+  this.pollableDataHelpers_.httpCacheInfo.addObserver(observer);
 };
 
 /**
@@ -524,17 +618,26 @@ BrowserBridge.prototype.deleteAllEvents = function() {
     this.logObservers_[i].onAllLogEntriesDeleted();
 };
 
-BrowserBridge.prototype.doPolling_ = function() {
-  // TODO(eroman): Optimize this by using a separate polling frequency for the
-  // data consumed by the currently active view. Everything else can be on a low
-  // frequency poll since it won't impact the display.
-  this.sendGetProxySettings();
-  this.sendGetBadProxies();
-  this.sendGetHostResolverCache();
-  this.sendGetHttpCacheInfo();
-  this.sendGetSocketPoolInfo();
-  if (this.isPlatformWindows())
-    this.sendGetServiceProviders();
+/**
+ * If |force| is true, calls all startUpdate functions.  Otherwise, just
+ * runs updates with active observers.
+ */
+BrowserBridge.prototype.checkForUpdatedInfo = function(force) {
+  for (name in this.pollableDataHelpers_) {
+    var helper = this.pollableDataHelpers_[name];
+    if (force || helper.hasActiveObserver())
+      helper.startUpdate();
+  }
+};
+
+/**
+ * Calls all startUpdate functions and, if |callback| is non-null,
+ * calls it with the results of all updates.
+ */
+BrowserBridge.prototype.updateAllInfo = function(callback) {
+  if (callback)
+    new UpdateAllObserver(callback, this.pollableDataHelpers_);
+  this.checkForUpdatedInfo(true);
 };
 
 /**
@@ -542,33 +645,113 @@ BrowserBridge.prototype.doPolling_ = function() {
  *   - the list of observers interested in some piece of data.
  *   - the last known value of that piece of data.
  *   - the name of the callback method to invoke on observers.
+ *   - the update function.
  * @constructor
  */
-function PollableDataHelper(observerMethodName) {
+function PollableDataHelper(observerMethodName, startUpdateFunction) {
   this.observerMethodName_ = observerMethodName;
-  this.observers_ = [];
+  this.startUpdate = startUpdateFunction;
+  this.observerInfos_ = [];
+}
+
+PollableDataHelper.prototype.getObserverMethodName = function() {
+  return this.observerMethodName_;
+};
+
+/**
+ * This is a helper class used by PollableDataHelper, to keep track of
+ * each observer and whether or not it has received any data.  The
+ * latter is used to make sure that new observers get sent data on the
+ * update following their creation.
+ * @constructor
+ */
+function ObserverInfo(observer) {
+  this.observer = observer;
+  this.hasReceivedData = false;
 }
 
 PollableDataHelper.prototype.addObserver = function(observer) {
-  this.observers_.push(observer);
+  this.observerInfos_.push(new ObserverInfo(observer));
+};
+
+PollableDataHelper.prototype.removeObserver = function(observer) {
+  for (var i = 0; i < this.observerInfos_.length; ++i) {
+    if (this.observerInfos_[i].observer == observer) {
+      this.observerInfos_.splice(i, 1);
+      return;
+    }
+  }
 };
 
 /**
  * Helper function to handle calling all the observers, but ONLY if the data has
- * actually changed since last time. This is used for data we received from
- * browser on a poll loop.
+ * actually changed since last time or the observer has yet to receive any data.
+ * This is used for data we received from browser on an update loop.
  */
 PollableDataHelper.prototype.update = function(data) {
   var prevData = this.currentData_;
+  var changed = false;
 
-  // If the data hasn't changed since last time, no need to notify observers.
-  if (prevData && JSON.stringify(prevData) == JSON.stringify(data))
-    return;
+  // If the data hasn't changed since last time, will only need to notify
+  // observers that have not yet received any data.
+  if (!prevData || JSON.stringify(prevData) != JSON.stringify(data)) {
+    changed = true;
+    this.currentData_ = data;
+  }
 
-  this.currentData_ = data;
+  // Notify the observers of the change, as needed.
+  for (var i = 0; i < this.observerInfos_.length; ++i) {
+    var observerInfo = this.observerInfos_[i];
+    if (changed || !observerInfo.hasReceivedData) {
+      observerInfo.observer[this.observerMethodName_](this.currentData_);
+      observerInfo.hasReceivedData = true;
+    }
+  }
+};
 
-  // Ok, notify the observers of the change.
-  for (var i = 0; i < this.observers_.length; ++i)
-    var observer = this.observers_[i];
-    observer[this.observerMethodName_](data);
+/**
+ * Returns true if one of the observers actively wants the data
+ * (i.e. is visible).
+ */
+PollableDataHelper.prototype.hasActiveObserver = function() {
+  for (var i = 0; i < this.observerInfos_.length; ++i) {
+    if (this.observerInfos_[i].observer.isActive())
+      return true;
+  }
+  return false;
+};
+
+/**
+ * This is a helper class used by BrowserBridge to send data to
+ * a callback once data from all polls has been received.
+ *
+ * It works by keeping track of how many polling functions have
+ * yet to receive data, and recording the data as it it received.
+ *
+ * @constructor
+ */
+function UpdateAllObserver(callback, pollableDataHelpers) {
+  this.callback_ = callback;
+  this.observingCount_ = 0;
+  this.updatedData_ = {};
+
+  for (name in pollableDataHelpers) {
+    ++this.observingCount_;
+    var helper = pollableDataHelpers[name];
+    helper.addObserver(this);
+    this[helper.getObserverMethodName()] =
+        this.onDataReceived_.bind(this, helper, name);
+  }
+}
+
+UpdateAllObserver.prototype.isActive = function() {
+  return true;
+};
+
+UpdateAllObserver.prototype.onDataReceived_ = function(helper, name, data) {
+  helper.removeObserver(this);
+  --this.observingCount_;
+  this.updatedData_[name] = data;
+  if (this.observingCount_ == 0)
+    this.callback_(this.updatedData_);
 };

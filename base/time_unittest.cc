@@ -117,19 +117,43 @@ TEST(TimeTicks, Deltas) {
   }
 }
 
-TEST(TimeTicks, FLAKY_HighResNow) {
+TEST(TimeTicks, HighResNow) {
 #if defined(OS_WIN)
-  Time::ActivateHighResolutionTimer(true);
+  // HighResNow doesn't work on some systems.  Since the product still works
+  // even if it doesn't work, it makes this entire test questionable.
+  if (!TimeTicks::IsHighResClockWorking())
+    return;
 #endif
 
-  TimeTicks ticks_start = TimeTicks::HighResNow();
-  PlatformThread::Sleep(10);
-  TimeTicks ticks_stop = TimeTicks::HighResNow();
-  TimeDelta delta = ticks_stop - ticks_start;
+  // Why do we loop here?
+  // We're trying to measure that intervals increment in a VERY small amount
+  // of time --  less than 15ms.  Unfortunately, if we happen to have a
+  // context switch in the middle of our test, the context switch could easily
+  // exceed our limit.  So, we iterate on this several times.  As long as we're
+  // able to detect the fine-granularity timers at least once, then the test
+  // has succeeded.
 
-  // In high res mode, we should be accurate to within 1.5x our
-  // best granularity.  On windows, that is 1ms, so use 1.5ms.
-  EXPECT_GE(delta.InMicroseconds(), 8500);
+  const int kTargetGranularityUs = 15000;  // 15ms
+
+  bool success = false;
+  int retries = 100;  // Arbitrary.
+  TimeDelta delta;
+  while (!success && retries--) {
+    TimeTicks ticks_start = TimeTicks::HighResNow();
+    // Loop until we can detect that the clock has changed.  Non-HighRes timers
+    // will increment in chunks, e.g. 15ms.  By spinning until we see a clock
+    // change, we detect the minimum time between measurements.
+    do {
+      delta = TimeTicks::HighResNow() - ticks_start;
+    } while (delta.InMilliseconds() == 0);
+
+    if (delta.InMicroseconds() <= kTargetGranularityUs)
+      success = true;
+  }
+
+  // In high resolution mode, we expect to see the clock increment
+  // in intervals less than 15ms.
+  EXPECT_TRUE(success);
 }
 
 TEST(TimeDelta, FromAndIn) {

@@ -494,6 +494,14 @@ class NotificationType {
     // view host for the page, there are no details.
     FOCUS_CHANGED_IN_PAGE,
 
+    // Notification posted from ExecuteJavascriptInWebFrameNotifyResult. The
+    // source is the RenderViewHost ExecuteJavascriptInWebFrameNotifyResult was
+    // invoked on. The details are a std::pair<int, Value*> with the int giving
+    // the id returned from ExecuteJavascriptInWebFrameNotifyResult and the
+    // Value the results of the javascript expression. The Value is owned by
+    // RenderViewHost.
+    EXECUTE_JAVASCRIPT_RESULT,
+
     // BackgroundContents ------------------------------------------------------
 
     // A new background contents was opened by script. The source is the parent
@@ -633,6 +641,10 @@ class NotificationType {
     // browser window should notify the user of this error.
     PROFILE_ERROR,
 
+    // Sent after an incognito profile has been created. The details are none
+    // and the source is the new profile.
+    OTR_PROFILE_CREATED,
+
     // Sent before a Profile is destroyed. The details are
     // none and the source is a Profile*.
     PROFILE_DESTROYED,
@@ -697,6 +709,10 @@ class NotificationType {
     // on the thread where Profile::GetRequestContext() is first called, which
     // should be the UI thread.
     DEFAULT_REQUEST_CONTEXT_AVAILABLE,
+
+    // A new web resource has been made available. Source is the
+    // WebResourceService, and the details are NoDetails.
+    WEB_RESOURCE_AVAILABLE,
 
     // Autocomplete ------------------------------------------------------------
 
@@ -797,11 +813,8 @@ class NotificationType {
     // details about why the install failed.
     EXTENSION_INSTALL_ERROR,
 
-    // Sent when a new extension is being uninstalled. When this notification
-    // is sent, the ExtensionsService still is tracking this extension (it has
-    // not been unloaded yet). This will be followed by an EXTENSION_UNLOADED
-    // or EXTENSION_UNLOADED_DISABLED when the extension is actually unloaded.
-    // The details are an Extension and the source is a Profile.
+    // Sent when an extension has been uninstalled.  The details are
+    // an UninstalledExtensionInfo struct and the source is a Profile.
     EXTENSION_UNINSTALLED,
 
     // Sent when an extension is unloaded. This happens when an extension is
@@ -1009,6 +1022,24 @@ class NotificationType {
     // TabSpecificContentSettings object, there are no details.
     COLLECTED_COOKIES_SHOWN,
 
+    // Sent when the default geolocation setting has changed. The source is the
+    // GeolocationContentSettingsMap, the details are None.
+    GEOLOCATION_DEFAULT_CHANGED,
+
+    // Sent when a non-default setting in the the geolocation content settings
+    // map has changed. The source is the GeolocationContentSettingsMap, the
+    // details are None.
+    GEOLOCATION_SETTINGS_CHANGED,
+
+    // Sent when the default setting for desktop notifications has changed.
+    // The source is the DesktopNotificationService, the details are None.
+    DESKTOP_NOTIFICATION_DEFAULT_CHANGED,
+
+    // Sent when a non-default setting in the the notification content settings
+    // map has changed. The source is the DesktopNotificationService, the
+    // details are None.
+    DESKTOP_NOTIFICATION_SETTINGS_CHANGED,
+
     // Sync --------------------------------------------------------------------
 
     // Sent when the sync backend has been paused.
@@ -1033,10 +1064,9 @@ class NotificationType {
     // session data.
     FOREIGN_SESSION_UPDATED,
 
-    // A foreign session has been deleted.  If a new tab page is open, the
-    // foreign session handler needs to update the new tab page's foreign
+    // Foreign sessions has been disabled. New tabs should not display foreign
     // session data.
-    FOREIGN_SESSION_DELETED,
+    FOREIGN_SESSION_DISABLED,
 
     // The syncer requires a passphrase to decrypt sensitive updates. This
     // notification is sent when the first sensitive data type is setup by the
@@ -1102,6 +1132,16 @@ class NotificationType {
     // GoogleServiceAuthError object.
     GOOGLE_SIGNIN_FAILED,
 
+    // AutoFill Notifications --------------------------------------------------
+
+    // Sent when a popup with AutoFill suggestions is shown in the renderer.
+    // The source is the corresponding RenderViewHost. There are not details.
+    AUTOFILL_DID_SHOW_SUGGESTIONS,
+
+    // Sent when a form is previewed or filled with AutoFill suggestions.
+    // The source is the corresponding RenderViewHost. There are not details.
+    AUTOFILL_DID_FILL_FORM_DATA,
+
 
     // Misc --------------------------------------------------------------------
 
@@ -1160,9 +1200,7 @@ class NotificationType {
     BOOKMARK_CONTEXT_MENU_SHOWN,
 #endif
 
-    // Sent when the zoom level changes. The source is the profile, details the
-    // host as a std::string (see HostZoomMap::GetZoomLevel for details on the
-    // host as it not always just the host).
+    // Sent when the zoom level changes. The source is the profile.
     ZOOM_LEVEL_CHANGED,
 
     // Sent when the tab's closeable state has changed due to increase/decrease
@@ -1170,6 +1208,9 @@ class NotificationType {
     // Details<bool> contain the closeable flag while source is AllSources.
     // This is only sent from ChromeOS's TabCloseableStateWatcher.
     TAB_CLOSEABLE_STATE_CHANGED,
+
+    // Sent each time the InstantController is updated.
+    INSTANT_CONTROLLER_UPDATED,
 
     // Password Store ----------------------------------------------------------
     // This notification is sent whenenever login entries stored in the password

@@ -27,7 +27,6 @@
 #include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/common/service_process_type.h"
 #include "gfx/font.h"
 #include "grit/locale_settings.h"
 
@@ -41,10 +40,10 @@ static const wchar_t kDoneIframeXPath[] = L"//iframe[@id='done']";
 // is connected or launched. The events are sent back to RemotingSetupFlow
 // when the dialog is still active. RemotingSetupFlow can detach from this
 // helper class when the dialog is closed.
-class RemotingServiceProcessHelper :
-    public base::RefCountedThreadSafe<RemotingServiceProcessHelper> {
+class RemotingServiceProcessHelper
+    : public base::RefCountedThreadSafe<RemotingServiceProcessHelper> {
  public:
-  RemotingServiceProcessHelper(RemotingSetupFlow* flow)
+  explicit RemotingServiceProcessHelper(RemotingSetupFlow* flow)
       : flow_(flow) {
   }
 
@@ -53,7 +52,7 @@ class RemotingServiceProcessHelper :
   }
 
   void OnProcessLaunched() {
-    DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
     // If the flow is detached then show the done page.
     if (!flow_)
       return;
@@ -100,8 +99,8 @@ RemotingSetupFlow::RemotingSetupFlow(const std::string& args, Profile* profile)
       profile_(profile),
       process_control_(NULL) {
   // TODO(hclam): The data source should be added once.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
                         &ChromeURLDataManager::AddDataSource,
                         make_scoped_refptr(new RemotingResourcesSource())));
@@ -205,9 +204,7 @@ void RemotingSetupFlow::OnIssueAuthTokenSuccess(const std::string& service,
   // If we have already connected to the service process then submit the tokens
   // to it to register the host.
   process_control_ =
-      ServiceProcessControlManager::instance()->GetProcessControl(
-          profile_,
-          kServiceProcessRemoting);
+      ServiceProcessControlManager::instance()->GetProcessControl(profile_);
 
   if (process_control_->is_connected()) {
     // TODO(hclam): Need to figure out what to do when the service process is
@@ -217,9 +214,10 @@ void RemotingSetupFlow::OnIssueAuthTokenSuccess(const std::string& service,
     // TODO(hclam): This call only works on Windows. I need to make it work
     // on other platforms.
     service_process_helper_ = new RemotingServiceProcessHelper(this);
-    process_control_->Launch(
+    Task* process_launched_task =
         NewRunnableMethod(service_process_helper_.get(),
-                          &RemotingServiceProcessHelper::OnProcessLaunched));
+                          &RemotingServiceProcessHelper::OnProcessLaunched);
+    process_control_->Launch(process_launched_task, process_launched_task);
 #else
     ShowSetupDone();
 #endif
@@ -250,7 +248,8 @@ void RemotingSetupFlow::OnUserSubmittedAuth(const std::string& user,
                              profile_->GetRequestContext()));
   authenticator_->StartClientLogin(user, password,
                                    GaiaConstants::kRemotingService,
-                                   "", captcha);
+                                   "", captcha,
+                                   GaiaAuthenticator2::HostedAccountsAllowed);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

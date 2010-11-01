@@ -4,7 +4,7 @@
 
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/safe_browsing/safe_browsing_blocking_page.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/test_tab_contents.h"
@@ -58,8 +58,8 @@ class SafeBrowsingBlockingPageTest : public RenderViewHostTestHarness,
   };
 
   SafeBrowsingBlockingPageTest()
-      : ui_thread_(ChromeThread::UI, MessageLoop::current()),
-        io_thread_(ChromeThread::IO, MessageLoop::current()) {
+      : ui_thread_(BrowserThread::UI, MessageLoop::current()),
+        io_thread_(BrowserThread::IO, MessageLoop::current()) {
     ResetUserResponse();
     service_ = new SafeBrowsingService();
   }
@@ -143,8 +143,8 @@ class SafeBrowsingBlockingPageTest : public RenderViewHostTestHarness,
   UserResponse user_response_;
   scoped_refptr<SafeBrowsingService> service_;
   TestSafeBrowsingBlockingPageFactory factory_;
-  ChromeThread ui_thread_;
-  ChromeThread io_thread_;
+  BrowserThread ui_thread_;
+  BrowserThread io_thread_;
 };
 
 // Tests showing a blocking page for a malware page and not proceeding.

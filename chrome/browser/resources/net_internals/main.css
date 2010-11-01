@@ -202,6 +202,7 @@ body {
 #dataTabContent,
 #dnsTabContent,
 #socketsTabContent,
+#spdyTabContent,
 #serviceProvidersTabContent,
 #testTabContent {
   overflow: auto;
@@ -253,4 +254,11 @@ table.styledTable,
 .bigButton {
   font-size: 100%;
   font-weight: bold;
+}
+
+/**
+ * Styling for text indicating a potential problem or error state.
+ */
+.warningText {
+  color: red;
 }

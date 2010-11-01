@@ -25,6 +25,7 @@
 #include "chrome/common/window_container_type.h"
 #include "ipc/ipc_message_macros.h"
 #include "media/audio/audio_buffers_state.h"
+#include "third_party/WebKit/WebKit/chromium/public/WebExceptionCode.h"
 
 #if defined(OS_POSIX)
 #include "base/file_descriptor_posix.h"
@@ -52,6 +53,10 @@ namespace base {
 namespace file_util_proxy {
 struct Entry;
 }
+}
+
+namespace gfx {
+class Rect;
 }
 
 namespace IPC {
@@ -94,15 +99,18 @@ IPC_BEGIN_MESSAGES(View)
   IPC_MESSAGE_CONTROL1(ViewMsg_New,
                        ViewMsg_New_Params)
 
-  // Tells the renderer to set its maximum cache size to the supplied value
+  // Tells the renderer to set its maximum cache size to the supplied value.
   IPC_MESSAGE_CONTROL3(ViewMsg_SetCacheCapacities,
                        size_t /* min_dead_capacity */,
                        size_t /* max_dead_capacity */,
                        size_t /* capacity */)
 
+  // Tells the renderer to cleat the cache.
+  IPC_MESSAGE_CONTROL0(ViewMsg_ClearCache)
+
   // Reply in response to ViewHostMsg_ShowView or ViewHostMsg_ShowWidget.
   // similar to the new command, but used when the renderer created a view
-  // first, and we need to update it
+  // first, and we need to update it.
   IPC_MESSAGE_ROUTED1(ViewMsg_CreatingNew_ACK,
                       gfx::NativeViewId /* parent_hwnd */)
 
@@ -362,9 +370,16 @@ IPC_BEGIN_MESSAGES(View)
   // jscript_url is the string containing the javascript: url to be executed
   // in the target frame's context. The string should start with "javascript:"
   // and continue with a valid JS text.
-  IPC_MESSAGE_ROUTED2(ViewMsg_ScriptEvalRequest,
-                      std::wstring,  /* frame_xpath */
-                      std::wstring  /* jscript_url */)
+  //
+  // If the fourth parameter is true the result is sent back to the renderer
+  // using the message ViewHostMsg_ScriptEvalResponse.
+  // ViewHostMsg_ScriptEvalResponse is passed the ID parameter so that the
+  // client can uniquely identify the request.
+  IPC_MESSAGE_ROUTED4(ViewMsg_ScriptEvalRequest,
+                      string16,  /* frame_xpath */
+                      string16,  /* jscript_url */
+                      int,  /* ID */
+                      bool  /* If true, result is sent back. */)
 
   // Request for the renderer to evaluate an xpath to a frame and insert css
   // into that frame's document. See ViewMsg_ScriptEvalRequest for details on
@@ -397,13 +412,13 @@ IPC_BEGIN_MESSAGES(View)
   // and ignored otherwise.
   IPC_MESSAGE_ROUTED2(ViewMsg_SetZoomLevelForLoadingURL,
                       GURL /* url */,
-                      int /* zoom_level */)
+                      double /* zoom_level */)
 
   // Set the zoom level for a particular url, so all render views
   // displaying this url can update their zoom levels to match.
   IPC_MESSAGE_CONTROL2(ViewMsg_SetZoomLevelForCurrentURL,
                        GURL /* url */,
-                       int /* zoom_level */)
+                       double /* zoom_level */)
 
   // Set the content settings for a particular url that the renderer is in the
   // process of loading.  This will be stored, to be used if the load commits
@@ -735,11 +750,13 @@ IPC_BEGIN_MESSAGES(View)
   // will call a javascript function in every registered context in the
   // target process.  If routed, it will be restricted to the contexts that
   // are part of the target RenderView.
-  // |args| is a list of primitive Value types that are passed to the function.
+  // If |extension_id| is non-empty, the function will be invoked only in
+  // contexts owned by the extension. |args| is a list of primitive Value types
+  // that are passed to the function.
   IPC_MESSAGE_ROUTED4(ViewMsg_ExtensionMessageInvoke,
+                      std::string /* extension_id */,
                       std::string /* function_name */,
                       ListValue /* args */,
-                      bool /* requires incognito access */,
                       GURL /* event URL */)
 
   // Tell the renderer process all known extension function names.
@@ -757,13 +774,6 @@ IPC_BEGIN_MESSAGES(View)
       ViewMsg_Extension_SetHostPermissions,
       GURL /* source extension's origin */,
       std::vector<URLPattern> /* URLPatterns the extension can access */)
-
-  // Tell the renderer process that the given extension is enabled or disabled
-  // for incognito mode, and what kind of incognito behavior it has.
-  IPC_MESSAGE_CONTROL3(ViewMsg_Extension_ExtensionSetIncognitoEnabled,
-                       std::string /* extension_id */,
-                       bool /* enabled */,
-                       bool /* incognito_split_mode */)
 
   // Tell the renderer process all known page action ids for a particular
   // extension.
@@ -836,6 +846,11 @@ IPC_BEGIN_MESSAGES(View)
   IPC_MESSAGE_ROUTED2(ViewMsg_WindowFrameChanged,
                       gfx::Rect /* window frame */,
                       gfx::Rect /* content view frame */)
+
+  // Tell the renderer that text has been retured from plugin IME.
+  IPC_MESSAGE_ROUTED2(ViewMsg_PluginImeCompositionConfirmed,
+                      string16 /* text */,
+                      int /* plugin_id */)
 #endif
 
   // Response message to ViewHostMsg_CreateShared/DedicatedWorker.
@@ -873,24 +888,27 @@ IPC_BEGIN_MESSAGES(View)
   // IDBCallback message handlers.
   IPC_MESSAGE_CONTROL1(ViewMsg_IDBCallbacksSuccessNull,
                        int32 /* response_id */)
+  IPC_MESSAGE_CONTROL2(ViewMsg_IDBCallbacksSuccessIDBCursor,
+                       int32 /* response_id */,
+                       int32 /* cursor_id */)
   IPC_MESSAGE_CONTROL2(ViewMsg_IDBCallbacksSuccessIDBDatabase,
                        int32 /* response_id */,
                        int32 /* idb_database_id */)
   IPC_MESSAGE_CONTROL2(ViewMsg_IDBCallbacksSuccessIndexedDBKey,
                        int32 /* response_id */,
                        IndexedDBKey /* indexed_db_key */)
-  IPC_MESSAGE_CONTROL2(ViewMsg_IDBCallbacksSuccessIDBObjectStore,
-                       int32 /* response_id */,
-                       int32 /* idb_object_store_id */)
   IPC_MESSAGE_CONTROL2(ViewMsg_IDBCallbacksSuccessIDBIndex,
                        int32 /* response_id */,
                        int32 /* idb_index_id */)
+  IPC_MESSAGE_CONTROL2(ViewMsg_IDBCallbacksSuccessIDBObjectStore,
+                       int32 /* response_id */,
+                       int32 /* idb_object_store_id */)
+  IPC_MESSAGE_CONTROL2(ViewMsg_IDBCallbacksSuccessIDBTransaction,
+                       int32 /* response_id */,
+                       int32 /* idb_transaction_id */)
   IPC_MESSAGE_CONTROL2(ViewMsg_IDBCallbacksSuccessSerializedScriptValue,
                        int32 /* response_id */,
                        SerializedScriptValue /* serialized_script_value */)
-  IPC_MESSAGE_CONTROL2(ViewMsg_IDBCallbackSuccessOpenCursor,
-                       int32 /* response_id */,
-                       int32 /* cursor_id */)
   IPC_MESSAGE_CONTROL3(ViewMsg_IDBCallbacksError,
                        int32 /* response_id */,
                        int /* code */,
@@ -898,7 +916,11 @@ IPC_BEGIN_MESSAGES(View)
 
   // IDBTransactionCallback message handlers.
   IPC_MESSAGE_CONTROL1(ViewMsg_IDBTransactionCallbacksAbort,
-                       int /* transaction_id */)
+                       int32 /* transaction_id */)
+  IPC_MESSAGE_CONTROL1(ViewMsg_IDBTransactionCallbacksComplete,
+                       int32 /* transaction_id */)
+  IPC_MESSAGE_CONTROL1(ViewMsg_IDBTransactionCallbacksTimeout,
+                       int32 /* transaction_id */)
 
 #if defined(IPC_MESSAGE_LOG_ENABLED)
   // Tell the renderer process to begin or end IPC message logging.
@@ -1188,7 +1210,7 @@ IPC_BEGIN_MESSAGES(ViewHost)
   IPC_MESSAGE_ROUTED0(ViewHostMsg_DidStartLoading)
 
   // Sent when the renderer is done loading a page. This corresponds to WebKit's
-  // noption of the throbber stopping.
+  // notion of the throbber stopping.
   IPC_MESSAGE_ROUTED0(ViewHostMsg_DidStopLoading)
 
   // Sent when the document element is available for the toplevel frame.  This
@@ -1219,18 +1241,20 @@ IPC_BEGIN_MESSAGES(ViewHost)
                       std::string  /* security_origin */)
 
   // Sent when the renderer starts a provisional load for a frame.
-  IPC_MESSAGE_ROUTED2(ViewHostMsg_DidStartProvisionalLoadForFrame,
+  IPC_MESSAGE_ROUTED3(ViewHostMsg_DidStartProvisionalLoadForFrame,
+                      long long /* frame_id */,
                       bool /* true if it is the main frame */,
                       GURL /* url */)
 
   // Sent when the renderer fails a provisional load with an error.
-  IPC_MESSAGE_ROUTED4(ViewHostMsg_DidFailProvisionalLoadWithError,
+  IPC_MESSAGE_ROUTED5(ViewHostMsg_DidFailProvisionalLoadWithError,
+                      long long /* frame_id */,
                       bool /* true if it is the main frame */,
                       int /* error_code */,
                       GURL /* url */,
                       bool /* true if the failure is the result of
                               navigating to a POST again and we're going to
-                              show the POST interstitial */ )
+                              show the POST interstitial */)
 
   // Tells the render view that a ViewHostMsg_PaintAtSize message was
   // processed, and the DIB is ready for use. |tag| has the same value that
@@ -1342,19 +1366,27 @@ IPC_BEGIN_MESSAGES(ViewHost)
                               bool /* refresh*/,
                               std::vector<WebPluginInfo> /* plugins */)
 
-  // Return information about a plugin for the given URL and MIME type. If there
-  // is no matching plugin, |found| is set to false.
-  // If |enabled| in the WebPluginInfo struct is false, the plug-in is basically
+  // Return information about a plugin for the given URL and MIME
+  // type. If there is no matching plugin, |found| is false.  If
+  // |enabled| in the WebPluginInfo struct is false, the plug-in is
   // treated as if it was not installed at all.
-  // If |setting| is set to CONTENT_SETTING_BLOCK, the plug-in is blocked by the
-  // content settings for |policy_url|. It still appears in navigator.plugins in
-  // Javascript though, and can be loaded via click-to-play.
-  // If |setting| is set to CONTENT_SETTING_ALLOW, the domain is explicitly
-  // white-listed for the plug-in, or the user has chosen not to block
-  // nonsandboxed plugins.
-  // If |setting| is set to CONTENT_SETTING_DEFAULT, the plug-in is neither
-  // blocked nor white-listed, which means that it's allowed by default and
-  // can still be blocked if it's non-sandboxed.
+  //
+  // If |setting| is set to CONTENT_SETTING_BLOCK, the plug-in is
+  // blocked by the content settings for |policy_url|. It still
+  // appears in navigator.plugins in Javascript though, and can be
+  // loaded via click-to-play.
+  //
+  // If |setting| is set to CONTENT_SETTING_ALLOW, the domain is
+  // explicitly white-listed for the plug-in, or the user has chosen
+  // not to block nonsandboxed plugins.
+  //
+  // If |setting| is set to CONTENT_SETTING_DEFAULT, the plug-in is
+  // neither blocked nor white-listed, which means that it's allowed
+  // by default and can still be blocked if it's non-sandboxed.
+  //
+  // |actual_mime_type| is the actual mime type supported by the
+  // plugin found that match the URL given (one for each item in
+  // |info|).
   IPC_SYNC_MESSAGE_CONTROL3_4(ViewHostMsg_GetPluginInfo,
                               GURL /* url */,
                               GURL /* policy_url */,
@@ -1500,10 +1532,9 @@ IPC_BEGIN_MESSAGES(ViewHost)
   // create a plugin.  The browser will create the plugin process if
   // necessary, and will return a handle to the channel on success.
   // On error an empty string is returned.
-  IPC_SYNC_MESSAGE_CONTROL3_2(ViewHostMsg_OpenChannelToPlugin,
+  IPC_SYNC_MESSAGE_CONTROL2_2(ViewHostMsg_OpenChannelToPlugin,
                               GURL /* url */,
                               std::string /* mime_type */,
-                              std::string /* locale */,
                               IPC::ChannelHandle /* handle to channel */,
                               WebPluginInfo /* info */)
 
@@ -1667,7 +1698,7 @@ IPC_BEGIN_MESSAGES(ViewHost)
   IPC_MESSAGE_ROUTED3(ViewHostMsg_PageHasOSDD,
                       int32 /* page_id */,
                       GURL /* url of OS description document */,
-                      bool /* autodetected */)
+                      ViewHostMsg_PageHasOSDD_Type)
 
   // Find out if the given url's security origin is installed as a search
   // provider.
@@ -1892,10 +1923,13 @@ IPC_BEGIN_MESSAGES(ViewHost)
                       int /* request_id */)
 
   // Sent when the renderer changes the zoom level for a particular url, so the
-  // browser can update its records.
-  IPC_MESSAGE_CONTROL2(ViewHostMsg_DidZoomURL,
-                       GURL /* url */,
-                       int /* zoom_level */)
+  // browser can update its records.  If remember is true, then url is used to
+  // update the zoom level for all pages in that site.  Otherwise, the render
+  // view's id is used so that only the menu is updated.
+  IPC_MESSAGE_ROUTED3(ViewHostMsg_DidZoomURL,
+                      double /* zoom_level */,
+                      bool /* remember */,
+                      GURL /* url */)
 
 #if defined(OS_WIN)
   // Duplicates a shared memory handle from the renderer to the browser. Then
@@ -2012,12 +2046,18 @@ IPC_BEGIN_MESSAGES(ViewHost)
                       bool /* form_autofilled */,
                       webkit_glue::FormField /* the form field */)
 
+  // Sent when the popup with AutoFill suggestions for a form is shown.
+  IPC_MESSAGE_ROUTED0(ViewHostMsg_DidShowAutoFillSuggestions)
+
   // Instructs the browser to fill in the values for a form using AutoFill
   // profile data.
   IPC_MESSAGE_ROUTED3(ViewHostMsg_FillAutoFillFormData,
                       int /* id of this message */,
                       webkit_glue::FormData /* the form  */,
                       int /* profile unique ID */)
+
+  // Sent when a form is previewed or filled with AutoFill suggestions.
+  IPC_MESSAGE_ROUTED0(ViewHostMsg_DidFillAutoFillFormData)
 
   // Instructs the browser to remove the specified Autocomplete entry from the
   // database.
@@ -2080,12 +2120,15 @@ IPC_BEGIN_MESSAGES(ViewHost)
   IPC_MESSAGE_ROUTED1(ViewHostMsg_ExtensionRequest,
                       ViewHostMsg_DomMessage_Params)
 
-  // Notify the browser that this renderer added a listener to an event.
-  IPC_MESSAGE_CONTROL1(ViewHostMsg_ExtensionAddListener,
+  // Notify the browser that the given extension added a listener to an event.
+  IPC_MESSAGE_CONTROL2(ViewHostMsg_ExtensionAddListener,
+                       std::string /* extension_id */,
                        std::string /* name */)
 
-  // Notify the browser that this renderer removed a listener from an event.
-  IPC_MESSAGE_CONTROL1(ViewHostMsg_ExtensionRemoveListener,
+  // Notify the browser that the given extension removed a listener from an
+  // event.
+  IPC_MESSAGE_CONTROL2(ViewHostMsg_ExtensionRemoveListener,
+                       std::string /* extension_id */,
                        std::string /* name */)
 
 #if defined(OS_MACOSX)
@@ -2108,8 +2151,13 @@ IPC_BEGIN_MESSAGES(ViewHost)
   IPC_MESSAGE_CONTROL1(ViewHostMsg_FreeTransportDIB,
                        TransportDIB::Id /* DIB id */)
 
+  // Instructs the browser to start or stop plugin IME.
+  IPC_MESSAGE_ROUTED2(ViewHostMsg_SetPluginImeEnabled,
+                      bool, /* enabled */
+                      int /* plugin_id */)
+
   //---------------------------------------------------------------------------
-  // Messages related to the GPU plugin on Mac OS X 10.6 and later
+  // Messages related to accelerated plugins
 
   // This is sent from the renderer to the browser to allocate a fake
   // PluginWindowHandle on the browser side which is used to identify
@@ -2340,21 +2388,24 @@ IPC_BEGIN_MESSAGES(ViewHost)
                               IndexedDBKey /* key */)
 
   // WebIDBCursor::update() message.
-  IPC_MESSAGE_CONTROL3(ViewHostMsg_IDBCursorUpdate,
+  IPC_SYNC_MESSAGE_CONTROL3_1(ViewHostMsg_IDBCursorUpdate,
                        int32, /* idb_cursor_id */
                        int32, /* response_id */
-                       SerializedScriptValue /* value */)
+                       SerializedScriptValue, /* value */
+                       WebKit::WebExceptionCode /* ec */)
 
   // WebIDBCursor::continue() message.
-  IPC_MESSAGE_CONTROL3(ViewHostMsg_IDBCursorContinue,
+  IPC_SYNC_MESSAGE_CONTROL3_1(ViewHostMsg_IDBCursorContinue,
                        int32, /* idb_cursor_id */
                        int32, /* response_id */
-                       IndexedDBKey /* key */)
+                       IndexedDBKey, /* key */
+                       WebKit::WebExceptionCode /* ec */)
 
   // WebIDBCursor::remove() message.
-  IPC_MESSAGE_CONTROL2(ViewHostMsg_IDBCursorRemove,
+  IPC_SYNC_MESSAGE_CONTROL2_1(ViewHostMsg_IDBCursorRemove,
                        int32, /* idb_cursor_id */
-                       int32 /* response_id */)
+                       int32, /* response_id */
+                       WebKit::WebExceptionCode /* ec */)
 
   // WebIDBFactory::open() message.
   IPC_MESSAGE_CONTROL1(ViewHostMsg_IDBFactoryOpen,
@@ -2381,40 +2432,37 @@ IPC_BEGIN_MESSAGES(ViewHost)
                               std::vector<string16> /* objectStores */)
 
   // WebIDBDatabase::createObjectStore() message.
-  IPC_MESSAGE_CONTROL1(ViewHostMsg_IDBDatabaseCreateObjectStore,
-                       ViewHostMsg_IDBDatabaseCreateObjectStore_Params)
-
-  // WebIDBDatabase::objectStore() message.
-  IPC_SYNC_MESSAGE_CONTROL3_2(ViewHostMsg_IDBDatabaseObjectStore,
-                              int32, /* idb_database_id */
-                              string16, /* name */
-                              int32, /* mode */
-                              bool, /* success */
-                              int32 /* idb_object_store_id */)
+  IPC_SYNC_MESSAGE_CONTROL1_2(ViewHostMsg_IDBDatabaseCreateObjectStore,
+                              ViewHostMsg_IDBDatabaseCreateObjectStore_Params,
+                              int32, /* object_store_id */
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBDatabase::removeObjectStore() message.
-  IPC_MESSAGE_CONTROL3(ViewHostMsg_IDBDatabaseRemoveObjectStore,
-                       int32, /* idb_database_id */
-                       int32, /* response_id */
-                       string16 /* name */)
+  IPC_SYNC_MESSAGE_CONTROL3_1(ViewHostMsg_IDBDatabaseRemoveObjectStore,
+                              int32, /* idb_database_id */
+                              string16, /* name */
+                              int32, /* transaction_id */
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBDatabase::setVersion() message.
-  IPC_MESSAGE_CONTROL3(ViewHostMsg_IDBDatabaseSetVersion,
-                       int32, /* idb_database_id */
-                       int32, /* response_id */
-                       string16 /* version */)
+  IPC_SYNC_MESSAGE_CONTROL3_1(ViewHostMsg_IDBDatabaseSetVersion,
+                              int32, /* idb_database_id */
+                              int32, /* response_id */
+                              string16, /* version */
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBDatabase::transaction() message.
   // TODO: make this message async. Have the renderer create a
   // temporary ID and keep a map in the browser process of real
   // IDs to temporary IDs. We can then update the transaction
   // to its real ID asynchronously.
-  IPC_SYNC_MESSAGE_CONTROL4_1(ViewHostMsg_IDBDatabaseTransaction,
+  IPC_SYNC_MESSAGE_CONTROL4_2(ViewHostMsg_IDBDatabaseTransaction,
                               int32, /* idb_database_id */
                               std::vector<string16>, /* object_stores */
                               int32, /* mode */
                               int32, /* timeout */
-                              int32 /* idb_transaction_id */)
+                              int32, /* idb_transaction_id */
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBDatabase::~WebIDBDatabase() message.
   IPC_MESSAGE_CONTROL1(ViewHostMsg_IDBDatabaseDestroyed,
@@ -2440,27 +2488,31 @@ IPC_BEGIN_MESSAGES(ViewHost)
                               int32, /* idb_unique_id */
                               bool /* unique */)
 
-  // WebIDBIndex::openObjectCursor() message. (Uses openCursor's params though.)
-  IPC_MESSAGE_CONTROL1(ViewHostMsg_IDBIndexOpenObjectCursor,
-                       ViewHostMsg_IDBIndexOpenCursor_Params)
+  // WebIDBIndex::openObjectCursor() message.
+  IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_IDBIndexOpenObjectCursor,
+                              ViewHostMsg_IDBIndexOpenCursor_Params,
+                              WebKit::WebExceptionCode /* ec */)
 
-  // WebIDBIndex::openCursor() message.
-  IPC_MESSAGE_CONTROL1(ViewHostMsg_IDBIndexOpenCursor,
-                       ViewHostMsg_IDBIndexOpenCursor_Params)
+  // WebIDBIndex::openKeyCursor() message.
+  IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_IDBIndexOpenKeyCursor,
+                              ViewHostMsg_IDBIndexOpenCursor_Params,
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBIndex::getObject() message.
-  IPC_MESSAGE_CONTROL4(ViewHostMsg_IDBIndexGetObject,
-                       int32, /* idb_index_id */
-                       int32, /* response_id */
-                       IndexedDBKey, /* key */
-                       int /* transaction_id */)
+  IPC_SYNC_MESSAGE_CONTROL4_1(ViewHostMsg_IDBIndexGetObject,
+                              int32, /* idb_index_id */
+                              int32, /* response_id */
+                              IndexedDBKey, /* key */
+                              int32, /* transaction_id */
+                              WebKit::WebExceptionCode /* ec */)
 
-  // WebIDBIndex::get() message.
-  IPC_MESSAGE_CONTROL4(ViewHostMsg_IDBIndexGet,
-                       int32, /* idb_index_id */
-                       int32, /* response_id */
-                       IndexedDBKey, /* key */
-                       int /* transaction_id */)
+  // WebIDBIndex::getKey() message.
+  IPC_SYNC_MESSAGE_CONTROL4_1(ViewHostMsg_IDBIndexGetKey,
+                              int32, /* idb_index_id */
+                              int32, /* response_id */
+                              IndexedDBKey, /* key */
+                              int32, /* transaction_id */
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBIndex::~WebIDBIndex() message.
   IPC_MESSAGE_CONTROL1(ViewHostMsg_IDBIndexDestroyed,
@@ -2482,43 +2534,50 @@ IPC_BEGIN_MESSAGES(ViewHost)
                               std::vector<string16> /* index_names */)
 
   // WebIDBObjectStore::get() message.
-  IPC_MESSAGE_CONTROL4(ViewHostMsg_IDBObjectStoreGet,
-                       int32, /* idb_object_store_id */
-                       int32, /* response_id */
-                       IndexedDBKey, /* key */
-                       int /* transaction_id */)
+  IPC_SYNC_MESSAGE_CONTROL4_1(ViewHostMsg_IDBObjectStoreGet,
+                              int32, /* idb_object_store_id */
+                              int32, /* response_id */
+                              IndexedDBKey, /* key */
+                              int32, /* transaction_id */
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBObjectStore::put() message.
-  IPC_MESSAGE_CONTROL1(ViewHostMsg_IDBObjectStorePut,
-                       ViewHostMsg_IDBObjectStorePut_Params)
+  IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_IDBObjectStorePut,
+                              ViewHostMsg_IDBObjectStorePut_Params,
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBObjectStore::remove() message.
-  IPC_MESSAGE_CONTROL4(ViewHostMsg_IDBObjectStoreRemove,
-                       int32, /* idb_object_store_id */
-                       int32, /* response_id */
-                       IndexedDBKey, /* key */
-                       int /* transaction_id */)
+  IPC_SYNC_MESSAGE_CONTROL4_1(ViewHostMsg_IDBObjectStoreRemove,
+                              int32, /* idb_object_store_id */
+                              int32, /* response_id */
+                              IndexedDBKey, /* key */
+                              int32, /* transaction_id */
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBObjectStore::createIndex() message.
-  IPC_MESSAGE_CONTROL1(ViewHostMsg_IDBObjectStoreCreateIndex,
-                       ViewHostMsg_IDBObjectStoreCreateIndex_Params)
+  IPC_SYNC_MESSAGE_CONTROL1_2(ViewHostMsg_IDBObjectStoreCreateIndex,
+                              ViewHostMsg_IDBObjectStoreCreateIndex_Params,
+                              int32, /* index_id */
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBObjectStore::index() message.
   IPC_SYNC_MESSAGE_CONTROL2_2(ViewHostMsg_IDBObjectStoreIndex,
                               int32, /* idb_object_store_id */
                               string16, /* name */
-                              bool, /* success */
-                              int32 /* idb_index_id */)
+                              int32, /* idb_index_id */
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBObjectStore::removeIndex() message.
-  IPC_MESSAGE_CONTROL3(ViewHostMsg_IDBObjectStoreRemoveIndex,
-                       int32, /* idb_object_store_id */
-                       int32, /* response_id */
-                       string16 /* name */)
+  IPC_SYNC_MESSAGE_CONTROL3_1(ViewHostMsg_IDBObjectStoreRemoveIndex,
+                              int32, /* idb_object_store_id */
+                              string16, /* name */
+                              int32, /* transaction_id */
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBObjectStore::openCursor() message.
-  IPC_MESSAGE_CONTROL1(ViewHostMsg_IDBObjectStoreOpenCursor,
-                       ViewHostMsg_IDBObjectStoreOpenCursor_Params)
+  IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_IDBObjectStoreOpenCursor,
+                              ViewHostMsg_IDBObjectStoreOpenCursor_Params,
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBObjectStore::~WebIDBObjectStore() message.
   IPC_MESSAGE_CONTROL1(ViewHostMsg_IDBObjectStoreDestroyed,
@@ -2533,6 +2592,11 @@ IPC_BEGIN_MESSAGES(ViewHost)
                               int32, /* transaction_id */
                               string16, /* name */
                               int32 /* object_store_id */)
+
+  // WebIDBTransaction::mode() message.
+  IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_IDBTransactionMode,
+                              int32, /* idb_transaction_id */
+                              int /* mode */)
 
   // WebIDBTransaction::abort() message.
   IPC_MESSAGE_CONTROL1(ViewHostMsg_IDBTransactionAbort,
@@ -2758,9 +2822,14 @@ IPC_BEGIN_MESSAGES(ViewHost)
                        int /* render_view_id */,
                        int /* bridge_id */)
 
-  // Notifies the TabContents that the content being displayed is PDF.
-  // This allows the browser to handle things such as zooming differently.
-  IPC_MESSAGE_ROUTED0(ViewHostMsg_SetDisplayingPDFContent)
+  // Updates the minimum/maximum allowed zoom percent for this tab from the
+  // default values.  If |remember| is true, then the zoom setting is applied to
+  // other pages in the site and is saved, otherwise it only applies to this
+  // tab.
+  IPC_MESSAGE_ROUTED3(ViewHostMsg_UpdateZoomLimits,
+                      int /* minimum_percent */,
+                      int /* maximum_percent */,
+                      bool /* remember */)
 
   // Requests the speech input service to start speech recognition on behalf of
   // the given |render_view_id|.
@@ -2819,9 +2888,10 @@ IPC_BEGIN_MESSAGES(ViewHost)
                        FilePath /* dest path */)
 
   // WebFileSystem::remove() message.
-  IPC_MESSAGE_CONTROL2(ViewHostMsg_FileSystem_Remove,
+  IPC_MESSAGE_CONTROL3(ViewHostMsg_FileSystem_Remove,
                        int /* request_id */,
-                       FilePath /* path */)
+                       FilePath /* path */,
+                       bool /* recursive */)
 
   // WebFileSystem::readMetadata() message.
   IPC_MESSAGE_CONTROL2(ViewHostMsg_FileSystem_ReadMetadata,
@@ -2902,5 +2972,54 @@ IPC_BEGIN_MESSAGES(ViewHost)
                       GURL /* phishing_url */,
                       double /* phishing_score */,
                       SkBitmap /* thumbnail */)
+
+  // Response from ViewMsg_ScriptEvalRequest. The ID is the parameter supplied
+  // to ViewMsg_ScriptEvalRequest. The result is true if the script evaluated
+  // to the boolean result true, false otherwise.
+  IPC_MESSAGE_ROUTED2(ViewHostMsg_ScriptEvalResponse,
+                      int  /* id */,
+                      bool  /* result */)
+
+  // Updates the content restrictions, i.e. to disable print/copy.
+  IPC_MESSAGE_ROUTED1(ViewHostMsg_UpdateContentRestrictions,
+                      int /* restrictions */)
+
+  // Trusted Pepper Filesystem messages ----------------------------------------
+
+  // Open the file.
+  IPC_SYNC_MESSAGE_CONTROL2_2(ViewHostMsg_PepperOpenFile,
+                              FilePath /* path */,
+                              int /* flags */,
+                              base::PlatformFileError /* error_code */,
+                              IPC::PlatformFileForTransit /* result */)
+
+  // Rename the file.
+  IPC_SYNC_MESSAGE_CONTROL2_1(ViewHostMsg_PepperRenameFile,
+                              FilePath /* path_from */,
+                              FilePath /* path_to */,
+                              base::PlatformFileError /* error_code */)
+
+  // Delete the file.
+  IPC_SYNC_MESSAGE_CONTROL2_1(ViewHostMsg_PepperDeleteFileOrDir,
+                              FilePath /* path */,
+                              bool /* recursive */,
+                              base::PlatformFileError /* error_code */)
+
+  // Create the directory.
+  IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_PepperCreateDir,
+                              FilePath /* path */,
+                              base::PlatformFileError /* error_code */)
+
+  // Query the file's info.
+  IPC_SYNC_MESSAGE_CONTROL1_2(ViewHostMsg_PepperQueryFile,
+                              FilePath /* path */,
+                              base::PlatformFileInfo, /* info */
+                              base::PlatformFileError /* error_code */)
+
+  // Get the directory's contents.
+  IPC_SYNC_MESSAGE_CONTROL1_2(ViewHostMsg_PepperGetDirContents,
+                              FilePath /* path */,
+                              PepperDirContents, /* contents */
+                              base::PlatformFileError /* error_code */)
 
 IPC_END_MESSAGES(ViewHost)

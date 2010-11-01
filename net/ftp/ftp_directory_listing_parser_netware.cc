@@ -40,6 +40,8 @@ FtpDirectoryListingParserNetware::FtpDirectoryListingParserNetware(
       current_time_(current_time) {
 }
 
+FtpDirectoryListingParserNetware::~FtpDirectoryListingParserNetware() {}
+
 bool FtpDirectoryListingParserNetware::ConsumeLine(const string16& line) {
   if (!received_first_line_) {
     received_first_line_ = true;
@@ -48,7 +50,7 @@ bool FtpDirectoryListingParserNetware::ConsumeLine(const string16& line) {
   }
 
   std::vector<string16> columns;
-  SplitString(CollapseWhitespace(line, false), ' ', &columns);
+  base::SplitString(CollapseWhitespace(line, false), ' ', &columns);
 
   if (columns.size() != 8)
     return false;

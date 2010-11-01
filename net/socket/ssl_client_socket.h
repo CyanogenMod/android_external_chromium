@@ -16,6 +16,7 @@
 namespace net {
 
 class SSLCertRequestInfo;
+class SSLHostInfo;
 class SSLInfo;
 struct RRResponse;
 
@@ -31,10 +32,15 @@ class DNSSECProvider {
   virtual int GetDNSSECRecords(RRResponse** out,
                                CompletionCallback* callback) = 0;
 
+<<<<<<< HEAD
 #ifdef ANDROID
  protected:
   virtual ~DNSSECProvider() {}
 #endif
+=======
+ private:
+  ~DNSSECProvider() {}
+>>>>>>> chromium.org at r63472
 };
 
 // A client socket that uses SSL as the transport layer.

@@ -17,6 +17,8 @@
 #include "views/accelerator.h"
 #include "views/view.h"
 
+namespace chromeos {
+
 scoped_ptr<views::Accelerator> WizardAccessibilityHelper::accelerator_;
 
 // static
@@ -35,6 +37,10 @@ WizardAccessibilityHelper* WizardAccessibilityHelper::GetInstance() {
 WizardAccessibilityHelper::WizardAccessibilityHelper() {
   accessibility_handler_.reset(new WizardAccessibilityHandler());
   profile_ = ProfileManager::GetDefaultProfile();
+  registered_notifications_ = false;
+}
+
+void WizardAccessibilityHelper::RegisterNotifications() {
   registrar_.Add(accessibility_handler_.get(),
                  NotificationType::ACCESSIBILITY_CONTROL_FOCUSED,
                  NotificationService::AllSources());
@@ -50,6 +56,14 @@ WizardAccessibilityHelper::WizardAccessibilityHelper() {
   registrar_.Add(accessibility_handler_.get(),
                  NotificationType::ACCESSIBILITY_MENU_CLOSED,
                  NotificationService::AllSources());
+  registered_notifications_ = true;
+}
+
+void WizardAccessibilityHelper::UnregisterNotifications() {
+  if (!registered_notifications_)
+    return;
+  registrar_.RemoveAll();
+  registered_notifications_ = false;
 }
 
 void WizardAccessibilityHelper::MaybeEnableAccessibility(
@@ -73,7 +87,9 @@ void WizardAccessibilityHelper::MaybeSpeak(const char* str, bool queue,
 }
 
 void WizardAccessibilityHelper::EnableAccessibility(views::View* view_tree) {
-  LOG(INFO) << "Enabling accessibility.";
+  VLOG(1) << "Enabling accessibility.";
+  if (!registered_notifications_)
+    RegisterNotifications();
   if (g_browser_process) {
     PrefService* prefService = g_browser_process->local_state();
     if (!prefService->GetBoolean(prefs::kAccessibilityEnabled)) {
@@ -114,3 +130,5 @@ void WizardAccessibilityHelper::AddViewToBuffer(views::View* view_tree) {
   if (!view_exists)
     views_buffer_[view_tree] = false;
 }
+
+}  // namespace chromeos

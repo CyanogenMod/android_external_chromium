@@ -7,6 +7,7 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "chrome/app/chrome_dll_resource.h"
+#include "chrome/browser/accessibility/browser_accessibility_state.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -17,7 +18,6 @@
 #include "chrome/browser/views/browser_actions_container.h"
 #include "chrome/browser/views/event_utils.h"
 #include "chrome/browser/views/frame/browser_view.h"
-#include "chrome/browser/views/wrench_menu.h"
 #include "chrome/browser/wrench_menu_model.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
@@ -32,6 +32,14 @@
 #include "views/widget/tooltip_manager.h"
 #include "views/window/non_client_view.h"
 #include "views/window/window.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/update_library.h"
+#include "chrome/browser/chromeos/dom_ui/wrench_menu_ui.h"
+#include "views/controls/menu/menu_2.h"
+#endif
+#include "chrome/browser/views/wrench_menu.h"
 
 // The space between items is 4 px in general.
 const int ToolbarView::kStandardSpacing = 4;
@@ -90,7 +98,7 @@ ToolbarView::ToolbarView(Browser* browser)
         IDR_LOCATIONBG_POPUPMODE_EDGE);
   }
 
-  if (!Singleton<UpgradeDetector>::get()->notify_upgrade()) {
+  if (!IsUpgradeRecommended()) {
     registrar_.Add(this, NotificationType::UPGRADE_RECOMMENDED,
                    NotificationService::AllSources());
   }
@@ -111,7 +119,12 @@ void ToolbarView::Init(Profile* profile) {
   forward_menu_model_.reset(new BackForwardMenuModel(
       browser_, BackForwardMenuModel::FORWARD_MENU));
   wrench_menu_model_.reset(new WrenchMenuModel(this, browser_));
-
+#if defined(OS_CHROMEOS)
+  if (chromeos::MenuUI::IsEnabled()) {
+      wrench_menu_2_.reset(
+          chromeos::WrenchMenuUI::CreateMenu2(wrench_menu_model_.get()));
+  }
+#endif
   back_ = new views::ButtonDropDown(this, back_menu_model_.get());
   back_->set_triggerable_event_flags(views::Event::EF_LEFT_BUTTON_DOWN |
                                      views::Event::EF_MIDDLE_BUTTON_DOWN);
@@ -162,7 +175,7 @@ void ToolbarView::Init(Profile* profile) {
   app_menu_->SetID(VIEW_ID_APP_MENU);
 
   // Catch the case where the window is created after we detect a new version.
-  if (Singleton<UpgradeDetector>::get()->notify_upgrade())
+  if (IsUpgradeRecommended())
     ShowUpgradeReminder();
 
   LoadImages();
@@ -181,6 +194,12 @@ void ToolbarView::Init(Profile* profile) {
   browser_actions_->Init();
 
   SetProfile(profile);
+
+  // Accessibility specific tooltip text.
+  if (Singleton<BrowserAccessibilityState>()->IsAccessibleBrowser()) {
+    back_->SetTooltipText(l10n_util::GetString(IDS_ACCNAME_TOOLTIP_BACK));
+    forward_->SetTooltipText(l10n_util::GetString(IDS_ACCNAME_TOOLTIP_FORWARD));
+  }
 }
 
 void ToolbarView::SetProfile(Profile* profile) {
@@ -198,19 +217,37 @@ void ToolbarView::Update(TabContents* tab, bool should_restore_state) {
     browser_actions_->RefreshBrowserActionViews();
 }
 
-void ToolbarView::SetToolbarFocusAndFocusLocationBar(int view_storage_id) {
-  SetToolbarFocus(view_storage_id, location_bar_);
+void ToolbarView::SetPaneFocusAndFocusLocationBar(int view_storage_id) {
+  SetPaneFocus(view_storage_id, location_bar_);
 }
 
-void ToolbarView::SetToolbarFocusAndFocusAppMenu(int view_storage_id) {
-  SetToolbarFocus(view_storage_id, app_menu_);
+void ToolbarView::SetPaneFocusAndFocusAppMenu(int view_storage_id) {
+  SetPaneFocus(view_storage_id, app_menu_);
+}
+
+bool ToolbarView::IsAppMenuFocused() {
+  return app_menu_->HasFocus();
 }
 
 void ToolbarView::AddMenuListener(views::MenuListener* listener) {
+#if defined(OS_CHROMEOS)
+  if (chromeos::MenuUI::IsEnabled()) {
+    DCHECK(wrench_menu_2_.get());
+    wrench_menu_2_->AddMenuListener(listener);
+    return;
+  }
+#endif
   menu_listeners_.push_back(listener);
 }
 
 void ToolbarView::RemoveMenuListener(views::MenuListener* listener) {
+#if defined(OS_CHROMEOS)
+  if (chromeos::MenuUI::IsEnabled()) {
+    DCHECK(wrench_menu_2_.get());
+    wrench_menu_2_->RemoveMenuListener(listener);
+    return;
+  }
+#endif
   for (std::vector<views::MenuListener*>::iterator i(menu_listeners_.begin());
        i != menu_listeners_.end(); ++i) {
     if (*i == listener) {
@@ -221,15 +258,19 @@ void ToolbarView::RemoveMenuListener(views::MenuListener* listener) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// ToolbarView, AccessibleToolbarView overrides:
+// ToolbarView, AccessiblePaneView overrides:
 
-bool ToolbarView::SetToolbarFocus(
+bool ToolbarView::SetPaneFocus(
     int view_storage_id, views::View* initial_focus) {
-  if (!AccessibleToolbarView::SetToolbarFocus(view_storage_id, initial_focus))
+  if (!AccessiblePaneView::SetPaneFocus(view_storage_id, initial_focus))
     return false;
 
   location_bar_->SetShowFocusRect(true);
   return true;
+}
+
+AccessibilityTypes::Role ToolbarView::GetAccessibleRole() {
+  return AccessibilityTypes::ROLE_TOOLBAR;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -242,12 +283,26 @@ bool ToolbarView::GetAcceleratorInfo(int id, menus::Accelerator* accel) {
 ////////////////////////////////////////////////////////////////////////////////
 // ToolbarView, views::MenuDelegate implementation:
 
-void ToolbarView::RunMenu(views::View* source, const gfx::Point& /*pt*/) {
+void ToolbarView::RunMenu(views::View* source, const gfx::Point& /* pt */) {
   DCHECK_EQ(VIEW_ID_APP_MENU, source->GetID());
 
   bool destroyed_flag = false;
   destroyed_flag_ = &destroyed_flag;
-  wrench_menu_.reset(new WrenchMenu(browser_));
+#if defined(OS_CHROMEOS)
+  if (chromeos::MenuUI::IsEnabled()) {
+    gfx::Point screen_loc;
+    views::View::ConvertPointToScreen(app_menu_, &screen_loc);
+    gfx::Rect bounds(screen_loc, app_menu_->size());
+    if (base::i18n::IsRTL())
+      bounds.set_x(bounds.x() - app_menu_->size().width());
+    wrench_menu_2_->RunMenuAt(gfx::Point(bounds.right(), bounds.bottom()),
+                              views::Menu2::ALIGN_TOPRIGHT);
+    // TODO(oshima): nuke this once we made decision about go or no go
+    // for domui menu.
+    goto cleanup;
+  }
+#endif
+  wrench_menu_ = new WrenchMenu(browser_);
   wrench_menu_->Init(wrench_menu_model_.get());
 
   for (size_t i = 0; i < menu_listeners_.size(); ++i)
@@ -255,6 +310,9 @@ void ToolbarView::RunMenu(views::View* source, const gfx::Point& /*pt*/) {
 
   wrench_menu_->RunMenu(app_menu_);
 
+#if defined(OS_CHROMEOS)
+cleanup:
+#endif
   if (destroyed_flag)
     return;
   destroyed_flag_ = NULL;
@@ -270,8 +328,8 @@ TabContents* ToolbarView::GetTabContents() {
   return browser_->GetSelectedTabContents();
 }
 
-MatchPreview* ToolbarView::GetMatchPreview() {
-  return browser_->match_preview();
+InstantController* ToolbarView::GetInstant() {
+  return browser_->instant();
 }
 
 void ToolbarView::OnInputInProgress(bool in_progress) {
@@ -505,13 +563,22 @@ views::View* ToolbarView::GetDefaultFocusableChild() {
   return location_bar_;
 }
 
-void ToolbarView::RemoveToolbarFocus() {
-  AccessibleToolbarView::RemoveToolbarFocus();
+void ToolbarView::RemovePaneFocus() {
+  AccessiblePaneView::RemovePaneFocus();
   location_bar_->SetShowFocusRect(false);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // ToolbarView, private:
+
+bool ToolbarView::IsUpgradeRecommended() {
+#if defined(OS_CHROMEOS)
+  return (chromeos::CrosLibrary::Get()->GetUpdateLibrary()->status().status ==
+          chromeos::UPDATE_STATUS_UPDATED_NEED_REBOOT);
+#else
+  return (Singleton<UpgradeDetector>::get()->notify_upgrade());
+#endif
+}
 
 int ToolbarView::PopupTopSpacing() const {
   return GetWindow()->GetNonClientView()->UseNativeFrame() ?
@@ -590,7 +657,7 @@ SkBitmap ToolbarView::GetAppMenuIcon(views::CustomButton::ButtonState state) {
   }
   SkBitmap icon = *tp->GetBitmapNamed(id);
 
-  if (!Singleton<UpgradeDetector>::get()->notify_upgrade())
+  if (!IsUpgradeRecommended())
     return icon;
 
   // Draw the chrome app menu icon onto the canvas.

@@ -6,7 +6,7 @@
 
 #include "base/message_loop.h"
 #include "base/string_util.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 
 namespace chromeos {
@@ -59,6 +59,34 @@ class PowerLibraryImpl : public PowerLibrary {
     return base::TimeDelta::FromSeconds(status_.battery_time_to_full);
   }
 
+  virtual void EnableScreenLock(bool enable) {
+    if (!CrosLibrary::Get()->EnsureLoaded())
+      return;
+
+    // Make sure we run on FILE thread becuase chromeos::EnableScreenLock
+    // would write power manager config file to disk.
+    if (!BrowserThread::CurrentlyOn(BrowserThread::FILE)) {
+      BrowserThread::PostTask(
+          BrowserThread::FILE, FROM_HERE,
+          NewRunnableMethod(this, &PowerLibraryImpl::EnableScreenLock, enable));
+      return;
+    }
+
+    chromeos::EnableScreenLock(enable);
+  }
+
+  virtual void RequestRestart() {
+    if (!CrosLibrary::Get()->EnsureLoaded())
+      return;
+    chromeos::RequestRestart();
+  }
+
+  virtual void RequestShutdown() {
+    if (!CrosLibrary::Get()->EnsureLoaded())
+      return;
+    chromeos::RequestShutdown();
+  }
+
  private:
   static void PowerStatusChangedHandler(void* object,
       const chromeos::PowerStatus& status) {
@@ -73,9 +101,9 @@ class PowerLibraryImpl : public PowerLibrary {
 
   void UpdatePowerStatus(const chromeos::PowerStatus& status) {
     // Make sure we run on UI thread.
-    if (!ChromeThread::CurrentlyOn(ChromeThread::UI)) {
-      ChromeThread::PostTask(
-          ChromeThread::UI, FROM_HERE,
+    if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
+      BrowserThread::PostTask(
+          BrowserThread::UI, FROM_HERE,
           NewRunnableMethod(
               this, &PowerLibraryImpl::UpdatePowerStatus, status));
       return;
@@ -119,6 +147,9 @@ class PowerLibraryStubImpl : public PowerLibrary {
   base::TimeDelta battery_time_to_full() const {
     return base::TimeDelta::FromSeconds(0);
   }
+  virtual void EnableScreenLock(bool enable) {}
+  virtual void RequestRestart() {}
+  virtual void RequestShutdown() {}
 };
 
 // static
@@ -134,4 +165,3 @@ PowerLibrary* PowerLibrary::GetImpl(bool stub) {
 // Allows InvokeLater without adding refcounting. This class is a Singleton and
 // won't be deleted until it's last InvokeLater is run.
 DISABLE_RUNNABLE_METHOD_REFCOUNT(chromeos::PowerLibraryImpl);
-

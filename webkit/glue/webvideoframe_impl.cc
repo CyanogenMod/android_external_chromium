@@ -25,6 +25,8 @@ WebVideoFrameImpl::WebVideoFrameImpl(
     : video_frame_(video_frame) {
 }
 
+WebVideoFrameImpl::~WebVideoFrameImpl() {}
+
 #define COMPILE_ASSERT_MATCHING_ENUM(webkit_name, chromium_name) \
     COMPILE_ASSERT(int(WebKit::WebVideoFrame::webkit_name) == \
                    int(media::VideoFrame::chromium_name), \
@@ -90,7 +92,7 @@ const void* WebVideoFrameImpl::data(unsigned plane) const {
 unsigned WebVideoFrameImpl::texture(unsigned plane) const {
   if (video_frame_.get())
     return video_frame_->gl_texture(plane);
-  return NULL;
+  return 0;
 }
 
 }  // namespace webkit_glue

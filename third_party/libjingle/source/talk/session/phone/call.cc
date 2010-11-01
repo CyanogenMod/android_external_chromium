@@ -35,8 +35,11 @@ namespace cricket {
 
 const uint32 MSG_CHECKAUTODESTROY = 1;
 const uint32 MSG_TERMINATECALL = 2;
+const uint32 MSG_PLAYDTMF = 3;
 
 namespace {
+const int kDTMFDelay = 300;  // msec
+const size_t kMaxDTMFDigits = 30;
 const int kSendToVoicemailTimeout = 1000*20;
 const int kNoVoicemailTimeout = 1000*180;
 const int kMediaMonitorInterval = 1000*15;
@@ -45,8 +48,7 @@ const int kMediaMonitorInterval = 1000*15;
 Call::Call(MediaSessionClient *session_client, bool video, bool mux)
     : id_(talk_base::CreateRandomId()), session_client_(session_client),
       local_renderer_(NULL), video_(video), mux_(mux),
-      muted_(false), send_to_voicemail_(true)
-{
+      muted_(false), send_to_voicemail_(true), playing_dtmf_(false) {
 }
 
 Call::~Call() {
@@ -59,10 +61,10 @@ Call::~Call() {
 }
 
 Session *Call::InitiateSession(const buzz::Jid &jid) {
-  Session *session = session_client_->CreateSession(this);
-  AddSession(session);
-
   const SessionDescription* offer = session_client_->CreateOffer(video_, mux_);
+
+  Session *session = session_client_->CreateSession(this);
+  AddSession(session, offer);
   session->Initiate(jid.Str(), offer);
 
   // After this timeout, terminate the call because the callee isn't
@@ -73,6 +75,15 @@ Session *Call::InitiateSession(const buzz::Jid &jid) {
     send_to_voicemail_ ? kSendToVoicemailTimeout : kNoVoicemailTimeout,
     this, MSG_TERMINATECALL);
   return session;
+}
+
+void Call::IncomingSession(
+    Session* session, const SessionDescription* offer) {
+  AddSession(session, offer);
+
+  // Missed the first state, the initiate, which is needed by
+  // call_client.
+  SignalSessionState(this, session, Session::STATE_RECEIVEDINITIATE);
 }
 
 void Call::AcceptSession(BaseSession *session) {
@@ -89,8 +100,9 @@ void Call::RejectSession(BaseSession *session) {
   std::vector<Session *>::iterator it;
   it = std::find(sessions_.begin(), sessions_.end(), session);
   ASSERT(it != sessions_.end());
+  // Assume polite decline.
   if (it != sessions_.end())
-    session->Reject();
+    session->Reject(STR_TERMINATE_DECLINE);
 }
 
 void Call::TerminateSession(BaseSession *session) {
@@ -98,6 +110,7 @@ void Call::TerminateSession(BaseSession *session) {
          != sessions_.end());
   std::vector<Session *>::iterator it;
   it = std::find(sessions_.begin(), sessions_.end(), session);
+  // Assume polite terminations.
   if (it != sessions_.end())
     (*it)->Terminate();
 }
@@ -168,6 +181,8 @@ void Call::OnMessage(talk_base::Message *message) {
     // Callee didn't answer - terminate call
     Terminate();
     break;
+  case MSG_PLAYDTMF:
+    ContinuePlayDTMF();
   }
 }
 
@@ -175,14 +190,16 @@ const std::vector<Session *> &Call::sessions() {
   return sessions_;
 }
 
-bool Call::AddSession(Session *session) {
+bool Call::AddSession(Session *session, const SessionDescription* offer) {
   bool succeeded = true;
   VoiceChannel *voice_channel = NULL;
   VideoChannel *video_channel = NULL;
 
+  const ContentInfo* audio_offer = GetFirstAudioContent(offer);
+  ASSERT(audio_offer != NULL);
   // Create voice channel and start a media monitor
   voice_channel = session_client_->channel_manager()->CreateVoiceChannel(
-      session, video_);
+      session, audio_offer->name, video_);
   // voice_channel can be NULL in case of NullVoiceEngine.
   if (voice_channel) {
     voice_channel_map_[session->id()] = voice_channel;
@@ -195,8 +212,10 @@ bool Call::AddSession(Session *session) {
 
   // If desired, create video channel and start a media monitor
   if (video_ && succeeded) {
+    const ContentInfo* video_offer = GetFirstVideoContent(offer);
+    ASSERT(video_offer != NULL);
     video_channel = session_client_->channel_manager()->CreateVideoChannel(
-        session, true, voice_channel);
+        session, video_offer->name, true, voice_channel);
     // video_channel can be NULL in case of NullVideoEngine.
     if (video_channel) {
       video_channel_map_[session->id()] = video_channel;
@@ -240,7 +259,7 @@ void Call::RemoveSession(Session *session) {
   sessions_.erase(it_session);
 
   // Destroy video channel
-  std::map<SessionID, VideoChannel *>::iterator it_vchannel;
+  std::map<std::string, VideoChannel *>::iterator it_vchannel;
   it_vchannel = video_channel_map_.find(session->id());
   if (it_vchannel != video_channel_map_.end()) {
     VideoChannel *video_channel = it_vchannel->second;
@@ -249,7 +268,7 @@ void Call::RemoveSession(Session *session) {
   }
 
   // Destroy voice channel
-  std::map<SessionID, VoiceChannel *>::iterator it_channel;
+  std::map<std::string, VoiceChannel *>::iterator it_channel;
   it_channel = voice_channel_map_.find(session->id());
   if (it_channel != voice_channel_map_.end()) {
     VoiceChannel *voice_channel = it_channel->second;
@@ -265,13 +284,13 @@ void Call::RemoveSession(Session *session) {
 }
 
 VoiceChannel* Call::GetVoiceChannel(BaseSession* session) {
-  std::map<SessionID, VoiceChannel *>::iterator it
+  std::map<std::string, VoiceChannel *>::iterator it
     = voice_channel_map_.find(session->id());
   return (it != voice_channel_map_.end()) ? it->second : NULL;
 }
 
 VideoChannel* Call::GetVideoChannel(BaseSession* session) {
-  std::map<SessionID, VideoChannel *>::iterator it
+  std::map<std::string, VideoChannel *>::iterator it
     = video_channel_map_.find(session->id());
   return (it != video_channel_map_.end()) ? it->second : NULL;
 }
@@ -300,6 +319,43 @@ void Call::Mute(bool mute) {
   }
 }
 
+void Call::PressDTMF(int event) {
+  // Queue up this digit
+  if (queued_dtmf_.size() < kMaxDTMFDigits) {
+    LOG(LS_INFO) << "Call::PressDTMF(" << event << ")";
+
+    queued_dtmf_.push_back(event);
+
+    if (!playing_dtmf_) {
+      ContinuePlayDTMF();
+    }
+  }
+}
+
+void Call::ContinuePlayDTMF() {
+  playing_dtmf_ = false;
+
+  // Check to see if we have a queued tone
+  if (queued_dtmf_.size() > 0) {
+    playing_dtmf_ = true;
+
+    int tone = queued_dtmf_.front();
+    queued_dtmf_.pop_front();
+
+    LOG(LS_INFO) << "Call::ContinuePlayDTMF(" << tone << ")";
+    std::vector<Session *>::iterator it;
+    for (it = sessions_.begin(); it != sessions_.end(); it++) {
+      VoiceChannel *voice_channel = voice_channel_map_[(*it)->id()];
+      if (voice_channel != NULL) {
+        voice_channel->PressDTMF(tone, true);
+      }
+    }
+
+    // Post a message to play the next tone or at least clear the playing_dtmf_
+    // bit.
+    talk_base::Thread::Current()->PostDelayed(kDTMFDelay, this, MSG_PLAYDTMF);
+  }
+}
 
 void Call::Join(Call *call, bool enable) {
   while (call->sessions_.size() != 0) {
@@ -313,7 +369,7 @@ void Call::Join(Call *call, bool enable) {
       .connect(this, &Call::OnReceivedTerminateReason);
 
     // Move voice channel
-    std::map<SessionID, VoiceChannel *>::iterator it_channel;
+    std::map<std::string, VoiceChannel *>::iterator it_channel;
     it_channel = call->voice_channel_map_.find(session->id());
     if (it_channel != call->voice_channel_map_.end()) {
       VoiceChannel *voice_channel = (*it_channel).second;
@@ -323,7 +379,7 @@ void Call::Join(Call *call, bool enable) {
     }
 
     // Move video channel
-    std::map<SessionID, VideoChannel *>::iterator it_vchannel;
+    std::map<std::string, VideoChannel *>::iterator it_vchannel;
     it_vchannel = call->video_channel_map_.find(session->id());
     if (it_vchannel != call->video_channel_map_.end()) {
       VideoChannel *video_channel = (*it_vchannel).second;

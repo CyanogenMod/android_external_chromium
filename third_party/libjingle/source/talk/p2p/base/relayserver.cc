@@ -215,7 +215,7 @@ void RelayServer::OnInternalPacket(
   RelayServerConnection* ext_conn = int_conn->binding()->GetExternalConnection(
       int_conn->default_destination());
   if (ext_conn && ext_conn->locked()) {
-    // TODO(juberti): Check the HMAC.
+    // TODO: Check the HMAC.
     ext_conn->Send(bytes, size);
   } else {
     // This happens very often and is not an error.
@@ -234,7 +234,7 @@ void RelayServer::OnExternalPacket(
   // If this connection already exists, then forward the traffic.
   ConnectionMap::iterator piter = connections_.find(ap);
   if (piter != connections_.end()) {
-    // TODO(juberti): Check the HMAC.
+    // TODO: Check the HMAC.
     RelayServerConnection* ext_conn = piter->second;
     RelayServerConnection* int_conn =
         ext_conn->binding()->GetInternalConnection(
@@ -265,7 +265,7 @@ void RelayServer::OnExternalPacket(
   uint32 length = talk_base::_min(static_cast<uint32>(username_attr->length()),
                                   USERNAME_LENGTH);
   std::string username(username_attr->bytes(), length);
-  // TODO(juberti): Check the HMAC.
+  // TODO: Check the HMAC.
 
   // The binding should already be present.
   BindingMap::iterator biter = bindings_.find(username);
@@ -315,7 +315,7 @@ bool RelayServer::HandleStun(
   if (username)
     username->append(username_attr->bytes(), username_attr->length());
 
-  // TODO(juberti): Check for unknown attributes (<= 0x7fff)
+  // TODO: Check for unknown attributes (<= 0x7fff)
 
   return true;
 }
@@ -341,7 +341,7 @@ void RelayServer::HandleStunAllocate(
     return;
   }
 
-  // TODO(juberti): Check the HMAC.
+  // TODO: Check the HMAC.
 
   // Find or create the binding for this username.
 
@@ -397,7 +397,7 @@ void RelayServer::HandleStun(
     return;
   }
 
-  // TODO(juberti): Check the HMAC.
+  // TODO: Check the HMAC.
 
   // Send this request to the appropriate handler.
   if (request.type() == STUN_SEND_REQUEST)
@@ -440,9 +440,9 @@ void RelayServer::HandleStunAllocate(
   res_lifetime_attr->SetValue(int_conn->binding()->lifetime() / 1000);
   response.AddAttribute(res_lifetime_attr);
 
-  // TODO(juberti): Support transport-prefs (preallocate RTCP port).
-  // TODO(juberti): Support bandwidth restrictions.
-  // TODO(juberti): Add message integrity check.
+  // TODO: Support transport-prefs (preallocate RTCP port).
+  // TODO: Support bandwidth restrictions.
+  // TODO: Add message integrity check.
 
   // Send a response to the caller.
   int_conn->SendStun(response);

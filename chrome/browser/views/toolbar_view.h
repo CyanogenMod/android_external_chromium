@@ -10,11 +10,12 @@
 
 #include "app/menus/accelerator.h"
 #include "app/slide_animation.h"
+#include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/back_forward_menu_model.h"
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/prefs/pref_member.h"
-#include "chrome/browser/views/accessible_toolbar_view.h"
+#include "chrome/browser/views/accessible_pane_view.h"
 #include "chrome/browser/views/location_bar/location_bar_view.h"
 #include "chrome/browser/views/reload_button.h"
 #include "views/controls/button/menu_button.h"
@@ -26,10 +27,15 @@
 class BrowserActionsContainer;
 class Browser;
 class Profile;
+#if defined(OS_CHROMEOS)
+namespace views {
+class Menu2;
+}  // namespace views
+#endif
 class WrenchMenu;
 
 // The Browser Window's toolbar.
-class ToolbarView : public AccessibleToolbarView,
+class ToolbarView : public AccessiblePaneView,
                     public views::ViewMenuDelegate,
                     public menus::AcceleratorProvider,
                     public LocationBarView::Delegate,
@@ -57,12 +63,15 @@ class ToolbarView : public AccessibleToolbarView,
   // Set focus to the toolbar with complete keyboard access, with the
   // focus initially set to the location bar. Focus will be restored
   // to the ViewStorage with id |view_storage_id| if the user escapes.
-  void SetToolbarFocusAndFocusLocationBar(int view_storage_id);
+  void SetPaneFocusAndFocusLocationBar(int view_storage_id);
 
   // Set focus to the toolbar with complete keyboard access, with the
   // focus initially set to the app menu. Focus will be restored
   // to the ViewStorage with id |view_storage_id| if the user escapes.
-  void SetToolbarFocusAndFocusAppMenu(int view_storage_id);
+  void SetPaneFocusAndFocusAppMenu(int view_storage_id);
+
+  // Returns true if the app menu is focused.
+  bool IsAppMenuFocused();
 
   // Add a listener to receive a callback when the menu opens.
   void AddMenuListener(views::MenuListener* listener);
@@ -77,8 +86,9 @@ class ToolbarView : public AccessibleToolbarView,
   LocationBarView* location_bar() const { return location_bar_; }
   views::MenuButton* app_menu() const { return app_menu_; }
 
-  // Overridden from AccessibleToolbarView
-  virtual bool SetToolbarFocus(int view_storage_id, View* initial_focus);
+  // Overridden from AccessiblePaneView
+  virtual bool SetPaneFocus(int view_storage_id, View* initial_focus);
+  virtual AccessibilityTypes::Role GetAccessibleRole();
 
   // Overridden from Menu::BaseControllerDelegate:
   virtual bool GetAcceleratorInfo(int id, menus::Accelerator* accel);
@@ -88,7 +98,7 @@ class ToolbarView : public AccessibleToolbarView,
 
   // Overridden from LocationBarView::Delegate:
   virtual TabContents* GetTabContents();
-  virtual MatchPreview* GetMatchPreview();
+  virtual InstantController* GetInstant();
   virtual void OnInputInProgress(bool in_progress);
 
   // Overridden from AnimationDelegate:
@@ -124,11 +134,14 @@ class ToolbarView : public AccessibleToolbarView,
 
  protected:
 
-  // Overridden from AccessibleToolbarView
+  // Overridden from AccessiblePaneView
   virtual views::View* GetDefaultFocusableChild();
-  virtual void RemoveToolbarFocus();
+  virtual void RemovePaneFocus();
 
  private:
+  // Returns true if we should show the upgrade recommended dot.
+  bool IsUpgradeRecommended();
+
   // Returns the number of pixels above the location bar in non-normal display.
   int PopupTopSpacing() const;
 
@@ -185,8 +198,14 @@ class ToolbarView : public AccessibleToolbarView,
   // The contents of the wrench menu.
   scoped_ptr<menus::SimpleMenuModel> wrench_menu_model_;
 
+#if defined(OS_CHROMEOS)
+  // Wrench menu using domui menu.
+  // MenuLister is managed by Menu2.
+  scoped_ptr<views::Menu2> wrench_menu_2_;
+#endif
+
   // Wrench menu.
-  scoped_ptr<WrenchMenu> wrench_menu_;
+  scoped_refptr<WrenchMenu> wrench_menu_;
 
   // Vector of listeners to receive callbacks when the menu opens.
   std::vector<views::MenuListener*> menu_listeners_;

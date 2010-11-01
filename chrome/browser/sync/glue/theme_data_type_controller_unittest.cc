@@ -8,7 +8,7 @@
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
 #include "base/task.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/sync/glue/theme_data_type_controller.h"
 #include "chrome/browser/sync/glue/change_processor_mock.h"
 #include "chrome/browser/sync/glue/model_associator_mock.h"
@@ -34,7 +34,7 @@ class StartCallback {
 class ThemeDataTypeControllerTest : public testing::Test {
  public:
   ThemeDataTypeControllerTest()
-      : ui_thread_(ChromeThread::UI, &message_loop_) {}
+      : ui_thread_(BrowserThread::UI, &message_loop_) {}
 
   virtual void SetUp() {
     profile_sync_factory_.reset(new ProfileSyncFactoryMock());
@@ -69,7 +69,7 @@ class ThemeDataTypeControllerTest : public testing::Test {
   }
 
   MessageLoopForUI message_loop_;
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
   scoped_refptr<ThemeDataTypeController> theme_dtc_;
   scoped_ptr<ProfileSyncFactoryMock> profile_sync_factory_;
   ProfileMock profile_;

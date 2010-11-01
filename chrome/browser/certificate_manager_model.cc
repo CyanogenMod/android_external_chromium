@@ -4,59 +4,25 @@
 
 #include "chrome/browser/certificate_manager_model.h"
 
-#include <cert.h>
-
 #include "base/i18n/time_formatting.h"
 #include "base/logging.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/third_party/mozilla_security_manager/nsNSSCertHelper.h"
-#include "chrome/third_party/mozilla_security_manager/nsNSSCertificate.h"
+#include "chrome/common/net/x509_certificate_model.h"
+#include "net/base/net_errors.h"
 #include "net/base/x509_certificate.h"
 
-// TODO(mattm): Try to make this use only X509Certificate stuff rather than NSS
-// functions in some places. (Not very important at this time since this is only
-// used w/NSS anyway.)
-
-// PSM = Mozilla's Personal Security Manager.
-namespace psm = mozilla_security_manager;
-
-namespace {
-
-// Convert a char* return value from NSS into a std::string and free the NSS
-// memory.  If the arg is NULL, an empty string will be returned instead.
-std::string Stringize(char* nss_text) {
-  std::string s;
-  if (nss_text) {
-    s = nss_text;
-    PORT_Free(nss_text);
-  }
-  return s;
-}
-
-std::string GetCertNameOrNickname(CERTCertificate* os_cert) {
-  std::string name = psm::ProcessIDN(
-      Stringize(CERT_GetCommonName(&os_cert->subject)));
-  if (name.empty() && os_cert->nickname) {
-    name = os_cert->nickname;
-    // Hack copied from mozilla: Cut off text before first :, which seems to
-    // just be the token name.
-    size_t colon_pos = name.find(':');
-    if (colon_pos != std::string::npos)
-      name = name.substr(colon_pos + 1);
-  }
-  return name;
-}
-
-}  // namespace
-
-CertificateManagerModel::CertificateManagerModel() {
+CertificateManagerModel::CertificateManagerModel(Observer* observer)
+    : observer_(observer) {
 }
 
 CertificateManagerModel::~CertificateManagerModel() {
 }
 
 void CertificateManagerModel::Refresh() {
+  VLOG(1) << "refresh started";
   cert_db_.ListCerts(&cert_list_);
+  observer_->CertificatesRefreshed();
+  VLOG(1) << "refresh finished";
 }
 
 void CertificateManagerModel::FilterAndBuildOrgGroupingMap(
@@ -65,7 +31,8 @@ void CertificateManagerModel::FilterAndBuildOrgGroupingMap(
   for (net::CertificateList::const_iterator i = cert_list_.begin();
        i != cert_list_.end(); ++i) {
     net::X509Certificate* cert = i->get();
-    net::CertType type = psm::GetCertType(cert->os_cert_handle());
+    net::CertType type =
+        x509_certificate_model::GetType(cert->os_cert_handle());
     if (type != filter_type)
       continue;
 
@@ -85,14 +52,17 @@ string16 CertificateManagerModel::GetColumnText(
   string16 rv;
   switch (column) {
     case COL_SUBJECT_NAME:
-      rv = UTF8ToUTF16(GetCertNameOrNickname(cert.os_cert_handle()));
+      rv = UTF8ToUTF16(
+          x509_certificate_model::GetCertNameOrNickname(cert.os_cert_handle()));
       break;
     case COL_CERTIFICATE_STORE:
-      rv = UTF8ToUTF16(psm::GetCertTokenName(cert.os_cert_handle()));
+      rv = UTF8ToUTF16(
+          x509_certificate_model::GetTokenName(cert.os_cert_handle()));
       break;
     case COL_SERIAL_NUMBER:
-      rv = ASCIIToUTF16(Stringize(CERT_Hexify(
-          &cert.os_cert_handle()->serialNumber, PR_TRUE)));
+      rv = ASCIIToUTF16(
+          x509_certificate_model::GetSerialNumberHexified(
+              cert.os_cert_handle(), ""));
       break;
     case COL_EXPIRES_ON:
       if (!cert.valid_expiry().is_null()) {
@@ -101,11 +71,51 @@ string16 CertificateManagerModel::GetColumnText(
       }
       break;
     case COL_EMAIL_ADDRESS:
-      if (cert.os_cert_handle()->emailAddr)
-        rv = UTF8ToUTF16(cert.os_cert_handle()->emailAddr);
+        rv = UTF8ToUTF16(
+            x509_certificate_model::GetEmailAddress(cert.os_cert_handle()));
       break;
     default:
       NOTREACHED();
   }
   return rv;
+}
+
+int CertificateManagerModel::ImportFromPKCS12(const std::string& data,
+                                              const string16& password) {
+  int result = cert_db_.ImportFromPKCS12(data, password);
+  if (result == net::OK)
+    Refresh();
+  return result;
+}
+
+bool CertificateManagerModel::ImportCACerts(
+    const net::CertificateList& certificates,
+    unsigned int trust_bits,
+    net::CertDatabase::ImportCertFailureList* not_imported) {
+  bool result = cert_db_.ImportCACerts(certificates, trust_bits, not_imported);
+  if (result && not_imported->size() != certificates.size())
+    Refresh();
+  return result;
+}
+
+bool CertificateManagerModel::ImportServerCert(
+    const net::CertificateList& certificates,
+    net::CertDatabase::ImportCertFailureList* not_imported) {
+  bool result = cert_db_.ImportServerCert(certificates, not_imported);
+  if (result && not_imported->size() != certificates.size())
+    Refresh();
+  return result;
+}
+
+bool CertificateManagerModel::SetCertTrust(const net::X509Certificate* cert,
+                                           net::CertType type,
+                                           unsigned int trust_bits) {
+  return cert_db_.SetCertTrust(cert, type, trust_bits);
+}
+
+bool CertificateManagerModel::Delete(net::X509Certificate* cert) {
+  bool result = cert_db_.DeleteCertAndKey(cert);
+  if (result)
+    Refresh();
+  return result;
 }

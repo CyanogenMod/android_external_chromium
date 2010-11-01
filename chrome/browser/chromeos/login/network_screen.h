@@ -11,6 +11,7 @@
 #include "base/task.h"
 #include "base/timer.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
+#include "chrome/browser/chromeos/login/keyboard_switch_menu.h"
 #include "chrome/browser/chromeos/login/language_switch_menu.h"
 #include "chrome/browser/chromeos/login/message_bubble.h"
 #include "chrome/browser/chromeos/login/network_screen_delegate.h"
@@ -34,8 +35,12 @@ class NetworkScreen : public ViewScreen<NetworkSelectionView>,
 
   // NetworkScreenDelegate implementation:
   virtual void ClearErrors();
+  virtual bool is_error_shown() { return bubble_ != NULL; }
   virtual LanguageSwitchMenu* language_switch_menu() {
     return &language_switch_menu_;
+  }
+  virtual KeyboardSwitchMenu* keyboard_switch_menu() {
+    return &keyboard_switch_menu_;
   }
   virtual gfx::Size size() const { return GetScreenSize(); }
 
@@ -99,6 +104,7 @@ class NetworkScreen : public ViewScreen<NetworkSelectionView>,
   base::OneShotTimer<NetworkScreen> connection_timer_;
 
   LanguageSwitchMenu language_switch_menu_;
+  KeyboardSwitchMenu keyboard_switch_menu_;
 
   // Pointer to shown message bubble. We don't need to delete it because
   // it will be deleted on bubble closing.

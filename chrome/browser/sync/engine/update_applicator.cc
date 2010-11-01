@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -31,7 +31,7 @@ UpdateApplicator::UpdateApplicator(ConflictResolver* resolver,
       progress_(false),
       routing_info_(routes) {
     size_t item_count = end - begin;
-    LOG(INFO) << "UpdateApplicator created for " << item_count << " items.";
+    VLOG(1) << "UpdateApplicator created for " << item_count << " items.";
     successful_ids_.reserve(item_count);
   }
 
@@ -48,7 +48,7 @@ bool UpdateApplicator::AttemptOneApplication(
     if (!progress_)
       return false;
 
-    LOG(INFO) << "UpdateApplicator doing additional pass.";
+    VLOG(1) << "UpdateApplicator doing additional pass.";
     pointer_ = begin_;
     progress_ = false;
 
@@ -79,8 +79,8 @@ bool UpdateApplicator::AttemptOneApplication(
       NOTREACHED();
       break;
   }
-  LOG(INFO) << "Apply Status for " << entry.Get(syncable::META_HANDLE)
-            << " is " << updateResponse;
+  VLOG(1) << "Apply Status for " << entry.Get(syncable::META_HANDLE)
+          << " is " << updateResponse;
 
   return true;
 }

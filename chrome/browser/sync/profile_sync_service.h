@@ -14,6 +14,7 @@
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/time.h"
+#include "base/timer.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/sync/engine/syncapi.h"
 #include "chrome/browser/sync/glue/data_type_controller.h"
@@ -100,7 +101,7 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
     CANCEL_FROM_SIGNON_WITHOUT_AUTH = 10,   // Cancelled before submitting
                                             // username and password.
     CANCEL_DURING_SIGNON = 11,              // Cancelled after auth.
-    CANCEL_FROM_CHOOSE_DATA_TYPES = 12,     // Cancelled before choosing data
+    CANCEL_DURING_CONFIGURE = 12,           // Cancelled before choosing data
                                             // types and clicking OK.
     // Events resulting in the stoppage of sync service.
     STOP_FROM_OPTIONS = 20,  // Sync was stopped from Wrench->Options.
@@ -179,12 +180,14 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   virtual void OnAuthError();
   virtual void OnStopSyncingPermanently();
   virtual void OnClearServerDataFailed();
+  virtual void OnClearServerDataTimeout();
   virtual void OnClearServerDataSucceeded();
 
   // Called when a user enters credentials through UI.
   virtual void OnUserSubmittedAuth(const std::string& username,
                                    const std::string& password,
-                                   const std::string& captcha);
+                                   const std::string& captcha,
+                                   const std::string& access_code);
 
   // Update the last auth error and notify observers of error state.
   void UpdateAuthErrorState(const GoogleServiceAuthError& error);
@@ -202,7 +205,7 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
 
   // Get various information for displaying in the user interface.
   browser_sync::SyncBackendHost::StatusSummary QuerySyncStatusSummary();
-  browser_sync::SyncBackendHost::Status QueryDetailedSyncStatus();
+  virtual browser_sync::SyncBackendHost::Status QueryDetailedSyncStatus();
 
   const GoogleServiceAuthError& GetAuthError() const {
     return last_auth_error_;
@@ -214,13 +217,12 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   // progress, the sync system is already authenticated, or some error
   // occurred preventing the action. We make it the duty of ProfileSyncService
   // to open the dialog to easily ensure only one is ever showing.
-  bool SetupInProgress() const;
+  virtual bool SetupInProgress() const;
   bool WizardIsVisible() const {
     return wizard_.IsVisible();
   }
-  void ShowLoginDialog(gfx::NativeWindow parent_window);
-
-  void ShowChooseDataTypes(gfx::NativeWindow parent_window);
+  virtual void ShowLoginDialog(gfx::NativeWindow parent_window);
+  void ShowConfigure(gfx::NativeWindow parent_window);
 
   // Pretty-printed strings for a given StatusSummary.
   static std::string BuildSyncStatusSummaryText(
@@ -231,7 +233,7 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   // TODO(timsteele): What happens if the bookmark model is loaded, a change
   // takes place, and the backend isn't initialized yet?
   bool sync_initialized() const { return backend_initialized_; }
-  bool unrecoverable_error_detected() const {
+  virtual bool unrecoverable_error_detected() const {
     return unrecoverable_error_detected_;
   }
   const std::string& unrecoverable_error_message() {
@@ -246,6 +248,10 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
     return is_auth_in_progress_;
   }
 
+  bool observed_passphrase_required() const {
+    return observed_passphrase_required_;
+  }
+
   // A timestamp marking the last time the service observed a transition from
   // the SYNCING state to the READY state. Note that this does not reflect the
   // last time we polled the server to see if there were any changes; the
@@ -254,7 +260,7 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   const base::Time& last_synced_time() const { return last_synced_time_; }
 
   // Returns a user-friendly string form of last synced time (in minutes).
-  string16 GetLastSyncedTimeString() const;
+  virtual string16 GetLastSyncedTimeString() const;
 
   // Returns the authenticated username of the sync user, or empty if none
   // exists. It will only exist if the authentication service provider (e.g
@@ -266,12 +272,15 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   }
 
   // The profile we are syncing for.
-  Profile* profile() { return profile_; }
+  Profile* profile() const { return profile_; }
 
   // Adds/removes an observer. ProfileSyncService does not take ownership of
   // the observer.
   virtual void AddObserver(Observer* observer);
   virtual void RemoveObserver(Observer* observer);
+
+  // Returns true if |observer| has already been added as an observer.
+  bool HasObserver(Observer* observer) const;
 
   // Record stats on various events.
   static void SyncEvent(SyncEventCodes code);
@@ -281,7 +290,7 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   // command-line switches).
   static bool IsSyncEnabled();
 
-  // Retuns whether sync is managed, i.e. controlled by configuration
+  // Returns whether sync is managed, i.e. controlled by configuration
   // management. If so, the user is not allowed to configure sync.
   bool IsManaged();
 
@@ -328,9 +337,16 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   // for sensitive data types.
   virtual bool IsCryptographerReady() const;
 
-  // Sets the Cryptographer's passphrase. This will check asynchronously whether
-  // the passphrase is valid and notify ProfileSyncServiceObservers via the
-  // NotificationService when the outcome is known.
+  // Returns true if a secondary passphrase is being used.
+  virtual bool IsUsingSecondaryPassphrase() const;
+
+  // Sets the secondary passphrase.
+  virtual void SetSecondaryPassphrase(const std::string& passphrase);
+
+  // Sets the Cryptographer's passphrase, or caches it until that is possible.
+  // This will check asynchronously whether the passphrase is valid and notify
+  // ProfileSyncServiceObservers via the NotificationService when the outcome
+  // is known.
   virtual void SetPassphrase(const std::string& passphrase);
 
   // Returns whether processing changes is allowed.  Check this before doing
@@ -381,6 +397,10 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
 
   // Cache of the last name the client attempted to authenticate.
   std::string last_attempted_user_email_;
+
+  // Whether we have seen a SYNC_PASSPHRASE_REQUIRED since initializing the
+  // backend, telling us that it is safe to send a passphrase down ASAP.
+  bool observed_passphrase_required_;
 
  private:
   friend class ProfileSyncServiceTest;
@@ -486,6 +506,13 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
 
   // Keep track of where we are in a server clear operation
   ClearServerDataState clear_server_data_state_;
+
+  // Timeout for the clear data command.  This timeout is a temporary hack
+  // and is necessary becaue the nudge sync framework can drop nudges for
+  // a wide variety of sync-related conditions (throttling, connections issues,
+  // syncer paused, etc.).  It can only be removed correctly when the framework
+  // is reworked to allow one-shot commands like clearing server data.
+  base::OneShotTimer<ProfileSyncService> clear_server_data_timer_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileSyncService);
 };

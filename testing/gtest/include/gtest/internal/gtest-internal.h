@@ -37,7 +37,7 @@
 #ifndef GTEST_INCLUDE_GTEST_INTERNAL_GTEST_INTERNAL_H_
 #define GTEST_INCLUDE_GTEST_INTERNAL_GTEST_INTERNAL_H_
 
-#include <gtest/internal/gtest-port.h>
+#include "gtest/internal/gtest-port.h"
 
 #if GTEST_OS_LINUX
 #include <stdlib.h>
@@ -52,9 +52,9 @@
 #include <limits>
 #include <set>
 
-#include <gtest/internal/gtest-string.h>
-#include <gtest/internal/gtest-filepath.h>
-#include <gtest/internal/gtest-type-util.h>
+#include "gtest/internal/gtest-string.h"
+#include "gtest/internal/gtest-filepath.h"
+#include "gtest/internal/gtest-type-util.h"
 
 // Due to C++ preprocessor weirdness, we need double indirection to
 // concatenate two tokens when one of them is __LINE__.  Writing
@@ -102,7 +102,7 @@ namespace proto2 { class Message; }
 
 namespace testing {
 
-// Forward declaration of classes.
+// Forward declarations.
 
 class AssertionResult;                 // Result of an assertion.
 class Message;                         // Represents a failure message.
@@ -110,6 +110,9 @@ class Test;                            // Represents a test.
 class TestInfo;                        // Information about a test.
 class TestPartResult;                  // Result of a test part.
 class UnitTest;                        // A collection of test cases.
+
+template <typename T>
+::std::string PrintToString(const T& value);
 
 namespace internal {
 
@@ -192,72 +195,23 @@ class GTEST_API_ ScopedTrace {
 template <typename T>
 String StreamableToString(const T& streamable);
 
-// Formats a value to be used in a failure message.
-
-#ifdef GTEST_NEEDS_IS_POINTER_
-
-// These are needed as the Nokia Symbian and IBM XL C/C++ compilers
-// cannot decide between const T& and const T* in a function template.
-// These compilers _can_ decide between class template specializations
-// for T and T*, so a tr1::type_traits-like is_pointer works, and we
-// can overload on that.
-
-// This overload makes sure that all pointers (including
-// those to char or wchar_t) are printed as raw pointers.
-template <typename T>
-inline String FormatValueForFailureMessage(internal::true_type /*dummy*/,
-                                           T* pointer) {
-  return StreamableToString(static_cast<const void*>(pointer));
-}
-
-template <typename T>
-inline String FormatValueForFailureMessage(internal::false_type /*dummy*/,
-                                           const T& value) {
-  return StreamableToString(value);
-}
-
-template <typename T>
-inline String FormatForFailureMessage(const T& value) {
-  return FormatValueForFailureMessage(
-      typename internal::is_pointer<T>::type(), value);
-}
-
-#else
-
-// These are needed as the above solution using is_pointer has the
-// limitation that T cannot be a type without external linkage, when
-// compiled using MSVC.
-
-template <typename T>
-inline String FormatForFailureMessage(const T& value) {
-  return StreamableToString(value);
-}
-
-// This overload makes sure that all pointers (including
-// those to char or wchar_t) are printed as raw pointers.
-template <typename T>
-inline String FormatForFailureMessage(T* pointer) {
-  return StreamableToString(static_cast<const void*>(pointer));
-}
-
-#endif  // GTEST_NEEDS_IS_POINTER_
-
-// These overloaded versions handle narrow and wide characters.
-GTEST_API_ String FormatForFailureMessage(char ch);
-GTEST_API_ String FormatForFailureMessage(wchar_t wchar);
-
-// When this operand is a const char* or char*, and the other operand
+// When this operand is a const char* or char*, if the other operand
 // is a ::std::string or ::string, we print this operand as a C string
-// rather than a pointer.  We do the same for wide strings.
+// rather than a pointer (we do the same for wide strings); otherwise
+// we print it as a pointer to be safe.
 
 // This internal macro is used to avoid duplicated code.
+// Making the first operand const reference works around a bug in the
+// Symbian compiler which is unable to select the correct specialization of
+// FormatForComparisonFailureMessage.
 #define GTEST_FORMAT_IMPL_(operand2_type, operand1_printer)\
 inline String FormatForComparisonFailureMessage(\
-    operand2_type::value_type* str, const operand2_type& /*operand2*/) {\
+    operand2_type::value_type* const& str, const operand2_type& /*operand2*/) {\
   return operand1_printer(str);\
 }\
 inline String FormatForComparisonFailureMessage(\
-    const operand2_type::value_type* str, const operand2_type& /*operand2*/) {\
+    const operand2_type::value_type* const& str, \
+    const operand2_type& /*operand2*/) {\
   return operand1_printer(str);\
 }
 
@@ -274,6 +228,27 @@ GTEST_FORMAT_IMPL_(::wstring, String::ShowWideCStringQuoted)
 #endif  // GTEST_HAS_GLOBAL_WSTRING
 
 #undef GTEST_FORMAT_IMPL_
+
+// The next four overloads handle the case where the operand being
+// printed is a char/wchar_t pointer and the other operand is not a
+// string/wstring object.  In such cases, we just print the operand as
+// a pointer to be safe.
+//
+// Making the first operand const reference works around a bug in the
+// Symbian compiler which is unable to select the correct specialization of
+// FormatForComparisonFailureMessage.
+#define GTEST_FORMAT_CHAR_PTR_IMPL_(CharType)                       \
+  template <typename T>                                             \
+  String FormatForComparisonFailureMessage(CharType* const& p, const T&) { \
+    return PrintToString(static_cast<const void*>(p));              \
+  }
+
+GTEST_FORMAT_CHAR_PTR_IMPL_(char)
+GTEST_FORMAT_CHAR_PTR_IMPL_(const char)
+GTEST_FORMAT_CHAR_PTR_IMPL_(wchar_t)
+GTEST_FORMAT_CHAR_PTR_IMPL_(const wchar_t)
+
+#undef GTEST_FORMAT_CHAR_PTR_IMPL_
 
 // Constructs and returns the message for an equality assertion
 // (e.g. ASSERT_EQ, EXPECT_STREQ, etc) failure.
@@ -607,7 +582,7 @@ GTEST_API_ TestInfo* MakeAndRegisterTestInfo(
 // If *pstr starts with the given prefix, modifies *pstr to be right
 // past the prefix and returns true; otherwise leaves *pstr unchanged
 // and returns false.  None of pstr, *pstr, and prefix can be NULL.
-bool SkipPrefix(const char* prefix, const char** pstr);
+GTEST_API_ bool SkipPrefix(const char* prefix, const char** pstr);
 
 #if GTEST_HAS_TYPED_TEST || GTEST_HAS_TYPED_TEST_P
 
@@ -650,7 +625,7 @@ inline const char* SkipComma(const char* str) {
   if (comma == NULL) {
     return NULL;
   }
-  while (isspace(*(++comma))) {}
+  while (IsSpace(*(++comma))) {}
   return comma;
 }
 
@@ -1089,9 +1064,12 @@ class NativeArray {
 }  // namespace internal
 }  // namespace testing
 
-#define GTEST_MESSAGE_(message, result_type) \
-  ::testing::internal::AssertHelper(result_type, __FILE__, __LINE__, message) \
+#define GTEST_MESSAGE_AT_(file, line, message, result_type) \
+  ::testing::internal::AssertHelper(result_type, file, line, message) \
     = ::testing::Message()
+
+#define GTEST_MESSAGE_(message, result_type) \
+  GTEST_MESSAGE_AT_(__FILE__, __LINE__, message, result_type)
 
 #define GTEST_FATAL_FAILURE_(message) \
   return GTEST_MESSAGE_(message, ::testing::TestPartResult::kFatalFailure)

@@ -67,7 +67,7 @@ enum {
   MSG_SETRTCPCNAME = 18
 };
 
-// TODO(juberti): Move to own file.
+// TODO: Move to own file.
 class RtcpMuxFilter {
  public:
   RtcpMuxFilter();
@@ -93,7 +93,7 @@ class RtcpMuxFilter {
 // BaseChannel contains logic common to voice and video, including
 // enable/mute, marshaling calls to a worker thread, and
 // connection and media monitors.
-// TODO(juberti): Break the dependency on BaseSession. The only thing we need
+// TODO: Break the dependency on BaseSession. The only thing we need
 // it for is to Create/Destroy TransportChannels, and set codecs, both of which
 // could be done by the calling class.
 class BaseChannel
@@ -102,7 +102,8 @@ class BaseChannel
  public:
   BaseChannel(talk_base::Thread* thread, MediaEngine* media_engine,
               MediaChannel* channel, BaseSession* session,
-              TransportChannel* transport);
+              const std::string& content_name,
+              TransportChannel* transport_channel);
   ~BaseChannel();
 
   talk_base::Thread* worker_thread() const { return worker_thread_; }
@@ -229,6 +230,7 @@ class BaseChannel
   MediaEngine *media_engine_;
   BaseSession *session_;
   MediaChannel *media_channel_;
+  std::string content_name_;
   TransportChannel *transport_channel_;
   TransportChannel *rtcp_transport_channel_;
   SrtpFilter srtp_filter_;
@@ -245,7 +247,8 @@ class BaseChannel
 class VoiceChannel : public BaseChannel {
  public:
   VoiceChannel(talk_base::Thread *thread, MediaEngine *media_engine,
-               VoiceMediaChannel *channel, BaseSession *session, bool rtcp);
+               VoiceMediaChannel *channel, BaseSession *session,
+               const std::string& content_name, bool rtcp);
   ~VoiceChannel();
 
   // downcasts a MediaChannel
@@ -348,7 +351,8 @@ class VoiceChannel : public BaseChannel {
 class VideoChannel : public BaseChannel {
  public:
   VideoChannel(talk_base::Thread *thread, MediaEngine *media_engine,
-               VideoMediaChannel *channel, BaseSession *session, bool rtcp,
+               VideoMediaChannel *channel, BaseSession *session,
+               const std::string& content_name, bool rtcp,
                VoiceChannel *voice_channel);
   ~VideoChannel();
 

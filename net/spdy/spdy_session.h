@@ -51,6 +51,8 @@ class SpdySession : public base::RefCounted<SpdySession>,
   // Create a new SpdySession.
   // |host_port_proxy_pair| is the host/port that this session connects to, and
   // the proxy configuration settings that it's using.
+  // |spdy_session_pool| is the SpdySessionPool that owns us.  Its lifetime must
+  // strictly be greater than |this|.
   // |session| is the HttpNetworkSession.  |net_log| is the NetLog that we log
   // network events to.
   SpdySession(const HostPortProxyPair& host_port_proxy_pair,
@@ -153,13 +155,25 @@ class SpdySession : public base::RefCounted<SpdySession>,
   // session pool.
   void CloseSessionOnError(net::Error err, bool remove_from_pool);
 
+  // Retrieves information on the current state of the SPDY session as a
+  // Value.  Caller takes possession of the returned value.
+  Value* GetInfoAsValue() const;
+
   // Indicates whether the session is being reused after having successfully
   // used to send/receive data in the past.
   bool IsReused() const {
     return frames_received_ > 0;
   }
 
-  void set_in_session_pool(bool val) { in_session_pool_ = val; }
+  // Returns true if the underlying transport socket ever had any reads or
+  // writes.
+  bool WasEverUsed() const {
+    return connection_->socket()->WasEverUsed();
+  }
+
+  void set_spdy_session_pool(SpdySessionPool* pool) {
+    spdy_session_pool_ = NULL;
+  }
 
   // Access to the number of active and pending streams.  These are primarily
   // available for testing and diagnostics.
@@ -169,6 +183,10 @@ class SpdySession : public base::RefCounted<SpdySession>,
   }
 
   const BoundNetLog& net_log() const { return net_log_; }
+
+  int GetPeerAddress(AddressList* address) const {
+    return connection_->socket()->GetPeerAddress(address);
+  }
 
  private:
   friend class base::RefCounted<SpdySession>;
@@ -281,6 +299,10 @@ class SpdySession : public base::RefCounted<SpdySession>,
   // Closes all streams.  Used as part of shutdown.
   void CloseAllStreams(net::Error status);
 
+  // Invokes a user callback for stream creation.  We provide this method so it
+  // can be deferred to the MessageLoop, so we avoid re-entrancy problems.
+  void InvokeUserStreamCreationCallback(CompletionCallback* callback, int rv);
+
   // Callbacks for the Spdy session.
   CompletionCallbackImpl<SpdySession> read_callback_;
   CompletionCallbackImpl<SpdySession> write_callback_;
@@ -294,8 +316,10 @@ class SpdySession : public base::RefCounted<SpdySession>,
   // The domain this session is connected to.
   const HostPortProxyPair host_port_proxy_pair_;
 
-  scoped_refptr<SpdySessionPool> spdy_session_pool_;
-  SpdySettingsStorage* spdy_settings_;
+  // |spdy_session_pool_| owns us, therefore its lifetime must exceed ours.  We
+  // set this to NULL after we are removed from the pool.
+  SpdySessionPool* spdy_session_pool_;
+  SpdySettingsStorage* const spdy_settings_;
 
   // The socket handle for this session.
   scoped_ptr<ClientSocketHandle> connection_;
@@ -360,8 +384,6 @@ class SpdySession : public base::RefCounted<SpdySession>,
   bool sent_settings_;      // Did this session send settings when it started.
   bool received_settings_;  // Did this session receive at least one settings
                             // frame.
-
-  bool in_session_pool_;  // True if the session is currently in the pool.
 
   // Initial send window size for the session; can be changed by an
   // arriving SETTINGS frame; newly created streams use this value for the

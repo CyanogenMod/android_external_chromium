@@ -4,9 +4,8 @@
 
 #include "net/socket/ssl_client_socket_pool.h"
 
+#include "base/metrics/histogram.h"
 #include "base/values.h"
-#include "net/base/dnsrr_resolver.h"
-#include "net/base/dns_util.h"
 #include "net/base/net_errors.h"
 #include "net/base/ssl_cert_request_info.h"
 #include "net/http/http_proxy_client_socket.h"
@@ -15,6 +14,7 @@
 #include "net/socket/client_socket_handle.h"
 #include "net/socket/socks_client_socket_pool.h"
 #include "net/socket/ssl_client_socket.h"
+#include "net/socket/ssl_host_info.h"
 #include "net/socket/tcp_client_socket_pool.h"
 
 namespace net {
@@ -37,10 +37,7 @@ SSLSocketParams::SSLSocketParams(
       ssl_config_(ssl_config),
       load_flags_(load_flags),
       force_spdy_over_ssl_(force_spdy_over_ssl),
-      want_spdy_over_npn_(want_spdy_over_npn),
-      dnssec_resolution_attempted_(false),
-      dnssec_resolution_complete_(false),
-      dnssec_resolution_callback_(NULL) {
+      want_spdy_over_npn_(want_spdy_over_npn) {
   switch (proxy_) {
     case ProxyServer::SCHEME_DIRECT:
       DCHECK(tcp_params_.get() != NULL);
@@ -67,61 +64,6 @@ SSLSocketParams::SSLSocketParams(
 
 SSLSocketParams::~SSLSocketParams() {}
 
-void SSLSocketParams::StartDNSSECResolution() {
-  dnssec_response_.reset(new RRResponse);
-  // We keep a reference to ourselves while the DNS resolution is underway.
-  // When it completes (in DNSSECResolutionComplete), we balance it out.
-  AddRef();
-
-  dnssec_resolution_attempted_ = true;
-  bool r = DnsRRResolver::Resolve(
-      hostname(), kDNS_TXT, DnsRRResolver::FLAG_WANT_DNSSEC,
-      NewCallback(this, &SSLSocketParams::DNSSECResolutionComplete),
-      dnssec_response_.get());
-  if (!r) {
-    dnssec_response_.reset();
-    dnssec_resolution_attempted_ = false;
-  }
-}
-
-void SSLSocketParams::DNSSECResolutionComplete(int rv) {
-  CompletionCallback* callback = NULL;
-  {
-    DCHECK(dnssec_resolution_attempted_);
-    DCHECK(!dnssec_resolution_complete_);
-
-    if (rv != OK)
-      dnssec_response_.reset();
-
-    dnssec_resolution_complete_ = true;
-    if (dnssec_resolution_callback_)
-      callback = dnssec_resolution_callback_;
-  }
-
-  if (callback)
-    callback->Run(OK);
-
-  Release();
-}
-
-int SSLSocketParams::GetDNSSECRecords(RRResponse** out,
-                                      CompletionCallback* callback) {
-  if (!dnssec_resolution_attempted_) {
-    *out = NULL;
-    return OK;
-  }
-
-  if (dnssec_resolution_complete_) {
-    *out = dnssec_response_.get();
-    return OK;
-  }
-
-  DCHECK(dnssec_resolution_callback_ == NULL);
-
-  dnssec_resolution_callback_ = callback;
-  return ERR_IO_PENDING;
-}
-
 // Timeout for the SSL handshake portion of the connect.
 static const int kSSLHandshakeTimeoutInSeconds = 30;
 
@@ -133,7 +75,9 @@ SSLConnectJob::SSLConnectJob(
     SOCKSClientSocketPool* socks_pool,
     HttpProxyClientSocketPool* http_proxy_pool,
     ClientSocketFactory* client_socket_factory,
-    const scoped_refptr<HostResolver>& host_resolver,
+    HostResolver* host_resolver,
+    DnsRRResolver* dnsrr_resolver,
+    SSLHostInfoFactory* ssl_host_info_factory,
     Delegate* delegate,
     NetLog* net_log)
     : ConnectJob(group_name, timeout_duration, delegate,
@@ -144,6 +88,8 @@ SSLConnectJob::SSLConnectJob(
       http_proxy_pool_(http_proxy_pool),
       client_socket_factory_(client_socket_factory),
       resolver_(host_resolver),
+      dnsrr_resolver_(dnsrr_resolver),
+      ssl_host_info_factory_(ssl_host_info_factory),
       ALLOW_THIS_IN_INITIALIZER_LIST(
           callback_(this, &SSLConnectJob::OnIOComplete)) {}
 
@@ -245,8 +191,15 @@ int SSLConnectJob::DoLoop(int result) {
 int SSLConnectJob::DoTCPConnect() {
   DCHECK(tcp_pool_);
 
-  if (SSLConfigService::dnssec_enabled())
-    params_->StartDNSSECResolution();
+  if (ssl_host_info_factory_ && SSLConfigService::snap_start_enabled()) {
+      ssl_host_info_.reset(
+          ssl_host_info_factory_->GetForHost(params_->hostname()));
+  }
+  if (ssl_host_info_.get()) {
+    // This starts fetching the SSL host info from the disk cache for Snap
+    // Start.
+    ssl_host_info_->Start();
+  }
 
   next_state_ = STATE_TCP_CONNECT_COMPLETE;
   transport_socket_handle_.reset(new ClientSocketHandle());
@@ -331,9 +284,7 @@ int SSLConnectJob::DoSSLConnect() {
 
   ssl_socket_.reset(client_socket_factory_->CreateSSLClientSocket(
         transport_socket_handle_.release(), params_->hostname(),
-        params_->ssl_config()));
-  if (SSLConfigService::dnssec_enabled())
-    ssl_socket_->UseDNSSEC(params_.get());
+        params_->ssl_config(), ssl_host_info_.release()));
   return ssl_socket_->Connect(&callback_);
 }
 
@@ -372,18 +323,19 @@ int SSLConnectJob::DoSSLConnectComplete(int result) {
     DCHECK(ssl_connect_start_time_ != base::TimeTicks());
     base::TimeDelta connect_duration =
         base::TimeTicks::Now() - ssl_connect_start_time_;
-    if (using_spdy)
+    if (using_spdy) {
       UMA_HISTOGRAM_CUSTOM_TIMES("Net.SpdyConnectionLatency",
                                  connect_duration,
                                  base::TimeDelta::FromMilliseconds(1),
                                  base::TimeDelta::FromMinutes(10),
                                  100);
-    else
+    } else {
       UMA_HISTOGRAM_CUSTOM_TIMES("Net.SSL_Connection_Latency",
                                  connect_duration,
                                  base::TimeDelta::FromMilliseconds(1),
                                  base::TimeDelta::FromMinutes(10),
                                  100);
+    }
   }
 
   if (result == OK || IsCertificateError(result)) {
@@ -402,7 +354,8 @@ ConnectJob* SSLClientSocketPool::SSLConnectJobFactory::NewConnectJob(
     ConnectJob::Delegate* delegate) const {
   return new SSLConnectJob(group_name, request.params(), ConnectionTimeout(),
                            tcp_pool_, socks_pool_, http_proxy_pool_,
-                           client_socket_factory_, host_resolver_, delegate,
+                           client_socket_factory_, host_resolver_,
+                           dnsrr_resolver_, ssl_host_info_factory_, delegate,
                            net_log_);
 }
 
@@ -412,12 +365,16 @@ SSLClientSocketPool::SSLConnectJobFactory::SSLConnectJobFactory(
     HttpProxyClientSocketPool* http_proxy_pool,
     ClientSocketFactory* client_socket_factory,
     HostResolver* host_resolver,
+    DnsRRResolver* dnsrr_resolver,
+    SSLHostInfoFactory* ssl_host_info_factory,
     NetLog* net_log)
     : tcp_pool_(tcp_pool),
       socks_pool_(socks_pool),
       http_proxy_pool_(http_proxy_pool),
       client_socket_factory_(client_socket_factory),
       host_resolver_(host_resolver),
+      dnsrr_resolver_(dnsrr_resolver),
+      ssl_host_info_factory_(ssl_host_info_factory),
       net_log_(net_log) {
   base::TimeDelta max_transport_timeout = base::TimeDelta();
   base::TimeDelta pool_timeout;
@@ -441,7 +398,9 @@ SSLClientSocketPool::SSLClientSocketPool(
     int max_sockets,
     int max_sockets_per_group,
     ClientSocketPoolHistograms* histograms,
-    const scoped_refptr<HostResolver>& host_resolver,
+    HostResolver* host_resolver,
+    DnsRRResolver* dnsrr_resolver,
+    SSLHostInfoFactory* ssl_host_info_factory,
     ClientSocketFactory* client_socket_factory,
     TCPClientSocketPool* tcp_pool,
     SOCKSClientSocketPool* socks_pool,
@@ -457,6 +416,7 @@ SSLClientSocketPool::SSLClientSocketPool(
             base::TimeDelta::FromSeconds(kUsedIdleSocketTimeout),
             new SSLConnectJobFactory(tcp_pool, socks_pool, http_proxy_pool,
                                      client_socket_factory, host_resolver,
+                                     dnsrr_resolver, ssl_host_info_factory,
                                      net_log)),
       ssl_config_service_(ssl_config_service) {
   if (ssl_config_service_)
@@ -479,6 +439,17 @@ int SSLClientSocketPool::RequestSocket(const std::string& group_name,
 
   return base_.RequestSocket(group_name, *casted_socket_params, priority,
                              handle, callback, net_log);
+}
+
+void SSLClientSocketPool::RequestSockets(
+    const std::string& group_name,
+    const void* params,
+    int num_sockets,
+    const BoundNetLog& net_log) {
+  const scoped_refptr<SSLSocketParams>* casted_params =
+      static_cast<const scoped_refptr<SSLSocketParams>*>(params);
+
+  base_.RequestSockets(group_name, *casted_params, num_sockets, net_log);
 }
 
 void SSLClientSocketPool::CancelRequest(const std::string& group_name,

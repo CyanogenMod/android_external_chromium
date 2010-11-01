@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,15 @@ using browser_sync::HttpResponse;
 using std::string;
 
 namespace sync_api {
+
+SyncAPIBridgedPost::SyncAPIBridgedPost(
+    browser_sync::ServerConnectionManager* scm,
+    HttpPostProviderFactory* factory)
+    : Post(scm), factory_(factory) {
+}
+
+SyncAPIBridgedPost::~SyncAPIBridgedPost() {}
+
 
 bool SyncAPIBridgedPost::Init(const char* path, const string& auth_token,
     const string& payload, HttpResponse* response) {
@@ -37,7 +46,7 @@ bool SyncAPIBridgedPost::Init(const char* path, const string& auth_token,
   int os_error_code = 0;
   int response_code = 0;
   if (!http->MakeSynchronousPost(&os_error_code, &response_code)) {
-    LOG(INFO) << "Http POST failed, error returns: " << os_error_code;
+    VLOG(1) << "Http POST failed, error returns: " << os_error_code;
     response->server_status = HttpResponse::IO_ERROR;
     factory_->Destroy(http);
     return false;
@@ -67,6 +76,23 @@ bool SyncAPIBridgedPost::Init(const char* path, const string& auth_token,
   return true;
 }
 
+SyncAPIServerConnectionManager::SyncAPIServerConnectionManager(
+    const std::string& server,
+    int port,
+    bool use_ssl,
+    const std::string& client_version,
+    HttpPostProviderFactory* factory)
+    : ServerConnectionManager(server, port, use_ssl, client_version),
+      post_provider_factory_(factory) {
+  DCHECK(post_provider_factory_.get());
+}
+
 SyncAPIServerConnectionManager::~SyncAPIServerConnectionManager() {}
+
+browser_sync::ServerConnectionManager::Post*
+SyncAPIServerConnectionManager::MakePost() {
+  return new SyncAPIBridgedPost(this, post_provider_factory_.get());
+}
+
 
 }  // namespace sync_api

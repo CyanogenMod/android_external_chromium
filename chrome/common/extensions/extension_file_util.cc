@@ -82,6 +82,7 @@ void UninstallExtension(const FilePath& extensions_dir,
 }
 
 Extension* LoadExtension(const FilePath& extension_path,
+                         Extension::Location location,
                          bool require_key,
                          std::string* error) {
   FilePath manifest_path =
@@ -119,6 +120,7 @@ Extension* LoadExtension(const FilePath& extension_path,
   DictionaryValue* manifest = static_cast<DictionaryValue*>(root.get());
 
   scoped_ptr<Extension> extension(new Extension(extension_path));
+  extension->set_location(location);
 
   if (!extension_l10n_util::LocalizeExtension(extension.get(), manifest, error))
     return NULL;
@@ -288,7 +290,7 @@ void GarbageCollectExtensions(
   if (!file_util::DirectoryExists(install_directory))
     return;
 
-  LOG(INFO) << "Garbage collecting extensions...";
+  VLOG(1) << "Garbage collecting extensions...";
   file_util::FileEnumerator enumerator(install_directory,
                                        false,  // Not recursive.
                                        file_util::FileEnumerator::DIRECTORIES);
@@ -302,8 +304,8 @@ void GarbageCollectExtensions(
     if (!Extension::IdIsValid(extension_id)) {
       LOG(WARNING) << "Invalid extension ID encountered in extensions "
                       "directory: " << extension_id;
-      LOG(INFO) << "Deleting invalid extension directory "
-                << WideToASCII(extension_path.ToWStringHack()) << ".";
+      VLOG(1) << "Deleting invalid extension directory "
+              << WideToASCII(extension_path.ToWStringHack()) << ".";
       file_util::Delete(extension_path, true);  // Recursive.
       continue;
     }
@@ -315,8 +317,8 @@ void GarbageCollectExtensions(
     // move on. This can legitimately happen when an uninstall does not
     // complete, for example, when a plugin is in use at uninstall time.
     if (iter == extension_paths.end()) {
-      LOG(INFO) << "Deleting unreferenced install for directory "
-                << WideToASCII(extension_path.ToWStringHack()) << ".";
+      VLOG(1) << "Deleting unreferenced install for directory "
+              << WideToASCII(extension_path.ToWStringHack()) << ".";
       file_util::Delete(extension_path, true);  // Recursive.
       continue;
     }
@@ -330,8 +332,8 @@ void GarbageCollectExtensions(
          !version_dir.value().empty();
          version_dir = versions_enumerator.Next()) {
       if (version_dir.BaseName() != iter->second.BaseName()) {
-        LOG(INFO) << "Deleting old version for directory "
-                  << WideToASCII(version_dir.ToWStringHack()) << ".";
+        VLOG(1) << "Deleting old version for directory "
+                << WideToASCII(version_dir.ToWStringHack()) << ".";
         file_util::Delete(version_dir, true);  // Recursive.
       }
     }

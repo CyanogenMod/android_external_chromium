@@ -12,8 +12,6 @@
 #define CHROME_COMMON_COMMON_PARAM_TRAITS_H_
 #pragma once
 
-#include <vector>
-
 #include "app/surface/transport_dib.h"
 #include "base/file_util.h"
 #include "base/ref_counted.h"
@@ -23,6 +21,14 @@
 #include "ipc/ipc_message_utils.h"
 #include "net/url_request/url_request_status.h"
 #include "printing/native_metafile.h"
+// !!! WARNING: DO NOT ADD NEW WEBKIT DEPENDENCIES !!!
+//
+// That means don't add #includes to any file in 'webkit/' or
+// 'third_party/WebKit/'. Chrome Frame and NACL build parts of base/ and
+// chrome/common/ for a mini-library that doesn't depend on webkit.
+//
+// TODO(erg): The following two headers are historical and only work because
+// their definitions are inlined, which also needs to be fixed.
 #include "webkit/glue/webcursor.h"
 #include "webkit/glue/window_open_disposition.h"
 
@@ -49,10 +55,6 @@ class UploadData;
 namespace printing {
 struct PageRange;
 }  // namespace printing
-
-namespace webkit_blob {
-class BlobData;
-}
 
 namespace webkit_glue {
 struct PasswordForm;
@@ -272,15 +274,6 @@ struct ParamTraits<URLRequestStatus> {
 template <>
 struct ParamTraits<scoped_refptr<net::UploadData> > {
   typedef scoped_refptr<net::UploadData> param_type;
-  static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, void** iter, param_type* r);
-  static void Log(const param_type& p, std::string* l);
-};
-
-// Traits for webkit_blob::BlobData.
-template <>
-struct ParamTraits<scoped_refptr<webkit_blob::BlobData> > {
-  typedef scoped_refptr<webkit_blob::BlobData> param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, void** iter, param_type* r);
   static void Log(const param_type& p, std::string* l);

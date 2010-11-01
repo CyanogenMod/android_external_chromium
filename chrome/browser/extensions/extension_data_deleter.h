@@ -8,7 +8,7 @@
 
 #include "base/ref_counted.h"
 #include "base/string16.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
 
 namespace webkit_database {
@@ -24,7 +24,7 @@ class WebKitContext;
 // ExtensionsService::ClearExtensionData() upon uninstalling an extension.
 class ExtensionDataDeleter
   : public base::RefCountedThreadSafe<ExtensionDataDeleter,
-                                      ChromeThread::DeleteOnUIThread> {
+                                      BrowserThread::DeleteOnUIThread> {
  public:
   ExtensionDataDeleter(Profile* profile, const GURL& extension_url);
   ~ExtensionDataDeleter();

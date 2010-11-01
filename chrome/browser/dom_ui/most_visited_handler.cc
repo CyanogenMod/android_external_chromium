@@ -17,7 +17,7 @@
 #include "base/utf_string_conversions.h"
 #include "base/thread.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
 #include "chrome/browser/dom_ui/dom_ui_thumbnail_source.h"
@@ -73,16 +73,16 @@ DOMMessageHandler* MostVisitedHandler::Attach(DOMUI* dom_ui) {
   // Set up our sources for thumbnail and favicon data.
   DOMUIThumbnailSource* thumbnail_src =
       new DOMUIThumbnailSource(dom_ui->GetProfile());
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
                         &ChromeURLDataManager::AddDataSource,
                         make_scoped_refptr(thumbnail_src)));
 
   DOMUIFavIconSource* favicon_src =
       new DOMUIFavIconSource(dom_ui->GetProfile());
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(Singleton<ChromeURLDataManager>::get(),
                         &ChromeURLDataManager::AddDataSource,
                         make_scoped_refptr(favicon_src)));
@@ -132,13 +132,17 @@ void MostVisitedHandler::HandleGetMostVisited(const ListValue* args) {
 
 void MostVisitedHandler::SendPagesValue() {
   if (pages_value_.get()) {
-    history::TopSites* ts = dom_ui_->GetProfile()->GetTopSites();
+    bool has_blacklisted_urls = !url_blacklist_->empty();
+    if (history::TopSites::IsEnabled()) {
+      history::TopSites* ts = dom_ui_->GetProfile()->GetTopSites();
+      has_blacklisted_urls = ts->HasBlacklistedItems();
+    }
     FundamentalValue first_run(IsFirstRun());
-    FundamentalValue has_blacklisted_urls(ts->HasBlacklistedItems());
+    FundamentalValue has_blacklisted_urls_value(has_blacklisted_urls);
     dom_ui_->CallJavascriptFunction(L"mostVisitedPages",
                                     *(pages_value_.get()),
                                     first_run,
-                                    has_blacklisted_urls);
+                                    has_blacklisted_urls_value);
     pages_value_.reset();
   }
 }

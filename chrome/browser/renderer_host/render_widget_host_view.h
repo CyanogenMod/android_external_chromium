@@ -32,6 +32,7 @@ class RenderProcessHost;
 class RenderWidgetHost;
 class VideoLayer;
 class WebCursor;
+struct NativeWebKeyboardEvent;
 struct ViewHostMsg_AccessibilityNotification_Params;
 struct WebMenuItem;
 
@@ -177,6 +178,12 @@ class RenderWidgetHostView {
   virtual VideoLayer* AllocVideoLayer(const gfx::Size& size) = 0;
 
 #if defined(OS_MACOSX)
+  // Tells the view whether or not to accept first responder status.  If |flag|
+  // is true, the view does not accept first responder status and instead
+  // manually becomes first responder when it receives a mouse down event.  If
+  // |flag| is false, the view participates in the key-view chain as normal.
+  virtual void SetTakesFocusOnlyOnMouseDown(bool flag) = 0;
+
   // Display a native control popup menu for WebKit.
   virtual void ShowPopupWithItems(gfx::Rect bounds,
                                   int item_height,
@@ -204,6 +211,16 @@ class RenderWidgetHostView {
 
   // Informs the view that its containing window's frame changed.
   virtual void WindowFrameChanged() = 0;
+
+  // Start or stop plugin IME for the given plugin.
+  virtual void SetPluginImeEnabled(bool enabled, int plugin_id) = 0;
+
+  // Does any event handling necessary for plugin IME; should be called after
+  // the plugin has already had a chance to process the event. If plugin IME is
+  // not enabled, this is a no-op, so it is always safe to call.
+  // Returns true if the event was handled by IME.
+  virtual bool PostProcessEventForPluginIme(
+      const NativeWebKeyboardEvent& event) = 0;
 
   // Methods associated with GPU-accelerated plug-in instances.
   virtual gfx::PluginWindowHandle AllocateFakePluginWindowHandle(

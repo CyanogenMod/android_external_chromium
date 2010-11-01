@@ -12,7 +12,7 @@
 #include "base/perftimer.h"
 #include "base/scoped_ptr.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
-#include "chrome/browser/jsmessage_box_client.h"
+#include "chrome/browser/js_modal_dialog.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/tab_contents/render_view_host_delegate_helper.h"
 #if defined(TOOLKIT_VIEWS)
@@ -40,7 +40,7 @@ class ExtensionHost : public RenderViewHostDelegate,
                       public RenderViewHostDelegate::View,
                       public ExtensionFunctionDispatcher::Delegate,
                       public NotificationObserver,
-                      public JavaScriptMessageBoxClient {
+                      public JavaScriptAppModalDialogDelegate {
  public:
   class ProcessCreationQueue;
 
@@ -174,18 +174,21 @@ class ExtensionHost : public RenderViewHostDelegate,
   virtual void HandleMouseUp();
   virtual void HandleMouseActivate();
   virtual void UpdatePreferredSize(const gfx::Size& new_size);
+  virtual void UpdateInspectorSetting(const std::string& key,
+                                      const std::string& value);
+  virtual void ClearInspectorSettings();
 
   // NotificationObserver
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
-  // JavaScriptMessageBoxClient
-  virtual gfx::NativeWindow GetMessageBoxRootWindow();
+  // Overridden from JavaScriptAppModalDialogDelegate:
   virtual void OnMessageBoxClosed(IPC::Message* reply_msg,
                                   bool success,
                                   const std::wstring& prompt);
   virtual void SetSuppressMessageBoxes(bool suppress_message_boxes) {}
+  virtual gfx::NativeWindow GetMessageBoxRootWindow();
   virtual TabContents* AsTabContents() { return NULL; }
   virtual ExtensionHost* AsExtensionHost() { return this; }
 

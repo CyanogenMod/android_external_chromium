@@ -18,7 +18,7 @@
 
 UtilityProcessHost::UtilityProcessHost(ResourceDispatcherHost* rdh,
                                        Client* client,
-                                       ChromeThread::ID client_thread_id)
+                                       BrowserThread::ID client_thread_id)
     : BrowserChildProcessHost(UTILITY_PROCESS, rdh),
       client_(client),
       client_thread_id_(client_thread_id),
@@ -121,9 +121,6 @@ bool UtilityProcessHost::StartProcess(const FilePath& exposed_dir) {
   if (browser_command_line.HasSwitch(switches::kChromeFrame))
     cmd_line->AppendSwitch(switches::kChromeFrame);
 
-  if (browser_command_line.HasSwitch(switches::kDisableApps))
-    cmd_line->AppendSwitch(switches::kDisableApps);
-
   if (browser_command_line.HasSwitch(
       switches::kEnableExperimentalExtensionApis)) {
     cmd_line->AppendSwitch(switches::kEnableExperimentalExtensionApis);
@@ -157,13 +154,13 @@ bool UtilityProcessHost::StartProcess(const FilePath& exposed_dir) {
 }
 
 void UtilityProcessHost::OnMessageReceived(const IPC::Message& message) {
-  ChromeThread::PostTask(
+  BrowserThread::PostTask(
       client_thread_id_, FROM_HERE,
       NewRunnableMethod(client_.get(), &Client::OnMessageReceived, message));
 }
 
 void UtilityProcessHost::OnProcessCrashed() {
-  ChromeThread::PostTask(
+  BrowserThread::PostTask(
       client_thread_id_, FROM_HERE,
       NewRunnableMethod(client_.get(), &Client::OnProcessCrashed));
 }

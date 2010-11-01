@@ -26,7 +26,7 @@ class OpenURLsPopupObserver : public BrowserList::Observer {
     added_browser_ = browser;
   }
 
-  virtual void OnBrowserRemoving(const Browser* browser) { }
+  virtual void OnBrowserRemoved(const Browser* browser) { }
 
   const Browser* added_browser_;
 };
@@ -46,11 +46,12 @@ IN_PROC_BROWSER_TEST_F(BrowserInitTest, OpenURLsPopup) {
   OpenURLsPopupObserver observer;
   BrowserList::AddObserver(&observer);
 
-  Browser* popup = Browser::CreateForPopup(browser()->profile());
+  Browser* popup = Browser::CreateForType(Browser::TYPE_POPUP,
+                                          browser()->profile());
   ASSERT_EQ(popup->type(), Browser::TYPE_POPUP);
   ASSERT_EQ(popup, observer.added_browser_);
 
-  CommandLine dummy(CommandLine::ARGUMENTS_ONLY);
+  CommandLine dummy(CommandLine::NO_PROGRAM);
   BrowserInit::LaunchWithProfile launch(FilePath(), dummy);
   // This should create a new window, but re-use the profile from |popup|. If
   // it used a NULL or invalid profile, it would crash.
@@ -67,7 +68,7 @@ IN_PROC_BROWSER_TEST_F(BrowserInitTest, OpenURLsPopup) {
 IN_PROC_BROWSER_TEST_F(BrowserInitTest, FLAKY_BlockBadURLs) {
   const char* testurlstr = "http://localhost/";
   const GURL testurl(testurlstr);
-  CommandLine cmdline(CommandLine::ARGUMENTS_ONLY);
+  CommandLine cmdline(CommandLine::NO_PROGRAM);
   cmdline.AppendArg(testurlstr);
   cmdline.AppendArg("javascript:alert('boo')");
   cmdline.AppendArg(testurlstr);
@@ -77,7 +78,7 @@ IN_PROC_BROWSER_TEST_F(BrowserInitTest, FLAKY_BlockBadURLs) {
   BrowserInit::LaunchWithProfile launch(FilePath(), cmdline);
   launch.Launch(browser()->profile(), false);
 
-  // Give the browser a chance to start first. FIXME(jschuh)
+  // TODO(jschuh): Give the browser a chance to start first.
   PlatformThread::Sleep(50);
 
   // Skip about:blank in the first tab

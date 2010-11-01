@@ -13,7 +13,7 @@
 #include "base/message_loop.h"
 #include "base/string_util.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/keyboard_library.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
@@ -288,7 +288,7 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
     // notified via a DBus connection. Since the DBus notificatiosn are
     // handled in the UI thread, we can assume that this functionalways
     // runs on the UI thread, but just in case.
-    if (!ChromeThread::CurrentlyOn(ChromeThread::UI)) {
+    if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
       LOG(ERROR) << "Not on UI thread";
       return;
     }
@@ -301,7 +301,7 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
   static void RegisterPropertiesHandler(
       void* object, const ImePropertyList& prop_list) {
     // See comments in InputMethodChangedHandler.
-    if (!ChromeThread::CurrentlyOn(ChromeThread::UI)) {
+    if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
       LOG(ERROR) << "Not on UI thread";
       return;
     }
@@ -314,7 +314,7 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
   static void UpdatePropertyHandler(
       void* object, const ImePropertyList& prop_list) {
     // See comments in InputMethodChangedHandler.
-    if (!ChromeThread::CurrentlyOn(ChromeThread::UI)) {
+    if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
       LOG(ERROR) << "Not on UI thread";
       return;
     }
@@ -326,7 +326,7 @@ class InputMethodLibraryImpl : public InputMethodLibrary,
 
   static void ConnectionChangeHandler(void* object, bool connected) {
     // See comments in InputMethodChangedHandler.
-    if (!ChromeThread::CurrentlyOn(ChromeThread::UI)) {
+    if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
       LOG(ERROR) << "Not on UI thread";
       return;
     }

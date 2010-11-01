@@ -15,13 +15,6 @@
 #include "net/url_request/url_request_unittest.h"
 #include "views/event.h"
 
-#if defined(OS_LINUX)
-// http://crbug.com/47575
-#define SKIP_LINUX(test) DISABLED_##test
-#else
-#define SKIP_LINUX(test) test
-#endif
-
 const std::string NOLISTENERS_HTML =
     "<html><head><title>nolisteners</title></head><body></body></html>";
 
@@ -214,15 +207,26 @@ TEST_F(UnloadTest, CrossSiteInfiniteUnloadSync) {
   ASSERT_TRUE(IsBrowserRunning());
 }
 
-// TODO(creis): This test is currently failing intermittently on one of the test
-// bots.  Investigating with crbug.com/34827.
-//
+// TODO(creis): This test is currently failing intermittently on Linux and
+// consistently on Mac and Vista.  http://crbug.com/38427
+#if defined(OS_MACOSX)
+#define MAYBE_CrossSiteInfiniteUnloadAsyncInputEvent \
+    DISABLED_CrossSiteInfiniteUnloadAsyncInputEvent
+#elif defined(OS_WIN)
+#define MAYBE_CrossSiteInfiniteUnloadAsyncInputEvent \
+    DISABLED_CrossSiteInfiniteUnloadAsyncInputEvent
+#else
+// Flaky on Linux.  http://crbug.com/38427
+#define MAYBE_CrossSiteInfiniteUnloadAsyncInputEvent \
+    FLAKY_CrossSiteInfiniteUnloadAsyncInputEvent
+#endif
+
 // Navigate to a page with an infinite unload handler.
 // Then an async crosssite request followed by an input event to ensure that
 // the short unload timeout (not the long input event timeout) is used.
 // See crbug.com/11007.
-TEST_F(UnloadTest, FLAKY_CrossSiteInfiniteUnloadAsyncInputEvent) {
-  // Tests makes no sense in single-process mode since the renderer is hung.c
+TEST_F(UnloadTest, MAYBE_CrossSiteInfiniteUnloadAsyncInputEvent) {
+  // Tests makes no sense in single-process mode since the renderer is hung.
   if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kSingleProcess))
     return;
 
@@ -278,13 +282,13 @@ TEST_F(UnloadTest, CrossSiteInfiniteBeforeUnloadSync) {
 }
 
 // Tests closing the browser on a page with no unload listeners registered.
-TEST_F(UnloadTest, SKIP_LINUX(BrowserCloseNoUnloadListeners)) {
+TEST_F(UnloadTest, BrowserCloseNoUnloadListeners) {
   LoadUrlAndQuitBrowser(NOLISTENERS_HTML, L"nolisteners");
 }
 
 // Tests closing the browser on a page with an unload listener registered.
 // Test marked as flaky in http://crbug.com/51698
-TEST_F(UnloadTest, SKIP_LINUX(FLAKY_BrowserCloseUnload)) {
+TEST_F(UnloadTest, FLAKY_BrowserCloseUnload) {
   LoadUrlAndQuitBrowser(UNLOAD_HTML, L"unload");
 }
 
@@ -343,14 +347,14 @@ TEST_F(UnloadTest, MAYBE_BrowserCloseWithInnerFocusedFrame) {
 
 // Tests closing the browser with a beforeunload handler that takes
 // two seconds to run.
-TEST_F(UnloadTest, SKIP_LINUX(BrowserCloseTwoSecondBeforeUnload)) {
+TEST_F(UnloadTest, BrowserCloseTwoSecondBeforeUnload) {
   LoadUrlAndQuitBrowser(TWO_SECOND_BEFORE_UNLOAD_HTML,
                         L"twosecondbeforeunload");
 }
 
 // Tests closing the browser on a page with an unload listener registered where
 // the unload handler has an infinite loop.
-TEST_F(UnloadTest, SKIP_LINUX(BrowserCloseInfiniteUnload)) {
+TEST_F(UnloadTest, BrowserCloseInfiniteUnload) {
   // Tests makes no sense in single-process mode since the renderer is hung.
   if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kSingleProcess))
     return;
@@ -359,7 +363,7 @@ TEST_F(UnloadTest, SKIP_LINUX(BrowserCloseInfiniteUnload)) {
 }
 
 // Tests closing the browser with a beforeunload handler that hangs.
-TEST_F(UnloadTest, SKIP_LINUX(BrowserCloseInfiniteBeforeUnload)) {
+TEST_F(UnloadTest, BrowserCloseInfiniteBeforeUnload) {
   // Tests makes no sense in single-process mode since the renderer is hung.
   if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kSingleProcess))
     return;
@@ -369,7 +373,7 @@ TEST_F(UnloadTest, SKIP_LINUX(BrowserCloseInfiniteBeforeUnload)) {
 
 // Tests closing the browser on a page with an unload listener registered where
 // the unload handler has an infinite loop followed by an alert.
-TEST_F(UnloadTest, SKIP_LINUX(BrowserCloseInfiniteUnloadAlert)) {
+TEST_F(UnloadTest, BrowserCloseInfiniteUnloadAlert) {
   // Tests makes no sense in single-process mode since the renderer is hung.
   if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kSingleProcess))
     return;
@@ -379,7 +383,7 @@ TEST_F(UnloadTest, SKIP_LINUX(BrowserCloseInfiniteUnloadAlert)) {
 
 // Tests closing the browser with a beforeunload handler that hangs then
 // pops up an alert.
-TEST_F(UnloadTest, SKIP_LINUX(BrowserCloseInfiniteBeforeUnloadAlert)) {
+TEST_F(UnloadTest, BrowserCloseInfiniteBeforeUnloadAlert) {
   // Tests makes no sense in single-process mode since the renderer is hung.
   if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kSingleProcess))
     return;
@@ -390,13 +394,13 @@ TEST_F(UnloadTest, SKIP_LINUX(BrowserCloseInfiniteBeforeUnloadAlert)) {
 
 // Tests closing the browser on a page with an unload listener registered where
 // the unload handler has an 2 second long loop followed by an alert.
-TEST_F(UnloadTest, SKIP_LINUX(BrowserCloseTwoSecondUnloadAlert)) {
+TEST_F(UnloadTest, BrowserCloseTwoSecondUnloadAlert) {
   LoadUrlAndQuitBrowser(TWO_SECOND_UNLOAD_ALERT_HTML, L"twosecondunloadalert");
 }
 
 // Tests closing the browser with a beforeunload handler that takes
 // two seconds to run then pops up an alert.
-TEST_F(UnloadTest, SKIP_LINUX(BrowserCloseTwoSecondBeforeUnloadAlert)) {
+TEST_F(UnloadTest, BrowserCloseTwoSecondBeforeUnloadAlert) {
   LoadUrlAndQuitBrowser(TWO_SECOND_BEFORE_UNLOAD_ALERT_HTML,
                         L"twosecondbeforeunloadalert");
 }

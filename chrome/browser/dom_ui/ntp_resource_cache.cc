@@ -18,7 +18,7 @@
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/dom_ui/shown_sections_handler.h"
 #include "chrome/browser/google/google_util.h"
@@ -43,7 +43,7 @@
 #if defined(OS_WIN) || defined(TOOLKIT_VIEWS)
 #include "chrome/browser/views/bookmark_bar_view.h"
 #elif defined(OS_MACOSX)
-#include "chrome/browser/cocoa/bookmark_bar_constants.h"
+#include "chrome/browser/cocoa/bookmarks/bookmark_bar_constants.h"
 #elif defined(OS_POSIX)
 #include "chrome/browser/gtk/bookmark_bar_gtk.h"
 #endif
@@ -131,6 +131,8 @@ std::string GetNewTabBackgroundTilingCSS(const ThemeProvider* theme_provider) {
 NTPResourceCache::NTPResourceCache(Profile* profile) : profile_(profile) {
   registrar_.Add(this, NotificationType::BROWSER_THEME_CHANGED,
                  NotificationService::AllSources());
+  registrar_.Add(this, NotificationType::WEB_RESOURCE_AVAILABLE,
+                 NotificationService::AllSources());
 
   // Watch for pref changes that cause us to need to invalidate the HTML cache.
   pref_change_registrar_.Init(profile_->GetPrefs());
@@ -138,8 +140,10 @@ NTPResourceCache::NTPResourceCache(Profile* profile) : profile_(profile) {
   pref_change_registrar_.Add(prefs::kNTPShownSections, this);
 }
 
+NTPResourceCache::~NTPResourceCache() {}
+
 RefCountedBytes* NTPResourceCache::GetNewTabHTML(bool is_off_the_record) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (is_off_the_record) {
     if (!new_tab_incognito_html_.get())
       CreateNewTabIncognitoHTML();
@@ -152,7 +156,7 @@ RefCountedBytes* NTPResourceCache::GetNewTabHTML(bool is_off_the_record) {
 }
 
 RefCountedBytes* NTPResourceCache::GetNewTabCSS(bool is_off_the_record) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (is_off_the_record) {
     if (!new_tab_incognito_css_.get())
       CreateNewTabIncognitoCSS();
@@ -167,7 +171,8 @@ RefCountedBytes* NTPResourceCache::GetNewTabCSS(bool is_off_the_record) {
 void NTPResourceCache::Observe(NotificationType type,
     const NotificationSource& source, const NotificationDetails& details) {
   // Invalidate the cache.
-  if (NotificationType::BROWSER_THEME_CHANGED == type) {
+  if (NotificationType::BROWSER_THEME_CHANGED == type ||
+      NotificationType::WEB_RESOURCE_AVAILABLE == type) {
     new_tab_incognito_html_ = NULL;
     new_tab_html_ = NULL;
     new_tab_incognito_css_ = NULL;
@@ -240,6 +245,8 @@ void NTPResourceCache::CreateNewTabHTML() {
       l10n_util::GetStringUTF16(IDS_NEW_TAB_RECENTLY_CLOSED));
   localized_strings.SetString("closedwindowsingle",
       l10n_util::GetStringUTF16(IDS_NEW_TAB_RECENTLY_CLOSED_WINDOW_SINGLE));
+  localized_strings.SetString("foreignsessions",
+      l10n_util::GetStringUTF16(IDS_SYNC_DATATYPE_SESSIONS));
   localized_strings.SetString("closedwindowmultiple",
       l10n_util::GetStringUTF16(IDS_NEW_TAB_RECENTLY_CLOSED_WINDOW_MULTIPLE));
   localized_strings.SetString("attributionintro",
@@ -290,7 +297,15 @@ void NTPResourceCache::CreateNewTabHTML() {
   localized_strings.SetString("web_store_title",
       l10n_util::GetStringUTF16(IDS_EXTENSION_WEB_STORE_TITLE));
   localized_strings.SetString("web_store_url",
-      GetUrlWithLang(GURL(Extension::ChromeStoreURL())));
+      GetUrlWithLang(GURL(Extension::ChromeStoreLaunchURL())));
+  localized_strings.SetString("appspromohide",
+      l10n_util::GetStringUTF16(IDS_APPS_PROMO_HIDE));
+  localized_strings.SetString("appspromoheader",
+      l10n_util::GetStringUTF16(IDS_APPS_PROMO_HEADER));
+  localized_strings.SetString("appspromotext1",
+      l10n_util::GetStringUTF16(IDS_APPS_PROMO_TEXT_1));
+  localized_strings.SetString("appspromotext2",
+      l10n_util::GetStringUTF16(IDS_APPS_PROMO_TEXT_2));
 
   // Don't initiate the sync related message passing with the page if the sync
   // code is not present.
@@ -419,6 +434,8 @@ void NTPResourceCache::CreateNewTabCSS() {
       tp->GetColor(BrowserThemeProvider::COLOR_NTP_SECTION_HEADER_RULE);
   SkColor color_section_header_rule_light =
       tp->GetColor(BrowserThemeProvider::COLOR_NTP_SECTION_HEADER_RULE_LIGHT);
+  SkColor color_text_light =
+      tp->GetColor(BrowserThemeProvider::COLOR_NTP_TEXT_LIGHT);
 
   SkColor color_header =
       tp->GetColor(BrowserThemeProvider::COLOR_NTP_HEADER);
@@ -474,6 +491,7 @@ void NTPResourceCache::CreateNewTabCSS() {
       color_section_header_rule_light));  // $$$1
   subst3.push_back(SkColorToRGBAString(
       SkColorSetA(color_section_header_rule, 0)));  // $$$2
+  subst3.push_back(SkColorToRGBAString(color_text_light));  // $$$3
 
 
   // Get our template.

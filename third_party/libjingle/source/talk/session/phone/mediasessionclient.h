@@ -108,24 +108,22 @@ class MediaSessionClient: public SessionClient, public sigslot::has_slots<> {
   void OnSessionCreate(Session *session, bool received_initiate);
   void OnSessionState(BaseSession *session, BaseSession::State state);
   void OnSessionDestroy(Session *session);
-  virtual bool ParseContent(const buzz::XmlElement* elem,
+  virtual bool ParseContent(SignalingProtocol protocol,
+                            const buzz::XmlElement* elem,
                             const ContentDescription** content,
                             ParseError* error);
-  virtual bool WriteContent(const ContentDescription* content,
+  virtual bool WriteContent(SignalingProtocol protocol,
+                            const ContentDescription* content,
                             buzz::XmlElement** elem,
                             WriteError* error);
   Session *CreateSession(Call *call);
-  static bool ParseAudioCodec(const buzz::XmlElement* element, AudioCodec* out);
-  static bool ParseVideoCodec(const buzz::XmlElement* element, VideoCodec* out);
-
-
 
   buzz::Jid jid_;
   SessionManager* session_manager_;
   Call *focus_call_;
   ChannelManager *channel_manager_;
   std::map<uint32, Call *> calls_;
-  std::map<SessionID, Call *> session_map_;
+  std::map<std::string, Call *> session_map_;
 
   friend class Call;
 };
@@ -192,10 +190,14 @@ class MediaContentDescriptionImpl : public MediaContentDescription {
 
 class AudioContentDescription : public MediaContentDescriptionImpl<AudioCodec> {
  public:
+  AudioContentDescription()
+      {}
+
   virtual MediaType type() const { return MEDIA_TYPE_AUDIO; }
 
   const std::string &lang() const { return lang_; }
   void set_lang(const std::string &lang) { lang_ = lang; }
+
 
  private:
   std::string lang_;

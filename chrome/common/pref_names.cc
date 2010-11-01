@@ -9,6 +9,13 @@ namespace prefs {
 // *************** PROFILE PREFS ***************
 // These are attached to the user profile
 
+// A counter that controls whether the apps promo is shown in the app launcher
+// or not.
+const char kAppsPromoCounter[] = "apps_promo_counter";
+
+// Whether we have installed default apps yet in this profile.
+const char kDefaultAppsInstalled[] = "default_apps_installed";
+
 // A boolean specifying whether the New Tab page is the home page or not.
 const char kHomePageIsNewTabPage[] = "homepage_is_newtabpage";
 
@@ -123,6 +130,10 @@ const char kSearchSuggestEnabled[] = "search.suggest_enabled";
 // 2 - block all cookies
 const char kCookieBehavior[] = "security.cookie_behavior";
 
+// Whether having a default search provider is enabled.
+const char kDefaultSearchProviderEnabled[] =
+    "default_search_provider.enabled";
+
 // The URL (as understood by TemplateURLRef) the default search provider uses
 // for searches.
 const char kDefaultSearchProviderSearchURL[] =
@@ -132,6 +143,11 @@ const char kDefaultSearchProviderSearchURL[] =
 // for suggestions.
 const char kDefaultSearchProviderSuggestURL[] =
     "default_search_provider.suggest_url";
+
+// The URL (as understood by TemplateURLRef) the default search provider uses
+// for instant results.
+const char kDefaultSearchProviderInstantURL[] =
+    "default_search_provider.instant_url";
 
 // The Fav Icon URL (as understood by TemplateURLRef) of the default search
 // provider.
@@ -178,6 +194,9 @@ const char kDnsPrefetchingEnabled[] = "dns_prefetching.enabled";
 // next startup, based on what was actually needed during this startup.
 const char kDnsStartupPrefetchList[] = "StartupDNSPrefetchList";
 
+// Disables the SPDY protocol.
+const char kDisableSpdy[] = "spdy.disabled";
+
 // A list of host names used to fetch web pages, and their commonly used
 // sub-resource hostnames (and expected latency benefits from pre-resolving, or
 // preconnecting to, such sub-resource hostnames).
@@ -186,6 +205,12 @@ const char kDnsHostReferralList[] = "HostReferralList";
 
 // Is the cookie prompt expanded?
 const char kCookiePromptExpanded[] = "cookieprompt.expanded";
+
+// Boolean pref indicating whether the instant confirm dialog has been shown.
+const char kInstantConfirmDialogShown[] = "instant.confirm_dialog_shown";
+
+// Boolean pref indicating if instant is enabled.
+const char kInstantEnabled[] = "instant.enabled";
 
 #if defined(USE_NSS)
 // Prefs for SSLConfigServicePref.  Currently, these are only present on
@@ -376,6 +401,9 @@ const char kLabsMediaplayerEnabled[] = "settings.labs.mediaplayer";
 const char kLabsTalkEnabled[] =
     "extensions.settings.ggnioahjipcehijkhpdjekioddnjoben.state";
 
+// A boolean pref that turns on screen locker.
+const char kEnableScreenLock[] = "settings.enable_screen_lock";
+
 #endif  // defined(OS_CHROMEOS)
 
 // The disabled messages in IPC logging.
@@ -411,6 +439,9 @@ const char kEnabledLabsExperiments[] = "browser.enabled_labs_experiments";
 
 // Boolean pref to define the default values for using auto spell correct.
 const char kEnableAutoSpellCorrect[] = "browser.enable_autospellcorrect";
+
+// Boolean controlling whether history saving is disabled.
+const char kSavingBrowserHistoryDisabled[] = "history.saving_disabled";
 
 // Boolean controlling whether printing is enabled.
 const char kPrintingEnabled[] = "printing.enabled";
@@ -530,6 +561,9 @@ const char kAutoFillPositiveUploadRate[] = "autofill.positive_upload_rate";
 
 // Double that indicates negative (for not matched forms) upload rate.
 const char kAutoFillNegativeUploadRate[] = "autofill.negative_upload_rate";
+
+// Boolean option set to true on the first run. Non-persistent.
+const char kAutoFillPersonalDataManagerFirstRun[] = "autofill.pdm.first_run";
 
 // Boolean that is true when the tabstrip is to be laid out vertically down the
 // side of the browser window.
@@ -806,7 +840,7 @@ const char kLastPromptedGoogleURL[] = "browser.last_prompted_google_url";
 
 // String containing the last known intranet redirect URL, if any.  See
 // intranet_redirect_detector.h for more information.
-const char kLastKnownIntranetRedirectOrigin[] = "";
+const char kLastKnownIntranetRedirectOrigin[] = "browser.last_redirect_origin";
 
 // Integer containing the system Country ID the first time we checked the
 // template URL prepopulate data.  This is used to avoid adding a whole bunch of
@@ -854,12 +888,13 @@ const char kDisableExtensions[] = "extensions.disabled";
 const char kBrowserActionContainerWidth[] =
     "extensions.browseractions.container.width";
 
-// A whitelist of extension the user can install. This is controlled by the
-// administrator.
+// A whitelist of extension ids the user can install: exceptions from the
+// following blacklist. This is controlled by the administrator.
 const char kExtensionInstallAllowList[] = "extensions.install.allowlist";
-// A blacklist, containing extensions the user cannot install.  This is
-// controlled by the administrator. This list should not be confused with
-// the extension blacklist, which is Google controlled.
+// A blacklist, containing extensions the user cannot install. This list can
+// conatin "*" meaning all extensions. This is controlled by the administrator.
+// This list should not be confused with the extension blacklist, which is
+// Google controlled.
 const char kExtensionInstallDenyList[] = "extensions.install.denylist";
 
 // Time of the last, and next scheduled, extensions auto-update checks.
@@ -889,7 +924,7 @@ const char kNTPWebResourceCacheUpdate[] = "ntp.web_resource_cache_update";
 const char kNTPTipsResourceServer[] = "ntp.tips_resource_server";
 
 // Last server used to fill logo_resource_cache.
-const char kNTPLogoResourceServer[] = "ntp.logo_resource_server";
+const char kNTPLogoResourceServer[] = "ntp.alt_logo_resource_server";
 
 // Which sections should be visible on the new tab page
 // 1 - Show the most visited sites in a grid
@@ -904,8 +939,8 @@ const char kNTPPrefVersion[] = "ntp.pref_version";
 
 // Dates between which the NTP should show a custom logo rather than the
 // standard one.
-const char kNTPCustomLogoStart[] = "ntp.custom_logo_start";
-const char kNTPCustomLogoEnd[] = "ntp.custom_logo_end";
+const char kNTPCustomLogoStart[] = "ntp.alt_logo_start";
+const char kNTPCustomLogoEnd[] = "ntp.alt_logo_end";
 
 // A boolean specifying whether dev tools window should be opened docked.
 const char kDevToolsOpenDocked[] = "devtools.open_docked";

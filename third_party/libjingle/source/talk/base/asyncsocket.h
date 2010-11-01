@@ -34,7 +34,7 @@
 
 namespace talk_base {
 
-// TODO(juberti): Remove Socket and rename AsyncSocket to Socket.
+// TODO: Remove Socket and rename AsyncSocket to Socket.
 
 // Provides the ability to perform socket I/O asynchronously.
 class AsyncSocket : public Socket {

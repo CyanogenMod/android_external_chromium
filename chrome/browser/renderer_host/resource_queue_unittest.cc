@@ -4,7 +4,7 @@
 
 #include "base/message_loop.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/renderer_host/global_request_id.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
 #include "chrome/browser/renderer_host/resource_handler.h"
@@ -156,8 +156,8 @@ class ResourceQueueTest : public testing::Test, public URLRequest::Delegate {
   ResourceQueueTest()
       : response_started_count_(0),
         message_loop_(MessageLoop::TYPE_IO),
-        ui_thread_(ChromeThread::UI, &message_loop_),
-        io_thread_(ChromeThread::IO, &message_loop_) {
+        ui_thread_(BrowserThread::UI, &message_loop_),
+        io_thread_(BrowserThread::IO, &message_loop_) {
   }
 
   virtual void OnResponseStarted(URLRequest* request) {
@@ -175,8 +175,8 @@ class ResourceQueueTest : public testing::Test, public URLRequest::Delegate {
 
  private:
   MessageLoop message_loop_;
-  ChromeThread ui_thread_;
-  ChromeThread io_thread_;
+  BrowserThread ui_thread_;
+  BrowserThread io_thread_;
 };
 
 TEST_F(ResourceQueueTest, Basic) {

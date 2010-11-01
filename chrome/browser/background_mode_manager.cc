@@ -34,7 +34,7 @@
 #include "base/file_util.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
-#include "base/xdg_util.h"
+#include "base/nix/xdg_util.h"
 #include "chrome/common/chrome_version_info.h"
 #endif
 
@@ -53,7 +53,7 @@ static const char kXdgConfigHome[] = "XDG_CONFIG_HOME";
 #endif
 
 #if defined(OS_WIN)
-#include "base/registry.h"
+#include "base/win/registry.h"
 const HKEY kBackgroundModeRegistryRootKey = HKEY_CURRENT_USER;
 const wchar_t* kBackgroundModeRegistrySubkey =
     L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -64,9 +64,9 @@ const wchar_t* kBackgroundModeRegistryKeyName = L"chromium";
 namespace {
 
 FilePath GetAutostartDirectory(base::Environment* environment) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
   FilePath result =
-    base::GetXDGDirectory(environment, kXdgConfigHome, kConfig);
+      base::nix::GetXDGDirectory(environment, kXdgConfigHome, kConfig);
   result = result.Append(kAutostart);
   return result;
 }
@@ -98,23 +98,31 @@ class EnableLaunchOnStartupTask : public Task {
     FilePath autostart_file = GetAutostartFilename(environment.get());
     if (!file_util::DirectoryExists(autostart_directory) &&
         !file_util::CreateDirectory(autostart_directory)) {
-      LOG(WARNING) << "Failed to register launch on login.";
+      LOG(WARNING)
+        << "Failed to register launch on login.  No autostart directory.";
       return;
     }
     std::string wrapper_script;
     if (!environment->GetVar("CHROME_WRAPPER", &wrapper_script)) {
-      LOG(WARNING) << "Failed to register launch on login.";
+      LOG(WARNING)
+        << "Failed to register launch on login.  CHROME_WRAPPER not set.";
       return;
     }
     std::string autostart_file_contents =
         "[Desktop Entry]\n"
         "Type=Application\n"
         "Terminal=false\n"
-        "Exec=" + wrapper_script + "\n"
+        "Exec=" + wrapper_script +
+        " --enable-background-mode --no-startup-window\n"
         "Name=" + version_info->Name() + "\n";
+    std::string::size_type content_length = autostart_file_contents.length();
     if (file_util::WriteFile(autostart_file, autostart_file_contents.c_str(),
-                             autostart_file_contents.length()))
-      LOG(WARNING) << "Failed to register launch on login.";
+                             content_length) !=
+        static_cast<int>(content_length)) {
+      LOG(WARNING) << "Failed to register launch on login.  Failed to write "
+                   << autostart_file.value();
+      file_util::Delete(GetAutostartFilename(environment.get()), false);
+    }
   }
 };
 #endif  // defined(OS_LINUX)
@@ -124,12 +132,23 @@ BackgroundModeManager::BackgroundModeManager(Profile* profile,
     : profile_(profile),
       background_app_count_(0),
       in_background_mode_(false),
+      keep_alive_for_startup_(false),
       status_tray_(NULL),
       status_icon_(NULL) {
-  // If background mode is disabled, just exit - don't listen for
+  // If background mode or apps are disabled, just exit - don't listen for
   // any notifications.
-  if (!command_line->HasSwitch(switches::kEnableBackgroundMode))
+  if (!command_line->HasSwitch(switches::kEnableBackgroundMode) ||
+      command_line->HasSwitch(switches::kDisableExtensions))
     return;
+
+  // Keep the browser alive until extensions are done loading - this is needed
+  // by the --no-startup-window flag. We want to stay alive until we load
+  // extensions, at which point we should either run in background mode (if
+  // there are background apps) or exit if there are none.
+  if (command_line->HasSwitch(switches::kNoStartupWindow)) {
+    keep_alive_for_startup_ = true;
+    BrowserList::StartKeepAlive();
+  }
 
   // If the -keep-alive-for-test flag is passed, then always keep chrome running
   // in the background until the user explicitly terminates it, by acting as if
@@ -188,36 +207,59 @@ void BackgroundModeManager::SetLaunchOnStartupResetAllowed(bool allowed) {
                                    allowed);
 }
 
+namespace {
+
+bool HasBackgroundAppPermission(
+    const std::set<std::string>& api_permissions) {
+  return Extension::HasApiPermission(
+      api_permissions, Extension::kBackgroundPermission);
+}
+
+bool IsBackgroundApp(const Extension& extension) {
+  return HasBackgroundAppPermission(extension.api_permissions());
+}
+
+}  // namespace
+
 void BackgroundModeManager::Observe(NotificationType type,
                                     const NotificationSource& source,
                                     const NotificationDetails& details) {
   switch (type.value) {
     case NotificationType::EXTENSIONS_READY:
-    // On a Mac, we use 'login items' mechanism which has user-facing UI so we
-    // don't want to stomp on user choice every time we start and load
-    // registered extensions.
+      // Extensions are loaded, so we don't need to manually keep the browser
+      // process alive any more when running in no-startup-window mode.
+      EndKeepAliveForStartup();
+
+      // On a Mac, we use 'login items' mechanism which has user-facing UI so we
+      // don't want to stomp on user choice every time we start and load
+      // registered extensions.
 #if !defined(OS_MACOSX)
       EnableLaunchOnStartup(IsBackgroundModeEnabled() &&
                             background_app_count_ > 0);
 #endif
       break;
     case NotificationType::EXTENSION_LOADED:
-      if (IsBackgroundApp(Details<Extension>(details).ptr()))
+      if (IsBackgroundApp(*Details<Extension>(details).ptr()))
         OnBackgroundAppLoaded();
       break;
     case NotificationType::EXTENSION_UNLOADED:
-      if (IsBackgroundApp(Details<Extension>(details).ptr()))
+      if (IsBackgroundApp(*Details<Extension>(details).ptr()))
         OnBackgroundAppUnloaded();
       break;
     case NotificationType::EXTENSION_INSTALLED:
-      if (IsBackgroundApp(Details<Extension>(details).ptr()))
+      if (IsBackgroundApp(*Details<Extension>(details).ptr()))
         OnBackgroundAppInstalled();
       break;
     case NotificationType::EXTENSION_UNINSTALLED:
-      if (IsBackgroundApp(Details<Extension>(details).ptr()))
+      if (HasBackgroundAppPermission(
+              Details<UninstalledExtensionInfo>(details).ptr()->
+              extension_api_permissions))
         OnBackgroundAppUninstalled();
       break;
     case NotificationType::APP_TERMINATING:
+      // Make sure we aren't still keeping the app alive (only happens if we
+      // don't receive an EXTENSIONS_READY notification for some reason).
+      EndKeepAliveForStartup();
       // Performing an explicit shutdown, so exit background mode (does nothing
       // if we aren't in background mode currently).
       EndBackgroundMode();
@@ -236,10 +278,16 @@ void BackgroundModeManager::Observe(NotificationType type,
   }
 }
 
-bool BackgroundModeManager::IsBackgroundApp(Extension* extension) {
-  return extension->HasApiPermission(Extension::kBackgroundPermission);
+void BackgroundModeManager::EndKeepAliveForStartup() {
+  if (keep_alive_for_startup_) {
+    keep_alive_for_startup_ = false;
+    // We call this via the message queue to make sure we don't try to end
+    // keep-alive (which can shutdown Chrome) before the message loop has
+    // started.
+    MessageLoop::current()->PostTask(
+        FROM_HERE, NewRunnableFunction(BrowserList::EndKeepAlive));
+  }
 }
-
 
 void BackgroundModeManager::OnBackgroundModePrefChanged() {
   // Background mode has been enabled/disabled in preferences, so update our
@@ -308,9 +356,9 @@ void BackgroundModeManager::OnBackgroundAppInstalled() {
 }
 
 void BackgroundModeManager::OnBackgroundAppUninstalled() {
-  // When uninstalling a background app, disable launch on startup if it's the
-  // last one.
-  if (IsBackgroundModeEnabled() && background_app_count_ == 1)
+  // When uninstalling a background app, disable launch on startup if
+  // we have no more background apps.
+  if (IsBackgroundModeEnabled() && background_app_count_ == 0)
     EnableLaunchOnStartup(false);
 }
 
@@ -320,11 +368,11 @@ void BackgroundModeManager::EnableLaunchOnStartup(bool should_launch) {
     return;
 #if defined(OS_LINUX)
   if (should_launch)
-    ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
-                           new EnableLaunchOnStartupTask());
+    BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
+                            new EnableLaunchOnStartupTask());
   else
-    ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
-                           new DisableLaunchOnStartupTask());
+    BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
+                            new DisableLaunchOnStartupTask());
 #elif defined(OS_MACOSX)
   if (should_launch) {
     // Return if Chrome is already a Login Item (avoid overriding user choice).
@@ -353,21 +401,23 @@ void BackgroundModeManager::EnableLaunchOnStartup(bool should_launch) {
   // TODO(rickcam): Bug 53597: Make RegKey mockable.
   // TODO(rickcam): Bug 53600: Use distinct registry keys per flavor+profile.
   const wchar_t* key_name = kBackgroundModeRegistryKeyName;
-  RegKey read_key(kBackgroundModeRegistryRootKey,
-                  kBackgroundModeRegistrySubkey, KEY_READ);
-  RegKey write_key(kBackgroundModeRegistryRootKey,
-                   kBackgroundModeRegistrySubkey, KEY_WRITE);
+  base::win::RegKey read_key(kBackgroundModeRegistryRootKey,
+                             kBackgroundModeRegistrySubkey, KEY_READ);
+  base::win::RegKey write_key(kBackgroundModeRegistryRootKey,
+                              kBackgroundModeRegistrySubkey, KEY_WRITE);
   if (should_launch) {
     FilePath executable;
     if (!PathService::Get(base::FILE_EXE, &executable))
       return;
+    std::wstring new_value = executable.value() +
+        L" --enable-background-mode --no-startup-window";
     if (read_key.ValueExists(key_name)) {
       std::wstring current_value;
       if (read_key.ReadValue(key_name, &current_value) &&
-          (current_value == executable.value()))
+          (current_value == new_value))
         return;
     }
-    if (!write_key.WriteValue(key_name, executable.value().c_str()))
+    if (!write_key.WriteValue(key_name, new_value.c_str()))
       LOG(WARNING) << "Failed to register launch on login.";
   } else {
     if (read_key.ValueExists(key_name) && !write_key.DeleteValue(key_name))
@@ -400,20 +450,25 @@ void BackgroundModeManager::CreateStatusTrayIcon() {
 
   // Create a context menu item for Chrome.
   menus::SimpleMenuModel* menu = new menus::SimpleMenuModel(this);
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableTabbedOptions)) {
+    menu->AddItemWithStringId(IDC_OPTIONS, IDS_SETTINGS);
+  } else {
+#if defined(TOOLKIT_GTK)
+    string16 preferences = gtk_util::GetStockPreferencesMenuLabel();
+    if (preferences.empty())
+      menu->AddItemWithStringId(IDC_OPTIONS, IDS_OPTIONS);
+    else
+      menu->AddItem(IDC_OPTIONS, preferences);
+#else
+    menu->AddItemWithStringId(IDC_OPTIONS, IDS_OPTIONS);
+#endif
+  }
   menu->AddItem(IDC_ABOUT, l10n_util::GetStringFUTF16(IDS_ABOUT,
       l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
-
-#if defined(TOOLKIT_GTK)
-  string16 preferences = gtk_util::GetStockPreferencesMenuLabel();
-  if (preferences.empty())
-    menu->AddItemWithStringId(IDC_OPTIONS, IDS_OPTIONS);
-  else
-    menu->AddItem(IDC_OPTIONS, preferences);
-#else
-  menu->AddItemWithStringId(IDC_OPTIONS, IDS_OPTIONS);
-#endif
   menu->AddSeparator();
   menu->AddItemWithStringId(IDC_EXIT, IDS_EXIT);
+
   status_icon_->SetContextMenu(menu);
 }
 

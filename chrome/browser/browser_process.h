@@ -49,8 +49,8 @@ class IOThread;
 // These functions shouldn't return NULL unless otherwise noted.
 class BrowserProcess {
  public:
-  BrowserProcess() {}
-  virtual ~BrowserProcess() {}
+  BrowserProcess();
+  virtual ~BrowserProcess();
 
   // Invoked when the user is logging out/shutting down. When logging off we may
   // not have enough time to do a normal shutdown. This method is invoked prior
@@ -75,7 +75,7 @@ class BrowserProcess {
   // communication with renderers, etc.
   // NOTE: You should ONLY use this to pass to IPC or other objects which must
   // need a MessageLoop*.  If you just want to post a task, use
-  // ChromeThread::PostTask (or other variants) as they take care of checking
+  // BrowserThread::PostTask (or other variants) as they take care of checking
   // that a thread is still alive, race conditions, lifetime differences etc.
   // If you still must use this check the return value for NULL.
   virtual IOThread* io_thread() = 0;

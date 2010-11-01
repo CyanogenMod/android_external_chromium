@@ -4,7 +4,7 @@
 
 #include "chrome/browser/geolocation/gps_location_provider_linux.h"
 
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/geolocation/libgps_wrapper_linux.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -67,7 +67,7 @@ class GeolocationGpsProviderLinuxTests : public testing::Test {
 
  protected:
   MessageLoop message_loop_;
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
   LocaionProviderListenerLoopQuitter location_listener_;
   scoped_ptr<GpsLocationProviderLinux> provider_;
 };
@@ -129,7 +129,7 @@ MockLibGps::~MockLibGps() {
 }
 
 GeolocationGpsProviderLinuxTests::GeolocationGpsProviderLinuxTests()
-    : ui_thread_(ChromeThread::IO, &message_loop_),
+    : ui_thread_(BrowserThread::IO, &message_loop_),
       provider_(new GpsLocationProviderLinux(NewMockLibGps)) {
   provider_->RegisterListener(&location_listener_);
 }

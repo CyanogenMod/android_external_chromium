@@ -37,10 +37,10 @@ class AutocompletePopupViewGtk : public AutocompletePopupView,
   virtual bool IsOpen() const { return opened_; }
   virtual void InvalidateLine(size_t line);
   virtual void UpdatePopupAppearance();
+  virtual gfx::Rect GetTargetBounds();
   virtual void PaintUpdatesNow();
   virtual void OnDragCanceled();
   virtual AutocompletePopupModel* GetModel();
-  virtual int GetMaxYCoordinate();
 
   // Overridden from NotificationObserver:
   virtual void Observe(NotificationType type,
@@ -118,10 +118,10 @@ class AutocompletePopupViewGtk : public AutocompletePopupView,
   GdkColor hovered_background_color_;
   GdkColor content_text_color_;
   GdkColor selected_content_text_color_;
+  GdkColor content_dim_text_color_;
+  GdkColor selected_content_dim_text_color_;
   GdkColor url_text_color_;
   GdkColor url_selected_text_color_;
-  GdkColor description_text_color_;
-  GdkColor description_selected_text_color_;
 
   // If the user cancels a dragging action (i.e. by pressing ESC), we don't have
   // a convenient way to release mouse capture. Instead we use this flag to

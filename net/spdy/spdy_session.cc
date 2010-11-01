@@ -8,7 +8,7 @@
 #include "base/linked_ptr.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
-#include "base/stats_counters.h"
+#include "base/metrics/stats_counters.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
@@ -246,10 +246,10 @@ SpdySession::SpdySession(const HostPortProxyPair& host_port_proxy_pair,
       frames_received_(0),
       sent_settings_(false),
       received_settings_(false),
-      in_session_pool_(true),
       initial_send_window_size_(spdy::kInitialWindowSize),
       initial_recv_window_size_(spdy::kInitialWindowSize),
       net_log_(BoundNetLog::Make(net_log, NetLog::SOURCE_SPDY_SESSION)) {
+  DCHECK(HttpStreamFactory::spdy_enabled());
   net_log_.BeginEvent(
       NetLog::TYPE_SPDY_SESSION,
       new NetLogSpdySessionParameter(host_port_proxy_pair_));
@@ -285,7 +285,7 @@ net::Error SpdySession::InitializeWithSocket(
     ClientSocketHandle* connection,
     bool is_secure,
     int certificate_error_code) {
-  static StatsCounter spdy_sessions("spdy.sessions");
+  static base::StatsCounter spdy_sessions("spdy.sessions");
   spdy_sessions.Increment();
 
   AdjustSocketBufferSizes(connection->socket());
@@ -363,7 +363,11 @@ void SpdySession::ProcessPendingCreateStreams() {
                                      pending_create.priority,
                                      pending_create.spdy_stream,
                                      *pending_create.stream_net_log);
-        pending_create.callback->Run(error);
+        MessageLoop::current()->PostTask(
+            FROM_HERE,
+            method_factory_.NewRunnableMethod(
+                &SpdySession::InvokeUserStreamCreationCallback,
+                pending_create.callback, error));
         break;
       }
     }
@@ -449,11 +453,11 @@ int SpdySession::WriteSynStream(
           flags, false, headers.get()));
   QueueFrame(syn_frame.get(), priority, stream);
 
-  static StatsCounter spdy_requests("spdy.requests");
+  static base::StatsCounter spdy_requests("spdy.requests");
   spdy_requests.Increment();
   streams_initiated_count_++;
 
-  if (net_log().IsLoggingAll()) {
+  if (net_log().IsLoggingAllEvents()) {
     net_log().AddEvent(
         NetLog::TYPE_SPDY_SESSION_SYN_STREAM,
         new NetLogSpdySynParameter(headers, flags, stream_id));
@@ -499,7 +503,7 @@ int SpdySession::WriteStreamData(spdy::SpdyStreamId stream_id,
     stream->DecreaseSendWindowSize(len);
   }
 
-  if (net_log().IsLoggingAll())
+  if (net_log().IsLoggingAllEvents())
     net_log().AddEvent(NetLog::TYPE_SPDY_SESSION_SEND_DATA,
                        new NetLogSpdyDataParameter(stream_id, len, flags));
 
@@ -763,8 +767,9 @@ void SpdySession::WriteSocket() {
 }
 
 void SpdySession::CloseAllStreams(net::Error status) {
-  static StatsCounter abandoned_streams("spdy.abandoned_streams");
-  static StatsCounter abandoned_push_streams("spdy.abandoned_push_streams");
+  static base::StatsCounter abandoned_streams("spdy.abandoned_streams");
+  static base::StatsCounter abandoned_push_streams(
+      "spdy.abandoned_push_streams");
 
   if (!active_streams_.empty())
     abandoned_streams.Add(active_streams_.size());
@@ -836,6 +841,36 @@ void SpdySession::CloseSessionOnError(net::Error err, bool remove_from_pool) {
   }
 }
 
+Value* SpdySession::GetInfoAsValue() const {
+  DictionaryValue* dict = new DictionaryValue();
+
+  dict->SetInteger("source_id", net_log_.source().id);
+
+  dict->SetString("host_port_pair", host_port_proxy_pair_.first.ToString());
+  dict->SetString("proxy", host_port_proxy_pair_.second.ToURI());
+
+  dict->SetInteger("active_streams", active_streams_.size());
+
+  dict->SetInteger("unclaimed_pushed_streams",
+      unclaimed_pushed_streams_.size());
+
+  dict->SetBoolean("is_secure", is_secure_);
+
+  dict->SetInteger("error", error_);
+  dict->SetInteger("max_concurrent_streams", max_concurrent_streams_);
+
+  dict->SetInteger("streams_initiated_count", streams_initiated_count_);
+  dict->SetInteger("streams_pushed_count", streams_pushed_count_);
+  dict->SetInteger("streams_pushed_and_claimed_count",
+      streams_pushed_and_claimed_count_);
+  dict->SetInteger("streams_abandoned_count", streams_abandoned_count_);
+  dict->SetInteger("frames_received", frames_received_);
+
+  dict->SetBoolean("sent_settings", sent_settings_);
+  dict->SetBoolean("received_settings", received_settings_);
+  return dict;
+}
+
 void SpdySession::ActivateStream(SpdyStream* stream) {
   const spdy::SpdyStreamId id = stream->stream_id();
   DCHECK(!IsStreamActive(id));
@@ -873,15 +908,15 @@ void SpdySession::DeleteStream(spdy::SpdyStreamId id, int status) {
 }
 
 void SpdySession::RemoveFromPool() {
-  if (in_session_pool_) {
+  if (spdy_session_pool_) {
     spdy_session_pool_->Remove(this);
-    in_session_pool_ = false;
+    spdy_session_pool_ = NULL;
   }
 }
 
 scoped_refptr<SpdyStream> SpdySession::GetActivePushStream(
     const std::string& path) {
-  static StatsCounter used_push_streams("spdy.claimed_push_streams");
+  static base::StatsCounter used_push_streams("spdy.claimed_push_streams");
 
   PushedStreamMap::iterator it = unclaimed_pushed_streams_.find(path);
   if (it != unclaimed_pushed_streams_.end()) {
@@ -925,7 +960,7 @@ void SpdySession::OnError(spdy::SpdyFramer* framer) {
 void SpdySession::OnStreamFrameData(spdy::SpdyStreamId stream_id,
                                     const char* data,
                                     size_t len) {
-  if (net_log().IsLoggingAll())
+  if (net_log().IsLoggingAllEvents())
     net_log().AddEvent(NetLog::TYPE_SPDY_SESSION_RECV_DATA,
         new NetLogSpdyDataParameter(stream_id, len, spdy::SpdyDataFlags()));
 
@@ -958,7 +993,7 @@ void SpdySession::OnSyn(const spdy::SpdySynStreamControlFrame& frame,
   spdy::SpdyStreamId stream_id = frame.stream_id();
   spdy::SpdyStreamId associated_stream_id = frame.associated_stream_id();
 
-  if (net_log_.IsLoggingAll()) {
+  if (net_log_.IsLoggingAllEvents()) {
     net_log_.AddEvent(
         NetLog::TYPE_SPDY_SESSION_PUSHED_SYN_STREAM,
         new NetLogSpdySynParameter(
@@ -1030,7 +1065,7 @@ void SpdySession::OnSyn(const spdy::SpdySynStreamControlFrame& frame,
   if (!Respond(*headers, stream))
     return;
 
-  static StatsCounter push_requests("spdy.pushed_streams");
+  static base::StatsCounter push_requests("spdy.pushed_streams");
   push_requests.Increment();
 }
 
@@ -1056,7 +1091,7 @@ void SpdySession::OnSynReply(const spdy::SpdySynReplyControlFrame& frame,
   }
   stream->set_response_received();
 
-  if (net_log().IsLoggingAll()) {
+  if (net_log().IsLoggingAllEvents()) {
     net_log().AddEvent(
         NetLog::TYPE_SPDY_SESSION_SYN_REPLY,
         new NetLogSpdySynParameter(
@@ -1297,6 +1332,11 @@ void SpdySession::RecordHistograms() {
       }
     }
   }
+}
+
+void SpdySession::InvokeUserStreamCreationCallback(
+    CompletionCallback* callback, int rv) {
+  callback->Run(rv);
 }
 
 }  // namespace net

@@ -11,6 +11,7 @@
 #include <list>
 
 #include "base/ref_counted.h"
+#include "base/scoped_ptr.h"
 #include "base/task.h"
 #include "base/time.h"
 #include "base/timer.h"
@@ -19,10 +20,6 @@
 #include "third_party/npapi/bindings/npapi.h"
 #include "webkit/glue/plugins/webplugin_delegate.h"
 #include "webkit/glue/webcursor.h"
-
-#if defined(OS_MACOSX)
-#include "app/surface/accelerated_surface_mac.h"
-#endif
 
 #if defined(USE_X11)
 #include "app/x11_util.h"
@@ -52,6 +49,9 @@ class QuickDrawDrawingManager;
 class CALayer;
 class CARenderer;
 #endif
+namespace webkit_glue {
+class WebPluginAcceleratedSurface;
+}
 #endif
 
 // An implementation of WebPluginDelegate that runs in the plugin process,
@@ -161,6 +161,8 @@ class WebPluginDelegateImpl : public webkit_glue::WebPluginDelegate {
   // Frames are in screen coordinates.
   void WindowFrameChanged(const gfx::Rect& window_frame,
                           const gfx::Rect& view_frame);
+  // Informs the plugin that IME composition has been confirmed.
+  void ImeCompositionConfirmed(const string16& text);
   // Informs the delegate that the plugin set a Carbon ThemeCursor.
   void SetThemeCursor(ThemeCursor cursor);
   // Informs the delegate that the plugin set a Carbon Cursor.
@@ -385,19 +387,14 @@ class WebPluginDelegateImpl : public webkit_glue::WebPluginDelegate {
   void SetContentAreaOrigin(const gfx::Point& origin);
   // Updates everything that depends on the plugin's absolute screen location.
   void PluginScreenLocationChanged();
+  // Updates anything that depends on plugin visibility.
+  void PluginVisibilityChanged();
 
-  // Returns the apparent zoom ratio for the given event, as inferred from our
-  // current knowledge about about where on screen the plugin is.
-  // This is a temporary workaround for <http://crbug.com/9996>; once that is
-  // fixed we should have correct event coordinates (or an explicit
-  // notification of zoom level).
-  float ApparentEventZoomLevel(const WebKit::WebMouseEvent& event);
+  // Enables/disables IME.
+  void SetImeEnabled(bool enabled);
 
   // Informs the browser about the updated accelerated drawing surface.
   void UpdateAcceleratedSurface();
-
-  // Updates anything that depends on plugin visibility.
-  void PluginVisibilityChanged();
 
   // Uses a CARenderer to draw the plug-in's layer in our OpenGL surface.
   void DrawLayerInSurface();
@@ -432,7 +429,7 @@ class WebPluginDelegateImpl : public webkit_glue::WebPluginDelegate {
 #endif
 
   CALayer* layer_;  // Used for CA drawing mode. Weak, retained by plug-in.
-  AcceleratedSurface* surface_;
+  webkit_glue::WebPluginAcceleratedSurface* surface_;  // Weak ref.
   CARenderer* renderer_;  // Renders layer_ to surface_.
   scoped_ptr<base::RepeatingTimer<WebPluginDelegateImpl> > redraw_timer_;
 
@@ -446,6 +443,8 @@ class WebPluginDelegateImpl : public webkit_glue::WebPluginDelegate {
   bool have_called_set_window_;
 
   gfx::Rect cached_clip_rect_;
+
+  bool ime_enabled_;
 
   scoped_ptr<ExternalDragTracker> external_drag_tracker_;
 #endif  // OS_MACOSX

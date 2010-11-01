@@ -89,7 +89,7 @@ void ReadClientDataFromExtensionList(
     const Extension& extension = **it;
     if (IsExtensionValidAndSyncable(extension, allowed_extension_types)) {
       sync_pb::ExtensionSpecifics client_specifics;
-      GetExtensionSpecifics(extension, extensions_service,
+      GetExtensionSpecifics(extension, extensions_service->extension_prefs(),
                             &client_specifics);
       DcheckIsExtensionSpecificsValid(client_specifics);
       const ExtensionData& extension_data =
@@ -259,6 +259,7 @@ bool UpdateServer(
 // new version.
 void TryUpdateClient(
     const ExtensionTypeSet& allowed_extension_types,
+    PendingExtensionInfo::ExpectedCrxType expected_crx_type,
     ExtensionsService* extensions_service,
     ExtensionData* extension_data) {
   DCHECK(!extension_data->NeedsUpdate(ExtensionData::SERVER));
@@ -277,7 +278,7 @@ void TryUpdateClient(
     SetExtensionProperties(specifics, extensions_service, extension);
     {
       sync_pb::ExtensionSpecifics extension_specifics;
-      GetExtensionSpecifics(*extension, extensions_service,
+      GetExtensionSpecifics(*extension, extensions_service->extension_prefs(),
                             &extension_specifics);
       DCHECK(AreExtensionSpecificsUserPropertiesEqual(
           specifics, extension_specifics))
@@ -294,7 +295,7 @@ void TryUpdateClient(
     // permissions.
     extensions_service->AddPendingExtensionFromSync(
         id, update_url,
-        PendingExtensionInfo::EXTENSION,
+        expected_crx_type,
         true,  // install_silently
         specifics.enabled(),
         specifics.incognito_enabled());
@@ -350,6 +351,7 @@ bool FlushExtensionData(const ExtensionSyncTraits& traits,
     DCHECK(!extension_data.NeedsUpdate(ExtensionData::SERVER));
     if (extension_data.NeedsUpdate(ExtensionData::CLIENT)) {
       TryUpdateClient(traits.allowed_extension_types,
+                      traits.expected_crx_type,
                       extensions_service, &extension_data);
       if (extension_data.NeedsUpdate(ExtensionData::CLIENT)) {
         should_nudge_extension_updater = true;
@@ -382,7 +384,8 @@ bool UpdateServerData(const ExtensionSyncTraits& traits,
   ExtensionsService* extensions_service =
       GetExtensionsServiceFromProfileSyncService(sync_service);
   sync_pb::ExtensionSpecifics client_data;
-  GetExtensionSpecifics(extension, extensions_service, &client_data);
+  GetExtensionSpecifics(extension, extensions_service->extension_prefs(),
+                        &client_data);
   DcheckIsExtensionSpecificsValid(client_data);
   ExtensionData extension_data =
       ExtensionData::FromData(ExtensionData::CLIENT, client_data);
@@ -425,16 +428,8 @@ bool UpdateServerData(const ExtensionSyncTraits& traits,
 }
 
 void RemoveServerData(const ExtensionSyncTraits& traits,
-                      const Extension& extension,
+                      const std::string& id,
                       ProfileSyncService* sync_service) {
-  const std::string& id = extension.id();
-  if (!IsExtensionValidAndSyncable(extension,
-                                   traits.allowed_extension_types)) {
-    LOG(DFATAL) << "RemoveServerData() called for invalid or "
-                << "unsyncable extension " << id;
-    return;
-  }
-
   sync_api::WriteTransaction trans(
       sync_service->backend()->GetUserShareHandle());
   sync_api::WriteNode write_node(&trans);
@@ -461,7 +456,8 @@ void UpdateClient(const ExtensionSyncTraits& traits,
       return;
     }
     sync_pb::ExtensionSpecifics client_data;
-    GetExtensionSpecifics(*extension, extensions_service, &client_data);
+    GetExtensionSpecifics(*extension, extensions_service->extension_prefs(),
+                          &client_data);
     DcheckIsExtensionSpecificsValid(client_data);
     extension_data =
         ExtensionData::FromData(ExtensionData::CLIENT, client_data);
@@ -470,6 +466,7 @@ void UpdateClient(const ExtensionSyncTraits& traits,
   DCHECK(!extension_data.NeedsUpdate(ExtensionData::SERVER));
   if (extension_data.NeedsUpdate(ExtensionData::CLIENT)) {
     TryUpdateClient(traits.allowed_extension_types,
+                    traits.expected_crx_type,
                     extensions_service, &extension_data);
     if (extension_data.NeedsUpdate(ExtensionData::CLIENT)) {
       NudgeExtensionUpdater(extensions_service);

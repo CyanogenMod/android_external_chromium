@@ -23,6 +23,8 @@ StatusController::StatusController(const ModelSafeRoutingInfo& routes)
       routing_info_(routes) {
 }
 
+StatusController::~StatusController() {}
+
 bool StatusController::TestAndClearIsDirty() {
   bool is_dirty = is_dirty_;
   is_dirty_ = false;
@@ -97,11 +99,6 @@ void StatusController::set_num_server_changes_remaining(
     int64 changes_remaining) {
   if (shared_.num_server_changes_remaining.value() != changes_remaining)
     *(shared_.num_server_changes_remaining.mutate()) = changes_remaining;
-}
-
-void StatusController::set_over_quota(bool over_quota) {
-  if (shared_.syncer_status.value().over_quota != over_quota)
-    shared_.syncer_status.mutate()->over_quota = over_quota;
 }
 
 void StatusController::set_invalid_store(bool invalid_store) {

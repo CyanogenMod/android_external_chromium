@@ -11,7 +11,7 @@
 #include "base/task.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/file_stream.h"
 #include "net/base/net_errors.h"
@@ -86,20 +86,27 @@ FileStream* CreateFileStreamForDrop(FilePath* file_path) {
   return NULL;
 }
 
+PromiseFileFinalizer::PromiseFileFinalizer(
+    DragDownloadFile* drag_file_downloader)
+    : drag_file_downloader_(drag_file_downloader) {
+}
+
+PromiseFileFinalizer::~PromiseFileFinalizer() {}
+
 void PromiseFileFinalizer::Cleanup() {
   if (drag_file_downloader_.get())
     drag_file_downloader_ = NULL;
 }
 
 void PromiseFileFinalizer::OnDownloadCompleted(const FilePath& file_path) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(this, &PromiseFileFinalizer::Cleanup));
 }
 
 void PromiseFileFinalizer::OnDownloadAborted() {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(this, &PromiseFileFinalizer::Cleanup));
 }
 

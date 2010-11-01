@@ -25,11 +25,17 @@ cr.define('options', function() {
       treeItem.icon = data.icon;
     }
 
+    treeItem.decorate();
     return treeItem;
   }
 
   CookieTreeItem.prototype = {
     __proto__: TreeItem.prototype,
+
+    /** @inheritDoc */
+    decorate: function() {
+      this.hasChildren = this.data.hasChildren;
+    },
 
     /** @inheritDoc */
     addAt: function(child, index) {
@@ -46,7 +52,17 @@ cr.define('options', function() {
     },
 
     /**
-     * The tree path id/.
+     * Clears all children.
+     */
+    clear: function() {
+      // We might leave some garbage in treeLookup for removed children.
+      // But that should be okay because treeLookup is cleared when we
+      // reload the tree.
+      this.lastElementChild.textContent = '';
+    },
+
+    /**
+     * The tree path id.
      * @type {string}
      */
     get pathId() {
@@ -56,6 +72,17 @@ cr.define('options', function() {
       } else {
         return this.data.id;
       }
+    },
+
+    /** @inheritDoc */
+    get expanded() {
+      return TreeItem.prototype.__lookupGetter__('expanded').call(this);
+    },
+    set expanded(b) {
+      if (b && this.expanded != b)
+        chrome.send('loadCookie', [this.pathId]);
+
+      TreeItem.prototype.__lookupSetter__('expanded').call(this, b);
     }
   };
 
@@ -90,10 +117,28 @@ cr.define('options', function() {
     clear: function() {
       // Remove all fields without recreating the object since other code
       // references it.
-      for (var id in treeLookup){
+      for (var id in treeLookup) {
         delete treeLookup[id];
       }
       this.textContent = '';
+    },
+
+    /**
+     * Add tree nodes by given parent.
+     * @param {Object} parent Parent node.
+     * @param {int} start Start index of where to insert nodes.
+     * @param {Array} nodesData Nodes data array.
+     */
+    addByParent: function(parent, start, nodesData) {
+      if (!parent) {
+        return;
+      }
+
+      for (var i = 0; i < nodesData.length; ++i) {
+        parent.addAt(new CookieTreeItem(nodesData[i]), start + i);
+      }
+
+      cr.dispatchSimpleEvent(this, 'change');
     },
 
     /**
@@ -104,15 +149,7 @@ cr.define('options', function() {
      */
     addByParentId: function(parentId, start, nodesData) {
       var parent = parentId ? treeLookup[parentId] : this;
-      if (!parent) {
-        return;
-      }
-
-      for (var i = 0; i < nodesData.length; ++i) {
-        parent.addAt(new CookieTreeItem(nodesData[i]), start + i);
-      }
-
-      cr.dispatchSimpleEvent(this, 'change');
+      this.addByParent(parent, start, nodesData);
     },
 
     /**
@@ -132,6 +169,33 @@ cr.define('options', function() {
       }
 
       cr.dispatchSimpleEvent(this, 'change');
+    },
+
+    /**
+     * Clears the tree.
+     */
+    clear: function() {
+      // Remove all fields without recreating the object since other code
+      // references it.
+      for (var id in treeLookup){
+        delete treeLookup[id];
+      }
+      this.textContent = '';
+    },
+
+    /**
+     * Loads the immediate children of given parent node.
+     * @param {string} parentId Id of the parent node.
+     * @param {Array} children The immediate children of parent node.
+     */
+    loadChildren: function(parentId, children) {
+      var parent = parentId ? treeLookup[parentId] : this;
+      if (!parent) {
+        return;
+      }
+
+      parent.clear();
+      this.addByParent(parent, 0, children);
     }
   };
 

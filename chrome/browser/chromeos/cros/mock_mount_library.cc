@@ -6,7 +6,7 @@
 
 #include "base/message_loop.h"
 #include "base/string_util.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 
 namespace chromeos {
@@ -22,7 +22,8 @@ void MockMountLibrary::AddObserverInternal(MountLibrary::Observer* observer) {
   observers_.AddObserver(observer);
 }
 
-void MockMountLibrary::RemoveObserverInternal(MountLibrary::Observer* observer) {
+void MockMountLibrary::RemoveObserverInternal(
+    MountLibrary::Observer* observer) {
   observers_.RemoveObserver(observer);
 }
 
@@ -56,7 +57,8 @@ void MockMountLibrary::FireDeviceInsertEvents() {
 
   // Disk Changed
   disks_.clear();
-  disks_.push_back(Disk(kTestDevicePath, kTestMountPath, kTestSystemPath, false, true));
+  disks_.push_back(Disk(
+      kTestDevicePath, kTestMountPath, kTestSystemPath, false, true));
   evt = chromeos::DISK_CHANGED;
   UpdateMountStatus(evt, kTestDevicePath);
 }
@@ -71,7 +73,7 @@ void MockMountLibrary::FireDeviceRemoveEvents() {
 void MockMountLibrary::UpdateMountStatus(MountEventType evt,
                                          const std::string& path) {
   // Make sure we run on UI thread.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   FOR_EACH_OBSERVER(Observer, observers_, MountChanged(this, evt, path));
 }

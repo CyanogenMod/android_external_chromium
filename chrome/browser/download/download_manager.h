@@ -39,7 +39,8 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/time.h"
-#include "chrome/browser/chrome_thread.h"
+#include "base/weak_ptr.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/download/download_status_updater_delegate.h"
 #include "chrome/browser/shell_dialogs.h"
 
@@ -59,7 +60,7 @@ struct DownloadSaveInfo;
 // Browser's download manager: manages all downloads and destination view.
 class DownloadManager
     : public base::RefCountedThreadSafe<DownloadManager,
-                                        ChromeThread::DeleteOnUIThread>,
+                                        BrowserThread::DeleteOnUIThread>,
       public DownloadStatusUpdaterDelegate,
       public SelectFileDialog::Listener {
   // For testing.
@@ -224,7 +225,7 @@ class DownloadManager
     DownloadManager* observed_download_manager_;
   };
 
-  friend class ChromeThread;
+  friend class BrowserThread;
   friend class DeleteTask<DownloadManager>;
   friend class OtherDownloadManagerObserver;
 
@@ -233,7 +234,8 @@ class DownloadManager
   // Called on the download thread to check whether the suggested file path
   // exists.  We don't check if the file exists on the UI thread to avoid UI
   // stalls from interacting with the file system.
-  void CheckIfSuggestedPathExists(DownloadCreateInfo* info);
+  void CheckIfSuggestedPathExists(DownloadCreateInfo* info,
+                                  const FilePath& default_path);
 
   // Called on the UI thread once the DownloadManager has determined whether the
   // suggested file path exists.
@@ -340,7 +342,7 @@ class DownloadManager
   DownloadFileManager* file_manager_;
 
   // Non-owning pointer for updating the download status.
-  DownloadStatusUpdater* status_updater_;
+  base::WeakPtr<DownloadStatusUpdater> status_updater_;
 
   // The user's last choice for download directory. This is only used when the
   // user wants us to prompt for a save location for each download.

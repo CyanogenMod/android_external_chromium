@@ -14,8 +14,10 @@
 #include "base/string16.h"
 #include "gfx/point.h"
 #include "gfx/rect.h"
+#include "third_party/WebKit/WebKit/chromium/public/WebDragOperation.h"
 #include "webkit/glue/window_open_disposition.h"
 
+typedef struct _cairo cairo_t;
 typedef struct _GtkWidget GtkWidget;
 
 class GtkThemeProvider;
@@ -55,6 +57,9 @@ const int kContentAreaSpacing = 18;
 // Horizontal Spacing between controls in a form.
 const int kFormControlSpacing = 10;
 
+// Height for the infobar drop shadow.
+const int kInfoBarDropShadowHeight = 6;
+
 // Create a table of labeled controls, using proper spacing and alignment.
 // Arguments should be pairs of const char*, GtkWidget*, concluding with a
 // NULL.  The first argument is a vector in which to place all labels
@@ -81,7 +86,6 @@ GtkWidget* LeftAlignMisc(GtkWidget* misc);
 
 // Create a left-aligned label with the given text in bold.
 GtkWidget* CreateBoldLabel(const std::string& text);
-
 
 // As above, but a convenience method for configuring dialog size.
 // |width_id| and |height_id| are resource IDs for the size.  If either of these
@@ -334,6 +338,16 @@ void SetLabelWidth(GtkWidget* label, int pixel_width);
 // It must be done when the label is mapped (become visible on the screen),
 // to make sure the pango can get correct font information for the calculation.
 void InitLabelSizeRequestAndEllipsizeMode(GtkWidget* label);
+
+// Convenience methods for converting between web drag operations and the GDK
+// equivalent.
+GdkDragAction WebDragOpToGdkDragAction(WebKit::WebDragOperationsMask op);
+WebKit::WebDragOperationsMask GdkDragActionToWebDragOp(GdkDragAction action);
+
+// Code to draw the drop shadow below an infobar (at the top of the render
+// view).
+void DrawTopDropShadowForRenderView(cairo_t* cr, const gfx::Point& origin,
+                                    const gfx::Rect& paint_rect);
 
 }  // namespace gtk_util
 

@@ -34,21 +34,20 @@ AutofillChangeProcessor::AutofillChangeProcessor(
   DCHECK(web_database);
   DCHECK(error_handler);
   DCHECK(personal_data);
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   StartObserving();
 }
 
 void AutofillChangeProcessor::Observe(NotificationType type,
                                       const NotificationSource& source,
                                       const NotificationDetails& details) {
-  LOG(INFO) << "Observed autofill change.";
   // Ensure this notification came from our web database.
   WebDataService* wds = Source<WebDataService>(source).ptr();
   if (!wds || wds->GetDatabase() != web_database_)
     return;
 
   DCHECK(running());
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   if (!observing_)
     return;
 
@@ -120,7 +119,7 @@ void AutofillChangeProcessor::OverrideProfileLabel(
 }
 
 void AutofillChangeProcessor::PostOptimisticRefreshTask() {
-  ChromeThread::PostTask(ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
       new AutofillModelAssociator::DoOptimisticRefreshTask(
            personal_data_));
 }
@@ -293,7 +292,7 @@ void AutofillChangeProcessor::ApplyChangesFromSyncModel(
     const sync_api::BaseTransaction* trans,
     const sync_api::SyncManager::ChangeRecord* changes,
     int change_count) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   if (!running())
     return;
   StopObserving();
@@ -349,7 +348,7 @@ void AutofillChangeProcessor::ApplyChangesFromSyncModel(
 }
 
 void AutofillChangeProcessor::CommitChangesFromSyncModel() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   if (!running())
     return;
   StopObserving();
@@ -494,18 +493,18 @@ void AutofillChangeProcessor::ApplySyncAutofillProfileDelete(
 }
 
 void AutofillChangeProcessor::StartImpl(Profile* profile) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   observing_ = true;
 }
 
 void AutofillChangeProcessor::StopImpl() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   observing_ = false;
 }
 
 
 void AutofillChangeProcessor::StartObserving() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   notification_registrar_.Add(this, NotificationType::AUTOFILL_ENTRIES_CHANGED,
                               NotificationService::AllSources());
   notification_registrar_.Add(this, NotificationType::AUTOFILL_PROFILE_CHANGED,
@@ -513,7 +512,7 @@ void AutofillChangeProcessor::StartObserving() {
 }
 
 void AutofillChangeProcessor::StopObserving() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   notification_registrar_.RemoveAll();
 }
 

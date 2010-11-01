@@ -16,6 +16,7 @@ function DataView(mainBoxId,
                   outputTextBoxId,
                   exportTextButtonId,
                   securityStrippingCheckboxId,
+                  byteLoggingCheckboxId,
                   passivelyCapturedCountId,
                   activelyCapturedCountId,
                   deleteAllId) {
@@ -24,6 +25,10 @@ function DataView(mainBoxId,
   this.textPre_ = document.getElementById(outputTextBoxId);
   this.securityStrippingCheckbox_ =
       document.getElementById(securityStrippingCheckboxId);
+
+  var byteLoggingCheckbox = document.getElementById(byteLoggingCheckboxId);
+  byteLoggingCheckbox.onclick =
+      this.onSetByteLogging_.bind(this, byteLoggingCheckbox);
 
   var exportTextButton = document.getElementById(exportTextButtonId);
   exportTextButton.onclick = this.onExportToText_.bind(this);
@@ -36,6 +41,7 @@ function DataView(mainBoxId,
       g_browser.deleteAllEvents.bind(g_browser);
 
   this.updateEventCounts_();
+  this.waitingForUpdate_ = false;
 
   g_browser.addLogObserver(this);
 }
@@ -75,11 +81,34 @@ DataView.prototype.updateEventCounts_ = function() {
 };
 
 /**
- * Presents the captured data as formatted text.
+ * Depending on the value of the checkbox, enables or disables logging of
+ * actual bytes transferred.
+ */
+DataView.prototype.onSetByteLogging_ = function(byteLoggingCheckbox) {
+  if (byteLoggingCheckbox.checked) {
+    g_browser.setLogLevel(LogLevelType.LOG_ALL);
+  } else {
+    g_browser.setLogLevel(LogLevelType.LOG_ALL_BUT_BYTES);
+  }
+};
+
+/**
+ * If not already waiting for results from all updates, triggers all
+ * updates and starts waiting for them to complete.
  */
 DataView.prototype.onExportToText_ = function() {
-  this.setText_("Generating...");
+  if (this.waitingForUpdate_)
+    return;
+  this.waitingForUpdate = true;
+  this.setText_('Generating...');
+  g_browser.updateAllInfo(this.onUpdateAllCompleted.bind(this));
+};
 
+/**
+ * Presents the captured data as formatted text.
+ */
+DataView.prototype.onUpdateAllCompleted = function(data) {
+  this.waitingForUpdate_ = false;
   var text = [];
 
   // Print some basic information about our environment.
@@ -102,13 +131,19 @@ DataView.prototype.onExportToText_ = function() {
   text.push('Command line: ' + ClientInfo.command_line);
 
   text.push('');
+  var default_address_family = data.hostResolverInfo.default_address_family;
+  text.push('Default address family: ' +
+      getKeyWithValue(AddressFamily, default_address_family));
+  if (default_address_family == AddressFamily.ADDRESS_FAMILY_IPV4)
+    text.push('  (IPv6 disabled)');
+
+  text.push('');
   text.push('----------------------------------------------');
   text.push(' Proxy settings (effective)');
   text.push('----------------------------------------------');
   text.push('');
 
-  text.push(proxySettingsToString(
-        g_browser.proxySettings_.currentData_.effective));
+  text.push(proxySettingsToString(data.proxySettings.effective));
 
   text.push('');
   text.push('----------------------------------------------');
@@ -116,15 +151,14 @@ DataView.prototype.onExportToText_ = function() {
   text.push('----------------------------------------------');
   text.push('');
 
-  text.push(proxySettingsToString(
-        g_browser.proxySettings_.currentData_.original));
+  text.push(proxySettingsToString(data.proxySettings.original));
 
   text.push('');
   text.push('----------------------------------------------');
   text.push(' Bad proxies cache');
   text.push('----------------------------------------------');
 
-  var badProxiesList = g_browser.badProxies_.currentData_;
+  var badProxiesList = data.badProxies;
   if (badProxiesList.length == 0) {
     text.push('');
     text.push('None');
@@ -144,9 +178,9 @@ DataView.prototype.onExportToText_ = function() {
   text.push('----------------------------------------------');
   text.push('');
 
-  var hostResolverCache = g_browser.hostResolverCache_.currentData_;
+  var hostResolverCache = data.hostResolverInfo.cache;
 
-  text.push('Capcity: ' + hostResolverCache.capacity);
+  text.push('Capacity: ' + hostResolverCache.capacity);
   text.push('Time to live for successful resolves (ms): ' +
             hostResolverCache.ttl_success_ms);
   text.push('Time to live for failed resolves (ms): ' +
@@ -159,7 +193,8 @@ DataView.prototype.onExportToText_ = function() {
       text.push('');
       text.push('(' + (i+1) + ')');
       text.push('Hostname: ' + e.hostname);
-      text.push('Address family: ' + e.address_family);
+      text.push('Address family: ' +
+                getKeyWithValue(AddressFamily, e.address_family));
 
       if (e.error != undefined) {
          text.push('Error: ' + e.error);
@@ -192,7 +227,7 @@ DataView.prototype.onExportToText_ = function() {
   text.push('----------------------------------------------');
   text.push('');
 
-  var httpCacheStats = g_browser.httpCacheInfo_.currentData_.stats;
+  var httpCacheStats = data.httpCacheInfo.stats;
   for (var statName in httpCacheStats)
     text.push(statName + ': ' + httpCacheStats[statName]);
 
@@ -202,7 +237,21 @@ DataView.prototype.onExportToText_ = function() {
   text.push('----------------------------------------------');
   text.push('');
 
-  this.appendSocketPoolsAsText_(text);
+  this.appendSocketPoolsAsText_(text, data.socketPoolInfo);
+
+  text.push('');
+  text.push('----------------------------------------------');
+  text.push(' SPDY Sessions');
+  text.push('----------------------------------------------');
+  text.push('');
+
+  if (data.spdySessionInfo == null || data.spdySessionInfo.length == 0) {
+    text.push('None');
+  } else {
+    var spdyTablePrinter =
+      SpdyView.createSessionTablePrinter(data.spdySessionInfo);
+    text.push(spdyTablePrinter.toText(2));
+  }
 
   if (g_browser.isPlatformWindows()) {
     text.push('');
@@ -211,7 +260,7 @@ DataView.prototype.onExportToText_ = function() {
     text.push('----------------------------------------------');
     text.push('');
 
-    var serviceProviders = g_browser.serviceProviders_.currentData_;
+    var serviceProviders = data.serviceProviders;
     var layeredServiceProviders = serviceProviders.service_providers;
     for (var i = 0; i < layeredServiceProviders.length; ++i) {
       var provider = layeredServiceProviders[i];
@@ -306,9 +355,8 @@ DataView.prototype.appendEventsPrintedAsText_ = function(out) {
   }
 };
 
-DataView.prototype.appendSocketPoolsAsText_ = function(text) {
-  var socketPools = SocketPoolWrapper.createArrayFrom(
-      g_browser.socketPoolInfo_.currentData_);
+DataView.prototype.appendSocketPoolsAsText_ = function(text, socketPoolInfo) {
+  var socketPools = SocketPoolWrapper.createArrayFrom(socketPoolInfo);
   var tablePrinter = SocketPoolWrapper.createTablePrinter(socketPools);
   text.push(tablePrinter.toText(2));
 

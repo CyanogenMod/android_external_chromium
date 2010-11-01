@@ -11,7 +11,7 @@
 #include "app/keyboard_code_conversion_mac.h"
 #include "base/message_loop.h"
 #include "chrome/browser/automation/ui_controls_internal.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 
 // Implementation details: We use [NSApplication sendEvent:] instead
 // of [NSApplication postEvent:atStart:] so that the event gets sent
@@ -240,7 +240,7 @@ bool SendKeyPressNotifyWhenDone(gfx::NativeWindow window,
                                 bool alt,
                                 bool command,
                                 Task* task) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   std::vector<NSEvent*> events;
   SynthesizeKeyEventsSequence(

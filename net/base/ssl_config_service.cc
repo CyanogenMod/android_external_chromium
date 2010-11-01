@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -15,11 +15,15 @@
 
 namespace net {
 
+SSLConfig::CertAndStatus::CertAndStatus() : cert_status(0) {}
+
+SSLConfig::CertAndStatus::~CertAndStatus() {}
+
 SSLConfig::SSLConfig()
     : rev_checking_enabled(true),  ssl2_enabled(false), ssl3_enabled(true),
-      tls1_enabled(true), dnssec_enabled(false), mitm_proxies_allowed(false),
-      false_start_enabled(true), send_client_cert(false),
-      verify_ev_cert(false), ssl3_fallback(false) {
+      tls1_enabled(true), dnssec_enabled(false), snap_start_enabled(false),
+      mitm_proxies_allowed(false), false_start_enabled(true),
+      send_client_cert(false), verify_ev_cert(false), ssl3_fallback(false) {
 }
 
 SSLConfig::~SSLConfig() {
@@ -94,12 +98,14 @@ bool SSLConfigService::IsKnownFalseStartIncompatibleServer(
 static bool g_dnssec_enabled = false;
 static bool g_false_start_enabled = true;
 static bool g_mitm_proxies_allowed = false;
+static bool g_snap_start_enabled = false;
 
 // static
 void SSLConfigService::SetSSLConfigFlags(SSLConfig* ssl_config) {
   ssl_config->dnssec_enabled = g_dnssec_enabled;
   ssl_config->false_start_enabled = g_false_start_enabled;
   ssl_config->mitm_proxies_allowed = g_mitm_proxies_allowed;
+  ssl_config->snap_start_enabled = g_snap_start_enabled;
 }
 
 // static
@@ -110,6 +116,16 @@ void SSLConfigService::EnableDNSSEC() {
 // static
 bool SSLConfigService::dnssec_enabled() {
   return g_dnssec_enabled;
+}
+
+// static
+void SSLConfigService::EnableSnapStart() {
+  g_snap_start_enabled = true;
+}
+
+// static
+bool SSLConfigService::snap_start_enabled() {
+  return g_snap_start_enabled;
 }
 
 // static

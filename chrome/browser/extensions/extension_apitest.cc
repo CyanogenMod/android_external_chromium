@@ -7,10 +7,21 @@
 #include "base/string_util.h"
 #include "base/stringprintf.h"
 #include "chrome/browser/browser.h"
+#include "chrome/browser/extensions/extension_test_api.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/test/ui_test_utils.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/views/domui_menu_widget.h"
+#endif
+
+namespace {
+
+const char kTestServerPort[] = "testServer.port";
+
+};  // namespace
 
 ExtensionApiTest::ResultCatcher::ResultCatcher()
     : profile_restriction_(NULL),
@@ -57,7 +68,7 @@ void ExtensionApiTest::ResultCatcher::Observe(
 
   switch (type.value) {
     case NotificationType::EXTENSION_TEST_PASSED:
-      std::cout << "Got EXTENSION_TEST_PASSED notification.\n";
+      LOG(INFO) << "Got EXTENSION_TEST_PASSED notification.";
       results_.push_back(true);
       messages_.push_back("");
       if (waiting_)
@@ -65,7 +76,7 @@ void ExtensionApiTest::ResultCatcher::Observe(
       break;
 
     case NotificationType::EXTENSION_TEST_FAILED:
-      std::cout << "Got EXTENSION_TEST_FAILED notification.\n";
+      LOG(INFO) << "Got EXTENSION_TEST_FAILED notification.";
       results_.push_back(false);
       messages_.push_back(*(Details<std::string>(details).ptr()));
       if (waiting_)
@@ -75,6 +86,17 @@ void ExtensionApiTest::ResultCatcher::Observe(
     default:
       NOTREACHED();
   }
+}
+
+void ExtensionApiTest::SetUpInProcessBrowserTestFixture() {
+  DCHECK(!test_config_.get()) << "Previous test did not clear config state.";
+  test_config_.reset(new DictionaryValue());
+  ExtensionTestGetConfigFunction::set_test_config_state(test_config_.get());
+}
+
+void ExtensionApiTest::TearDownInProcessBrowserTestFixture() {
+  ExtensionTestGetConfigFunction::set_test_config_state(NULL);
+  test_config_.reset(NULL);
 }
 
 bool ExtensionApiTest::RunExtensionTest(const char* extension_name) {
@@ -100,6 +122,13 @@ bool ExtensionApiTest::RunPageTest(const std::string& page_url) {
 bool ExtensionApiTest::RunExtensionTestImpl(const char* extension_name,
                                             const std::string& page_url,
                                             bool enable_incognito) {
+#if defined(OS_CHROMEOS)
+  // ChromeOS uses DOMUI for menu and creates a stand-by renderer to
+  // improve 1st time response. This can confuse this test as the test
+  // uses AllSources to listen to notifications, thus disabling the warmup
+  // process for ExtensionAPITests.
+  chromeos::DOMUIMenuWidget::DisableWarmUp();
+#endif
   ResultCatcher catcher;
   DCHECK(!std::string(extension_name).empty() || !page_url.empty()) <<
       "extension_name and page_url cannot both be empty";
@@ -173,6 +202,19 @@ Extension* ExtensionApiTest::GetSingleLoadedExtension() {
     return NULL;
   }
   return extension;
+}
+
+bool ExtensionApiTest::StartTestServer() {
+  if (!test_server()->Start())
+    return false;
+
+  // Build a dictionary of values that tests can use to build URLs that
+  // access the test server.  Tests can see these values using the extension
+  // API function chrome.test.getConfig().
+  test_config_->SetInteger(kTestServerPort,
+                           test_server()->host_port_pair().port());
+
+  return true;
 }
 
 void ExtensionApiTest::SetUpCommandLine(CommandLine* command_line) {

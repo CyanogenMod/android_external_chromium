@@ -2,14 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/histogram.h"
+#include "chrome/browser/sync/glue/autofill_data_type_controller.h"
+
 #include "base/logging.h"
+#include "base/metrics/histogram.h"
 #include "base/task.h"
 #include "base/time.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/sync/glue/autofill_change_processor.h"
-#include "chrome/browser/sync/glue/autofill_data_type_controller.h"
 #include "chrome/browser/sync/glue/autofill_model_associator.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_factory.h"
@@ -29,19 +30,19 @@ AutofillDataTypeController::AutofillDataTypeController(
       personal_data_(NULL),
       abort_association_(false),
       abort_association_complete_(false, false) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(profile_sync_factory);
   DCHECK(profile);
   DCHECK(sync_service);
 }
 
 AutofillDataTypeController::~AutofillDataTypeController() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 }
 
 void AutofillDataTypeController::Start(StartCallback* start_callback) {
-  LOG(INFO) << "Starting autofill data controller.";
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  VLOG(1) << "Starting autofill data controller.";
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(start_callback);
   if (state() != NOT_RUNNING) {
     start_callback->Run(BUSY);
@@ -69,10 +70,10 @@ void AutofillDataTypeController::ContinueStartAfterPersonalDataLoaded() {
   web_data_service_ = profile_->GetWebDataService(Profile::IMPLICIT_ACCESS);
   if (web_data_service_.get() && web_data_service_->IsDatabaseLoaded()) {
     set_state(ASSOCIATING);
-    ChromeThread::PostTask(ChromeThread::DB, FROM_HERE,
-                           NewRunnableMethod(
-                               this,
-                               &AutofillDataTypeController::StartImpl));
+    BrowserThread::PostTask(BrowserThread::DB, FROM_HERE,
+                            NewRunnableMethod(
+                                this,
+                                &AutofillDataTypeController::StartImpl));
   } else {
     set_state(MODEL_STARTING);
     notification_registrar_.Add(this, NotificationType::WEB_DATABASE_LOADED,
@@ -89,18 +90,18 @@ void AutofillDataTypeController::OnPersonalDataLoaded() {
 void AutofillDataTypeController::Observe(NotificationType type,
                                          const NotificationSource& source,
                                          const NotificationDetails& details) {
-  LOG(INFO) << "Web database loaded observed.";
+  VLOG(1) << "Web database loaded observed.";
   notification_registrar_.RemoveAll();
   set_state(ASSOCIATING);
-  ChromeThread::PostTask(ChromeThread::DB, FROM_HERE,
-                         NewRunnableMethod(
-                             this,
-                             &AutofillDataTypeController::StartImpl));
+  BrowserThread::PostTask(BrowserThread::DB, FROM_HERE,
+                          NewRunnableMethod(
+                              this,
+                              &AutofillDataTypeController::StartImpl));
 }
 
 void AutofillDataTypeController::Stop() {
-  LOG(INFO) << "Stopping autofill data type controller.";
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  VLOG(1) << "Stopping autofill data type controller.";
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   // If Stop() is called while Start() is waiting for association to
   // complete, we need to abort the association and wait for the DB
@@ -135,15 +136,15 @@ void AutofillDataTypeController::Stop() {
     model_associator_->DisassociateModels();
 
   set_state(NOT_RUNNING);
-  ChromeThread::PostTask(ChromeThread::DB, FROM_HERE,
-                         NewRunnableMethod(
-                             this,
-                             &AutofillDataTypeController::StopImpl));
+  BrowserThread::PostTask(BrowserThread::DB, FROM_HERE,
+                          NewRunnableMethod(
+                              this,
+                              &AutofillDataTypeController::StopImpl));
 }
 
 void AutofillDataTypeController::StartImpl() {
-  LOG(INFO) << "Autofill data type controller StartImpl called.";
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  VLOG(1) << "Autofill data type controller StartImpl called.";
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   // No additional services need to be started before we can proceed
   // with model association.
   {
@@ -184,26 +185,26 @@ void AutofillDataTypeController::StartImpl() {
 void AutofillDataTypeController::StartDone(
     DataTypeController::StartResult result,
     DataTypeController::State new_state) {
-  LOG(INFO) << "Autofill data type controller StartDone called.";
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  VLOG(1) << "Autofill data type controller StartDone called.";
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
 
   abort_association_complete_.Signal();
   AutoLock lock(abort_association_lock_);
   if (!abort_association_) {
-    ChromeThread::PostTask(ChromeThread::UI, FROM_HERE,
-                           NewRunnableMethod(
-                               this,
-                               &AutofillDataTypeController::StartDoneImpl,
-                               result,
-                               new_state));
+    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                            NewRunnableMethod(
+                                this,
+                                &AutofillDataTypeController::StartDoneImpl,
+                                result,
+                                new_state));
   }
 }
 
 void AutofillDataTypeController::StartDoneImpl(
     DataTypeController::StartResult result,
     DataTypeController::State new_state) {
-  LOG(INFO) << "Autofill data type controller StartDoneImpl called.";
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  VLOG(1) << "Autofill data type controller StartDoneImpl called.";
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   set_state(new_state);
   start_callback_->Run(result);
@@ -217,15 +218,15 @@ void AutofillDataTypeController::StartDoneImpl(
 }
 
 void AutofillDataTypeController::StopImpl() {
-  LOG(INFO) << "Autofill data type controller StopImpl called.";
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  VLOG(1) << "Autofill data type controller StopImpl called.";
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
 
   change_processor_.reset();
   model_associator_.reset();
 }
 
 void AutofillDataTypeController::StartFailed(StartResult result) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
   change_processor_.reset();
   model_associator_.reset();
   StartDone(result, NOT_RUNNING);
@@ -234,9 +235,9 @@ void AutofillDataTypeController::StartFailed(StartResult result) {
 void AutofillDataTypeController::OnUnrecoverableError(
     const tracked_objects::Location& from_here,
     const std::string& message) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::DB));
-  ChromeThread::PostTask(
-    ChromeThread::UI, FROM_HERE,
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
+  BrowserThread::PostTask(
+    BrowserThread::UI, FROM_HERE,
     NewRunnableMethod(this,
                       &AutofillDataTypeController::OnUnrecoverableErrorImpl,
                       from_here, message));
@@ -246,7 +247,7 @@ void AutofillDataTypeController::OnUnrecoverableError(
 void AutofillDataTypeController::OnUnrecoverableErrorImpl(
     const tracked_objects::Location& from_here,
     const std::string& message) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   sync_service_->OnUnrecoverableError(from_here, message);
 }
 

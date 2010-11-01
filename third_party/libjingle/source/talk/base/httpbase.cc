@@ -27,7 +27,7 @@
 
 // Copyright 2005 Google Inc.  All Rights Reserved.
 //
-// Author: <bpm@google.com> (Brian McBarron)
+
 
 #ifdef WIN32
 #include "talk/base/win32.h"

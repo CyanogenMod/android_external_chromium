@@ -119,15 +119,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, InstallThenCancel) {
                                    "1.0"));
 }
 
-#if defined(OS_MACOSX)
-// See http://crbug.com/46097
-#define MAYBE_Incognito FLAKY_Incognito
-#else
-#define MAYBE_Incognito Incognito
-#endif
 // Tests that installing and uninstalling extensions don't crash with an
 // incognito window open.
-IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, MAYBE_Incognito) {
+IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, Incognito) {
   // Open an incognito window to the extensions management page.  We just
   // want to make sure that we don't crash while playing with extensions when
   // this guy is around.
@@ -209,7 +203,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, AutoUpdate) {
                                      basedir.AppendASCII("v2.crx"));
 
   // Install version 1 of the extension.
-  ExtensionTestMessageListener listener1("v1 installed");
+  ExtensionTestMessageListener listener1("v1 installed", false);
   ExtensionsService* service = browser()->profile()->GetExtensionsService();
   const size_t size_before = service->extensions()->size();
   ASSERT_TRUE(service->disabled_extensions()->empty());
@@ -226,7 +220,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, AutoUpdate) {
   service->updater()->set_blacklist_checks_enabled(false);
 
   // Run autoupdate and make sure version 2 of the extension was installed.
-  ExtensionTestMessageListener listener2("v2 installed");
+  ExtensionTestMessageListener listener2("v2 installed", false);
   service->updater()->CheckNow();
   ASSERT_TRUE(WaitForExtensionInstall());
   listener2.WaitUntilSatisfied();
@@ -254,6 +248,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, AutoUpdate) {
   ASSERT_EQ("2.0", extensions->at(size_before)->VersionString());
 }
 
+// See http://crbug.com/57378 for flakiness details.
 IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalUrlUpdate) {
   ExtensionsService* service = browser()->profile()->GetExtensionsService();
   const char* kExtensionId = "ogjcoiohnmldgjemafoockdghcjciccf";

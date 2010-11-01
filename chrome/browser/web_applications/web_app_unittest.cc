@@ -7,7 +7,7 @@
 #include "base/file_path.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/browser/tab_contents/test_tab_contents.h"
 #include "chrome/common/render_messages.h"
@@ -18,7 +18,7 @@ class WebApplicationTest : public RenderViewHostTestHarness {
  public:
   WebApplicationTest()
       : RenderViewHostTestHarness(),
-        ui_thread_(ChromeThread::UI, &message_loop_) {
+        ui_thread_(BrowserThread::UI, &message_loop_) {
   }
 
  private:
@@ -36,7 +36,7 @@ class WebApplicationTest : public RenderViewHostTestHarness {
     profile_.reset(NULL);
   }
 
-  ChromeThread ui_thread_;
+  BrowserThread ui_thread_;
 };
 
 TEST_F(WebApplicationTest, GetShortcutInfoForTab) {

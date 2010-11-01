@@ -160,6 +160,8 @@ TabRendererGtk::LoadingAnimation::LoadingAnimation(
       animation_frame_(0) {
 }
 
+TabRendererGtk::LoadingAnimation::~LoadingAnimation() {}
+
 bool TabRendererGtk::LoadingAnimation::ValidateLoadingAnimation(
     AnimationState animation_state) {
   bool has_changed = false;
@@ -275,7 +277,6 @@ TabRendererGtk::~TabRendererGtk() {
 }
 
 void TabRendererGtk::UpdateData(TabContents* contents,
-                                bool phantom,
                                 bool app,
                                 bool loading_only) {
   DCHECK(contents);
@@ -292,7 +293,6 @@ void TabRendererGtk::UpdateData(TabContents* contents,
     else
       data_.favicon = contents->GetFavIcon();
 
-    data_.phantom = phantom;
     data_.app = app;
     // This is kind of a hacky way to determine whether our icon is the default
     // favicon. But the plumbing that would be necessary to do it right would
@@ -612,12 +612,7 @@ void TabRendererGtk::Paint(gfx::Canvas* canvas) {
       show_close_button != showing_close_button_)
     Layout();
 
-  if (!phantom()) {
-    // TODO: this isn't quite right. To match the Windows side we need to render
-    // phantom tabs to a separate layer than alpha composite that. This will do
-    // for now though.
-    PaintTabBackground(canvas);
-  }
+  PaintTabBackground(canvas);
 
   if (!mini() || width() > kMiniTabRendererAsNormalTabWidth)
     PaintTitle(canvas);

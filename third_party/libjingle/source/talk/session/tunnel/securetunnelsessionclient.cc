@@ -129,21 +129,27 @@ TunnelSession* SecureTunnelSessionClient::MakeTunnelSession(
   return new SecureTunnelSession(this, session, stream_thread, role);
 }
 
-const SecureTunnelContentDescription* FindSecureTunnelContent(
-    const cricket::SessionDescription* sdesc) {
+bool FindSecureTunnelContent(const cricket::SessionDescription* sdesc,
+                             std::string* name,
+                             const SecureTunnelContentDescription** content) {
   const ContentInfo* cinfo = sdesc->FirstContentByType(NS_SECURE_TUNNEL);
   if (cinfo == NULL)
-    return NULL;
+    return false;
 
-  return static_cast<const SecureTunnelContentDescription*>(
+  *name = cinfo->name;
+  *content = static_cast<const SecureTunnelContentDescription*>(
       cinfo->description);
+  return true;
 }
 
 void SecureTunnelSessionClient::OnIncomingTunnel(const buzz::Jid &jid,
                                                  Session *session) {
-  const SecureTunnelContentDescription* content =
-      FindSecureTunnelContent(session->remote_description());
-  ASSERT(content != NULL);
+  std::string content_name;
+  const SecureTunnelContentDescription* content = NULL;
+  if (!FindSecureTunnelContent(session->remote_description(),
+                               &content_name, &content)) {
+    ASSERT(false);
+  }
 
   // Validate the certificate
   talk_base::scoped_ptr<talk_base::SSLCertificate> peer_cert(
@@ -206,7 +212,8 @@ void SecureTunnelSessionClient::OnIncomingTunnel(const buzz::Jid &jid,
 // </iq>
 
 
-bool SecureTunnelSessionClient::ParseContent(const buzz::XmlElement* elem,
+bool SecureTunnelSessionClient::ParseContent(SignalingProtocol protocol,
+                                             const buzz::XmlElement* elem,
                                              const ContentDescription** content,
                                              ParseError* error) {
   const buzz::XmlElement* type_elem = elem->FirstNamed(QN_SECURE_TUNNEL_TYPE);
@@ -232,7 +239,7 @@ bool SecureTunnelSessionClient::ParseContent(const buzz::XmlElement* elem,
 }
 
 bool SecureTunnelSessionClient::WriteContent(
-    const ContentDescription* untyped_content,
+    SignalingProtocol protocol, const ContentDescription* untyped_content,
     buzz::XmlElement** elem, WriteError* error) {
   const SecureTunnelContentDescription* content =
       static_cast<const SecureTunnelContentDescription*>(untyped_content);
@@ -259,9 +266,9 @@ bool SecureTunnelSessionClient::WriteContent(
 }
 
 SessionDescription* NewSecureTunnelSessionDescription(
-    const ContentDescription* content) {
+    const std::string& content_name, const ContentDescription* content) {
   SessionDescription* sdesc = new SessionDescription();
-  sdesc->AddContent(CN_SECURE_TUNNEL, NS_SECURE_TUNNEL, content);
+  sdesc->AddContent(content_name, NS_SECURE_TUNNEL, content);
   return sdesc;
 }
 
@@ -271,14 +278,15 @@ SessionDescription* SecureTunnelSessionClient::CreateOffer(
   // description.
   std::string pem_cert = GetIdentity().certificate().ToPEMString();
   return NewSecureTunnelSessionDescription(
+      CN_SECURE_TUNNEL,
       new SecureTunnelContentDescription(description, pem_cert, ""));
 }
 
 SessionDescription* SecureTunnelSessionClient::CreateAnswer(
     const SessionDescription* offer) {
-  const SecureTunnelContentDescription* offer_tunnel =
-      FindSecureTunnelContent(offer);
-  if (offer_tunnel == NULL)
+  std::string content_name;
+  const SecureTunnelContentDescription* offer_tunnel = NULL;
+  if (!FindSecureTunnelContent(offer, &content_name, &offer_tunnel))
     return NULL;
 
   // We are accepting a session request. We need to add our cert, the
@@ -286,6 +294,7 @@ SessionDescription* SecureTunnelSessionClient::CreateAnswer(
   // in OnIncomingTunnel().
   ASSERT(!offer_tunnel->client_pem_certificate.empty());
   return NewSecureTunnelSessionDescription(
+      content_name,
       new SecureTunnelContentDescription(
           offer_tunnel->description,
           offer_tunnel->client_pem_certificate,
@@ -336,9 +345,13 @@ void SecureTunnelSession::OnAccept() {
   // connect the tunnel. First we must set the peer certificate.
   ASSERT(channel_ != NULL);
   ASSERT(session_ != NULL);
-  const SecureTunnelContentDescription* remote_tunnel =
-      FindSecureTunnelContent(session_->remote_description());
-  ASSERT(remote_tunnel != NULL);
+  std::string content_name;
+  const SecureTunnelContentDescription* remote_tunnel = NULL;
+  if (!FindSecureTunnelContent(session_->remote_description(),
+                               &content_name, &remote_tunnel)) {
+    session_->Reject(STR_TERMINATE_INCOMPATIBLE_PARAMETERS);
+    return;
+  }
 
   const std::string& cert_pem =
       role_ == INITIATOR ? remote_tunnel->server_pem_certificate :
@@ -349,7 +362,7 @@ void SecureTunnelSession::OnAccept() {
     ASSERT(role_ == INITIATOR);  // when RESPONDER we validated it earlier
     LOG(LS_ERROR)
         << "Rejecting secure tunnel accept with invalid cetificate";
-    session_->Terminate();
+    session_->Reject(STR_TERMINATE_INCOMPATIBLE_PARAMETERS);
     return;
   }
   ASSERT(ssl_stream_reference_.get() != NULL);
@@ -363,7 +376,7 @@ void SecureTunnelSession::OnAccept() {
   // This will try to connect the PseudoTcpChannel. If and when that
   // succeeds, then ssl negotiation will take place, and when that
   // succeeds, the tunnel stream will finally open.
-  VERIFY(channel_->Connect("tcp"));
+  VERIFY(channel_->Connect(content_name, "tcp"));
 }
 
 }  // namespace cricket

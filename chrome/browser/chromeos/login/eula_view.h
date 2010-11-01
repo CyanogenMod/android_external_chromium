@@ -29,6 +29,7 @@ class DOMView;
 namespace chromeos {
 
 class HelpAppLauncher;
+class MetricsCrosSettingsProvider;
 
 // Delegate for TabContents that will show EULA.
 // Blocks context menu and other actions.
@@ -147,6 +148,13 @@ class EulaView
   // Pointer to shown message bubble. We don't need to delete it because
   // it will be deleted on bubble closing.
   MessageBubble* bubble_;
+
+  // TPM password local storage. By convention, we clear the password
+  // from TPM as soon as we read it. We store it here locally until
+  // EULA screen is closed.
+  // TODO(glotov): Sanitize memory used to store password when
+  // it's destroyed.
+  std::string tpm_password_;
 
   DISALLOW_COPY_AND_ASSIGN(EulaView);
 };

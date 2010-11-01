@@ -10,7 +10,7 @@
 
 #include "base/file_path.h"
 #include "base/ref_counted.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 
 
 // Manages packing an extension on the file thread and reporting the result
@@ -48,13 +48,13 @@ class PackExtensionJob : public base::RefCountedThreadSafe<PackExtensionJob> {
  private:
   friend class base::RefCountedThreadSafe<PackExtensionJob>;
 
-  ~PackExtensionJob() {}
+  virtual ~PackExtensionJob();
 
   void RunOnFileThread();
   void ReportSuccessOnClientThread();
   void ReportFailureOnClientThread(const std::string& error);
 
-  ChromeThread::ID client_thread_id_;
+  BrowserThread::ID client_thread_id_;
   Client* client_;
   FilePath root_directory_;
   FilePath key_file_;

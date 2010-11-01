@@ -27,6 +27,7 @@ struct SSLConfig {
   bool ssl3_enabled;  // True if SSL 3.0 is enabled.
   bool tls1_enabled;  // True if TLS 1.0 is enabled.
   bool dnssec_enabled;  // True if we'll accept DNSSEC chains in certificates.
+  bool snap_start_enabled;  // True if we'll try Snap Start handshakes.
 
   // True if we allow this connection to be MITM attacked. This sounds a little
   // worse than it is: large networks sometimes MITM attack all SSL connections
@@ -42,6 +43,9 @@ struct SSLConfig {
   // are not SSL configuration settings.
 
   struct CertAndStatus {
+    CertAndStatus();
+    ~CertAndStatus();
+
     scoped_refptr<X509Certificate> cert;
     int cert_status;
   };
@@ -124,6 +128,11 @@ class SSLConfigService : public base::RefCountedThreadSafe<SSLConfigService> {
   // embedded DNSSEC chain proving their validity.
   static void EnableDNSSEC();
   static bool dnssec_enabled();
+
+  // Enables Snap Start, an experiemental SSL/TLS extension for zero round
+  // trip handshakes.
+  static void EnableSnapStart();
+  static bool snap_start_enabled();
 
   // Sets a global flag which allows SSL connections to be MITM attacked. See
   // the comment about this flag in |SSLConfig|.

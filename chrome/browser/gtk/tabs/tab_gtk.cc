@@ -31,12 +31,13 @@ int GetTitleWidth(gfx::Font* font, std::wstring title) {
 
 }  // namespace
 
-class TabGtk::ContextMenuController : public menus::SimpleMenuModel::Delegate {
+class TabGtk::ContextMenuController : public menus::SimpleMenuModel::Delegate,
+                                      public MenuGtk::Delegate {
  public:
   explicit ContextMenuController(TabGtk* tab)
       : tab_(tab),
         model_(this, tab->delegate()->IsTabPinned(tab)) {
-    menu_.reset(new MenuGtk(NULL, &model_));
+    menu_.reset(new MenuGtk(this, &model_));
   }
 
   virtual ~ContextMenuController() {}
@@ -91,11 +92,43 @@ class TabGtk::ContextMenuController : public menus::SimpleMenuModel::Delegate {
       *accelerator = *accelerator_gtk;
     return !!accelerator_gtk;
   }
+
   virtual void ExecuteCommand(int command_id) {
     if (!tab_)
       return;
     tab_->delegate()->ExecuteCommandForTab(
         static_cast<TabStripModel::ContextMenuCommand>(command_id), tab_);
+  }
+
+  GtkWidget* GetImageForCommandId(int command_id) const {
+    int browser_cmd_id = 0;
+    switch (command_id) {
+      case TabStripModel::CommandNewTab:
+        browser_cmd_id = IDC_NEW_TAB;
+        break;
+
+      case TabStripModel::CommandReload:
+        browser_cmd_id = IDC_RELOAD;
+        break;
+
+      case TabStripModel::CommandCloseTab:
+        browser_cmd_id = IDC_CLOSE_TAB;
+        break;
+
+      case TabStripModel::CommandRestoreTab:
+        browser_cmd_id = IDC_RESTORE_TAB;
+        break;
+
+      case TabStripModel::CommandDuplicate:
+      case TabStripModel::CommandCloseOtherTabs:
+      case TabStripModel::CommandCloseTabsToRight:
+      case TabStripModel::CommandTogglePinned:
+      case TabStripModel::CommandBookmarkAllTabs:
+      case TabStripModel::CommandUseVerticalTabs:
+        return NULL;
+    }
+
+    return MenuGtk::Delegate::GetDefaultImageForCommandId(browser_cmd_id);
   }
 
   // The context menu.
@@ -315,11 +348,8 @@ void TabGtk::CloseButtonClicked() {
   delegate_->CloseTab(this);
 }
 
-void TabGtk::UpdateData(TabContents* contents,
-                        bool phantom,
-                        bool app,
-                        bool loading_only) {
-  TabRendererGtk::UpdateData(contents, phantom, app, loading_only);
+void TabGtk::UpdateData(TabContents* contents, bool app, bool loading_only) {
+  TabRendererGtk::UpdateData(contents, app, loading_only);
   // Cache the title width so we don't recalculate it every time the tab is
   // resized.
   title_width_ = GetTitleWidth(title_font(), GetTitle());
@@ -336,7 +366,6 @@ void TabGtk::SetBounds(const gfx::Rect& bounds) {
 
 void TabGtk::ShowContextMenu() {
   menu_controller_.reset(new ContextMenuController(this));
-
   menu_controller_->RunMenu();
 }
 

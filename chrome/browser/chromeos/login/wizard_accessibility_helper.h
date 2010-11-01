@@ -22,6 +22,8 @@ class Accelerator;
 class View;
 }
 
+namespace chromeos {
+
 // Class that provides convenience methods to enable accessibility for a
 // specified View.
 class WizardAccessibilityHelper {
@@ -49,12 +51,17 @@ class WizardAccessibilityHelper {
   // subsequent utterance.
   void MaybeSpeak(const char* str, bool queue, bool interruptible);
 
+  // Unregisters all accessibility notifications
+  void UnregisterNotifications();
+
  private:
   friend struct DefaultSingletonTraits<WizardAccessibilityHelper>;
 
   WizardAccessibilityHelper();
 
   virtual ~WizardAccessibilityHelper() {}
+
+  void RegisterNotifications();
 
   static scoped_ptr<views::Accelerator> accelerator_;
 
@@ -71,7 +78,11 @@ class WizardAccessibilityHelper {
   // Used for tracking registrations to accessibility notifications.
   NotificationRegistrar registrar_;
 
+  bool registered_notifications_;
+
   DISALLOW_COPY_AND_ASSIGN(WizardAccessibilityHelper);
 };
+
+}  // namespace chromeos
 
 #endif  // CHROME_BROWSER_CHROMEOS_LOGIN_WIZARD_ACCESSIBILITY_HELPER_H_

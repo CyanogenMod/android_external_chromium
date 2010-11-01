@@ -13,7 +13,7 @@
 #include "base/ref_counted.h"
 #include "base/task.h"
 #include "chrome/browser/browser_child_process_host.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/extensions/update_manifest.h"
 #include "ipc/ipc_channel.h"
 
@@ -104,7 +104,7 @@ class UtilityProcessHost : public BrowserChildProcessHost {
   };
 
   UtilityProcessHost(ResourceDispatcherHost* rdh, Client* client,
-                     ChromeThread::ID client_thread_id);
+                     BrowserThread::ID client_thread_id);
   virtual ~UtilityProcessHost();
 
   // Start a process to unpack the extension at the given path.  The process
@@ -163,7 +163,7 @@ class UtilityProcessHost : public BrowserChildProcessHost {
 
   // A pointer to our client interface, who will be informed of progress.
   scoped_refptr<Client> client_;
-  ChromeThread::ID client_thread_id_;
+  BrowserThread::ID client_thread_id_;
   // True when running in batch mode, i.e., StartBatchMode() has been called
   // and the utility process will run until EndBatchMode().
   bool is_batch_mode_;

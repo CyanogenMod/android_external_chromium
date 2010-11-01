@@ -274,54 +274,47 @@ void AccessibilityEventRouterGtk::RemoveEventListeners() {
 
 void AccessibilityEventRouterGtk::AddRootWidget(
     GtkWidget* root_widget, Profile* profile) {
-  root_widget_profile_map_[root_widget] = profile;
+  root_widget_info_map_[root_widget].refcount++;
+  root_widget_info_map_[root_widget].profile = profile;
 }
 
 void AccessibilityEventRouterGtk::RemoveRootWidget(GtkWidget* root_widget) {
-  DCHECK(root_widget_profile_map_.find(root_widget) !=
-         root_widget_profile_map_.end());
-  root_widget_profile_map_.erase(root_widget);
+  DCHECK(root_widget_info_map_.find(root_widget) !=
+         root_widget_info_map_.end());
+  root_widget_info_map_[root_widget].refcount--;
+  if (root_widget_info_map_[root_widget].refcount == 0) {
+    root_widget_info_map_.erase(root_widget);
+  }
 }
 
-void AccessibilityEventRouterGtk::IgnoreWidget(GtkWidget* widget) {
-  widget_info_map_[widget].ignore = true;
-}
-
-void AccessibilityEventRouterGtk::SetWidgetName(
+void AccessibilityEventRouterGtk::AddWidgetNameOverride(
     GtkWidget* widget, std::string name) {
   widget_info_map_[widget].name = name;
+  widget_info_map_[widget].refcount++;
 }
 
-void AccessibilityEventRouterGtk::RemoveWidget(GtkWidget* widget) {
+void AccessibilityEventRouterGtk::RemoveWidgetNameOverride(GtkWidget* widget) {
   DCHECK(widget_info_map_.find(widget) != widget_info_map_.end());
-  widget_info_map_.erase(widget);
+  widget_info_map_[widget].refcount--;
+  if (widget_info_map_[widget].refcount == 0) {
+    widget_info_map_.erase(widget);
+  }
 }
 
 void AccessibilityEventRouterGtk::FindWidget(
     GtkWidget* widget, Profile** profile, bool* is_accessible) {
   *is_accessible = false;
 
-  // First see if it's a descendant of a root widget.
-  for (base::hash_map<GtkWidget*, Profile*>::const_iterator iter =
-           root_widget_profile_map_.begin();
-       iter != root_widget_profile_map_.end();
+  for (base::hash_map<GtkWidget*, RootWidgetInfo>::const_iterator iter =
+           root_widget_info_map_.begin();
+       iter != root_widget_info_map_.end();
        ++iter) {
-    if (gtk_widget_is_ancestor(widget, iter->first)) {
+    if (widget == iter->first || gtk_widget_is_ancestor(widget, iter->first)) {
       *is_accessible = true;
       if (profile)
-        *profile = iter->second;
+        *profile = iter->second.profile;
       break;
     }
-  }
-  if (!*is_accessible)
-    return;
-
-  // Now make sure it's not marked as a widget to be ignored.
-  base::hash_map<GtkWidget*, WidgetInfo>::const_iterator iter =
-      widget_info_map_.find(widget);
-  if (iter != widget_info_map_.end() && iter->second.ignore) {
-    *is_accessible = false;
-    return;
   }
 }
 

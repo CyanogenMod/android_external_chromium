@@ -5,16 +5,15 @@
 #include "chrome/browser/views/page_info_bubble_view.h"
 
 #include "app/l10n_util.h"
-#include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/cert_store.h"
 #include "chrome/browser/certificate_viewer.h"
 #include "chrome/browser/views/frame/browser_view.h"
 #include "chrome/browser/views/info_bubble.h"
 #include "chrome/browser/views/toolbar_view.h"
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
-#include "grit/theme_resources.h"
 #include "views/controls/image_view.h"
 #include "views/controls/label.h"
 #include "views/controls/separator.h"
@@ -32,7 +31,12 @@ const int kHGapImageToDescription = 6;
 const int kTextPaddingRight = 10;
 const int kPaddingBelowSeparator = 4;
 const int kPaddingAboveSeparator = 13;
-const int kIconOffset = 28;
+const int kIconHorizontalOffset = 27;
+const int kIconVerticalOffset = -7;
+
+// The duration of the animation that resizes the bubble once the async
+// information is provided through the ModelChanged event.
+const int kPageInfoSlideDuration = 300;
 
 // A section contains an image that shows a status (good or bad), a title, an
 // optional head-line (in bold) and a description.
@@ -41,6 +45,7 @@ class Section : public views::View,
  public:
   Section(PageInfoBubbleView* owner,
           const PageInfoModel::SectionInfo& section_info,
+          const SkBitmap* status_icon,
           bool show_cert);
   virtual ~Section();
 
@@ -84,7 +89,18 @@ PageInfoBubbleView::PageInfoBubbleView(gfx::NativeWindow parent_window,
       parent_window_(parent_window),
       cert_id_(ssl.cert_id()),
       info_bubble_(NULL),
-      help_center_link_(NULL) {
+      help_center_link_(NULL),
+      ALLOW_THIS_IN_INITIALIZER_LIST(resize_animation_(this)),
+      animation_start_height_(0) {
+  if (cert_id_ > 0) {
+    scoped_refptr<net::X509Certificate> cert;
+    CertStore::GetSharedInstance()->RetrieveCert(cert_id_, &cert);
+    // When running with fake certificate (Chrome Frame) or Gears in offline
+    // mode, we have no os certificate, so there is no cert to show. Don't
+    // bother showing the cert info link in that case.
+    if (!cert.get() || !cert->os_cert_handle())
+      cert_id_ = 0;
+  }
   LayoutSections();
 }
 
@@ -108,6 +124,17 @@ void PageInfoBubbleView::LayoutSections() {
                      views::GridLayout::USE_PREF,  // Size type.
                      0,   // Ignored for USE_PREF.
                      0);  // Minimum size.
+  // Add a column set for aligning the text when it has no icons (such as the
+  // help center link).
+  columns = layout->AddColumnSet(1);
+  columns->AddPaddingColumn(
+      0, kHGapToBorder + kIconHorizontalOffset + kHGapImageToDescription);
+  columns->AddColumn(views::GridLayout::LEADING,  // Horizontal resize.
+                     views::GridLayout::FILL,     // Vertical resize.
+                     1,   // Resize weight.
+                     views::GridLayout::USE_PREF,  // Size type.
+                     0,   // Ignored for USE_PREF.
+                     0);  // Minimum size.
 
   int count = model_.GetSectionCount();
   for (int i = 0; i < count; ++i) {
@@ -115,7 +142,8 @@ void PageInfoBubbleView::LayoutSections() {
     layout->StartRow(0, 0);
     // TODO(finnur): Remove title from the info struct, since it is
     //               not used anymore.
-    layout->AddView(new Section(this, info, cert_id_ > 0));
+    const SkBitmap* icon = model_.GetIconImage(info.icon_id);
+    layout->AddView(new Section(this, info, icon, cert_id_ > 0));
 
     // Add separator after all sections.
     layout->AddPaddingRow(0, kPaddingAboveSeparator);
@@ -125,7 +153,7 @@ void PageInfoBubbleView::LayoutSections() {
   }
 
   // Then add the help center link at the bottom.
-  layout->StartRow(0, 0);
+  layout->StartRow(0, 1);
   help_center_link_ =
       new views::Link(l10n_util::GetString(IDS_PAGE_INFO_HELP_CENTER_LINK));
   help_center_link_->SetController(this);
@@ -140,7 +168,8 @@ gfx::Size PageInfoBubbleView::GetPreferredSize() {
   int count = model_.GetSectionCount();
   for (int i = 0; i < count; ++i) {
     PageInfoModel::SectionInfo info = model_.GetSectionInfo(i);
-    Section section(this, info, cert_id_ > 0);
+    const SkBitmap* icon = model_.GetIconImage(info.icon_id);
+    Section section(this, info, icon, cert_id_ > 0);
     size.Enlarge(0, section.GetHeightForWidth(size.width()));
   }
 
@@ -159,12 +188,22 @@ gfx::Size PageInfoBubbleView::GetPreferredSize() {
   size.Enlarge(0, separator_plus_padding.height() +
                   link_size.height());
 
+  if (!resize_animation_.is_animating())
+    return size;
+
+  // We are animating from animation_start_height_ to size.
+  int target_height = animation_start_height_ + static_cast<int>(
+      (size.height() - animation_start_height_) *
+      resize_animation_.GetCurrentValue());
+  size.set_height(target_height);
   return size;
 }
 
 void PageInfoBubbleView::ModelChanged() {
+  animation_start_height_ = bounds().height();
   LayoutSections();
-  info_bubble_->SizeToContents();
+  resize_animation_.SetSlideDuration(kPageInfoSlideDuration);
+  resize_animation_.Show();
 }
 
 void PageInfoBubbleView::LinkActivated(views::Link* source, int event_flags) {
@@ -173,43 +212,28 @@ void PageInfoBubbleView::LinkActivated(views::Link* source, int event_flags) {
   browser->OpenURL(url, GURL(), NEW_FOREGROUND_TAB, PageTransition::LINK);
 }
 
+void PageInfoBubbleView::AnimationEnded(const Animation* animation) {
+  info_bubble_->SizeToContents();
+}
+
+void PageInfoBubbleView::AnimationProgressed(const Animation* animation) {
+  info_bubble_->SizeToContents();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Section
 
 Section::Section(PageInfoBubbleView* owner,
                  const PageInfoModel::SectionInfo& section_info,
+                 const SkBitmap* state_icon,
                  bool show_cert)
     : owner_(owner),
       info_(section_info),
       status_image_(NULL),
       link_(NULL) {
-  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-
-  if (info_.type == PageInfoModel::SECTION_INFO_IDENTITY ||
-      info_.type == PageInfoModel::SECTION_INFO_CONNECTION) {
+  if (state_icon) {
     status_image_ = new views::ImageView();
-    switch (info_.state) {
-      case PageInfoModel::SECTION_STATE_OK:
-        status_image_->SetImage(rb.GetBitmapNamed(IDR_PAGEINFO_GOOD));
-        break;
-      case PageInfoModel::SECTION_STATE_WARNING_MAJOR:
-        status_image_->SetImage(rb.GetBitmapNamed(IDR_PAGEINFO_WARNING_MAJOR));
-        break;
-      case PageInfoModel::SECTION_STATE_WARNING_MINOR:
-        status_image_->SetImage(rb.GetBitmapNamed(IDR_PAGEINFO_WARNING_MINOR));
-        break;
-      case PageInfoModel::SECTION_STATE_ERROR:
-        status_image_->SetImage(rb.GetBitmapNamed(IDR_PAGEINFO_BAD));
-        break;
-      default:
-        NOTREACHED();  // Do you need to add a case here?
-    }
-    AddChildView(status_image_);
-  } else if (info_.type == PageInfoModel::SECTION_INFO_FIRST_VISIT) {
-    status_image_ = new views::ImageView();
-    status_image_->SetImage(info_.state == PageInfoModel::SECTION_STATE_OK ?
-        rb.GetBitmapNamed(IDR_PAGEINFO_INFO) :
-        rb.GetBitmapNamed(IDR_PAGEINFO_WARNING_MAJOR));
+    status_image_->SetImage(*state_icon);
     AddChildView(status_image_);
   }
 
@@ -308,13 +332,14 @@ void ShowPageInfoBubble(gfx::NativeWindow parent,
   gfx::Point point;
   if (base::i18n::IsRTL()) {
     int width = browser_view->toolbar()->location_bar()->width();
-    point = gfx::Point(width - kIconOffset, 0);
+    point = gfx::Point(width - kIconHorizontalOffset, 0);
   }
+  point.Offset(0, kIconVerticalOffset);
   views::View::ConvertPointToScreen(browser_view->toolbar()->location_bar(),
                                     &point);
   gfx::Rect bounds = browser_view->toolbar()->location_bar()->bounds();
   bounds.set_origin(point);
-  bounds.set_width(kIconOffset);
+  bounds.set_width(kIconHorizontalOffset);
 
   // Show the bubble.
   PageInfoBubbleView* page_info_bubble =

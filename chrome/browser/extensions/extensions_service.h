@@ -19,7 +19,8 @@
 #include "base/task.h"
 #include "base/time.h"
 #include "base/tuple.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
+#include "chrome/browser/extensions/default_apps.h"
 #include "chrome/browser/extensions/extension_icon_manager.h"
 #include "chrome/browser/extensions/extension_menu_manager.h"
 #include "chrome/browser/extensions/extension_prefs.h"
@@ -51,6 +52,7 @@ struct PendingExtensionInfo {
   enum ExpectedCrxType {
     UNKNOWN,  // Sometimes we don't know the type of a pending item.  An
               // update URL from external_extensions.json is one such case.
+    APP,
     THEME,
     EXTENSION
   };
@@ -60,7 +62,8 @@ struct PendingExtensionInfo {
                        bool is_from_sync,
                        bool install_silently,
                        bool enable_on_install,
-                       bool enable_incognito_on_install);
+                       bool enable_incognito_on_install,
+                       Extension::Location install_source);
 
   PendingExtensionInfo();
 
@@ -70,6 +73,7 @@ struct PendingExtensionInfo {
   bool install_silently;
   bool enable_on_install;
   bool enable_incognito_on_install;
+  Extension::Location install_source;
 };
 
 // A PendingExtensionMap is a map from IDs of pending extensions to
@@ -98,7 +102,7 @@ class ExtensionUpdateService {
 // Manages installed and running Chromium extensions.
 class ExtensionsService
     : public base::RefCountedThreadSafe<ExtensionsService,
-                                        ChromeThread::DeleteOnUIThread>,
+                                        BrowserThread::DeleteOnUIThread>,
       public ExtensionUpdateService,
       public NotificationObserver {
  public:
@@ -129,15 +133,19 @@ class ExtensionsService
   static const char* kCurrentVersionFileName;
 
   // Determine if a given extension download should be treated as if it came
-  // from the gallery. Note that this is different from IsGalleryDownloadURL
-  // (above) in that in requires *both* that the download_url match and
-  // that the download was referred from a gallery page.
-  static bool IsDownloadFromGallery(const GURL& download_url,
-                                    const GURL& referrer_url);
+  // from the gallery. Note that this is requires *both* that the download_url
+  // match and that the download was referred from a gallery page.
+  bool IsDownloadFromGallery(const GURL& download_url,
+                             const GURL& referrer_url);
 
   // Determine if the downloaded extension came from the theme mini-gallery,
   // Used to test if we need to show the "Loading" dialog for themes.
   static bool IsDownloadFromMiniGallery(const GURL& download_url);
+
+  // Attempts to uninstall an extension from a given ExtensionService. Returns
+  // true iff the target extension exists.
+  static bool UninstallExtensionHelper(ExtensionsService* extensions_service,
+                                       const std::string& extension_id);
 
   ExtensionsService(Profile* profile,
                     const CommandLine* command_line,
@@ -165,6 +173,10 @@ class ExtensionsService
     return !(extensions_.empty() && disabled_extensions_.empty());
   }
 
+  const FilePath& install_directory() const { return install_directory_; }
+
+  DefaultApps* default_apps() { return &default_apps_; }
+
   // Whether this extension can run in an incognito window.
   bool IsIncognitoEnabled(const Extension* extension);
   void SetIsIncognitoEnabled(Extension* extension, bool enabled);
@@ -172,15 +184,6 @@ class ExtensionsService
   // Whether this extension can inject scripts into pages with file URLs.
   bool AllowFileAccess(const Extension* extension);
   void SetAllowFileAccess(Extension* extension, bool allow);
-
-  // Returns true if the extension has permission to execute script on a
-  // particular host.
-  // TODO(aa): Also use this in the renderer, for normal content script
-  // injection. Currently, that has its own copy of this code.
-  bool CanExecuteScriptOnHost(Extension* extension,
-                              const GURL& url, std::string* error) const;
-
-  const FilePath& install_directory() const { return install_directory_; }
 
   // Initialize and start all installed extensions.
   void Init();
@@ -227,6 +230,10 @@ class ExtensionsService
   // to be fetched, installed, and activated.
   void AddPendingExtensionFromExternalUpdateUrl(const std::string& id,
                                                 const GURL& update_url);
+
+  // Like the above. Always installed silently, and defaults update url
+  // from extension id.
+  void AddPendingExtensionFromDefaultAppList(const std::string& id);
 
   // Reloads the specified extension.
   void ReloadExtension(const std::string& extension_id);
@@ -276,6 +283,9 @@ class ExtensionsService
 
   // Scan the extension directory and clean up the cruft.
   void GarbageCollectExtensions();
+
+  // The App that represents the web store.
+  Extension* GetWebStoreApp();
 
   // Lookup an extension by |url|.
   Extension* GetExtensionByURL(const GURL& url);
@@ -386,12 +396,15 @@ class ExtensionsService
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
-  // Whether there are any apps installed.
-  bool HasApps();
+  // Whether there are any apps installed. Component apps are not included.
+  bool HasApps() const;
+
+  // Gets the set of loaded app ids. Component apps are not included.
+  ExtensionIdSet GetAppIds() const;
 
  private:
   virtual ~ExtensionsService();
-  friend class ChromeThread;
+  friend class BrowserThread;
   friend class DeleteTask<ExtensionsService>;
 
   // Clear all persistent data that may have been stored by the extension.
@@ -409,7 +422,8 @@ class ExtensionsService
       const std::string& id, const GURL& update_url,
       PendingExtensionInfo::ExpectedCrxType crx_type,
       bool is_from_sync, bool install_silently,
-      bool enable_on_install, bool enable_incognito_on_install);
+      bool enable_on_install, bool enable_incognito_on_install,
+      Extension::Location install_source);
 
   // Handles sending notification that |extension| was loaded.
   void NotifyExtensionLoaded(Extension* extension);
@@ -510,6 +524,13 @@ class ExtensionsService
   // intrinsically protected.
   typedef std::map<GURL, int> ProtectedStorageMap;
   ProtectedStorageMap protected_storage_map_;
+
+  // Manages the installation of default apps and the promotion of them in the
+  // app launcher.
+  DefaultApps default_apps_;
+
+  // Flag to make sure event routers are only initialized once.
+  bool event_routers_initialized_;
 
   FRIEND_TEST_ALL_PREFIXES(ExtensionsServiceTest,
                            UpdatePendingExtensionAlreadyInstalled);

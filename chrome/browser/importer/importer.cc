@@ -10,8 +10,8 @@
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browsing_instance.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/importer/firefox_profile_lock.h"
 #include "chrome/browser/importer/importer_bridge.h"
 #include "chrome/browser/renderer_host/site_instance.h"
@@ -200,12 +200,12 @@ void ImporterHost::StartImportSettings(
           MB_OK | MB_TOPMOST);
 
       GURL url("https://www.google.com/accounts/ServiceLogin");
-      BrowsingInstance* instance = new BrowsingInstance(writer_->profile());
-      SiteInstance* site = instance->GetSiteInstanceForURL(url);
       Browser* browser = BrowserList::GetLastActive();
-      browser->AddTabWithURL(url, GURL(), PageTransition::TYPED, -1,
-                             TabStripModel::ADD_SELECTED, site, std::string(),
-                             NULL);
+      Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
+      // BrowsingInstance is refcounted.
+      BrowsingInstance* instance = new BrowsingInstance(writer_->profile());
+      params.instance = instance->GetSiteInstanceForURL(url);
+      browser->AddTabWithURL(&params);
 
       MessageLoop::current()->PostTask(FROM_HERE, NewRunnableMethod(
         this, &ImporterHost::OnLockViewEnd, false));
@@ -233,7 +233,7 @@ void ImporterHost::InvokeTaskIfDone() {
   if (waiting_for_bookmarkbar_model_ || !registrar_.IsEmpty() ||
       !is_source_readable_)
     return;
-  ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE, task_);
+  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE, task_);
 }
 
 void ImporterHost::ImportItemStarted(importer::ImportItem item) {
@@ -396,10 +396,10 @@ ExternalProcessImporterClient::~ExternalProcessImporterClient() {
 
 void ExternalProcessImporterClient::Start() {
   AddRef();  // balanced in Cleanup.
-  ChromeThread::ID thread_id;
-  CHECK(ChromeThread::GetCurrentThreadIdentifier(&thread_id));
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::ID thread_id;
+  CHECK(BrowserThread::GetCurrentThreadIdentifier(&thread_id));
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(this,
           &ExternalProcessImporterClient::StartProcessOnIOThread,
           g_browser_process->resource_dispatcher_host(), thread_id));
@@ -407,7 +407,7 @@ void ExternalProcessImporterClient::Start() {
 
 void ExternalProcessImporterClient::StartProcessOnIOThread(
     ResourceDispatcherHost* rdh,
-    ChromeThread::ID thread_id) {
+    BrowserThread::ID thread_id) {
   profile_import_process_host_ =
       new ProfileImportProcessHost(rdh, this, thread_id);
   profile_import_process_host_->StartProfileImportProcess(profile_info_,
@@ -420,8 +420,8 @@ void ExternalProcessImporterClient::Cancel() {
 
   cancelled_ = true;
   if (profile_import_process_host_) {
-    ChromeThread::PostTask(
-        ChromeThread::IO, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
         NewRunnableMethod(this,
             &ExternalProcessImporterClient::CancelImportProcessOnIOThread));
   }
@@ -484,8 +484,8 @@ void ExternalProcessImporterClient::OnImportItemFinished(int item_data) {
   importer::ImportItem import_item =
       static_cast<importer::ImportItem>(item_data);
   bridge_->NotifyItemEnded(import_item);
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(this,
           &ExternalProcessImporterClient::NotifyItemFinishedOnIOThread,
           import_item));

@@ -115,14 +115,14 @@ bool ImportCACerts(const net::CertificateList& certificates,
     if (!CERT_IsCACert(cert->os_cert_handle(), NULL)) {
       not_imported->push_back(net::CertDatabase::ImportCertFailure(
           cert, net::ERR_IMPORT_CA_CERT_NOT_CA));
-      LOG(INFO) << "skipping cert (non-ca)";
+      VLOG(1) << "skipping cert (non-ca)";
       continue;
     }
 
     if (cert->os_cert_handle()->isperm) {
       not_imported->push_back(net::CertDatabase::ImportCertFailure(
           cert, net::ERR_IMPORT_CERT_ALREADY_EXISTS));
-      LOG(INFO) << "skipping cert (perm)";
+      VLOG(1) << "skipping cert (perm)";
       continue;
     }
 
@@ -133,7 +133,7 @@ bool ImportCACerts(const net::CertificateList& certificates,
       // public.)
       not_imported->push_back(net::CertDatabase::ImportCertFailure(
           cert, net::ERR_FAILED));
-      LOG(INFO) << "skipping cert (verify) " << PORT_GetError();
+      VLOG(1) << "skipping cert (verify) " << PORT_GetError();
       continue;
     }
 
@@ -155,6 +155,42 @@ bool ImportCACerts(const net::CertificateList& certificates,
           cert, net::ERR_IMPORT_CA_CERT_FAILED));
     }
   }
+
+  // Any errors importing individual certs will be in listed in |not_imported|.
+  return true;
+}
+
+// Based on nsNSSCertificateDB::ImportServerCertificate.
+bool ImportServerCert(const net::CertificateList& certificates,
+                      net::CertDatabase::ImportCertFailureList* not_imported) {
+  base::ScopedPK11Slot slot(base::GetDefaultNSSKeySlot());
+  if (!slot.get()) {
+    LOG(ERROR) << "Couldn't get internal key slot!";
+    return false;
+  }
+
+  for (size_t i = 0; i < certificates.size(); ++i) {
+    const scoped_refptr<net::X509Certificate>& cert = certificates[i];
+
+    // Mozilla uses CERT_ImportCerts, which doesn't take a slot arg.  We use
+    // PK11_ImportCert instead.
+    SECStatus srv = PK11_ImportCert(slot.get(), cert->os_cert_handle(),
+                                    CK_INVALID_HANDLE,
+                                    cert->subject().GetDisplayName().c_str(),
+                                    PR_FALSE /* includeTrust (unused) */);
+    if (srv != SECSuccess) {
+      LOG(ERROR) << "PK11_ImportCert failed with error " << PORT_GetError();
+      not_imported->push_back(net::CertDatabase::ImportCertFailure(
+          cert, net::ERR_IMPORT_SERVER_CERT_FAILED));
+      continue;
+    }
+  }
+
+  // Set as valid peer, but without any extra trust.
+  SetCertTrust(certificates[0].get(), net::SERVER_CERT,
+               net::CertDatabase::UNTRUSTED);
+  // TODO(mattm): Report SetCertTrust result?  Putting in not_imported
+  // wouldn't quite match up since it was imported...
 
   // Any errors importing individual certs will be in listed in |not_imported|.
   return true;

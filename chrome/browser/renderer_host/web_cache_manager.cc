@@ -7,7 +7,7 @@
 #include <algorithm>
 
 #include "base/compiler_specific.h"
-#include "base/histogram.h"
+#include "base/metrics/histogram.h"
 #include "base/singleton.h"
 #include "base/sys_info.h"
 #include "base/time.h"
@@ -145,6 +145,12 @@ void WebCacheManager::ObserveStats(int renderer_id,
 void WebCacheManager::SetGlobalSizeLimit(size_t bytes) {
   global_size_limit_ = bytes;
   ReviseAllocationStrategyLater();
+}
+
+void WebCacheManager::ClearCache() {
+  // Tell each renderer process to clear the cache.
+  ClearRendederCache(active_renderers_);
+  ClearRendederCache(inactive_renderers_);
 }
 
 // static
@@ -295,6 +301,15 @@ void WebCacheManager::EnactStrategy(const AllocationStrategy& strategy) {
                                                 capacity));
     }
     ++allocation;
+  }
+}
+
+void WebCacheManager::ClearRendederCache(std::set<int> renderers) {
+  std::set<int>::const_iterator iter = renderers.begin();
+  for (; iter != renderers.end(); ++iter) {
+    RenderProcessHost* host = RenderProcessHost::FromID(*iter);
+    if (host)
+      host->Send(new ViewMsg_ClearCache());
   }
 }
 

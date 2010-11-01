@@ -13,7 +13,7 @@
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/importer/importer_data_types.h"
 // TODO: remove this, see friend declaration in ImporterBridge.
 #include "chrome/browser/importer/toolbar_importer.h"
@@ -24,7 +24,7 @@ class ImporterHost;
 
 class ImporterBridge : public base::RefCountedThreadSafe<ImporterBridge> {
  public:
-  ImporterBridge() { }
+  ImporterBridge();
 
   virtual void AddBookmarkEntries(
       const std::vector<ProfileWriter::BookmarkEntry>& bookmarks,
@@ -72,7 +72,7 @@ class ImporterBridge : public base::RefCountedThreadSafe<ImporterBridge> {
   // the abstraction here and assume import is in-process.
   friend class Toolbar5Importer;
 
-  virtual ~ImporterBridge() {}
+  virtual ~ImporterBridge();
 
   DISALLOW_COPY_AND_ASSIGN(ImporterBridge);
 };
@@ -110,7 +110,7 @@ class InProcessImporterBridge : public ImporterBridge {
   virtual std::wstring GetLocalizedString(int message_id);
 
  private:
-  ~InProcessImporterBridge() {}
+  virtual ~InProcessImporterBridge();
 
   ProfileWriter* const writer_;  // weak
   ImporterHost* const host_;  // weak
@@ -156,7 +156,7 @@ class ExternalProcessImporterBridge : public ImporterBridge {
   virtual std::wstring GetLocalizedString(int message_id);
 
  private:
-  ~ExternalProcessImporterBridge() {}
+  ~ExternalProcessImporterBridge();
 
   // Call back to send data and messages across IPC.
   ProfileImportThread* const profile_import_thread_;

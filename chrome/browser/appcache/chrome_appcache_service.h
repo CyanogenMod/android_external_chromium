@@ -7,7 +7,7 @@
 #pragma once
 
 #include "base/ref_counted.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/host_content_settings_map.h"
 #include "chrome/common/notification_registrar.h"
 #include "webkit/appcache/appcache_policy.h"
@@ -26,7 +26,7 @@ class FilePath;
 // the IO thread (unless specifically called out in doc comments).
 class ChromeAppCacheService
     : public base::RefCountedThreadSafe<ChromeAppCacheService,
-                                        ChromeThread::DeleteOnIOThread>,
+                                        BrowserThread::DeleteOnIOThread>,
       public appcache::AppCacheService,
       public appcache::AppCachePolicy,
       public NotificationObserver {
@@ -45,7 +45,7 @@ class ChromeAppCacheService
   static void ClearLocalState(const FilePath& profile_path);
 
  private:
-  friend class ChromeThread;
+  friend class BrowserThread;
   friend class DeleteTask<ChromeAppCacheService>;
 
   virtual ~ChromeAppCacheService();

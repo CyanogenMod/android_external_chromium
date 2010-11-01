@@ -8,7 +8,8 @@
 #include <set>
 
 #include "base/callback.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/autofill/personal_data_manager.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/history/history.h"
@@ -17,6 +18,7 @@
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/password_manager/password_store.h"
+#include "chrome/browser/renderer_host/web_cache_manager.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/tab_restore_service.h"
@@ -179,8 +181,8 @@ void BrowsingDataRemover::Remove(int remove_mask) {
     database_tracker_ = profile_->GetDatabaseTracker();
     if (database_tracker_.get()) {
       waiting_for_clear_databases_ = true;
-      ChromeThread::PostTask(
-          ChromeThread::FILE, FROM_HERE,
+      BrowserThread::PostTask(
+          BrowserThread::FILE, FROM_HERE,
           NewRunnableMethod(
               this,
               &BrowsingDataRemover::ClearDatabasesOnFILEThread,
@@ -188,16 +190,16 @@ void BrowsingDataRemover::Remove(int remove_mask) {
               webkit_db_whitelist));
     }
 
-    ChromeThread::PostTask(
-        ChromeThread::IO, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
         NewRunnableMethod(
             profile_->GetTransportSecurityState(),
             &net::TransportSecurityState::DeleteSince,
             delete_begin_));
 
     waiting_for_clear_appcache_ = true;
-    ChromeThread::PostTask(
-        ChromeThread::IO, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
         NewRunnableMethod(
             this,
             &BrowsingDataRemover::ClearAppCacheOnIOThread,
@@ -224,10 +226,16 @@ void BrowsingDataRemover::Remove(int remove_mask) {
     if (web_data_service) {
       web_data_service->RemoveFormElementsAddedBetween(delete_begin_,
           delete_end_);
+      web_data_service->RemoveAutoFillProfilesAndCreditCardsModifiedBetween(
+          delete_begin_, delete_end_);
+      profile_->GetPersonalDataManager()->Refresh();
     }
   }
 
   if (remove_mask & REMOVE_CACHE) {
+    // Tell the renderers to clear their cache.
+    WebCacheManager::GetInstance()->ClearCache();
+
     // Invoke ClearBrowsingDataView::ClearCache on the IO thread.
     waiting_for_clear_cache_ = true;
     UserMetrics::RecordAction(UserMetricsAction("ClearBrowsingData_Cache"),
@@ -236,8 +244,8 @@ void BrowsingDataRemover::Remove(int remove_mask) {
     main_context_getter_ = profile_->GetRequestContext();
     media_context_getter_ = profile_->GetRequestContextForMedia();
 
-    ChromeThread::PostTask(
-        ChromeThread::IO, FROM_HERE,
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
         NewRunnableMethod(this, &BrowsingDataRemover::ClearCacheOnIOThread));
   }
 
@@ -320,7 +328,7 @@ void BrowsingDataRemover::ClearedCache() {
 
 void BrowsingDataRemover::ClearCacheOnIOThread() {
   // This function should be called on the IO thread.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   DCHECK_EQ(STATE_NONE, next_cache_state_);
   DCHECK(main_context_getter_);
   DCHECK(media_context_getter_);
@@ -373,8 +381,8 @@ void BrowsingDataRemover::DoClearCache(int rv) {
         cache_ = NULL;
 
         // Notify the UI thread that we are done.
-        ChromeThread::PostTask(
-            ChromeThread::UI, FROM_HERE,
+        BrowserThread::PostTask(
+            BrowserThread::UI, FROM_HERE,
             NewRunnableMethod(this, &BrowsingDataRemover::ClearedCache));
 
         next_cache_state_ = STATE_NONE;
@@ -390,9 +398,9 @@ void BrowsingDataRemover::DoClearCache(int rv) {
 }
 
 void BrowsingDataRemover::OnClearedDatabases(int rv) {
-  if (!ChromeThread::CurrentlyOn(ChromeThread::UI)) {
-    bool result = ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+  if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
+    bool result = BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(this, &BrowsingDataRemover::OnClearedDatabases, rv));
     DCHECK(result);
     return;
@@ -407,7 +415,7 @@ void BrowsingDataRemover::OnClearedDatabases(int rv) {
 void BrowsingDataRemover::ClearDatabasesOnFILEThread(base::Time delete_begin,
     const std::vector<string16>& webkit_db_whitelist) {
   // This function should be called on the FILE thread.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
   int rv = database_tracker_->DeleteDataModifiedSince(
       delete_begin, webkit_db_whitelist, &database_cleared_callback_);
@@ -416,9 +424,9 @@ void BrowsingDataRemover::ClearDatabasesOnFILEThread(base::Time delete_begin,
 }
 
 void BrowsingDataRemover::OnClearedAppCache() {
-  if (!ChromeThread::CurrentlyOn(ChromeThread::UI)) {
-    bool result = ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+  if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
+    bool result = BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(this, &BrowsingDataRemover::OnClearedAppCache));
     DCHECK(result);
     return;
@@ -430,7 +438,7 @@ void BrowsingDataRemover::OnClearedAppCache() {
 
 void BrowsingDataRemover::ClearAppCacheOnIOThread(base::Time delete_begin,
     const std::vector<GURL>& origin_whitelist) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   DCHECK(waiting_for_clear_appcache_);
 
   appcache_whitelist_ = origin_whitelist;
@@ -478,7 +486,7 @@ void BrowsingDataRemover::OnAppCacheDeleted(int rv) {
 }
 
 ChromeAppCacheService* BrowsingDataRemover::GetAppCacheService() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   ChromeURLRequestContext* request_context =
       reinterpret_cast<ChromeURLRequestContext*>(
           request_context_getter_->GetURLRequestContext());

@@ -7,7 +7,8 @@
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
+#include "chrome/browser/chromeos/boot_times_loader.h"
 #include "chrome/browser/chromeos/cros_settings_provider_user.h"
 #include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/profile.h"
@@ -40,11 +41,16 @@ void LoginPerformer::OnLoginFailure(const LoginFailure& failure) {
  }
 }
 
-void LoginPerformer::OnLoginSuccess(const std::string& username,
-    const GaiaAuthConsumer::ClientLoginResult& credentials) {
+void LoginPerformer::OnLoginSuccess(
+    const std::string& username,
+    const GaiaAuthConsumer::ClientLoginResult& credentials,
+    bool pending_requests) {
   if (delegate_) {
-    delegate_->OnLoginSuccess(username, credentials);
+    delegate_->OnLoginSuccess(username, credentials, pending_requests);
+    if (!pending_requests)
+      MessageLoop::current()->DeleteSoon(FROM_HERE, this);
   } else {
+    DCHECK(!pending_requests);
     // Online login has succeeded. Delete our instance.
     MessageLoop::current()->DeleteSoon(FROM_HERE, this);
   }
@@ -90,7 +96,7 @@ void LoginPerformer::Login(const std::string& username,
                            const std::string& password) {
   username_ = username;
   password_ = password;
-  if (UserCrosSettingsProvider::cached_allow_guest()) {
+  if (UserCrosSettingsProvider::cached_allow_new_user()) {
     // Starts authentication if guest login is allowed.
     StartAuthentication();
   } else {
@@ -102,15 +108,15 @@ void LoginPerformer::Login(const std::string& username,
 
 void LoginPerformer::LoginOffTheRecord() {
   authenticator_ = LoginUtils::Get()->CreateAuthenticator(this);
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(authenticator_.get(),
                         &Authenticator::LoginOffTheRecord));
 }
 
 void LoginPerformer::RecoverEncryptedData(const std::string& old_password) {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(authenticator_.get(),
                         &Authenticator::RecoverEncryptedData,
                         old_password,
@@ -119,8 +125,8 @@ void LoginPerformer::RecoverEncryptedData(const std::string& old_password) {
 }
 
 void LoginPerformer::ResyncEncryptedData() {
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(authenticator_.get(),
                         &Authenticator::ResyncEncryptedData,
                         cached_credentials_));
@@ -131,10 +137,11 @@ void LoginPerformer::ResyncEncryptedData() {
 // LoginPerformer, private:
 
 void LoginPerformer::StartAuthentication() {
+  BootTimesLoader::Get()->AddLoginTimeMarker("AuthStarted", false);
   authenticator_ = LoginUtils::Get()->CreateAuthenticator(this);
   Profile* profile = g_browser_process->profile_manager()->GetDefaultProfile();
-  ChromeThread::PostTask(
-      ChromeThread::UI, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(authenticator_.get(),
                         &Authenticator::AuthenticateToLogin,
                         profile,

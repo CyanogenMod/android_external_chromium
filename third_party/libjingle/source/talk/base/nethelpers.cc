@@ -96,7 +96,7 @@ hostent* SafeGetHostByName(const char* hostname, int* herrno) {
   p += (num_aliases + 1) * sizeof(char*);
   for (int i = 0; i < num_aliases; ++i) {
     result->h_aliases[i] = p;
-    memcpy(p, result->h_aliases[i], strlen(ent->h_aliases[i]) + 1);
+    memcpy(p, ent->h_aliases[i], strlen(ent->h_aliases[i]) + 1);
     p += strlen(ent->h_aliases[i]) + 1;
   }
   result->h_aliases[num_aliases] = NULL;

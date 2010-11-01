@@ -10,12 +10,15 @@
 
 URLRequestContext::URLRequestContext()
     : net_log_(NULL),
+      host_resolver_(NULL),
+      dnsrr_resolver_(NULL),
       http_transaction_factory_(NULL),
       ftp_transaction_factory_(NULL),
       http_auth_handler_factory_(NULL),
       network_delegate_(NULL),
       cookie_policy_(NULL),
-      transport_security_state_(NULL) {
+      transport_security_state_(NULL),
+      is_main_(false) {
 }
 
 const std::string& URLRequestContext::GetUserAgent(const GURL& url) const {

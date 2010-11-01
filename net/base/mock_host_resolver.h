@@ -16,9 +16,9 @@ namespace net {
 
 class RuleBasedHostResolverProc;
 
-// In most cases, it is important that unit tests avoid making actual DNS
-// queries since the resulting tests can be flaky, especially if the network is
-// unreliable for some reason.  To simplify writing tests that avoid making
+// In most cases, it is important that unit tests avoid relying on making actual
+// DNS queries since the resulting tests can be flaky, especially if the network
+// is unreliable for some reason.  To simplify writing tests that avoid making
 // actual DNS queries, pass a MockHostResolver as the HostResolver dependency.
 // The socket addresses returned can be configured using the
 // RuleBasedHostResolverProc:
@@ -39,6 +39,8 @@ class RuleBasedHostResolverProc;
 // Base class shared by MockHostResolver and MockCachingHostResolver.
 class MockHostResolverBase : public HostResolver {
  public:
+  virtual ~MockHostResolverBase();
+
   // HostResolver methods:
   virtual int Resolve(const RequestInfo& info,
                       AddressList* addresses,
@@ -68,19 +70,19 @@ class MockHostResolverBase : public HostResolver {
 
  protected:
   MockHostResolverBase(bool use_caching);
-  virtual ~MockHostResolverBase() {}
 
-  scoped_refptr<HostResolverImpl> impl_;
+  scoped_ptr<HostResolverImpl> impl_;
   scoped_refptr<RuleBasedHostResolverProc> rules_;
   bool synchronous_mode_;
   bool use_caching_;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(MockHostResolverBase);
 };
 
 class MockHostResolver : public MockHostResolverBase {
  public:
   MockHostResolver() : MockHostResolverBase(false /*use_caching*/) {}
-
- private:
   virtual ~MockHostResolver() {}
 };
 
@@ -92,8 +94,6 @@ class MockHostResolver : public MockHostResolverBase {
 class MockCachingHostResolver : public MockHostResolverBase {
  public:
   MockCachingHostResolver() : MockHostResolverBase(true /*use_caching*/) {}
-
- private:
   ~MockCachingHostResolver() {}
 };
 
@@ -154,26 +154,19 @@ class RuleBasedHostResolverProc : public HostResolverProc {
 // Using WaitingHostResolverProc you can simulate very long lookups.
 class WaitingHostResolverProc : public HostResolverProc {
  public:
-  explicit WaitingHostResolverProc(HostResolverProc* previous)
-      : HostResolverProc(previous), event_(false, false) {}
+  explicit WaitingHostResolverProc(HostResolverProc* previous);
 
-  void Signal() {
-    event_.Signal();
-  }
+  void Signal();
 
   // HostResolverProc methods:
   virtual int Resolve(const std::string& host,
                       AddressFamily address_family,
                       HostResolverFlags host_resolver_flags,
                       AddressList* addrlist,
-                      int* os_error) {
-    event_.Wait();
-    return ResolveUsingPrevious(host, address_family, host_resolver_flags,
-                                addrlist, os_error);
-  }
+                      int* os_error);
 
  private:
-  ~WaitingHostResolverProc() {}
+  virtual ~WaitingHostResolverProc();
 
   base::WaitableEvent event_;
 };
@@ -189,7 +182,7 @@ class WaitingHostResolverProc : public HostResolverProc {
 // MockHostResolver.
 class ScopedDefaultHostResolverProc {
  public:
-  ScopedDefaultHostResolverProc() {}
+  ScopedDefaultHostResolverProc();
   explicit ScopedDefaultHostResolverProc(HostResolverProc* proc);
 
   ~ScopedDefaultHostResolverProc();

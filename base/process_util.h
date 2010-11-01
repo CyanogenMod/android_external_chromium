@@ -50,7 +50,6 @@ class FilePath;
 namespace base {
 
 #if defined(OS_WIN)
-
 struct ProcessEntry : public PROCESSENTRY32 {
   ProcessId pid() const { return th32ProcessID; }
   ProcessId parent_pid() const { return th32ParentProcessID; }
@@ -60,17 +59,44 @@ struct ProcessEntry : public PROCESSENTRY32 {
 struct IoCounters : public IO_COUNTERS {
 };
 
+// Process access masks. These constants provide platform-independent
+// definitions for the standard Windows access masks.
+// See http://msdn.microsoft.com/en-us/library/ms684880(VS.85).aspx for
+// the specific semantics of each mask value.
+const uint32 kProcessAccessTerminate              = PROCESS_TERMINATE;
+const uint32 kProcessAccessCreateThread           = PROCESS_CREATE_THREAD;
+const uint32 kProcessAccessSetSessionId           = PROCESS_SET_SESSIONID;
+const uint32 kProcessAccessVMOperation            = PROCESS_VM_OPERATION;
+const uint32 kProcessAccessVMRead                 = PROCESS_VM_READ;
+const uint32 kProcessAccessVMWrite                = PROCESS_VM_WRITE;
+const uint32 kProcessAccessDuplicateHandle        = PROCESS_DUP_HANDLE;
+const uint32 kProcessAccessCreateProcess          = PROCESS_CREATE_PROCESS;
+const uint32 kProcessAccessSetQuota               = PROCESS_SET_QUOTA;
+const uint32 kProcessAccessSetInformation         = PROCESS_SET_INFORMATION;
+const uint32 kProcessAccessQueryInformation       = PROCESS_QUERY_INFORMATION;
+const uint32 kProcessAccessSuspendResume          = PROCESS_SUSPEND_RESUME;
+const uint32 kProcessAccessQueryLimitedInfomation =
+    PROCESS_QUERY_LIMITED_INFORMATION;
+const uint32 kProcessAccessWaitForTermination     = SYNCHRONIZE;
 #elif defined(OS_POSIX)
 
 struct ProcessEntry {
+  ProcessEntry();
+  ~ProcessEntry();
+
   ProcessId pid_;
   ProcessId ppid_;
   ProcessId gid_;
   std::string exe_file_;
+  std::vector<std::string> cmd_line_args_;
 
   ProcessId pid() const { return pid_; }
   ProcessId parent_pid() const { return ppid_; }
+  ProcessId gid() const { return gid_; }
   const char* exe_file() const { return exe_file_.c_str(); }
+  const std::vector<std::string>& cmd_line_args() const {
+    return cmd_line_args_;
+  }
 };
 
 struct IoCounters {
@@ -82,6 +108,22 @@ struct IoCounters {
   uint64_t OtherTransferCount;
 };
 
+// Process access masks. They are not used on Posix because access checking
+// does not happen during handle creation.
+const uint32 kProcessAccessTerminate              = 0;
+const uint32 kProcessAccessCreateThread           = 0;
+const uint32 kProcessAccessSetSessionId           = 0;
+const uint32 kProcessAccessVMOperation            = 0;
+const uint32 kProcessAccessVMRead                 = 0;
+const uint32 kProcessAccessVMWrite                = 0;
+const uint32 kProcessAccessDuplicateHandle        = 0;
+const uint32 kProcessAccessCreateProcess          = 0;
+const uint32 kProcessAccessSetQuota               = 0;
+const uint32 kProcessAccessSetInformation         = 0;
+const uint32 kProcessAccessQueryInformation       = 0;
+const uint32 kProcessAccessSuspendResume          = 0;
+const uint32 kProcessAccessQueryLimitedInfomation = 0;
+const uint32 kProcessAccessWaitForTermination     = 0;
 #endif  // defined(OS_POSIX)
 
 // A minimalistic but hopefully cross-platform set of exit codes.
@@ -107,7 +149,15 @@ bool OpenProcessHandle(ProcessId pid, ProcessHandle* handle);
 // with more access rights and must only be used by trusted code.
 // You have to close returned handle using CloseProcessHandle. Returns true
 // on success.
+// TODO(sanjeevr): Replace all calls to OpenPrivilegedProcessHandle with the
+// more specific OpenProcessHandleWithAccess method and delete this.
 bool OpenPrivilegedProcessHandle(ProcessId pid, ProcessHandle* handle);
+
+// Converts a PID to a process handle using the desired access flags. Use a
+// combination of the kProcessAccess* flags defined above for |access_flags|.
+bool OpenProcessHandleWithAccess(ProcessId pid,
+                                 uint32 access_flags,
+                                 ProcessHandle* handle);
 
 // Closes the process handle opened by OpenProcessHandle.
 void CloseProcessHandle(ProcessHandle process);

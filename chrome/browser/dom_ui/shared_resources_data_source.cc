@@ -7,7 +7,7 @@
 #include "app/resource_bundle.h"
 #include "base/singleton.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/chrome_url_data_manager.h"
 #include "chrome/browser/io_thread.h"
 #include "chrome/common/url_constants.h"
@@ -52,8 +52,8 @@ int PathToIDR(const std::string& path) {
 // static
 void SharedResourcesDataSource::Register() {
   SharedResourcesDataSource* source = new SharedResourcesDataSource();
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,

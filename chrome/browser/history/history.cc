@@ -33,8 +33,8 @@
 #include "chrome/browser/autocomplete/history_url_provider.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/history/download_create_info.h"
 #include "chrome/browser/history/history_backend.h"
 #include "chrome/browser/history/history_notifications.h"
@@ -42,10 +42,12 @@
 #include "chrome/browser/history/in_memory_database.h"
 #include "chrome/browser/history/in_memory_history_backend.h"
 #include "chrome/browser/history/top_sites.h"
+#include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/visitedlink_master.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/notification_service.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/common/thumbnail_score.h"
 #include "chrome/common/url_constants.h"
 #include "grit/chromium_strings.h"
@@ -117,7 +119,7 @@ class HistoryService::BackendDelegate : public HistoryBackend::Delegate {
 // static
 const history::StarID HistoryService::kBookmarkBarID = 1;
 
-// The history thread is intentionally not a ChromeThread because the
+// The history thread is intentionally not a BrowserThread because the
 // sync integration unit tests depend on being able to create more than one
 // history thread.
 HistoryService::HistoryService()
@@ -228,7 +230,7 @@ history::InMemoryURLIndex* HistoryService::InMemoryIndex() {
   // for this call.
   LoadBackendIfNecessary();
   if (in_memory_backend_.get())
-    return in_memory_backend_->index();
+    return in_memory_backend_->InMemoryIndex();
   return NULL;
 }
 
@@ -658,7 +660,7 @@ void HistoryService::ScheduleAutocomplete(HistoryURLProvider* provider,
 
 void HistoryService::ScheduleTask(SchedulePriority priority,
                                   Task* task) {
-  // FIXME(brettw) do prioritization.
+  // TODO(brettw): do prioritization.
   thread_->message_loop()->PostTask(FROM_HERE, task);
 }
 
@@ -753,7 +755,13 @@ void HistoryService::LoadBackendIfNecessary() {
                          bookmark_service_));
   history_backend_.swap(backend);
 
-  ScheduleAndForget(PRIORITY_UI, &HistoryBackend::Init, no_db_);
+  // There may not be a profile when unit testing.
+  std::string languages;
+  if (profile_) {
+    PrefService* prefs = profile_->GetPrefs();
+    languages = prefs->GetString(prefs::kAcceptLanguages);
+  }
+  ScheduleAndForget(PRIORITY_UI, &HistoryBackend::Init, languages, no_db_);
 }
 
 void HistoryService::OnDBLoaded() {
@@ -764,8 +772,10 @@ void HistoryService::OnDBLoaded() {
 }
 
 void HistoryService::StartTopSitesMigration() {
-  history::TopSites* ts = profile_->GetTopSites();
-  ts->StartMigration();
+  if (history::TopSites::IsEnabled()) {
+    history::TopSites* ts = profile_->GetTopSites();
+    ts->StartMigration();
+  }
 }
 
 void HistoryService::OnTopSitesReady() {

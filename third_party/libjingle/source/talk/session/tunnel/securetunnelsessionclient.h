@@ -81,10 +81,12 @@ class SecureTunnelSessionClient : public TunnelSessionClient {
 
   // Inherited methods
   virtual void OnIncomingTunnel(const buzz::Jid& jid, Session *session);
-  virtual bool ParseContent(const buzz::XmlElement* elem,
+  virtual bool ParseContent(SignalingProtocol protocol,
+                            const buzz::XmlElement* elem,
                             const ContentDescription** content,
                             ParseError* error);
-  virtual bool WriteContent(const ContentDescription* content,
+  virtual bool WriteContent(SignalingProtocol protocol,
+                            const ContentDescription* content,
                             buzz::XmlElement** elem,
                             WriteError* error);
   virtual SessionDescription* CreateOffer(

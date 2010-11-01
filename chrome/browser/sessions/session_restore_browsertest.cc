@@ -43,7 +43,7 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest,
 
   // Create a new popup.
   Profile* profile = browser()->profile();
-  Browser* popup = Browser::CreateForPopup(profile);
+  Browser* popup = Browser::CreateForType(Browser::TYPE_POPUP, profile);
   popup->window()->Show();
 
   // Close the browser.
@@ -76,18 +76,15 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, RestoreIndividualTabFromWindow) {
       FilePath(FILE_PATH_LITERAL("title3.html"))));
 
   // Add and navigate three tabs.
-  Browser* browser_used = NULL;
   ui_test_utils::NavigateToURL(browser(), url1);
-  browser()->AddTabWithURL(url2, GURL(), PageTransition::LINK, 1,
-                           TabStripModel::ADD_SELECTED, NULL, std::string(),
-                           &browser_used);
-  EXPECT_EQ(browser(), browser_used);
+  Browser::AddTabWithURLParams params1(url2, PageTransition::LINK);
+  browser()->AddTabWithURL(&params1);
+  EXPECT_EQ(browser(), params1.target);
   ui_test_utils::WaitForNavigationInCurrentTab(browser());
 
-  browser()->AddTabWithURL(url3, GURL(), PageTransition::LINK, 2,
-                           TabStripModel::ADD_SELECTED, NULL, std::string(),
-                           &browser_used);
-  EXPECT_EQ(browser(), browser_used);
+  Browser::AddTabWithURLParams params2(url3, PageTransition::LINK);
+  browser()->AddTabWithURL(&params2);
+  EXPECT_EQ(browser(), params2.target);
   ui_test_utils::WaitForNavigationInCurrentTab(browser());
 
   TabRestoreService* service = browser()->profile()->GetTabRestoreService();
@@ -121,3 +118,30 @@ IN_PROC_BROWSER_TEST_F(SessionRestoreTest, RestoreIndividualTabFromWindow) {
   EXPECT_EQ(2U, window->tabs.size());
 }
 
+IN_PROC_BROWSER_TEST_F(SessionRestoreTest, WindowWithOneTab) {
+  GURL url(ui_test_utils::GetTestUrl(
+      FilePath(FilePath::kCurrentDirectory),
+      FilePath(FILE_PATH_LITERAL("title1.html"))));
+
+  // Add a single tab.
+  ui_test_utils::NavigateToURL(browser(), url);
+
+  TabRestoreService* service = browser()->profile()->GetTabRestoreService();
+  service->ClearEntries();
+  EXPECT_EQ(0U, service->entries().size());
+
+  // Close the window.
+  browser()->window()->Close();
+
+  // Expect the window to be converted to a tab by the TRS.
+  EXPECT_EQ(1U, service->entries().size());
+  ASSERT_EQ(TabRestoreService::TAB, service->entries().front()->type);
+  const TabRestoreService::Tab* tab =
+      static_cast<TabRestoreService::Tab*>(service->entries().front());
+
+  // Restore the tab.
+  service->RestoreEntryById(NULL, tab->id, false);
+
+  // Make sure the restore was successful.
+  EXPECT_EQ(0U, service->entries().size());
+}

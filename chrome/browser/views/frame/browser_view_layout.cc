@@ -253,7 +253,6 @@ void BrowserViewLayout::Layout(views::View* host) {
   int bottom = LayoutDownloadShelf(browser_view_->height());
   int active_top_margin = GetTopMarginForActiveContent();
   top -= active_top_margin;
-  bottom += active_top_margin;
   contents_container_->SetActiveTopMargin(active_top_margin);
   LayoutTabContents(top, bottom);
   // This must be done _after_ we lay out the TabContents since this
@@ -264,10 +263,6 @@ void BrowserViewLayout::Layout(views::View* host) {
     browser()->GetFindBarController()->find_bar()->MoveWindowIfNecessary(
         gfx::Rect(), true);
   }
-  // Align status bubble with the bottom of the contents_container.
-  browser_view_->LayoutStatusBubble(
-      top + contents_container_->bounds().height());
-  browser_view_->SchedulePaint();
 }
 
 // Return the preferred size which is the size required to give each

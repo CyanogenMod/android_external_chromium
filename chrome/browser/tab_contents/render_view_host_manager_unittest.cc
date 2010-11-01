@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_url_handler.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/renderer_host/test/test_render_view_host.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
@@ -43,7 +43,7 @@ class RenderViewHostManagerTest : public RenderViewHostTestHarness {
 // different SiteInstances, BrowsingInstances, and RenderProcessHosts. This is
 // a regression test for bug 9364.
 TEST_F(RenderViewHostManagerTest, NewTabPageProcesses) {
-  ChromeThread ui_thread(ChromeThread::UI, MessageLoop::current());
+  BrowserThread ui_thread(BrowserThread::UI, MessageLoop::current());
   GURL ntp(chrome::kChromeUINewTabURL);
   GURL dest("http://www.google.com/");
 
@@ -88,7 +88,7 @@ TEST_F(RenderViewHostManagerTest, NewTabPageProcesses) {
 // EnableViewSourceMode message is sent on every navigation regardless
 // RenderView is being newly created or reused.
 TEST_F(RenderViewHostManagerTest, AlwaysSendEnableViewSourceMode) {
-  ChromeThread ui_thread(ChromeThread::UI, MessageLoop::current());
+  BrowserThread ui_thread(BrowserThread::UI, MessageLoop::current());
   const GURL kNtpUrl(chrome::kChromeUINewTabURL);
   const GURL kUrl("view-source:http://foo");
 
@@ -234,7 +234,7 @@ TEST_F(RenderViewHostManagerTest, Navigate) {
 
 // Tests DOMUI creation.
 TEST_F(RenderViewHostManagerTest, DOMUI) {
-  ChromeThread ui_thread(ChromeThread::UI, MessageLoop::current());
+  BrowserThread ui_thread(BrowserThread::UI, MessageLoop::current());
   SiteInstance* instance = SiteInstance::CreateSiteInstance(profile_.get());
 
   TestTabContents tab_contents(profile_.get(), instance);

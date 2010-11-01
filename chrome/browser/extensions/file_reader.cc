@@ -6,7 +6,7 @@
 
 #include "base/file_util.h"
 #include "base/message_loop.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/extensions/extension_resource.h"
 
 FileReader::FileReader(const ExtensionResource& resource, Callback* callback)
@@ -17,10 +17,12 @@ FileReader::FileReader(const ExtensionResource& resource, Callback* callback)
 }
 
 void FileReader::Start() {
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(this, &FileReader::ReadFileOnBackgroundThread));
 }
+
+FileReader::~FileReader() {}
 
 void FileReader::ReadFileOnBackgroundThread() {
   std::string data;

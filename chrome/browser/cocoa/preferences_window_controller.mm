@@ -11,7 +11,7 @@
 #include "app/resource_bundle.h"
 #include "base/logging.h"
 #include "base/mac_util.h"
-#include "base/scoped_aedesc.h"
+#include "base/mac/scoped_aedesc.h"
 #include "base/string16.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
@@ -36,7 +36,6 @@
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/metrics/metrics_service.h"
 #include "chrome/browser/metrics/user_metrics.h"
-#include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/options_util.h"
 #include "chrome/browser/options_window.h"
@@ -46,6 +45,7 @@
 #include "chrome/browser/profile.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 #include "chrome/browser/shell_integration.h"
+#include "chrome/browser/show_options_url.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -71,6 +71,9 @@ static const double kBannerGradientColorTop[3] =
 static const double kBannerGradientColorBottom[3] =
     {250.0 / 255.0, 230.0 / 255.0, 145.0 / 255.0};
 static const double kBannerStrokeColor = 135.0 / 255.0;
+
+// Tag id for retrieval via viewWithTag in NSView (from IB).
+static const uint32 kBasicsStartupPageTableTag = 1000;
 
 bool IsNewTabUIURLString(const GURL& url) {
   return url == GURL(chrome::kChromeUINewTabURL);
@@ -422,6 +425,7 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
 @synthesize restoreButtonsEnabled = restoreButtonsEnabled_;
 @synthesize restoreURLsEnabled = restoreURLsEnabled_;
 @synthesize showHomeButtonEnabled = showHomeButtonEnabled_;
+@synthesize defaultSearchEngineEnabled = defaultSearchEngineEnabled_;
 @synthesize passwordManagerChoiceEnabled = passwordManagerChoiceEnabled_;
 @synthesize passwordManagerButtonEnabled = passwordManagerButtonEnabled_;
 @synthesize autoFillSettingsButtonEnabled = autoFillSettingsButtonEnabled_;
@@ -506,10 +510,10 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
     [self setPasswordManagerButtonEnabled:
         !askSavePasswords_.IsManaged() || askSavePasswords_.GetValue()];
 
-    // Initialize the enabled state of the show home button and
-    // restore on startup elements.
+    // Initialize the enabled state of the elements on the general tab.
     [self setShowHomeButtonEnabled:!showHomeButton_.IsManaged()];
     [self setEnabledStateOfRestoreOnStartup];
+    [self setDefaultSearchEngineEnabled:![searchEngineModel_ isDefaultManaged]];
 
     // Initialize UI state for the advanced page.
     [self setShowAlternateErrorPagesEnabled:!alternateErrorPages_.IsManaged()];
@@ -718,7 +722,7 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
       NSMakePoint(0, underTheHoodContentSize.height)];
 
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  NSImage* alertIcon = rb.GetNSImageNamed(IDR_WARNING);
+  NSImage* alertIcon = rb.GetNativeImageNamed(IDR_WARNING);
   DCHECK(alertIcon);
   [managedPrefsBannerWarningImage_ setImage:alertIcon];
 
@@ -753,6 +757,13 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
       [NSColor colorWithCalibratedWhite:kBannerStrokeColor
                                   alpha:1.0];
   [managedPrefsBannerView_ setStrokeColor:bannerStrokeColor];
+
+  // Set accessibility related attributes.
+  NSTableView* tableView = [basicsView_ viewWithTag:kBasicsStartupPageTableTag];
+  NSString* description =
+      l10n_util::GetNSStringWithFixup(IDS_OPTIONS_STARTUP_SHOW_PAGES);
+  [tableView accessibilitySetOverrideValue:description
+                              forAttribute:NSAccessibilityDescriptionAttribute];
 }
 
 - (void)dealloc {
@@ -912,23 +923,16 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
         SessionStartupPref::GetStartupPref(prefs_);
     [self setRestoreOnStartupIndex:startupPref.type];
     [self setEnabledStateOfRestoreOnStartup];
-  }
-
-  if (*prefName == prefs::kURLsToRestoreOnStartup) {
+  } else if (*prefName == prefs::kURLsToRestoreOnStartup) {
     [customPagesSource_ reloadURLs];
     [self setEnabledStateOfRestoreOnStartup];
-  }
-
-  if (*prefName == prefs::kHomePageIsNewTabPage) {
+  } else if (*prefName == prefs::kHomePageIsNewTabPage) {
     NSInteger useNewTabPage = newTabPageIsHomePage_.GetValue() ? 0 : 1;
     [self setNewTabPageIsHomePageIndex:useNewTabPage];
-  }
-  if (*prefName == prefs::kHomePage) {
+  } else if (*prefName == prefs::kHomePage) {
     NSString* value = base::SysUTF8ToNSString(homepage_.GetValue());
     [self setHomepageURL:value];
-  }
-
-  if (*prefName == prefs::kShowHomeButton) {
+  } else if (*prefName == prefs::kShowHomeButton) {
     [self setShowHomeButton:showHomeButton_.GetValue() ? YES : NO];
     [self setShowHomeButtonEnabled:!showHomeButton_.IsManaged()];
   }
@@ -1173,6 +1177,8 @@ enum { kHomepageNewTabPage, kHomepageURL };
 // popup by tickling the bindings with the new value.
 - (void)searchEngineModelChanged:(NSNotification*)notify {
   [self setSearchEngineSelectedIndex:[self searchEngineSelectedIndex]];
+  [self setDefaultSearchEngineEnabled:![searchEngineModel_ isDefaultManaged]];
+
 }
 
 - (IBAction)manageSearchEngines:(id)sender {
@@ -1356,7 +1362,7 @@ const int kDisabledIndex = 1;
 // "Personal Stuff" pane.  Spawns a dialog-modal sheet that cleans
 // itself up on close.
 - (IBAction)doSyncCustomize:(id)sender {
-  syncService_->ShowChooseDataTypes(NULL);
+  syncService_->ShowConfigure(NULL);
 }
 
 - (IBAction)doSyncReauthentication:(id)sender {
@@ -1493,17 +1499,15 @@ const int kDisabledIndex = 1;
 - (IBAction)privacyLearnMore:(id)sender {
   // We open a new browser window so the Options dialog doesn't get lost
   // behind other windows.
-  Browser* browser = Browser::Create(profile_);
-  browser->OpenURL(GURL(l10n_util::GetStringUTF16(IDS_LEARN_MORE_PRIVACY_URL)),
-                   GURL(), NEW_WINDOW, PageTransition::LINK);
+  browser::ShowOptionsURL(
+      profile_,
+      GURL(l10n_util::GetStringUTF16(IDS_LEARN_MORE_PRIVACY_URL)));
 }
 
 - (IBAction)backgroundModeLearnMore:(id)sender {
-  // We open a new browser window so the Options dialog doesn't get lost
-  // behind other windows.
-  Browser::Create(profile_)->OpenURL(
-      GURL(l10n_util::GetStringUTF16(IDS_LEARN_MORE_BACKGROUND_MODE_URL)),
-      GURL(), NEW_WINDOW, PageTransition::LINK);
+  browser::ShowOptionsURL(
+      profile_,
+      GURL(l10n_util::GetStringUTF16(IDS_LEARN_MORE_BACKGROUND_MODE_URL)));
 }
 
 - (IBAction)resetAutoOpenFiles:(id)sender {
@@ -1516,7 +1520,7 @@ const int kDisabledIndex = 1;
       @"/System/Library/PreferencePanes/Network.prefPane"]];
 
   const char* proxyPrefCommand = "Proxies";
-  scoped_aedesc<> openParams;
+  base::mac::ScopedAEDesc<> openParams;
   OSStatus status = AECreateDesc('ptru',
                                  proxyPrefCommand,
                                  strlen(proxyPrefCommand),
@@ -1582,7 +1586,6 @@ const int kDisabledIndex = 1;
     [self recordUserAction:UserMetricsAction(
                            "Options_DnsPrefetchCheckbox_Disable")];
   dnsPrefetch_.SetValueIfNotManaged(value ? true : false);
-  chrome_browser_net::EnablePredictor(dnsPrefetch_.GetValue());
 }
 
 // Returns whether the safe browsing checkbox should be checked based on the
@@ -1634,9 +1637,8 @@ const int kDisabledIndex = 1;
   GoogleUpdateSettings::SetCollectStatsConsent(enabled);
   bool update_pref = GoogleUpdateSettings::GetCollectStatsConsent();
   if (enabled != update_pref) {
-    DLOG(INFO) <<
-        "GENERAL SECTION: Unable to set crash report status to " <<
-        enabled;
+    DVLOG(1) << "GENERAL SECTION: Unable to set crash report status to "
+             << enabled;
   }
   // Only change the pref if GoogleUpdateSettings::GetCollectStatsConsent
   // succeeds.

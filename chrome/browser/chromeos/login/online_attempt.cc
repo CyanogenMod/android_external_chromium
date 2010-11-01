@@ -8,7 +8,7 @@
 
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/login/auth_attempt_state.h"
 #include "chrome/browser/chromeos/login/auth_attempt_state_resolver.h"
@@ -36,10 +36,14 @@ OnlineAttempt::OnlineAttempt(AuthAttemptState* current_attempt,
   CHECK(chromeos::CrosLibrary::Get()->EnsureLoaded());
 }
 
-OnlineAttempt::~OnlineAttempt() {}
+OnlineAttempt::~OnlineAttempt() {
+  // Just to be sure.
+  if (gaia_authenticator_.get())
+    gaia_authenticator_->CancelRequest();
+}
 
 void OnlineAttempt::Initiate(Profile* profile) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   gaia_authenticator_.reset(
       new GaiaAuthenticator2(this,
                              GaiaConstants::kChromeOSSource,
@@ -49,8 +53,8 @@ void OnlineAttempt::Initiate(Profile* profile) {
 
 void OnlineAttempt::OnClientLoginSuccess(
     const GaiaAuthConsumer::ClientLoginResult& credentials) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
-  LOG(INFO) << "Online login successful!";
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  VLOG(1) << "Online login successful!";
   if (fetch_canceler_) {
     fetch_canceler_->Cancel();
     fetch_canceler_ = NULL;
@@ -61,7 +65,7 @@ void OnlineAttempt::OnClientLoginSuccess(
 
 void OnlineAttempt::OnClientLoginFailure(
     const GoogleServiceAuthError& error) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   if (fetch_canceler_) {
     fetch_canceler_->Cancel();
     fetch_canceler_ = NULL;
@@ -89,20 +93,22 @@ void OnlineAttempt::OnClientLoginFailure(
 }
 
 void OnlineAttempt::TryClientLogin() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   fetch_canceler_ = NewRunnableMethod(this, &OnlineAttempt::CancelClientLogin);
-  ChromeThread::PostDelayedTask(ChromeThread::IO, FROM_HERE,
-                                fetch_canceler_,
-                                kClientLoginTimeoutMs);
-  gaia_authenticator_->StartClientLogin(attempt_->username,
-                                        attempt_->password,
-                                        GaiaConstants::kContactsService,
-                                        attempt_->login_token,
-                                        attempt_->login_captcha);
+  BrowserThread::PostDelayedTask(BrowserThread::IO, FROM_HERE,
+                                 fetch_canceler_,
+                                 kClientLoginTimeoutMs);
+  gaia_authenticator_->StartClientLogin(
+      attempt_->username,
+      attempt_->password,
+      GaiaConstants::kContactsService,
+      attempt_->login_token,
+      attempt_->login_captcha,
+      GaiaAuthenticator2::HostedAccountsAllowed);
 }
 
 void OnlineAttempt::CancelClientLogin() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   if (gaia_authenticator_->HasPendingFetch()) {
     LOG(WARNING) << "Canceling ClientLogin attempt.";
     gaia_authenticator_->CancelRequest();

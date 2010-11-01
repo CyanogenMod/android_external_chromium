@@ -44,11 +44,11 @@ extern const char kAboutCacheURL[];
 extern const char kAboutCrashURL[];
 extern const char kAboutCreditsURL[];
 extern const char kAboutDNSURL[];
+extern const char kAboutFlagsURL[];
 extern const char kAboutGpuCrashURL[];
 extern const char kAboutGpuHangURL[];
 extern const char kAboutHangURL[];
 extern const char kAboutHistogramsURL[];
-extern const char kAboutLabsURL[];
 extern const char kAboutMemoryURL[];
 extern const char kAboutNetInternalsURL[];
 extern const char kAboutPluginsURL[];
@@ -59,19 +59,21 @@ extern const char kAboutVersionURL[];
 
 // chrome: URLs (including schemes). Should be kept in sync with the
 // components below.
+extern const char kChromeUIAboutAboutURL[];
 extern const char kChromeUIAboutURL[];
 extern const char kChromeUIAppLauncherURL[];
 extern const char kChromeUIBookmarksURL[];
 extern const char kChromeUIBugReportURL[];
+extern const char kChromeUIConstrainedHTMLTestURL[];
 extern const char kChromeUIDevToolsURL[];
 extern const char kChromeUIDownloadsURL[];
 extern const char kChromeUIExtensionsURL[];
+extern const char kChromeUIFlagsURL[];
 extern const char kChromeUIFavIconURL[];
 extern const char kChromeUIHistory2URL[];
 extern const char kChromeUIHistoryURL[];
 extern const char kChromeUIIPCURL[];
 extern const char kChromeUIKeyboardURL[];
-extern const char kChromeUILabsURL[];
 extern const char kChromeUINewTabURL[];
 extern const char kChromeUIPluginsURL[];
 extern const char kChromeUIPrintURL[];
@@ -96,11 +98,11 @@ extern const char kChromeUIDialogHost[];
 extern const char kChromeUIDownloadsHost[];
 extern const char kChromeUIExtensionsHost[];
 extern const char kChromeUIFavIconHost[];
+extern const char kChromeUIFlagsHost[];
 extern const char kChromeUIHistory2Host[];
 extern const char kChromeUIHistoryHost[];
 extern const char kChromeUIInspectorHost[];
 extern const char kChromeUIKeyboardHost[];
-extern const char kChromeUILabsHost[];
 extern const char kChromeUINetInternalsHost[];
 extern const char kChromeUINewTabHost[];
 extern const char kChromeUIPluginsHost[];
@@ -122,10 +124,16 @@ extern const char kChromeUIMobileSetupHost[];
 extern const char kChromeUIRegisterPageHost[];
 extern const char kChromeUISlideshowHost[];
 extern const char kChromeUISystemInfoHost[];
+extern const char kChromeUIMenu[];
+extern const char kChromeUIWrenchMenu[];
+extern const char kChromeUINetworkMenu[];
 #endif
 
 // AppCache related URL.
 extern const char kAppCacheViewInternalsURL[];
+
+// Blob related URL.
+extern const char kBlobViewInternalsURL[];
 
 // Cloud Print dialog URL components.
 extern const char kCloudPrintResourcesURL[];
@@ -136,19 +144,20 @@ extern const char kNetworkViewCacheURL[];
 extern const char kNetworkViewInternalsURL[];
 
 // Options sub-pages.
-extern const char kDefaultOptionsSubPage[];
-extern const char kBrowserOptionsSubPage[];
-extern const char kPersonalOptionsSubPage[];
 extern const char kAdvancedOptionsSubPage[];
 extern const char kAutoFillSubPage[];
-extern const char kSearchEnginesOptionsSubPage[];
+extern const char kBrowserOptionsSubPage[];
 extern const char kClearBrowserDataSubPage[];
-extern const char kImportDataSubPage[];
 extern const char kContentSettingsSubPage[];
+extern const char kDefaultOptionsSubPage[];
+extern const char kImportDataSubPage[];
+extern const char kPersonalOptionsSubPage[];
+extern const char kSearchEnginesOptionsSubPage[];
+extern const char kSearchEnginesSubPage[];
 #if defined(OS_CHROMEOS)
-extern const char kSystemOptionsSubPage[];
-extern const char kLanguageOptionsSubPage[];
 extern const char kInternetOptionsSubPage[];
+extern const char kLanguageOptionsSubPage[];
+extern const char kSystemOptionsSubPage[];
 #endif
 
 // Call near the beginning of startup to register Chrome's internal URLs that

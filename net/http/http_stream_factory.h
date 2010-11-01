@@ -5,6 +5,7 @@
 #ifndef NET_HTTP_HTTP_STREAM_FACTORY_H_
 #define NET_HTTP_HTTP_STREAM_FACTORY_H_
 
+#include <map>
 #include <set>
 #include <string>
 
@@ -14,6 +15,7 @@
 #include "net/base/ssl_config_service.h"
 #include "net/http/http_auth.h"
 #include "net/http/http_auth_controller.h"
+#include "net/http/http_stream_request.h"
 #include "net/http/stream_factory.h"
 #include "net/proxy/proxy_service.h"
 #include "net/socket/client_socket_handle.h"
@@ -22,35 +24,50 @@ namespace net {
 
 class HttpNetworkSession;
 struct HttpRequestInfo;
+class HttpStreamRequest;
 
 class HttpStreamFactory : public StreamFactory,
-                          public base::RefCounted<HttpStreamFactory> {
+                          public HttpStreamRequest::PreconnectDelegate {
  public:
   HttpStreamFactory();
   virtual ~HttpStreamFactory();
 
   // StreamFactory Interface
-  virtual void RequestStream(const HttpRequestInfo* info,
-                             SSLConfig* ssl_config,
-                             ProxyInfo* proxy_info,
-                             StreamRequestDelegate* delegate,
-                             const BoundNetLog& net_log,
-                             const scoped_refptr<HttpNetworkSession>& session,
-                             scoped_refptr<StreamRequestJob>* stream);
+  virtual StreamRequest* RequestStream(const HttpRequestInfo* info,
+                                       SSLConfig* ssl_config,
+                                       ProxyInfo* proxy_info,
+                                       HttpNetworkSession* session,
+                                       StreamRequest::Delegate* delegate,
+                                       const BoundNetLog& net_log);
 
-  // TLS Intolerant Server API
+  virtual int PreconnectStreams(int num_streams,
+                                const HttpRequestInfo* info,
+                                SSLConfig* ssl_config,
+                                ProxyInfo* proxy_info,
+                                HttpNetworkSession* session,
+                                const BoundNetLog& net_log,
+                                CompletionCallback* callback);
+
   void AddTLSIntolerantServer(const GURL& url);
   bool IsTLSIntolerantServer(const GURL& url);
 
-  // Alternate Protocol API
-  void ProcessAlternateProtocol(HttpAlternateProtocols* alternate_protocols,
-                                const std::string& alternate_protocol_str,
-                                const HostPortPair& http_host_port_pair);
+  virtual void ProcessAlternateProtocol(
+      HttpAlternateProtocols* alternate_protocols,
+      const std::string& alternate_protocol_str,
+      const HostPortPair& http_host_port_pair);
 
-  // Host Mapping Rules API
-  GURL ApplyHostMappingRules(const GURL& url, HostPortPair* endpoint);
+  virtual GURL ApplyHostMappingRules(const GURL& url, HostPortPair* endpoint);
+
+  // HttpStreamRequest::PreconnectDelegate API
+  virtual void OnPreconnectsComplete(HttpStreamRequest* request, int result);
 
   // Static settings
+
+  // Turns spdy on or off.
+  static void set_spdy_enabled(bool value) {
+    spdy_enabled_ = value;
+  }
+  static bool spdy_enabled() { return spdy_enabled_; }
 
   // Controls whether or not we use the Alternate-Protocol header.
   static void set_use_alternate_protocols(bool value) {
@@ -91,10 +108,13 @@ class HttpStreamFactory : public StreamFactory,
   static void SetHostMappingRules(const std::string& rules);
 
  private:
+  typedef std::map<HttpStreamRequest*, CompletionCallback*> RequestCallbackMap;
+  RequestCallbackMap request_callback_map_;
   std::set<std::string> tls_intolerant_servers_;
 
   static const HostMappingRules* host_mapping_rules_;
   static const std::string* next_protos_;
+  static bool spdy_enabled_;
   static bool use_alternate_protocols_;
   static bool force_spdy_over_ssl_;
   static bool force_spdy_always_;

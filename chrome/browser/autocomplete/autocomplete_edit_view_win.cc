@@ -19,12 +19,12 @@
 #include "app/os_exchange_data.h"
 #include "app/os_exchange_data_provider_win.h"
 #include "app/win_util.h"
+#include "app/win/drag_source.h"
+#include "app/win/drop_target.h"
+#include "app/win/iat_patch_function.h"
 #include "base/auto_reset.h"
-#include "base/base_drag_source.h"
-#include "base/base_drop_target.h"
 #include "base/basictypes.h"
 #include "base/i18n/rtl.h"
-#include "base/iat_patch.h"
 #include "base/lazy_instance.h"
 #include "base/ref_counted.h"
 #include "base/string_util.h"
@@ -67,7 +67,7 @@ namespace {
 // URL. A drop of plain text from the same edit either copies or moves the
 // selected text, and a drop of plain text from a source other than the edit
 // does a paste and go.
-class EditDropTarget : public BaseDropTarget {
+class EditDropTarget : public app::win::DropTarget {
  public:
   explicit EditDropTarget(AutocompleteEditViewWin* edit);
 
@@ -118,7 +118,7 @@ DWORD CopyOrLinkDropEffect(DWORD effect) {
 }
 
 EditDropTarget::EditDropTarget(AutocompleteEditViewWin* edit)
-    : BaseDropTarget(edit->m_hWnd),
+    : app::win::DropTarget(edit->m_hWnd),
       edit_(edit),
       drag_has_url_(false),
       drag_has_string_(false) {
@@ -371,8 +371,8 @@ class PaintPatcher {
 
  private:
   size_t refcount_;
-  iat_patch::IATPatchFunction begin_paint_;
-  iat_patch::IATPatchFunction end_paint_;
+  app::win::IATPatchFunction begin_paint_;
+  app::win::IATPatchFunction end_paint_;
 
   DISALLOW_COPY_AND_ASSIGN(PaintPatcher);
 };
@@ -888,6 +888,17 @@ bool AutocompleteEditViewWin::OnAfterPossibleChange() {
   if (something_changed && text_differs)
     TextChanged();
 
+  if (text_differs) {
+    // Note that a TEXT_CHANGED event implies that the cursor/selection
+    // probably changed too, so we don't need to send both.
+    parent_view_->NotifyAccessibilityEvent(
+        AccessibilityTypes::EVENT_TEXT_CHANGED);
+  } else if (selection_differs) {
+    // Notify assistive technology that the cursor or selection changed.
+    parent_view_->NotifyAccessibilityEvent(
+        AccessibilityTypes::EVENT_SELECTION_CHANGED);
+  }
+
   return something_changed;
 }
 
@@ -1334,8 +1345,17 @@ LRESULT AutocompleteEditViewWin::OnImeNotify(UINT message,
 void AutocompleteEditViewWin::OnKeyDown(TCHAR key,
                                         UINT repeat_count,
                                         UINT flags) {
-  if (OnKeyDownAllModes(key, repeat_count, flags) || popup_window_mode_ ||
-      OnKeyDownOnlyWritable(key, repeat_count, flags))
+  if (OnKeyDownAllModes(key, repeat_count, flags))
+    return;
+
+  // Make sure that we handle system key events like Alt-F4.
+  if (popup_window_mode_) {
+    DefWindowProc(GetCurrentMessage()->message, key, MAKELPARAM(repeat_count,
+                                                                flags));
+    return;
+  }
+
+  if (OnKeyDownOnlyWritable(key, repeat_count, flags))
     return;
 
   // CRichEditCtrl changes its text on WM_KEYDOWN instead of WM_CHAR for many
@@ -2410,7 +2430,7 @@ void AutocompleteEditViewWin::StartDragIfNecessary(const CPoint& point) {
 
   data.SetString(text_to_write);
 
-  scoped_refptr<BaseDragSource> drag_source(new BaseDragSource);
+  scoped_refptr<app::win::DragSource> drag_source(new app::win::DragSource);
   DWORD dropped_mode;
   AutoReset<bool> auto_reset_in_drag(&in_drag_, true);
   if (DoDragDrop(OSExchangeDataProviderWin::GetIDataObject(data), drag_source,

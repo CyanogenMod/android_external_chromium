@@ -13,7 +13,6 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_menu_model.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
-#include "chrome/browser/views/app_launcher.h"
 #include "chrome/browser/views/tabs/base_tab_strip.h"
 #include "chrome/browser/views/tabs/tab_renderer_data.h"
 #include "chrome/common/chrome_switches.h"
@@ -272,9 +271,6 @@ void BrowserTabStripController::CreateNewTab() {
   UserMetrics::RecordAction(UserMetricsAction("NewTab_Button"),
                             model_->profile());
 
-  if (browser_ && browser_->OpenAppsPanelAsNewTab())
-    return;
-
   model_->delegate()->AddBlankTab(true);
 }
 
@@ -385,7 +381,6 @@ void BrowserTabStripController::SetTabRendererDataFromModel(
   data->show_icon = contents->ShouldDisplayFavIcon();
   data->mini = model_->IsMiniTab(model_index);
   data->blocked = model_->IsTabBlocked(model_index);
-  data->phantom = model_->IsPhantomTab(model_index);
   data->app = contents->is_app();
 }
 

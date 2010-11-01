@@ -7,6 +7,7 @@
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/scoped_temp_dir.h"
+#include "base/thread.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/notification_service.h"
@@ -34,10 +35,10 @@ class QuitTask2 : public Task {
 
 // Blocks the caller until thread has finished servicing all pending
 // requests.
-static void WaitForThreadToProcessRequests(ChromeThread::ID identifier) {
+static void WaitForThreadToProcessRequests(BrowserThread::ID identifier) {
   // Schedule a task on the thread that is processed after all
   // pending requests on the thread.
-  ChromeThread::PostTask(identifier, FROM_HERE, new QuitTask2());
+  BrowserThread::PostTask(identifier, FROM_HERE, new QuitTask2());
   // Run the current message loop. QuitTask2, when run, invokes Quit,
   // which unblocks this.
   MessageLoop::current()->Run();
@@ -48,10 +49,22 @@ static void WaitForThreadToProcessRequests(ChromeThread::ID identifier) {
 // Subclass the TestingProfile so that it can return a WebDataService.
 class TemplateURLModelTestingProfile : public TestingProfile {
  public:
-  TemplateURLModelTestingProfile() : TestingProfile() {}
+  TemplateURLModelTestingProfile()
+      : TestingProfile(),
+        db_thread_(BrowserThread::DB),
+        io_thread_(BrowserThread::IO) {
+  }
 
   void SetUp();
   void TearDown();
+
+  // Starts the I/O thread. This isn't done automatically because not every test
+  // needs this.
+  void StartIOThread() {
+    base::Thread::Options options;
+    options.message_loop_type = MessageLoop::TYPE_IO;
+    io_thread_.StartWithOptions(options);
+  }
 
   virtual WebDataService* GetWebDataService(ServiceAccessType access) {
     return service_.get();
@@ -60,7 +73,8 @@ class TemplateURLModelTestingProfile : public TestingProfile {
  private:
   scoped_refptr<WebDataService> service_;
   ScopedTempDir temp_dir_;
-  scoped_ptr<ChromeThread> db_thread_;
+  BrowserThread db_thread_;
+  BrowserThread io_thread_;
 };
 
 // Trivial subclass of TemplateURLModel that records the last invocation of
@@ -91,29 +105,40 @@ class TestingTemplateURLModel : public TemplateURLModel {
 };
 
 void TemplateURLModelTestingProfile::SetUp() {
-  db_thread_.reset(new ChromeThread(ChromeThread::DB));
-  db_thread_->Start();
+  db_thread_.Start();
 
   // Make unique temp directory.
   ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
 
   FilePath path = temp_dir_.path().AppendASCII("TestDataService.db");
   service_ = new WebDataService;
-  EXPECT_TRUE(service_->InitWithPath(path));
+  ASSERT_TRUE(service_->InitWithPath(path));
 }
 
 void TemplateURLModelTestingProfile::TearDown() {
+  // Clear the request context so it will get deleted. This should be done
+  // before shutting down the I/O thread to avoid memory leaks.
+  ResetRequestContext();
+
+  // Wait for the delete of the request context to happen.
+  if (io_thread_.IsRunning())
+    TemplateURLModelTestUtil::BlockTillIOThreadProcessesRequests();
+
+  // The I/O thread must be shutdown before the DB thread.
+  io_thread_.Stop();
+
   // Clean up the test directory.
-  service_->Shutdown();
+  if (service_.get())
+    service_->Shutdown();
   // Note that we must ensure the DB thread is stopped after WDS
   // shutdown (so it can commit pending transactions) but before
   // deleting the test profile directory, otherwise we may not be
   // able to delete it due to an open transaction.
-  db_thread_->Stop();
+  db_thread_.Stop();
 }
 
 TemplateURLModelTestUtil::TemplateURLModelTestUtil()
-    : ui_thread_(ChromeThread::UI, &message_loop_),
+    : ui_thread_(BrowserThread::UI, &message_loop_),
       changed_count_(0) {
 }
 
@@ -123,12 +148,15 @@ TemplateURLModelTestUtil::~TemplateURLModelTestUtil() {
 void TemplateURLModelTestUtil::SetUp() {
   profile_.reset(new TemplateURLModelTestingProfile());
   profile_->SetUp();
-  model_.reset(new TestingTemplateURLModel(profile_.get()));
-  model_->AddObserver(this);
+  profile_->SetTemplateURLModel(new TestingTemplateURLModel(profile_.get()));
+  profile_->GetTemplateURLModel()->AddObserver(this);
 }
 
 void TemplateURLModelTestUtil::TearDown() {
-  profile_->TearDown();
+  if (profile_.get()) {
+    profile_->TearDown();
+    profile_.reset();
+  }
   TemplateURLRef::SetGoogleBaseURL(NULL);
 
   // Flush the message loop to make Purify happy.
@@ -149,41 +177,42 @@ void TemplateURLModelTestUtil::ResetObserverCount() {
 }
 
 void TemplateURLModelTestUtil::BlockTillServiceProcessesRequests() {
-  WaitForThreadToProcessRequests(ChromeThread::DB);
+  WaitForThreadToProcessRequests(BrowserThread::DB);
 }
 
 void TemplateURLModelTestUtil::BlockTillIOThreadProcessesRequests() {
-  WaitForThreadToProcessRequests(ChromeThread::IO);
+  WaitForThreadToProcessRequests(BrowserThread::IO);
 }
 
 void TemplateURLModelTestUtil::VerifyLoad() {
-  ASSERT_FALSE(model_->loaded());
-  model_->Load();
+  ASSERT_FALSE(model()->loaded());
+  model()->Load();
   BlockTillServiceProcessesRequests();
   VerifyObserverCount(1);
 }
 
 void TemplateURLModelTestUtil::ChangeModelToLoadState() {
-  model_->ChangeToLoadedState();
+  model()->ChangeToLoadedState();
   // Initialize the web data service so that the database gets updated with
   // any changes made.
-  model_->service_ = profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
+  model()->service_ = profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
 }
 
 void TemplateURLModelTestUtil::ClearModel() {
-  model_.reset(NULL);
+  profile_->SetTemplateURLModel(NULL);
 }
 
 void TemplateURLModelTestUtil::ResetModel(bool verify_load) {
-  model_.reset(new TestingTemplateURLModel(profile_.get()));
-  model_->AddObserver(this);
+  profile_->SetTemplateURLModel(new TestingTemplateURLModel(profile_.get()));
+  model()->AddObserver(this);
   changed_count_ = 0;
   if (verify_load)
     VerifyLoad();
 }
 
 std::wstring TemplateURLModelTestUtil::GetAndClearSearchTerm() {
-  return model_->GetAndClearSearchTerm();
+  return
+      static_cast<TestingTemplateURLModel*>(model())->GetAndClearSearchTerm();
 }
 
 void TemplateURLModelTestUtil::SetGoogleBaseURL(
@@ -199,9 +228,13 @@ WebDataService* TemplateURLModelTestUtil::GetWebDataService() {
 }
 
 TemplateURLModel* TemplateURLModelTestUtil::model() const {
-  return model_.get();
+  return profile_->GetTemplateURLModel();
 }
 
 TestingProfile* TemplateURLModelTestUtil::profile() const {
   return profile_.get();
+}
+
+void TemplateURLModelTestUtil::StartIOThread() {
+  profile_->StartIOThread();
 }

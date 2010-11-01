@@ -24,6 +24,7 @@
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/sync/sync_constants.h"
 #include "chrome/browser/sync/engine/all_status.h"
 #include "chrome/browser/sync/engine/change_reorder_buffer.h"
@@ -33,6 +34,7 @@
 #include "chrome/browser/sync/engine/syncer.h"
 #include "chrome/browser/sync/engine/syncer_thread.h"
 #include "chrome/browser/sync/notifier/server_notifier_thread.h"
+#include "chrome/browser/sync/notifier/state_writer.h"
 #include "chrome/browser/sync/protocol/app_specifics.pb.h"
 #include "chrome/browser/sync/protocol/autofill_specifics.pb.h"
 #include "chrome/browser/sync/protocol/bookmark_specifics.pb.h"
@@ -59,15 +61,15 @@
 #include "net/base/network_change_notifier.h"
 
 using browser_sync::AllStatus;
-using browser_sync::AllStatusEvent;
 using browser_sync::Cryptographer;
 using browser_sync::KeyParams;
 using browser_sync::ModelSafeRoutingInfo;
 using browser_sync::ModelSafeWorker;
 using browser_sync::ModelSafeWorkerRegistrar;
 using browser_sync::ServerConnectionEvent;
+using browser_sync::SyncEngineEvent;
+using browser_sync::SyncEngineEventListener;
 using browser_sync::Syncer;
-using browser_sync::SyncerEvent;
 using browser_sync::SyncerThread;
 using browser_sync::kNigoriTag;
 using browser_sync::sessions::SyncSessionContext;
@@ -151,6 +153,10 @@ static void ServerNameToSyncAPIName(const std::string& server_name,
     NOTREACHED() << "Could not convert server name from UTF8 to wide";
   }
 }
+
+UserShare::UserShare() {}
+
+UserShare::~UserShare() {}
 
 ////////////////////////////////////
 // BaseNode member definitions.
@@ -393,13 +399,13 @@ void WriteNode::PutNigoriSpecificsAndMarkForSyncing(
 void WriteNode::SetPasswordSpecifics(
     const sync_pb::PasswordSpecificsData& data) {
   DCHECK(GetModelType() == syncable::PASSWORDS);
-  std::string serialized_data;
-  data.SerializeToString(&serialized_data);
+
   sync_pb::PasswordSpecifics new_value;
   if (!GetTransaction()->GetCryptographer()->Encrypt(
       data,
-      new_value.mutable_encrypted()))
+      new_value.mutable_encrypted())) {
     NOTREACHED();
+  }
 
   PutPasswordSpecificsAndMarkForSyncing(new_value);
 }
@@ -415,7 +421,6 @@ void WriteNode::SetThemeSpecifics(
   DCHECK(GetModelType() == syncable::THEMES);
   PutThemeSpecificsAndMarkForSyncing(new_value);
 }
-
 
 void WriteNode::SetSessionSpecifics(
     const sync_pb::SessionSpecifics& new_value) {
@@ -885,7 +890,7 @@ class BridgedGaiaAuthenticator : public gaia::GaiaAuthenticator {
     int os_error_code = 0;
     int int_response_code = 0;
     if (!http->MakeSynchronousPost(&os_error_code, &int_response_code)) {
-      LOG(INFO) << "Http POST failed, error returns: " << os_error_code;
+      VLOG(1) << "Http POST failed, error returns: " << os_error_code;
       return false;
     }
     *response_code = static_cast<int>(int_response_code);
@@ -904,13 +909,26 @@ class BridgedGaiaAuthenticator : public gaia::GaiaAuthenticator {
   DISALLOW_COPY_AND_ASSIGN(BridgedGaiaAuthenticator);
 };
 
+SyncManager::ChangeRecord::ChangeRecord()
+    : id(kInvalidId), action(ACTION_ADD) {}
+
+SyncManager::ChangeRecord::~ChangeRecord() {}
+
+SyncManager::ExtraPasswordChangeRecordData::ExtraPasswordChangeRecordData(
+    const sync_pb::PasswordSpecificsData& data)
+    : unencrypted_(data) {
+}
+
+SyncManager::ExtraPasswordChangeRecordData::~ExtraPasswordChangeRecordData() {}
+
 //////////////////////////////////////////////////////////////////////////
 // SyncManager's implementation: SyncManager::SyncInternal
 class SyncManager::SyncInternal
     : public net::NetworkChangeNotifier::Observer,
       public TalkMediator::Delegate,
+      public sync_notifier::StateWriter,
       public browser_sync::ChannelEventHandler<syncable::DirectoryChangeEvent>,
-      public browser_sync::ChannelEventHandler<SyncerEvent>{
+      public SyncEngineEventListener {
   static const int kDefaultNudgeDelayMilliseconds;
   static const int kPreferencesNudgeDelayMilliseconds;
  public:
@@ -922,12 +940,12 @@ class SyncManager::SyncInternal
         notification_pending_(false),
         initialized_(false),
         ALLOW_THIS_IN_INITIALIZER_LIST(method_factory_(this)) {
-    DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   }
 
-  ~SyncInternal() {
+  virtual ~SyncInternal() {
     DCHECK(!core_message_loop_);
-    DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   }
 
   bool Init(const FilePath& database_location,
@@ -973,9 +991,6 @@ class SyncManager::SyncInternal
   void HandleCalculateChangesChangeEventFromSyncer(
       const syncable::DirectoryChangeEvent& event);
 
-  // This listener is called by the syncer channel for all syncer events.
-  virtual void HandleChannelEvent(const SyncerEvent& event);
-
   // Listens for notifications from the ServerConnectionManager
   void HandleServerConnectionEvent(const ServerConnectionEvent& event);
 
@@ -994,6 +1009,9 @@ class SyncManager::SyncInternal
       const IncomingNotificationData& notification_data);
 
   virtual void OnOutgoingNotification();
+
+  // sync_notifier::StateWriter implementation.
+  virtual void WriteState(const std::string& state);
 
   // Accessors for the private members.
   DirectoryManager* dir_manager() { return share_.dir_manager.get(); }
@@ -1060,7 +1078,13 @@ class SyncManager::SyncInternal
     return true;
   }
 
+  // SyncEngineEventListener implementation.
+  virtual void OnSyncEngineEvent(const SyncEngineEvent& event);
  private:
+  // Helper to handle the details of initializing the TalkMediator.
+  // Must be called only after OpenDirectory() is called.
+  void InitializeTalkMediator();
+
   // Helper to call OnAuthError when no authentication credentials are
   // available.
   void RaiseAuthNeededEvent();
@@ -1134,6 +1158,17 @@ class SyncManager::SyncInternal
     }
   }
 
+  void ReEncryptEverything(WriteTransaction* trans);
+
+  // Initializes (bootstraps) the Cryptographer if NIGORI has finished
+  // initial sync so that it can immediately start encrypting / decrypting.
+  // If the restored key is incompatible with the current version of the NIGORI
+  // node (which could happen if a restart occurred just after an update to
+  // NIGORI was downloaded and the user must enter a new passphrase to decrypt)
+  // then we will raise OnPassphraseRequired and set pending keys for
+  // decryption.  Otherwise, the cryptographer is made ready (is_ready()).
+  void BootstrapEncryption(const std::string& restored_key_for_bootstrapping);
+
   // We couple the DirectoryManager and username together in a UserShare member
   // so we can return a handle to share_ to clients of the API for use when
   // constructing any transaction type.
@@ -1181,9 +1216,6 @@ class SyncManager::SyncInternal
   // Event listener hookup for the ServerConnectionManager.
   scoped_ptr<EventListenerHookup> connection_manager_hookup_;
 
-  // The event listener hookup registered for HandleSyncerEvent.
-  scoped_ptr<browser_sync::ChannelHookup<SyncerEvent> > syncer_event_;
-
   // The sync dir_manager to which we belong.
   SyncManager* const sync_manager_;
 
@@ -1230,7 +1262,7 @@ bool SyncManager::Init(const FilePath& database_location,
                        const std::string& restored_key_for_bootstrapping,
                        bool setup_for_test_mode) {
   DCHECK(post_factory);
-  LOG(INFO) << "SyncManager starting Init...";
+  VLOG(1) << "SyncManager starting Init...";
   string server_string(sync_server_and_path);
   return data_->Init(database_location,
                      server_string,
@@ -1302,7 +1334,7 @@ bool SyncManager::SyncInternal::Init(
     const std::string& restored_key_for_bootstrapping,
     bool setup_for_test_mode) {
 
-  LOG(INFO) << "Starting SyncInternal initialization.";
+  VLOG(1) << "Starting SyncInternal initialization.";
 
   core_message_loop_ = MessageLoop::current();
   DCHECK(core_message_loop_);
@@ -1311,8 +1343,6 @@ bool SyncManager::SyncInternal::Init(
   setup_for_test_mode_ = setup_for_test_mode;
 
   share_.dir_manager.reset(new DirectoryManager(database_location));
-  share_.dir_manager->cryptographer()->Bootstrap(
-      restored_key_for_bootstrapping);
 
   connection_manager_.reset(new SyncAPIServerConnectionManager(
       sync_server_and_path, port, use_ssl, user_agent, post_factory));
@@ -1327,43 +1357,60 @@ bool SyncManager::SyncInternal::Init(
   core_message_loop_->PostTask(FROM_HERE,
       method_factory_.NewRunnableMethod(&SyncInternal::CheckServerReachable));
 
-  // NOTIFICATION_SERVER uses a substantially different notification method, so
-  // it has its own MediatorThread implementation.  Everything else just uses
-  // MediatorThreadImpl.
-  notifier::MediatorThread* mediator_thread =
-      (notifier_options_.notification_method == notifier::NOTIFICATION_SERVER) ?
-      new sync_notifier::ServerNotifierThread(notifier_options) :
-      new notifier::MediatorThreadImpl(notifier_options);
-  talk_mediator_.reset(new TalkMediatorImpl(mediator_thread, false));
-  if (notifier_options_.notification_method != notifier::NOTIFICATION_LEGACY &&
-      notifier_options_.notification_method != notifier::NOTIFICATION_SERVER) {
-    if (notifier_options_.notification_method ==
-        notifier::NOTIFICATION_TRANSITIONAL) {
-      talk_mediator_->AddSubscribedServiceUrl(
-          browser_sync::kSyncLegacyServiceUrl);
-    }
-    talk_mediator_->AddSubscribedServiceUrl(browser_sync::kSyncServiceUrl);
-  }
-
-  // Listen to TalkMediator events ourselves
-  talk_mediator_->SetDelegate(this);
-
   // Test mode does not use a syncer context or syncer thread.
   if (!setup_for_test_mode) {
     // Build a SyncSessionContext and store the worker in it.
-    LOG(INFO) << "Sync is bringing up SyncSessionContext.";
+    VLOG(1) << "Sync is bringing up SyncSessionContext.";
+    std::vector<SyncEngineEventListener*> listeners;
+    listeners.push_back(&allstatus_);
+    listeners.push_back(this);
     SyncSessionContext* context = new SyncSessionContext(
-        connection_manager_.get(), dir_manager(), model_safe_worker_registrar);
+        connection_manager_.get(),
+        dir_manager(),
+        model_safe_worker_registrar,
+        listeners);
 
     // The SyncerThread takes ownership of |context|.
     syncer_thread_ = new SyncerThread(context);
-    allstatus_.WatchSyncerThread(syncer_thread());
-
-    // Subscribe to the syncer thread's channel.
-    syncer_event_.reset(syncer_thread()->relay_channel()->AddObserver(this));
   }
 
-  return SignIn(credentials);
+  bool signed_in = SignIn(credentials);
+
+  // Do this once the directory is opened.
+  BootstrapEncryption(restored_key_for_bootstrapping);
+  return signed_in;
+}
+
+void SyncManager::SyncInternal::BootstrapEncryption(
+    const std::string& restored_key_for_bootstrapping) {
+  syncable::ScopedDirLookup lookup(dir_manager(), username_for_share());
+  if (!lookup.good()) {
+    NOTREACHED();
+    return;
+  }
+
+  if (!lookup->initial_sync_ended_for_type(syncable::NIGORI))
+    return;
+
+  Cryptographer* cryptographer = share_.dir_manager->cryptographer();
+  cryptographer->Bootstrap(restored_key_for_bootstrapping);
+
+  ReadTransaction trans(GetUserShare());
+  ReadNode node(&trans);
+  if (!node.InitByTagLookup(kNigoriTag)) {
+    NOTREACHED();
+    return;
+  }
+
+  const sync_pb::NigoriSpecifics& nigori = node.GetNigoriSpecifics();
+  if (!nigori.encrypted().blob().empty()) {
+    if (cryptographer->CanDecrypt(nigori.encrypted())) {
+      cryptographer->SetKeys(nigori.encrypted());
+    } else {
+      cryptographer->SetPendingKeys(nigori.encrypted());
+      observer_->OnPassphraseRequired();
+    }
+  }
 }
 
 void SyncManager::SyncInternal::StartSyncing() {
@@ -1399,15 +1446,15 @@ void SyncManager::SyncInternal::SendPendingXMPPNotification(
             notifier::NOTIFICATION_SERVER);
   notification_pending_ = notification_pending_ || new_pending_notification;
   if (!notification_pending_) {
-    LOG(INFO) << "Not sending notification: no pending notification";
+    VLOG(1) << "Not sending notification: no pending notification";
     return;
   }
   if (!talk_mediator_.get()) {
-    LOG(INFO) << "Not sending notification: shutting down "
-              << "(talk_mediator_ is NULL)";
+    VLOG(1) << "Not sending notification: shutting down (talk_mediator_ is "
+               "NULL)";
     return;
   }
-  LOG(INFO) << "Sending XMPP notification...";
+  VLOG(1) << "Sending XMPP notification...";
   OutgoingNotificationData notification_data;
   if (notifier_options_.notification_method == notifier::NOTIFICATION_LEGACY) {
     notification_data.service_id = browser_sync::kSyncLegacyServiceId;
@@ -1430,9 +1477,9 @@ void SyncManager::SyncInternal::SendPendingXMPPNotification(
   bool success = talk_mediator_->SendNotification(notification_data);
   if (success) {
     notification_pending_ = false;
-    LOG(INFO) << "Sent XMPP notification";
+    VLOG(1) << "Sent XMPP notification";
   } else {
-    LOG(INFO) << "Could not send XMPP notification";
+    VLOG(1) << "Could not send XMPP notification";
   }
 }
 
@@ -1442,9 +1489,8 @@ bool SyncManager::SyncInternal::OpenDirectory() {
   bool share_opened = dir_manager()->Open(username_for_share());
   DCHECK(share_opened);
   if (!share_opened) {
-    if (observer_) {
+    if (observer_)
       observer_->OnStopSyncingPermanently();
-    }
 
     LOG(ERROR) << "Could not open share for:" << username_for_share();
     return false;
@@ -1472,10 +1518,9 @@ bool SyncManager::SyncInternal::SignIn(const SyncCredentials& credentials) {
   DCHECK(share_.name.empty());
   share_.name = credentials.email;
 
-  LOG(INFO) << "Signing in user: " << username_for_share();
-  if (!OpenDirectory()) {
+  VLOG(1) << "Signing in user: " << username_for_share();
+  if (!OpenDirectory())
     return false;
-  }
 
   UpdateCredentials(credentials);
   return true;
@@ -1489,6 +1534,42 @@ void SyncManager::SyncInternal::UpdateCredentials(
   TalkMediatorLogin(credentials.email, credentials.sync_token);
   CheckServerReachable();
   sync_manager_->RequestNudge();
+}
+
+void SyncManager::SyncInternal::InitializeTalkMediator() {
+  if (notifier_options_.notification_method ==
+      notifier::NOTIFICATION_SERVER) {
+    syncable::ScopedDirLookup lookup(dir_manager(), username_for_share());
+    std::string state;
+    if (lookup.good())
+      state = lookup->GetAndClearNotificationState();
+    else
+      LOG(ERROR) << "Could not read notification state";
+    if (VLOG_IS_ON(1)) {
+      std::string encoded_state;
+      base::Base64Encode(state, &encoded_state);
+      VLOG(1) << "Read notification state: " << encoded_state;
+    }
+    sync_notifier::ServerNotifierThread* server_notifier_thread =
+        new sync_notifier::ServerNotifierThread(
+            notifier_options_, state, this);
+    talk_mediator_.reset(
+        new TalkMediatorImpl(server_notifier_thread, false));
+  } else {
+    notifier::MediatorThread* mediator_thread =
+        new notifier::MediatorThreadImpl(notifier_options_);
+    talk_mediator_.reset(new TalkMediatorImpl(mediator_thread, false));
+    if (notifier_options_.notification_method !=
+        notifier::NOTIFICATION_LEGACY) {
+      if (notifier_options_.notification_method ==
+          notifier::NOTIFICATION_TRANSITIONAL) {
+        talk_mediator_->AddSubscribedServiceUrl(
+            browser_sync::kSyncLegacyServiceUrl);
+      }
+      talk_mediator_->AddSubscribedServiceUrl(browser_sync::kSyncServiceUrl);
+    }
+  }
+  talk_mediator_->SetDelegate(this);
 }
 
 void SyncManager::SyncInternal::RaiseAuthNeededEvent() {
@@ -1519,14 +1600,43 @@ void SyncManager::SyncInternal::SetPassphrase(
     }
     cryptographer->AddKey(params);
 
+    // TODO(tim): Bug 58231. It would be nice if SetPassphrase didn't require
+    // messing with the Nigori node, because we can't call SetPassphrase until
+    // download conditions are met vs Cryptographer init.  It seems like it's
+    // safe to defer this work.
     sync_pb::NigoriSpecifics specifics;
     cryptographer->GetKeys(specifics.mutable_encrypted());
     node.SetNigoriSpecifics(specifics);
+    ReEncryptEverything(&trans);
   }
 
   std::string bootstrap_token;
   cryptographer->GetBootstrapToken(&bootstrap_token);
   observer_->OnPassphraseAccepted(bootstrap_token);
+}
+
+void SyncManager::SyncInternal::ReEncryptEverything(WriteTransaction* trans) {
+  // TODO(tim): bug 59242.  We shouldn't lookup by data type and instead use
+  // a protocol flag or existence of an EncryptedData message, but for now,
+  // encryption is on if-and-only-if the type is passwords, and we haven't
+  // ironed out the protocol for generic encryption.
+  static const char* passwords_tag = "google_chrome_passwords";
+  ReadNode passwords_root(trans);
+  if (!passwords_root.InitByTagLookup(passwords_tag)) {
+    LOG(WARNING) << "No passwords to reencrypt.";
+    return;
+  }
+
+  int64 child_id = passwords_root.GetFirstChildId();
+  while (child_id != kInvalidId) {
+    WriteNode child(trans);
+    if (!child.InitByIdLookup(child_id)) {
+      NOTREACHED();
+      return;
+    }
+    child.SetPasswordSpecifics(child.GetPasswordSpecifics());
+    child_id = child.GetSuccessorId();
+  }
 }
 
 SyncManager::~SyncManager() {
@@ -1558,21 +1668,20 @@ void SyncManager::SyncInternal::Shutdown() {
     if (!syncer_thread()->Stop(kThreadExitTimeoutMsec)) {
       LOG(FATAL) << "Unable to stop the syncer, it won't be happy...";
     }
-    syncer_event_.reset();
     syncer_thread_ = NULL;
   }
 
   // Shutdown the xmpp buzz connection.
   if (talk_mediator.get()) {
-    LOG(INFO) << "P2P: Mediator logout started.";
+    VLOG(1) << "P2P: Mediator logout started.";
     talk_mediator->Logout();
-    LOG(INFO) << "P2P: Mediator logout completed.";
+    VLOG(1) << "P2P: Mediator logout completed.";
     talk_mediator.reset();
-    LOG(INFO) << "P2P: Mediator destroyed.";
+    VLOG(1) << "P2P: Mediator destroyed.";
   }
 
   // Pump any messages the auth watcher, syncer thread, or talk
-  // mediator posted before they shut down. (See HandleSyncerEvent(),
+  // mediator posted before they shut down. (See OnSyncEngineEvent(),
   // and HandleTalkMediatorEvent() for the
   // events that may be posted.)
   {
@@ -1603,7 +1712,7 @@ void SyncManager::SyncInternal::Shutdown() {
 }
 
 void SyncManager::SyncInternal::OnIPAddressChanged() {
-  LOG(INFO) << "IP address change detected";
+  VLOG(1) << "IP address change detected";
   // TODO(akalin): CheckServerReachable() can block, which may cause
   // jank if we try to shut down sync.  Fix this.
   connection_manager()->CheckServerReachable();
@@ -1841,7 +1950,8 @@ SyncManager::Status SyncManager::SyncInternal::ComputeAggregatedStatus() {
   return return_status;
 }
 
-void SyncManager::SyncInternal::HandleChannelEvent(const SyncerEvent& event) {
+void SyncManager::SyncInternal::OnSyncEngineEvent(
+    const SyncEngineEvent& event) {
   if (!observer_)
     return;
 
@@ -1852,7 +1962,7 @@ void SyncManager::SyncInternal::HandleChannelEvent(const SyncerEvent& event) {
   //
   // Notifications are sent at the end of every sync cycle, regardless of
   // whether we should sync again.
-  if (event.what_happened == SyncerEvent::SYNC_CYCLE_ENDED) {
+  if (event.what_happened == SyncEngineEvent::SYNC_CYCLE_ENDED) {
     ModelSafeRoutingInfo enabled_types;
     registrar_->GetModelSafeRoutingInfo(&enabled_types);
     if (enabled_types.count(syncable::PASSWORDS) > 0) {
@@ -1862,7 +1972,7 @@ void SyncManager::SyncInternal::HandleChannelEvent(const SyncerEvent& event) {
         sync_api::ReadTransaction trans(GetUserShare());
         sync_api::ReadNode node(&trans);
         if (!node.InitByTagLookup(kNigoriTag)) {
-          NOTREACHED();
+          DCHECK(!event.snapshot->is_share_usable);
           return;
         }
         const sync_pb::NigoriSpecifics& nigori = node.GetNigoriSpecifics();
@@ -1901,32 +2011,32 @@ void SyncManager::SyncInternal::HandleChannelEvent(const SyncerEvent& event) {
     }
   }
 
-  if (event.what_happened == SyncerEvent::PAUSED) {
+  if (event.what_happened == SyncEngineEvent::SYNCER_THREAD_PAUSED) {
     observer_->OnPaused();
     return;
   }
 
-  if (event.what_happened == SyncerEvent::RESUMED) {
+  if (event.what_happened == SyncEngineEvent::SYNCER_THREAD_RESUMED) {
     observer_->OnResumed();
     return;
   }
 
-  if (event.what_happened == SyncerEvent::STOP_SYNCING_PERMANENTLY) {
+  if (event.what_happened == SyncEngineEvent::STOP_SYNCING_PERMANENTLY) {
     observer_->OnStopSyncingPermanently();
     return;
   }
 
-  if (event.what_happened == SyncerEvent::CLEAR_SERVER_DATA_SUCCEEDED) {
+  if (event.what_happened == SyncEngineEvent::CLEAR_SERVER_DATA_SUCCEEDED) {
     observer_->OnClearServerDataSucceeded();
     return;
   }
 
-  if (event.what_happened == SyncerEvent::CLEAR_SERVER_DATA_FAILED) {
+  if (event.what_happened == SyncEngineEvent::CLEAR_SERVER_DATA_FAILED) {
     observer_->OnClearServerDataFailed();
     return;
   }
 
-  if (event.what_happened == SyncerEvent::UPDATED_TOKEN) {
+  if (event.what_happened == SyncEngineEvent::UPDATED_TOKEN) {
     observer_->OnUpdatedToken(event.updated_token);
     return;
   }
@@ -1934,8 +2044,8 @@ void SyncManager::SyncInternal::HandleChannelEvent(const SyncerEvent& event) {
 
 void SyncManager::SyncInternal::OnNotificationStateChange(
     bool notifications_enabled) {
-  LOG(INFO) << "P2P: Notifications enabled = "
-            << (notifications_enabled ? "true" : "false");
+  VLOG(1) << "P2P: Notifications enabled = "
+          << (notifications_enabled ? "true" : "false");
   allstatus_.SetNotificationsEnabled(notifications_enabled);
   if (syncer_thread()) {
     syncer_thread()->SetNotificationsEnabled(notifications_enabled);
@@ -1966,13 +2076,7 @@ void SyncManager::SyncInternal::TalkMediatorLogin(
   DCHECK_EQ(MessageLoop::current(), core_message_loop_);
   DCHECK(!email.empty());
   DCHECK(!token.empty());
-  if (!talk_mediator_.get()) {
-    LOG(INFO) << "Not logging in: shutting down "
-              << "(talk_mediator_ is NULL)";
-    return;
-  }
-  LOG(INFO) << "P2P: Trying talk mediator login.";
-
+  InitializeTalkMediator();
   talk_mediator_->SetAuthToken(email, token, SYNC_SERVICE_NAME);
   talk_mediator_->Login();
 }
@@ -1989,7 +2093,7 @@ void SyncManager::SyncInternal::OnIncomingNotification(
        browser_sync::kSyncLegacyServiceUrl) ||
       (notification_data.service_url ==
        browser_sync::kSyncServiceUrl)) {
-    LOG(INFO) << "P2P: Updates on server, pushing syncer";
+    VLOG(1) << "P2P: Updates on server, pushing syncer";
     if (syncer_thread()) {
       // Introduce a delay to help coalesce initial notifications.
       syncer_thread()->NudgeSyncer(250, SyncerThread::kNotification);
@@ -2005,6 +2109,23 @@ void SyncManager::SyncInternal::OnOutgoingNotification() {
   DCHECK_NE(notifier_options_.notification_method,
             notifier::NOTIFICATION_SERVER);
   allstatus_.IncrementNotificationsSent();
+}
+
+void SyncManager::SyncInternal::WriteState(const std::string& state) {
+  syncable::ScopedDirLookup lookup(dir_manager(), username_for_share());
+  if (!lookup.good()) {
+    LOG(ERROR) << "Could not write notification state";
+    // TODO(akalin): Propagate result callback all the way to this
+    // function and call it with "false" to signal failure.
+    return;
+  }
+  if (VLOG_IS_ON(1)) {
+    std::string encoded_state;
+    base::Base64Encode(state, &encoded_state);
+    VLOG(1) << "Writing notification state: " << encoded_state;
+  }
+  lookup->SetNotificationState(state);
+  lookup->SaveChanges();
 }
 
 SyncManager::Status::Summary SyncManager::GetStatusSummary() const {

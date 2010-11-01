@@ -9,7 +9,9 @@ void TabStripModelObserver::TabInsertedAt(TabContents* contents,
                                           bool foreground) {
 }
 
-void TabStripModelObserver::TabClosingAt(TabContents* contents, int index) {
+void TabStripModelObserver::TabClosingAt(TabStripModel* tab_strip_model,
+                                         TabContents* contents,
+                                         int index) {
 }
 
 void TabStripModelObserver::TabDetachedAt(TabContents* contents, int index) {
@@ -36,13 +38,6 @@ void TabStripModelObserver::TabChangedAt(TabContents* contents, int index,
 void TabStripModelObserver::TabReplacedAt(TabContents* old_contents,
                                           TabContents* new_contents,
                                           int index) {
-}
-
-void TabStripModelObserver::TabReplacedAt(TabContents* old_contents,
-                                          TabContents* new_contents,
-                                          int index,
-                                          TabReplaceType type) {
-  TabReplacedAt(old_contents, new_contents, index);
 }
 
 void TabStripModelObserver::TabPinnedStateChanged(TabContents* contents,

@@ -486,6 +486,11 @@ void TaskManagerGtk::Init() {
   SetInitialDialogSize();
   gtk_util::ShowDialog(dialog_);
 
+  // If the model already has resources, we need to add them before we start
+  // observing events.
+  if (model_->ResourceCount() > 0)
+    OnItemsAdded(0, model_->ResourceCount());
+
   model_->AddObserver(this);
 }
 
@@ -793,8 +798,8 @@ void TaskManagerGtk::OnLinkActivated() {
 
 gint TaskManagerGtk::CompareImpl(GtkTreeModel* model, GtkTreeIter* a,
                                  GtkTreeIter* b, int id) {
-  int row1 = gtk_tree::GetRowNumForIter(model, a);
-  int row2 = gtk_tree::GetRowNumForIter(model, b);
+  int row1 = gtk_tree::GetRowNumForIter(model, b);
+  int row2 = gtk_tree::GetRowNumForIter(model, a);
 
   // When sorting by non-grouped attributes (e.g., Network), just do a normal
   // sort.

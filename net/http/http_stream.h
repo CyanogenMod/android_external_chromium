@@ -87,6 +87,13 @@ class HttpStream {
   //                eliminate the SetConnectionReused() below.
   virtual void Close(bool not_reusable) = 0;
 
+  // Returns a new (not initialized) stream using the same underlying
+  // connection and invalidates the old stream - no further methods should be
+  // called on the old stream.  The caller should ensure that the response body
+  // from the previous request is drained before calling this method.  If the
+  // subclass does not support renewing the stream, NULL is returned.
+  virtual HttpStream* RenewStreamForAuth() = 0;
+
   // Indicates if the response body has been completely read.
   virtual bool IsResponseBodyComplete() const = 0;
 

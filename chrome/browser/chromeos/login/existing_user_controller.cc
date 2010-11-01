@@ -17,6 +17,7 @@
 #include "base/values.h"
 #include "chrome/browser/chromeos/boot_times_loader.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/cryptohome_library.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/browser/chromeos/cros_settings_provider_user.h"
@@ -27,6 +28,7 @@
 #include "chrome/browser/chromeos/login/message_bubble.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
+#include "chrome/browser/views/window.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "gfx/native_widget_types.h"
@@ -51,6 +53,30 @@ const size_t kNotSelected = -1;
 // info bubble arrow to cursor.
 const int kCursorOffset = 5;
 
+// Used to handle the asynchronous response of deleting a cryptohome directory.
+class RemoveAttempt : public CryptohomeLibrary::Delegate {
+ public:
+  explicit RemoveAttempt(const std::string& user_email)
+      : user_email_(user_email) {
+    if (CrosLibrary::Get()->EnsureLoaded()) {
+      CrosLibrary::Get()->GetCryptohomeLibrary()->AsyncRemove(
+          user_email_, this);
+    }
+  }
+
+  void OnComplete(bool success, int return_code) {
+    // Log the error, but there's not much we can do.
+    if (!success) {
+      VLOG(1) << "Removal of cryptohome for " << user_email_
+              << " failed, return code: " << return_code;
+    }
+    delete this;
+  }
+
+ private:
+  std::string user_email_;
+};
+
 // Checks if display names are unique. If there are duplicates, enables
 // tooltips with full emails to let users distinguish their accounts.
 // Otherwise, disables the tooltips.
@@ -65,7 +91,7 @@ void EnableTooltipsIfNeeded(const std::vector<UserController*>& controllers) {
     const std::string& display_name =
         controllers[i]->user().GetDisplayName();
     bool show_tooltip = controllers[i]->is_new_user() ||
-                        controllers[i]->is_bwsi() ||
+                        controllers[i]->is_guest() ||
                         visible_display_names[display_name] > 1;
     controllers[i]->EnableNameTooltip(show_tooltip);
   }
@@ -75,12 +101,14 @@ void EnableTooltipsIfNeeded(const std::vector<UserController*>& controllers) {
 // Note this function is for display purpose only and should use
 // CheckWhitelist op for the real whitelist check.
 bool IsEmailInCachedWhitelist(const std::string& email) {
-  StringValue email_value(email);
   const ListValue* whitelist = UserCrosSettingsProvider::cached_whitelist();
-  for (ListValue::const_iterator i(whitelist->begin());
-      i != whitelist->end(); ++i) {
-    if ((*i)->Equals(&email_value))
-      return true;
+  if (whitelist) {
+    StringValue email_value(email);
+    for (ListValue::const_iterator i(whitelist->begin());
+        i != whitelist->end(); ++i) {
+      if ((*i)->Equals(&email_value))
+        return true;
+    }
   }
   return false;
 }
@@ -119,14 +147,14 @@ ExistingUserController::ExistingUserController(
         break;
 
       // TODO(xiyuan): Clean user profile whose email is not in whitelist.
-      if (UserCrosSettingsProvider::cached_allow_guest() ||
+      if (UserCrosSettingsProvider::cached_allow_new_user() ||
           IsEmailInCachedWhitelist(users[i].email())) {
         controllers_.push_back(new UserController(this, users[i]));
       }
     }
   }
 
-  if (!controllers_.empty() && UserCrosSettingsProvider::cached_allow_bwsi())
+  if (!controllers_.empty() && UserCrosSettingsProvider::cached_allow_guest())
     controllers_.push_back(new UserController(this, true));
 
   // Add the view representing the new user.
@@ -151,12 +179,12 @@ void ExistingUserController::Init() {
 
     background_window_->Show();
   }
-  // If there's only new user pod, show BWSI link on it.
-  bool show_bwsi_link = controllers_.size() == 1;
+  // If there's only new user pod, show the guest session link on it.
+  bool show_guest_link = controllers_.size() == 1;
   for (size_t i = 0; i < controllers_.size(); ++i) {
     (controllers_[i])->Init(static_cast<int>(i),
                             static_cast<int>(controllers_.size()),
-                            show_bwsi_link);
+                            show_guest_link);
   }
 
   EnableTooltipsIfNeeded(controllers_);
@@ -265,8 +293,8 @@ void ExistingUserController::WhiteListCheckFailed(const std::string& email) {
 }
 
 void ExistingUserController::LoginOffTheRecord() {
-  // Check allow_bwsi in case this call is fired from key accelerator.
-  if (!UserCrosSettingsProvider::cached_allow_bwsi())
+  // Check allow_guest in case this call is fired from key accelerator.
+  if (!UserCrosSettingsProvider::cached_allow_guest())
     return;
 
   // Disable clicking on other windows.
@@ -290,6 +318,7 @@ void ExistingUserController::OnUserSelected(UserController* source) {
   if (new_selected_index != selected_view_index_ &&
       selected_view_index_ != kNotSelected) {
     controllers_[selected_view_index_]->ClearAndEnableFields();
+    controllers_[new_selected_index]->ClearAndEnableFields();
     login_performer_.reset(NULL);
     num_login_attempts_ = 0;
   }
@@ -331,6 +360,8 @@ void ExistingUserController::RemoveUser(UserController* source) {
   for (int i = 0; i < new_size; ++i)
     controllers_[i]->UpdateUserCount(i, new_size);
 
+  // Delete the encrypted user directory.
+  new RemoveAttempt(source->user().email());
   // We need to unmap entry windows, the windows will be unmapped in destructor.
   delete source;
 }
@@ -365,7 +396,7 @@ void ExistingUserController::OnLoginFailure(const LoginFailure& failure) {
         CaptchaView* view =
             new CaptchaView(failure.error().captcha().image_url);
         view->set_delegate(this);
-        views::Window* window = views::Window::CreateChromeWindow(
+        views::Window* window = browser::CreateViewsWindow(
             GetNativeWindow(), gfx::Rect(), view);
         window->SetIsAlwaysOnTop(true);
         window->Show();
@@ -429,9 +460,18 @@ void ExistingUserController::ShowError(int error_id,
       this);
 }
 
-void ExistingUserController::OnLoginSuccess(const std::string& username,
-    const GaiaAuthConsumer::ClientLoginResult& credentials) {
-
+void ExistingUserController::OnLoginSuccess(
+    const std::string& username,
+    const GaiaAuthConsumer::ClientLoginResult& credentials,
+    bool pending_requests) {
+  // LoginPerformer instance will delete itself once online auth result is OK.
+  // In case of failure it'll bring up ScreenLock and ask for
+  // correct password/display error message.
+  // Even in case when following online,offline protocol and returning
+  // requests_pending = false, let LoginPerformer delete itself.
+  login_performer_->set_delegate(NULL);
+  LoginPerformer* performer = login_performer_.release();
+  performer = NULL;
   AppendStartUrlToCmdline();
   if (selected_view_index_ + 1 == controllers_.size() &&
       !UserManager::Get()->IsKnownUser(username)) {
@@ -471,9 +511,9 @@ void ExistingUserController::OnPasswordChangeDetected(
   }
 
   PasswordChangedView* view = new PasswordChangedView(this);
-  views::Window* window = views::Window::CreateChromeWindow(GetNativeWindow(),
-                                                            gfx::Rect(),
-                                                            view);
+  views::Window* window = browser::CreateViewsWindow(GetNativeWindow(),
+                                                     gfx::Rect(),
+                                                     view);
   window->SetIsAlwaysOnTop(true);
   window->Show();
 }

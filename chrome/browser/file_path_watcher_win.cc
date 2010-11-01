@@ -78,8 +78,8 @@ bool FilePathWatcherImpl::Watch(const FilePath& path,
 
 void FilePathWatcherImpl::Cancel() {
   // Switch to the file thread if necessary so we can stop |watcher_|.
-  if (!ChromeThread::CurrentlyOn(ChromeThread::FILE)) {
-    ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
+  if (!BrowserThread::CurrentlyOn(BrowserThread::FILE)) {
+    BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
         NewRunnableMethod(this, &FilePathWatcherImpl::Cancel));
     return;
   }
@@ -170,6 +170,7 @@ bool FilePathWatcherImpl::SetupWatchHandle(const FilePath& dir,
   if (error_code != ERROR_FILE_NOT_FOUND &&
       error_code != ERROR_PATH_NOT_FOUND &&
       error_code != ERROR_ACCESS_DENIED &&
+      error_code != ERROR_SHARING_VIOLATION &&
       error_code != ERROR_DIRECTORY) {
     PLOG(ERROR) << "FindFirstChangeNotification failed for "
                 << dir.value();

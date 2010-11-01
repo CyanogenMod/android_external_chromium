@@ -40,16 +40,19 @@
 #if defined(FEATURE_ENABLE_PSTN)
 namespace cricket {
 
-RawTransport::RawTransport(talk_base::Thread* worker_thread,
+RawTransport::RawTransport(talk_base::Thread* signaling_thread,
+                           talk_base::Thread* worker_thread,
                            PortAllocator* allocator)
-    : Transport(worker_thread, NS_GINGLE_RAW, allocator) {
+    : Transport(signaling_thread, worker_thread,
+                NS_GINGLE_RAW, allocator) {
 }
 
 RawTransport::~RawTransport() {
   DestroyAllChannels();
 }
 
-bool RawTransport::ParseCandidates(const buzz::XmlElement* elem,
+bool RawTransport::ParseCandidates(SignalingProtocol protocol,
+                                   const buzz::XmlElement* elem,
                                    Candidates* candidates,
                                    ParseError* error) {
   ASSERT(elem->FirstChild() == NULL);
@@ -70,8 +73,8 @@ bool RawTransport::ParseCandidates(const buzz::XmlElement* elem,
   return true;
 }
 
-bool RawTransport::WriteCandidates(const Candidates& candidates,
-                                   SignalingProtocol protocol,
+bool RawTransport::WriteCandidates(SignalingProtocol protocol,
+                                   const Candidates& candidates,
                                    XmlElements* candidate_elems,
                                    WriteError* error) {
   for (std::vector<Candidate>::const_iterator
@@ -82,7 +85,7 @@ bool RawTransport::WriteCandidates(const Candidates& candidates,
     talk_base::SocketAddress addr = cand->address();
 
     buzz::XmlElement* elem = new buzz::XmlElement(QN_GINGLE_RAW_CHANNEL);
-    elem->SetAttr(buzz::QN_NAME, name());
+    elem->SetAttr(buzz::QN_NAME, type());
     elem->SetAttr(QN_ADDRESS, addr.IPAsString());
     elem->SetAttr(QN_PORT, addr.PortAsString());
     candidate_elems->push_back(elem);

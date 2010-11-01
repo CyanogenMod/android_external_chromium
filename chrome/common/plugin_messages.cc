@@ -12,7 +12,8 @@
 #include "ipc/ipc_message_impl_macros.h"
 
 PluginMsg_Init_Params::PluginMsg_Init_Params()
-    : load_manually(false),
+    : containing_window(0),
+      load_manually(false),
       host_render_view_routing_id(-1) {
 }
 
@@ -56,10 +57,13 @@ NPVariant_Param::~NPVariant_Param() {
 }
 
 PluginMsg_UpdateGeometry_Param::PluginMsg_UpdateGeometry_Param()
-    : transparent(false)
-#if defined(OS_MACOSX)
-    , ack_key(-1)
-#endif
+    : transparent(false),
+#if !defined(OS_MACOSX)
+      windowless_buffer(NULL),
+      background_buffer(NULL)
+#else
+      ack_key(-1)
+#endif  // !defined(OS_MACOSX)
 {
 }
 

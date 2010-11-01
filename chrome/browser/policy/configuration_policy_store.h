@@ -24,12 +24,14 @@ class ConfigurationPolicyStore {
     kPolicyHomepageIsNewTabPage,
     kPolicyRestoreOnStartup,
     kPolicyURLsToRestoreOnStartup,
+    kPolicyDefaultSearchProviderEnabled,
     kPolicyDefaultSearchProviderName,
     kPolicyDefaultSearchProviderKeyword,
     kPolicyDefaultSearchProviderSearchURL,
     kPolicyDefaultSearchProviderSuggestURL,
     kPolicyDefaultSearchProviderIconURL,
     kPolicyDefaultSearchProviderEncodings,
+    kPolicyDisableSpdy,
     kPolicyProxyServerMode,
     kPolicyProxyServer,
     kPolicyProxyPacUrl,
@@ -53,6 +55,8 @@ class ConfigurationPolicyStore {
     kPolicyRenderInChromeFrameList,
     kPolicyRenderInHostList,
     kPolicyJavascriptEnabled,
+    kPolicySavingBrowserHistoryDisabled,
+    kPolicyChromeOsLockOnIdleSuspend,
   };
 
   static const int kPolicyNoProxyServerMode = 0;

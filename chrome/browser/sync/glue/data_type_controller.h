@@ -9,7 +9,7 @@
 #include <map>
 
 #include "base/callback.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/sync/engine/model_safe_worker.h"
 #include "chrome/browser/sync/syncable/model_type.h"
 #include "chrome/browser/sync/unrecoverable_error_handler.h"
@@ -20,7 +20,7 @@ namespace browser_sync {
 // need to run model associator or change processor on other threads.
 class DataTypeController
     : public base::RefCountedThreadSafe<DataTypeController,
-                                        ChromeThread::DeleteOnUIThread>,
+                                        BrowserThread::DeleteOnUIThread>,
       public UnrecoverableErrorHandler {
  public:
   enum State {
@@ -95,7 +95,7 @@ class DataTypeController
 
  protected:
   friend class base::RefCountedThreadSafe<DataTypeController>;
-  friend class ChromeThread;
+  friend class BrowserThread;
   friend class DeleteTask<DataTypeController>;
   friend class ShutdownTask;
 };

@@ -17,9 +17,9 @@
 #include "base/callback.h"
 #include "base/eintr_wrapper.h"
 #include "base/file_path.h"
-#include "base/histogram.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
+#include "base/metrics/histogram.h"
 #include "base/string_util.h"
 #include "base/waitable_event.h"
 #include "base/worker_pool.h"
@@ -351,8 +351,6 @@ int FileStream::Open(const FilePath& path, int open_flags) {
   open_flags_ = open_flags;
   file_ = base::CreatePlatformFile(path, open_flags_, NULL, NULL);
   if (file_ == base::kInvalidPlatformFileValue) {
-    LOG(WARNING) << "Failed to open file: " << errno
-          << " (" << path.ToWStringHack() << ")";
     return MapErrorCode(errno);
   }
 

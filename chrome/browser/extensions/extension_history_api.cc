@@ -10,8 +10,8 @@
 #include "base/string_number_conversions.h"
 #include "base/task.h"
 #include "base/values.h"
+#include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extension_history_api_constants.h"
-#include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/profile.h"
@@ -82,6 +82,10 @@ void ExtensionHistoryEventRouter::ObserveProfile(Profile* profile) {
   }
 }
 
+ExtensionHistoryEventRouter::ExtensionHistoryEventRouter() {}
+
+ExtensionHistoryEventRouter::~ExtensionHistoryEventRouter() {}
+
 void ExtensionHistoryEventRouter::Observe(NotificationType type,
                                           const NotificationSource& source,
                                           const NotificationDetails& details) {
@@ -141,8 +145,8 @@ void ExtensionHistoryEventRouter::HistoryUrlsRemoved(
 void ExtensionHistoryEventRouter::DispatchEvent(Profile* profile,
                                                 const char* event_name,
                                                 const std::string& json_args) {
-  if (profile && profile->GetExtensionMessageService()) {
-    profile->GetExtensionMessageService()->DispatchEventToRenderers(
+  if (profile && profile->GetExtensionEventRouter()) {
+    profile->GetExtensionEventRouter()->DispatchEventToRenderers(
         event_name, json_args, profile, GURL());
   }
 }

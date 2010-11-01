@@ -14,7 +14,7 @@
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_operation_notification_details.h"
 #include "chrome/browser/dom_ui/new_tab_ui.h"
 #include "chrome/browser/google/google_util.h"
@@ -481,8 +481,8 @@ void SafeBrowsingBlockingPage::NotifySafeBrowsingService(
     SafeBrowsingService* sb_service,
     const UnsafeResourceList& unsafe_resources,
     bool proceed) {
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           sb_service, &SafeBrowsingService::OnBlockingPageDone,
           unsafe_resources, proceed));

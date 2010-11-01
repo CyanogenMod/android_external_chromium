@@ -74,7 +74,9 @@ class BrowserListener : public TabStripModelObserver {
   virtual void TabInsertedAt(TabContents* contents,
                              int index,
                              bool foreground);
-  virtual void TabClosingAt(TabContents* contents, int index) {}
+  virtual void TabClosingAt(TabStripModel* tab_strip_model,
+                            TabContents* contents,
+                            int index) {}
   virtual void TabDetachedAt(TabContents* contents, int index);
   virtual void TabMoved(TabContents* contents,
                         int from_index,
@@ -508,8 +510,7 @@ void WmOverviewController::SnapshotImageChanged(RenderWidgetHost* renderer) {
   }
 }
 
-// Called immediately before a browser is removed from the list.
-void WmOverviewController::OnBrowserRemoving(const Browser* browser) {
+void WmOverviewController::OnBrowserRemoved(const Browser* browser) {
   for (BrowserListenerVector::iterator i = listeners_.begin();
        i != listeners_.end(); ++i) {
     if ((*i)->browser() == browser) {

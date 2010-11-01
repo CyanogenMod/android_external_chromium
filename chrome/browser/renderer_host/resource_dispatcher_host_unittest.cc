@@ -7,14 +7,15 @@
 #include "base/file_path.h"
 #include "base/message_loop.h"
 #include "base/process_util.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/child_process_security_policy.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
 #include "chrome/browser/renderer_host/resource_handler.h"
 #include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
+#include "chrome/common/resource_response.h"
 #include "net/base/net_errors.h"
 #include "net/base/upload_data.h"
 #include "net/http/http_util.h"
@@ -158,8 +159,8 @@ class ResourceDispatcherHostTest : public testing::Test,
  public:
   ResourceDispatcherHostTest()
       : Receiver(ChildProcessInfo::RENDER_PROCESS, -1),
-        ui_thread_(ChromeThread::UI, &message_loop_),
-        io_thread_(ChromeThread::IO, &message_loop_),
+        ui_thread_(BrowserThread::UI, &message_loop_),
+        io_thread_(BrowserThread::IO, &message_loop_),
         old_factory_(NULL),
         resource_type_(ResourceType::SUB_RESOURCE) {
     set_handle(base::GetCurrentProcessHandle());
@@ -265,8 +266,8 @@ class ResourceDispatcherHostTest : public testing::Test,
   }
 
   MessageLoopForIO message_loop_;
-  ChromeThread ui_thread_;
-  ChromeThread io_thread_;
+  BrowserThread ui_thread_;
+  BrowserThread io_thread_;
   ResourceDispatcherHost host_;
   ResourceIPCAccumulator accum_;
   std::string response_headers_;

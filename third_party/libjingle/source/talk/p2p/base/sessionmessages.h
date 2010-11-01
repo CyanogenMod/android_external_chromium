@@ -91,19 +91,32 @@ struct SessionMessage {
   const buzz::XmlElement* stanza;
 };
 
-struct SessionInitiate {
-  // Object will have ownership of contents.
-  SessionInitiate() : owns_contents(true)  {}
+// A TransportInfo is NOT a transport-info message.  It is comparable
+// to a "ContentInfo". A transport-info message is basically just a
+// collection of TransportInfos.
+struct TransportInfo {
+  TransportInfo() {}
 
-  // Caller retains ownership of contents.
-  SessionInitiate(const std::string& transport_name,
-                  const std::vector<ContentInfo>& contents) :
-      transport_name(transport_name),
-      contents(contents), owns_contents(false) {}
+  TransportInfo(const std::string& content_name,
+                const std::string& transport_type,
+                const Candidates& candidates)
+      : content_name(content_name),
+        transport_type(transport_type),
+        candidates(candidates) {}
+
+  std::string content_name;
+  std::string transport_type;  // xmlns of <transport>
+  Candidates candidates;
+};
+
+typedef std::vector<TransportInfo> TransportInfos;
+
+struct SessionInitiate {
+  SessionInitiate() : owns_contents(false) {}
 
   ~SessionInitiate() {
     if (owns_contents) {
-      for (std::vector<ContentInfo>::iterator content = contents.begin();
+      for (ContentInfos::iterator content = contents.begin();
            content != contents.end(); content++) {
         delete content->description;
       }
@@ -111,78 +124,90 @@ struct SessionInitiate {
   }
 
   // Caller takes ownership of contents.
-  std::vector<ContentInfo> AdoptContents() {
-    std::vector<ContentInfo> out;
+  ContentInfos ClearContents() {
+    ContentInfos out;
     contents.swap(out);
+    owns_contents = false;
     return out;
   }
 
-  std::string transport_name;  // xmlns of <transport>
-  // TODO(pthatcher): Jingle spec allows candidates to be in the
-  // initiate.  We should support receiving them.
-  std::vector<ContentInfo> contents;
   bool owns_contents;
+  ContentInfos contents;
+  TransportInfos transports;
 };
 
+// Right now, a SessionAccept is functionally equivalent to a SessionInitiate.
 typedef SessionInitiate SessionAccept;
 
 struct SessionTerminate {
+  SessionTerminate() {}
+
+  explicit SessionTerminate(const std::string& reason) :
+      reason(reason) {}
+
   std::string reason;
   std::string debug_reason;
-};
-
-struct TransportInfo {
-  TransportInfo() {}
-
-  TransportInfo(const std::string& transport_name,
-                const Candidates& candidates) :
-      transport_name(transport_name), candidates(candidates) {}
-
-  std::string transport_name;  // xmlns of <transport>
-  Candidates candidates;
-};
-
-struct SessionReject {
 };
 
 bool IsSessionMessage(const buzz::XmlElement* stanza);
 bool ParseSessionMessage(const buzz::XmlElement* stanza,
                          SessionMessage* msg,
                          ParseError* error);
-bool ParseFirstContentType(const buzz::XmlElement* action_elem,
-                           std::string* content_type,
-                           ParseError* error);
+// Will return an error if there is more than one content type.
+bool ParseContentType(SignalingProtocol protocol,
+                      const buzz::XmlElement* action_elem,
+                      std::string* content_type,
+                      ParseError* error);
 void WriteSessionMessage(const SessionMessage& msg,
                          const XmlElements& action_elems,
                          buzz::XmlElement* stanza);
-bool ParseSessionInitiate(const buzz::XmlElement* action_elem,
+bool ParseSessionInitiate(SignalingProtocol protocol,
+                          const buzz::XmlElement* action_elem,
                           const ContentParserMap& content_parsers,
-                          SessionInitiate* init, ParseError* error);
-bool WriteSessionInitiate(const SessionInitiate& init,
+                          const TransportParserMap& transport_parsers,
+                          SessionInitiate* init,
+                          ParseError* error);
+bool WriteSessionInitiate(SignalingProtocol protocol,
+                          const ContentInfos& contents,
+                          const TransportInfos& tinfos,
                           const ContentParserMap& content_parsers,
-                          SignalingProtocol protocol,
+                          const TransportParserMap& transport_parsers,
                           XmlElements* elems,
                           WriteError* error);
-bool ParseSessionAccept(const buzz::XmlElement* action_elem,
+bool ParseSessionAccept(SignalingProtocol protocol,
+                        const buzz::XmlElement* action_elem,
                         const ContentParserMap& content_parsers,
-                        SessionAccept* accept, ParseError* error);
-bool WriteSessionAccept(const SessionAccept& accept,
+                        const TransportParserMap& transport_parsers,
+                        SessionAccept* accept,
+                        ParseError* error);
+bool WriteSessionAccept(SignalingProtocol protocol,
+                        const ContentInfos& contents,
+                        const TransportInfos& tinfos,
                         const ContentParserMap& content_parsers,
+                        const TransportParserMap& transport_parsers,
                         XmlElements* elems,
                         WriteError* error);
-bool ParseSessionTerminate(const buzz::XmlElement* action_elem,
-                           SessionTerminate* term, ParseError* error);
-bool WriteSessionTerminate(const SessionAccept& term,
-                           XmlElements* elems,
-                           WriteError* error);
-bool ParseTransportInfo(const buzz::XmlElement* action_elem,
-                        const TransportParserMap& trans_parsers,
-                        TransportInfo* info, ParseError* error);
-bool WriteTransportInfo(const TransportInfo& info,
-                        const TransportParserMap& trans_parsers,
-                        SignalingProtocol protocol,
-                        XmlElements* elems,
-                        WriteError* error);
+bool ParseSessionTerminate(SignalingProtocol protocol,
+                           const buzz::XmlElement* action_elem,
+                           SessionTerminate* term,
+                           ParseError* error);
+void WriteSessionTerminate(SignalingProtocol protocol,
+                           const SessionTerminate& term,
+                           XmlElements* elems);
+// Since a TransportInfo is not a transport-info message, and a
+// transport-info message is just a collection of TransportInfos, we
+// say Parse/Write TransportInfos for transport-info messages.
+bool ParseTransportInfos(SignalingProtocol protocol,
+                         const buzz::XmlElement* action_elem,
+                         const ContentInfos& contents,
+                         const TransportParserMap& trans_parsers,
+                         TransportInfos* tinfos,
+                         ParseError* error);
+bool WriteTransportInfos(SignalingProtocol protocol,
+                         const TransportInfos& tinfos,
+                         const TransportParserMap& trans_parsers,
+                         XmlElements* elems,
+                         WriteError* error);
 }  // namespace cricket
 
 #endif  // TALK_P2P_BASE_SESSIONMESSAGES_H_

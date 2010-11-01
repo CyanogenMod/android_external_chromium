@@ -8,7 +8,7 @@
 
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 
 class GURL;
 
@@ -24,7 +24,7 @@ class BlobStorageController;
 // the IO thread (unless specifically called out in doc comments).
 class ChromeBlobStorageContext
     : public base::RefCountedThreadSafe<ChromeBlobStorageContext,
-                                        ChromeThread::DeleteOnIOThread> {
+                                        BrowserThread::DeleteOnIOThread> {
  public:
   ChromeBlobStorageContext();
 
@@ -35,7 +35,7 @@ class ChromeBlobStorageContext
   }
 
  private:
-  friend class ChromeThread;
+  friend class BrowserThread;
   friend class DeleteTask<ChromeBlobStorageContext>;
 
   virtual ~ChromeBlobStorageContext();

@@ -10,18 +10,19 @@ compatible with Google Talk Call Signaling
 create several static libraries you may link to your projects as needed.
 
 -talk               - No source files in talk/, just these subdirectories
-|-base              - Contains basic low-level portable utility functions for 
+|-base              - Contains basic low-level portable utility functions for
 |                     things like threads and sockets
 |-p2p               - The P2P stack
   |-base            - Base p2p functionality
   |-client          - Hooks to tie it into XMPP
 |-session           - Signaling
   |-phone           - Signaling code specific to making phone calls
+    |-testdata      - Samples of RTP voice and video dump
   |-tunnel          - Tunnel session and channel
 |-xmllite           - XML parser
 |-xmpp              - XMPP engine
 
-In addition, this package contains two examples in talk/examples which 
+In addition, this package contains two examples in talk/examples which
 illustrate the basic concepts of how the provided classes work.
 
 2. How to Build
@@ -66,9 +67,17 @@ is a set of extensions to the open-source SCons build tool (www.scons.org).
 
 The built binaries are under talk/build/dbg/staging or talk/build/opt/staging,
 depending on the build mode. When the build is complete, you can run the
-examples, login or call. Libjingle also builds two server tools, a relay server
-and a STUN server. The relay server may be used to relay traffic when a direct
-peer-to-peer connection could not be established. The STUN Server implements the
-STUN protocol for Simple Traversal of UDP over NAT. See the Libjingle Developer
-Guide at http://code.google.com/apis/talk/index.html for information about
-configuring a client to use this relay server and this STUN server.
+examples, login or call. For the call sample, you can specify the input and
+output RTP dump for voice and video. This package provides two samples of input
+RTP dump: voice.rtpdump is a single channel, 16Khz voice encoded with G722, and
+video.rtpdump is 320x240 video encoded with H264 AVC at 30 frames per second.
+These provided samples will inter-operate with Google Talk Video. If you use
+other input RTP dump, you may need to change the codecs in call_main.cc, lines
+215 - 222.
+
+Libjingle also builds two server tools, a relay server and a STUN server. The
+relay server may be used to relay traffic when a direct peer-to-peer connection
+could not be established. The STUN Server implements the STUN protocol for
+Simple Traversal of UDP over NAT. See the Libjingle Developer Guide at
+http://code.google.com/apis/talk/index.html for information about configuring a
+client to use this relay server and this STUN server.

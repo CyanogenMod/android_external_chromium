@@ -16,7 +16,7 @@
 #include "base/values.h"
 #include "chrome/browser/bookmarks/bookmark_codec.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/notification_service.h"
@@ -418,7 +418,7 @@ void BookmarkFaviconFetcher::ExecuteWriter() {
   // for the duration of the write), as such we make a copy of the
   // BookmarkModel using BookmarkCodec then write from that.
   BookmarkCodec codec;
-  ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
       new Writer(codec.Encode(profile_->GetBookmarkModel()),
                  path_,
                  favicons_map_.release(),

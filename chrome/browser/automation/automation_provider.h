@@ -19,6 +19,7 @@
 #include "base/basictypes.h"
 #include "base/observer_list.h"
 #include "base/scoped_ptr.h"
+#include "base/string16.h"
 #include "chrome/browser/autofill/field_types.h"
 #include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
@@ -34,6 +35,7 @@
 
 struct AutomationMsg_Find_Params;
 class PopupMenuWaiter;
+class TabContents;
 
 namespace IPC {
 struct Reposition_Params;
@@ -196,6 +198,19 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
 
   // Consumer for asynchronous history queries.
   CancelableRequestConsumer consumer_;
+
+  // Sends a find request for a given query.
+  void SendFindRequest(
+      TabContents* tab_contents,
+      bool with_json,
+      const string16& search_string,
+      bool forward,
+      bool match_case,
+      bool find_next,
+      IPC::Message* reply_message);
+
+  scoped_refptr<AutomationResourceMessageFilter>
+      automation_resource_message_filter_;
 
  private:
   void OnUnhandledMessage();
@@ -385,8 +400,6 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
       extension_test_result_observer_;
   scoped_ptr<AutomationExtensionTracker> extension_tracker_;
   PortContainerMap port_containers_;
-  scoped_refptr<AutomationResourceMessageFilter>
-      automation_resource_message_filter_;
 
   DISALLOW_COPY_AND_ASSIGN(AutomationProvider);
 };

@@ -26,6 +26,10 @@
   IBOutlet InfoBubbleView* bubble_;  // to set arrow position
 }
 
+@property (nonatomic, readonly) NSWindow* parentWindow;
+@property (nonatomic, assign) NSPoint anchorPoint;
+@property (nonatomic, readonly) InfoBubbleView* bubble;
+
 // Creates a bubble. |nibPath| is just the basename, e.g. @"FirstRunBubble".
 // |anchoredAt| is in screen space. You need to call -showWindow: to make the
 // bubble visible. It will autorelease itself when the user dismisses the
@@ -46,6 +50,11 @@
                      offset:(NSPoint)offset;
 
 
-@property (nonatomic, readonly) InfoBubbleView* bubble;
+// For subclasses that do not load from a XIB, this will simply set the instance
+// variables appropriately. This will also replace the |-[self window]|'s
+// contentView with an instance of InfoBubbleView.
+- (id)initWithWindow:(NSWindow*)theWindow
+        parentWindow:(NSWindow*)parentWindow
+          anchoredAt:(NSPoint)anchoredAt;
 
 @end

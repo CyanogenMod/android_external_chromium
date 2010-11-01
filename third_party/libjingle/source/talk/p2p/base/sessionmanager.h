@@ -32,10 +32,10 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "talk/base/sigslot.h"
 #include "talk/base/thread.h"
 #include "talk/p2p/base/portallocator.h"
-#include "talk/p2p/base/sessionid.h"
-#include "talk/base/sigslot.h"
 
 namespace buzz {
 class QName;
@@ -73,14 +73,14 @@ class SessionManager : public sigslot::has_slots<> {
 
   // Creates a new session.  The given name is the JID of the client on whose
   // behalf we initiate the session.
-  Session *CreateSession(const std::string& name,
+  Session *CreateSession(const std::string& local_name,
                          const std::string& content_type);
 
   // Destroys the given session.
   void DestroySession(Session *session);
 
   // Returns the session with the given ID or NULL if none exists.
-  Session *GetSession(const SessionID& id);
+  Session *GetSession(const std::string& sid);
 
   // Terminates all of the sessions created by this manager.
   void TerminateAll();
@@ -94,7 +94,6 @@ class SessionManager : public sigslot::has_slots<> {
 
   // Given a sid, initiator, and remote_name, this finds the matching Session
   Session* FindSession(const std::string& sid,
-                       const std::string& initiator,
                        const std::string& remote_name);
 
   // Called when we receive a stanza for which IsSessionMessage is true.
@@ -126,7 +125,7 @@ class SessionManager : public sigslot::has_slots<> {
   void OnSignalingReady();
 
  private:
-  typedef std::map<SessionID, Session*> SessionMap;
+  typedef std::map<std::string, Session*> SessionMap;
   typedef std::map<std::string, SessionClient*> ClientMap;
 
   PortAllocator *allocator_;
@@ -138,8 +137,9 @@ class SessionManager : public sigslot::has_slots<> {
 
   // Helper function for CreateSession.  This is also invoked when we receive
   // a message attempting to initiate a session with this client.
-  Session *CreateSession(const std::string& name,
-                         const SessionID& id,
+  Session *CreateSession(const std::string& local_name,
+                         const std::string& initiator,
+                         const std::string& sid,
                          const std::string& content_type,
                          bool received_initiate);
 

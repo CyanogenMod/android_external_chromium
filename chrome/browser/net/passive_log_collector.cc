@@ -9,7 +9,7 @@
 #include "base/compiler_specific.h"
 #include "base/string_util.h"
 #include "base/format_macros.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "net/url_request/url_request_netlog_params.h"
 
 namespace {
@@ -36,6 +36,31 @@ bool SortByOrderComparator(const PassiveLogCollector::Entry& a,
 }
 
 }  // namespace
+
+PassiveLogCollector::Entry::Entry(uint32 order,
+                                  net::NetLog::EventType type,
+                                  const base::TimeTicks& time,
+                                  net::NetLog::Source source,
+                                  net::NetLog::EventPhase phase,
+                                  net::NetLog::EventParameters* params)
+    : order(order),
+      type(type),
+      time(time),
+      source(source),
+      phase(phase),
+      params(params) {
+}
+
+PassiveLogCollector::Entry::~Entry() {}
+
+PassiveLogCollector::SourceInfo::SourceInfo()
+    : source_id(net::NetLog::Source::kInvalidId),
+      num_entries_truncated(0),
+      reference_count(0),
+      is_alive(true) {
+}
+
+PassiveLogCollector::SourceInfo::~SourceInfo() {}
 
 //----------------------------------------------------------------------------
 // PassiveLogCollector

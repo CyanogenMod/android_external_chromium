@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -41,7 +41,7 @@ void GetCommitIdsCommand::ExecuteImpl(SyncSession* session) {
       ordered_commit_set_->GetAllCommitIds();
 
   for (size_t i = 0; i < verified_commit_ids.size(); i++)
-    LOG(INFO) << "Debug commit batch result:" << verified_commit_ids[i];
+    VLOG(1) << "Debug commit batch result:" << verified_commit_ids[i];
 
   status->set_commit_set(*ordered_commit_set_.get());
 }
@@ -186,8 +186,8 @@ void GetCommitIdsCommand::AddDeletes(const vector<int64>& unsynced_handles,
         if (entry.Get(syncable::ID).ServerKnows() &&
             entry.Get(syncable::PARENT_ID) !=
                 entry.Get(syncable::SERVER_PARENT_ID)) {
-          LOG(INFO) << "Inserting moved and deleted entry, will be missed by"
-            " delete roll." << entry.Get(syncable::ID);
+          VLOG(1) << "Inserting moved and deleted entry, will be missed by "
+                     "delete roll." << entry.Get(syncable::ID);
 
           ordered_commit_set_->AddCommitItem(metahandle,
               entry.Get(syncable::ID),

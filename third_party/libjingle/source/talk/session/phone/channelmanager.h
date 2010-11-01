@@ -95,7 +95,7 @@ class ChannelManager : public talk_base::MessageHandler,
   bool initialized() const { return initialized_; }
   // Starts up the media engine.
   bool Init();
-  // TODO(juberti): Remove this temporary API once Flute is updated.
+  // TODO: Remove this temporary API once Flute is updated.
   bool Init(talk_base::Thread* thread) {
     return set_worker_thread(thread) && Init();
   }
@@ -105,13 +105,15 @@ class ChannelManager : public talk_base::MessageHandler,
   // The operations below all occur on the worker thread.
 
   // Creates a voice channel, to be associated with the specified session.
-  VoiceChannel* CreateVoiceChannel(BaseSession* session, bool rtcp);
+  VoiceChannel* CreateVoiceChannel(
+      BaseSession* session, const std::string& content_name, bool rtcp);
   // Destroys a voice channel created with the Create API.
   void DestroyVoiceChannel(VoiceChannel* voice_channel);
   // Creates a video channel, synced with the specified voice channel, and
   // associated with the specified session.
-  VideoChannel* CreateVideoChannel(BaseSession* session, bool rtcp,
-                                   VoiceChannel* voice_channel);
+  VideoChannel* CreateVideoChannel(
+      BaseSession* session, const std::string& content_name, bool rtcp,
+      VoiceChannel* voice_channel);
   // Destroys a video channel created with the Create API.
   void DestroyVideoChannel(VideoChannel* video_channel);
 
@@ -164,10 +166,12 @@ class ChannelManager : public talk_base::MessageHandler,
 
   void Construct();
   bool Send(uint32 id, talk_base::MessageData* pdata);
-  VoiceChannel* CreateVoiceChannel_w(BaseSession* session, bool rtcp);
+  VoiceChannel* CreateVoiceChannel_w(
+      BaseSession* session, const std::string& content_name, bool rtcp);
   void DestroyVoiceChannel_w(VoiceChannel* voice_channel);
-  VideoChannel* CreateVideoChannel_w(BaseSession* session, bool rtcp,
-                                     VoiceChannel* voice_channel);
+  VideoChannel* CreateVideoChannel_w(
+      BaseSession* session, const std::string& content_name, bool rtcp,
+      VoiceChannel* voice_channel);
   void DestroyVideoChannel_w(VideoChannel* video_channel);
   Soundclip* CreateSoundclip_w();
   void DestroySoundclip_w(Soundclip* soundclip);

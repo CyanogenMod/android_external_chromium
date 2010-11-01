@@ -1,4 +1,4 @@
-// Copyright (c) 2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -17,8 +17,8 @@ extern "C" {
 #include "base/file_util.h"
 #include "base/mac_util.h"
 #include "base/rand_util_c.h"
-#include "base/scoped_cftyperef.h"
-#include "base/scoped_nsautorelease_pool.h"
+#include "base/mac/scoped_cftyperef.h"
+#include "base/mac/scoped_nsautorelease_pool.h"
 #include "base/string16.h"
 #include "base/string_util.h"
 #include "base/sys_info.h"
@@ -187,15 +187,15 @@ bool QuoteStringForRegex(const std::string& str_utf8, std::string* dst) {
 // This function is tested on the following OS versions:
 //     10.5.6, 10.6.0
 void SandboxWarmup() {
-  base::ScopedNSAutoreleasePool scoped_pool;
+  base::mac::ScopedNSAutoreleasePool scoped_pool;
 
   { // CGColorSpaceCreateWithName(), CGBitmapContextCreate() - 10.5.6
-    scoped_cftyperef<CGColorSpaceRef> rgb_colorspace(
+    base::mac::ScopedCFTypeRef<CGColorSpaceRef> rgb_colorspace(
         CGColorSpaceCreateWithName(kCGColorSpaceGenericRGB));
 
     // Allocate a 1x1 image.
     char data[4];
-    scoped_cftyperef<CGContextRef> context(
+    base::mac::ScopedCFTypeRef<CGContextRef> context(
         CGBitmapContextCreate(data, 1, 1, 8, 1 * 4,
                               rgb_colorspace,
                               kCGImageAlphaPremultipliedFirst |
@@ -206,7 +206,7 @@ void SandboxWarmup() {
     (void) mac_util::GetSystemColorSpace();
 
     // CGColorSpaceCreateSystemDefaultCMYK - 10.6
-    scoped_cftyperef<CGColorSpaceRef> cmyk_colorspace(
+    base::mac::ScopedCFTypeRef<CGColorSpaceRef> cmyk_colorspace(
         CGColorSpaceCreateWithName(kCGColorSpaceGenericCMYK));
   }
 
@@ -231,7 +231,7 @@ void SandboxWarmup() {
     char png_header[] = {0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
     NSData* data = [NSData dataWithBytes:png_header
                                   length:arraysize(png_header)];
-    scoped_cftyperef<CGImageSourceRef> img(
+    base::mac::ScopedCFTypeRef<CGImageSourceRef> img(
         CGImageSourceCreateWithData((CFDataRef)data,
         NULL));
     CGImageSourceGetStatus(img);

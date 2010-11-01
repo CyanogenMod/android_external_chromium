@@ -22,6 +22,7 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/process_singleton.h"
 #include "chrome/browser/profile_manager.h"
+#include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -50,6 +51,18 @@ FilePath GetDefaultPrefFilePath(bool create_profile_dir,
 }  // namespace
 
 FirstRun::FirstRunState FirstRun::first_run_ = FIRST_RUN_UNKNOWN;
+
+FirstRun::MasterPrefs::MasterPrefs()
+    : ping_delay(0),
+      homepage_defined(false),
+      do_import_items(0),
+      dont_import_items(0),
+      run_search_engine_experiment(false),
+      randomize_search_engine_experiment(false),
+      make_chrome_default(false) {
+}
+
+FirstRun::MasterPrefs::~MasterPrefs() {}
 
 // TODO(port): Import switches need to be ported to both Mac and Linux. Not all
 // import switches here are implemented for Linux. None are implemented for Mac
@@ -120,10 +133,10 @@ bool FirstRun::ProcessMasterPreferences(const FilePath& user_data_dir,
         ::ExitProcess(1);
       }
       if (retcode == installer_util::EULA_ACCEPTED) {
-        LOG(INFO) << "EULA : no collection";
+        VLOG(1) << "EULA : no collection";
         GoogleUpdateSettings::SetCollectStatsConsent(false);
       } else if (retcode == installer_util::EULA_ACCEPTED_OPT_IN) {
-        LOG(INFO) << "EULA : collection consent";
+        VLOG(1) << "EULA : collection consent";
         GoogleUpdateSettings::SetCollectStatsConsent(true);
       }
     }
@@ -146,7 +159,7 @@ bool FirstRun::ProcessMasterPreferences(const FilePath& user_data_dir,
 #if defined(OS_WIN)
   DictionaryValue* extensions = 0;
   if (installer_util::HasExtensionsBlock(prefs.get(), &extensions)) {
-    LOG(INFO) << "Extensions block found in master preferences";
+    VLOG(1) << "Extensions block found in master preferences";
     DoDelayedInstallExtensions();
   }
 #endif
@@ -346,6 +359,20 @@ bool FirstRun::SetShowWelcomePagePref() {
 }
 
 // static
+bool FirstRun::SetPersonalDataManagerFirstRunPref() {
+  PrefService* local_state = g_browser_process->local_state();
+  if (!local_state)
+    return false;
+  if (!local_state->FindPreference(
+          prefs::kAutoFillPersonalDataManagerFirstRun)) {
+    local_state->RegisterBooleanPref(
+        prefs::kAutoFillPersonalDataManagerFirstRun, false);
+    local_state->SetBoolean(prefs::kAutoFillPersonalDataManagerFirstRun, true);
+  }
+  return true;
+}
+
+// static
 bool FirstRun::SetOEMFirstRunBubblePref() {
   PrefService* local_state = g_browser_process->local_state();
   if (!local_state)
@@ -437,6 +464,10 @@ void Upgrade::RelaunchChromeBrowserWithNewCommandLineIfNeeded() {
   }
 }
 #endif  // (defined(OS_WIN) || defined(OS_LINUX)) && !defined(OS_CHROMEOS)
+
+FirstRunImportObserver::FirstRunImportObserver()
+    : loop_running_(false), import_result_(ResultCodes::NORMAL_EXIT) {
+}
 
 int FirstRunImportObserver::import_result() const {
   return import_result_;
@@ -534,7 +565,7 @@ void FirstRun::AutoImport(
   UserMetrics::RecordAction(UserMetricsAction("FirstRunDef_Accept"));
 
   // Launch the search engine dialog only if build is organic, and user has not
-  // already set search preferences.
+  // already set preferences.
   if (IsOrganic() && !local_state_file_exists) {
     // The home page string may be set in the preferences, but the user should
     // initially use Chrome with the NTP as home page in organic builds.
@@ -545,10 +576,16 @@ void FirstRun::AutoImport(
   if (make_chrome_default)
     ShellIntegration::SetAsDefaultBrowser();
 
-  FirstRun::SetShowFirstRunBubblePref(true);
-  // Set the first run bubble to minimal.
-  FirstRun::SetMinimalFirstRunBubblePref();
+  // Don't display the minimal bubble if there is no default search provider.
+  TemplateURLModel* search_engines_model = profile->GetTemplateURLModel();
+  if (search_engines_model &&
+      search_engines_model->GetDefaultSearchProvider()) {
+    FirstRun::SetShowFirstRunBubblePref(true);
+    // Set the first run bubble to minimal.
+    FirstRun::SetMinimalFirstRunBubblePref();
+  }
   FirstRun::SetShowWelcomePagePref();
+  FirstRun::SetPersonalDataManagerFirstRunPref();
 
   process_singleton->Unlock();
   FirstRun::CreateSentinel();

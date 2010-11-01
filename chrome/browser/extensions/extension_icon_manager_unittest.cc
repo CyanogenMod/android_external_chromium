@@ -5,7 +5,7 @@
 #include "base/message_loop.h"
 #include "base/path_service.h"
 #include "base/values.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_icon_manager.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/extensions/extension.h"
@@ -21,9 +21,9 @@ class ExtensionIconManagerTest : public testing::Test {
   ExtensionIconManagerTest() :
       unwaited_image_loads_(0),
       waiting_(false),
-      ui_thread_(ChromeThread::UI, &ui_loop_),
-      file_thread_(ChromeThread::FILE),
-      io_thread_(ChromeThread::IO) {}
+      ui_thread_(BrowserThread::UI, &ui_loop_),
+      file_thread_(BrowserThread::FILE),
+      io_thread_(BrowserThread::IO) {}
 
   virtual ~ExtensionIconManagerTest() {}
 
@@ -57,9 +57,9 @@ class ExtensionIconManagerTest : public testing::Test {
   bool waiting_;
 
   MessageLoop ui_loop_;
-  ChromeThread ui_thread_;
-  ChromeThread file_thread_;
-  ChromeThread io_thread_;
+  BrowserThread ui_thread_;
+  BrowserThread file_thread_;
+  BrowserThread io_thread_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionIconManagerTest);
 };

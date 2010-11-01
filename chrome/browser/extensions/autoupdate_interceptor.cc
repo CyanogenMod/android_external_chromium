@@ -5,7 +5,7 @@
 #include "chrome/browser/extensions/autoupdate_interceptor.h"
 
 #include "base/file_util.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "net/url_request/url_request_test_job.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -34,7 +34,7 @@ AutoUpdateInterceptor::~AutoUpdateInterceptor() {
 
 
 URLRequestJob* AutoUpdateInterceptor::MaybeIntercept(URLRequest* request) {
-  EXPECT_TRUE(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  EXPECT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
   if (request->url().scheme() != "http" ||
       request->url().host() != "localhost") {
       return NULL;
@@ -60,7 +60,7 @@ URLRequestJob* AutoUpdateInterceptor::MaybeIntercept(URLRequest* request) {
 
 void AutoUpdateInterceptor::SetResponse(const std::string url,
                                         const FilePath& path) {
-  EXPECT_TRUE(ChromeThread::CurrentlyOn(ChromeThread::IO));
+  EXPECT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
   GURL gurl(url);
   EXPECT_EQ("http", gurl.scheme());
   EXPECT_EQ("localhost", gurl.host());
@@ -71,7 +71,7 @@ void AutoUpdateInterceptor::SetResponse(const std::string url,
 
 void AutoUpdateInterceptor::SetResponseOnIOThread(const std::string url,
                                                   const FilePath& path) {
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(this, &AutoUpdateInterceptor::SetResponse, url, path));
 }

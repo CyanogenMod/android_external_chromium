@@ -16,7 +16,7 @@
 #include "base/utf_string_conversions.h"
 #include "base/thread.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/shell_dialogs.h"
 #include "grit/generated_resources.h"
 
@@ -152,13 +152,15 @@ FilePath* SelectFileDialogImpl::last_opened_path_ = NULL;
 
 // static
 SelectFileDialog* SelectFileDialog::Create(Listener* listener) {
-  DCHECK(!ChromeThread::CurrentlyOn(ChromeThread::IO));
-  DCHECK(!ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::FILE));
   return new SelectFileDialogImpl(listener);
 }
 
 SelectFileDialogImpl::SelectFileDialogImpl(Listener* listener)
-    : listener_(listener) {
+    : listener_(listener),
+      file_type_index_(0),
+      preview_(NULL) {
   if (!last_saved_path_) {
     last_saved_path_ = new FilePath();
     last_opened_path_ = new FilePath();

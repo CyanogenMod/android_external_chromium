@@ -57,8 +57,7 @@ MediaSessionClient::MediaSessionClient(
 
 void MediaSessionClient::Construct() {
   // Register ourselves as the handler of phone and video sessions.
-  session_manager_->AddClient(NS_GINGLE_AUDIO, this);
-  session_manager_->AddClient(NS_GINGLE_VIDEO, this);
+  session_manager_->AddClient(NS_JINGLE_RTP, this);
   // Forward device notifications.
   SignalDevicesChange.repeat(channel_manager_->SignalDevicesChange);
   // Bring up the channel manager.
@@ -79,8 +78,7 @@ MediaSessionClient::~MediaSessionClient() {
   delete channel_manager_;
 
   // Remove ourselves from the client map.
-  session_manager_->RemoveClient(NS_GINGLE_VIDEO);
-  session_manager_->RemoveClient(NS_GINGLE_AUDIO);
+  session_manager_->RemoveClient(NS_JINGLE_RTP);
 }
 
 SessionDescription* MediaSessionClient::CreateOffer(bool video, bool set_ssrc) {
@@ -91,14 +89,14 @@ SessionDescription* MediaSessionClient::CreateOffer(bool video, bool set_ssrc) {
   AudioCodecs audio_codecs;
   channel_manager_->GetSupportedAudioCodecs(&audio_codecs);
   for (AudioCodecs::const_iterator codec = audio_codecs.begin();
-       codec != audio_codecs.end(); codec++) {
+       codec != audio_codecs.end(); ++codec) {
     audio->AddCodec(*codec);
   }
   if (set_ssrc) {
     audio->set_ssrc(0);
   }
   audio->SortCodecs();
-  offer->AddContent(CN_AUDIO, NS_GINGLE_AUDIO, audio);
+  offer->AddContent(CN_AUDIO, NS_JINGLE_RTP, audio);
 
   // add video codecs, if this is a video call
   if (video) {
@@ -106,37 +104,51 @@ SessionDescription* MediaSessionClient::CreateOffer(bool video, bool set_ssrc) {
     VideoCodecs video_codecs;
     channel_manager_->GetSupportedVideoCodecs(&video_codecs);
     for (VideoCodecs::const_iterator codec = video_codecs.begin();
-         codec != video_codecs.end(); codec++) {
+         codec != video_codecs.end(); ++codec) {
       video->AddCodec(*codec);
     }
     if (set_ssrc) {
       video->set_ssrc(0);
     }
     video->SortCodecs();
-    offer->AddContent(CN_VIDEO, NS_GINGLE_VIDEO, video);
+    offer->AddContent(CN_VIDEO, NS_JINGLE_RTP, video);
   }
 
   return offer;
 }
 
 const ContentInfo* GetFirstMediaContent(const SessionDescription* sdesc,
-                                        const std::string& content_type) {
+                                        MediaType media_type) {
   if (sdesc == NULL)
     return NULL;
 
-  return sdesc->FirstContentByType(content_type);
+  const ContentInfos& contents = sdesc->contents();
+  for (ContentInfos::const_iterator content = contents.begin();
+       content != contents.end(); content++) {
+    if (content->type == NS_JINGLE_RTP) {
+      const MediaContentDescription* media =
+          static_cast<const MediaContentDescription*>(content->description);
+      if (media->type() == media_type) {
+        return &*content;
+      }
+    }
+  }
+  return NULL;
 }
 
 const ContentInfo* GetFirstAudioContent(const SessionDescription* sdesc) {
-  return GetFirstMediaContent(sdesc, NS_GINGLE_AUDIO);
+  return GetFirstMediaContent(sdesc, MEDIA_TYPE_AUDIO);
 }
 
 const ContentInfo* GetFirstVideoContent(const SessionDescription* sdesc) {
-  return GetFirstMediaContent(sdesc, NS_GINGLE_VIDEO);
+  return GetFirstMediaContent(sdesc, MEDIA_TYPE_VIDEO);
 }
 
 SessionDescription* MediaSessionClient::CreateAnswer(
     const SessionDescription* offer) {
+  // The answer contains the intersection of the codecs in the offer with the
+  // codecs we support, ordered by our local preference. As indicated by
+  // XEP-0167, we retain the same payload ids from the offer in the answer.
   SessionDescription* accept = new SessionDescription();
 
   const ContentInfo* audio_content = GetFirstAudioContent(offer);
@@ -144,12 +156,20 @@ SessionDescription* MediaSessionClient::CreateAnswer(
     const AudioContentDescription* audio_offer =
         static_cast<const AudioContentDescription*>(audio_content->description);
     AudioContentDescription* audio_accept = new AudioContentDescription();
-    for (AudioCodecs::const_iterator codec = audio_offer->codecs().begin();
-         codec != audio_offer->codecs().end(); codec++) {
-      if (channel_manager_->FindAudioCodec(*codec)) {
-        audio_accept->AddCodec(*codec);
+    AudioCodecs audio_codecs;
+    channel_manager_->GetSupportedAudioCodecs(&audio_codecs);
+    for (AudioCodecs::const_iterator ours = audio_codecs.begin();
+        ours != audio_codecs.end(); ++ours) {
+      for (AudioCodecs::const_iterator theirs = audio_offer->codecs().begin();
+          theirs != audio_offer->codecs().end(); ++theirs) {
+        if (ours->Matches(*theirs)) {
+          AudioCodec negotiated(*ours);
+          negotiated.id = theirs->id;
+          audio_accept->AddCodec(negotiated);
+        }
       }
     }
+
     audio_accept->SortCodecs();
     accept->AddContent(audio_content->name, audio_content->type, audio_accept);
   }
@@ -159,12 +179,20 @@ SessionDescription* MediaSessionClient::CreateAnswer(
     const VideoContentDescription* video_offer =
         static_cast<const VideoContentDescription*>(video_content->description);
     VideoContentDescription* video_accept = new VideoContentDescription();
-    for (VideoCodecs::const_iterator codec = video_offer->codecs().begin();
-         codec != video_offer->codecs().end(); codec++) {
-      if (channel_manager_->FindVideoCodec(*codec)) {
-        video_accept->AddCodec(*codec);
+    VideoCodecs video_codecs;
+    channel_manager_->GetSupportedVideoCodecs(&video_codecs);
+    for (VideoCodecs::const_iterator ours = video_codecs.begin();
+        ours != video_codecs.end(); ++ours) {
+      for (VideoCodecs::const_iterator theirs = video_offer->codecs().begin();
+          theirs != video_offer->codecs().end(); ++theirs) {
+        if (ours->Matches(*theirs)) {
+          VideoCodec negotiated(*ours);
+          negotiated.id = theirs->id;
+          video_accept->AddCodec(negotiated);
+        }
       }
     }
+
     video_accept->SortCodecs();
     accept->AddContent(video_content->name, video_content->type, video_accept);
   }
@@ -183,25 +211,37 @@ void MediaSessionClient::OnSessionCreate(Session *session,
                                          bool received_initiate) {
   if (received_initiate) {
     session->SignalState.connect(this, &MediaSessionClient::OnSessionState);
-
-    Call *call = CreateCall(session->content_type() == NS_GINGLE_VIDEO);
-    session_map_[session->id()] = call;
-    call->AddSession(session);
   }
 }
 
-void MediaSessionClient::OnSessionState(BaseSession *session,
+void MediaSessionClient::OnSessionState(BaseSession* base_session,
                                         BaseSession::State state) {
+  // MediaSessionClient can only be used with a Session*, so it's
+  // safe to cast here.
+  Session* session = static_cast<Session*>(base_session);
+
   if (state == Session::STATE_RECEIVEDINITIATE) {
+    // The creation of the call must happen after the session has
+    // processed the initiate message because we need the
+    // remote_description to know what content names to use in the
+    // call.
+
     // If our accept would have no codecs, then we must reject this call.
-    SessionDescription* accept = CreateAnswer(session->remote_description());
+    const SessionDescription* offer = session->remote_description();
+    const SessionDescription* accept = CreateAnswer(offer);
     const ContentInfo* audio_content = GetFirstAudioContent(accept);
+    const ContentInfo* video_content = GetFirstVideoContent(accept);
     const AudioContentDescription* audio_accept = (!audio_content) ? NULL :
         static_cast<const AudioContentDescription*>(audio_content->description);
 
+    // For some reason, we need to create the call even when we
+    // reject.
+    Call *call = CreateCall(video_content != NULL);
+    session_map_[session->id()] = call;
+    call->IncomingSession(session, offer);
+
     if (!audio_accept || audio_accept->codecs().size() == 0) {
-      // TODO(?): include an error description with the rejection.
-      session->Reject();
+      session->Reject(STR_TERMINATE_INCOMPATIBLE_PARAMETERS);
     }
     delete accept;
   }
@@ -226,7 +266,7 @@ void MediaSessionClient::DestroyCall(Call *call) {
 void MediaSessionClient::OnSessionDestroy(Session *session) {
   // Find the call this session is in, remove it
 
-  std::map<SessionID, Call *>::iterator it = session_map_.find(session->id());
+  std::map<std::string, Call *>::iterator it = session_map_.find(session->id());
   ASSERT(it != session_map_.end());
   if (it != session_map_.end()) {
     Call *call = (*it).second;
@@ -262,14 +302,13 @@ void MediaSessionClient::JoinCalls(Call *call_to_join, Call *call) {
 }
 
 Session *MediaSessionClient::CreateSession(Call *call) {
-  const std::string& type = call->video() ? NS_GINGLE_VIDEO : NS_GINGLE_AUDIO;
+  const std::string& type = NS_JINGLE_RTP;
   Session *session = session_manager_->CreateSession(jid().Str(), type);
   session_map_[session->id()] = call;
   return session;
 }
 
-bool MediaSessionClient::ParseAudioCodec(const buzz::XmlElement* element,
-                                         AudioCodec* out) {
+bool ParseGingleAudioCodec(const buzz::XmlElement* element, AudioCodec* out) {
   int id = GetXmlAttr(element, QN_ID, -1);
   if (id < 0)
     return false;
@@ -282,8 +321,7 @@ bool MediaSessionClient::ParseAudioCodec(const buzz::XmlElement* element,
   return true;
 }
 
-bool MediaSessionClient::ParseVideoCodec(const buzz::XmlElement* element,
-                                         VideoCodec* out) {
+bool ParseGingleVideoCodec(const buzz::XmlElement* element, VideoCodec* out) {
   int id = GetXmlAttr(element, QN_ID, -1);
   if (id < 0)
     return false;
@@ -292,67 +330,191 @@ bool MediaSessionClient::ParseVideoCodec(const buzz::XmlElement* element,
   int width = GetXmlAttr(element, QN_WIDTH, 0);
   int height = GetXmlAttr(element, QN_HEIGHT, 0);
   int framerate = GetXmlAttr(element, QN_FRAMERATE, 0);
+
   *out = VideoCodec(id, name, width, height, framerate, 0);
   return true;
 }
 
-bool MediaSessionClient::ParseContent(const buzz::XmlElement* elem,
-                                      const ContentDescription** content,
-                                      ParseError* error) {
-  const std::string& content_type = elem->Name().Namespace();
-  if (NS_GINGLE_AUDIO == content_type) {
-    AudioContentDescription* audio = new AudioContentDescription();
+void ParseGingleSsrc(const buzz::XmlElement* parent_elem,
+                     const buzz::QName& name,
+                     MediaContentDescription* content) {
+  const buzz::XmlElement* ssrc_elem = parent_elem->FirstNamed(name);
+  if (ssrc_elem) {
+    content->set_ssrc(strtoul(ssrc_elem->BodyText().c_str(), NULL, 10));
+  }
+}
 
-    if (elem->FirstElement()) {
-      for (const buzz::XmlElement* codec_elem =
-               elem->FirstNamed(QN_GINGLE_AUDIO_PAYLOADTYPE);
-           codec_elem != NULL;
-           codec_elem = codec_elem->NextNamed(QN_GINGLE_AUDIO_PAYLOADTYPE)) {
-        AudioCodec audio_codec;
-        if (ParseAudioCodec(codec_elem, &audio_codec)) {
-          audio->AddCodec(audio_codec);
-        }
-      }
-    } else {
-      // For backward compatibility, we can assume the other client is
-      // an old version of Talk if it has no audio payload types at all.
-      audio->AddCodec(AudioCodec(103, "ISAC", 16000, -1, 1, 1));
-      audio->AddCodec(AudioCodec(0, "PCMU", 8000, 64000, 1, 0));
-    }
+bool ParseGingleAudioContent(const buzz::XmlElement* content_elem,
+                             const ContentDescription** content,
+                             ParseError* error) {
+  AudioContentDescription* audio = new AudioContentDescription();
 
-    const buzz::XmlElement* src_id = elem->FirstNamed(QN_GINGLE_AUDIO_SRCID);
-    if (src_id) {
-      audio->set_ssrc(strtoul(src_id->BodyText().c_str(), NULL, 10));
-    }
-
-    *content = audio;
-  } else if (NS_GINGLE_VIDEO == content_type) {
-    VideoContentDescription* video = new VideoContentDescription();
-
+  if (content_elem->FirstElement()) {
     for (const buzz::XmlElement* codec_elem =
-             elem->FirstNamed(QN_GINGLE_VIDEO_PAYLOADTYPE);
+             content_elem->FirstNamed(QN_GINGLE_AUDIO_PAYLOADTYPE);
          codec_elem != NULL;
-         codec_elem = codec_elem->NextNamed(QN_GINGLE_VIDEO_PAYLOADTYPE)) {
-      VideoCodec video_codec;
-      if (ParseVideoCodec(codec_elem, &video_codec)) {
-        video->AddCodec(video_codec);
+         codec_elem = codec_elem->NextNamed(QN_GINGLE_AUDIO_PAYLOADTYPE)) {
+      AudioCodec codec;
+      if (ParseGingleAudioCodec(codec_elem, &codec)) {
+        audio->AddCodec(codec);
       }
     }
-
-    const buzz::XmlElement* src_id = elem->FirstNamed(QN_GINGLE_VIDEO_SRCID);
-    if (src_id) {
-      video->set_ssrc(strtoul(src_id->BodyText().c_str(), NULL, 10));
-    }
-
-    *content = video;
   } else {
-    return BadParse("unknown media content type: " + content_type, error);
+    // For backward compatibility, we can assume the other client is
+    // an old version of Talk if it has no audio payload types at all.
+    audio->AddCodec(AudioCodec(103, "ISAC", 16000, -1, 1, 1));
+    audio->AddCodec(AudioCodec(0, "PCMU", 8000, 64000, 1, 0));
   }
 
+  ParseGingleSsrc(content_elem, QN_GINGLE_VIDEO_SRCID, audio);
+
+  *content = audio;
   return true;
 }
 
-buzz::XmlElement* WriteAudioCodec(const AudioCodec& codec) {
+
+bool ParseGingleVideoContent(const buzz::XmlElement* content_elem,
+                             const ContentDescription** content,
+                             ParseError* error) {
+  VideoContentDescription* video = new VideoContentDescription();
+
+  for (const buzz::XmlElement* codec_elem =
+           content_elem->FirstNamed(QN_GINGLE_VIDEO_PAYLOADTYPE);
+       codec_elem != NULL;
+       codec_elem = codec_elem->NextNamed(QN_GINGLE_VIDEO_PAYLOADTYPE)) {
+    VideoCodec codec;
+    if (ParseGingleVideoCodec(codec_elem, &codec)) {
+      video->AddCodec(codec);
+    }
+  }
+
+  ParseGingleSsrc(content_elem, QN_GINGLE_VIDEO_SRCID, video);
+
+  *content = video;
+  return true;
+}
+
+void ParsePayloadTypeParameters(const buzz::XmlElement* element,
+                                std::map<std::string, std::string>* paramap) {
+  for (const buzz::XmlElement* param = element->FirstNamed(QN_PARAMETER);
+       param != NULL; param = param->NextNamed(QN_PARAMETER)) {
+    std::string name  = GetXmlAttr(param, QN_PAYLOADTYPE_PARAMETER_NAME, "");
+    std::string value = GetXmlAttr(param, QN_PAYLOADTYPE_PARAMETER_VALUE, "");
+    if (!name.empty() && !value.empty()) {
+      paramap->insert(make_pair(name, value));
+    }
+  }
+}
+
+int FindWithDefault(const std::map<std::string, std::string>& map,
+                    const std::string& key, const int def) {
+  std::map<std::string, std::string>::const_iterator iter = map.find(key);
+  return (iter == map.end()) ? def : atoi(iter->second.c_str());
+}
+
+bool ParseJingleAudioCodec(const buzz::XmlElement* elem, AudioCodec* codec) {
+  int id = GetXmlAttr(elem, QN_ID, -1);
+  if (id < 0)
+    return false;
+
+  std::string name = GetXmlAttr(elem, QN_NAME, "");
+  int clockrate = GetXmlAttr(elem, QN_CLOCKRATE, 0);
+  int channels = GetXmlAttr(elem, QN_CHANNELS, 1);
+
+  std::map<std::string, std::string> paramap;
+  ParsePayloadTypeParameters(elem, &paramap);
+  int bitrate = FindWithDefault(paramap, PAYLOADTYPE_PARAMETER_BITRATE, 0);
+
+  *codec = AudioCodec(id, name, clockrate, bitrate, channels, 0);
+  return true;
+}
+
+bool ParseJingleVideoCodec(const buzz::XmlElement* elem, VideoCodec* codec) {
+  int id = GetXmlAttr(elem, QN_ID, -1);
+  if (id < 0)
+    return false;
+
+  std::string name = GetXmlAttr(elem, QN_NAME, "");
+
+  std::map<std::string, std::string> paramap;
+  ParsePayloadTypeParameters(elem, &paramap);
+  int width = FindWithDefault(paramap, PAYLOADTYPE_PARAMETER_WIDTH, 0);
+  int height = FindWithDefault(paramap, PAYLOADTYPE_PARAMETER_HEIGHT, 0);
+  int framerate = FindWithDefault(paramap, PAYLOADTYPE_PARAMETER_FRAMERATE, 0);
+
+  *codec = VideoCodec(id, name, width, height, framerate, 0);
+  return true;
+}
+
+bool ParseJingleAudioContent(const buzz::XmlElement* content_elem,
+                             const ContentDescription** content,
+                             ParseError* error) {
+  AudioContentDescription* audio = new AudioContentDescription();
+
+  for (const buzz::XmlElement* payload_elem =
+           content_elem->FirstNamed(QN_JINGLE_RTP_PAYLOADTYPE);
+      payload_elem != NULL;
+      payload_elem = payload_elem->NextNamed(QN_JINGLE_RTP_PAYLOADTYPE)) {
+    AudioCodec codec;
+    if (ParseJingleAudioCodec(payload_elem, &codec)) {
+      audio->AddCodec(codec);
+    }
+  }
+
+  // TODO: Figure out how to integrate SSRC into Jingle.
+  *content = audio;
+  return true;
+}
+
+bool ParseJingleVideoContent(const buzz::XmlElement* content_elem,
+                             const ContentDescription** content,
+                             ParseError* error) {
+  VideoContentDescription* video = new VideoContentDescription();
+
+  for (const buzz::XmlElement* payload_elem =
+           content_elem->FirstNamed(QN_JINGLE_RTP_PAYLOADTYPE);
+      payload_elem != NULL;
+      payload_elem = payload_elem->NextNamed(QN_JINGLE_RTP_PAYLOADTYPE)) {
+    VideoCodec codec;
+    if (ParseJingleVideoCodec(payload_elem, &codec)) {
+      video->AddCodec(codec);
+    }
+  }
+
+  // TODO: Figure out how to integrate SSRC into Jingle.
+  *content = video;
+  return true;
+}
+
+bool MediaSessionClient::ParseContent(SignalingProtocol protocol,
+                                     const buzz::XmlElement* content_elem,
+                                     const ContentDescription** content,
+                                     ParseError* error) {
+  if (protocol == PROTOCOL_GINGLE) {
+    const std::string& content_type = content_elem->Name().Namespace();
+    if (NS_GINGLE_AUDIO == content_type) {
+      return ParseGingleAudioContent(content_elem, content, error);
+    } else if (NS_GINGLE_VIDEO == content_type) {
+      return ParseGingleVideoContent(content_elem, content, error);
+    } else {
+      return BadParse("Unknown content type: " + content_type, error);
+    }
+  } else {
+    std::string media;
+    if (!RequireXmlAttr(content_elem, QN_JINGLE_CONTENT_MEDIA, &media, error))
+      return false;
+
+    if (media == JINGLE_CONTENT_MEDIA_AUDIO) {
+      return ParseJingleAudioContent(content_elem, content, error);
+    } else if (media == JINGLE_CONTENT_MEDIA_VIDEO) {
+      return ParseJingleVideoContent(content_elem, content, error);
+    } else {
+      return BadParse("Unknown media: " + media, error);
+    }
+  }
+}
+
+buzz::XmlElement* CreateGingleAudioCodecElem(const AudioCodec& codec) {
   buzz::XmlElement* payload_type =
       new buzz::XmlElement(QN_GINGLE_AUDIO_PAYLOADTYPE, true);
   AddXmlAttr(payload_type, QN_ID, codec.id);
@@ -366,7 +528,7 @@ buzz::XmlElement* WriteAudioCodec(const AudioCodec& codec) {
   return payload_type;
 }
 
-buzz::XmlElement* WriteVideoCodec(const VideoCodec& codec) {
+buzz::XmlElement* CreateGingleVideoCodecElem(const VideoCodec& codec) {
   buzz::XmlElement* payload_type =
       new buzz::XmlElement(QN_GINGLE_VIDEO_PAYLOADTYPE, true);
   AddXmlAttr(payload_type, QN_ID, codec.id);
@@ -377,53 +539,152 @@ buzz::XmlElement* WriteVideoCodec(const VideoCodec& codec) {
   return payload_type;
 }
 
-bool MediaSessionClient::WriteContent(const ContentDescription* untyped_content,
+buzz::XmlElement* CreateGingleSsrcElem(const buzz::QName& name, uint32 ssrc) {
+  buzz::XmlElement* elem = new buzz::XmlElement(name, true);
+  if (ssrc) {
+    SetXmlBody(elem, ssrc);
+  }
+  return elem;
+}
+
+buzz::XmlElement* CreateGingleAudioContentElem(
+    const AudioContentDescription* audio) {
+  buzz::XmlElement* elem =
+      new buzz::XmlElement(QN_GINGLE_AUDIO_CONTENT, true);
+
+  for (AudioCodecs::const_iterator codec = audio->codecs().begin();
+       codec != audio->codecs().end(); ++codec) {
+    elem->AddElement(CreateGingleAudioCodecElem(*codec));
+  }
+  if (audio->ssrc_set()) {
+    elem->AddElement(CreateGingleSsrcElem(
+        QN_GINGLE_AUDIO_SRCID, audio->ssrc()));
+  }
+
+
+  return elem;
+}
+
+buzz::XmlElement* CreateGingleVideoContentElem(
+    const VideoContentDescription* video) {
+  buzz::XmlElement* elem =
+      new buzz::XmlElement(QN_GINGLE_VIDEO_CONTENT, true);
+
+  for (VideoCodecs::const_iterator codec = video->codecs().begin();
+       codec != video->codecs().end(); ++codec) {
+    elem->AddElement(CreateGingleVideoCodecElem(*codec));
+  }
+  if (video->ssrc_set()) {
+    elem->AddElement(CreateGingleSsrcElem(
+        QN_GINGLE_VIDEO_SRCID, video->ssrc()));
+  }
+
+  return elem;
+}
+
+buzz::XmlElement* CreatePayloadTypeParameterElem(
+    const std::string& name, int value) {
+  buzz::XmlElement* elem = new buzz::XmlElement(QN_PARAMETER);
+
+  elem->AddAttr(QN_PAYLOADTYPE_PARAMETER_NAME, name);
+  AddXmlAttr(elem, QN_PAYLOADTYPE_PARAMETER_VALUE, value);
+
+  return elem;
+}
+
+buzz::XmlElement* CreateJingleAudioCodecElem(const AudioCodec& codec) {
+  buzz::XmlElement* elem = new buzz::XmlElement(QN_JINGLE_RTP_PAYLOADTYPE);
+
+  AddXmlAttr(elem, QN_ID, codec.id);
+  elem->AddAttr(QN_NAME, codec.name);
+  if (codec.clockrate > 0) {
+    AddXmlAttr(elem, QN_CLOCKRATE, codec.clockrate);
+  }
+  if (codec.bitrate > 0) {
+    elem->AddElement(CreatePayloadTypeParameterElem(
+        PAYLOADTYPE_PARAMETER_BITRATE, codec.bitrate));
+  }
+  if (codec.channels > 1) {
+    AddXmlAttr(elem, QN_CHANNELS, codec.channels);
+  }
+
+  return elem;
+}
+
+buzz::XmlElement* CreateJingleVideoCodecElem(const VideoCodec& codec) {
+  buzz::XmlElement* elem = new buzz::XmlElement(QN_JINGLE_RTP_PAYLOADTYPE);
+
+  AddXmlAttr(elem, QN_ID, codec.id);
+  elem->AddAttr(QN_NAME, codec.name);
+  elem->AddElement(CreatePayloadTypeParameterElem(
+      PAYLOADTYPE_PARAMETER_WIDTH, codec.width));
+  elem->AddElement(CreatePayloadTypeParameterElem(
+      PAYLOADTYPE_PARAMETER_HEIGHT, codec.height));
+  elem->AddElement(CreatePayloadTypeParameterElem(
+      PAYLOADTYPE_PARAMETER_FRAMERATE, codec.framerate));
+
+  return elem;
+}
+
+buzz::XmlElement* CreateJingleAudioContentElem(
+    const AudioContentDescription* audio) {
+  buzz::XmlElement* elem =
+      new buzz::XmlElement(QN_JINGLE_RTP_CONTENT, true);
+
+  elem->SetAttr(QN_JINGLE_CONTENT_MEDIA, JINGLE_CONTENT_MEDIA_AUDIO);
+
+  for (AudioCodecs::const_iterator codec = audio->codecs().begin();
+       codec != audio->codecs().end(); ++codec) {
+    elem->AddElement(CreateJingleAudioCodecElem(*codec));
+  }
+
+  // TODO: Figure out how to integrate SSRC into Jingle.
+  return elem;
+}
+
+buzz::XmlElement* CreateJingleVideoContentElem(
+    const VideoContentDescription* video) {
+  buzz::XmlElement* elem =
+      new buzz::XmlElement(QN_JINGLE_RTP_CONTENT, true);
+
+  elem->SetAttr(QN_JINGLE_CONTENT_MEDIA, JINGLE_CONTENT_MEDIA_VIDEO);
+
+  for (VideoCodecs::const_iterator codec = video->codecs().begin();
+       codec != video->codecs().end(); ++codec) {
+    elem->AddElement(CreateJingleVideoCodecElem(*codec));
+  }
+
+  // TODO: Figure out how to integrate SSRC into Jingle.
+  return elem;
+}
+
+bool MediaSessionClient::WriteContent(SignalingProtocol protocol,
+                                      const ContentDescription* content,
                                       buzz::XmlElement** elem,
                                       WriteError* error) {
   const MediaContentDescription* media =
-      static_cast<const MediaContentDescription*>(untyped_content);
+      static_cast<const MediaContentDescription*>(content);
 
-  buzz::XmlElement* content_elem;
   if (media->type() == MEDIA_TYPE_AUDIO) {
     const AudioContentDescription* audio =
-        static_cast<const AudioContentDescription*>(untyped_content);
-    content_elem = new buzz::XmlElement(QN_GINGLE_AUDIO_CONTENT, true);
-
-    for (AudioCodecs::const_iterator codec = audio->codecs().begin();
-         codec != audio->codecs().end(); codec++) {
-      content_elem->AddElement(WriteAudioCodec(*codec));
+        static_cast<const AudioContentDescription*>(media);
+    if (protocol == PROTOCOL_GINGLE) {
+      *elem = CreateGingleAudioContentElem(audio);
+    } else {
+      *elem = CreateJingleAudioContentElem(audio);
     }
-    if (audio->ssrc_set()) {
-      buzz::XmlElement* src_id =
-          new buzz::XmlElement(QN_GINGLE_AUDIO_SRCID, true);
-      if (audio->ssrc()) {
-        SetXmlBody(src_id, audio->ssrc());
-      }
-      content_elem->AddElement(src_id);
-    }
-
-
-    *elem = content_elem;
   } else if (media->type() == MEDIA_TYPE_VIDEO) {
     const VideoContentDescription* video =
-        static_cast<const VideoContentDescription*>(untyped_content);
-    content_elem = new buzz::XmlElement(QN_GINGLE_VIDEO_CONTENT, true);
-
-    for (VideoCodecs::const_iterator codec = video->codecs().begin();
-         codec != video->codecs().end(); codec++) {
-      content_elem->AddElement(WriteVideoCodec(*codec));
+        static_cast<const VideoContentDescription*>(media);
+    if (protocol == PROTOCOL_GINGLE) {
+      *elem = CreateGingleVideoContentElem(video);
+    } else {
+      *elem = CreateJingleVideoContentElem(video);
     }
-    if (video->ssrc_set()) {
-      buzz::XmlElement* src_id =
-          new buzz::XmlElement(QN_GINGLE_VIDEO_SRCID, true);
-      if (video->ssrc()) {
-        SetXmlBody(src_id, video->ssrc());
-      }
-      content_elem->AddElement(src_id);
-    }
-
-    *elem = content_elem;
+  } else {
+    return BadWrite("Unknown content type: " + media->type(), error);
   }
+
   return true;
 }
 

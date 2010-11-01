@@ -39,7 +39,7 @@ namespace talk_base {
 // Win32Socket
 ///////////////////////////////////////////////////////////////////////////////
 
-// TODO(juberti): Move this to a common place where PhysicalSocketServer can
+// TODO: Move this to a common place where PhysicalSocketServer can
 // share it.
 // Standard MTUs
 static const uint16 PACKET_MAXIMUMS[] = {
@@ -67,7 +67,7 @@ static const uint16 PACKET_MAXIMUMS[] = {
 static const uint32 IP_HEADER_SIZE = 20;
 static const uint32 ICMP_HEADER_SIZE = 8;
 
-// TODO(juberti): Enable for production builds also? Use FormatMessage?
+// TODO: Enable for production builds also? Use FormatMessage?
 #ifdef _DEBUG
 LPCSTR WSAErrorToString(int error, LPCSTR *description_result) {
   LPCSTR string = "Unspecified";

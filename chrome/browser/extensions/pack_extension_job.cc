@@ -17,18 +17,20 @@ PackExtensionJob::PackExtensionJob(Client* client,
                                    const FilePath& key_file)
     : client_(client), key_file_(key_file) {
   root_directory_ = root_directory.StripTrailingSeparators();
-  CHECK(ChromeThread::GetCurrentThreadIdentifier(&client_thread_id_));
+  CHECK(BrowserThread::GetCurrentThreadIdentifier(&client_thread_id_));
 }
 
 void PackExtensionJob::Start() {
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
       NewRunnableMethod(this, &PackExtensionJob::RunOnFileThread));
 }
 
 void PackExtensionJob::ClearClient() {
   client_ = NULL;
 }
+
+PackExtensionJob::~PackExtensionJob() {}
 
 void PackExtensionJob::RunOnFileThread() {
   crx_file_out_ = FilePath(root_directory_.value() +
@@ -42,12 +44,12 @@ void PackExtensionJob::RunOnFileThread() {
   // returns. See bug 20734.
   ExtensionCreator creator;
   if (creator.Run(root_directory_, crx_file_out_, key_file_, key_file_out_)) {
-    ChromeThread::PostTask(
+    BrowserThread::PostTask(
         client_thread_id_, FROM_HERE,
         NewRunnableMethod(this,
                           &PackExtensionJob::ReportSuccessOnClientThread));
   } else {
-    ChromeThread::PostTask(
+    BrowserThread::PostTask(
         client_thread_id_, FROM_HERE,
         NewRunnableMethod(
             this, &PackExtensionJob::ReportFailureOnClientThread,

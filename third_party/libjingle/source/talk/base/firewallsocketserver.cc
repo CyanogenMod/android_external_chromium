@@ -47,7 +47,7 @@ class FirewallSocket : public AsyncSocketAdapter {
         LOG(LS_VERBOSE) << "FirewallSocket outbound TCP connection from "
                         << GetLocalAddress().ToString() << " to "
                         << addr.ToString() << " denied";
-        // TODO(juberti): Handle this asynchronously.
+        // TODO: Handle this asynchronously.
         SetError(EHOSTUNREACH);
         return SOCKET_ERROR;
       }

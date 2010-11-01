@@ -16,12 +16,8 @@
 // have multiple processes (of course!).  Even IE has multiple
 // processes these days.
 struct ProcessMemoryInformation {
-  ProcessMemoryInformation()
-      : pid(0),
-        num_processes(0),
-        is_diagnostics(false),
-        type(ChildProcessInfo::UNKNOWN_PROCESS) {
-  }
+  ProcessMemoryInformation();
+  ~ProcessMemoryInformation();
 
   // The process id.
   base::ProcessId pid;
@@ -48,6 +44,11 @@ typedef std::vector<ProcessMemoryInformation> ProcessMemoryInformationList;
 
 // Browser Process Information.
 struct ProcessData {
+  ProcessData();
+  ProcessData(const ProcessData& rhs);
+  ~ProcessData();
+  ProcessData& operator=(const ProcessData& rhs);
+
   std::wstring name;
   std::wstring process_name;
   ProcessMemoryInformationList processes;
@@ -101,7 +102,7 @@ class MemoryDetails : public base::RefCountedThreadSafe<MemoryDetails> {
  protected:
   friend class base::RefCountedThreadSafe<MemoryDetails>;
 
-  virtual ~MemoryDetails() {}
+  virtual ~MemoryDetails();
 
  private:
   // Collect child process information on the IO thread.  This is needed because

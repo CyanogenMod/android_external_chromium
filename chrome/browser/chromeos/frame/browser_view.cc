@@ -12,13 +12,12 @@
 #include "base/command_line.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/chromeos/frame/panel_browser_view.h"
-#include "chrome/browser/chromeos/status/language_menu_button.h"
+#include "chrome/browser/chromeos/status/input_method_menu_button.h"
 #include "chrome/browser/chromeos/status/network_menu_button.h"
 #include "chrome/browser/chromeos/status/status_area_button.h"
 #include "chrome/browser/chromeos/status/status_area_view.h"
 #include "chrome/browser/chromeos/view_ids.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
-#include "chrome/browser/views/app_launcher.h"
 #include "chrome/browser/views/frame/browser_frame_gtk.h"
 #include "chrome/browser/views/frame/browser_view.h"
 #include "chrome/browser/views/frame/browser_view_layout.h"
@@ -261,7 +260,7 @@ void BrowserView::Show() {
 
 void BrowserView::FocusChromeOSStatus() {
   SaveFocusedView();
-  status_area_->SetToolbarFocus(last_focused_view_storage_id(), NULL);
+  status_area_->SetPaneFocus(last_focused_view_storage_id(), NULL);
 }
 
 views::LayoutManager* BrowserView::CreateLayoutManager() const {
@@ -274,8 +273,7 @@ void BrowserView::ChildPreferredSizeChanged(View* child) {
 }
 
 bool BrowserView::GetSavedWindowBounds(gfx::Rect* bounds) const {
-  if ((browser()->type() & Browser::TYPE_POPUP) == 0 &&
-      !CommandLine::ForCurrentProcess()->HasSwitch(switches::kChromeosFrame)) {
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(switches::kChromeosFrame)) {
     // Typically we don't request a full screen size. This means we'll request a
     // non-full screen size, layout/paint at that size, then the window manager
     // will snap us to full screen size. This results in an ugly
@@ -323,7 +321,7 @@ void BrowserView::ExecuteBrowserCommand(int id) const {
 void BrowserView::OpenButtonOptions(const views::View* button_view) const {
   if (button_view == status_area_->network_view()) {
     browser()->OpenInternetOptionsDialog();
-  } else if (button_view == status_area_->language_view()) {
+  } else if (button_view == status_area_->input_method_view()) {
     browser()->OpenLanguageOptionsDialog();
   } else {
     browser()->OpenSystemOptionsDialog();
@@ -341,10 +339,10 @@ bool BrowserView::IsScreenLockerMode() const {
 ////////////////////////////////////////////////////////////////////////////////
 // BrowserView protected:
 
-void BrowserView::GetAccessibleToolbars(
-    std::vector<AccessibleToolbarView*>* toolbars) {
-  ::BrowserView::GetAccessibleToolbars(toolbars);
-  toolbars->push_back(status_area_);
+void BrowserView::GetAccessiblePanes(
+    std::vector<AccessiblePaneView*>* panes) {
+  ::BrowserView::GetAccessiblePanes(panes);
+  panes->push_back(status_area_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -367,9 +365,7 @@ void BrowserView::InitSystemMenu() {
 BrowserWindow* BrowserWindow::CreateBrowserWindow(Browser* browser) {
   // Create a browser view for chromeos.
   BrowserView* view;
-  if ((browser->type() == Browser::TYPE_POPUP) ||
-      (browser->type() == Browser::TYPE_APP_POPUP) ||
-      (browser->type() == Browser::TYPE_APP_PANEL))
+  if (browser->type() & Browser::TYPE_POPUP)
     view = new chromeos::PanelBrowserView(browser);
   else
     view = new chromeos::BrowserView(browser);

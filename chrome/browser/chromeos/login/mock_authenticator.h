@@ -8,7 +8,7 @@
 
 #include <string>
 
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/login/authenticator.h"
 #include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
@@ -37,24 +37,18 @@ class MockAuthenticator : public Authenticator {
                                    const std::string& password,
                                    const std::string& login_token,
                                    const std::string& login_captcha) {
-    if (expected_username_ == username &&
-        expected_password_ == password) {
-      ChromeThread::PostTask(
-          ChromeThread::UI, FROM_HERE,
-          NewRunnableMethod(this,
-                            &MockAuthenticator::OnLoginSuccess,
-                            GaiaAuthConsumer::ClientLoginResult()));
+    if (expected_username_ == username && expected_password_ == password) {
+      BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+          NewRunnableMethod(this, &MockAuthenticator::OnLoginSuccess,
+                            GaiaAuthConsumer::ClientLoginResult(), false));
       return true;
-    } else {
-      GoogleServiceAuthError error(
-          GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS);
-      ChromeThread::PostTask(
-          ChromeThread::UI, FROM_HERE,
-          NewRunnableMethod(this,
-                            &MockAuthenticator::OnLoginFailure,
-                            LoginFailure::FromNetworkAuthFailure(error)));
-      return false;
     }
+    GoogleServiceAuthError error(
+        GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS);
+    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+        NewRunnableMethod(this, &MockAuthenticator::OnLoginFailure,
+                          LoginFailure::FromNetworkAuthFailure(error)));
+    return false;
   }
 
   virtual bool AuthenticateToUnlock(const std::string& username,
@@ -67,17 +61,20 @@ class MockAuthenticator : public Authenticator {
     consumer_->OnOffTheRecordLoginSuccess();
   }
 
-  void OnLoginSuccess(const GaiaAuthConsumer::ClientLoginResult& credentials) {
+  void OnLoginSuccess(const GaiaAuthConsumer::ClientLoginResult& credentials,
+                      bool request_pending) {
     // If we want to be more like the real thing, we could save username
     // in AuthenticateToLogin, but there's not much of a point.
-    consumer_->OnLoginSuccess(expected_username_, credentials);
+    consumer_->OnLoginSuccess(expected_username_,
+                              credentials,
+                              request_pending);
   }
 
   void OnLoginFailure(const LoginFailure& failure) {
       consumer_->OnLoginFailure(failure);
-      LOG(INFO) << "Posting a QuitTask to UI thread";
-      ChromeThread::PostTask(
-          ChromeThread::UI, FROM_HERE, new MessageLoop::QuitTask);
+      VLOG(1) << "Posting a QuitTask to UI thread";
+      BrowserThread::PostTask(
+          BrowserThread::UI, FROM_HERE, new MessageLoop::QuitTask);
   }
 
   virtual void RecoverEncryptedData(
@@ -86,6 +83,12 @@ class MockAuthenticator : public Authenticator {
 
   virtual void ResyncEncryptedData(
       const GaiaAuthConsumer::ClientLoginResult& credentials) {}
+
+  virtual void RetryAuth(Profile* profile,
+                         const std::string& username,
+                         const std::string& password,
+                         const std::string& login_token,
+                         const std::string& login_captcha) {}
 
  private:
   std::string expected_username_;

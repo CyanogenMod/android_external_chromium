@@ -1,14 +1,14 @@
-// Copyright (c) 2006-2010 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 #include "net/disk_cache/backend_impl.h"
 
-#include "base/field_trial.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
-#include "base/histogram.h"
 #include "base/message_loop.h"
+#include "base/metrics/field_trial.h"
+#include "base/metrics/histogram.h"
 #include "base/rand_util.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
@@ -133,7 +133,7 @@ bool DelayedCacheCleanup(const FilePath& full_path) {
   }
 
   if (!disk_cache::MoveCache(full_path, to_delete)) {
-    LOG(ERROR) << "Unable to rename cache folder";
+    LOG(ERROR) << "Unable to move cache folder";
     return false;
   }
 
@@ -143,7 +143,7 @@ bool DelayedCacheCleanup(const FilePath& full_path) {
 
 // Sets group for the current experiment. Returns false if the files should be
 // discarded.
-bool InitExperiment(disk_cache::IndexHeader* header, uint32 mask) {
+bool InitExperiment(disk_cache::IndexHeader* header) {
   if (header->experiment == disk_cache::EXPERIMENT_OLD_FILE1 ||
       header->experiment == disk_cache::EXPERIMENT_OLD_FILE2) {
     // Discard current cache.
@@ -154,31 +154,8 @@ bool InitExperiment(disk_cache::IndexHeader* header, uint32 mask) {
   if (header->experiment >= disk_cache::EXPERIMENT_DELETED_LIST_OUT)
     return true;
 
-  if (!header->create_time || !header->lru.filled) {
-    // Only for users with a full cache.
-    header->experiment = disk_cache::EXPERIMENT_DELETED_LIST_OUT;
-    return true;
-  }
-
-  int index_load = header->num_entries * 100 / (mask + 1);
-  if (index_load > 20) {
-    // Out of the experiment (~ 35% users).
-    header->experiment = disk_cache::EXPERIMENT_DELETED_LIST_OUT;
-    return true;
-  }
-
-  int option = base::RandInt(0, 5);
-  if (option > 1) {
-    // 60% out (39% of the total).
-    header->experiment = disk_cache::EXPERIMENT_DELETED_LIST_OUT;
-  } else if (!option) {
-    // About 13% of the total.
-    header->experiment = disk_cache::EXPERIMENT_DELETED_LIST_CONTROL;
-  } else {
-    // About 13% of the total.
-    header->experiment = disk_cache::EXPERIMENT_DELETED_LIST_IN;
-  }
-
+  // The experiment is closed.
+  header->experiment = disk_cache::EXPERIMENT_DELETED_LIST_OUT;
   return true;
 }
 
@@ -192,11 +169,13 @@ bool SetFieldTrialInfo(int size_group) {
 
   // Field trials involve static objects so we have to do this only once.
   first = false;
-  scoped_refptr<FieldTrial> trial1 = new FieldTrial("CacheSize", 10);
+  scoped_refptr<base::FieldTrial> trial1 =
+      new base::FieldTrial("CacheSize", 10);
   std::string group1 = base::StringPrintf("CacheSizeGroup_%d", size_group);
-  trial1->AppendGroup(group1, FieldTrial::kAllRemainingProbability);
+  trial1->AppendGroup(group1, base::FieldTrial::kAllRemainingProbability);
 
-  scoped_refptr<FieldTrial> trial2 = new FieldTrial("CacheThrottle", 100);
+  scoped_refptr<base::FieldTrial> trial2 =
+      new base::FieldTrial("CacheThrottle", 100);
   int group2a = trial2->AppendGroup("CacheThrottle_On", 10);  // 10 % in.
   trial2->AppendGroup("CacheThrottle_Off", 10);  // 10 % control.
 
@@ -582,7 +561,7 @@ int BackendImpl::SyncInit() {
 
   if (!(user_flags_ & disk_cache::kNoRandom) &&
       cache_type_ == net::DISK_CACHE &&
-      !InitExperiment(&data_->header, mask_))
+      !InitExperiment(&data_->header))
     return net::ERR_FAILED;
 
   // We don't care if the value overflows. The only thing we care about is that
@@ -1235,9 +1214,9 @@ void BackendImpl::OnOperationCompleted(base::TimeDelta elapsed_time) {
   if (cache_type() != net::DISK_CACHE)
     return;
 
-  UMA_HISTOGRAM_TIMES(
-      FieldTrial::MakeName("DiskCache.TotalIOTime", "CacheThrottle").data(),
-      elapsed_time);
+  UMA_HISTOGRAM_TIMES(base::FieldTrial::MakeName("DiskCache.TotalIOTime",
+                                                 "CacheThrottle").data(),
+                      elapsed_time);
 
   if (!throttle_requests_)
     return;
@@ -1860,9 +1839,8 @@ void BackendImpl::LogStats() {
   StatsItems stats;
   GetStats(&stats);
 
-  for (size_t index = 0; index < stats.size(); index++) {
-    LOG(INFO) << stats[index].first << ": " << stats[index].second;
-  }
+  for (size_t index = 0; index < stats.size(); index++)
+    VLOG(1) << stats[index].first << ": " << stats[index].second;
 }
 
 void BackendImpl::ReportStats() {

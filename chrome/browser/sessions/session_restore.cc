@@ -28,6 +28,7 @@
 #include "chrome/common/notification_service.h"
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/boot_times_loader.h"
 #include "chrome/browser/chromeos/network_state_notifier.h"
 #endif
 
@@ -322,8 +323,8 @@ class SessionRestoreImpl : public NotificationObserver {
       ShowBrowser(browser, initial_tab_count,
           (*i)->selected_tab_index);
       NotifySessionServiceOfRestoredTabs(browser, initial_tab_count);
-      FinishedTabCreation(true, has_tabbed_browser);
     }
+    FinishedTabCreation(true, has_tabbed_browser);
   }
 
   ~SessionRestoreImpl() {
@@ -502,6 +503,10 @@ class SessionRestoreImpl : public NotificationObserver {
   }
 
   void RestoreTabsToBrowser(const SessionWindow& window, Browser* browser) {
+#if defined(OS_CHROMEOS)
+    chromeos::BootTimesLoader::Get()->AddLoginTimeMarker(
+        "SessionRestore", true);
+#endif
     DCHECK(!window.tabs.empty());
     for (std::vector<SessionTab*>::const_iterator i = window.tabs.begin();
          i != window.tabs.end(); ++i) {
@@ -551,8 +556,10 @@ class SessionRestoreImpl : public NotificationObserver {
       if (i == 0)
         add_types |= TabStripModel::ADD_SELECTED;
       int index = browser->GetIndexForInsertionDuringRestore(i);
-      browser->AddTabWithURL(urls[i], GURL(), PageTransition::START_PAGE, index,
-                             add_types, NULL, std::string(), NULL);
+      Browser::AddTabWithURLParams params(urls[i], PageTransition::START_PAGE);
+      params.index = index;
+      params.add_types = add_types;
+      browser->AddTabWithURL(&params);
     }
   }
 
@@ -614,6 +621,10 @@ static void Restore(Profile* profile,
                     bool clobber_existing_window,
                     bool always_create_tabbed_browser,
                     const std::vector<GURL>& urls_to_open) {
+#if defined(OS_CHROMEOS)
+  chromeos::BootTimesLoader::Get()->AddLoginTimeMarker(
+      "SessionRestoreStarted", false);
+#endif
   DCHECK(profile);
   // Always restore from the original profile (incognito profiles have no
   // session service).

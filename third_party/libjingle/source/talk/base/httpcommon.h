@@ -206,7 +206,7 @@ class Url {
 public:
   typedef typename Traits<CTYPE>::string string;
 
-  // TODO(bpm): Implement Encode/Decode
+  // TODO: Implement Encode/Decode
   static int Encode(const CTYPE* source, CTYPE* destination, size_t len);
   static int Encode(const string& source, string& destination);
   static int Decode(const CTYPE* source, CTYPE* destination, size_t len);

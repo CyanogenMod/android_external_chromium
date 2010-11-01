@@ -17,8 +17,8 @@
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/waitable_event.h"
-#include "chrome/browser/autofill/autofill_common_unittest.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/autofill/autofill_common_test.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/sync/abstract_profile_sync_service_test.h"
 #include "chrome/browser/sync/engine/model_changing_syncer_command.h"
 #include "chrome/browser/sync/engine/syncapi.h"
@@ -125,8 +125,8 @@ class PersonalDataManagerMock: public PersonalDataManager {
 };
 
 ACTION_P4(MakeAutofillSyncComponents, service, wd, pdm, dtc) {
-  EXPECT_TRUE(ChromeThread::CurrentlyOn(ChromeThread::DB));
-  if (!ChromeThread::CurrentlyOn(ChromeThread::DB))
+  EXPECT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::DB));
+  if (!BrowserThread::CurrentlyOn(BrowserThread::DB))
     return ProfileSyncFactory::SyncComponents(NULL, NULL);
   AutofillModelAssociator* model_associator =
       new AutofillModelAssociator(service, wd, pdm);
@@ -138,7 +138,7 @@ ACTION_P4(MakeAutofillSyncComponents, service, wd, pdm, dtc) {
 
 class ProfileSyncServiceAutofillTest : public AbstractProfileSyncServiceTest {
  protected:
-  ProfileSyncServiceAutofillTest() : db_thread_(ChromeThread::DB) {
+  ProfileSyncServiceAutofillTest() : db_thread_(BrowserThread::DB) {
   }
 
   virtual void SetUp() {
@@ -303,7 +303,7 @@ class ProfileSyncServiceAutofillTest : public AbstractProfileSyncServiceTest {
   friend class AddAutofillEntriesTask;
   friend class FakeServerUpdater;
 
-  ChromeThread db_thread_;
+  BrowserThread db_thread_;
   scoped_refptr<ThreadNotificationService> notification_service_;
 
   ProfileMock profile_;
@@ -381,7 +381,7 @@ class FakeServerUpdater: public base::RefCountedThreadSafe<FakeServerUpdater> {
 
   void Update() {
     // This gets called in a modelsafeworker thread.
-    ASSERT_TRUE(ChromeThread::CurrentlyOn(ChromeThread::DB));
+    ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::DB));
 
     UserShare* user_share = service_->backend()->GetUserShareHandle();
     DirectoryManager* dir_manager = user_share->dir_manager.get();
@@ -420,14 +420,14 @@ class FakeServerUpdater: public base::RefCountedThreadSafe<FakeServerUpdater> {
       item.Put(SPECIFICS, entity_specifics);
       item.Put(SERVER_SPECIFICS, entity_specifics);
       item.Put(BASE_VERSION, 1);
-      syncable::Id server_parent_id = ids_.NewServerId();
+      syncable::Id server_parent_id = service_->id_factory()->NewServerId();
       item.Put(syncable::ID, server_parent_id);
       syncable::Id new_predecessor =
           SyncerUtil::ComputePrevIdFromServerPosition(&trans, &item,
           server_parent_id);
       ASSERT_TRUE(item.PutPredecessor(new_predecessor));
     }
-    LOG(INFO) << "FakeServerUpdater finishing.";
+    VLOG(1) << "FakeServerUpdater finishing.";
     is_finished_.Signal();
   }
 
@@ -438,8 +438,8 @@ class FakeServerUpdater: public base::RefCountedThreadSafe<FakeServerUpdater> {
     std::vector<browser_sync::ModelSafeWorker*> workers;
     service_->backend()->GetWorkers(&workers);
 
-    ASSERT_FALSE(ChromeThread::CurrentlyOn(ChromeThread::DB));
-    if (!ChromeThread::PostTask(ChromeThread::DB, FROM_HERE,
+    ASSERT_FALSE(BrowserThread::CurrentlyOn(BrowserThread::DB));
+    if (!BrowserThread::PostTask(BrowserThread::DB, FROM_HERE,
          NewRunnableMethod(this, &FakeServerUpdater::Update))) {
       NOTREACHED() << "Failed to post task to the db thread.";
       return;
@@ -453,9 +453,9 @@ class FakeServerUpdater: public base::RefCountedThreadSafe<FakeServerUpdater> {
     std::vector<browser_sync::ModelSafeWorker*> workers;
     service_->backend()->GetWorkers(&workers);
 
-    ASSERT_FALSE(ChromeThread::CurrentlyOn(ChromeThread::DB));
+    ASSERT_FALSE(BrowserThread::CurrentlyOn(BrowserThread::DB));
     is_finished_.Reset();
-    if (!ChromeThread::PostTask(ChromeThread::DB, FROM_HERE,
+    if (!BrowserThread::PostTask(BrowserThread::DB, FROM_HERE,
          NewRunnableMethod(this, &FakeServerUpdater::Update))) {
       NOTREACHED() << "Failed to post task to the db thread.";
       return;
@@ -473,7 +473,6 @@ class FakeServerUpdater: public base::RefCountedThreadSafe<FakeServerUpdater> {
   scoped_ptr<WaitableEvent> *wait_for_syncapi_;
   WaitableEvent is_finished_;
   syncable::Id parent_id_;
-  TestIdFactory ids_;
 };
 
 // TODO(skrul): Test abort startup.
@@ -530,7 +529,7 @@ TEST_F(ProfileSyncServiceAutofillTest, HasMixedNativeEmptySync) {
   std::vector<AutoFillProfile> expected_profiles;
   // Owned by GetAutoFillProfiles caller.
   AutoFillProfile* profile0 = new AutoFillProfile(string16(), 0);
-  autofill_unittest::SetProfileInfo(profile0,
+  autofill_test::SetProfileInfo(profile0,
       "Billing", "Marion", "Mitchell", "Morrison",
       "johnwayne@me.xyz", "Fox", "123 Zoo St.", "unit 5", "Hollywood", "CA",
       "91601", "US", "12345678910", "01987654321");
@@ -585,12 +584,12 @@ TEST_F(ProfileSyncServiceAutofillTest, HasDuplicateProfileLabelsEmptySync) {
   std::vector<AutoFillProfile> expected_profiles;
   std::vector<AutoFillProfile*> profiles;
   AutoFillProfile* profile0 = new AutoFillProfile(string16(), 0);
-  autofill_unittest::SetProfileInfo(profile0,
+  autofill_test::SetProfileInfo(profile0,
       "Billing", "Marion", "Mitchell", "Morrison",
       "johnwayne@me.xyz", "Fox", "123 Zoo St.", "unit 5", "Hollywood", "CA",
       "91601", "US", "12345678910", "01987654321");
   AutoFillProfile* profile1 = new AutoFillProfile(string16(), 0);
-  autofill_unittest::SetProfileInfo(profile1,
+  autofill_test::SetProfileInfo(profile1,
       "Billing", "Same", "Label", "Morrison",
       "johnwayne@me.xyz", "Fox", "123 Zoo St.", "unit 5", "Hollywood", "CA",
       "91601", "US", "12345678910", "01987654321");
@@ -647,13 +646,13 @@ TEST_F(ProfileSyncServiceAutofillTest, HasNativeHasSyncNoMerge) {
   AutofillEntry native_entry(MakeAutofillEntry("native", "entry", 1));
   AutofillEntry sync_entry(MakeAutofillEntry("sync", "entry", 2));
   AutoFillProfile sync_profile(string16(), 0);
-  autofill_unittest::SetProfileInfo(&sync_profile,
+  autofill_test::SetProfileInfo(&sync_profile,
       "Billing", "Marion", "Mitchell", "Morrison",
       "johnwayne@me.xyz", "Fox", "123 Zoo St.", "unit 5", "Hollywood", "CA",
       "91601", "US", "12345678910", "01987654321");
 
   AutoFillProfile* native_profile = new AutoFillProfile(string16(), 0);
-  autofill_unittest::SetProfileInfo(native_profile,
+  autofill_test::SetProfileInfo(native_profile,
       "Work", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
@@ -736,13 +735,13 @@ TEST_F(ProfileSyncServiceAutofillTest, HasNativeHasSyncMergeEntry) {
 
 TEST_F(ProfileSyncServiceAutofillTest, HasNativeHasSyncMergeProfile) {
   AutoFillProfile sync_profile(string16(), 0);
-  autofill_unittest::SetProfileInfo(&sync_profile,
+  autofill_test::SetProfileInfo(&sync_profile,
       "Billing", "Marion", "Mitchell", "Morrison",
       "johnwayne@me.xyz", "Fox", "123 Zoo St.", "unit 5", "Hollywood", "CA",
       "91601", "US", "12345678910", "01987654321");
 
   AutoFillProfile* native_profile = new AutoFillProfile(string16(), 0);
-  autofill_unittest::SetProfileInfo(native_profile,
+  autofill_test::SetProfileInfo(native_profile,
       "Billing", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
@@ -769,6 +768,8 @@ TEST_F(ProfileSyncServiceAutofillTest, HasNativeHasSyncMergeProfile) {
   ASSERT_TRUE(GetAutofillEntriesFromSyncDB(&new_sync_entries,
                                            &new_sync_profiles));
   ASSERT_EQ(1U, new_sync_profiles.size());
+  // TODO(dhollowa): Replace with |AutoFillProfile::Compare|.
+  // http://crbug.com/58813
   EXPECT_TRUE(sync_profile == new_sync_profiles[0]);
 }
 
@@ -812,7 +813,7 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeAddProfile) {
   ASSERT_TRUE(task.success());
 
   AutoFillProfile added_profile(string16(), 0);
-  autofill_unittest::SetProfileInfo(&added_profile,
+  autofill_test::SetProfileInfo(&added_profile,
       "Billing", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
@@ -829,12 +830,14 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeAddProfile) {
   ASSERT_TRUE(GetAutofillEntriesFromSyncDB(&new_sync_entries,
                                            &new_sync_profiles));
   ASSERT_EQ(1U, new_sync_profiles.size());
+  // TODO(dhollowa): Replace with |AutoFillProfile::Compare|.
+  // http://crbug.com/58813
   EXPECT_TRUE(added_profile == new_sync_profiles[0]);
 }
 
 TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeAddProfileConflict) {
   AutoFillProfile sync_profile(string16(), 0);
-  autofill_unittest::SetProfileInfo(&sync_profile,
+  autofill_test::SetProfileInfo(&sync_profile,
       "Billing", "Marion", "Mitchell", "Morrison",
       "johnwayne@me.xyz", "Fox", "123 Zoo St.", "unit 5", "Hollywood", "CA",
       "91601", "US", "12345678910", "01987654321");
@@ -855,7 +858,7 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeAddProfileConflict) {
   ASSERT_TRUE(task.success());
 
   AutoFillProfile added_profile(string16(), 0);
-  autofill_unittest::SetProfileInfo(&added_profile,
+  autofill_test::SetProfileInfo(&added_profile,
       "Billing", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
@@ -924,7 +927,7 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeUpdateEntry) {
 
 TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeUpdateProfile) {
   AutoFillProfile* native_profile = new AutoFillProfile(string16(), 0);
-  autofill_unittest::SetProfileInfo(native_profile,
+  autofill_test::SetProfileInfo(native_profile,
       "Billing", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
@@ -939,7 +942,7 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeUpdateProfile) {
   ASSERT_TRUE(task.success());
 
   AutoFillProfile update_profile(string16(), 0);
-  autofill_unittest::SetProfileInfo(&update_profile,
+  autofill_test::SetProfileInfo(&update_profile,
       "Billing", "Changin'", "Mah", "Namez",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
@@ -957,12 +960,14 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeUpdateProfile) {
   ASSERT_TRUE(GetAutofillEntriesFromSyncDB(&new_sync_entries,
                                            &new_sync_profiles));
   ASSERT_EQ(1U, new_sync_profiles.size());
+  // TODO(dhollowa): Replace with |AutoFillProfile::Compare|.
+  // http://crbug.com/58813
   EXPECT_TRUE(update_profile == new_sync_profiles[0]);
 }
 
 TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeUpdateProfileRelabel) {
   AutoFillProfile* native_profile = new AutoFillProfile(string16(), 0);
-  autofill_unittest::SetProfileInfo(native_profile,
+  autofill_test::SetProfileInfo(native_profile,
       "Billing", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
@@ -977,7 +982,7 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeUpdateProfileRelabel) {
   ASSERT_TRUE(task.success());
 
   AutoFillProfile update_profile(string16(), 0);
-  autofill_unittest::SetProfileInfo(&update_profile,
+  autofill_test::SetProfileInfo(&update_profile,
       "TRYIN 2 FOOL U", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
@@ -995,6 +1000,8 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeUpdateProfileRelabel) {
   ASSERT_TRUE(GetAutofillEntriesFromSyncDB(&new_sync_entries,
                                            &new_sync_profiles));
   ASSERT_EQ(1U, new_sync_profiles.size());
+  // TODO(dhollowa): Replace with |AutoFillProfile::Compare|.
+  // http://crbug.com/58813
   EXPECT_TRUE(update_profile == new_sync_profiles[0]);
 }
 
@@ -1003,11 +1010,11 @@ TEST_F(ProfileSyncServiceAutofillTest,
   std::vector<AutoFillProfile*> native_profiles;
   native_profiles.push_back(new AutoFillProfile(string16(), 0));
   native_profiles.push_back(new AutoFillProfile(string16(), 0));
-  autofill_unittest::SetProfileInfo(native_profiles[0],
+  autofill_test::SetProfileInfo(native_profiles[0],
       "Billing", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
-  autofill_unittest::SetProfileInfo(native_profiles[1],
+  autofill_test::SetProfileInfo(native_profiles[1],
       "ExistingLabel", "Marion", "Mitchell", "Morrison",
       "johnwayne@me.xyz", "Fox", "123 Zoo St.", "unit 5", "Hollywood", "CA",
       "91601", "US", "12345678910", "01987654321");
@@ -1029,6 +1036,8 @@ TEST_F(ProfileSyncServiceAutofillTest,
   // idempotent, settling on the same name and not triggering a sync upload.
   for (int pass = 0; pass < 2; ++pass) {
     AutoFillProfile josephine_update(josephine);
+    // TODO(dhollowa): Replace with |AutoFillProfile::set_guid|.
+    // http://crbug.com/58813
     josephine_update.set_label(ASCIIToUTF16("ExistingLabel"));
 
     AutoFillProfile relabelled_profile;
@@ -1092,12 +1101,12 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeRemoveEntry) {
 
 TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeRemoveProfile) {
   AutoFillProfile sync_profile(string16(), 0);
-  autofill_unittest::SetProfileInfo(&sync_profile,
+  autofill_test::SetProfileInfo(&sync_profile,
       "Billing", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
   AutoFillProfile* native_profile = new AutoFillProfile(string16(), 0);
-  autofill_unittest::SetProfileInfo(native_profile,
+  autofill_test::SetProfileInfo(native_profile,
       "Billing", "Josephine", "Alicia", "Saenz",
       "joewayne@me.xyz", "Fox", "1212 Center.", "Bld. 5", "Orlando", "FL",
       "32801", "US", "19482937549", "13502849239");
@@ -1164,7 +1173,8 @@ TEST_F(ProfileSyncServiceAutofillTest, ProcessUserChangeError) {
                    Details<AutofillChangeList>(&changes));
 }
 
-TEST_F(ProfileSyncServiceAutofillTest, ServerChangeRace) {
+// Crashy, http://crbug.com/57884
+TEST_F(ProfileSyncServiceAutofillTest, DISABLED_ServerChangeRace) {
   EXPECT_CALL(web_database_, GetAllAutofillEntries(_)).WillOnce(Return(true));
   EXPECT_CALL(web_database_, GetAutoFillProfiles(_)).WillOnce(Return(true));
   EXPECT_CALL(web_database_, UpdateAutofillEntries(_)).
@@ -1186,7 +1196,7 @@ TEST_F(ProfileSyncServiceAutofillTest, ServerChangeRace) {
 
   AutofillEntry syncapi_entry(MakeAutofillEntry("syncapi", "entry", 2));
   ASSERT_TRUE(AddAutofillSyncNode(syncapi_entry));
-  LOG(INFO) << "Syncapi update finished.";
+  VLOG(1) << "Syncapi update finished.";
 
   // If we reach here, it means syncapi succeeded and we didn't deadlock. Yay!
   // Signal FakeServerUpdater that it can complete.
@@ -1202,7 +1212,7 @@ TEST_F(ProfileSyncServiceAutofillTest, ServerChangeRace) {
   EXPECT_EQ(3U, sync_entries.size());
   EXPECT_EQ(0U, sync_profiles.size());
   for (size_t i = 0; i < sync_entries.size(); i++) {
-    LOG(INFO) << "Entry " << i << ": " << sync_entries[i].key().name() << ", "
-              << sync_entries[i].key().value();
+    VLOG(1) << "Entry " << i << ": " << sync_entries[i].key().name()
+            << ", " << sync_entries[i].key().value();
   }
 }

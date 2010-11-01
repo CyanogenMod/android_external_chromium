@@ -13,9 +13,9 @@
 #include "base/scoped_ptr.h"
 #include "base/task.h"
 #include "base/time.h"
+#include "chrome/browser/accessibility/browser_accessibility_delegate_mac.h"
+#include "chrome/browser/accessibility/browser_accessibility_manager.h"
 #include "chrome/browser/cocoa/base_view.h"
-#include "chrome/browser/cocoa/browser_accessibility.h"
-#include "chrome/browser/cocoa/browser_accessibility_delegate.h"
 #include "chrome/browser/renderer_host/accelerated_surface_container_manager_mac.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/common/edit_command.h"
@@ -41,16 +41,13 @@ class RWHVMEditCommandHelper;
     : BaseView <RenderWidgetHostViewMacOwner,
                 NSTextInput,
                 NSChangeSpelling,
-                BrowserAccessibilityDelegate> {
+                BrowserAccessibilityDelegateCocoa> {
  @private
   scoped_ptr<RenderWidgetHostViewMac> renderWidgetHostView_;
   BOOL canBeKeyView_;
+  BOOL takesFocusOnlyOnMouseDown_;
   BOOL closeOnDeactivate_;
-  BOOL rendererAccessible_;
-  BOOL accessibilityRequested_;
-  BOOL accessibilityReceived_;
   scoped_ptr<RWHVMEditCommandHelper> editCommand_helper_;
-  scoped_nsobject<NSArray> accessibilityChildren_;
 
   // These are part of the magic tooltip code from WebKit's WebHTMLView:
   id trackingRectOwner_;              // (not retained)
@@ -123,11 +120,15 @@ class RWHVMEditCommandHelper;
   // handling a key down event, not including inserting commands, eg. insertTab,
   // etc.
   EditCommands editCommands_;
+
+  // The plugin for which IME is currently enabled (-1 if not enabled).
+  int pluginImeIdentifier_;
 }
 
 @property(assign, nonatomic) NSRect caretRect;
 
 - (void)setCanBeKeyView:(BOOL)can;
+- (void)setTakesFocusOnlyOnMouseDown:(BOOL)b;
 - (void)setCloseOnDeactivate:(BOOL)b;
 - (void)setToolTipAtMousePoint:(NSString *)string;
 // Set frame, then notify the RenderWidgetHost that the frame has been changed,
@@ -139,10 +140,13 @@ class RWHVMEditCommandHelper;
 - (void)renderWidgetHostWasResized;
 // Cancel ongoing composition (abandon the marked text).
 - (void)cancelComposition;
-// Set the new accessibility tree.
-- (void)setAccessibilityTree:(const webkit_glue::WebAccessibility&) tree;
 // Confirm ongoing composition.
 - (void)confirmComposition;
+// Enables or disables plugin IME for the given plugin.
+- (void)setPluginImeEnabled:(BOOL)enabled forPlugin:(int)pluginId;
+// Evaluates the event in the context of plugin IME, if plugin IME is enabled.
+// Returns YES if the event was handled.
+- (BOOL)postProcessEventForPluginIme:(NSEvent*)event;
 
 @end
 
@@ -204,6 +208,7 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   virtual void SelectionChanged(const std::string& text);
   virtual BackingStore* AllocBackingStore(const gfx::Size& size);
   virtual VideoLayer* AllocVideoLayer(const gfx::Size& size);
+  virtual void SetTakesFocusOnlyOnMouseDown(bool flag);
   virtual void ShowPopupWithItems(gfx::Rect bounds,
                                   int item_height,
                                   double item_font_size,
@@ -217,13 +222,26 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   virtual void WindowFrameChanged();
   virtual void SetBackground(const SkBitmap& background);
   virtual bool ContainsNativeView(gfx::NativeView native_view) const;
-  virtual void UpdateAccessibilityTree(
-      const webkit_glue::WebAccessibility& tree);
+
+  virtual void OnAccessibilityNotifications(
+      const std::vector<ViewHostMsg_AccessibilityNotification_Params>& params);
+
+  virtual void SetPluginImeEnabled(bool enabled, int plugin_id);
+  virtual bool PostProcessEventForPluginIme(
+      const NativeWebKeyboardEvent& event);
+
   // Methods associated with GPU-accelerated plug-in instances and the
   // accelerated compositor.
   virtual gfx::PluginWindowHandle AllocateFakePluginWindowHandle(bool opaque,
                                                                  bool root);
   virtual void DestroyFakePluginWindowHandle(gfx::PluginWindowHandle window);
+
+  // Helper to do the actual cleanup after a plugin handle has been destroyed.
+  // Required because DestroyFakePluginWindowHandle() isn't always called for
+  // all handles (it's e.g. not called on navigation, when the RWHVMac gets
+  // destroyed anyway).
+  void DeallocFakePluginWindowHandle(gfx::PluginWindowHandle window);
+
   virtual void AcceleratedSurfaceSetIOSurface(gfx::PluginWindowHandle window,
                                               int32 width,
                                               int32 height,
@@ -251,6 +269,9 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
 
   void SetTextInputActive(bool active);
 
+  // Sends confirmed plugin IME text back to the renderer.
+  void PluginImeCompositionConfirmed(const string16& text, int plugin_id);
+
   const std::string& selected_text() const { return selected_text_; }
 
   // These member variables should be private, but the associated ObjC class
@@ -263,6 +284,8 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   // This is true when we are currently painting and thus should handle extra
   // paint requests by expanding the invalid rect rather than actually painting.
   bool about_to_validate_and_paint_;
+
+  scoped_ptr<BrowserAccessibilityManager> browser_accessibility_manager_;
 
   // This is true when we have already scheduled a call to
   // |-callSetNeedsDisplayInRect:| but it has not been fulfilled yet.  Used to
@@ -333,9 +356,6 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
 
   // Used for positioning a popup menu.
   NSView* parent_view_;
-
-  // Whether or not web accessibility is enabled.
-  bool renderer_accessible_;
 
   // selected text on the renderer.
   std::string selected_text_;

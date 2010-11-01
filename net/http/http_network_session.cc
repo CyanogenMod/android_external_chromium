@@ -20,6 +20,8 @@ namespace net {
 // TODO(mbelshe): Move the socket factories into HttpStreamFactory.
 HttpNetworkSession::HttpNetworkSession(
     HostResolver* host_resolver,
+    DnsRRResolver* dnsrr_resolver,
+    SSLHostInfoFactory* ssl_host_info_factory,
     ProxyService* proxy_service,
     ClientSocketFactory* client_socket_factory,
     SSLConfigService* ssl_config_service,
@@ -29,15 +31,17 @@ HttpNetworkSession::HttpNetworkSession(
     NetLog* net_log)
     : socket_factory_(client_socket_factory),
       host_resolver_(host_resolver),
+      dnsrr_resolver_(dnsrr_resolver),
       proxy_service_(proxy_service),
       ssl_config_service_(ssl_config_service),
       socket_pool_manager_(net_log,
                            client_socket_factory,
                            host_resolver,
+                           dnsrr_resolver,
+                           ssl_host_info_factory,
                            proxy_service,
                            ssl_config_service),
       spdy_session_pool_(spdy_session_pool),
-      http_stream_factory_(new HttpStreamFactory()),
       http_auth_handler_factory_(http_auth_handler_factory),
       network_delegate_(network_delegate),
       net_log_(net_log) {
@@ -59,6 +63,10 @@ void HttpNetworkSession::RemoveResponseDrainer(
     HttpResponseBodyDrainer* drainer) {
   DCHECK(ContainsKey(response_drainers_, drainer));
   response_drainers_.erase(drainer);
+}
+
+Value* HttpNetworkSession::SpdySessionPoolInfoToValue() const {
+  return spdy_session_pool_->SpdySessionPoolInfoToValue();
 }
 
 }  //  namespace net

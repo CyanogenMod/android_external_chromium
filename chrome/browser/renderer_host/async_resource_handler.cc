@@ -9,11 +9,13 @@
 #include "base/process.h"
 #include "base/shared_memory.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/debugger/devtools_netlog_observer.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/net/load_timing_observer.h"
 #include "chrome/browser/renderer_host/global_request_id.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host_request_info.h"
 #include "chrome/common/render_messages.h"
+#include "chrome/common/resource_response.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_log.h"
@@ -104,6 +106,7 @@ bool AsyncResourceHandler::OnRequestRedirected(int request_id,
   URLRequest* request = rdh_->GetURLRequest(
       GlobalRequestID(process_id_, request_id));
   LoadTimingObserver::PopulateTimingInfo(request, response);
+  DevToolsNetLogObserver::PopulateResponseInfo(request, response);
   return receiver_->Send(new ViewMsg_Resource_ReceivedRedirect(
       routing_id_, request_id, new_url, response->response_head));
 }
@@ -117,7 +120,9 @@ bool AsyncResourceHandler::OnResponseStarted(int request_id,
   // or of having to layout the new content twice.
   URLRequest* request = rdh_->GetURLRequest(
       GlobalRequestID(process_id_, request_id));
+
   LoadTimingObserver::PopulateTimingInfo(request, response);
+  DevToolsNetLogObserver::PopulateResponseInfo(request, response);
 
   ResourceDispatcherHostRequestInfo* info = rdh_->InfoForRequest(request);
   if (info->resource_type() == ResourceType::MAIN_FRAME) {

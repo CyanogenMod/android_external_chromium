@@ -6,13 +6,14 @@
 
 #include "app/l10n_util.h"
 #include "app/message_box_flags.h"
-#include "base/histogram.h"
+#include "base/metrics/histogram.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/external_protocol_handler.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tab_contents/tab_util.h"
+#include "chrome/browser/views/window.h"
 #include "googleurl/src/gurl.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
@@ -107,5 +108,5 @@ ExternalProtocolDialog::ExternalProtocolDialog(TabContents* tab_contents,
     // Dialog is top level if we don't have a tab_contents associated with us.
     parent_window = NULL;
   }
-  views::Window::CreateChromeWindow(parent_window, gfx::Rect(), this)->Show();
+  browser::CreateViewsWindow(parent_window, gfx::Rect(), this)->Show();
 }

@@ -25,6 +25,7 @@ found in the LICENSE file.
     <script src="proxyview.js"></script>
     <script src="socketpoolwrapper.js"></script>
     <script src="socketsview.js"></script>
+    <script src="spdyview.js"></script>
     <script src="serviceprovidersview.js"></script>
   </head>
   <body onload="onLoaded()">
@@ -36,6 +37,7 @@ found in the LICENSE file.
         <li><a href="#events" id=eventsTab>Events</a></li>
         <li><a href="#dns" id=dnsTab>DNS</a></li>
         <li><a href="#sockets" id=socketsTab>Sockets</a></li>
+        <li><a href="#spdy" id=spdyTab>SPDY</a></li>
         <li><a href="#httpCache" id=httpCacheTab>HTTP Cache</a></li>
         <!-- Tab is only shown on Windows -->
         <li><a href="#serviceProviders" id=serviceProvidersTab style="display: none;">SPIs</a></li>
@@ -83,6 +85,17 @@ found in the LICENSE file.
     </div>
     <!-- Host resolver info -->
     <div id=dnsTabContent>
+      <h4>Host resolver</h4>
+      <ul>
+        <li><a href='#events&q=type:HOST_RESOLVER_IMPL_REQUEST%20type:HOST_RESOLVER_IMPL_JOB%20is:active'>View pending lookups</a></li>
+        <li>Default address family: <span id=hostResolverDefaultFamily></span>
+          <span id=hostResolverIPv6Disabled class=warningText style="display: none;">
+            (IPv6 disabled)
+            <input type=button value="Enable IPv6" id=hostResolverEnableIPv6 />
+          </span>
+        </li>
+      </ul>
+
       <h4>
         Host resolver cache
         <input type=button value="Clear host cache" id=clearHostResolverCache />
@@ -110,10 +123,27 @@ found in the LICENSE file.
     </div>
     <div id=socketsTabContent>
       <h4>Socket pools</h4>
-      <div id=socketPoolDiv>
-      </div>
-      <div id=socketPoolGroupsDiv>
-      </div>
+      <a href='#events&q=type:SOCKET%20is:active'>View live sockets</a>
+      <p>
+        <div id=socketPoolDiv>
+        </div>
+      </p>
+      <p>
+        <div id=socketPoolGroupsDiv>
+        </div>
+      </p>
+    </div>
+    <div id=spdyTabContent>
+      <h4>SPDY sessions</h4>
+        <!-- Only one of these two are shown -->
+        <span id=spdySessionNoneSpan>None</span>
+        <span id=spdySessionLinkSpan style="display: none;">
+          <a href='#events&q=type:SPDY_SESSION%20is:active'>View live SPDY sessions</a>
+        </span>
+      <p>
+        <div id=spdySessionDiv>
+        </div>
+      </p>
     </div>
     <div id=httpCacheTabContent>
       <h4>Entries</h4>
@@ -161,9 +191,8 @@ found in the LICENSE file.
     <td valign=top>
       <h2>Dump data</h2>
       <div style="margin: 8px">
-        <p>
-          <input id=securityStrippingCheckbox type=checkbox checked=yes>
-          Strip private information (cookies and credentials).
+        <p><input id=securityStrippingCheckbox type=checkbox checked=yes>
+           Strip private information (cookies and credentials).
         </p>
         <p>
           <a href="javascript:displayHelpForBugDump()">
@@ -187,7 +216,10 @@ found in the LICENSE file.
             <td align=right id=activelyCapturedCount></td>
           </tr>
         </table>
-        <input type=button value="Delete all" id=dataViewDeleteAll />
+        <p><input type=button value="Delete all" id=dataViewDeleteAll /></p>
+        <p><input id=byteLoggingCheckbox type=checkbox>
+            Log actual bytes sent/received.
+        </p>
       </div>
     </td>
 

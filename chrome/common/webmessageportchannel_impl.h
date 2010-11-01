@@ -32,7 +32,7 @@ class WebMessagePortChannelImpl
 
  private:
   friend class base::RefCountedThreadSafe<WebMessagePortChannelImpl>;
-  ~WebMessagePortChannelImpl();
+  virtual ~WebMessagePortChannelImpl();
 
   // WebMessagePortChannel implementation.
   virtual void setClient(WebKit::WebMessagePortChannelClient* client);
@@ -56,6 +56,9 @@ class WebMessagePortChannelImpl
   void OnMessagedQueued();
 
   struct Message {
+    Message();
+    ~Message();
+
     string16 message;
     std::vector<WebMessagePortChannelImpl*> ports;
   };

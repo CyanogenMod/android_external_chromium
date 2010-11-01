@@ -1,5 +1,4 @@
 # -*- Python -*-
-# This is the main file of the hammer/scons build for magicflute.
 #
 # All the helper functions are defined in:
 #  - site_scons/talk.py
@@ -15,8 +14,6 @@
 # in the build.
 #
 #
-# For more documentation and information check:
-# https://sites.google.com/a/google.com/wavelet/Home/Magic-Flute--RTC-Engine-
 #
 import talk
 import os
@@ -25,7 +22,7 @@ import os
 # The build files/directories to 'build'.
 # If the name is the name of a directory then that directory shall contain a
 # .scons file with the same name as the directory itself:
-#  Ex: The directory magicflute contains a file called magicflute.scons
+#  Ex: The directory session/phone contains a file called phone.scons
 #
 components = talk.Components("libjingle.scons")
 
@@ -48,8 +45,7 @@ root_env = Environment(
   DESTINATION_ROOT = '$MAIN_DIR/build',
   CPPPATH = [
     '$OBJ_ROOT',     # generated headers are relative to here
-    '$MAIN_DIR/..',  # TODO(dape): how can we use GOOGLECLIENT instead?
-    '$GOOGLE3',      # google3 headers are relative to here
+    '$MAIN_DIR/..',  # TODO: how can we use GOOGLECLIENT instead?
   ],
   CPPDEFINES = [
     # Temp flag while porting to hammer.
@@ -60,8 +56,6 @@ root_env = Environment(
     'FEATURE_ENABLE_SSL',
     'FEATURE_ENABLE_VOICEMAIL',
     'FEATURE_ENABLE_PSTN',
-    'HAVE_GIPS',
-    'HAVE_LMI',
     'HAVE_SRTP',
   ]
 )
@@ -72,7 +66,7 @@ root_env = Environment(
 win_env = root_env.Clone(
   tools = [
     'atlmfc_vc80',
-    'code_signing',
+    #'code_signing',
     'component_targets_msvs',
     'directx_9_0_c',
     #'grid_builder',
@@ -116,7 +110,7 @@ win_env.Append(
   ],
   CPPDEFINES = [
     '_ATL_CSTRING_EXPLICIT_CONSTRUCTORS',
-    # TODO(dape): encapsulate all string operations that are not based
+    # TODO: encapsulate all string operations that are not based
     # on std::string/std::wstring and make sure we use the safest versions
     # available on all platforms.
     '_CRT_SECURE_NO_WARNINGS',
@@ -126,7 +120,7 @@ win_env.Append(
     'UNICODE',
     '_HAS_EXCEPTIONS=0',
     'WIN32',
-    # TODO(dape): remove this from logging.cc and enable here instead.
+    # TODO: remove this from logging.cc and enable here instead.
     #'WIN32_LEAN_AND_MEAN',
 
     'WINVER=0x0500',
@@ -145,7 +139,7 @@ win_env.Append(
     '$PLATFORM_SDK_VISTA_6_0_DIR/Lib'
   ],
   LINKFLAGS = [
-    '-manifest' # TODO(thaloun): Why do we need this?
+    '-manifest' # TODO: Why do we need this?
   ],
   MIDLFLAGS = [
     '/win32',
@@ -153,7 +147,7 @@ win_env.Append(
   ]
 )
 
-# TODO(dape): Figure out what this does; found it in
+# TODO: Figure out what this does; found it in
 # omaha/main.scons. This fixes the problem with redefinition
 # of OS_WINDOWS symbol.
 win_env.FilterOut(CPPDEFINES = ['OS_WINDOWS=OS_WINDOWS'])
@@ -260,7 +254,7 @@ mac_env.Append(
     # This flag makes all members of a static library be included in the
     # final exe - that increases the size of the exe, but without it
     # Obj-C categories aren't properly included in the exe.
-    # TODO(thaloun): consider only defining for libs that actually have objc.
+    # TODO: consider only defining for libs that actually have objc.
     '-ObjC',
     '-arch', 'i386',
   ],
@@ -298,7 +292,7 @@ mac_opt_env = mac_env.Clone(
 )
 mac_opt_env.Append(
   CCFLAGS = [
-    # TODO(thaloun): Figure out how mk can compile without
+    # TODO: Figure out how mk can compile without
     # this flag, then remove.  Confirmed asserts are preprocessed
     # out.  Maybe it's a different version of gcc?
     '-Wno-unused-variable',
@@ -321,7 +315,7 @@ linux_env.Append(
     # Also consider other linux flags:  64bit, no-strict-aliasing, wrap, etc
   ],
   LINKFLAGS = [
-    # TODO(tschmelcher) consider enabling gc-sections.  Perhaps only in opt.
+    # TODO consider enabling gc-sections.  Perhaps only in opt.
     #'-Wl,--gc-sections',
     '-Wl,--start-group',
   ],
@@ -344,75 +338,6 @@ linux_opt_env = linux_env.Clone(
 )
 envs.append(linux_opt_env)
 
-#-------------------------------------------------------------------------------
-# L I N U X -- C H R O M E -- O S
-#
-linux_chromeos_env = linux_env.Clone(
-  AR = os.environ.get("AR"),
-  AS = os.environ.get("AS"),
-  LD = os.environ.get("LD"),
-  NM = os.environ.get("NM"),
-  RANLIB = os.environ.get("RANLIB"),
-  CC = str(os.environ.get("CC")) +
-    ' --sysroot=' + str(os.environ.get("SYSROOT")),
-  CXX = str(os.environ.get("CXX")) +
-    ' --sysroot=' + str(os.environ.get("SYSROOT")),
-)
-
-linux_chromeos_env.Append(
-  CPPDEFINES = [
-     'CHROMEOS',
-     '__MMX__',
-     '__SSE__',
-     '__SSE2__',
-     'USE_TALK_SOUND',
-  ],
-
-  CPPPATH = [
-    os.environ.get("CPPPATH"),
-  ],
-
-  LIBPATH = [
-    os.environ.get("LIBPATH"),
-  ],
-
-  CCFLAGS = [
-    os.environ.get("CCFLAGS"),
-    # ChromeOS devices for sure has MMX, SSE, and SSE2.
-    # So turning on -mmmx, -msse, and -msse2 without CPU detection should be
-    # safe.
-    '-mmmx',
-    '-msse',
-    '-msse2',
-  ],
-
-  CXXFLAGS = [
-    os.environ.get("CXXFLAGS"),
-  ],
-
-  RPATH = [
-    os.environ.get("RPATH"),
-  ],
-)
-
-DeclareBit('linux_chromeos', 'Chrome OS ebuild')
-linux_chromeos_env.SetBits('linux_chromeos')
-
-linux_chromeos_dbg_env = linux_chromeos_env.Clone(
-  BUILD_TYPE = 'chromeos-dbg',
-  BUILD_TYPE_DESCRIPTION = 'Chrome OS debug build',
-  BUILD_GROUPS = ['chromeos'],
-  tools = ['target_debug']
-)
-envs.append(linux_chromeos_dbg_env)
-
-linux_chromeos_opt_env = linux_chromeos_env.Clone(
-  BUILD_TYPE = 'chromeos-opt',
-  BUILD_TYPE_DESCRIPTION = 'Chrome OS optimized build',
-  BUILD_GROUPS = ['chromeos'],
-  tools = ['target_optimized']
-)
-envs.append(linux_chromeos_opt_env)
 
 
 # TODO(): Clone linux envs for 64bit.  See 'variant' documentation.
@@ -451,7 +376,8 @@ if win_env.Bit('vsproj'):
   # Source project
   p = vs_env.ComponentVSDirProject(
     'flute_source',
-    ['$MAIN_DIR', '$GOOGLE3', '$THIRD_PARTY'],
+    ['$MAIN_DIR',
+     '$THIRD_PARTY'],
     COMPONENT_VS_SOURCE_FOLDERS = [
       # Files are assigned to first matching folder. Folder names of None
       # are filters.
@@ -468,7 +394,6 @@ if win_env.Bit('vsproj'):
 
   # Solution and target projects
   s = vs_env.ComponentVSSolution(
-    '../../flute',
     ['all_libraries', 'all_programs', 'all_test_programs'],
     projects = [p],
   )
@@ -479,4 +404,3 @@ if win_env.Bit('vsproj'):
   print '***($SolutionDir)/build/<foo>/staging/<bar>.exe'
   Default(None)
   Default([s])
-

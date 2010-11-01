@@ -31,13 +31,19 @@
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
+
 #ifdef WIN32
 #include <malloc.h>
 #include <wchar.h>
 #define alloca _alloca
 #endif  // WIN32
+
 #ifdef POSIX
+#ifdef BSD
+#include <stdlib.h>
+#else  // BSD
 #include <alloca.h>
+#endif  // !BSD
 #endif  // POSIX
 
 #include <cstring>

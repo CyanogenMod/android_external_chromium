@@ -35,7 +35,7 @@
 #include "talk/base/sigslot.h"
 #include "talk/base/socket.h"
 #include "talk/session/phone/codec.h"
-// TODO(juberti): re-evaluate this include
+// TODO: re-evaluate this include
 #include "talk/session/phone/audiomonitor.h"
 
 namespace flute {
@@ -49,6 +49,7 @@ enum VoiceMediaChannelOptions {
   OPT_ENERGYLEVEL = 0x20000,  // include the energy level in RTP packets, as
                               // defined in https://datatracker.ietf.org/drafts/
                               // draft-lennox-avt-rtp-audio-level-exthdr/
+
 };
 
 enum VideoMediaChannelOptions {
@@ -100,7 +101,7 @@ enum SendFlags {
   SEND_MICROPHONE
 };
 
-// TODO(juberti): separate into VoiceMediaInfo and VideoMediaInfo
+// TODO: separate into VoiceMediaInfo and VideoMediaInfo
 struct MediaInfo {
   int fraction_lost;
   int cum_lost;
@@ -172,7 +173,7 @@ class VideoFrame {
   virtual size_t GetPixelWidth() const = 0;
   virtual size_t GetPixelHeight() const = 0;
 
-  // TODO(whyuan): Add a fourcc format here and probably combine VideoFrame
+  // TODO: Add a fourcc format here and probably combine VideoFrame
   // with CapturedFrame.
   virtual int64 GetElapsedTime() const = 0;
   virtual int64 GetTimeStamp() const = 0;
@@ -232,7 +233,7 @@ class VideoFrame {
 
  protected:
   // The frame needs to be rendered to magiccam only once.
-  // TODO(geer): Remove this flag once magiccam rendering is fully replaced
+  // TODO: Remove this flag once magiccam rendering is fully replaced
   // by client3d rendering.
   mutable bool rendered_;
 };

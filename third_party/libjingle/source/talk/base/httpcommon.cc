@@ -399,7 +399,7 @@ bool HttpDateToSeconds(const std::string& date, unsigned long* seconds) {
     gmt = non_gmt + kTimeZoneOffsets[zindex] * 60 * 60;
   }
   // TODO: Android should support timezone, see b/2441195
-#if defined(OSX) || defined(ANDROID)
+#if defined(OSX) || defined(ANDROID) || defined(BSD)
   tm *tm_for_timezone = localtime((time_t *)&gmt);
   *seconds = gmt + tm_for_timezone->tm_gmtoff;
 #else

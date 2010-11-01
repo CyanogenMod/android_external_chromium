@@ -55,6 +55,9 @@
 
 namespace {
 
+// A boolean pref of the EULA accepted flag.
+const char kEulaAccepted[] = "EulaAccepted";
+
 // A boolean pref of the OOBE complete flag.
 const char kOobeComplete[] = "OobeComplete";
 
@@ -79,7 +82,7 @@ class ContentView : public views::View {
  public:
   ContentView()
       : accel_enable_accessibility_(
-            WizardAccessibilityHelper::GetAccelerator()) {
+            chromeos::WizardAccessibilityHelper::GetAccelerator()) {
     AddAccelerator(accel_enable_accessibility_);
 #if !defined(OFFICIAL_BUILD)
     accel_account_screen_ = views::Accelerator(app::VKEY_A,
@@ -119,7 +122,7 @@ class ContentView : public views::View {
       return false;
 
     if (accel == accel_enable_accessibility_) {
-      WizardAccessibilityHelper::GetInstance()->EnableAccessibility(
+      chromeos::WizardAccessibilityHelper::GetInstance()->EnableAccessibility(
           controller->contents());
 #if !defined(OFFICIAL_BUILD)
     } else if (accel == accel_account_screen_) {
@@ -173,8 +176,8 @@ void DeleteWizardControllerAndLaunchBrowser(WizardController* controller) {
   delete controller;
   // Launch browser after controller is deleted and its windows are closed.
   chromeos::LoginUtils::Get()->EnableBrowserLaunch(true);
-  ChromeThread::PostTask(
-      ChromeThread::UI,
+  BrowserThread::PostTask(
+      BrowserThread::UI,
       FROM_HERE,
       NewRunnableFunction(&chromeos::LoginUtils::DoBrowserLaunch,
                           ProfileManager::GetDefaultProfile()));
@@ -189,15 +192,28 @@ const chromeos::StartupCustomizationDocument* LoadStartupManifest() {
     bool manifest_loaded = customization->LoadManifestFromFile(
         startup_manifest_path);
     if (manifest_loaded) {
-      LOG(INFO) << "Startup manifest loaded successfully";
+      VLOG(1) << "Startup manifest loaded successfully";
       return customization.release();
-    } else {
-      LOG(ERROR) << "Error loading startup manifest. " <<
-          kStartupCustomizationManifestPath;
     }
+    LOG(ERROR) << "Error loading startup manifest: "
+               << kStartupCustomizationManifestPath;
   }
 
   return NULL;
+}
+
+// Returns true if startup manifest defines valid registration URL.
+bool IsRegistrationScreenValid(
+    const chromeos::StartupCustomizationDocument* startup_manifest) {
+  return startup_manifest != NULL &&
+         GURL(startup_manifest->registration_url()).is_valid();
+}
+
+// Saves boolean "Local State" preference and forces it's persistence to disk.
+void SaveBoolPreferenceForced(const char* pref_name, bool value) {
+  PrefService* prefs = g_browser_process->local_state();
+  prefs->SetBoolean(pref_name, value);
+  prefs->SavePersistentPrefs();
 }
 
 }  // namespace
@@ -251,11 +267,13 @@ WizardController::~WizardController() {
     widget_->Close();
 
   default_controller_ = NULL;
+  chromeos::WizardAccessibilityHelper::GetInstance()->
+      UnregisterNotifications();
 }
 
 void WizardController::Init(const std::string& first_screen_name,
                             const gfx::Rect& screen_bounds) {
-  LOG(INFO) << "Starting OOBE wizard with screen: " << first_screen_name;
+  VLOG(1) << "Starting OOBE wizard with screen: " << first_screen_name;
   DCHECK(!contents_);
   first_screen_name_ = first_screen_name;
 
@@ -406,13 +424,13 @@ chromeos::ExistingUserController* WizardController::ShowLoginScreen() {
 }
 
 void WizardController::ShowAccountScreen() {
-  LOG(INFO) << "Showing create account screen.";
+  VLOG(1) << "Showing create account screen.";
   SetStatusAreaVisible(true);
   SetCurrentScreen(GetAccountScreen());
 }
 
 void WizardController::ShowUpdateScreen() {
-  LOG(INFO) << "Showing update screen.";
+  VLOG(1) << "Showing update screen.";
   SetStatusAreaVisible(true);
   SetCurrentScreen(GetUpdateScreen());
   // There is no special step for update.
@@ -424,14 +442,14 @@ void WizardController::ShowUpdateScreen() {
 }
 
 void WizardController::ShowUserImageScreen() {
-  LOG(INFO) << "Showing user image screen.";
+  VLOG(1) << "Showing user image screen.";
   SetStatusAreaVisible(false);
   SetCurrentScreen(GetUserImageScreen());
   background_view_->SetOobeProgress(chromeos::BackgroundView::PICTURE);
 }
 
 void WizardController::ShowEulaScreen() {
-  LOG(INFO) << "Showing EULA screen.";
+  VLOG(1) << "Showing EULA screen.";
   SetStatusAreaVisible(false);
   SetCurrentScreen(GetEulaScreen());
 #if defined(OFFICIAL_BUILD)
@@ -440,14 +458,13 @@ void WizardController::ShowEulaScreen() {
 }
 
 void WizardController::ShowRegistrationScreen() {
-  if (!GetCustomization() ||
-      !GURL(GetCustomization()->registration_url()).is_valid()) {
-    LOG(INFO) <<
-        "Skipping registration screen: manifest not defined or invalid URL.";
+  if (!IsRegistrationScreenValid(GetCustomization())) {
+    VLOG(1) << "Skipping registration screen: manifest not defined or invalid "
+               "URL.";
     OnRegistrationSkipped();
     return;
   }
-  LOG(INFO) << "Showing registration screen.";
+  VLOG(1) << "Showing registration screen.";
   SetStatusAreaVisible(true);
   SetCurrentScreen(GetRegistrationScreen());
 #if defined(OFFICIAL_BUILD)
@@ -456,7 +473,7 @@ void WizardController::ShowRegistrationScreen() {
 }
 
 void WizardController::ShowHTMLPageScreen() {
-  LOG(INFO) << "Showing HTML page screen.";
+  VLOG(1) << "Showing HTML page screen.";
   SetStatusAreaVisible(true);
   background_view_->SetOobeProgressBarVisible(false);
   SetCurrentScreen(GetHTMLPageScreen());
@@ -482,6 +499,7 @@ void WizardController::SkipRegistration() {
 // static
 void WizardController::RegisterPrefs(PrefService* local_state) {
   local_state->RegisterBooleanPref(kOobeComplete, false);
+  local_state->RegisterBooleanPref(kEulaAccepted, false);
   // Check if the pref is already registered in case
   // Preferences::RegisterUserPrefs runs before this code in the future.
   if (local_state->FindPreference(prefs::kAccessibilityEnabled) == NULL) {
@@ -513,10 +531,17 @@ void WizardController::OnLoginCreateAccount() {
 
 void WizardController::OnNetworkConnected() {
   if (is_official_build_) {
-    ShowEulaScreen();
+    if (!IsEulaAccepted()) {
+      ShowEulaScreen();
+    } else {
+      // Possible cases:
+      // 1. EULA was accepted, forced shutdown/reboot during update.
+      // 2. EULA was accepted, planned reboot after update.
+      // Make sure that device is up-to-date.
+      InitiateOOBEUpdate();
+    }
   } else {
-    ShowUpdateScreen();
-    GetUpdateScreen()->StartUpdate();
+    InitiateOOBEUpdate();
   }
 }
 
@@ -553,8 +578,8 @@ void WizardController::OnUpdateCompleted() {
 }
 
 void WizardController::OnEulaAccepted() {
-  ShowUpdateScreen();
-  GetUpdateScreen()->StartUpdate();
+  MarkEulaAccepted();
+  InitiateOOBEUpdate();
 }
 
 void WizardController::OnUpdateErrorCheckingForUpdate() {
@@ -579,8 +604,8 @@ void WizardController::OnUserImageSelected() {
   // We're on the stack, so don't try and delete us now.
   // We should launch browser only after we delete the controller and close
   // its windows.
-  ChromeThread::PostTask(
-      ChromeThread::UI,
+  BrowserThread::PostTask(
+      BrowserThread::UI,
       FROM_HERE,
       NewRunnableFunction(&DeleteWizardControllerAndLaunchBrowser,
                           this));
@@ -608,6 +633,11 @@ void WizardController::OnRegistrationSkipped() {
 void WizardController::OnOOBECompleted() {
   MarkOobeCompleted();
   ShowLoginScreen();
+}
+
+void WizardController::InitiateOOBEUpdate() {
+  ShowUpdateScreen();
+  GetUpdateScreen()->StartUpdate();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -703,8 +733,7 @@ void WizardController::ShowFirstScreen(const std::string& first_screen_name) {
   } else if (first_screen_name == kAccountScreenName) {
     ShowAccountScreen();
   } else if (first_screen_name == kUpdateScreenName) {
-    ShowUpdateScreen();
-    GetUpdateScreen()->StartUpdate();
+    InitiateOOBEUpdate();
   } else if (first_screen_name == kUserImageScreenName) {
     ShowUserImageScreen();
   } else if (first_screen_name == kEulaScreenName) {
@@ -741,22 +770,41 @@ void WizardController::Login(const std::string& username,
 }
 
 // static
+bool WizardController::IsEulaAccepted() {
+  return g_browser_process->local_state()->GetBoolean(kEulaAccepted);
+}
+
+// static
 bool WizardController::IsOobeCompleted() {
   return g_browser_process->local_state()->GetBoolean(kOobeComplete);
 }
 
 // static
+void WizardController::MarkEulaAccepted() {
+  SaveBoolPreferenceForced(kEulaAccepted, true);
+}
+
+// static
 void WizardController::MarkOobeCompleted() {
-  PrefService* prefs = g_browser_process->local_state();
-  prefs->SetBoolean(kOobeComplete, true);
-  // Make sure that changes are reflected immediately.
-  prefs->SavePersistentPrefs();
+  SaveBoolPreferenceForced(kOobeComplete, true);
 }
 
 // static
 bool WizardController::IsDeviceRegistered() {
   FilePath oobe_complete_flag_file_path(kOobeCompleteFlagFilePath);
   return file_util::PathExists(oobe_complete_flag_file_path);
+}
+
+// static
+bool WizardController::IsRegisterScreenDefined() {
+  const chromeos::StartupCustomizationDocument* manifest = NULL;
+  // This method will be called from ExistingUserController too
+  // when Wizard instance doesn't exist.
+  if (default_controller())
+    manifest = default_controller()->GetCustomization();
+  else
+    manifest = LoadStartupManifest();
+  return IsRegistrationScreenValid(manifest);
 }
 
 // static
@@ -772,7 +820,7 @@ void WizardController::MarkDeviceRegistered() {
 ///////////////////////////////////////////////////////////////////////////////
 // WizardController, chromeos::ScreenObserver overrides:
 void WizardController::OnExit(ExitCodes exit_code) {
-  LOG(INFO) << "Wizard screen exit code: " << exit_code;
+  VLOG(1) << "Wizard screen exit code: " << exit_code;
   switch (exit_code) {
     case LOGIN_SIGN_IN_SELECTED:
       OnLoginSignInSelected();
@@ -852,7 +900,7 @@ namespace browser {
 // Declared in browser_dialogs.h so that others don't need to depend on our .h.
 void ShowLoginWizard(const std::string& first_screen_name,
                      const gfx::Size& size) {
-  LOG(INFO) << "showing login screen: " << first_screen_name;
+  VLOG(1) << "Showing login screen: " << first_screen_name;
 
   // The login screen will enable alternate keyboard layouts, but we don't want
   // to start the IME process unless one is selected.
@@ -890,8 +938,8 @@ void ShowLoginWizard(const std::string& first_screen_name,
     // If we already have user we assume that it is not a second part of OOBE.
     // See http://crosbug.com/6289
     if (!WizardController::IsDeviceRegistered() && !users.empty()) {
-      LOG(INFO) << "Mark device registered because there are remembered users: "
-                << users.size();
+      VLOG(1) << "Mark device registered because there are remembered users: "
+              << users.size();
       WizardController::MarkDeviceRegistered();
     }
 
@@ -919,10 +967,10 @@ void ShowLoginWizard(const std::string& first_screen_name,
     const std::string current_locale =
         g_browser_process->local_state()->GetString(
             prefs::kApplicationLocale);
-    LOG(INFO) << "current locale: " << current_locale;
+    VLOG(1) << "Current locale: " << current_locale;
     if (current_locale.empty()) {
       locale = controller->GetCustomization()->initial_locale();
-      LOG(INFO) << "initial locale: " << locale;
+      VLOG(1) << "Initial locale: " << locale;
       if (!locale.empty()) {
         ResourceBundle::ReloadSharedInstance(locale);
       }
@@ -943,7 +991,7 @@ void ShowLoginWizard(const std::string& first_screen_name,
     // Set initial timezone if specified by customization.
     const std::string timezone_name =
         controller->GetCustomization()->initial_timezone();
-    LOG(INFO) << "initial time zone: " << timezone_name;
+    VLOG(1) << "Initial time zone: " << timezone_name;
     // Apply locale customizations only once so preserve whatever locale
     // user has changed to during OOBE.
     if (!timezone_name.empty()) {

@@ -139,7 +139,7 @@ void TaskRunner::PollTasks() {
   // see if our "next potentially timed-out task" has indeed timed out.
   // If it has, wake it up, then queue up the next task in line
   // Repeat while we have new timed-out tasks.
-  // TODO(juberti): We need to guard against WakeTasks not updating
+  // TODO: We need to guard against WakeTasks not updating
   // next_timeout_task_. Maybe also add documentation in the header file once
   // we understand this code better.
   Task* old_timeout_task = NULL;

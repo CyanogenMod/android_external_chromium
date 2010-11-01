@@ -10,6 +10,7 @@
 #include "base/scoped_ptr.h"
 #include "base/stl_util-inl.h"
 #include "base/version.h"
+#include "chrome/browser/extensions/extension_prefs.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/sync/protocol/extension_specifics.pb.h"
 #include "chrome/common/extensions/extension.h"
@@ -23,8 +24,7 @@ ExtensionType GetExtensionType(const Extension& extension) {
     return THEME;
   }
 
-  // TODO(akalin): Add Extensions::is_app().
-  if (!extension.GetFullLaunchURL().is_empty()) {
+  if (extension.is_app()) {
     return APP;
   }
 
@@ -36,6 +36,27 @@ ExtensionType GetExtensionType(const Extension& extension) {
   }
 
   // Otherwise, we just have a regular extension.
+  return EXTENSION;
+}
+
+// Keep this in sync with the above function.
+// TODO(akalin): Or just hurry up and remove this!
+ExtensionType GetExtensionTypeFromUninstalledExtensionInfo(
+    const UninstalledExtensionInfo& uninstalled_extension_info) {
+  if (uninstalled_extension_info.is_theme) {
+    return THEME;
+  }
+
+  if (uninstalled_extension_info.is_app) {
+    return APP;
+  }
+
+  if (uninstalled_extension_info.converted_from_user_script) {
+    if (uninstalled_extension_info.update_url.is_empty()) {
+      return LOCAL_USER_SCRIPT;
+    }
+    return UPDATEABLE_USER_SCRIPT;
+  }
   return EXTENSION;
 }
 
@@ -172,13 +193,12 @@ bool AreExtensionSpecificsNonUserPropertiesEqual(
 }
 
 void GetExtensionSpecifics(const Extension& extension,
-                           ExtensionsService* extensions_service,
+                           ExtensionPrefs* extension_prefs,
                            sync_pb::ExtensionSpecifics* specifics) {
   const std::string& id = extension.id();
   bool enabled =
-      extensions_service->GetExtensionById(id, false) != NULL;
-  bool incognito_enabled =
-      extensions_service->IsIncognitoEnabled(&extension);
+      extension_prefs->GetExtensionState(id) == Extension::ENABLED;
+  bool incognito_enabled = extension_prefs->IsIncognitoEnabled(id);
   GetExtensionSpecificsHelper(extension, enabled, incognito_enabled,
                               specifics);
 }
@@ -224,14 +244,14 @@ void SetExtensionProperties(
                  << "has a different update URL than the extension: "
                  << update_url.spec() << " vs. " << extension->update_url();
   }
-  bool enabled = extensions_service->GetExtensionById(id, false) != NULL;
+  ExtensionPrefs* extension_prefs = extensions_service->extension_prefs();
+  bool enabled = extension_prefs->GetExtensionState(id) == Extension::ENABLED;
   if (enabled && !specifics.enabled()) {
     extensions_service->DisableExtension(id);
   } else if (!enabled && specifics.enabled()) {
     extensions_service->EnableExtension(id);
   }
-  bool incognito_enabled =
-      extensions_service->IsIncognitoEnabled(extension);
+  bool incognito_enabled = extension_prefs->IsIncognitoEnabled(id);
   if (incognito_enabled != specifics.incognito_enabled()) {
     extensions_service->SetIsIncognitoEnabled(
         extension, specifics.incognito_enabled());

@@ -22,7 +22,7 @@ DownloadPrefs::DownloadPrefs(PrefService* prefs) : prefs_(prefs) {
   std::string extensions_to_open =
       prefs->GetString(prefs::kDownloadExtensionsToOpen);
   std::vector<std::string> extensions;
-  SplitString(extensions_to_open, ':', &extensions);
+  base::SplitString(extensions_to_open, ':', &extensions);
 
   for (size_t i = 0; i < extensions.size(); ++i) {
 #if defined(OS_POSIX)
@@ -53,8 +53,8 @@ void DownloadPrefs::RegisterUserPrefs(PrefService* prefs) {
 
 #if defined(OS_CHROMEOS)
   // Ensure that the download directory specified in the preferences exists.
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
       NewRunnableFunction(&file_util::CreateDirectory, default_download_path));
 #endif  // defined(OS_CHROMEOS)
 

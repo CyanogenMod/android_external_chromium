@@ -6,12 +6,16 @@
 
 #include "build/build_config.h"
 
-#if defined(USE_NSS)
+#if defined(USE_OPENSSL)
+#include <openssl/err.h>
+#include <openssl/x509v3.h>
+#include "net/base/openssl_util.h"
+#elif defined(USE_NSS)
 #include <cert.h>
 #include "base/nss_util.h"
 #elif defined(OS_MACOSX)
 #include <Security/Security.h>
-#include "base/scoped_cftyperef.h"
+#include "base/mac/scoped_cftyperef.h"
 #endif
 
 #include "base/file_util.h"
@@ -21,7 +25,47 @@
 
 namespace net {
 
-#if defined(USE_NSS)
+#if defined(USE_OPENSSL)
+X509Certificate* LoadTemporaryRootCert(const FilePath& filename) {
+  OpenSSLInitSingleton* openssl_init = GetOpenSSLInitSingleton();
+
+  std::string rawcert;
+  if (!file_util::ReadFileToString(filename, &rawcert)) {
+    LOG(ERROR) << "Can't load certificate " << filename.value();
+    return NULL;
+  }
+
+  ScopedSSL<BIO, BIO_free_all> cert_bio(
+      BIO_new_mem_buf(const_cast<char*>(rawcert.c_str()),
+                      rawcert.length()));
+  if (!cert_bio.get()) {
+    LOG(ERROR) << "Can't create read-only BIO " << filename.value();
+    return NULL;
+  }
+
+  ScopedSSL<X509, X509_free> x509_cert(PEM_read_bio_X509(cert_bio.get(),
+                                                         NULL, NULL, NULL));
+  if (!x509_cert.get()) {
+    LOG(ERROR) << "Can't parse certificate " << filename.value();
+    return NULL;
+  }
+
+  if (!X509_STORE_add_cert(openssl_init->x509_store(), x509_cert.get())) {
+    unsigned long error_code = ERR_get_error();
+    if (ERR_GET_LIB(error_code) != ERR_LIB_X509 ||
+        ERR_GET_REASON(error_code) != X509_R_CERT_ALREADY_IN_HASH_TABLE) {
+      do {
+        LOG(ERROR) << "X509_STORE_add_cert error: " << error_code;
+      } while ((error_code = ERR_get_error()) != 0);
+      return NULL;
+    }
+  }
+
+  return X509Certificate::CreateFromHandle(
+      x509_cert.get(), X509Certificate::SOURCE_LONE_CERT_IMPORT,
+      X509Certificate::OSCertHandles());
+}
+#elif defined(USE_NSS)
 X509Certificate* LoadTemporaryRootCert(const FilePath& filename) {
   base::EnsureNSSInit();
 
@@ -77,7 +121,7 @@ X509Certificate* LoadTemporaryRootCert(const FilePath& filename) {
                                static_cast<CFIndex>(rawcert.size()));
   if (!pem)
     return NULL;
-  scoped_cftyperef<CFDataRef> scoped_pem(pem);
+  base::mac::ScopedCFTypeRef<CFDataRef> scoped_pem(pem);
 
   SecExternalFormat input_format = kSecFormatUnknown;
   SecExternalItemType item_type = kSecItemTypeUnknown;
@@ -85,7 +129,7 @@ X509Certificate* LoadTemporaryRootCert(const FilePath& filename) {
   if (SecKeychainItemImport(pem, NULL, &input_format, &item_type, 0, NULL, NULL,
                             &cert_array))
     return NULL;
-  scoped_cftyperef<CFArrayRef> scoped_cert_array(cert_array);
+  base::mac::ScopedCFTypeRef<CFArrayRef> scoped_cert_array(cert_array);
 
   if (!CFArrayGetCount(cert_array))
     return NULL;

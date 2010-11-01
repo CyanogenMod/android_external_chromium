@@ -679,6 +679,8 @@ AutocompleteResult::AutocompleteResult() {
   default_match_ = end();
 }
 
+AutocompleteResult::~AutocompleteResult() {}
+
 void AutocompleteResult::CopyFrom(const AutocompleteResult& rhs) {
   if (this == &rhs)
     return;
@@ -750,6 +752,11 @@ void AutocompleteResult::SortAndCull(const AutocompleteInput& input) {
     alternate_nav_url_ = input.canonicalized_url();
 }
 
+void AutocompleteResult::Reset() {
+  matches_.clear();
+  default_match_ = end();
+}
+
 #ifndef NDEBUG
 void AutocompleteResult::Validate() const {
   for (const_iterator i(begin()); i != end(); ++i)
@@ -773,10 +780,11 @@ AutocompleteController::AutocompleteController(Profile* profile)
       have_committed_during_this_query_(false),
       done_(true) {
   providers_.push_back(new SearchProvider(this, profile));
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableInMemoryURLIndex))
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kDisableHistoryQuickProvider))
     providers_.push_back(new HistoryQuickProvider(this, profile));
-  else
+  if (!CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kDisableHistoryURLProvider))
     providers_.push_back(new HistoryURLProvider(this, profile));
   providers_.push_back(new KeywordProvider(this, profile));
   history_contents_provider_ = new HistoryContentsProvider(this, profile);

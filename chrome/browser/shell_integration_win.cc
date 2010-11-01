@@ -5,21 +5,22 @@
 #include "chrome/browser/shell_integration.h"
 
 #include <windows.h>
-#include <propvarutil.h>
-#include <shlobj.h>
 #include <shobjidl.h>
+#include <propkey.h>
+#include <propvarutil.h>
 
 #include "base/command_line.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
-#include "base/registry.h"
 #include "base/scoped_comptr_win.h"
 #include "base/string_util.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
 #include "base/win_util.h"
-#include "chrome/browser/chrome_thread.h"
+#include "base/win/registry.h"
+#include "base/win/windows_version.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
@@ -96,7 +97,7 @@ class MigrateChromiumShortcutsTask : public Task {
 
 void MigrateChromiumShortcutsTask::Run() {
   // This should run on the file thread.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::FILE));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
   MigrateWin7Shortcuts();
 }
@@ -249,7 +250,7 @@ bool MigrateChromiumShortcutsTask::GetShortcutAppId(
 
   PROPVARIANT appid_value;
   PropVariantInit(&appid_value);
-  if (FAILED(property_store->GetValue(win_util::kPKEYAppUserModelID,
+  if (FAILED(property_store->GetValue(PKEY_AppUserModel_ID,
                                       &appid_value)))
     return false;
 
@@ -277,7 +278,7 @@ bool ShellIntegration::SetAsDefaultBrowser() {
     return false;
   }
 
-  LOG(INFO) << "Chrome registered as default browser.";
+  VLOG(1) << "Chrome registered as default browser.";
   return true;
 }
 
@@ -300,7 +301,7 @@ ShellIntegration::DefaultBrowserState ShellIntegration::IsDefaultBrowser() {
   // to show up in Add/Remove programs for us.
   const std::wstring kChromeProtocols[] = {L"http", L"https"};
 
-  if (win_util::GetWinVersion() >= win_util::WINVERSION_VISTA) {
+  if (base::win::GetVersion() >= base::win::VERSION_VISTA) {
     IApplicationAssociationRegistration* pAAR;
     HRESULT hr = CoCreateInstance(CLSID_ApplicationAssociationRegistration,
         NULL, CLSCTX_INPROC, __uuidof(IApplicationAssociationRegistration),
@@ -339,14 +340,14 @@ ShellIntegration::DefaultBrowserState ShellIntegration::IsDefaultBrowser() {
       HKEY root_key = HKEY_CLASSES_ROOT;
       // Check <protocol>\shell\open\command
       std::wstring key_path(kChromeProtocols[i] + ShellUtil::kRegShellOpen);
-      RegKey key(root_key, key_path.c_str(), KEY_READ);
+      base::win::RegKey key(root_key, key_path.c_str(), KEY_READ);
       std::wstring value;
       if (!key.Valid() || !key.ReadValue(L"", &value))
         return NOT_DEFAULT_BROWSER;
       // Need to normalize path in case it's been munged.
       CommandLine command_line = CommandLine::FromString(value);
       std::wstring short_path;
-      GetShortPathName(command_line.program().c_str(),
+      GetShortPathName(command_line.GetProgram().value().c_str(),
                        WriteInto(&short_path, MAX_PATH), MAX_PATH);
       if (!FilePath::CompareEqualIgnoreCase(short_path, short_app_path))
         return NOT_DEFAULT_BROWSER;
@@ -368,16 +369,17 @@ ShellIntegration::DefaultBrowserState ShellIntegration::IsDefaultBrowser() {
 // is false.
 bool ShellIntegration::IsFirefoxDefaultBrowser() {
   bool ff_default = false;
-  if (win_util::GetWinVersion() >= win_util::WINVERSION_VISTA) {
+  if (base::win::GetVersion() >= base::win::VERSION_VISTA) {
     std::wstring app_cmd;
-    RegKey key(HKEY_CURRENT_USER, ShellUtil::kRegVistaUrlPrefs, KEY_READ);
+    base::win::RegKey key(HKEY_CURRENT_USER,
+                          ShellUtil::kRegVistaUrlPrefs, KEY_READ);
     if (key.Valid() && key.ReadValue(L"Progid", &app_cmd) &&
         app_cmd == L"FirefoxURL")
       ff_default = true;
   } else {
     std::wstring key_path(L"http");
     key_path.append(ShellUtil::kRegShellOpen);
-    RegKey key(HKEY_CLASSES_ROOT, key_path.c_str(), KEY_READ);
+    base::win::RegKey key(HKEY_CLASSES_ROOT, key_path.c_str(), KEY_READ);
     std::wstring app_cmd;
     if (key.Valid() && key.ReadValue(L"", &app_cmd) &&
         std::wstring::npos != StringToLowerASCII(app_cmd).find(L"firefox"))
@@ -407,9 +409,9 @@ std::wstring ShellIntegration::GetChromiumAppId(const FilePath& profile_path) {
 }
 
 void ShellIntegration::MigrateChromiumShortcuts() {
-  if (win_util::GetWinVersion() < win_util::WINVERSION_WIN7)
+  if (base::win::GetVersion() < base::win::VERSION_WIN7)
     return;
 
-  ChromeThread::PostTask(
-      ChromeThread::FILE, FROM_HERE, new MigrateChromiumShortcutsTask());
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE, new MigrateChromiumShortcutsTask());
 }

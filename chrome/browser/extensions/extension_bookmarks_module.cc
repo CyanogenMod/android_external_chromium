@@ -17,7 +17,7 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extension_bookmark_helpers.h"
 #include "chrome/browser/extensions/extension_bookmarks_module_constants.h"
-#include "chrome/browser/extensions/extension_message_service.h"
+#include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extensions_quota_service.h"
 #include "chrome/browser/importer/importer.h"
 #include "chrome/browser/importer/importer_data_types.h"
@@ -95,9 +95,9 @@ void ExtensionBookmarkEventRouter::Observe(BookmarkModel* model) {
 void ExtensionBookmarkEventRouter::DispatchEvent(Profile *profile,
                                                  const char* event_name,
                                                  const std::string json_args) {
-  if (profile->GetExtensionMessageService()) {
-    profile->GetExtensionMessageService()->DispatchEventToRenderers(
-        event_name, json_args, profile, GURL());
+  if (profile->GetExtensionEventRouter()) {
+    profile->GetExtensionEventRouter()->DispatchEventToRenderers(
+        event_name, json_args, NULL, GURL());
   }
 }
 
@@ -545,20 +545,17 @@ bool UpdateBookmarkFunction::RunImpl() {
   DictionaryValue* updates;
   EXTENSION_FUNCTION_VALIDATE(args_->GetDictionary(1, &updates));
 
-  string16 title;
-  std::string url_string;
-
   // Optional but we need to distinguish non present from an empty title.
+  string16 title;
   const bool has_title = updates->GetString(keys::kTitleKey, &title);
-  updates->GetString(keys::kUrlKey, &url_string);  // Optional.
 
-  GURL url;
-  if (!url_string.empty()) {
-    url = GURL(url_string);
-
-    // If URL is present then it needs to be a non empty valid URL.
-    EXTENSION_FUNCTION_VALIDATE(!url.is_empty());
-    EXTENSION_FUNCTION_VALIDATE(url.is_valid());
+  // Optional.
+  std::string url_string;
+  updates->GetString(keys::kUrlKey, &url_string);
+  GURL url(url_string);
+  if (!url_string.empty() && !url.is_valid()) {
+    error_ = keys::kInvalidUrlError;
+    return false;
   }
 
   BookmarkModel* model = profile()->GetBookmarkModel();
@@ -764,6 +761,10 @@ void CreateBookmarkFunction::GetQuotaLimitHeuristics(
     QuotaLimitHeuristics* heuristics) const {
   BookmarksQuotaLimitFactory::BuildForCreate(heuristics, profile());
 }
+
+BookmarksIOFunction::BookmarksIOFunction() {}
+
+BookmarksIOFunction::~BookmarksIOFunction() {}
 
 void BookmarksIOFunction::SelectFile(SelectFileDialog::Type type) {
   // Balanced in one of the three callbacks of SelectFileDialog:

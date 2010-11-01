@@ -8,10 +8,9 @@
 
 #include <string>
 
-#include "chrome/browser/jsmessage_box_client.h"
+#include "chrome/browser/js_modal_dialog.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/tab_contents/render_view_host_delegate_helper.h"
-#include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/view_types.h"
 #include "chrome/common/window_container_type.h"
@@ -32,7 +31,7 @@ class Rect;
 class BackgroundContents : public RenderViewHostDelegate,
                            public RenderViewHostDelegate::View,
                            public NotificationObserver,
-                           public JavaScriptMessageBoxClient {
+                           public JavaScriptAppModalDialogDelegate {
  public:
   class Delegate {
    public:
@@ -60,12 +59,8 @@ class BackgroundContents : public RenderViewHostDelegate,
   // RenderViewHostDelegate implementation.
   virtual RenderViewHostDelegate::View* GetViewDelegate() { return this; }
   virtual const GURL& GetURL() const { return url_; }
-  virtual ViewType::Type GetRenderViewType() const {
-    return ViewType::BACKGROUND_CONTENTS;
-  }
-  virtual int GetBrowserWindowID() const {
-    return extension_misc::kUnknownWindowId;
-  }
+  virtual ViewType::Type GetRenderViewType() const;
+  virtual int GetBrowserWindowID() const;
   virtual void DidNavigate(RenderViewHost* render_view_host,
                            const ViewHostMsg_FrameNavigate_Params& params);
   virtual WebPreferences GetWebkitPrefs();
@@ -106,9 +101,7 @@ class BackgroundContents : public RenderViewHostDelegate,
   virtual void Activate() {}
   virtual void Deactivate() {}
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
-                                      bool* is_keyboard_shortcut) {
-    return false;
-  }
+                                      bool* is_keyboard_shortcut);
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event) {}
   virtual void HandleMouseMove() {}
   virtual void HandleMouseDown() {}
@@ -122,14 +115,18 @@ class BackgroundContents : public RenderViewHostDelegate,
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
-  // JavaScriptMessageBoxClient
-  virtual gfx::NativeWindow GetMessageBoxRootWindow();
+  // Overridden from JavaScriptAppModalDialogDelegate:
   virtual void OnMessageBoxClosed(IPC::Message* reply_msg,
                                   bool success,
                                   const std::wstring& prompt);
   virtual void SetSuppressMessageBoxes(bool suppress_message_boxes) {}
+  virtual gfx::NativeWindow GetMessageBoxRootWindow();
   virtual TabContents* AsTabContents() { return NULL; }
   virtual ExtensionHost* AsExtensionHost() { return NULL; }
+
+  virtual void UpdateInspectorSetting(const std::string& key,
+                                      const std::string& value);
+  virtual void ClearInspectorSettings();
 
  protected:
   // Exposed for testing.

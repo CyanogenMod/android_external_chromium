@@ -6,7 +6,7 @@
 
 #include "base/message_loop.h"
 #include "base/string_util.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 
 namespace chromeos {
@@ -97,7 +97,7 @@ class MountLibraryImpl : public MountLibrary {
                                        MountEventType evt,
                                        const std::string& path) {
     // Make sure we run on UI thread.
-    DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
     FOR_EACH_OBSERVER(
         Observer, observers_, MountChanged(this, evt, path));

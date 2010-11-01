@@ -61,15 +61,28 @@ static int const kHttpPostFailNoConnection = -1;
 static int const kHttpPostFailClientError = 400;
 static int const kHttpPostFailServerError = 500;
 
-} // namespace
+#if defined(OS_CHROMEOS)
+static char const kBZip2MimeType[] = "application/x-bzip2";
+static char const kLogsAttachmentName[] = "system_logs.bz2";
+// Maximum number of lines in system info log chunk to be still included
+// in product specific data.
+const size_t kMaxLineCount       = 10;
+// Maximum number of bytes in system info log chunk to be still included
+// in product specific data.
+const size_t kMaxSystemLogLength = 1024;
+#endif
+
+}  // namespace
 
 
 #if defined(OS_CHROMEOS)
 class FeedbackNotification {
  public:
-  // Previous notification cleanup is handled by scoped_ptr.
   // Note: notification will show only on one profile at a time.
   void Show(Profile* profile, const string16& message, bool urgent) {
+    if (notification_.get()) {
+        notification_->Hide();
+    }
     notification_.reset(
         new chromeos::SystemNotification(profile, kNotificationId,
                                IDR_STATUSBAR_FEEDBACK,
@@ -116,7 +129,7 @@ class BugReportUtil::PostCleanup : public URLFetcher::Delegate {
   BugReportUtil::PostCleanup::PostCleanup(Profile* profile)
       : profile_(profile) {
 #else
-  BugReportUtil::PostCleanup::PostCleanup() {
+  BugReportUtil::PostCleanup::PostCleanup() : profile_(NULL) {
 #endif
 }
 
@@ -132,18 +145,18 @@ void BugReportUtil::PostCleanup::OnURLFetchComplete(
   if (response_code == kHttpPostSuccessNoContent) {
     error_stream << "Success";
   } else if (response_code == kHttpPostFailNoConnection) {
-        error_stream << "No connection to server.";
+    error_stream << "No connection to server.";
   } else if ((response_code > kHttpPostFailClientError) &&
       (response_code < kHttpPostFailServerError)) {
-        error_stream << "Client error: HTTP response code " << response_code;
+    error_stream << "Client error: HTTP response code " << response_code;
   } else if (response_code > kHttpPostFailServerError) {
-        error_stream << "Server error: HTTP response code " << response_code;
+    error_stream << "Server error: HTTP response code " << response_code;
   } else {
-        error_stream << "Unknown error: HTTP response code " << response_code;
+    error_stream << "Unknown error: HTTP response code " << response_code;
   }
 
-  LOG(WARNING) << "Submission to feedback server (" << url <<
-      ") status: " << error_stream.str() << std::endl;
+  LOG(WARNING) << "Submission to feedback server (" << url
+               << ") status: " << error_stream.str();
 
 #if defined(OS_CHROMEOS)
   // Show the notification to the user; this notification will stay active till
@@ -215,6 +228,23 @@ void BugReportUtil::AddFeedbackData(
   *(web_data->add_product_specific_data()) = log_value;
 }
 
+#if defined(OS_CHROMEOS)
+bool BugReportUtil::ValidFeedbackSize(const std::string& content) {
+  if (content.length() > kMaxSystemLogLength)
+    return false;
+  size_t line_count = 0;
+  const char* text = content.c_str();
+  for (size_t i = 0; i < content.length(); i++) {
+    if (*(text + i) == '\n') {
+      line_count++;
+      if (line_count > kMaxLineCount)
+        return false;
+    }
+  }
+  return true;
+}
+#endif
+
 // static
 void BugReportUtil::SendReport(Profile* profile,
     const std::string& page_title_text,
@@ -227,6 +257,8 @@ void BugReportUtil::SendReport(Profile* profile,
 #if defined(OS_CHROMEOS)
     int png_height,
     const std::string& user_email_text,
+    const char* zipped_logs_data,
+    int zipped_logs_length,
     const chromeos::LogDictionaryType* const sys_info) {
 #else
     int png_height) {
@@ -292,7 +324,10 @@ void BugReportUtil::SendReport(Profile* profile,
   if (sys_info) {
     for (chromeos::LogDictionaryType::const_iterator i = sys_info->begin();
          i != sys_info->end(); ++i)
-      AddFeedbackData(&feedback_data, i->first, i->second);
+      if (!CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kCompressSystemFeedback) || ValidFeedbackSize(i->second)) {
+        AddFeedbackData(&feedback_data, i->first, i->second);
+      }
   }
 #endif
 
@@ -310,6 +345,19 @@ void BugReportUtil::SendReport(Profile* profile,
     // Set the screenshot object in feedback
     *(feedback_data.mutable_screenshot()) = screenshot;
   }
+
+#if defined(OS_CHROMEOS)
+  // Include the page image if we have one.
+  if (zipped_logs_data && CommandLine::ForCurrentProcess()->HasSwitch(
+        switches::kCompressSystemFeedback)) {
+    userfeedback::ProductSpecificBinaryData attachment;
+    attachment.set_mime_type(kBZip2MimeType);
+    attachment.set_name(kLogsAttachmentName);
+    attachment.set_data(std::string(zipped_logs_data, zipped_logs_length));
+
+    *(feedback_data.add_product_specific_binary_data()) = attachment;
+  }
+#endif
 
   // Set our Chrome specific data
   userfeedback::ChromeData chrome_data;

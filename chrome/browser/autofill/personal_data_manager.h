@@ -86,9 +86,9 @@ class PersonalDataManager
   // newly-added profiles.
   //
   // The relationship between this and Refresh is subtle.
-  // A call to SetProfile could include out-of-date data that may conflict
+  // A call to |SetProfiles| could include out-of-date data that may conflict
   // if we didn't refresh-to-latest before an AutoFill window was opened for
-  // editing. SetProfile is implemented to make a "best effort" to apply the
+  // editing. |SetProfiles| is implemented to make a "best effort" to apply the
   // changes, but in extremely rare edge cases it is possible not all of the
   // updates in |profiles| make it to the DB.  This is why SetProfiles will
   // invoke Refresh after finishing, to ensure we get into a
@@ -108,6 +108,10 @@ class PersonalDataManager
 
   // Removes the profile represented by |unique_id|.
   void RemoveProfile(int unique_id);
+
+  // Returns the profile with the specified |unique_id|, or NULL if there is no
+  // profile with the specified |unique_id|.
+  AutoFillProfile* GetProfileById(int unique_id);
 
   // Adds |credit_card| to the web database.
   void AddCreditCard(const CreditCard& credit_card);

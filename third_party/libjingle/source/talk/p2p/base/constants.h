@@ -53,21 +53,25 @@ extern const std::string NS_EMPTY;
 extern const std::string NS_JINGLE;
 extern const std::string NS_GINGLE;
 
-// TODO(pthatcher): remove GINGLE2 when we
-// move to purely Jingle and Gingle protocols.
 enum SignalingProtocol {
   PROTOCOL_JINGLE,
   PROTOCOL_GINGLE,
-  PROTOCOL_GINGLE2,
   PROTOCOL_HYBRID,
 };
 
 // actions (aka Gingle <session> or Jingle <jingle>)
-extern const buzz::QName QN_INITIATOR;
 extern const buzz::QName QN_ACTION;
+extern const std::string LN_INITIATOR;
+extern const buzz::QName QN_INITIATOR;
+extern const buzz::QName QN_CREATOR;
 
-extern const buzz::QName QN_JINGLE_JINGLE;
+extern const buzz::QName QN_JINGLE;
 extern const buzz::QName QN_JINGLE_CONTENT;
+extern const buzz::QName QN_JINGLE_CONTENT_NAME;
+extern const buzz::QName QN_JINGLE_CONTENT_MEDIA;
+extern const buzz::QName QN_JINGLE_REASON;
+extern const std::string JINGLE_CONTENT_MEDIA_AUDIO;
+extern const std::string JINGLE_CONTENT_MEDIA_VIDEO;
 extern const std::string JINGLE_ACTION_SESSION_INITIATE;
 extern const std::string JINGLE_ACTION_SESSION_INFO;
 extern const std::string JINGLE_ACTION_SESSION_ACCEPT;
@@ -115,12 +119,9 @@ extern const std::string CN_AUDIO;
 extern const std::string CN_VIDEO;
 extern const std::string CN_OTHER;
 
-extern const std::string NS_JINGLE_AUDIO;
-extern const buzz::QName QN_JINGLE_AUDIO_CONTENT;
-extern const buzz::QName QN_JINGLE_AUDIO_PAYLOADTYPE;
-extern const std::string NS_JINGLE_VIDEO;
-extern const buzz::QName QN_JINGLE_VIDEO_CONTENT;
-extern const buzz::QName QN_JINGLE_VIDEO_PAYLOADTYPE;
+extern const std::string NS_JINGLE_RTP;
+extern const buzz::QName QN_JINGLE_RTP_CONTENT;
+extern const buzz::QName QN_JINGLE_RTP_PAYLOADTYPE;
 
 extern const std::string NS_GINGLE_AUDIO;
 extern const buzz::QName QN_GINGLE_AUDIO_CONTENT;
@@ -133,7 +134,6 @@ extern const buzz::QName QN_GINGLE_VIDEO_SRCID;
 extern const buzz::QName QN_GINGLE_VIDEO_BANDWIDTH;
 
 // transports and candidates
-extern const std::string NS_JINGLE_P2P;
 extern const std::string LN_TRANSPORT;
 extern const std::string LN_CANDIDATE;
 extern const buzz::QName QN_JINGLE_P2P_TRANSPORT;
@@ -154,7 +154,6 @@ extern const std::string JINGLE_CANDIDATE_NAME_RTCP;
 
 extern const std::string NS_GINGLE_P2P;
 extern const buzz::QName QN_GINGLE_P2P_TRANSPORT;
-extern const buzz::QName QN_GINGLE2_P2P_CANDIDATE;
 extern const buzz::QName QN_GINGLE_P2P_CANDIDATE;
 extern const buzz::QName QN_GINGLE_P2P_UNKNOWN_CHANNEL_NAME;
 extern const buzz::QName QN_GINGLE_CANDIDATE;
@@ -171,8 +170,29 @@ extern const std::string GINGLE_CANDIDATE_NAME_VIDEO_RTCP;
 extern const std::string NS_GINGLE_RAW;
 extern const buzz::QName QN_GINGLE_RAW_TRANSPORT;
 extern const buzz::QName QN_GINGLE_RAW_CHANNEL;
-extern const buzz::QName QN_GINGLE_RAW_BEHIND_SYM_NAT;
-extern const buzz::QName QN_GINGLE_RAW_CAN_RECEIVE_FROM_SYM_NAT;
+
+// terminate reasons and errors: see http://xmpp.org/extensions/xep-0166.html
+extern const std::string JINGLE_ERROR_BAD_REQUEST;  // like parse error
+// got transport-info before session-initiate, for example
+extern const std::string JINGLE_ERROR_OUT_OF_ORDER;
+extern const std::string JINGLE_ERROR_UNKNOWN_SESSION;
+
+// Call terminate reasons from XEP-166
+extern const std::string STR_TERMINATE_DECLINE;  // polite reject
+extern const std::string STR_TERMINATE_SUCCESS;  // polite hangup
+extern const std::string STR_TERMINATE_ERROR;  // something bad happened
+extern const std::string STR_TERMINATE_INCOMPATIBLE_PARAMETERS;  // no codecs?
+
+// Old terminate reasons used by cricket
+extern const std::string STR_TERMINATE_CALL_ENDED;
+extern const std::string STR_TERMINATE_RECIPIENT_UNAVAILABLE;
+extern const std::string STR_TERMINATE_RECIPIENT_BUSY;
+extern const std::string STR_TERMINATE_INSUFFICIENT_FUNDS;
+extern const std::string STR_TERMINATE_NUMBER_MALFORMED;
+extern const std::string STR_TERMINATE_NUMBER_DISALLOWED;
+extern const std::string STR_TERMINATE_PROTOCOL_ERROR;
+extern const std::string STR_TERMINATE_INTERNAL_SERVER_ERROR;
+extern const std::string STR_TERMINATE_UNKNOWN_ERROR;
 
 // old stuff
 #ifdef FEATURE_ENABLE_VOICEMAIL

@@ -441,14 +441,6 @@ bool WideToLatin1(const std::wstring& wide, std::string* latin1) {
   return true;
 }
 
-bool IsString8Bit(const std::wstring& str) {
-  for (size_t i = 0; i < str.length(); i++) {
-    if (str[i] > 255)
-      return false;
-  }
-  return true;
-}
-
 template<class STR>
 static bool DoIsStringASCII(const STR& str) {
   for (size_t i = 0; i < str.length(); i++) {
@@ -830,13 +822,7 @@ std::string JoinString(const std::vector<std::string>& parts, char sep) {
   return JoinStringT(parts, sep);
 }
 
-#if !defined(WCHAR_T_IS_UTF16)
 string16 JoinString(const std::vector<string16>& parts, char16 sep) {
-  return JoinStringT(parts, sep);
-}
-#endif
-
-std::wstring JoinString(const std::vector<std::wstring>& parts, wchar_t sep) {
   return JoinStringT(parts, sep);
 }
 
@@ -906,7 +892,7 @@ OutStringType DoReplaceStringPlaceholders(const FormatStringType& format_string,
   size_t sub_length = 0;
   for (typename std::vector<OutStringType>::const_iterator iter = subst.begin();
        iter != subst.end(); ++iter) {
-    sub_length += (*iter).length();
+    sub_length += iter->length();
   }
 
   OutStringType formatted;
@@ -931,9 +917,10 @@ OutStringType DoReplaceStringPlaceholders(const FormatStringType& format_string,
             ReplacementOffset r_offset(index,
                 static_cast<int>(formatted.size()));
             r_offsets.insert(std::lower_bound(r_offsets.begin(),
-                r_offsets.end(), r_offset,
-                &CompareParameter),
-                r_offset);
+                                              r_offsets.end(),
+                                              r_offset,
+                                              &CompareParameter),
+                             r_offset);
           }
           if (index < substitutions)
             formatted.append(subst.at(index));
@@ -945,7 +932,7 @@ OutStringType DoReplaceStringPlaceholders(const FormatStringType& format_string,
   }
   if (offsets) {
     for (std::vector<ReplacementOffset>::const_iterator i = r_offsets.begin();
-        i != r_offsets.end(); ++i) {
+         i != r_offsets.end(); ++i) {
       offsets->push_back(i->offset);
     }
   }
@@ -1077,6 +1064,10 @@ static bool MatchPatternT(const CHAR* eval, const CHAR* eval_end,
   // This is a *, try to match all the possible substrings with the remainder
   // of the pattern.
   if (pattern[0] == '*') {
+    // Collapse duplicate wild cards (********** into *) so that the
+    // method does not recurse unnecessarily. http://crbug.com/52839
+    EatWildcard(&next_pattern, pattern_end, next);
+
     while (eval != eval_end) {
       if (MatchPatternT(eval, eval_end, next_pattern, pattern_end,
                         depth + 1, next))

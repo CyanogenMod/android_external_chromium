@@ -39,7 +39,6 @@
 #include "base/basictypes.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
-#include "base/histogram.h"
 #include "base/i18n/file_util_icu.h"
 #include "base/i18n/icu_string_conversions.h"
 #include "base/i18n/time_formatting.h"
@@ -47,6 +46,7 @@
 #include "base/lock.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
+#include "base/metrics/histogram.h"
 #include "base/path_service.h"
 #include "base/singleton.h"
 #include "base/stl_util-inl.h"
@@ -1539,7 +1539,7 @@ std::string NetAddressToString(const struct addrinfo* net_address) {
       net_address->ai_addrlen, buffer, sizeof(buffer), NULL, 0, NI_NUMERICHOST);
 
   if (result != 0) {
-    DLOG(INFO) << "getnameinfo() failed with " << result;
+    DVLOG(1) << "getnameinfo() failed with " << result;
     buffer[0] = '\0';
   }
   return std::string(buffer);
@@ -1569,7 +1569,7 @@ std::string GetHostName() {
   char buffer[256];
   int result = gethostname(buffer, sizeof(buffer));
   if (result != 0) {
-    DLOG(INFO) << "gethostname() failed with " << result;
+    DVLOG(1) << "gethostname() failed with " << result;
     buffer[0] = '\0';
   }
   return std::string(buffer);
@@ -1830,7 +1830,7 @@ bool HaveOnlyLoopbackAddresses() {
   struct ifaddrs* interface_addr = NULL;
   int rv = getifaddrs(&interface_addr);
   if (rv != 0) {
-    DLOG(INFO) << "getifaddrs() failed with errno = " << errno;
+    DVLOG(1) << "getifaddrs() failed with errno = " << errno;
     return false;
   }
 
@@ -1915,7 +1915,7 @@ bool ParseCIDRBlock(const std::string& cidr_literal,
   //   <IPv6-literal> "/" <number of bits>
 
   std::vector<std::string> parts;
-  SplitString(cidr_literal, '/', &parts);
+  base::SplitString(cidr_literal, '/', &parts);
   if (parts.size() != 2)
     return false;
 

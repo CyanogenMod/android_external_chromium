@@ -22,6 +22,9 @@
 #elif defined(OS_MACOSX)
 #include <CoreFoundation/CFArray.h>
 #include <Security/SecBase.h>
+#elif defined(USE_OPENSSL)
+// Forward declaration; real one in <x509.h>
+struct x509_st;
 #elif defined(USE_NSS)
 // Forward declaration; real one in <cert.h>
 struct CERTCertificateStr;
@@ -48,6 +51,8 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   typedef PCCERT_CONTEXT OSCertHandle;
 #elif defined(OS_MACOSX)
   typedef SecCertificateRef OSCertHandle;
+#elif defined(USE_OPENSSL)
+  typedef struct x509_st* OSCertHandle;
 #elif defined(USE_NSS)
   typedef struct CERTCertificateStr* OSCertHandle;
 #elif defined(USE_OPENSSL) && defined(ANDROID)
@@ -60,8 +65,7 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   typedef std::vector<OSCertHandle> OSCertHandles;
 
   // Predicate functor used in maps when X509Certificate is used as the key.
-  class LessThan
-      : public std::binary_function<X509Certificate*, X509Certificate*, bool> {
+  class LessThan {
    public:
     bool operator() (X509Certificate* lhs,  X509Certificate* rhs) const;
   };
@@ -174,7 +178,7 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   // now.
   bool HasExpired() const;
 
-#if defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_MACOSX) || defined(OS_WIN) || defined(USE_OPENSSL)
   // Returns intermediate certificates added via AddIntermediateCertificate().
   // Ownership follows the "get" rule: it is the caller's responsibility to
   // retain the elements of the result.
@@ -293,7 +297,7 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   // A handle to the certificate object in the underlying crypto library.
   OSCertHandle cert_handle_;
 
-#if defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_MACOSX) || defined(OS_WIN) || defined(USE_OPENSSL)
   // Untrusted intermediate certificates associated with this certificate
   // that may be needed for chain building. (NSS impl does not need these.)
   OSCertHandles intermediate_ca_certs_;

@@ -11,9 +11,10 @@
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "base/json/json_reader.h"
-#include "base/stats_counters.h"
+#include "base/metrics/stats_counters.h"
 #include "base/string_util.h"
 #include "base/time.h"
+#include "base/values.h"
 #include "chrome/browser/blocked_plugin_manager.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/child_process_security_policy.h"
@@ -490,8 +491,20 @@ void RenderViewHost::ReservePageIDRange(int size) {
 }
 
 void RenderViewHost::ExecuteJavascriptInWebFrame(
-    const std::wstring& frame_xpath, const std::wstring& jscript) {
-  Send(new ViewMsg_ScriptEvalRequest(routing_id(), frame_xpath, jscript));
+    const std::wstring& frame_xpath,
+    const std::wstring& jscript) {
+  Send(new ViewMsg_ScriptEvalRequest(routing_id(), WideToUTF16(frame_xpath),
+                                     WideToUTF16(jscript),
+                                     0, false));
+}
+
+int RenderViewHost::ExecuteJavascriptInWebFrameNotifyResult(
+    const string16& frame_xpath,
+    const string16& jscript) {
+  static int next_id = 1;
+  Send(new ViewMsg_ScriptEvalRequest(routing_id(), frame_xpath, jscript,
+                                     next_id, true));
+  return next_id++;
 }
 
 void RenderViewHost::InsertCSSInWebFrame(
@@ -581,18 +594,21 @@ void RenderViewHost::JavaScriptMessageBoxClosed(IPC::Message* reply_msg,
   process()->set_ignore_input_events(false);
   bool is_waiting =
       is_waiting_for_beforeunload_ack_ || is_waiting_for_unload_ack_;
-  if (is_waiting) {
-    if (are_javascript_messages_suppressed_) {
-      delegate_->RendererUnresponsive(this, is_waiting);
-      return;
-    }
-
+  if (is_waiting)
     StartHangMonitorTimeout(TimeDelta::FromMilliseconds(kUnloadTimeoutMS));
-  }
 
   ViewHostMsg_RunJavaScriptMessage::WriteReplyParams(reply_msg,
                                                      success, prompt);
   Send(reply_msg);
+
+  // If we are waiting for an unload or beforeunload ack and the user has
+  // suppressed messages, kill the tab immediately; a page that's spamming
+  // alerts in onbeforeunload is presumably malicious, so there's no point in
+  // continuing to run its script and dragging out the process.
+  // This must be done after sending the reply since RenderView can't close
+  // correctly while waiting for a response.
+  if (is_waiting && are_javascript_messages_suppressed_)
+    delegate_->RendererUnresponsive(this, is_waiting);
 }
 
 void RenderViewHost::ModalHTMLDialogClosed(IPC::Message* reply_msg,
@@ -838,12 +854,16 @@ void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(ViewHostMsg_ShouldClose_ACK, OnMsgShouldCloseACK);
     IPC_MESSAGE_HANDLER(ViewHostMsg_QueryFormFieldAutoFill,
                         OnQueryFormFieldAutoFill)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_DidShowAutoFillSuggestions,
+                        OnDidShowAutoFillSuggestions)
     IPC_MESSAGE_HANDLER(ViewHostMsg_RemoveAutocompleteEntry,
                         OnRemoveAutocompleteEntry)
     IPC_MESSAGE_HANDLER(ViewHostMsg_ShowAutoFillDialog,
                         OnShowAutoFillDialog)
     IPC_MESSAGE_HANDLER(ViewHostMsg_FillAutoFillFormData,
                         OnFillAutoFillFormData)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_DidFillAutoFillFormData,
+                        OnDidFillAutoFillFormData)
     IPC_MESSAGE_HANDLER(ViewHostMsg_ShowDesktopNotification,
                         OnShowDesktopNotification)
     IPC_MESSAGE_HANDLER(ViewHostMsg_CancelDesktopNotification,
@@ -863,11 +883,13 @@ void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(ViewHostMsg_AppCacheAccessed, OnAppCacheAccessed)
     IPC_MESSAGE_HANDLER(ViewHostMsg_WebDatabaseAccessed, OnWebDatabaseAccessed)
     IPC_MESSAGE_HANDLER(ViewHostMsg_FocusedNodeChanged, OnMsgFocusedNodeChanged)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_SetDisplayingPDFContent,
-                        OnSetDisplayingPDFContent)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_UpdateZoomLimits, OnUpdateZoomLimits)
     IPC_MESSAGE_HANDLER(ViewHostMsg_SetSuggestResult, OnSetSuggestResult)
     IPC_MESSAGE_HANDLER(ViewHostMsg_DetectedPhishingSite,
                         OnDetectedPhishingSite)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_ScriptEvalResponse, OnScriptEvalResponse)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_UpdateContentRestrictions,
+                        OnUpdateContentRestrictions)
     // Have the super handle all other messages.
     IPC_MESSAGE_UNHANDLED(RenderWidgetHost::OnMessageReceived(msg))
   IPC_END_MESSAGE_MAP_EX()
@@ -1123,7 +1145,7 @@ void RenderViewHost::OnMsgDidLoadResourceFromMemoryCache(
     const std::string& frame_origin,
     const std::string& main_frame_origin,
     const std::string& security_info) {
-  static StatsCounter cache("WebKit.CacheHit");
+  static base::StatsCounter cache("WebKit.CacheHit");
   cache.Increment();
 
   RenderViewHostDelegate::Resource* resource_delegate =
@@ -1149,7 +1171,8 @@ void RenderViewHost::OnMsgDidRunInsecureContent(
     resource_delegate->DidRunInsecureContent(security_origin);
 }
 
-void RenderViewHost::OnMsgDidStartProvisionalLoadForFrame(bool is_main_frame,
+void RenderViewHost::OnMsgDidStartProvisionalLoadForFrame(long long frame_id,
+                                                          bool is_main_frame,
                                                           const GURL& url) {
   GURL validated_url(url);
   FilterURL(ChildProcessSecurityPolicy::GetInstance(),
@@ -1158,12 +1181,13 @@ void RenderViewHost::OnMsgDidStartProvisionalLoadForFrame(bool is_main_frame,
   RenderViewHostDelegate::Resource* resource_delegate =
       delegate_->GetResourceDelegate();
   if (resource_delegate) {
-    resource_delegate->DidStartProvisionalLoadForFrame(this, is_main_frame,
-                                                       validated_url);
+    resource_delegate->DidStartProvisionalLoadForFrame(
+        this, frame_id, is_main_frame, validated_url);
   }
 }
 
 void RenderViewHost::OnMsgDidFailProvisionalLoadWithError(
+    long long frame_id,
     bool is_main_frame,
     int error_code,
     const GURL& url,
@@ -1171,7 +1195,8 @@ void RenderViewHost::OnMsgDidFailProvisionalLoadWithError(
   LOG(INFO) << "Failed Provisional Load: " << url.possibly_invalid_spec()
             << ", error_code: " << error_code
             << " is_main_frame: " << is_main_frame
-            << " showing_repost_interstitial: " << showing_repost_interstitial;
+            << " showing_repost_interstitial: " << showing_repost_interstitial
+            << " frame_id: " << frame_id;
   GURL validated_url(url);
   FilterURL(ChildProcessSecurityPolicy::GetInstance(),
             process()->id(), &validated_url);
@@ -1180,7 +1205,7 @@ void RenderViewHost::OnMsgDidFailProvisionalLoadWithError(
       delegate_->GetResourceDelegate();
   if (resource_delegate) {
     resource_delegate->DidFailProvisionalLoadWithError(
-        this, is_main_frame, error_code, validated_url,
+        this, frame_id, is_main_frame, error_code, validated_url,
         showing_repost_interstitial);
   }
 }
@@ -1481,9 +1506,11 @@ void RenderViewHost::OnTakeFocus(bool reverse) {
     view->TakeFocus(reverse);
 }
 
-void RenderViewHost::OnMsgPageHasOSDD(int32 page_id, const GURL& doc_url,
-                                      bool autodetected) {
-  delegate_->PageHasOSDD(this, page_id, doc_url, autodetected);
+void RenderViewHost::OnMsgPageHasOSDD(
+    int32 page_id,
+    const GURL& doc_url,
+    const ViewHostMsg_PageHasOSDD_Type& provider_type) {
+  delegate_->PageHasOSDD(this, page_id, doc_url, provider_type);
 }
 
 void RenderViewHost::OnDidGetPrintedPagesCount(int cookie, int number_pages) {
@@ -1693,6 +1720,13 @@ void RenderViewHost::OnQueryFormFieldAutoFill(
   }
 }
 
+void RenderViewHost::OnDidShowAutoFillSuggestions() {
+  NotificationService::current()->Notify(
+      NotificationType::AUTOFILL_DID_SHOW_SUGGESTIONS,
+      Source<RenderViewHost>(this),
+      NotificationService::NoDetails());
+}
+
 void RenderViewHost::OnRemoveAutocompleteEntry(const string16& field_name,
                                                const string16& value) {
   RenderViewHostDelegate::Autocomplete* autocomplete_delegate =
@@ -1727,6 +1761,13 @@ void RenderViewHost::OnFillAutoFillFormData(int query_id,
     return;
 
   autofill_delegate->FillAutoFillFormData(query_id, form, unique_id);
+}
+
+void RenderViewHost::OnDidFillAutoFillFormData() {
+  NotificationService::current()->Notify(
+      NotificationType::AUTOFILL_DID_FILL_FORM_DATA,
+      Source<RenderViewHost>(this),
+      NotificationService::NoDetails());
 }
 
 void RenderViewHost::AutoFillSuggestionsReturned(
@@ -2064,8 +2105,10 @@ void RenderViewHost::OnWebDatabaseAccessed(const GURL& url,
         url, name, display_name, estimated_size, blocked_by_policy);
 }
 
-void RenderViewHost::OnSetDisplayingPDFContent() {
-  delegate_->SetDisplayingPDFContent();
+void RenderViewHost::OnUpdateZoomLimits(int minimum_percent,
+                                        int maximum_percent,
+                                        bool remember) {
+  delegate_->UpdateZoomLimits(minimum_percent, maximum_percent, remember);
 }
 
 void RenderViewHost::OnSetSuggestResult(int32 page_id,
@@ -2082,4 +2125,17 @@ void RenderViewHost::OnDetectedPhishingSite(const GURL& phishing_url,
                                             const SkBitmap& thumbnail) {
   // TODO(noelutz): send an HTTP request to the client-side detection frontends
   // to confirm that the URL is really phishing.
+}
+
+void RenderViewHost::OnScriptEvalResponse(int id, bool result) {
+  scoped_ptr<Value> result_value(Value::CreateBooleanValue(result));
+  std::pair<int, Value*> details(id, result_value.get());
+  NotificationService::current()->Notify(
+      NotificationType::EXECUTE_JAVASCRIPT_RESULT,
+      Source<RenderViewHost>(this),
+      Details<std::pair<int, Value*> >(&details));
+}
+
+void RenderViewHost::OnUpdateContentRestrictions(int restrictions) {
+  delegate_->UpdateContentRestrictions(restrictions);
 }

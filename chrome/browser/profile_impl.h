@@ -18,11 +18,15 @@
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 
+class PrefService;
+
 #if defined(OS_CHROMEOS)
 namespace chromeos {
 class Preferences;
 }
 #endif
+
+class NetPrefObserver;
 
 // The default profile implementation.
 class ProfileImpl : public Profile,
@@ -30,6 +34,8 @@ class ProfileImpl : public Profile,
                     public NotificationObserver {
  public:
   virtual ~ProfileImpl();
+
+  static void RegisterUserPrefs(PrefService* prefs);
 
   // Profile implementation.
   virtual ProfileId GetRuntimeId();
@@ -50,6 +56,7 @@ class ProfileImpl : public Profile,
   virtual ExtensionDevToolsManager* GetExtensionDevToolsManager();
   virtual ExtensionProcessManager* GetExtensionProcessManager();
   virtual ExtensionMessageService* GetExtensionMessageService();
+  virtual ExtensionEventRouter* GetExtensionEventRouter();
   virtual FaviconService* GetFaviconService(ServiceAccessType sat);
   virtual HistoryService* GetHistoryService(ServiceAccessType sat);
   virtual HistoryService* GetHistoryServiceWithoutCreating();
@@ -111,6 +118,7 @@ class ProfileImpl : public Profile,
   virtual CloudPrintProxyService* GetCloudPrintProxyService();
   void InitCloudPrintProxyService();
   virtual ChromeBlobStorageContext* GetBlobStorageContext();
+  virtual ExtensionInfoMap* GetExtensionInfoMap();
 
 #if defined(OS_CHROMEOS)
   virtual chromeos::ProxyConfigServiceImpl* GetChromeOSProxyConfigServiceImpl();
@@ -144,6 +152,9 @@ class ProfileImpl : public Profile,
     GetSessionService();
   }
 
+  void RegisterComponentExtensions();
+  void InstallDefaultApps();
+
   NotificationRegistrar registrar_;
   PrefChangeRegistrar pref_change_registrar_;
 
@@ -156,12 +167,14 @@ class ProfileImpl : public Profile,
   scoped_refptr<ExtensionDevToolsManager> extension_devtools_manager_;
   scoped_ptr<ExtensionProcessManager> extension_process_manager_;
   scoped_refptr<ExtensionMessageService> extension_message_service_;
+  scoped_ptr<ExtensionEventRouter> extension_event_router_;
   scoped_ptr<SSLHostState> ssl_host_state_;
   scoped_refptr<net::TransportSecurityState>
       transport_security_state_;
   scoped_refptr<TransportSecurityPersister>
       transport_security_persister_;
   scoped_ptr<PrefService> prefs_;
+  scoped_ptr<NetPrefObserver> net_pref_observer_;
   scoped_ptr<TemplateURLFetcher> template_url_fetcher_;
   scoped_ptr<TemplateURLModel> template_url_model_;
   scoped_ptr<BookmarkModel> bookmark_bar_model_;
@@ -171,7 +184,7 @@ class ProfileImpl : public Profile,
   scoped_ptr<TokenService> token_service_;
   scoped_ptr<ProfileSyncFactory> profile_sync_factory_;
   scoped_ptr<ProfileSyncService> sync_service_;
-  scoped_ptr<CloudPrintProxyService> cloud_print_proxy_service_;
+  scoped_refptr<CloudPrintProxyService> cloud_print_proxy_service_;
 
   scoped_refptr<ChromeURLRequestContextGetter> request_context_;
 
@@ -244,6 +257,8 @@ class ProfileImpl : public Profile,
   scoped_refptr<history::TopSites> top_sites_;  // For history and thumbnails.
 
   scoped_refptr<ChromeBlobStorageContext> blob_storage_context_;
+
+  scoped_refptr<ExtensionInfoMap> extension_info_map_;
 
 #if defined(OS_CHROMEOS)
   scoped_ptr<chromeos::Preferences> chromeos_preferences_;

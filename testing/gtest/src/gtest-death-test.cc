@@ -31,8 +31,8 @@
 //
 // This file implements death tests.
 
-#include <gtest/gtest-death-test.h>
-#include <gtest/internal/gtest-port.h>
+#include "gtest/gtest-death-test.h"
+#include "gtest/internal/gtest-port.h"
 
 #if GTEST_HAS_DEATH_TEST
 
@@ -54,8 +54,8 @@
 
 #endif  // GTEST_HAS_DEATH_TEST
 
-#include <gtest/gtest-message.h>
-#include <gtest/internal/gtest-string.h>
+#include "gtest/gtest-message.h"
+#include "gtest/internal/gtest-string.h"
 
 // Indicates that this translation unit is part of Google Test's
 // implementation.  It must come before gtest-internal-inl.h is
@@ -526,11 +526,11 @@ bool DeathTestImpl::Passed(bool status_ok) {
 //
 class WindowsDeathTest : public DeathTestImpl {
  public:
-  WindowsDeathTest(const char* statement,
-                   const RE* regex,
+  WindowsDeathTest(const char* a_statement,
+                   const RE* a_regex,
                    const char* file,
                    int line)
-      : DeathTestImpl(statement, regex), file_(file), line_(line) {}
+      : DeathTestImpl(a_statement, a_regex), file_(file), line_(line) {}
 
   // All of these virtual functions are inherited from DeathTest.
   virtual int Wait();
@@ -587,12 +587,12 @@ int WindowsDeathTest::Wait() {
   GTEST_DEATH_TEST_CHECK_(
       WAIT_OBJECT_0 == ::WaitForSingleObject(child_handle_.Get(),
                                              INFINITE));
-  DWORD status;
-  GTEST_DEATH_TEST_CHECK_(::GetExitCodeProcess(child_handle_.Get(), &status)
-                          != FALSE);
+  DWORD status_code;
+  GTEST_DEATH_TEST_CHECK_(
+      ::GetExitCodeProcess(child_handle_.Get(), &status_code) != FALSE);
   child_handle_.Reset();
-  set_status(static_cast<int>(status));
-  return this->status();
+  set_status(static_cast<int>(status_code));
+  return status();
 }
 
 // The AssumeRole process for a Windows death test.  It creates a child

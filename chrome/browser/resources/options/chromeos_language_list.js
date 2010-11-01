@@ -74,7 +74,14 @@ cr.define('options.language', function() {
     draggedItem: null,
     // The drop position information: "below" or "above".
     dropPos: null,
-    pref: 'settings.language.preferred_languages',
+    // The preference is a CSV string that describes preferred languages
+    // in Chrome OS. The language list is used for showing the language
+    // list in "Language and Input" options page.
+    preferredLanguagesPref: 'settings.language.preferred_languages',
+    // The preference is a CSV string that describes accept languages used
+    // for content negotiation. To be more precise, the list will be used
+    // in "Accept-Language" header in HTTP requests.
+    acceptLanguagesPref: 'intl.accept_languages',
 
     /** @inheritDoc */
     decorate: function() {
@@ -85,8 +92,8 @@ cr.define('options.language', function() {
       window.addEventListener('resize', this.redraw.bind(this));
 
       // Listen to pref change.
-      Preferences.getInstance().addEventListener(this.pref,
-          this.handlePrefChange_.bind(this));
+      Preferences.getInstance().addEventListener(this.preferredLanguagesPref,
+          this.handlePreferredLanguagesPrefChange_.bind(this));
 
       // Listen to drag and drop events.
       this.addEventListener('dragstart', this.handleDragStart_.bind(this));
@@ -113,8 +120,9 @@ cr.define('options.language', function() {
      * @param {string} languageCode language code (ex. "fr").
      */
     addLanguage: function(languageCode) {
-      // It shouldn't happen but ignore the language code if it's present.
-      if (this.dataModel.indexOf(languageCode) >= 0) {
+      // It shouldn't happen but ignore the language code if it's
+      // null/undefined, or already present.
+      if (!languageCode || this.dataModel.indexOf(languageCode) >= 0) {
         return;
       }
       this.dataModel.push(languageCode);
@@ -136,6 +144,19 @@ cr.define('options.language', function() {
      */
     getSelectedLanguageCode: function() {
       return this.selectedItem;
+    },
+
+    /*
+     * Selects the language by the given language code.
+     * @returns {boolean} True if the operation is successful.
+     */
+    selectLanguageByCode: function(languageCode) {
+      var index = this.dataModel.indexOf(languageCode);
+      if (index >= 0) {
+        this.selectionModel.selectedIndex = index;
+        return true;
+      }
+      return false;
     },
 
     /*
@@ -223,11 +244,11 @@ cr.define('options.language', function() {
     },
 
     /**
-     * Handles pref change.
+     * Handles preferred languages pref change.
      * @param {Event} e The change event object.
      * @private
      */
-    handlePrefChange_: function(e) {
+    handlePreferredLanguagesPrefChange_: function(e) {
       var languageCodesInCsv = e.value.value;
       var languageCodes = this.filterBadLanguageCodes_(
           languageCodesInCsv.split(','));
@@ -265,7 +286,15 @@ cr.define('options.language', function() {
      */
     savePreference_: function() {
       // Encode the language codes into a CSV string.
-      Preferences.setStringPref(this.pref, this.dataModel.slice().join(','));
+      Preferences.setStringPref(this.preferredLanguagesPref,
+                                this.dataModel.slice().join(','));
+      // Save the same language list as accept languages preference. In
+      // theory, we don't need two separate preferences but we keep these
+      // separate, as these are conceptually different. In other words,
+      // using "intl.accept_languages" for preferred languages in Chrome
+      // OS is a bit awkward.
+      Preferences.setStringPref(this.acceptLanguagesPref,
+                                this.dataModel.slice().join(','));
       cr.dispatchSimpleEvent(this, 'save');
     },
 

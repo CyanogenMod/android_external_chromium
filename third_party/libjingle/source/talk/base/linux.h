@@ -1,5 +1,5 @@
 // Copyright 2008 Google Inc. All Rights Reserved.
-// Author: araju@google.com (Avanish Raju)
+
 
 #ifndef TALK_BASE_LINUX_H_
 #define TALK_BASE_LINUX_H_

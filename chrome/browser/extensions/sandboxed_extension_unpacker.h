@@ -105,7 +105,7 @@ class SandboxedExtensionUnpacker : public UtilityProcessHost::Client {
   friend class ProcessHostClient;
   friend class SandboxedExtensionUnpackerTest;
 
-  ~SandboxedExtensionUnpacker() {}
+  virtual ~SandboxedExtensionUnpacker();
 
   // Validates the signature of the extension and extract the key to
   // |public_key_|. Returns true if the signature validates, false otherwise.
@@ -145,7 +145,7 @@ class SandboxedExtensionUnpacker : public UtilityProcessHost::Client {
   FilePath temp_path_;
 
   // Our client's thread. This is the thread we respond on.
-  ChromeThread::ID thread_identifier_;
+  BrowserThread::ID thread_identifier_;
 
   // ResourceDispatcherHost to pass to the utility process.
   ResourceDispatcherHost* rdh_;

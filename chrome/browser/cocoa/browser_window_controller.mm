@@ -9,8 +9,8 @@
 #include "app/l10n_util.h"
 #include "app/l10n_util_mac.h"
 #include "base/mac_util.h"
+#include "app/mac/scoped_nsdisable_screen_updates.h"
 #include "base/nsimage_cache_mac.h"
-#include "base/scoped_nsdisable_screen_updates.h"
 #import "base/scoped_nsobject.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/app/chrome_dll_resource.h"  // IDC_*
@@ -18,12 +18,12 @@
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #import "chrome/browser/cocoa/background_gradient_view.h"
-#import "chrome/browser/cocoa/bookmark_bar_controller.h"
-#import "chrome/browser/cocoa/bookmark_editor_controller.h"
+#import "chrome/browser/cocoa/bookmarks/bookmark_bar_controller.h"
+#import "chrome/browser/cocoa/bookmarks/bookmark_editor_controller.h"
 #import "chrome/browser/cocoa/browser_window_cocoa.h"
 #import "chrome/browser/cocoa/browser_window_controller_private.h"
 #import "chrome/browser/cocoa/dev_tools_controller.h"
-#import "chrome/browser/cocoa/download_shelf_controller.h"
+#import "chrome/browser/cocoa/download/download_shelf_controller.h"
 #import "chrome/browser/cocoa/event_utils.h"
 #import "chrome/browser/cocoa/fast_resize_view.h"
 #import "chrome/browser/cocoa/find_bar_bridge.h"
@@ -33,6 +33,7 @@
 #import "chrome/browser/cocoa/fullscreen_window.h"
 #import "chrome/browser/cocoa/infobar_container_controller.h"
 #import "chrome/browser/cocoa/location_bar/autocomplete_text_field_editor.h"
+#import "chrome/browser/cocoa/previewable_contents_controller.h"
 #import "chrome/browser/cocoa/nswindow_additions.h"
 #import "chrome/browser/cocoa/sad_tab_controller.h"
 #import "chrome/browser/cocoa/sidebar_controller.h"
@@ -242,11 +243,20 @@
     [[self tabContentArea] addSubview:[devToolsController_ view]];
 
     // Create a sub-controller for the docked sidebar and add its view to the
-    // hierarchy.  This must happen before the tabstrip controller is
-    // instantiated.
+    // hierarchy.  This must happen before the previewable contents controller
+    // is instantiated.
     sidebarController_.reset([[SidebarController alloc] init]);
     [[sidebarController_ view] setFrame:[[devToolsController_ view] bounds]];
     [[devToolsController_ view] addSubview:[sidebarController_ view]];
+
+    // Create the previewable contents controller.  This provides the switch
+    // view that TabStripController needs.
+    previewableContentsController_.reset(
+        [[PreviewableContentsController alloc] init]);
+    [[previewableContentsController_ view]
+        setFrame:[[sidebarController_ view] bounds]];
+    [[sidebarController_ view]
+        addSubview:[previewableContentsController_ view]];
 
     // Create a controller for the tab strip, giving it the model object for
     // this window's Browser and the tab strip view. The controller will handle
@@ -407,8 +417,7 @@
 // from this method.
 - (void)windowWillClose:(NSNotification*)notification {
   DCHECK_EQ([notification object], [self window]);
-  DCHECK(!browser_->tabstrip_model()->HasNonPhantomTabs() ||
-         !browser_->tabstrip_model()->count());
+  DCHECK(browser_->tabstrip_model()->empty());
   [savedRegularWindow_ close];
   // We delete statusBubble here because we need to kill off the dependency
   // that its window has on our window before our window goes away.
@@ -447,7 +456,7 @@
 // going away) will again call to close the window when it's finally ready.
 - (BOOL)windowShouldClose:(id)sender {
   // Disable updates while closing all tabs to avoid flickering.
-  base::ScopedNSDisableScreenUpdates disabler;
+  app::mac::ScopedNSDisableScreenUpdates disabler;
   // Give beforeunload handlers the chance to cancel the close before we hide
   // the window below.
   if (!browser_->ShouldCloseWindow())
@@ -458,7 +467,7 @@
   // have to save the window position before we call orderOut:.
   [self saveWindowPositionIfNeeded];
 
-  if (browser_->tabstrip_model()->HasNonPhantomTabs()) {
+  if (!browser_->tabstrip_model()->empty()) {
     // Tab strip isn't empty.  Hide the frame (so it appears to have closed
     // immediately) and close all the tabs, allowing the renderers to shut
     // down. When the tab strip is empty we'll be called back again.
@@ -1016,11 +1025,8 @@
 // StatusBubble delegate method: tell the status bubble the frame it should
 // position itself in.
 - (NSRect)statusBubbleBaseFrame {
-  NSView* baseView = [sidebarController_ view];
-  NSArray* contentsSubviews = [baseView subviews];
-  if ([contentsSubviews count] > 0)
-    baseView = [contentsSubviews objectAtIndex:0];
-  return [[baseView superview] convertRect:[baseView frame] toView:nil];
+  NSView* view = [previewableContentsController_ view];
+  return [view convertRect:[view bounds] toView:nil];
 }
 
 - (GTMWindowSheetController*)sheetController {
@@ -1168,7 +1174,7 @@
 
 - (TabWindowController*)detachTabToNewWindow:(TabView*)tabView {
   // Disable screen updates so that this appears as a single visual change.
-  base::ScopedNSDisableScreenUpdates disabler;
+  app::mac::ScopedNSDisableScreenUpdates disabler;
 
   // Fetch the tab contents for the tab being dragged.
   int index = [tabStripController_ modelIndexForTabView:tabView];
@@ -1321,12 +1327,12 @@
 }
 
 - (NSInteger)numberOfTabs {
-  // count() includes pinned tabs (both live and phantom).
+  // count() includes pinned tabs.
   return browser_->tabstrip_model()->count();
 }
 
 - (BOOL)hasLiveTabs {
-  return browser_->tabstrip_model()->HasNonPhantomTabs();
+  return !browser_->tabstrip_model()->empty();
 }
 
 - (NSString*)selectedTabTitle {
@@ -1363,6 +1369,14 @@
   [self updateBookmarkBarVisibilityWithAnimation:NO];
 
   [infoBarContainerController_ changeTabContents:contents];
+}
+
+- (void)onReplaceTabWithContents:(TabContents*)contents {
+  // This is only called when instant results are committed.  Simply remove the
+  // preview view; the tab strip controller will reinstall the view as the
+  // active view.
+  [previewableContentsController_ hidePreview];
+  [self updateBookmarkBarVisibilityWithAnimation:NO];
 }
 
 - (void)onSelectedTabChange:(TabStripModelObserver::TabChangeType)change {
@@ -1707,6 +1721,36 @@ willAnimateFromState:(bookmarks::VisualState)oldState
 
 - (BOOL)useVerticalTabs {
   return browser_->tabstrip_model()->delegate()->UseVerticalTabs();
+}
+
+- (void)showInstant:(TabContents*)previewContents {
+  [previewableContentsController_ showPreview:previewContents];
+  [self updateBookmarkBarVisibilityWithAnimation:NO];
+}
+
+- (void)hideInstant {
+  // TODO(rohitrao): Revisit whether or not this method should be called when
+  // instant isn't showing.
+  if (![previewableContentsController_ isShowingPreview])
+    return;
+
+  [previewableContentsController_ hidePreview];
+  [self updateBookmarkBarVisibilityWithAnimation:NO];
+}
+
+- (NSRect)instantFrame {
+  // The view's bounds are in its own coordinate system.  Convert that to the
+  // window base coordinate system, then translate it into the screen's
+  // coordinate system.
+  NSView* view = [previewableContentsController_ view];
+  if (!view)
+    return NSZeroRect;
+
+  NSRect frame = [view convertRect:[view bounds] toView:nil];
+  NSPoint originInScreenCoords =
+      [[view window] convertBaseToScreen:frame.origin];
+  frame.origin = originInScreenCoords;
+  return frame;
 }
 
 - (void)sheetDidEnd:(NSWindow*)sheet

@@ -8,7 +8,7 @@
 #include <string>
 
 #include "chrome/browser/chromeos/cros/network_library.h"
-#include "chrome/browser/dom_ui/options_ui.h"
+#include "chrome/browser/dom_ui/options/options_ui.h"
 
 class SkBitmap;
 namespace views {
@@ -30,17 +30,27 @@ class InternetOptionsHandler : public OptionsPageUIHandler,
 
   // NetworkLibrary::Observer implementation.
   virtual void NetworkChanged(chromeos::NetworkLibrary* obj);
+  virtual void CellularDataPlanChanged(chromeos::NetworkLibrary* obj);
 
  private:
-  // Open options dialog for network.
+  // Passes data needed to show details overlay for network.
   // |args| will be [ network_type, service_path, command ]
   // And command is one of 'options', 'connect', disconnect', or 'forget'
   void ButtonClickCallback(const ListValue* args);
+  // Initiates cellular plan data refresh. The results from libcros will
+  // be passed through CellularDataPlanChanged() callback method.
+  // |args| will be [ service_path ]
+  void RefreshCellularPlanCallback(const ListValue* args);
 
   void LoginCallback(const ListValue* args);
   void LoginCertCallback(const ListValue* args);
   void LoginToOtherCallback(const ListValue* args);
   void SetDetailsCallback(const ListValue* args);
+  void EnableWifiCallback(const ListValue* args);
+  void DisableWifiCallback(const ListValue* args);
+  void EnableCellularCallback(const ListValue* args);
+  void DisableCellularCallback(const ListValue* args);
+  void BuyDataPlanCallback(const ListValue* args);
 
   bool is_certificate_in_pkcs11(const std::string& path);
 
@@ -51,7 +61,15 @@ class InternetOptionsHandler : public OptionsPageUIHandler,
 
   void PopupWirelessPassword(const chromeos::WifiNetwork& network);
 
-    // Creates the map of a network
+  // Converts CellularDataPlan structure into dictionary for JS. Formats
+  // plan settings into human readable texts.
+  DictionaryValue* CellularDataPlanToDictionary(
+      const chromeos::CellularDataPlan& plan);
+  // Evaluates cellular plans status and returns warning string if it is near
+  // expiration.
+  string16 GetPlanWarning(
+      const chromeos::CellularDataPlan& plan);
+  // Creates the map of a network
   ListValue* GetNetwork(const std::string& service_path, const SkBitmap& icon,
       const std::string& name, bool connecting, bool connected,
       int connection_type, bool remembered);

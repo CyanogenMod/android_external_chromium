@@ -235,7 +235,7 @@ void BufferedResourceLoader::SetAllowDefer(bool is_allowed) {
 //     webkit_glue::ResourceLoaderBridge::Peer implementations
 bool BufferedResourceLoader::OnReceivedRedirect(
     const GURL& new_url,
-    const webkit_glue::ResourceLoaderBridge::ResponseInfo& info,
+    const webkit_glue::ResourceResponseInfo& info,
     bool* has_new_first_party_for_cookies,
     GURL* new_first_party_for_cookies) {
   DCHECK(bridge_.get());
@@ -259,7 +259,7 @@ bool BufferedResourceLoader::OnReceivedRedirect(
 }
 
 void BufferedResourceLoader::OnReceivedResponse(
-    const webkit_glue::ResourceLoaderBridge::ResponseInfo& info,
+    const webkit_glue::ResourceResponseInfo& info,
     bool content_filtered) {
   DCHECK(bridge_.get());
 
@@ -479,7 +479,7 @@ void BufferedResourceLoader::ReadInternal() {
 }
 
 bool BufferedResourceLoader::VerifyPartialResponse(
-    const ResourceLoaderBridge::ResponseInfo& info) {
+    const ResourceResponseInfo& info) {
   int64 first_byte_position, last_byte_position, instance_size;
   if (!info.headers->GetContentRange(&first_byte_position,
                                      &last_byte_position,
@@ -560,7 +560,8 @@ BufferedDataSource::BufferedDataSource(
       render_loop_(render_loop),
       stop_signal_received_(false),
       stopped_on_render_loop_(false),
-      media_is_paused_(true) {
+      media_is_paused_(true),
+      using_range_request_(true) {
 }
 
 BufferedDataSource::~BufferedDataSource() {
@@ -877,6 +878,17 @@ void BufferedDataSource::HttpInitialStartCallback(int error) {
   } else {
     // TODO(hclam): In case of failure, we can retry several times.
     loader_->Stop();
+  }
+
+  if (error == net::ERR_INVALID_RESPONSE && using_range_request_) {
+    // Assuming that the Range header was causing the problem. Retry without
+    // the Range header.
+    using_range_request_ = false;
+    loader_ = CreateResourceLoader(-1, -1);
+    loader_->Start(
+        NewCallback(this, &BufferedDataSource::HttpInitialStartCallback),
+        NewCallback(this, &BufferedDataSource::NetworkEventCallback));
+    return;
   }
 
   // We need to prevent calling to filter host and running the callback if

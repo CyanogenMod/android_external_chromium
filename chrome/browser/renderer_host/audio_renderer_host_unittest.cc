@@ -7,7 +7,7 @@
 #include "base/process_util.h"
 #include "base/scoped_ptr.h"
 #include "base/sync_socket.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/renderer_host/audio_renderer_host.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
@@ -171,7 +171,7 @@ class AudioRendererHostTest : public testing::Test {
   virtual void SetUp() {
     // Create a message loop so AudioRendererHost can use it.
     message_loop_.reset(new MessageLoop(MessageLoop::TYPE_IO));
-    io_thread_.reset(new ChromeThread(ChromeThread::IO, message_loop_.get()));
+    io_thread_.reset(new BrowserThread(BrowserThread::IO, message_loop_.get()));
     host_ = new MockAudioRendererHost();
 
     // Simulate IPC channel connected.
@@ -349,7 +349,7 @@ class AudioRendererHostTest : public testing::Test {
   bool mock_stream_;
   scoped_refptr<MockAudioRendererHost> host_;
   scoped_ptr<MessageLoop> message_loop_;
-  scoped_ptr<ChromeThread> io_thread_;
+  scoped_ptr<BrowserThread> io_thread_;
 
   DISALLOW_COPY_AND_ASSIGN(AudioRendererHostTest);
 };

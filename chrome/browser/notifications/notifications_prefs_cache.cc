@@ -6,7 +6,7 @@
 
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebNotificationPresenter.h"
 
@@ -79,6 +79,8 @@ int NotificationsPrefsCache::HasPermission(const GURL& origin) {
   }
 }
 
+NotificationsPrefsCache::~NotificationsPrefsCache() {}
+
 bool NotificationsPrefsCache::IsOriginAllowed(
     const GURL& origin) {
   CheckThreadAccess();
@@ -93,8 +95,8 @@ bool NotificationsPrefsCache::IsOriginDenied(
 
 void NotificationsPrefsCache::CheckThreadAccess() {
   if (is_initialized_) {
-    DCHECK(ChromeThread::CurrentlyOn(ChromeThread::IO));
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   } else {
-    DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+    DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   }
 }

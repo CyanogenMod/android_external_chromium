@@ -46,7 +46,6 @@ class ExtensionManifestTest : public testing::Test {
 
     scoped_ptr<Extension> extension(new Extension(path.DirName()));
     extension->set_location(location);
-    extension->set_apps_enabled(enable_apps_);
 
     if (!extension->InitFromValue(*value, false, error))
       return NULL;
@@ -119,17 +118,6 @@ class ExtensionManifestTest : public testing::Test {
   bool enable_apps_;
 };
 
-TEST_F(ExtensionManifestTest, AppsDisabledByDefault) {
-#if defined(OS_CHROMEOS)
-  // On ChromeOS, apps are enabled by default.
-  if (Extension::AppsAreEnabled())
-    return;
-#endif
-
-  enable_apps_ = false;
-  LoadAndExpectError("launch_local_path.json", errors::kAppsNotEnabled);
-}
-
 TEST_F(ExtensionManifestTest, ValidApp) {
   scoped_ptr<Extension> extension(LoadAndExpectSuccess("valid_app.json"));
   ASSERT_EQ(2u, extension->web_extent().patterns().size());
@@ -151,6 +139,9 @@ TEST_F(ExtensionManifestTest, AppWebUrls) {
                      ExtensionErrorUtils::FormatErrorMessage(
                          errors::kInvalidWebURL, "0"));
   LoadAndExpectError("web_urls_invalid_3.json",
+                     ExtensionErrorUtils::FormatErrorMessage(
+                         errors::kInvalidWebURL, "0"));
+  LoadAndExpectError("web_urls_invalid_4.json",
                      ExtensionErrorUtils::FormatErrorMessage(
                          errors::kInvalidWebURL, "0"));
 
@@ -340,4 +331,10 @@ TEST_F(ExtensionManifestTest, NormalizeIconPaths) {
             extension->icons().Get(16, ExtensionIconSet::MATCH_EXACTLY));
   EXPECT_EQ("48.png",
             extension->icons().Get(48, ExtensionIconSet::MATCH_EXACTLY));
+}
+
+TEST_F(ExtensionManifestTest, DisallowMultipleUISurfaces) {
+  LoadAndExpectError("multiple_ui_surfaces_1.json", errors::kOneUISurfaceOnly);
+  LoadAndExpectError("multiple_ui_surfaces_2.json", errors::kOneUISurfaceOnly);
+  LoadAndExpectError("multiple_ui_surfaces_3.json", errors::kOneUISurfaceOnly);
 }

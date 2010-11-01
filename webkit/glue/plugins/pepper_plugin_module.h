@@ -27,6 +27,11 @@ class PluginDelegate;
 class PluginInstance;
 class PluginObject;
 
+// Represents one plugin library loaded into one renderer. This library may
+// have multiple instances.
+//
+// Note: to get from a PP_Instance to a PluginInstance*, use the
+// ResourceTracker.
 class PluginModule : public base::RefCounted<PluginModule>,
                      public base::SupportsWeakPtr<PluginModule> {
  public:
@@ -52,13 +57,12 @@ class PluginModule : public base::RefCounted<PluginModule>,
   static scoped_refptr<PluginModule> CreateInternalModule(
       EntryPoints entry_points);
 
-  // Converts the given module ID to an actual module object. Will return NULL
-  // if the module is invalid.
-  static PluginModule* FromPPModule(PP_Module module);
-
   static const PPB_Core* GetCore();
 
-  PP_Module GetPPModule() const;
+  PP_Module pp_module() const { return pp_module_; }
+
+  void set_name(const std::string& name) { name_ = name; }
+  const std::string& name() const { return name_; }
 
   PluginInstance* CreateInstance(PluginDelegate* delegate);
 
@@ -100,6 +104,8 @@ class PluginModule : public base::RefCounted<PluginModule>,
   static bool LoadEntryPoints(const base::NativeLibrary& library,
                               EntryPoints* entry_points);
 
+  PP_Module pp_module_;
+
   bool initialized_;
 
   // Holds a reference to the base::NativeLibrary handle if this PluginModule
@@ -111,6 +117,9 @@ class PluginModule : public base::RefCounted<PluginModule>,
   // Contains pointers to the entry points of the actual plugin
   // implementation.
   EntryPoints entry_points_;
+
+  // The name of the module.
+  std::string name_;
 
   // Non-owning pointers to all instances associated with this module. When
   // there are no more instances, this object should be deleted.

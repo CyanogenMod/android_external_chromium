@@ -17,22 +17,22 @@ function inherits(childCtor, parentCtor) {
  * Sets the width (in pixels) on a DOM node.
  */
 function setNodeWidth(node, widthPx) {
-  node.style.width = widthPx.toFixed(0) + "px";
+  node.style.width = widthPx.toFixed(0) + 'px';
 }
 
 /**
  * Sets the height (in pixels) on a DOM node.
  */
 function setNodeHeight(node, heightPx) {
-  node.style.height = heightPx.toFixed(0) + "px";
+  node.style.height = heightPx.toFixed(0) + 'px';
 }
 
 /**
  * Sets the position and size of a DOM node (in pixels).
  */
 function setNodePosition(node, leftPx, topPx, widthPx, heightPx) {
-  node.style.left = leftPx.toFixed(0) + "px";
-  node.style.top = topPx.toFixed(0) + "px";
+  node.style.left = leftPx.toFixed(0) + 'px';
+  node.style.top = topPx.toFixed(0) + 'px';
   setNodeWidth(node, widthPx);
   setNodeHeight(node, heightPx);
 }
@@ -78,7 +78,7 @@ function addNodeWithText(parentNode, tagName, text) {
  */
 function changeClassName(node, classNameToAddOrRemove, isAdd) {
   // Multiple classes can be separated by spaces.
-  var currentNames = node.className.split(" ");
+  var currentNames = node.className.split(' ');
 
   if (isAdd) {
     if (!(classNameToAddOrRemove in currentNames)) {
@@ -93,7 +93,7 @@ function changeClassName(node, classNameToAddOrRemove, isAdd) {
     }
   }
 
-  node.className = currentNames.join(" ");
+  node.className = currentNames.join(' ');
 }
 
 function getKeyWithValue(map, value) {
@@ -149,8 +149,12 @@ function TablePrinter() {
   this.title_ = null;
 }
 
+/**
+ * Links are only used in HTML tables.
+ */
 function TablePrinterCell(value) {
   this.text = '' + value;
+  this.link = null;
   this.alignRight = false;
   this.allowOverflow = false;
 }
@@ -334,7 +338,7 @@ TablePrinter.prototype.toHTML = function(parent, style) {
     for (var c = 0; c < numColumns; ++c) {
       var cell = this.getCell_(r, c);
       if (cell) {
-        var tableCell = addNodeWithText(row, cellType, cell.text);
+        var tableCell = addNode(row, cellType, cell.text);
         if (cell.alignRight)
           tableCell.alignRight = true;
         // If allowing overflow on the rightmost cell of a row,
@@ -342,6 +346,12 @@ TablePrinter.prototype.toHTML = function(parent, style) {
         // ignore the flag.
         if (cell.allowOverflow && !this.getCell_(r, c + 1))
           tableCell.colSpan = numColumns - c;
+        if (cell.link) {
+          var linkNode = addNodeWithText(tableCell, 'a', cell.text);
+          linkNode.href = cell.link;
+        } else {
+          addTextNode(tableCell, cell.text);
+        }
       }
     }
   }

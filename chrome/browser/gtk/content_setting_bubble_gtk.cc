@@ -7,20 +7,18 @@
 #include "app/l10n_util.h"
 #include "base/i18n/rtl.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/blocked_popup_container.h"
+#include "chrome/browser/blocked_content_container.h"
 #include "chrome/browser/content_setting_bubble_model.h"
 #include "chrome/browser/gtk/gtk_chrome_link_button.h"
 #include "chrome/browser/gtk/gtk_theme_provider.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/gtk/options/content_settings_window_gtk.h"
 #include "chrome/browser/host_content_settings_map.h"
-#include "chrome/browser/plugin_updater.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/content_settings.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
-#include "chrome/common/plugin_group.h"
 #include "gfx/gtk_util.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
@@ -90,8 +88,8 @@ void ContentSettingBubbleGtk::BuildBubble() {
     for (std::set<std::string>::const_iterator it = plugins.begin();
         it != plugins.end(); ++it) {
       std::string name;
-      PluginUpdater::PluginMap groups;
-      PluginUpdater::GetPluginUpdater()->GetPluginGroups(&groups);
+      NPAPI::PluginList::PluginMap groups;
+      NPAPI::PluginList::Singleton()->GetPluginGroups(false, &groups);
       if (groups.find(*it) != groups.end())
         name = UTF16ToUTF8(groups[*it]->GetGroupName());
       else

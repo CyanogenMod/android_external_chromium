@@ -12,6 +12,8 @@
 #if defined(OS_MACOSX)
 #include "base/mac_util.h"
 #include "base/sys_info.h"
+#elif defined(OS_WIN)
+#include "base/win/windows_version.h"
 #endif
 #include "chrome/browser/userfeedback/proto/common.pb.h"
 #include "chrome/browser/userfeedback/proto/extension.pb.h"
@@ -54,7 +56,7 @@ class BugReportUtil {
 
   // SetOSVersion copies the maj.minor.build + servicePack_string
   // into a string. We currently have:
-  //   win_util::GetWinVersion returns WinVersion, which is just
+  //   base::win::GetVersion returns WinVersion, which is just
   //     an enum of 2000, XP, 2003, or VISTA. Not enough detail for
   //     bug reports.
   //   base::SysInfo::OperatingSystemVersion returns an std::string
@@ -78,6 +80,8 @@ class BugReportUtil {
 #if defined(OS_CHROMEOS)
       int png_height,
       const std::string& user_email_text,
+      const char* zipped_logs_data,
+      int zipped_logs_length,
       const chromeos::LogDictionaryType* const sys_info);
 #else
       int png_height);
@@ -94,6 +98,10 @@ class BugReportUtil {
   static void AddFeedbackData(
       userfeedback::ExternalExtensionSubmit* feedback_data,
       const std::string& key, const std::string& value);
+
+#if defined(OS_CHROMEOS)
+  static bool ValidFeedbackSize(const std::string& content);
+#endif
 
   static std::string feedback_server_;
 

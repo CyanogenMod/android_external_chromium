@@ -10,7 +10,6 @@
 #include <map>
 #include <set>
 
-#include "chrome/browser/automation/testing_automation_provider.h"
 #include "chrome/browser/bookmarks/bookmark_model_observer.h"
 #include "chrome/browser/browsing_data_remover.h"
 #include "chrome/browser/download/download_item.h"
@@ -205,7 +204,7 @@ class TabCountChangeObserver : public TabStripModelObserver {
   virtual void TabInsertedAt(TabContents* contents,
                              int index,
                              bool foreground);
-  virtual void TabClosingAt(TabContents* contents, int index);
+  virtual void TabDetachedAt(TabContents* contents, int index);
   virtual void TabStripModelDeleted();
 
  private:
@@ -441,6 +440,7 @@ class FindInPageNotificationObserver : public NotificationObserver {
  public:
   FindInPageNotificationObserver(AutomationProvider* automation,
                                  TabContents* parent_tab,
+                                 bool reply_with_json,
                                  IPC::Message* reply_message);
   ~FindInPageNotificationObserver();
 
@@ -463,6 +463,8 @@ class FindInPageNotificationObserver : public NotificationObserver {
   // We will at some point (before final update) be notified of the ordinal and
   // we need to preserve it so we can send it later.
   int active_match_ordinal_;
+  // Send reply using json automation interface.
+  bool reply_with_json_;
   IPC::Message* reply_message_;
 
   DISALLOW_COPY_AND_ASSIGN(FindInPageNotificationObserver);
@@ -506,6 +508,7 @@ class DocumentPrintedNotificationObserver : public NotificationObserver {
 class MetricEventDurationObserver : public NotificationObserver {
  public:
   MetricEventDurationObserver();
+  virtual ~MetricEventDurationObserver();
 
   // Get the duration of an event.  Returns -1 if we haven't seen the event.
   int GetEventDurationMs(const std::string& event_name);
@@ -528,6 +531,7 @@ class PageTranslatedObserver : public NotificationObserver {
   PageTranslatedObserver(AutomationProvider* automation,
                          IPC::Message* reply_message,
                          TabContents* tab_contents);
+  virtual ~PageTranslatedObserver();
 
   // NotificationObserver interface.
   virtual void Observe(NotificationType type,
@@ -737,7 +741,7 @@ class AutomationProviderSearchEngineObserver
     : public TemplateURLModelObserver {
  public:
   AutomationProviderSearchEngineObserver(
-      TestingAutomationProvider* provider,
+      AutomationProvider* provider,
       IPC::Message* reply_message)
     : provider_(provider),
       reply_message_(reply_message) {}
@@ -745,7 +749,7 @@ class AutomationProviderSearchEngineObserver
   void OnTemplateURLModelChanged();
 
  private:
-  TestingAutomationProvider* provider_;
+  AutomationProvider* provider_;
   IPC::Message* reply_message_;
 
   DISALLOW_COPY_AND_ASSIGN(AutomationProviderSearchEngineObserver);

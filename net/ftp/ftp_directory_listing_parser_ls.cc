@@ -89,6 +89,8 @@ FtpDirectoryListingParserLs::FtpDirectoryListingParserLs(
       current_time_(current_time) {
 }
 
+FtpDirectoryListingParserLs::~FtpDirectoryListingParserLs() {}
+
 bool FtpDirectoryListingParserLs::ConsumeLine(const string16& line) {
   if (line.empty() && !received_nonempty_line_) {
     // Allow empty lines only at the beginning of the listing. For example VMS
@@ -99,7 +101,7 @@ bool FtpDirectoryListingParserLs::ConsumeLine(const string16& line) {
   received_nonempty_line_ = true;
 
   std::vector<string16> columns;
-  SplitString(CollapseWhitespace(line, false), ' ', &columns);
+  base::SplitString(CollapseWhitespace(line, false), ' ', &columns);
 
   // Some FTP servers put a "total n" line at the beginning of the listing
   // (n is an integer). Allow such a line, but only once, and only if it's
@@ -140,8 +142,15 @@ bool FtpDirectoryListingParserLs::ConsumeLine(const string16& line) {
     entry.type = FtpDirectoryListingEntry::FILE;
   }
 
-  if (!base::StringToInt64(columns[2 + column_offset], &entry.size))
-    return false;
+  if (!base::StringToInt64(columns[2 + column_offset], &entry.size)) {
+    // Some FTP servers do not separate owning group name from file size,
+    // like "group1234". We still want to display the file name for that entry,
+    // but can't really get the size (What if the group is named "group1",
+    // and the size is in fact 234? We can't distinguish between that
+    // and "group" with size 1234). Use a dummy value for the size.
+    // TODO(phajdan.jr): Use a value that means "unknown" instead of 0 bytes.
+    entry.size = 0;
+  }
   if (entry.size < 0)
     return false;
   if (entry.type != FtpDirectoryListingEntry::FILE)

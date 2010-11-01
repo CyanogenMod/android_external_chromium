@@ -97,8 +97,6 @@ SourceEntry.prototype.onCheckboxToggled_ = function() {
 };
 
 SourceEntry.prototype.matchesFilter = function(filter) {
-  // TODO(eroman): Support more advanced filter syntax.
-
   // Safety check.
   if (this.row_ == null)
     return false;
@@ -108,10 +106,23 @@ SourceEntry.prototype.matchesFilter = function(filter) {
   if (filter.isInactive && this.isActive_)
     return false;
 
+  // Check source type, if needed.
+  if (filter.type) {
+    var sourceType = this.getSourceTypeString().toLowerCase();
+    if (filter.type.indexOf(sourceType) == -1)
+      return false;
+  }
+
+  // Check source ID, if needed.
+  if (filter.id) {
+    if (filter.id.indexOf(this.getSourceId() + '') == -1)
+      return false;
+  }
+
   if (filter.text == '')
     return true;
 
-  var filterText = filter.text.toLowerCase();
+  var filterText = filter.text;
   var entryText = PrintSourceEntriesAsText(this.entries_).toLowerCase();
 
   return entryText.indexOf(filterText) != -1;
@@ -179,14 +190,14 @@ SourceEntry.prototype.createRow_ = function() {
   if (this.getSourceId() >= 0)
     addTextNode(idCell, this.getSourceId());
   else
-    addTextNode(idCell, "-");
+    addTextNode(idCell, '-');
   var sourceTypeString = this.getSourceTypeString();
   addTextNode(typeCell, sourceTypeString);
   this.updateDescription_();
 
   // Add a CSS classname specific to this source type (so CSS can specify
   // different stylings for different types).
-  changeClassName(this.row_, "source_" + sourceTypeString, true);
+  changeClassName(this.row_, 'source_' + sourceTypeString, true);
 };
 
 /**
@@ -208,18 +219,36 @@ SourceEntry.prototype.getDescription = function() {
   if (e.params == undefined)
     return '';
 
+  var description = '';
   switch (e.source.type) {
     case LogSourceType.URL_REQUEST:
     case LogSourceType.SOCKET_STREAM:
-      return e.params.url;
+      description = e.params.url;
+      break;
     case LogSourceType.CONNECT_JOB:
-      return e.params.group_name;
+      description = e.params.group_name;
+      break;
     case LogSourceType.HOST_RESOLVER_IMPL_REQUEST:
     case LogSourceType.HOST_RESOLVER_IMPL_JOB:
-      return e.params.host;
+      description = e.params.host;
+      break;
+    case LogSourceType.SPDY_SESSION:
+      if (e.params.host)
+        description = e.params.host + ' (' + e.params.proxy + ')';
+      break;
+    case LogSourceType.SOCKET:
+      if (e.params.source_dependency != undefined) {
+        var connectJobSourceEntry =
+            this.parentView_.getSourceEntry(e.params.source_dependency.id);
+        if (connectJobSourceEntry)
+          description = connectJobSourceEntry.getDescription();
+      }
+      break;
   }
 
-  return '';
+  if (description == undefined)
+    return '';
+  return description;
 };
 
 /**

@@ -324,17 +324,41 @@ EVENT_TYPE(SOCKS_UNKNOWN_ADDRESS_TYPE)
 // The start/end of a SSL connect().
 EVENT_TYPE(SSL_CONNECT)
 
+// An SSL error occurred while trying to do the indicated activity.
+// The following parameters are attached to the event:
+//   {
+//     "net_error": <Integer code for the specific error type>,
+//     "ssl_lib_error": <SSL library's integer code for the specific error type>
+//   }
+EVENT_TYPE(SSL_HANDSHAKE_ERROR)
+EVENT_TYPE(SSL_READ_ERROR)
+EVENT_TYPE(SSL_WRITE_ERROR)
+
+// An SSL error occurred while calling an NSS function not directly related to
+// one of the above activities.  Can also be used when more information than
+// is provided by just an error code is needed:
+//   {
+//     "function": <Name of the NSS function, as a string>,
+//     "param": <Most relevant parameter, if any>,
+//     "ssl_lib_error": <NSS library's integer code for the specific error type>
+//   }
+EVENT_TYPE(SSL_NSS_ERROR)
+
 // The specified number of bytes were sent on the socket.
 // The following parameters are attached:
 //   {
-//     "num_bytes": <Number of bytes that were just sent>
+//     "byte_count": <Number of bytes that were just sent>,
+//     "hex_encoded_bytes": <The exact bytes sent, as a hexadecimal string.
+//                           Only present when byte logging is enabled>
 //   }
 EVENT_TYPE(SOCKET_BYTES_SENT)
 
 // The specified number of bytes were received on the socket.
 // The following parameters are attached:
 //   {
-//     "num_bytes": <Number of bytes that were just sent>
+//     "byte_count": <Number of bytes that were just received>,
+//     "hex_encoded_bytes": <The exact bytes received, as a hexadecimal string.
+//                           Only present when byte logging is enabled>
 //   }
 EVENT_TYPE(SOCKET_BYTES_RECEIVED)
 
@@ -392,6 +416,13 @@ EVENT_TYPE(SOCKET_POOL_REUSED_AN_EXISTING_SOCKET)
 //   }
 EVENT_TYPE(TCP_CLIENT_SOCKET_POOL_REQUESTED_SOCKET)
 
+// This event simply describes the host:port that were requested from the
+// socket pool. Its parameters are:
+//   {
+//     "host_and_port": <String encoding the host and port>
+//   }
+EVENT_TYPE(TCP_CLIENT_SOCKET_POOL_REQUESTED_SOCKETS)
+
 
 // A backup socket is created due to slow connect
 EVENT_TYPE(SOCKET_BACKUP_CREATED)
@@ -413,6 +444,13 @@ EVENT_TYPE(SOCKET_POOL_BOUND_TO_CONNECT_JOB)
 //      "source_dependency": <Source identifier for the socket we acquired>
 //   }
 EVENT_TYPE(SOCKET_POOL_BOUND_TO_SOCKET)
+
+// The start/end of a client socket pool request for multiple sockets.
+// The event parameters are:
+//   {
+//      "num_sockets": <Number of sockets we're trying to ensure are connected>
+//   }
+EVENT_TYPE(SOCKET_POOL_CONNECTING_N_SOCKETS)
 
 // ------------------------------------------------------------------------
 // URLRequest

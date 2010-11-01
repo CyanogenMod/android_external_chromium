@@ -9,7 +9,7 @@
 #include <dlfcn.h>
 #import <Foundation/Foundation.h>
 
-#include "base/scoped_nsautorelease_pool.h"
+#include "base/mac/scoped_nsautorelease_pool.h"
 #include "base/scoped_nsobject.h"
 #include "base/sys_string_conversions.h"
 
@@ -66,11 +66,11 @@ bool CoreWlanApi::Init() {
   // auto release pool. It's simplest to do this as an automatic variable in
   // each method that needs it, to ensure the scoping is correct and does not
   // interfere with any other code using autorelease pools on the thread.
-  base::ScopedNSAutoreleasePool auto_pool;
+  base::mac::ScopedNSAutoreleasePool auto_pool;
   bundle_.reset([[NSBundle alloc]
       initWithPath:@"/System/Library/Frameworks/CoreWLAN.framework"]);
   if (!bundle_) {
-    DLOG(INFO) << "Failed to load the CoreWLAN framework bundle";
+    DVLOG(1) << "Failed to load the CoreWLAN framework bundle";
     return false;
   }
 
@@ -79,8 +79,8 @@ bool CoreWlanApi::Init() {
   void* dl_handle = dlopen([[bundle_ executablePath] fileSystemRepresentation],
                            RTLD_LAZY | RTLD_LOCAL);
   if (dl_handle) {
-    const NSString* key = *reinterpret_cast<const NSString**>(
-        dlsym(dl_handle, "kCWScanKeyMerge"));
+    NSString* key = *reinterpret_cast<NSString**>(dlsym(dl_handle,
+                                                        "kCWScanKeyMerge"));
     if (key)
       merge_key_.reset([key copy]);
   }
@@ -98,7 +98,7 @@ bool CoreWlanApi::Init() {
 }
 
 bool CoreWlanApi::GetAccessPointData(WifiData::AccessPointDataSet* data) {
-  base::ScopedNSAutoreleasePool auto_pool;
+  base::mac::ScopedNSAutoreleasePool auto_pool;
   // Initialize the scan parameters with scan key merging disabled, so we get
   // every AP listed in the scan without any SSID de-duping logic.
   NSDictionary* params =
@@ -130,7 +130,7 @@ bool CoreWlanApi::GetAccessPointData(WifiData::AccessPointDataSet* data) {
       ++interface_error_count;
       continue;
     }
-    DLOG(INFO) << interface_name << ": found " << count << " wifi APs";
+    DVLOG(1) << interface_name << ": found " << count << " wifi APs";
 
     for (CWNetwork* network in scan) {
       DCHECK(network);

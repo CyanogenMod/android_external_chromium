@@ -616,7 +616,7 @@ void RelayEntry::OnMessage(talk_base::Message *pmsg) {
     // the next address, otherwise give this connection more time and
     // await the real timeout.
     //
-    // TODO(oja): Connect to servers in pararel to speed up connect time
+    // TODO: Connect to servers in pararel to speed up connect time
     // and to avoid giving up to early.
     port_->SignalSoftTimeout(ra);
     HandleConnectFailure(current_connection_->socket());

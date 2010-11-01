@@ -11,17 +11,19 @@
 #pragma once
 
 #include <set>
+#include <string>
 
 #include "base/non_thread_safe.h"
 #include "base/scoped_ptr.h"
 #include "base/task.h"
+#include "chrome/browser/sync/notifier/state_writer.h"
 #include "google/cacheinvalidation/invalidation-client.h"
 
 namespace sync_notifier {
 
 class ChromeSystemResources : public invalidation::SystemResources {
  public:
-  ChromeSystemResources();
+  explicit ChromeSystemResources(StateWriter* state_writer);
 
   ~ChromeSystemResources();
 
@@ -38,8 +40,15 @@ class ChromeSystemResources : public invalidation::SystemResources {
 
   virtual void ScheduleImmediately(invalidation::Closure* task);
 
+  virtual void ScheduleOnListenerThread(invalidation::Closure* task);
+
+  virtual bool IsRunningOnInternalThread();
+
   virtual void Log(LogLevel level, const char* file, int line,
                    const char* format, ...);
+
+  virtual void WriteState(const invalidation::string& state,
+                          invalidation::StorageCallback* callback);
 
  private:
   NonThreadSafe non_thread_safe_;
@@ -47,6 +56,7 @@ class ChromeSystemResources : public invalidation::SystemResources {
       scoped_runnable_method_factory_;
   // Holds all posted tasks that have not yet been run.
   std::set<invalidation::Closure*> posted_tasks_;
+  StateWriter* state_writer_;
 
   // If the scheduler has been started, inserts |task| into
   // |posted_tasks_| and returns a Task* to post.  Otherwise,
@@ -55,6 +65,10 @@ class ChromeSystemResources : public invalidation::SystemResources {
 
   // Runs the task, deletes it, and removes it from |posted_tasks_|.
   void RunPostedTask(invalidation::Closure* task);
+
+  // Runs the given storage callback with "true" and deletes it.
+  void RunAndDeleteStorageCallback(
+      invalidation::StorageCallback* callback);
 };
 
 }  // namespace sync_notifier

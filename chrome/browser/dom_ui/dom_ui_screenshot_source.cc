@@ -11,7 +11,7 @@
 #include "base/task.h"
 #include "base/thread.h"
 #include "base/waitable_event.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
 #include "gfx/codec/jpeg_codec.h"
@@ -66,9 +66,9 @@ void ReadScreenshot(const std::string& filename,
 std::vector<unsigned char> GetSavedScreenshot(std::string filename) {
   base::WaitableEvent read_complete(true, false);
   std::vector<unsigned char> bytes;
-  ChromeThread::PostTask(ChromeThread::FILE, FROM_HERE,
-                         NewRunnableFunction(&ReadScreenshot, filename,
-                                             &bytes, &read_complete));
+  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
+                          NewRunnableFunction(&ReadScreenshot, filename,
+                                              &bytes, &read_complete));
   read_complete.Wait();
   return bytes;
 }
@@ -107,6 +107,8 @@ DOMUIScreenshotSource::DOMUIScreenshotSource(
   else
     current_screenshot_.clear();
 }
+
+DOMUIScreenshotSource::~DOMUIScreenshotSource() {}
 
 void DOMUIScreenshotSource::StartDataRequest(const std::string& path,
                                             bool is_off_the_record,

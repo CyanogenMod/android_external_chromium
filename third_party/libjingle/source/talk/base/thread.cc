@@ -340,7 +340,7 @@ void* Thread::PreRun(void* pv) {
 #if defined(WIN32)
   SetThreadName(GetCurrentThreadId(), init->thread->name_.c_str());
 #elif defined(POSIX)
-  // TODO(juberti): See if naming exists for pthreads.
+  // TODO: See if naming exists for pthreads.
 #endif
 #ifdef OSX_USE_COCOA
   // Make sure the new thread has an autoreleasepool

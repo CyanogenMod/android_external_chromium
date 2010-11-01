@@ -15,7 +15,7 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/weak_ptr.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
 #include "chrome/browser/history/history_types.h"
 #include "chrome/browser/metrics/user_metrics.h"
@@ -149,8 +149,8 @@ SlideshowHandler::~SlideshowHandler() {
 
 DOMMessageHandler* SlideshowHandler::Attach(DOMUI* dom_ui) {
   // Create our favicon data source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,
@@ -284,8 +284,8 @@ SlideshowUI::SlideshowUI(TabContents* contents) : DOMUI(contents) {
   SlideshowUIHTMLSource* html_source = new SlideshowUIHTMLSource();
 
   // Set up the chrome://slideshow/ source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,

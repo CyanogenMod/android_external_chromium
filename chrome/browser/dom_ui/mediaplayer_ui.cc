@@ -18,8 +18,8 @@
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_util.h"
@@ -209,8 +209,8 @@ MediaplayerHandler::~MediaplayerHandler() {
 
 DOMMessageHandler* MediaplayerHandler::Attach(DOMUI* dom_ui) {
   // Create our favicon data source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,
@@ -498,10 +498,8 @@ void MediaPlayer::PopupPlaylist(Browser* creator) {
   Profile* profile = BrowserList::GetLastActive()->profile();
   playlist_browser_ = Browser::CreateForType(Browser::TYPE_APP_PANEL,
                                              profile);
-  playlist_browser_->AddTabWithURL(
-      GURL(kMediaplayerPlaylistURL), GURL(), PageTransition::LINK,
-      -1, TabStripModel::ADD_SELECTED, NULL, std::string(),
-      &playlist_browser_);
+  playlist_browser_->AddSelectedTabWithURL(GURL(kMediaplayerPlaylistURL),
+                                           PageTransition::LINK);
   playlist_browser_->window()->SetBounds(gfx::Rect(kPopupLeft,
                                                    kPopupTop,
                                                    kPopupWidth,
@@ -510,9 +508,9 @@ void MediaPlayer::PopupPlaylist(Browser* creator) {
 }
 
 void MediaPlayer::PopupMediaPlayer(Browser* creator) {
-  if (!ChromeThread::CurrentlyOn(ChromeThread::UI)) {
-    ChromeThread::PostTask(
-        ChromeThread::UI, FROM_HERE,
+  if (!BrowserThread::CurrentlyOn(BrowserThread::UI)) {
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
         NewRunnableMethod(this, &MediaPlayer::PopupMediaPlayer,
                           static_cast<Browser*>(NULL)));
     return;
@@ -532,10 +530,8 @@ void MediaPlayer::PopupMediaPlayer(Browser* creator) {
     view->SetCreatorView(creatorview);
   }
 #endif
-  mediaplayer_browser_->AddTabWithURL(
-      GURL(kMediaplayerURL), GURL(), PageTransition::LINK,
-      -1, TabStripModel::ADD_SELECTED, NULL, std::string(),
-      &mediaplayer_browser_);
+  mediaplayer_browser_->AddSelectedTabWithURL(GURL(kMediaplayerURL),
+                                              PageTransition::LINK);
   mediaplayer_browser_->window()->SetBounds(gfx::Rect(kPopupLeft,
                                                       kPopupTop,
                                                       kPopupWidth,
@@ -612,8 +608,8 @@ MediaplayerUI::MediaplayerUI(TabContents* contents) : DOMUI(contents) {
       new MediaplayerUIHTMLSource(is_playlist);
 
   // Set up the chrome://mediaplayer/ source.
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(
           Singleton<ChromeURLDataManager>::get(),
           &ChromeURLDataManager::AddDataSource,

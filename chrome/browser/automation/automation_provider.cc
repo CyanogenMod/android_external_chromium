@@ -38,15 +38,15 @@
 #include "chrome/browser/automation/automation_window_tracker.h"
 #include "chrome/browser/automation/extension_port_container.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
-#include "chrome/browser/blocked_popup_container.h"
+#include "chrome/browser/blocked_content_container.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_storage.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/browsing_data_remover.h"
 #include "chrome/browser/character_encoding.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/dom_operation_notification_details.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/download/download_item.h"
@@ -152,7 +152,10 @@ AutomationProvider::~AutomationProvider() {
 void AutomationProvider::ConnectToChannel(const std::string& channel_id) {
   TRACE_EVENT_BEGIN("AutomationProvider::ConnectToChannel", 0, "");
 
-  automation_resource_message_filter_ = new AutomationResourceMessageFilter;
+  if (!automation_resource_message_filter_.get()) {
+    automation_resource_message_filter_ = new AutomationResourceMessageFilter;
+  }
+
   channel_.reset(
       new IPC::SyncChannel(channel_id, IPC::Channel::MODE_CLIENT, this,
                            automation_resource_message_filter_,
@@ -455,7 +458,7 @@ void AutomationProvider::HandleFindRequest(
     const AutomationMsg_Find_Params& params,
     IPC::Message* reply_message) {
   if (!tab_tracker_->ContainsHandle(handle)) {
-    AutomationMsg_FindInPage::WriteReplyParams(reply_message, -1, -1);
+    AutomationMsg_Find::WriteReplyParams(reply_message, -1, -1);
     Send(reply_message);
     return;
   }
@@ -463,15 +466,39 @@ void AutomationProvider::HandleFindRequest(
   NavigationController* nav = tab_tracker_->GetResource(handle);
   TabContents* tab_contents = nav->tab_contents();
 
-  find_in_page_observer_.reset(new
-      FindInPageNotificationObserver(this, tab_contents, reply_message));
+  SendFindRequest(tab_contents,
+                  false,
+                  params.search_string,
+                  params.forward,
+                  params.match_case,
+                  params.find_next,
+                  reply_message);
+}
 
-  tab_contents->set_current_find_request_id(
-      FindInPageNotificationObserver::kFindInPageRequestId);
+void AutomationProvider::SendFindRequest(
+    TabContents* tab_contents,
+    bool with_json,
+    const string16& search_string,
+    bool forward,
+    bool match_case,
+    bool find_next,
+    IPC::Message* reply_message) {
+  int request_id = FindInPageNotificationObserver::kFindInPageRequestId;
+  FindInPageNotificationObserver* observer =
+      new FindInPageNotificationObserver(this,
+                                         tab_contents,
+                                         with_json,
+                                         reply_message);
+  if (!with_json) {
+    find_in_page_observer_.reset(observer);
+  }
+  tab_contents->set_current_find_request_id(request_id);
   tab_contents->render_view_host()->StartFinding(
       FindInPageNotificationObserver::kFindInPageRequestId,
-      params.search_string, params.forward, params.match_case,
-      params.find_next);
+      search_string,
+      forward,
+      match_case,
+      find_next);
 }
 
 class SetProxyConfigTask : public Task {
@@ -549,8 +576,8 @@ void AutomationProvider::SetProxyConfig(const std::string& new_proxy_config) {
   }
   DCHECK(context_getter);
 
-  ChromeThread::PostTask(
-      ChromeThread::IO, FROM_HERE,
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
       new SetProxyConfigTask(context_getter, new_proxy_config));
 }
 

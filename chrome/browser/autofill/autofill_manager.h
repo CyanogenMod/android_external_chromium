@@ -34,9 +34,6 @@ struct FormData;
 class FormField;
 }  // namespace webkit_glue
 
-// TODO(jhawkins): Maybe this should be in a grd file?
-extern const char* kAutoFillLearnMoreUrl;
-
 // Manages saving and restoring the user's personal information entered into web
 // forms.
 class AutoFillManager :
@@ -161,13 +158,6 @@ class AutoFillManager :
   void FillFormField(const AutoFillProfile* profile,
                      AutoFillType type,
                      webkit_glue::FormField* field);
-
-  // Select matching data in the |field|. For now only fixes the cases of the
-  // wrong case, in the future should do extended matching (for example,
-  // Hawaii -> HI).
-  void FillSelectOneField(const AutoFillProfile* profile,
-                          AutoFillType type,
-                          webkit_glue::FormField* field);
 
   // Set |field| argument's value for phone number based on contents of the
   // |profile|.

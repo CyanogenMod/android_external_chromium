@@ -20,6 +20,7 @@ const char kHomepageLocation[] = "HomepageLocation";
 const char kHomepageIsNewTabPage[] = "HomepageIsNewTabPage";
 const char kRestoreOnStartup[] = "RestoreOnStartup";
 const char kURLsToRestoreOnStartup[] = "RestoreOnStartupURLs";
+const char kDefaultSearchProviderEnabled[] = "DefaultSearchProviderEnabled";
 const char kDefaultSearchProviderName[] = "DefaultSearchProviderName";
 const char kDefaultSearchProviderKeyword[] = "DefaultSearchProviderKeyword";
 const char kDefaultSearchProviderSearchURL[] =
@@ -30,6 +31,7 @@ const char kDefaultSearchProviderIconURL[] =
     "DefaultSearchProviderIconURL";
 const char kDefaultSearchProviderEncodings[] =
     "DefaultSearchProviderEncodings";
+const char kDisableSpdy[] = "DisableSpdy";
 const char kProxyServerMode[] = "ProxyServerMode";
 const char kProxyServer[] = "ProxyServer";
 const char kProxyPacUrl[] = "ProxyPacUrl";
@@ -51,11 +53,18 @@ const char kExtensionInstallDenyList[] = "ExtensionInstallBlacklist";
 const char kShowHomeButton[] = "ShowHomeButton";
 const char kPrintingEnabled[] = "PrintingEnabled";
 const char kJavascriptEnabled[] = "JavascriptEnabled";
+const char kSavingBrowserHistoryDisabled[] = "SavingBrowserHistoryDisabled";
 
 // Chrome Frame specific policy constants
 const char kChromeFrameRendererSettings[] = "ChromeFrameRendererSettings";
 const char kRenderInChromeFrameList[] = "RenderInChromeFrameList";
 const char kRenderInHostList[] = "RenderInHostList";
+const char kChromeFrameContentTypes[] = "ChromeFrameContentTypes";
+
+#if defined(OS_CHROMEOS)
+// ChromeOS policy constants
+const char kChromeOsLockOnIdleSuspend[] = "ChromeOsLockOnIdleSuspend";
+#endif
 
 }  // namespace key
 

@@ -37,6 +37,7 @@ class ChromeURLRequestContext;
 class DatabaseDispatcherHost;
 class DOMStorageDispatcherHost;
 class FileSystemDispatcherHost;
+class FileUtilitiesDispatcherHost;
 struct FontDescriptor;
 class GeolocationDispatcherHost;
 class HostZoomMap;
@@ -128,10 +129,8 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
   ChromeURLRequestContext* GetRequestContextForURL(const GURL& url);
 
  private:
-  friend class ChromeThread;
+  friend class BrowserThread;
   friend class DeleteTask<ResourceMessageFilter>;
-  typedef void (*FileInfoWriteFunc)(IPC::Message* reply_msg,
-                                    const base::PlatformFileInfo& file_info);
 
   virtual ~ResourceMessageFilter();
 
@@ -183,13 +182,18 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
   void OnGetPluginInfo(const GURL& url,
                        const GURL& policy_url,
                        const std::string& mime_type,
-                       bool* found,
-                       WebPluginInfo* info,
-                       ContentSetting* setting,
-                       std::string* actual_mime_type);
+                       IPC::Message* reply_msg);
+  void OnGetPluginInfoOnFileThread(const GURL& url,
+                                   const GURL& policy_url,
+                                   const std::string& mime_type,
+                                   IPC::Message* reply_msg);
+  void OnGotPluginInfo(bool found,
+                       WebPluginInfo info,
+                       const std::string& actual_mime_type,
+                       const GURL& policy_url,
+                       IPC::Message* reply_msg);
   void OnOpenChannelToPlugin(const GURL& url,
                              const std::string& mime_type,
-                             const std::string& locale,
                              IPC::Message* reply_msg);
   void OnLaunchNaCl(const std::wstring& url,
                     int channel_descriptor,
@@ -286,8 +290,15 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
                                       int v8_memory_used,
                                       base::ProcessId renderer_id);
 
-  void OnDidZoomURL(const GURL& url, int zoom_level);
-  void UpdateHostZoomLevelsOnUIThread(const GURL& url, int zoom_level);
+  void OnDidZoomURL(const IPC::Message& message,
+                    double zoom_level,
+                    bool remember,
+                    const GURL& url);
+  void UpdateHostZoomLevelsOnUIThread(double zoom_level,
+                                      bool remember,
+                                      const GURL& url,
+                                      int render_process_id,
+                                      int render_view_id);
 
   void OnResolveProxy(const GURL& url, IPC::Message* reply_msg);
 
@@ -345,15 +356,6 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
                                     double expected_response_time,
                                     const std::vector<char>& data);
   void OnEnableSpdy(bool enable);
-  void OnGetFileSize(const FilePath& path, IPC::Message* reply_msg);
-  void OnGetFileModificationTime(const FilePath& path, IPC::Message* reply_msg);
-  void OnGetFileInfoOnFileThread(const FilePath& path,
-                                 IPC::Message* reply_msg,
-                                 FileInfoWriteFunc write_func);
-  void OnOpenFile(const FilePath& path, int mode,IPC::Message* reply_msg);
-  void OnOpenFileOnFileThread(const FilePath& path,
-                              int mode,
-                              IPC::Message* reply_msg);
   void OnKeygen(uint32 key_size_index, const std::string& challenge_string,
                 const GURL& url, IPC::Message* reply_msg);
   void OnKeygenOnWorkerThread(
@@ -493,6 +495,9 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
   // Handles blob related messages.
   scoped_ptr<BlobDispatcherHost> blob_dispatcher_host_;
 
+  // Handles file utilities messages.
+  scoped_refptr<FileUtilitiesDispatcherHost> file_utilities_dispatcher_host_;
+
   DISALLOW_COPY_AND_ASSIGN(ResourceMessageFilter);
 };
 
@@ -505,6 +510,7 @@ class SetCookieCompletion : public net::CompletionCallback {
                       const GURL& url,
                       const std::string& cookie_line,
                       ChromeURLRequestContext* context);
+  virtual ~SetCookieCompletion();
 
   virtual void RunWithParams(const Tuple1<int>& params);
 
@@ -532,6 +538,7 @@ class GetCookiesCompletion : public net::CompletionCallback {
                        ResourceMessageFilter* filter,
                        URLRequestContext* context,
                        bool raw_cookies);
+  virtual ~GetCookiesCompletion();
 
   virtual void RunWithParams(const Tuple1<int>& params);
 

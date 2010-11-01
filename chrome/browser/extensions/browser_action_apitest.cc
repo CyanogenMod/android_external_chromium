@@ -68,7 +68,7 @@ IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, Basic) {
 
   // Simulate the browser action being clicked.
   ui_test_utils::NavigateToURL(browser(),
-      GURL("http://localhost:1337/files/extensions/test_file.txt"));
+      test_server()->GetURL("files/extensions/test_file.txt"));
 
   ExtensionBrowserEventRouter::GetInstance()->BrowserActionExecuted(
       browser()->profile(), action->extension_id(), browser());
@@ -76,12 +76,12 @@ IN_PROC_BROWSER_TEST_F(BrowserActionApiTest, Basic) {
   // Verify the command worked.
   TabContents* tab = browser()->GetSelectedTabContents();
   bool result = false;
-  ui_test_utils::ExecuteJavaScriptAndExtractBool(
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractBool(
       tab->render_view_host(), L"",
       L"setInterval(function(){"
       L"  if(document.body.bgColor == 'red'){"
       L"    window.domAutomationController.send(true)}}, 100)",
-      &result);
+      &result));
   ASSERT_TRUE(result);
 }
 

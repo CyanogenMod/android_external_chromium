@@ -11,13 +11,12 @@
 #import "app/l10n_util_mac.h"
 #include "base/logging.h"
 #include "base/ref_counted.h"
-#include "base/scoped_cftyperef.h"
 #import "base/scoped_nsobject.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/browser_thread.h"
 #import "chrome/browser/cocoa/constrained_window_mac.h"
-#include "chrome/browser/chrome_thread.h"
 #include "chrome/browser/ssl/ssl_client_auth_handler.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "grit/generated_resources.h"
@@ -99,7 +98,7 @@ void ShowSSLClientCertificateSelector(
     net::SSLCertRequestInfo* cert_request_info,
     SSLClientAuthHandler* delegate) {
   // TODO(davidben): Implement a tab-modal dialog.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   SSLClientCertificateSelectorCocoa* selector =
       [[[SSLClientCertificateSelectorCocoa alloc]
           initWithHandler:delegate

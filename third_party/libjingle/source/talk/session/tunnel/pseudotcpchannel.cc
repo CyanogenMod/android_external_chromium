@@ -25,9 +25,11 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <string>
 #include "talk/base/basictypes.h"
 #include "talk/base/common.h"
 #include "talk/base/logging.h"
+#include "talk/base/scoped_ptr.h"
 #include "talk/base/stringutils.h"
 #include "talk/p2p/base/transportchannel.h"
 #include "pseudotcpchannel.h"
@@ -116,7 +118,8 @@ PseudoTcpChannel::~PseudoTcpChannel() {
   ASSERT(tcp_ == NULL);
 }
 
-bool PseudoTcpChannel::Connect(const std::string& channel_name) {
+bool PseudoTcpChannel::Connect(const std::string& content_name,
+                               const std::string& channel_name) {
   ASSERT(signal_thread_->IsCurrent());
   CritScope lock(&cs_);
 
@@ -125,7 +128,8 @@ bool PseudoTcpChannel::Connect(const std::string& channel_name) {
 
   ASSERT(session_ != NULL);
   worker_thread_ = session_->session_manager()->worker_thread();
-  channel_ = session_->CreateChannel(channel_name);
+  content_name_ = content_name;
+  channel_ = session_->CreateChannel(content_name, channel_name);
   channel_name_ = channel_name;
   channel_->SetOption(Socket::OPT_DONTFRAGMENT, 1);
 
@@ -450,7 +454,7 @@ void PseudoTcpChannel::OnMessage(Message* pmsg) {
     LOG_F(LS_INFO) << "(MSG_SI_DESTROYCHANNEL)";
     ASSERT(session_ != NULL);
     ASSERT(channel_ != NULL);
-    session_->DestroyChannel(channel_);
+    session_->DestroyChannel(content_name_, channel_->name());
 
   } else if (pmsg->message_id == MSG_SI_DESTROY) {
 

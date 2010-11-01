@@ -16,8 +16,7 @@ class HostResolver;
 // This class holds session objects used by FtpNetworkTransaction objects.
 class FtpNetworkSession : public base::RefCounted<FtpNetworkSession> {
  public:
-  explicit FtpNetworkSession(HostResolver* host_resolver)
-      : host_resolver_(host_resolver) {}
+  explicit FtpNetworkSession(HostResolver* host_resolver);
 
   HostResolver* host_resolver() { return host_resolver_; }
   FtpAuthCache* auth_cache() { return &auth_cache_; }
@@ -25,9 +24,9 @@ class FtpNetworkSession : public base::RefCounted<FtpNetworkSession> {
  private:
   friend class base::RefCounted<FtpNetworkSession>;
 
-  ~FtpNetworkSession() {}
+  virtual ~FtpNetworkSession();
 
-  scoped_refptr<HostResolver> host_resolver_;
+  HostResolver* const host_resolver_;
   FtpAuthCache auth_cache_;
 };
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2008 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -23,6 +23,8 @@ URLRequestJob* URLRequestFilter::Factory(URLRequest* request,
   // Returning null here just means that the built-in handler will be used.
   return GetInstance()->FindRequestHandler(request, scheme);
 }
+
+URLRequestFilter::~URLRequestFilter() {}
 
 void URLRequestFilter::AddHostnameHandler(const std::string& scheme,
     const std::string& hostname, URLRequest::ProtocolFactory* factory) {
@@ -108,6 +110,8 @@ void URLRequestFilter::ClearHandlers() {
   hit_count_ = 0;
 }
 
+URLRequestFilter::URLRequestFilter() : hit_count_(0) { }
+
 URLRequestJob* URLRequestFilter::FindRequestHandler(URLRequest* request,
                                                     const std::string& scheme) {
   URLRequestJob* job = NULL;
@@ -129,7 +133,7 @@ URLRequestJob* URLRequestFilter::FindRequestHandler(URLRequest* request,
     }
   }
   if (job) {
-    DLOG(INFO) << "URLRequestFilter hit for " << request->url().spec();
+    DVLOG(1) << "URLRequestFilter hit for " << request->url().spec();
     hit_count_++;
   }
   return job;

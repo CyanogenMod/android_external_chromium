@@ -7,7 +7,7 @@
 
 #include "base/logging.h"
 #include "base/task.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/sync/glue/data_type_controller.h"
 #include "chrome/browser/sync/glue/data_type_manager_impl.h"
 #include "chrome/browser/sync/glue/sync_backend_host.h"
@@ -73,7 +73,7 @@ DataTypeManagerImpl::~DataTypeManagerImpl() {
 }
 
 void DataTypeManagerImpl::Configure(const TypeSet& desired_types) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (state_ == STOPPING) {
     // You can not set a configuration while stopping.
     LOG(ERROR) << "Configuration set while stopping.";
@@ -91,7 +91,7 @@ void DataTypeManagerImpl::Configure(const TypeSet& desired_types) {
         (dtc->second->state() == DataTypeController::NOT_RUNNING ||
          dtc->second->state() == DataTypeController::STOPPING)) {
       needs_start_.push_back(dtc->second.get());
-      LOG(INFO) << "Will start " << dtc->second->name();
+      VLOG(1) << "Will start " << dtc->second->name();
     }
   }
   // Sort these according to kStartOrder.
@@ -110,7 +110,7 @@ void DataTypeManagerImpl::Configure(const TypeSet& desired_types) {
             dtc->state() == DataTypeController::ASSOCIATING ||
             dtc->state() == DataTypeController::RUNNING)) {
       needs_stop_.push_back(dtc);
-      LOG(INFO) << "Will stop " << dtc->name();
+      VLOG(1) << "Will stop " << dtc->name();
     }
   }
   // Sort these according to kStartOrder.
@@ -130,7 +130,7 @@ void DataTypeManagerImpl::Configure(const TypeSet& desired_types) {
 }
 
 void DataTypeManagerImpl::Restart() {
-  LOG(INFO) << "Restarting...";
+  VLOG(1) << "Restarting...";
   // If we are currently waiting for an asynchronous process to
   // complete, change our state to RESTARTING so those processes know
   // that we want to start over when they finish.
@@ -150,7 +150,7 @@ void DataTypeManagerImpl::Restart() {
 
   // Stop requested data types.
   for (size_t i = 0; i < needs_stop_.size(); ++i) {
-    LOG(INFO) << "Stopping " << needs_stop_[i]->name();
+    VLOG(1) << "Stopping " << needs_stop_[i]->name();
     needs_stop_[i]->Stop();
   }
   needs_stop_.clear();
@@ -211,7 +211,7 @@ void DataTypeManagerImpl::StartNextType() {
   // front of the list.
   if (needs_start_.size() > 0) {
     current_dtc_ = needs_start_[0];
-    LOG(INFO) << "Starting " << current_dtc_->name();
+    VLOG(1) << "Starting " << current_dtc_->name();
     current_dtc_->Start(
         NewCallback(this, &DataTypeManagerImpl::TypeStartCallback));
     return;
@@ -228,7 +228,7 @@ void DataTypeManagerImpl::TypeStartCallback(
     DataTypeController::StartResult result) {
   // When the data type controller invokes this callback, it must be
   // on the UI thread.
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(current_dtc_);
 
   // If configuration changed while this data type was starting, we
@@ -264,7 +264,7 @@ void DataTypeManagerImpl::TypeStartCallback(
   // If the type is waiting for the cryptographer, continue to the next type.
   // Once the cryptographer is ready, we'll attempt to restart this type.
   if (result == DataTypeController::NEEDS_CRYPTO) {
-    LOG(INFO) << "Waiting for crypto " << started_dtc->name();
+    VLOG(1) << "Waiting for crypto " << started_dtc->name();
     StartNextType();
     return;
   }
@@ -272,7 +272,7 @@ void DataTypeManagerImpl::TypeStartCallback(
   // If the type started normally, continue to the next type.
   if (result == DataTypeController::OK ||
       result == DataTypeController::OK_FIRST_RUN) {
-    LOG(INFO) << "Started " << started_dtc->name();
+    VLOG(1) << "Started " << started_dtc->name();
     StartNextType();
     return;
   }
@@ -280,7 +280,7 @@ void DataTypeManagerImpl::TypeStartCallback(
   // Any other result is a fatal error.  Shut down any types we've
   // managed to start up to this point and pass the result to the
   // callback.
-  LOG(INFO) << "Failed " << started_dtc->name();
+  VLOG(1) << "Failed " << started_dtc->name();
   ConfigureResult configure_result = DataTypeManager::ABORTED;
   switch (result) {
     case DataTypeController::ABORTED:
@@ -300,7 +300,7 @@ void DataTypeManagerImpl::TypeStartCallback(
 }
 
 void DataTypeManagerImpl::Stop() {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (state_ == STOPPED)
     return;
 
@@ -350,7 +350,7 @@ void DataTypeManagerImpl::FinishStop() {
     DataTypeController* dtc = (*it).second;
     if (dtc->state() == DataTypeController::RUNNING) {
       dtc->Stop();
-      LOG(INFO) << "Stopped " << dtc->name();
+      VLOG(1) << "Stopped " << dtc->name();
     }
   }
   state_ = STOPPED;

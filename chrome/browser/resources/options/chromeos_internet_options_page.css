@@ -2,6 +2,10 @@
  * TODO(xiyuan): Remove the section overrides when options_page.css uses the
  * new style.
  */
+#inetTitle {
+  border: none;
+}
+
 #internetPage > section {
   display: block;
 }
@@ -13,6 +17,10 @@
 
 #internetPage > section[hidden] {
   display: none;
+}
+
+#networkingControls {
+  text-align: center;
 }
 
 .networks {
@@ -88,6 +96,7 @@
 .network-item > * > button {
   min-width: 100px;
   visibility: hidden;
+  margin-right: 5px;
 }
 
 .network-item:hover > * > button,
@@ -103,18 +112,51 @@
   -webkit-box-flex: 1;
 }
 
+#detailsInternetPage {
+  min-width: 400px;
+  min-height: 360px;
+}
+
+.details-button {
+  float: right;
+}
+
+html[dir='rtl'] .details-button {
+  float: left;
+}
+
 #detailsInternetPage:not([connected]) > #advancedSection,
 #detailsInternetPage[connecting] > * > #detailsInternetLogin,
 #detailsInternetPage[connected] > * > #detailsInternetLogin,
-#detailsInternetPage[ethernet] > #wirelessOptions,
-#detailsInternetPage[ethernet] > #certNetwork,
-#detailsInternetPage[ethernet] > #certNetworkPkcs,
-#detailsInternetPage[ethernet] > #passwordNetwork,
-#detailsInternetPage:not([password]) > #passwordNetwork,
-#detailsInternetPage[cert] > #passwordNetwork,
-#detailsInternetPage:not([cert]) > #certNetwork,
-#detailsInternetPage:not([cert]) > #certNetworkPkcs,
-#detailsInternetPage:not([certPkcs]) > #certNetworkPkcs,
-#detailsInternetPage[certPkcs] > #certNetwork {
+#detailsInternetPage[ethernet] .wifi-details,
+#detailsInternetPage[ethernet] .cellular-details,
+#detailsInternetPage[cellular] .wifi-details,
+#detailsInternetPage[wireless] .cellular-details,
+#detailsInternetPage[cellplanloading] .no-plan-info,
+#detailsInternetPage[cellplanloading] .plan-details-info,
+#detailsInternetPage[hascellplan] .plan-loading-info,
+#detailsInternetPage[hascellplan] .no-plan-info,
+#detailsInternetPage[nocellplan] .plan-loading-info,
+#detailsInternetPage[nocellplan] .plan-details-info,
+#detailsInternetPage:not([gsm]) .gsm-only,
+#detailsInternetPage:not([password]) .password-details,
+#detailsInternetPage[cert] .password-details,
+#detailsInternetPage[certPkcs] .password-details,
+#detailsInternetPage:not([cert]) .cert-details,
+#detailsInternetPage:not([certPkcs]) .cert-pkcs-details {
+  display: none;
+}
+
+#wirelessButtons > * > button {
+  display: block;
+}
+
+
+#wirelessButtons[wifiEnabled] > * > #enableWifi,
+#wirelessButtons:not([wifiEnabled]) > * > #disableWifi,
+#wirelessButtons[cellularEnabled] > * > #enableCellular,
+#wirelessButtons:not([cellularEnabled]) > * > #disableCellular,
+#wirelessButtons:not([cellularAvail]) > * > #disableCellular,
+#wirelessButtons:not([cellularAvail]) > * > #enableCellular {
   display: none;
 }

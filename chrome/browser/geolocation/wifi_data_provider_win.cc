@@ -26,8 +26,9 @@
 #include <windows.h>
 #include <winioctl.h>
 #include <wlanapi.h>
+
 #include "base/utf_string_conversions.h"
-#include "base/win_util.h"
+#include "base/win/windows_version.h"
 #include "chrome/browser/geolocation/wifi_data_provider_common.h"
 #include "chrome/browser/geolocation/wifi_data_provider_common_win.h"
 
@@ -194,7 +195,7 @@ WindowsWlanApi::~WindowsWlanApi() {
 }
 
 WindowsWlanApi* WindowsWlanApi::Create() {
-  if (win_util::GetWinVersion() < win_util::WINVERSION_VISTA)
+  if (base::win::GetVersion() < base::win::VERSION_VISTA)
     return NULL;
   // We use an absolute path to load the DLL to avoid DLL preloading attacks.
   string16 system_directory;
@@ -266,10 +267,10 @@ bool WindowsWlanApi::GetAccessPointData(
     // when it's in this state. http://crbug.com/39300
     if (interface_list->InterfaceInfo[i].isState ==
         wlan_interface_state_associating) {
-      LOG(INFO) << "Skipping wifi scan on adapter " << i << " ("
-                << interface_list->InterfaceInfo[i].strInterfaceDescription
-                << ") in 'associating' state. Repeated occurrences indicates "
-                << "a non-responding adapter.";
+      LOG(WARNING) << "Skipping wifi scan on adapter " << i << " ("
+                   << interface_list->InterfaceInfo[i].strInterfaceDescription
+                   << ") in 'associating' state. Repeated occurrences "
+                      "indicates a non-responding adapter.";
       continue;
     }
     GetInterfaceDataWLAN(wlan_handle,

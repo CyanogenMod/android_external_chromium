@@ -39,6 +39,7 @@ var OptionsPage = options.OptionsPage;
         OptionsPage.showOverlay('clearBrowserDataOverlay');
         chrome.send('coreOptionsUserMetricsAction', ['Options_ClearData']);
       };
+
       // 'metricsReportingEnabled' element is only present on Chrome branded
       // builds.
       if ($('metricsReportingEnabled')) {
@@ -47,6 +48,7 @@ var OptionsPage = options.OptionsPage;
               [String(event.target.checked)]);
         };
       }
+
       $('autoOpenFileTypesResetToDefault').onclick = function(event) {
         chrome.send('autoOpenFileTypesAction');
       };
@@ -54,6 +56,14 @@ var OptionsPage = options.OptionsPage;
         OptionsPage.showPageByName('fontSettings');
         chrome.send('coreOptionsUserMetricsAction', ['Options_FontSettings']);
       };
+      $('optionsReset').onclick = function(event) {
+        AlertOverlay.show(undefined,
+            localStrings.getString('optionsResetMessage'),
+            localStrings.getString('optionsResetOkLabel'),
+            localStrings.getString('optionsResetCancelLabel'),
+            function() { chrome.send('resetToDefaults'); });
+      }
+
       if (cr.isWindows || cr.isMac) {
         $('certificatesManageButton').onclick = function(event) {
           chrome.send('showManageSSLCertificates');
@@ -66,14 +76,8 @@ var OptionsPage = options.OptionsPage;
                       ['Options_ManageSSLCertificates']);
         };
       }
+
       if (!cr.isChromeOS) {
-        $('optionsReset').onclick = function(event) {
-          AlertOverlay.show(undefined,
-              localStrings.getString('optionsResetMessage'),
-              localStrings.getString('optionsResetOkLabel'),
-              localStrings.getString('optionsResetCancelLabel'),
-              function() { chrome.send('resetToDefaults'); });
-        }
         $('proxiesConfigureButton').onclick = function(event) {
           chrome.send('showNetworkProxySettings');
         };
@@ -104,8 +108,36 @@ var OptionsPage = options.OptionsPage;
           chrome.send('useSSL2CheckboxAction',
               [String($('sslUseSSL2').checked)]);
         };
+        $('sslUseSSL3').onclick = function(event) {
+          chrome.send('useSSL3CheckboxAction',
+              [String($('sslUseSSL3').checked)]);
+        };
+        $('sslUseTLS1').onclick = function(event) {
+          chrome.send('useTLS1CheckboxAction',
+              [String($('sslUseTLS1').checked)]);
+        };
         $('gearSettingsConfigureGearsButton').onclick = function(event) {
           chrome.send('showGearsSettings');
+        };
+      }
+
+      // 'cloudPrintProxyEnabled' is true for Chrome branded builds on
+      // certain platforms, or could be enabled by a lab.
+      if (!cr.isChromeOS &&
+          localStrings.getString('enable-cloud-print-proxy') == 'true') {
+        $('cloudPrintProxySetupButton').onclick = function(event) {
+          if ($('cloudPrintProxyManageButton').style.display == 'none') {
+            // Disable the button, set it's text to the intermediate state.
+            $('cloudPrintProxySetupButton').textContent =
+              localStrings.getString('cloudPrintProxyEnablingButton');
+            $('cloudPrintProxySetupButton').disabled = true;
+            chrome.send('showCloudPrintSetupDialog');
+          } else {
+            chrome.send('disableCloudPrintProxy');
+          }
+        };
+        $('cloudPrintProxyManageButton').onclick = function(event) {
+          chrome.send('showCloudPrintManagePage');
         };
       }
     },
@@ -153,13 +185,45 @@ var OptionsPage = options.OptionsPage;
   };
 
   // Set the checked state for the sslCheckRevocation checkbox.
-  AdvancedOptions.SetCheckRevocationCheckboxState = function(checked) {
+  AdvancedOptions.SetCheckRevocationCheckboxState = function(checked,
+      disabled) {
     $('sslCheckRevocation').checked = checked;
+    $('sslCheckRevocation').disabled = disabled;
   };
 
   // Set the checked state for the sslUseSSL2 checkbox.
-  AdvancedOptions.SetUseSSL2CheckboxState = function(checked) {
+  AdvancedOptions.SetUseSSL2CheckboxState = function(checked, disabled) {
     $('sslUseSSL2').checked = checked;
+    $('sslUseSSL2').disabled = disabled;
+  };
+
+  // Set the checked state for the sslUseSSL3 checkbox.
+  AdvancedOptions.SetUseSSL3CheckboxState = function(checked, disabled) {
+    $('sslUseSSL3').checked = checked;
+    $('sslUseSSL3').disabled = disabled;
+  };
+
+  // Set the checked state for the sslUseTLS1 checkbox.
+  AdvancedOptions.SetUseTLS1CheckboxState = function(checked, disabled) {
+    $('sslUseTLS1').checked = checked;
+    $('sslUseTLS1').disabled = disabled;
+  };
+
+  // Set the Cloud Print proxy UI to enabled, disabled, or processing.
+  AdvancedOptions.SetupCloudPrintProxySection = function(disabled, label) {
+    if (!cr.isChromeOS) {
+      $('cloudPrintProxyLabel').textContent = label;
+      if (disabled) {
+        $('cloudPrintProxySetupButton').textContent =
+          localStrings.getString('cloudPrintProxyDisabledButton');
+        $('cloudPrintProxyManageButton').style.display = 'none';
+      } else {
+        $('cloudPrintProxySetupButton').textContent =
+          localStrings.getString('cloudPrintProxyEnabledButton');
+        $('cloudPrintProxyManageButton').style.display = 'inline';
+      }
+      $('cloudPrintProxySetupButton').disabled = false;
+    }
   };
 
   // Export

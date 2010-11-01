@@ -42,7 +42,7 @@
 // before calling GetLongPathName. We do this because calling GetLongPathName
 // when running under protected mode IE (a low integrity process) can result in
 // a virtualized path being returned, which is wrong if you only plan to read.
-// TODO(juberti): Waiting to hear back from IE team on whether this is the
+// TODO: Waiting to hear back from IE team on whether this is the
 // best approach; IEIsProtectedModeProcess is another possible solution.
 
 namespace talk_base {

@@ -89,6 +89,7 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
   virtual BackingStore* AllocBackingStore(const gfx::Size& size);
   virtual VideoLayer* AllocVideoLayer(const gfx::Size& size);
 #if defined(OS_MACOSX)
+  virtual void SetTakesFocusOnlyOnMouseDown(bool flag) {}
   virtual void ShowPopupWithItems(gfx::Rect bounds,
                                   int item_height,
                                   double item_font_size,
@@ -100,6 +101,9 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
   virtual void SetActive(bool active);
   virtual void SetWindowVisibility(bool visible) {}
   virtual void WindowFrameChanged() {}
+  virtual void SetPluginImeEnabled(bool enabled, int plugin_id);
+  virtual bool PostProcessEventForPluginIme(
+      const NativeWebKeyboardEvent& event);
   virtual gfx::PluginWindowHandle AllocateFakePluginWindowHandle(
       bool opaque,
       bool root);

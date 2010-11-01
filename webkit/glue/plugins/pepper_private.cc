@@ -7,24 +7,34 @@
 #include "webkit/glue/plugins/pepper_private.h"
 
 #include "app/resource_bundle.h"
+#include "base/metrics/histogram.h"
 #include "base/utf_string_conversions.h"
 #include "grit/webkit_resources.h"
 #include "grit/webkit_strings.h"
 #include "skia/ext/platform_canvas.h"
+#include "third_party/ppapi/c/pp_resource.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/icu/public/i18n/unicode/usearch.h"
 #include "webkit/glue/webkit_glue.h"
 #include "webkit/glue/plugins/pepper_image_data.h"
+#include "webkit/glue/plugins/pepper_plugin_delegate.h"
+#include "webkit/glue/plugins/pepper_plugin_instance.h"
 #include "webkit/glue/plugins/pepper_plugin_module.h"
 #include "webkit/glue/plugins/pepper_var.h"
 #include "webkit/glue/plugins/ppb_private.h"
+#include "webkit/glue/plugins/pepper_var.h"
 
 namespace pepper {
 
 #if defined(OS_LINUX)
 class PrivateFontFile : public Resource {
  public:
-  PrivateFontFile(PluginModule* module, int fd) : Resource(module), fd_(fd) {}
-  virtual ~PrivateFontFile() {}
+  PrivateFontFile(PluginModule* module, int fd)
+      : Resource(module),
+        fd_(fd) {
+  }
+  virtual ~PrivateFontFile() {
+  }
 
   // Resource overrides.
   PrivateFontFile* AsPrivateFontFile() { return this; }
@@ -74,13 +84,18 @@ static const ResourceImageInfo kResourceImageMap[] = {
 };
 
 PP_Var GetLocalizedString(PP_Module module_id, PP_ResourceString string_id) {
-  PluginModule* module = PluginModule::FromPPModule(module_id);
+  PluginModule* module = ResourceTracker::Get()->GetModule(module_id);
   if (!module)
-    return PP_MakeVoid();
+    return PP_MakeUndefined();
 
   std::string rv;
-  if (string_id == PP_RESOURCESTRING_PDFGETPASSWORD)
+  if (string_id == PP_RESOURCESTRING_PDFGETPASSWORD) {
     rv = UTF16ToUTF8(webkit_glue::GetLocalizedString(IDS_PDF_NEED_PASSWORD));
+  } else if (string_id == PP_RESOURCESTRING_PDFLOADING) {
+    rv = UTF16ToUTF8(webkit_glue::GetLocalizedString(IDS_PDF_PAGE_LOADING));
+  } else {
+    NOTREACHED();
+  }
 
   return StringVar::StringToPPVar(module, rv);
 }
@@ -99,11 +114,11 @@ PP_Resource GetResourceImage(PP_Module module_id, PP_ResourceImage image_id) {
   SkBitmap* res_bitmap =
       ResourceBundle::GetSharedInstance().GetBitmapNamed(res_id);
 
-  PluginModule* module = PluginModule::FromPPModule(module_id);
+  PluginModule* module = ResourceTracker::Get()->GetModule(module_id);
   if (!module)
     return 0;
   scoped_refptr<pepper::ImageData> image_data(new pepper::ImageData(module));
-  if (!image_data->Init(PP_IMAGEDATAFORMAT_BGRA_PREMUL,
+  if (!image_data->Init(ImageData::GetNativeImageDataFormat(),
                         res_bitmap->width(), res_bitmap->height(), false)) {
     return 0;
   }
@@ -124,16 +139,22 @@ PP_Resource GetResourceImage(PP_Module module_id, PP_ResourceImage image_id) {
 
 PP_Resource GetFontFileWithFallback(
     PP_Module module_id,
-    const PP_PrivateFontFileDescription* description) {
+    const PP_FontDescription_Dev* description,
+    PP_PrivateFontCharset charset) {
 #if defined(OS_LINUX)
-  PluginModule* module = PluginModule::FromPPModule(module_id);
+  PluginModule* module = ResourceTracker::Get()->GetModule(module_id);
   if (!module)
     return 0;
 
-  int fd = webkit_glue::MatchFontWithFallback(description->face,
-                                              description->weight >= 700,
-                                              description->italic,
-                                              description->charset);
+  scoped_refptr<StringVar> face_name(StringVar::FromPPVar(description->face));
+  if (!face_name)
+    return 0;
+
+  int fd = webkit_glue::MatchFontWithFallback(
+      face_name->value().c_str(),
+      description->weight >= PP_FONTWEIGHT_BOLD,
+      description->italic,
+      charset);
   if (fd == -1)
     return 0;
 
@@ -162,11 +183,91 @@ bool GetFontTableForPrivateFontFile(PP_Resource font_file,
 #endif
 }
 
+void SearchString(PP_Module module,
+                  const unsigned short* input_string,
+                  const unsigned short* input_term,
+                  bool case_sensitive,
+                  PP_PrivateFindResult** results,
+                  int* count) {
+  const char16* string = reinterpret_cast<const char16*>(input_string);
+  const char16* term = reinterpret_cast<const char16*>(input_term);
+
+  UErrorCode status = U_ZERO_ERROR;
+  UStringSearch* searcher = usearch_open(
+      term, -1, string, -1, webkit_glue::GetWebKitLocale().c_str(), 0,
+      &status);
+  DCHECK(status == U_ZERO_ERROR || status == U_USING_FALLBACK_WARNING ||
+         status == U_USING_DEFAULT_WARNING);
+  UCollationStrength strength = case_sensitive ? UCOL_TERTIARY : UCOL_PRIMARY;
+
+  UCollator* collator = usearch_getCollator(searcher);
+  if (ucol_getStrength(collator) != strength) {
+    ucol_setStrength(collator, strength);
+    usearch_reset(searcher);
+  }
+
+  status = U_ZERO_ERROR;
+  int match_start = usearch_first(searcher, &status);
+  DCHECK(status == U_ZERO_ERROR);
+
+  std::vector<PP_PrivateFindResult> pp_results;
+  while (match_start != USEARCH_DONE) {
+    size_t matched_length = usearch_getMatchedLength(searcher);
+    PP_PrivateFindResult result;
+    result.start_index = match_start;
+    result.length = matched_length;
+    pp_results.push_back(result);
+    match_start = usearch_next(searcher, &status);
+    DCHECK(status == U_ZERO_ERROR);
+  }
+
+  *count = pp_results.size();
+  if (*count) {
+    *results = reinterpret_cast<PP_PrivateFindResult*>(
+        malloc(*count * sizeof(PP_PrivateFindResult)));
+    memcpy(*results, &pp_results[0], *count * sizeof(PP_PrivateFindResult));
+  } else {
+    *results = NULL;
+  }
+
+  usearch_close(searcher);
+}
+
+void DidStartLoading(PP_Instance instance_id) {
+  PluginInstance* instance = ResourceTracker::Get()->GetInstance(instance_id);
+  if (!instance)
+    return;
+  instance->delegate()->DidStartLoading();
+}
+
+void DidStopLoading(PP_Instance instance_id) {
+  PluginInstance* instance = ResourceTracker::Get()->GetInstance(instance_id);
+  if (!instance)
+    return;
+  instance->delegate()->DidStopLoading();
+}
+
+void SetContentRestriction(PP_Instance instance_id, int restrictions) {
+  PluginInstance* instance = ResourceTracker::Get()->GetInstance(instance_id);
+  if (!instance)
+    return;
+  instance->delegate()->SetContentRestriction(restrictions);
+}
+
+void HistogramPDFPageCount(int count) {
+  UMA_HISTOGRAM_COUNTS_10000("PDF.PageCount", count);
+}
+
 const PPB_Private ppb_private = {
   &GetLocalizedString,
   &GetResourceImage,
   &GetFontFileWithFallback,
   &GetFontTableForPrivateFontFile,
+  &SearchString,
+  &DidStartLoading,
+  &DidStopLoading,
+  &SetContentRestriction,
+  &HistogramPDFPageCount
 };
 
 }  // namespace

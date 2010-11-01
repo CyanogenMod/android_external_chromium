@@ -13,16 +13,16 @@
 #endif
 #include "base/file_path.h"
 #include "base/file_util.h"
-#include "base/histogram.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
+#include "base/metrics/histogram.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/profile.h"
 #ifndef ANDROID
 // Notifications do not compile on Android and are the cause
@@ -145,7 +145,7 @@ void PrefService::InitFromStorage() {
   }
 
   if (message_id) {
-    ChromeThread::PostTask(ChromeThread::UI, FROM_HERE,
+    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
         NewRunnableFunction(&NotifyReadError, this, message_id));
   }
   UMA_HISTOGRAM_ENUMERATION("PrefService.ReadError", error, 20);
@@ -401,6 +401,7 @@ void PrefService::RegisterPreference(const char* path, Value* default_value) {
     pref_value_store_->SetDefaultPrefValue(path, Value::CreateNullValue());
   } else {
     // Hand off ownership.
+    DCHECK(!PrefStore::IsUseDefaultSentinelValue(default_value));
     pref_value_store_->SetDefaultPrefValue(path, scoped_value.release());
   }
 
@@ -521,7 +522,9 @@ DictionaryValue* PrefService::GetMutableDictionary(const char* path) {
 
   DictionaryValue* dict = NULL;
   Value* tmp_value = NULL;
-  if (!pref_value_store_->GetValue(path, &tmp_value) ||
+  // Look for an existing preference in the user store. If it doesn't
+  // exist or isn't the correct type, create a new user preference.
+  if (!pref_value_store_->GetUserValue(path, &tmp_value) ||
       !tmp_value->IsType(Value::TYPE_DICTIONARY)) {
     dict = new DictionaryValue;
     pref_value_store_->SetUserPrefValue(path, dict);
@@ -546,7 +549,9 @@ ListValue* PrefService::GetMutableList(const char* path) {
 
   ListValue* list = NULL;
   Value* tmp_value = NULL;
-  if (!pref_value_store_->GetValue(path, &tmp_value) ||
+  // Look for an existing preference in the user store. If it doesn't
+  // exist or isn't the correct type, create a new user preference.
+  if (!pref_value_store_->GetUserValue(path, &tmp_value) ||
       !tmp_value->IsType(Value::TYPE_LIST)) {
     list = new ListValue;
     pref_value_store_->SetUserPrefValue(path, list);

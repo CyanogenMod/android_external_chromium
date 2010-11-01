@@ -195,14 +195,16 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, FindInPageFrames) {
   EXPECT_EQ(0, ordinal);
 }
 
-std::string FocusedOnPage(TabContents* tab_contents) {
-  std::string result;
-  ui_test_utils::ExecuteJavaScriptAndExtractString(
+// Specifying a prototype so that we can add the WARN_UNUSED_RESULT attribute.
+bool FocusedOnPage(TabContents* tab_contents, std::string* result)
+    WARN_UNUSED_RESULT;
+
+bool FocusedOnPage(TabContents* tab_contents, std::string* result) {
+  return ui_test_utils::ExecuteJavaScriptAndExtractString(
       tab_contents->render_view_host(),
       L"",
       L"window.domAutomationController.send(getFocusedElement());",
-      &result);
-  return result;
+      result);
 }
 
 // This tests the FindInPage end-state, in other words: what is focused when you
@@ -219,7 +221,9 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, FindInPageEndState) {
   ASSERT_TRUE(NULL != tab_contents);
 
   // Verify that nothing has focus.
-  ASSERT_STREQ("{nothing focused}", FocusedOnPage(tab_contents).c_str());
+  std::string result;
+  ASSERT_TRUE(FocusedOnPage(tab_contents, &result));
+  ASSERT_STREQ("{nothing focused}", result.c_str());
 
   // Search for a text that exists within a link on the page.
   int ordinal = 0;
@@ -231,7 +235,8 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, FindInPageEndState) {
   tab_contents->StopFinding(FindBarController::kKeepSelection);
 
   // Verify that the link is focused.
-  EXPECT_STREQ("link1", FocusedOnPage(tab_contents).c_str());
+  ASSERT_TRUE(FocusedOnPage(tab_contents, &result));
+  EXPECT_STREQ("link1", result.c_str());
 
   // Search for a text that exists within a link on the page.
   EXPECT_EQ(1, FindInPageWchar(tab_contents, L"Google",
@@ -239,18 +244,18 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, FindInPageEndState) {
   EXPECT_EQ(1, ordinal);
 
   // Move the selection to link 1, after searching.
-  std::string result;
-  ui_test_utils::ExecuteJavaScriptAndExtractString(
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractString(
       tab_contents->render_view_host(),
       L"",
       L"window.domAutomationController.send(selectLink1());",
-      &result);
+      &result));
 
   // End the find session.
   tab_contents->StopFinding(FindBarController::kKeepSelection);
 
   // Verify that link2 is not focused.
-  EXPECT_STREQ("", FocusedOnPage(tab_contents).c_str());
+  ASSERT_TRUE(FocusedOnPage(tab_contents, &result));
+  EXPECT_STREQ("", result.c_str());
 }
 
 // This test loads a single-frame page and makes sure the ordinal returned makes
@@ -314,11 +319,11 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest,
 
   // Move the selection to link 1, after searching.
   std::string result;
-  ui_test_utils::ExecuteJavaScriptAndExtractString(
+  ASSERT_TRUE(ui_test_utils::ExecuteJavaScriptAndExtractString(
       tab_contents->render_view_host(),
       L"",
       L"window.domAutomationController.send(selectLink1());",
-      &result);
+      &result));
 
   // Do a find-next after the selection.  This should move forward
   // from there to the 3rd instance of 'google'.
@@ -818,11 +823,9 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, PreferPreviousSearch) {
   EXPECT_EQ(1, FindInPageWchar(tab1, L"Default", kFwd, kIgnoreCase, &ordinal));
 
   // Create a second tab.
-  Browser* browser_used = NULL;
-  browser()->AddTabWithURL(url, GURL(), PageTransition::TYPED, -1,
-                           TabStripModel::ADD_SELECTED, NULL, std::string(),
-                           &browser_used);
-  EXPECT_EQ(browser(), browser_used);
+  Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
+  browser()->AddTabWithURL(&params);
+  EXPECT_EQ(browser(), params.target);
   browser()->SelectTabContentsAt(1, false);
   TabContents* tab2 = browser()->GetSelectedTabContents();
   EXPECT_NE(tab1, tab2);
@@ -896,11 +899,9 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, PrepopulateInNewTab) {
   EXPECT_EQ(1, FindInPageWchar(tab1, L"page", kFwd, kIgnoreCase, &ordinal));
 
   // Now create a second tab and load the same page.
-  Browser* browser_used = NULL;
-  browser()->AddTabWithURL(url, GURL(), PageTransition::TYPED, -1,
-                           TabStripModel::ADD_SELECTED, NULL, std::string(),
-                           &browser_used);
-  EXPECT_EQ(browser(), browser_used);
+  Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
+  browser()->AddTabWithURL(&params);
+  EXPECT_EQ(browser(), params.target);
   browser()->SelectTabContentsAt(1, false);
   TabContents* tab2 = browser()->GetSelectedTabContents();
   EXPECT_NE(tab1, tab2);
@@ -943,11 +944,9 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, PrepopulatePreserveLast) {
       FindBarController::kKeepSelection);
 
   // Now create a second tab and load the same page.
-  Browser* browser_used = NULL;
-  browser()->AddTabWithURL(url, GURL(), PageTransition::TYPED, -1,
-                           TabStripModel::ADD_SELECTED, NULL, std::string(),
-                           &browser_used);
-  EXPECT_EQ(browser(), browser_used);
+  Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
+  browser()->AddTabWithURL(&params);
+  EXPECT_EQ(browser(), params.target);
   browser()->SelectTabContentsAt(1, false);
   TabContents* tab2 = browser()->GetSelectedTabContents();
   EXPECT_NE(tab1, tab2);
@@ -1019,11 +1018,9 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, MAYBE_NoIncognitoPrepopulate) {
   // Open a new incognito window and navigate to the same page.
   Profile* incognito_profile = browser()->profile()->GetOffTheRecordProfile();
   Browser* incognito_browser = Browser::Create(incognito_profile);
-  Browser* browser_used = NULL;
-  incognito_browser->AddTabWithURL(url, GURL(), PageTransition::START_PAGE, -1,
-                                   TabStripModel::ADD_SELECTED, NULL,
-                                   std::string(), &browser_used);
-  EXPECT_EQ(incognito_browser, browser_used);
+  Browser::AddTabWithURLParams params1(url, PageTransition::START_PAGE);
+  incognito_browser->AddTabWithURL(&params1);
+  EXPECT_EQ(incognito_browser, params1.target);
   ui_test_utils::WaitForNavigation(
       &incognito_browser->GetSelectedTabContents()->controller());
   incognito_browser->window()->Show();
@@ -1043,10 +1040,9 @@ IN_PROC_BROWSER_TEST_F(FindInPageControllerTest, MAYBE_NoIncognitoPrepopulate) {
       FindBarController::kKeepSelection);
 
   // Now open a new tab in the original (non-incognito) browser.
-  browser()->AddTabWithURL(url, GURL(), PageTransition::TYPED, -1,
-                           TabStripModel::ADD_SELECTED, NULL, std::string(),
-                           &browser_used);
-  EXPECT_EQ(browser(), browser_used);
+  Browser::AddTabWithURLParams params2(url, PageTransition::TYPED);
+  browser()->AddTabWithURL(&params2);
+  EXPECT_EQ(browser(), params2.target);
   browser()->SelectTabContentsAt(1, false);
   TabContents* tab2 = browser()->GetSelectedTabContents();
   EXPECT_NE(tab1, tab2);

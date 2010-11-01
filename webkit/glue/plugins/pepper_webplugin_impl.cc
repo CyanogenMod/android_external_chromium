@@ -4,10 +4,14 @@
 
 #include "webkit/glue/plugins/pepper_webplugin_impl.h"
 
+#include <cmath>
+
 #include "base/message_loop.h"
 #include "third_party/ppapi/c/pp_var.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebPluginParams.h"
+#include "third_party/WebKit/WebKit/chromium/public/WebPoint.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebRect.h"
+#include "third_party/WebKit/WebKit/chromium/public/WebView.h"
 #include "webkit/glue/plugins/pepper_plugin_instance.h"
 #include "webkit/glue/plugins/pepper_plugin_module.h"
 #include "webkit/glue/plugins/pepper_url_loader.h"
@@ -16,11 +20,21 @@
 using WebKit::WebCanvas;
 using WebKit::WebPluginContainer;
 using WebKit::WebPluginParams;
+using WebKit::WebPoint;
 using WebKit::WebRect;
 using WebKit::WebString;
+using WebKit::WebURL;
 using WebKit::WebVector;
+using WebKit::WebView;
 
 namespace pepper {
+
+struct WebPluginImpl::InitData {
+  scoped_refptr<PluginModule> module;
+  base::WeakPtr<PluginDelegate> delegate;
+  std::vector<std::string> arg_names;
+  std::vector<std::string> arg_values;
+};
 
 WebPluginImpl::WebPluginImpl(
     PluginModule* plugin_module,
@@ -117,7 +131,7 @@ void WebPluginImpl::didReceiveResponse(
     const WebKit::WebURLResponse& response) {
   DCHECK(!document_loader_);
 
-  document_loader_ = new URLLoader(instance_);
+  document_loader_ = new URLLoader(instance_, true);
   document_loader_->didReceiveResponse(NULL, response);
 
   if (!instance_->HandleDocumentLoad(document_loader_))
@@ -157,16 +171,20 @@ bool WebPluginImpl::hasSelection() const {
   return !selectionAsText().isEmpty();
 }
 
-WebKit::WebString WebPluginImpl::selectionAsText() const {
+WebString WebPluginImpl::selectionAsText() const {
   return instance_->GetSelectedText(false);
 }
 
-WebKit::WebString WebPluginImpl::selectionAsMarkup() const {
+WebString WebPluginImpl::selectionAsMarkup() const {
   return instance_->GetSelectedText(true);
 }
 
-void WebPluginImpl::setZoomFactor(float scale, bool text_only) {
-  instance_->Zoom(scale, text_only);
+WebURL WebPluginImpl::linkAtPosition(const WebPoint& position) const {
+  return GURL(instance_->GetLinkAtPosition(position));
+}
+
+void WebPluginImpl::setZoomLevel(double level, bool text_only) {
+  instance_->Zoom(WebView::zoomLevelToZoomFactor(level), text_only);
 }
 
 bool WebPluginImpl::startFind(const WebKit::WebString& search_text,

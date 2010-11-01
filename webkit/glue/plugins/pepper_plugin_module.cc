@@ -32,8 +32,10 @@
 #include "third_party/ppapi/c/dev/ppb_url_request_info_dev.h"
 #include "third_party/ppapi/c/dev/ppb_url_response_info_dev.h"
 #include "third_party/ppapi/c/dev/ppb_url_util_dev.h"
+#include "third_party/ppapi/c/dev/ppb_var_deprecated.h"
 #include "third_party/ppapi/c/dev/ppb_video_decoder_dev.h"
 #include "third_party/ppapi/c/dev/ppb_widget_dev.h"
+#include "third_party/ppapi/c/dev/ppb_zoom_dev.h"
 #include "third_party/ppapi/c/trusted/ppb_image_data_trusted.h"
 #include "third_party/ppapi/c/pp_module.h"
 #include "third_party/ppapi/c/pp_resource.h"
@@ -42,7 +44,6 @@
 #include "third_party/ppapi/c/ppb_graphics_2d.h"
 #include "third_party/ppapi/c/ppb_image_data.h"
 #include "third_party/ppapi/c/ppb_instance.h"
-#include "third_party/ppapi/c/ppb_var.h"
 #include "third_party/ppapi/c/ppp.h"
 #include "third_party/ppapi/c/ppp_instance.h"
 #include "webkit/glue/plugins/pepper_audio.h"
@@ -123,6 +124,13 @@ double GetTime() {
   return base::Time::Now().ToDoubleT();
 }
 
+double GetTickTime() {
+  // TODO(brettw) http://code.google.com/p/chromium/issues/detail?id=57448
+  // This should be a tick timer rather than wall clock time, but needs to
+  // match message times, which also currently use wall clock time.
+  return GetTime();
+}
+
 void CallOnMainThread(int delay_in_msec,
                       PP_CompletionCallback callback,
                       int32_t result) {
@@ -142,6 +150,7 @@ const PPB_Core core_interface = {
   &MemAlloc,
   &MemFree,
   &GetTime,
+  &GetTickTime,
   &CallOnMainThread,
   &IsMainThread
 };
@@ -170,33 +179,17 @@ void QuitMessageLoop() {
 }
 
 uint32_t GetLiveObjectCount(PP_Module module_id) {
-  PluginModule* module = PluginModule::FromPPModule(module_id);
+  PluginModule* module = ResourceTracker::Get()->GetModule(module_id);
   if (!module)
     return static_cast<uint32_t>(-1);
   return ResourceTracker::Get()->GetLiveObjectsForModule(module);
-}
-
-PP_Resource GetInaccessibleFileRef(PP_Module module_id) {
-  PluginModule* module = PluginModule::FromPPModule(module_id);
-  if (!module)
-    return static_cast<uint32_t>(-1);
-  return FileRef::GetInaccessibleFileRef(module)->GetReference();
-}
-
-PP_Resource GetNonexistentFileRef(PP_Module module_id) {
-  PluginModule* module = PluginModule::FromPPModule(module_id);
-  if (!module)
-    return static_cast<uint32_t>(-1);
-  return FileRef::GetNonexistentFileRef(module)->GetReference();
 }
 
 const PPB_Testing_Dev testing_interface = {
   &ReadImageData,
   &RunMessageLoop,
   &QuitMessageLoop,
-  &GetLiveObjectCount,
-  &GetInaccessibleFileRef,
-  &GetNonexistentFileRef
+  &GetLiveObjectCount
 };
 
 // GetInterface ----------------------------------------------------------------
@@ -204,8 +197,8 @@ const PPB_Testing_Dev testing_interface = {
 const void* GetInterface(const char* name) {
   if (strcmp(name, PPB_CORE_INTERFACE) == 0)
     return &core_interface;
-  if (strcmp(name, PPB_VAR_INTERFACE) == 0)
-    return Var::GetInterface();
+  if (strcmp(name, PPB_VAR_DEPRECATED_INTERFACE) == 0)
+    return Var::GetDeprecatedInterface();
   if (strcmp(name, PPB_INSTANCE_INTERFACE) == 0)
     return PluginInstance::GetInterface();
   if (strcmp(name, PPB_IMAGEDATA_INTERFACE) == 0)
@@ -272,6 +265,8 @@ const void* GetInterface(const char* name) {
     return CharSet::GetInterface();
   if (strcmp(name, PPB_CURSOR_CONTROL_DEV_INTERFACE) == 0)
     return GetCursorControlInterface();
+  if (strcmp(name, PPB_ZOOM_DEV_INTERFACE) == 0)
+    return PluginInstance::GetZoomInterface();
 
   // Only support the testing interface when the command line switch is
   // specified. This allows us to prevent people from (ab)using this interface
@@ -288,6 +283,7 @@ const void* GetInterface(const char* name) {
 PluginModule::PluginModule()
     : initialized_(false),
       library_(NULL) {
+  pp_module_ = ResourceTracker::Get()->AddModule(this);
   GetMainThreadMessageLoop();  // Initialize the main thread message loop.
   GetLivePluginSet()->insert(this);
 }
@@ -315,6 +311,8 @@ PluginModule::~PluginModule() {
 
   if (library_)
     base::UnloadNativeLibrary(library_);
+
+  ResourceTracker::Get()->ModuleDeleted(pp_module_);
 }
 
 // static
@@ -339,14 +337,6 @@ scoped_refptr<PluginModule> PluginModule::CreateInternalModule(
 }
 
 // static
-PluginModule* PluginModule::FromPPModule(PP_Module module) {
-  PluginModule* lib = reinterpret_cast<PluginModule*>(module);
-  if (GetLivePluginSet()->find(lib) == GetLivePluginSet()->end())
-    return NULL;  // Invalid plugin.
-  return lib;
-}
-
-// static
 const PPB_Core* PluginModule::GetCore() {
   return &core_interface;
 }
@@ -356,7 +346,7 @@ bool PluginModule::InitFromEntryPoints(const EntryPoints& entry_points) {
     return true;
 
   // Attempt to run the initialization funciton.
-  int retval = entry_points.initialize_module(GetPPModule(), &GetInterface);
+  int retval = entry_points.initialize_module(pp_module(), &GetInterface);
   if (retval != 0) {
     LOG(WARNING) << "PPP_InitializeModule returned failure " << retval;
     return false;
@@ -418,10 +408,6 @@ bool PluginModule::LoadEntryPoints(const base::NativeLibrary& library,
                                                     "PPP_ShutdownModule"));
 
   return true;
-}
-
-PP_Module PluginModule::GetPPModule() const {
-  return reinterpret_cast<intptr_t>(this);
 }
 
 PluginInstance* PluginModule::CreateInstance(PluginDelegate* delegate) {

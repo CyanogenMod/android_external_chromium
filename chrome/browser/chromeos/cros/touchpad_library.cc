@@ -5,7 +5,7 @@
 #include "chrome/browser/chromeos/cros/touchpad_library.h"
 
 #include "base/message_loop.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 
 namespace chromeos {
@@ -17,16 +17,16 @@ class TouchpadLibraryImpl : public TouchpadLibrary {
 
   void SetSensitivity(int value) {
     if (CrosLibrary::Get()->EnsureLoaded()) {
-      ChromeThread::PostTask(
-          ChromeThread::FILE, FROM_HERE,
+      BrowserThread::PostTask(
+          BrowserThread::FILE, FROM_HERE,
           NewRunnableFunction(&SetTouchpadSensitivity, value));
     }
   }
 
   void SetTapToClick(bool enabled) {
     if (CrosLibrary::Get()->EnsureLoaded()) {
-      ChromeThread::PostTask(
-          ChromeThread::FILE, FROM_HERE,
+      BrowserThread::PostTask(
+          BrowserThread::FILE, FROM_HERE,
           NewRunnableFunction(&SetTouchpadTapToClick, enabled));
     }
   }

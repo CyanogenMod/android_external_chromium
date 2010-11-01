@@ -57,7 +57,7 @@ function EventsView(tableBodyId, filterInputId, filterCountId,
   this.filterInput_ = document.getElementById(filterInputId);
   this.filterCount_ = document.getElementById(filterCountId);
 
-  this.filterInput_.addEventListener("search",
+  this.filterInput_.addEventListener('search',
       this.onFilterTextChanged_.bind(this), true);
 
   document.getElementById(deleteSelectedId).onclick =
@@ -246,16 +246,13 @@ EventsView.prototype.Sort_ = function() {
  * On failure, returns null.
  */
 EventsView.prototype.parseDirective_ = function(sourceText, directive) {
-  // Check if at start of string.  Doesn't need preceding whitespace.
-  var regExp = new RegExp('^\\s*' + directive + ':(\\S*)\\s*', 'i');
-  var matchInfo = regExp.exec(sourceText);
-  if (matchInfo == null) {
-    // Check if not at start of string.  Must be preceded by whitespace.
-    regExp = new RegExp('\\s+' + directive + ':(\\S*)\\s*', 'i');
-    matchInfo = regExp.exec(sourceText);
-    if (matchInfo == null)
-      return null;
-  }
+  // Adding a leading space allows a single regexp to be used, regardless of
+  // whether or not the directive is at the start of the string.
+  sourceText = ' ' + sourceText;
+  regExp = new RegExp('\\s+' + directive + ':(\\S*)\\s*', 'i');
+  matchInfo = regExp.exec(sourceText);
+  if (matchInfo == null)
+    return null;
 
   return {'remainingText': sourceText.replace(regExp, ' ').trim(),
           'parameter': matchInfo[1]};
@@ -332,6 +329,42 @@ EventsView.prototype.parseRestrictDirectives_ = function(filterText, filter) {
   return filterText;
 };
 
+/**
+ * Parses all directives that take arbitrary strings as input,
+ * and updates |filter| accordingly.  Directives of these types
+ * are stored as lists.
+ *
+ * Returns |filterText| with all recognized directives removed.
+ */
+EventsView.prototype.parseStringDirectives_ = function(filterText, filter) {
+  var directives = ['type', 'id'];
+  for (var i = 0; i < directives.length; ++i) {
+    while (true) {
+      var directive = directives[i];
+      var filterInfo = this.parseDirective_(filterText, directive);
+      if (filterInfo == null)
+        break;
+      if (!filter[directive])
+        filter[directive] = [];
+      filter[directive].push(filterInfo.parameter);
+      filterText = filterInfo.remainingText;
+    }
+  }
+  return filterText;
+};
+
+/*
+ * Converts |filterText| into an object representing the filter.
+ */
+EventsView.prototype.createFilter_ = function(filterText) {
+  var filter = {};
+  filterText = filterText.toLowerCase();
+  filterText = this.parseRestrictDirectives_(filterText, filter);
+  filterText = this.parseStringDirectives_(filterText, filter);
+  filter.text = filterText.trim();
+  return filter;
+};
+
 EventsView.prototype.setFilter_ = function(filterText) {
   var lastComparisonFunction = this.comparisonFunction_;
   var lastDoSortBackwards = this.doSortBackwards_;
@@ -343,9 +376,7 @@ EventsView.prototype.setFilter_ = function(filterText) {
     this.Sort_();
   }
 
-  this.currentFilter_ = {};
-  filterText = this.parseRestrictDirectives_(filterText, this.currentFilter_);
-  this.currentFilter_.text = filterText.trim();
+  this.currentFilter_ = this.createFilter_(filterText);
 
   // Iterate through all of the rows and see if they match the filter.
   for (var id in this.sourceIdToEntryMap_) {
@@ -418,6 +449,14 @@ EventsView.prototype.onLogEntryAdded = function(logEntry) {
 };
 
 /**
+ * Returns the SourceEntry with the specified ID, if there is one.
+ * Otherwise, returns undefined.
+ */
+EventsView.prototype.getSourceEntry = function(id) {
+  return this.sourceIdToEntryMap_[id];
+};
+
+/**
  * Called whenever some log events are deleted.  |sourceIds| lists
  * the source IDs of all deleted log entries.
  */
@@ -483,6 +522,24 @@ EventsView.prototype.selectAll_ = function(event) {
     }
   }
   event.preventDefault();
+};
+
+EventsView.prototype.unselectAll_ = function() {
+  var entries = this.currentSelectedSources_.slice(0);
+  for (var i = 0; i < entries.length; ++i) {
+    entries[i].setSelected(false);
+  }
+};
+
+/**
+ * If |params| includes a query, replaces the current filter and unselects.
+ * all items.
+ */
+EventsView.prototype.setParameters = function(params) {
+  if (params.q) {
+    this.unselectAll_();
+    this.setFilterText_(params.q);
+  }
 };
 
 /**
@@ -552,5 +609,5 @@ EventsView.prototype.repaintFilterCounter_ = function() {
   this.outstandingRepaintFilterCounter_ = false;
   this.filterCount_.innerHTML = '';
   addTextNode(this.filterCount_,
-              this.numPostfilter_ + " of " + this.numPrefilter_);
+              this.numPostfilter_ + ' of ' + this.numPrefilter_);
 };

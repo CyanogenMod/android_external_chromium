@@ -66,10 +66,15 @@ enum {
 };
 
 struct CreationParams : public talk_base::MessageData {
-  CreationParams(BaseSession* s, bool r, VoiceChannel* c)
-      : transport_factory(s), rtcp(r), voice_channel(c),
+  CreationParams(BaseSession* session, const std::string& content_name,
+                 bool rtcp, VoiceChannel* voice_channel)
+      : session(session),
+        content_name(content_name),
+        rtcp(rtcp),
+        voice_channel(voice_channel),
         video_channel(NULL) {}
-  BaseSession* transport_factory;
+  BaseSession* session;
+  std::string content_name;
   bool rtcp;
   VoiceChannel* voice_channel;
   VideoChannel* video_channel;
@@ -232,7 +237,7 @@ bool ChannelManager::Init() {
         audio_out_device_.clear();
       }
       if (!SetVideoOptions(camera_device_)) {
-        // TODO(juberti): Consider resetting to the default cam here.
+        // TODO: Consider resetting to the default cam here.
         camera_device_.clear();
       }
       // Now apply the default video codec that has been set earlier.
@@ -269,14 +274,14 @@ void ChannelManager::Terminate() {
   initialized_ = false;
 }
 
-VoiceChannel* ChannelManager::CreateVoiceChannel(BaseSession* session,
-                                                 bool rtcp) {
-  CreationParams params(session, rtcp, NULL);
+VoiceChannel* ChannelManager::CreateVoiceChannel(
+    BaseSession* session, const std::string& content_name, bool rtcp) {
+  CreationParams params(session, content_name, rtcp, NULL);
   return (Send(MSG_CREATEVOICECHANNEL, &params)) ? params.voice_channel : NULL;
 }
 
-VoiceChannel* ChannelManager::CreateVoiceChannel_w(BaseSession* session,
-                                                   bool rtcp) {
+VoiceChannel* ChannelManager::CreateVoiceChannel_w(
+    BaseSession* session, const std::string& content_name, bool rtcp) {
   talk_base::CritScope cs(&crit_);
 
   // This is ok to alloc from a thread other than the worker thread
@@ -285,9 +290,9 @@ VoiceChannel* ChannelManager::CreateVoiceChannel_w(BaseSession* session,
   if (media_channel == NULL)
     return NULL;
 
-  VoiceChannel* voice_channel = new VoiceChannel(worker_thread_,
-                                                 media_engine_.get(),
-                                                 media_channel, session, rtcp);
+  VoiceChannel* voice_channel = new VoiceChannel(
+      worker_thread_, media_engine_.get(), media_channel,
+      session, content_name, rtcp);
   voice_channels_.push_back(voice_channel);
   return voice_channel;
 }
@@ -313,16 +318,16 @@ void ChannelManager::DestroyVoiceChannel_w(VoiceChannel* voice_channel) {
   delete voice_channel;
 }
 
-VideoChannel* ChannelManager::CreateVideoChannel(BaseSession* session,
-                                                 bool rtcp,
-                                                 VoiceChannel* voice_channel) {
-  CreationParams params(session, rtcp, voice_channel);
+VideoChannel* ChannelManager::CreateVideoChannel(
+    BaseSession* session, const std::string& content_name, bool rtcp,
+    VoiceChannel* voice_channel) {
+  CreationParams params(session, content_name, rtcp, voice_channel);
   return (Send(MSG_CREATEVIDEOCHANNEL, &params)) ? params.video_channel : NULL;
 }
 
-VideoChannel* ChannelManager::CreateVideoChannel_w(BaseSession* session,
-                                                  bool rtcp,
-                                                  VoiceChannel* voice_channel) {
+VideoChannel* ChannelManager::CreateVideoChannel_w(
+    BaseSession* session, const std::string& content_name, bool rtcp,
+    VoiceChannel* voice_channel) {
   talk_base::CritScope cs(&crit_);
 
   // This is ok to alloc from a thread other than the worker thread
@@ -334,10 +339,9 @@ VideoChannel* ChannelManager::CreateVideoChannel_w(BaseSession* session,
   if (media_channel == NULL)
     return NULL;
 
-  VideoChannel* video_channel = new VideoChannel(worker_thread_,
-                                                 media_engine_.get(),
-                                                 media_channel,
-                                                 session, rtcp, voice_channel);
+  VideoChannel* video_channel = new VideoChannel(
+      worker_thread_, media_engine_.get(), media_channel,
+      session, content_name, rtcp, voice_channel);
   video_channels_.push_back(video_channel);
   return video_channel;
 }
@@ -450,9 +454,6 @@ bool ChannelManager::SetAudioOptions_w(int opts, const Device* in_dev,
 
   // Set the audio devices
   if (ret) {
-    // Need to grab the critsection for this because SetSoundDevices in GIPS
-    // relies on a list of channels and our Terminate() method destroys channels
-    // from a different thread.
     talk_base::CritScope cs(&crit_);
     ret = media_engine_->SetSoundDevices(in_dev, out_dev);
   }
@@ -501,8 +502,6 @@ bool ChannelManager::SetVideoOptions(const std::string& cam_name) {
   // If we're running, tell the media engine about it.
   if (ret && initialized_) {
 #ifdef OSX
-    // Defer SequenceGrabber queries until call time as they can spin up the
-    // high power GPU.  Can remove once LMI moves to QTKit enumeration.
     Device sg_device;
     ret = device_manager_->QtKitToSgDevice(device.name, &sg_device);
     if (ret) {
@@ -650,7 +649,8 @@ void ChannelManager::OnMessage(talk_base::Message* message) {
   switch (message->message_id) {
     case MSG_CREATEVOICECHANNEL: {
       CreationParams* p = static_cast<CreationParams*>(data);
-      p->voice_channel = CreateVoiceChannel_w(p->transport_factory, p->rtcp);
+      p->voice_channel =
+          CreateVoiceChannel_w(p->session, p->content_name, p->rtcp);
       break;
     }
     case MSG_DESTROYVOICECHANNEL: {
@@ -661,7 +661,7 @@ void ChannelManager::OnMessage(talk_base::Message* message) {
     }
     case MSG_CREATEVIDEOCHANNEL: {
       CreationParams* p = static_cast<CreationParams*>(data);
-      p->video_channel = CreateVideoChannel_w(p->transport_factory,
+      p->video_channel = CreateVideoChannel_w(p->session, p->content_name,
                                               p->rtcp, p->voice_channel);
       break;
     }

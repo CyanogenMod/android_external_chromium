@@ -55,13 +55,19 @@ struct ContentInfo {
   const ContentDescription* description;
 };
 
+typedef std::vector<ContentInfo> ContentInfos;
+const ContentInfo* FindContentInfoByName(
+    const ContentInfos& contents, const std::string& name);
+const ContentInfo* FindContentInfoByType(
+    const ContentInfos& contents, const std::string& type);
+
 // Describes a collection of contents, each with its own name and
 // type.  Analgous to a <jingle> or <session> stanza.  Assumes that
 // contents are unique be name, but doesn't enforce that.
 class SessionDescription {
  public:
   SessionDescription() {}
-  explicit SessionDescription(const std::vector<ContentInfo>& contents) :
+  explicit SessionDescription(const ContentInfos& contents) :
       contents_(contents) {}
   const ContentInfo* GetContentByName(const std::string& name) const;
   const ContentInfo* FirstContentByType(const std::string& type) const;
@@ -69,20 +75,20 @@ class SessionDescription {
   void AddContent(const std::string& name,
                   const std::string& type,
                   const ContentDescription* description);
-  // TODO(pthatcher): Implement RemoveContent when it's needed for
+  // TODO: Implement RemoveContent when it's needed for
   // content-remove Jingle messages.
   // void RemoveContent(const std::string& name);
-  const std::vector<ContentInfo>& contents() const { return contents_; }
+  const ContentInfos& contents() const { return contents_; }
 
   ~SessionDescription() {
-    for (std::vector<ContentInfo>::iterator content = contents_.begin();
+    for (ContentInfos::iterator content = contents_.begin();
          content != contents_.end(); content++) {
       delete content->description;
     }
   }
 
  private:
-  std::vector<ContentInfo> contents_;
+  ContentInfos contents_;
 };
 
 // Indicates whether a ContentDescription was an offer or an answer, as

@@ -31,10 +31,10 @@
 
 namespace cricket {
 
-const ContentInfo* SessionDescription::GetContentByName(
-    const std::string& name) const {
-  for (std::vector<ContentInfo>::const_iterator content = contents_.begin();
-       content != contents_.end(); content++) {
+const ContentInfo* FindContentInfoByName(
+    const ContentInfos& contents, const std::string& name) {
+  for (ContentInfos::const_iterator content = contents.begin();
+       content != contents.end(); content++) {
     if (content->name == name) {
       return &(*content);
     }
@@ -42,15 +42,25 @@ const ContentInfo* SessionDescription::GetContentByName(
   return NULL;
 }
 
-const ContentInfo* SessionDescription::FirstContentByType(
-    const std::string& type) const {
-  for (std::vector<ContentInfo>::const_iterator content = contents_.begin();
-       content != contents_.end(); content++) {
+const ContentInfo* FindContentInfoByType(
+    const ContentInfos& contents, const std::string& type) {
+  for (ContentInfos::const_iterator content = contents.begin();
+       content != contents.end(); content++) {
     if (content->type == type) {
       return &(*content);
     }
   }
   return NULL;
+}
+
+const ContentInfo* SessionDescription::GetContentByName(
+    const std::string& name) const {
+  return FindContentInfoByName(contents_, name);
+}
+
+const ContentInfo* SessionDescription::FirstContentByType(
+    const std::string& type) const {
+  return FindContentInfoByType(contents_, type);
 }
 
 void SessionDescription::AddContent(const std::string& name,

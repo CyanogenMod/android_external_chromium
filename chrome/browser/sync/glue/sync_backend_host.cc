@@ -10,7 +10,7 @@
 #include "base/file_util.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/net/gaia/token_service.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
@@ -22,6 +22,8 @@
 #include "chrome/browser/sync/glue/http_bridge.h"
 #include "chrome/browser/sync/glue/password_model_worker.h"
 #include "chrome/browser/sync/sessions/session_state.h"
+// TODO(tim): Remove this! We should have a syncapi pass-thru instead.
+#include "chrome/browser/sync/syncable/directory_manager.h"  // Cryptographer.
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_version_info.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
@@ -115,12 +117,13 @@ void SyncBackendHost::Initialize(
     registrar_.routing_info[(*it)] = GROUP_PASSIVE;
   }
 
-  // TODO(tim): This should be encryption-specific instead of passwords
-  // specific.  For now we have to do this to avoid NIGORI node lookups when
-  // we haven't downloaded that node.
-  if (profile_->GetPrefs()->GetBoolean(prefs::kSyncPasswords)) {
+  // TODO(tim): Remove this special case once NIGORI is populated by
+  // default.  We piggy back off of the passwords flag for now to not
+  // require both encryption and passwords flags.
+  bool enable_encryption = !CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kDisableSyncPasswords) || types.count(syncable::PASSWORDS) > 0;
+  if (enable_encryption)
     registrar_.routing_info[syncable::NIGORI] = GROUP_PASSIVE;
-  }
 
   InitCore(Core::DoInitializeOptions(
       sync_service_url,
@@ -144,6 +147,20 @@ std::string SyncBackendHost::RestoreEncryptionBootstrapToken() {
   PrefService* prefs = profile_->GetPrefs();
   std::string token = prefs->GetString(prefs::kEncryptionBootstrapToken);
   return token;
+}
+
+bool SyncBackendHost::IsNigoriEnabled() const {
+  AutoLock lock(registrar_lock_);
+  // Note that NIGORI is only ever added/removed from routing_info once,
+  // during initialization / first configuration, so there is no real 'race'
+  // possible here or possibility of stale return value.
+  return registrar_.routing_info.find(syncable::NIGORI) !=
+      registrar_.routing_info.end();
+}
+
+bool SyncBackendHost::IsCryptographerReady() const {
+  return syncapi_initialized_ &&
+      GetUserShareHandle()->dir_manager->cryptographer()->is_ready();
 }
 
 sync_api::HttpPostProviderFactory* SyncBackendHost::MakeHttpBridgeFactory(
@@ -170,6 +187,12 @@ void SyncBackendHost::StartSyncingWithServer() {
 }
 
 void SyncBackendHost::SetPassphrase(const std::string& passphrase) {
+  if (!IsNigoriEnabled()) {
+    LOG(WARNING) << "Silently dropping SetPassphrase request.";
+    return;
+  }
+
+  // If encryption is enabled and we've got a SetPassphrase
   core_thread_.message_loop()->PostTask(FROM_HERE,
       NewRunnableMethod(core_.get(), &SyncBackendHost::Core::DoSetPassphrase,
                         passphrase));
@@ -227,6 +250,8 @@ void SyncBackendHost::ConfigureDataTypes(const syncable::ModelTypeSet& types,
   DCHECK(!configure_ready_task_.get());
   DCHECK(syncapi_initialized_);
 
+  bool deleted_type = false;
+
   {
     AutoLock lock(registrar_lock_);
     for (DataTypeController::TypeMap::const_iterator it =
@@ -237,6 +262,7 @@ void SyncBackendHost::ConfigureDataTypes(const syncable::ModelTypeSet& types,
       // If a type is not specified, remove it from the routing_info.
       if (types.count(type) == 0) {
         registrar_.routing_info.erase(type);
+        deleted_type = true;
       } else {
         // Add a newly specified data type as GROUP_PASSIVE into the
         // routing_info, if it does not already exist.
@@ -252,22 +278,29 @@ void SyncBackendHost::ConfigureDataTypes(const syncable::ModelTypeSet& types,
   if (core_->syncapi()->InitialSyncEndedForAllEnabledTypes()) {
     ready_task->Run();
     delete ready_task;
-    return;
+  } else {
+    // Save the task here so we can run it when the syncer finishes
+    // initializing the new data types.  It will be run only when the
+    // set of initially synced data types matches the types requested in
+    // this configure.
+    configure_ready_task_.reset(ready_task);
+    configure_initial_sync_types_ = types;
   }
 
-  // Save the task here so we can run it when the syncer finishes
-  // initializing the new data types.  It will be run only when the
-  // set of initially synced data types matches the types requested in
-  // this configure.
-  configure_ready_task_.reset(ready_task);
-  configure_initial_sync_types_ = types;
-
-  // Nudge the syncer.  On the next sync cycle, the syncer should
+  // Nudge the syncer. This is necessary for both datatype addition/deletion.
+  //
+  // Deletions need a nudge in order to ensure the deletion occurs in a timely
+  // manner (see issue 56416).
+  //
+  // In the case of additions, on the next sync cycle, the syncer should
   // notice that the routing info has changed and start the process of
   // downloading updates for newly added data types.  Once this is
   // complete, the configure_ready_task_ is run via an
   // OnInitializationComplete notification.
-  RequestNudge();
+  if (deleted_type || !core_->syncapi()->InitialSyncEndedForAllEnabledTypes())
+    // We can only nudge when we've either deleted a dataype or added one, else
+    // we break all the profile sync unit tests.
+    RequestNudge();
 }
 
 void SyncBackendHost::RequestNudge() {
@@ -360,7 +393,7 @@ void SyncBackendHost::Core::NotifyPassphraseAccepted(
 }
 
 void SyncBackendHost::Core::NotifyUpdatedToken(const std::string& token) {
-  DCHECK(ChromeThread::CurrentlyOn(ChromeThread::UI));
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   TokenAvailableDetails details(GaiaConstants::kSyncService, token);
   NotificationService::current()->Notify(
       NotificationType::TOKEN_UPDATED,

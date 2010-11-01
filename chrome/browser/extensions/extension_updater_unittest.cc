@@ -13,7 +13,7 @@
 #include "base/stringprintf.h"
 #include "base/thread.h"
 #include "base/version.h"
-#include "chrome/browser/chrome_thread.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_error_reporter.h"
 #include "chrome/browser/extensions/extension_updater.h"
 #include "chrome/browser/extensions/extensions_service.h"
@@ -84,7 +84,8 @@ class MockService : public ExtensionUpdateService {
   // version are all based on their index. If |update_url| is non-null, it
   // will be used as the update_url for each extension.
   void CreateTestExtensions(int count, ExtensionList *list,
-                            const std::string* update_url) {
+                            const std::string* update_url,
+                            Extension::Location location) {
     for (int i = 1; i <= count; i++) {
       DictionaryValue manifest;
       manifest.SetString(extension_manifest_keys::kVersion,
@@ -93,7 +94,7 @@ class MockService : public ExtensionUpdateService {
                          base::StringPrintf("Extension %d", i));
       if (update_url)
         manifest.SetString(extension_manifest_keys::kUpdateURL, *update_url);
-      Extension* e = prefs_.AddExtensionWithManifest(manifest);
+      Extension* e = prefs_.AddExtensionWithManifest(manifest, location);
       ASSERT_TRUE(e != NULL);
       list->push_back(e);
     }
@@ -130,7 +131,7 @@ void CreateTestPendingExtensions(int count, const GURL& update_url,
     (*pending_extensions)[id] =
         PendingExtensionInfo(update_url, crx_type, kIsFromSync,
                              kInstallSilently, kInitialState,
-                             kInitialIncognitoEnabled);
+                             kInitialIncognitoEnabled, Extension::INTERNAL);
   }
 }
 
@@ -247,10 +248,10 @@ static const int kUpdateFrequencySecs = 15;
 static void ExtractParameters(const std::string& params,
                               std::map<std::string, std::string>* result) {
   std::vector<std::string> pairs;
-  SplitString(params, '&', &pairs);
+  base::SplitString(params, '&', &pairs);
   for (size_t i = 0; i < pairs.size(); i++) {
     std::vector<std::string> key_val;
-    SplitString(pairs[i], '=', &key_val);
+    base::SplitString(pairs[i], '=', &key_val);
     if (key_val.size() > 0) {
       std::string key = key_val[0];
       EXPECT_TRUE(result->find(key) == result->end());
@@ -294,13 +295,14 @@ class ExtensionUpdaterTest : public testing::Test {
       CreateTestPendingExtensions(1, GURL(update_url), &pending_extensions);
       service.set_pending_extensions(pending_extensions);
     } else {
-      service.CreateTestExtensions(1, &extensions, &update_url);
+      service.CreateTestExtensions(1, &extensions, &update_url,
+                                   Extension::INTERNAL);
       service.set_extensions(extensions);
     }
 
     // Setup and start the updater.
     MessageLoop message_loop;
-    ChromeThread io_thread(ChromeThread::IO);
+    BrowserThread io_thread(BrowserThread::IO);
     io_thread.Start();
 
     TestURLFetcherFactory factory;
@@ -326,7 +328,7 @@ class ExtensionUpdaterTest : public testing::Test {
     // look something like "?x=id%3D<id>%26v%3D<version>%26uc".
     EXPECT_TRUE(url.has_query());
     std::vector<std::string> parts;
-    SplitString(url.query(), '=', &parts);
+    base::SplitString(url.query(), '=', &parts);
     EXPECT_EQ(2u, parts.size());
     EXPECT_EQ("x", parts[0]);
     std::string decoded = UnescapeURLComponent(parts[1],
@@ -352,7 +354,7 @@ class ExtensionUpdaterTest : public testing::Test {
 
     // Setup and start the updater.
     MessageLoop message_loop;
-    ChromeThread io_thread(ChromeThread::IO);
+    BrowserThread io_thread(BrowserThread::IO);
     io_thread.Start();
 
     TestURLFetcherFactory factory;
@@ -388,7 +390,7 @@ class ExtensionUpdaterTest : public testing::Test {
     // look something like "?x=id%3D<id>%26v%3D<version>%26uc".
     EXPECT_TRUE(url.has_query());
     std::vector<std::string> parts;
-    SplitString(url.query(), '=', &parts);
+    base::SplitString(url.query(), '=', &parts);
     EXPECT_EQ(2u, parts.size());
     EXPECT_EQ("x", parts[0]);
     std::string decoded = UnescapeURLComponent(parts[1],
@@ -405,7 +407,7 @@ class ExtensionUpdaterTest : public testing::Test {
     // Create a set of test extensions
     ServiceForManifestTests service;
     ExtensionList tmp;
-    service.CreateTestExtensions(3, &tmp, NULL);
+    service.CreateTestExtensions(3, &tmp, NULL, Extension::INTERNAL);
     service.set_extensions(tmp);
 
     MessageLoop message_loop;
@@ -471,10 +473,10 @@ class ExtensionUpdaterTest : public testing::Test {
 
   static void TestMultipleManifestDownloading() {
     MessageLoop ui_loop;
-    ChromeThread ui_thread(ChromeThread::UI, &ui_loop);
-    ChromeThread file_thread(ChromeThread::FILE);
+    BrowserThread ui_thread(BrowserThread::UI, &ui_loop);
+    BrowserThread file_thread(BrowserThread::FILE);
     file_thread.Start();
-    ChromeThread io_thread(ChromeThread::IO);
+    BrowserThread io_thread(BrowserThread::IO);
     io_thread.Start();
 
     TestURLFetcherFactory factory;
@@ -535,10 +537,10 @@ class ExtensionUpdaterTest : public testing::Test {
 
   static void TestSingleExtensionDownloading(bool pending) {
     MessageLoop ui_loop;
-    ChromeThread ui_thread(ChromeThread::UI, &ui_loop);
-    ChromeThread file_thread(ChromeThread::FILE);
+    BrowserThread ui_thread(BrowserThread::UI, &ui_loop);
+    BrowserThread file_thread(BrowserThread::FILE);
     file_thread.Start();
-    ChromeThread io_thread(ChromeThread::IO);
+    BrowserThread io_thread(BrowserThread::IO);
     io_thread.Start();
 
     TestURLFetcherFactory factory;
@@ -568,7 +570,7 @@ class ExtensionUpdaterTest : public testing::Test {
       pending_extensions[id] =
           PendingExtensionInfo(test_url, kExpectedCrxType, kIsFromSync,
                                kInstallSilently, kInitialState,
-                               kInitialIncognitoEnabled);
+                               kInitialIncognitoEnabled, Extension::INTERNAL);
       service.set_pending_extensions(pending_extensions);
     }
 
@@ -600,8 +602,8 @@ class ExtensionUpdaterTest : public testing::Test {
 
   static void TestBlacklistDownloading() {
     MessageLoop message_loop;
-    ChromeThread ui_thread(ChromeThread::UI, &message_loop);
-    ChromeThread io_thread(ChromeThread::IO);
+    BrowserThread ui_thread(BrowserThread::UI, &message_loop);
+    BrowserThread io_thread(BrowserThread::IO);
     io_thread.Start();
 
     TestURLFetcherFactory factory;
@@ -646,9 +648,9 @@ class ExtensionUpdaterTest : public testing::Test {
 
   static void TestMultipleExtensionDownloading() {
     MessageLoopForUI message_loop;
-    ChromeThread ui_thread(ChromeThread::UI, &message_loop);
-    ChromeThread file_thread(ChromeThread::FILE, &message_loop);
-    ChromeThread io_thread(ChromeThread::IO);
+    BrowserThread ui_thread(BrowserThread::UI, &message_loop);
+    BrowserThread file_thread(BrowserThread::FILE, &message_loop);
+    BrowserThread io_thread(BrowserThread::IO);
     io_thread.Start();
 
     TestURLFetcherFactory factory;
@@ -724,8 +726,10 @@ class ExtensionUpdaterTest : public testing::Test {
     ExtensionList tmp;
     GURL url1("http://clients2.google.com/service/update2/crx");
     GURL url2("http://www.somewebsite.com");
-    service.CreateTestExtensions(1, &tmp, &url1.possibly_invalid_spec());
-    service.CreateTestExtensions(1, &tmp, &url2.possibly_invalid_spec());
+    service.CreateTestExtensions(1, &tmp, &url1.possibly_invalid_spec(),
+                                 Extension::INTERNAL);
+    service.CreateTestExtensions(1, &tmp, &url2.possibly_invalid_spec(),
+                                 Extension::INTERNAL);
     EXPECT_EQ(2u, tmp.size());
     service.set_extensions(tmp);
 
@@ -800,7 +804,8 @@ class ExtensionUpdaterTest : public testing::Test {
 
     GURL update_url("http://www.google.com/manifest");
     ExtensionList tmp;
-    service.CreateTestExtensions(1, &tmp, &update_url.spec());
+    service.CreateTestExtensions(1, &tmp, &update_url.spec(),
+                                 Extension::INTERNAL);
     service.set_extensions(tmp);
 
     ManifestFetchData fetch_data(update_url);
@@ -885,9 +890,8 @@ TEST(ExtensionUpdaterTest, TestManifestFetchesBuilderAddExtension) {
   // Non-internal non-external extensions should be rejected.
   {
     ExtensionList extensions;
-    service.CreateTestExtensions(1, &extensions, NULL);
+    service.CreateTestExtensions(1, &extensions, NULL, Extension::INVALID);
     ASSERT_FALSE(extensions.empty());
-    extensions[0]->set_location(Extension::INVALID);
     builder.AddExtension(*extensions[0]);
     EXPECT_TRUE(builder.GetFetches().empty());
     STLDeleteElements(&extensions);
@@ -897,13 +901,15 @@ TEST(ExtensionUpdaterTest, TestManifestFetchesBuilderAddExtension) {
   builder.AddPendingExtension(
       GenerateId("foo"), PendingExtensionInfo(GURL("http:google.com:foo"),
                                               PendingExtensionInfo::EXTENSION,
-                                              false, false, true, false));
+                                              false, false, true, false,
+                                              Extension::INTERNAL));
   EXPECT_TRUE(builder.GetFetches().empty());
 
   // Extensions with empty IDs should be rejected.
   builder.AddPendingExtension(
       "", PendingExtensionInfo(GURL(), PendingExtensionInfo::EXTENSION,
-                               false, false, true, false));
+                               false, false, true, false,
+                               Extension::INTERNAL));
   EXPECT_TRUE(builder.GetFetches().empty());
 
   // TODO(akalin): Test that extensions with empty update URLs
@@ -914,7 +920,8 @@ TEST(ExtensionUpdaterTest, TestManifestFetchesBuilderAddExtension) {
   builder.AddPendingExtension(
       GenerateId("foo"), PendingExtensionInfo(GURL(),
                                               PendingExtensionInfo::EXTENSION,
-                                              false, false, true, false));
+                                              false, false, true, false,
+                                              Extension::INTERNAL));
   std::vector<ManifestFetchData*> fetches = builder.GetFetches();
   ASSERT_EQ(1u, fetches.size());
   scoped_ptr<ManifestFetchData> fetch(fetches[0]);
