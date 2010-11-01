@@ -454,6 +454,7 @@ LOCAL_GENERATED_SOURCES += $(GEN)
 LOCAL_SRC_FILES += $(LOCAL_GENERATED_SOURCES)
 
 LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -fvisibility=hidden -DEXPAT_RELATIVE_PATH
+LOCAL_CPPFLAGS := -Wno-sign-promo
 
 ifneq ($(TARGET_SIMULATOR),true)
 # Just a few definitions not provided by bionic.
