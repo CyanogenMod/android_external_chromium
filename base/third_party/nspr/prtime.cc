@@ -158,12 +158,7 @@ PR_ImplodeTime(const PRExplodedTime *exploded)
     exp_tm.tm_mon  = exploded->tm_month;
     exp_tm.tm_year = exploded->tm_year - 1900;
 
-#if defined(ANDROID)
-    // TODO: Fix in bionic
-    time_t absolute_time = mktime(&exp_tm);
-#else
     time_t absolute_time = timegm(&exp_tm);
-#endif // broken android
 
     // If timegm returned -1.  Since we don't pass it a time zone, the only
     // valid case of returning -1 is 1 second before Epoch (Dec 31, 1969).
