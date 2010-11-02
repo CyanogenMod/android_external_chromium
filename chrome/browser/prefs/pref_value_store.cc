@@ -393,6 +393,7 @@ void PrefValueStore::RefreshPolicyPrefs(
 #endif // ANDROID
 
 bool PrefValueStore::HasPolicyConflictingUserProxySettings() {
+#if !defined(ANDROID)
   using policy::ConfigurationPolicyPrefStore;
   ConfigurationPolicyPrefStore::ProxyPreferenceSet proxy_prefs;
   ConfigurationPolicyPrefStore::GetProxyPreferenceSet(&proxy_prefs);
@@ -404,6 +405,7 @@ bool PrefValueStore::HasPolicyConflictingUserProxySettings() {
                               PrefNotifier::USER_STORE))
       return true;
   }
+#endif
   return false;
 }
 
