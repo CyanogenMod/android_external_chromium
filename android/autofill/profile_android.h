@@ -133,6 +133,7 @@ class ProfileImplAndroid : public Profile {
   virtual ExtensionDevToolsManager* GetExtensionDevToolsManager() { NOTREACHED(); return NULL; }
   virtual ExtensionProcessManager* GetExtensionProcessManager() { NOTREACHED(); return NULL; }
   virtual ExtensionMessageService* GetExtensionMessageService() { NOTREACHED(); return NULL; }
+  virtual ExtensionEventRouter* GetExtensionEventRouter() { NOTREACHED(); return NULL; }
   virtual FaviconService* GetFaviconService(ServiceAccessType sat) { NOTREACHED(); return NULL; }
   virtual HistoryService* GetHistoryService(ServiceAccessType sat) { NOTREACHED(); return NULL; }
   virtual HistoryService* GetHistoryServiceWithoutCreating() { NOTREACHED(); return NULL; }
@@ -185,6 +186,7 @@ class ProfileImplAndroid : public Profile {
   virtual FilePath last_selected_directory() { NOTREACHED(); return FilePath(""); }
   virtual void set_last_selected_directory(const FilePath& path) { NOTREACHED(); }
   virtual ChromeBlobStorageContext* GetBlobStorageContext() { NOTREACHED(); return NULL; }
+  virtual ExtensionInfoMap* GetExtensionInfoMap() { NOTREACHED(); return NULL; }
   virtual ProfileSyncService* GetProfileSyncService()  { NOTREACHED();  return NULL; }
   virtual ProfileSyncService* GetProfileSyncService(const std::string&) { NOTREACHED(); return NULL; }
   virtual TokenService* GetTokenService()  { NOTREACHED(); return NULL; }
