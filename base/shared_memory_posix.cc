@@ -292,6 +292,7 @@ void SharedMemory::Close() {
 
 void SharedMemory::LockOrUnlockCommon(int function) {
   DCHECK(mapped_file_ >= 0);
+#if !defined(ANDROID)
   while (lockf(mapped_file_, function, 0) < 0) {
     if (errno == EINTR) {
       continue;
@@ -307,14 +308,19 @@ void SharedMemory::LockOrUnlockCommon(int function) {
                    << " msg:" << safe_strerror(errno);
     }
   }
+#endif
 }
 
 void SharedMemory::Lock() {
+#if !defined(ANDROID)
   LockOrUnlockCommon(F_LOCK);
+#endif
 }
 
 void SharedMemory::Unlock() {
+#if !defined(ANDROID)
   LockOrUnlockCommon(F_ULOCK);
+#endif
 }
 
 SharedMemoryHandle SharedMemory::handle() const {
