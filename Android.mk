@@ -72,13 +72,11 @@ LOCAL_SRC_FILES := \
     base/cancellation_flag.cc \
     base/condition_variable_posix.cc \
     base/debug_util_posix.cc \
-    base/field_trial.cc \
     base/file_descriptor_shuffle.cc \
     base/file_path.cc \
     base/file_util.cc \
     base/file_util_android.cc \
     base/file_util_posix.cc \
-    base/histogram.cc \
     base/lazy_instance.cc \
     base/lock.cc \
     base/lock_impl_posix.cc \
@@ -104,8 +102,7 @@ LOCAL_SRC_FILES := \
     base/safe_strerror_posix.cc \
     base/sha1_portable.cc \
     base/sha2.cc \
-    base/stats_counters.cc \
-    base/stats_table.cc \
+    base/shared_memory_posix.cc \
     base/string_number_conversions.cc \
     base/string_piece.cc \
     base/string_split.cc \
@@ -136,13 +133,17 @@ LOCAL_SRC_FILES := \
     base/worker_pool_linux.cc \
     \
     base/i18n/file_util_icu.cc \
+    base/i18n/icu_string_conversions.cc \
     base/i18n/time_formatting.cc \
     \
     base/json/json_reader.cc \
     base/json/json_writer.cc \
     base/json/string_escape.cc \
     \
-    base/i18n/icu_string_conversions.cc \
+    base/metrics/field_trial.cc \
+    base/metrics/histogram.cc \
+    base/metrics/stats_counters.cc \
+    base/metrics/stats_table.cc \
     \
     base/third_party/dmg_fp/dtoa.cc \
     base/third_party/dmg_fp/g_fmt.cc \
@@ -162,8 +163,10 @@ LOCAL_SRC_FILES := \
     net/base/auth.cc \
     net/base/capturing_net_log.cc \
     net/base/cert_status_flags.cc \
+    net/base/cert_verifier.cc \
     net/base/connection_type_histograms.cc \
     net/base/cookie_monster.cc \
+    net/base/cookie_store.cc \
     net/base/data_url.cc \
     net/base/directory_lister.cc \
     net/base/dns_util.cc \
@@ -190,6 +193,7 @@ LOCAL_SRC_FILES := \
     net/base/network_change_notifier.cc \
     net/base/network_change_notifier_linux.cc \
     net/base/network_change_notifier_netlink_linux.cc \
+    net/base/openssl_util.cc \
     net/base/pem_tokenizer.cc \
     net/base/platform_mime_util_android.cc \
     net/base/registry_controlled_domain.cc \
@@ -212,8 +216,10 @@ LOCAL_SRC_FILES := \
     net/disk_cache/bitmap.cc \
     net/disk_cache/block_files.cc \
     net/disk_cache/cache_util_posix.cc \
+    net/disk_cache/disk_format.cc \
     net/disk_cache/entry_impl.cc \
     net/disk_cache/eviction.cc \
+    net/disk_cache/file.cc \
     net/disk_cache/file_lock.cc \
     net/disk_cache/file_posix.cc \
     net/disk_cache/hash.cc \
@@ -229,17 +235,10 @@ LOCAL_SRC_FILES := \
     net/disk_cache/sparse_control.cc \
     net/disk_cache/trace.cc \
     \
-    net/spdy/spdy_framer.cc \
-    net/spdy/spdy_frame_builder.cc \
-    net/spdy/spdy_http_stream.cc \
-    net/spdy/spdy_http_utils.cc \
-    net/spdy/spdy_io_buffer.cc \
-    net/spdy/spdy_session.cc \
-    net/spdy/spdy_session_pool.cc \
-    net/spdy/spdy_settings_storage.cc \
-    net/spdy/spdy_stream.cc \
+    net/ftp/ftp_auth_cache.cc \
     \
     net/http/des.cc \
+    net/http/disk_cache_based_ssl_host_info.cc \
     net/http/http_alternate_protocols.cc \
     net/http/http_auth.cc \
     net/http/http_auth_cache.cc \
@@ -257,12 +256,15 @@ LOCAL_SRC_FILES := \
     net/http/http_cache.cc \
     net/http/http_cache_transaction.cc \
     net/http/http_chunked_decoder.cc \
+    net/http/http_net_log_params.cc \
     net/http/http_network_layer.cc \
     net/http/http_network_session.cc \
     net/http/http_network_transaction.cc \
     net/http/http_proxy_client_socket.cc \
     net/http/http_proxy_client_socket_pool.cc \
+    net/http/http_proxy_utils.cc \
     net/http/http_request_headers.cc \
+    net/http/http_request_info.cc \
     net/http/http_response_body_drainer.cc \
     net/http/http_response_headers.cc \
     net/http/http_response_info.cc \
@@ -284,7 +286,6 @@ LOCAL_SRC_FILES := \
     net/proxy/proxy_resolver_js_bindings.cc \
     net/proxy/proxy_resolver_script_data.cc \
     net/proxy/proxy_resolver_v8.cc \
-    net/proxy/proxy_script_fetcher.cc \
     net/proxy/proxy_server.cc \
     net/proxy/proxy_service.cc \
     net/proxy/sync_host_resolver_bridge.cc \
@@ -301,8 +302,20 @@ LOCAL_SRC_FILES := \
     net/socket/socks5_client_socket.cc \
     net/socket/ssl_client_socket_openssl.cc \
     net/socket/ssl_client_socket_pool.cc \
+    net/socket/ssl_host_info.cc \
     net/socket/tcp_client_socket_libevent.cc \
     net/socket/tcp_client_socket_pool.cc \
+    \
+    net/spdy/spdy_framer.cc \
+    net/spdy/spdy_frame_builder.cc \
+    net/spdy/spdy_http_stream.cc \
+    net/spdy/spdy_http_utils.cc \
+    net/spdy/spdy_io_buffer.cc \
+    net/spdy/spdy_proxy_client_socket.cc \
+    net/spdy/spdy_session.cc \
+    net/spdy/spdy_session_pool.cc \
+    net/spdy/spdy_settings_storage.cc \
+    net/spdy/spdy_stream.cc \
     \
     net/url_request/https_prober.cc \
     net/url_request/url_request.cc \
@@ -313,6 +326,7 @@ LOCAL_SRC_FILES := \
     net/url_request/url_request_error_job.cc \
     net/url_request/url_request_job.cc \
     net/url_request/url_request_job_manager.cc \
+    net/url_request/url_request_job_metrics.cc \
     net/url_request/url_request_job_tracker.cc \
     net/url_request/url_request_netlog_params.cc \
     net/url_request/url_request_redirect_job.cc \
@@ -336,8 +350,10 @@ LOCAL_SRC_FILES += \
     android/autofill/profile_android.cc \
     \
     base/base_paths.cc \
-    base/base_paths_posix.cc \
+    base/base_paths_linux.cc \
     base/path_service.cc \
+    \
+    chrome/browser/guid_posix.cc \
     \
     chrome/browser/autofill/address.cc \
     chrome/browser/autofill/address_field.cc \
@@ -366,6 +382,7 @@ LOCAL_SRC_FILES += \
     \
     chrome/common/json_value_serializer.cc \
     chrome/common/pref_names.cc \
+    chrome/common/pref_store.cc \
     chrome/common/url_constants.cc \
     \
     chrome/common/net/url_fetcher.cc \
@@ -392,6 +409,7 @@ LOCAL_C_INCLUDES := \
     external/icu4c/common \
     external/icu4c/i18n \
     external/openssl/include \
+    external/protobuf/src \
     external/skia \
     external/sqlite/dist \
     external/webkit/WebKit/chromium \
