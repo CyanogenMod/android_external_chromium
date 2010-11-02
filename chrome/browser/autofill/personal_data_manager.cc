@@ -331,6 +331,7 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
   // Read our writes to ensure consistency with the database.
   Refresh();
 
+#if !defined(ANDROID)
   {
     // We're now done with the unique IDs, and observers might call into a
     // method that needs the lock, so release it.  For example, observers on Mac
@@ -340,6 +341,7 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
 
     FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
   }
+#endif
 }
 
 void PersonalDataManager::SetCreditCards(
@@ -421,6 +423,7 @@ void PersonalDataManager::SetCreditCards(
   // Read our writes to ensure consistency with the database.
   Refresh();
 
+#if !defined(ANDROID)
   {
     // We're now done with the unique IDs, and observers might call into a
     // method that needs the lock, so release it.  For example, observers on Mac
@@ -430,6 +433,7 @@ void PersonalDataManager::SetCreditCards(
 
     FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
   }
+#endif
 }
 
 // TODO(jhawkins): Refactor SetProfiles so this isn't so hacky.
