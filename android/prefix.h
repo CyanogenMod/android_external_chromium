@@ -65,7 +65,6 @@ inline size_t abs(size_t x) { return x; }
 
 // Implemented in bionic but not exposed.
 extern char* mkdtemp(char* path);
-extern time_t timegm(struct tm* const tmp);
 
 #define FRIEND_TEST(test_case_name, test_name)\
 friend class test_case_name##_##test_name##_Test
