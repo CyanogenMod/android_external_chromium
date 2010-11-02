@@ -988,6 +988,10 @@ bool SpdySession::Respond(const spdy::SpdyHeaderBlock& headers,
   return true;
 }
 
+#if !defined(ANDROID)
+// This function generates bad ARM assembly in the Android build.
+// As a workaround, it has been moved to android/net/spdy/spdy_session_android.cc
+
 void SpdySession::OnSyn(const spdy::SpdySynStreamControlFrame& frame,
                         const linked_ptr<spdy::SpdyHeaderBlock>& headers) {
   spdy::SpdyStreamId stream_id = frame.stream_id();
@@ -1068,6 +1072,8 @@ void SpdySession::OnSyn(const spdy::SpdySynStreamControlFrame& frame,
   static base::StatsCounter push_requests("spdy.pushed_streams");
   push_requests.Increment();
 }
+
+#endif // ANDROID
 
 void SpdySession::OnSynReply(const spdy::SpdySynReplyControlFrame& frame,
                              const linked_ptr<spdy::SpdyHeaderBlock>& headers) {
