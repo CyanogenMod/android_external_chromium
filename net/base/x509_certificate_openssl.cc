@@ -456,7 +456,12 @@ int X509Certificate::Verify(const std::string& hostname,
   if (X509_verify_cert(ctx.get()) == 1) {
     return OK;
   }
-
+#if defined(ANDROID)
+  // TODO: Remove this hack when the trusted CA root certificates are imported
+  // from the Java side.
+  LOG(WARNING) << "X509 certificate not verified (NOT IMPLEMENTED YET)";
+  return OK;
+#else
   int x509_error = X509_STORE_CTX_get_error(ctx.get());
   int cert_status = MapCertErrorToCertStatus(x509_error);
   LOG(ERROR) << "X509 Verification error "
@@ -466,6 +471,7 @@ int X509Certificate::Verify(const std::string& hostname,
       << " : " << cert_status;
   verify_result->cert_status |= cert_status;
   return MapCertStatusToNetError(verify_result->cert_status);
+#endif
 }
 
 // static
