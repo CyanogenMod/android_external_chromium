@@ -399,6 +399,9 @@ LOCAL_SRC_FILES += \
     \
     webkit/glue/form_data.cc
 
+# the proto files.
+LOCAL_SRC_FILES +=  net/socket/ssl_host_info.proto
+
 LOCAL_C_INCLUDES := \
     $(LOCAL_PATH) \
     $(LOCAL_PATH)/chrome \
@@ -409,7 +412,6 @@ LOCAL_C_INCLUDES := \
     external/icu4c/common \
     external/icu4c/i18n \
     external/openssl/include \
-    external/protobuf/src \
     external/skia \
     external/sqlite/dist \
     external/webkit/WebKit/chromium \
@@ -469,20 +471,6 @@ $(GEN):
 	perl $(CHECK_INTERNAL_HEADER_SCRIPT) $@
 LOCAL_GENERATED_SOURCES += $(GEN)
 
-# Protocol buffers.
-# We use the 'aprotoc' tool in external/protobuf to transform .proto -> .pb.cc & .pb.h
-PROTOC := $(HOST_OUT_EXECUTABLES)/aprotoc$(HOST_EXECUTABLES_SUFFIX)
-PROTO_DIR := $(INTERMEDIATES)/protos
-
-GEN = $(PROTO_DIR)/net/socket/ssl_host_info.pb.h $(PROTO_DIR)/net/socket/ssl_host_info.pb.cc
-$(GEN): PRIVATE_INPUT_FILE := $(LOCAL_PATH)/net/socket/ssl_host_info.proto
-$(GEN): PRIVATE_CUSTOM_TOOL := $(PROTOC) --proto_path external/chromium --cpp_out $(PROTO_DIR) $(PRIVATE_INPUT_FILE)
-$(GEN): $(PROTOC) $(PRIVATE_INPUT_FILE)
-	$(transform-generated-source)
-
-LOCAL_GENERATED_SOURCES += $(PROTO_DIR)/net/socket/ssl_host_info.pb.cc
-LOCAL_C_INCLUDES += $(PROTO_DIR)
-
 LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -fvisibility=hidden -DEXPAT_RELATIVE_PATH
 LOCAL_CPPFLAGS := -Wno-sign-promo -Wno-missing-field-initializers
 
@@ -497,7 +485,7 @@ LOCAL_C_INCLUDES := \
 	$(LOCAL_C_INCLUDES)
 
 #LOCAL_STATIC_LIBRARIES += libevent
-LOCAL_WHOLE_STATIC_LIBRARIES += libevent libprotobuf-cpp-2.3.0-full
+LOCAL_WHOLE_STATIC_LIBRARIES += libevent libprotobuf-cpp-2.3.0-lite
 
 # Including this will modify the include path
 include external/stlport/libstlport.mk
