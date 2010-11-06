@@ -471,8 +471,8 @@ $(GEN):
 LOCAL_GENERATED_SOURCES += $(GEN)
 
 # Protocol buffers.
-# We use the 'protoc' tool in external/protobuf to transform .proto -> .pb.cc & .pb.h
-PROTOC := $(HOST_OUT_EXECUTABLES)/protoc$(HOST_EXECUTABLES_SUFFIX)
+# We use the 'aprotoc' tool in external/protobuf to transform .proto -> .pb.cc & .pb.h
+PROTOC := $(HOST_OUT_EXECUTABLES)/aprotoc$(HOST_EXECUTABLES_SUFFIX)
 PROTO_DIR := $(INTERMEDIATES)/protos
 
 GEN = $(PROTO_DIR)/net/socket/ssl_host_info.pb.h $(PROTO_DIR)/net/socket/ssl_host_info.pb.cc
