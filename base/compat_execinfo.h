@@ -15,7 +15,7 @@
 #include <AvailabilityMacros.h>
 #endif
 
-#if (defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5) || defined(ANDROID)
+#if defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
 // Manually define these here as weak imports, rather than including execinfo.h.
 // This lets us launch on 10.4 which does not have these calls.
 extern "C" {
@@ -26,6 +26,12 @@ extern char** backtrace_symbols(void* const*, int)
 extern void backtrace_symbols_fd(void* const*, int, int)
     __attribute__((weak_import));
 
+}  // extern "C"
+#elif defined(ANDROID)
+extern "C" {
+extern int backtrace(void**, int);
+extern char** backtrace_symbols(void* const*, int);
+extern void backtrace_symbols_fd(void* const*, int, int);
 }  // extern "C"
 #else
 #include <execinfo.h>

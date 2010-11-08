@@ -485,7 +485,7 @@ LOCAL_GENERATED_SOURCES += $(PROTO_DIR)/net/socket/ssl_host_info.pb.cc
 LOCAL_C_INCLUDES += $(PROTO_DIR)
 
 LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -fvisibility=hidden -DEXPAT_RELATIVE_PATH
-LOCAL_CPPFLAGS := -Wno-sign-promo
+LOCAL_CPPFLAGS := -Wno-sign-promo -Wno-missing-field-initializers
 
 ifneq ($(TARGET_SIMULATOR),true)
 # Just a few definitions not provided by bionic.
