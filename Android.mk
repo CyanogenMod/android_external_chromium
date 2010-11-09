@@ -61,7 +61,6 @@ LOCAL_SRC_FILES := \
     android/app/l10n_util.cc \
     android/jni/mime_utils.cc \
     android/jni/jni_utils.cc \
-    android/net/spdy/spdy_session_android.cc \
     \
     app/sql/connection.cc \
     app/sql/meta_table.cc \
