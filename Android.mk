@@ -348,6 +348,7 @@ LOCAL_SRC_FILES := \
 LOCAL_SRC_FILES += \
     android/autofill/android_url_request_context_getter.cc \
     android/autofill/profile_android.cc \
+    android/autofill/url_fetcher_proxy.cc \
     \
     base/base_paths.cc \
     base/base_paths_linux.cc \

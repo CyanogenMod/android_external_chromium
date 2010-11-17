@@ -80,6 +80,7 @@ public:
 
   virtual ~URLFetcherProxy()
   {
+      pending_callbacks_.erase(this);
   }
 
   virtual void set_automatically_retry_on_5xx(bool retry)
@@ -115,6 +116,7 @@ public:
     response_code_ = response_code;
     cookies_ = cookies;
     data_ = data;
+    pending_callbacks_[this] = true;
     MainThreadProxy::CallOnMainThread(DoComplete, this);
   }
 
@@ -138,7 +140,9 @@ private:
   static void DoComplete(void* context)
   {
     URLFetcherProxy* that = static_cast<URLFetcherProxy*>(context);
-    that->DoCompleteImpl();
+    if (pending_callbacks_[that]) {
+      that->DoCompleteImpl();
+    }
   }
 
   void DoCompleteImpl()
@@ -158,6 +162,8 @@ private:
   int response_code_;
   ResponseCookies cookies_;
   std::string data_;
+
+  static std::map<URLFetcherProxy*, bool> pending_callbacks_;
 
   DISALLOW_EVIL_CONSTRUCTORS(URLFetcherProxy);
 };
