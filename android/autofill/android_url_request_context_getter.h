@@ -40,7 +40,7 @@ public:
 
   // URLRequestContextGetter implementation
   virtual URLRequestContext* GetURLRequestContext();
-  virtual scoped_refptr<base::MessageLoopProxy> GetIOMessageLoopProxy();
+  virtual scoped_refptr<base::MessageLoopProxy> GetIOMessageLoopProxy() const;
 
   static AndroidURLRequestContextGetter* Get();
 
@@ -52,7 +52,7 @@ public:
 private:
   static scoped_refptr<AndroidURLRequestContextGetter> instance_;
   URLRequestContextGetterFunction* context_getter_function_;
-  base::Thread* io_thread_;
+  mutable base::Thread* io_thread_;
 };
 
 #endif // ANDROID_URL_REQUEST_CONTEXT_GETTER_H

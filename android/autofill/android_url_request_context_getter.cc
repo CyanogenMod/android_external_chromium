@@ -33,7 +33,7 @@ URLRequestContext* AndroidURLRequestContextGetter::GetURLRequestContext()
   return (*context_getter_function_)();
 }
 
-scoped_refptr<base::MessageLoopProxy> AndroidURLRequestContextGetter::GetIOMessageLoopProxy()
+scoped_refptr<base::MessageLoopProxy> AndroidURLRequestContextGetter::GetIOMessageLoopProxy() const
 {
     if (!io_thread_)
       return NULL;
