@@ -27,6 +27,7 @@ using ::testing::Invoke;
 using ::testing::InvokeWithoutArgs;
 using ::testing::NotNull;
 using ::testing::Return;
+using ::testing::ReturnRef;
 using ::testing::SetArgumentPointee;
 using ::testing::StrictMock;
 using ::testing::NiceMock;
@@ -79,7 +80,6 @@ class BufferedResourceLoaderTest : public testing::Test {
 
     loader_ = new BufferedResourceLoader(&bridge_factory_, gurl_,
                                          first_position_, last_position_);
-    EXPECT_EQ(gurl_.spec(), loader_->GetURLForDebugging().spec());
   }
 
   void SetLoaderBuffer(size_t forward_capacity, size_t backward_capacity) {
@@ -526,6 +526,7 @@ class MockBufferedResourceLoader : public BufferedResourceLoader {
   MOCK_METHOD0(instance_size, int64());
   MOCK_METHOD0(partial_response, bool());
   MOCK_METHOD0(network_activity, bool());
+  MOCK_METHOD0(url, const GURL&());
   MOCK_METHOD0(GetBufferedFirstBytePosition, int64());
   MOCK_METHOD0(GetBufferedLastBytePosition, int64());
 
@@ -539,15 +540,9 @@ class MockBufferedResourceLoader : public BufferedResourceLoader {
 // CreateResourceLoader() method.
 class MockBufferedDataSource : public BufferedDataSource {
  public:
-  // Static methods for creating this class.
-  static media::FilterFactory* CreateFactory(
-      MessageLoop* message_loop,
-      MediaResourceLoaderBridgeFactory* bridge_factory) {
-    return new media::FilterFactoryImpl2<
-        MockBufferedDataSource,
-        MessageLoop*,
-        MediaResourceLoaderBridgeFactory*>(message_loop,
-                                           bridge_factory);
+  MockBufferedDataSource(
+      MessageLoop* message_loop, MediaResourceLoaderBridgeFactory* factory)
+      : BufferedDataSource(message_loop, factory) {
   }
 
   virtual base::TimeDelta GetTimeoutMilliseconds() {
@@ -558,18 +553,7 @@ class MockBufferedDataSource : public BufferedDataSource {
   MOCK_METHOD2(CreateResourceLoader, BufferedResourceLoader*(
       int64 first_position, int64 last_position));
 
- protected:
-  MockBufferedDataSource(
-      MessageLoop* message_loop, MediaResourceLoaderBridgeFactory* factory)
-      : BufferedDataSource(message_loop, factory) {
-  }
-
  private:
-  friend class media::FilterFactoryImpl2<
-      MockBufferedDataSource,
-      MessageLoop*,
-      MediaResourceLoaderBridgeFactory*>;
-
   DISALLOW_COPY_AND_ASSIGN(MockBufferedDataSource);
 };
 
@@ -579,8 +563,6 @@ class BufferedDataSourceTest : public testing::Test {
     message_loop_ = MessageLoop::current();
     bridge_factory_.reset(
         new StrictMock<MockMediaResourceLoaderBridgeFactory>());
-    factory_ = MockBufferedDataSource::CreateFactory(message_loop_,
-                                                     bridge_factory_.get());
 
     // Prepare test data.
     for (size_t i = 0; i < sizeof(data_); ++i) {
@@ -619,14 +601,15 @@ class BufferedDataSourceTest : public testing::Test {
     url_format.SetAsString(media::MediaFormat::kMimeType,
                            media::mime_type::kURL);
     url_format.SetAsString(media::MediaFormat::kURL, url);
-    data_source_ = factory_->Create<MockBufferedDataSource>(url_format);
+    data_source_ = new MockBufferedDataSource(MessageLoop::current(),
+                                              bridge_factory_.get());
     CHECK(data_source_);
 
     // There is no need to provide a message loop to data source.
     data_source_->set_host(&host_);
 
-    scoped_refptr<NiceMock<MockBufferedResourceLoader> > first_loader =
-        new NiceMock<MockBufferedResourceLoader>();
+    scoped_refptr<NiceMock<MockBufferedResourceLoader> > first_loader(
+        new NiceMock<MockBufferedResourceLoader>());
 
     // Creates the mock loader to be injected.
     loader_ = first_loader;
@@ -641,6 +624,8 @@ class BufferedDataSourceTest : public testing::Test {
       // to be created.
       if (partial_response && (error == net::ERR_INVALID_RESPONSE)) {
         // Verify that the initial loader is stopped.
+        EXPECT_CALL(*loader_, url())
+            .WillRepeatedly(ReturnRef(gurl_));
         EXPECT_CALL(*loader_, Stop());
 
         // Replace loader_ with a new instance.
@@ -655,11 +640,18 @@ class BufferedDataSourceTest : public testing::Test {
       }
     }
 
+    // Attach a static function that deletes the memory referred by the
+    // "callback" parameter.
+    ON_CALL(*loader_, Read(_, _, _ , _))
+        .WillByDefault(DeleteArg<3>());
+
     StrictMock<media::MockFilterCallback> callback;
-    EXPECT_CALL(*loader_, instance_size())
-        .WillRepeatedly(Return(instance_size));
-    EXPECT_CALL(*loader_, partial_response())
-        .WillRepeatedly(Return(partial_response));
+    ON_CALL(*loader_, instance_size())
+        .WillByDefault(Return(instance_size));
+    ON_CALL(*loader_, partial_response())
+        .WillByDefault(Return(partial_response));
+    ON_CALL(*loader_, url())
+        .WillByDefault(ReturnRef(gurl_));
     if (initialized_ok) {
       // Expected loaded or not.
       EXPECT_CALL(host_, SetLoaded(loaded));
@@ -755,6 +747,27 @@ class BufferedDataSourceTest : public testing::Test {
     // Make sure data is correct.
     EXPECT_EQ(0,
               memcmp(buffer_, data_ + static_cast<int>(position), read_size));
+  }
+
+  void ReadDataSourceHang(int64 position, int size) {
+    EXPECT_TRUE(loader_);
+
+    // Expect a call to read, but the call never returns.
+    EXPECT_CALL(*loader_, Read(position, size, NotNull(), NotNull()));
+    data_source_->Read(
+        position, size, buffer_,
+        NewCallback(this, &BufferedDataSourceTest::ReadCallback));
+    message_loop_->RunAllPending();
+
+    // Now expect the read to return after aborting the data source.
+    EXPECT_CALL(*this, ReadCallback(_));
+    EXPECT_CALL(*loader_, Stop());
+    data_source_->Abort();
+    message_loop_->RunAllPending();
+
+    // The loader has now been stopped. Set this to null so that when the
+    // DataSource is stopped, it does not expect a call to stop the loader.
+    loader_ = NULL;
   }
 
   void ReadDataSourceMiss(int64 position, int size) {
@@ -880,7 +893,6 @@ class BufferedDataSourceTest : public testing::Test {
       bridge_factory_;
   scoped_refptr<NiceMock<MockBufferedResourceLoader> > loader_;
   scoped_refptr<MockBufferedDataSource> data_source_;
-  scoped_refptr<media::FilterFactory> factory_;
 
   StrictMock<media::MockFilterHost> host_;
   GURL gurl_;
@@ -943,6 +955,12 @@ TEST_F(BufferedDataSourceTest, ReadCacheMiss) {
   InitializeDataSource(kHttpUrl, net::OK, true, 1024, LOADING);
   ReadDataSourceMiss(1000, 10);
   ReadDataSourceMiss(20, 10);
+  StopDataSource();
+}
+
+TEST_F(BufferedDataSourceTest, ReadHang) {
+  InitializeDataSource(kHttpUrl, net::OK, true, 25, LOADING);
+  ReadDataSourceHang(10, 10);
   StopDataSource();
 }
 

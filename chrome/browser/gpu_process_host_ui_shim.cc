@@ -36,13 +36,6 @@ GpuProcessHostUIShim* GpuProcessHostUIShim::Get() {
   return Singleton<GpuProcessHostUIShim>::get();
 }
 
-int32 GpuProcessHostUIShim::NewRenderWidgetHostView(
-    GpuNativeWindowHandle parent) {
-  int32 routing_id = GetNextRoutingId();
-  Send(new GpuMsg_NewRenderWidgetHostView(parent, routing_id));
-  return routing_id;
-}
-
 bool GpuProcessHostUIShim::Send(IPC::Message* msg) {
   BrowserThread::PostTask(BrowserThread::IO,
                           FROM_HERE,
@@ -73,4 +66,20 @@ void GpuProcessHostUIShim::CollectGraphicsInfoAsynchronously() {
       BrowserThread::IO,
       FROM_HERE,
       new SendOnIOThreadTask(new GpuMsg_CollectGraphicsInfo()));
+}
+
+void GpuProcessHostUIShim::SendAboutGpuCrash() {
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
+  BrowserThread::PostTask(
+      BrowserThread::IO,
+      FROM_HERE,
+      new SendOnIOThreadTask(new GpuMsg_Crash()));
+}
+
+void GpuProcessHostUIShim::SendAboutGpuHang() {
+  DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::IO));
+  BrowserThread::PostTask(
+      BrowserThread::IO,
+      FROM_HERE,
+      new SendOnIOThreadTask(new GpuMsg_Hang()));
 }

@@ -67,7 +67,7 @@ class CertDatabase {
   // the platform cert database, or possibly other network error codes.
   int AddUserCert(X509Certificate* cert);
 
-#if defined(USE_NSS)
+#if defined(USE_NSS) || defined(USE_OPENSSL)
   // Get a list of unique certificates in the certificate database.  (One
   // instance of all certificates.)
   void ListCerts(CertificateList* certs);
@@ -124,6 +124,9 @@ class CertDatabase {
   // Returns true on success or false on failure.
   // |cert| is still valid when this function returns.
   bool DeleteCertAndKey(const X509Certificate* cert);
+
+  // Check whether cert is stored in a readonly slot.
+  bool IsReadOnly(const X509Certificate* cert) const;
 #endif
 
  private:

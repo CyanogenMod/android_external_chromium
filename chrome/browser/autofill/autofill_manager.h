@@ -58,7 +58,7 @@ class AutoFillManager :
   virtual void FormSubmitted(const webkit_glue::FormData& form);
   virtual void FormsSeen(const std::vector<webkit_glue::FormData>& forms);
   virtual bool GetAutoFillSuggestions(int query_id,
-                                      bool form_autofilled,
+                                      bool field_autofilled,
                                       const webkit_glue::FormField& field);
   virtual bool FillAutoFillFormData(int query_id,
                                     const webkit_glue::FormData& form,
@@ -106,29 +106,14 @@ class AutoFillManager :
  private:
   // Returns a list of values from the stored profiles that match |type| and the
   // value of |field| and returns the labels of the matching profiles. |labels|
-  // is filled with the Profile label and possibly the last four digits of a
-  // corresponding credit card: 'Home; *1258' - Home is the Profile label and
-  // 1258 is the last four digits of the credit card. If |include_cc_labels| is
-  // true, check for billing fields and append CC digits to the labels;
-  // otherwise, regular profiles are returned for billing address fields.
+  // is filled with the Profile label.
   void GetProfileSuggestions(FormStructure* form,
                              const webkit_glue::FormField& field,
                              AutoFillType type,
-                             bool include_cc_labels,
                              std::vector<string16>* values,
                              std::vector<string16>* labels,
                              std::vector<string16>* icons,
                              std::vector<int>* unique_ids);
-
-  // Same as GetProfileSuggestions, but the list of stored profiles is limited
-  // to the linked billing addresses from the list of credit cards.
-  void GetBillingProfileSuggestions(FormStructure* form,
-                                    const webkit_glue::FormField& field,
-                                    AutoFillType type,
-                                    std::vector<string16>* values,
-                                    std::vector<string16>* labels,
-                                    std::vector<string16>* icons,
-                                    std::vector<int>* unique_ids);
 
   // Returns a list of values from the stored credit cards that match |type| and
   // the value of |field| and returns the labels of the matching credit cards.
@@ -139,14 +124,6 @@ class AutoFillManager :
                                 std::vector<string16>* labels,
                                 std::vector<string16>* icons,
                                 std::vector<int>* unique_ids);
-
-  // Set |field| argument's value based on |type| and contents of the
-  // |credit_card|.  The |type| field is expected to have main group type of
-  // ADDRESS_BILLING.  The address information is retrieved from the billing
-  // profile associated with the |credit_card|, if there is one set.
-  void FillBillingFormField(const CreditCard* credit_card,
-                            AutoFillType type,
-                            webkit_glue::FormField* field);
 
   // Set |field| argument's value based on |type| and contents of the
   // |credit_card|.
@@ -169,8 +146,13 @@ class AutoFillManager :
 
   // Methods for packing and unpacking credit card and profile IDs for sending
   // and receiving to and from the renderer process.
-  static int PackIDs(int cc_id, int profile_id);
-  static void UnpackIDs(int id, int* cc_id, int* profile_id);
+  int PackGUIDs(const std::string& cc_guid, const std::string& profile_guid);
+  void UnpackGUIDs(int id, std::string* cc_guid, std::string* profile_guid);
+
+  // Maps GUIDs to and from IDs that are used to identify profiles and credit
+  // cards sent to and from the renderer process.
+  int GUIDToID(const std::string& guid);
+  const std::string IDToGUID(int id);
 
   // The following function is meant to be called from unit-test only.
   void set_disable_download_manager_requests(bool value) {
@@ -212,10 +194,17 @@ class AutoFillManager :
   AutoFillCCInfoBarDelegate* cc_infobar_;
 #endif
 
+  // GUID to ID mapping.  We keep two maps to convert back and forth.
+  std::map<std::string, int> guid_id_map_;
+  std::map<int, std::string> id_guid_map_;
+
   friend class TestAutoFillManager;
   FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillCreditCardForm);
-  FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillNonBillingFormSemicolon);
-  FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillBillFormSemicolon);
+  FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillAddressForm);
+  FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillAddressAndCreditCardForm);
+  FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FillPhoneNumber);
+  FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FormChangesRemoveField);
+  FRIEND_TEST_ALL_PREFIXES(AutoFillManagerTest, FormChangesAddField);
 
   DISALLOW_COPY_AND_ASSIGN(AutoFillManager);
 };

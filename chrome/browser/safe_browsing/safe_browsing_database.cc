@@ -123,15 +123,8 @@ void GetChunkIds(const std::vector<int>& chunks,
     }
   }
 
-  std::sort(malware_chunks.begin(), malware_chunks.end());
-  std::vector<ChunkRange> malware_ranges;
-  ChunksToRanges(malware_chunks, &malware_ranges);
-  RangesToString(malware_ranges, malware_list);
-
-  std::sort(phishing_chunks.begin(), phishing_chunks.end());
-  std::vector<ChunkRange> phishing_ranges;
-  ChunksToRanges(phishing_chunks, &phishing_ranges);
-  RangesToString(phishing_ranges, phishing_list);
+  ChunksToRangeString(malware_chunks, malware_list);
+  ChunksToRangeString(phishing_chunks, phishing_list);
 }
 
 // Order |SBAddFullHash| on the prefix part.  |SBAddPrefixLess()| from
@@ -163,7 +156,8 @@ FilePath SafeBrowsingDatabase::BloomFilterForFilename(
 
 // static
 void SafeBrowsingDatabase::RecordFailure(FailureType failure_type) {
-  UMA_HISTOGRAM_ENUMERATION("SB2.DatabaseFailure", failure_type, FAILURE_MAX);
+  UMA_HISTOGRAM_ENUMERATION("SB2.DatabaseFailure", failure_type,
+                            FAILURE_DATABASE_MAX);
 }
 
 SafeBrowsingDatabaseNew::SafeBrowsingDatabaseNew(SafeBrowsingStore* store)
@@ -609,9 +603,9 @@ void SafeBrowsingDatabaseNew::UpdateFinished(bool update_succeeded) {
                          static_cast<int>(io_after.WriteOperationCount -
                                           io_before.WriteOperationCount));
   }
-  SB_DLOG(INFO) << "SafeBrowsingDatabaseImpl built bloom filter in "
-                << bloom_gen.InMilliseconds()
-                << " ms total.  prefix count: "<< add_prefixes.size();
+  VLOG(1) << "SafeBrowsingDatabaseImpl built bloom filter in "
+          << bloom_gen.InMilliseconds() << " ms total.  prefix count: "
+          << add_prefixes.size();
   UMA_HISTOGRAM_LONG_TIMES("SB2.BuildFilter", bloom_gen);
   UMA_HISTOGRAM_COUNTS("SB2.FilterKilobytes", bloom_filter_->size() / 1024);
   int64 size_64;
@@ -663,8 +657,8 @@ void SafeBrowsingDatabaseNew::LoadBloomFilter() {
 
   const base::TimeTicks before = base::TimeTicks::Now();
   bloom_filter_ = BloomFilter::LoadFile(bloom_filter_filename_);
-  SB_DLOG(INFO) << "SafeBrowsingDatabaseNew read bloom filter in "
-                << (base::TimeTicks::Now() - before).InMilliseconds() << " ms";
+  VLOG(1) << "SafeBrowsingDatabaseNew read bloom filter in "
+          << (base::TimeTicks::Now() - before).InMilliseconds() << " ms";
 
   if (!bloom_filter_.get()) {
     UMA_HISTOGRAM_COUNTS("SB2.FilterReadFail", 1);
@@ -692,8 +686,8 @@ void SafeBrowsingDatabaseNew::WriteBloomFilter() {
 
   const base::TimeTicks before = base::TimeTicks::Now();
   const bool write_ok = bloom_filter_->WriteFile(bloom_filter_filename_);
-  SB_DLOG(INFO) << "SafeBrowsingDatabaseNew wrote bloom filter in " <<
-      (base::TimeTicks::Now() - before).InMilliseconds() << " ms";
+  VLOG(1) << "SafeBrowsingDatabaseNew wrote bloom filter in "
+          << (base::TimeTicks::Now() - before).InMilliseconds() << " ms";
 
   if (!write_ok) {
     UMA_HISTOGRAM_COUNTS("SB2.FilterWriteFail", 1);

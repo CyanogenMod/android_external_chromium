@@ -23,7 +23,6 @@
 #include "chrome/browser/dom_operation_notification_details.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/in_process_webkit/session_storage_namespace.h"
-#include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/profile.h"
@@ -89,7 +88,7 @@ void FilterURL(ChildProcessSecurityPolicy* policy, int renderer_id, GURL* url) {
     // If this renderer is not permitted to request this URL, we invalidate the
     // URL.  This prevents us from storing the blocked URL and becoming confused
     // later.
-    LOG(INFO) << "Blocked URL " << url->spec();
+    VLOG(1) << "Blocked URL " << url->spec();
     *url = GURL();
   }
 }
@@ -386,6 +385,10 @@ bool RenderViewHost::PrintPages() {
   return Send(new ViewMsg_PrintPages(routing_id()));
 }
 
+bool RenderViewHost::PrintPreview() {
+  return Send(new ViewMsg_PrintPreview(routing_id()));
+}
+
 void RenderViewHost::PrintingDone(int document_cookie, bool success) {
   Send(new ViewMsg_PrintingDone(routing_id(), document_cookie, success));
 }
@@ -431,6 +434,10 @@ void RenderViewHost::StopFinding(
 
 void RenderViewHost::Zoom(PageZoom::Function function) {
   Send(new ViewMsg_Zoom(routing_id(), function));
+}
+
+void RenderViewHost::SetZoomLevel(double zoom_level) {
+  Send(new ViewMsg_SetZoomLevel(routing_id(), zoom_level));
 }
 
 void RenderViewHost::SetPageEncoding(const std::string& encoding_name) {
@@ -796,6 +803,8 @@ void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
                         OnMsgForwardMessageToExternalHost)
     IPC_MESSAGE_HANDLER(ViewHostMsg_DocumentLoadedInFrame,
                         OnMsgDocumentLoadedInFrame)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_DidFinishLoad,
+                        OnMsgDidFinishLoad)
     IPC_MESSAGE_HANDLER(ViewHostMsg_GoToEntryAtOffset,
                         OnMsgGoToEntryAtOffset)
     IPC_MESSAGE_HANDLER(ViewHostMsg_SetTooltipText, OnMsgSetTooltipText)
@@ -833,8 +842,6 @@ void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
                         OnRequestUndockDevToolsWindow);
     IPC_MESSAGE_HANDLER(ViewHostMsg_DevToolsRuntimePropertyChanged,
                         OnDevToolsRuntimePropertyChanged);
-    IPC_MESSAGE_HANDLER(ViewHostMsg_UserMetricsRecordAction,
-                        OnUserMetricsRecordAction)
     IPC_MESSAGE_HANDLER(ViewHostMsg_MissingPluginStatus, OnMissingPluginStatus);
     IPC_MESSAGE_HANDLER(ViewHostMsg_NonSandboxedPluginBlocked,
                         OnNonSandboxedPluginBlocked);
@@ -884,12 +891,24 @@ void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(ViewHostMsg_WebDatabaseAccessed, OnWebDatabaseAccessed)
     IPC_MESSAGE_HANDLER(ViewHostMsg_FocusedNodeChanged, OnMsgFocusedNodeChanged)
     IPC_MESSAGE_HANDLER(ViewHostMsg_UpdateZoomLimits, OnUpdateZoomLimits)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_SetSuggestResult, OnSetSuggestResult)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_SetSuggestions, OnSetSuggestions)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_InstantSupportDetermined,
+                        OnInstantSupportDetermined)
     IPC_MESSAGE_HANDLER(ViewHostMsg_DetectedPhishingSite,
                         OnDetectedPhishingSite)
     IPC_MESSAGE_HANDLER(ViewHostMsg_ScriptEvalResponse, OnScriptEvalResponse)
     IPC_MESSAGE_HANDLER(ViewHostMsg_UpdateContentRestrictions,
                         OnUpdateContentRestrictions)
+#if defined(OS_MACOSX)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_ShowPopup, OnMsgShowPopup)
+#endif
+#if defined(OS_MACOSX) || defined(OS_WIN)
+    IPC_MESSAGE_HANDLER(ViewHostMsg_PageReadyForPreview,
+                        OnPageReadyForPreview)
+#else
+    IPC_MESSAGE_HANDLER(ViewHostMsg_PagesReadyForPreview,
+                        OnPagesReadyForPreview)
+#endif
     // Have the super handle all other messages.
     IPC_MESSAGE_UNHANDLED(RenderWidgetHost::OnMessageReceived(msg))
   IPC_END_MESSAGE_MAP_EX()
@@ -1192,11 +1211,11 @@ void RenderViewHost::OnMsgDidFailProvisionalLoadWithError(
     int error_code,
     const GURL& url,
     bool showing_repost_interstitial) {
-  LOG(INFO) << "Failed Provisional Load: " << url.possibly_invalid_spec()
-            << ", error_code: " << error_code
-            << " is_main_frame: " << is_main_frame
-            << " showing_repost_interstitial: " << showing_repost_interstitial
-            << " frame_id: " << frame_id;
+  VLOG(1) << "Failed Provisional Load: " << url.possibly_invalid_spec()
+          << ", error_code: " << error_code
+          << " is_main_frame: " << is_main_frame
+          << " showing_repost_interstitial: " << showing_repost_interstitial
+          << " frame_id: " << frame_id;
   GURL validated_url(url);
   FilterURL(ChildProcessSecurityPolicy::GetInstance(),
             process()->id(), &validated_url);
@@ -1349,11 +1368,18 @@ void RenderViewHost::OnMsgForwardMessageToExternalHost(
   delegate_->ProcessExternalHostMessage(message, origin, target);
 }
 
-void RenderViewHost::OnMsgDocumentLoadedInFrame() {
+void RenderViewHost::OnMsgDocumentLoadedInFrame(long long frame_id) {
   RenderViewHostDelegate::Resource* resource_delegate =
       delegate_->GetResourceDelegate();
   if (resource_delegate)
-    resource_delegate->DocumentLoadedInFrame();
+    resource_delegate->DocumentLoadedInFrame(frame_id);
+}
+
+void RenderViewHost::OnMsgDidFinishLoad(long long frame_id) {
+  RenderViewHostDelegate::Resource* resource_delegate =
+      delegate_->GetResourceDelegate();
+  if (resource_delegate)
+    resource_delegate->DidFinishLoad(frame_id);
 }
 
 void RenderViewHost::DisassociateFromPopupCount() {
@@ -1565,10 +1591,6 @@ void RenderViewHost::OnDevToolsRuntimePropertyChanged(
     const std::string& value) {
   DevToolsManager::GetInstance()->
       RuntimePropertyChanged(this, name, value);
-}
-
-void RenderViewHost::OnUserMetricsRecordAction(const std::string& action) {
-  UserMetrics::RecordComputedAction(action, process()->profile());
 }
 
 bool RenderViewHost::PreHandleKeyboardEvent(
@@ -1831,8 +1853,22 @@ void RenderViewHost::NotifyRendererResponsive() {
   delegate_->RendererResponsive(this);
 }
 
-void RenderViewHost::OnMsgFocusedNodeChanged() {
+void RenderViewHost::OnMsgFocusedNodeChanged(bool is_editable_node) {
   delegate_->FocusedNodeChanged();
+
+#if defined(TOUCH_UI)
+  if (is_editable_node) {
+    // Need to summon on-screen keyboard
+    // TODO(bryeung): implement this
+
+    // The currently focused element can be placed out of the view as the screen
+    // is now shared by the keyboard. Hence, we tell the renderer to scroll
+    // until the focused element comes in view.
+    Send(new ViewMsg_ScrollFocusedEditableNodeIntoView(routing_id()));
+  } else {
+    // TODO(bryeung): implement this. Should hide the on-screen keyboard.
+  }
+#endif
 }
 
 void RenderViewHost::OnMsgFocus() {
@@ -2009,6 +2045,41 @@ void RenderViewHost::EnablePreferredSizeChangedMode(int flags) {
   Send(new ViewMsg_EnablePreferredSizeChangedMode(routing_id(), flags));
 }
 
+#if defined(OS_MACOSX)
+void RenderViewHost::DidSelectPopupMenuItem(int selected_index) {
+  Send(new ViewMsg_SelectPopupMenuItem(routing_id(), selected_index));
+}
+
+void RenderViewHost::DidCancelPopupMenu() {
+  Send(new ViewMsg_SelectPopupMenuItem(routing_id(), -1));
+}
+#endif
+
+void RenderViewHost::SearchBoxChange(const string16& value,
+                                     bool verbatim,
+                                     int selection_start,
+                                     int selection_end) {
+  Send(new ViewMsg_SearchBoxChange(
+      routing_id(), value, verbatim, selection_start, selection_end));
+}
+
+void RenderViewHost::SearchBoxSubmit(const string16& value,
+                                     bool verbatim) {
+  Send(new ViewMsg_SearchBoxSubmit(routing_id(), value, verbatim));
+}
+
+void RenderViewHost::SearchBoxCancel() {
+  Send(new ViewMsg_SearchBoxCancel(routing_id()));
+}
+
+void RenderViewHost::SearchBoxResize(const gfx::Rect& search_box_bounds) {
+  Send(new ViewMsg_SearchBoxResize(routing_id(), search_box_bounds));
+}
+
+void RenderViewHost::DetermineIfPageSupportsInstant(const string16& value) {
+  Send(new ViewMsg_DetermineIfPageSupportsInstant(routing_id(), value));
+}
+
 void RenderViewHost::OnExtensionPostMessage(
     int port_id, const std::string& message) {
   if (process()->profile()->GetExtensionMessageService()) {
@@ -2111,13 +2182,22 @@ void RenderViewHost::OnUpdateZoomLimits(int minimum_percent,
   delegate_->UpdateZoomLimits(minimum_percent, maximum_percent, remember);
 }
 
-void RenderViewHost::OnSetSuggestResult(int32 page_id,
-                                        const std::string& result) {
+void RenderViewHost::OnSetSuggestions(
+    int32 page_id,
+    const std::vector<std::string>& suggestions) {
   RenderViewHostDelegate::BrowserIntegration* integration_delegate =
       delegate_->GetBrowserIntegrationDelegate();
   if (!integration_delegate)
     return;
-  integration_delegate->OnSetSuggestResult(page_id, result);
+  integration_delegate->OnSetSuggestions(page_id, suggestions);
+}
+
+void RenderViewHost::OnInstantSupportDetermined(int32 page_id, bool result) {
+  RenderViewHostDelegate::BrowserIntegration* integration_delegate =
+      delegate_->GetBrowserIntegrationDelegate();
+  if (!integration_delegate)
+    return;
+  integration_delegate->OnInstantSupportDetermined(page_id, result);
 }
 
 void RenderViewHost::OnDetectedPhishingSite(const GURL& phishing_url,
@@ -2139,3 +2219,37 @@ void RenderViewHost::OnScriptEvalResponse(int id, bool result) {
 void RenderViewHost::OnUpdateContentRestrictions(int restrictions) {
   delegate_->UpdateContentRestrictions(restrictions);
 }
+
+#if defined(OS_MACOSX)
+void RenderViewHost::OnMsgShowPopup(
+    const ViewHostMsg_ShowPopup_Params& params) {
+  RenderViewHostDelegate::View* view = delegate_->GetViewDelegate();
+  if (view) {
+    view->ShowPopupMenu(params.bounds,
+                        params.item_height,
+                        params.item_font_size,
+                        params.selected_item,
+                        params.popup_items,
+                        params.right_aligned);
+  }
+}
+#endif
+
+#if defined(OS_MACOSX) || defined(OS_WIN)
+void RenderViewHost::OnPageReadyForPreview(
+    const ViewHostMsg_DidPrintPage_Params& params) {
+  // TODO(kmadhusu): Function definition needs to be changed.
+  // 'params' contains the metafile handle for preview.
+
+  // Send the printingDone msg for now.
+  Send(new ViewMsg_PrintingDone(routing_id(), -1, true));
+}
+#else
+void RenderViewHost::OnPagesReadyForPreview(int fd_in_browser) {
+  // TODO(kmadhusu): Function definition needs to be changed.
+  // fd_in_browser should be the file descriptor of the metafile.
+
+  // Send the printingDone msg for now.
+  Send(new ViewMsg_PrintingDone(routing_id(), -1, true));
+}
+#endif

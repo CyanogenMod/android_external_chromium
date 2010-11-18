@@ -9,11 +9,12 @@
 #include "base/file_path.h"
 #include "base/sys_info.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/app_modal_dialog.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_init.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/browser_navigator.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/defaults.h"
@@ -156,7 +157,7 @@ class BrowserTest : public ExtensionBrowserTest {
   }
 
   // Returns the app extension aptly named "App Test".
-  Extension* GetExtension() {
+  const Extension* GetExtension() {
     const ExtensionList* extensions =
         browser()->profile()->GetExtensionsService()->extensions();
     for (size_t i = 0; i < extensions->size(); ++i) {
@@ -206,10 +207,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_JavascriptAlertActivatesTab) {
   GURL url(ui_test_utils::GetTestUrl(FilePath(FilePath::kCurrentDirectory),
                                      FilePath(kTitle1File)));
   ui_test_utils::NavigateToURL(browser(), url);
-  Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
-  params.index = 0;
-  browser()->AddTabWithURL(&params);
-  EXPECT_EQ(browser(), params.target);
+  AddTabAtIndex(0, url, PageTransition::TYPED);
   EXPECT_EQ(2, browser()->tab_count());
   EXPECT_EQ(0, browser()->selected_index());
   TabContents* second_tab = browser()->GetTabContentsAt(1);
@@ -233,12 +231,8 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, ThirtyFourTabs) {
                                      FilePath(kTitle2File)));
 
   // There is one initial tab.
-  for (int ix = 0; ix != 33; ++ix) {
-    Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
-    params.index = 0;
-    browser()->AddTabWithURL(&params);
-    EXPECT_EQ(browser(), params.target);
-  }
+  for (int ix = 0; ix != 33; ++ix)
+    browser()->AddSelectedTabWithURL(url, PageTransition::TYPED);
   EXPECT_EQ(34, browser()->tab_count());
 
   // See browser\renderer_host\render_process_host.cc for the algorithm to
@@ -426,7 +420,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, TabClosingWhenRemovingExtension) {
 
   ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("app/")));
 
-  Extension* extension_app = GetExtension();
+  const Extension* extension_app = GetExtension();
 
   ui_test_utils::NavigateToURL(browser(), url);
 
@@ -509,7 +503,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
   GURL url(test_server()->GetURL("empty.html"));
   TabStripModel* model = browser()->tabstrip_model();
   ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("app/")));
-  Extension* extension_app = GetExtension();
+  const Extension* extension_app = GetExtension();
   ui_test_utils::NavigateToURL(browser(), url);
   TabContents* app_contents = new TabContents(browser()->profile(), NULL,
                                               MSG_ROUTING_NONE, NULL, NULL);
@@ -564,15 +558,9 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
 }
 #endif  // !defined(OS_CHROMEOS)
 
-#if defined(OS_CHROMEOS)
-// crosbug.com/7773
-#define MAYBE_CloseWithAppMenuOpen DISABLED_CloseWithAppMenuOpen
-#else
-#define MAYBE_CloseWithAppMenuOpen CloseWithAppMenuOpen
-#endif
 // This test verifies we don't crash when closing the last window and the app
 // menu is showing.
-IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_CloseWithAppMenuOpen) {
+IN_PROC_BROWSER_TEST_F(BrowserTest, CloseWithAppMenuOpen) {
   if (browser_defaults::kBrowserAliveWithNoWindows)
     return;
 

@@ -60,6 +60,42 @@ SSL_PeerCertificate(PRFileDesc *fd)
 }
 
 /* NEED LOCKS IN HERE.  */
+SECStatus
+SSL_PeerCertificateChain(PRFileDesc *fd, CERTCertificate **certs,
+			 unsigned int *certsSize)
+{
+    sslSocket *ss;
+    unsigned int inSize = *certsSize;
+    ssl3CertNode* cur;
+
+    ss = ssl_FindSocket(fd);
+    if (!ss) {
+	SSL_DBG(("%d: SSL[%d]: bad socket in PeerCertificateChain",
+		 SSL_GETPID(), fd));
+	return SECFailure;
+    }
+    if (!ss->opt.useSecurity)
+	return SECFailure;
+
+    if (ss->sec.peerCert == NULL) {
+      *certsSize = 0;
+      return SECSuccess;
+    }
+
+    *certsSize = 1;  /* for the leaf certificate */
+    if (inSize > 0)
+	certs[0] = CERT_DupCertificate(ss->sec.peerCert);
+
+    for (cur = ss->ssl3.peerCertChain; cur; cur = cur->next) {
+	if (*certsSize < inSize)
+	    certs[*certsSize] = CERT_DupCertificate(cur->cert);
+	(*certsSize)++;
+    }
+
+    return SECSuccess;
+}
+
+/* NEED LOCKS IN HERE.  */
 CERTCertificate *
 SSL_LocalCertificate(PRFileDesc *fd)
 {
@@ -215,6 +251,28 @@ SSL_GetClientAuthDataHook(PRFileDesc *s, SSLGetClientAuthData func,
     ss->getClientAuthDataArg = arg;
     return SECSuccess;
 }
+
+#ifdef NSS_PLATFORM_CLIENT_AUTH
+/* NEED LOCKS IN HERE.  */
+SECStatus 
+SSL_GetPlatformClientAuthDataHook(PRFileDesc *s,
+                                  SSLGetPlatformClientAuthData func,
+                                  void *arg)
+{
+    sslSocket *ss;
+
+    ss = ssl_FindSocket(s);
+    if (!ss) {
+	SSL_DBG(("%d: SSL[%d]: bad socket in GetPlatformClientAuthDataHook",
+		 SSL_GETPID(), s));
+	return SECFailure;
+    }
+
+    ss->getPlatformClientAuthData = func;
+    ss->getPlatformClientAuthDataArg = arg;
+    return SECSuccess;
+}
+#endif   /* NSS_PLATFORM_CLIENT_AUTH */
 
 /* NEED LOCKS IN HERE.  */
 SECStatus 

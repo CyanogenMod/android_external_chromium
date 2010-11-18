@@ -5,12 +5,14 @@
 #include "chrome/browser/instant/instant_controller.h"
 
 #include "base/command_line.h"
-#include "chrome/browser/autocomplete/autocomplete.h"
+#include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/instant/instant_delegate.h"
 #include "chrome/browser/instant/instant_loader.h"
 #include "chrome/browser/instant/instant_loader_manager.h"
+#include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -30,23 +32,35 @@ void InstantController::RegisterUserPrefs(PrefService* prefs) {
 
 // static
 bool InstantController::IsEnabled(Profile* profile) {
-  static bool enabled = false;
-  static bool checked = false;
-  if (!checked) {
-    checked = true;
-    enabled = CommandLine::ForCurrentProcess()->HasSwitch(
-        switches::kEnableMatchPreview);
-  }
-  PrefService* prefs = profile->GetPrefs();
-  return (enabled || (prefs && prefs->GetBoolean(prefs::kInstantEnabled)));
+  return IsEnabled(profile, PREDICTIVE_TYPE) ||
+      IsEnabled(profile, VERBATIM_TYPE);
 }
 
-InstantController::InstantController(InstantDelegate* delegate)
+// static
+bool InstantController::IsEnabled(Profile* profile, Type type) {
+  CommandLine* cl = CommandLine::ForCurrentProcess();
+  if (type == PREDICTIVE_TYPE) {
+    return (cl->HasSwitch(switches::kEnablePredictiveInstant) ||
+            (profile->GetPrefs() &&
+             profile->GetPrefs()->GetBoolean(prefs::kInstantEnabled)));
+  }
+  return cl->HasSwitch(switches::kEnableVerbatimInstant);
+}
+
+static InstantController::Type GetType(Profile* profile) {
+  return InstantController::IsEnabled(profile,
+                                      InstantController::PREDICTIVE_TYPE) ?
+      InstantController::PREDICTIVE_TYPE : InstantController::VERBATIM_TYPE;
+}
+
+InstantController::InstantController(Profile* profile,
+                                     InstantDelegate* delegate)
     : delegate_(delegate),
       tab_contents_(NULL),
       is_active_(false),
       commit_on_mouse_up_(false),
-      last_transition_type_(PageTransition::LINK) {
+      last_transition_type_(PageTransition::LINK),
+      type_(GetType(profile)) {
 }
 
 InstantController::~InstantController() {
@@ -138,6 +152,53 @@ bool InstantController::IsMouseDownFromActivate() {
   return loader_manager_->current_loader()->IsMouseDownFromActivate();
 }
 
+void InstantController::OnAutocompleteLostFocus(
+    gfx::NativeView view_gaining_focus) {
+  if (!is_active() || !GetPreviewContents())
+    return;
+
+  RenderWidgetHostView* rwhv =
+      GetPreviewContents()->GetRenderWidgetHostView();
+  if (!view_gaining_focus || !rwhv)
+    return DestroyPreviewContents();
+
+  gfx::NativeView tab_view = GetPreviewContents()->GetNativeView();
+  // Focus is going to the renderer.
+  if (rwhv->GetNativeView() == view_gaining_focus ||
+      tab_view == view_gaining_focus) {
+    if (!IsMouseDownFromActivate()) {
+      // If the mouse is not down, focus is not going to the renderer. Someone
+      // else moved focus and we shouldn't commit.
+      return DestroyPreviewContents();
+    }
+
+    if (IsShowingInstant()) {
+      // We're showing instant results. As instant results may shift when
+      // committing we commit on the mouse up. This way a slow click still
+      // works fine.
+      return SetCommitOnMouseUp();
+    }
+
+    return CommitCurrentPreview(INSTANT_COMMIT_FOCUS_LOST);
+  }
+
+  // Walk up the view hierarchy. If the view gaining focus is a subview of the
+  // TabContents view (such as a windowed plugin or http auth dialog), we want
+  // to keep the preview contents. Otherwise, focus has gone somewhere else,
+  // such as the JS inspector, and we want to cancel the preview.
+  gfx::NativeView view_gaining_focus_ancestor = view_gaining_focus;
+  while (view_gaining_focus_ancestor &&
+         view_gaining_focus_ancestor != tab_view) {
+    view_gaining_focus_ancestor =
+        platform_util::GetParent(view_gaining_focus_ancestor);
+  }
+
+  if (view_gaining_focus_ancestor)
+    return CommitCurrentPreview(INSTANT_COMMIT_FOCUS_LOST);
+
+  return DestroyPreviewContents();
+}
+
 TabContents* InstantController::ReleasePreviewContents(InstantCommitType type) {
   if (!loader_manager_.get())
     return NULL;
@@ -180,6 +241,11 @@ void InstantController::ShowInstantLoader(InstantLoader* loader) {
   } else {
     // The loader supports instant but isn't active yet. Nothing to do.
   }
+
+  NotificationService::current()->Notify(
+      NotificationType::INSTANT_CONTROLLER_SHOWN,
+      Source<InstantController>(this),
+      NotificationService::NoDetails());
 }
 
 void InstantController::SetSuggestedTextFor(InstantLoader* loader,
@@ -318,6 +384,16 @@ void InstantController::ClearBlacklist() {
 
 const TemplateURL* InstantController::GetTemplateURL(
     const AutocompleteMatch& match) {
+  if (type_ == VERBATIM_TYPE) {
+    // When using VERBATIM_TYPE we don't want to attempt to use the instant
+    // JavaScript API, otherwise the page would show predictive results. By
+    // returning NULL here we ensure we don't attempt to use the instant API.
+    //
+    // TODO: when the full search box API is in place we can lift this
+    // restriction and force the page to show verbatim results always.
+    return NULL;
+  }
+
   const TemplateURL* template_url = match.template_url;
   if (match.type == AutocompleteMatch::SEARCH_WHAT_YOU_TYPED ||
       match.type == AutocompleteMatch::SEARCH_HISTORY ||

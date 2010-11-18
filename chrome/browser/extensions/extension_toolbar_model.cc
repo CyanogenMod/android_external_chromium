@@ -45,7 +45,7 @@ void ExtensionToolbarModel::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
 }
 
-void ExtensionToolbarModel::MoveBrowserAction(Extension* extension,
+void ExtensionToolbarModel::MoveBrowserAction(const Extension* extension,
                                               int index) {
   ExtensionList::iterator pos = std::find(begin(), end(), extension);
   if (pos == end()) {
@@ -58,7 +58,7 @@ void ExtensionToolbarModel::MoveBrowserAction(Extension* extension,
   bool inserted = false;
   for (ExtensionList::iterator iter = begin(); iter != end(); ++iter, ++i) {
     if (i == index) {
-      toolitems_.insert(iter, extension);
+      toolitems_.insert(iter, make_scoped_refptr(extension));
       inserted = true;
       break;
     }
@@ -68,7 +68,7 @@ void ExtensionToolbarModel::MoveBrowserAction(Extension* extension,
     DCHECK_EQ(index, static_cast<int>(toolitems_.size()));
     index = toolitems_.size();
 
-    toolitems_.push_back(extension);
+    toolitems_.push_back(make_scoped_refptr(extension));
   }
 
   FOR_EACH_OBSERVER(Observer, observers_, BrowserActionMoved(extension, index));
@@ -93,7 +93,7 @@ void ExtensionToolbarModel::Observe(NotificationType type,
   if (!service_->is_ready())
     return;
 
-  Extension* extension = Details<Extension>(details).ptr();
+  const Extension* extension = Details<const Extension>(details).ptr();
   if (type == NotificationType::EXTENSION_LOADED) {
     AddExtension(extension);
   } else if (type == NotificationType::EXTENSION_UNLOADED ||
@@ -104,18 +104,19 @@ void ExtensionToolbarModel::Observe(NotificationType type,
   }
 }
 
-void ExtensionToolbarModel::AddExtension(Extension* extension) {
+void ExtensionToolbarModel::AddExtension(const Extension* extension) {
   // We only care about extensions with browser actions.
   if (!extension->browser_action())
     return;
 
   if (extension->id() == last_extension_removed_ &&
       last_extension_removed_index_ < toolitems_.size()) {
-    toolitems_.insert(begin() + last_extension_removed_index_, extension);
+    toolitems_.insert(begin() + last_extension_removed_index_,
+                      make_scoped_refptr(extension));
     FOR_EACH_OBSERVER(Observer, observers_,
         BrowserActionAdded(extension, last_extension_removed_index_));
   } else {
-    toolitems_.push_back(extension);
+    toolitems_.push_back(make_scoped_refptr(extension));
     FOR_EACH_OBSERVER(Observer, observers_,
                       BrowserActionAdded(extension, toolitems_.size() - 1));
   }
@@ -126,7 +127,7 @@ void ExtensionToolbarModel::AddExtension(Extension* extension) {
   UpdatePrefs();
 }
 
-void ExtensionToolbarModel::RemoveExtension(Extension* extension) {
+void ExtensionToolbarModel::RemoveExtension(const Extension* extension) {
   ExtensionList::iterator pos = std::find(begin(), end(), extension);
   if (pos == end()) {
     return;
@@ -162,7 +163,7 @@ void ExtensionToolbarModel::InitializeExtensionList() {
 
   // Create the lists.
   for (size_t i = 0; i < service_->extensions()->size(); ++i) {
-    Extension* extension = service_->extensions()->at(i);
+    const Extension* extension = service_->extensions()->at(i);
     if (!extension->browser_action())
       continue;
 
@@ -172,7 +173,7 @@ void ExtensionToolbarModel::InitializeExtensionList() {
       int index = std::distance(pref_order.begin(), pos);
       sorted[index] = extension;
     } else {
-      unsorted.push_back(extension);
+      unsorted.push_back(make_scoped_refptr(extension));
     }
   }
 
@@ -208,7 +209,7 @@ void ExtensionToolbarModel::UpdatePrefs() {
   service_->extension_prefs()->SetToolbarOrder(ids);
 }
 
-Extension* ExtensionToolbarModel::GetExtensionByIndex(int index) const {
+const Extension* ExtensionToolbarModel::GetExtensionByIndex(int index) const {
   return toolitems_.at(index);
 }
 

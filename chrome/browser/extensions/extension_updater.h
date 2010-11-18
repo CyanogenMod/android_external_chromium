@@ -36,7 +36,7 @@ class ManifestFetchData {
  public:
   static const int kNeverPinged = -1;
 
-  explicit ManifestFetchData(GURL update_url);
+  explicit ManifestFetchData(const GURL& update_url);
   ~ManifestFetchData();
 
   // Returns true if this extension information was successfully added. If the
@@ -112,7 +112,6 @@ class ManifestFetchesBuilder {
                         const Version& version,
                         PendingExtensionInfo::ExpectedCrxType crx_type,
                         GURL update_url);
-
   ExtensionUpdateService* service_;
 
   // List of data on fetches we're going to do. We limit the number of

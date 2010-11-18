@@ -4,13 +4,7 @@
 
 #include "chrome/browser/renderer_host/resource_message_filter.h"
 
-#include "app/clipboard/clipboard.h"
-#include "base/callback.h"
 #include "base/command_line.h"
-#if defined(OS_POSIX)
-#include "base/file_descriptor_posix.h"
-#endif
-#include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/metrics/histogram.h"
 #include "base/process_util.h"
@@ -21,18 +15,17 @@
 #include "base/worker_pool.h"
 #include "chrome/browser/appcache/appcache_dispatcher_host.h"
 #include "chrome/browser/automation/automation_resource_message_filter.h"
-#include "chrome/browser/browser_about_handler.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/chrome_plugin_browsing_context.h"
 #include "chrome/browser/clipboard_dispatcher.h"
 #include "chrome/browser/device_orientation/dispatcher_host.h"
-#include "chrome/browser/download/download_file.h"
+#include "chrome/browser/download/download_types.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/file_system/file_system_dispatcher_host.h"
 #include "chrome/browser/file_system/file_system_host_context.h"
-#include "chrome/browser/geolocation/geolocation_dispatcher_host.h"
+#include "chrome/browser/geolocation/geolocation_dispatcher_host_old.h"
 #include "chrome/browser/geolocation/geolocation_permission_context.h"
 #include "chrome/browser/gpu_process_host.h"
 #include "chrome/browser/host_zoom_map.h"
@@ -44,20 +37,18 @@
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
-#if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/plugin_selection_policy.h"
-#endif
+#include "chrome/browser/platform_util.h"
 #include "chrome/browser/plugin_service.h"
-#include "chrome/browser/plugin_updater.h"
-#include "chrome/browser/prefs/pref_service.h"
-#include "chrome/browser/printing/print_job_manager.h"
+#include "chrome/browser/plugin_process_host.h"
 #include "chrome/browser/printing/printer_query.h"
+#include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/audio_renderer_host.h"
 #include "chrome/browser/renderer_host/blob_dispatcher_host.h"
 #include "chrome/browser/renderer_host/browser_render_process_host.h"
 #include "chrome/browser/renderer_host/database_dispatcher_host.h"
 #include "chrome/browser/renderer_host/file_utilities_dispatcher_host.h"
+#include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/renderer_host/render_view_host_notification_task.h"
 #include "chrome/browser/renderer_host/render_widget_helper.h"
 #include "chrome/browser/search_engines/search_provider_install_state_dispatcher_host.h"
@@ -67,35 +58,22 @@
 #include "chrome/browser/ui_thread_helpers.h"
 #include "chrome/browser/worker_host/message_port_dispatcher.h"
 #include "chrome/browser/worker_host/worker_service.h"
-#include "chrome/common/child_process_host.h"
-#include "chrome/common/chrome_plugin_lib.h"
-#include "chrome/common/chrome_plugin_util.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_file_util.h"
 #include "chrome/common/extensions/extension_message_bundle.h"
-#if defined(OS_MACOSX)
-#include "chrome/common/font_descriptor_mac.h"
-#include "chrome/common/font_loader_mac.h"
-#endif
 #include "chrome/common/notification_service.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/common/render_messages_params.h"
 #include "chrome/common/url_constants.h"
-#include "chrome/common/worker_messages.h"
-#include "gfx/native_widget_types.h"
+#include "ipc/ipc_channel_handle.h"
 #include "net/base/cookie_monster.h"
-#include "net/base/file_stream.h"
 #include "net/base/io_buffer.h"
 #include "net/base/keygen_handler.h"
-#include "net/base/load_flags.h"
 #include "net/base/mime_util.h"
 #include "net/base/net_errors.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_network_layer.h"
-#include "net/http/http_transaction_factory.h"
 #include "net/url_request/url_request_context.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebNotificationPresenter.h"
 #include "webkit/glue/context_menu.h"
@@ -104,6 +82,23 @@
 #include "webkit/glue/plugins/webplugin.h"
 #include "webkit/glue/webcookie.h"
 #include "webkit/glue/webkit_glue.h"
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/plugin_selection_policy.h"
+#endif
+#if defined(OS_MACOSX)
+#include "chrome/common/font_descriptor_mac.h"
+#include "chrome/common/font_loader_mac.h"
+#endif
+#if defined(OS_POSIX)
+#include "base/file_descriptor_posix.h"
+#endif
+#if defined(OS_WIN)
+#include "chrome/common/child_process_host.h"
+#endif
+#if defined(USE_TCMALLOC)
+#include "chrome/browser/browser_about_handler.h"
+#endif
 
 using net::CookieStore;
 using WebKit::WebCache;
@@ -200,6 +195,48 @@ class ClearCacheCompletion : public net::CompletionCallback {
   scoped_refptr<ResourceMessageFilter> filter_;
 };
 
+class OpenChannelToPluginCallback : public PluginProcessHost::Client {
+ public:
+  OpenChannelToPluginCallback(ResourceMessageFilter* filter,
+                              IPC::Message* reply_msg)
+      : filter_(filter),
+        reply_msg_(reply_msg) {
+  }
+
+  virtual int ID() {
+    return filter_->id();
+  }
+
+  virtual bool OffTheRecord() {
+    return filter_->off_the_record();
+  }
+
+  virtual void SetPluginInfo(const WebPluginInfo& info) {
+    info_ = info;
+  }
+
+  virtual void OnChannelOpened(const IPC::ChannelHandle& handle) {
+    WriteReply(handle);
+  }
+
+  virtual void OnError() {
+    WriteReply(IPC::ChannelHandle());
+  }
+
+ private:
+  void WriteReply(const IPC::ChannelHandle& handle) {
+    ViewHostMsg_OpenChannelToPlugin::WriteReplyParams(reply_msg_,
+                                                      handle,
+                                                      info_);
+    filter_->Send(reply_msg_);
+    delete this;
+  }
+
+  scoped_refptr<ResourceMessageFilter> filter_;
+  IPC::Message* reply_msg_;
+  WebPluginInfo info_;
+};
+
 }  // namespace
 
 ResourceMessageFilter::ResourceMessageFilter(
@@ -239,7 +276,7 @@ ResourceMessageFilter::ResourceMessageFilter(
       ALLOW_THIS_IN_INITIALIZER_LIST(speech_input_dispatcher_host_(
           new speech_input::SpeechInputDispatcherHost(this->id()))),
       ALLOW_THIS_IN_INITIALIZER_LIST(geolocation_dispatcher_host_(
-          GeolocationDispatcherHost::New(
+          GeolocationDispatcherHostOld::New(
               this->id(), profile->GetGeolocationPermissionContext()))),
       ALLOW_THIS_IN_INITIALIZER_LIST(
           search_provider_install_state_dispatcher_host_(
@@ -463,6 +500,7 @@ bool ResourceMessageFilter::OnMessageReceived(const IPC::Message& msg) {
                           OnCheckNotificationPermission)
       IPC_MESSAGE_HANDLER(ViewHostMsg_GetMimeTypeFromExtension,
                           OnGetMimeTypeFromExtension)
+      IPC_MESSAGE_HANDLER(ViewHostMsg_RevealFolderInOS, OnRevealFolderInOS)
       IPC_MESSAGE_HANDLER(ViewHostMsg_GetMimeTypeFromFile,
                           OnGetMimeTypeFromFile)
       IPC_MESSAGE_HANDLER(ViewHostMsg_GetPreferredExtensionForMimeType,
@@ -532,7 +570,27 @@ bool ResourceMessageFilter::OnMessageReceived(const IPC::Message& msg) {
   return handled;
 }
 
-void ResourceMessageFilter::OnDestruct() {
+void ResourceMessageFilter::OnRevealFolderInOS(const FilePath& path) {
+#if defined(OS_MACOSX)
+  const BrowserThread::ID kThreadID = BrowserThread::UI;
+#else
+  const BrowserThread::ID kThreadID = BrowserThread::FILE;
+#endif
+  if (!BrowserThread::CurrentlyOn(kThreadID)) {
+    // Only honor the request if appropriate persmissions are granted.
+    if (ChildProcessSecurityPolicy::GetInstance()->CanReadFile(id(), path))
+      BrowserThread::PostTask(
+          kThreadID, FROM_HERE,
+          NewRunnableMethod(
+              this, &ResourceMessageFilter::OnRevealFolderInOS, path));
+    return;
+  }
+
+  DCHECK(BrowserThread::CurrentlyOn(kThreadID));
+  platform_util::OpenItem(path);
+}
+
+void ResourceMessageFilter::OnDestruct() const {
   BrowserThread::DeleteOnIOThread::Destruct(this);
 }
 
@@ -787,16 +845,18 @@ void ResourceMessageFilter::OnGetPluginInfoOnFileThread(
 }
 
 void ResourceMessageFilter::OnGotPluginInfo(bool found,
-                                            WebPluginInfo info,
+                                            const WebPluginInfo& info,
                                             const std::string& actual_mime_type,
                                             const GURL& policy_url,
                                             IPC::Message* reply_msg) {
   ContentSetting setting = CONTENT_SETTING_DEFAULT;
   if (found) {
-    info.enabled = info.enabled &&
-        plugin_service_->PrivatePluginAllowedForURL(info.path, policy_url);
+    WebPluginInfo info_copy = info;
+    info_copy.enabled = info_copy.enabled &&
+        plugin_service_->PrivatePluginAllowedForURL(info_copy.path, policy_url);
     HostContentSettingsMap* map = profile_->GetHostContentSettingsMap();
-    scoped_ptr<PluginGroup> group(PluginGroup::CopyOrCreatePluginGroup(info));
+    scoped_ptr<PluginGroup> group(
+        PluginGroup::CopyOrCreatePluginGroup(info_copy));
     std::string resource = group->identifier();
     setting = map->GetContentSetting(policy_url,
                                      CONTENT_SETTINGS_TYPE_PLUGINS,
@@ -811,7 +871,10 @@ void ResourceMessageFilter::OnGotPluginInfo(bool found,
 void ResourceMessageFilter::OnOpenChannelToPlugin(const GURL& url,
                                                   const std::string& mime_type,
                                                   IPC::Message* reply_msg) {
-  plugin_service_->OpenChannelToPlugin(this, url, mime_type, reply_msg);
+  plugin_service_->OpenChannelToPlugin(
+      url,
+      mime_type,
+      new OpenChannelToPluginCallback(this, reply_msg));
 }
 
 void ResourceMessageFilter::OnLaunchNaCl(
@@ -1050,8 +1113,7 @@ void ResourceMessageFilter::OnAllocateSharedMemoryBuffer(
     uint32 buffer_size,
     base::SharedMemoryHandle* handle) {
   base::SharedMemory shared_buf;
-  shared_buf.Create("", false, false, buffer_size);
-  if (!shared_buf.Map(buffer_size)) {
+  if (!shared_buf.CreateAndMapAnonymous(buffer_size)) {
     *handle = base::SharedMemory::NULLHandle();
     NOTREACHED() << "Cannot map shared memory buffer";
     return;
@@ -1083,7 +1145,7 @@ void ResourceMessageFilter::OnResourceTypeStats(
 }
 
 void ResourceMessageFilter::OnResourceTypeStatsOnUIThread(
-    WebCache::ResourceTypeStats stats, base::ProcessId renderer_id) {
+    const WebCache::ResourceTypeStats& stats, base::ProcessId renderer_id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   TaskManager::GetInstance()->model()->NotifyResourceTypeStats(
       renderer_id, stats);
@@ -1463,7 +1525,7 @@ void ResourceMessageFilter::OnCacheableMetadataAvailable(
       http_transaction_factory()->GetCache();
   DCHECK(cache);
 
-  scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(data.size());
+  scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(data.size()));
   memcpy(buf->data(), &data.front(), data.size());
   cache->WriteMetadata(
       url, base::Time::FromDoubleT(expected_response_time), buf, data.size());
@@ -1500,7 +1562,7 @@ void ResourceMessageFilter::OnKeygen(uint32 key_size_index,
       return;
   }
 
-  LOG(INFO) << "Dispatching keygen task to worker pool.";
+  VLOG(1) << "Dispatching keygen task to worker pool.";
   // Dispatch to worker pool, so we do not block the IO thread.
   if (!WorkerPool::PostTask(
            FROM_HERE,

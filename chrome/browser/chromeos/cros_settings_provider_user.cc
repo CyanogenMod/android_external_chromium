@@ -88,6 +88,7 @@ UserCrosSettingsProvider::~UserCrosSettingsProvider() {
   SignedSettingsHelper::Get()->CancelCallback(this);
 }
 
+// static
 void UserCrosSettingsProvider::RegisterPrefs(PrefService* local_state) {
   // Cached signed settings values
   local_state->RegisterBooleanPref(kAccountsPrefAllowGuest, true);
@@ -97,20 +98,24 @@ void UserCrosSettingsProvider::RegisterPrefs(PrefService* local_state) {
   local_state->RegisterStringPref(kDeviceOwner, "");
 }
 
+// static
 bool UserCrosSettingsProvider::cached_allow_guest() {
   return g_browser_process->local_state()->GetBoolean(kAccountsPrefAllowGuest);
 }
 
+// static
 bool UserCrosSettingsProvider::cached_allow_new_user() {
   return g_browser_process->local_state()->GetBoolean(
     kAccountsPrefAllowNewUser);
 }
 
+// static
 bool UserCrosSettingsProvider::cached_show_users_on_signin() {
   return g_browser_process->local_state()->GetBoolean(
       kAccountsPrefShowUserNamesOnSignIn);
 }
 
+// static
 const ListValue* UserCrosSettingsProvider::cached_whitelist() {
   PrefService* prefs = g_browser_process->local_state();
   const ListValue* cached_users = prefs->GetList(kAccountsPrefUsers);
@@ -125,11 +130,28 @@ const ListValue* UserCrosSettingsProvider::cached_whitelist() {
   return cached_users;
 }
 
+// static
 std::string UserCrosSettingsProvider::cached_owner() {
   return g_browser_process->local_state()->GetString(kDeviceOwner);
 }
 
-void UserCrosSettingsProvider::Set(const std::string& path, Value* in_value) {
+// static
+bool UserCrosSettingsProvider::IsEmailInCachedWhitelist(
+    const std::string& email) {
+  const ListValue* whitelist = cached_whitelist();
+  if (whitelist) {
+    StringValue email_value(email);
+    for (ListValue::const_iterator i(whitelist->begin());
+        i != whitelist->end(); ++i) {
+      if ((*i)->Equals(&email_value))
+        return true;
+    }
+  }
+  return false;
+}
+
+void UserCrosSettingsProvider::DoSet(const std::string& path,
+                                     Value* in_value) {
   if (!UserManager::Get()->current_user_is_owner()) {
     LOG(WARNING) << "Changing settings from non-owner, setting=" << path;
 
@@ -147,14 +169,14 @@ void UserCrosSettingsProvider::Set(const std::string& path, Value* in_value) {
       SignedSettingsHelper::Get()->StartStorePropertyOp(path, value, this);
       UpdateCacheBool(path.c_str(), bool_value);
 
-      LOG(INFO) << "Set cros setting " << path << "=" << value;
+      VLOG(1) << "Set cros setting " << path << "=" << value;
     }
   } else if (path == kDeviceOwner) {
-    LOG(INFO) << "Setting owner is not supported. "
-              << "Please use 'UpdateCachedOwner' instead.";
+    VLOG(1) << "Setting owner is not supported. Please use 'UpdateCachedOwner' "
+               "instead.";
   } else if (path == kAccountsPrefUsers) {
-    LOG(INFO) << "Setting user whitelist is not implemented."
-              << "Please use whitelist/unwhitelist instead.";
+    VLOG(1) << "Setting user whitelist is not implemented.  Please use "
+               "whitelist/unwhitelist instead.";
   } else {
     LOG(WARNING) << "Try to set unhandled cros setting " << path;
   }
@@ -185,7 +207,7 @@ bool UserCrosSettingsProvider::HandlesSetting(const std::string& path) {
 
 void UserCrosSettingsProvider::OnWhitelistCompleted(bool success,
     const std::string& email) {
-  LOG(INFO) << "Add " << email << " to whitelist, success=" << success;
+  VLOG(1) << "Add " << email << " to whitelist, success=" << success;
 
   // Reload the whitelist on settings op failure.
   if (!success)
@@ -194,7 +216,7 @@ void UserCrosSettingsProvider::OnWhitelistCompleted(bool success,
 
 void UserCrosSettingsProvider::OnUnwhitelistCompleted(bool success,
     const std::string& email) {
-  LOG(INFO) << "Remove " << email << " from whitelist, success=" << success;
+  VLOG(1) << "Remove " << email << " from whitelist, success=" << success;
 
   // Reload the whitelist on settings op failure.
   if (!success)
@@ -203,8 +225,8 @@ void UserCrosSettingsProvider::OnUnwhitelistCompleted(bool success,
 
 void UserCrosSettingsProvider::OnStorePropertyCompleted(
     bool success, const std::string& name, const std::string& value) {
-  LOG(INFO) << "Store cros setting " << name << "=" << value
-            << ", success=" << success;
+  VLOG(1) << "Store cros setting " << name << "=" << value << ", success="
+          << success;
 
   // Reload the setting if store op fails.
   if (!success)
@@ -218,7 +240,7 @@ void UserCrosSettingsProvider::OnRetrievePropertyCompleted(
     return;
   }
 
-  LOG(INFO) << "Retrieved cros setting " << name << "=" << value;
+  VLOG(1) << "Retrieved cros setting " << name << "=" << value;
 
   if (bool_settings_.count(name)) {
     UpdateCacheBool(name.c_str(), value == "true" ? true : false);

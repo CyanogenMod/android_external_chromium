@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-
+#include "base/debug/debugger.h"
 #include "base/scoped_nsobject.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #import "chrome/browser/cocoa/chrome_event_processing_window.h"
 #import "chrome/browser/cocoa/browser_window_controller.h"
 #import "chrome/browser/cocoa/browser_frame_view.h"
@@ -38,7 +38,7 @@ class ChromeEventProcessingWindowTest : public CocoaTest {
                          styleMask:mask
                            backing:NSBackingStoreBuffered
                              defer:NO];
-    if (DebugUtil::BeingDebugged()) {
+    if (base::debug::BeingDebugged()) {
       [window_ orderFront:nil];
     } else {
       [window_ orderBack:nil];

@@ -9,15 +9,16 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/observer_list.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "gfx/rect.h"
-#include "third_party/ppapi/c/dev/pp_cursor_type_dev.h"
-#include "third_party/ppapi/c/dev/ppp_graphics_3d_dev.h"
-#include "third_party/ppapi/c/dev/ppp_printing_dev.h"
-#include "third_party/ppapi/c/pp_instance.h"
-#include "third_party/ppapi/c/pp_resource.h"
+#include "ppapi/c/dev/pp_cursor_type_dev.h"
+#include "ppapi/c/dev/ppp_graphics_3d_dev.h"
+#include "ppapi/c/dev/ppp_printing_dev.h"
+#include "ppapi/c/pp_instance.h"
+#include "ppapi/c/pp_resource.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebCanvas.h"
 
@@ -48,9 +49,11 @@ class WebPluginContainer;
 namespace pepper {
 
 class Graphics2D;
+class Graphics3D;
 class ImageData;
 class PluginDelegate;
 class PluginModule;
+class Resource;
 class URLLoader;
 class FullscreenContainer;
 
@@ -60,6 +63,14 @@ class FullscreenContainer;
 // ResourceTracker.
 class PluginInstance : public base::RefCounted<PluginInstance> {
  public:
+  class Observer {
+   public:
+    // Indicates that the instance is being destroyed. This will be called from
+    // the instance's destructor so don't do anything in this callback that
+    // uses the instance.
+    virtual void InstanceDestroyed(PluginInstance* instance) = 0;
+  };
+
   PluginInstance(PluginDelegate* delegate,
                  PluginModule* module,
                  const PPP_Instance* instance_interface);
@@ -89,6 +100,12 @@ class PluginInstance : public base::RefCounted<PluginInstance> {
   // nonzero.
   PP_Instance pp_instance() const { return pp_instance_; }
 
+  // Other classes can register an observer for instance events. These pointers
+  // are NOT owned by the Instance. If the object implementing the observer
+  // goes away, it must take care to unregister itself.
+  void AddObserver(Observer* observer);
+  void RemoveObserver(Observer* observer);
+
   // Paints the current backing store to the web page.
   void Paint(WebKit::WebCanvas* canvas,
              const gfx::Rect& plugin_rect,
@@ -100,10 +117,23 @@ class PluginInstance : public base::RefCounted<PluginInstance> {
   // invalidate the entire plugin.
   void InvalidateRect(const gfx::Rect& rect);
 
+  // Schedules a scroll of the plugin.  This uses optimized scrolling only for
+  // full-frame plugins, as otherwise there could be other elements on top.  The
+  // slow path can also be triggered if there is an overlapping frame.
+  void ScrollRect(int dx, int dy, const gfx::Rect& rect);
+
+  // If the plugin instance is backed by a texture, return its texture ID in the
+  // compositor's namespace. Otherwise return 0. Returns 0 by default.
+  virtual unsigned GetBackingTextureId();
+
+  // Commit the backing texture to the screen once the side effects some
+  // rendering up to an offscreen SwapBuffers are visible.
+  void CommitBackingTexture();
+
   // PPB_Instance implementation.
   PP_Var GetWindowObject();
   PP_Var GetOwnerElementObject();
-  bool BindGraphics(PP_Resource device_id);
+  bool BindGraphics(PP_Resource graphics_id);
   bool full_frame() const { return full_frame_; }
   bool SetCursor(PP_CursorType_Dev type);
   PP_Var ExecuteScript(PP_Var script, PP_Var* exception);
@@ -160,6 +190,9 @@ class PluginInstance : public base::RefCounted<PluginInstance> {
   bool IsFullscreen();
   bool SetFullscreen(bool fullscreen);
 
+  // Implementation of PPB_Private2.
+  bool NavigateToURL(const char* url, const char* target);
+
  private:
   bool LoadFindInterface();
   bool LoadPrivateInterface();
@@ -187,6 +220,14 @@ class PluginInstance : public base::RefCounted<PluginInstance> {
                             const gfx::Rect& dest_rect, int canvas_height);
 #endif  // OS_MACOSX
 
+  // Get the bound graphics context as a concrete 2D graphics context or returns
+  // null if the context is not 2D.
+  Graphics2D* bound_graphics_2d() const;
+
+  // Get the bound graphics context as a concrete 3D graphics context or returns
+  // null if the context is not 3D.
+  Graphics3D* bound_graphics_3d() const;
+
   PluginDelegate* delegate_;
   scoped_refptr<PluginModule> module_;
   const PPP_Instance* instance_interface_;
@@ -210,15 +251,15 @@ class PluginInstance : public base::RefCounted<PluginInstance> {
   // be (0, 0, w, h) regardless of scroll position.
   gfx::Rect clip_;
 
+  // The current device context for painting in 2D or 3D.
+  scoped_refptr<Resource> bound_graphics_;
+
   // We track two types of focus, one from WebKit, which is the focus among
   // all elements of the page, one one from the browser, which is whether the
   // tab/window has focus. We tell the plugin it has focus only when both of
   // these values are set to true.
   bool has_webkit_focus_;
   bool has_content_area_focus_;
-
-  // The current device context for painting in 2D.
-  scoped_refptr<Graphics2D> bound_graphics_2d_;
 
   // The id of the current find operation, or -1 if none is in process.
   int find_identifier_;
@@ -265,6 +306,9 @@ class PluginInstance : public base::RefCounted<PluginInstance> {
 
   // Plugin container for fullscreen mode. NULL if not in fullscreen mode.
   FullscreenContainer* fullscreen_container_;
+
+  // Non-owning pointers to all active observers.
+  ObserverList<Observer, false> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(PluginInstance);
 };

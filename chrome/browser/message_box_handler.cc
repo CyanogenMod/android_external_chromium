@@ -28,7 +28,8 @@ static std::wstring GetTitle(Profile* profile,
                              const GURL& frame_url) {
   ExtensionsService* extensions_service = profile->GetExtensionsService();
   if (extensions_service) {
-    Extension* extension = extensions_service->GetExtensionByURL(frame_url);
+    const Extension* extension =
+        extensions_service->GetExtensionByURL(frame_url);
     if (!extension)
       extension = extensions_service->GetExtensionByWebExtent(frame_url);
 
@@ -46,10 +47,9 @@ static std::wstring GetTitle(Profile* profile,
 
   // TODO(brettw) it should be easier than this to do the correct language
   // handling without getting the accept language from the profile.
-  string16 base_address = WideToUTF16(gfx::ElideUrl(frame_url.GetOrigin(),
+  string16 base_address = gfx::ElideUrl(frame_url.GetOrigin(),
       gfx::Font(), 0,
-      UTF8ToWide(
-          profile->GetPrefs()->GetString(prefs::kAcceptLanguages))));
+      UTF8ToWide(profile->GetPrefs()->GetString(prefs::kAcceptLanguages)));
 
   // Force URL to have LTR directionality.
   base_address = base::i18n::GetDisplayStringInLTRDirectionality(

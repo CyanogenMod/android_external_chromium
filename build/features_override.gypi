@@ -11,6 +11,7 @@
     # but not listed below, it will revert to its hardcoded webkit value.
     'feature_defines': [
       'ENABLE_3D_CANVAS=1',
+      'ENABLE_3D_PLUGIN=1',
       'ENABLE_BLOB=1',
       'ENABLE_BLOB_SLICE=1',
       'ENABLE_CHANNEL_MESSAGING=1',
@@ -54,6 +55,8 @@
       'ENABLE_XHR_RESPONSE_BLOB=1',
       'ENABLE_XPATH=1',
       'ENABLE_XSLT=1',
+      'WTF_USE_WEBP=1',
+      'WTF_USE_WEBKIT_IMAGE_DECODERS=1',
     ],
     # We have to nest variables inside variables so that they can be overridden
     # through GYP_DEFINES.

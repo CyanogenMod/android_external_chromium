@@ -14,8 +14,9 @@
 #include "base/mac_util.h"
 #include "base/nsimage_cache_mac.h"
 #include "base/sys_string_conversions.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser.h"
+#include "chrome/browser/browser_navigator.h"
 #include "chrome/browser/find_bar.h"
 #include "chrome/browser/find_bar_controller.h"
 #include "chrome/browser/metrics/user_metrics.h"
@@ -1350,6 +1351,11 @@ private:
 
   TabController* tabController = [tabArray_ objectAtIndex:index];
   DCHECK([tabController isKindOfClass:[TabController class]]);
+
+  // Don't do anything if the change was already picked up by the move event.
+  if (tabStripModel_->IsMiniTab(modelIndex) == [tabController mini])
+    return;
+
   [tabController setMini:tabStripModel_->IsMiniTab(modelIndex)];
   [tabController setPinned:tabStripModel_->IsTabPinned(modelIndex)];
   [tabController setApp:tabStripModel_->IsAppTab(modelIndex)];
@@ -1697,11 +1703,12 @@ private:
     case NEW_FOREGROUND_TAB: {
       UserMetrics::RecordAction(UserMetricsAction("Tab_DropURLBetweenTabs"),
                                 browser_->profile());
-      Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
-      params.index = index;
-      params.add_types =
+      browser::NavigateParams params(browser_, url, PageTransition::TYPED);
+      params.disposition = disposition;
+      params.tabstrip_index = index;
+      params.tabstrip_add_types =
           TabStripModel::ADD_SELECTED | TabStripModel::ADD_FORCE_INDEX;
-      browser_->AddTabWithURL(&params);
+      browser::Navigate(&params);
       break;
     }
     case CURRENT_TAB:

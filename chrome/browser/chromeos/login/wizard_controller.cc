@@ -319,7 +319,6 @@ void WizardController::OwnBackground(
   DCHECK(!background_widget_);
   background_widget_ = background_widget;
   background_view_ = background_view;
-  background_view_->OnOwnerChanged();
 }
 
 chromeos::NetworkScreen* WizardController::GetNetworkScreen() {
@@ -981,6 +980,7 @@ void ShowLoginWizard(const std::string& first_screen_name,
   controller->Init(first_screen_name, screen_bounds);
   controller->Show();
 
+  chromeos::LoginUtils::Get()->PrewarmAuthentication();
   if (chromeos::CrosLibrary::Get()->EnsureLoaded())
     chromeos::CrosLibrary::Get()->GetLoginLibrary()->EmitLoginPromptReady();
 

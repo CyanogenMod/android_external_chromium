@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/crx_installer.h"
 
+#include <list>
+
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/file_util.h"
@@ -12,6 +14,7 @@
 #include "base/singleton.h"
 #include "base/stringprintf.h"
 #include "base/task.h"
+#include "base/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
@@ -45,7 +48,7 @@ struct WhitelistedInstallData {
   std::list<std::string> ids;
 };
 
-}
+}  // namespace
 
 // static
 void CrxInstaller::SetWhitelistedInstallId(const std::string& id) {
@@ -55,6 +58,7 @@ void CrxInstaller::SetWhitelistedInstallId(const std::string& id) {
 
 // static
 bool CrxInstaller::ClearWhitelistedInstallId(const std::string& id) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   std::list<std::string>& ids = Singleton<WhitelistedInstallData>::get()->ids;
   std::list<std::string>::iterator iter = ids.begin();
   for (; iter != ids.end(); ++iter) {
@@ -112,7 +116,12 @@ void CrxInstaller::InstallCrx(const FilePath& source_file) {
   source_file_ = source_file;
 
   FilePath user_data_temp_dir;
-  CHECK(PathService::Get(chrome::DIR_USER_DATA_TEMP, &user_data_temp_dir));
+  {
+    // We shouldn't be doing disk IO on the UI thread.
+    //   http://code.google.com/p/chromium/issues/detail?id=60634
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    CHECK(PathService::Get(chrome::DIR_USER_DATA_TEMP, &user_data_temp_dir));
+  }
 
   scoped_refptr<SandboxedExtensionUnpacker> unpacker(
       new SandboxedExtensionUnpacker(
@@ -141,8 +150,8 @@ void CrxInstaller::InstallUserScript(const FilePath& source_file,
 
 void CrxInstaller::ConvertUserScriptOnFileThread() {
   std::string error;
-  Extension* extension = ConvertUserScriptToExtension(source_file_,
-                                                      original_url_, &error);
+  scoped_refptr<Extension> extension =
+      ConvertUserScriptToExtension(source_file_, original_url_, &error);
   if (!extension) {
     ReportFailureFromFileThread(error);
     return;
@@ -151,7 +160,8 @@ void CrxInstaller::ConvertUserScriptOnFileThread() {
   OnUnpackSuccess(extension->path(), extension->path(), extension);
 }
 
-bool CrxInstaller::AllowInstall(Extension* extension, std::string* error) {
+bool CrxInstaller::AllowInstall(const Extension* extension,
+                                std::string* error) {
   DCHECK(error);
 
   // We always allow themes and external installs.
@@ -233,11 +243,11 @@ void CrxInstaller::OnUnpackFailure(const std::string& error_message) {
 
 void CrxInstaller::OnUnpackSuccess(const FilePath& temp_dir,
                                    const FilePath& extension_dir,
-                                   Extension* extension) {
+                                   const Extension* extension) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
 
   // Note: We take ownership of |extension| and |temp_dir|.
-  extension_.reset(extension);
+  extension_ = extension;
   temp_dir_ = temp_dir;
 
   // We don't have to delete the unpack dir explicity since it is a child of
@@ -263,8 +273,8 @@ void CrxInstaller::OnUnpackSuccess(const FilePath& temp_dir,
 void CrxInstaller::ConfirmInstall() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (frontend_->extension_prefs()->IsExtensionBlacklisted(extension_->id())) {
-    LOG(INFO) << "This extension: " << extension_->id()
-      << " is blacklisted. Install failed.";
+    VLOG(1) << "This extension: " << extension_->id()
+            << " is blacklisted. Install failed.";
     ReportFailureFromUIThread("This extension is blacklisted.");
     return;
   }
@@ -276,7 +286,7 @@ void CrxInstaller::ConfirmInstall() {
   }
 
   GURL overlapping_url;
-  Extension* overlapping_extension =
+  const Extension* overlapping_extension =
       frontend_->GetExtensionByOverlappingWebExtent(extension_->web_extent());
   if (overlapping_extension) {
     ReportFailureFromUIThread(l10n_util::GetStringFUTF8(
@@ -288,9 +298,11 @@ void CrxInstaller::ConfirmInstall() {
   current_version_ =
       frontend_->extension_prefs()->GetVersionString(extension_->id());
 
+  bool whitelisted = ClearWhitelistedInstallId(extension_->id()) &&
+      extension_->plugins().empty();
+
   if (client_ &&
-      (!allow_silent_install_ ||
-       !ClearWhitelistedInstallId(extension_->id()))) {
+      (!allow_silent_install_ || !whitelisted)) {
     AddRef();  // Balanced in Proceed() and Abort().
     client_->ConfirmInstall(this, extension_.get());
   } else {
@@ -351,8 +363,8 @@ void CrxInstaller::CompleteInstall() {
   // TODO(aa): All paths to resources inside extensions should be created
   // lazily and based on the Extension's root path at that moment.
   std::string error;
-  extension_.reset(extension_file_util::LoadExtension(
-      version_dir, install_source_, true, &error));
+  extension_ = extension_file_util::LoadExtension(
+      version_dir, install_source_, true, &error);
   DCHECK(error.empty());
 
   ReportSuccessFromFileThread();
@@ -400,8 +412,8 @@ void CrxInstaller::ReportSuccessFromUIThread() {
 
   // Tell the frontend about the installation and hand off ownership of
   // extension_ to it.
-  frontend_->OnExtensionInstalled(extension_.release(),
-                                  allow_privilege_increase_);
+  frontend_->OnExtensionInstalled(extension_, allow_privilege_increase_);
+  extension_ = NULL;
 
   // We're done. We don't post any more tasks to ourselves so we are deleted
   // soon.

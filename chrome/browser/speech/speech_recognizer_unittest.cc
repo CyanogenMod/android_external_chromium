@@ -23,7 +23,8 @@ class SpeechRecognizerTest : public SpeechRecognizerDelegate,
   SpeechRecognizerTest()
       : io_thread_(BrowserThread::IO, &message_loop_),
         ALLOW_THIS_IN_INITIALIZER_LIST(
-            recognizer_(new SpeechRecognizer(this, 1))),
+            recognizer_(new SpeechRecognizer(this, 1, std::string(),
+                                             std::string()))),
         recording_complete_(false),
         recognition_complete_(false),
         result_received_(false),
@@ -44,7 +45,7 @@ class SpeechRecognizerTest : public SpeechRecognizerDelegate,
   // SpeechRecognizer::Delegate methods.
   virtual void SetRecognitionResult(int caller_id,
                                     bool error,
-                                    const string16& result) {
+                                    const SpeechInputResultArray& result) {
     result_received_ = true;
   }
 

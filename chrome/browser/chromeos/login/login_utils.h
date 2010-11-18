@@ -35,7 +35,9 @@ class LoginUtils {
 
   // Invoked after the user has successfully logged in. This launches a browser
   // and does other bookkeeping after logging in.
-  virtual void CompleteLogin(const std::string& username,
+  virtual void CompleteLogin(
+      const std::string& username,
+      const std::string& password,
       const GaiaAuthConsumer::ClientLoginResult& credentials) = 0;
 
   // Invoked after the tmpfs is successfully mounted.
@@ -53,6 +55,9 @@ class LoginUtils {
 
   // Returns if browser launch enabled now or not.
   virtual bool IsBrowserLaunchEnabled() const = 0;
+
+  // Prewarms the authentication network connection.
+  virtual void PrewarmAuthentication() = 0;
 
 };
 

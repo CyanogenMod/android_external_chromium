@@ -195,7 +195,7 @@ void RenderWidgetHelper::OnCancelResourceRequests(
 }
 
 void RenderWidgetHelper::OnCrossSiteClosePageACK(
-    ViewMsg_ClosePage_Params params) {
+    const ViewMsg_ClosePage_Params& params) {
   resource_dispatcher_host_->OnClosePageACK(params);
 }
 
@@ -290,8 +290,7 @@ TransportDIB* RenderWidgetHelper::MapTransportDIB(TransportDIB::Id dib_id) {
 void RenderWidgetHelper::AllocTransportDIB(
     size_t size, bool cache_in_browser, TransportDIB::Handle* result) {
   scoped_ptr<base::SharedMemory> shared_memory(new base::SharedMemory());
-  if (!shared_memory->Create("", false /* read write */,
-                             false /* do not open existing */, size)) {
+  if (!shared_memory->CreateAnonymous(size)) {
     result->fd = -1;
     result->auto_close = false;
     return;

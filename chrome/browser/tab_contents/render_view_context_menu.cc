@@ -14,14 +14,16 @@
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/time.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
+#include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/debugger/devtools_manager.h"
 #include "chrome/browser/debugger/devtools_window.h"
 #include "chrome/browser/download/download_manager.h"
+#include "chrome/browser/extensions/extension_event_router.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/fonts_languages_window.h"
 #include "chrome/browser/metrics/user_metrics.h"
@@ -64,7 +66,7 @@ const size_t RenderViewContextMenu::kMaxSelectionTextLength = 50;
 
 // static
 bool RenderViewContextMenu::IsDevToolsURL(const GURL& url) {
-  return url.SchemeIs(chrome::kChromeUIScheme) &&
+  return url.SchemeIs(chrome::kChromeDevToolsScheme) &&
       url.host() == chrome::kChromeUIDevToolsHost;
 }
 
@@ -149,10 +151,12 @@ static const GURL& GetDocumentURL(const ContextMenuParams& params) {
 }
 
 // Given a list of items, returns the ones that match given the contents
-// of |params|.
+// of |params| and the profile.
 static ExtensionMenuItem::List GetRelevantExtensionItems(
     const ExtensionMenuItem::List& items,
-    const ContextMenuParams& params) {
+    const ContextMenuParams& params,
+    Profile* profile,
+    bool can_cross_incognito) {
   ExtensionMenuItem::List result;
   for (ExtensionMenuItem::List::const_iterator i = items.begin();
        i != items.end(); ++i) {
@@ -170,7 +174,8 @@ static ExtensionMenuItem::List GetRelevantExtensionItems(
     if (!ExtensionPatternMatch(item->target_url_patterns(), target_url))
       continue;
 
-    result.push_back(*i);
+    if (item->id().profile == profile || can_cross_incognito)
+      result.push_back(*i);
   }
   return result;
 }
@@ -179,7 +184,8 @@ void RenderViewContextMenu::AppendExtensionItems(
     const std::string& extension_id, int* index) {
   ExtensionsService* service = profile_->GetExtensionsService();
   ExtensionMenuManager* manager = service->menu_manager();
-  Extension* extension = service->GetExtensionById(extension_id, false);
+  const Extension* extension = service->GetExtensionById(extension_id, false);
+  bool can_cross_incognito = service->CanCrossIncognito(extension);
   DCHECK_GE(*index, 0);
   int max_index =
       IDC_EXTENSIONS_CONTEXT_CUSTOM_LAST - IDC_EXTENSIONS_CONTEXT_CUSTOM_FIRST;
@@ -191,7 +197,8 @@ void RenderViewContextMenu::AppendExtensionItems(
   if (!all_items || all_items->empty())
     return;
   ExtensionMenuItem::List items =
-      GetRelevantExtensionItems(*all_items, params_);
+      GetRelevantExtensionItems(*all_items, params_, profile_,
+                                can_cross_incognito);
   if (items.empty())
     return;
 
@@ -214,7 +221,8 @@ void RenderViewContextMenu::AppendExtensionItems(
     extension_item_map_[menu_id] = item->id();
     title = item->TitleWithReplacement(PrintableSelectionText(),
                                        kMaxExtensionItemTitleLength);
-    submenu_items = GetRelevantExtensionItems(item->children(), params_);
+    submenu_items = GetRelevantExtensionItems(item->children(), params_,
+                                              profile_, can_cross_incognito);
   }
 
   // Now add our item(s) to the menu_model_.
@@ -224,13 +232,15 @@ void RenderViewContextMenu::AppendExtensionItems(
     menus::SimpleMenuModel* submenu = new menus::SimpleMenuModel(this);
     extension_menu_models_.push_back(submenu);
     menu_model_.AddSubMenu(menu_id, title, submenu);
-    RecursivelyAppendExtensionItems(submenu_items, submenu, index);
+    RecursivelyAppendExtensionItems(submenu_items, can_cross_incognito, submenu,
+                                    index);
   }
   SetExtensionIcon(extension_id);
 }
 
 void RenderViewContextMenu::RecursivelyAppendExtensionItems(
     const ExtensionMenuItem::List& items,
+    bool can_cross_incognito,
     menus::SimpleMenuModel* menu_model,
     int *index) {
   string16 selection_text = PrintableSelectionText();
@@ -257,14 +267,16 @@ void RenderViewContextMenu::RecursivelyAppendExtensionItems(
                                                 kMaxExtensionItemTitleLength);
     if (item->type() == ExtensionMenuItem::NORMAL) {
       ExtensionMenuItem::List children =
-          GetRelevantExtensionItems(item->children(), params_);
+          GetRelevantExtensionItems(item->children(), params_,
+                                    profile_, can_cross_incognito);
       if (children.size() == 0) {
         menu_model->AddItem(menu_id, title);
       } else {
         menus::SimpleMenuModel* submenu = new menus::SimpleMenuModel(this);
         extension_menu_models_.push_back(submenu);
         menu_model->AddSubMenu(menu_id, title, submenu);
-        RecursivelyAppendExtensionItems(children, submenu, index);
+        RecursivelyAppendExtensionItems(children, can_cross_incognito,
+                                        submenu, index);
       }
     } else if (item->type() == ExtensionMenuItem::CHECKBOX) {
       menu_model->AddCheckItem(menu_id, title);
@@ -317,7 +329,7 @@ void RenderViewContextMenu::AppendAllExtensionItems() {
   std::set<std::string> ids = menu_manager->ExtensionIds();
   std::vector<std::pair<std::string, std::string> > sorted_ids;
   for (std::set<std::string>::iterator i = ids.begin(); i != ids.end(); ++i) {
-    Extension* extension = service->GetExtensionById(*i, false);
+    const Extension* extension = service->GetExtensionById(*i, false);
     if (extension)
       sorted_ids.push_back(
           std::pair<std::string, std::string>(extension->name(), *i));
@@ -739,6 +751,12 @@ bool RenderViewContextMenu::IsCommandIdEnabled(int id) const {
   if (id == IDC_PRINT &&
       (source_tab_contents_->content_restrictions() &
           CONTENT_RESTRICTION_PRINT)) {
+    return false;
+  }
+
+  if (id == IDC_SAVE_PAGE &&
+      (source_tab_contents_->content_restrictions() &
+          CONTENT_RESTRICTION_SAVE)) {
     return false;
   }
 
@@ -1427,6 +1445,10 @@ bool RenderViewContextMenu::IsDevCommandEnabled(int id) const {
     // per tab flag set.
     if (IsDevToolsURL(active_entry->url()) &&
         !command_line.HasSwitch(switches::kProcessPerTab))
+      return false;
+    // Don't enable the web inspector if the developer tools are disabled via
+    // the preference dev-tools-disabled.
+    if (profile_->GetPrefs()->GetBoolean(prefs::kDevToolsDisabled))
       return false;
   }
 

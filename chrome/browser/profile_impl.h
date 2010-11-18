@@ -48,6 +48,7 @@ class ProfileImpl : public Profile,
   virtual ChromeAppCacheService* GetAppCacheService();
   virtual webkit_database::DatabaseTracker* GetDatabaseTracker();
   virtual history::TopSites* GetTopSites();
+  virtual history::TopSites* GetTopSitesWithoutCreating();
   virtual VisitedLinkMaster* GetVisitedLinkMaster();
   virtual UserScriptMaster* GetUserScriptMaster();
   virtual SSLHostState* GetSSLHostState();
@@ -71,17 +72,18 @@ class ProfileImpl : public Profile,
   virtual PersonalDataManager* GetPersonalDataManager();
   virtual FileSystemHostContext* GetFileSystemHostContext();
   virtual void InitThemes();
-  virtual void SetTheme(Extension* extension);
+  virtual void SetTheme(const Extension* extension);
   virtual void SetNativeTheme();
   virtual void ClearTheme();
-  virtual Extension* GetTheme();
+  virtual const Extension* GetTheme();
   virtual BrowserThemeProvider* GetThemeProvider();
   virtual bool HasCreatedDownloadManager() const;
   virtual URLRequestContextGetter* GetRequestContext();
   virtual URLRequestContextGetter* GetRequestContextForMedia();
   virtual URLRequestContextGetter* GetRequestContextForExtensions();
-  virtual void RegisterExtensionWithRequestContexts(Extension* extension);
-  virtual void UnregisterExtensionWithRequestContexts(Extension* extension);
+  virtual void RegisterExtensionWithRequestContexts(const Extension* extension);
+  virtual void UnregisterExtensionWithRequestContexts(
+      const Extension* extension);
   virtual net::SSLConfigService* GetSSLConfigService();
   virtual HostContentSettingsMap* GetHostContentSettingsMap();
   virtual HostZoomMap* GetHostZoomMap();
@@ -92,6 +94,7 @@ class ProfileImpl : public Profile,
   virtual SessionService* GetSessionService();
   virtual void ShutdownSessionService();
   virtual bool HasSessionService() const;
+  virtual bool HasProfileSyncService() const;
   virtual bool DidLastSessionExitCleanly();
   virtual BookmarkModel* GetBookmarkModel();
   virtual bool IsSameProfile(Profile* profile);
@@ -119,6 +122,7 @@ class ProfileImpl : public Profile,
   void InitCloudPrintProxyService();
   virtual ChromeBlobStorageContext* GetBlobStorageContext();
   virtual ExtensionInfoMap* GetExtensionInfoMap();
+  virtual BrowserSignin* GetBrowserSignin();
 
 #if defined(OS_CHROMEOS)
   virtual chromeos::ProxyConfigServiceImpl* GetChromeOSProxyConfigServiceImpl();
@@ -218,6 +222,7 @@ class ProfileImpl : public Profile,
   scoped_refptr<PersonalDataManager> personal_data_manager_;
   scoped_ptr<PinnedTabService> pinned_tab_service_;
   scoped_refptr<FileSystemHostContext> file_system_host_context_;
+  scoped_ptr<BrowserSignin> browser_signin_;
   bool history_service_created_;
   bool favicon_service_created_;
   bool created_web_data_service_;

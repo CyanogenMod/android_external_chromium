@@ -12,6 +12,7 @@
 #include "base/path_service.h"
 #include "base/rand_util.h"
 #include "base/stl_util-inl.h"
+#include "base/stringprintf.h"
 #include "base/sys_string_conversions.h"
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
@@ -135,6 +136,8 @@ void DownloadManager::Shutdown() {
     select_file_dialog_->ListenerDestroyed();
 
   download_history_.reset();
+
+  request_context_getter_ = NULL;
 
   shutdown_needed_ = false;
 }
@@ -339,8 +342,10 @@ void DownloadManager::CheckIfSuggestedPathExists(DownloadCreateInfo* info,
     FilePath::StringType file_name;
     FilePath path;
     while (path.empty()) {
-      SStringPrintf(&file_name, FILE_PATH_LITERAL("unconfirmed %d.crdownload"),
-                    base::RandInt(0, 100000));
+      base::SStringPrintf(
+          &file_name,
+          FILE_PATH_LITERAL("unconfirmed %d.crdownload"),
+          base::RandInt(0, 100000));
       path = dir.Append(file_name);
       if (file_util::PathExists(path))
         path = FilePath();
@@ -448,7 +453,7 @@ void DownloadManager::CreateDownloadItem(DownloadCreateInfo* info,
         NewRunnableMethod(
             file_manager_, &DownloadFileManager::OnIntermediateDownloadName,
             download->id(), download_path, this));
-    download->set_need_final_rename(true);
+    download->Rename(download_path);
   }
 
   if (download_finished) {
@@ -457,8 +462,6 @@ void DownloadManager::CreateDownloadItem(DownloadCreateInfo* info,
     OnAllDataSaved(info->download_id,
                    pending_finished_downloads_[info->download_id]);
   }
-
-  download->Rename(target_path);
 
   download_history_->AddEntry(*info, download,
       NewCallback(this, &DownloadManager::OnCreateDownloadEntryComplete));
@@ -524,16 +527,16 @@ void DownloadManager::OnAllDataSaved(int32 download_id, int64 size) {
         NewRunnableMethod(
             this, &DownloadManager::ProceedWithFinishedDangerousDownload,
             download->db_handle(),
-            download->full_path(), download->original_name()));
+            download->full_path(), download->target_name()));
     return;
   }
 
-  if (download->need_final_rename()) {
+  if (download->NeedsRename()) {
     BrowserThread::PostTask(
         BrowserThread::FILE, FROM_HERE,
         NewRunnableMethod(
             file_manager_, &DownloadFileManager::OnFinalDownloadName,
-            download->id(), download->full_path(), false, this));
+            download->id(), download->GetTargetFilePath(), false, this));
     return;
   }
 
@@ -543,16 +546,18 @@ void DownloadManager::OnAllDataSaved(int32 download_id, int64 size) {
 void DownloadManager::DownloadRenamedToFinalName(int download_id,
                                                  const FilePath& full_path) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-
   DownloadItem* item = GetDownloadItem(download_id);
   if (!item)
     return;
+
+  bool needed_rename = item->NeedsRename();
+  item->Rename(full_path);
+
   item->OnNameFinalized();
 
-  // This was called from DownloadFinished; continue to call
-  // ContinueDownloadFinished.
-  if (item->need_final_rename()) {
-    item->set_need_final_rename(false);
+  if (needed_rename) {
+    // This was called from OnAllDataSaved; continue to call
+    // ContinueDownloadFinished.
     ContinueDownloadFinished(item);
   }
 }
@@ -611,7 +616,7 @@ void DownloadManager::DangerousDownloadRenamed(int64 download_handle,
   // If we failed to rename the file, we'll just keep the name as is.
   if (success) {
     // We need to update the path uniquifier so that the UI shows the right
-    // name when calling GetFileName().
+    // name when calling GetFileNameToReportUser().
     download->set_path_uniquifier(new_path_uniquifier);
     RenameDownload(download, new_path);
   }
@@ -892,7 +897,7 @@ void DownloadManager::DangerousDownloadValidated(DownloadItem* download) {
       NewRunnableMethod(
           this, &DownloadManager::ProceedWithFinishedDangerousDownload,
           download->db_handle(), download->full_path(),
-          download->original_name()));
+          download->target_name()));
 }
 
 // Operations posted to us from the history service ----------------------------
@@ -912,8 +917,9 @@ void DownloadManager::OnQueryDownloadEntriesComplete(
 // Once the new DownloadItem's creation info has been committed to the history
 // service, we associate the DownloadItem with the db handle, update our
 // 'downloads_' map and inform observers.
-void DownloadManager::OnCreateDownloadEntryComplete(DownloadCreateInfo info,
-                                                    int64 db_handle) {
+void DownloadManager::OnCreateDownloadEntryComplete(
+    const DownloadCreateInfo& info,
+    int64 db_handle) {
   DownloadMap::iterator it = in_progress_.find(info.download_id);
   DCHECK(it != in_progress_.end());
 

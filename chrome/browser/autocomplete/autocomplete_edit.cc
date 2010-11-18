@@ -10,15 +10,17 @@
 #include "base/metrics/histogram.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
+#include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 #include "chrome/browser/autocomplete/keyword_provider.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/extensions/extension_omnibox_api.h"
 #include "chrome/browser/google/google_url_tracker.h"
+#include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/net/url_fixer_upper.h"
@@ -321,13 +323,17 @@ void AutocompleteEditModel::AcceptInput(WindowOpenDisposition disposition,
   if (!match.destination_url.is_valid())
     return;
 
-  if (match.destination_url ==
-      URLFixerUpper::FixupURL(WideToUTF8(permanent_text_), std::string())) {
+  if ((match.transition == PageTransition::TYPED) && (match.destination_url ==
+      URLFixerUpper::FixupURL(WideToUTF8(permanent_text_), std::string()))) {
     // When the user hit enter on the existing permanent URL, treat it like a
     // reload for scoring purposes.  We could detect this by just checking
     // user_input_in_progress_, but it seems better to treat "edits" that end
     // up leaving the URL unchanged (e.g. deleting the last character and then
-    // retyping it) as reloads too.
+    // retyping it) as reloads too.  We exclude non-TYPED transitions because if
+    // the transition is GENERATED, the user input something that looked
+    // different from the current URL, even if it wound up at the same place
+    // (e.g. manually retyping the same search query), and it seems wrong to
+    // treat this as a reload.
     match.transition = PageTransition::RELOAD;
   } else if (for_drop || ((paste_state_ != NONE) &&
                           match.is_history_what_you_typed_match)) {
@@ -679,6 +685,10 @@ void AutocompleteEditModel::PopupBoundsChangedTo(const gfx::Rect& bounds) {
   controller_->OnPopupBoundsChanged(bounds);
 }
 
+void AutocompleteEditModel::ResultsUpdated() {
+  UpdateSuggestedSearchText();
+}
+
 // Return true if the suggestion type warrants a TCP/IP preconnection.
 // i.e., it is now highly likely that the user will select the related domain.
 static bool IsPreconnectable(AutocompleteMatch::Type type) {
@@ -765,4 +775,39 @@ void AutocompleteEditModel::GetInfoForCurrentText(
         UserTextFromDisplayText(view_->GetText()), GetDesiredTLD(), match,
         alternate_nav_url);
   }
+}
+
+// Returns true if suggested search text should be shown for the specified match
+// type.
+static bool ShouldShowSuggestSearchTextFor(AutocompleteMatch::Type type) {
+  // TODO: add support for other engines when in keyword mode.
+  return ((type == AutocompleteMatch::SEARCH_HISTORY) ||
+          (type == AutocompleteMatch::SEARCH_SUGGEST));
+}
+
+void AutocompleteEditModel::UpdateSuggestedSearchText() {
+  if (!InstantController::IsEnabled(profile_, InstantController::VERBATIM_TYPE))
+    return;
+
+  string16 suggested_text;
+  // The suggested text comes from the first search result.
+  if (popup_->IsOpen()) {
+    const AutocompleteResult& result = popup_->result();
+    if ((result.size() > 1) && (popup_->selected_line() == 0) &&
+        ((result.begin()->inline_autocomplete_offset == std::wstring::npos) ||
+         (result.begin()->inline_autocomplete_offset ==
+          result.begin()->fill_into_edit.size()))) {
+      for (AutocompleteResult::const_iterator i = result.begin() + 1;
+           i != result.end(); ++i) {
+        // TODO: add support for other engines when in keyword mode.
+        if (ShouldShowSuggestSearchTextFor(i->type) &&
+            i->inline_autocomplete_offset != std::wstring::npos) {
+          suggested_text = WideToUTF16(i->fill_into_edit.substr(
+                                           i->inline_autocomplete_offset));
+          break;
+        }
+      }
+    }
+  }
+  controller_->OnSetSuggestedSearchText(suggested_text);
 }

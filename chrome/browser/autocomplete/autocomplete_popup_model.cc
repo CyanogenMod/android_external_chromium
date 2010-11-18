@@ -8,6 +8,7 @@
 
 #include "base/string_util.h"
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
+#include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_view.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/extensions/extensions_service.h"
@@ -220,6 +221,15 @@ bool AutocompletePopupModel::GetKeywordForMatch(const AutocompleteMatch& match,
   if (!TemplateURL::SupportsReplacement(template_url))
     return false;
 
+  // Don't provide a hint if this is an extension keyword not enabled for
+  // incognito mode (and if this is an incognito profile).
+  if (template_url->IsExtensionKeyword() && profile_->IsOffTheRecord()) {
+    const Extension* extension = profile_->GetExtensionsService()->
+        GetExtensionById(template_url->GetExtensionId(), false);
+    if (!profile_->GetExtensionsService()->IsIncognitoEnabled(extension))
+      return false;
+  }
+
   keyword->assign(keyword_hint);
   return true;
 }
@@ -292,6 +302,7 @@ void AutocompletePopupModel::Observe(NotificationType type,
     SetHoveredLine(kNoMatch);
 
   view_->UpdatePopupAppearance();
+  edit_model_->ResultsUpdated();
   edit_model_->PopupBoundsChangedTo(view_->GetTargetBounds());
 }
 

@@ -102,6 +102,8 @@ void RegisterURLRequestChromeJob() {
   }
 
   SharedResourcesDataSource::Register();
+  URLRequest::RegisterProtocolFactory(chrome::kChromeDevToolsScheme,
+                                      &ChromeURLDataManager::Factory);
   URLRequest::RegisterProtocolFactory(chrome::kChromeUIScheme,
                                       &ChromeURLDataManager::Factory);
 }
@@ -118,7 +120,8 @@ void UnregisterURLRequestChromeJob() {
 void ChromeURLDataManager::URLToRequest(const GURL& url,
                                         std::string* source_name,
                                         std::string* path) {
-  DCHECK(url.SchemeIs(chrome::kChromeUIScheme));
+  DCHECK(url.SchemeIs(chrome::kChromeDevToolsScheme) ||
+         url.SchemeIs(chrome::kChromeUIScheme));
 
   if (!url.is_valid()) {
     NOTREACHED();
@@ -266,7 +269,7 @@ void ChromeURLDataManager::DataAvailable(
   if (i != pending_requests_.end()) {
     // We acquire a reference to the job so that it doesn't disappear under the
     // feet of any method invoked here (we could trigger a callback).
-    scoped_refptr<URLRequestChromeJob> job = i->second;
+    scoped_refptr<URLRequestChromeJob> job(i->second);
     pending_requests_.erase(i);
     job->DataAvailable(bytes);
   }

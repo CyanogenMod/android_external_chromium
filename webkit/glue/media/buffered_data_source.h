@@ -13,7 +13,6 @@
 #include "base/timer.h"
 #include "base/condition_variable.h"
 #include "googleurl/src/gurl.h"
-#include "media/base/factory.h"
 #include "media/base/filters.h"
 #include "media/base/media_format.h"
 #include "media/base/pipeline.h"
@@ -21,6 +20,8 @@
 #include "net/base/completion_callback.h"
 #include "net/base/file_stream.h"
 #include "webkit/glue/media/media_resource_loader_bridge_factory.h"
+#include "webkit/glue/media/web_data_source.h"
+#include "webkit/glue/webmediaplayer_impl.h"
 
 namespace webkit_glue {
 /////////////////////////////////////////////////////////////////////////////
@@ -105,6 +106,9 @@ class BufferedResourceLoader :
   // Returns true if network is currently active.
   virtual bool network_activity() { return !completed_ && !deferred_; }
 
+  // Returns resulting URL.
+  virtual const GURL& url() { return url_; }
+
   /////////////////////////////////////////////////////////////////////////////
   // webkit_glue::ResourceLoaderBridge::Peer implementations.
   virtual void OnUploadProgress(uint64 position, uint64 size) {}
@@ -122,7 +126,6 @@ class BufferedResourceLoader :
       const URLRequestStatus& status,
       const std::string& security_info,
       const base::Time& completion_time);
-  GURL GetURLForDebugging() const { return url_; }
 
  protected:
   friend class base::RefCountedThreadSafe<BufferedResourceLoader>;
@@ -212,27 +215,18 @@ class BufferedResourceLoader :
   DISALLOW_COPY_AND_ASSIGN(BufferedResourceLoader);
 };
 
-class BufferedDataSource : public media::DataSource {
+class BufferedDataSource : public WebDataSource {
  public:
-  // Methods called from pipeline thread
-  // Static methods for creating this class.
-  static media::FilterFactory* CreateFactory(
-      MessageLoop* message_loop,
-      webkit_glue::MediaResourceLoaderBridgeFactory* bridge_factory) {
-    return new media::FilterFactoryImpl2<
-        BufferedDataSource,
-        MessageLoop*,
-        webkit_glue::MediaResourceLoaderBridgeFactory*>(
-        message_loop, bridge_factory);
-  }
+  BufferedDataSource(
+      MessageLoop* render_loop,
+      webkit_glue::MediaResourceLoaderBridgeFactory* bridge_factory);
 
-  // media::FilterFactoryImpl2 implementation.
-  static bool IsMediaFormatSupported(
-      const media::MediaFormat& media_format);
+  virtual ~BufferedDataSource();
 
   // media::MediaFilter implementation.
   virtual void Initialize(const std::string& url,
                           media::FilterCallback* callback);
+  virtual bool IsUrlSupported(const std::string& url);
   virtual void Stop(media::FilterCallback* callback);
   virtual void SetPlaybackRate(float playback_rate);
 
@@ -248,11 +242,11 @@ class BufferedDataSource : public media::DataSource {
     return media_format_;
   }
 
+  // webkit_glue::WebDataSource implementation.
+  virtual bool HasSingleOrigin();
+  virtual void Abort();
+
  protected:
-  BufferedDataSource(
-      MessageLoop* render_loop,
-      webkit_glue::MediaResourceLoaderBridgeFactory* bridge_factory);
-  virtual ~BufferedDataSource();
 
   // A factory method to create a BufferedResourceLoader based on the read
   // parameters. We can override this file to object a mock
@@ -266,11 +260,6 @@ class BufferedDataSource : public media::DataSource {
   virtual base::TimeDelta GetTimeoutMilliseconds();
 
  private:
-  friend class media::FilterFactoryImpl2<
-      BufferedDataSource,
-      MessageLoop*,
-      webkit_glue::MediaResourceLoaderBridgeFactory*>;
-
   // Posted to perform initialization on render thread and start resource
   // loading.
   void InitializeTask();
@@ -348,6 +337,9 @@ class BufferedDataSource : public media::DataSource {
   // This value will be true if this data source can only support streaming.
   // i.e. range request is not supported.
   bool streaming_;
+
+  // True if the media resource has a single origin.
+  bool single_origin_;
 
   // A factory object to produce ResourceLoaderBridge.
   scoped_ptr<webkit_glue::MediaResourceLoaderBridgeFactory> bridge_factory_;

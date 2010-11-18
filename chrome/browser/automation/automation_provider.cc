@@ -8,6 +8,7 @@
 
 #include "app/message_box_flags.h"
 #include "base/callback.h"
+#include "base/debug/trace_event.h"
 #include "base/file_path.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
@@ -19,12 +20,11 @@
 #include "base/string_util.h"
 #include "base/task.h"
 #include "base/thread.h"
-#include "base/trace_event.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/waitable_event.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/app_modal_dialog.h"
 #include "chrome/browser/app_modal_dialog_queue.h"
 #include "chrome/browser/autofill/autofill_manager.h"
@@ -161,12 +161,16 @@ void AutomationProvider::ConnectToChannel(const std::string& channel_id) {
                            automation_resource_message_filter_,
                            g_browser_process->io_thread()->message_loop(),
                            true, g_browser_process->shutdown_event()));
-  chrome::VersionInfo version_info;
 
   // Send a hello message with our current automation protocol version.
-  channel_->Send(new AutomationMsg_Hello(0, version_info.Version().c_str()));
+  channel_->Send(new AutomationMsg_Hello(0, GetProtocolVersion().c_str()));
 
   TRACE_EVENT_END("AutomationProvider::ConnectToChannel", 0, "");
+}
+
+std::string AutomationProvider::GetProtocolVersion() {
+  chrome::VersionInfo version_info;
+  return version_info.Version().c_str();
 }
 
 void AutomationProvider::SetExpectedTabCount(size_t expected_tabs) {
@@ -254,7 +258,7 @@ int AutomationProvider::GetIndexForNavigationController(
   return parent->GetIndexOfController(controller);
 }
 
-int AutomationProvider::AddExtension(Extension* extension) {
+int AutomationProvider::AddExtension(const Extension* extension) {
   DCHECK(extension);
   return extension_tracker_->Add(extension);
 }
@@ -278,8 +282,10 @@ DictionaryValue* AutomationProvider::GetDictionaryFromDownloadItem(
   dl_item_value->SetInteger("id", static_cast<int>(download->id()));
   dl_item_value->SetString("url", download->url().spec());
   dl_item_value->SetString("referrer_url", download->referrer_url().spec());
-  dl_item_value->SetString("file_name", download->GetFileName().value());
-  dl_item_value->SetString("full_path", download->full_path().value());
+  dl_item_value->SetString("file_name",
+                           download->GetFileNameToReportUser().value());
+  dl_item_value->SetString("full_path",
+                           download->GetTargetFilePath().value());
   dl_item_value->SetBoolean("is_paused", download->is_paused());
   dl_item_value->SetBoolean("open_when_complete",
                             download->open_when_complete());
@@ -295,12 +301,13 @@ DictionaryValue* AutomationProvider::GetDictionaryFromDownloadItem(
   return dl_item_value;
 }
 
-Extension* AutomationProvider::GetExtension(int extension_handle) {
+const Extension* AutomationProvider::GetExtension(int extension_handle) {
   return extension_tracker_->GetResource(extension_handle);
 }
 
-Extension* AutomationProvider::GetEnabledExtension(int extension_handle) {
-  Extension* extension = extension_tracker_->GetResource(extension_handle);
+const Extension* AutomationProvider::GetEnabledExtension(int extension_handle) {
+  const Extension* extension =
+      extension_tracker_->GetResource(extension_handle);
   ExtensionsService* service = profile_->GetExtensionsService();
   if (extension && service &&
       service->GetExtensionById(extension->id(), false))
@@ -308,8 +315,10 @@ Extension* AutomationProvider::GetEnabledExtension(int extension_handle) {
   return NULL;
 }
 
-Extension* AutomationProvider::GetDisabledExtension(int extension_handle) {
-  Extension* extension = extension_tracker_->GetResource(extension_handle);
+const Extension* AutomationProvider::GetDisabledExtension(
+    int extension_handle) {
+  const Extension* extension =
+      extension_tracker_->GetResource(extension_handle);
   ExtensionsService* service = profile_->GetExtensionsService();
   if (extension && service &&
       service->GetExtensionById(extension->id(), true) &&
@@ -434,7 +443,7 @@ void AutomationProvider::HandleUnused(const IPC::Message& message, int handle) {
 }
 
 void AutomationProvider::OnChannelError() {
-  LOG(INFO) << "AutomationProxy went away, shutting down app.";
+  VLOG(1) << "AutomationProxy went away, shutting down app.";
   AutomationProviderList::GetInstance()->RemoveProvider(this);
 }
 
@@ -795,7 +804,7 @@ void AutomationProvider::GetEnabledExtensions(
     const ExtensionList* extensions = service->extensions();
     DCHECK(extensions);
     for (size_t i = 0; i < extensions->size(); ++i) {
-      Extension* extension = (*extensions)[i];
+      const Extension* extension = (*extensions)[i];
       DCHECK(extension);
       if (extension->location() == Extension::INTERNAL ||
           extension->location() == Extension::LOAD) {
@@ -844,7 +853,7 @@ void AutomationProvider::InstallExtensionAndGetHandle(
 void AutomationProvider::UninstallExtension(int extension_handle,
                                             bool* success) {
   *success = false;
-  Extension* extension = GetExtension(extension_handle);
+  const Extension* extension = GetExtension(extension_handle);
   ExtensionsService* service = profile_->GetExtensionsService();
   if (extension && service) {
     ExtensionUnloadNotificationObserver observer;
@@ -857,7 +866,7 @@ void AutomationProvider::UninstallExtension(int extension_handle,
 
 void AutomationProvider::EnableExtension(int extension_handle,
                                          IPC::Message* reply_message) {
-  Extension* extension = GetDisabledExtension(extension_handle);
+  const Extension* extension = GetDisabledExtension(extension_handle);
   ExtensionsService* service = profile_->GetExtensionsService();
   ExtensionProcessManager* manager = profile_->GetExtensionProcessManager();
   // Only enable if this extension is disabled.
@@ -878,7 +887,7 @@ void AutomationProvider::EnableExtension(int extension_handle,
 void AutomationProvider::DisableExtension(int extension_handle,
                                           bool* success) {
   *success = false;
-  Extension* extension = GetEnabledExtension(extension_handle);
+  const Extension* extension = GetEnabledExtension(extension_handle);
   ExtensionsService* service = profile_->GetExtensionsService();
   if (extension && service) {
     ExtensionUnloadNotificationObserver observer;
@@ -893,7 +902,7 @@ void AutomationProvider::ExecuteExtensionActionInActiveTabAsync(
     int extension_handle, int browser_handle,
     IPC::Message* reply_message) {
   bool success = false;
-  Extension* extension = GetEnabledExtension(extension_handle);
+  const Extension* extension = GetEnabledExtension(extension_handle);
   ExtensionsService* service = profile_->GetExtensionsService();
   ExtensionMessageService* message_service =
       profile_->GetExtensionMessageService();
@@ -918,7 +927,7 @@ void AutomationProvider::ExecuteExtensionActionInActiveTabAsync(
 void AutomationProvider::MoveExtensionBrowserAction(
     int extension_handle, int index, bool* success) {
   *success = false;
-  Extension* extension = GetEnabledExtension(extension_handle);
+  const Extension* extension = GetEnabledExtension(extension_handle);
   ExtensionsService* service = profile_->GetExtensionsService();
   if (extension && service) {
     ExtensionToolbarModel* toolbar = service->toolbar_model();
@@ -939,7 +948,7 @@ void AutomationProvider::GetExtensionProperty(
     bool* success,
     std::string* value) {
   *success = false;
-  Extension* extension = GetExtension(extension_handle);
+  const Extension* extension = GetExtension(extension_handle);
   ExtensionsService* service = profile_->GetExtensionsService();
   if (extension && service) {
     ExtensionToolbarModel* toolbar = service->toolbar_model();

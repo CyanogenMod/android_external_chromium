@@ -35,7 +35,7 @@ RenderViewHostDelegateViewHelper::MaybeCreateBackgroundContents(
     int route_id,
     Profile* profile,
     SiteInstance* site,
-    GURL opener_url,
+    const GURL& opener_url,
     const string16& frame_name) {
   ExtensionsService* extensions_service = profile->GetExtensionsService();
 
@@ -45,7 +45,8 @@ RenderViewHostDelegateViewHelper::MaybeCreateBackgroundContents(
       !extensions_service->is_ready())
     return NULL;
 
-  Extension* extension = extensions_service->GetExtensionByURL(opener_url);
+  const Extension* extension =
+      extensions_service->GetExtensionByURL(opener_url);
   if (!extension)
     extension = extensions_service->GetExtensionByWebExtent(opener_url);
   if (!extension ||

@@ -171,14 +171,14 @@ bool ProxyBypassRules::AddRuleForHostname(const std::string& optional_scheme,
   if (hostname_pattern.empty())
     return false;
 
-  rules_.push_back(new HostnamePatternRule(optional_scheme,
-                                           hostname_pattern,
-                                           optional_port));
+  rules_.push_back(make_scoped_refptr(new HostnamePatternRule(optional_scheme,
+                                                              hostname_pattern,
+                                                              optional_port)));
   return true;
 }
 
 void ProxyBypassRules::AddRuleToBypassLocal() {
-  rules_.push_back(new BypassLocalRule);
+  rules_.push_back(make_scoped_refptr(new BypassLocalRule));
 }
 
 bool ProxyBypassRules::AddRuleFromString(const std::string& raw) {
@@ -241,8 +241,8 @@ bool ProxyBypassRules::AddRuleFromStringInternal(
     if (!ParseCIDRBlock(raw, &ip_prefix, &prefix_length_in_bits))
       return false;
 
-    rules_.push_back(
-        new BypassIPBlockRule(raw, scheme, ip_prefix, prefix_length_in_bits));
+    rules_.push_back(make_scoped_refptr(
+        new BypassIPBlockRule(raw, scheme, ip_prefix, prefix_length_in_bits)));
 
     return true;
   }
@@ -264,7 +264,7 @@ bool ProxyBypassRules::AddRuleFromStringInternal(
   host = raw;
   port = -1;
   if (pos_colon != std::string::npos) {
-    if (!base::StringToInt(raw.substr(pos_colon + 1), &port) ||
+    if (!base::StringToInt(raw.begin() + pos_colon + 1, raw.end(), &port) ||
         (port < 0 || port > 0xFFFF)) {
       return false;  // Port was invalid.
     }

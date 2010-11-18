@@ -14,6 +14,7 @@
 #include "base/i18n/rtl.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/app_modal_dialog_queue.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
@@ -555,12 +556,6 @@ gfx::Rect BrowserView::GetClientAreaBounds() const {
   return container_bounds;
 }
 
-bool BrowserView::ShouldFindBarBlendWithBookmarksBar() const {
-  if (bookmark_bar_view_.get())
-    return bookmark_bar_view_->IsAlwaysShown();
-  return false;
-}
-
 gfx::Rect BrowserView::GetFindBarBoundingBox() const {
   return GetBrowserViewLayout()->GetFindBarBoundingBox();
 }
@@ -1068,9 +1063,7 @@ views::Window* BrowserView::ShowAboutChromeDialog() {
 }
 
 void BrowserView::ShowUpdateChromeDialog() {
-#if defined(OS_WIN)
   UpdateRecommendedMessageBox::ShowMessageBox(GetWindow()->GetNativeWindow());
-#endif
 }
 
 void BrowserView::ShowTaskManager() {
@@ -1851,7 +1844,7 @@ void BrowserView::Init() {
   // Stow a pointer to this object onto the window handle so that we can get
   // at it later when all we have is a native view.
 #if defined(OS_WIN)
-  SetProp(GetWidget()->GetNativeView(), kBrowserViewKey, this);
+  GetWidget()->SetNativeWindowProperty(kBrowserViewKey, this);
 #else
   g_object_set_data(G_OBJECT(GetWidget()->GetNativeView()),
                     kBrowserViewKey, this);

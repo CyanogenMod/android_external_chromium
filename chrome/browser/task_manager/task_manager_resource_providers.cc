@@ -15,7 +15,7 @@
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/thread.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
@@ -321,7 +321,7 @@ void TaskManagerTabContentsResourceProvider::Observe(NotificationType type,
 SkBitmap* TaskManagerChildProcessResource::default_icon_ = NULL;
 
 TaskManagerChildProcessResource::TaskManagerChildProcessResource(
-    ChildProcessInfo child_proc)
+    const ChildProcessInfo& child_proc)
     : child_process_(child_proc),
       title_(),
       network_usage_support_(false) {
@@ -465,7 +465,7 @@ void TaskManagerChildProcessResourceProvider::Observe(
 }
 
 void TaskManagerChildProcessResourceProvider::Add(
-    ChildProcessInfo child_process_info) {
+    const ChildProcessInfo& child_process_info) {
   if (!updating_)
     return;
   std::map<ChildProcessInfo, TaskManagerChildProcessResource*>::
@@ -481,7 +481,7 @@ void TaskManagerChildProcessResourceProvider::Add(
 }
 
 void TaskManagerChildProcessResourceProvider::Remove(
-    ChildProcessInfo child_process_info) {
+    const ChildProcessInfo& child_process_info) {
   if (!updating_)
     return;
   std::map<ChildProcessInfo, TaskManagerChildProcessResource*>
@@ -509,7 +509,7 @@ void TaskManagerChildProcessResourceProvider::Remove(
 }
 
 void TaskManagerChildProcessResourceProvider::AddToTaskManager(
-    ChildProcessInfo child_process_info) {
+    const ChildProcessInfo& child_process_info) {
   TaskManagerChildProcessResource* resource =
       new TaskManagerChildProcessResource(child_process_info);
   resources_[child_process_info] = resource;

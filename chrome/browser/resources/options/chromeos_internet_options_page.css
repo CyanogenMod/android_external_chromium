@@ -20,7 +20,8 @@
 }
 
 #networkingControls {
-  text-align: center;
+  display: -webkit-box;
+  -webkit-margin-start: 10px;
 }
 
 .networks {
@@ -33,9 +34,8 @@
   position: relative;
 }
 
-.other-network {
-  left: 0px;
-  position: relative;
+.network-password > input, select {
+  width: 200px;
 }
 
 .network-item {
@@ -73,17 +73,26 @@
   display: block;
 }
 
+.network-item[connecting][other] {
+  height: 105px;
+}
+
 .network-item-text {
   -webkit-padding-start: 30px;
-  background: 0 50% no-repeat;
+  background: left center no-repeat;
   cursor: default;
   display: table-cell;
-  height: 24px;
+  height: 32px;
   line-height: 100%;
   max-width: 320px;
   overflow: hidden;
   vertical-align: middle;
 }
+
+html[dir='rtl'] .network-item-text {
+  background: right center no-repeat;
+}
+
 
 .network-item[connected] > * > .network-name-label {
   font-weight: bold;
@@ -115,10 +124,19 @@
 #detailsInternetPage {
   min-width: 400px;
   min-height: 360px;
+  position: relative;
 }
 
 .details-button {
   float: right;
+}
+
+#details-plan-table {
+  width: 100%;
+}
+
+#planSummary {
+  width: 250px;
 }
 
 html[dir='rtl'] .details-button {
@@ -128,6 +146,7 @@ html[dir='rtl'] .details-button {
 #detailsInternetPage:not([connected]) > #advancedSection,
 #detailsInternetPage[connecting] > * > #detailsInternetLogin,
 #detailsInternetPage[connected] > * > #detailsInternetLogin,
+#detailsInternetPage:not([wireless]) > * > #detailsInternetOk,
 #detailsInternetPage[ethernet] .wifi-details,
 #detailsInternetPage[ethernet] .cellular-details,
 #detailsInternetPage[cellular] .wifi-details,
@@ -148,15 +167,5 @@ html[dir='rtl'] .details-button {
 }
 
 #wirelessButtons > * > button {
-  display: block;
-}
-
-
-#wirelessButtons[wifiEnabled] > * > #enableWifi,
-#wirelessButtons:not([wifiEnabled]) > * > #disableWifi,
-#wirelessButtons[cellularEnabled] > * > #enableCellular,
-#wirelessButtons:not([cellularEnabled]) > * > #disableCellular,
-#wirelessButtons:not([cellularAvail]) > * > #disableCellular,
-#wirelessButtons:not([cellularAvail]) > * > #enableCellular {
-  display: none;
+  margin-left: 5px;
 }

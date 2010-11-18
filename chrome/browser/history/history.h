@@ -118,6 +118,9 @@ class HistoryService : public CancelableRequestProvider,
   // it's finished loading.
   bool BackendLoaded();
 
+  // Returns true if the backend has finished loading.
+  bool backend_loaded() const { return backend_loaded_; }
+
   // Unloads the backend without actually shutting down the history service.
   // This can be used to temporarily reduce the browser process' memory
   // footprint.
@@ -405,7 +408,8 @@ class HistoryService : public CancelableRequestProvider,
 
   // Implemented by the caller of 'CreateDownload' below, and is called when the
   // history service has created a new entry for a download in the history db.
-  typedef Callback2<DownloadCreateInfo, int64>::Type DownloadCreateCallback;
+  typedef Callback2<const DownloadCreateInfo&, int64>::Type
+      DownloadCreateCallback;
 
   // Begins a history request to create a new persistent entry for a download.
   // 'info' contains all the download's creation state, and 'callback' runs
@@ -514,6 +518,10 @@ class HistoryService : public CancelableRequestProvider,
   // HistoryDBTask for details on what this does.
   virtual Handle ScheduleDBTask(HistoryDBTask* task,
                                 CancelableRequestConsumerBase* consumer);
+
+  // Returns true if top sites needs to be migrated out of history into its own
+  // db.
+  bool needs_top_sites_migration() const { return needs_top_sites_migration_; }
 
   // Testing -------------------------------------------------------------------
 
@@ -819,7 +827,8 @@ class HistoryService : public CancelableRequestProvider,
   // when done. We use this internal consumer for this purpose.
   CancelableRequestConsumer internal_consumer_;
 
-  // The thread used by the history service to run complicated operations
+  // The thread used by the history service to run complicated operations.
+  // |thread_| is NULL once |Cleanup| is NULL.
   base::Thread* thread_;
 
   // This class has most of the implementation and runs on the 'thread_'.
@@ -846,6 +855,9 @@ class HistoryService : public CancelableRequestProvider,
   FilePath history_dir_;
   BookmarkService* bookmark_service_;
   bool no_db_;
+
+  // True if needs top site migration.
+  bool needs_top_sites_migration_;
 
   DISALLOW_COPY_AND_ASSIGN(HistoryService);
 };

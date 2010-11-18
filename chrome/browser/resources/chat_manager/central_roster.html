@@ -27,9 +27,8 @@ Central roster: hosting all Google Talk chats in ChromeOS.
   }
 </style>
 <script>
-  var MIN_RETRY_MILLISECONDS = 15 * 1000;
+  var MIN_RETRY_MILLISECONDS = 1 * 1000;
   var MAX_RETRY_MILLISECONDS = 4 * 60 * 1000;
-  var retryStartTime = 0;
   var retryTime;
   var retryTimer;
   var chatClient = null;
@@ -38,8 +37,9 @@ Central roster: hosting all Google Talk chats in ChromeOS.
     'protocol': 'https',
     'host': 'talkgadget.google.com',
     'jsmode': 'pre',
-    'hl': 'en',
+    'hl': chrome.i18n.getMessage('@@ui_locale'),
   };
+
   // Read args.
   var urlParts = window.location.href.split(/[?&#]/);
   for (var i = 1; i < urlParts.length; i++) {
@@ -63,19 +63,17 @@ Central roster: hosting all Google Talk chats in ChromeOS.
     document.body.appendChild(script);
   }
   function retryConnection() {
-    if (retryTimer) {
-      clearTimeout(retryTimer);
-      retryTimer = null;
-    }
-    runGTalkScript();
+    location.reload();
   }
   function retryConnectionCountdown() {
     var seconds = retryTime / 1000;
     var minutes = Math.floor(seconds / 60);
     seconds -= minutes * 60;
 
-    document.getElementById('retryStatus').textContent =
-        'Retrying in ' + minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
+    document.getElementById('retryStatus').textContent = 
+        chrome.i18n.getMessage('CHAT_MANAGER_RETRYING_IN', 
+            [minutes, (seconds < 10 ? '0' : '') + seconds]);
+        
     if (retryTime <= 0) {
       retryConnection();
     } else {
@@ -86,39 +84,58 @@ Central roster: hosting all Google Talk chats in ChromeOS.
   function loadGTalk() {
     if (window.GTalkNotifier) {
       document.getElementById('retryInfo').style.display = 'none';
+      var baseUrl = args['protocol'] + '://' + args['host'] + '/talkgadget/';
       chatClient = new window.GTalkNotifier(
           {
-            'clientBaseUrl':
-                args['protocol'] + '://' + args['host'] + '/talkgadget/',
+            'clientBaseUrl': baseUrl,
             'clientUrl': 'notifierclient' +
                 (args['jsmode'] != '' ? ('?jsmode=' + args['jsmode']) : ''),
             'propertyName': 'ChromeOS',
-            'xpcRelay': 'xpc_relay',
-            'xpcBlank': 'xpc_blank',
+            'xpcRelay': baseUrl + 'xpc_relay',
+            'xpcBlank': baseUrl + 'xpc_blank',
             'locale': args['hl'],
             'isCentralRoster': true,
             'hideProfileCard': true,
             'isFullFrame': true
           }
       );
+      delete localStorage.retryStartTime;
     } else {
-      if (retryStartTime == 0) {
-        retryStartTime = MIN_RETRY_MILLISECONDS;
-      } else if (retryStartTime < MAX_RETRY_MILLISECONDS) {
-        retryStartTime = Math.min(retryStartTime * 2, MAX_RETRY_MILLISECONDS);
+      if (!localStorage.retryStartTime) {
+        localStorage.retryStartTime = MIN_RETRY_MILLISECONDS;
+      } else if (localStorage.retryStartTime < MAX_RETRY_MILLISECONDS) {
+        localStorage.retryStartTime = Math.min(localStorage.retryStartTime * 2, 
+            MAX_RETRY_MILLISECONDS);
       }
-      retryTime = retryStartTime;
+      retryTime = localStorage.retryStartTime;
       document.getElementById('retryInfo').style.display = 'inline';
       retryConnectionCountdown();
     }
   }
+  function onPageLoaded() {
+    // localize the page
+    document.getElementById('retryMessage').textContent = 
+        chrome.i18n.getMessage('CHAT_MANAGER_COULD_NOT_CONNECT');
+    document.getElementById('retryButton').value = 
+        chrome.i18n.getMessage('CHAT_MANAGER_RETRY_NOW');
+
+    if (localStorage.hasOpenedInViewer) {
+      runGTalkScript();
+    }
+  }
+  function onOpenedInViewer() {
+    if (!localStorage.hasOpenedInViewer) {
+      localStorage.hasOpenedInViewer = true;
+      runGTalkScript();
+    }
+  }
 </script>
 </head>
-<body onload='runGTalkScript()'>
+<body onload='onPageLoaded()'>
   <div id='retryInfo' style='display:none'>
-    <p>Could not connect to Google Talk</p>
+    <p id='retryMessage'></p>
     <p id='retryStatus'></p>
-    <input type='button' value='Retry Now' onclick='retryConnection()'/>
+    <input id='retryButton' type='button' value='' onclick='retryConnection()'/>
   </div>
 </body>
 </html>

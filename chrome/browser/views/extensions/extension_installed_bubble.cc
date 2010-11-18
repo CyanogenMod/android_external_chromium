@@ -69,7 +69,7 @@ const int kAnimationWaitMaxRetry = 10;
 class InstalledBubbleContent : public views::View,
                                public views::ButtonListener {
  public:
-  InstalledBubbleContent(Extension* extension,
+  InstalledBubbleContent(const Extension* extension,
                          ExtensionInstalledBubble::BubbleType type,
                          SkBitmap* icon)
       : info_bubble_(NULL),
@@ -241,12 +241,13 @@ class InstalledBubbleContent : public views::View,
   DISALLOW_COPY_AND_ASSIGN(InstalledBubbleContent);
 };
 
-void ExtensionInstalledBubble::Show(Extension *extension, Browser *browser,
+void ExtensionInstalledBubble::Show(const Extension* extension,
+                                    Browser *browser,
                                     SkBitmap icon) {
   new ExtensionInstalledBubble(extension, browser, icon);
 }
 
-ExtensionInstalledBubble::ExtensionInstalledBubble(Extension *extension,
+ExtensionInstalledBubble::ExtensionInstalledBubble(const Extension* extension,
                                                    Browser *browser,
                                                    SkBitmap icon)
     : extension_(extension),
@@ -272,20 +273,26 @@ ExtensionInstalledBubble::ExtensionInstalledBubble(Extension *extension,
   // be sure that a BrowserAction or PageAction has had views created which we
   // can inspect for the purpose of previewing of pointing to them.
   registrar_.Add(this, NotificationType::EXTENSION_LOADED,
-      NotificationService::AllSources());
+      Source<Profile>(browser->profile()));
+  registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
+      Source<Profile>(browser->profile()));
 }
 
 void ExtensionInstalledBubble::Observe(NotificationType type,
                                        const NotificationSource& source,
                                        const NotificationDetails& details) {
   if (type == NotificationType::EXTENSION_LOADED) {
-    Extension* extension = Details<Extension>(details).ptr();
+    const Extension* extension = Details<const Extension>(details).ptr();
     if (extension == extension_) {
       animation_wait_retries_ = 0;
       // PostTask to ourself to allow all EXTENSION_LOADED Observers to run.
       MessageLoopForUI::current()->PostTask(FROM_HERE, NewRunnableMethod(this,
           &ExtensionInstalledBubble::ShowInternal));
     }
+  } else if (type == NotificationType::EXTENSION_UNLOADED) {
+    const Extension* extension = Details<const Extension>(details).ptr();
+    if (extension == extension_)
+      extension_ = NULL;
   } else {
     NOTREACHED() << L"Received unexpected notification";
   }
@@ -354,25 +361,27 @@ void ExtensionInstalledBubble::ShowInternal() {
 // InfoBubbleDelegate
 void ExtensionInstalledBubble::InfoBubbleClosing(InfoBubble* info_bubble,
                                                  bool closed_by_escape) {
-  if (type_ == PAGE_ACTION) {
-    BrowserView* browser_view = BrowserView::GetBrowserViewForNativeWindow(
-        browser_->window()->GetNativeHandle());
-    browser_view->GetLocationBarView()->SetPreviewEnabledPageAction(
-        extension_->page_action(),
-        false);  // preview_enabled
-  } else if (type_ == EXTENSION_APP) {
-    if (bubble_content_->create_shortcut()) {
-      ShellIntegration::ShortcutInfo shortcut_info;
-      shortcut_info.url = extension_->GetFullLaunchURL();
-      shortcut_info.extension_id = UTF8ToUTF16(extension_->id());
-      shortcut_info.title = UTF8ToUTF16(extension_->name());
-      shortcut_info.description = UTF8ToUTF16(extension_->description());
-      shortcut_info.favicon = icon_;
-      shortcut_info.create_on_desktop = true;
-      shortcut_info.create_in_applications_menu = false;
-      shortcut_info.create_in_quick_launch_bar = false;
-      web_app::CreateShortcut(browser_->profile()->GetPath(), shortcut_info,
-                              NULL);
+  if (extension_) {
+    if (type_ == PAGE_ACTION) {
+      BrowserView* browser_view = BrowserView::GetBrowserViewForNativeWindow(
+          browser_->window()->GetNativeHandle());
+      browser_view->GetLocationBarView()->SetPreviewEnabledPageAction(
+          extension_->page_action(),
+          false);  // preview_enabled
+    } else if (type_ == EXTENSION_APP) {
+      if (bubble_content_->create_shortcut()) {
+        ShellIntegration::ShortcutInfo shortcut_info;
+        shortcut_info.url = extension_->GetFullLaunchURL();
+        shortcut_info.extension_id = UTF8ToUTF16(extension_->id());
+        shortcut_info.title = UTF8ToUTF16(extension_->name());
+        shortcut_info.description = UTF8ToUTF16(extension_->description());
+        shortcut_info.favicon = icon_;
+        shortcut_info.create_on_desktop = true;
+        shortcut_info.create_in_applications_menu = false;
+        shortcut_info.create_in_quick_launch_bar = false;
+        web_app::CreateShortcut(browser_->profile()->GetPath(), shortcut_info,
+                                NULL);
+      }
     }
   }
 

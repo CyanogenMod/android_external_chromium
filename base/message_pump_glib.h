@@ -57,10 +57,15 @@ class MessagePumpForUI : public MessagePump {
   // Like MessagePump::Run, but GdkEvent objects are routed through dispatcher.
   virtual void RunWithDispatcher(Delegate* delegate, Dispatcher* dispatcher);
 
+  // Run a single iteration of the mainloop. A return value of true indicates
+  // that an event was handled. |block| indicates if it should wait if no event
+  // is ready for processing.
+  virtual bool RunOnce(GMainContext* context, bool block);
+
   virtual void Run(Delegate* delegate) { RunWithDispatcher(delegate, NULL); }
   virtual void Quit();
   virtual void ScheduleWork();
-  virtual void ScheduleDelayedWork(const Time& delayed_work_time);
+  virtual void ScheduleDelayedWork(const TimeTicks& delayed_work_time);
 
   // Internal methods used for processing the pump callbacks.  They are
   // public for simplicity but should not be used directly.  HandlePrepare
@@ -78,6 +83,14 @@ class MessagePumpForUI : public MessagePump {
   // Removes an Observer.  It is safe to call this method while an Observer is
   // receiving a notification callback.
   void RemoveObserver(Observer* observer);
+
+  // Dispatch an available GdkEvent. Essentially this allows a subclass to do
+  // some task before/after calling the default handler (EventDispatcher).
+  virtual void DispatchEvents(GdkEvent* event);
+
+ protected:
+  // Returns the dispatcher for the current run state (|state_->dispatcher|).
+  Dispatcher* GetDispatcher();
 
  private:
   // We may make recursive calls to Run, so we save state that needs to be
@@ -103,7 +116,7 @@ class MessagePumpForUI : public MessagePump {
   GMainContext* context_;
 
   // This is the time when we need to do delayed work.
-  Time delayed_work_time_;
+  TimeTicks delayed_work_time_;
 
   // The work source.  It is shared by all calls to Run and destroyed when
   // the message pump is destroyed.

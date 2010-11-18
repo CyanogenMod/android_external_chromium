@@ -68,7 +68,7 @@ static const int kMaxUpdateFrequencySeconds = 60 * 60 * 24 * 7;  // 7 days
 // request. We want to stay under 2K because of proxies, etc.
 static const int kExtensionsManifestMaxURLSize = 2000;
 
-ManifestFetchData::ManifestFetchData(GURL update_url)
+ManifestFetchData::ManifestFetchData(const GURL& update_url)
     : base_url_(update_url),
       full_url_(update_url) {
 }
@@ -232,9 +232,7 @@ void ManifestFetchesBuilder::AddExtensionData(
     PendingExtensionInfo::ExpectedCrxType crx_type,
     GURL update_url) {
 
-  // Only internal and external extensions can be autoupdated.
-  if (location != Extension::INTERNAL &&
-      !Extension::IsExternalLocation(location)) {
+  if (!Extension::IsAutoUpdateableLocation(location)) {
     return;
   }
 
@@ -520,13 +518,13 @@ void ExtensionUpdater::OnManifestFetchComplete(const GURL& url,
   // We want to try parsing the manifest, and if it indicates updates are
   // available, we want to fire off requests to fetch those updates.
   if (status.status() == URLRequestStatus::SUCCESS && response_code == 200) {
-    scoped_refptr<SafeManifestParser> safe_parser =
-        new SafeManifestParser(data, current_manifest_fetch_.release(), this);
+    scoped_refptr<SafeManifestParser> safe_parser(
+        new SafeManifestParser(data, current_manifest_fetch_.release(), this));
     safe_parser->Start();
   } else {
     // TODO(asargent) Do exponential backoff here. (http://crbug.com/12546).
-    LOG(INFO) << "Failed to fetch manifest '" << url.possibly_invalid_spec() <<
-        "' response code:" << response_code;
+    VLOG(1) << "Failed to fetch manifest '" << url.possibly_invalid_spec()
+            << "' response code:" << response_code;
   }
   manifest_fetcher_.reset();
   current_manifest_fetch_.reset();
@@ -620,8 +618,8 @@ void ExtensionUpdater::OnCRXFetchComplete(const GURL& url,
     // TODO(asargent) do things like exponential backoff, handling
     // 503 Service Unavailable / Retry-After headers, etc. here.
     // (http://crbug.com/12546).
-    LOG(INFO) << "Failed to fetch extension '" <<
-        url.possibly_invalid_spec() << "' response code:" << response_code;
+    VLOG(1) << "Failed to fetch extension '" << url.possibly_invalid_spec()
+            << "' response code:" << response_code;
   }
   extension_fetcher_.reset();
   current_extension_fetch_ = ExtensionFetch();
@@ -736,7 +734,7 @@ bool ExtensionUpdater::GetExistingVersion(const std::string& id,
     *version = prefs_->GetString(kExtensionBlacklistUpdateVersion);
     return true;
   }
-  Extension* extension = service_->GetExtensionById(id, false);
+  const Extension* extension = service_->GetExtensionById(id, false);
   if (!extension) {
     return false;
   }
@@ -835,7 +833,8 @@ void ExtensionUpdater::StartUpdateCheck(ManifestFetchData* fetch_data) {
                            URLFetcher::GET, this));
     manifest_fetcher_->set_request_context(Profile::GetDefaultRequestContext());
     manifest_fetcher_->set_load_flags(net::LOAD_DO_NOT_SEND_COOKIES |
-                                      net::LOAD_DO_NOT_SAVE_COOKIES);
+                                      net::LOAD_DO_NOT_SAVE_COOKIES |
+                                      net::LOAD_DISABLE_CACHE);
     manifest_fetcher_->Start();
   }
 }
@@ -862,7 +861,8 @@ void ExtensionUpdater::FetchUpdatedExtension(const std::string& id,
     extension_fetcher_->set_request_context(
         Profile::GetDefaultRequestContext());
     extension_fetcher_->set_load_flags(net::LOAD_DO_NOT_SEND_COOKIES |
-                                       net::LOAD_DO_NOT_SAVE_COOKIES);
+                                       net::LOAD_DO_NOT_SAVE_COOKIES |
+                                       net::LOAD_DISABLE_CACHE);
     extension_fetcher_->Start();
     current_extension_fetch_ = ExtensionFetch(id, url, hash, version);
   }

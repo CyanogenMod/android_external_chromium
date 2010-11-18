@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "app/gtk_util.h"
 #include "app/l10n_util.h"
 #include "base/stl_util-inl.h"
 #include "base/utf_string_conversions.h"
@@ -353,7 +352,10 @@ gint PasswordsPageGtk::CompareUsername(GtkTreeModel* model,
 void PasswordsPageGtk::PasswordListPopulater::populate() {
   DCHECK(!pending_login_query_);
   PasswordStore* store = page_->GetPasswordStore();
-  pending_login_query_ = store->GetAutofillableLogins(this);
+  if (store != NULL)
+    pending_login_query_ = store->GetAutofillableLogins(this);
+  else
+    LOG(ERROR) << "No password store! Cannot display passwords.";
 }
 
 void PasswordsPageGtk::PasswordListPopulater::OnPasswordStoreRequestDone(

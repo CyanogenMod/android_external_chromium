@@ -168,7 +168,6 @@ unsigned int CertDatabase::GetCertTrust(
           trust.HasTrustedCA(PR_FALSE, PR_TRUE, PR_FALSE) * TRUSTED_EMAIL +
           trust.HasTrustedCA(PR_FALSE, PR_FALSE, PR_TRUE) * TRUSTED_OBJ_SIGN;
     case SERVER_CERT:
-    case EMAIL_CERT:
       return trust.HasTrustedPeer(PR_TRUE, PR_FALSE, PR_FALSE) * TRUSTED_SSL +
           trust.HasTrustedPeer(PR_FALSE, PR_TRUE, PR_FALSE) * TRUSTED_EMAIL +
           trust.HasTrustedPeer(PR_FALSE, PR_FALSE, PR_TRUE) * TRUSTED_OBJ_SIGN;
@@ -203,6 +202,11 @@ bool CertDatabase::DeleteCertAndKey(const X509Certificate* cert) {
     }
   }
   return true;
+}
+
+bool CertDatabase::IsReadOnly(const X509Certificate* cert) const {
+  PK11SlotInfo* slot = cert->os_cert_handle()->slot;
+  return slot && PK11_IsReadOnly(slot);
 }
 
 }  // namespace net

@@ -29,7 +29,7 @@ class SandboxedExtensionUnpackerClient
   // for deleting this memory.
   virtual void OnUnpackSuccess(const FilePath& temp_dir,
                                const FilePath& extension_root,
-                               Extension* extension) = 0;
+                               const Extension* extension) = 0;
   virtual void OnUnpackFailure(const std::string& error) = 0;
 
  protected:
@@ -160,7 +160,7 @@ class SandboxedExtensionUnpacker : public UtilityProcessHost::Client {
   FilePath extension_root_;
 
   // Represents the extension we're unpacking.
-  scoped_ptr<Extension> extension_;
+  scoped_refptr<Extension> extension_;
 
   // Whether we've received a response from the utility process yet.
   bool got_response_;

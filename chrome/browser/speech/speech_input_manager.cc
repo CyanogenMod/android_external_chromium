@@ -28,13 +28,16 @@ class SpeechInputManagerImpl : public SpeechInputManager,
                                 int caller_id,
                                 int render_process_id,
                                 int render_view_id,
-                                const gfx::Rect& element_rect);
+                                const gfx::Rect& element_rect,
+                                const std::string& language,
+                                const std::string& grammar);
   virtual void CancelRecognition(int caller_id);
   virtual void StopRecording(int caller_id);
 
   // SpeechRecognizer::Delegate methods.
-  virtual void SetRecognitionResult(int caller_id, bool error,
-                                    const string16& value);
+  virtual void SetRecognitionResult(int caller_id,
+                                    bool error,
+                                    const SpeechInputResultArray& result);
   virtual void DidCompleteRecording(int caller_id);
   virtual void DidCompleteRecognition(int caller_id);
   virtual void OnRecognizerError(int caller_id,
@@ -103,7 +106,9 @@ void SpeechInputManagerImpl::StartRecognition(
     int caller_id,
     int render_process_id,
     int render_view_id,
-    const gfx::Rect& element_rect) {
+    const gfx::Rect& element_rect,
+    const std::string& language,
+    const std::string& grammar) {
   DCHECK(!HasPendingRequest(caller_id));
 
   bubble_controller_->CreateBubble(caller_id, render_process_id, render_view_id,
@@ -111,7 +116,8 @@ void SpeechInputManagerImpl::StartRecognition(
 
   SpeechInputRequest* request = &requests_[caller_id];
   request->delegate = delegate;
-  request->recognizer = new SpeechRecognizer(this, caller_id);
+  request->recognizer = new SpeechRecognizer(this, caller_id, language,
+                                             grammar);
   request->is_active = false;
 
   StartRecognitionForRequest(caller_id);
@@ -149,12 +155,10 @@ void SpeechInputManagerImpl::StopRecording(int caller_id) {
   requests_[caller_id].recognizer->StopRecording();
 }
 
-void SpeechInputManagerImpl::SetRecognitionResult(int caller_id,
-                                                  bool error,
-                                                  const string16& value) {
+void SpeechInputManagerImpl::SetRecognitionResult(
+    int caller_id, bool error, const SpeechInputResultArray& result) {
   DCHECK(HasPendingRequest(caller_id));
-  GetDelegate(caller_id)->SetRecognitionResult(caller_id,
-                                               (error ? string16() : value));
+  GetDelegate(caller_id)->SetRecognitionResult(caller_id, result);
 }
 
 void SpeechInputManagerImpl::DidCompleteRecording(int caller_id) {

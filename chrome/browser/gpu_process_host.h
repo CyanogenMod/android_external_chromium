@@ -28,13 +28,6 @@ class GpuProcessHost : public BrowserChildProcessHost {
   // Getter for the singleton. This will return NULL on failure.
   static GpuProcessHost* Get();
 
-  // Tells the GPU process to crash. Useful for testing.
-  static void SendAboutGpuCrash();
-
-  // Tells the GPU process to let its main thread enter an infinite loop.
-  // Useful for testing.
-  static void SendAboutGpuHang();
-
   // Shutdown routine, which should only be called upon process
   // termination.
   static void Shutdown();
@@ -102,7 +95,8 @@ class GpuProcessHost : public BrowserChildProcessHost {
       const GpuHostMsg_AcceleratedSurfaceSetIOSurface_Params& params);
   void OnAcceleratedSurfaceBuffersSwapped(int32 renderer_id,
                                           int32 render_view_id,
-                                          gfx::PluginWindowHandle window);
+                                          gfx::PluginWindowHandle window,
+                                          uint64 surface_id);
 #endif
 
   void ReplyToRenderer(const IPC::ChannelHandle& channel,

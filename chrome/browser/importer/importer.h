@@ -442,7 +442,7 @@ class Importer : public base::RefCountedThreadSafe<Importer> {
   // Since we do async import, the importer should invoke
   // ImporterHost::Finished() to notify its host that import
   // stuff have been finished.
-  virtual void StartImport(importer::ProfileInfo profile_info,
+  virtual void StartImport(const importer::ProfileInfo& profile_info,
                            uint16 items,
                            ImporterBridge* bridge) = 0;
 
@@ -514,7 +514,7 @@ class ImportObserver {
 // if there's nothing to parent to. first_run is true if it's invoked in the
 // first run UI.
 void StartImportingWithUI(gfx::NativeWindow parent_window,
-                          int16 items,
+                          uint16 items,
                           ImporterHost* coordinator,
                           const importer::ProfileInfo& source_profile,
                           Profile* target_profile,

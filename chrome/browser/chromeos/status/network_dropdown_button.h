@@ -19,7 +19,7 @@ namespace chromeos {
 // See NetworkMenu for more details.
 class NetworkDropdownButton : public views::MenuButton,
                               public NetworkMenu,
-                              public NetworkLibrary::Observer {
+                              public NetworkLibrary::NetworkManagerObserver {
  public:
   NetworkDropdownButton(bool browser_mode, gfx::NativeWindow parent_window);
   virtual ~NetworkDropdownButton();
@@ -27,8 +27,8 @@ class NetworkDropdownButton : public views::MenuButton,
   // AnimationDelegate implementation.
   virtual void AnimationProgressed(const Animation* animation);
 
-  // NetworkLibrary::Observer implementation.
-  virtual void NetworkChanged(NetworkLibrary* obj);
+  // NetworkLibrary::NetworkManagerObserver implementation.
+  virtual void OnNetworkManagerChanged(NetworkLibrary* obj);
 
   // Refreshes button state. Used when language has been changed.
   void Refresh();
@@ -37,8 +37,8 @@ class NetworkDropdownButton : public views::MenuButton,
   // NetworkMenu implementation:
   virtual bool IsBrowserMode() const { return browser_mode_; }
   virtual gfx::NativeWindow GetNativeWindow() const { return parent_window_; }
-  virtual void OpenButtonOptions() const {}
-  virtual bool ShouldOpenButtonOptions() const {return false; }
+  virtual void OpenButtonOptions() {}
+  virtual bool ShouldOpenButtonOptions() const { return false; }
 
  private:
   bool browser_mode_;

@@ -47,11 +47,8 @@ cr.define('options.internet', function() {
       if (e.button == 0) {
         var el = e.target;
         // If click is on action buttons of a network item.
-        if (el.buttonType && el.networkType && el.servicePath) {
-          chrome.send('buttonClickCallback',
-              [String(el.networkType), el.servicePath, el.buttonType]);
-        } else {
-          if (el.className == 'other-network' || el.buttonType) {
+        if (!(el.buttonType && el.networkType && el.servicePath)) {
+          if (el.buttonType) {
             return;
           }
           // If click is on a network item or its label, walk up the DOM tree
@@ -65,8 +62,9 @@ cr.define('options.internet', function() {
 
           if (item) {
             var data = item.data;
-            // Don't try to connect to Ethernet.
-            if (data && data.networkType == 1)
+            // Don't try to connect to Ethernet or unactivated Cellular.
+            if (data && (data.networkType == 1 ||
+                        (data.networkType == 5 && data.activation_state != 1)))
               return;
             for (var i = 0; i < this.childNodes.length; i++) {
               if (this.childNodes[i] != item)
@@ -105,7 +103,9 @@ cr.define('options.internet', function() {
       connected: network[4],
       connecting: network[5],
       iconURL: network[6],
-      remembered: network[7]
+      remembered: network[7],
+      activation_state: network[8],
+      restricted: network[9]
     };
     NetworkItem.decorate(el);
     return el;
@@ -117,6 +117,19 @@ cr.define('options.internet', function() {
    * @type {number}
    */
   NetworkItem.MIN_WIRELESS_PASSWORD_LENGTH = 5;
+  NetworkItem.MIN_WIRELESS_SSID_LENGTH = 1;
+  // Cellular activation states:
+  NetworkItem.ACTIVATION_STATE_UNKNOWN             = 0;
+  NetworkItem.ACTIVATION_STATE_ACTIVATED           = 1;
+  NetworkItem.ACTIVATION_STATE_ACTIVATING          = 2;
+  NetworkItem.ACTIVATION_STATE_NOT_ACTIVATED       = 3;
+  NetworkItem.ACTIVATION_STATE_PARTIALLY_ACTIVATED = 4;
+  NetworkItem.TYPE_UNKNOWN   = 0;
+  NetworkItem.TYPE_ETHERNET  = 1;
+  NetworkItem.TYPE_WIFI      = 2;
+  NetworkItem.TYPE_WIMAX     = 3;
+  NetworkItem.TYPE_BLUETOOTH = 4;
+  NetworkItem.TYPE_CELLULAR  = 5;
 
   /**
    * Decorates an element as a network item.
@@ -132,10 +145,9 @@ cr.define('options.internet', function() {
 
     /** @inheritDoc */
     decorate: function() {
-      var isOtherNetworksItem = this.data.servicePath == '?';
-
       this.className = 'network-item';
       this.connected = this.data.connected;
+      this.other = this.data.servicePath == '?';
       this.id = this.data.servicePath;
       // textDiv holds icon, name and status text.
       var textDiv = this.ownerDocument.createElement('div');
@@ -149,7 +161,7 @@ cr.define('options.internet', function() {
       nameEl.textContent = this.data.networkName;
       textDiv.appendChild(nameEl);
 
-      if (isOtherNetworksItem) {
+      if (this.other) {
         // No status and buttons for "Other..."
         this.appendChild(textDiv);
         return;
@@ -170,22 +182,67 @@ cr.define('options.internet', function() {
       this.appendChild(spacerDiv);
 
       var buttonsDiv = this.ownerDocument.createElement('div');
+      var self = this;
       if (!this.data.remembered) {
-        if (this.data.connected) {
-          // disconnect button (if not ethernet)
-          if (this.data.networkType != 1)
-             buttonsDiv.appendChild(this.createButton_('disconnect_button',
-                 'disconnect'));
+        var no_plan =
+            this.data.networkType == NetworkItem.TYPE_CELLULAR &&
+            this.data.activation_state ==
+                NetworkItem.ACTIVATION_STATE_ACTIVATED &&
+            this.data.restricted &&
+            this.data.connected;
+        var show_activate =
+          (this.data.networkType == NetworkItem.TYPE_CELLULAR &&
+           this.data.activation_state !=
+               NetworkItem.ACTIVATION_STATE_ACTIVATED &&
+           this.data.activation_state !=
+               NetworkItem.ACTIVATION_STATE_ACTIVATING);
 
-          // options button
-          buttonsDiv.appendChild(this.createButton_('options_button',
-              'options'));
+        // Disconnect button if not ethernet and if cellular it should be
+        // activated.
+        if (this.data.networkType != NetworkItem.TYPE_ETHERNET &&
+            !show_activate && this.data.connected) {
+          buttonsDiv.appendChild(
+              this.createButton_('disconnect_button', 'disconnect',
+                                  function(e) {
+                 chrome.send('buttonClickCallback',
+                             [String(self.data.networkType),
+                              self.data.servicePath,
+                              'disconnect']);
+               }));
+        }
+        // Show [Activate] button for non-activated Cellular network.
+        if (show_activate || no_plan) {
+          var button_name = no_plan ? 'buyplan_button' : 'activate_button';
+          buttonsDiv.appendChild(
+              this.createButton_(button_name, 'activate',
+                                 function(e) {
+                chrome.send('buttonClickCallback',
+                            [String(self.data.networkType),
+                             self.data.servicePath,
+                             'activate']);
+              }));
+        }
+        if (this.data.connected) {
+          buttonsDiv.appendChild(
+              this.createButton_('options_button', 'options',
+                                 function(e) {
+                chrome.send('buttonClickCallback',
+                            [String(self.data.networkType),
+                             self.data.servicePath,
+                             'options']);
+              }));
         }
       } else {
-        // forget button
-        var button = this.createButton_('forget_button', 'forget');
-        if (cr.commandLine.options['--bwsi']) {
-          // no disabling of networks while bwsi.
+        // Put "Forget this network" button.
+        var button = this.createButton_('forget_button', 'forget',
+                                        function(e) {
+                       chrome.send('buttonClickCallback',
+                                   [String(self.data.networkType),
+                                   self.data.servicePath,
+                                   'forget']);
+                     });
+        if (!AccountsOptions.currentUserIsOwner()) {
+          // Disable this for guest non-Owners.
           button.disabled = true;
         }
 
@@ -194,7 +251,7 @@ cr.define('options.internet', function() {
       this.appendChild(buttonsDiv);
     },
 
-    showPassword: function(password) {
+    showPassword: function() {
       if (this.connecting)
         return;
       var passwordDiv = this.ownerDocument.createElement('div');
@@ -221,8 +278,8 @@ cr.define('options.internet', function() {
       togglePassCheckbox.target = passInput;
       togglePassCheckbox.addEventListener('change', this.handleShowPass_);
       togglePassSpan.textContent = localStrings.getString('inetShowPass');
+      togglePassLabel.appendChild(togglePassCheckbox);
       togglePassLabel.appendChild(togglePassSpan);
-      passwordDiv.appendChild(togglePassCheckbox);
       passwordDiv.appendChild(togglePassLabel);
 
       // Disable login button if there is no password.
@@ -248,11 +305,10 @@ cr.define('options.internet', function() {
     hidePassword: function() {
       this.connecting = false;
       var children = this.childNodes;
-      for (var i = 0; i < children.length; i++) {
-        if (children[i].className == 'network-password' ||
-            children[i].className == 'other-network') {
+      // Remove all password divs starting from the end.
+      for (var i = children.length-1; i >= 0; i--) {
+        if (children[i].className == 'network-password') {
           this.removeChild(children[i]);
-          return;
         }
       }
     },
@@ -260,24 +316,91 @@ cr.define('options.internet', function() {
     showOtherLogin: function() {
       if (this.connecting)
         return;
-      var passwordDiv = this.ownerDocument.createElement('div');
-      passwordDiv.className = 'other-network';
+
+      var ssidDiv = this.ownerDocument.createElement('div');
+      ssidDiv.className = 'network-password';
       var ssidInput = this.ownerDocument.createElement('input');
       ssidInput.placeholder = localStrings.getString('inetSsidPrompt');
-      passwordDiv.appendChild(ssidInput);
+      ssidDiv.appendChild(ssidInput);
+
+      var securityDiv = this.ownerDocument.createElement('div');
+      securityDiv.className = 'network-password';
+      var securityInput = this.ownerDocument.createElement('select');
+      var securityNoneOption = this.ownerDocument.createElement('option');
+      securityNoneOption.value = 'none';
+      securityNoneOption.label = localStrings.getString('inetSecurityNone');
+      securityInput.appendChild(securityNoneOption);
+      var securityWEPOption = this.ownerDocument.createElement('option');
+      securityWEPOption.value = 'wep';
+      securityWEPOption.label = localStrings.getString('inetSecurityWEP');
+      securityInput.appendChild(securityWEPOption);
+      var securityWPAOption = this.ownerDocument.createElement('option');
+      securityWPAOption.value = 'wpa';
+      securityWPAOption.label = localStrings.getString('inetSecurityWPA');
+      securityInput.appendChild(securityWPAOption);
+      var securityRSNOption = this.ownerDocument.createElement('option');
+      securityRSNOption.value = 'rsn';
+      securityRSNOption.label = localStrings.getString('inetSecurityRSN');
+      securityInput.appendChild(securityRSNOption);
+      securityDiv.appendChild(securityInput);
+
+      var passwordDiv = this.ownerDocument.createElement('div');
+      passwordDiv.className = 'network-password';
       var passInput = this.ownerDocument.createElement('input');
       passInput.placeholder = localStrings.getString('inetPassPrompt');
-      passInput.addEventListener('keydown', function(e) {
-        e.returnValue = e.keyCode != ' '.charCodeAt();
-      });
+      passInput.type = 'password';
+      passInput.disabled = true;
       passwordDiv.appendChild(passInput);
-      var buttonEl = this.ownerDocument.createElement('button');
-      buttonEl.textContent = localStrings.getString('inetLogin');
-      buttonEl.buttonType = true;
-      buttonEl.addEventListener('click', this.handleOtherLogin_);
+
+      var togglePassLabel = this.ownerDocument.createElement('label');
+      togglePassLabel.style.display = 'inline';
+      var togglePassSpan = this.ownerDocument.createElement('span');
+      var togglePassCheckbox = this.ownerDocument.createElement('input');
+      togglePassCheckbox.type = 'checkbox';
+      togglePassCheckbox.checked = false;
+      togglePassCheckbox.target = passInput;
+      togglePassCheckbox.addEventListener('change', this.handleShowPass_);
+      togglePassSpan.textContent = localStrings.getString('inetShowPass');
+      togglePassLabel.appendChild(togglePassCheckbox);
+      togglePassLabel.appendChild(togglePassSpan);
+      passwordDiv.appendChild(togglePassLabel);
+
+      var buttonEl =
+        this.createButton_('inetLogin', true, this.handleOtherLogin_);
+      buttonEl.style.right = '0';
+      buttonEl.style.position = 'absolute';
       buttonEl.style.visibility = 'visible';
+      buttonEl.disabled = true;
       passwordDiv.appendChild(buttonEl);
+
+      this.appendChild(ssidDiv);
+      this.appendChild(securityDiv);
       this.appendChild(passwordDiv);
+
+      securityInput.addEventListener('change', function(e) {
+        // If changed to None, then disable passInput and clear it out.
+        // Otherwise enable it.
+        if (securityInput.value == 'none') {
+          passInput.disabled = true;
+          passInput.value = '';
+        } else {
+          passInput.disabled = false;
+        }
+      });
+
+      var keyup_listener = function(e) {
+        // Disable login button if ssid is not long enough or
+        // password is not long enough (unless no security)
+        var ssid_good =
+          ssidInput.value.length >= NetworkItem.MIN_WIRELESS_SSID_LENGTH;
+        var pass_good =
+          securityInput.value == 'none' ||
+            passInput.value.length >= NetworkItem.MIN_WIRELESS_PASSWORD_LENGTH;
+        buttonEl.disabled = !ssid_good || !pass_good;
+      };
+      ssidInput.addEventListener('keyup', keyup_listener);
+      securityInput.addEventListener('change', keyup_listener);
+      passInput.addEventListener('keyup', keyup_listener);
       this.connecting = true;
     },
 
@@ -292,13 +415,15 @@ cr.define('options.internet', function() {
 
     handleOtherLogin_: function(e) {
       var el = e.target;
-      var parent = el.parentNode;
+      var parent = el.parentNode.parentNode;
       el.disabled = true;
-      var ssid = parent.childNodes[0];
-      var pass = parent.childNodes[1];
+      var ssid = parent.childNodes[1].firstChild;
+      var sec = parent.childNodes[2].firstChild;
+      var pass = parent.childNodes[3].firstChild;
+      sec.disabled = true;
       ssid.disabled = true;
       pass.disabled = true;
-      chrome.send('loginToNetwork', [ssid.value, pass.value]);
+      chrome.send('loginToOtherNetwork', [sec.value, ssid.value, pass.value]);
     },
 
     /**
@@ -306,12 +431,11 @@ cr.define('options.internet', function() {
      * @param {Object} name The name of the localStrings to use for the text.
      * @param {Object} type The type of button.
      */
-    createButton_: function(name, type) {
+    createButton_: function(name, type, callback) {
       var buttonEl = this.ownerDocument.createElement('button');
-      buttonEl.textContent = localStrings.getString(name);
       buttonEl.buttonType = type;
-      buttonEl.networkType = this.data.networkType;
-      buttonEl.servicePath = this.data.servicePath;
+      buttonEl.textContent = localStrings.getString(name);
+      buttonEl.addEventListener('click', callback);
       return buttonEl;
     }
   };
@@ -328,6 +452,13 @@ cr.define('options.internet', function() {
    * @type {boolean}
    */
   cr.defineProperty(NetworkItem, 'connecting', cr.PropertyKind.BOOL_ATTR);
+
+  /**
+   * Whether the underlying network is an other network for adding networks.
+   * Only used for display purpose.
+   * @type {boolean}
+   */
+  cr.defineProperty(NetworkItem, 'other', cr.PropertyKind.BOOL_ATTR);
 
   return {
     NetworkElement: NetworkElement

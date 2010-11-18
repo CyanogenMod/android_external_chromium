@@ -12,6 +12,7 @@
 #include "base/message_loop.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_util.h"
+#include "net/http/http_request_headers.h"
 #include "net/http/http_request_info.h"
 #include "net/http/http_response_info.h"
 #include "net/http/http_util.h"
@@ -112,7 +113,7 @@ int SpdyHttpStream::ReadResponseBody(
         memcpy(new_buffer->data(), &(data->data()[bytes_to_copy]),
                bytes_remaining);
         response_body_.pop_front();
-        response_body_.push_front(new_buffer);
+        response_body_.push_front(make_scoped_refptr(new_buffer));
       }
       bytes_read += bytes_to_copy;
     }
@@ -139,7 +140,7 @@ void SpdyHttpStream::Close(bool not_reusable) {
   Cancel();
 }
 
-int SpdyHttpStream::SendRequest(const std::string& /*headers_string*/,
+int SpdyHttpStream::SendRequest(const HttpRequestHeaders& request_headers,
                                 UploadDataStream* request_body,
                                 HttpResponseInfo* response,
                                 CompletionCallback* callback) {
@@ -148,9 +149,6 @@ int SpdyHttpStream::SendRequest(const std::string& /*headers_string*/,
 
   stream_->SetDelegate(this);
 
-  HttpRequestHeaders request_headers;
-  HttpUtil::BuildRequestHeaders(request_info_, request_body, NULL, false, false,
-                                !direct_, &request_headers);
   linked_ptr<spdy::SpdyHeaderBlock> headers(new spdy::SpdyHeaderBlock);
   CreateSpdyHeadersFromHttpRequest(*request_info_, request_headers,
                                    headers.get(), direct_);
@@ -275,7 +273,7 @@ void SpdyHttpStream::OnDataReceived(const char* data, int length) {
     // Save the received data.
     IOBufferWithSize* io_buffer = new IOBufferWithSize(length);
     memcpy(io_buffer->data(), data, length);
-    response_body_.push_back(io_buffer);
+    response_body_.push_back(make_scoped_refptr(io_buffer));
 
     if (user_buffer_) {
       // Handing small chunks of data to the caller creates measurable overhead.

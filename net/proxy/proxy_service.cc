@@ -525,8 +525,8 @@ int ProxyService::ResolveProxy(const GURL& raw_url,
   if (rv != ERR_IO_PENDING)
     return DidFinishResolvingProxy(result, rv, net_log);
 
-  scoped_refptr<PacRequest> req =
-      new PacRequest(this, url, result, callback, net_log);
+  scoped_refptr<PacRequest> req(
+      new PacRequest(this, url, result, callback, net_log));
 
   if (current_state_ == STATE_READY) {
     // Start the resolve request.
@@ -715,13 +715,15 @@ int ProxyService::DidFinishResolvingProxy(ProxyInfo* result,
     if (net_log.IsLoggingAllEvents()) {
       net_log.AddEvent(
           NetLog::TYPE_PROXY_SERVICE_RESOLVED_PROXY_LIST,
-          new NetLogStringParameter("pac_string", result->ToPacString()));
+          make_scoped_refptr(new NetLogStringParameter(
+              "pac_string", result->ToPacString())));
     }
     result->DeprioritizeBadProxies(proxy_retry_info_);
   } else {
     net_log.AddEvent(
         NetLog::TYPE_PROXY_SERVICE_RESOLVED_PROXY_LIST,
-        new NetLogIntegerParameter("net_error", result_code));
+        make_scoped_refptr(new NetLogIntegerParameter(
+            "net_error", result_code)));
 
     // Fall-back to direct when the proxy resolver fails. This corresponds
     // with a javascript runtime error in the PAC script.
@@ -831,8 +833,8 @@ ProxyConfigService* ProxyService::CreateSystemProxyConfigService(
 void ProxyService::OnProxyConfigChanged(const ProxyConfig& config) {
   // Emit the proxy settings change to the NetLog stream.
   if (net_log_) {
-    scoped_refptr<NetLog::EventParameters> params =
-        new ProxyConfigChangedNetLogParam(fetched_config_, config);
+    scoped_refptr<NetLog::EventParameters> params(
+        new ProxyConfigChangedNetLogParam(fetched_config_, config));
     net_log_->AddEntry(net::NetLog::TYPE_PROXY_CONFIG_CHANGED,
                        base::TimeTicks::Now(),
                        NetLog::Source(),

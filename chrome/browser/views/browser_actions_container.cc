@@ -58,7 +58,7 @@ bool BrowserActionsContainer::disable_animations_during_testing_ = false;
 ////////////////////////////////////////////////////////////////////////////////
 // BrowserActionButton
 
-BrowserActionButton::BrowserActionButton(Extension* extension,
+BrowserActionButton::BrowserActionButton(const Extension* extension,
                                          BrowserActionsContainer* panel)
     : ALLOW_THIS_IN_INITIALIZER_LIST(
           MenuButton(this, std::wstring(), NULL, false)),
@@ -281,7 +281,7 @@ BrowserActionButton::~BrowserActionButton() {
 ////////////////////////////////////////////////////////////////////////////////
 // BrowserActionView
 
-BrowserActionView::BrowserActionView(Extension* extension,
+BrowserActionView::BrowserActionView(const Extension* extension,
                                      BrowserActionsContainer* panel)
     : panel_(panel) {
   button_ = new BrowserActionButton(extension, panel);
@@ -838,7 +838,7 @@ void BrowserActionsContainer::MoveBrowserAction(const std::string& extension_id,
                                                 size_t new_index) {
   ExtensionsService* service = profile_->GetExtensionsService();
   if (service) {
-    Extension* extension = service->GetExtensionById(extension_id, false);
+    const Extension* extension = service->GetExtensionById(extension_id, false);
     model_->MoveBrowserAction(extension, new_index);
     SchedulePaint();
   }
@@ -886,7 +886,7 @@ int BrowserActionsContainer::IconHeight() {
   return icon_height;
 }
 
-void BrowserActionsContainer::BrowserActionAdded(Extension* extension,
+void BrowserActionsContainer::BrowserActionAdded(const Extension* extension,
                                                  int index) {
 #if defined(DEBUG)
   for (size_t i = 0; i < browser_action_views_.size(); ++i) {
@@ -915,7 +915,8 @@ void BrowserActionsContainer::BrowserActionAdded(Extension* extension,
 
   // Enlarge the container if it was already at maximum size and we're not in
   // the middle of upgrading.
-  if ((model_->GetVisibleIconCount() < 0) && !extension->being_upgraded()) {
+  if ((model_->GetVisibleIconCount() < 0) &&
+      !profile_->GetExtensionsService()->IsBeingUpgraded(extension)) {
     suppress_chevron_ = true;
     SaveDesiredSizeAndAnimate(Tween::LINEAR, visible_actions + 1);
   } else {
@@ -924,7 +925,7 @@ void BrowserActionsContainer::BrowserActionAdded(Extension* extension,
   }
 }
 
-void BrowserActionsContainer::BrowserActionRemoved(Extension* extension) {
+void BrowserActionsContainer::BrowserActionRemoved(const Extension* extension) {
   CloseOverflowMenu();
 
   if (popup_ && popup_->host()->extension() == extension)
@@ -940,7 +941,7 @@ void BrowserActionsContainer::BrowserActionRemoved(Extension* extension) {
 
       // If the extension is being upgraded we don't want the bar to shrink
       // because the icon is just going to get re-added to the same location.
-      if (extension->being_upgraded())
+      if (profile_->GetExtensionsService()->IsBeingUpgraded(extension))
         return;
 
       if (browser_action_views_.size() > visible_actions) {
@@ -961,7 +962,7 @@ void BrowserActionsContainer::BrowserActionRemoved(Extension* extension) {
   }
 }
 
-void BrowserActionsContainer::BrowserActionMoved(Extension* extension,
+void BrowserActionsContainer::BrowserActionMoved(const Extension* extension,
                                                  int index) {
   if (!ShouldDisplayBrowserAction(extension))
     return;
@@ -1091,7 +1092,8 @@ void BrowserActionsContainer::SaveDesiredSizeAndAnimate(
   }
 }
 
-bool BrowserActionsContainer::ShouldDisplayBrowserAction(Extension* extension) {
+bool BrowserActionsContainer::ShouldDisplayBrowserAction(
+    const Extension* extension) {
   // Only display incognito-enabled extensions while in incognito mode.
   return (!profile_->IsOffTheRecord() ||
           profile_->GetExtensionsService()->IsIncognitoEnabled(extension));

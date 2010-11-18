@@ -40,6 +40,7 @@ class TCPClientSocketWin : public ClientSocket, NonThreadSafe {
   virtual void SetSubresourceSpeculation();
   virtual void SetOmniboxSpeculation();
   virtual bool WasEverUsed() const;
+  virtual bool UsingTCPFastOpen() const;
 
   // Socket methods:
   // Multiple outstanding requests are not supported.
@@ -116,6 +117,9 @@ class TCPClientSocketWin : public ClientSocket, NonThreadSafe {
   int connect_os_error_;
 
   BoundNetLog net_log_;
+
+  // This socket was previously disconnected and has not been re-connected.
+  bool previously_disconnected_;
 
   // Record of connectivity and transmissions, for use in speculative connection
   // histograms.

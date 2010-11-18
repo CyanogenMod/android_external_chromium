@@ -4,7 +4,6 @@
 
 #include <gtk/gtk.h>
 
-#include "app/gtk_util.h"
 #include "app/l10n_util.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
@@ -54,7 +53,7 @@ void OnDialogResponse(GtkDialog* dialog, int response_id,
 }
 
 void ShowInstallPromptDialog2(GtkWindow* parent, SkBitmap* skia_icon,
-                              Extension* extension,
+                              const Extension* extension,
                               ExtensionInstallUI::Delegate *delegate,
                               const std::vector<string16>& permissions) {
   // Build the dialog.
@@ -173,7 +172,10 @@ void ShowInstallPromptDialog2(GtkWindow* parent, SkBitmap* skia_icon,
 }  // namespace
 
 void ExtensionInstallUI::ShowExtensionInstallUIPrompt2Impl(
-    Profile* profile, Delegate* delegate, Extension* extension, SkBitmap* icon,
+    Profile* profile,
+    Delegate* delegate,
+    const Extension* extension,
+    SkBitmap* icon,
     const std::vector<string16>& permissions) {
   Browser* browser = BrowserList::GetLastActiveWithProfile(profile);
   if (!browser) {

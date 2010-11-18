@@ -9,7 +9,7 @@
 #include "app/resource_bundle.h"
 #include "base/string16.h"
 #include "base/string_util.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/bookmarks/bookmark_editor.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
@@ -88,9 +88,9 @@ void BookmarkBubbleView::Show(views::Window* parent,
     return;
 
   bubble_ = new BookmarkBubbleView(delegate, profile, url, newly_bookmarked);
-  InfoBubble* info_bubble =
-      InfoBubble::Show(parent->GetClientView()->GetWidget(), bounds,
-                   BubbleBorder::TOP_RIGHT, bubble_, bubble_);
+  InfoBubble* info_bubble = InfoBubble::Show(
+      parent->GetClientView()->GetWidget(), bounds, BubbleBorder::TOP_RIGHT,
+      bubble_, bubble_);
   bubble_->set_info_bubble(info_bubble);
   GURL url_ptr(url);
   NotificationService::current()->Notify(

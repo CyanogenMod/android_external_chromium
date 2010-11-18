@@ -47,9 +47,9 @@
 // TODO(jcampan): http://crbug.com/23683
 #define MAYBE_TabsRememberFocusFindInPage FAILS_TabsRememberFocusFindInPage
 #elif defined(OS_MACOSX)
-// TODO(suzhe): http://crbug.com/49738 (following two tests)
-#define MAYBE_FocusTraversal FAILS_FocusTraversal
-#define MAYBE_FocusTraversalOnInterstitial FAILS_FocusTraversalOnInterstitial
+// TODO(suzhe): http://crbug.com/60973 (following two tests)
+#define MAYBE_FocusTraversal DISABLED_FocusTraversal
+#define MAYBE_FocusTraversalOnInterstitial DISABLED_FocusTraversalOnInterstitial
 // TODO(suzhe): http://crbug.com/49737
 #define MAYBE_TabsRememberFocusFindInPage FAILS_TabsRememberFocusFindInPage
 #elif defined(OS_WIN)
@@ -217,11 +217,8 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, TabsRememberFocus) {
   ui_test_utils::NavigateToURL(browser(), url);
 
   // Create several tabs.
-  for (int i = 0; i < 4; ++i) {
-    Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
-    browser()->AddTabWithURL(&params);
-    EXPECT_EQ(browser(), params.target);
-  }
+  for (int i = 0; i < 4; ++i)
+    browser()->AddSelectedTabWithURL(url, PageTransition::TYPED);
 
   // Alternate focus for the tab.
   const bool kFocusPage[3][5] = {
@@ -296,9 +293,7 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_TabsRememberFocusFindInPage) {
   browser()->FocusLocationBar();
 
   // Create a 2nd tab.
-  Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
-  browser()->AddTabWithURL(&params);
-  EXPECT_EQ(browser(), params.target);
+  browser()->AddSelectedTabWithURL(url, PageTransition::TYPED);
 
   // Focus should be on the recently opened tab page.
   ASSERT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER_FOCUS_VIEW));
@@ -760,15 +755,8 @@ IN_PROC_BROWSER_TEST_F(BrowserFocusTest, FocusOnReload) {
   ASSERT_TRUE(IsViewFocused(VIEW_ID_TAB_CONTAINER_FOCUS_VIEW));
 }
 
-#if (defined(OS_CHROMEOS) || defined(OS_LINUX)) && !defined(NDEBUG)
-// Hangy, http://crbug.com/50025.
-#define MAYBE_FocusOnReloadCrashedTab DISABLED_FocusOnReloadCrashedTab
-#else
-#define MAYBE_FocusOnReloadCrashedTab FocusOnReloadCrashedTab
-#endif
-
 // Tests that focus goes where expected when using reload on a crashed tab.
-IN_PROC_BROWSER_TEST_F(BrowserFocusTest, MAYBE_FocusOnReloadCrashedTab) {
+IN_PROC_BROWSER_TEST_F(BrowserFocusTest, DISABLED_FocusOnReloadCrashedTab) {
   ASSERT_TRUE(ui_test_utils::BringBrowserWindowToFront(browser()));
   ASSERT_TRUE(test_server()->Start());
 

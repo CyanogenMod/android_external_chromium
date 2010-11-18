@@ -13,12 +13,13 @@
 #include "gfx/point.h"
 #include "gfx/rect.h"
 #include "skia/ext/platform_canvas.h"
-#include "third_party/ppapi/c/pp_errors.h"
-#include "third_party/ppapi/c/pp_module.h"
-#include "third_party/ppapi/c/pp_rect.h"
-#include "third_party/ppapi/c/pp_resource.h"
-#include "third_party/ppapi/c/ppb_graphics_2d.h"
+#include "ppapi/c/pp_errors.h"
+#include "ppapi/c/pp_module.h"
+#include "ppapi/c/pp_rect.h"
+#include "ppapi/c/pp_resource.h"
+#include "ppapi/c/ppb_graphics_2d.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "webkit/glue/plugins/pepper_common.h"
 #include "webkit/glue/plugins/pepper_image_data.h"
 #include "webkit/glue/plugins/pepper_plugin_instance.h"
 #include "webkit/glue/plugins/pepper_plugin_module.h"
@@ -112,28 +113,28 @@ void ConvertImageData(ImageData* src_image, const SkIRect& src_rect,
 
 PP_Resource Create(PP_Module module_id,
                    const PP_Size* size,
-                   bool is_always_opaque) {
+                   PP_Bool is_always_opaque) {
   PluginModule* module = ResourceTracker::Get()->GetModule(module_id);
   if (!module)
     return 0;
 
   scoped_refptr<Graphics2D> context(new Graphics2D(module));
-  if (!context->Init(size->width, size->height, is_always_opaque))
+  if (!context->Init(size->width, size->height, PPBoolToBool(is_always_opaque)))
     return 0;
   return context->GetReference();
 }
 
-bool IsGraphics2D(PP_Resource resource) {
-  return !!Resource::GetAs<Graphics2D>(resource);
+PP_Bool IsGraphics2D(PP_Resource resource) {
+  return BoolToPPBool(!!Resource::GetAs<Graphics2D>(resource));
 }
 
-bool Describe(PP_Resource graphics_2d,
+PP_Bool Describe(PP_Resource graphics_2d,
               PP_Size* size,
-              bool* is_always_opaque) {
+              PP_Bool* is_always_opaque) {
   scoped_refptr<Graphics2D> context(
       Resource::GetAs<Graphics2D>(graphics_2d));
   if (!context)
-    return false;
+    return PP_FALSE;
   return context->Describe(size, is_always_opaque);
 }
 
@@ -242,11 +243,11 @@ bool Graphics2D::Init(int width, int height, bool is_always_opaque) {
   return true;
 }
 
-bool Graphics2D::Describe(PP_Size* size, bool* is_always_opaque) {
+PP_Bool Graphics2D::Describe(PP_Size* size, PP_Bool* is_always_opaque) {
   size->width = image_data_->width();
   size->height = image_data_->height();
-  *is_always_opaque = false;  // TODO(brettw) implement this.
-  return true;
+  *is_always_opaque = PP_FALSE;  // TODO(brettw) implement this.
+  return PP_TRUE;
 }
 
 void Graphics2D::PaintImageData(PP_Resource image_data,
@@ -334,7 +335,7 @@ int32_t Graphics2D::Flush(const PP_CompletionCallback& callback) {
   if (!callback.func)
     return PP_ERROR_BADARGUMENT;
 
-  gfx::Rect changed_rect;
+  bool nothing_visible = true;
   for (size_t i = 0; i < queued_operations_.size(); i++) {
     QueuedOperation& operation = queued_operations_[i];
     gfx::Rect op_rect;
@@ -354,26 +355,34 @@ int32_t Graphics2D::Flush(const PP_CompletionCallback& callback) {
         ExecuteReplaceContents(operation.replace_image, &op_rect);
         break;
     }
-    changed_rect = changed_rect.Union(op_rect);
+
+    // We need the rect to be in terms of the current clip rect of the plugin
+    // since that's what will actually be painted. If we issue an invalidate
+    // for a clipped-out region, WebKit will do nothing and we won't get any
+    // ViewInitiatedPaint/ViewFlushedPaint calls, leaving our callback stranded.
+    gfx::Rect visible_changed_rect;
+    if (bound_instance_ && !op_rect.IsEmpty())
+      visible_changed_rect = bound_instance_->clip().Intersect(op_rect);
+
+    if (bound_instance_ && !visible_changed_rect.IsEmpty()) {
+      if (operation.type == QueuedOperation::SCROLL) {
+        bound_instance_->ScrollRect(operation.scroll_dx, operation.scroll_dy,
+                                    visible_changed_rect);
+      } else {
+        bound_instance_->InvalidateRect(visible_changed_rect);
+      }
+      nothing_visible = false;
+    }
   }
   queued_operations_.clear();
   flushed_any_data_ = true;
 
-  // We need the rect to be in terms of the current clip rect of the plugin
-  // since that's what will actually be painted. If we issue an invalidate
-  // for a clipped-out region, WebKit will do nothing and we won't get any
-  // ViewInitiatedPaint/ViewFlushedPaint calls, leaving our callback stranded.
-  gfx::Rect visible_changed_rect;
-  if (bound_instance_ && !changed_rect.IsEmpty())
-    visible_changed_rect = bound_instance_->clip().Intersect(changed_rect);
-
-  if (bound_instance_ && !visible_changed_rect.IsEmpty()) {
-    unpainted_flush_callback_.Set(callback);
-    bound_instance_->InvalidateRect(visible_changed_rect);
-  } else {
+  if (nothing_visible) {
     // There's nothing visible to invalidate so just schedule the callback to
     // execute in the next round of the message loop.
     ScheduleOffscreenCallback(FlushCallbackData(callback));
+  } else {
+    unpainted_flush_callback_.Set(callback);
   }
   return PP_ERROR_WOULDBLOCK;
 }

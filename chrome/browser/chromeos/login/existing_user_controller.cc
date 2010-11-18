@@ -27,11 +27,13 @@
 #include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/login/message_bubble.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
+#include "chrome/browser/chromeos/view_ids.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
 #include "chrome/browser/views/window.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "gfx/native_widget_types.h"
+#include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "views/screen.h"
@@ -97,27 +99,12 @@ void EnableTooltipsIfNeeded(const std::vector<UserController*>& controllers) {
   }
 }
 
-// Returns true if given email is in user whitelist.
-// Note this function is for display purpose only and should use
-// CheckWhitelist op for the real whitelist check.
-bool IsEmailInCachedWhitelist(const std::string& email) {
-  const ListValue* whitelist = UserCrosSettingsProvider::cached_whitelist();
-  if (whitelist) {
-    StringValue email_value(email);
-    for (ListValue::const_iterator i(whitelist->begin());
-        i != whitelist->end(); ++i) {
-      if ((*i)->Equals(&email_value))
-        return true;
-    }
-  }
-  return false;
-}
-
 }  // namespace
 
 ExistingUserController*
   ExistingUserController::delete_scheduled_instance_ = NULL;
 
+// TODO(xiyuan): Wait for the cached settings update before using them.
 ExistingUserController::ExistingUserController(
     const std::vector<UserManager::User>& users,
     const gfx::Rect& background_bounds)
@@ -126,7 +113,8 @@ ExistingUserController::ExistingUserController(
       background_view_(NULL),
       selected_view_index_(kNotSelected),
       num_login_attempts_(0),
-      bubble_(NULL) {
+      bubble_(NULL),
+      user_settings_(new UserCrosSettingsProvider()) {
   if (delete_scheduled_instance_)
     delete_scheduled_instance_->Delete();
 
@@ -148,7 +136,8 @@ ExistingUserController::ExistingUserController(
 
       // TODO(xiyuan): Clean user profile whose email is not in whitelist.
       if (UserCrosSettingsProvider::cached_allow_new_user() ||
-          IsEmailInCachedWhitelist(users[i].email())) {
+          UserCrosSettingsProvider::IsEmailInCachedWhitelist(
+              users[i].email())) {
         controllers_.push_back(new UserController(this, users[i]));
       }
     }
@@ -171,6 +160,7 @@ void ExistingUserController::Init() {
         background_bounds_,
         GURL(url_string),
         &background_view_);
+    background_view_->EnableShutdownButton();
 
     if (!WizardController::IsDeviceRegistered()) {
       background_view_->SetOobeProgressBarVisible(true);
@@ -191,6 +181,7 @@ void ExistingUserController::Init() {
 
   WmMessageListener::instance()->AddObserver(this);
 
+  LoginUtils::Get()->PrewarmAuthentication();
   if (CrosLibrary::Get()->EnsureLoaded())
     CrosLibrary::Get()->GetLoginLibrary()->EmitLoginPromptReady();
 }
@@ -201,7 +192,6 @@ void ExistingUserController::OwnBackground(
   DCHECK(!background_window_);
   background_window_ = background_widget;
   background_view_ = background_view;
-  background_view_->OnOwnerChanged();
 }
 
 void ExistingUserController::LoginNewUser(const std::string& username,
@@ -348,6 +338,12 @@ void ExistingUserController::ActivateWizard(const std::string& screen_name) {
 void ExistingUserController::RemoveUser(UserController* source) {
   ClearErrors();
 
+  // TODO(xiyuan): Wait for the cached settings update before using them.
+  if (UserCrosSettingsProvider::cached_owner() == source->user().email()) {
+    // Owner is not allowed to be removed from the device.
+    return;
+  }
+
   UserManager::Get()->RemoveUser(source->user().email());
 
   controllers_.erase(controllers_.begin() + source->user_index());
@@ -375,10 +371,6 @@ void ExistingUserController::SelectUser(int index) {
   }
 }
 
-void ExistingUserController::OnGoIncognitoButton() {
-  LoginOffTheRecord();
-}
-
 void ExistingUserController::OnLoginFailure(const LoginFailure& failure) {
   std::string error = failure.GetErrorString();
 
@@ -404,6 +396,10 @@ void ExistingUserController::OnLoginFailure(const LoginFailure& failure) {
         LOG(WARNING) << "No captcha image url was found?";
         ShowError(IDS_LOGIN_ERROR_AUTHENTICATING, error);
       }
+    } else if (failure.reason() == LoginFailure::NETWORK_AUTH_FAILED &&
+               failure.error().state() ==
+                   GoogleServiceAuthError::HOSTED_NOT_ALLOWED) {
+      ShowError(IDS_LOGIN_ERROR_AUTHENTICATING_HOSTED, error);
     } else {
       if (controllers_[selected_view_index_]->is_new_user())
         ShowError(IDS_LOGIN_ERROR_AUTHENTICATING_NEW, error);
@@ -431,7 +427,14 @@ gfx::NativeWindow ExistingUserController::GetNativeWindow() const {
 void ExistingUserController::ShowError(int error_id,
                                        const std::string& details) {
   ClearErrors();
-  std::wstring error_text = l10n_util::GetString(error_id);
+  std::wstring error_text;
+  // GetStringF fails on debug build if there's no replacement in the string.
+  if (error_id == IDS_LOGIN_ERROR_AUTHENTICATING_HOSTED) {
+    error_text = l10n_util::GetStringF(
+        error_id, l10n_util::GetString(IDS_PRODUCT_OS_NAME));
+  } else {
+    error_text = l10n_util::GetString(error_id);
+  }
   // TODO(dpolukhin): show detailed error info. |details| string contains
   // low level error info that is not localized and even is not user friendly.
   // For now just ignore it because error_text contains all required information
@@ -447,8 +450,11 @@ void ExistingUserController::ShowError(int error_id,
     arrow = BubbleBorder::BOTTOM_LEFT;
   }
   std::wstring help_link;
-  if (num_login_attempts_ > static_cast<size_t>(1))
+  if (error_id == IDS_LOGIN_ERROR_AUTHENTICATING_HOSTED) {
+    help_link = l10n_util::GetString(IDS_LEARN_MORE);
+  } else if (num_login_attempts_ > static_cast<size_t>(1)) {
     help_link = l10n_util::GetString(IDS_CANT_ACCESS_ACCOUNT_BUTTON);
+  }
 
   bubble_ = MessageBubble::Show(
       controllers_[selected_view_index_]->controls_window(),
@@ -462,6 +468,7 @@ void ExistingUserController::ShowError(int error_id,
 
 void ExistingUserController::OnLoginSuccess(
     const std::string& username,
+    const std::string& password,
     const GaiaAuthConsumer::ClientLoginResult& credentials,
     bool pending_requests) {
   // LoginPerformer instance will delete itself once online auth result is OK.
@@ -477,7 +484,7 @@ void ExistingUserController::OnLoginSuccess(
       !UserManager::Get()->IsKnownUser(username)) {
     // For new user login don't launch browser until we pass image screen.
     LoginUtils::Get()->EnableBrowserLaunch(false);
-    LoginUtils::Get()->CompleteLogin(username, credentials);
+    LoginUtils::Get()->CompleteLogin(username, password, credentials);
     ActivateWizard(WizardController::IsDeviceRegistered() ?
         WizardController::kUserImageScreenName :
         WizardController::kRegistrationScreenName);
@@ -486,7 +493,7 @@ void ExistingUserController::OnLoginSuccess(
     WmIpc::Message message(WM_IPC_MESSAGE_WM_HIDE_LOGIN);
     WmIpc::instance()->SendMessage(message);
 
-    LoginUtils::Get()->CompleteLogin(username, credentials);
+    LoginUtils::Get()->CompleteLogin(username, password, credentials);
 
     // Delay deletion as we're on the stack.
     MessageLoop::current()->DeleteSoon(FROM_HERE, this);
@@ -523,13 +530,17 @@ void ExistingUserController::OnHelpLinkActivated() {
   if (!help_app_.get())
     help_app_.reset(new HelpAppLauncher(GetNativeWindow()));
   switch (login_performer_->error().state()) {
-    case(GoogleServiceAuthError::CONNECTION_FAILED):
+    case GoogleServiceAuthError::CONNECTION_FAILED:
       help_app_->ShowHelpTopic(
           HelpAppLauncher::HELP_CANT_ACCESS_ACCOUNT_OFFLINE);
       break;
-    case(GoogleServiceAuthError::ACCOUNT_DISABLED):
+    case GoogleServiceAuthError::ACCOUNT_DISABLED:
         help_app_->ShowHelpTopic(
             HelpAppLauncher::HELP_ACCOUNT_DISABLED);
+        break;
+    case GoogleServiceAuthError::HOSTED_NOT_ALLOWED:
+        help_app_->ShowHelpTopic(
+            HelpAppLauncher::HELP_HOSTED_ACCOUNT);
         break;
     default:
       help_app_->ShowHelpTopic(login_performer_->login_timed_out() ?

@@ -116,6 +116,30 @@ size_t wcslcpy(wchar_t* dst, const wchar_t* src, size_t dst_size);
 // This function is intended to be called from base::vswprintf.
 bool IsWprintfFormatPortable(const wchar_t* format);
 
+// ASCII-specific tolower.  The standard library's tolower is locale sensitive,
+// so we don't want to use it here.
+template <class Char> inline Char ToLowerASCII(Char c) {
+  return (c >= 'A' && c <= 'Z') ? (c + ('a' - 'A')) : c;
+}
+
+// Function objects to aid in comparing/searching strings.
+
+template<typename Char> struct CaseInsensitiveCompare {
+ public:
+  bool operator()(Char x, Char y) const {
+    // TODO(darin): Do we really want to do locale sensitive comparisons here?
+    // See http://crbug.com/24917
+    return tolower(x) == tolower(y);
+  }
+};
+
+template<typename Char> struct CaseInsensitiveCompareASCII {
+ public:
+  bool operator()(Char x, Char y) const {
+    return ToLowerASCII(x) == ToLowerASCII(y);
+  }
+};
+
 }  // namespace base
 
 #if defined(OS_WIN)
@@ -257,17 +281,11 @@ bool IsStringASCII(const std::wstring& str);
 bool IsStringASCII(const base::StringPiece& str);
 bool IsStringASCII(const string16& str);
 
-// ASCII-specific tolower.  The standard library's tolower is locale sensitive,
-// so we don't want to use it here.
-template <class Char> inline Char ToLowerASCII(Char c) {
-  return (c >= 'A' && c <= 'Z') ? (c + ('a' - 'A')) : c;
-}
-
 // Converts the elements of the given string.  This version uses a pointer to
 // clearly differentiate it from the non-pointer variant.
 template <class str> inline void StringToLowerASCII(str* s) {
   for (typename str::iterator i = s->begin(); i != s->end(); ++i)
-    *i = ToLowerASCII(*i);
+    *i = base::ToLowerASCII(*i);
 }
 
 template <class str> inline str StringToLowerASCII(const str& s) {
@@ -468,23 +486,6 @@ inline typename string_type::value_type* WriteInto(string_type* str,
 
 //-----------------------------------------------------------------------------
 
-// Function objects to aid in comparing/searching strings.
-
-template<typename Char> struct CaseInsensitiveCompare {
- public:
-  bool operator()(Char x, Char y) const {
-    // TODO(darin): Do we really want to do locale sensitive comparisons here?
-    // See http://crbug.com/24917
-    return tolower(x) == tolower(y);
-  }
-};
-
-template<typename Char> struct CaseInsensitiveCompareASCII {
- public:
-  bool operator()(Char x, Char y) const {
-    return ToLowerASCII(x) == ToLowerASCII(y);
-  }
-};
 
 // Splits a string into its fields delimited by any of the characters in
 // |delimiters|.  Each field is added to the |tokens| vector.  Returns the

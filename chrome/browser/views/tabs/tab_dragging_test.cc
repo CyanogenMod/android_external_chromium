@@ -4,7 +4,7 @@
 
 #include "base/command_line.h"
 #include "base/file_util.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/view_ids.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -18,12 +18,13 @@
 #include "net/base/net_util.h"
 #include "views/event.h"
 
-#if defined(OS_CHROMEOS)
+#if defined(OS_LINUX)
 // This test doesn't make sense on chromeos as chromeos doesn't allow dragging
 // tabs out.
 #define MAYBE_Tab2OutOfTabStrip DISABLED_Tab2OutOfTabStrip
 #else
-#define MAYBE_Tab2OutOfTabStrip Tab2OutOfTabStrip
+// Flaky, http://crbug.com/62311.
+#define MAYBE_Tab2OutOfTabStrip FLAKY_Tab2OutOfTabStrip
 #endif
 
 #if defined(OS_LINUX)
@@ -42,8 +43,9 @@
 #define MAYBE_Tab1Tab2 DISABLED_Tab1Tab2
 #define MAYBE_Tab1Tab3 DISABLED_Tab1Tab3
 #else
-#define MAYBE_Tab1Tab2 Tab1Tab2
-#define MAYBE_Tab1Tab3 Tab1Tab3
+// Flaky, http://crbug.com/62311.
+#define MAYBE_Tab1Tab2 FLAKY_Tab1Tab2
+#define MAYBE_Tab1Tab3 FLAKY_Tab1Tab3
 #endif
 
 class TabDraggingTest : public UITest {

@@ -21,9 +21,6 @@ typedef std::map<FieldTypeGroup, FormGroup*> FormGroupMap;
 // to the requested form group type.
 class AutoFillProfile : public FormGroup {
  public:
-  // DEPRECATED
-  // TODO(dhollowa): Remove unique ID and label.  http://crbug.com/58813
-  AutoFillProfile(const string16& label, int unique_id);
   explicit AutoFillProfile(const std::string& guid);
 
   // For use in STL containers.
@@ -46,24 +43,14 @@ class AutoFillProfile : public FormGroup {
   // Returns a copy of the profile it is called on. The caller is responsible
   // for deleting profile when they are done with it.
   virtual FormGroup* Clone() const;
-  virtual const string16& Label() const;
-
-  int unique_id() const { return unique_id_; }
-  void set_unique_id(int id) { unique_id_ = id; }
+  // The user-visible label of the profile, generated in relation to other
+  // profiles. Shows at least 2 fields that differentiate profile from other
+  // profiles. See AdjustInferredLabels() further down for more description.
+  virtual const string16 Label() const;
 
   // This guid is the primary identifier for |AutoFillProfile| objects.
   const std::string guid() const { return guid_; }
   void set_guid(const std::string& guid) { guid_ = guid; }
-
-  // Profile summary string for UI.
-  // Constructs a summary string based on NAME_FIRST, NAME_LAST, and
-  // ADDRESS_HOME_LINE1 fields of the profile.  The summary string is of the
-  // form:
-  //     L"<first_name> <last_name>, <address_line_1>"
-  // but may omit any or all of the fields if they are not present in the
-  // profile.
-  // The form of the string is governed by generated resources.
-  string16 PreviewSummary() const;
 
   // Adjusts the labels according to profile data.
   // Labels contain minimal different combination of:
@@ -83,12 +70,14 @@ class AutoFillProfile : public FormGroup {
   // Created inferred labels for |profiles|, according to the rules above and
   // stores them in |created_labels|. |minimal_fields_shown| minimal number of
   // fields that need to be shown for the label. |exclude_field| is excluded
-  // from the label.
+  // from the label. If |suggested_fields| is not NULL it is used to generate
+  // labels appropriate to the actual fields in a given form.
   static void CreateInferredLabels(
       const std::vector<AutoFillProfile*>* profiles,
       std::vector<string16>* created_labels,
       size_t minimal_fields_shown,
-      AutoFillFieldType exclude_field);
+      AutoFillFieldType exclude_field,
+      const std::vector<AutoFillFieldType>* suggested_fields);
 
   // Returns true if there are no values (field types) set.
   bool IsEmpty() const;
@@ -98,7 +87,8 @@ class AutoFillProfile : public FormGroup {
 
   // Comparison for Sync.  Returns 0 if the profile is the same as |this|,
   // or < 0, or > 0 if it is different.  The implied ordering can be used for
-  // culling duplicates.
+  // culling duplicates.  The ordering is based on collation order of the
+  // textual contents of the fields.
   // GUIDs, labels, and unique IDs are not compared, only the values of the
   // profiles themselves.
   int Compare(const AutoFillProfile& profile) const;
@@ -123,9 +113,6 @@ class AutoFillProfile : public FormGroup {
 
   // The label presented to the user when selecting a profile.
   string16 label_;
-
-  // The unique ID of this profile.
-  int unique_id_;
 
   // The guid of this profile.
   std::string guid_;

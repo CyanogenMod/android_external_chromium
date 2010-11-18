@@ -212,9 +212,9 @@ const char kInstantConfirmDialogShown[] = "instant.confirm_dialog_shown";
 // Boolean pref indicating if instant is enabled.
 const char kInstantEnabled[] = "instant.enabled";
 
-#if defined(USE_NSS)
+#if defined(USE_NSS) || defined(USE_OPENSSL)
 // Prefs for SSLConfigServicePref.  Currently, these are only present on
-// and used by NSS-using OSes.
+// and used by NSS/OpenSSL using OSes.
 const char kCertRevocationCheckingEnabled[] = "ssl.rev_checking.enabled";
 const char kSSL2Enabled[] = "ssl.ssl2.enabled";
 const char kSSL3Enabled[] = "ssl.ssl3.enabled";
@@ -397,10 +397,6 @@ const char kLabsAdvancedFilesystemEnabled[] =
 // A boolean pref which turns on the mediaplayer.
 const char kLabsMediaplayerEnabled[] = "settings.labs.mediaplayer";
 
-// An integer pref which maps to the extension state for Talk.
-const char kLabsTalkEnabled[] =
-    "extensions.settings.ggnioahjipcehijkhpdjekioddnjoben.state";
-
 // A boolean pref that turns on screen locker.
 const char kEnableScreenLock[] = "settings.enable_screen_lock";
 
@@ -484,7 +480,7 @@ const char kPluginsPluginsBlacklist[] = "plugins.plugins_blacklist";
 
 // When first shipped, the pdf plugin will be disabled by default.  When we
 // enable it by default, we'll want to do so only once.
-const char kPluginsEnabledInternalPDF[] = "plugins.enabled_internal_pdf2";
+const char kPluginsEnabledInternalPDF[] = "plugins.enabled_internal_pdf3";
 
 // Boolean that indicates whether we should check if we are the default browser
 // on start-up.
@@ -540,6 +536,9 @@ const char kBlockNonsandboxedPlugins[] = "profile.block_nonsandboxed_plugins";
 // Boolean that is true when all locally stored site data (e.g. cookies, local
 // storage, etc..) should be deleted on exit.
 const char kClearSiteDataOnExit[] = "profile.clear_site_data_on_exit";
+
+// Double that indicates the default zoom level.
+const char kDefaultZoomLevel[] = "profile.default_zoom_level";
 
 // Dictionary that maps hostnames to zoom levels.  Hosts not in this pref will
 // be displayed at the default zoom level.
@@ -731,10 +730,6 @@ const char kBrowserWindowPlacement[] = "browser.window_placement";
 // manager window to restore on startup.
 const char kTaskManagerWindowPlacement[] = "task_manager.window_placement";
 
-// A collection of position, size, and other data relating to the page info
-// window to restore on startup.
-const char kPageInfoWindowPlacement[] = "page_info.window_placement";
-
 // A collection of position, size, and other data relating to the keyword
 // editor window to restore on startup.
 const char kKeywordEditorWindowPlacement[] = "keyword_editor.window_placement";
@@ -768,7 +763,7 @@ const char kSaveFileDefaultDirectory[] = "savefile.default_directory";
 
 // String which specifies the last directory that was chosen for uploading
 // or opening a file.
-extern const char kSelectFileLastDirectory[] = "selectfile.last_directory";
+const char kSelectFileLastDirectory[] = "selectfile.last_directory";
 
 // Extensions which should be opened upon completion.
 const char kDownloadExtensionsToOpen[] = "download.extensions_to_open";
@@ -897,6 +892,13 @@ const char kExtensionInstallAllowList[] = "extensions.install.allowlist";
 // Google controlled.
 const char kExtensionInstallDenyList[] = "extensions.install.denylist";
 
+// A list containing extensions that Chrome will silently install
+// at startup time. It is a list of strings, each string contains
+// an extension ID and an update URL, delimited by a semicolon.
+// This preference is set by an admin policy, and meant to be only
+// accessed through ExternalPolicyExtensionProvider.
+const char kExtensionInstallForceList[] = "extensions.install.forcelist";
+
 // Time of the last, and next scheduled, extensions auto-update checks.
 const char kLastExtensionsUpdateCheck[] = "extensions.autoupdate.last_check";
 const char kNextExtensionsUpdateCheck[] = "extensions.autoupdate.next_check";
@@ -941,6 +943,8 @@ const char kNTPPrefVersion[] = "ntp.pref_version";
 // standard one.
 const char kNTPCustomLogoStart[] = "ntp.alt_logo_start";
 const char kNTPCustomLogoEnd[] = "ntp.alt_logo_end";
+
+const char kDevToolsDisabled[] = "devtools.disabled";
 
 // A boolean specifying whether dev tools window should be opened docked.
 const char kDevToolsOpenDocked[] = "devtools.open_docked";
@@ -1011,11 +1015,21 @@ const char kLoginDatabaseMigrated[] = "login_database.migrated";
 // The root URL of the cloud print service.
 const char kCloudPrintServiceURL[] = "cloud_print.service_url";
 
+// The last requested size of the dialog as it was closed.
+const char kCloudPrintDialogWidth[] = "cloud_print.dialog_size.width";
+const char kCloudPrintDialogHeight[] = "cloud_print.dialog_size.height";
+
 const char kRemotingHasSetupCompleted[] = "remoting.has_setup_completed";
 
 // The list of BackgroundContents that should be loaded when the browser
 // launches.
 const char kRegisteredBackgroundContents[] = "background_contents.registered";
+
+#if defined(OS_CHROMEOS)
+// Dictionary for transient storage of settings that should go into signed
+// settings storage before owner has been assigned.
+const char kSignedSettingsTempStorage[] = "signed_settings_temp_storage";
+#endif
 
 // *************** SERVICE PREFS ***************
 // These are attached to the service process.
@@ -1030,9 +1044,9 @@ const char kCloudPrintAuthToken[] = "cloud_print.auth_token";
 const char kCloudPrintXMPPAuthToken[] = "cloud_print.xmpp_auth_token";
 // The email address of the account used to authenticate with the Cloud Print
 // server.
-extern const char kCloudPrintEmail[] = "cloud_print.email";
+const char kCloudPrintEmail[] = "cloud_print.email";
 // Settings specific to underlying print system.
-extern const char kCloudPrintPrintSystemSettings[] =
+const char kCloudPrintPrintSystemSettings[] =
     "cloud_print.print_system_settings";
 
 // Used by the service process to determine if the remoting host is enabled.

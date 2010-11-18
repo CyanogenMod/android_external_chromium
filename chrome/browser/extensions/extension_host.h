@@ -6,8 +6,9 @@
 #define CHROME_BROWSER_EXTENSIONS_EXTENSION_HOST_H_
 #pragma once
 
-#include <string>
 #include <list>
+#include <string>
+#include <vector>
 
 #include "base/perftimer.h"
 #include "base/scoped_ptr.h"
@@ -50,7 +51,7 @@ class ExtensionHost : public RenderViewHostDelegate,
   typedef std::list<ExtensionHost*> HostPointerList;
   static HostPointerList* recently_deleted();
 
-  ExtensionHost(Extension* extension, SiteInstance* site_instance,
+  ExtensionHost(const Extension* extension, SiteInstance* site_instance,
                 const GURL& url, ViewType::Type host_type);
   ~ExtensionHost();
 
@@ -72,7 +73,7 @@ class ExtensionHost : public RenderViewHostDelegate,
   // instantiate Browser objects.
   void CreateView(Browser* browser);
 
-  Extension* extension() { return extension_; }
+  const Extension* extension() { return extension_; }
   RenderViewHost* render_view_host() const { return render_view_host_; }
   RenderProcessHost* render_process_host() const;
   SiteInstance* site_instance() const;
@@ -155,6 +156,12 @@ class ExtensionHost : public RenderViewHostDelegate,
                                  const gfx::Rect& initial_pos);
   virtual void ShowCreatedFullscreenWidget(int route_id);
   virtual void ShowContextMenu(const ContextMenuParams& params);
+  virtual void ShowPopupMenu(const gfx::Rect& bounds,
+                             int item_height,
+                             double item_font_size,
+                             int selected_item,
+                             const std::vector<WebMenuItem>& items,
+                             bool right_aligned);
   virtual void StartDragging(const WebDropData& drop_data,
                              WebKit::WebDragOperationsMask allowed_operations,
                              const SkBitmap& image,
@@ -231,7 +238,7 @@ class ExtensionHost : public RenderViewHostDelegate,
   bool is_background_page() const { return !view(); }
 
   // The extension that we're hosting in this view.
-  Extension* extension_;
+  const Extension* extension_;
 
   // The profile that this host is tied to.
   Profile* profile_;

@@ -43,14 +43,14 @@ const int kContentBorder = 7;
 
 }  // namespace
 
-void ExtensionInstalledBubbleGtk::Show(Extension* extension, Browser* browser,
+void ExtensionInstalledBubbleGtk::Show(const Extension* extension,
+                                       Browser* browser,
                                        SkBitmap icon) {
   new ExtensionInstalledBubbleGtk(extension, browser, icon);
 }
 
-ExtensionInstalledBubbleGtk::ExtensionInstalledBubbleGtk(Extension *extension,
-                                                         Browser *browser,
-                                                         SkBitmap icon)
+ExtensionInstalledBubbleGtk::ExtensionInstalledBubbleGtk(
+    const Extension* extension, Browser *browser, SkBitmap icon)
     : extension_(extension),
       browser_(browser),
       icon_(icon),
@@ -72,7 +72,9 @@ ExtensionInstalledBubbleGtk::ExtensionInstalledBubbleGtk(Extension *extension,
   // be sure that a browser action or page action has had views created which we
   // can inspect for the purpose of pointing to them.
   registrar_.Add(this, NotificationType::EXTENSION_LOADED,
-      NotificationService::AllSources());
+      Source<Profile>(browser->profile()));
+  registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
+      Source<Profile>(browser->profile()));
 }
 
 ExtensionInstalledBubbleGtk::~ExtensionInstalledBubbleGtk() {}
@@ -81,12 +83,16 @@ void ExtensionInstalledBubbleGtk::Observe(NotificationType type,
                                           const NotificationSource& source,
                                           const NotificationDetails& details) {
   if (type == NotificationType::EXTENSION_LOADED) {
-    Extension* extension = Details<Extension>(details).ptr();
+    const Extension* extension = Details<const Extension>(details).ptr();
     if (extension == extension_) {
       // PostTask to ourself to allow all EXTENSION_LOADED Observers to run.
       MessageLoopForUI::current()->PostTask(FROM_HERE, NewRunnableMethod(this,
           &ExtensionInstalledBubbleGtk::ShowInternal));
     }
+  } else if (type == NotificationType::EXTENSION_UNLOADED) {
+    const Extension* extension = Details<const Extension>(details).ptr();
+    if (extension == extension_)
+      extension_ = NULL;
   } else {
     NOTREACHED() << L"Received unexpected notification";
   }
@@ -248,7 +254,7 @@ void ExtensionInstalledBubbleGtk::OnButtonClick(GtkWidget* button,
 // InfoBubbleDelegate
 void ExtensionInstalledBubbleGtk::InfoBubbleClosing(InfoBubbleGtk* info_bubble,
                                                     bool closed_by_escape) {
-  if (extension_->page_action()) {
+  if (extension_ && type_ == PAGE_ACTION) {
     // Turn the page action preview off.
     BrowserWindowGtk* browser_window =
           BrowserWindowGtk::GetBrowserWindowForNativeWindow(

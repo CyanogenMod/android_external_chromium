@@ -6,8 +6,8 @@
 #define CHROME_BROWSER_IO_THREAD_H_
 #pragma once
 
+#include <list>
 #include <set>
-
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
@@ -17,6 +17,7 @@
 #include "net/base/network_change_notifier.h"
 
 class ChromeNetLog;
+class ChromeURLRequestContextGetter;
 class ListValue;
 class URLRequestContext;
 
@@ -61,10 +62,25 @@ class IOThread : public BrowserProcessSubThread {
   // It will post a task to the IO thread to perform the actual initialization.
   void InitNetworkPredictor(bool prefetching_enabled,
                             base::TimeDelta max_dns_queue_delay,
-                            size_t max_concurrent,
+                            size_t max_speculative_parallel_resolves,
                             const chrome_common_net::UrlList& startup_urls,
                             ListValue* referral_list,
                             bool preconnect_enabled);
+
+  // Registers |url_request_context_getter| into the IO thread.  During
+  // IOThread::CleanUp(), IOThread will iterate through known getters and
+  // release their URLRequestContexts.  Only called on the IO thread.  It does
+  // not acquire a refcount for |url_request_context_getter|.  If
+  // |url_request_context_getter| is being deleted before IOThread::CleanUp() is
+  // invoked, then this needs to be balanced with a call to
+  // UnregisterURLRequestContextGetter().
+  void RegisterURLRequestContextGetter(
+      ChromeURLRequestContextGetter* url_request_context_getter);
+
+  // Unregisters |url_request_context_getter| from the IO thread.  Only called
+  // on the IO thread.
+  void UnregisterURLRequestContextGetter(
+      ChromeURLRequestContextGetter* url_request_context_getter);
 
   // Handles changing to On The Record mode.  Posts a task for this onto the
   // IOThread's message loop.
@@ -92,9 +108,8 @@ class IOThread : public BrowserProcessSubThread {
   void InitNetworkPredictorOnIOThread(
       bool prefetching_enabled,
       base::TimeDelta max_dns_queue_delay,
-      size_t max_concurrent,
-        const chrome_common_net::UrlList& startup_urls,
-
+      size_t max_speculative_parallel_resolves,
+      const chrome_common_net::UrlList& startup_urls,
       ListValue* referral_list,
       bool preconnect_enabled);
 
@@ -131,6 +146,11 @@ class IOThread : public BrowserProcessSubThread {
 
   // List of live ProxyScriptFetchers.
   ProxyScriptFetchers fetchers_;
+
+  // Keeps track of all live ChromeURLRequestContextGetters, so the
+  // ChromeURLRequestContexts can be released during
+  // IOThread::CleanUpAfterMessageLoopDestruction().
+  std::list<ChromeURLRequestContextGetter*> url_request_context_getters_;
 
   DISALLOW_COPY_AND_ASSIGN(IOThread);
 };

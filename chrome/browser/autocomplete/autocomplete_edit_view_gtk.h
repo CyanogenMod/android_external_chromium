@@ -12,6 +12,7 @@
 #include <string>
 
 #include "app/gtk_signal.h"
+#include "app/gtk_signal_registrar.h"
 #include "base/basictypes.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
@@ -145,6 +146,9 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
 
   void SetBaseColor();
 
+  void SetInstantSuggestion(const std::string& suggestion);
+  bool CommitInstantSuggestion();
+
   // Used by LocationBarViewGtk to inform AutocompleteEditViewGtk if the tab to
   // search should be enabled or not. See the comment of |enable_tab_to_search_|
   // for details.
@@ -170,6 +174,12 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
                      GtkTextBuffer*, GtkTextIter*, const gchar*, gint);
   CHROMEG_CALLBACK_0(AutocompleteEditViewGtk, void,
                      HandleKeymapDirectionChanged, GdkKeymap*);
+  CHROMEG_CALLBACK_2(AutocompleteEditViewGtk, void, HandleDeleteRange,
+                     GtkTextBuffer*, GtkTextIter*, GtkTextIter*);
+  // Unlike above HandleMarkSet and HandleMarkSetAfter, this handler will always
+  // be connected to the signal.
+  CHROMEG_CALLBACK_2(AutocompleteEditViewGtk, void, HandleMarkSetAlways,
+                     GtkTextBuffer*, GtkTextIter*, GtkTextMark*);
 
   CHROMEGTK_CALLBACK_1(AutocompleteEditViewGtk, gboolean, HandleKeyPress,
                        GdkEventKey*);
@@ -196,6 +206,8 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   CHROMEGTK_CALLBACK_6(AutocompleteEditViewGtk, void, HandleDragDataReceived,
                        GdkDragContext*, gint, gint, GtkSelectionData*,
                        guint, guint);
+  CHROMEGTK_CALLBACK_4(AutocompleteEditViewGtk, void, HandleDragDataGet,
+                       GdkDragContext*, GtkSelectionData*, guint, guint);
   CHROMEGTK_CALLBACK_0(AutocompleteEditViewGtk, void, HandleBackSpace);
   CHROMEGTK_CALLBACK_0(AutocompleteEditViewGtk, void, HandleCopyClipboard);
   CHROMEGTK_CALLBACK_0(AutocompleteEditViewGtk, void, HandleCutClipboard);
@@ -206,6 +218,23 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
                        HandleWidgetDirectionChanged, GtkTextDirection);
   CHROMEGTK_CALLBACK_2(AutocompleteEditViewGtk, void,
                        HandleDeleteFromCursor, GtkDeleteType, gint);
+  // We connect to this so we can determine our toplevel window, so we can
+  // listen to focus change events on it.
+  CHROMEGTK_CALLBACK_1(AutocompleteEditViewGtk, void, HandleHierarchyChanged,
+                       GtkWidget*);
+#if GTK_CHECK_VERSION(2, 20, 0)
+  CHROMEGTK_CALLBACK_1(AutocompleteEditViewGtk, void, HandlePreeditChanged,
+                       const gchar*);
+#endif
+  // Undo/redo operations won't trigger "begin-user-action" and
+  // "end-user-action" signals, so we need to hook into "undo" and "redo"
+  // signals and call OnBeforePossibleChange()/OnAfterPossibleChange() by
+  // ourselves.
+  CHROMEGTK_CALLBACK_0(AutocompleteEditViewGtk, void, HandleUndoRedo);
+  CHROMEGTK_CALLBACK_0(AutocompleteEditViewGtk, void, HandleUndoRedoAfter);
+
+  CHROMEG_CALLBACK_1(AutocompleteEditViewGtk, void, HandleWindowSetFocus,
+                     GtkWindow*, GtkWidget*);
 
   // Callback for the PRIMARY selection clipboard.
   static void ClipboardGetSelectionThunk(GtkClipboard* clipboard,
@@ -252,7 +281,7 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
                           GtkTextIter* iter_max);
 
   // Return the number of characers in the current buffer.
-  int GetTextLength();
+  int GetTextLength() const;
 
   // Try to parse the current text as a URL and colorize the components.
   void EmphasizeURLComponents();
@@ -286,6 +315,18 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   // If the selected text parses as a URL OwnPrimarySelection is invoked.
   void UpdatePrimarySelectionIfValidURL();
 
+  // Retrieves the first and last iterators in the |text_buffer_|, but excludes
+  // the anchor holding the |instant_view_| widget.
+  void GetTextBufferBounds(GtkTextIter* start, GtkTextIter* end) const;
+
+  // Validates an iterator in the |text_buffer_|, to make sure it doesn't go
+  // beyond the anchor for holding the |instant_view_| widget.
+  void ValidateTextBufferIter(GtkTextIter* iter) const;
+
+  // Adjusts vertical alignment of the |instant_view_| in the |text_view_|, to
+  // make sure they have the same baseline.
+  void AdjustVerticalAlignmentOfInstantView();
+
   // The widget we expose, used for vertically centering the real text edit,
   // since the height will change based on the font / font size, etc.
   OwnedWidgetGtk alignment_;
@@ -299,6 +340,18 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   GtkTextTag* secure_scheme_tag_;
   GtkTextTag* security_error_scheme_tag_;
   GtkTextTag* normal_text_tag_;
+
+  // Objects for the instant suggestion text view.
+  GtkTextTag* instant_anchor_tag_;
+
+  // A widget for displaying instant suggestion text. It'll be attached to a
+  // child anchor in the |text_buffer_| object.
+  GtkWidget* instant_view_;
+
+  // A mark to split the content and the instant anchor. Wherever the end
+  // iterator of the text buffer is required, the iterator to this mark should
+  // be used.
+  GtkTextMark* instant_mark_;
 
   scoped_ptr<AutocompleteEditModel> model_;
   scoped_ptr<AutocompletePopupView> popup_view_;
@@ -408,6 +461,17 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   // Indicates if the selected text is suggested text or not. If the selection
   // is not suggested text, that means the user manually made the selection.
   bool selection_suggested_;
+
+#if GTK_CHECK_VERSION(2, 20, 0)
+  // Stores the text being composed by the input method.
+  std::wstring preedit_;
+#endif
+
+  // The view that is going to be focused next. Only valid while handling
+  // "focus-out" events.
+  GtkWidget* going_to_focus_;
+
+  GtkSignalRegistrar signals_;
 
   DISALLOW_COPY_AND_ASSIGN(AutocompleteEditViewGtk);
 };

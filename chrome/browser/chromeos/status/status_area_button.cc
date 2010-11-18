@@ -34,21 +34,15 @@ void StatusAreaButton::Paint(gfx::Canvas* canvas, bool for_drag) {
   if (use_menu_button_paint_) {
     views::MenuButton::Paint(canvas, for_drag);
   } else {
-    if (state() == BS_PUSHED)
-      DrawPressed(canvas);
-
     DrawIcon(canvas);
     PaintFocusBorder(canvas);
   }
 }
 
 gfx::Size StatusAreaButton::GetPreferredSize() {
-  // icons are 24x24
-  static const int kIconWidth = 24;
-  static const int kIconHeight = 24;
   gfx::Insets insets = views::MenuButton::GetInsets();
-  gfx::Size prefsize(kIconWidth + insets.width(),
-                     kIconHeight + insets.height());
+  gfx::Size prefsize(icon_width() + insets.width(),
+                     icon_height() + insets.height());
 
   // Adjusts size when use menu button paint.
   if (use_menu_button_paint_) {
@@ -64,6 +58,9 @@ gfx::Size StatusAreaButton::GetPreferredSize() {
           insets.bottom(), insets.right());
     }
   }
+
+  // Add padding.
+  prefsize.Enlarge(2 * horizontal_padding(), 0);
 
   return prefsize;
 }
@@ -81,7 +78,7 @@ void StatusAreaButton::SetText(const std::wstring& text) {
 }
 
 void StatusAreaButton::DrawIcon(gfx::Canvas* canvas) {
-  canvas->DrawBitmapInt(icon(), 0, 0);
+  canvas->DrawBitmapInt(icon(), horizontal_padding(), 0);
 }
 
 }  // namespace chromeos

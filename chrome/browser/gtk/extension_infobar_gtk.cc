@@ -47,7 +47,7 @@ void ExtensionInfoBarGtk::OnImageLoaded(
 
 void ExtensionInfoBarGtk::BuildWidgets() {
   // Start loading the image for the menu button.
-  Extension* extension = delegate_->extension_host()->extension();
+  const Extension* extension = delegate_->extension_host()->extension();
   ExtensionResource icon_resource = extension->GetIconResource(
       Extension::EXTENSION_ICON_BITTY, ExtensionIconSet::MATCH_EXACTLY);
   if (!icon_resource.relative_path().empty()) {
@@ -66,7 +66,6 @@ void ExtensionInfoBarGtk::BuildWidgets() {
 
   g_signal_connect(view_->native_view(), "size_allocate",
                    G_CALLBACK(&OnSizeAllocateThunk), this);
-  gtk_widget_show_all(border_bin_.get());
 }
 
 void ExtensionInfoBarGtk::OnSizeAllocate(GtkWidget* widget,

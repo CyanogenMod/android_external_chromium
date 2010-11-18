@@ -25,7 +25,7 @@ class ExtensionManagementTest : public ExtensionBrowserTest {
   // in the extension's manifest. We use the version as reported by the
   // background page to test how overinstalling crx files with the same
   // manifest version works.
-  bool IsExtensionAtVersion(Extension* extension,
+  bool IsExtensionAtVersion(const Extension* extension,
                             const std::string& expected_version) {
     // Test that the extension's version from the manifest and reported by the
     // background page is correct.  This is to ensure that the processes are in
@@ -171,7 +171,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, DisableEnable) {
                     .AppendASCII("1.0")));
   ASSERT_EQ(size_before + 1, service->extensions()->size());
   EXPECT_EQ(0u, service->disabled_extensions()->size());
-  Extension* extension = service->extensions()->at(size_before);
+  const Extension* extension = service->extensions()->at(size_before);
   EXPECT_TRUE(manager->GetBackgroundHostForExtension(extension));
   ASSERT_TRUE(service->HasInstalledExtensions());
 
@@ -274,7 +274,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionManagementTest, ExternalUrlUpdate) {
   // is race-prone, because instantating the ExtensionService starts a read
   // of external_extensions.json before this test function starts.
   service->AddPendingExtensionFromExternalUpdateUrl(
-      kExtensionId, GURL("http://localhost/autoupdate/manifest"));
+      kExtensionId, GURL("http://localhost/autoupdate/manifest"),
+      Extension::EXTERNAL_PREF_DOWNLOAD);
 
   // Run autoupdate and make sure version 2 of the extension was installed.
   service->updater()->CheckNow();

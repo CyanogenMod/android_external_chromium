@@ -55,9 +55,28 @@ html[dir='rtl'] #close-overlay {
   left: -20px;
 }
 
-.overlay .button-strip {
-  padding-top: 20px;
-  text-align: end;
+.action-area {
+  padding: 12px;
+  position: absolute;
+  right: 0px;
+  bottom: 0px;
+  display: -webkit-box;
+  -webkit-box-orient: horizontal;
+  -webkit-box-align: center;
+}
+
+.button-strip {
+  display: -webkit-box;
+  -webkit-box-orient: horizontal;
+}
+
+html[toolkit=views] .button-strip {
+  -webkit-box-direction: reverse;
+}
+
+.button-strip > button {
+  display: block;
+  -webkit-margin-start: 4px;
 }
 
 .overlay > div {
@@ -65,6 +84,8 @@ html[dir='rtl'] #close-overlay {
   border-radius: 5px;
   padding: 15px;
   border: 1px solid #666;
+  padding-bottom: 50px;
+  position: relative;
   -webkit-box-shadow: 3px 3px 3px #666;
 }
 
@@ -173,7 +194,7 @@ html[hide-menu=true] #mainview {
 }
 
 #mainview-content {
-  width: 550px;
+  width: 600px;
   padding: 0 24px;
 }
 
@@ -202,6 +223,11 @@ html[hide-menu=true] #mainview {
   width: 24px;
   height: 21px;
   display: inline-block;
+  vertical-align: middle;
+}
+
+#managed-prefs-text {
+  vertical-align: middle;
 }
 
 .page > h1 {
@@ -350,6 +376,18 @@ button {
  * following rules have platform specific tweaks.
  * TODO(arv): Test the vertical position on Linux and CrOS as well.
  */
+
+/*
+ * Webkit does not move the absolute positioned input element properly and
+ * filed bug 48348 to track the problem.
+ *   https://bugs.webkit.org/show_bug.cgi?id=48348
+ * In the mean time, mark the outer label element 'relative' so that webkit
+ * aligns the input element properly.
+ */
+label.checkbox,
+label.radio {
+  position: relative;
+}
 
 label.checkbox > input,
 label.radio > input {

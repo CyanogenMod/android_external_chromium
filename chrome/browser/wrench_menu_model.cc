@@ -14,7 +14,7 @@
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/defaults.h"
@@ -42,6 +42,15 @@
 
 #if defined(OS_MACOSX)
 #include "chrome/browser/browser_window.h"
+#endif
+
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/browser/chromeos/cros/update_library.h"
+#endif
+
+#if defined(OS_WIN)
+#include "chrome/browser/enumerate_modules_model_win.h"
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -258,8 +267,23 @@ bool WrenchMenuModel::IsCommandIdEnabled(int command_id) const {
 }
 
 bool WrenchMenuModel::IsCommandIdVisible(int command_id) const {
-  if (command_id == IDC_UPGRADE_DIALOG)
+  if (command_id == IDC_UPGRADE_DIALOG) {
+#if defined(OS_CHROMEOS)
+    return (chromeos::CrosLibrary::Get()->GetUpdateLibrary()->status().status
+            == chromeos::UPDATE_STATUS_UPDATED_NEED_REBOOT);
+#else
     return Singleton<UpgradeDetector>::get()->notify_upgrade();
+#endif
+  } else if (command_id == IDC_VIEW_INCOMPATIBILITIES) {
+#if defined(OS_WIN)
+    EnumerateModulesModel* loaded_modules =
+        EnumerateModulesModel::GetSingleton();
+    return loaded_modules->confirmed_bad_modules_detected() > 0;
+#else
+    return false;
+#endif
+  }
+
   return true;
 }
 
@@ -383,14 +407,22 @@ void WrenchMenuModel::Build() {
 #endif
   }
 
+#if defined(OS_CHROMEOS)
+  const string16 product_name = l10n_util::GetStringUTF16(IDS_PRODUCT_OS_NAME);
+#else
+  const string16 product_name = l10n_util::GetStringUTF16(IDS_PRODUCT_NAME);
+#endif
   // On Mac, there is no About item.
   if (browser_defaults::kShowAboutMenuItem) {
     AddItem(IDC_ABOUT, l10n_util::GetStringFUTF16(
-        IDS_ABOUT, l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
+        IDS_ABOUT, product_name));
   }
 
   AddItem(IDC_UPGRADE_DIALOG, l10n_util::GetStringFUTF16(
-      IDS_UPDATE_NOW, l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
+      IDS_UPDATE_NOW, product_name));
+  AddItem(IDC_VIEW_INCOMPATIBILITIES, l10n_util::GetStringUTF16(
+      IDS_VIEW_INCOMPATIBILITIES));
+
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   SetIcon(GetIndexOfCommandId(IDC_UPGRADE_DIALOG),
           *rb.GetBitmapNamed(IDR_UPDATE_AVAILABLE));

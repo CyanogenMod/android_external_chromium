@@ -11,6 +11,7 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/browser_navigator.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_function_dispatcher.h"
 #include "chrome/browser/extensions/extension_host.h"
@@ -65,7 +66,7 @@ static bool GetTabById(int tab_id, Profile* profile,
 // but because the api shipped with urls resolved relative to their extension
 // base, we decided it wasn't worth breaking existing extensions to fix.
 static GURL ResolvePossiblyRelativeURL(std::string url_string,
-                                       Extension* extension);
+                                       const Extension* extension);
 
 // Return the type name for a browser window type.
 static std::string GetWindowTypeText(Browser::Type type);
@@ -89,14 +90,10 @@ int ExtensionTabUtil::GetWindowIdOfTab(const TabContents* tab_contents) {
 DictionaryValue* ExtensionTabUtil::CreateTabValue(
     const TabContents* contents) {
   // Find the tab strip and index of this guy.
-  for (BrowserList::const_iterator it = BrowserList::begin();
-      it != BrowserList::end(); ++it) {
-    TabStripModel* tab_strip = (*it)->tabstrip_model();
-    int tab_index = tab_strip->GetIndexOfTabContents(contents);
-    if (tab_index != -1) {
-      return ExtensionTabUtil::CreateTabValue(contents, tab_strip, tab_index);
-    }
-  }
+  TabStripModel* tab_strip = NULL;
+  int tab_index;
+  if (ExtensionTabUtil::GetTabStripModel(contents, &tab_strip, &tab_index))
+    return ExtensionTabUtil::CreateTabValue(contents, tab_strip, tab_index);
 
   // Couldn't find it.  This can happen if the tab is being dragged.
   return ExtensionTabUtil::CreateTabValue(contents, NULL, -1);
@@ -124,6 +121,8 @@ DictionaryValue* ExtensionTabUtil::CreateTabValue(
   result->SetString(keys::kStatusKey, GetTabStatusText(contents->is_loading()));
   result->SetBoolean(keys::kSelectedKey,
                      tab_strip && tab_index == tab_strip->selected_index());
+  result->SetBoolean(keys::kPinnedKey,
+                     tab_strip && tab_strip->IsTabPinned(tab_index));
   result->SetString(keys::kTitleKey, contents->GetTitle());
   result->SetBoolean(keys::kIncognitoKey,
                      contents->profile()->IsOffTheRecord());
@@ -163,6 +162,27 @@ DictionaryValue* ExtensionTabUtil::CreateWindowValue(const Browser* browser,
   }
 
   return result;
+}
+
+bool ExtensionTabUtil::GetTabStripModel(const TabContents* tab_contents,
+                                        TabStripModel** tab_strip_model,
+                                        int* tab_index) {
+  DCHECK(tab_contents);
+  DCHECK(tab_strip_model);
+  DCHECK(tab_index);
+
+  for (BrowserList::const_iterator it = BrowserList::begin();
+      it != BrowserList::end(); ++it) {
+    TabStripModel* tab_strip = (*it)->tabstrip_model();
+    int index = tab_strip->GetIndexOfTabContents(tab_contents);
+    if (index != -1) {
+      *tab_strip_model = tab_strip;
+      *tab_index = index;
+      return true;
+    }
+  }
+
+  return false;
 }
 
 bool ExtensionTabUtil::GetDefaultTab(Browser* browser, TabContents** contents,
@@ -406,11 +426,8 @@ bool CreateWindowFunction::RunImpl() {
   }
 
   Browser* new_window = Browser::CreateForType(window_type, window_profile);
-  for (std::vector<GURL>::iterator i = urls.begin(); i != urls.end(); ++i) {
-    Browser::AddTabWithURLParams addTabParams =
-        Browser::AddTabWithURLParams(*i, PageTransition::LINK);
-    new_window->AddTabWithURL(&addTabParams);
-  }
+  for (std::vector<GURL>::iterator i = urls.begin(); i != urls.end(); ++i)
+    new_window->AddSelectedTabWithURL(*i, PageTransition::LINK);
   if (urls.size() == 0)
     new_window->NewTab();
   new_window->SelectNumberedTab(0);
@@ -600,9 +617,16 @@ bool CreateTabFunction::RunImpl() {
     EXTENSION_FUNCTION_VALIDATE(args->GetBoolean(keys::kSelectedKey,
                                                  &selected));
 
-  // We can't load extension URLs into incognito windows. Special case to
-  // fall back to a normal window.
+  // Default to not pinning the tab. Setting the 'pinned' property to true
+  // will override this default.
+  bool pinned = false;
+  if (args->HasKey(keys::kPinnedKey))
+    EXTENSION_FUNCTION_VALIDATE(args->GetBoolean(keys::kPinnedKey, &pinned));
+
+  // We can't load extension URLs into incognito windows unless the extension
+  // uses split mode. Special case to fall back to a normal window.
   if (url.SchemeIs(chrome::kExtensionScheme) &&
+      !GetExtension()->incognito_split_mode() &&
       browser->profile()->IsOffTheRecord()) {
     Profile* profile = browser->profile()->GetOriginalProfile();
     browser = BrowserList::FindBrowserWithType(profile,
@@ -626,20 +650,25 @@ bool CreateTabFunction::RunImpl() {
   int add_types = selected ? TabStripModel::ADD_SELECTED :
                              TabStripModel::ADD_NONE;
   add_types |= TabStripModel::ADD_FORCE_INDEX;
-  Browser::AddTabWithURLParams params(url, PageTransition::LINK);
-  params.index = index;
-  params.add_types = add_types;
-  TabContents* contents = browser->AddTabWithURL(&params);
-  index = browser->tabstrip_model()->GetIndexOfTabContents(contents);
+  if (pinned)
+    add_types |= TabStripModel::ADD_PINNED;
+  browser::NavigateParams params(browser, url, PageTransition::LINK);
+  params.disposition = selected ? NEW_FOREGROUND_TAB : NEW_BACKGROUND_TAB;
+  params.tabstrip_index = index;
+  params.tabstrip_add_types = add_types;
+  browser::Navigate(&params);
 
   if (selected)
-    contents->view()->SetInitialFocus();
+    params.target_contents->view()->SetInitialFocus();
 
   // Return data about the newly created tab.
-  if (has_callback())
-    result_.reset(ExtensionTabUtil::CreateTabValue(contents,
-                                                   browser->tabstrip_model(),
-                                                   index));
+  if (has_callback()) {
+    result_.reset(ExtensionTabUtil::CreateTabValue(
+        params.target_contents,
+        params.browser->tabstrip_model(),
+        params.browser->tabstrip_model()->GetIndexOfTabContents(
+            params.target_contents)));
+  }
 
   return true;
 }
@@ -705,7 +734,7 @@ bool UpdateTabFunction::RunImpl() {
     // JavaScript URLs can do the same kinds of things as cross-origin XHR, so
     // we need to check host permissions before allowing them.
     if (url.SchemeIs(chrome::kJavaScriptScheme)) {
-      Extension* extension = GetExtension();
+      const Extension* extension = GetExtension();
       const std::vector<URLPattern> host_permissions =
           extension->host_permissions();
       if (!Extension::CanExecuteScriptOnPage(
@@ -720,12 +749,6 @@ bool UpdateTabFunction::RunImpl() {
       // TODO(aa): How does controller queue URLs? Is there any chance that this
       // JavaScript URL will end up applying to something other than
       // controller->GetURL()?
-    }
-
-    if (tab_strip->IsTabPinned(tab_index)) {
-      // Don't allow changing the url of pinned tabs.
-      error_ = keys::kCannotUpdatePinnedTab;
-      return false;
     }
 
     controller.LoadURL(url, GURL(), PageTransition::LINK);
@@ -750,6 +773,16 @@ bool UpdateTabFunction::RunImpl() {
       }
       contents->Focus();
     }
+  }
+
+  bool pinned = false;
+  if (update_props->HasKey(keys::kPinnedKey)) {
+    EXTENSION_FUNCTION_VALIDATE(update_props->GetBoolean(keys::kPinnedKey,
+                                                         &pinned));
+    tab_strip->SetTabPinned(tab_index, pinned);
+
+    // Update the tab index because it may move when being pinned.
+    tab_index = tab_strip->GetIndexOfTabContents(contents);
   }
 
   if (has_callback())
@@ -942,7 +975,7 @@ bool CaptureVisibleTabFunction::CaptureSnapshotFromBackingStore(
                                            &temp_canvas)) {
     return false;
   }
-  LOG(INFO) << "captureVisibleTab() Got image from backing store.";
+  VLOG(1) << "captureVisibleTab() got image from backing store.";
 
   SendResultFromBitmap(
       temp_canvas.getTopPlatformDevice().accessBitmap(false));
@@ -964,7 +997,7 @@ void CaptureVisibleTabFunction::Observe(NotificationType type,
     error_ = keys::kInternalVisibleTabCaptureError;
     SendResponse(false);
   } else {
-    LOG(INFO) << "captureVisibleTab() Got image from renderer.";
+    VLOG(1) << "captureVisibleTab() got image from renderer.";
     SendResultFromBitmap(*screen_capture);
   }
 
@@ -1149,7 +1182,7 @@ static std::string GetWindowTypeText(Browser::Type type) {
 }
 
 static GURL ResolvePossiblyRelativeURL(std::string url_string,
-                                       Extension* extension) {
+                                       const Extension* extension) {
   GURL url = GURL(url_string);
   if (!url.is_valid())
     url = extension->GetResourceURL(url_string);

@@ -9,6 +9,7 @@
 #include "base/file_util.h"
 #include "base/string_number_conversions.h"
 #include "base/string_tokenizer.h"
+#include "base/thread_restrictions.h"
 
 namespace base {
 
@@ -24,6 +25,12 @@ const char kLinuxStandardBaseReleaseFile[] = "/etc/lsb-release";
 void SysInfo::OperatingSystemVersionNumbers(int32 *major_version,
                                             int32 *minor_version,
                                             int32 *bugfix_version) {
+  // The other implementations of SysInfo don't block on the disk.
+  // See http://code.google.com/p/chromium/issues/detail?id=60394
+  // Perhaps the caller ought to cache this?
+  // Temporary allowing while we work the bug out.
+  base::ThreadRestrictions::ScopedAllowIO allow_io;
+
   // TODO(cmasone): If this gets called a lot, it may kill performance.
   // consider using static variables to cache these values?
   FilePath path(kLinuxStandardBaseReleaseFile);
@@ -54,12 +61,18 @@ void SysInfo::ParseLsbRelease(const std::string& lsb_release,
   StringTokenizer tokenizer(version, ".");
   for (int i = 0; i < 3 && tokenizer.GetNext(); i++) {
     if (0 == i) {
-      StringToInt(tokenizer.token(), major_version);
+      StringToInt(tokenizer.token_begin(),
+                  tokenizer.token_end(),
+                  major_version);
       *minor_version = *bugfix_version = 0;
     } else if (1 == i) {
-      StringToInt(tokenizer.token(), minor_version);
+      StringToInt(tokenizer.token_begin(),
+                  tokenizer.token_end(),
+                  minor_version);
     } else {  // 2 == i
-      StringToInt(tokenizer.token(), bugfix_version);
+      StringToInt(tokenizer.token_begin(),
+                  tokenizer.token_end(),
+                  bugfix_version);
     }
   }
 }

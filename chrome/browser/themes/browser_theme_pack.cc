@@ -8,6 +8,7 @@
 #include "base/data_pack.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
+#include "base/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/browser_thread.h"
@@ -326,7 +327,8 @@ BrowserThemePack::~BrowserThemePack() {
 }
 
 // static
-BrowserThemePack* BrowserThemePack::BuildFromExtension(Extension* extension) {
+BrowserThemePack* BrowserThemePack::BuildFromExtension(
+    const Extension* extension) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(extension);
   DCHECK(extension->is_theme());
@@ -367,7 +369,7 @@ BrowserThemePack* BrowserThemePack::BuildFromExtension(Extension* extension) {
 scoped_refptr<BrowserThemePack> BrowserThemePack::BuildFromDataPack(
     FilePath path, const std::string& expected_id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  scoped_refptr<BrowserThemePack> pack = new BrowserThemePack;
+  scoped_refptr<BrowserThemePack> pack(new BrowserThemePack);
   pack->data_pack_.reset(new base::DataPack);
 
   if (!pack->data_pack_->Load(path)) {
@@ -576,7 +578,7 @@ BrowserThemePack::BrowserThemePack()
       source_images_(NULL) {
 }
 
-void BrowserThemePack::BuildHeader(Extension* extension) {
+void BrowserThemePack::BuildHeader(const Extension* extension) {
   header_ = new BrowserThemePackHeader;
   header_->version = kThemePackVersion;
 
@@ -841,6 +843,10 @@ void BrowserThemePack::BuildSourceImagesArray(const FilePathMap& file_paths) {
 bool BrowserThemePack::LoadRawBitmapsTo(
     const FilePathMap& file_paths,
     ImageCache* raw_bitmaps) {
+  // Themes should be loaded on the file thread, not the UI thread.
+  // http://crbug.com/61838
+  base::ThreadRestrictions::ScopedAllowIO allow_io;
+
   for (FilePathMap::const_iterator it = file_paths.begin();
        it != file_paths.end(); ++it) {
     scoped_refptr<RefCountedMemory> raw_data(ReadFileData(it->second));
@@ -934,7 +940,7 @@ void BrowserThemePack::GenerateFrameImages(ImageCache* bitmaps) const {
 }
 
 void BrowserThemePack::GenerateTintedButtons(
-    color_utils::HSL button_tint,
+    const color_utils::HSL& button_tint,
     ImageCache* processed_bitmaps) const {
   if (button_tint.h != -1 || button_tint.s != -1 || button_tint.l != -1) {
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();

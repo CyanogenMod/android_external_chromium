@@ -694,6 +694,7 @@ int X509Certificate::Verify(const std::string& hostname, int flags,
     // Determine the certificate's EV status using SecTrustCopyExtendedResult(),
     // which we need to look up because the function wasn't added until
     // Mac OS X 10.5.7.
+    // Note: "ExtendedResult" means extended validation results.
     CFBundleRef bundle =
         CFBundleGetBundleWithIdentifier(CFSTR("com.apple.security"));
     if (bundle) {
@@ -872,10 +873,10 @@ bool X509Certificate::IsIssuedBy(
   for (int i = 0; i < n; ++i) {
     SecCertificateRef cert_handle = reinterpret_cast<SecCertificateRef>(
         const_cast<void*>(CFArrayGetValueAtIndex(cert_chain, i)));
-    scoped_refptr<X509Certificate> cert = X509Certificate::CreateFromHandle(
+    scoped_refptr<X509Certificate> cert(X509Certificate::CreateFromHandle(
         cert_handle,
         X509Certificate::SOURCE_LONE_CERT_IMPORT,
-        X509Certificate::OSCertHandles());
+        X509Certificate::OSCertHandles()));
     for (unsigned j = 0; j < valid_issuers.size(); j++) {
       if (cert->issuer().Matches(valid_issuers[j]))
         return true;

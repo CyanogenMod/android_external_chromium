@@ -42,7 +42,8 @@ typedef pthread_mutex_t* MutexHandle;
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
-#include "base/debug_util.h"
+#include "base/debug/debugger.h"
+#include "base/debug/stack_trace.h"
 #include "base/eintr_wrapper.h"
 #include "base/lock_impl.h"
 #if defined(OS_POSIX)
@@ -224,7 +225,7 @@ class LoggingLock {
 #if DEBUG
           // Keep the error code for debugging
           int error = GetLastError();  // NOLINT
-          DebugUtil::BreakDebugger();
+          base::debug::BreakDebugger();
 #endif
           // Return nicely without putting initialized to true.
           return;
@@ -339,7 +340,7 @@ bool InitializeLogFileHandle() {
   return true;
 }
 
-void BaseInitLoggingImpl(const PathChar* new_log_file,
+bool BaseInitLoggingImpl(const PathChar* new_log_file,
                          LoggingDestination logging_dest,
                          LogLockingState lock_log,
                          OldFileDeletionState delete_old) {
@@ -357,7 +358,8 @@ void BaseInitLoggingImpl(const PathChar* new_log_file,
       command_line->HasSwitch(switches::kVModule)) {
     g_vlog_info =
         new VlogInfo(command_line->GetSwitchValueASCII(switches::kV),
-                     command_line->GetSwitchValueASCII(switches::kVModule));
+                     command_line->GetSwitchValueASCII(switches::kVModule),
+                     &min_log_level);
   }
 #endif
 
@@ -377,7 +379,7 @@ void BaseInitLoggingImpl(const PathChar* new_log_file,
   // ignore file options if logging is disabled or only to system
   if (logging_destination == LOG_NONE ||
       logging_destination == LOG_ONLY_TO_SYSTEM_DEBUG_LOG)
-    return;
+    return true;
 
   if (!log_file_name)
     log_file_name = new PathString();
@@ -385,15 +387,19 @@ void BaseInitLoggingImpl(const PathChar* new_log_file,
   if (delete_old == DELETE_OLD_LOG_FILE)
     DeleteFilePath(*log_file_name);
 
-  InitializeLogFileHandle();
+  return InitializeLogFileHandle();
 }
 
 void SetMinLogLevel(int level) {
-  min_log_level = level;
+  min_log_level = std::min(LOG_ERROR_REPORT, level);
 }
 
 int GetMinLogLevel() {
   return min_log_level;
+}
+
+int GetVlogVerbosity() {
+  return std::max(-1, LOG_INFO - GetMinLogLevel());
 }
 
 int GetVlogLevelHelper(const char* file, size_t N) {
@@ -403,8 +409,12 @@ int GetVlogLevelHelper(const char* file, size_t N) {
   DCHECK_GT(N, 0U);
   return g_vlog_info ?
       g_vlog_info->GetVlogLevel(base::StringPiece(file, N - 1)) :
+<<<<<<< HEAD
       VlogInfo::kDefaultVlogLevel;
 #endif
+=======
+      GetVlogVerbosity();
+>>>>>>> chromium.org at r65505
 }
 
 void SetLogItems(bool enable_process_id, bool enable_thread_id,
@@ -429,6 +439,10 @@ void SetLogReportHandler(LogReportHandlerFunction handler) {
 
 void SetLogMessageHandler(LogMessageHandlerFunction handler) {
   log_message_handler = handler;
+}
+
+LogMessageHandlerFunction GetLogMessageHandler() {
+  return log_message_handler;
 }
 
 // MSVC doesn't like complex extern templates and DLLs.
@@ -515,39 +529,39 @@ LogMessage::SaveLastError::~SaveLastError() {
 
 LogMessage::LogMessage(const char* file, int line, LogSeverity severity,
                        int ctr)
-    : severity_(severity) {
+    : severity_(severity), file_(file), line_(line) {
   Init(file, line);
 }
 
 LogMessage::LogMessage(const char* file, int line, const CheckOpString& result)
-    : severity_(LOG_FATAL) {
+    : severity_(LOG_FATAL), file_(file), line_(line) {
   Init(file, line);
   stream_ << "Check failed: " << (*result.str_);
 }
 
 LogMessage::LogMessage(const char* file, int line, LogSeverity severity,
                        const CheckOpString& result)
-    : severity_(severity) {
+    : severity_(severity), file_(file), line_(line) {
   Init(file, line);
   stream_ << "Check failed: " << (*result.str_);
 }
 
 LogMessage::LogMessage(const char* file, int line)
-     : severity_(LOG_INFO) {
+    : severity_(LOG_INFO), file_(file), line_(line) {
   Init(file, line);
 }
 
 LogMessage::LogMessage(const char* file, int line, LogSeverity severity)
-    : severity_(severity) {
+    : severity_(severity), file_(file), line_(line) {
   Init(file, line);
 }
 
 // writes the common header info to the stream
 void LogMessage::Init(const char* file, int line) {
-  // log only the filename
-  const char* last_slash = strrchr(file, '\\');
-  if (last_slash)
-    file = last_slash + 1;
+  base::StringPiece filename(file);
+  size_t last_slash_pos = filename.find_last_of("\\/");
+  if (last_slash_pos != base::StringPiece::npos)
+    filename.remove_prefix(last_slash_pos + 1);
 
   // TODO(darin): It might be nice if the columns were fixed width.
 
@@ -576,8 +590,12 @@ void LogMessage::Init(const char* file, int line) {
   }
   if (log_tickcount)
     stream_ << TickCount() << ':';
-  stream_ << log_severity_names[severity_] << ":" << file <<
-             "(" << line << ")] ";
+  if (severity_ >= 0)
+    stream_ << log_severity_names[severity_];
+  else
+    stream_ << "VERBOSE" << -severity_;
+
+  stream_ << ":" << file << "(" << line << ")] ";
 
   message_start_ = stream_.tellp();
 }
@@ -592,7 +610,7 @@ LogMessage::~LogMessage() {
 #ifndef NDEBUG
   if (severity_ == LOG_FATAL) {
     // Include a stack trace on a fatal.
-    StackTrace trace;
+    base::debug::StackTrace trace;
     stream_ << std::endl;  // Newline to separate from log message.
     trace.OutputToStream(&stream_);
   }
@@ -601,8 +619,11 @@ LogMessage::~LogMessage() {
   std::string str_newline(stream_.str());
 
   // Give any log message handler first dibs on the message.
-  if (log_message_handler && log_message_handler(severity_, str_newline))
+  if (log_message_handler && log_message_handler(severity_, file_, line_,
+          message_start_, str_newline)) {
+    // The handler took care of it, no further processing.
     return;
+  }
 
   if (logging_destination == LOG_ONLY_TO_SYSTEM_DEBUG_LOG ||
       logging_destination == LOG_TO_BOTH_FILE_AND_SYSTEM_DEBUG_LOG) {
@@ -649,8 +670,8 @@ LogMessage::~LogMessage() {
 
   if (severity_ == LOG_FATAL) {
     // display a message or break into the debugger on a fatal error
-    if (DebugUtil::BeingDebugged()) {
-      DebugUtil::BreakDebugger();
+    if (base::debug::BeingDebugged()) {
+      base::debug::BreakDebugger();
     } else {
       if (log_assert_handler) {
         // make a copy of the string for the handler out of paranoia
@@ -665,7 +686,7 @@ LogMessage::~LogMessage() {
         DisplayDebugMessageInDialog(stream_.str());
 #endif
         // Crash the process to generate a dump.
-        DebugUtil::BreakDebugger();
+        base::debug::BreakDebugger();
       }
     }
   } else if (severity_ == LOG_ERROR_REPORT) {
@@ -804,7 +825,7 @@ void RawLog(int level, const char* message) {
   }
 
   if (level == LOG_FATAL)
-    DebugUtil::BreakDebugger();
+    base::debug::BreakDebugger();
 }
 
 }  // namespace logging

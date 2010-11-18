@@ -60,7 +60,7 @@ class ProfileSyncServiceSessionTest
 
   ProfileSyncService* sync_service() { return sync_service_.get(); }
 
-  TestIdFactory* ids() { return sync_service_->id_factory(); }
+  TestIdFactory* ids() { return &ids_; }
 
  protected:
   SessionService* service() { return helper_.service(); }
@@ -134,6 +134,7 @@ class ProfileSyncServiceSessionTest
   SessionID window_id_;
   ProfileSyncFactoryMock factory_;
   scoped_ptr<TestProfileSyncService> sync_service_;
+  TestIdFactory ids_;
   const gfx::Rect window_bounds_;
   bool notified_of_update_;
   NotificationRegistrar registrar_;
@@ -314,7 +315,7 @@ TEST_F(ProfileSyncServiceSessionTest, WriteForeignSessionToNode) {
   ASSERT_EQ(1U,  foreign_sessions[0]->windows.size());
   ASSERT_EQ(1U, foreign_sessions[0]->windows[0]->tabs.size());
   ASSERT_EQ(1U, foreign_sessions[0]->windows[0]->tabs[0]->navigations.size());
-  ASSERT_EQ(foreign_sessions[0]->foreign_tession_tag, machine_tag);
+  ASSERT_EQ(foreign_sessions[0]->foreign_session_tag, machine_tag);
   ASSERT_EQ(1, foreign_sessions[0]->windows[0]->selected_tab_index);
   ASSERT_EQ(1, foreign_sessions[0]->windows[0]->type);
   ASSERT_EQ(13, foreign_sessions[0]->windows[0]->tabs[0]->tab_visual_index);

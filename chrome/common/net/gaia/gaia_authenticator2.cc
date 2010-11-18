@@ -11,6 +11,7 @@
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "chrome/common/net/gaia/gaia_auth_consumer.h"
+#include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "chrome/common/net/http_return.h"
 #include "chrome/common/net/url_request_context_getter.h"
@@ -42,7 +43,7 @@ const char GaiaAuthenticator2::kIssueAuthTokenFormat[] =
     "SID=%s&"
     "LSID=%s&"
     "service=%s&"
-    "Session=true";
+    "Session=%s";
 // static
 const char GaiaAuthenticator2::kGetUserInfoFormat[] =
     "LSID=%s";
@@ -149,24 +150,24 @@ std::string GaiaAuthenticator2::MakeClientLoginBody(
       kAccountTypeGoogle;
 
   if (login_token.empty() || login_captcha.empty()) {
-    return StringPrintf(kClientLoginFormat,
-                        encoded_username.c_str(),
-                        encoded_password.c_str(),
-                        kCookiePersistence,
-                        account_type,
-                        source.c_str(),
-                        service);
+    return base::StringPrintf(kClientLoginFormat,
+                              encoded_username.c_str(),
+                              encoded_password.c_str(),
+                              kCookiePersistence,
+                              account_type,
+                              source.c_str(),
+                              service);
   }
 
-  return StringPrintf(kClientLoginCaptchaFormat,
-                      encoded_username.c_str(),
-                      encoded_password.c_str(),
-                      kCookiePersistence,
-                      account_type,
-                      source.c_str(),
-                      service,
-                      encoded_login_token.c_str(),
-                      encoded_login_captcha.c_str());
+  return base::StringPrintf(kClientLoginCaptchaFormat,
+                            encoded_username.c_str(),
+                            encoded_password.c_str(),
+                            kCookiePersistence,
+                            account_type,
+                            source.c_str(),
+                            service,
+                            encoded_login_token.c_str(),
+                            encoded_login_captcha.c_str());
 
 }
 
@@ -178,16 +179,22 @@ std::string GaiaAuthenticator2::MakeIssueAuthTokenBody(
   std::string encoded_sid = UrlEncodeString(sid);
   std::string encoded_lsid = UrlEncodeString(lsid);
 
-  return StringPrintf(kIssueAuthTokenFormat,
-                      encoded_sid.c_str(),
-                      encoded_lsid.c_str(),
-                      service);
+  // All tokens should be session tokens except the gaia auth token.
+  bool session = true;
+  if (!strcmp(service, GaiaConstants::kGaiaService))
+    session = false;
+
+  return base::StringPrintf(kIssueAuthTokenFormat,
+                            encoded_sid.c_str(),
+                            encoded_lsid.c_str(),
+                            service,
+                            session ? "true" : "false");
 }
 
 // static
 std::string GaiaAuthenticator2::MakeGetUserInfoBody(const std::string& lsid) {
   std::string encoded_lsid = UrlEncodeString(lsid);
-  return StringPrintf(kGetUserInfoFormat, encoded_lsid.c_str());
+  return base::StringPrintf(kGetUserInfoFormat, encoded_lsid.c_str());
 }
 
 // Helper method that extracts tokens from a successful reply.

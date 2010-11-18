@@ -12,43 +12,47 @@
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/time.h"
-#include "third_party/ppapi/c/dev/ppb_buffer_dev.h"
-#include "third_party/ppapi/c/dev/ppb_char_set_dev.h"
-#include "third_party/ppapi/c/dev/ppb_cursor_control_dev.h"
-#include "third_party/ppapi/c/dev/ppb_directory_reader_dev.h"
-#include "third_party/ppapi/c/dev/ppb_file_io_dev.h"
-#include "third_party/ppapi/c/dev/ppb_file_io_trusted_dev.h"
-#include "third_party/ppapi/c/dev/ppb_file_system_dev.h"
-#include "third_party/ppapi/c/dev/ppb_find_dev.h"
-#include "third_party/ppapi/c/dev/ppb_font_dev.h"
-#include "third_party/ppapi/c/dev/ppb_fullscreen_dev.h"
-#include "third_party/ppapi/c/dev/ppb_graphics_3d_dev.h"
-#include "third_party/ppapi/c/dev/ppb_opengles_dev.h"
-#include "third_party/ppapi/c/dev/ppb_scrollbar_dev.h"
-#include "third_party/ppapi/c/dev/ppb_testing_dev.h"
-#include "third_party/ppapi/c/dev/ppb_transport_dev.h"
-#include "third_party/ppapi/c/dev/ppb_url_loader_dev.h"
-#include "third_party/ppapi/c/dev/ppb_url_loader_trusted_dev.h"
-#include "third_party/ppapi/c/dev/ppb_url_request_info_dev.h"
-#include "third_party/ppapi/c/dev/ppb_url_response_info_dev.h"
-#include "third_party/ppapi/c/dev/ppb_url_util_dev.h"
-#include "third_party/ppapi/c/dev/ppb_var_deprecated.h"
-#include "third_party/ppapi/c/dev/ppb_video_decoder_dev.h"
-#include "third_party/ppapi/c/dev/ppb_widget_dev.h"
-#include "third_party/ppapi/c/dev/ppb_zoom_dev.h"
-#include "third_party/ppapi/c/trusted/ppb_image_data_trusted.h"
-#include "third_party/ppapi/c/pp_module.h"
-#include "third_party/ppapi/c/pp_resource.h"
-#include "third_party/ppapi/c/pp_var.h"
-#include "third_party/ppapi/c/ppb_core.h"
-#include "third_party/ppapi/c/ppb_graphics_2d.h"
-#include "third_party/ppapi/c/ppb_image_data.h"
-#include "third_party/ppapi/c/ppb_instance.h"
-#include "third_party/ppapi/c/ppp.h"
-#include "third_party/ppapi/c/ppp_instance.h"
+#include "ppapi/c/dev/ppb_buffer_dev.h"
+#include "ppapi/c/dev/ppb_char_set_dev.h"
+#include "ppapi/c/dev/ppb_cursor_control_dev.h"
+#include "ppapi/c/dev/ppb_directory_reader_dev.h"
+#include "ppapi/c/dev/ppb_file_io_dev.h"
+#include "ppapi/c/dev/ppb_file_io_trusted_dev.h"
+#include "ppapi/c/dev/ppb_file_system_dev.h"
+#include "ppapi/c/dev/ppb_find_dev.h"
+#include "ppapi/c/dev/ppb_font_dev.h"
+#include "ppapi/c/dev/ppb_fullscreen_dev.h"
+#include "ppapi/c/dev/ppb_graphics_3d_dev.h"
+#include "ppapi/c/dev/ppb_opengles_dev.h"
+#include "ppapi/c/dev/ppb_scrollbar_dev.h"
+#include "ppapi/c/dev/ppb_testing_dev.h"
+#include "ppapi/c/dev/ppb_transport_dev.h"
+#include "ppapi/c/dev/ppb_url_loader_dev.h"
+#include "ppapi/c/dev/ppb_url_loader_trusted_dev.h"
+#include "ppapi/c/dev/ppb_url_request_info_dev.h"
+#include "ppapi/c/dev/ppb_url_response_info_dev.h"
+#include "ppapi/c/dev/ppb_url_util_dev.h"
+#include "ppapi/c/dev/ppb_var_deprecated.h"
+#include "ppapi/c/dev/ppb_video_decoder_dev.h"
+#include "ppapi/c/dev/ppb_widget_dev.h"
+#include "ppapi/c/dev/ppb_zoom_dev.h"
+#include "ppapi/c/trusted/ppb_image_data_trusted.h"
+#include "ppapi/c/pp_module.h"
+#include "ppapi/c/pp_resource.h"
+#include "ppapi/c/pp_var.h"
+#include "ppapi/c/ppb_class.h"
+#include "ppapi/c/ppb_core.h"
+#include "ppapi/c/ppb_graphics_2d.h"
+#include "ppapi/c/ppb_image_data.h"
+#include "ppapi/c/ppb_instance.h"
+#include "ppapi/c/ppb_var.h"
+#include "ppapi/c/ppp.h"
+#include "ppapi/c/ppp_instance.h"
 #include "webkit/glue/plugins/pepper_audio.h"
 #include "webkit/glue/plugins/pepper_buffer.h"
+#include "webkit/glue/plugins/pepper_common.h"
 #include "webkit/glue/plugins/pepper_char_set.h"
+#include "webkit/glue/plugins/pepper_class.h"
 #include "webkit/glue/plugins/pepper_cursor_control.h"
 #include "webkit/glue/plugins/pepper_directory_reader.h"
 #include "webkit/glue/plugins/pepper_file_chooser.h"
@@ -140,8 +144,8 @@ void CallOnMainThread(int delay_in_msec,
       delay_in_msec);
 }
 
-bool IsMainThread() {
-  return GetMainThreadMessageLoop()->BelongsToCurrentThread();
+PP_Bool IsMainThread() {
+  return BoolToPPBool(GetMainThreadMessageLoop()->BelongsToCurrentThread());
 }
 
 const PPB_Core core_interface = {
@@ -157,14 +161,14 @@ const PPB_Core core_interface = {
 
 // PPB_Testing -----------------------------------------------------------------
 
-bool ReadImageData(PP_Resource device_context_2d,
+PP_Bool ReadImageData(PP_Resource device_context_2d,
                    PP_Resource image,
                    const PP_Point* top_left) {
   scoped_refptr<Graphics2D> context(
       Resource::GetAs<Graphics2D>(device_context_2d));
   if (!context.get())
-    return false;
-  return context->ReadImageData(image, top_left);
+    return PP_FALSE;
+  return BoolToPPBool(context->ReadImageData(image, top_left));
 }
 
 void RunMessageLoop() {
@@ -199,6 +203,8 @@ const void* GetInterface(const char* name) {
     return &core_interface;
   if (strcmp(name, PPB_VAR_DEPRECATED_INTERFACE) == 0)
     return Var::GetDeprecatedInterface();
+  if (strcmp(name, PPB_VAR_INTERFACE) == 0)
+    return Var::GetInterface();
   if (strcmp(name, PPB_INSTANCE_INTERFACE) == 0)
     return PluginInstance::GetInterface();
   if (strcmp(name, PPB_IMAGEDATA_INTERFACE) == 0)
@@ -267,6 +273,8 @@ const void* GetInterface(const char* name) {
     return GetCursorControlInterface();
   if (strcmp(name, PPB_ZOOM_DEV_INTERFACE) == 0)
     return PluginInstance::GetZoomInterface();
+  if (strcmp(name, PPB_CLASS_INTERFACE) == 0)
+    return VarObjectClass::GetInterface();
 
   // Only support the testing interface when the command line switch is
   // specified. This allows us to prevent people from (ab)using this interface

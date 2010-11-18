@@ -44,24 +44,30 @@ cr.define('options', function() {
       $('rememberedSection').hidden = (templateData.rememberedList.length == 0);
       InternetOptions.setupAttributes(templateData);
       // Setting up the details page
+      $('detailsInternetOk').onclick = function(event) {
+          InternetOptions.setDetails();
+      };
       $('detailsInternetDismiss').onclick = function(event) {
           OptionsPage.clearOverlays();
       };
-
       $('detailsInternetLogin').onclick = function(event) {
           InternetOptions.loginFromDetails();
       };
       $('enableWifi').onclick = function(event) {
+        event.target.disabled = true;
         chrome.send('enableWifi', []);
       };
       $('disableWifi').onclick = function(event) {
-         chrome.send('disableWifi', []);
+        event.target.disabled = true;
+        chrome.send('disableWifi', []);
       };
       $('enableCellular').onclick = function(event) {
-         chrome.send('enableCellular', []);
+        event.target.disabled = true;
+        chrome.send('enableCellular', []);
       };
       $('disableCellular').onclick = function(event) {
-         chrome.send('disableCellular', []);
+        event.target.disabled = true;
+        chrome.send('disableCellular', []);
       };
       $('purchaseMore').onclick = function(event) {
         chrome.send('buyDataPlan', []);
@@ -91,8 +97,7 @@ cr.define('options', function() {
     if (data.certinpkcs) {
       chrome.send('loginToCertNetwork',[String(servicePath),
                                         String(data.certPath),
-                                        String(data.ident),
-                                        String(data.certPass)]);
+                                        String(data.ident)]);
     } else {
       chrome.send('loginToCertNetwork',[String(servicePath),
                                         String($('inetCert').value),
@@ -107,36 +112,41 @@ cr.define('options', function() {
     if (data.type == 2) {
       var newinfo = [];
       newinfo.push(data.servicePath);
-      newinfo.push($('rememberNetwork').checked);
-      if (data.encrypted) {
-        if (data.certneeded) {
-          newinfo.push($('inetIdent').value);
-          newinfo.push($('inetCert').value);
-          newinfo.push($('inetCertPass').value);
-        } else {
-          newinfo.push($('inetPass').value);
-        }
+      newinfo.push($('rememberNetwork').checked ? "true" : "false");
+      if (data.encrypted && data.certNeeded) {
+        newinfo.push($('inetIdent').value);
+        newinfo.push($('inetCert').value);
+        newinfo.push($('inetCertPass').value);
       }
       chrome.send('setDetails', newinfo);
     }
+    OptionsPage.clearOverlays();
   };
 
   InternetOptions.setupAttributes = function(data) {
     var buttons = $('wirelessButtons');
     if (data.wifiEnabled) {
-      buttons.setAttribute('wifiEnabled', true);
+      $('disableWifi').disabled = false;
+      $('disableWifi').classList.remove('hidden');
+      $('enableWifi').classList.add('hidden');
     } else {
-      buttons.removeAttribute('wifiEnabled');
+      $('enableWifi').disabled = false;
+      $('enableWifi').classList.remove('hidden');
+      $('disableWifi').classList.add('hidden');
     }
     if (data.cellularAvailable) {
-      buttons.setAttribute('cellularAvail', true);
       if (data.cellularEnabled) {
-        buttons.setAttribute('cellularEnabled', true);
+        $('disableCellular').disabled = false;
+        $('disableCellular').classList.remove('hidden');
+        $('enableCellular').classList.add('hidden');
       } else {
-        buttons.removeAttribute('cellularEnabled');
+        $('enableCellular').disabled = false;
+        $('enableCellular').classList.remove('hidden');
+        $('disableCellular').classList.add('hidden');
       }
     } else {
-      buttons.removeAttribute('cellularAvail');
+      $('enableCellular').classList.add('hidden');
+      $('disableCellular').classList.add('hidden');
     }
   };
 
@@ -226,24 +236,26 @@ cr.define('options', function() {
       page.removeAttribute('gsm');
       $('inetSsid').textContent = data.ssid;
       $('rememberNetwork').checked = data.autoConnect;
+      if (!AccountsOptions.currentUserIsOwner()) {
+        // Disable this for guest non-Owners.
+        $('rememberNetwork').disabled = true;
+      }
+      page.removeAttribute('password');
+      page.removeAttribute('cert');
+      page.removeAttribute('certPkcs');
       if (data.encrypted) {
         if (data.certNeeded) {
-          page.setAttribute('cert', true);
           if (data.certInPkcs) {
             page.setAttribute('certPkcs', true);
             $('inetIdentPkcs').value = data.ident;
           } else {
-            page.removeAttribute('certPkcs');
+            page.setAttribute('cert', true);
             $('inetIdent').value = data.ident;
             $('inetCert').value = data.certPath;
-            $('inetCertPass').value = data.certPass;
           }
         } else {
-          page.removeAttribute('cert');
-          $('inetPass').value = data.pass;
+          page.setAttribute('password', true);
         }
-      } else {
-        page.removeAttribute('cert');
       }
     } else if(data.type == 5) {
       OptionsPage.showTab($('cellularPlanNavTab'));

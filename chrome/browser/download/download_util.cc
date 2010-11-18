@@ -20,7 +20,9 @@
 #include "base/singleton.h"
 #include "base/string16.h"
 #include "base/string_number_conversions.h"
+#include "base/stringprintf.h"
 #include "base/sys_string_conversions.h"
+#include "base/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/win/windows_version.h"
@@ -150,8 +152,13 @@ void GenerateExtension(const FilePath& file_name,
     extension.assign(default_extension);
 #endif
 
-  if (extension.empty())
+  if (extension.empty()) {
+    // The GetPreferredExtensionForMimeType call will end up going to disk.  Do
+    // this on another thread to avoid slowing the IO thread.
+    // http://crbug.com/61827
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
     net::GetPreferredExtensionForMimeType(mime_type, &extension);
+  }
 
   generated_extension->swap(extension);
 }
@@ -442,8 +449,8 @@ void DragDownload(const DownloadItem* download,
   OSExchangeData data;
 
   if (icon) {
-    drag_utils::CreateDragImageForFile(download->GetFileName().value(), icon,
-                                       &data);
+    drag_utils::CreateDragImageForFile(
+        download->GetFileNameToReportUser().value(), icon, &data);
   }
 
   const FilePath full_path = download->full_path();
@@ -456,7 +463,7 @@ void DragDownload(const DownloadItem* download,
   // Add URL so that we can load supported files when dragged to TabContents.
   if (net::IsSupportedMimeType(mime_type)) {
     data.SetURL(GURL(WideToUTF8(full_path.ToWStringHack())),
-                     download->GetFileName().ToWStringHack());
+                     download->GetFileNameToReportUser().ToWStringHack());
   }
 
 #if defined(OS_WIN)
@@ -496,10 +503,10 @@ DictionaryValue* CreateDownloadItemValue(DownloadItem* download, int id) {
       WideToUTF16Hack(base::TimeFormatShortDate(download->start_time())));
   file_value->SetInteger("id", id);
   file_value->SetString("file_path",
-      WideToUTF16Hack(download->full_path().ToWStringHack()));
+      WideToUTF16Hack(download->GetTargetFilePath().ToWStringHack()));
   // Keep file names as LTR.
   string16 file_name = WideToUTF16Hack(
-      download->GetFileName().ToWStringHack());
+      download->GetFileNameToReportUser().ToWStringHack());
   file_name = base::i18n::GetDisplayStringInLTRDirectionality(file_name);
   file_value->SetString("file_name", file_name);
   file_value->SetString("url", download->url().spec());
@@ -709,8 +716,10 @@ int GetUniquePathNumberWithCrDownload(const FilePath& path) {
 
 FilePath GetCrDownloadPath(const FilePath& suggested_path) {
   FilePath::StringType file_name;
-  SStringPrintf(&file_name, PRFilePathLiteral FILE_PATH_LITERAL(".crdownload"),
-                suggested_path.value().c_str());
+  base::SStringPrintf(
+      &file_name,
+      PRFilePathLiteral FILE_PATH_LITERAL(".crdownload"),
+      suggested_path.value().c_str());
   return FilePath(file_name);
 }
 

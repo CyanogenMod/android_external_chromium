@@ -35,6 +35,7 @@
 #include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/testing_profile.h"
+#include "chrome/test/testing_pref_service.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using std::vector;
@@ -54,10 +55,10 @@ using testing::Invoke;
 
 class TestBookmarkModelAssociator : public BookmarkModelAssociator {
  public:
-  TestBookmarkModelAssociator(TestProfileSyncService* service,
+  TestBookmarkModelAssociator(ProfileSyncService* service,
       UnrecoverableErrorHandler* persist_ids_error_handler)
       : BookmarkModelAssociator(service, persist_ids_error_handler),
-        helper_(new TestModelAssociatorHelper(service->id_factory())) {
+        helper_(new TestModelAssociatorHelper()) {
   }
   virtual bool GetSyncIdForTaggedNode(const std::string& tag, int64* sync_id) {
     return helper_->GetSyncIdForTaggedNode(this, tag, sync_id);
@@ -468,6 +469,16 @@ TEST_F(ProfileSyncServiceTest, InitialState) {
   EXPECT_TRUE(bookmark_bar_id());
 
   ExpectModelMatch();
+}
+
+TEST_F(ProfileSyncServiceTest, DisabledByPolicy) {
+  profile_->GetTestingPrefService()->SetManagedPref(
+      prefs::kSyncManaged,
+      Value::CreateBooleanValue(true));
+  service_.reset(new TestProfileSyncService(&factory_, profile_.get(),
+                                            "", true, NULL));
+  service_->Initialize();
+  EXPECT_TRUE(service_->IsManaged());
 }
 
 TEST_F(ProfileSyncServiceTest, AbortedByShutdown) {

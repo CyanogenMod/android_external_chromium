@@ -23,6 +23,7 @@
 #include "media/base/media_switches.h"
 
 #if defined(OS_LINUX)
+#include "app/x11_util.h"
 #include "gfx/gtk_native_view_id_manager.h"
 #endif
 
@@ -94,6 +95,7 @@ bool GpuProcessHost::Init() {
   static const char* const kSwitchNames[] = {
     switches::kUseGL,
     switches::kDisableGpuVsync,
+    switches::kDisableGpuWatchdog,
     switches::kDisableLogging,
     switches::kEnableAcceleratedDecoding,
     switches::kEnableLogging,
@@ -124,16 +126,6 @@ GpuProcessHost* GpuProcessHost::Get() {
   if (sole_instance_ == NULL)
     sole_instance_ = new GpuProcessHost();
   return sole_instance_;
-}
-
-// static
-void GpuProcessHost::SendAboutGpuCrash() {
-  Get()->Send(new GpuMsg_Crash());
-}
-
-// static
-void GpuProcessHost::SendAboutGpuHang() {
-  Get()->Send(new GpuMsg_Hang());
 }
 
 bool GpuProcessHost::Send(IPC::Message* msg) {
@@ -237,7 +229,7 @@ void SendDelayedReply(IPC::Message* reply_msg) {
 }
 
 void GetViewXIDDispatcher(gfx::NativeViewId id, IPC::Message* reply_msg) {
-  unsigned long xid;
+  XID xid;
 
   GtkNativeViewManager* manager = Singleton<GtkNativeViewManager>::get();
   if (!manager->GetPermanentXIDForId(&xid, id)) {
@@ -253,11 +245,11 @@ void GetViewXIDDispatcher(gfx::NativeViewId id, IPC::Message* reply_msg) {
       NewRunnableFunction(&SendDelayedReply, reply_msg));
 }
 
-}
+} // namespace
 
 void GpuProcessHost::OnGetViewXID(gfx::NativeViewId id,
                                   IPC::Message *reply_msg) {
-  // Have to request a permanent overlay from UI thread.
+  // Have to request a permanent XID from UI thread.
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       NewRunnableFunction(&GetViewXIDDispatcher, id, reply_msg));
@@ -308,10 +300,14 @@ namespace {
 class BuffersSwappedDispatcher : public Task {
  public:
   BuffersSwappedDispatcher(
-      int32 renderer_id, int32 render_view_id, gfx::PluginWindowHandle window)
+      int32 renderer_id,
+      int32 render_view_id,
+      gfx::PluginWindowHandle window,
+      uint64 surface_id)
       : renderer_id_(renderer_id),
         render_view_id_(render_view_id),
-        window_(window) {
+        window_(window),
+        surface_id_(surface_id) {
   }
 
   void Run() {
@@ -322,13 +318,14 @@ class BuffersSwappedDispatcher : public Task {
     RenderWidgetHostView* view = host->view();
     if (!view)
       return;
-    view->AcceleratedSurfaceBuffersSwapped(window_);
+    view->AcceleratedSurfaceBuffersSwapped(window_, surface_id_);
   }
 
  private:
   int32 renderer_id_;
   int32 render_view_id_;
   gfx::PluginWindowHandle window_;
+  uint64 surface_id_;
 
   DISALLOW_COPY_AND_ASSIGN(BuffersSwappedDispatcher);
 };
@@ -338,10 +335,12 @@ class BuffersSwappedDispatcher : public Task {
 void GpuProcessHost::OnAcceleratedSurfaceBuffersSwapped(
     int32 renderer_id,
     int32 render_view_id,
-    gfx::PluginWindowHandle window) {
+    gfx::PluginWindowHandle window,
+    uint64 surface_id) {
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
-      new BuffersSwappedDispatcher(renderer_id, render_view_id, window));
+      new BuffersSwappedDispatcher(
+          renderer_id, render_view_id, window, surface_id));
 }
 #endif
 

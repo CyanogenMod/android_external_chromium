@@ -112,7 +112,7 @@ class ExtensionDOMUIImageLoadingTracker : public ImageLoadingTracker::Observer {
 
   ImageLoadingTracker tracker_;
   scoped_refptr<FaviconService::GetFaviconRequest> request_;
-  Extension* extension_;
+  const Extension* extension_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionDOMUIImageLoadingTracker);
 };
@@ -122,10 +122,11 @@ class ExtensionDOMUIImageLoadingTracker : public ImageLoadingTracker::Observer {
 const char ExtensionDOMUI::kExtensionURLOverrides[] =
     "extensions.chrome_url_overrides";
 
-ExtensionDOMUI::ExtensionDOMUI(TabContents* tab_contents, GURL url)
-    : DOMUI(tab_contents) {
+ExtensionDOMUI::ExtensionDOMUI(TabContents* tab_contents, const GURL& url)
+    : DOMUI(tab_contents),
+      url_(url) {
   ExtensionsService* service = tab_contents->profile()->GetExtensionsService();
-  Extension* extension = service->GetExtensionByURL(url);
+  const Extension* extension = service->GetExtensionByURL(url);
   if (!extension)
     extension = service->GetExtensionByWebExtent(url);
   DCHECK(extension);
@@ -150,12 +151,10 @@ ExtensionDOMUI::~ExtensionDOMUI() {}
 
 void ExtensionDOMUI::ResetExtensionFunctionDispatcher(
     RenderViewHost* render_view_host) {
-  // Use the NavigationController to get the URL rather than the TabContents
-  // since this is the real underlying URL (see HandleChromeURLOverride).
-  NavigationController& controller = tab_contents()->controller();
-  const GURL& url = controller.GetActiveEntry()->url();
+  // TODO(jcivelli): http://crbug.com/60608 we should get the URL out of the
+  //                 active entry of the navigation controller.
   extension_function_dispatcher_.reset(
-      ExtensionFunctionDispatcher::Create(render_view_host, this, url));
+      ExtensionFunctionDispatcher::Create(render_view_host, this, url_));
   DCHECK(extension_function_dispatcher_.get());
 }
 
@@ -193,10 +192,6 @@ Browser* ExtensionDOMUI::GetBrowser() const {
 
 TabContents* ExtensionDOMUI::associated_tab_contents() const {
   return tab_contents();
-}
-
-Profile* ExtensionDOMUI::GetProfile() {
-  return DOMUI::GetProfile();
 }
 
 ExtensionBookmarkManagerEventRouter*
@@ -272,7 +267,7 @@ bool ExtensionDOMUI::HandleChromeURLOverride(GURL* url, Profile* profile) {
     }
 
     // Verify that the extension that's being referred to actually exists.
-    Extension* extension = service->GetExtensionByURL(extension_url);
+    const Extension* extension = service->GetExtensionByURL(extension_url);
     if (!extension) {
       // This can currently happen if you use --load-extension one run, and
       // then don't use it the next.  It could also happen if an extension

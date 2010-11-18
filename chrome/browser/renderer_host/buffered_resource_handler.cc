@@ -149,6 +149,8 @@ bool BufferedResourceHandler::OnReadCompleted(int request_id, int* bytes_read) {
   return real_handler_->OnReadCompleted(request_id, bytes_read);
 }
 
+BufferedResourceHandler::~BufferedResourceHandler() {}
+
 bool BufferedResourceHandler::DelayResponse() {
   std::string mime_type;
   request_->GetMimeType(&mime_type);
@@ -172,7 +174,7 @@ bool BufferedResourceHandler::DelayResponse() {
     // is.  That means we need to delay sending the ResponseStarted message
     // over the IPC channel.
     sniff_content_ = true;
-    LOG(INFO) << "To buffer: " << request_->url().spec();
+    VLOG(1) << "To buffer: " << request_->url().spec();
     return true;
   }
 

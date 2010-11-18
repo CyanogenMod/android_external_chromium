@@ -193,7 +193,8 @@ int SSLConnectJob::DoTCPConnect() {
 
   if (ssl_host_info_factory_ && SSLConfigService::snap_start_enabled()) {
       ssl_host_info_.reset(
-          ssl_host_info_factory_->GetForHost(params_->hostname()));
+          ssl_host_info_factory_->GetForHost(params_->hostname(),
+                                             params_->ssl_config()));
   }
   if (ssl_host_info_.get()) {
     // This starts fetching the SSL host info from the disk cache for Snap
@@ -284,7 +285,8 @@ int SSLConnectJob::DoSSLConnect() {
 
   ssl_socket_.reset(client_socket_factory_->CreateSSLClientSocket(
         transport_socket_handle_.release(), params_->hostname(),
-        params_->ssl_config(), ssl_host_info_.release()));
+        params_->ssl_config(), ssl_host_info_.release(),
+        dnsrr_resolver_));
   return ssl_socket_->Connect(&callback_);
 }
 

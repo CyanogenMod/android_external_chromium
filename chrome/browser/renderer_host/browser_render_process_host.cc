@@ -47,6 +47,7 @@
 #include "chrome/browser/renderer_host/resource_message_filter.h"
 #include "chrome/browser/renderer_host/web_cache_manager.h"
 #include "chrome/browser/spellcheck_host.h"
+#include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/visitedlink_master.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -258,7 +259,7 @@ BrowserRenderProcessHost::BrowserRenderProcessHost(Profile* profile)
 }
 
 BrowserRenderProcessHost::~BrowserRenderProcessHost() {
-  LOG_IF(INFO, g_log_bug53991) << "~BrowserRenderProcessHost: " << this;
+  VLOG_IF(1, g_log_bug53991) << "~BrowserRenderProcessHost: " << this;
 
   WebCacheManager::GetInstance()->Remove(id());
   ChildProcessSecurityPolicy::GetInstance()->Remove(id());
@@ -296,14 +297,14 @@ bool BrowserRenderProcessHost::Init(
   // Construct the AudioRendererHost with the IO thread.
   audio_renderer_host_ = new AudioRendererHost();
 
-  scoped_refptr<ResourceMessageFilter> resource_message_filter =
+  scoped_refptr<ResourceMessageFilter> resource_message_filter(
       new ResourceMessageFilter(g_browser_process->resource_dispatcher_host(),
                                 id(),
                                 audio_renderer_host_.get(),
                                 PluginService::GetInstance(),
                                 g_browser_process->print_job_manager(),
                                 profile(),
-                                widget_helper_);
+                                widget_helper_));
 
   CommandLine::StringType renderer_prefix;
 #if defined(OS_POSIX)
@@ -334,8 +335,8 @@ bool BrowserRenderProcessHost::Init(
   // be doing.
   channel_->set_sync_messages_with_no_timeout_allowed(false);
 
-  scoped_refptr<PepperFileMessageFilter> pepper_file_message_filter =
-      new PepperFileMessageFilter(id(), profile());
+  scoped_refptr<PepperFileMessageFilter> pepper_file_message_filter(
+      new PepperFileMessageFilter(id(), profile()));
   channel_->AddFilter(pepper_file_message_filter);
 
   if (run_renderer_in_process()) {
@@ -578,7 +579,6 @@ void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
     switches::kInternalNaCl,
     switches::kInternalPepper,
     switches::kRegisterPepperPlugins,
-    switches::kDisableByteRangeSupport,
     switches::kDisableDatabases,
     switches::kDisableDesktopNotifications,
     switches::kDisableWebSockets,
@@ -594,7 +594,6 @@ void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
     switches::kEnableOpenMax,
     switches::kVideoThreads,
     switches::kEnableVideoFullscreen,
-    switches::kEnableVideoLayering,
     switches::kEnableVideoLogging,
     switches::kEnableTouch,
     // We propagate the Chrome Frame command line here as well in case the
@@ -607,6 +606,9 @@ void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
     switches::kDisableExperimentalWebGL,
     switches::kDisableGLSLTranslator,
     switches::kInProcessWebGL,
+    // This flag needs to be propagated to the renderer process for
+    // --in-process-webgl.
+    switches::kUseGL,
     switches::kDisableAcceleratedCompositing,
 #if defined(OS_MACOSX)
     // Allow this to be set when invoking the browser and relayed along.
@@ -708,7 +710,7 @@ void BrowserRenderProcessHost::SendExtensionInfo() {
     return;
   ViewMsg_ExtensionsUpdated_Params params;
   for (size_t i = 0; i < service->extensions()->size(); ++i) {
-    Extension* extension = service->extensions()->at(i);
+    const Extension* extension = service->extensions()->at(i);
     ViewMsg_ExtensionRendererInfo info;
     info.id = extension->id();
     info.web_extent = extension->web_extent();
@@ -869,6 +871,8 @@ void BrowserRenderProcessHost::OnMessageReceived(const IPC::Message& msg) {
                           OnExtensionRemoveListener)
       IPC_MESSAGE_HANDLER(ViewHostMsg_ExtensionCloseChannel,
                           OnExtensionCloseChannel)
+      IPC_MESSAGE_HANDLER(ViewHostMsg_UserMetricsRecordAction,
+                          OnUserMetricsRecordAction)
       IPC_MESSAGE_HANDLER(ViewHostMsg_SpellChecker_RequestDictionary,
                           OnSpellCheckerRequestDictionary)
       IPC_MESSAGE_UNHANDLED_ERROR()
@@ -1087,6 +1091,11 @@ void BrowserRenderProcessHost::OnExtensionCloseChannel(int port_id) {
   if (profile()->GetExtensionMessageService()) {
     profile()->GetExtensionMessageService()->CloseChannel(port_id);
   }
+}
+
+void BrowserRenderProcessHost::OnUserMetricsRecordAction(
+    const std::string& action) {
+  UserMetrics::RecordComputedAction(action, profile());
 }
 
 void BrowserRenderProcessHost::OnSpellCheckerRequestDictionary() {

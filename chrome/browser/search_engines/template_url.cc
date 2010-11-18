@@ -10,6 +10,7 @@
 #include "base/logging.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
+#include "chrome/browser/search_engines/search_engine_type.h"
 #include "chrome/browser/search_engines/search_terms_data.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/url_constants.h"
@@ -568,8 +569,8 @@ TemplateURL::TemplateURL()
       date_created_(base::Time::Now()),
       created_by_policy_(false),
       usage_count_(0),
-      search_engine_type_(TemplateURLPrepopulateData::SEARCH_ENGINE_OTHER),
-      logo_id_(0),
+      search_engine_type_(SEARCH_ENGINE_OTHER),
+      logo_id_(kNoSearchEngineLogo),
       prepopulate_id_(0) {
 }
 

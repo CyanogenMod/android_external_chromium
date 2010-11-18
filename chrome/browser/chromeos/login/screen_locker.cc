@@ -10,6 +10,7 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/command_line.h"
+#include "base/metrics/histogram.h"
 #include "base/message_loop.h"
 #include "base/singleton.h"
 #include "base/string_util.h"
@@ -29,6 +30,8 @@
 #include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/login/message_bubble.h"
 #include "chrome/browser/chromeos/login/screen_lock_view.h"
+#include "chrome/browser/chromeos/login/shutdown_button.h"
+#include "chrome/browser/chromeos/system_key_event_listener.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/common/chrome_switches.h"
@@ -223,6 +226,33 @@ class LockWindow : public views::WidgetGtk {
   DISALLOW_COPY_AND_ASSIGN(LockWindow);
 };
 
+// GrabWidget's root view to layout the ScreenLockView at the center
+// and the Shutdown button at the right bottom.
+class GrabWidgetRootView : public views::View {
+ public:
+  explicit GrabWidgetRootView(chromeos::ScreenLockView* screen_lock_view)
+      : screen_lock_view_(screen_lock_view),
+        shutdown_button_(new chromeos::ShutdownButton()) {
+    shutdown_button_->Init();
+    AddChildView(screen_lock_view_);
+    AddChildView(shutdown_button_);
+  }
+
+  // views::View implementation.
+  virtual void Layout() {
+    gfx::Size size = screen_lock_view_->GetPreferredSize();
+    screen_lock_view_->SetBounds(0, 0, size.width(), size.height());
+    shutdown_button_->LayoutIn(this);
+  }
+
+ private:
+  views::View* screen_lock_view_;
+
+  chromeos::ShutdownButton* shutdown_button_;
+
+  DISALLOW_COPY_AND_ASSIGN(GrabWidgetRootView);
+};
+
 // A child widget that grabs both keyboard and pointer input.
 class GrabWidget : public views::WidgetGtk {
  public:
@@ -329,8 +359,10 @@ void GrabWidget::TryGrabAllInputs() {
 // addition to other background components.
 class ScreenLockerBackgroundView : public chromeos::BackgroundView {
  public:
-  explicit ScreenLockerBackgroundView(views::WidgetGtk* lock_widget)
-      : lock_widget_(lock_widget) {
+  ScreenLockerBackgroundView(views::WidgetGtk* lock_widget,
+                             views::View* screen_lock_view)
+      : lock_widget_(lock_widget),
+        screen_lock_view_(screen_lock_view) {
   }
 
   virtual bool IsScreenLockerMode() const {
@@ -340,16 +372,23 @@ class ScreenLockerBackgroundView : public chromeos::BackgroundView {
   virtual void Layout() {
     chromeos::BackgroundView::Layout();
     gfx::Rect screen = bounds();
-    gfx::Size size = lock_widget_->GetRootView()->GetPreferredSize();
-    lock_widget_->SetBounds(
-        gfx::Rect((screen.width() - size.width()) / 2,
-                  (screen.height() - size.height()) / 2,
-                  size.width(),
-                  size.height()));
+    if (screen_lock_view_) {
+      gfx::Size size = screen_lock_view_->GetPreferredSize();
+      gfx::Point origin((screen.width() - size.width()) / 2,
+                        (screen.height() - size.height()) / 2);
+      gfx::Size widget_size(screen.size());
+      widget_size.Enlarge(-origin.x(), -origin.y());
+      lock_widget_->SetBounds(gfx::Rect(origin, widget_size));
+    } else {
+      // No password entry. Move the lock widget to off screen.
+      lock_widget_->SetBounds(gfx::Rect(-100, -100, 1, 1));
+    }
   }
 
  private:
   views::WidgetGtk* lock_widget_;
+
+  views::View* screen_lock_view_;
 
   DISALLOW_COPY_AND_ASSIGN(ScreenLockerBackgroundView);
 };
@@ -440,7 +479,10 @@ class InputEventObserver : public MessageLoopForUI::Observer {
       activated_ = true;
       std::string not_used_string;
       GaiaAuthConsumer::ClientLoginResult not_used;
-      screen_locker_->OnLoginSuccess(not_used_string, not_used, false);
+      screen_locker_->OnLoginSuccess(not_used_string,
+                                     not_used_string,
+                                     not_used,
+                                     false);
     }
   }
 
@@ -504,7 +546,8 @@ ScreenLocker::ScreenLocker(const UserManager::User& user)
       // TODO(oshima): support auto login mode (this is not implemented yet)
       // http://crosbug.com/1881
       unlock_on_input_(user_.email().empty()),
-      locked_(false) {
+      locked_(false),
+      start_time_(base::Time::Now()) {
   DCHECK(!screen_locker_);
   screen_locker_ = this;
 }
@@ -535,15 +578,19 @@ void ScreenLocker::Init() {
   lock_widget_ = new GrabWidget(this);
   lock_widget_->MakeTransparent();
   lock_widget_->InitWithWidget(lock_window_, gfx::Rect());
-  if (screen_lock_view_)
-    lock_widget_->SetContentsView(screen_lock_view_);
+  if (screen_lock_view_) {
+    lock_widget_->SetContentsView(
+        new GrabWidgetRootView(screen_lock_view_));
+  }
+
   lock_widget_->Show();
 
   // Configuring the background url.
   std::string url_string =
       CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
           switches::kScreenSaverUrl);
-  background_view_ = new ScreenLockerBackgroundView(lock_widget_);
+  background_view_ = new ScreenLockerBackgroundView(lock_widget_,
+                                                    screen_lock_view_);
   background_view_->Init(GURL(url_string));
   if (background_view_->ScreenSaverEnabled())
     StartScreenSaver();
@@ -564,10 +611,23 @@ void ScreenLocker::Init() {
   gdk_window_set_back_pixmap(lock_widget_->GetNativeView()->window,
                              NULL, false);
   lock_window->set_toplevel_focus_widget(lock_widget_->window_contents());
+
+  // Create the SystemKeyEventListener so it can listen for system keyboard
+  // messages regardless of focus while screen locked.
+  SystemKeyEventListener::instance();
 }
 
 void ScreenLocker::OnLoginFailure(const LoginFailure& error) {
   DVLOG(1) << "OnLoginFailure";
+  UserMetrics::RecordAction(UserMetricsAction("ScreenLocker_OnLoginFailure"));
+  if (authentication_start_time_.is_null()) {
+    LOG(ERROR) << "authentication_start_time_ is not set";
+  } else {
+    base::TimeDelta delta = base::Time::Now() - authentication_start_time_;
+    VLOG(1) << "Authentication failure time: " << delta.InSecondsF();
+    UMA_HISTOGRAM_TIMES("ScreenLocker.AuthenticationFailureTime", delta);
+  }
+
   EnableInput();
   // Don't enable signout button here as we're showing
   // MessageBubble.
@@ -608,9 +668,18 @@ void ScreenLocker::OnLoginFailure(const LoginFailure& error) {
 
 void ScreenLocker::OnLoginSuccess(
     const std::string& username,
+    const std::string& password,
     const GaiaAuthConsumer::ClientLoginResult& unused,
     bool pending_requests) {
   VLOG(1) << "OnLoginSuccess: Sending Unlock request.";
+  if (authentication_start_time_.is_null()) {
+    LOG(ERROR) << "authentication_start_time_ is not set";
+  } else {
+    base::TimeDelta delta = base::Time::Now() - authentication_start_time_;
+    VLOG(1) << "Authentication success time: " << delta.InSecondsF();
+    UMA_HISTOGRAM_TIMES("ScreenLocker.AuthenticationSuccessTime", delta);
+  }
+
   if (CrosLibrary::Get()->EnsureLoaded())
     CrosLibrary::Get()->GetScreenLockLibrary()->NotifyScreenUnlockRequested();
 }
@@ -626,10 +695,11 @@ void ScreenLocker::InfoBubbleClosing(InfoBubble* info_bubble,
 }
 
 void ScreenLocker::Authenticate(const string16& password) {
+  authentication_start_time_ = base::Time::Now();
   screen_lock_view_->SetEnabled(false);
   screen_lock_view_->SetSignoutEnabled(false);
   BrowserThread::PostTask(
-      BrowserThread::FILE, FROM_HERE,
+      BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(authenticator_.get(),
                         &Authenticator::AuthenticateToUnlock,
                         user_.email(),
@@ -652,7 +722,7 @@ void ScreenLocker::EnableInput() {
 
 void ScreenLocker::Signout() {
   if (!error_info_) {
-    // TODO(oshima): record this action in user metrics.
+    UserMetrics::RecordAction(UserMetricsAction("ScreenLocker_Signout"));
     if (CrosLibrary::Get()->EnsureLoaded()) {
       CrosLibrary::Get()->GetLoginLibrary()->StopSession("");
     }
@@ -672,6 +742,7 @@ void ScreenLocker::OnGrabInputs() {
 // static
 void ScreenLocker::Show() {
   VLOG(1) << "In ScreenLocker::Show";
+  UserMetrics::RecordAction(UserMetricsAction("ScreenLocker_Show"));
   DCHECK(MessageLoop::current()->type() == MessageLoop::TYPE_UI);
 
   // Exit fullscreen.
@@ -767,6 +838,10 @@ void ScreenLocker::SetAuthenticator(Authenticator* authenticator) {
 void ScreenLocker::ScreenLockReady() {
   VLOG(1) << "ScreenLockReady: sending completed signal to power manager.";
   locked_ = true;
+  base::TimeDelta delta = base::Time::Now() - start_time_;
+  VLOG(1) << "Screen lock time: " << delta.InSecondsF();
+  UMA_HISTOGRAM_TIMES("ScreenLocker.ScreenLockTime", delta);
+
   if (background_view_->ScreenSaverEnabled()) {
     lock_widget_->GetFocusManager()->RegisterAccelerator(
         views::Accelerator(app::VKEY_ESCAPE, false, false, false), this);
@@ -817,6 +892,8 @@ void ScreenLocker::StopScreenSaver() {
 void ScreenLocker::StartScreenSaver() {
   if (!background_view_->IsScreenSaverVisible()) {
     VLOG(1) << "StartScreenSaver";
+    UserMetrics::RecordAction(
+        UserMetricsAction("ScreenLocker_StartScreenSaver"));
     background_view_->ShowScreenSaver();
     if (screen_lock_view_) {
       screen_lock_view_->SetEnabled(false);

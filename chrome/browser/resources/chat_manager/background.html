@@ -14,7 +14,7 @@ to route both incoming and outgoing chats through this central roster.
 <body>
   <iframe
     id='centralRoster'
-    src='central_roster.html'>Central Roster</iframe>
+    src='central_roster.html'></iframe>
 <script src="js/chatbridgeeventtypes.js"></script>
 <script>
   var centralRosterJid;
@@ -44,12 +44,37 @@ to route both incoming and outgoing chats through this central roster.
     }
   }
 
+  // Focus a chat popup.
+  function focusMole(hostId) {
+    findMole(hostId, function(win) {
+      chrome.windows.update(win.id, {focused: true});
+    });
+  }
+
+  // Find a chat popup from a chat's hostId and executes callback with it.
+  function findMole(hostId, callback) {
+    var matchUrlIdRegExp = new RegExp('[&?]id=' + hostId + '(&|$)', 'i');
+    chrome.windows.getAll({populate: true}, function(wins) {
+      for (var winIdx = 0, win = wins[winIdx]; win; win = wins[++winIdx]) {
+        var tabs = win.tabs;
+        for (var tabIdx = 0, tab = tabs[tabIdx]; tab; tab = tabs[++tabIdx]) {
+          if ((tab.url).match(matchUrlIdRegExp)) {
+            callback(win);
+            return;
+          }
+        }
+      }
+    });
+  }
+
   // Listen for content script connections.
   chrome.extension.onConnect.addListener(function(port) {
     // New central jid listener.
     // Update with current central roster jid, and add to tracking array.
     if (port.name == 'centralJidListener') {
       centralJidListenerPorts.push(port);
+      port.postMessage({eventType: ChatBridgeEventTypes.CENTRAL_USER_UPDATE,
+          jid: centralRosterJid});
 
       // Clear tracking array entry when content script closes.
       port.onDisconnect.addListener(function(port) {
@@ -110,6 +135,9 @@ to route both incoming and outgoing chats through this central roster.
       case ChatBridgeEventTypes.CLOSED_MOLE_INCOMING:
         forwardEventToPortListeners(ChatBridgeEventTypes.CLOSED_MOLE_OUTGOING,
             request.jid);
+        break;
+      case ChatBridgeEventTypes.MOLE_FOCUSED:
+        focusMole(request.jid);
         break;
     }
   });

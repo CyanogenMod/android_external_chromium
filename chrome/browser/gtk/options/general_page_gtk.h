@@ -36,6 +36,8 @@ class GeneralPageGtk : public OptionsPageBase,
   GtkWidget* get_page_widget() const { return page_; }
 
  private:
+  GtkWindow* GetWindow();
+
   // Overridden from OptionsPageBase
   virtual void NotifyPrefChanged(const std::string* pref_name);
   virtual void HighlightGroup(OptionsGroup highlight_group);
@@ -92,7 +94,11 @@ class GeneralPageGtk : public OptionsPageBase,
   CHROMEGTK_CALLBACK_0(GeneralPageGtk, void, OnDefaultSearchEngineChanged);
   CHROMEGTK_CALLBACK_0(GeneralPageGtk, void,
                        OnDefaultSearchManageEnginesClicked);
+  CHROMEGTK_CALLBACK_0(GeneralPageGtk, void, OnInstantToggled);
   CHROMEGTK_CALLBACK_0(GeneralPageGtk, void, OnBrowserUseAsDefaultClicked);
+  CHROMEGTK_CALLBACK_1(GeneralPageGtk, void, OnInstantLabelSizeAllocate,
+                       GtkAllocation*);
+  CHROMEGTK_CALLBACK_0(GeneralPageGtk, void, OnSearchLearnMoreClicked);
 
   CHROMEG_CALLBACK_0(GeneralPageGtk, void, OnStartupPagesSelectionChanged,
                      GtkTreeSelection*);
@@ -137,6 +143,10 @@ class GeneralPageGtk : public OptionsPageBase,
   GtkListStore* default_search_engines_model_;
   GtkWidget* default_search_manage_engines_button_;
   TemplateURLModel* template_url_model_;
+  GtkWidget* instant_checkbox_;
+  // This widget acts as the indent for the instant warning label.
+  GtkWidget* instant_indent_;
+  BooleanPrefMember instant_;
 
   // Widgets of the default browser group
   GtkWidget* default_browser_status_label_;

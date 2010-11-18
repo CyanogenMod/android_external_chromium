@@ -36,12 +36,13 @@ InputMethodMenuButton::InputMethodMenuButton(StatusAreaHost* host)
     : StatusAreaButton(this),
       InputMethodMenu(GetPrefService(host),
                       host->IsBrowserMode(),
-                      host->IsScreenLockerMode()),
+                      host->IsScreenLockerMode(),
+                      false /* is_out_of_box_experience_mode */),
       host_(host) {
   set_border(NULL);
   set_use_menu_button_paint(true);
   SetFont(ResourceBundle::GetSharedInstance().GetFont(
-      ResourceBundle::BaseFont).DeriveFont(1, gfx::Font::BOLD));
+      ResourceBundle::BaseFont).DeriveFont(1));
   SetEnabledColor(0xB3FFFFFF);  // White with 70% Alpha
   SetDisabledColor(0x00FFFFFF);  // White with 00% Alpha (invisible)
   SetShowMultipleIconStates(false);
@@ -56,6 +57,14 @@ InputMethodMenuButton::InputMethodMenuButton(StatusAreaHost* host)
 
 ////////////////////////////////////////////////////////////////////////////////
 // views::View implementation:
+
+gfx::Size InputMethodMenuButton::GetPreferredSize() {
+  // If not enabled, then hide this button.
+  if (!IsEnabled()) {
+    return gfx::Size(0, 0);
+  }
+  return StatusAreaButton::GetPreferredSize();
+}
 
 void InputMethodMenuButton::OnLocaleChanged() {
   input_method::OnLocaleChanged();

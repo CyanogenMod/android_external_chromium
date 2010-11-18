@@ -37,7 +37,7 @@ class ExtensionContextMenuModel
   // prefs::kExtensionsUIDeveloperMode is enabled then a menu item
   // will be shown for "Inspect Popup" which, when selected, will cause
   // ShowPopupForDevToolsWindow() to be called on |delegate|.
-  ExtensionContextMenuModel(Extension* extension,
+  ExtensionContextMenuModel(const Extension* extension,
                             Browser* browser,
                             PopupDelegate* delegate);
   virtual ~ExtensionContextMenuModel();
@@ -56,8 +56,12 @@ class ExtensionContextMenuModel
  private:
   void InitCommonCommands();
 
-  // The extension we are displaying the menu for.
-  Extension* extension_;
+  // Gets the extension we are displaying the menu for. Returns NULL if the
+  // extension has been uninstalled and no longer exists.
+  const Extension* GetExtension() const;
+
+  // A copy of the extension's id.
+  std::string extension_id_;
 
   // The extension action we are displaying the menu for (or NULL).
   ExtensionAction* extension_action_;

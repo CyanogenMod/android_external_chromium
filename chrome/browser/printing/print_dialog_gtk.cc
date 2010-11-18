@@ -9,9 +9,11 @@
 #include <gtk/gtkpagesetupunixdialog.h>
 
 #include "base/file_util.h"
+#include "base/file_util_proxy.h"
 #include "base/lazy_instance.h"
 #include "base/lock.h"
 #include "base/logging.h"
+#include "base/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_thread.h"
@@ -169,7 +171,11 @@ void PrintDialogGtk::OnJobCompleted(GtkPrintJob* job, GError* error) {
   if (job)
     g_object_unref(job);
 
-  file_util::Delete(path_to_pdf_, false);
+  base::FileUtilProxy::Delete(
+      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE),
+      path_to_pdf_,
+      false,
+      NULL);
 
   delete this;
 }

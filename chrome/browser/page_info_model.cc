@@ -150,7 +150,6 @@ PageInfoModel::PageInfoModel(Profile* profile,
   }
   sections_.push_back(SectionInfo(
       icon_id,
-      l10n_util::GetStringUTF16(IDS_PAGE_INFO_SECURITY_TAB_IDENTITY_TITLE),
       headline,
       description,
       SECTION_INFO_IDENTITY));
@@ -196,6 +195,15 @@ PageInfoModel::PageInfoModel(Profile* profile,
   uint16 cipher_suite =
       net::SSLConnectionStatusToCipherSuite(ssl.connection_status());
   if (ssl.security_bits() > 0 && cipher_suite) {
+    int ssl_version =
+        net::SSLConnectionStatusToVersion(ssl.connection_status());
+    const char* ssl_version_str;
+    net::SSLVersionToString(&ssl_version_str, ssl_version);
+    description += ASCIIToUTF16("\n\n");
+    description += l10n_util::GetStringFUTF16(
+        IDS_PAGE_INFO_SECURITY_TAB_SSL_VERSION,
+        ASCIIToUTF16(ssl_version_str));
+
     bool did_fallback = (ssl.connection_status() &
                          net::SSL_CONNECTION_SSL3_FALLBACK) != 0;
     bool no_renegotiation =
@@ -213,7 +221,7 @@ PageInfoModel::PageInfoModel(Profile* profile,
     uint8 compression_id =
         net::SSLConnectionStatusToCompression(ssl.connection_status());
     if (compression_id) {
-      const char *compression;
+      const char* compression;
       net::SSLCompressionToString(&compression, compression_id);
       description += l10n_util::GetStringFUTF16(
           IDS_PAGE_INFO_SECURITY_TAB_COMPRESSION_DETAILS,
@@ -240,7 +248,6 @@ PageInfoModel::PageInfoModel(Profile* profile,
   if (!description.empty()) {
     sections_.push_back(SectionInfo(
         icon_id,
-        l10n_util::GetStringUTF16(IDS_PAGE_INFO_SECURITY_TAB_CONNECTION_TITLE),
         headline,
         description,
         SECTION_INFO_CONNECTION));
@@ -299,34 +306,25 @@ void PageInfoModel::OnGotVisitCountToHost(HistoryService::Handle handle,
     visited_before_today = (first_visit_midnight < today);
   }
 
-  string16 title = l10n_util::GetStringUTF16(IDS_PAGE_INFO_SITE_INFO_TITLE);
+  string16 headline = l10n_util::GetStringUTF16(IDS_PAGE_INFO_SITE_INFO_TITLE);
 
   if (!visited_before_today) {
     sections_.push_back(SectionInfo(
         ICON_STATE_WARNING_MAJOR,
-        l10n_util::GetStringUTF16(
-            IDS_PAGE_INFO_SECURITY_TAB_PERSONAL_HISTORY_TITLE),
-        title,
+        headline,
         l10n_util::GetStringUTF16(
             IDS_PAGE_INFO_SECURITY_TAB_FIRST_VISITED_TODAY),
         SECTION_INFO_FIRST_VISIT));
   } else {
     sections_.push_back(SectionInfo(
         ICON_STATE_INFO,
-        l10n_util::GetStringUTF16(
-            IDS_PAGE_INFO_SECURITY_TAB_PERSONAL_HISTORY_TITLE),
-        title,
+        headline,
         l10n_util::GetStringFUTF16(
             IDS_PAGE_INFO_SECURITY_TAB_VISITED_BEFORE_TODAY,
             WideToUTF16(base::TimeFormatShortDate(first_visit))),
         SECTION_INFO_FIRST_VISIT));
   }
   observer_->ModelChanged();
-}
-
-// static
-void PageInfoModel::RegisterPrefs(PrefService* prefs) {
-  prefs->RegisterDictionaryPref(prefs::kPageInfoWindowPlacement);
 }
 
 PageInfoModel::PageInfoModel() : observer_(NULL) {

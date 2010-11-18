@@ -17,7 +17,6 @@
 #include "chrome/browser/gtk/rounded_window.h"
 #include "chrome/browser/gtk/slide_animator_gtk.h"
 #include "chrome/common/notification_service.h"
-#include "gfx/gtk_util.h"
 
 namespace {
 
@@ -106,8 +105,8 @@ void StatusBubbleGtk::SetStatusTextToURL() {
 
   // TODO(tc): We don't actually use gfx::Font as the font in the status
   // bubble.  We should extend gfx::ElideUrl to take some sort of pango font.
-  url_text_ = WideToUTF8(gfx::ElideUrl(url_, gfx::Font(), desired_width,
-                         UTF16ToWideHack(languages_)));
+  url_text_ = UTF16ToUTF8(gfx::ElideUrl(url_, gfx::Font(), desired_width,
+                          UTF16ToWideHack(languages_)));
   SetStatusTextTo(url_text_);
 }
 
@@ -251,7 +250,7 @@ void StatusBubbleGtk::InitWidgets() {
 
   container_.Own(gtk_event_box_new());
   gtk_util::ActAsRoundedWindow(
-      container_.get(), gfx::kGdkWhite, kCornerSize,
+      container_.get(), gtk_util::kGdkWhite, kCornerSize,
       gtk_util::ROUNDED_TOP_RIGHT,
       gtk_util::BORDER_TOP | gtk_util::BORDER_RIGHT);
   gtk_widget_set_name(container_.get(), "status-bubble");

@@ -5,7 +5,7 @@
 #include "chrome/browser/views/reload_button.h"
 
 #include "app/l10n_util.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/views/event_utils.h"
 #include "chrome/browser/views/location_bar/location_bar_view.h"
@@ -19,8 +19,12 @@ ReloadButton::ReloadButton(LocationBarView* location_bar, Browser* browser)
       location_bar_(location_bar),
       browser_(browser),
       intended_mode_(MODE_RELOAD),
-      visible_mode_(MODE_RELOAD) {
-  DCHECK(location_bar_);
+      visible_mode_(MODE_RELOAD),
+      double_click_timer_delay_(
+          base::TimeDelta::FromMilliseconds(GetDoubleClickTimeMS())),
+      stop_to_reload_timer_delay_(base::TimeDelta::FromMilliseconds(1350)),
+      testing_mouse_hovered_(false),
+      testing_reload_count_(0) {
 }
 
 ReloadButton::~ReloadButton() {
@@ -32,32 +36,43 @@ void ReloadButton::ChangeMode(Mode mode, bool force) {
   // If the change is forced, or the user isn't hovering the icon, or it's safe
   // to change it to the other image type, make the change immediately;
   // otherwise we'll let it happen later.
-  if (force || !IsMouseHovered() || ((mode == MODE_STOP) ?
-      !timer_.IsRunning() : (visible_mode_ != MODE_STOP))) {
-    timer_.Stop();
+  if (force || (!IsMouseHovered() && !testing_mouse_hovered_) ||
+      ((mode == MODE_STOP) ?
+      !double_click_timer_.IsRunning() : (visible_mode_ != MODE_STOP))) {
+    double_click_timer_.Stop();
+    stop_to_reload_timer_.Stop();
     SetToggled(mode == MODE_STOP);
     visible_mode_ = mode;
     SetEnabled(true);
 
   // We want to disable the button if we're preventing a change from stop to
   // reload due to hovering, but not if we're preventing a change from reload to
-  // stop due to the timer running.  (There is no disabled reload state.)
+  // stop due to the double-click timer running.  (There is no disabled reload
+  // state.)
   } else if (visible_mode_ != MODE_RELOAD) {
     SetEnabled(false);
+
+    // Go ahead and change to reload after a bit, which allows repeated reloads
+    // without moving the mouse.
+    if (!stop_to_reload_timer_.IsRunning()) {
+      stop_to_reload_timer_.Start(stop_to_reload_timer_delay_, this,
+                                  &ReloadButton::OnStopToReloadTimer);
+    }
   }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // ReloadButton, views::ButtonListener implementation:
 
-void ReloadButton::ButtonPressed(views::Button* button,
+void ReloadButton::ButtonPressed(views::Button* /* button */,
                                  const views::Event& event) {
   if (visible_mode_ == MODE_STOP) {
-    browser_->Stop();
+    if (browser_)
+      browser_->Stop();
     // The user has clicked, so we can feel free to update the button,
     // even if the mouse is still hovering.
     ChangeMode(MODE_RELOAD, true);
-  } else if (!timer_.IsRunning()) {
+  } else if (!double_click_timer_.IsRunning()) {
     // Shift-clicking or ctrl-clicking the reload button means we should ignore
     // any cached content.
     // TODO(avayvod): eliminate duplication of this logic in
@@ -74,7 +89,7 @@ void ReloadButton::ButtonPressed(views::Button* button,
 
     WindowOpenDisposition disposition =
         event_utils::DispositionFromEventFlags(flags);
-    if (disposition == CURRENT_TAB) {
+    if ((disposition == CURRENT_TAB) && location_bar_) {
       // Forcibly reset the location bar, since otherwise it won't discard any
       // ongoing user edits, since it doesn't realize this is a user-initiated
       // action.
@@ -86,11 +101,12 @@ void ReloadButton::ButtonPressed(views::Button* button,
     // here as the browser will do that when it actually starts loading (which
     // may happen synchronously, thus the need to do this before telling the
     // browser to execute the reload command).
-    timer_.Stop();
-    timer_.Start(base::TimeDelta::FromMilliseconds(GetDoubleClickTimeMS()),
-                 this, &ReloadButton::OnButtonTimer);
+    double_click_timer_.Start(double_click_timer_delay_, this,
+                              &ReloadButton::OnDoubleClickTimer);
 
-    browser_->ExecuteCommandWithDisposition(command, disposition);
+    if (browser_)
+      browser_->ExecuteCommandWithDisposition(command, disposition);
+    ++testing_reload_count_;
   }
 }
 
@@ -112,6 +128,10 @@ bool ReloadButton::GetTooltipText(const gfx::Point& p, std::wstring* tooltip) {
 ////////////////////////////////////////////////////////////////////////////////
 // ReloadButton, private:
 
-void ReloadButton::OnButtonTimer() {
+void ReloadButton::OnDoubleClickTimer() {
   ChangeMode(intended_mode_, false);
+}
+
+void ReloadButton::OnStopToReloadTimer() {
+  ChangeMode(intended_mode_, true);
 }

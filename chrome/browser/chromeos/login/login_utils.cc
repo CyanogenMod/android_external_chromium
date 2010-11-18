@@ -4,6 +4,8 @@
 
 #include "chrome/browser/chromeos/login/login_utils.h"
 
+#include <vector>
+
 #include "base/command_line.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
@@ -19,6 +21,7 @@
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/boot_times_loader.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
+#include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/browser/chromeos/external_cookie_handler.h"
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/chromeos/login/cookie_fetcher.h"
@@ -29,12 +32,15 @@
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/net/gaia/token_service.h"
+#include "chrome/browser/net/preconnect.h"
 #include "chrome/browser/prefs/pref_member.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/profile_manager.h"
+#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/logging_chrome.h"
+#include "chrome/common/net/gaia/gaia_authenticator2.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/common/pref_names.h"
@@ -46,7 +52,6 @@
 namespace chromeos {
 
 namespace {
-
 
 // Prefix for Auth token received from ClientLogin request.
 const char kAuthPrefix[] = "Auth=";
@@ -63,7 +68,9 @@ class LoginUtilsImpl : public LoginUtils {
 
   // Invoked after the user has successfully logged in. This launches a browser
   // and does other bookkeeping after logging in.
-  virtual void CompleteLogin(const std::string& username,
+  virtual void CompleteLogin(
+      const std::string& username,
+      const std::string& password,
       const GaiaAuthConsumer::ClientLoginResult& credentials);
 
   // Invoked after the tmpfs is successfully mounted.
@@ -80,6 +87,9 @@ class LoginUtilsImpl : public LoginUtils {
 
   // Returns if browser launch enabled now or not.
   virtual bool IsBrowserLaunchEnabled() const;
+
+  // Warms the url used by authentication.
+  virtual void PrewarmAuthentication();
 
  private:
   // Indicates if DoBrowserLaunch will actually launch the browser or not.
@@ -110,7 +120,9 @@ class LoginUtilsWrapper {
   DISALLOW_COPY_AND_ASSIGN(LoginUtilsWrapper);
 };
 
-void LoginUtilsImpl::CompleteLogin(const std::string& username,
+void LoginUtilsImpl::CompleteLogin(
+    const std::string& username,
+    const std::string& password,
     const GaiaAuthConsumer::ClientLoginResult& credentials) {
   BootTimesLoader* btl = BootTimesLoader::Get();
 
@@ -132,10 +144,7 @@ void LoginUtilsImpl::CompleteLogin(const std::string& username,
   ProfileManager* profile_manager = g_browser_process->profile_manager();
 
   // Switch log file as soon as possible.
-  logging::RedirectChromeLogging(
-      user_data_dir.Append(profile_manager->GetCurrentProfileDir()),
-      *(CommandLine::ForCurrentProcess()),
-      logging::DELETE_OLD_LOG_FILE);
+  logging::RedirectChromeLogging(*(CommandLine::ForCurrentProcess()));
   btl->AddLoginTimeMarker("LoggingRedirected", false);
 
   // The default profile will have been changed because the ProfileManager
@@ -175,7 +184,7 @@ void LoginUtilsImpl::CompleteLogin(const std::string& username,
 
   // Set the CrOS user by getting this constructor run with the
   // user's email on first retrieval.
-  profile->GetProfileSyncService(username);
+  profile->GetProfileSyncService(username)->SetPassphrase(password);
   btl->AddLoginTimeMarker("SyncStarted", false);
 
   // Attempt to take ownership; this will fail if device is already owned.
@@ -229,6 +238,16 @@ void LoginUtilsImpl::CompleteLogin(const std::string& username,
       btl->AddLoginTimeMarker("IMESTarted", false);
     }
   }
+
+  // We suck. This is a hack since we do not have the enterprise feature
+  // done yet to pull down policies from the domain admin. We'll take this
+  // out when we get that done properly.
+  // TODO(xiyuan): Remove this once enterprise feature is ready.
+  if (EndsWith(username, "@google.com", true)) {
+    PrefService* pref_service = profile->GetPrefs();
+    pref_service->SetBoolean(prefs::kEnableScreenLock, true);
+  }
+
   DoBrowserLaunch(profile);
 }
 
@@ -283,6 +302,41 @@ void LoginUtilsImpl::EnableBrowserLaunch(bool enable) {
 
 bool LoginUtilsImpl::IsBrowserLaunchEnabled() const {
   return browser_launch_enabled_;
+}
+
+// We use a special class for this so that it can be safely leaked if we
+// never connect. At shutdown the order is not well defined, and it's possible
+// for the infrastructure needed to unregister might be unstable and crash.
+class WarmingObserver : public NetworkLibrary::NetworkManagerObserver {
+ public:
+  WarmingObserver() {
+    NetworkLibrary *netlib = CrosLibrary::Get()->GetNetworkLibrary();
+    netlib->AddNetworkManagerObserver(this);
+  }
+
+  // If we're now connected, prewarm the auth url.
+  void OnNetworkManagerChanged(NetworkLibrary* netlib) {
+    if (netlib->Connected()) {
+      chrome_browser_net::Preconnect::PreconnectOnUIThread(
+          GURL(GaiaAuthenticator2::kClientLoginUrl),
+          chrome_browser_net::UrlInfo::EARLY_LOAD_MOTIVATED);
+      netlib->RemoveNetworkManagerObserver(this);
+      delete this;
+    }
+  }
+};
+
+void LoginUtilsImpl::PrewarmAuthentication() {
+  if (CrosLibrary::Get()->EnsureLoaded()) {
+    NetworkLibrary *network = CrosLibrary::Get()->GetNetworkLibrary();
+    if (network->Connected()) {
+      chrome_browser_net::Preconnect::PreconnectOnUIThread(
+          GURL(GaiaAuthenticator2::kClientLoginUrl),
+          chrome_browser_net::UrlInfo::EARLY_LOAD_MOTIVATED);
+    } else {
+      new WarmingObserver();
+    }
+  }
 }
 
 LoginUtils* LoginUtils::Get() {

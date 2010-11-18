@@ -7,7 +7,7 @@
 
 #include "base/platform_file.h"
 #include "base/weak_ptr.h"
-#include "third_party/ppapi/c/pp_completion_callback.h"
+#include "ppapi/c/pp_completion_callback.h"
 #include "webkit/fileapi/file_system_callback_dispatcher.h"
 
 struct PP_FileInfo_Dev;
@@ -18,6 +18,7 @@ class FilePath;
 
 namespace pepper {
 
+class DirectoryReader;
 class FileSystem;
 class PluginModule;
 
@@ -27,13 +28,15 @@ class FileCallbacks : public fileapi::FileSystemCallbackDispatcher {
   FileCallbacks(const base::WeakPtr<PluginModule>& module,
                 PP_CompletionCallback callback,
                 PP_FileInfo_Dev* info,
-                scoped_refptr<FileSystem> file_system);
+                scoped_refptr<FileSystem> file_system,
+                scoped_refptr<DirectoryReader> directory_reader);
+  virtual ~FileCallbacks();
 
   // FileSystemCallbackDispatcher implementation.
   virtual void DidSucceed();
   virtual void DidReadMetadata(const base::PlatformFileInfo& file_info);
   virtual void DidReadDirectory(
-      const std::vector<base::file_util_proxy::Entry>&, bool);
+      const std::vector<base::FileUtilProxy::Entry>& entries, bool has_more);
   virtual void DidOpenFileSystem(const std::string&,
                                  const FilePath& root_path);
   virtual void DidFail(base::PlatformFileError error_code);
@@ -42,10 +45,11 @@ class FileCallbacks : public fileapi::FileSystemCallbackDispatcher {
  private:
   void RunCallback(base::PlatformFileError error_code);
 
-  base::WeakPtr<pepper::PluginModule> module_;
+  base::WeakPtr<PluginModule> module_;
   PP_CompletionCallback callback_;
   PP_FileInfo_Dev* info_;
   scoped_refptr<FileSystem> file_system_;
+  scoped_refptr<DirectoryReader> directory_reader_;
 };
 
 }  // namespace pepper

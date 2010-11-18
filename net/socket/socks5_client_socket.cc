@@ -10,6 +10,7 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
+#include "base/debug/trace_event.h"
 #include "base/format_macros.h"
 #include "base/string_util.h"
 #include "net/base/io_buffer.h"
@@ -128,6 +129,14 @@ void SOCKS5ClientSocket::SetOmniboxSpeculation() {
 bool SOCKS5ClientSocket::WasEverUsed() const {
   if (transport_.get() && transport_->socket()) {
     return transport_->socket()->WasEverUsed();
+  }
+  NOTREACHED();
+  return false;
+}
+
+bool SOCKS5ClientSocket::UsingTCPFastOpen() const {
+  if (transport_.get() && transport_->socket()) {
+    return transport_->socket()->UsingTCPFastOpen();
   }
   NOTREACHED();
   return false;
@@ -303,13 +312,15 @@ int SOCKS5ClientSocket::DoGreetReadComplete(int result) {
 
   // Got the greet data.
   if (buffer_[0] != kSOCKS5Version) {
-    net_log_.AddEvent(NetLog::TYPE_SOCKS_UNEXPECTED_VERSION,
-                      new NetLogIntegerParameter("version", buffer_[0]));
+    net_log_.AddEvent(
+        NetLog::TYPE_SOCKS_UNEXPECTED_VERSION,
+        make_scoped_refptr(new NetLogIntegerParameter("version", buffer_[0])));
     return ERR_SOCKS_CONNECTION_FAILED;
   }
   if (buffer_[1] != 0x00) {
-    net_log_.AddEvent(NetLog::TYPE_SOCKS_UNEXPECTED_AUTH,
-                      new NetLogIntegerParameter("method", buffer_[1]));
+    net_log_.AddEvent(
+        NetLog::TYPE_SOCKS_UNEXPECTED_AUTH,
+        make_scoped_refptr(new NetLogIntegerParameter("method", buffer_[1])));
     return ERR_SOCKS_CONNECTION_FAILED;
   }
 
@@ -412,13 +423,17 @@ int SOCKS5ClientSocket::DoHandshakeReadComplete(int result) {
   // and accordingly increase them
   if (bytes_received_ == kReadHeaderSize) {
     if (buffer_[0] != kSOCKS5Version || buffer_[2] != kNullByte) {
-      net_log_.AddEvent(NetLog::TYPE_SOCKS_UNEXPECTED_VERSION,
-                        new NetLogIntegerParameter("version", buffer_[0]));
+      net_log_.AddEvent(
+          NetLog::TYPE_SOCKS_UNEXPECTED_VERSION,
+          make_scoped_refptr(
+              new NetLogIntegerParameter("version", buffer_[0])));
       return ERR_SOCKS_CONNECTION_FAILED;
     }
     if (buffer_[1] != 0x00) {
-      net_log_.AddEvent(NetLog::TYPE_SOCKS_SERVER_ERROR,
-                        new NetLogIntegerParameter("error_code", buffer_[1]));
+      net_log_.AddEvent(
+          NetLog::TYPE_SOCKS_SERVER_ERROR,
+          make_scoped_refptr(
+              new NetLogIntegerParameter("error_code", buffer_[1])));
       return ERR_SOCKS_CONNECTION_FAILED;
     }
 
@@ -436,8 +451,10 @@ int SOCKS5ClientSocket::DoHandshakeReadComplete(int result) {
     else if (address_type == kEndPointResolvedIPv6)
       read_header_size += sizeof(struct in6_addr) - 1;
     else {
-      net_log_.AddEvent(NetLog::TYPE_SOCKS_UNKNOWN_ADDRESS_TYPE,
-                        new NetLogIntegerParameter("address_type", buffer_[3]));
+      net_log_.AddEvent(
+          NetLog::TYPE_SOCKS_UNKNOWN_ADDRESS_TYPE,
+          make_scoped_refptr(
+              new NetLogIntegerParameter("address_type", buffer_[3])));
       return ERR_SOCKS_CONNECTION_FAILED;
     }
 

@@ -20,6 +20,7 @@
 #include "chrome/browser/renderer_host/render_view_host_factory.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view_mac.h"
+#include "chrome/browser/tab_contents/popup_menu_helper_mac.h"
 #include "chrome/browser/tab_contents/render_view_context_menu_mac.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
@@ -55,6 +56,7 @@ COMPILE_ASSERT_MATCHING_ENUM(DragOperationEvery);
                        offset:(NSPoint)offset;
 - (void)cancelDeferredClose;
 - (void)closeTabAfterEvent;
+- (void)viewDidBecomeFirstResponder:(NSNotification*)notification;
 @end
 
 // static
@@ -109,6 +111,13 @@ RenderWidgetHostView* TabContentsViewMac::CreateViewForWidget(
   [cocoa_view_.get() addSubview:view_view
                      positioned:NSWindowBelow
                      relativeTo:nil];
+  // For some reason known only to Cocoa, the autorecalculation of the key view
+  // loop set on the window doesn't set the next key view when the subview is
+  // added. On 10.6 things magically work fine; on 10.5 they fail
+  // <http://crbug.com/61493>. Digging into Cocoa key view loop code yielded
+  // madness; TODO(avi,rohit): look at this again and figure out what's really
+  // going on.
+  [cocoa_view_.get() setNextKeyView:view_view];
   return view;
 }
 
@@ -252,6 +261,19 @@ void TabContentsViewMac::ShowContextMenu(const ContextMenuParams& params) {
   menu.Init();
 }
 
+// Display a popup menu for WebKit using Cocoa widgets.
+void TabContentsViewMac::ShowPopupMenu(
+    const gfx::Rect& bounds,
+    int item_height,
+    double item_font_size,
+    int selected_item,
+    const std::vector<WebMenuItem>& items,
+    bool right_aligned) {
+  PopupMenuHelper popup_menu_helper(tab_contents()->render_view_host());
+  popup_menu_helper.ShowPopupMenu(bounds, item_height, item_font_size,
+                                  selected_item, items, right_aligned);
+}
+
 RenderWidgetHostView* TabContentsViewMac::CreateNewWidgetInternal(
     int route_id,
     WebKit::WebPopupType popup_type) {
@@ -262,9 +284,6 @@ RenderWidgetHostView* TabContentsViewMac::CreateNewWidgetInternal(
   RenderWidgetHostViewMac* widget_view_mac =
       static_cast<RenderWidgetHostViewMac*>(widget_view);
   [widget_view_mac->native_view() retain];
-
-  // |widget_view_mac| needs to know how to position itself in our view.
-  widget_view_mac->set_parent_view(cocoa_view_);
 
   return widget_view;
 }
@@ -335,6 +354,12 @@ void TabContentsViewMac::Observe(NotificationType type,
     // by TabContentsController, so we can't just override -viewID method to
     // return it.
     view_id_util::SetID(self, VIEW_ID_TAB_CONTAINER);
+
+    [[NSNotificationCenter defaultCenter]
+         addObserver:self
+            selector:@selector(viewDidBecomeFirstResponder:)
+                name:kViewDidBecomeFirstResponder
+              object:nil];
   }
   return self;
 }
@@ -347,6 +372,9 @@ void TabContentsViewMac::Observe(NotificationType type,
 
   // This probably isn't strictly necessary, but can't hurt.
   [self unregisterDraggedTypes];
+
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
+
   [super dealloc];
 }
 
@@ -469,6 +497,21 @@ void TabContentsViewMac::Observe(NotificationType type,
 
 - (void)closeTabAfterEvent {
   tabContentsView_->CloseTab();
+}
+
+- (void)viewDidBecomeFirstResponder:(NSNotification*)notification {
+  NSView* view = [notification object];
+  if (![[self subviews] containsObject:view])
+    return;
+
+  NSSelectionDirection direction =
+      [[[notification userInfo] objectForKey:kSelectionDirection]
+        unsignedIntegerValue];
+  if (direction == NSDirectSelection)
+    return;
+
+  [self tabContents]->
+      FocusThroughTabTraversal(direction == NSSelectingPrevious);
 }
 
 @end

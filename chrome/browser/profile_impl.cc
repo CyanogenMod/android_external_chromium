@@ -23,6 +23,7 @@
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_signin.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chrome_blob_storage_context.h"
 #include "chrome/browser/dom_ui/ntp_resource_cache.h"
@@ -305,9 +306,9 @@ ProfileImpl::ProfileImpl(const FilePath& path)
   if (base_cache_path_.empty())
     base_cache_path_ = path_;
 
-  // Listen for theme installation.
+  // Listen for theme installations from our original profile.
   registrar_.Add(this, NotificationType::THEME_INSTALLED,
-                 NotificationService::AllSources());
+                 Source<Profile>(GetOriginalProfile()));
 
   // Listen for bookmark model load, to bootstrap the sync service.
   registrar_.Add(this, NotificationType::BOOKMARK_MODEL_LOADED,
@@ -317,7 +318,7 @@ ProfileImpl::ProfileImpl(const FilePath& path)
       SSLConfigServiceManager::CreateDefaultManager(this));
 
 #if defined(OS_CHROMEOS)
-  chromeos_preferences_.reset(new chromeos::Preferences(this));
+  chromeos_preferences_.reset(new chromeos::Preferences());
   chromeos_preferences_->Init(prefs);
 #endif
 
@@ -398,11 +399,6 @@ void ProfileImpl::RegisterComponentExtensions() {
   // Web Store.
   component_extensions.push_back(
       std::make_pair("web_store", IDR_WEBSTORE_MANIFEST));
-
-#if defined(OS_CHROMEOS) && defined(GOOGLE_CHROME_BUILD)
-  component_extensions.push_back(
-      std::make_pair("chat_manager", IDR_TALK_APP_MANIFEST));
-#endif
 
   for (ComponentExtensionList::iterator iter = component_extensions.begin();
     iter != component_extensions.end(); ++iter) {
@@ -513,7 +509,7 @@ ProfileImpl::~ProfileImpl() {
     web_data_service_->Shutdown();
 
   if (top_sites_.get())
-    top_sites_->ClearProfile();
+    top_sites_->Shutdown();
 
   if (history_service_.get())
     history_service_->Cleanup();
@@ -773,18 +769,20 @@ URLRequestContextGetter* ProfileImpl::GetRequestContextForExtensions() {
   return extensions_request_context_;
 }
 
-void ProfileImpl::RegisterExtensionWithRequestContexts(Extension* extension) {
+void ProfileImpl::RegisterExtensionWithRequestContexts(
+    const Extension* extension) {
   // AddRef to ensure the data lives until the other thread gets it. Balanced in
   // OnNewExtensions.
-  extension->static_data()->AddRef();
+  extension->AddRef();
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(extension_info_map_.get(),
                         &ExtensionInfoMap::AddExtension,
-                        extension->static_data()));
+                        extension));
 }
 
-void ProfileImpl::UnregisterExtensionWithRequestContexts(Extension* extension) {
+void ProfileImpl::UnregisterExtensionWithRequestContexts(
+    const Extension* extension) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       NewRunnableMethod(extension_info_map_.get(),
@@ -1032,7 +1030,7 @@ void ProfileImpl::InitThemes() {
   }
 }
 
-void ProfileImpl::SetTheme(Extension* extension) {
+void ProfileImpl::SetTheme(const Extension* extension) {
   InitThemes();
   theme_provider_.get()->SetTheme(extension);
 }
@@ -1047,7 +1045,7 @@ void ProfileImpl::ClearTheme() {
   theme_provider_.get()->UseDefaultTheme();
 }
 
-Extension* ProfileImpl::GetTheme() {
+const Extension* ProfileImpl::GetTheme() {
   InitThemes();
 
   std::string id = theme_provider_.get()->GetThemeID();
@@ -1084,6 +1082,10 @@ void ProfileImpl::ShutdownSessionService() {
 
 bool ProfileImpl::HasSessionService() const {
   return (session_service_.get() != NULL);
+}
+
+bool ProfileImpl::HasProfileSyncService() const {
+  return (sync_service_.get() != NULL);
 }
 
 bool ProfileImpl::DidLastSessionExitCleanly() {
@@ -1123,6 +1125,10 @@ history::TopSites* ProfileImpl::GetTopSites() {
     top_sites_ = new history::TopSites(this);
     top_sites_->Init(GetPath().Append(chrome::kTopSitesFilename));
   }
+  return top_sites_;
+}
+
+history::TopSites* ProfileImpl::GetTopSitesWithoutCreating() {
   return top_sites_;
 }
 
@@ -1215,7 +1221,8 @@ void ProfileImpl::Observe(NotificationType type,
               Source<Profile>(this), NotificationService::NoDetails());
     }
   } else if (NotificationType::THEME_INSTALLED == type) {
-    Extension* extension = Details<Extension>(details).ptr();
+    DCHECK_EQ(Source<Profile>(source).ptr(), GetOriginalProfile());
+    const Extension* extension = Details<const Extension>(details).ptr();
     SetTheme(extension);
   } else if (NotificationType::BOOKMARK_MODEL_LOADED == type) {
     GetProfileSyncService();  // Causes lazy-load if sync is enabled.
@@ -1247,6 +1254,13 @@ ProfileSyncService* ProfileImpl::GetProfileSyncService(
   if (!sync_service_.get())
     InitSyncService(cros_user);
   return sync_service_.get();
+}
+
+BrowserSignin* ProfileImpl::GetBrowserSignin() {
+  if (!browser_signin_.get()) {
+    browser_signin_.reset(new BrowserSignin(this));
+  }
+  return browser_signin_.get();
 }
 
 CloudPrintProxyService* ProfileImpl::GetCloudPrintProxyService() {

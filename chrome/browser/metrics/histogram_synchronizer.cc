@@ -18,15 +18,15 @@ using base::TimeTicks;
 
 HistogramSynchronizer::HistogramSynchronizer()
   : lock_(),
-    received_all_renderer_historgrams_(&lock_),
+    received_all_renderer_histograms_(&lock_),
     callback_task_(NULL),
     callback_thread_(NULL),
     io_message_loop_(NULL),
-    next_available_sequence_number_(0),
-    async_sequence_number_(0),
+    next_available_sequence_number_(-2),
+    async_sequence_number_(-2),
     async_renderers_pending_(0),
     async_callback_start_time_(TimeTicks::Now()),
-    synchronous_sequence_number_(0),
+    synchronous_sequence_number_(-2),
     synchronous_renderers_pending_(0) {
   DCHECK(histogram_synchronizer_ == NULL);
   histogram_synchronizer_ = this;
@@ -50,23 +50,24 @@ void HistogramSynchronizer::FetchRendererHistogramsSynchronously(
     TimeDelta wait_time) {
   DCHECK(MessageLoop::current()->type() == MessageLoop::TYPE_UI);
 
-  int sequence_number = GetNextAvaibleSequenceNumber(SYNCHRONOUS_HISTOGRAMS);
+  int sequence_number = GetNextAvailableSequenceNumber(SYNCHRONOUS_HISTOGRAMS);
   for (RenderProcessHost::iterator it(RenderProcessHost::AllHostsIterator());
        !it.IsAtEnd(); it.Advance()) {
+    IncrementPendingRenderers(SYNCHRONOUS_HISTOGRAMS);
     it.GetCurrentValue()->Send(
         new ViewMsg_GetRendererHistograms(sequence_number));
-    IncrementPendingRenderers(SYNCHRONOUS_HISTOGRAMS);
   }
+  // Send notification that we're done sending messages to renderers.
+  DecrementPendingRenderers(sequence_number);
 
   TimeTicks start = TimeTicks::Now();
   TimeTicks end_time = start + wait_time;
   int unresponsive_renderer_count;
   {
     AutoLock auto_lock(lock_);
-    while (synchronous_renderers_pending_ > 0 &&
-           TimeTicks::Now() < end_time) {
+    while (synchronous_renderers_pending_ > 0 && TimeTicks::Now() < end_time) {
       wait_time = end_time - TimeTicks::Now();
-      received_all_renderer_historgrams_.TimedWait(wait_time);
+      received_all_renderer_histograms_.TimedWait(wait_time);
     }
     unresponsive_renderer_count = synchronous_renderers_pending_;
     synchronous_renderers_pending_ = 0;
@@ -108,13 +109,15 @@ void HistogramSynchronizer::FetchRendererHistogramsAsynchronously(
 
   // Tell all renderer processes to send their histograms.
   int sequence_number =
-      current_synchronizer->GetNextAvaibleSequenceNumber(ASYNC_HISTOGRAMS);
+      current_synchronizer->GetNextAvailableSequenceNumber(ASYNC_HISTOGRAMS);
   for (RenderProcessHost::iterator it(RenderProcessHost::AllHostsIterator());
        !it.IsAtEnd(); it.Advance()) {
+    current_synchronizer->IncrementPendingRenderers(ASYNC_HISTOGRAMS);
     it.GetCurrentValue()->Send(
         new ViewMsg_GetRendererHistograms(sequence_number));
-    current_synchronizer->IncrementPendingRenderers(ASYNC_HISTOGRAMS);
   }
+  // Send notification that we're done sending messages to renderers.
+  current_synchronizer->DecrementPendingRenderers(sequence_number);
 
   // Post a task that would be called after waiting for wait_time.
   BrowserThread::PostDelayedTask(
@@ -144,13 +147,12 @@ void HistogramSynchronizer::DeserializeHistogramList(
   }
 
   // Record that we have received a histogram from renderer process.
-  current_synchronizer->RecordRendererHistogram(sequence_number);
+  current_synchronizer->DecrementPendingRenderers(sequence_number);
 }
 
-bool HistogramSynchronizer::RecordRendererHistogram(int sequence_number) {
-  DCHECK(IsOnIoThread());
-
+bool HistogramSynchronizer::DecrementPendingRenderers(int sequence_number) {
   if (sequence_number == async_sequence_number_) {
+    DCHECK(IsOnIoThread());
     if ((async_renderers_pending_ == 0) ||
         (--async_renderers_pending_ > 0))
       return false;
@@ -166,14 +168,13 @@ bool HistogramSynchronizer::RecordRendererHistogram(int sequence_number) {
       // synchronous_sequence_number_ or async_sequence_number_.
       return true;
     }
-    if ((synchronous_renderers_pending_ == 0) ||
-        (--synchronous_renderers_pending_ > 0))
+    if (--synchronous_renderers_pending_ > 0)
       return false;
     DCHECK_EQ(synchronous_renderers_pending_, 0);
   }
 
   // We could call Signal() without holding the lock.
-  received_all_renderer_historgrams_.Signal();
+  received_all_renderer_histograms_.Signal();
   return true;
 }
 
@@ -237,7 +238,7 @@ void HistogramSynchronizer::CallCallbackTaskAndResetData() {
   callback_thread_ = NULL;
 }
 
-int HistogramSynchronizer::GetNextAvaibleSequenceNumber(
+int HistogramSynchronizer::GetNextAvailableSequenceNumber(
     RendererHistogramRequester requester) {
   AutoLock auto_lock(lock_);
   ++next_available_sequence_number_;
@@ -249,11 +250,12 @@ int HistogramSynchronizer::GetNextAvaibleSequenceNumber(
   DCHECK_NE(next_available_sequence_number_,
             chrome::kHistogramSynchronizerReservedSequenceNumber);
   if (requester == ASYNC_HISTOGRAMS) {
+    DCHECK(IsOnIoThread());
     async_sequence_number_ = next_available_sequence_number_;
-    async_renderers_pending_ = 0;
+    async_renderers_pending_ = 1;
   } else if (requester == SYNCHRONOUS_HISTOGRAMS) {
     synchronous_sequence_number_ = next_available_sequence_number_;
-    synchronous_renderers_pending_ = 0;
+    synchronous_renderers_pending_ = 1;
   }
   return next_available_sequence_number_;
 }
@@ -261,9 +263,13 @@ int HistogramSynchronizer::GetNextAvaibleSequenceNumber(
 void HistogramSynchronizer::IncrementPendingRenderers(
     RendererHistogramRequester requester) {
   if (requester == ASYNC_HISTOGRAMS) {
-    async_renderers_pending_++;
+    DCHECK(IsOnIoThread());
+    DCHECK_GT(async_renderers_pending_, 0);
+    ++async_renderers_pending_;
   } else {
-    synchronous_renderers_pending_++;
+    AutoLock auto_lock(lock_);
+    DCHECK_GT(synchronous_renderers_pending_, 0);
+    ++synchronous_renderers_pending_;
   }
 }
 

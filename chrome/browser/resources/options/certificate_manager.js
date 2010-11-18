@@ -109,6 +109,7 @@ cr.define('options', function() {
      */
     updateButtonState: function(data) {
       var isCert = !!data && data.id.substr(0, 5) == 'cert-';
+      var readOnly = !!data && data.readonly;
       var hasChildren = this.tree.items.length > 0;
       this.viewButton.disabled = !isCert;
       if (this.editButton !== null)
@@ -119,7 +120,7 @@ cr.define('options', function() {
         this.backupAllButton.disabled = !hasChildren;
       if (this.exportButton !== null)
         this.exportButton.disabled = !isCert;
-      this.deleteButton.disabled = !isCert;
+      this.deleteButton.disabled = !isCert || readOnly;
     },
 
     /**
@@ -160,7 +161,6 @@ cr.define('options', function() {
       OptionsPage.prototype.initializePage.call(this);
 
       this.personalTab = new CertificateManagerTab('personalCertsTab');
-      this.emailTab = new CertificateManagerTab('emailCertsTab');
       this.serverTab = new CertificateManagerTab('serverCertsTab');
       this.caTab = new CertificateManagerTab('caCertsTab');
       this.otherTab = new CertificateManagerTab('otherCertsTab');

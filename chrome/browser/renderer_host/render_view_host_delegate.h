@@ -50,6 +50,7 @@ struct ViewHostMsg_FrameNavigate_Params;
 struct ViewHostMsg_PageHasOSDD_Type;
 struct ViewHostMsg_RunFileChooser_Params;
 struct WebDropData;
+struct WebMenuItem;
 class WebKeyboardEvent;
 struct WebPreferences;
 
@@ -146,6 +147,16 @@ class RenderViewHostDelegate {
     // provided in the supplied params.
     virtual void ShowContextMenu(const ContextMenuParams& params) = 0;
 
+    // Shows a popup menu with the specified items.
+    // This method should call RenderViewHost::DidSelectPopupMenuItemAt() or
+    // RenderViewHost::DidCancelPopupMenu() ased on the user action.
+    virtual void ShowPopupMenu(const gfx::Rect& bounds,
+                               int item_height,
+                               double item_font_size,
+                               int selected_item,
+                               const std::vector<WebMenuItem>& items,
+                               bool right_aligned) = 0;
+
     // The user started dragging content of the specified type within the
     // RenderView. Contextual information about the dragged content is supplied
     // by WebDropData.
@@ -197,10 +208,6 @@ class RenderViewHostDelegate {
 
     // The contents' preferred size changed.
     virtual void UpdatePreferredSize(const gfx::Size& pref_size) = 0;
-
-    // Called to determine whether the render view needs to draw a drop shadow
-    // at the top (currently used for infobars).
-    virtual bool ShouldDrawDropShadow();
 
    protected:
     virtual ~View() {}
@@ -292,8 +299,12 @@ class RenderViewHostDelegate {
                                   TranslateErrors::Type error_type) = 0;
 
     // Notification that the page has a suggest result.
-    virtual void OnSetSuggestResult(int32 page_id,
-                                    const std::string& result) = 0;
+    virtual void OnSetSuggestions(
+        int32 page_id,
+        const std::vector<std::string>& result) = 0;
+
+    // Notification of whether the page supports instant-style interaction.
+    virtual void OnInstantSupportDetermined(int32 page_id, bool result) = 0;
 
    protected:
     virtual ~BrowserIntegration() {}
@@ -354,7 +365,10 @@ class RenderViewHostDelegate {
         bool showing_repost_interstitial) = 0;
 
     // Notification that a document has been loaded in a frame.
-    virtual void DocumentLoadedInFrame() = 0;
+    virtual void DocumentLoadedInFrame(long long frame_id) = 0;
+
+    // Notification that a frame finished loading.
+    virtual void DidFinishLoad(long long frame_id) = 0;
 
    protected:
     virtual ~Resource() {}
@@ -383,7 +397,6 @@ class RenderViewHostDelegate {
     // |blocked_by_policy| should be true, and this function should invoke
     // OnContentBlocked.
     virtual void OnIndexedDBAccessed(const GURL& url,
-                                     const string16& name,
                                      const string16& description,
                                      bool blocked_by_policy) = 0;
 

@@ -6,7 +6,6 @@
 
 #include <gtk/gtk.h>
 
-#include "app/gtk_util.h"
 #include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/process_util.h"
@@ -63,6 +62,10 @@ gfx::NativeWindow GetTopLevel(gfx::NativeView view) {
   // assume that the query for toplevel will return a window.
   GtkWidget* toplevel = gtk_widget_get_ancestor(view, GTK_TYPE_WINDOW);
   return GTK_IS_WINDOW(toplevel) ? GTK_WINDOW(toplevel) : NULL;
+}
+
+gfx::NativeView GetParent(gfx::NativeView view) {
+  return gtk_widget_get_parent(view);
 }
 
 bool IsWindowActive(gfx::NativeWindow window) {

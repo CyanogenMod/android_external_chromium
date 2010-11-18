@@ -196,6 +196,8 @@
         'base/x509_cert_types.cc',
         'base/x509_cert_types.h',
         'base/x509_cert_types_mac.cc',
+        'base/x509_openssl_util.cc',
+        'base/x509_openssl_util.h',
         'third_party/mozilla_security_manager/nsKeygenHandler.cpp',
         'third_party/mozilla_security_manager/nsKeygenHandler.h',
         'third_party/mozilla_security_manager/nsNSSCertificateDB.cpp',
@@ -232,8 +234,18 @@
             'dependencies': [
               '../build/linux/system.gyp:gconf',
               '../build/linux/system.gyp:gdk',
-              '../build/linux/system.gyp:nss',
               '../build/linux/system.gyp:libresolv',
+            ],
+            'conditions': [
+              ['use_openssl==1', {
+                'dependencies': [
+                  '../build/linux/system.gyp:openssl',
+                ],
+              }, {  # else: not using openssl. Use NSS.
+                'dependencies': [
+                  '../build/linux/system.gyp:nss',
+                ],
+              }],
             ],
           },
           {  # else: OS is not in the above list
@@ -252,12 +264,14 @@
             ],
           },
         ],
-        [ 'use_openssl == 1 and OS == "linux"', {
-            # When building for OpenSSL, we need to exclude some NSS files.
-            # TODO(bulach): remove once we fully support OpenSSL.
+        [ 'use_openssl==1', {
             'sources!': [
               'base/cert_database_nss.cc',
+              'base/dnssec_keyset.cc',
+              'base/dnssec_keyset.h',
               'base/keygen_handler_nss.cc',
+              'base/nss_memio.c',
+              'base/nss_memio.h',
               'base/x509_certificate_nss.cc',
               'third_party/mozilla_security_manager/nsKeygenHandler.cpp',
               'third_party/mozilla_security_manager/nsKeygenHandler.h',
@@ -269,13 +283,15 @@
               'third_party/mozilla_security_manager/nsPKCS12Blob.h',
             ],
           },
-          { # else: not using openssl.
+          {  # else: not using openssl.
             'sources!': [
               'base/cert_database_openssl.cc',
               'base/keygen_handler_openssl.cc',
               'base/openssl_util.cc',
               'base/openssl_util.h',
               'base/x509_certificate_openssl.cc',
+              'base/x509_openssl_util.cc',
+              'base/x509_openssl_util.h',
              ],
           },
         ],
@@ -570,6 +586,8 @@
         'socket/client_socket_pool_histograms.h',
         'socket/client_socket_pool_manager.cc',
         'socket/client_socket_pool_manager.h',
+        'socket/dns_cert_provenance_check.cc',
+        'socket/dns_cert_provenance_check.h',
         'socket/socket.h',
         'socket/socks5_client_socket.cc',
         'socket/socks5_client_socket.h',
@@ -592,6 +610,7 @@
         'socket/ssl_client_socket_pool.h',
         'socket/ssl_client_socket_win.cc',
         'socket/ssl_client_socket_win.h',
+        'socket/tcp_client_socket.cc',
         'socket/tcp_client_socket.h',
         'socket/tcp_client_socket_libevent.cc',
         'socket/tcp_client_socket_libevent.h',
@@ -701,11 +720,10 @@
              'proxy/proxy_config_service_linux.h',
           ],
         }],
-        ['use_openssl==1 and OS == "linux"', {
-            'dependencies': [
-              '../build/linux/system.gyp:openssl',
-            ],
+        ['use_openssl==1', {
             'sources!': [
+              'socket/dns_cert_provenance_check.cc',
+              'socket/dns_cert_provenance_check.h',
               'socket/ssl_client_socket_nss.cc',
               'socket/ssl_client_socket_nss.h',
               'socket/ssl_client_socket_nss_factory.cc',
@@ -723,7 +741,18 @@
             'dependencies': [
               '../build/linux/system.gyp:gconf',
               '../build/linux/system.gyp:gdk',
-              '../build/linux/system.gyp:nss',
+            ],
+            'conditions': [
+              ['use_openssl==1', {
+                'dependencies': [
+                  '../build/linux/system.gyp:openssl',
+                ],
+              },
+              {  # else use_openssl==0, use NSS
+                'dependencies': [
+                  '../build/linux/system.gyp:nss',
+                ],
+              }],
             ],
           },
           {  # else: OS is not in the above list
@@ -784,7 +813,6 @@
         'net_test_support',
         '../base/base.gyp:base',
         '../base/base.gyp:base_i18n',
-        '../base/base.gyp:test_support_base',
         '../testing/gmock.gyp:gmock',
         '../testing/gtest.gyp:gtest',
         '../third_party/zlib/zlib.gyp:zlib',
@@ -972,11 +1000,13 @@
             }],
           ],
         }],
-        [ 'use_openssl == 1 and OS == "linux"', {
-            # When building for OpenSSL, we need to exclude some NSS files.
-            # TODO(bulach): remove once we fully support OpenSSL.
+        [ 'use_openssl==1', {
+            # When building for OpenSSL, we need to exclude NSS specific tests.
+            # TODO(bulach): Add equivalent tests when the underlying
+            #               functionality is ported to OpenSSL.
             'sources!': [
               'base/cert_database_nss_unittest.cc',
+              'base/dnssec_unittest.cc',
             ],
           },
         ],
@@ -1041,7 +1071,6 @@
         'net_test_support',
         '../base/base.gyp:base',
         '../base/base.gyp:base_i18n',
-        '../base/base.gyp:test_support_base',
         '../base/base.gyp:test_support_perf',
         '../testing/gtest.gyp:gtest',
       ],
@@ -1120,6 +1149,7 @@
       'dependencies': [
         'net',
         '../base/base.gyp:base',
+        '../base/base.gyp:test_support_base',
         '../testing/gtest.gyp:gtest',
       ],
       'sources': [
@@ -1146,8 +1176,16 @@
           ],
         }],
         ['OS == "linux" or OS == "freebsd" or OS == "openbsd"', {
-          'dependencies': [
-            '../build/linux/system.gyp:nss',
+          'conditions': [
+            ['use_openssl==1', {
+              'dependencies': [
+                '../build/linux/system.gyp:openssl',
+              ]
+            }, {
+              'dependencies': [
+                '../build/linux/system.gyp:nss',
+              ],
+            }],
           ],
         }],
         ['OS == "linux"', {
@@ -1158,11 +1196,6 @@
               ],
             }],
           ],
-        }],
-        ['use_openssl == 1 and OS == "linux"', {
-            'dependencies': [
-              '../build/linux/system.gyp:openssl',
-            ]
         }],
       ],
     },

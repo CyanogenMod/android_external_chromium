@@ -5,6 +5,7 @@
 #include "base/message_loop_proxy.h"
 #include "base/thread.h"
 #include "base/waitable_event.h"
+#include "build/build_config.h"
 #include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "chrome/common/net/url_fetcher_protect.h"
@@ -13,6 +14,10 @@
 #include "net/url_request/url_request_unittest.h"
 #include "net/test/test_server.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if defined(OS_LINUX)
+#include "net/ocsp/nss_ocsp.h"
+#endif
 
 using base::Time;
 using base::TimeDelta;
@@ -34,7 +39,7 @@ class TestURLRequestContextGetter : public URLRequestContextGetter {
       context_ = new TestURLRequestContext();
     return context_;
   }
-  virtual scoped_refptr<base::MessageLoopProxy> GetIOMessageLoopProxy() {
+  virtual scoped_refptr<base::MessageLoopProxy> GetIOMessageLoopProxy() const {
     return io_message_loop_proxy_;
   }
 
@@ -74,6 +79,15 @@ class URLFetcherTest : public testing::Test, public URLFetcher::Delegate {
 
     // Ensure that any plugin operations done by other tests are cleaned up.
     ChromePluginLib::UnloadAllPlugins();
+#if defined(OS_LINUX)
+    net::EnsureOCSPInit();
+#endif
+  }
+
+  virtual void TearDown() {
+#if defined(OS_LINUX)
+    net::ShutdownOCSP();
+#endif
   }
 
   // URLFetcher is designed to run on the main UI thread, but in our tests
@@ -199,7 +213,7 @@ class CancelTestURLRequestContextGetter : public URLRequestContextGetter {
     }
     return context_;
   }
-  virtual scoped_refptr<base::MessageLoopProxy> GetIOMessageLoopProxy() {
+  virtual scoped_refptr<base::MessageLoopProxy> GetIOMessageLoopProxy() const {
     return io_message_loop_proxy_;
   }
   void WaitForContextCreation() {
@@ -540,8 +554,9 @@ TEST_F(URLFetcherProtectTestPassedThrough, ServerUnavailablePropagateResponse) {
 
 
 TEST_F(URLFetcherBadHTTPSTest, BadHTTPSTest) {
-  net::TestServer test_server(net::TestServer::TYPE_HTTPS_EXPIRED_CERTIFICATE,
-                              FilePath(kDocRoot));
+  net::TestServer::HTTPSOptions https_options(
+      net::TestServer::HTTPSOptions::CERT_EXPIRED);
+  net::TestServer test_server(https_options, FilePath(kDocRoot));
   ASSERT_TRUE(test_server.Start());
 
   CreateFetcher(test_server.GetURL("defaultresponse"));

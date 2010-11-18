@@ -74,7 +74,7 @@ void DevToolsManager::RegisterDevToolsClientHostFor(
 void DevToolsManager::ForwardToDevToolsAgent(
     RenderViewHost* client_rvh,
     const IPC::Message& message) {
-  DevToolsClientHost* client_host = FindOnwerDevToolsClientHost(client_rvh);
+  DevToolsClientHost* client_host = FindOwnerDevToolsClientHost(client_rvh);
   if (client_host)
     ForwardToDevToolsAgent(client_host, message);
 }
@@ -105,7 +105,7 @@ void DevToolsManager::ForwardToDevToolsClient(RenderViewHost* inspected_rvh,
 }
 
 void DevToolsManager::ActivateWindow(RenderViewHost* client_rvh) {
-  DevToolsClientHost* client_host = FindOnwerDevToolsClientHost(client_rvh);
+  DevToolsClientHost* client_host = FindOwnerDevToolsClientHost(client_rvh);
   if (!client_host)
     return;
 
@@ -115,7 +115,7 @@ void DevToolsManager::ActivateWindow(RenderViewHost* client_rvh) {
 }
 
 void DevToolsManager::CloseWindow(RenderViewHost* client_rvh) {
-  DevToolsClientHost* client_host = FindOnwerDevToolsClientHost(client_rvh);
+  DevToolsClientHost* client_host = FindOwnerDevToolsClientHost(client_rvh);
   if (client_host) {
     RenderViewHost* inspected_rvh = GetInspectedRenderViewHost(client_host);
     DCHECK(inspected_rvh);
@@ -303,7 +303,7 @@ void DevToolsManager::ForceReopenWindow() {
   }
 }
 
-DevToolsClientHost* DevToolsManager::FindOnwerDevToolsClientHost(
+DevToolsClientHost* DevToolsManager::FindOwnerDevToolsClientHost(
     RenderViewHost* client_rvh) {
   for (InspectedRvhToClientHostMap::iterator it =
            inspected_rvh_to_client_host_.begin();
@@ -319,7 +319,7 @@ DevToolsClientHost* DevToolsManager::FindOnwerDevToolsClientHost(
 }
 
 void DevToolsManager::ReopenWindow(RenderViewHost* client_rvh, bool docked) {
-  DevToolsClientHost* client_host = FindOnwerDevToolsClientHost(client_rvh);
+  DevToolsClientHost* client_host = FindOwnerDevToolsClientHost(client_rvh);
   if (!client_host)
     return;
   RenderViewHost* inspected_rvh = GetInspectedRenderViewHost(client_host);
@@ -414,4 +414,17 @@ void DevToolsManager::UnbindClientHost(RenderViewHost* inspected_rvh,
   }
   // We've disconnected from the last renderer -> revoke cookie permissions.
   ChildProcessSecurityPolicy::GetInstance()->RevokeReadRawCookies(process_id);
+}
+
+void DevToolsManager::CloseAllClientHosts() {
+  std::vector<RenderViewHost*> rhvs;
+  for (InspectedRvhToClientHostMap::iterator it =
+           inspected_rvh_to_client_host_.begin();
+       it != inspected_rvh_to_client_host_.end(); ++it) {
+    rhvs.push_back(it->first);
+  }
+  for (std::vector<RenderViewHost*>::iterator it = rhvs.begin();
+       it != rhvs.end(); ++it) {
+    UnregisterDevToolsClientHostFor(*it);
+  }
 }

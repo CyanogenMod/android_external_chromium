@@ -460,6 +460,67 @@ TEST_F(HttpNetworkTransactionTest,
 }
 
 TEST_F(HttpNetworkTransactionTest,
+       DuplicateContentLengthHeadersNoTransferEncoding) {
+  MockRead data_reads[] = {
+    MockRead("HTTP/1.1 200 OK\r\n"),
+    MockRead("Content-Length: 5\r\n"),
+    MockRead("Content-Length: 5\r\n\r\n"),
+    MockRead("Hello"),
+  };
+  SimpleGetHelperResult out = SimpleGetHelper(data_reads,
+                                              arraysize(data_reads));
+  EXPECT_EQ(OK, out.rv);
+  EXPECT_EQ("HTTP/1.1 200 OK", out.status_line);
+  EXPECT_EQ("Hello", out.response_data);
+}
+
+TEST_F(HttpNetworkTransactionTest,
+       ComplexContentLengthHeadersNoTransferEncoding) {
+  // More than 2 dupes.
+  {
+    MockRead data_reads[] = {
+      MockRead("HTTP/1.1 200 OK\r\n"),
+      MockRead("Content-Length: 5\r\n"),
+      MockRead("Content-Length: 5\r\n"),
+      MockRead("Content-Length: 5\r\n\r\n"),
+      MockRead("Hello"),
+    };
+    SimpleGetHelperResult out = SimpleGetHelper(data_reads,
+                                                arraysize(data_reads));
+    EXPECT_EQ(OK, out.rv);
+    EXPECT_EQ("HTTP/1.1 200 OK", out.status_line);
+    EXPECT_EQ("Hello", out.response_data);
+  }
+  // HTTP/1.0
+  {
+    MockRead data_reads[] = {
+      MockRead("HTTP/1.0 200 OK\r\n"),
+      MockRead("Content-Length: 5\r\n"),
+      MockRead("Content-Length: 5\r\n"),
+      MockRead("Content-Length: 5\r\n\r\n"),
+      MockRead("Hello"),
+    };
+    SimpleGetHelperResult out = SimpleGetHelper(data_reads,
+                                                arraysize(data_reads));
+    EXPECT_EQ(OK, out.rv);
+    EXPECT_EQ("HTTP/1.0 200 OK", out.status_line);
+    EXPECT_EQ("Hello", out.response_data);
+  }
+  // 2 dupes and one mismatched.
+  {
+    MockRead data_reads[] = {
+      MockRead("HTTP/1.1 200 OK\r\n"),
+      MockRead("Content-Length: 10\r\n"),
+      MockRead("Content-Length: 10\r\n"),
+      MockRead("Content-Length: 5\r\n\r\n"),
+    };
+    SimpleGetHelperResult out = SimpleGetHelper(data_reads,
+                                                arraysize(data_reads));
+    EXPECT_EQ(ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_LENGTH, out.rv);
+  }
+}
+
+TEST_F(HttpNetworkTransactionTest,
        MultipleContentLengthHeadersTransferEncoding) {
   MockRead data_reads[] = {
     MockRead("HTTP/1.1 200 OK\r\n"),
@@ -544,7 +605,7 @@ TEST_F(HttpNetworkTransactionTest, Head) {
 
 TEST_F(HttpNetworkTransactionTest, ReuseConnection) {
   SessionDependencies session_deps;
-  scoped_refptr<HttpNetworkSession> session = CreateSession(&session_deps);
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
 
   MockRead data_reads[] = {
     MockRead("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n"),
@@ -733,7 +794,7 @@ TEST_F(HttpNetworkTransactionTest, EmptyResponse) {
 void HttpNetworkTransactionTest::KeepAliveConnectionResendRequestTest(
     const MockRead& read_failure) {
   SessionDependencies session_deps;
-  scoped_refptr<HttpNetworkSession> session = CreateSession(&session_deps);
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
 
   HttpRequestInfo request;
   request.method = "GET";
@@ -850,7 +911,7 @@ TEST_F(HttpNetworkTransactionTest, NonKeepAliveConnectionEOF) {
 // reading the body.
 TEST_F(HttpNetworkTransactionTest, KeepAliveAfterUnreadBody) {
   SessionDependencies session_deps;
-  scoped_refptr<HttpNetworkSession> session = CreateSession(&session_deps);
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
 
   HttpRequestInfo request;
   request.method = "GET";
@@ -1707,6 +1768,66 @@ TEST_F(HttpNetworkTransactionTest, UnexpectedProxyAuth) {
   EXPECT_EQ(ERR_UNEXPECTED_PROXY_AUTH, rv);
 }
 
+// Tests when an HTTPS server (non-proxy) returns a 407 (proxy-authentication)
+// through a non-authenticating proxy. The request should fail with
+// ERR_UNEXPECTED_PROXY_AUTH.
+// Note that it is impossible to detect if an HTTP server returns a 407 through
+// a non-authenticating proxy - there is nothing to indicate whether the
+// response came from the proxy or the server, so it is treated as if the proxy
+// issued the challenge.
+TEST_F(HttpNetworkTransactionTest, HttpsServerRequestsProxyAuthThroughProxy) {
+  SessionDependencies session_deps(ProxyService::CreateFixed("myproxy:70"));
+  CapturingBoundNetLog log(CapturingNetLog::kUnbounded);
+  session_deps.net_log = log.bound().net_log();
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
+
+  HttpRequestInfo request;
+  request.method = "GET";
+  request.url = GURL("https://www.google.com/");
+
+  // Since we have proxy, should try to establish tunnel.
+  MockWrite data_writes1[] = {
+    MockWrite("CONNECT www.google.com:443 HTTP/1.1\r\n"
+              "Host: www.google.com\r\n"
+              "Proxy-Connection: keep-alive\r\n\r\n"),
+
+    MockWrite("GET / HTTP/1.1\r\n"
+              "Host: www.google.com\r\n"
+              "Connection: keep-alive\r\n\r\n"),
+  };
+
+  MockRead data_reads1[] = {
+    MockRead("HTTP/1.1 200 Connection Established\r\n\r\n"),
+
+    MockRead("HTTP/1.1 407 Unauthorized\r\n"),
+    MockRead("Proxy-Authenticate: Basic realm=\"MyRealm1\"\r\n"),
+    MockRead("\r\n"),
+    MockRead(false, OK),
+  };
+
+  StaticSocketDataProvider data1(data_reads1, arraysize(data_reads1),
+                                 data_writes1, arraysize(data_writes1));
+  session_deps.socket_factory.AddSocketDataProvider(&data1);
+  SSLSocketDataProvider ssl(true, OK);
+  session_deps.socket_factory.AddSSLSocketDataProvider(&ssl);
+
+  TestCompletionCallback callback1;
+
+  scoped_ptr<HttpTransaction> trans(new HttpNetworkTransaction(session));
+
+  int rv = trans->Start(&request, &callback1, log.bound());
+  EXPECT_EQ(ERR_IO_PENDING, rv);
+
+  rv = callback1.WaitForResult();
+  EXPECT_EQ(ERR_UNEXPECTED_PROXY_AUTH, rv);
+  size_t pos = ExpectLogContainsSomewhere(
+      log.entries(), 0, NetLog::TYPE_HTTP_TRANSACTION_SEND_TUNNEL_HEADERS,
+      NetLog::PHASE_NONE);
+  ExpectLogContainsSomewhere(
+      log.entries(), pos,
+      NetLog::TYPE_HTTP_TRANSACTION_READ_TUNNEL_RESPONSE_HEADERS,
+      NetLog::PHASE_NONE);
+}
 
 // Test a simple get through an HTTPS Proxy.
 TEST_F(HttpNetworkTransactionTest, HttpsProxyGet) {
@@ -3189,7 +3310,7 @@ TEST_F(HttpNetworkTransactionTest, ResendRequestOnWriteBodyError) {
   request[1].load_flags = 0;
 
   SessionDependencies session_deps;
-  scoped_refptr<HttpNetworkSession> session = CreateSession(&session_deps);
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
 
   // The first socket is used for transaction 1 and the first attempt of
   // transaction 2.
@@ -3457,7 +3578,7 @@ TEST_F(HttpNetworkTransactionTest, WrongAuthIdentityInURL) {
 // Test that previously tried username/passwords for a realm get re-used.
 TEST_F(HttpNetworkTransactionTest, BasicAuthCacheAndPreauth) {
   SessionDependencies session_deps;
-  scoped_refptr<HttpNetworkSession> session = CreateSession(&session_deps);
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
 
   // Transaction 1: authenticate (foo, bar) on MyRealm1
   {
@@ -3850,7 +3971,7 @@ TEST_F(HttpNetworkTransactionTest, BasicAuthCacheAndPreauth) {
 // are started with the same nonce.
 TEST_F(HttpNetworkTransactionTest, DigestPreAuthNonceCount) {
   SessionDependencies session_deps;
-  scoped_refptr<HttpNetworkSession> session = CreateSession(&session_deps);
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
   HttpAuthHandlerDigest::SetFixedCnonce(true);
 
   // Transaction 1: authenticate (foo, bar) on MyRealm1
@@ -3991,7 +4112,7 @@ TEST_F(HttpNetworkTransactionTest, ResetStateForRestart) {
   // Setup some state (which we expect ResetStateForRestart() will clear).
   trans->read_buf_ = new IOBuffer(15);
   trans->read_buf_len_ = 15;
-  trans->request_headers_ = "Authorization: NTLM";
+  trans->request_headers_.SetHeader("Authorization", "NTLM");
 
   // Setup state in response_
   HttpResponseInfo* response = &trans->response_;
@@ -4004,7 +4125,7 @@ TEST_F(HttpNetworkTransactionTest, ResetStateForRestart) {
     HttpRequestInfo request;
     std::string temp("HTTP/1.1 200 OK\nVary: foo, bar\n\n");
     std::replace(temp.begin(), temp.end(), '\n', '\0');
-    scoped_refptr<HttpResponseHeaders> headers = new HttpResponseHeaders(temp);
+    scoped_refptr<HttpResponseHeaders> headers(new HttpResponseHeaders(temp));
     request.extra_headers.SetHeader("Foo", "1");
     request.extra_headers.SetHeader("bar", "23");
     EXPECT_TRUE(response->vary_data.Init(request, *headers));
@@ -4016,7 +4137,7 @@ TEST_F(HttpNetworkTransactionTest, ResetStateForRestart) {
   // Verify that the state that needed to be reset, has been reset.
   EXPECT_TRUE(trans->read_buf_.get() == NULL);
   EXPECT_EQ(0, trans->read_buf_len_);
-  EXPECT_EQ(0U, trans->request_headers_.size());
+  EXPECT_TRUE(trans->request_headers_.IsEmpty());
   EXPECT_TRUE(response->auth_challenge.get() == NULL);
   EXPECT_TRUE(response->headers.get() == NULL);
   EXPECT_FALSE(response->was_cached);
@@ -5317,7 +5438,7 @@ TEST_F(HttpNetworkTransactionTest, BypassHostCacheOnRefresh3) {
 // Make sure we can handle an error when writing the request.
 TEST_F(HttpNetworkTransactionTest, RequestWriteError) {
   SessionDependencies session_deps;
-  scoped_refptr<HttpNetworkSession> session = CreateSession(&session_deps);
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
 
   HttpRequestInfo request;
   request.method = "GET";
@@ -5346,7 +5467,7 @@ TEST_F(HttpNetworkTransactionTest, RequestWriteError) {
 // Check that a connection closed after the start of the headers finishes ok.
 TEST_F(HttpNetworkTransactionTest, ConnectionClosedAfterStartOfHeaders) {
   SessionDependencies session_deps;
-  scoped_refptr<HttpNetworkSession> session = CreateSession(&session_deps);
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
 
   HttpRequestInfo request;
   request.method = "GET";
@@ -5388,7 +5509,7 @@ TEST_F(HttpNetworkTransactionTest, ConnectionClosedAfterStartOfHeaders) {
 // restart does the right thing.
 TEST_F(HttpNetworkTransactionTest, DrainResetOK) {
   SessionDependencies session_deps;
-  scoped_refptr<HttpNetworkSession> session = CreateSession(&session_deps);
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
 
   HttpRequestInfo request;
   request.method = "GET";
@@ -6412,8 +6533,8 @@ TEST_F(HttpNetworkTransactionTest,
   scoped_refptr<SpdySession> spdy_session =
       session->spdy_session_pool()->Get(pair, session->mutable_spdy_settings(),
                                         BoundNetLog());
-  scoped_refptr<TCPSocketParams> tcp_params =
-      new TCPSocketParams("www.google.com", 443, MEDIUM, GURL(), false);
+  scoped_refptr<TCPSocketParams> tcp_params(
+      new TCPSocketParams("www.google.com", 443, MEDIUM, GURL(), false));
 
   scoped_ptr<ClientSocketHandle> connection(new ClientSocketHandle);
   EXPECT_EQ(ERR_IO_PENDING,
@@ -6887,7 +7008,7 @@ TEST_F(HttpNetworkTransactionTest, MultiRoundAuth) {
                                   origin, BoundNetLog());
   auth_factory->set_mock_handler(auth_handler, HttpAuth::AUTH_SERVER);
 
-  scoped_refptr<HttpNetworkSession> session = CreateSession(&session_deps);
+  scoped_refptr<HttpNetworkSession> session(CreateSession(&session_deps));
   scoped_ptr<HttpTransaction> trans(new HttpNetworkTransaction(session));
 
   int rv = OK;
@@ -7588,8 +7709,8 @@ TEST_F(HttpNetworkTransactionTest, PreconnectWithExistingSpdySession) {
   scoped_refptr<SpdySession> spdy_session =
       session->spdy_session_pool()->Get(pair, session->mutable_spdy_settings(),
                                         BoundNetLog());
-  scoped_refptr<TCPSocketParams> tcp_params =
-      new TCPSocketParams("www.google.com", 443, MEDIUM, GURL(), false);
+  scoped_refptr<TCPSocketParams> tcp_params(
+      new TCPSocketParams("www.google.com", 443, MEDIUM, GURL(), false));
   TestCompletionCallback callback;
 
   scoped_ptr<ClientSocketHandle> connection(new ClientSocketHandle);

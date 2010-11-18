@@ -58,6 +58,12 @@ class AdvancedOptionsHandler
   // Callback for the "metricsReportingCheckboxAction" message.  This is called
   // if the user toggles the metrics reporting checkbox.
   void HandleMetricsReportingCheckbox(const ListValue* args);
+
+  // Callback for the "defaultZoomLevelAction" message.  This is called if the
+  // user changes the default zoom level.  |args| is an array that contains
+  // one item, the zoom level as a numeric value.
+  void HandleDefaultZoomLevel(const ListValue* args);
+
 #if defined(OS_WIN)
   // Callback for the "Check SSL Revocation" checkbox.  This is needed so we
   // can support manual handling on Windows.
@@ -115,6 +121,11 @@ class AdvancedOptionsHandler
   // Setup the checked state for the metrics reporting checkbox.
   void SetupMetricsReportingCheckbox(bool user_changed);
 
+  // Setup the visibility for the metrics reporting setting.
+  void SetupMetricsReportingSettingVisibility();
+
+  void SetupDefaultZoomLevel();
+
   // Setup the download path based on user preferences.
   void SetupDownloadLocationPath();
 
@@ -134,10 +145,12 @@ class AdvancedOptionsHandler
 #if !defined(OS_CHROMEOS)
   BooleanPrefMember enable_metrics_recording_;
   StringPrefMember cloud_print_proxy_email_;
+  bool cloud_print_proxy_ui_enabled_;
 #endif
 
   FilePathPrefMember default_download_location_;
   StringPrefMember auto_open_files_;
+  RealPrefMember default_zoom_level_;
   scoped_ptr<PrefSetObserver> proxy_prefs_;
   scoped_ptr<OptionsManagedBannerHandler> banner_handler_;
 

@@ -5,11 +5,12 @@
 #include "webkit/glue/plugins/pepper_url_response_info.h"
 
 #include "base/logging.h"
-#include "third_party/ppapi/c/pp_var.h"
+#include "ppapi/c/pp_var.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebHTTPHeaderVisitor.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebString.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebURL.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebURLResponse.h"
+#include "webkit/glue/plugins/pepper_common.h"
 #include "webkit/glue/plugins/pepper_file_ref.h"
 #include "webkit/glue/plugins/pepper_var.h"
 #include "webkit/glue/webkit_glue.h"
@@ -38,8 +39,8 @@ class HeaderFlattener : public WebHTTPHeaderVisitor {
   std::string buffer_;
 };
 
-bool IsURLResponseInfo(PP_Resource resource) {
-  return !!Resource::GetAs<URLResponseInfo>(resource);
+PP_Bool IsURLResponseInfo(PP_Resource resource) {
+  return BoolToPPBool(!!Resource::GetAs<URLResponseInfo>(resource));
 }
 
 PP_Var GetProperty(PP_Resource response_id,
@@ -72,6 +73,10 @@ const PPB_URLResponseInfo_Dev ppb_urlresponseinfo = {
   &GetBody
 };
 
+bool IsRedirect(int32_t status) {
+  return status >= 300 && status <= 399;
+}
+
 }  // namespace
 
 URLResponseInfo::URLResponseInfo(PluginModule* module)
@@ -91,19 +96,33 @@ PP_Var URLResponseInfo::GetProperty(PP_URLResponseProperty_Dev property) {
   switch (property) {
     case PP_URLRESPONSEPROPERTY_URL:
       return StringVar::StringToPPVar(module(), url_);
+    case PP_URLRESPONSEPROPERTY_REDIRECTURL:
+      if (IsRedirect(status_code_))
+        return StringVar::StringToPPVar(module(), redirect_url_);
+      break;
+    case PP_URLRESPONSEPROPERTY_REDIRECTMETHOD:
+      if (IsRedirect(status_code_))
+        return StringVar::StringToPPVar(module(), status_text_);
+      break;
     case PP_URLRESPONSEPROPERTY_STATUSCODE:
       return PP_MakeInt32(status_code_);
+    case PP_URLRESPONSEPROPERTY_STATUSLINE:
+      return StringVar::StringToPPVar(module(), status_text_);
     case PP_URLRESPONSEPROPERTY_HEADERS:
       return StringVar::StringToPPVar(module(), headers_);
-    default:
-      NOTIMPLEMENTED();  // TODO(darin): Implement me!
-      return PP_MakeUndefined();
   }
+  // The default is to return an undefined PP_Var.
+  return PP_MakeUndefined();
 }
 
 bool URLResponseInfo::Initialize(const WebURLResponse& response) {
   url_ = response.url().spec();
   status_code_ = response.httpStatusCode();
+  status_text_ = response.httpStatusText().utf8();
+  if (IsRedirect(status_code_)) {
+    redirect_url_ = response.httpHeaderField(
+        WebString::fromUTF8("Location")).utf8();
+  }
 
   HeaderFlattener flattener;
   response.visitHTTPHeaderFields(&flattener);

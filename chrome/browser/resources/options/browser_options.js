@@ -54,13 +54,30 @@ cr.define('options', function() {
         chrome.send('coreOptionsUserMetricsAction',
             ['Options_ManageSearchEngines']);
       };
+      $('instantEnableCheckbox').onclick = function(event) {
+        var alreadyConfirmed = $('instantDialogShown').checked;
 
+        if (this.checked && !alreadyConfirmed) {
+          // Leave disabled for now. The PrefCheckbox handler already set it to
+          // true so undo that.
+          Preferences.setBooleanPref(this.pref, false, this.metric);
+          OptionsPage.showOverlay('instantConfirmOverlay');
+        }
+      };
+
+      var homepageField = $('homepageURL');
       $('homepageUseNTPButton').onchange =
           this.handleHomepageUseNTPButtonChange_.bind(this);
       $('homepageUseURLButton').onchange =
           this.handleHomepageUseURLButtonChange_.bind(this);
-      $('homepageURL').onchange =
-          this.handleHomepageURLChange_.bind(this)
+      homepageField.onchange =
+          this.handleHomepageURLChange_.bind(this);
+
+      // Ensure that changes are committed when closing the page.
+      window.addEventListener('unload', function() {
+          if (document.activeElement == homepageField)
+            homepageField.blur();
+          });
 
       if (!cr.isChromeOS) {
         $('defaultBrowserUseAsDefaultButton').onclick = function(event) {

@@ -20,7 +20,8 @@ const char* kHelpTopicFiles[] = { "connectivity.html",
                                   "usage.html",
                                   "accessaccount.html",
                                   "password.html",
-                                  "disabled.html" };
+                                  "disabled.html",
+                                  "hosted.html" };
 }  // namespace
 
 COMPILE_ASSERT(arraysize(kHelpTopicFiles) == HelpAppLauncher::HELP_TOPIC_COUNT,
@@ -74,7 +75,7 @@ void HelpAppLauncher::ShowHelpTopicDialog(const GURL& topic_url) {
         parent_window_,
         l10n_util::GetString(IDS_LOGIN_OOBE_HELP_DIALOG_TITLE),
         topic_url,
-        LoginHtmlDialog::STYLE_GENERIC));
+        LoginHtmlDialog::STYLE_BUBBLE));
   } else {
     dialog_->set_url(topic_url);
   }

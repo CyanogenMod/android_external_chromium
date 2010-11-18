@@ -83,6 +83,9 @@ void SigninManager::ProvideSecondFactorAccessCode(
 }
 
 void SigninManager::SignOut() {
+  if (!profile_)
+    return;
+
   client_login_.reset();
   last_result_ = ClientLoginResult();
   username_.clear();
@@ -111,7 +114,7 @@ void SigninManager::OnGetUserInfoSuccess(const std::string& key,
   GoogleServiceSigninSuccessDetails details(username_, password_);
   NotificationService::current()->Notify(
       NotificationType::GOOGLE_SIGNIN_SUCCESSFUL,
-      Source<SigninManager>(this),
+      Source<Profile>(profile_),
       Details<const GoogleServiceSigninSuccessDetails>(&details));
 
   password_.clear();  // Don't need it anymore.
@@ -137,7 +140,7 @@ void SigninManager::OnGetUserInfoFailure(const GoogleServiceAuthError& error) {
 void SigninManager::OnClientLoginFailure(const GoogleServiceAuthError& error) {
   NotificationService::current()->Notify(
       NotificationType::GOOGLE_SIGNIN_FAILED,
-      Source<SigninManager>(this),
+      Source<Profile>(profile_),
       Details<const GoogleServiceAuthError>(&error));
 
   // We don't sign-out if the password was valid and we're just dealing with

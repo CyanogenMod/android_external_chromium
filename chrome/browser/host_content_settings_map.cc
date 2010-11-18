@@ -93,7 +93,8 @@ const bool kRequiresResourceIdentifier[CONTENT_SETTINGS_NUM_TYPES] = {
 // true for various internal objects like chrome:// URLs, so UI and other
 // things users think of as "not webpages" don't break.
 static bool ShouldAllowAllContent(const GURL& url) {
-  return url.SchemeIs(chrome::kChromeInternalScheme) ||
+  return url.SchemeIs(chrome::kChromeDevToolsScheme) ||
+         url.SchemeIs(chrome::kChromeInternalScheme) ||
          url.SchemeIs(chrome::kChromeUIScheme) ||
          url.SchemeIs(chrome::kExtensionScheme) ||
          url.SchemeIs(chrome::kGearsScheme) ||
@@ -327,12 +328,14 @@ ContentSettings HostContentSettingsMap::GetContentSettings(
 
   AutoLock auto_lock(lock_);
 
-  // Make the remaining defaults explicit.
-  for (int j = 0; j < CONTENT_SETTINGS_NUM_TYPES; ++j)
-    if (output.settings[j] == CONTENT_SETTING_DEFAULT ||
-        RequiresResourceIdentifier(ContentSettingsType(j)))
+  // If we require a resource identifier, set the content settings to default,
+  // otherwise make the defaults explicit.
+  for (int j = 0; j < CONTENT_SETTINGS_NUM_TYPES; ++j) {
+    if (RequiresResourceIdentifier(ContentSettingsType(j)))
+      output.settings[j] = CONTENT_SETTING_DEFAULT;
+    else if (output.settings[j] == CONTENT_SETTING_DEFAULT)
       output.settings[j] = default_content_settings_.settings[j];
-
+  }
   return output;
 }
 
@@ -657,12 +660,19 @@ void HostContentSettingsMap::SetBlockThirdPartyCookies(bool block) {
     return;
   }
 
+  PrefService* prefs = profile_->GetPrefs();
+  // If the preference block-third-party-cookies is managed then do not allow to
+  // change it.
+  if (prefs->IsManagedPreference(prefs::kBlockThirdPartyCookies)) {
+    NOTREACHED();
+    return;
+  }
+
   {
     AutoLock auto_lock(lock_);
     block_third_party_cookies_ = block;
   }
 
-  PrefService* prefs = profile_->GetPrefs();
   if (block)
     prefs->SetBoolean(prefs::kBlockThirdPartyCookies, true);
   else
@@ -1003,4 +1013,3 @@ void HostContentSettingsMap::CanonicalizeContentSettingsExceptions(
         move_items[i].second, pattern_settings_dictionary);
   }
 }
-

@@ -6,10 +6,16 @@
 
 #include "app/l10n_util.h"
 #include "base/file_path.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/browser.h"
+#include "chrome/browser/browser_navigator.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/crashed_extension_infobar.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
+#include "chrome/browser/notifications/desktop_notification_service.h"
+#include "chrome/browser/notifications/notification_test_util.h"
+#include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
@@ -102,10 +108,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeTabContentsChanges) {
   // Open a new tab and make sure we notice that.
   GURL url(ui_test_utils::GetTestUrl(FilePath(FilePath::kCurrentDirectory),
                                      FilePath(kTitle1File)));
-  Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
-  params.index = 0;
-  browser()->AddTabWithURL(&params);
-  EXPECT_EQ(browser(), params.target);
+  AddTabAtIndex(0, url, PageTransition::TYPED);
   WaitForResourceChange(3);
 
   // Close the tab and verify that we notice.
@@ -117,11 +120,13 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeTabContentsChanges) {
 
 #if defined(OS_WIN)
 // http://crbug.com/31663
-#define NoticeExtensionChanges DISABLED_NoticeExtensionChanges
+#define MAYBE_NoticeExtensionChanges DISABLED_NoticeExtensionChanges
+#else
+// Flaky test bug filed in http://crbug.com/51701
+#define MAYBE_NoticeExtensionChanges FLAKY_NoticeExtensionChanges
 #endif
 
-// Flaky test bug filed in http://crbug.com/51701
-IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, FLAKY_NoticeExtensionChanges) {
+IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, MAYBE_NoticeExtensionChanges) {
   EXPECT_EQ(0, model()->ResourceCount());
 
   // Show the task manager. This populates the model, and helps with debugging
@@ -136,6 +141,39 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, FLAKY_NoticeExtensionChanges) {
   ASSERT_TRUE(LoadExtension(
       test_data_dir_.AppendASCII("common").AppendASCII("background_page")));
   WaitForResourceChange(3);
+}
+
+IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeNotificationChanges) {
+  EXPECT_EQ(0, model()->ResourceCount());
+
+  // Show the task manager.
+  browser()->window()->ShowTaskManager();
+  // Expect to see the browser and the New Tab Page renderer.
+  EXPECT_EQ(2, model()->ResourceCount());
+
+  // Show a notification.
+  NotificationUIManager* notifications =
+      g_browser_process->notification_ui_manager();
+
+  string16 content = DesktopNotificationService::CreateDataUrl(
+      GURL(), ASCIIToUTF16("Hello World!"), string16(),
+      WebKit::WebTextDirectionDefault);
+
+  scoped_refptr<NotificationDelegate> del1(new MockNotificationDelegate("n1"));
+  Notification n1(
+      GURL(), GURL(content), ASCIIToUTF16("Test 1"), string16(), del1.get());
+  scoped_refptr<NotificationDelegate> del2(new MockNotificationDelegate("n2"));
+  Notification n2(
+      GURL(), GURL(content), ASCIIToUTF16("Test 2"), string16(), del2.get());
+
+  notifications->Add(n1, browser()->profile());
+  WaitForResourceChange(3);
+  notifications->Add(n2, browser()->profile());
+  WaitForResourceChange(4);
+  notifications->Cancel(n1);
+  WaitForResourceChange(3);
+  notifications->Cancel(n2);
+  WaitForResourceChange(2);
 }
 
 // Times out on Vista; disabled to keep tests fast. http://crbug.com/44991
@@ -249,9 +287,7 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest,
   // Open a new tab and make sure we notice that.
   GURL url(ui_test_utils::GetTestUrl(FilePath(FilePath::kCurrentDirectory),
                                      FilePath(kTitle1File)));
-  Browser::AddTabWithURLParams params(url, PageTransition::TYPED);
-  params.index = 0;
-  browser()->AddTabWithURL(&params);
+  AddTabAtIndex(0, url, PageTransition::TYPED);
   WaitForResourceChange(3);
 
   // Check that we get some value for the cache columns.

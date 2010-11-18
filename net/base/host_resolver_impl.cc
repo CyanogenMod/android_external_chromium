@@ -16,7 +16,8 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "base/debug_util.h"
+#include "base/debug/debugger.h"
+#include "base/debug/stack_trace.h"
 #include "base/lock.h"
 #include "base/message_loop.h"
 #include "base/metrics/field_trial.h"
@@ -71,7 +72,9 @@ HostCache* CreateDefaultCache() {
 }  // anonymous namespace
 
 HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
+                                       HostResolverProc* resolver_proc,
                                        NetLog* net_log) {
+<<<<<<< HEAD
   // Maximum of 50 concurrent threads.
   // TODO(eroman): Adjust this, do some A/B experiments.
 #ifdef ANDROID
@@ -80,6 +83,13 @@ HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
 #else
   static const size_t kDefaultMaxJobs = 50u;
 #endif
+=======
+  // Maximum of 8 concurrent resolver threads.
+  // Some routers (or resolvers) appear to start to provide host-not-found if
+  // too many simultaneous resolutions are pending.  This number needs to be
+  // further optimized, but 8 is what FF currently does.
+  static const size_t kDefaultMaxJobs = 8u;
+>>>>>>> chromium.org at r65505
 
   if (max_concurrent_resolves == HostResolver::kDefaultParallelism)
     max_concurrent_resolves = kDefaultMaxJobs;
@@ -93,7 +103,7 @@ HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
   return systemResolver;
 #else
   HostResolverImpl* resolver =
-      new HostResolverImpl(NULL, CreateDefaultCache(),
+      new HostResolverImpl(resolver_proc, CreateDefaultCache(),
                            max_concurrent_resolves, net_log);
 
   return resolver;
@@ -369,9 +379,10 @@ class HostResolverImpl::Job
        had_non_speculative_request_(false),
        net_log_(BoundNetLog::Make(net_log,
                                   NetLog::SOURCE_HOST_RESOLVER_IMPL_JOB)) {
-    net_log_.BeginEvent(NetLog::TYPE_HOST_RESOLVER_IMPL_JOB,
-            new JobCreationParameters(key.hostname,
-                                      source_net_log.source()));
+    net_log_.BeginEvent(
+        NetLog::TYPE_HOST_RESOLVER_IMPL_JOB,
+        make_scoped_refptr(
+            new JobCreationParameters(key.hostname, source_net_log.source())));
   }
 
   // Attaches a request to this job. The job takes ownership of |req| and will
@@ -379,7 +390,8 @@ class HostResolverImpl::Job
   void AddRequest(Request* req) {
     req->request_net_log().BeginEvent(
         NetLog::TYPE_HOST_RESOLVER_IMPL_JOB_ATTACH,
-        new NetLogSourceParameter("source_dependency", net_log_.source()));
+        make_scoped_refptr(new NetLogSourceParameter(
+            "source_dependency", net_log_.source())));
 
     req->set_job(this);
     requests_.push_back(req);
@@ -1082,7 +1094,7 @@ void HostResolverImpl::CancelRequest(RequestHandle req_handle) {
     // Because we destroy outstanding requests during Shutdown(),
     // |req_handle| is already cancelled.
     LOG(ERROR) << "Called HostResolverImpl::CancelRequest() after Shutdown().";
-    StackTrace().PrintBacktrace();
+    base::debug::StackTrace().PrintBacktrace();
     return;
   }
   Request* req = reinterpret_cast<Request*>(req_handle);
@@ -1251,11 +1263,13 @@ void HostResolverImpl::OnStartRequest(const BoundNetLog& source_net_log,
                                       const RequestInfo& info) {
   source_net_log.BeginEvent(
       NetLog::TYPE_HOST_RESOLVER_IMPL,
-      new NetLogSourceParameter("source_dependency", request_net_log.source()));
+      make_scoped_refptr(new NetLogSourceParameter(
+          "source_dependency", request_net_log.source())));
 
   request_net_log.BeginEvent(
       NetLog::TYPE_HOST_RESOLVER_IMPL_REQUEST,
-      new RequestInfoParameters(info, source_net_log.source()));
+      make_scoped_refptr(new RequestInfoParameters(
+          info, source_net_log.source())));
 
   // Notify the observers of the start.
   if (!observers_.empty()) {
@@ -1384,7 +1398,7 @@ void HostResolverImpl::ProcessQueuedRequests() {
   if (!top_req)
     return;
 
-  scoped_refptr<Job> job = CreateAndStartJob(top_req);
+  scoped_refptr<Job> job(CreateAndStartJob(top_req));
 
   // Search for any other pending request which can piggy-back off this job.
   for (size_t pool_i = 0; pool_i < POOL_COUNT; ++pool_i) {
@@ -1414,8 +1428,8 @@ HostResolverImpl::Job* HostResolverImpl::CreateAndStartJob(Request* req) {
   req->request_net_log().AddEvent(NetLog::TYPE_HOST_RESOLVER_IMPL_CREATE_JOB,
                                   NULL);
 
-  scoped_refptr<Job> job = new Job(next_job_id_++, this, key,
-                                   req->request_net_log(), net_log_);
+  scoped_refptr<Job> job(new Job(next_job_id_++, this, key,
+                                   req->request_net_log(), net_log_));
   job->AddRequest(req);
   AddOutstandingJob(job);
   job->Start();

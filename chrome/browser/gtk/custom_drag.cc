@@ -26,7 +26,8 @@ void OnDragDataGetForDownloadItem(GtkSelectionData* selection_data,
                                   const DownloadItem* download_item) {
   GURL url = net::FilePathToFileURL(download_item->full_path());
   gtk_dnd_util::WriteURLWithName(selection_data, url,
-      UTF8ToUTF16(download_item->GetFileName().value()), target_type);
+      UTF8ToUTF16(download_item->GetFileNameToReportUser().value()),
+      target_type);
 }
 
 void OnDragDataGetStandalone(GtkWidget* widget, GdkDragContext* context,
@@ -43,7 +44,6 @@ void OnDragDataGetStandalone(GtkWidget* widget, GdkDragContext* context,
 CustomDrag::CustomDrag(SkBitmap* icon, int code_mask, GdkDragAction action)
     : drag_widget_(gtk_invisible_new()),
       pixbuf_(icon ? gfx::GdkPixbufFromSkBitmap(icon) : NULL) {
-  g_object_ref_sink(drag_widget_);
   g_signal_connect(drag_widget_, "drag-data-get",
                    G_CALLBACK(OnDragDataGetThunk), this);
   g_signal_connect(drag_widget_, "drag-begin",
@@ -62,7 +62,7 @@ CustomDrag::CustomDrag(SkBitmap* icon, int code_mask, GdkDragAction action)
 CustomDrag::~CustomDrag() {
   if (pixbuf_)
     g_object_unref(pixbuf_);
-  g_object_unref(drag_widget_);
+  gtk_widget_destroy(drag_widget_);
 }
 
 void CustomDrag::OnDragBegin(GtkWidget* widget, GdkDragContext* drag_context) {
@@ -147,4 +147,3 @@ void BookmarkDrag::BeginDrag(Profile* profile,
                              const std::vector<const BookmarkNode*>& nodes) {
   new BookmarkDrag(profile, nodes);
 }
-

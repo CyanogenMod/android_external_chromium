@@ -534,7 +534,8 @@ class MockClientSocketFactory : public ClientSocketFactory {
       ClientSocketHandle* transport_socket,
       const std::string& hostname,
       const SSLConfig& ssl_config,
-      SSLHostInfo* ssl_host_info);
+      SSLHostInfo* ssl_host_info,
+      DnsRRResolver* dnsrr_resolver);
   SocketDataProviderArray<SocketDataProvider>& mock_data() {
     return mock_data_;
   }
@@ -609,6 +610,7 @@ class MockTCPClientSocket : public MockClientSocket {
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const { return IsConnected(); }
   virtual bool WasEverUsed() const { return was_used_to_convey_data_; }
+  virtual bool UsingTCPFastOpen() const { return false; }
 
   // Socket methods:
   virtual int Read(net::IOBuffer* buf, int buf_len,
@@ -654,6 +656,7 @@ class DeterministicMockTCPClientSocket : public MockClientSocket,
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const { return IsConnected(); }
   virtual bool WasEverUsed() const { return was_used_to_convey_data_; }
+  virtual bool UsingTCPFastOpen() const { return false; }
 
   // Socket methods:
   virtual int Write(net::IOBuffer* buf, int buf_len,
@@ -698,6 +701,7 @@ class MockSSLClientSocket : public MockClientSocket {
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool WasEverUsed() const;
+  virtual bool UsingTCPFastOpen() const;
 
   // Socket methods:
   virtual int Read(net::IOBuffer* buf, int buf_len,
@@ -875,7 +879,8 @@ class DeterministicMockClientSocketFactory : public ClientSocketFactory {
       ClientSocketHandle* transport_socket,
       const std::string& hostname,
       const SSLConfig& ssl_config,
-      SSLHostInfo* ssl_host_info);
+      SSLHostInfo* ssl_host_info,
+      DnsRRResolver* dnsrr_resolver);
 
   SocketDataProviderArray<DeterministicSocketData>& mock_data() {
     return mock_data_;

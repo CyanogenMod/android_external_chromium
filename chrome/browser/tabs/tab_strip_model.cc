@@ -442,10 +442,10 @@ void TabStripModel::SetTabPinned(int index, bool pinned) {
     contents_data_[index]->pinned = pinned;
     if (pinned && index != non_mini_tab_index) {
       MoveTabContentsAtImpl(index, non_mini_tab_index, false);
-      return;  // Don't send TabPinnedStateChanged notification.
+      index = non_mini_tab_index;
     } else if (!pinned && index + 1 != non_mini_tab_index) {
       MoveTabContentsAtImpl(index, non_mini_tab_index - 1, false);
-      return;  // Don't send TabPinnedStateChanged notification.
+      index = non_mini_tab_index - 1;
     }
 
     FOR_EACH_OBSERVER(TabStripModelObserver, observers_,
@@ -756,7 +756,7 @@ void TabStripModel::Observe(NotificationType type,
     }
 
     case NotificationType::EXTENSION_UNLOADED: {
-      Extension* extension = Details<Extension>(details).ptr();
+      const Extension* extension = Details<const Extension>(details).ptr();
       // Iterate backwards as we may remove items while iterating.
       for (int i = count() - 1; i >= 0; i--) {
         TabContents* contents = GetTabContentsAt(i);
@@ -878,7 +878,6 @@ TabContents* TabStripModel::GetContentsAt(int index) const {
 
 void TabStripModel::ChangeSelectedContentsFrom(
     TabContents* old_contents, int to_index, bool user_gesture) {
-  DCHECK(ContainsIndex(to_index));
   TabContents* new_contents = GetContentsAt(to_index);
   if (old_contents == new_contents)
     return;

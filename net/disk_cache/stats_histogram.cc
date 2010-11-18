@@ -42,7 +42,7 @@ scoped_refptr<StatsHistogram> StatsHistogram::StatsHistogramFactoryGet(
   Histogram* temp_histogram = histogram.get();
   StatsHistogram* temp_stats_histogram =
       static_cast<StatsHistogram*>(temp_histogram);
-  scoped_refptr<StatsHistogram> return_histogram = temp_stats_histogram;
+  scoped_refptr<StatsHistogram> return_histogram(temp_stats_histogram);
   return return_histogram;
 }
 
@@ -85,5 +85,11 @@ void StatsHistogram::SnapshotSample(SampleSet* sample) const {
   StatsHistogram* mutable_me = const_cast<StatsHistogram*>(this);
   mutable_me->ClearFlags(kUmaTargetedHistogramFlag);
 }
+
+Histogram::Inconsistencies StatsHistogram::FindCorruption(
+    const SampleSet& snapshot) const {
+  return NO_INCONSISTENCIES;  // This class won't monitor inconsistencies.
+}
+
 
 }  // namespace disk_cache

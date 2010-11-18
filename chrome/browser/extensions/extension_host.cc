@@ -34,6 +34,7 @@
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/renderer_preferences_util.h"
+#include "chrome/browser/tab_contents/popup_menu_helper_mac.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
@@ -121,8 +122,10 @@ class ExtensionHost::ProcessCreationQueue {
 ////////////////
 // ExtensionHost
 
-ExtensionHost::ExtensionHost(Extension* extension, SiteInstance* site_instance,
-                             const GURL& url, ViewType::Type host_type)
+ExtensionHost::ExtensionHost(const Extension* extension,
+                             SiteInstance* site_instance,
+                             const GURL& url,
+                             ViewType::Type host_type)
     : extension_(extension),
       profile_(site_instance->browsing_instance()->profile()),
       did_stop_loading_(false),
@@ -235,7 +238,8 @@ void ExtensionHost::NavigateToURL(const GURL& url) {
 
   url_ = url;
 
-  if (!is_background_page() && !extension_->GetBackgroundPageReady()) {
+  if (!is_background_page() &&
+      !profile_->GetExtensionsService()->IsBackgroundPageReady(extension_)) {
     // Make sure the background page loads before any others.
     registrar_.Add(this, NotificationType::EXTENSION_BACKGROUND_PAGE_READY,
                    Source<Extension>(extension_));
@@ -250,7 +254,8 @@ void ExtensionHost::Observe(NotificationType type,
                             const NotificationDetails& details) {
   switch (type.value) {
     case NotificationType::EXTENSION_BACKGROUND_PAGE_READY:
-      DCHECK(extension_->GetBackgroundPageReady());
+      DCHECK(profile_->GetExtensionsService()->
+           IsBackgroundPageReady(extension_));
       NavigateToURL(url_);
       break;
     case NotificationType::RENDERER_PROCESS_CREATED:
@@ -264,7 +269,7 @@ void ExtensionHost::Observe(NotificationType type,
       // sent. NULL it out so that dirty pointer issues don't arise in cases
       // when multiple ExtensionHost objects pointing to the same Extension are
       // present.
-      if (extension_ == Details<Extension>(details).ptr())
+      if (extension_ == Details<const Extension>(details).ptr())
         extension_ = NULL;
       break;
     default:
@@ -394,7 +399,7 @@ void ExtensionHost::DocumentAvailableInMainFrame(RenderViewHost* rvh) {
 
   document_element_available_ = true;
   if (is_background_page()) {
-    extension_->SetBackgroundPageReady();
+    profile_->GetExtensionsService()->SetBackgroundPageReady(extension_);
   } else {
     switch (extension_host_type_) {
       case ViewType::EXTENSION_INFOBAR:
@@ -564,33 +569,43 @@ void ExtensionHost::ShowCreatedWindow(int route_id,
                                                contents,
                                                initial_pos);
     browser->window()->Show();
-  } else {
-    Browser* browser = BrowserList::FindBrowserWithType(
+    return;
+  }
+
+  // If the tab contents isn't a popup, it's a normal tab. We need to find a
+  // home for it. This is typically a Browser, but it can also be some other
+  // TabContentsDelegate in the case of ChromeFrame.
+
+  // First, if the creating extension view was associated with a tab contents,
+  // use that tab content's delegate. We must be careful here that the
+  // associated tab contents has the same profile as the new tab contents. In
+  // the case of extensions in 'spanning' incognito mode, they can mismatch.
+  // We don't want to end up putting a normal tab into an incognito window, or
+  // vice versa.
+  TabContents* associated_contents = associated_tab_contents();
+  if (associated_contents &&
+      associated_contents->profile() == contents->profile()) {
+    associated_contents->AddNewContents(contents, disposition, initial_pos,
+                                        user_gesture);
+    return;
+  }
+
+  // If there's no associated tab contents, or it doesn't have a matching
+  // profile, try finding an open window. Again, we must make sure to find a
+  // window with the correct profile.
+  Browser* browser = BrowserList::FindBrowserWithType(
         contents->profile(),
         Browser::TYPE_NORMAL,
         false);  // Match incognito exactly.
-    if (!browser) {
-      // If no browser is associated with the created TabContents, then the
-      // created TabContents may be an intermediate struct used during topmost
-      // url navigation from within an experimental extension popup view.
-      //
-      // If the ExtensionHost has an associated TabContents, then register the
-      // new contents with this contents.  This will allow top-level link
-      // navigation within the new contents to function just as navigation
-      // within the current host.
-      TabContents* associated_contents = associated_tab_contents();
-      if (associated_contents) {
-        associated_contents->AddNewContents(contents, disposition, initial_pos,
-                                            user_gesture);
-      } else {
-        browser = Browser::Create(contents->profile());
-        browser->window()->Show();
-      }
-    }
 
-    if (browser)
-      browser->AddTabContents(contents, disposition, initial_pos, user_gesture);
+  // If there's no Browser open with the right profile, create a new one.
+  if (!browser) {
+    browser = Browser::Create(contents->profile());
+    browser->window()->Show();
   }
+
+  if (browser)
+    browser->AddTabContents(contents, disposition, initial_pos, user_gesture);
 }
 
 void ExtensionHost::ShowCreatedWidget(int route_id,
@@ -619,6 +634,22 @@ void ExtensionHost::ShowCreatedWidgetInternal(
 
 void ExtensionHost::ShowContextMenu(const ContextMenuParams& params) {
   // TODO(erikkay) Show a default context menu.
+}
+
+void ExtensionHost::ShowPopupMenu(const gfx::Rect& bounds,
+                                  int item_height,
+                                  double item_font_size,
+                                  int selected_item,
+                                  const std::vector<WebMenuItem>& items,
+                                  bool right_aligned) {
+#if defined(OS_MACOSX)
+  PopupMenuHelper popup_menu_helper(render_view_host());
+  popup_menu_helper.ShowPopupMenu(bounds, item_height, item_font_size,
+                                  selected_item, items, right_aligned);
+#else
+  // Only on Mac are select popup menus external.
+  NOTREACHED();
+#endif
 }
 
 void ExtensionHost::StartDragging(const WebDropData& drop_data,

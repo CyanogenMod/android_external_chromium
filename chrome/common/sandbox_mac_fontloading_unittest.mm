@@ -16,6 +16,7 @@
 namespace {
 
 using sandboxtest::MacSandboxTest;
+using sandbox::Sandbox;
 
 bool CGFontFromFontContainer(ATSFontContainerRef container, CGFontRef* out) {
   // Count the number of fonts that were loaded.
@@ -91,13 +92,8 @@ bool FontLoadingTestCase::BeforeSandboxInit() {
     return false;
   }
 
-  if (!font_shmem_->Create("", false, false, font_data_length_)) {
+  if (!font_shmem_->CreateAndMapAnonymous(font_data_length_)) {
     LOG(ERROR) << "SharedMemory::Create failed";
-    return false;
-  }
-
-  if (!font_shmem_->Map(font_data_length_)) {
-    LOG(ERROR) << "SharedMemory::Map failed";
     return false;
   }
 
@@ -126,32 +122,32 @@ bool FontLoadingTestCase::SandboxedTest() {
   // Unload the font container when done.
   ScopedFontContainer scoped_unloader(font_container);
 
-  CGFontRef font_ref;
-  if (!CGFontFromFontContainer(font_container, &font_ref)) {
+  CGFontRef cg_font_ref;
+  if (!CGFontFromFontContainer(font_container, &cg_font_ref)) {
     LOG(ERROR) << "CGFontFromFontContainer failed";
     return false;
   }
 
-  if (!font_ref) {
+  if (!cg_font_ref) {
     LOG(ERROR) << "Got NULL CGFontRef";
     return false;
   }
-  base::mac::ScopedCFTypeRef<CGFontRef> cgfont;
-  cgfont.reset(font_ref);
+  base::mac::ScopedCFTypeRef<CGFontRef> cgfont(cg_font_ref);
 
-  const NSFont* nsfont = reinterpret_cast<const NSFont*>(
-                         CTFontCreateWithGraphicsFont(cgfont.get(), 16.0,
-                            NULL, NULL));
-  if (!nsfont) {
+  CTFontRef ct_font_ref =
+      CTFontCreateWithGraphicsFont(cgfont.get(), 16.0, NULL, NULL);
+  base::mac::ScopedCFTypeRef<CTFontRef> ctfont(ct_font_ref);
+
+  if (!ct_font_ref) {
     LOG(ERROR) << "CTFontCreateWithGraphicsFont() failed";
     return false;
   }
 
   // Do something with the font to make sure it's loaded.
-  CGFloat cap_height = [nsfont capHeight];
+  CGFloat cap_height = CTFontGetCapHeight(ct_font_ref);
 
   if (cap_height <= 0.0) {
-    LOG(ERROR) << "Got bad value for [NSFont capHeight] " << cap_height;
+    LOG(ERROR) << "Got bad value for CTFontGetCapHeight " << cap_height;
     return false;
   }
 
@@ -174,7 +170,7 @@ TEST_F(MacSandboxTest, FontLoadingTest) {
   file_util::WriteFileDescriptor(fileno(temp_file),
       static_cast<const char *>(font_data.memory()), font_data_size);
 
-  ASSERT_TRUE(RunTestInSandbox(sandbox::SANDBOX_TYPE_RENDERER,
+  ASSERT_TRUE(RunTestInSandbox(Sandbox::SANDBOX_TYPE_RENDERER,
                   "FontLoadingTestCase", temp_file_path.value().c_str()));
   temp_file_closer.reset();
   ASSERT_TRUE(file_util::Delete(temp_file_path, false));

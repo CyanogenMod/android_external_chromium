@@ -16,17 +16,19 @@ namespace chromeos {
 class CrosSettingsProviderProxy : public CrosSettingsProvider {
  public:
   CrosSettingsProviderProxy();
-  virtual void Set(const std::string& path, Value* in_value);
+  // CrosSettingsProvider implementation.
   virtual bool Get(const std::string& path, Value** out_value) const;
   virtual bool HandlesSetting(const std::string& path);
 
  private:
-  void AppendPortIfValid(
-      const ProxyConfigServiceImpl::ProxyConfig::ManualProxy& proxy,
-      std::string* server_uri);
+  // CrosSettingsProvider implementation.
+  virtual void DoSet(const std::string& path, Value* value);
 
-  bool FormServerUriIfValid(
-      const ProxyConfigServiceImpl::ProxyConfig::ManualProxy& proxy,
+  chromeos::ProxyConfigServiceImpl* GetConfigService() const;
+
+  void AppendPortIfValid(const char* port_cache_key, std::string* server_uri);
+
+  void FormServerUriIfValid(const char* host_cache_key,
       const std::string& port_num, std::string* server_uri);
 
   Value* CreateServerHostValue(
@@ -34,6 +36,11 @@ class CrosSettingsProviderProxy : public CrosSettingsProvider {
 
   Value* CreateServerPortValue(
       const ProxyConfigServiceImpl::ProxyConfig::ManualProxy& proxy) const;
+
+  void SetCache(const std::string& key, const Value* value);
+
+  // A cache to keep whatever user typed.
+  DictionaryValue cache_;
 
   DISALLOW_COPY_AND_ASSIGN(CrosSettingsProviderProxy);
 };

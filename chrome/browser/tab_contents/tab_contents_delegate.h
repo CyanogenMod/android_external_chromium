@@ -7,6 +7,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "base/basictypes.h"
 #include "chrome/browser/automation/automation_resource_routing_delegate.h"
@@ -104,7 +105,7 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
   virtual TabContents* GetConstrainingContents(TabContents* source);
 
   // Returns true if constrained windows should be focused. Default is true.
-  virtual bool ShouldFocusConstrainedWindow(TabContents* source);
+  virtual bool ShouldFocusConstrainedWindow();
 
   // Invoked prior to the TabContents showing a constrained window.
   virtual void WillShowConstrainedWindow(TabContents* source);
@@ -305,7 +306,11 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
   virtual void UpdatePreferredSize(const gfx::Size& pref_size);
 
   // Notifies the delegate that the page has a suggest result.
-  virtual void OnSetSuggestResult(int32 page_id, const std::string& result);
+  virtual void OnSetSuggestions(int32 page_id,
+                                const std::vector<std::string>& result);
+
+ // Notifies the delegate whether the page supports instant-style interaction.
+  virtual void OnInstantSupportDetermined(int32 page_id, bool result);
 
   // Notifies the delegate that the content restrictions for this tab has
   // changed.

@@ -7,11 +7,13 @@
 #import <AddressBook/AddressBook.h>
 
 #include "app/l10n_util_mac.h"
+#include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/scoped_vector.h"
 #include "base/sys_string_conversions.h"
 #include "chrome/browser/autofill/autofill_profile.h"
 #include "chrome/browser/autofill/phone_number.h"
+#include "chrome/browser/guid.h"
 #include "grit/generated_resources.h"
 
 namespace {
@@ -69,12 +71,16 @@ void AuxiliaryProfilesImpl::GetAddressBookMeCard() {
     for (NSUInteger i = 0, count = [addresses count]; i < count; i++) {
       NSDictionary* address = [addresses valueAtIndex:i];
       NSString* addressLabelRaw = [addresses labelAtIndex:i];
-      NSString* addressLabel = ABLocalizedPropertyOrLabel(addressLabelRaw);
 
-      // Create a new profile where the label is set to the localized label
-      // from the "me" address.
-      scoped_ptr<AutoFillProfile> profile(
-          new AutoFillProfile(base::SysNSStringToUTF16(addressLabel), 0));
+      // Create a new profile where the guid is set to the guid portion of the
+      // |kABUIDProperty| taken from from the "me" address.  The format of
+      // the |kABUIDProperty| is "<guid>:ABPerson", so we're stripping off the
+      // raw guid here and using it directly.
+      const size_t kGUIDLength = 36U;
+      std::string guid = base::SysNSStringToUTF8(
+          [me valueForProperty:kABUIDProperty]).substr(0, kGUIDLength);
+      scoped_ptr<AutoFillProfile> profile(new AutoFillProfile(guid));
+      DCHECK(guid::IsValidGUID(profile->guid()));
 
       // Fill in name and company information.
       GetAddressBookNames(me, addressLabelRaw, profile.get());
@@ -250,28 +256,6 @@ void AuxiliaryProfilesImpl::GetAddressBookPhoneNumbers(
 
 // Populate |auxiliary_profiles_| with the Address Book data.
 void PersonalDataManager::LoadAuxiliaryProfiles() {
-  AutoLock lock(unique_ids_lock_);
-
-  // Before loading new auxiliary profiles remove the unique ids from the
-  // id pools.  The |GetAddressBookMeCard()| call below clears the
-  // |auxiliary_profiles_|.
-  unique_auxiliary_profile_ids_.clear();
-  for (ScopedVector<AutoFillProfile>::iterator iter
-           = auxiliary_profiles_.begin();
-       iter != auxiliary_profiles_.end(); ++iter) {
-    if ((*iter)->unique_id() != 0) {
-      unique_ids_.erase((*iter)->unique_id());
-    }
-  }
-
   AuxiliaryProfilesImpl impl(&auxiliary_profiles_);
   impl.GetAddressBookMeCard();
-
-  // For newly fetched auxiliary profiles, ensure that we have unique ids set.
-  for (ScopedVector<AutoFillProfile>::iterator iter
-           = auxiliary_profiles_.begin();
-       iter != auxiliary_profiles_.end(); ++iter) {
-    (*iter)->set_unique_id(
-        CreateNextUniqueIDFor(&unique_auxiliary_profile_ids_));
-  }
 }

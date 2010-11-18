@@ -16,9 +16,12 @@
 // object. The renderer converts webkit's accessibility tree into a
 // WebAccessibility tree and passes it to the browser process over IPC.
 // This class converts it into a format Cocoa can query.
-@interface BrowserAccessibilityCocoa : NSObject {
+// Inheriting from NSView rather than NSObject as clients cannot add
+// observers to pure NSObject derived classes.
+@interface BrowserAccessibilityCocoa : NSView {
  @private
   BrowserAccessibility* browserAccessibility_;
+  scoped_nsobject<NSMutableArray> children_;
   id<BrowserAccessibilityDelegateCocoa> delegate_;
 }
 
@@ -28,6 +31,9 @@
 // parameters can be null.
 - (id)initWithObject:(BrowserAccessibility*)accessibility
             delegate:(id<BrowserAccessibilityDelegateCocoa>)delegate;
+
+// Invalidate children for a non-ignored ancestor (including self).
+- (void)childrenChanged;
 
 // Children is an array of BrowserAccessibility objects, representing
 // the accessibility children of this object.

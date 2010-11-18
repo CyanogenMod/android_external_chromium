@@ -45,8 +45,8 @@ class DOMUIMenuWidget : public views::WidgetGtk {
   }
 
   // Returns true if the menu widget has input grab.
-  bool did_pointer_grab() const {
-    return did_pointer_grab_;
+  bool did_input_grab() const {
+    return did_input_grab_;
   }
 
   // Enables/Disables menu scroll.
@@ -77,11 +77,6 @@ class DOMUIMenuWidget : public views::WidgetGtk {
   static DOMUIMenuWidget* FindDOMUIMenuWidget(gfx::NativeView native);
 
  private:
-  friend class ::ExtensionApiTest;
-  // Disable warming up domview. This is to avoid confusing Extension
-  // API tests which listens to load notification with AllSources().
-  static void DisableWarmUp();
-
   // Capture the X pointer grab. This also enables input on the widget by
   // calling EnableInput(false).
   void CaptureGrab();
@@ -98,8 +93,8 @@ class DOMUIMenuWidget : public views::WidgetGtk {
   // MenuLocator that controls the position of this menu widget.
   scoped_ptr<chromeos::MenuLocator> menu_locator_;
 
-  // True if the widget has pointer grab.
-  bool did_pointer_grab_;
+  // True if the widget has input grab.
+  bool did_input_grab_;
 
   // True if the widget is for root menu (very first menu in
   // submenu chain).

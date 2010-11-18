@@ -207,6 +207,12 @@ class TabContents : public PageNavigator,
   RenderViewHost* render_view_host() const {
     return render_manager_.current_host();
   }
+
+  DOMUI* dom_ui() const {
+    return render_manager_.dom_ui() ? render_manager_.dom_ui()
+        : render_manager_.pending_dom_ui();
+  }
+
   // Returns the currently active RenderWidgetHostView. This may change over
   // time and can be NULL (during setup and teardown).
   RenderWidgetHostView* GetRenderWidgetHostView() const {
@@ -232,14 +238,14 @@ class TabContents : public PageNavigator,
   // NOTE: this should only be manipulated before the tab is added to a browser.
   // TODO(sky): resolve if this is the right way to identify an app tab. If it
   // is, than this should be passed in the constructor.
-  void SetExtensionApp(Extension* extension);
+  void SetExtensionApp(const Extension* extension);
 
   // Convenience for setting the app extension by id. This does nothing if
   // |extension_app_id| is empty, or an extension can't be found given the
   // specified id.
   void SetExtensionAppById(const std::string& extension_app_id);
 
-  Extension* extension_app() const { return extension_app_; }
+  const Extension* extension_app() const { return extension_app_; }
   bool is_app() const { return extension_app_ != NULL; }
 
   // If an app extension has been explicitly set for this TabContents its icon
@@ -737,6 +743,9 @@ class TabContents : public PageNavigator,
   // the page title and we know we want to update history.
   void UpdateHistoryPageTitle(const NavigationEntry& entry);
 
+  // Gets the zoom level for this tab.
+  double GetZoomLevel() const;
+
   // Gets the zoom percent for this tab.
   int GetZoomPercent(bool* enable_increment, bool* enable_decrement);
 
@@ -832,6 +841,9 @@ class TabContents : public PageNavigator,
   // Send webkit specific settings to the renderer.
   void UpdateWebPreferences();
 
+  // Instruct the renderer to update the zoom level.
+  void UpdateZoomLevel();
+
   // If our controller was restored and the page id is > than the site
   // instance's page id, the site instances page id is updated as well as the
   // renderers max page id.
@@ -903,7 +915,9 @@ class TabContents : public PageNavigator,
                                 const std::string& original_lang,
                                 const std::string& translated_lang,
                                 TranslateErrors::Type error_type);
-  virtual void OnSetSuggestResult(int32 page_id, const std::string& result);
+  virtual void OnSetSuggestions(int32 page_id,
+                                const std::vector<std::string>& suggestions);
+  virtual void OnInstantSupportDetermined(int32 page_id, bool result);
 
   // RenderViewHostDelegate::Resource implementation.
   virtual void DidStartProvisionalLoadForFrame(RenderViewHost* render_view_host,
@@ -931,7 +945,8 @@ class TabContents : public PageNavigator,
       int error_code,
       const GURL& url,
       bool showing_repost_interstitial);
-  virtual void DocumentLoadedInFrame();
+  virtual void DocumentLoadedInFrame(long long frame_id);
+  virtual void DidFinishLoad(long long frame_id);
 
   // RenderViewHostDelegate implementation.
   virtual RenderViewHostDelegate::View* GetViewDelegate();
@@ -1068,11 +1083,11 @@ class TabContents : public PageNavigator,
   // App extensions related methods:
 
   // Returns the first extension whose extent contains |url|.
-  Extension* GetExtensionContaining(const GURL& url);
+  const Extension* GetExtensionContaining(const GURL& url);
 
   // Resets app_icon_ and if |extension| is non-null creates a new
   // ImageLoadingTracker to load the extension's image.
-  void UpdateExtensionAppIcon(Extension* extension);
+  void UpdateExtensionAppIcon(const Extension* extension);
 
   // ImageLoadingTracker::Observer.
   virtual void OnImageLoaded(SkBitmap* image, ExtensionResource resource,
@@ -1251,7 +1266,7 @@ class TabContents : public PageNavigator,
 
   // If non-null this tab is an app tab and this is the extension the tab was
   // created for.
-  Extension* extension_app_;
+  const Extension* extension_app_;
 
   // Icon for extension_app_ (if non-null) or extension_for_current_page_.
   SkBitmap extension_app_icon_;

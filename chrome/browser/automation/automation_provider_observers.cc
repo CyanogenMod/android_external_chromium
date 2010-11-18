@@ -4,12 +4,15 @@
 
 #include "chrome/browser/automation/automation_provider_observers.h"
 
+#include <deque>
+
 #include "base/basictypes.h"
+#include "base/callback.h"
 #include "base/json/json_writer.h"
 #include "base/scoped_ptr.h"
 #include "base/string_util.h"
 #include "base/values.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/automation/automation_provider.h"
 #include "chrome/browser/automation/automation_provider_json.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
@@ -23,6 +26,8 @@
 #include "chrome/browser/extensions/extension_updater.h"
 #include "chrome/browser/login_prompt.h"
 #include "chrome/browser/metrics/metric_event_duration_details.h"
+#include "chrome/browser/notifications/balloon.h"
+#include "chrome/browser/notifications/balloon_collection.h"
 #include "chrome/browser/printing/print_job.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/search_engines/template_url_model.h"
@@ -489,7 +494,7 @@ void ExtensionReadyNotificationObserver::Observe(
       success = true;
       break;
     case NotificationType::EXTENSION_LOADED:
-      extension_ = Details<Extension>(details).ptr();
+      extension_ = Details<const Extension>(details).ptr();
       if (!DidExtensionHostsStopLoading(manager_))
         return;
       success = true;
@@ -854,7 +859,7 @@ void FindInPageNotificationObserver::Observe(
     const NotificationDetails& details) {
   Details<FindNotificationDetails> find_details(details);
   if (!(find_details->final_update() && reply_message_ != NULL)) {
-    DLOG(INFO) << "Ignoring, since we only care about the final message";
+    DVLOG(1) << "Ignoring, since we only care about the final message";
     return;
   }
   // We get multiple responses and one of those will contain the ordinal.
@@ -1346,3 +1351,22 @@ void AutocompleteEditFocusedObserver::Observe(
   delete this;
 }
 
+OnNotificationBalloonCountObserver::OnNotificationBalloonCountObserver(
+    AutomationProvider* provider,
+    IPC::Message* reply_message,
+    BalloonCollection* collection,
+    int count)
+    : reply_(provider, reply_message),
+      collection_(collection),
+      count_(count) {
+  collection->set_on_collection_changed_callback(NewCallback(
+      this, &OnNotificationBalloonCountObserver::OnBalloonCollectionChanged));
+}
+
+void OnNotificationBalloonCountObserver::OnBalloonCollectionChanged() {
+  if (static_cast<int>(collection_->GetActiveBalloons().size()) == count_) {
+    collection_->set_on_collection_changed_callback(NULL);
+    reply_.SendSuccess(NULL);
+    delete this;
+  }
+}

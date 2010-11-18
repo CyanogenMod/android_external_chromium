@@ -89,6 +89,7 @@ HttpNetworkTransaction::HttpNetworkTransaction(HttpNetworkSession* session)
       request_(NULL),
       headers_valid_(false),
       logged_response_time_(false),
+      request_headers_(),
       read_buf_len_(0),
       next_state_(STATE_NONE),
       establishing_tunnel_(false) {
@@ -284,7 +285,7 @@ int HttpNetworkTransaction::Read(IOBuffer* buf, int buf_len,
 
   State next_state = STATE_NONE;
 
-  scoped_refptr<HttpResponseHeaders> headers = GetResponseHeaders();
+  scoped_refptr<HttpResponseHeaders> headers(GetResponseHeaders());
   if (headers_valid_ && headers.get() && stream_request_.get()) {
     // We're trying to read the body of the response but we're still trying
     // to establish an SSL tunnel through the proxy.  We can't read these
@@ -535,6 +536,8 @@ int HttpNetworkTransaction::DoCreateStreamComplete(int result) {
   if (result == OK) {
     next_state_ = STATE_INIT_STREAM;
     DCHECK(stream_.get());
+  } else if (result == ERR_SSL_CLIENT_AUTH_CERT_NEEDED) {
+    result = HandleCertificateRequest(result);
   }
 
   // At this point we are done with the stream_request_.
@@ -552,9 +555,6 @@ int HttpNetworkTransaction::DoInitStreamComplete(int result) {
   if (result == OK) {
     next_state_ = STATE_GENERATE_PROXY_AUTH_TOKEN;
   } else {
-    if (result == ERR_SSL_CLIENT_AUTH_CERT_NEEDED)
-      result = HandleCertificateRequest(result);
-
     if (result < 0)
       result = HandleIOError(result);
 
@@ -624,38 +624,22 @@ int HttpNetworkTransaction::DoSendRequest() {
 
   // This is constructed lazily (instead of within our Start method), so that
   // we have proxy info available.
-  if (request_headers_.empty() && !response_.was_fetched_via_spdy) {
+  if (request_headers_.IsEmpty()) {
     bool using_proxy = (proxy_info_.is_http()|| proxy_info_.is_https()) &&
                         !is_https_request();
-    const std::string path = using_proxy ?
-                             HttpUtil::SpecForRequest(request_->url) :
-                             HttpUtil::PathForRequest(request_->url);
-    std::string request_line = base::StringPrintf(
-        "%s %s HTTP/1.1\r\n", request_->method.c_str(), path.c_str());
-
-    HttpRequestHeaders request_headers;
     HttpUtil::BuildRequestHeaders(request_, request_body, auth_controllers_,
                                   ShouldApplyServerAuth(),
                                   ShouldApplyProxyAuth(), using_proxy,
-                                  &request_headers);
+                                  &request_headers_);
 
     if (session_->network_delegate())
-      session_->network_delegate()->OnSendHttpRequest(&request_headers);
-
-    if (net_log_.IsLoggingAllEvents()) {
-      net_log_.AddEvent(
-          NetLog::TYPE_HTTP_TRANSACTION_SEND_REQUEST_HEADERS,
-          new NetLogHttpRequestParameter(request_line, request_headers));
-    }
-
-    request_headers_ = request_line + request_headers.ToString();
-  } else {
-    if (net_log_.IsLoggingAllEvents()) {
-      net_log_.AddEvent(
-          NetLog::TYPE_HTTP_TRANSACTION_SEND_REQUEST_HEADERS,
-          new NetLogHttpRequestParameter(request_->url.spec(),
-                                         request_->extra_headers));
-    }
+      session_->network_delegate()->OnSendHttpRequest(&request_headers_);
+  }
+  if (net_log_.IsLoggingAllEvents()) {
+    net_log_.AddEvent(
+        NetLog::TYPE_HTTP_TRANSACTION_SEND_REQUEST_HEADERS,
+        make_scoped_refptr(new NetLogHttpRequestParameter(
+            request_->url.spec(), request_->extra_headers)));
   }
 
   headers_valid_ = false;
@@ -748,7 +732,7 @@ int HttpNetworkTransaction::DoReadHeadersComplete(int result) {
   if (net_log_.IsLoggingAllEvents()) {
     net_log_.AddEvent(
         NetLog::TYPE_HTTP_TRANSACTION_READ_RESPONSE_HEADERS,
-        new NetLogHttpResponseParameter(response_.headers));
+        make_scoped_refptr(new NetLogHttpResponseParameter(response_.headers)));
   }
 
   if (response_.headers->GetParsedHttpVersion() < HttpVersion(1, 0)) {
@@ -1050,7 +1034,7 @@ void HttpNetworkTransaction::ResetStateForAuthRestart() {
   read_buf_ = NULL;
   read_buf_len_ = 0;
   headers_valid_ = false;
-  request_headers_.clear();
+  request_headers_.Clear();
   response_ = HttpResponseInfo();
   establishing_tunnel_ = false;
 }
@@ -1080,7 +1064,7 @@ void HttpNetworkTransaction::ResetConnectionAndRequestForResend() {
   // We need to clear request_headers_ because it contains the real request
   // headers, but we may need to resend the CONNECT request first to recreate
   // the SSL tunnel.
-  request_headers_.clear();
+  request_headers_.Clear();
   next_state_ = STATE_CREATE_STREAM;  // Resend the request.
 }
 
@@ -1094,7 +1078,7 @@ bool HttpNetworkTransaction::ShouldApplyServerAuth() const {
 }
 
 int HttpNetworkTransaction::HandleAuthChallenge() {
-  scoped_refptr<HttpResponseHeaders> headers = GetResponseHeaders();
+  scoped_refptr<HttpResponseHeaders> headers(GetResponseHeaders());
   DCHECK(headers);
 
   int status = headers->response_code();
@@ -1103,6 +1087,11 @@ int HttpNetworkTransaction::HandleAuthChallenge() {
   HttpAuth::Target target = status == 407 ?
                             HttpAuth::AUTH_PROXY : HttpAuth::AUTH_SERVER;
   if (target == HttpAuth::AUTH_PROXY && proxy_info_.is_direct())
+    return ERR_UNEXPECTED_PROXY_AUTH;
+
+  // This case can trigger when an HTTPS server responds with a 407 status
+  // code through a non-authenticating proxy.
+  if (!auth_controllers_[target].get())
     return ERR_UNEXPECTED_PROXY_AUTH;
 
   int rv = auth_controllers_[target]->HandleAuthChallenge(

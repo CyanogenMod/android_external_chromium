@@ -267,8 +267,9 @@ class HttpCache::SSLHostInfoFactoryAdaptor : public SSLHostInfoFactory {
       : http_cache_(http_cache) {
   }
 
-  SSLHostInfo* GetForHost(const std::string& hostname) {
-    return new DiskCacheBasedSSLHostInfo(hostname, http_cache_);
+  SSLHostInfo* GetForHost(const std::string& hostname,
+                          const SSLConfig& ssl_config) {
+    return new DiskCacheBasedSSLHostInfo(hostname, ssl_config, http_cache_);
   }
 
  private:
@@ -601,11 +602,10 @@ HttpCache::ActiveEntry* HttpCache::FindActiveEntry(const std::string& key) {
 }
 
 HttpCache::ActiveEntry* HttpCache::ActivateEntry(
-    const std::string& key,
     disk_cache::Entry* disk_entry) {
-  DCHECK(!FindActiveEntry(key));
+  DCHECK(!FindActiveEntry(disk_entry->GetKey()));
   ActiveEntry* entry = new ActiveEntry(disk_entry);
-  active_entries_[key] = entry;
+  active_entries_[disk_entry->GetKey()] = entry;
   return entry;
 }
 
@@ -990,7 +990,7 @@ void HttpCache::OnIOComplete(int result, PendingOp* pending_op) {
       fail_requests = true;
     } else if (item->IsValid()) {
       key = pending_op->disk_entry->GetKey();
-      entry = ActivateEntry(key, pending_op->disk_entry);
+      entry = ActivateEntry(pending_op->disk_entry);
     } else {
       // The writer transaction is gone.
       if (op == WI_CREATE_ENTRY)

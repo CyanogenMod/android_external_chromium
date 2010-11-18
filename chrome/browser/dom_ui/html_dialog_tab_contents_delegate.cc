@@ -5,7 +5,7 @@
 #include "chrome/browser/dom_ui/html_dialog_tab_contents_delegate.h"
 
 #include "chrome/browser/browser.h"
-#include "chrome/browser/browser_window.h"
+#include "chrome/browser/browser_navigator.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
@@ -27,24 +27,19 @@ void HtmlDialogTabContentsDelegate::Detach() {
   profile_ = NULL;
 }
 
-Browser* HtmlDialogTabContentsDelegate::CreateBrowser() {
-  DCHECK(profile_);
-  return Browser::Create(profile_);
-}
-
 void HtmlDialogTabContentsDelegate::OpenURLFromTab(
     TabContents* source, const GURL& url, const GURL& referrer,
     WindowOpenDisposition disposition, PageTransition::Type transition) {
   if (profile_) {
-    // Force all links to open in a new window, ignoring the incoming
-    // disposition. This is a tabless, modal dialog so we can't just
-    // open it in the current frame.  Code adapted from
-    // Browser::OpenURLFromTab() with disposition == NEW_WINDOW.
-    Browser* browser = CreateBrowser();
-    Browser::AddTabWithURLParams params(url, transition);
+    // Specify a NULL browser for navigation. This will cause Navigate()
+    // to find a browser matching params.profile or create a new one.
+    Browser* browser = NULL;
+    browser::NavigateParams params(browser, url, transition);
+    params.profile = profile_;
     params.referrer = referrer;
-    browser->AddTabWithURL(&params);
-    browser->window()->Show();
+    params.disposition = disposition;
+    params.show_window = true;
+    browser::Navigate(&params);
   }
 }
 
@@ -59,13 +54,16 @@ void HtmlDialogTabContentsDelegate::AddNewContents(
     WindowOpenDisposition disposition, const gfx::Rect& initial_pos,
     bool user_gesture) {
   if (profile_) {
-    // Force this to open in a new window, too.  Code adapted from
-    // Browser::AddNewContents() with disposition == NEW_WINDOW.
-    Browser* browser = CreateBrowser();
-    static_cast<TabContentsDelegate*>(browser)->
-        AddNewContents(source, new_contents, NEW_FOREGROUND_TAB,
-                       initial_pos, user_gesture);
-    browser->window()->Show();
+    // Specify a NULL browser for navigation. This will cause Navigate()
+    // to find a browser matching params.profile or create a new one.
+    Browser* browser = NULL;
+    browser::NavigateParams params(browser, new_contents);
+    params.profile = profile_;
+    params.source_contents = source;
+    params.disposition = disposition;
+    params.window_bounds = initial_pos;
+    params.show_window = true;
+    browser::Navigate(&params);
   }
 }
 
@@ -110,4 +108,3 @@ bool HtmlDialogTabContentsDelegate::ShouldAddNavigationToHistory(
     NavigationType::Type navigation_type) {
   return false;
 }
-

@@ -81,6 +81,7 @@ class MockClientSocket : public ClientSocket {
   virtual void SetSubresourceSpeculation() {}
   virtual void SetOmniboxSpeculation() {}
   virtual bool WasEverUsed() const { return was_used_to_convey_data_; }
+  virtual bool UsingTCPFastOpen() const { return false; }
 
  private:
   bool connected_;
@@ -108,7 +109,8 @@ class MockClientSocketFactory : public ClientSocketFactory {
       ClientSocketHandle* transport_socket,
       const std::string& hostname,
       const SSLConfig& ssl_config,
-      SSLHostInfo* ssl_host_info) {
+      SSLHostInfo* ssl_host_info,
+      DnsRRResolver* dnsrr_resolver) {
     NOTIMPLEMENTED();
     delete ssl_host_info;
     return NULL;
@@ -1280,7 +1282,7 @@ class RequestSocketCallback : public CallbackRunner< Tuple1<int> > {
       }
       within_callback_ = true;
       TestCompletionCallback next_job_callback;
-      scoped_refptr<TestSocketParams> params = new TestSocketParams();
+      scoped_refptr<TestSocketParams> params(new TestSocketParams());
       int rv = handle_->Init("a",
                              params,
                              kDefaultPriority,
@@ -2086,7 +2088,7 @@ class TestReleasingSocketRequest : public CallbackRunner< Tuple1<int> > {
     callback_.RunWithParams(params);
     if (reset_releasing_handle_)
                       handle_.Reset();
-    scoped_refptr<TestSocketParams> con_params = new TestSocketParams();
+    scoped_refptr<TestSocketParams> con_params(new TestSocketParams());
     EXPECT_EQ(expected_result_, handle2_.Init("a",
                                               con_params,
                                               kDefaultPriority,

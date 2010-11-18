@@ -53,8 +53,7 @@ class CloudPrintDataSender
   // The owner of this object is also expected to own and control the
   // lifetime of the helper.
   CloudPrintDataSender(CloudPrintDataSenderHelper* helper,
-                       const string16& print_job_title)
-      : helper_(helper), print_job_title_(print_job_title) {}
+                       const string16& print_job_title);
 
   // Calls to read in the PDF file (on the FILE thread) then send that
   // information to the dialog renderer (on the IO thread).  We know
@@ -69,7 +68,7 @@ class CloudPrintDataSender
 
  private:
   friend class base::RefCountedThreadSafe<CloudPrintDataSender>;
-  ~CloudPrintDataSender() {}
+  virtual ~CloudPrintDataSender();
 
   Lock lock_;
   CloudPrintDataSenderHelper* volatile helper_;
@@ -92,13 +91,8 @@ class CloudPrintFlowHandler : public DOMMessageHandler,
                               public NotificationObserver {
  public:
   explicit CloudPrintFlowHandler(const FilePath& path_to_pdf,
-                                 const string16& print_job_title)
-      : path_to_pdf_(path_to_pdf),
-        print_job_title_(print_job_title) {}
-  virtual ~CloudPrintFlowHandler() {
-    // This will also cancel any task in flight.
-    CancelAnyRunningTask();
-  }
+                                 const string16& print_job_title);
+  virtual ~CloudPrintFlowHandler();
 
   // DOMMessageHandler implementation.
   virtual void RegisterMessages();
@@ -120,6 +114,7 @@ class CloudPrintFlowHandler : public DOMMessageHandler,
 
   virtual void SetDialogDelegate(CloudPrintHtmlDialogDelegate *delegate);
   void CancelAnyRunningTask();
+  void StoreDialogClientSize() const;
 
  private:
   // For unit testing.
@@ -156,6 +151,7 @@ class CloudPrintHtmlDialogDelegate : public HtmlDialogUIDelegate {
   virtual std::string GetDialogArgs() const;
   virtual void OnDialogClosed(const std::string& json_retval);
   virtual void OnCloseContents(TabContents* source, bool* out_close_dialog);
+  virtual bool ShouldShowDialogTitle() const;
 
  private:
   friend class ::CloudPrintHtmlDialogDelegateTest;

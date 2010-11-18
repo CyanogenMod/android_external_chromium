@@ -185,6 +185,14 @@ bool HttpProxyClientSocket::WasEverUsed() const {
   return false;
 }
 
+bool HttpProxyClientSocket::UsingTCPFastOpen() const {
+  if (transport_.get() && transport_->socket()) {
+    return transport_->socket()->UsingTCPFastOpen();
+  }
+  NOTREACHED();
+  return false;
+}
+
 int HttpProxyClientSocket::Read(IOBuffer* buf, int buf_len,
                                 CompletionCallback* callback) {
   DCHECK(!user_callback_);
@@ -335,8 +343,8 @@ int HttpProxyClientSocket::DoSendRequest() {
     if (net_log_.IsLoggingAllEvents()) {
       net_log_.AddEvent(
           NetLog::TYPE_HTTP_TRANSACTION_SEND_TUNNEL_HEADERS,
-          new NetLogHttpRequestParameter(
-              request_line, request_headers));
+          make_scoped_refptr(new NetLogHttpRequestParameter(
+              request_line, request_headers)));
     }
     request_headers_ = request_line + request_headers.ToString();
   }
@@ -373,7 +381,7 @@ int HttpProxyClientSocket::DoReadHeadersComplete(int result) {
   if (net_log_.IsLoggingAllEvents()) {
     net_log_.AddEvent(
         NetLog::TYPE_HTTP_TRANSACTION_READ_TUNNEL_RESPONSE_HEADERS,
-        new NetLogHttpResponseParameter(response_.headers));
+        make_scoped_refptr(new NetLogHttpResponseParameter(response_.headers)));
   }
 
   switch (response_.headers->response_code()) {

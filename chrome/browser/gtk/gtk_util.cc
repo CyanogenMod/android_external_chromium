@@ -11,21 +11,24 @@
 #include <cstdarg>
 #include <map>
 
-#include "app/gtk_util.h"
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "app/x11_util.h"
-#include "base/gtk_util.h"
+#include "base/environment.h"
 #include "base/i18n/rtl.h"
 #include "base/linux_util.h"
 #include "base/logging.h"
+#include "base/nix/xdg_util.h"
+#include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
+#include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/gtk/cairo_cached_surface.h"
 #include "chrome/browser/gtk/gtk_theme_provider.h"
 #include "chrome/common/renderer_preferences.h"
+#include "gfx/gtk_util.h"
 #include "googleurl/src/gurl.h"
 #include "grit/theme_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -80,11 +83,32 @@ gboolean OnMouseButtonReleased(GtkWidget* widget, GdkEventButton* event,
   return TRUE;
 }
 
+// Returns the approximate number of characters that can horizontally fit in
+// |pixel_width| pixels.
+int GetCharacterWidthForPixels(GtkWidget* widget, int pixel_width) {
+  DCHECK(GTK_WIDGET_REALIZED(widget))
+      << " widget must be realized to compute font metrics correctly";
+
+  PangoContext* context = gtk_widget_create_pango_context(widget);
+  PangoFontMetrics* metrics = pango_context_get_metrics(context,
+      widget->style->font_desc, pango_context_get_language(context));
+
+  // This technique (max of char and digit widths) matches the code in
+  // gtklabel.c.
+  int char_width = pixel_width * PANGO_SCALE /
+      std::max(pango_font_metrics_get_approximate_char_width(metrics),
+               pango_font_metrics_get_approximate_digit_width(metrics));
+
+  pango_font_metrics_unref(metrics);
+  g_object_unref(context);
+
+  return char_width;
+}
+
 void OnLabelRealize(GtkWidget* label, gpointer pixel_width) {
   gtk_label_set_width_chars(
       GTK_LABEL(label),
-      gtk_util::GetCharacterWidthForPixels(label,
-                                           GPOINTER_TO_INT(pixel_width)));
+      GetCharacterWidthForPixels(label,GPOINTER_TO_INT(pixel_width)));
 }
 
 // Ownership of |icon_list| is passed to the caller.
@@ -166,6 +190,11 @@ WindowOpenDisposition DispositionFromEventFlags(guint event_flags) {
 
 namespace gtk_util {
 
+const GdkColor kGdkWhite = GDK_COLOR_RGB(0xff, 0xff, 0xff);
+const GdkColor kGdkGray  = GDK_COLOR_RGB(0x7f, 0x7f, 0x7f);
+const GdkColor kGdkBlack = GDK_COLOR_RGB(0x00, 0x00, 0x00);
+const GdkColor kGdkGreen = GDK_COLOR_RGB(0x00, 0xff, 0x00);
+
 GtkWidget* CreateLabeledControlsGroup(std::vector<GtkWidget*>* labels,
                                       const char* text, ...) {
   va_list ap;
@@ -222,6 +251,46 @@ GtkWidget* CreateBoldLabel(const std::string& text) {
   g_free(markup);
 
   return LeftAlignMisc(label);
+}
+
+void GetWidgetSizeFromCharacters(
+    GtkWidget* widget, double width_chars, double height_lines,
+    int* width, int* height) {
+  DCHECK(GTK_WIDGET_REALIZED(widget))
+      << " widget must be realized to compute font metrics correctly";
+  PangoContext* context = gtk_widget_create_pango_context(widget);
+  PangoFontMetrics* metrics = pango_context_get_metrics(context,
+      widget->style->font_desc, pango_context_get_language(context));
+  if (width) {
+    *width = static_cast<int>(
+        pango_font_metrics_get_approximate_char_width(metrics) *
+        width_chars / PANGO_SCALE);
+  }
+  if (height) {
+    *height = static_cast<int>(
+        (pango_font_metrics_get_ascent(metrics) +
+        pango_font_metrics_get_descent(metrics)) *
+        height_lines / PANGO_SCALE);
+  }
+  pango_font_metrics_unref(metrics);
+  g_object_unref(context);
+}
+
+void GetWidgetSizeFromResources(
+    GtkWidget* widget, int width_chars, int height_lines,
+    int* width, int* height) {
+  DCHECK(GTK_WIDGET_REALIZED(widget))
+      << " widget must be realized to compute font metrics correctly";
+
+  double chars = 0;
+  if (width)
+    base::StringToDouble(l10n_util::GetStringUTF8(width_chars), &chars);
+
+  double lines = 0;
+  if (height)
+    base::StringToDouble(l10n_util::GetStringUTF8(height_lines), &lines);
+
+  GetWidgetSizeFromCharacters(widget, chars, lines, width, height);
 }
 
 void SetWindowSizeFromResources(GtkWindow* window,
@@ -556,7 +625,7 @@ GtkWidget* AddButtonToDialog(GtkWidget* dialog, const gchar* text,
 GtkWidget* BuildDialogButton(GtkWidget* dialog, int ids_id,
                              const gchar* stock_id) {
   GtkWidget* button = gtk_button_new_with_mnemonic(
-      gtk_util::ConvertAcceleratorsFromWindowsStyle(
+      gfx::ConvertAcceleratorsFromWindowsStyle(
           l10n_util::GetStringUTF8(ids_id)).c_str());
   gtk_button_set_image(GTK_BUTTON(button),
                        gtk_image_new_from_stock(stock_id,
@@ -1136,25 +1205,14 @@ WebDragOperationsMask GdkDragActionToWebDragOp(GdkDragAction action) {
   return op;
 }
 
-void DrawTopDropShadowForRenderView(cairo_t* cr, const gfx::Point& origin,
-    const gfx::Rect& paint_rect) {
-  gfx::Rect shadow_rect(paint_rect.x(), origin.y(),
-                        paint_rect.width(), kInfoBarDropShadowHeight);
-
-  // Avoid this extra work if we can.
-  if (!shadow_rect.Intersects(paint_rect))
-    return;
-
-  cairo_pattern_t* shadow =
-      cairo_pattern_create_linear(0.0, shadow_rect.y(),
-                                  0.0, shadow_rect.bottom());
-  cairo_pattern_add_color_stop_rgba(shadow, 0, 0, 0, 0, 0.6);
-  cairo_pattern_add_color_stop_rgba(shadow, 1, 0, 0, 0, 0.1);
-  cairo_rectangle(cr, shadow_rect.x(), shadow_rect.y(),
-                  shadow_rect.width(), shadow_rect.height());
-  cairo_set_source(cr, shadow);
-  cairo_fill(cr);
-  cairo_pattern_destroy(shadow);
+void ApplyMessageDialogQuirks(GtkWidget* dialog) {
+  if (gtk_window_get_modal(GTK_WINDOW(dialog))) {
+    // Work around a KDE 3 window manager bug.
+    scoped_ptr<base::Environment> env(base::Environment::Create());
+    if (base::nix::DESKTOP_ENVIRONMENT_KDE3 ==
+        base::nix::GetDesktopEnvironment(env.get()))
+      gtk_window_set_skip_taskbar_hint(GTK_WINDOW(dialog), FALSE);
+  }
 }
 
 }  // namespace gtk_util

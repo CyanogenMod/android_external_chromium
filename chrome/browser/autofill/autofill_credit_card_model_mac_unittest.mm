@@ -18,16 +18,16 @@ typedef CocoaTest AutoFillCreditCardModelTest;
 TEST(AutoFillCreditCardModelTest, Basic) {
   // A basic test that creates a new instance and releases.
   // Aids valgrind leak detection.
-  CreditCard credit_card(ASCIIToUTF16("myCC"), 0);
+  CreditCard credit_card;
   scoped_nsobject<AutoFillCreditCardModel> model(
       [[AutoFillCreditCardModel alloc] initWithCreditCard:credit_card]);
   EXPECT_TRUE(model.get());
 }
 
 TEST(AutoFillCreditCardModelTest, InitializationFromCreditCard) {
-  CreditCard credit_card(string16(), 0);
+  CreditCard credit_card;
   autofill_test::SetCreditCardInfo(&credit_card, "Corporate",
-      "John Dillinger", "Visa", "123456789012", "01", "2010", 1);
+      "John Dillinger", "123456789012", "01", "2010");
   scoped_nsobject<AutoFillCreditCardModel> model(
       [[AutoFillCreditCardModel alloc] initWithCreditCard:credit_card]);
   EXPECT_TRUE(model.get());
@@ -36,13 +36,12 @@ TEST(AutoFillCreditCardModelTest, InitializationFromCreditCard) {
   EXPECT_TRUE([[model creditCardNumber] isEqualToString:@"123456789012"]);
   EXPECT_TRUE([[model expirationMonth] isEqualToString:@"01"]);
   EXPECT_TRUE([[model expirationYear] isEqualToString:@"2010"]);
-  EXPECT_EQ(1, [model billingAddressID]);
 }
 
 TEST(AutoFillCreditCardModelTest, CopyModelToCreditCard) {
-  CreditCard credit_card(string16(), 0);
+  CreditCard credit_card;
   autofill_test::SetCreditCardInfo(&credit_card, "Corporate",
-      "John Dillinger", "Visa", "123456789012", "01", "2010", 1);
+      "John Dillinger", "123456789012", "01", "2010");
   scoped_nsobject<AutoFillCreditCardModel> model(
       [[AutoFillCreditCardModel alloc] initWithCreditCard:credit_card]);
   EXPECT_TRUE(model.get());
@@ -51,7 +50,6 @@ TEST(AutoFillCreditCardModelTest, CopyModelToCreditCard) {
   [model setCreditCardNumber:@"223456789012"];
   [model setExpirationMonth:@"11"];
   [model setExpirationYear:@"2011"];
-  [model setBillingAddressID:2];
 
   [model copyModelToCreditCard:&credit_card];
 
@@ -64,7 +62,6 @@ TEST(AutoFillCreditCardModelTest, CopyModelToCreditCard) {
   EXPECT_EQ(ASCIIToUTF16("2011"),
             credit_card.GetFieldText(
                 AutoFillType(CREDIT_CARD_EXP_4_DIGIT_YEAR)));
-  EXPECT_EQ(2, credit_card.billing_address_id());
 }
 
 }  // namespace

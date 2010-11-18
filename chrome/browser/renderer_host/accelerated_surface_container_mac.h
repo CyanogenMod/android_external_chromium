@@ -31,6 +31,7 @@
 
 #include "app/surface/transport_dib.h"
 #include "base/basictypes.h"
+#include "base/mac/scoped_cftyperef.h"
 #include "base/scoped_ptr.h"
 #include "gfx/native_widget_types.h"
 #include "gfx/rect.h"
@@ -75,8 +76,11 @@ class AcceleratedSurfaceContainerMac {
   // time the drawing context has changed.
   void ForceTextureReload() { texture_needs_upload_ = true; }
 
-  // Notifies the surface that it was painted to.
-  void set_was_painted_to() { was_painted_to_ = true; }
+  // Notifies the the container that its surface was painted to.
+  void set_was_painted_to(uint64 surface_id);
+
+  // Notifies the container that its surface is invalid.
+  void set_surface_invalid() { was_painted_to_ = false; }
 
   // Returns if the surface should be shown.
   bool should_be_visible() const { return visible_ && was_painted_to_; }
@@ -91,14 +95,22 @@ class AcceleratedSurfaceContainerMac {
   // plugin process back to the browser process for drawing.
   // This is held as a CFTypeRef because we can't refer to the
   // IOSurfaceRef type when building on 10.5.
-  CFTypeRef surface_;
+  base::mac::ScopedCFTypeRef<CFTypeRef> surface_;
+
+  // The id of |surface_|, or 0 if |surface_| is NULL.
+  uint64 surface_id_;
+
+  // The width and height of the io surface. During resizing, this is different
+  // from |width_| and |height_|.
+  int32 surface_width_;
+  int32 surface_height_;
 
   // The TransportDIB which is used in pre-10.6 systems where the IOSurface
   // API is not supported.  This is a weak reference to the actual TransportDIB
   // whic is owned by the GPU process.
   scoped_ptr<TransportDIB> transport_dib_;
 
-  // The width and height of the surface.
+  // The width and height of the container.
   int32 width_;
   int32 height_;
 

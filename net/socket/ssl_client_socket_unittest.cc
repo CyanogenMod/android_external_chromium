@@ -93,8 +93,9 @@ TEST_F(SSLClientSocketTest, Connect) {
 }
 
 TEST_F(SSLClientSocketTest, ConnectExpired) {
-  net::TestServer test_server(net::TestServer::TYPE_HTTPS_EXPIRED_CERTIFICATE,
-                              FilePath());
+  net::TestServer::HTTPSOptions https_options(
+      net::TestServer::HTTPSOptions::CERT_EXPIRED);
+  net::TestServer test_server(https_options, FilePath());
   ASSERT_TRUE(test_server.Start());
 
   net::AddressList addr;
@@ -136,8 +137,9 @@ TEST_F(SSLClientSocketTest, ConnectExpired) {
 }
 
 TEST_F(SSLClientSocketTest, ConnectMismatched) {
-  net::TestServer test_server(net::TestServer::TYPE_HTTPS_MISMATCHED_HOSTNAME,
-                              FilePath());
+  net::TestServer::HTTPSOptions https_options(
+      net::TestServer::HTTPSOptions::CERT_MISMATCHED_NAME);
+  net::TestServer test_server(https_options, FilePath());
   ASSERT_TRUE(test_server.Start());
 
   net::AddressList addr;
@@ -181,9 +183,11 @@ TEST_F(SSLClientSocketTest, ConnectMismatched) {
 
 // Attempt to connect to a page which requests a client certificate. It should
 // return an error code on connect.
+// Flaky: http://crbug.com/54445
 TEST_F(SSLClientSocketTest, FLAKY_ConnectClientAuthCertRequested) {
-  net::TestServer test_server(net::TestServer::TYPE_HTTPS_CLIENT_AUTH,
-                              FilePath());
+  net::TestServer::HTTPSOptions https_options;
+  https_options.request_client_certificate = true;
+  net::TestServer test_server(https_options, FilePath());
   ASSERT_TRUE(test_server.Start());
 
   net::AddressList addr;
@@ -229,8 +233,9 @@ TEST_F(SSLClientSocketTest, FLAKY_ConnectClientAuthCertRequested) {
 //
 // TODO(davidben): Also test providing an actual certificate.
 TEST_F(SSLClientSocketTest, ConnectClientAuthSendNullCert) {
-  net::TestServer test_server(net::TestServer::TYPE_HTTPS_CLIENT_AUTH,
-                              FilePath());
+  net::TestServer::HTTPSOptions https_options;
+  https_options.request_client_certificate = true;
+  net::TestServer test_server(https_options, FilePath());
   ASSERT_TRUE(test_server.Start());
 
   net::AddressList addr;
@@ -315,8 +320,8 @@ TEST_F(SSLClientSocketTest, Read) {
   EXPECT_TRUE(sock->IsConnected());
 
   const char request_text[] = "GET / HTTP/1.0\r\n\r\n";
-  scoped_refptr<net::IOBuffer> request_buffer =
-      new net::IOBuffer(arraysize(request_text) - 1);
+  scoped_refptr<net::IOBuffer> request_buffer(
+      new net::IOBuffer(arraysize(request_text) - 1));
   memcpy(request_buffer->data(), request_text, arraysize(request_text) - 1);
 
   rv = sock->Write(request_buffer, arraysize(request_text) - 1, &callback);
@@ -326,7 +331,7 @@ TEST_F(SSLClientSocketTest, Read) {
     rv = callback.WaitForResult();
   EXPECT_EQ(static_cast<int>(arraysize(request_text) - 1), rv);
 
-  scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(4096);
+  scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(4096));
   for (;;) {
     rv = sock->Read(buf, 4096, &callback);
     EXPECT_TRUE(rv >= 0 || rv == net::ERR_IO_PENDING);
@@ -376,7 +381,7 @@ TEST_F(SSLClientSocketTest, Read_FullDuplex) {
   EXPECT_TRUE(sock->IsConnected());
 
   // Issue a "hanging" Read first.
-  scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(4096);
+  scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(4096));
   rv = sock->Read(buf, 4096, &callback);
   // We haven't written the request, so there should be no response yet.
   ASSERT_EQ(net::ERR_IO_PENDING, rv);
@@ -389,8 +394,8 @@ TEST_F(SSLClientSocketTest, Read_FullDuplex) {
   for (int i = 0; i < 3800; ++i)
     request_text.push_back('*');
   request_text.append("\r\n\r\n");
-  scoped_refptr<net::IOBuffer> request_buffer =
-      new net::StringIOBuffer(request_text);
+  scoped_refptr<net::IOBuffer> request_buffer(
+      new net::StringIOBuffer(request_text));
 
   rv = sock->Write(request_buffer, request_text.size(), &callback2);
   EXPECT_TRUE(rv >= 0 || rv == net::ERR_IO_PENDING);
@@ -433,8 +438,8 @@ TEST_F(SSLClientSocketTest, Read_SmallChunks) {
   }
 
   const char request_text[] = "GET / HTTP/1.0\r\n\r\n";
-  scoped_refptr<net::IOBuffer> request_buffer =
-      new net::IOBuffer(arraysize(request_text) - 1);
+  scoped_refptr<net::IOBuffer> request_buffer(
+      new net::IOBuffer(arraysize(request_text) - 1));
   memcpy(request_buffer->data(), request_text, arraysize(request_text) - 1);
 
   rv = sock->Write(request_buffer, arraysize(request_text) - 1, &callback);
@@ -444,7 +449,7 @@ TEST_F(SSLClientSocketTest, Read_SmallChunks) {
     rv = callback.WaitForResult();
   EXPECT_EQ(static_cast<int>(arraysize(request_text) - 1), rv);
 
-  scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(1);
+  scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(1));
   for (;;) {
     rv = sock->Read(buf, 1, &callback);
     EXPECT_TRUE(rv >= 0 || rv == net::ERR_IO_PENDING);
@@ -487,8 +492,8 @@ TEST_F(SSLClientSocketTest, Read_Interrupted) {
   }
 
   const char request_text[] = "GET / HTTP/1.0\r\n\r\n";
-  scoped_refptr<net::IOBuffer> request_buffer =
-      new net::IOBuffer(arraysize(request_text) - 1);
+  scoped_refptr<net::IOBuffer> request_buffer(
+      new net::IOBuffer(arraysize(request_text) - 1));
   memcpy(request_buffer->data(), request_text, arraysize(request_text) - 1);
 
   rv = sock->Write(request_buffer, arraysize(request_text) - 1, &callback);
@@ -499,7 +504,7 @@ TEST_F(SSLClientSocketTest, Read_Interrupted) {
   EXPECT_EQ(static_cast<int>(arraysize(request_text) - 1), rv);
 
   // Do a partial read and then exit.  This test should not crash!
-  scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(512);
+  scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(512));
   rv = sock->Read(buf, 512, &callback);
   EXPECT_TRUE(rv > 0 || rv == net::ERR_IO_PENDING);
 

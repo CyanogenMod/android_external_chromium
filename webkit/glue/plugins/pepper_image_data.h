@@ -7,7 +7,7 @@
 
 #include "base/basictypes.h"
 #include "base/scoped_ptr.h"
-#include "third_party/ppapi/c/ppb_image_data.h"
+#include "ppapi/c/ppb_image_data.h"
 #include "webkit/glue/plugins/pepper_plugin_delegate.h"
 #include "webkit/glue/plugins/pepper_resource.h"
 
@@ -64,7 +64,7 @@ class ImageData : public Resource {
   void Unmap();
 
   // PPB_ImageDataTrusted implementation.
-  uint64 GetNativeMemoryHandle() const;
+  uint64 GetNativeMemoryHandle(uint32* byte_count) const;
 
   // The mapped bitmap and canvas will be NULL if the image is not mapped.
   skia::PlatformCanvas* mapped_canvas() const { return mapped_canvas_.get(); }

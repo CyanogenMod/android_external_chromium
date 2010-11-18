@@ -5,11 +5,11 @@
 #ifndef WEBKIT_GLUE_PLUGINS_PPB_PRIVATE_H_
 #define WEBKIT_GLUE_PLUGINS_PPB_PRIVATE_H_
 
-#include "third_party/ppapi/c/dev/ppb_font_dev.h"
-#include "third_party/ppapi/c/pp_instance.h"
-#include "third_party/ppapi/c/pp_module.h"
-#include "third_party/ppapi/c/pp_resource.h"
-#include "third_party/ppapi/c/pp_var.h"
+#include "ppapi/c/dev/ppb_font_dev.h"
+#include "ppapi/c/pp_instance.h"
+#include "ppapi/c/pp_module.h"
+#include "ppapi/c/pp_resource.h"
+#include "ppapi/c/pp_var.h"
 
 #define PPB_PRIVATE_INTERFACE "PPB_Private;1"
 
@@ -126,6 +126,9 @@ struct PPB_Private {
 
   // Use UMA so we know average pdf page count.
   void (*HistogramPDFPageCount)(int count);
+
+  // Notifies the browser that the given action has been performed.
+  void (*UserMetricsRecordAction)(PP_Var action);
 };
 
 #endif  // WEBKIT_GLUE_PLUGINS_PPB_PRIVATE_H_

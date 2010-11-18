@@ -26,6 +26,9 @@
 #include "base/message_pump_glib.h"
 #endif
 #endif
+#if defined(TOUCH_UI)
+#include "base/message_pump_glib_x_dispatch.h"
+#endif
 
 namespace base {
 class Histogram;
@@ -72,10 +75,10 @@ class MessageLoop : public base::MessagePump::Delegate {
     TaskObserver();
 
     // This method is called before processing a task.
-    virtual void WillProcessTask(base::TimeTicks birth_time) = 0;
+    virtual void WillProcessTask(const Task* task) = 0;
 
     // This method is called after processing a task.
-    virtual void DidProcessTask() = 0;
+    virtual void DidProcessTask(const Task* task) = 0;
 
    protected:
     virtual ~TaskObserver();
@@ -146,7 +149,7 @@ class MessageLoop : public base::MessagePump::Delegate {
   // as the thread that calls PostDelayedTask(FROM_HERE, ), then T MUST inherit
   // from RefCountedThreadSafe<T>!
   template <class T>
-  void DeleteSoon(const tracked_objects::Location& from_here, T* object) {
+  void DeleteSoon(const tracked_objects::Location& from_here, const T* object) {
     PostNonNestableTask(from_here, new DeleteTask<T>(object));
   }
 
@@ -161,7 +164,8 @@ class MessageLoop : public base::MessagePump::Delegate {
   // PostDelayedTask(FROM_HERE, ), then T MUST inherit from
   // RefCountedThreadSafe<T>!
   template <class T>
-  void ReleaseSoon(const tracked_objects::Location& from_here, T* object) {
+  void ReleaseSoon(const tracked_objects::Location& from_here,
+                   const T* object) {
     PostNonNestableTask(from_here, new ReleaseTask<T>(object));
   }
 
@@ -289,7 +293,11 @@ class MessageLoop : public base::MessagePump::Delegate {
   typedef base::MessagePumpWin::Dispatcher Dispatcher;
   typedef base::MessagePumpForUI::Observer Observer;
 #elif !defined(OS_MACOSX)
+#if defined(TOUCH_UI)
+  typedef base::MessagePumpGlibXDispatcher Dispatcher;
+#else
   typedef base::MessagePumpForUI::Dispatcher Dispatcher;
+#endif
   typedef base::MessagePumpForUI::Observer Observer;
 #endif
 
@@ -333,10 +341,10 @@ class MessageLoop : public base::MessagePump::Delegate {
 
   // This structure is copied around by value.
   struct PendingTask {
-    Task* task;                   // The task to run.
-    base::Time delayed_run_time;  // The time when the task should be run.
-    int sequence_num;             // Used to facilitate sorting by run time.
-    bool nestable;                // True if OK to dispatch from a nested loop.
+    Task* task;                        // The task to run.
+    base::TimeTicks delayed_run_time;  // The time when the task should be run.
+    int sequence_num;                  // Secondary sort key for run time.
+    bool nestable;                     // OK to dispatch from a nested loop.
 
     PendingTask(Task* task, bool nestable)
         : task(task), sequence_num(0), nestable(nestable) {
@@ -421,7 +429,7 @@ class MessageLoop : public base::MessagePump::Delegate {
 
   // base::MessagePump::Delegate methods:
   virtual bool DoWork();
-  virtual bool DoDelayedWork(base::Time* next_delayed_work_time);
+  virtual bool DoDelayedWork(base::TimeTicks* next_delayed_work_time);
   virtual bool DoIdleWork();
 
   // Start recording histogram info about events and action IF it was enabled
@@ -441,6 +449,9 @@ class MessageLoop : public base::MessagePump::Delegate {
 
   // Contains delayed tasks, sorted by their 'delayed_run_time' property.
   DelayedTaskQueue delayed_work_queue_;
+
+  // A recent snapshot of Time::Now(), used to check delayed_work_queue_.
+  base::TimeTicks recent_time_;
 
   // A queue of non-nestable tasks that we had to defer because when it came
   // time to execute them we were in a nested message loop.  They will execute

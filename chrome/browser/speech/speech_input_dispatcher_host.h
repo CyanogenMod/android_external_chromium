@@ -23,7 +23,8 @@ class SpeechInputDispatcherHost
   explicit SpeechInputDispatcherHost(int resource_message_filter_process_id);
 
   // SpeechInputManager::Delegate methods.
-  void SetRecognitionResult(int caller_id, const string16& result);
+  void SetRecognitionResult(int caller_id,
+                            const SpeechInputResultArray& result);
   void DidCompleteRecording(int caller_id);
   void DidCompleteRecognition(int caller_id);
 
@@ -44,7 +45,9 @@ class SpeechInputDispatcherHost
   void SendMessageToRenderView(IPC::Message* message, int render_view_id);
 
   void OnStartRecognition(int render_view_id, int request_id,
-                          const gfx::Rect& element_rect);
+                          const gfx::Rect& element_rect,
+                          const std::string& language,
+                          const std::string& grammar);
   void OnCancelRecognition(int render_view_id, int request_id);
   void OnStopRecording(int render_view_id, int request_id);
 

@@ -9,6 +9,12 @@
 
 #defaultSearchEngineGroup {
   display: -webkit-box;
+  -webkit-box-orient: vertical;
+}
+
+#defaultSearchEngineGroup > div {
+  display: -webkit-box;
+  -webkit-box-orient: horizontal;
 }
 
 #defaultSearchEngine {
@@ -21,10 +27,25 @@
   -webkit-margin-start: 10px;
 }
 
+#instantOption {
+  margin-bottom: 0px;
+}
+
 #defaultBrowserState {
   color: #880000;
 }
 
 #defaultBrowserState.current {
   color: #008800;
+}
+
+#instantConfirmText {
+  font-family: inherit;
+  white-space: pre-wrap;
+  width: 500px;
+}
+
+#instantConfirmLearnMore {
+  position: absolute;
+  bottom: 18px;
 }

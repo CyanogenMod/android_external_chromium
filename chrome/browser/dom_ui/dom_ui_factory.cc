@@ -26,6 +26,7 @@
 #include "chrome/browser/dom_ui/remoting_ui.h"
 #include "chrome/browser/dom_ui/options/options_ui.h"
 #include "chrome/browser/dom_ui/slideshow_ui.h"
+#include "chrome/browser/dom_ui/textfields_ui.h"
 #include "chrome/browser/extensions/extension_dom_ui.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/extensions/extensions_ui.h"
@@ -39,6 +40,7 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/dom_ui/imageburner_ui.h"
+#include "chrome/browser/chromeos/dom_ui/keyboard_overlay_ui.h"
 #include "chrome/browser/chromeos/dom_ui/menu_ui.h"
 #include "chrome/browser/chromeos/dom_ui/mobile_setup_ui.h"
 #include "chrome/browser/chromeos/dom_ui/register_page_ui.h"
@@ -47,6 +49,10 @@
 #include "chrome/browser/chromeos/dom_ui/network_menu_ui.h"
 #include "chrome/browser/dom_ui/filebrowse_ui.h"
 #include "chrome/browser/dom_ui/mediaplayer_ui.h"
+#endif
+
+#if defined(OS_WIN)
+#include "chrome/browser/dom_ui/conflicts_ui.h"
 #endif
 
 const DOMUITypeID DOMUIFactory::kNoDOMUI = NULL;
@@ -85,6 +91,9 @@ static DOMUIFactoryFunction GetDOMUIFactoryFunction(Profile* profile,
   if (url.SchemeIs(chrome::kGearsScheme))
     return &NewDOMUI<HtmlDialogUI>;
 
+  if (url.host() == chrome::kChromeUIDialogHost)
+    return &NewDOMUI<ConstrainedHtmlUI>;
+
   ExtensionsService* service = profile->GetExtensionsService();
   if (service && service->ExtensionBindingsAllowed(url))
     return &NewDOMUI<ExtensionDOMUI>;
@@ -97,7 +106,8 @@ static DOMUIFactoryFunction GetDOMUIFactoryFunction(Profile* profile,
 
   // This will get called a lot to check all URLs, so do a quick check of other
   // schemes (gears was handled above) to filter out most URLs.
-  if (!url.SchemeIs(chrome::kChromeInternalScheme) &&
+  if (!url.SchemeIs(chrome::kChromeDevToolsScheme) &&
+      !url.SchemeIs(chrome::kChromeInternalScheme) &&
       !url.SchemeIs(chrome::kChromeUIScheme))
     return NULL;
 
@@ -125,8 +135,14 @@ static DOMUIFactoryFunction GetDOMUIFactoryFunction(Profile* profile,
     return &NewDOMUI<BugReportUI>;
   if (url.host() == chrome::kChromeUIDevToolsHost)
     return &NewDOMUI<DevToolsUI>;
+#if defined(OS_WIN)
+  if (url.host() == chrome::kChromeUIConflictsHost)
+    return &NewDOMUI<ConflictsUI>;
+#endif
   if (url.host() == chrome::kChromeUIDownloadsHost)
     return &NewDOMUI<DownloadsUI>;
+  if (url.host() == chrome::kChromeUITextfieldsHost)
+    return &NewDOMUI<TextfieldsUI>;
   if (url.host() == chrome::kChromeUIExtensionsHost)
     return &NewDOMUI<ExtensionsUI>;
   if (url.host() == chrome::kChromeUIHistoryHost)
@@ -157,12 +173,12 @@ static DOMUIFactoryFunction GetDOMUIFactoryFunction(Profile* profile,
     return &NewDOMUI<FileBrowseUI>;
   if (url.host() == chrome::kChromeUIImageBurnerHost)
     return &NewDOMUI<ImageBurnUI>;
+  if (url.host() == chrome::kChromeUIKeyboardOverlayHost)
+    return &NewDOMUI<KeyboardOverlayUI>;
   if (url.host() == chrome::kChromeUIMediaplayerHost)
     return &NewDOMUI<MediaplayerUI>;
   if (url.host() == chrome::kChromeUIMobileSetupHost)
     return &NewDOMUI<MobileSetupUI>;
-  if (url.host() == chrome::kChromeUIPrintHost)
-    return &NewDOMUI<PrintPreviewUI>;
   if (url.host() == chrome::kChromeUIRegisterPageHost)
     return &NewDOMUI<RegisterPageUI>;
   if (url.host() == chrome::kChromeUISettingsHost)
@@ -206,7 +222,8 @@ DOMUITypeID DOMUIFactory::GetDOMUIType(Profile* profile, const GURL& url) {
 
 // static
 bool DOMUIFactory::HasDOMUIScheme(const GURL& url) {
-  return url.SchemeIs(chrome::kChromeInternalScheme) ||
+  return url.SchemeIs(chrome::kChromeDevToolsScheme) ||
+         url.SchemeIs(chrome::kChromeInternalScheme) ||
          url.SchemeIs(chrome::kChromeUIScheme) ||
          url.SchemeIs(chrome::kExtensionScheme);
 }
@@ -236,8 +253,8 @@ void DOMUIFactory::GetFaviconForURL(Profile* profile,
       page_url.host() != extension_misc::kBookmarkManagerId) {
     ExtensionDOMUI::GetFaviconForURL(profile, request, page_url);
   } else {
-    scoped_refptr<RefCountedMemory> icon_data =
-        DOMUIFactory::GetFaviconResourceBytes(profile, page_url);
+    scoped_refptr<RefCountedMemory> icon_data(
+        DOMUIFactory::GetFaviconResourceBytes(profile, page_url));
     bool know_icon = icon_data.get() != NULL && icon_data->size() > 0;
     request->ForwardResultAsync(
         FaviconService::FaviconDataCallback::TupleType(request->handle(),
@@ -261,6 +278,11 @@ RefCountedMemory* DOMUIFactory::GetFaviconResourceBytes(Profile* profile,
 
   if (!HasDOMUIScheme(page_url))
     return NULL;
+
+#if defined(OS_WIN)
+  if (page_url.host() == chrome::kChromeUIConflictsHost)
+    return ConflictsUI::GetFaviconResourceBytes();
+#endif
 
   if (page_url.host() == chrome::kChromeUIDownloadsHost)
     return DownloadsUI::GetFaviconResourceBytes();

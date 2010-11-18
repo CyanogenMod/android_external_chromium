@@ -6,12 +6,14 @@
 #include "base/scoped_temp_dir.h"
 #include "base/scoped_vector.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/search_engines/search_engine_type.h"
 #include "chrome/browser/search_engines/search_terms_data.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_prepopulate_data.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/testing_profile.h"
+#include "grit/theme_resources.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 typedef testing::Test TemplateURLPrepopulateDataTest;
@@ -131,8 +133,7 @@ TEST_F(TemplateURLPrepopulateDataTest, ProvidersFromPrefs) {
   EXPECT_EQ("foi.com", t_urls[0]->GetFavIconURL().host());
   EXPECT_EQ(1u, t_urls[0]->input_encodings().size());
   EXPECT_EQ(1001, t_urls[0]->prepopulate_id());
-  EXPECT_EQ(TemplateURLPrepopulateData::SEARCH_ENGINE_GOOGLE,
-            t_urls[0]->search_engine_type());
+  EXPECT_EQ(SEARCH_ENGINE_GOOGLE, t_urls[0]->search_engine_type());
   EXPECT_EQ(0, t_urls[0]->logo_id());
 }
 
@@ -177,4 +178,17 @@ TEST_F(TemplateURLPrepopulateDataTest, SearchEngineFromOrigin) {
   EXPECT_EQ(NULL, TemplateURLPrepopulateData::GetEngineForOrigin(
       profile.GetPrefs(),
       not_a_search_engine));
+}
+
+TEST_F(TemplateURLPrepopulateDataTest, GetSearchEngineLogo) {
+  GURL bad_engine("http://example.com/");
+  EXPECT_EQ(kNoSearchEngineLogo,
+            TemplateURLPrepopulateData::GetSearchEngineLogo(bad_engine));
+  GURL engine_with_logo("http://www.ask.com/");
+  EXPECT_EQ(IDR_SEARCH_ENGINE_LOGO_ASK,
+            TemplateURLPrepopulateData::GetSearchEngineLogo(engine_with_logo));
+  GURL engine_no_logo("http://araby.com/");
+  EXPECT_EQ(kNoSearchEngineLogo,
+            TemplateURLPrepopulateData::GetSearchEngineLogo(engine_no_logo));
+
 }

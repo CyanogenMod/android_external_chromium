@@ -54,7 +54,7 @@ FilePath InstallExtension(const FilePath& unpacked_source_dir,
   const int kMaxAttempts = 100;
   for (int i = 0; i < kMaxAttempts; ++i) {
     FilePath candidate = extension_dir.AppendASCII(
-        StringPrintf("%s_%u", version.c_str(), i));
+        base::StringPrintf("%s_%u", version.c_str(), i));
     if (!file_util::PathExists(candidate)) {
       version_dir = candidate;
       break;
@@ -81,15 +81,14 @@ void UninstallExtension(const FilePath& extensions_dir,
   file_util::Delete(extensions_dir.AppendASCII(id), true);  // recursive.
 }
 
-Extension* LoadExtension(const FilePath& extension_path,
-                         Extension::Location location,
-                         bool require_key,
-                         std::string* error) {
+scoped_refptr<Extension> LoadExtension(const FilePath& extension_path,
+                                       Extension::Location location,
+                                       bool require_key,
+                                       std::string* error) {
   FilePath manifest_path =
       extension_path.Append(Extension::kManifestFilename);
   if (!file_util::PathExists(manifest_path)) {
-    *error =
-        l10n_util::GetStringUTF8(IDS_EXTENSION_MANIFEST_UNREADABLE);
+    *error = l10n_util::GetStringUTF8(IDS_EXTENSION_MANIFEST_UNREADABLE);
     return NULL;
   }
 
@@ -101,37 +100,33 @@ Extension* LoadExtension(const FilePath& extension_path,
       // It would be cleaner to have the JSON reader give a specific error
       // in this case, but other code tests for a file error with
       // error->empty().  For now, be consistent.
-      *error =
-          l10n_util::GetStringUTF8(IDS_EXTENSION_MANIFEST_UNREADABLE);
+      *error = l10n_util::GetStringUTF8(IDS_EXTENSION_MANIFEST_UNREADABLE);
     } else {
-      *error = StringPrintf("%s  %s",
-                            errors::kManifestParseError,
-                            error->c_str());
+      *error = base::StringPrintf("%s  %s",
+                                  errors::kManifestParseError,
+                                  error->c_str());
     }
     return NULL;
   }
 
   if (!root->IsType(Value::TYPE_DICTIONARY)) {
-    *error =
-        l10n_util::GetStringUTF8(IDS_EXTENSION_MANIFEST_INVALID);
+    *error = l10n_util::GetStringUTF8(IDS_EXTENSION_MANIFEST_INVALID);
     return NULL;
   }
 
   DictionaryValue* manifest = static_cast<DictionaryValue*>(root.get());
-
-  scoped_ptr<Extension> extension(new Extension(extension_path));
-  extension->set_location(location);
-
-  if (!extension_l10n_util::LocalizeExtension(extension.get(), manifest, error))
+  if (!extension_l10n_util::LocalizeExtension(extension_path, manifest, error))
     return NULL;
 
-  if (!extension->InitFromValue(*manifest, require_key, error))
+  scoped_refptr<Extension> extension(Extension::Create(
+      extension_path, location, *manifest, require_key, error));
+  if (!extension.get())
     return NULL;
 
   if (!ValidateExtension(extension.get(), error))
     return NULL;
 
-  return extension.release();
+  return extension;
 }
 
 bool ValidateExtension(Extension* extension, std::string* error) {
@@ -411,7 +406,7 @@ static bool ValidateLocaleInfo(const Extension& extension, std::string* error) {
         locale_path.Append(Extension::kMessagesFilename);
 
     if (!file_util::PathExists(messages_path)) {
-      *error = StringPrintf(
+      *error = base::StringPrintf(
           "%s %s", errors::kLocalesMessagesFileMissing,
           WideToUTF8(messages_path.ToWStringHack()).c_str());
       return false;
@@ -480,10 +475,10 @@ bool CheckForIllegalFilenames(const FilePath& extension_path,
     if (filename.find_first_of(FILE_PATH_LITERAL("_")) != 0) continue;
     if (reserved_underscore_names.find(filename) ==
         reserved_underscore_names.end()) {
-      *error = StringPrintf(
-        "Cannot load extension with file or directory name %s. "
-        "Filenames starting with \"_\" are reserved for use by the system.",
-        filename.c_str());
+      *error = base::StringPrintf(
+          "Cannot load extension with file or directory name %s. "
+          "Filenames starting with \"_\" are reserved for use by the system.",
+          filename.c_str());
       return false;
     }
   }

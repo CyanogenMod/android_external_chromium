@@ -71,7 +71,7 @@ bool MessageLoopProxyImpl::PostTaskHelper(
   return ret;
 }
 
-void MessageLoopProxyImpl::OnDestruct() {
+void MessageLoopProxyImpl::OnDestruct() const {
   bool delete_later = false;
   {
     AutoLock lock(message_loop_lock_);
@@ -93,7 +93,7 @@ void MessageLoopProxyImpl::WillDestroyCurrentMessageLoop() {
 
 scoped_refptr<MessageLoopProxy>
 MessageLoopProxy::CreateForCurrentThread() {
-  scoped_refptr<MessageLoopProxy> ret = new MessageLoopProxyImpl();
+  scoped_refptr<MessageLoopProxy> ret(new MessageLoopProxyImpl());
   return ret;
 }
 

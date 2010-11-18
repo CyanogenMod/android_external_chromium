@@ -15,6 +15,7 @@
 #include "net/http/http_response_headers.h"
 #include "webkit/glue/media/buffered_data_source.h"
 #include "webkit/glue/webkit_glue.h"
+#include "webkit/glue/webmediaplayer_impl.h"
 
 namespace {
 
@@ -126,7 +127,7 @@ void BufferedResourceLoader::Start(net::CompletionCallback* start_callback,
   bridge_.reset(
       bridge_factory_->CreateBridge(
           url_,
-          IsMediaCacheEnabled() ? net::LOAD_NORMAL : net::LOAD_BYPASS_CACHE,
+          net::LOAD_NORMAL,
           first_byte_position_,
           last_byte_position_));
 
@@ -521,31 +522,14 @@ void BufferedResourceLoader::NotifyNetworkEvent() {
 }
 
 /////////////////////////////////////////////////////////////////////////////
-// BufferedDataSource, static methods
-bool BufferedDataSource::IsMediaFormatSupported(
-    const media::MediaFormat& media_format) {
-  std::string mime_type;
-  std::string url;
-  if (media_format.GetAsString(media::MediaFormat::kMimeType, &mime_type) &&
-      media_format.GetAsString(media::MediaFormat::kURL, &url)) {
-    GURL gurl(url);
-
-    // This data source doesn't support data:// protocol, so reject it
-    // explicitly.
-    if (IsProtocolSupportedForMedia(gurl) && !IsDataProtocol(gurl))
-      return true;
-  }
-  return false;
-}
-
-/////////////////////////////////////////////////////////////////////////////
-// BufferedDataSource, protected
+// BufferedDataSource
 BufferedDataSource::BufferedDataSource(
     MessageLoop* render_loop,
     webkit_glue::MediaResourceLoaderBridgeFactory* bridge_factory)
     : total_bytes_(kPositionNotSpecified),
       loaded_(false),
       streaming_(false),
+      single_origin_(true),
       bridge_factory_(bridge_factory),
       loader_(NULL),
       network_activity_(false),
@@ -614,6 +598,13 @@ void BufferedDataSource::Initialize(const std::string& url,
       NewRunnableMethod(this, &BufferedDataSource::InitializeTask));
 }
 
+bool BufferedDataSource::IsUrlSupported(const std::string& url) {
+  GURL gurl(url);
+
+  // This data source doesn't support data:// protocol so reject it.
+  return IsProtocolSupportedForMedia(gurl) && !IsDataProtocol(gurl);
+}
+
 void BufferedDataSource::Stop(media::FilterCallback* callback) {
   {
     AutoLock auto_lock(lock_);
@@ -623,6 +614,7 @@ void BufferedDataSource::Stop(media::FilterCallback* callback) {
     callback->Run();
     delete callback;
   }
+
   render_loop_->PostTask(FROM_HERE,
       NewRunnableMethod(this, &BufferedDataSource::CleanupTask));
 }
@@ -653,6 +645,25 @@ bool BufferedDataSource::GetSize(int64* size_out) {
 
 bool BufferedDataSource::IsStreaming() {
   return streaming_;
+}
+
+bool BufferedDataSource::HasSingleOrigin() {
+  DCHECK(MessageLoop::current() == render_loop_);
+  return single_origin_;
+}
+
+void BufferedDataSource::Abort() {
+  DCHECK(MessageLoop::current() == render_loop_);
+
+  // If we are told to abort, immediately return from any pending read
+  // with an error.
+  if (read_callback_.get()) {
+    {
+      AutoLock auto_lock(lock_);
+      DoneRead_Locked(net::ERR_FAILED);
+    }
+    CleanupTask();
+  }
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -720,7 +731,10 @@ void BufferedDataSource::ReadTask(
 
 void BufferedDataSource::CleanupTask() {
   DCHECK(MessageLoop::current() == render_loop_);
-  DCHECK(!stopped_on_render_loop_);
+
+  // If we have already stopped, do nothing.
+  if (stopped_on_render_loop_)
+    return;
 
   // Stop the watch dog.
   watch_dog_timer_.Stop();
@@ -865,6 +879,9 @@ void BufferedDataSource::HttpInitialStartCallback(int error) {
   DCHECK(MessageLoop::current() == render_loop_);
   DCHECK(loader_.get());
 
+  // Check if the request ended up at a different origin via redirect.
+  single_origin_ = url_.GetOrigin() == loader_->url().GetOrigin();
+
   int64 instance_size = loader_->instance_size();
   bool partial_response = loader_->partial_response();
   bool success = error == net::OK;
@@ -928,6 +945,9 @@ void BufferedDataSource::HttpInitialStartCallback(int error) {
 void BufferedDataSource::NonHttpInitialStartCallback(int error) {
   DCHECK(MessageLoop::current() == render_loop_);
   DCHECK(loader_.get());
+
+  // Check if the request ended up at a different origin via redirect.
+  single_origin_ = url_.GetOrigin() == loader_->url().GetOrigin();
 
   int64 instance_size = loader_->instance_size();
   bool success = error == net::OK && instance_size != kPositionNotSpecified;

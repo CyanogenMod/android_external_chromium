@@ -247,19 +247,6 @@ void TabContentsViewGtk::RestoreFocus() {
     SetInitialFocus();
 }
 
-bool TabContentsViewGtk::ShouldDrawDropShadow() {
-  GtkWindow* window = GetTopLevelNativeWindow();
-  if (!window)
-    return false;
-
-  BrowserWindowGtk* browser_window =
-      BrowserWindowGtk::GetBrowserWindowForNativeWindow(window);
-  if (!browser_window)
-    return false;
-
-  return browser_window->ShouldDrawInfobarDropShadowOnRenderView();
-}
-
 void TabContentsViewGtk::SetFocusedWidget(GtkWidget* widget) {
   focus_store_.SetWidget(widget);
 }
@@ -309,6 +296,17 @@ void TabContentsViewGtk::ShowContextMenu(const ContextMenuParams& params) {
   gfx::Point point = bounds.origin();
   point.Offset(params.x, params.y);
   context_menu_->Popup(point);
+}
+
+void TabContentsViewGtk::ShowPopupMenu(const gfx::Rect& bounds,
+                                       int item_height,
+                                       double item_font_size,
+                                       int selected_item,
+                                       const std::vector<WebMenuItem>& items,
+                                       bool right_aligned) {
+  // We are not using external popup menus on Linux, they are rendered by
+  // WebKit.
+  NOTREACHED();
 }
 
 // Render view DnD -------------------------------------------------------------

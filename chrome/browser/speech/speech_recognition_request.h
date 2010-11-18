@@ -10,6 +10,7 @@
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
 #include "chrome/common/net/url_fetcher.h"
+#include "chrome/common/speech_input_result.h"
 #include "googleurl/src/gurl.h"
 
 class URLFetcher;
@@ -27,7 +28,8 @@ class SpeechRecognitionRequest : public URLFetcher::Delegate {
   // Interface for receiving callbacks from this object.
   class Delegate {
    public:
-    virtual void SetRecognitionResult(bool error, const string16& value) = 0;
+    virtual void SetRecognitionResult(
+        bool error, const SpeechInputResultArray& result) = 0;
 
    protected:
     virtual ~Delegate() {}
@@ -35,13 +37,17 @@ class SpeechRecognitionRequest : public URLFetcher::Delegate {
 
   // |url| is the server address to which the request wil be sent.
   SpeechRecognitionRequest(URLRequestContextGetter* context,
-                           const GURL& url,
                            Delegate* delegate);
+
+  virtual ~SpeechRecognitionRequest();
 
   // Sends a new request with the given audio data, returns true if successful.
   // The same object can be used to send multiple requests but only after the
   // previous request has completed.
-  bool Send(const std::string& content_type, const std::string& audio_data);
+  bool Send(const std::string& language,
+            const std::string& grammar,
+            const std::string& content_type,
+            const std::string& audio_data);
 
   bool HasPendingRequest() { return url_fetcher_ != NULL; }
 
@@ -55,7 +61,6 @@ class SpeechRecognitionRequest : public URLFetcher::Delegate {
 
  private:
   scoped_refptr<URLRequestContextGetter> url_context_;
-  const GURL url_;
   Delegate* delegate_;
   scoped_ptr<URLFetcher> url_fetcher_;
 

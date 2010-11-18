@@ -120,6 +120,10 @@ bool SpdyProxyClientSocket::WasEverUsed() const {
   return was_ever_used_ || (spdy_stream_ && spdy_stream_->WasEverUsed());
 }
 
+bool SpdyProxyClientSocket::UsingTCPFastOpen() const {
+  return false;
+}
+
 int SpdyProxyClientSocket::Read(IOBuffer* buf, int buf_len,
                                 CompletionCallback* callback) {
   DCHECK(!read_callback_);
@@ -306,8 +310,8 @@ int SpdyProxyClientSocket::DoSendRequest() {
   if (net_log_.IsLoggingAllEvents()) {
     net_log_.AddEvent(
         NetLog::TYPE_HTTP_TRANSACTION_SEND_TUNNEL_HEADERS,
-        new NetLogHttpRequestParameter(
-            request_line, request_headers));
+        make_scoped_refptr(new NetLogHttpRequestParameter(
+            request_line, request_headers)));
   }
 
   request_.extra_headers.MergeFrom(request_headers);
@@ -346,7 +350,7 @@ int SpdyProxyClientSocket::DoReadReplyComplete(int result) {
   if (net_log_.IsLoggingAllEvents()) {
     net_log_.AddEvent(
         NetLog::TYPE_HTTP_TRANSACTION_READ_TUNNEL_RESPONSE_HEADERS,
-        new NetLogHttpResponseParameter(response_.headers));
+        make_scoped_refptr(new NetLogHttpResponseParameter(response_.headers)));
   }
 
   if (response_.headers->response_code() == 200)
@@ -400,9 +404,10 @@ int SpdyProxyClientSocket::OnResponseReceived(
 void SpdyProxyClientSocket::OnDataReceived(const char* data, int length) {
   if (length > 0) {
     // Save the received data.
-    scoped_refptr<IOBuffer> io_buffer = new IOBuffer(length);
+    scoped_refptr<IOBuffer> io_buffer(new IOBuffer(length));
     memcpy(io_buffer->data(), data, length);
-    read_buffer_.push_back(new DrainableIOBuffer(io_buffer, length));
+    read_buffer_.push_back(
+        make_scoped_refptr(new DrainableIOBuffer(io_buffer, length)));
   }
 
   if (read_callback_) {

@@ -89,6 +89,10 @@ typedef GoogleServiceAuthError AuthError;
 static const int kThreadExitTimeoutMsec = 60000;
 static const int kSSLPort = 443;
 
+#if defined(OS_CHROMEOS)
+static const int kChromeOSNetworkChangeReactionDelayHackMsec = 5000;
+#endif  // OS_CHROMEOS
+
 // We manage the lifetime of sync_api::SyncManager::SyncInternal ourselves.
 DISABLE_RUNNABLE_METHOD_REFCOUNT(sync_api::SyncManager::SyncInternal);
 
@@ -1169,6 +1173,9 @@ class SyncManager::SyncInternal
   // decryption.  Otherwise, the cryptographer is made ready (is_ready()).
   void BootstrapEncryption(const std::string& restored_key_for_bootstrapping);
 
+  // Checks for server reachabilty and requests a nudge.
+  void OnIPAddressChangedImpl();
+
   // We couple the DirectoryManager and username together in a UserShare member
   // so we can return a handle to share_ to clients of the API for use when
   // constructing any transaction type.
@@ -1456,24 +1463,14 @@ void SyncManager::SyncInternal::SendPendingXMPPNotification(
   }
   VLOG(1) << "Sending XMPP notification...";
   OutgoingNotificationData notification_data;
-  if (notifier_options_.notification_method == notifier::NOTIFICATION_LEGACY) {
-    notification_data.service_id = browser_sync::kSyncLegacyServiceId;
-    notification_data.service_url = browser_sync::kSyncLegacyServiceUrl;
-    notification_data.send_content = false;
-  } else {
-    notification_data.service_id = browser_sync::kSyncServiceId;
-    notification_data.service_url = browser_sync::kSyncServiceUrl;
-    notification_data.send_content = true;
-    notification_data.priority = browser_sync::kSyncPriority;
-    notification_data.write_to_cache_only = true;
-    if (notifier_options_.notification_method == notifier::NOTIFICATION_NEW) {
-      notification_data.service_specific_data =
-          browser_sync::kSyncServiceSpecificData;
-      notification_data.require_subscription = true;
-    } else {
-      notification_data.require_subscription = false;
-    }
-  }
+  notification_data.service_id = browser_sync::kSyncServiceId;
+  notification_data.service_url = browser_sync::kSyncServiceUrl;
+  notification_data.send_content = true;
+  notification_data.priority = browser_sync::kSyncPriority;
+  notification_data.write_to_cache_only = true;
+  notification_data.service_specific_data =
+      browser_sync::kSyncServiceSpecificData;
+  notification_data.require_subscription = true;
   bool success = talk_mediator_->SendNotification(notification_data);
   if (success) {
     notification_pending_ = false;
@@ -1554,20 +1551,17 @@ void SyncManager::SyncInternal::InitializeTalkMediator() {
         new sync_notifier::ServerNotifierThread(
             notifier_options_, state, this);
     talk_mediator_.reset(
-        new TalkMediatorImpl(server_notifier_thread, false));
+        new TalkMediatorImpl(server_notifier_thread,
+                             notifier_options_.invalidate_xmpp_login,
+                             notifier_options_.allow_insecure_connection));
   } else {
     notifier::MediatorThread* mediator_thread =
         new notifier::MediatorThreadImpl(notifier_options_);
-    talk_mediator_.reset(new TalkMediatorImpl(mediator_thread, false));
-    if (notifier_options_.notification_method !=
-        notifier::NOTIFICATION_LEGACY) {
-      if (notifier_options_.notification_method ==
-          notifier::NOTIFICATION_TRANSITIONAL) {
-        talk_mediator_->AddSubscribedServiceUrl(
-            browser_sync::kSyncLegacyServiceUrl);
-      }
-      talk_mediator_->AddSubscribedServiceUrl(browser_sync::kSyncServiceUrl);
-    }
+    talk_mediator_.reset(
+        new TalkMediatorImpl(mediator_thread,
+                             notifier_options_.invalidate_xmpp_login,
+                             notifier_options_.allow_insecure_connection));
+    talk_mediator_->AddSubscribedServiceUrl(browser_sync::kSyncServiceUrl);
   }
   talk_mediator_->SetDelegate(this);
 }
@@ -1713,6 +1707,19 @@ void SyncManager::SyncInternal::Shutdown() {
 
 void SyncManager::SyncInternal::OnIPAddressChanged() {
   VLOG(1) << "IP address change detected";
+#if defined (OS_CHROMEOS)
+  // TODO(tim): This is a hack to intentionally lose a race with flimflam at
+  // shutdown, so we don't cause shutdown to wait for our http request.
+  // http://crosbug.com/8429
+  MessageLoop::current()->PostDelayedTask(FROM_HERE,
+      method_factory_.NewRunnableMethod(&SyncInternal::OnIPAddressChangedImpl),
+      kChromeOSNetworkChangeReactionDelayHackMsec);
+#else
+  OnIPAddressChangedImpl();
+#endif  // defined(OS_CHROMEOS)
+}
+
+void SyncManager::SyncInternal::OnIPAddressChangedImpl() {
   // TODO(akalin): CheckServerReachable() can block, which may cause
   // jank if we try to shut down sync.  Fix this.
   connection_manager()->CheckServerReachable();

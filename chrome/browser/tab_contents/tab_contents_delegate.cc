@@ -18,7 +18,7 @@ TabContents* TabContentsDelegate::GetConstrainingContents(TabContents* source) {
   return source;
 }
 
-bool TabContentsDelegate::ShouldFocusConstrainedWindow(TabContents* source) {
+bool TabContentsDelegate::ShouldFocusConstrainedWindow() {
   return true;
 }
 
@@ -191,8 +191,13 @@ bool TabContentsDelegate::ShouldEnablePreferredSizeNotifications() {
 void TabContentsDelegate::UpdatePreferredSize(const gfx::Size& pref_size) {
 }
 
-void TabContentsDelegate::OnSetSuggestResult(int32 page_id,
-                                             const std::string& result) {
+void TabContentsDelegate::OnSetSuggestions(
+    int32 page_id,
+    const std::vector<std::string>& suggestions) {
+}
+
+void TabContentsDelegate::OnInstantSupportDetermined(int32 page_id,
+                                                     bool result) {
 }
 
 void TabContentsDelegate::ContentRestrictionsChanged(TabContents* source) {

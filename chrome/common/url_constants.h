@@ -13,6 +13,7 @@ namespace chrome {
 // Canonical schemes you can use as input to GURL.SchemeIs().
 extern const char kAboutScheme[];
 extern const char kBlobScheme[];
+extern const char kChromeDevToolsScheme[];
 extern const char kChromeInternalScheme[];
 extern const char kChromeUIScheme[];  // The scheme used for DOMUIs.
 extern const char kCrosScheme[];      // The scheme used for ChromeOS.
@@ -40,6 +41,7 @@ extern const char kAboutAboutURL[];
 extern const char kAboutAppCacheInternalsURL[];
 extern const char kAboutBlankURL[];
 extern const char kAboutBrowserCrash[];
+extern const char kAboutConflicts[];
 extern const char kAboutCacheURL[];
 extern const char kAboutCrashURL[];
 extern const char kAboutCreditsURL[];
@@ -64,6 +66,7 @@ extern const char kChromeUIAboutURL[];
 extern const char kChromeUIAppLauncherURL[];
 extern const char kChromeUIBookmarksURL[];
 extern const char kChromeUIBugReportURL[];
+extern const char kChromeUIConflictsURL[];
 extern const char kChromeUIConstrainedHTMLTestURL[];
 extern const char kChromeUIDevToolsURL[];
 extern const char kChromeUIDownloadsURL[];
@@ -78,10 +81,12 @@ extern const char kChromeUINewTabURL[];
 extern const char kChromeUIPluginsURL[];
 extern const char kChromeUIPrintURL[];
 extern const char kChromeUISettingsURL[];
+extern const char kChromeUITextfieldsURL[];
 
 #if defined(OS_CHROMEOS)
 extern const char kChromeUIFileBrowseURL[];
 extern const char kChromeUIImageBurnerURL[];
+extern const char kChromeUIKeyboardOverlayURL[];
 extern const char kChromeUIMediaplayerURL[];
 extern const char kChromeUIMobileSetupURL[];
 extern const char kChromeUIRegisterPageURL[];
@@ -93,6 +98,7 @@ extern const char kChromeUISystemInfoURL[];
 // above.
 extern const char kChromeUIBookmarksHost[];
 extern const char kChromeUIBugReportHost[];
+extern const char kChromeUIConflictsHost[];
 extern const char kChromeUIDevToolsHost[];
 extern const char kChromeUIDialogHost[];
 extern const char kChromeUIDownloadsHost[];
@@ -101,7 +107,6 @@ extern const char kChromeUIFavIconHost[];
 extern const char kChromeUIFlagsHost[];
 extern const char kChromeUIHistory2Host[];
 extern const char kChromeUIHistoryHost[];
-extern const char kChromeUIInspectorHost[];
 extern const char kChromeUIKeyboardHost[];
 extern const char kChromeUINetInternalsHost[];
 extern const char kChromeUINewTabHost[];
@@ -113,12 +118,14 @@ extern const char kChromeUIResourcesHost[];
 extern const char kChromeUIScreenshotPath[];
 extern const char kChromeUISettingsHost[];
 extern const char kChromeUISyncResourcesHost[];
+extern const char kChromeUITextfieldsHost[];
 extern const char kChromeUIThemePath[];
 extern const char kChromeUIThumbnailPath[];
 
 #if defined(OS_CHROMEOS)
 extern const char kChromeUIFileBrowseHost[];
 extern const char kChromeUIImageBurnerHost[];
+extern const char kChromeUIKeyboardOverlayHost[];
 extern const char kChromeUIMediaplayerHost[];
 extern const char kChromeUIMobileSetupHost[];
 extern const char kChromeUIRegisterPageHost[];
@@ -128,6 +135,9 @@ extern const char kChromeUIMenu[];
 extern const char kChromeUIWrenchMenu[];
 extern const char kChromeUINetworkMenu[];
 #endif
+
+// Special URL used to start a navigation to an error page.
+extern const char kUnreachableWebDataURL[];
 
 // AppCache related URL.
 extern const char kAppCacheViewInternalsURL[];

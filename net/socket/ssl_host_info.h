@@ -9,10 +9,17 @@
 #include <vector>
 
 #include "base/ref_counted.h"
+#include "base/scoped_ptr.h"
+#include "base/time.h"
+#include "net/base/cert_verify_result.h"
 #include "net/base/completion_callback.h"
 #include "net/socket/ssl_client_socket.h"
 
 namespace net {
+
+class CertVerifier;
+class X509Certificate;
+struct SSLConfig;
 
 // SSLHostInfo is an interface for fetching information about an SSL server.
 // This information may be stored on disk so does not include keys or session
@@ -20,7 +27,7 @@ namespace net {
 // certificates.
 class SSLHostInfo {
  public:
-  SSLHostInfo();
+  SSLHostInfo(const std::string& hostname, const SSLConfig& ssl_config);
   virtual ~SSLHostInfo();
 
   // Start will commence the lookup. This must be called before any other
@@ -48,6 +55,9 @@ class SSLHostInfo {
   virtual void Persist() = 0;
 
   struct State {
+    State();
+    ~State();
+
     // certs is a vector of DER encoded X.509 certificates, as the server
     // returned them and in the same order.
     std::vector<std::string> certs;
@@ -59,12 +69,30 @@ class SSLHostInfo {
     // these members contain the NPN result of a connection to the server.
     SSLClientSocket::NextProtoStatus npn_status;
     std::string npn_protocol;
+
+   private:
+    DISALLOW_COPY_AND_ASSIGN(State);
   };
 
   // Once the data is ready, it can be read using the following members. These
   // members can then be updated before calling |Persist|.
   const State& state() const;
   State* mutable_state();
+
+  // If |cert_valid()| returns true, then this contains the result of verifying
+  // the certificate.
+  const CertVerifyResult& cert_verify_result() const;
+
+  // WaitForCertVerification returns ERR_IO_PENDING if the certificate chain in
+  // |state().certs| is still being validated and arranges for the given
+  // callback to be called when the verification completes. If the verification has
+  // already finished then WaitForCertVerification returns the result of that
+  // verification.
+  int WaitForCertVerification(CompletionCallback* callback);
+
+  base::TimeTicks verification_start_time() const {
+    return verification_start_time_;
+  }
 
  protected:
   // Parse parses an opaque blob of data and fills out the public member fields
@@ -73,6 +101,25 @@ class SSLHostInfo {
   bool Parse(const std::string& data);
   std::string Serialize() const;
   State state_;
+
+ private:
+  // This is the callback function which the CertVerifier calls via |callback_|.
+  void VerifyCallback(int rv);
+
+  // This is the hostname that we'll validate the certificates against.
+  const std::string hostname_;
+  bool cert_verification_complete_;
+  bool cert_parsing_failed_;
+  int cert_verification_result_;
+  CompletionCallback* cert_verification_callback_;
+  // These two members are taken from the SSLConfig.
+  bool rev_checking_enabled_;
+  bool verify_ev_cert_;
+  base::TimeTicks verification_start_time_;
+  CertVerifyResult cert_verify_result_;
+  scoped_ptr<CertVerifier> verifier_;
+  scoped_refptr<X509Certificate> cert_;
+  scoped_refptr<CancelableCompletionCallback<SSLHostInfo> > callback_;
 };
 
 class SSLHostInfoFactory {
@@ -81,7 +128,8 @@ class SSLHostInfoFactory {
 
   // GetForHost returns a fresh, allocated SSLHostInfo for the given hostname
   // or NULL on failure.
-  virtual SSLHostInfo* GetForHost(const std::string& hostname) = 0;
+  virtual SSLHostInfo* GetForHost(const std::string& hostname,
+                                  const SSLConfig& ssl_config) = 0;
 };
 
 }  // namespace net

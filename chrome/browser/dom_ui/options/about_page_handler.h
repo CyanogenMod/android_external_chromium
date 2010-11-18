@@ -25,11 +25,20 @@ class AboutPageHandler : public OptionsPageUIHandler {
   virtual void RegisterMessages();
 
  private:
-
+  // The function is called from JavaScript when the about page is ready.
   void PageReady(const ListValue* args);
 
+  // The function is called from JavaScript to set the release track like
+  // "beta-channel" and "dev-channel".
+  void SetReleaseTrack(const ListValue* args);
+
 #if defined(OS_CHROMEOS)
+  // Initiates update check.
   void CheckNow(const ListValue* args);
+
+  // Restarts the system.
+  void RestartNow(const ListValue* args);
+
   // Callback from chromeos::VersionLoader giving the version.
   void OnOSVersion(chromeos::VersionLoader::Handle handle,
                    std::string version);

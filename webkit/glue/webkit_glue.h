@@ -1,4 +1,4 @@
-// Copyright (c) 2006-2009 The Chromium Authors. All rights reserved.
+// Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -146,11 +146,6 @@ WebKit::WebCanvas* ToWebCanvas(skia::PlatformCanvas*);
 // used to get memory usage statistics.
 int GetGlyphPageCount();
 
-// Methods to query and enable media cache.
-// TODO(hclam): Remove these methods when the cache is stable enough.
-bool IsMediaCacheEnabled();
-void SetMediaCacheEnabled(bool enabled);
-
 //---- END FUNCTIONS IMPLEMENTED BY WEBKIT/GLUE -------------------------------
 
 
@@ -273,6 +268,9 @@ bool IsSingleProcess();
 
 // Enables/Disables Spdy for requests afterwards. Used for benchmarking.
 void EnableSpdy(bool enable);
+
+// Notifies the browser that the given action has been performed.
+void UserMetricsRecordAction(const std::string& action);
 
 #if defined(OS_LINUX)
 // Return a read-only file descriptor to the font which best matches the given

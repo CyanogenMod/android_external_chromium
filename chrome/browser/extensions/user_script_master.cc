@@ -108,7 +108,7 @@ bool UserScriptMaster::ScriptReloader::ParseMetadataHeader(
         script->set_description(value);
       } else if (GetDeclarationValue(line, kMatchDeclaration, &value)) {
         URLPattern pattern(UserScript::kValidUserScriptSchemes);
-        if (!pattern.Parse(value))
+        if (URLPattern::PARSE_SUCCESS != pattern.Parse(value))
           return false;
         script->add_url_pattern(pattern);
       } else if (GetDeclarationValue(line, kRunAtDeclaration, &value)) {
@@ -253,14 +253,7 @@ static base::SharedMemory* Serialize(const UserScriptList& scripts) {
   // Create the shared memory object.
   scoped_ptr<base::SharedMemory> shared_memory(new base::SharedMemory());
 
-  if (!shared_memory->Create(std::string(),  // anonymous
-                             false,  // read-only
-                             false,  // open existing
-                             pickle.size()))
-    return NULL;
-
-  // Map into our process.
-  if (!shared_memory->Map(pickle.size()))
+  if (!shared_memory->CreateAndMapAnonymous(pickle.size()))
     return NULL;
 
   // Copy the pickle to shared memory.
@@ -346,7 +339,7 @@ void UserScriptMaster::Observe(NotificationType type,
       break;
     case NotificationType::EXTENSION_LOADED: {
       // Add any content scripts inside the extension.
-      Extension* extension = Details<Extension>(details).ptr();
+      const Extension* extension = Details<const Extension>(details).ptr();
       bool incognito_enabled = profile_->GetExtensionsService()->
           IsIncognitoEnabled(extension);
       bool allow_file_access = profile_->GetExtensionsService()->
@@ -364,7 +357,7 @@ void UserScriptMaster::Observe(NotificationType type,
     }
     case NotificationType::EXTENSION_UNLOADED: {
       // Remove any content scripts.
-      Extension* extension = Details<Extension>(details).ptr();
+      const Extension* extension = Details<const Extension>(details).ptr();
       UserScriptList new_lone_scripts;
       for (UserScriptList::iterator iter = lone_scripts_.begin();
            iter != lone_scripts_.end(); ++iter) {
@@ -380,7 +373,7 @@ void UserScriptMaster::Observe(NotificationType type,
       break;
     }
     case NotificationType::EXTENSION_USER_SCRIPTS_UPDATED: {
-      Extension* extension = Details<Extension>(details).ptr();
+      const Extension* extension = Details<const Extension>(details).ptr();
       UserScriptList new_lone_scripts;
       bool incognito_enabled = profile_->GetExtensionsService()->
           IsIncognitoEnabled(extension);

@@ -25,6 +25,7 @@ class NavigationController;
 class SiteInstance;
 class TestingProfile;
 class TestTabContents;
+struct WebMenuItem;
 struct ViewHostMsg_FrameNavigate_Params;
 
 // Utility function to initialize ViewHostMsg_NavigateParams_Params
@@ -87,7 +88,6 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
   virtual void PrepareToDestroy() {}
   virtual void SetTooltipText(const std::wstring& tooltip_text) {}
   virtual BackingStore* AllocBackingStore(const gfx::Size& size);
-  virtual VideoLayer* AllocVideoLayer(const gfx::Size& size);
 #if defined(OS_MACOSX)
   virtual void SetTakesFocusOnlyOnMouseDown(bool flag) {}
   virtual void ShowPopupWithItems(gfx::Rect bounds,
@@ -111,13 +111,14 @@ class TestRenderWidgetHostView : public RenderWidgetHostView {
   virtual void AcceleratedSurfaceSetIOSurface(gfx::PluginWindowHandle window,
                                               int32 width,
                                               int32 height,
-                                              uint64 io_surface_identifier);
+                                              uint64 surface_id);
   virtual void AcceleratedSurfaceSetTransportDIB(
       gfx::PluginWindowHandle window,
       int32 width,
       int32 height,
       TransportDIB::Handle transport_dib);
-  virtual void AcceleratedSurfaceBuffersSwapped(gfx::PluginWindowHandle window);
+  virtual void AcceleratedSurfaceBuffersSwapped(gfx::PluginWindowHandle window,
+                                                uint64 surface_id);
   virtual void GpuRenderingStateDidChange();
 #endif
   virtual void SetVisuallyDeemphasized(bool deemphasized) { }

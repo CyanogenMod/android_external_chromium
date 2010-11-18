@@ -153,6 +153,46 @@ X509Certificate* X509Certificate::CreateFromHandle(
   return cert;
 }
 
+#if defined(OS_WIN)
+static X509Certificate::OSCertHandle CreateOSCert(base::StringPiece der_cert) {
+  X509Certificate::OSCertHandle cert_handle = NULL;
+  BOOL ok = CertAddEncodedCertificateToStore(
+      X509Certificate::cert_store(), X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+      reinterpret_cast<const BYTE*>(der_cert.data()), der_cert.size(),
+      CERT_STORE_ADD_USE_EXISTING, &cert_handle);
+  return ok ? cert_handle : NULL;
+}
+#else
+static X509Certificate::OSCertHandle CreateOSCert(base::StringPiece der_cert) {
+  return X509Certificate::CreateOSCertHandleFromBytes(
+      const_cast<char*>(der_cert.data()), der_cert.size());
+}
+#endif
+
+// static
+X509Certificate* X509Certificate::CreateFromDERCertChain(
+    const std::vector<base::StringPiece>& der_certs) {
+  if (der_certs.size() == 0)
+    return NULL;
+
+  X509Certificate::OSCertHandles intermediate_ca_certs;
+  for (size_t i = 1; i < der_certs.size(); i++) {
+    OSCertHandle handle = CreateOSCert(der_certs[i]);
+    DCHECK(handle);
+    intermediate_ca_certs.push_back(handle);
+  }
+
+  OSCertHandle handle = CreateOSCert(der_certs[0]);
+  DCHECK(handle);
+  X509Certificate* cert =
+      CreateFromHandle(handle, SOURCE_FROM_NETWORK, intermediate_ca_certs);
+  FreeOSCertHandle(handle);
+  for (size_t i = 0; i < intermediate_ca_certs.size(); i++)
+    FreeOSCertHandle(intermediate_ca_certs[i]);
+
+  return cert;
+}
+
 // static
 X509Certificate* X509Certificate::CreateFromBytes(const char* data,
                                                   int length) {
@@ -249,11 +289,9 @@ X509Certificate::X509Certificate(OSCertHandle cert_handle,
                                  const OSCertHandles& intermediates)
     : cert_handle_(DupOSCertHandle(cert_handle)),
       source_(source) {
-#if defined(OS_MACOSX) || defined(OS_WIN) || defined(USE_OPENSSL)
   // Copy/retain the intermediate cert handles.
   for (size_t i = 0; i < intermediates.size(); ++i)
     intermediate_ca_certs_.push_back(DupOSCertHandle(intermediates[i]));
-#endif
   // Platform-specific initialization.
   Initialize();
 }
@@ -276,10 +314,8 @@ X509Certificate::~X509Certificate() {
   X509Certificate::Cache::GetInstance()->Remove(this);
   if (cert_handle_)
     FreeOSCertHandle(cert_handle_);
-#if defined(OS_MACOSX) || defined(OS_WIN)
   for (size_t i = 0; i < intermediate_ca_certs_.size(); ++i)
     FreeOSCertHandle(intermediate_ca_certs_[i]);
-#endif
 }
 
 bool X509Certificate::HasExpired() const {

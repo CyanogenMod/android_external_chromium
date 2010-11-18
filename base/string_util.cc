@@ -484,7 +484,7 @@ static inline bool DoLowerCaseEqualsASCII(Iter a_begin,
                                           Iter a_end,
                                           const char* b) {
   for (Iter it = a_begin; it != a_end; ++it, ++b) {
-    if (!*b || ToLowerASCII(*it) != *b)
+    if (!*b || base::ToLowerASCII(*it) != *b)
       return false;
   }
   return *b == 0;
@@ -572,7 +572,7 @@ bool StartsWithT(const STR& str, const STR& search, bool case_sensitive) {
     if (search.size() > str.size())
       return false;
     return std::equal(search.begin(), search.end(), str.begin(),
-                      CaseInsensitiveCompare<typename STR::value_type>());
+                      base::CaseInsensitiveCompare<typename STR::value_type>());
   }
 }
 
@@ -599,7 +599,7 @@ bool EndsWithT(const STR& str, const STR& search, bool case_sensitive) {
   } else {
     return std::equal(search.begin(), search.end(),
                       str.begin() + (str_length - search_length),
-                      CaseInsensitiveCompare<typename STR::value_type>());
+                      base::CaseInsensitiveCompare<typename STR::value_type>());
   }
 }
 

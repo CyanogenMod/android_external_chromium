@@ -7,6 +7,7 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/callback.h"
+#include "base/file_util.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
@@ -21,6 +22,7 @@
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/browser_navigator.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
@@ -181,6 +183,16 @@ class FilebrowseHandler : public net::DirectoryLister::DirectoryListerDelegate,
   void FireUploadComplete();
 
   void SendPicasawebRequest();
+
+  // Callback for the "validateSavePath" message.
+  void HandleValidateSavePath(const ListValue* args);
+
+  // Validate a save path on file thread.
+  void ValidateSavePathOnFileThread(const FilePath& save_path);
+
+  // Fire save path validation result to JS onValidatedSavePath.
+  void FireOnValidatedSavePathOnUIThread(bool valid, const FilePath& save_path);
+
  private:
 
   void OpenNewWindow(const ListValue* args, bool popup);
@@ -265,6 +277,17 @@ class TaskProxy : public base::RefCountedThreadSafe<TaskProxy> {
       handler_->FireCopyComplete(src_, dest_);
     }
   }
+
+  void ValidateSavePathOnFileThread() {
+    if (handler_)
+      handler_->ValidateSavePathOnFileThread(src_);
+  }
+  void FireOnValidatedSavePathOnUIThread(bool valid,
+                                         const FilePath& save_path) {
+    if (handler_)
+      handler_->FireOnValidatedSavePathOnUIThread(valid, save_path);
+  }
+
  private:
   base::WeakPtr<FilebrowseHandler> handler_;
   FilePath src_;
@@ -459,6 +482,8 @@ void FilebrowseHandler::RegisterMessages() {
       NewCallback(this, &FilebrowseHandler::HandleRefreshDirectory));
   dom_ui_->RegisterMessageCallback("isAdvancedEnabled",
       NewCallback(this, &FilebrowseHandler::HandleIsAdvancedEnabled));
+  dom_ui_->RegisterMessageCallback("validateSavePath",
+      NewCallback(this, &FilebrowseHandler::HandleValidateSavePath));
 }
 
 
@@ -696,14 +721,16 @@ void FilebrowseHandler::OpenNewWindow(const ListValue* args, bool popup) {
   Browser* browser = popup ?
       Browser::CreateForType(Browser::TYPE_APP_PANEL, profile_) :
       BrowserList::GetLastActive();
-  Browser::AddTabWithURLParams params(GURL(url), PageTransition::LINK);
-  browser->AddTabWithURL(&params);
+  browser::NavigateParams params(browser, GURL(url), PageTransition::LINK);
+  params.disposition = NEW_FOREGROUND_TAB;
+  browser::Navigate(&params);
+  // TODO(beng): The following two calls should be automatic by Navigate().
   if (popup) {
     // TODO(dhg): Remove these from being hardcoded. Allow javascript
     // to specify.
-    params.target->window()->SetBounds(gfx::Rect(0, 0, 400, 300));
+    params.browser->window()->SetBounds(gfx::Rect(0, 0, 400, 300));
   }
-  params.target->window()->Show();
+  params.browser->window()->Show();
 }
 
 void FilebrowseHandler::SendPicasawebRequest() {
@@ -988,6 +1015,60 @@ void FilebrowseHandler::HandleCopyFile(const ListValue* value) {
 #endif
 }
 
+void FilebrowseHandler::HandleValidateSavePath(const ListValue* args) {
+  std::string string_path;
+  if (!args || !args->GetString(0, &string_path)) {
+    FireOnValidatedSavePathOnUIThread(false, FilePath());  // Invalid save path.
+    return;
+  }
+
+  FilePath save_path(string_path);
+
+#if defined(OS_CHROMEOS)
+  scoped_refptr<TaskProxy> task = new TaskProxy(AsWeakPtr(), save_path);
+  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
+      NewRunnableMethod(task.get(), &TaskProxy::ValidateSavePathOnFileThread));
+#else
+  // No save path checking for non-ChromeOS platforms.
+  FireOnValidatedSavePathOnUIThread(true, save_path);
+#endif
+}
+
+void FilebrowseHandler::ValidateSavePathOnFileThread(
+    const FilePath& save_path) {
+#if defined(OS_CHROMEOS)
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+
+  FilePath default_download_path;
+  if (!PathService::Get(chrome::DIR_DEFAULT_DOWNLOADS,
+                        &default_download_path)) {
+    NOTREACHED();
+  }
+
+  // Get containing folder of save_path.
+  FilePath save_dir = save_path.DirName();
+
+  // Valid save path must be inside default download dir.
+  bool valid = default_download_path == save_dir ||
+               file_util::ContainsPath(default_download_path, save_dir);
+
+  scoped_refptr<TaskProxy> task = new TaskProxy(AsWeakPtr(), save_path);
+  BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
+      NewRunnableMethod(task.get(),
+                        &TaskProxy::FireOnValidatedSavePathOnUIThread,
+                        valid, save_path));
+#endif
+}
+
+void FilebrowseHandler::FireOnValidatedSavePathOnUIThread(bool valid,
+    const FilePath& save_path) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
+  FundamentalValue valid_value(valid);
+  StringValue path_value(save_path.value());
+  dom_ui_->CallJavascriptFunction(L"onValidatedSavePath",
+      valid_value, path_value);
+}
 
 void FilebrowseHandler::OnDownloadUpdated(DownloadItem* download) {
   DownloadList::iterator it = find(active_download_items_.begin(),
@@ -997,9 +1078,9 @@ void FilebrowseHandler::OnDownloadUpdated(DownloadItem* download) {
     return;
   const int id = static_cast<int>(it - active_download_items_.begin());
 
-  ListValue results_value;
-  results_value.Append(download_util::CreateDownloadItemValue(download, id));
-  dom_ui_->CallJavascriptFunction(L"downloadUpdated", results_value);
+  scoped_ptr<DictionaryValue> download_item(
+      download_util::CreateDownloadItemValue(download, id));
+  dom_ui_->CallJavascriptFunction(L"downloadUpdated", *download_item.get());
 }
 
 void FilebrowseHandler::ClearDownloadItems() {
@@ -1061,14 +1142,16 @@ Browser* FileBrowseUI::OpenPopup(Profile* profile,
       url.append(hashArgument);
     }
 
-    Browser::AddTabWithURLParams params(GURL(url), PageTransition::LINK);
-    browser->AddTabWithURL(&params);
-    params.target->window()->SetBounds(gfx::Rect(kPopupLeft,
-                                                 kPopupTop,
-                                                 width,
-                                                 height));
+    browser::NavigateParams params(browser, GURL(url), PageTransition::LINK);
+    params.disposition = NEW_FOREGROUND_TAB;
+    browser::Navigate(&params);
+    // TODO(beng): The following two calls should be automatic by Navigate().
+    params.browser->window()->SetBounds(gfx::Rect(kPopupLeft,
+                                                  kPopupTop,
+                                                  width,
+                                                  height));
 
-    params.target->window()->Show();
+    params.browser->window()->Show();
   } else {
     browser->window()->Show();
   }

@@ -75,7 +75,7 @@ extern const char kDisableSpdy[];
 extern const char kCookiePromptExpanded[];
 extern const char kInstantConfirmDialogShown[];
 extern const char kInstantEnabled[];
-#if defined(USE_NSS)
+#if defined(USE_NSS) || defined(USE_OPENSSL)
 extern const char kCertRevocationCheckingEnabled[];
 extern const char kSSL2Enabled[];
 extern const char kSSL3Enabled[];
@@ -146,7 +146,6 @@ extern const char kLanguageXkbAutoRepeatInterval[];
 extern const char kAccessibilityEnabled[];
 extern const char kLabsAdvancedFilesystemEnabled[];
 extern const char kLabsMediaplayerEnabled[];
-extern const char kLabsTalkEnabled[];
 extern const char kEnableScreenLock[];
 #endif
 extern const char kIpcDisabledMessages[];
@@ -202,6 +201,7 @@ extern const char kContentSettingsPatterns[];
 extern const char kBlockThirdPartyCookies[];
 extern const char kBlockNonsandboxedPlugins[];
 extern const char kClearSiteDataOnExit[];
+extern const char kDefaultZoomLevel[];
 extern const char kPerHostZoomLevels[];
 extern const char kAutoFillEnabled[];
 extern const char kAutoFillAuxiliaryProfilesEnabled[];
@@ -261,7 +261,6 @@ extern const char kUninstallLastObservedRunTimeSec[];
 
 extern const char kBrowserWindowPlacement[];
 extern const char kTaskManagerWindowPlacement[];
-extern const char kPageInfoWindowPlacement[];
 extern const char kKeywordEditorWindowPlacement[];
 extern const char kPreferencesWindowPlacement[];
 extern const char kMemoryCacheSize[];
@@ -326,6 +325,8 @@ extern const char kNextExtensionsUpdateCheck[];
 extern const char kExtensionInstallAllowList[];
 extern const char kExtensionInstallDenyList[];
 
+extern const char kExtensionInstallForceList[];
+
 extern const char kExtensionBlacklistUpdateVersion[];
 
 extern const char kExtensionSidebarWidth[];
@@ -341,6 +342,7 @@ extern const char kNTPPrefVersion[];
 extern const char kNTPCustomLogoStart[];
 extern const char kNTPCustomLogoEnd[];
 
+extern const char kDevToolsDisabled[];
 extern const char kDevToolsOpenDocked[];
 extern const char kDevToolsSplitLocation[];
 extern const char kSyncSessions[];
@@ -373,8 +375,10 @@ extern const char kGeolocationContentSettings[];
 
 extern const char kLoginDatabaseMigrated[];
 
-extern const char kCloudPrintProxyEnabled[];
 extern const char kCloudPrintServiceURL[];
+extern const char kCloudPrintDialogWidth[];
+extern const char kCloudPrintDialogHeight[];
+extern const char kCloudPrintProxyEnabled[];
 extern const char kCloudPrintProxyId[];
 extern const char kCloudPrintAuthToken[];
 extern const char kCloudPrintXMPPAuthToken[];
@@ -389,6 +393,10 @@ extern const char kProxyAutoDetect[];
 extern const char kProxyServer[];
 extern const char kProxyPacUrl[];
 extern const char kProxyBypassList[];
+
+#if defined(OS_CHROMEOS)
+extern const char kSignedSettingsTempStorage[];
+#endif
 
 extern const char kRegisteredBackgroundContents[];
 

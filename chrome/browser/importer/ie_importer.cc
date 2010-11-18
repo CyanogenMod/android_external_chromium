@@ -33,6 +33,7 @@
 #include "chrome/browser/password_manager/ie7_password.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
+#include "chrome/browser/search_engines/template_url_prepopulate_data.h"
 #include "chrome/common/time_format.h"
 #include "chrome/common/url_constants.h"
 #include "googleurl/src/gurl.h"
@@ -40,8 +41,6 @@
 #include "webkit/glue/password_form.h"
 
 using base::Time;
-using base::win::RegKey;
-using base::win::RegistryValueIterator;
 using webkit_glue::PasswordForm;
 
 namespace {
@@ -70,7 +69,7 @@ const GUID IEImporter::kPStoreAutocompleteGUID = {0xe161255a, 0x37c3, 0x11d2,
 const GUID IEImporter::kUnittestGUID = { 0xa79029d6, 0x753e, 0x4e27,
     {0xb8, 0x7, 0x3d, 0x46, 0xab, 0x15, 0x45, 0xdf}};
 
-void IEImporter::StartImport(ProfileInfo profile_info,
+void IEImporter::StartImport(const ProfileInfo& profile_info,
                              uint16 items,
                              ImporterBridge* bridge) {
   bridge_ = bridge;
@@ -259,8 +258,9 @@ void IEImporter::ImportPasswordsIE7() {
   const wchar_t kStorage2Path[] =
       L"Software\\Microsoft\\Internet Explorer\\IntelliForms\\Storage2";
 
-  RegKey key(HKEY_CURRENT_USER, kStorage2Path, KEY_READ);
-  RegistryValueIterator reg_iterator(HKEY_CURRENT_USER, kStorage2Path);
+  base::win::RegKey key(HKEY_CURRENT_USER, kStorage2Path, KEY_READ);
+  base::win::RegistryValueIterator reg_iterator(HKEY_CURRENT_USER,
+                                                kStorage2Path);
   while (reg_iterator.Valid() && !cancelled()) {
     // Get the size of the encrypted data.
     DWORD value_len = 0;
@@ -351,7 +351,7 @@ void IEImporter::ImportSearchEngines() {
   const wchar_t kSearchScopePath[] =
       L"Software\\Microsoft\\Internet Explorer\\SearchScopes";
 
-  RegKey key(HKEY_CURRENT_USER, kSearchScopePath, KEY_READ);
+  base::win::RegKey key(HKEY_CURRENT_USER, kSearchScopePath, KEY_READ);
   std::wstring default_search_engine_name;
   const TemplateURL* default_search_engine = NULL;
   std::map<std::string, TemplateURL*> search_engines_map;
@@ -361,7 +361,8 @@ void IEImporter::ImportSearchEngines() {
   while (key_iterator.Valid()) {
     std::wstring sub_key_name = kSearchScopePath;
     sub_key_name.append(L"\\").append(key_iterator.Name());
-    RegKey sub_key(HKEY_CURRENT_USER, sub_key_name.c_str(), KEY_READ);
+    base::win::RegKey sub_key(HKEY_CURRENT_USER, sub_key_name.c_str(),
+                              KEY_READ);
     std::wstring wide_url;
     if (!sub_key.ReadValue(L"URL", &wide_url) || wide_url.empty()) {
       VLOG(1) << "No URL for IE search engine at " << key_iterator.Name();
@@ -392,8 +393,11 @@ void IEImporter::ImportSearchEngines() {
       template_url->set_short_name(name);
       template_url->SetURL(url, 0, 0);
       // Give this a keyword to facilitate tab-to-search, if possible.
-      template_url->set_keyword(TemplateURLModel::GenerateKeyword(GURL(url),
+      GURL gurl = GURL(url);
+      template_url->set_keyword(TemplateURLModel::GenerateKeyword(gurl,
                                                                   false));
+      template_url->set_logo_id(
+          TemplateURLPrepopulateData::GetSearchEngineLogo(gurl));
       template_url->set_show_in_default_list(true);
       search_engines_map[url] = template_url;
     }
@@ -425,7 +429,7 @@ void IEImporter::ImportHomepage() {
   const wchar_t kIEHomepage[] = L"Start Page";
   const wchar_t kIEDefaultHomepage[] = L"Default_Page_URL";
 
-  RegKey key(HKEY_CURRENT_USER, kIESettingsMain, KEY_READ);
+  base::win::RegKey key(HKEY_CURRENT_USER, kIESettingsMain, KEY_READ);
   std::wstring homepage_url;
   if (!key.ReadValue(kIEHomepage, &homepage_url) || homepage_url.empty())
     return;
@@ -435,7 +439,7 @@ void IEImporter::ImportHomepage() {
     return;
 
   // Check to see if this is the default website and skip import.
-  RegKey keyDefault(HKEY_LOCAL_MACHINE, kIESettingsMain, KEY_READ);
+  base::win::RegKey keyDefault(HKEY_LOCAL_MACHINE, kIESettingsMain, KEY_READ);
   std::wstring default_homepage_url;
   if (keyDefault.ReadValue(kIEDefaultHomepage, &default_homepage_url) &&
       !default_homepage_url.empty()) {
@@ -469,9 +473,8 @@ bool IEImporter::GetFavoritesInfo(IEImporter::FavoritesInfo *info) {
   if (base::win::GetVersion() < base::win::VERSION_VISTA) {
     // The Link folder name is stored in the registry.
     DWORD buffer_length = sizeof(buffer);
-    RegKey reg_key(HKEY_CURRENT_USER,
-                   L"Software\\Microsoft\\Internet Explorer\\Toolbar",
-                   KEY_READ);
+    base::win::RegKey reg_key(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Internet Explorer\\Toolbar", KEY_READ);
     if (!reg_key.ReadValue(L"LinksFolderName", buffer, &buffer_length, NULL))
       return false;
     info->links_folder = buffer;
@@ -579,8 +582,8 @@ int IEImporter::CurrentIEVersion() const {
   if (version < 0) {
     wchar_t buffer[128];
     DWORD buffer_length = sizeof(buffer);
-    RegKey reg_key(HKEY_LOCAL_MACHINE,
-                   L"Software\\Microsoft\\Internet Explorer", KEY_READ);
+    base::win::RegKey reg_key(HKEY_LOCAL_MACHINE,
+        L"Software\\Microsoft\\Internet Explorer", KEY_READ);
     bool result = reg_key.ReadValue(L"Version", buffer, &buffer_length, NULL);
     version = (result ? _wtoi(buffer) : 0);
   }

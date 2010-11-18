@@ -5,7 +5,10 @@
 #include "webkit/glue/plugins/pepper_file_ref.h"
 
 #include "base/string_util.h"
-#include "third_party/ppapi/c/pp_errors.h"
+#include "base/utf_string_conversions.h"
+#include "ppapi/c/pp_errors.h"
+#include "webkit/glue/plugins/pepper_common.h"
+#include "webkit/glue/plugins/pepper_directory_reader.h"
 #include "webkit/glue/plugins/pepper_file_callbacks.h"
 #include "webkit/glue/plugins/pepper_file_system.h"
 #include "webkit/glue/plugins/pepper_plugin_delegate.h"
@@ -56,8 +59,8 @@ PP_Resource Create(PP_Resource file_system_id, const char* path) {
   return file_ref->GetReference();
 }
 
-bool IsFileRef(PP_Resource resource) {
-  return !!Resource::GetAs<FileRef>(resource);
+PP_Bool IsFileRef(PP_Resource resource) {
+  return BoolToPPBool(!!Resource::GetAs<FileRef>(resource));
 }
 
 PP_FileSystemType_Dev GetFileSystemType(PP_Resource file_ref_id) {
@@ -101,7 +104,7 @@ PP_Resource GetParent(PP_Resource file_ref_id) {
 }
 
 int32_t MakeDirectory(PP_Resource directory_ref_id,
-                      bool make_ancestors,
+                      PP_Bool make_ancestors,
                       PP_CompletionCallback callback) {
   scoped_refptr<FileRef> directory_ref(
       Resource::GetAs<FileRef>(directory_ref_id));
@@ -115,9 +118,9 @@ int32_t MakeDirectory(PP_Resource directory_ref_id,
 
   PluginInstance* instance = file_system->instance();
   if (!instance->delegate()->MakeDirectory(
-          directory_ref->GetSystemPath(), make_ancestors,
+          directory_ref->GetSystemPath(), PPBoolToBool(make_ancestors),
           new FileCallbacks(instance->module()->AsWeakPtr(),
-                            callback, NULL, NULL)))
+                            callback, NULL, NULL, NULL)))
     return PP_ERROR_FAILED;
 
   return PP_ERROR_WOULDBLOCK;
@@ -139,7 +142,7 @@ int32_t Query(PP_Resource file_ref_id,
   if (!instance->delegate()->Query(
           file_ref->GetSystemPath(),
           new FileCallbacks(instance->module()->AsWeakPtr(),
-                            callback, info, file_system)))
+                            callback, info, file_system, NULL)))
     return PP_ERROR_FAILED;
 
   return PP_ERROR_WOULDBLOCK;
@@ -163,7 +166,7 @@ int32_t Touch(PP_Resource file_ref_id,
           file_ref->GetSystemPath(), base::Time::FromDoubleT(last_access_time),
           base::Time::FromDoubleT(last_modified_time),
           new FileCallbacks(instance->module()->AsWeakPtr(),
-                            callback, NULL, NULL)))
+                            callback, NULL, NULL, NULL)))
     return PP_ERROR_FAILED;
 
   return PP_ERROR_WOULDBLOCK;
@@ -184,7 +187,7 @@ int32_t Delete(PP_Resource file_ref_id,
   if (!instance->delegate()->Delete(
           file_ref->GetSystemPath(),
           new FileCallbacks(instance->module()->AsWeakPtr(),
-                            callback, NULL, NULL)))
+                            callback, NULL, NULL, NULL)))
     return PP_ERROR_FAILED;
 
   return PP_ERROR_WOULDBLOCK;
@@ -212,7 +215,7 @@ int32_t Rename(PP_Resource file_ref_id,
   if (!instance->delegate()->Rename(
           file_ref->GetSystemPath(), new_file_ref->GetSystemPath(),
           new FileCallbacks(instance->module()->AsWeakPtr(),
-                            callback, NULL, NULL)))
+                            callback, NULL, NULL, NULL)))
     return PP_ERROR_FAILED;
 
   return PP_ERROR_WOULDBLOCK;
@@ -312,7 +315,19 @@ FilePath FileRef::GetSystemPath() const {
   if (GetFileSystemType() == PP_FILESYSTEMTYPE_EXTERNAL)
     return system_path_;
 
-  return file_system_->root_path().AppendASCII(virtual_path_);
+  // Since |virtual_path_| starts with a '/', it is considered an absolute path
+  // on POSIX systems. We need to remove the '/' before calling Append() or we
+  // will run into a DCHECK.
+  FilePath virtual_file_path(
+#if defined(OS_WIN)
+      UTF8ToWide(virtual_path_.substr(1))
+#elif defined(OS_POSIX)
+      virtual_path_.substr(1)
+#else
+#error "Unsupported platform."
+#endif
+  );
+  return file_system_->root_path().Append(virtual_file_path);
 }
 
 }  // namespace pepper

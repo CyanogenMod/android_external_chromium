@@ -4,8 +4,9 @@
 
 #import <Cocoa/Cocoa.h>
 
+#include "base/debug/debugger.h"
 #include "base/scoped_nsobject.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #import "chrome/browser/cocoa/browser_window_controller.h"
 #import "chrome/browser/cocoa/browser_frame_view.h"
 #import "chrome/browser/cocoa/cocoa_test_helper.h"
@@ -27,7 +28,7 @@ class FramedBrowserWindowTest : public CocoaTest {
                styleMask:mask
                backing:NSBackingStoreBuffered
                defer:NO];
-    if (DebugUtil::BeingDebugged()) {
+    if (base::debug::BeingDebugged()) {
       [window_ orderFront:nil];
     } else {
       [window_ orderBack:nil];

@@ -64,6 +64,7 @@
 #endif
 
 #if defined(OS_WIN)
+#include "chrome/browser/enumerate_modules_model_win.h"
 #include "chrome/browser/views/about_ipc_dialog.h"
 #elif defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/cros/cros_library.h"
@@ -101,6 +102,9 @@ const char kAppCacheInternalsPath[] = "appcache-internals";
 const char kBlobInternalsPath[] = "blob-internals";
 const char kCreditsPath[] = "credits";
 const char kCachePath[] = "view-http-cache";
+#if defined(OS_WIN)
+const char kConflictsPath[] = "conflicts";
+#endif
 const char kDnsPath[] = "dns";
 const char kFlagsPath[] = "flags";
 const char kGpuPath[] = "gpu";
@@ -134,6 +138,9 @@ const char *kAllAboutPaths[] = {
   kBlobInternalsPath,
   kCachePath,
   kCreditsPath,
+#if defined(OS_WIN)
+  kConflictsPath,
+#endif
   kDnsPath,
   kFlagsPath,
   kGpuPath,
@@ -263,6 +270,9 @@ std::string AboutAbout() {
     if (kAllAboutPaths[i] == kAppCacheInternalsPath ||
         kAllAboutPaths[i] == kBlobInternalsPath ||
         kAllAboutPaths[i] == kCachePath ||
+#if defined(OS_WIN)
+        kAllAboutPaths[i] == kConflictsPath ||
+#endif
         kAllAboutPaths[i] == kFlagsPath ||
         kAllAboutPaths[i] == kNetInternalsPath ||
         kAllAboutPaths[i] == kPluginsPath) {
@@ -305,8 +315,8 @@ std::string AboutNetwork(const std::string& query) {
 class AboutDnsHandler : public base::RefCountedThreadSafe<AboutDnsHandler> {
  public:
   static void Start(AboutSource* source, int request_id) {
-    scoped_refptr<AboutDnsHandler> handler =
-        new AboutDnsHandler(source, request_id);
+    scoped_refptr<AboutDnsHandler> handler(
+        new AboutDnsHandler(source, request_id));
     handler->StartOnUIThread();
   }
 
@@ -762,28 +772,38 @@ std::string AboutGpu() {
     html.append("</body></html> ");
   } else {
     html.append("<html><head><title>About GPU</title></head><body>\n");
-    html.append("<h2>GPU Information</h2><ul>\n");
-    html.append("<li><strong>Vendor ID:</strong> ");
+    html.append("<h2>GPU Information</h2>\n");
+    html.append("<table><tr>");
+    html.append("<td><strong>Initialization time</strong></td><td>");
+    html.append(base::Int64ToString(
+        gpu_info.initialization_time().InMilliseconds()));
+    html.append("</td></tr><tr><td>");
+    html.append("<strong>Vendor ID</strong></td><td>");
     html.append(base::StringPrintf("0x%04x", gpu_info.vendor_id()));
-    html.append("<li><strong>Device ID:</strong> ");
+    html.append("</td></tr><tr><td>");
+    html.append("<strong>Device ID</strong></td><td>");
     html.append(base::StringPrintf("0x%04x", gpu_info.device_id()));
-    html.append("<li><strong>Driver Version:</strong> ");
+    html.append("</td></tr><tr><td>");
+    html.append("<strong>Driver Version</strong></td><td>");
     html.append(WideToASCII(gpu_info.driver_version()).c_str());
-    html.append("<li><strong>Pixel Shader Version:</strong> ");
+    html.append("</td></tr><tr><td>");
+    html.append("<strong>Pixel Shader Version</strong></td><td>");
+    html.append(VersionNumberToString(gpu_info.pixel_shader_version()).c_str());
+    html.append("</td></tr><tr><td>");
+    html.append("<strong>Vertex Shader Version</strong></td><td>");
     html.append(VersionNumberToString(
-                    gpu_info.pixel_shader_version()).c_str());
-    html.append("<li><strong>Vertex Shader Version:</strong> ");
-    html.append(VersionNumberToString(
-                    gpu_info.vertex_shader_version()).c_str());
-    html.append("<li><strong>GL Version:</strong> ");
+        gpu_info.vertex_shader_version()).c_str());
+    html.append("</td></tr><tr><td>");
+    html.append("<strong>GL Version</strong></td><td>");
     html.append(VersionNumberToString(gpu_info.gl_version()).c_str());
+    html.append("</td></tr></table>");
 
 #if defined(OS_WIN)
-    html.append("<li><strong>DirectX Diagnostics:</strong> ");
+    html.append("<h2>DirectX Diagnostics</h2>");
     DxDiagNodeToHTML(&html, gpu_info.dx_diagnostics());
 #endif
 
-    html.append("</ul></body></html> ");
+    html.append("</body></html>");
   }
   return html;
 }
@@ -1085,6 +1105,14 @@ bool WillHandleBrowserAboutURL(GURL* url, Profile* profile) {
     return true;
   }
 
+#if defined(OS_WIN)
+  // Rewrite about:conflicts/* URLs to chrome://conflicts/*
+  if (StartsWithAboutSpecifier(*url, chrome::kAboutConflicts)) {
+    *url = GURL(chrome::kChromeUIConflictsURL);
+    return true;
+  }
+#endif
+
   // Rewrite about:flags and about:vaporware to chrome://flags/.
   if (LowerCaseEqualsASCII(url->spec(), chrome::kAboutFlagsURL) ||
       LowerCaseEqualsASCII(url->spec(), chrome::kAboutVaporwareURL)) {
@@ -1120,11 +1148,11 @@ bool WillHandleBrowserAboutURL(GURL* url, Profile* profile) {
 
   // Handle URLs to wreck the gpu process.
   if (LowerCaseEqualsASCII(url->spec(), chrome::kAboutGpuCrashURL)) {
-    GpuProcessHost::SendAboutGpuCrash();
+    GpuProcessHostUIShim::Get()->SendAboutGpuCrash();
     return true;
   }
   if (LowerCaseEqualsASCII(url->spec(), chrome::kAboutGpuHangURL)) {
-    GpuProcessHost::SendAboutGpuHang();
+    GpuProcessHostUIShim::Get()->SendAboutGpuHang();
     return true;
   }
 

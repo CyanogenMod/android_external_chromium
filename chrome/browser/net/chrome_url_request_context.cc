@@ -208,7 +208,7 @@ class ChromeCookieMonsterDelegate : public net::CookieMonster::Delegate {
   virtual ~ChromeCookieMonsterDelegate() {}
 
   void OnCookieChangedAsyncHelper(
-      net::CookieMonster::CanonicalCookie cookie,
+      const net::CookieMonster::CanonicalCookie& cookie,
       bool removed) {
     if (profile_getter_->get()) {
       ChromeCookieDetails cookie_details(&cookie, removed);
@@ -261,6 +261,7 @@ ChromeURLRequestContext* FactoryForOriginal::Create() {
 
   // Global host resolver for the context.
   context->set_host_resolver(io_thread_globals->host_resolver.get());
+  context->set_dnsrr_resolver(io_thread_globals->dnsrr_resolver.get());
   context->set_http_auth_handler_factory(
       io_thread_globals->http_auth_handler_factory.get());
 
@@ -285,9 +286,6 @@ ChromeURLRequestContext* FactoryForOriginal::Create() {
                          &io_thread_globals->network_delegate,
                          io_thread_globals->net_log.get(),
                          backend);
-
-  if (command_line.HasSwitch(switches::kDisableByteRangeSupport))
-    cache->set_enable_range_support(false);
 
   bool record_mode = chrome::kRecordModeEnabled &&
                      command_line.HasSwitch(switches::kRecordMode);
@@ -358,9 +356,10 @@ ChromeURLRequestContext* FactoryForExtensions::Create() {
   net::CookieMonster* cookie_monster =
       new net::CookieMonster(cookie_db.get(), NULL);
 
-  // Enable cookies for extension URLs only.
-  const char* schemes[] = {chrome::kExtensionScheme};
-  cookie_monster->SetCookieableSchemes(schemes, 1);
+  // Enable cookies for devtools and extension URLs.
+  const char* schemes[] = {chrome::kChromeDevToolsScheme,
+                           chrome::kExtensionScheme};
+  cookie_monster->SetCookieableSchemes(schemes, 2);
   context->set_cookie_store(cookie_monster);
   // TODO(cbentzel): How should extensions handle HTTP Authentication?
   context->set_http_auth_handler_factory(
@@ -418,10 +417,6 @@ ChromeURLRequestContext* FactoryForOffTheRecord::Create() {
   context->set_cookie_policy(
       new ChromeCookiePolicy(host_content_settings_map_));
   context->set_http_transaction_factory(cache);
-
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kDisableByteRangeSupport))
-    cache->set_enable_range_support(false);
 
   context->set_ftp_transaction_factory(
       new net::FtpNetworkLayer(context->host_resolver()));
@@ -511,10 +506,6 @@ ChromeURLRequestContext* FactoryForMedia::Create() {
                                backend);
   }
 
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kDisableByteRangeSupport))
-    cache->set_enable_range_support(false);
-
   context->set_http_transaction_factory(cache);
   context->set_net_log(io_thread_globals->net_log.get());
 
@@ -530,8 +521,9 @@ ChromeURLRequestContext* FactoryForMedia::Create() {
 ChromeURLRequestContextGetter::ChromeURLRequestContextGetter(
     Profile* profile,
     ChromeURLRequestContextFactory* factory)
-  : factory_(factory),
-    url_request_context_(NULL) {
+    : io_thread_(g_browser_process->io_thread()),
+      factory_(factory),
+      url_request_context_(NULL) {
   DCHECK(factory);
 
   // If a base profile was specified, listen for changes to the preferences.
@@ -548,6 +540,9 @@ ChromeURLRequestContextGetter::~ChromeURLRequestContextGetter() {
   // we still have a pending factory.
   DCHECK((factory_.get() && !url_request_context_.get()) ||
          (!factory_.get() && url_request_context_.get()));
+
+  if (url_request_context_)
+    io_thread_->UnregisterURLRequestContextGetter(this);
 
   // The scoped_refptr / scoped_ptr destructors take care of releasing
   // |factory_| and |url_request_context_| now.
@@ -569,9 +564,15 @@ URLRequestContext* ChromeURLRequestContextGetter::GetURLRequestContext() {
     }
 
     factory_.reset();
+    io_thread_->RegisterURLRequestContextGetter(this);
   }
 
   return url_request_context_;
+}
+
+void ChromeURLRequestContextGetter::ReleaseURLRequestContext() {
+  DCHECK(url_request_context_);
+  url_request_context_ = NULL;
 }
 
 void ChromeURLRequestContextGetter::RegisterUserPrefs(
@@ -608,7 +609,7 @@ net::CookieStore* ChromeURLRequestContextGetter::GetCookieStore() {
 }
 
 scoped_refptr<base::MessageLoopProxy>
-ChromeURLRequestContextGetter::GetIOMessageLoopProxy() {
+ChromeURLRequestContextGetter::GetIOMessageLoopProxy() const {
   return BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO);
 }
 
@@ -766,9 +767,12 @@ ChromeURLRequestContext::~ChromeURLRequestContext() {
 
 #if defined(USE_NSS)
   if (is_main()) {
-    DCHECK_EQ(this, net::GetURLRequestContextForOCSP());
-    // We are releasing the URLRequestContext used by OCSP handlers.
-    net::SetURLRequestContextForOCSP(NULL);
+    URLRequestContext* ocsp_context = net::GetURLRequestContextForOCSP();
+    if (ocsp_context) {
+      DCHECK_EQ(this, ocsp_context);
+      // We are releasing the URLRequestContext used by OCSP handlers.
+      net::SetURLRequestContextForOCSP(NULL);
+    }
   }
 #endif
 
@@ -939,9 +943,17 @@ net::ProxyConfig* CreateProxyConfig(const PrefService* pref_service) {
     prefs::kProxyAutoDetect
   };
 
+  // Check whether the preference system holds a valid proxy configuration. Note
+  // that preferences coming from a lower-priority source than the user settings
+  // are ignored. That's because chrome treats the system settings as the
+  // default values, which should apply if there's no explicit value forced by
+  // policy or the user.
   bool found_enable_proxy_pref = false;
   for (size_t i = 0; i < arraysize(proxy_prefs); i++) {
-    if (pref_service->HasPrefPath(proxy_prefs[i])) {
+    const PrefService::Preference* pref =
+        pref_service->FindPreference(proxy_prefs[i]);
+    DCHECK(pref);
+    if (pref && (!pref->IsUserModifiable() || pref->HasUserSetting())) {
       found_enable_proxy_pref = true;
       break;
     }

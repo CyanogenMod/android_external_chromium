@@ -9,6 +9,7 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extension_install_ui.h"
+#include "chrome/browser/views/window.h"
 #include "chrome/common/extensions/extension.h"
 #include "grit/generated_resources.h"
 #include "views/controls/button/checkbox.h"
@@ -35,8 +36,10 @@ const int kIconSize = 69;
 class InstallDialogContent : public views::View, public views::DialogDelegate {
  public:
   InstallDialogContent(ExtensionInstallUI::Delegate* delegate,
-      Extension* extension, SkBitmap* icon, ExtensionInstallUI::PromptType type)
-          : delegate_(delegate), icon_(NULL), type_(type) {
+                       const Extension* extension,
+                       SkBitmap* icon,
+                       ExtensionInstallUI::PromptType type)
+        : delegate_(delegate), icon_(NULL), type_(type) {
     // Scale down to icon size, but allow smaller icons (don't scale up).
     gfx::Size size(icon->width(), icon->height());
     if (size.width() > kIconSize || size.height() > kIconSize)
@@ -141,7 +144,10 @@ class InstallDialogContent : public views::View, public views::DialogDelegate {
 
 // static
 void ExtensionInstallUI::ShowExtensionInstallUIPromptImpl(
-    Profile* profile, Delegate* delegate, Extension* extension, SkBitmap* icon,
+    Profile* profile,
+    Delegate* delegate,
+    const Extension* extension,
+    SkBitmap* icon,
     PromptType type) {
   Browser* browser = BrowserList::GetLastActiveWithProfile(profile);
   if (!browser) {
@@ -155,7 +161,7 @@ void ExtensionInstallUI::ShowExtensionInstallUIPromptImpl(
     return;
   }
 
-  views::Window::CreateChromeWindow(window->GetNativeHandle(), gfx::Rect(),
+  browser::CreateViewsWindow(window->GetNativeHandle(), gfx::Rect(),
       new InstallDialogContent(delegate, extension, icon,
                                type))->Show();
 }

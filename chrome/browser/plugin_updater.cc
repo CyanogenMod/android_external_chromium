@@ -24,6 +24,10 @@
 #include "chrome/common/pref_names.h"
 #include "webkit/glue/plugins/webplugininfo.h"
 
+// How long to wait to save the plugin enabled information, which might need to
+// go to disk.
+#define kPluginUpdateDelayMs (60 * 1000)
+
 PluginUpdater::PluginUpdater()
     : enable_internal_pdf_(true),
       notify_pending_(false) {
@@ -132,6 +136,8 @@ void PluginUpdater::DisablePluginGroupsFromPrefs(Profile* profile) {
   bool found_internal_pdf = false;
   bool force_enable_internal_pdf = false;
   string16 pdf_group_name = ASCIIToUTF16(PepperPluginRegistry::kPDFPluginName);
+  bool force_internal_pdf_for_this_run = CommandLine::ForCurrentProcess()->
+      HasSwitch(switches::kForceInternalPDFPlugin);
   FilePath pdf_path;
   PathService::Get(chrome::FILE_PDF_PLUGIN, &pdf_path);
   FilePath::StringType pdf_path_str = pdf_path.value();
@@ -177,9 +183,13 @@ void PluginUpdater::DisablePluginGroupsFromPrefs(Profile* profile) {
 
         if (FilePath::CompareIgnoreCase(path, pdf_path_str) == 0) {
           found_internal_pdf = true;
-          if (!enabled && force_enable_internal_pdf) {
-            enabled = true;
-            plugin->SetBoolean("enabled", true);
+          if (!enabled) {
+            if (force_enable_internal_pdf) {
+              enabled = true;
+              plugin->SetBoolean("enabled", true);
+            } else if (force_internal_pdf_for_this_run) {
+              enabled = true;
+            }
           }
         }
         if (!enabled)
@@ -202,7 +212,8 @@ void PluginUpdater::DisablePluginGroupsFromPrefs(Profile* profile) {
       profile->GetPrefs()->GetList(prefs::kPluginsPluginsBlacklist);
   DisablePluginsFromPolicy(plugin_blacklist);
 
-  if (!enable_internal_pdf_ && !found_internal_pdf) {
+  if ((!enable_internal_pdf_ && !found_internal_pdf) &&
+      !force_internal_pdf_for_this_run) {
     // The internal PDF plugin is disabled by default, and the user hasn't
     // overridden the default.
     NPAPI::PluginList::Singleton()->DisablePlugin(pdf_path);
@@ -213,15 +224,20 @@ void PluginUpdater::DisablePluginGroupsFromPrefs(Profile* profile) {
     // See http://crbug.com/50105 for background.
     EnablePluginGroup(false, ASCIIToUTF16(PluginGroup::kAdobeReader8GroupName));
     EnablePluginGroup(false, ASCIIToUTF16(PluginGroup::kAdobeReader9GroupName));
+
+    // We want to save this, but doing so requires loading the list of plugins,
+    // so do it after a minute as to not impact startup performance.  Note that
+    // plugins are loaded after 30s by the metrics service.
+    UpdatePreferences(profile, kPluginUpdateDelayMs);
   }
 }
 
-void PluginUpdater::UpdatePreferences(Profile* profile) {
-  BrowserThread::PostTask(
+void PluginUpdater::UpdatePreferences(Profile* profile, int delay_ms) {
+  BrowserThread::PostDelayedTask(
     BrowserThread::FILE,
     FROM_HERE,
     NewRunnableFunction(
-        &PluginUpdater::GetPreferencesDataOnFileThread, profile));
+        &PluginUpdater::GetPreferencesDataOnFileThread, profile), delay_ms);
 }
 
 void PluginUpdater::GetPreferencesDataOnFileThread(void* profile) {

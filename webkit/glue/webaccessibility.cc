@@ -19,6 +19,7 @@
 #include "third_party/WebKit/WebKit/chromium/public/WebInputElement.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebNamedNodeMap.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebNode.h"
+#include "third_party/WebKit/WebKit/chromium/public/WebSize.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebString.h"
 
 using WebKit::WebAccessibilityCache;
@@ -296,15 +297,17 @@ WebAccessibility::WebAccessibility()
 }
 
 WebAccessibility::WebAccessibility(const WebKit::WebAccessibilityObject& src,
-                                   WebKit::WebAccessibilityCache* cache) {
-  Init(src, cache);
+                                   WebKit::WebAccessibilityCache* cache,
+                                   bool include_children) {
+  Init(src, cache, include_children);
 }
 
 WebAccessibility::~WebAccessibility() {
 }
 
 void WebAccessibility::Init(const WebKit::WebAccessibilityObject& src,
-                            WebKit::WebAccessibilityCache* cache) {
+                            WebKit::WebAccessibilityCache* cache,
+                            bool include_children) {
   name = src.title();
   value = src.stringValue();
   role = ConvertRole(src.roleValue());
@@ -366,22 +369,28 @@ void WebAccessibility::Init(const WebKit::WebAccessibilityObject& src,
     const WebKit::WebDocumentType& doctype = document.doctype();
     if (!doctype.isNull())
       attributes[ATTR_DOC_DOCTYPE] = doctype.name();
+
+    const gfx::Size& scroll_offset = document.frame()->scrollOffset();
+    attributes[ATTR_DOC_SCROLLX] = base::IntToString16(scroll_offset.width());
+    attributes[ATTR_DOC_SCROLLY] = base::IntToString16(scroll_offset.height());
   }
 
   // Add the source object to the cache and store its id.
   id = cache->addOrGetId(src);
 
-  // Recursively create children.
-  int child_count = src.childCount();
-  for (int i = 0; i < child_count; i++) {
-    WebAccessibilityObject child = src.childAt(i);
+  if (include_children) {
+    // Recursively create children.
+    int child_count = src.childCount();
+    for (int i = 0; i < child_count; i++) {
+      WebAccessibilityObject child = src.childAt(i);
 
-    // The child may be invalid due to issues in webkit accessibility code.
-    // Don't add children are invalid thus preventing a crash.
-    // https://bugs.webkit.org/show_bug.cgi?id=44149
-    // TODO(ctguil): We may want to remove this check as webkit stabilizes.
-    if (child.isValid())
-      children.push_back(WebAccessibility(child, cache));
+      // The child may be invalid due to issues in webkit accessibility code.
+      // Don't add children are invalid thus preventing a crash.
+      // https://bugs.webkit.org/show_bug.cgi?id=44149
+      // TODO(ctguil): We may want to remove this check as webkit stabilizes.
+      if (child.isValid())
+        children.push_back(WebAccessibility(child, cache, include_children));
+    }
   }
 }
 

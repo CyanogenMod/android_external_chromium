@@ -116,19 +116,21 @@ namespace chromeos {
 
 InputMethodMenu::InputMethodMenu(PrefService* pref_service,
                                  bool is_browser_mode,
-                                 bool is_screen_locker_mode)
+                                 bool is_screen_locker_mode,
+                                 bool is_out_of_box_experience_mode)
     : input_method_descriptors_(CrosLibrary::Get()->GetInputMethodLibrary()->
                                 GetActiveInputMethods()),
       model_(NULL),
-      // Be aware that the constructor of |language_menu_| calls GetItemCount()
-      // in this class. Therefore, GetItemCount() have to return 0 when
-      // |model_| is NULL.
-      ALLOW_THIS_IN_INITIALIZER_LIST(language_menu_(this)),
-      minimum_language_menu_width_(0),
+      // Be aware that the constructor of |input_method_menu_| calls
+      // GetItemCount() in this class. Therefore, GetItemCount() have to return
+      // 0 when |model_| is NULL.
+      ALLOW_THIS_IN_INITIALIZER_LIST(input_method_menu_(this)),
+      minimum_input_method_menu_width_(0),
       pref_service_(pref_service),
       logged_in_(false),
       is_browser_mode_(is_browser_mode),
-      is_screen_locker_mode_(is_screen_locker_mode) {
+      is_screen_locker_mode_(is_screen_locker_mode),
+      is_out_of_box_experience_mode_(is_out_of_box_experience_mode) {
   DCHECK(input_method_descriptors_.get() &&
          !input_method_descriptors_->empty());
 
@@ -214,7 +216,8 @@ int InputMethodMenu::GetGroupIdAt(int index) const {
   DCHECK_GE(index, 0);
 
   if (IndexIsInInputMethodList(index)) {
-    return kRadioGroupLanguage;
+    return is_out_of_box_experience_mode_ ?
+        kRadioGroupNone : kRadioGroupLanguage;
   }
 
   if (GetPropertyIndex(index, &index)) {
@@ -276,7 +279,8 @@ menus::MenuModel::ItemType InputMethodMenu::GetTypeAt(int index) const {
   }
 
   if (IndexIsInInputMethodList(index)) {
-    return menus::MenuModel::TYPE_RADIO;
+    return is_out_of_box_experience_mode_ ?
+        menus::MenuModel::TYPE_COMMAND : menus::MenuModel::TYPE_RADIO;
   }
 
   if (GetPropertyIndex(index, &index)) {
@@ -367,7 +371,7 @@ void InputMethodMenu::ActivatedAt(int index) {
 void InputMethodMenu::RunMenu(
     views::View* unused_source, const gfx::Point& pt) {
   PrepareForMenuOpen();
-  language_menu_.RunMenuAt(pt, views::Menu2::ALIGN_TOPRIGHT);
+  input_method_menu_.RunMenuAt(pt, views::Menu2::ALIGN_TOPRIGHT);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -407,9 +411,9 @@ void InputMethodMenu::PrepareForMenuOpen() {
   input_method_descriptors_.reset(CrosLibrary::Get()->GetInputMethodLibrary()->
                                   GetActiveInputMethods());
   RebuildModel();
-  language_menu_.Rebuild();
-  if (minimum_language_menu_width_ > 0) {
-    language_menu_.SetMinimumWidth(minimum_language_menu_width_);
+  input_method_menu_.Rebuild();
+  if (minimum_input_method_menu_width_ > 0) {
+    input_method_menu_.SetMinimumWidth(minimum_input_method_menu_width_);
   }
 }
 
@@ -604,7 +608,7 @@ void InputMethodMenu::Observe(NotificationType type,
 
 void InputMethodMenu::SetMinimumWidth(int width) {
   // On the OOBE network selection screen, fixed width menu would be preferable.
-  minimum_language_menu_width_ = width;
+  minimum_input_method_menu_width_ = width;
 }
 
 }  // namespace chromeos

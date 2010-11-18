@@ -61,6 +61,8 @@ class NetworkMenu : public views::ViewMenuDelegate,
     std::string message;
     // IP address (if network is active, empty otherwise)
     std::string ip_address;
+    // Remembered passphrase.
+    std::string passphrase;
     // true if the network requires a passphrase.
     bool need_passphrase;
     // true if the network is currently remembered.
@@ -113,11 +115,12 @@ class NetworkMenu : public views::ViewMenuDelegate,
   // |black| is used to specify whether to return a black icon for display
   // on a light background or a white icon for display on a dark background.
   static SkBitmap IconForNetworkStrength(int strength, bool black);
-
   // Returns the Icon for a network strength for CellularNetwork |cellular|.
   // This returns different colored bars depending on cellular data left.
-  static SkBitmap IconForNetworkStrength(CellularNetwork cellular);
-
+  static SkBitmap IconForNetworkStrength(const CellularNetwork* cellular);
+  // Returns the Badge for a given network technology.
+  // This returns different colored symbols depending on cellular data left.
+  static SkBitmap BadgeForNetworkTechnology(const CellularNetwork* cellular);
   // This method will convert the |icon| bitmap to the correct size for display.
   // If the |badge| icon is not empty, it will draw that on top of the icon.
   static SkBitmap IconForDisplay(SkBitmap icon, SkBitmap badge);
@@ -125,11 +128,11 @@ class NetworkMenu : public views::ViewMenuDelegate,
  protected:
   virtual bool IsBrowserMode() const = 0;
   virtual gfx::NativeWindow GetNativeWindow() const = 0;
-  virtual void OpenButtonOptions() const = 0;
+  virtual void OpenButtonOptions() = 0;
   virtual bool ShouldOpenButtonOptions() const = 0;
 
   // Notify subclasses that connection to |network| was initiated.
-  virtual void OnConnectNetwork(const Network& network,
+  virtual void OnConnectNetwork(const Network* network,
                                 SkBitmap selected_icon_) {}
   // Update the menu (e.g. when the network list or status has changed).
   void UpdateMenu();
@@ -176,16 +179,17 @@ class NetworkMenu : public views::ViewMenuDelegate,
   void InitMenuItems();
 
   // Shows network details in DOM UI options window.
-  void ShowTabbedNetworkSettings(const Network& network) const;
+  void ShowTabbedNetworkSettings(const Network* network) const;
 
   // Show a NetworkConfigView modal dialog instance.
   // TODO(stevenjb): deprecate this once all of the UI is embedded in the menu.
   void ShowNetworkConfigView(NetworkConfigView* view, bool focus_login) const;
 
   // Wrappers for the ShowNetworkConfigView / ShowTabbedNetworkSettings.
-  void ShowWifi(const WifiNetwork& wifi, bool focus_login) const;
-  void ShowCellular(const CellularNetwork& cellular, bool focus_login) const;
-  void ShowEthernet(const EthernetNetwork& ethernet) const;
+  void ShowWifi(const WifiNetwork* wifi, bool focus_login) const;
+  void ShowCellular(const CellularNetwork* cellular, bool focus_login) const;
+  void ActivateCellular(const CellularNetwork* cellular) const;
+  void ShowEthernet(const EthernetNetwork* ethernet) const;
   void ShowOther() const;
 
   // Set to true if we are currently refreshing the menu.
@@ -208,6 +212,9 @@ class NetworkMenu : public views::ViewMenuDelegate,
 
   // Holds minimum width or -1 if it wasn't set up.
   int min_width_;
+
+  // If true, call into the settings UI for network configuration dialogs.
+  bool use_settings_ui_;
 
   DISALLOW_COPY_AND_ASSIGN(NetworkMenu);
 };

@@ -273,6 +273,17 @@ SSL_IMPORT SECStatus SSL_SecurityStatus(PRFileDesc *fd, int *on, char **cipher,
 SSL_IMPORT CERTCertificate *SSL_PeerCertificate(PRFileDesc *fd);
 
 /*
+** Return references to the certificates presented by the SSL peer. On entry,
+** |*certs_size| must contain the size of the |certs| array. On successful
+** return, |*certs_size| contains the number of certificates available and
+** |certs| will contain references to as many certificates as would fit.
+** Therefore if, on exit, |*certs_size| contains a value less than, or equal to,
+** the entry value then all certificates were returned.
+*/
+SSL_IMPORT SECStatus SSL_PeerCertificateChain(
+	PRFileDesc *fd, CERTCertificate **certs, unsigned int *certs_size);
+
+/*
 ** Authenticate certificate hook. Called when a certificate comes in
 ** (because of SSL_REQUIRE_CERTIFICATE in SSL_Enable) to authenticate the
 ** certificate.
@@ -312,6 +323,35 @@ typedef SECStatus (PR_CALLBACK *SSLGetClientAuthData)(void *arg,
 SSL_IMPORT SECStatus SSL_GetClientAuthDataHook(PRFileDesc *fd, 
 			                       SSLGetClientAuthData f, void *a);
 
+/*
+ * Prototype for SSL callback to get client auth data from the application,
+ * when using the underlying platform's cryptographic primitives. Returning
+ * SECFailure will cause the socket to send no client certificate.
+ *	arg - application passed argument
+ *	caNames - pointer to distinguished names of CAs that the server likes
+ *	pRetCerts - pointer to pointer to list of certs, with the first being
+ *		    the client cert, and any following being used for chain
+ *		    building
+ *	pRetKey - pointer to native key pointer, for return of key
+ *          - Windows: pointer to HCRYPTPROV
+ *          - Mac OS X: pointer to SecKeyRef
+ */
+typedef SECStatus (PR_CALLBACK *SSLGetPlatformClientAuthData)(void *arg,
+                                PRFileDesc *fd,
+                                CERTDistNames *caNames,
+                                CERTCertList **pRetCerts,/*return */
+                                void **pRetKey);/* return */
+
+/*
+ * Set the client side callback for SSL to retrieve user's private key
+ * and certificate.
+ *	fd - the file descriptor for the connection in question
+ *	f - the application's callback that delivers the key and cert
+ *	a - application specific data
+ */
+SSL_IMPORT SECStatus
+SSL_GetPlatformClientAuthDataHook(PRFileDesc *fd,
+                                  SSLGetPlatformClientAuthData f, void *a);
 
 /*
 ** SNI extension processing callback function.

@@ -13,6 +13,7 @@
 #include "base/scoped_ptr.h"
 #include "base/ref_counted.h"
 #include "gfx/color_utils.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/common/extensions/extension.h"
 
 namespace base {
@@ -35,14 +36,17 @@ class RefCountedMemory;
 // UI thread that consumes a BrowserThemePack. There is no locking; thread
 // safety between the writing thread and the UI thread is ensured by having the
 // data be immutable.
-class BrowserThemePack : public base::RefCountedThreadSafe<BrowserThemePack> {
+//
+// BrowserThemePacks are always deleted on the file thread because in the
+// common case, they are backed by mmapped data and the unmmapping operation
+// will trip our IO on the UI thread detector.
+class BrowserThemePack : public base::RefCountedThreadSafe<
+    BrowserThemePack, BrowserThread::DeleteOnFileThread> {
  public:
-  ~BrowserThemePack();
-
   // Builds the theme pack from all data from |extension|. This is often done
   // on a separate thread as it takes so long. This can fail and return NULL in
   // the case where the theme has invalid data.
-  static BrowserThemePack* BuildFromExtension(Extension* extension);
+  static BrowserThemePack* BuildFromExtension(const Extension* extension);
 
   // Builds the theme pack from a previously performed WriteToDisk(). This
   // operation should be relatively fast, as it should be an mmap() and some
@@ -79,6 +83,8 @@ class BrowserThemePack : public base::RefCountedThreadSafe<BrowserThemePack> {
   bool HasCustomImage(int id) const;
 
  private:
+  friend struct BrowserThread::DeleteOnThread<BrowserThread::FILE>;
+  friend class DeleteTask<BrowserThemePack>;
   friend class BrowserThemePackTest;
 
   // Cached images. We cache all retrieved and generated bitmaps and keep
@@ -98,8 +104,10 @@ class BrowserThemePack : public base::RefCountedThreadSafe<BrowserThemePack> {
   // Default. Everything is empty.
   BrowserThemePack();
 
+  virtual ~BrowserThemePack();
+
   // Builds a header ready to write to disk.
-  void BuildHeader(Extension* extension);
+  void BuildHeader(const Extension* extension);
 
   // Transforms the JSON tint values into their final versions in the |tints_|
   // array.
@@ -136,7 +144,7 @@ class BrowserThemePack : public base::RefCountedThreadSafe<BrowserThemePack> {
 
   // Generates button images tinted with |button_tint| and places them in
   // processed_bitmaps.
-  void GenerateTintedButtons(color_utils::HSL button_tint,
+  void GenerateTintedButtons(const color_utils::HSL& button_tint,
                              ImageCache* processed_bitmaps) const;
 
   // Generates the semi-transparent tab background images, putting the results

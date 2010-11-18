@@ -7,10 +7,12 @@
 #include <string>
 
 #include "app/l10n_util.h"
+#include "app/win/scoped_prop.h"
+#include "base/debug/trace_event.h"
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
-#include "base/trace_event.h"
 #include "base/win_util.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/app/chrome_dll_resource.h"
 #include "chrome/browser/automation/automation_provider.h"
 #include "chrome/browser/automation/automation_extension_function.h"
@@ -57,10 +59,10 @@ class ExternalTabPageInfoBubbleView : public PageInfoBubbleView {
                                 bool show_history)
       : PageInfoBubbleView(parent_window, profile, url, ssl, show_history),
         container_(container) {
-    DLOG(INFO) << __FUNCTION__;
+    DVLOG(1) << __FUNCTION__;
   }
   virtual ~ExternalTabPageInfoBubbleView() {
-    DLOG(INFO) << __FUNCTION__;
+    DVLOG(1) << __FUNCTION__;
   }
   // LinkController methods:
   virtual void LinkActivated(views::Link* source, int event_flags) {
@@ -129,9 +131,8 @@ bool ExternalTabContainer::Init(Profile* profile,
 
   // TODO(jcampan): limit focus traversal to contents.
 
-  // We don't ever remove the prop because the lifetime of this object
-  // is the same as the lifetime of the window
-  SetProp(GetNativeView(), kWindowObjectKey, this);
+  prop_.reset(
+      new app::win::ScopedProp(GetNativeView(), kWindowObjectKey, this));
 
   if (existing_contents) {
     tab_contents_ = existing_contents;
@@ -618,7 +619,7 @@ bool ExternalTabContainer::HandleContextMenu(const ContextMenuParams& params) {
   POINT screen_pt = { params.x, params.y };
   MapWindowPoints(GetNativeView(), HWND_DESKTOP, &screen_pt, 1);
 
-  IPC::ContextMenuParams ipc_params;
+  IPC::MiniContextMenuParams ipc_params;
   ipc_params.screen_x = screen_pt.x;
   ipc_params.screen_y = screen_pt.y;
   ipc_params.link_url = params.link_url;
@@ -793,6 +794,7 @@ LRESULT ExternalTabContainer::OnCreate(LPCREATESTRUCT create_struct) {
 }
 
 void ExternalTabContainer::OnDestroy() {
+  prop_.reset();
   Uninitialize();
   WidgetWin::OnDestroy();
   if (browser_.get()) {

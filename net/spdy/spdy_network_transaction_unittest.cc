@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "net/base/auth.h"
 #include "net/base/net_log_unittest.h"
 #include "net/http/http_network_session_peer.h"
 #include "net/http/http_transaction_unittest.h"
@@ -345,7 +346,7 @@ class SpdyNetworkTransactionTest
     const int kSize = 3000;
 
     int bytes_read = 0;
-    scoped_refptr<net::IOBufferWithSize> buf = new net::IOBufferWithSize(kSize);
+    scoped_refptr<net::IOBufferWithSize> buf(new net::IOBufferWithSize(kSize));
     TestCompletionCallback callback;
     while (true) {
       int rv = trans->Read(buf, kSize, &callback);
@@ -461,8 +462,8 @@ INSTANTIATE_TEST_CASE_P(Spdy,
 // Verify HttpNetworkTransaction constructor.
 TEST_P(SpdyNetworkTransactionTest, Constructor) {
   SpdySessionDependencies session_deps;
-  scoped_refptr<HttpNetworkSession> session =
-      SpdySessionDependencies::SpdyCreateSession(&session_deps);
+  scoped_refptr<HttpNetworkSession> session(
+      SpdySessionDependencies::SpdyCreateSession(&session_deps));
   scoped_ptr<HttpTransaction> trans(new HttpNetworkTransaction(session));
 }
 
@@ -1708,7 +1709,7 @@ TEST_P(SpdyNetworkTransactionTest, WindowUpdateSent) {
 
   // Issue a read which will cause a WINDOW_UPDATE to be sent and window
   // size increased to default.
-  scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(kUploadDataSize);
+  scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(kUploadDataSize));
   rv = trans->Read(buf, kUploadDataSize, NULL);
   EXPECT_EQ(kUploadDataSize, rv);
   std::string content(buf->data(), buf->data()+kUploadDataSize);
@@ -2074,7 +2075,7 @@ TEST_P(SpdyNetworkTransactionTest, StartTransactionOnReadCallback) {
 
   StartTransactionCallback callback2(helper.session(), helper);
   const int kSize = 3000;
-  scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(kSize);
+  scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(kSize));
   rv = trans->Read(buf, kSize, &callback2);
   // This forces an err_IO_pending, which sets the callback.
   data->CompleteRead();
@@ -2134,7 +2135,7 @@ TEST_P(SpdyNetworkTransactionTest, DeleteSessionOnReadCallback) {
   // memory holding the stream object. Note that the callback deletes trans.
   DeleteSessionCallback callback2(helper);
   const int kSize = 3000;
-  scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(kSize);
+  scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(kSize));
   rv = trans->Read(buf, kSize, &callback2);
   ASSERT_EQ(ERR_IO_PENDING, rv);
   data->CompleteRead();
@@ -3417,7 +3418,7 @@ TEST_P(SpdyNetworkTransactionTest, BufferFull) {
   do {
     // Read small chunks at a time.
     const int kSmallReadSize = 3;
-    scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(kSmallReadSize);
+    scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(kSmallReadSize));
     rv = trans->Read(buf, kSmallReadSize, &read_callback);
     if (rv == net::ERR_IO_PENDING) {
       data->CompleteRead();
@@ -3583,7 +3584,7 @@ TEST_P(SpdyNetworkTransactionTest, Buffering) {
   do {
     // Read small chunks at a time.
     const int kSmallReadSize = 14;
-    scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(kSmallReadSize);
+    scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(kSmallReadSize));
     rv = trans->Read(buf, kSmallReadSize, &read_callback);
     if (rv == net::ERR_IO_PENDING) {
       data->CompleteRead();
@@ -3678,7 +3679,7 @@ TEST_P(SpdyNetworkTransactionTest, BufferedAll) {
   do {
     // Read small chunks at a time.
     const int kSmallReadSize = 14;
-    scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(kSmallReadSize);
+    scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(kSmallReadSize));
     rv = trans->Read(buf, kSmallReadSize, &read_callback);
     if (rv > 0) {
       EXPECT_EQ(kSmallReadSize, rv);
@@ -3767,7 +3768,7 @@ TEST_P(SpdyNetworkTransactionTest, BufferedClosed) {
   do {
     // Read small chunks at a time.
     const int kSmallReadSize = 14;
-    scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(kSmallReadSize);
+    scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(kSmallReadSize));
     rv = trans->Read(buf, kSmallReadSize, &read_callback);
     if (rv == net::ERR_IO_PENDING) {
       data->CompleteRead();
@@ -3843,7 +3844,7 @@ TEST_P(SpdyNetworkTransactionTest, BufferedCancelled) {
 
   do {
     const int kReadSize = 256;
-    scoped_refptr<net::IOBuffer> buf = new net::IOBuffer(kReadSize);
+    scoped_refptr<net::IOBuffer> buf(new net::IOBuffer(kReadSize));
     rv = trans->Read(buf, kReadSize, &read_callback);
     if (rv == net::ERR_IO_PENDING) {
       // Complete the read now, which causes buffering to start.
@@ -4150,8 +4151,8 @@ TEST_P(SpdyNetworkTransactionTest, ProxyConnect) {
                                      BoundNetLog(), GetParam());
   helper.session_deps().reset(new SpdySessionDependencies(
       ProxyService::CreateFixedFromPacResult("PROXY myproxy:70")));
-  helper.SetSession(SpdySessionDependencies::SpdyCreateSession(
-      helper.session_deps().get()));
+  helper.SetSession(make_scoped_refptr(
+      SpdySessionDependencies::SpdyCreateSession(helper.session_deps().get())));
   helper.RunPreTestSetup();
   HttpNetworkTransaction* trans = helper.trans();
 
@@ -4253,8 +4254,8 @@ TEST_P(SpdyNetworkTransactionTest, DirectConnectProxyReconnect) {
   // that the session pool key used does is just "DIRECT".
   helper.session_deps().reset(new SpdySessionDependencies(
       ProxyService::CreateFixedFromPacResult("DIRECT; PROXY myproxy:70")));
-  helper.SetSession(SpdySessionDependencies::SpdyCreateSession(
-      helper.session_deps().get()));
+  helper.SetSession(make_scoped_refptr(
+      SpdySessionDependencies::SpdyCreateSession(helper.session_deps().get())));
 
   SpdySessionPool* spdy_session_pool = helper.session()->spdy_session_pool();
   helper.RunPreTestSetup();
@@ -4381,8 +4382,8 @@ TEST_P(SpdyNetworkTransactionTest, DirectConnectProxyReconnect) {
   request_proxy.load_flags = 0;
   scoped_ptr<SpdySessionDependencies> ssd_proxy(new SpdySessionDependencies());
   // Ensure that this transaction uses the same SpdySessionPool.
-  scoped_refptr<HttpNetworkSession> session_proxy =
-      SpdySessionDependencies::SpdyCreateSession(ssd_proxy.get());
+  scoped_refptr<HttpNetworkSession> session_proxy(
+      SpdySessionDependencies::SpdyCreateSession(ssd_proxy.get()));
   NormalSpdyTransactionHelper helper_proxy(request_proxy,
                                            BoundNetLog(), GetParam());
   HttpNetworkSessionPeer session_peer(session_proxy);
@@ -4511,7 +4512,8 @@ TEST_P(SpdyNetworkTransactionTest, SpdyOnOffToggle) {
   };
 
   scoped_refptr<DelayedSocketData> data(
-      new DelayedSocketData(1, spdy_reads, arraysize(spdy_reads),
+      new DelayedSocketData(1,
+                            spdy_reads, arraysize(spdy_reads),
                             spdy_writes, arraysize(spdy_writes)));
   NormalSpdyTransactionHelper helper(CreateGetRequest(),
                                      BoundNetLog(), GetParam());
@@ -4541,4 +4543,94 @@ TEST_P(SpdyNetworkTransactionTest, SpdyOnOffToggle) {
 
   net::HttpStreamFactory::set_spdy_enabled(true);
 }
+
+// Tests that Basic authentication works over SPDY
+TEST_P(SpdyNetworkTransactionTest, SpdyBasicAuth) {
+  net::HttpStreamFactory::set_spdy_enabled(true);
+
+  // The first request will be a bare GET, the second request will be a
+  // GET with an Authorization header.
+  scoped_ptr<spdy::SpdyFrame> req_get(
+      ConstructSpdyGet(NULL, 0, false, 1, LOWEST));
+  const char* const kExtraAuthorizationHeaders[] = {
+    "authorization",
+    "Basic Zm9vOmJhcg==",
+  };
+  scoped_ptr<spdy::SpdyFrame> req_get_authorization(
+      ConstructSpdyGet(
+          kExtraAuthorizationHeaders, arraysize(kExtraAuthorizationHeaders)/2,
+          false, 3, LOWEST));
+  MockWrite spdy_writes[] = {
+    CreateMockWrite(*req_get, 1),
+    CreateMockWrite(*req_get_authorization, 4),
+  };
+
+  // The first response is a 401 authentication challenge, and the second
+  // response will be a 200 response since the second request includes a valid
+  // Authorization header.
+  const char* const kExtraAuthenticationHeaders[] = {
+    "WWW-Authenticate",
+    "Basic realm=\"MyRealm\""
+  };
+  scoped_ptr<spdy::SpdyFrame> resp_authentication(
+      ConstructSpdySynReplyError(
+          "401 Authentication Required",
+          kExtraAuthenticationHeaders, arraysize(kExtraAuthenticationHeaders)/2,
+          1));
+  scoped_ptr<spdy::SpdyFrame> body_authentication(
+      ConstructSpdyBodyFrame(1, true));
+  scoped_ptr<spdy::SpdyFrame> resp_data(ConstructSpdyGetSynReply(NULL, 0, 3));
+  scoped_ptr<spdy::SpdyFrame> body_data(ConstructSpdyBodyFrame(3, true));
+  MockRead spdy_reads[] = {
+    CreateMockRead(*resp_authentication, 2),
+    CreateMockRead(*body_authentication, 3),
+    CreateMockRead(*resp_data, 5),
+    CreateMockRead(*body_data, 6),
+    MockRead(true, 0, 7),
+  };
+
+  scoped_refptr<OrderedSocketData> data(
+      new OrderedSocketData(spdy_reads, arraysize(spdy_reads),
+                            spdy_writes, arraysize(spdy_writes)));
+  HttpRequestInfo request(CreateGetRequest());
+  BoundNetLog net_log;
+  NormalSpdyTransactionHelper helper(request, net_log, GetParam());
+
+  helper.RunPreTestSetup();
+  helper.AddData(data.get());
+  HttpNetworkTransaction* trans = helper.trans();
+  TestCompletionCallback callback_start;
+  const int rv_start = trans->Start(&request, &callback_start, net_log);
+  EXPECT_EQ(ERR_IO_PENDING, rv_start);
+  const int rv_start_complete = callback_start.WaitForResult();
+  EXPECT_EQ(OK, rv_start_complete);
+
+  // Make sure the response has an auth challenge.
+  const HttpResponseInfo* const response_start = trans->GetResponseInfo();
+  ASSERT_TRUE(response_start != NULL);
+  ASSERT_TRUE(response_start->headers != NULL);
+  EXPECT_EQ(401, response_start->headers->response_code());
+  EXPECT_TRUE(response_start->was_fetched_via_spdy);
+  ASSERT_TRUE(response_start->auth_challenge.get() != NULL);
+  EXPECT_FALSE(response_start->auth_challenge->is_proxy);
+  EXPECT_EQ(L"basic", response_start->auth_challenge->scheme);
+  EXPECT_EQ(L"MyRealm", response_start->auth_challenge->realm);
+
+  // Restart with a username/password.
+  const string16 kFoo(ASCIIToUTF16("foo"));
+  const string16 kBar(ASCIIToUTF16("bar"));
+  TestCompletionCallback callback_restart;
+  const int rv_restart = trans->RestartWithAuth(kFoo, kBar, &callback_restart);
+  EXPECT_EQ(ERR_IO_PENDING, rv_restart);
+  const int rv_restart_complete = callback_restart.WaitForResult();
+  EXPECT_EQ(OK, rv_restart_complete);
+  // TODO(cbentzel): This is actually the same response object as before, but
+  // data has changed.
+  const HttpResponseInfo* const response_restart = trans->GetResponseInfo();
+  ASSERT_TRUE(response_restart != NULL);
+  ASSERT_TRUE(response_restart->headers != NULL);
+  EXPECT_EQ(200, response_restart->headers->response_code());
+  EXPECT_TRUE(response_restart->auth_challenge.get() == NULL);
+}
+
 }  // namespace net

@@ -39,7 +39,7 @@ class DOMStorageDispatcherHost;
 class FileSystemDispatcherHost;
 class FileUtilitiesDispatcherHost;
 struct FontDescriptor;
-class GeolocationDispatcherHost;
+class GeolocationDispatcherHostOld;
 class HostZoomMap;
 class IndexedDBDispatcherHost;
 class NotificationsPrefsCache;
@@ -107,7 +107,7 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
   virtual void OnChannelError();
   virtual void OnChannelClosing();
   virtual bool OnMessageReceived(const IPC::Message& message);
-  virtual void OnDestruct();
+  virtual void OnDestruct() const;
 
   // ResourceDispatcherHost::Receiver methods:
   virtual bool Send(IPC::Message* message);
@@ -188,7 +188,7 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
                                    const std::string& mime_type,
                                    IPC::Message* reply_msg);
   void OnGotPluginInfo(bool found,
-                       WebPluginInfo info,
+                       const WebPluginInfo& info,
                        const std::string& actual_mime_type,
                        const GURL& policy_url,
                        IPC::Message* reply_msg);
@@ -252,6 +252,8 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
   void OnGetWindowRect(gfx::NativeViewId window, IPC::Message* reply);
   void OnGetRootWindowRect(gfx::NativeViewId window, IPC::Message* reply);
 #endif
+
+  void OnRevealFolderInOS(const FilePath& path);
   void OnGetMimeTypeFromExtension(const FilePath::StringType& ext,
                                   std::string* mime_type);
   void OnGetMimeTypeFromFile(const FilePath& file_path,
@@ -282,8 +284,9 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
 #endif
 
   void OnResourceTypeStats(const WebKit::WebCache::ResourceTypeStats& stats);
-  static void OnResourceTypeStatsOnUIThread(WebKit::WebCache::ResourceTypeStats,
-                                            base::ProcessId renderer_id);
+  static void OnResourceTypeStatsOnUIThread(
+      const WebKit::WebCache::ResourceTypeStats&,
+      base::ProcessId renderer_id);
 
   void OnV8HeapStats(int v8_memory_allocated, int v8_memory_used);
   static void OnV8HeapStatsOnUIThread(int v8_memory_allocated,
@@ -479,7 +482,7 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
       speech_input_dispatcher_host_;
 
   // Used to handle geolocation-related messages.
-  scoped_refptr<GeolocationDispatcherHost> geolocation_dispatcher_host_;
+  scoped_refptr<GeolocationDispatcherHostOld> geolocation_dispatcher_host_;
 
   // Used to handle search provider related messages.
   scoped_ptr<SearchProviderInstallStateDispatcherHost>

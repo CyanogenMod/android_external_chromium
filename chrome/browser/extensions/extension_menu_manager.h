@@ -33,9 +33,20 @@ class ExtensionMenuItem {
   // A list of ExtensionMenuItem's.
   typedef std::vector<ExtensionMenuItem*> List;
 
-  // An Id is a pair of |extension id|, |int| where the |int| is unique per
-  // extension.
-  typedef std::pair<std::string, int> Id;
+  // An Id uniquely identifies a context menu item registered by an extension.
+  struct Id {
+    Id();
+    Id(Profile* profile, std::string extension_id, int uid);
+    ~Id();
+
+    bool operator==(const Id& other) const;
+    bool operator!=(const Id& other) const;
+    bool operator<(const Id& other) const;
+
+    Profile* profile;
+    std::string extension_id;
+    int uid;
+  };
 
   // For context menus, these are the contexts where an item can appear.
   enum Context {
@@ -93,7 +104,7 @@ class ExtensionMenuItem {
   virtual ~ExtensionMenuItem();
 
   // Simple accessor methods.
-  const std::string& extension_id() const { return id_.first; }
+  const std::string& extension_id() const { return id_.extension_id; }
   const std::string& title() const { return title_; }
   const List& children() { return children_; }
   const Id& id() const { return id_; }
@@ -198,7 +209,7 @@ class ExtensionMenuManager : public NotificationObserver {
   // Adds a top-level menu item for an extension, requiring the |extension|
   // pointer so it can load the icon for the extension. Takes ownership of
   // |item|. Returns a boolean indicating success or failure.
-  bool AddContextItem(Extension* extension, ExtensionMenuItem* item);
+  bool AddContextItem(const Extension* extension, ExtensionMenuItem* item);
 
   // Add an item as a child of another item which has been previously added, and
   // takes ownership of |item|. Returns a boolean indicating success or failure.
@@ -244,6 +255,7 @@ class ExtensionMenuManager : public NotificationObserver {
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ExtensionMenuManagerTest, DeleteParent);
+  FRIEND_TEST_ALL_PREFIXES(ExtensionMenuManagerTest, RemoveOneByOne);
 
   // This is a helper function which takes care of de-selecting any other radio
   // items in the same group (i.e. that are adjacent in the list).

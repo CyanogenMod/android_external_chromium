@@ -25,8 +25,7 @@ using testing::Invoke;
 
 void OnUnpackSuccess(const FilePath& temp_dir,
                      const FilePath& extension_root,
-                     Extension* extension) {
-  delete extension;
+                     const Extension* extension) {
   // Don't delete temp_dir here, we need to do some post op checking.
 }
 
@@ -38,7 +37,7 @@ class MockSandboxedExtensionUnpackerClient
   MOCK_METHOD3(OnUnpackSuccess,
                void(const FilePath& temp_dir,
                     const FilePath& extension_root,
-                    Extension* extension));
+                    const Extension* extension));
 
   MOCK_METHOD1(OnUnpackFailure,
                void(const std::string& error));
@@ -52,12 +51,17 @@ class MockSandboxedExtensionUnpackerClient
 class SandboxedExtensionUnpackerTest : public testing::Test {
  public:
   virtual void SetUp() {
+    file_thread_.reset(new BrowserThread(BrowserThread::FILE, &loop_));
     // It will delete itself.
     client_ = new MockSandboxedExtensionUnpackerClient;
     client_->DelegateToFake();
   }
 
   virtual void TearDown() {
+    // Need to destruct SandboxedExtensionUnpacker before the message loop since
+    // it posts a task to it.
+    sandboxed_unpacker_ = NULL;
+    loop_.RunAllPending();
     // Clean up finally.
     ASSERT_TRUE(file_util::Delete(install_dir_, true)) <<
         install_dir_.value();
@@ -94,6 +98,9 @@ class SandboxedExtensionUnpackerTest : public testing::Test {
 
     sandboxed_unpacker_ =
       new SandboxedExtensionUnpacker(crx_path, temp_dir_, NULL, client_);
+    // Hack since SandboxedExtensionUnpacker gets its background thread id from
+    // the Start call, but we don't call it here.
+    sandboxed_unpacker_->thread_identifier_ = BrowserThread::FILE;
     PrepareUnpackerEnv();
   }
 
@@ -145,6 +152,8 @@ class SandboxedExtensionUnpackerTest : public testing::Test {
   MockSandboxedExtensionUnpackerClient* client_;
   scoped_ptr<ExtensionUnpacker> unpacker_;
   scoped_refptr<SandboxedExtensionUnpacker> sandboxed_unpacker_;
+  MessageLoop loop_;
+  scoped_ptr<BrowserThread> file_thread_;
 };
 
 TEST_F(SandboxedExtensionUnpackerTest, NoCatalogsSuccess) {

@@ -5,6 +5,7 @@
 #include "chrome/browser/accessibility/browser_accessibility.h"
 
 #include "base/logging.h"
+#include "base/string_number_conversions.h"
 #include "chrome/browser/accessibility/browser_accessibility_manager.h"
 
 BrowserAccessibility::BrowserAccessibility()
@@ -18,6 +19,14 @@ BrowserAccessibility::BrowserAccessibility()
 }
 
 BrowserAccessibility::~BrowserAccessibility() {
+}
+
+void BrowserAccessibility::ReplaceChild(
+    BrowserAccessibility* old_acc, BrowserAccessibility* new_acc) {
+  DCHECK_EQ(children_[old_acc->index_in_parent_], old_acc);
+
+  old_acc = children_[old_acc->index_in_parent_];
+  children_[old_acc->index_in_parent_] = new_acc;
 }
 
 void BrowserAccessibility::Initialize(
@@ -103,10 +112,64 @@ BrowserAccessibility* BrowserAccessibility::GetNextSibling() {
   return NULL;
 }
 
-void BrowserAccessibility::ReplaceChild(
-    const BrowserAccessibility* old_acc, BrowserAccessibility* new_acc) {
-  DCHECK_EQ(children_[old_acc->index_in_parent_], old_acc);
+gfx::Rect BrowserAccessibility::GetBoundsRect() {
+  gfx::Rect bounds = location_;
 
-  old_acc = children_[old_acc->index_in_parent_];
-  children_[old_acc->index_in_parent_] = new_acc;
+  // Adjust the bounds by the top left corner of the containing view's bounds
+  // in screen coordinates.
+  gfx::Point top_left = manager_->GetViewBounds().origin();
+  bounds.Offset(top_left);
+
+  // Adjust top left position by the root document's scroll offset.
+  BrowserAccessibility* root = manager_->GetRoot();
+  int scroll_x = 0;
+  int scroll_y = 0;
+  root->GetAttributeAsInt(
+    WebAccessibility::ATTR_DOC_SCROLLX, &scroll_x);
+  root->GetAttributeAsInt(
+    WebAccessibility::ATTR_DOC_SCROLLY, &scroll_y);
+  bounds.Offset(-scroll_x, -scroll_y);
+
+  return bounds;
+}
+
+BrowserAccessibility* BrowserAccessibility::BrowserAccessibilityForPoint(
+    const gfx::Point& point) {
+  // Walk the children recursively looking for the BrowserAccessibility that
+  // most tightly encloses the specified point.
+  for (int i = children_.size() - 1; i >= 0; --i) {
+    BrowserAccessibility* child = children_[i];
+    if (child->GetBoundsRect().Contains(point))
+      return child->BrowserAccessibilityForPoint(point);
+  }
+  return this;
+}
+
+bool BrowserAccessibility::HasAttribute(
+    WebAccessibility::Attribute attribute) {
+  return (attributes_.find(attribute) != attributes_.end());
+}
+
+bool BrowserAccessibility::GetAttribute(
+    WebAccessibility::Attribute attribute, string16* value) {
+  std::map<int32, string16>::iterator iter = attributes_.find(attribute);
+  if (iter != attributes_.end()) {
+    *value = iter->second;
+    return true;
+  }
+
+  return false;
+}
+
+bool BrowserAccessibility::GetAttributeAsInt(
+    WebAccessibility::Attribute attribute, int* value_int) {
+  string16 value_str;
+
+  if (!GetAttribute(attribute, &value_str))
+    return false;
+
+  if (!base::StringToInt(value_str, value_int))
+    return false;
+
+  return true;
 }

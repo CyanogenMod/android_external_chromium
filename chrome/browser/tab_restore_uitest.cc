@@ -5,7 +5,7 @@
 #include "base/basictypes.h"
 #include "base/command_line.h"
 #include "base/file_path.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -208,7 +208,7 @@ TEST_F(TabRestoreUITest, MiddleTab) {
 
 // Close a tab, switch windows, then restore the tab. The tab should be in its
 // original window and position, and active.
-// This test is flaky. See http://crbug.com/14132 and 11213.
+// This test is flaky. See http://crbug.com/54894
 TEST_F(TabRestoreUITest, FLAKY_RestoreToDifferentWindow) {
   scoped_refptr<BrowserProxy> browser_proxy(automation()->GetBrowserWindow(0));
   ASSERT_TRUE(browser_proxy.get());

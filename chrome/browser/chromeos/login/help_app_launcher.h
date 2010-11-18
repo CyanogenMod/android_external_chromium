@@ -23,17 +23,19 @@ class HelpAppLauncher : public LoginHtmlDialog::Delegate {
     HELP_CONNECTIVITY,
     // Showed at EULA screen as "Learn more" about stats/crash reports.
     HELP_STATS_USAGE,
-    // Showed whenever there're troubles signing in (online case).
-    HELP_CANT_ACCESS_ACCOUNT,
     // Showed whenever there're troubles signing in (offline case).
     HELP_CANT_ACCESS_ACCOUNT_OFFLINE,
+    // Showed whenever there're troubles signing in (online case).
+    HELP_CANT_ACCESS_ACCOUNT,
     // Showed in case when account was disabled.
     HELP_ACCOUNT_DISABLED,
+    // Showed in case when hosted account is used.
+    HELP_HOSTED_ACCOUNT,
     HELP_TOPIC_COUNT
   };
 
   // Parent window is used to show dialog.
-  HelpAppLauncher(gfx::NativeWindow parent_window);
+  explicit HelpAppLauncher(gfx::NativeWindow parent_window);
 
   // Shows specified help topic.
   // TODO: Pass topic ID.

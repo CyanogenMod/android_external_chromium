@@ -107,12 +107,23 @@ class NotificationType {
     FRAME_PROVISIONAL_LOAD_START,
 
     // The provisional load for a frame was committed. The source is a
-    // NavigationController corresponding to the tab in which the load occured.
+    // NavigationController corresponding to the tab in which the load occurred.
     // Details is a ProvisionalLoadDetails object. In contrast to
     // NAV_ENTRY_COMMITTED, this notification is sent when the load was
     // committed, even if no navigation entry was committed (such as
     // AUTO_SUBFRAME navigations).
     FRAME_PROVISIONAL_LOAD_COMMITTED,
+
+    // The DOM for a frame was fully constructed, but referenced resources
+    // might not be fully loaded yet. The source is a
+    // Source<NavigationController> corresponding to the tab in which the load
+    // occurred. Details are the long long frame ID.
+    FRAME_DOM_CONTENT_LOADED,
+
+    // The frame finished loading. The source is a Source<NavigationController>
+    // corresponding to the tab in which the load occurred. Details are the
+    // long long frame ID.
+    FRAME_DID_FINISH_LOAD,
 
     // Content was loaded from an in-memory cache.  The source will be a
     // Source<NavigationController> corresponding to the tab in which the load
@@ -631,6 +642,10 @@ class NotificationType {
     // the details is history::URLsDeletedDetails that lists the deleted URLs.
     HISTORY_URLS_DELETED,
 
+    // Sent when a keyword search term is updated. The source is the Profile and
+    // the details are history::KeywordSearchTermDetails
+    HISTORY_KEYWORD_SEARCH_TERM_UPDATED,
+
     // Sent by history when the favicon of a URL changes.  The source is the
     // profile, and the details is history::FavIconChangeDetails (see
     // history_notifications.h).
@@ -648,6 +663,12 @@ class NotificationType {
     // Sent before a Profile is destroyed. The details are
     // none and the source is a Profile*.
     PROFILE_DESTROYED,
+
+    // TopSites ----------------------------------------------------------------
+
+    // Sent by TopSites when it finishes loading. The source is the profile the
+    // details the TopSites.
+    TOP_SITES_LOADED,
 
     // Thumbnails---------------------------------------------------------------
 
@@ -694,6 +715,10 @@ class NotificationType {
     // database. The source is the TemplateURLModel, and the details are
     // NoDetails.
     TEMPLATE_URL_MODEL_LOADED,
+
+    // Sent when a TemplateURL is removed from the model. The source is the
+    // Profile, and the details the id of the TemplateURL being removed.
+    TEMPLATE_URL_REMOVED,
 
     // Notification triggered when a web application has been installed or
     // uninstalled. Any application view should reload its data.  The source is
@@ -946,13 +971,27 @@ class NotificationType {
     // key of the entry that was affected.
     AUTOFILL_ENTRIES_CHANGED,
 
+    // DEPRECATED
+    // TODO(dhollowa): Remove this once Sync has migrated to GUID-based
+    // notifications.  http://crbug.com/58813
     // Sent when an AutoFillProfile has been added/removed/updated in the
     // WebDatabase.  The detail is an AutofillProfileChange.
     AUTOFILL_PROFILE_CHANGED,
 
+    // Sent when an AutoFillProfile has been added/removed/updated in the
+    // WebDatabase.  The detail is an AutofillProfileChangeGUID.
+    AUTOFILL_PROFILE_CHANGED_GUID,
+
+    // DEPRECATED
+    // TODO(dhollowa): Remove this once Sync has migrated to GUID-based
+    // notifications.  http://crbug.com/58813
     // Sent when an Autofill CreditCard has been added/removed/updated in the
     // WebDatabase.  The detail is an AutofillCreditCardChange.
     AUTOFILL_CREDIT_CARD_CHANGED,
+
+    // Sent when an Autofill CreditCard has been added/removed/updated in the
+    // WebDatabase.  The detail is an AutofillCreditCardChangeGUID.
+    AUTOFILL_CREDIT_CARD_CHANGED_GUID,
 
     // This notification is sent whenever the web database service has finished
     // loading the web database.  No details are expected.
@@ -977,6 +1016,17 @@ class NotificationType {
     // upgrade_detector.cc for details on how long it waits. No details are
     // expected.
     UPGRADE_RECOMMENDED,
+
+    // Software incompatibility notifications ----------------------------------
+
+    // Sent when Chrome has finished compiling the list of loaded modules (and
+    // other modules of interest). No details are expected.
+    MODULE_LIST_ENUMERATED,
+
+    // Sent when Chrome detects an incompatible module. Details is a boolean
+    // specifying true if one or more confirmed bad modules were found or false
+    // if only suspected bad modules were found.
+    MODULE_INCOMPATIBILITY_DETECTED,
 
     // Accessibility Notifications ---------------------------------------------
 
@@ -1021,15 +1071,6 @@ class NotificationType {
     // Sent when the collect cookies dialog is shown. The source is a
     // TabSpecificContentSettings object, there are no details.
     COLLECTED_COOKIES_SHOWN,
-
-    // Sent when the default geolocation setting has changed. The source is the
-    // GeolocationContentSettingsMap, the details are None.
-    GEOLOCATION_DEFAULT_CHANGED,
-
-    // Sent when a non-default setting in the the geolocation content settings
-    // map has changed. The source is the GeolocationContentSettingsMap, the
-    // details are None.
-    GEOLOCATION_SETTINGS_CHANGED,
 
     // Sent when the default setting for desktop notifications has changed.
     // The source is the DesktopNotificationService, the details are None.
@@ -1123,13 +1164,12 @@ class NotificationType {
     TOKEN_UPDATED,
 
     // Sent when a user signs into Google services such as sync.
-    // The source is the SigninManager instance. The details are a
-    // GoogleServiceSignin object.
+    // The source is the Profile. The details are a GoogleServiceSignin object.
     GOOGLE_SIGNIN_SUCCESSFUL,
 
     // Sent when a user fails to sign into Google services such as sync.
-    // The source is the SigninManager instance. The details are a
-    // GoogleServiceAuthError object.
+    // The source is the Profile. The details are a GoogleServiceAuthError
+    // object.
     GOOGLE_SIGNIN_FAILED,
 
     // AutoFill Notifications --------------------------------------------------
@@ -1212,6 +1252,9 @@ class NotificationType {
     // Sent each time the InstantController is updated.
     INSTANT_CONTROLLER_UPDATED,
 
+    // Sent each time the InstantController shows the InstantLoader.
+    INSTANT_CONTROLLER_SHOWN,
+
     // Password Store ----------------------------------------------------------
     // This notification is sent whenenever login entries stored in the password
     // store are changed. The detail of this notification is a list of changes
@@ -1224,6 +1267,10 @@ class NotificationType {
     // This notification is sent whenever the administrator changes policy.
     // The detail of this notification is not used.
     POLICY_CHANGED,
+
+    // This notification is sent whenever the device token becomes available
+    // that the policy subsystem uses to fetch policy from the cloud.
+    DEVICE_TOKEN_AVAILABLE,
 
     // Count (must be last) ----------------------------------------------------
     // Used to determine the number of notification types.  Not valid as

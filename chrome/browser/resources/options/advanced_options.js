@@ -56,6 +56,10 @@ var OptionsPage = options.OptionsPage;
         OptionsPage.showPageByName('fontSettings');
         chrome.send('coreOptionsUserMetricsAction', ['Options_FontSettings']);
       };
+      $('defaultZoomLevel').onchange = function(event) {
+        chrome.send('defaultZoomLevelAction',
+            [String(event.target.options[event.target.selectedIndex].value)]);
+      }
       $('optionsReset').onclick = function(event) {
         AlertOverlay.show(undefined,
             localStrings.getString('optionsResetMessage'),
@@ -167,6 +171,26 @@ var OptionsPage = options.OptionsPage;
       AdvancedOptions.getInstance().showRestartRequiredAlert_();
   }
 
+  AdvancedOptions.SetMetricsReportingSettingVisibility = function(visible) {
+    if (visible) {
+      $('metricsReportingSetting').style.display = 'block';
+    } else {
+      $('metricsReportingSetting').style.display = 'none';
+    }
+  }
+
+  // Set the default zoom level selected item.
+  AdvancedOptions.SetDefaultZoomLevel = function(value) {
+    var selectCtl = $('defaultZoomLevel');
+    for (var i = 0; i < selectCtl.options.length; i++) {
+      if (selectCtl.options[i].value == value) {
+        selectCtl.selectedIndex = i;
+        return;
+      }
+    }
+    selectCtl.selectedIndex = 4;  // 100%
+  };
+
   // Set the download path.
   AdvancedOptions.SetDownloadLocationPath = function(path) {
     if (!cr.isChromeOS)
@@ -223,6 +247,12 @@ var OptionsPage = options.OptionsPage;
         $('cloudPrintProxyManageButton').style.display = 'inline';
       }
       $('cloudPrintProxySetupButton').disabled = false;
+    }
+  };
+
+  AdvancedOptions.HideCloudPrintProxySection = function() {
+    if (!cr.isChromeOS) {
+      $('cloud-print-proxy-section').style.display = 'none';
     }
   };
 

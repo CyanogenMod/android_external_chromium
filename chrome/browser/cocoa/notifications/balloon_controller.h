@@ -8,13 +8,15 @@
 
 #import <Cocoa/Cocoa.h>
 
-#include "base/scoped_nsobject.h"
 #include "base/cocoa_protocols_mac.h"
-#import "chrome/browser/cocoa/hover_image_button.h"
-#import "chrome/browser/cocoa/notifications/balloon_view.h"
-#import "chrome/browser/cocoa/notifications/balloon_view_host_mac.h"
-#include "chrome/browser/notifications/balloon.h"
+#include "base/scoped_nsobject.h"
+#include "base/scoped_ptr.h"
 
+class Balloon;
+@class BalloonContentViewCocoa;
+@class BalloonShelfViewCocoa;
+class BalloonViewHost;
+@class HoverImageButton;
 @class MenuController;
 class NotificationOptionsMenuModel;
 
@@ -50,6 +52,9 @@ class NotificationOptionsMenuModel;
 
   // The host for the renderer of the HTML contents.
   scoped_ptr<BalloonViewHost> htmlContents_;
+
+  // The psn of the front application process.
+  ProcessSerialNumber frontProcessNum_;
 }
 
 // Initialize with a balloon object containing the notification data.
@@ -81,6 +86,9 @@ class NotificationOptionsMenuModel;
 
 // The BalloonHost
 - (BalloonViewHost*)getHost;
+
+// Handle the event if it is for the balloon.
+- (BOOL)handleEvent:(NSEvent*)event;
 @end
 
 @interface BalloonController (UnitTesting)

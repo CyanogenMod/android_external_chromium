@@ -14,11 +14,13 @@ extern const char kChromeOSSource[];
 extern const char kChromeSource[];
 
 // Gaia services for requesting
+extern const char kGaiaService[];  // uber token
 extern const char kContactsService[];
 extern const char kTalkService[];
 extern const char kSyncService[];
 extern const char kRemotingService[];
 extern const char kCloudPrintService[];
+extern const char kDeviceManagementService[];
 
 }  // namespace GaiaConstants
 

@@ -13,6 +13,7 @@
 #include "build/build_config.h"
 
 #include "base/file_path.h"
+#include "base/file_util_proxy.h"
 #include "base/nullable_string16.h"
 #include "base/platform_file.h"
 #include "base/sync_socket.h"
@@ -21,6 +22,7 @@
 #include "chrome/common/nacl_types.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/page_zoom.h"
+#include "chrome/common/speech_input_result.h"
 #include "chrome/common/translate_errors.h"
 #include "chrome/common/window_container_type.h"
 #include "ipc/ipc_message_macros.h"
@@ -48,12 +50,6 @@ class SerializedScriptValue;
 class SkBitmap;
 struct ThumbnailScore;
 class WebCursor;
-
-namespace base {
-namespace file_util_proxy {
-struct Entry;
-}
-}
 
 namespace gfx {
 class Rect;
@@ -165,6 +161,24 @@ IPC_BEGIN_MESSAGES(View)
                       int /* document_cookie */,
                       bool /* success */)
 
+  // Tells the render view to switch the CSS to print media type, renders every
+  // requested pages for print preview.
+  IPC_MESSAGE_ROUTED0(ViewMsg_PrintPreview)
+
+#if defined(OS_MACOSX) || defined(OS_WIN)
+  // Sends back to the browser the rendered "printed page" for preview that was
+  // requested by a ViewMsg_PrintPage message or from scripted printing. The
+  // memory handle in this message is already valid in the browser process.
+  IPC_MESSAGE_ROUTED1(ViewHostMsg_PageReadyForPreview,
+                      ViewHostMsg_DidPrintPage_Params /* page content */)
+#else
+  // Sends back to the browser the rendered "printed page" for preview that was
+  // requested by a ViewMsg_PrintPage message or from scripted printing. The
+  // memory handle in this message is already valid in the browser process.
+  IPC_MESSAGE_ROUTED1(ViewHostMsg_PagesReadyForPreview,
+                      int /* fd in browser */)
+#endif
+
   // Tells the renderer to dump as much memory as it can, perhaps because we
   // have memory pressure or the renderer is (or will be) paged out.  This
   // should only result in purging objects we can recalculate, e.g. caches or
@@ -188,12 +202,6 @@ IPC_BEGIN_MESSAGES(View)
   // Tells the render view that a ViewHostMsg_UpdateRect message was processed.
   // This signals the render view that it can send another UpdateRect message.
   IPC_MESSAGE_ROUTED0(ViewMsg_UpdateRect_ACK)
-
-  // Replies to creating and updating videos.
-  IPC_MESSAGE_ROUTED1(ViewMsg_CreateVideo_ACK,
-                      int32 /* video_id */)
-  IPC_MESSAGE_ROUTED1(ViewMsg_UpdateVideo_ACK,
-                      int32 /* video_id */)
 
   // Message payload includes:
   // 1. A blob that should be cast to WebInputEvent
@@ -228,6 +236,11 @@ IPC_BEGIN_MESSAGES(View)
   // Tells the renderer to focus the first (last if reverse is true) focusable
   // node.
   IPC_MESSAGE_ROUTED1(ViewMsg_SetInitialFocus, bool /* reverse */)
+
+  // Tells the renderer to scroll the currently focused node into view only if
+  // the currently focused node is a Text node (textfield, text area or content
+  // editable divs).
+  IPC_MESSAGE_ROUTED0(ViewMsg_ScrollFocusedEditableNodeIntoView)
 
   // Tells the renderer to perform the specified navigation, interrupting any
   // existing navigation.
@@ -406,6 +419,12 @@ IPC_BEGIN_MESSAGES(View)
   // telling it what url got zoomed and what its current zoom level is.
   IPC_MESSAGE_ROUTED1(ViewMsg_Zoom,
                       PageZoom::Function /* function */)
+
+  // Set the zoom level for the current main frame.  If the level actually
+  // changes, a ViewHostMsg_DidZoomURL message will be sent back to the browser
+  // telling it what url got zoomed and what its current zoom level is.
+  IPC_MESSAGE_ROUTED1(ViewMsg_SetZoomLevel,
+                      double /* zoom_level */)
 
   // Set the zoom level for a particular url that the renderer is in the
   // process of loading.  This will be stored, to be used if the load commits
@@ -803,6 +822,20 @@ IPC_BEGIN_MESSAGES(View)
   // Used to instruct the RenderView to send back updates to the preferred size.
   IPC_MESSAGE_ROUTED1(ViewMsg_EnablePreferredSizeChangedMode, int /*flags*/)
 
+  IPC_MESSAGE_ROUTED4(ViewMsg_SearchBoxChange,
+                      string16 /*value*/,
+                      bool /*verbatim*/,
+                      int /*selection_start*/,
+                      int /*selection_end*/)
+  IPC_MESSAGE_ROUTED2(ViewMsg_SearchBoxSubmit,
+                      string16 /*value*/,
+                      bool /*verbatim*/)
+  IPC_MESSAGE_ROUTED0(ViewMsg_SearchBoxCancel)
+  IPC_MESSAGE_ROUTED1(ViewMsg_SearchBoxResize,
+                      gfx::Rect /*search_box_bounds*/)
+  IPC_MESSAGE_ROUTED1(ViewMsg_DetermineIfPageSupportsInstant,
+                      string16 /*value*/)
+
   // Used to tell the renderer not to add scrollbars with height and
   // width below a threshold.
   IPC_MESSAGE_ROUTED1(ViewMsg_DisableScrollbarsForSmallWindows,
@@ -1033,7 +1066,7 @@ IPC_BEGIN_MESSAGES(View)
   // Relay a speech recognition result, either partial or final.
   IPC_MESSAGE_ROUTED2(ViewMsg_SpeechInput_SetRecognitionResult,
                       int /* request id */,
-                      string16 /* result */)
+                      speech_input::SpeechInputResultArray /* result */)
 
   // Indicate that speech recognizer has stopped recording and started
   // recognition.
@@ -1065,7 +1098,7 @@ IPC_BEGIN_MESSAGES(View)
                        base::PlatformFileInfo)
   IPC_MESSAGE_CONTROL3(ViewMsg_FileSystem_DidReadDirectory,
                        int /* request_id */,
-                       std::vector<base::file_util_proxy::Entry> /* entries */,
+                       std::vector<base::FileUtilProxy::Entry> /* entries */,
                        bool /* has_more */)
 
   IPC_MESSAGE_CONTROL3(ViewMsg_FileSystem_DidWrite,
@@ -1087,6 +1120,10 @@ IPC_BEGIN_MESSAGES(View)
   // protocol buffer.
   IPC_MESSAGE_CONTROL1(ViewMsg_SetPhishingModel,
                        IPC::PlatformFileForTransit /* model_file */)
+
+  // External popup menus.
+  IPC_MESSAGE_ROUTED1(ViewMsg_SelectPopupMenuItem,
+                      int /* selected index, -1 means no selection */)
 
 IPC_END_MESSAGES(View)
 
@@ -1185,7 +1222,12 @@ IPC_BEGIN_MESSAGES(ViewHost)
                       std::string /* state */)
 
   // Notifies the browser that a document has been loaded in a frame.
-  IPC_MESSAGE_ROUTED0(ViewHostMsg_DocumentLoadedInFrame)
+  IPC_MESSAGE_ROUTED1(ViewHostMsg_DocumentLoadedInFrame,
+                      long long /* frame_id */)
+
+  // Notifies the browser that a frame finished loading.
+  IPC_MESSAGE_ROUTED1(ViewHostMsg_DidFinishLoad,
+                      long long /* frame_id */)
 
   // Changes the title for the page in the UI when the page is navigated or the
   // title changes.
@@ -1268,14 +1310,6 @@ IPC_BEGIN_MESSAGES(ViewHost)
   IPC_MESSAGE_ROUTED1(ViewHostMsg_UpdateRect,
                       ViewHostMsg_UpdateRect_Params)
 
-  // Sent to create, update and destroy video layers.
-  IPC_MESSAGE_ROUTED1(ViewHostMsg_CreateVideo,
-                      gfx::Size /* size */)
-  IPC_MESSAGE_ROUTED2(ViewHostMsg_UpdateVideo,
-                      TransportDIB::Id /* bitmap */,
-                      gfx::Rect /* bitmap_rect */)
-  IPC_MESSAGE_ROUTED0(ViewHostMsg_DestroyVideo)
-
   // Sent by the renderer when GPU compositing is enabled or disabled to notify
   // the browser whether or not is should do paiting.
   IPC_MESSAGE_ROUTED1(ViewHostMsg_GpuRenderingActivated,
@@ -1289,7 +1323,12 @@ IPC_BEGIN_MESSAGES(ViewHost)
 
   IPC_MESSAGE_ROUTED0(ViewHostMsg_Focus)
   IPC_MESSAGE_ROUTED0(ViewHostMsg_Blur)
-  IPC_MESSAGE_ROUTED0(ViewHostMsg_FocusedNodeChanged)
+
+  // Message sent from renderer to the browser when focus changes inside the
+  // webpage. The parameter says whether the newly focused element needs
+  // keyboard input (true for textfields, text areas and content editable divs).
+  IPC_MESSAGE_ROUTED1(ViewHostMsg_FocusedNodeChanged,
+      bool /* is_editable_node */)
 
   // Returns the window location of the given window.
   // TODO(shess): Provide a mapping from reply_msg->routing_id() to
@@ -1782,8 +1821,8 @@ IPC_BEGIN_MESSAGES(ViewHost)
                       std::string /* value */)
 
   // Send back a string to be recorded by UserMetrics.
-  IPC_MESSAGE_ROUTED1(ViewHostMsg_UserMetricsRecordAction,
-                      std::string /* action */)
+  IPC_MESSAGE_CONTROL1(ViewHostMsg_UserMetricsRecordAction,
+                       std::string /* action */)
 
   // Send back histograms as vector of pickled-histogram strings.
   IPC_MESSAGE_CONTROL2(ViewHostMsg_RendererHistograms,
@@ -1902,6 +1941,9 @@ IPC_BEGIN_MESSAGES(ViewHost)
   // message.
   IPC_MESSAGE_ROUTED1(ViewHostMsg_DataReceived_ACK,
                       int /* request_id */)
+
+  IPC_MESSAGE_CONTROL1(ViewHostMsg_RevealFolderInOS,
+                       FilePath /* path */)
 
   // Sent when the renderer has processed a DataDownloaded message.
   IPC_MESSAGE_ROUTED1(ViewHostMsg_DataDownloaded_ACK,
@@ -2199,14 +2241,15 @@ IPC_BEGIN_MESSAGES(ViewHost)
                       gfx::PluginWindowHandle /* window */,
                       int32 /* width */,
                       int32 /* height */,
-                      uint64 /* identifier for IOSurface */)
+                      uint64 /* surface_id */)
 
   // This message notifies the browser process that the plug-in
   // swapped the buffers associated with the given "window", which
   // should cause the browser to redraw the various plug-ins'
   // contents.
-  IPC_MESSAGE_ROUTED1(ViewHostMsg_AcceleratedSurfaceBuffersSwapped,
-                      gfx::PluginWindowHandle /* window */)
+  IPC_MESSAGE_ROUTED2(ViewHostMsg_AcceleratedSurfaceBuffersSwapped,
+                      gfx::PluginWindowHandle /* window */,
+                      uint64 /* surface_id */)
 #endif
 
   // A renderer sends this to the browser process when it wants to create a
@@ -2833,10 +2876,12 @@ IPC_BEGIN_MESSAGES(ViewHost)
 
   // Requests the speech input service to start speech recognition on behalf of
   // the given |render_view_id|.
-  IPC_MESSAGE_CONTROL3(ViewHostMsg_SpeechInput_StartRecognition,
+  IPC_MESSAGE_CONTROL5(ViewHostMsg_SpeechInput_StartRecognition,
                        int /* render_view_id */,
-                       int /* request id */,
-                       gfx::Rect /* element rect in render view coordinates */)
+                       int /* request_id */,
+                       gfx::Rect /* element_rect */,
+                       std::string /* language */,
+                       std::string /* grammar */)
 
   // Requests the speech input service to cancel speech recognition on behalf of
   // the given |render_view_id|. If speech recognition is not happening nor or
@@ -2869,11 +2914,12 @@ IPC_BEGIN_MESSAGES(ViewHost)
   // These are messages sent from the renderer to the browser process.
 
   // WebFrameClient::openFileSystem() message.
-  IPC_MESSAGE_CONTROL4(ViewHostMsg_OpenFileSystemRequest,
+  IPC_MESSAGE_CONTROL5(ViewHostMsg_OpenFileSystemRequest,
                        int /* request_id */,
                        GURL /* origin_url */,
                        fileapi::FileSystemType /* type */,
-                       int64 /* requested_size */)
+                       int64 /* requested_size */,
+                       bool /* create */)
 
   // WebFileSystem::move() message.
   IPC_MESSAGE_CONTROL3(ViewHostMsg_FileSystem_Move,
@@ -2961,9 +3007,13 @@ IPC_BEGIN_MESSAGES(ViewHost)
 
   // Suggest results -----------------------------------------------------------
 
-  IPC_MESSAGE_ROUTED2(ViewHostMsg_SetSuggestResult,
+  IPC_MESSAGE_ROUTED2(ViewHostMsg_SetSuggestions,
                       int32 /* page_id */,
-                      std::string /* suggest */)
+                      std::vector<std::string> /* suggestions */)
+
+  IPC_MESSAGE_ROUTED2(ViewHostMsg_InstantSupportDetermined,
+                      int32 /* page_id */,
+                      bool  /* result */)
 
   // Client-Side Phishing Detector ---------------------------------------------
   // Inform the browser that the current URL is phishing according to the

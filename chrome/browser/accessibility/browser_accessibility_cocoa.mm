@@ -36,23 +36,27 @@ struct RoleEntry {
 static const RoleEntry roles[] = {
   { WebAccessibility::ROLE_NONE, NSAccessibilityUnknownRole },
   { WebAccessibility::ROLE_BUTTON, NSAccessibilityButtonRole },
-  { WebAccessibility::ROLE_RADIO_BUTTON, NSAccessibilityRadioButtonRole },
   { WebAccessibility::ROLE_CHECKBOX, NSAccessibilityCheckBoxRole },
-  { WebAccessibility::ROLE_STATIC_TEXT, NSAccessibilityStaticTextRole},
-  { WebAccessibility::ROLE_IMAGE, NSAccessibilityImageRole},
-  { WebAccessibility::ROLE_TEXT_FIELD, NSAccessibilityTextFieldRole},
-  { WebAccessibility::ROLE_TEXTAREA, NSAccessibilityTextAreaRole},
-  { WebAccessibility::ROLE_LINK, NSAccessibilityLinkRole},
-  { WebAccessibility::ROLE_SCROLLAREA, NSAccessibilityScrollAreaRole},
-  { WebAccessibility::ROLE_SCROLLBAR, NSAccessibilityScrollBarRole},
-  { WebAccessibility::ROLE_RADIO_GROUP, NSAccessibilityRadioGroupRole},
-  { WebAccessibility::ROLE_TABLE, NSAccessibilityTableRole},
-  { WebAccessibility::ROLE_TAB_GROUP, NSAccessibilityTabGroupRole},
-  { WebAccessibility::ROLE_IGNORED, NSAccessibilityUnknownRole},
-  { WebAccessibility::ROLE_WEB_AREA, @"AXWebArea"},
-  { WebAccessibility::ROLE_GROUP, NSAccessibilityGroupRole},
-  { WebAccessibility::ROLE_GRID, NSAccessibilityGridRole},
-  { WebAccessibility::ROLE_WEBCORE_LINK, NSAccessibilityLinkRole},
+  { WebAccessibility::ROLE_COLUMN, NSAccessibilityColumnRole },
+  { WebAccessibility::ROLE_GRID, NSAccessibilityGridRole },
+  { WebAccessibility::ROLE_GROUP, NSAccessibilityGroupRole },
+  { WebAccessibility::ROLE_HEADING, @"AXHeading" },
+  { WebAccessibility::ROLE_IGNORED, NSAccessibilityUnknownRole },
+  { WebAccessibility::ROLE_IMAGE, NSAccessibilityImageRole },
+  { WebAccessibility::ROLE_LINK, NSAccessibilityLinkRole },
+  { WebAccessibility::ROLE_LIST, NSAccessibilityListRole },
+  { WebAccessibility::ROLE_RADIO_BUTTON, NSAccessibilityRadioButtonRole },
+  { WebAccessibility::ROLE_RADIO_GROUP, NSAccessibilityRadioGroupRole },
+  { WebAccessibility::ROLE_ROW, NSAccessibilityRowRole },
+  { WebAccessibility::ROLE_SCROLLAREA, NSAccessibilityScrollAreaRole },
+  { WebAccessibility::ROLE_SCROLLBAR, NSAccessibilityScrollBarRole },
+  { WebAccessibility::ROLE_STATIC_TEXT, NSAccessibilityStaticTextRole },
+  { WebAccessibility::ROLE_TABLE, NSAccessibilityTableRole },
+  { WebAccessibility::ROLE_TAB_GROUP, NSAccessibilityTabGroupRole },
+  { WebAccessibility::ROLE_TEXT_FIELD, NSAccessibilityTextFieldRole },
+  { WebAccessibility::ROLE_TEXTAREA, NSAccessibilityTextAreaRole },
+  { WebAccessibility::ROLE_WEB_AREA, @"AXWebArea" },
+  { WebAccessibility::ROLE_WEBCORE_LINK, NSAccessibilityLinkRole },
 };
 
 // GetState checks the bitmask used in webaccessibility.h to check
@@ -87,21 +91,36 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
 // Returns an array of BrowserAccessibilityCocoa objects, representing the
 // accessibility children of this object.
 - (NSArray*)children {
-  NSMutableArray* ret = [[[NSMutableArray alloc]
-      initWithCapacity:browserAccessibility_->GetChildCount()] autorelease];
-  for (uint32 index = 0;
-       index < browserAccessibility_->GetChildCount();
-       ++index) {
-    [ret addObject:
-        browserAccessibility_->GetChild(index)->toBrowserAccessibilityCocoa()];
+  if (!children_.get()) {
+    children_.reset([[NSMutableArray alloc]
+        initWithCapacity:browserAccessibility_->GetChildCount()] );
+    for (uint32 index = 0;
+         index < browserAccessibility_->GetChildCount();
+         ++index) {
+      BrowserAccessibilityCocoa* child =
+          browserAccessibility_->GetChild(index)->toBrowserAccessibilityCocoa();
+      if ([child isIgnored])
+        [children_ addObjectsFromArray:[child children]];
+      else
+        [children_ addObject:child];
     }
-  return ret;
+  }
+  return children_;
+}
+
+- (void)childrenChanged {
+  if (![self isIgnored]) {
+    children_.reset();
+  } else {
+    [browserAccessibility_->GetParent()->toBrowserAccessibilityCocoa()
+       childrenChanged];
+  }
 }
 
 // Returns whether or not this node should be ignored in the
 // accessibility tree.
 - (BOOL)isIgnored {
-  return browserAccessibility_->role() == WebAccessibility::ROLE_IGNORED;
+  return [self role] == NSAccessibilityUnknownRole;
 }
 
 // The origin of this accessibility object in the page's document.
@@ -191,7 +210,21 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
         WebAccessibility::ATTR_HELP);
   }
   if ([attribute isEqualToString:NSAccessibilityValueAttribute]) {
-    return base::SysUTF16ToNSString(browserAccessibility_->value());
+    if ([self role] == @"AXHeading") {
+      NSString* headingLevel =
+          NSStringForWebAccessibilityAttribute(
+              browserAccessibility_->attributes(),
+              WebAccessibility::ATTR_HTML_TAG);
+      if ([headingLevel length] >= 2) {
+        return [NSNumber numberWithInt:
+            [[headingLevel substringFromIndex:1] intValue]];
+      }
+    } else if ([self role] == NSAccessibilityCheckBoxRole) {
+      return [NSNumber numberWithInt:GetState(
+          browserAccessibility_, WebAccessibility::STATE_CHECKED) ? 1 : 0];
+    } else {
+      return base::SysUTF16ToNSString(browserAccessibility_->value());
+    }
   }
   if ([attribute isEqualToString:NSAccessibilityRoleDescriptionAttribute]) {
     return [self roleDescription];
@@ -207,13 +240,53 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
       [attribute isEqualToString:@"AXLoaded"]) {
     return [NSNumber numberWithBool:YES];
   }
+
+  // Text related attributes.
+  if ([attribute isEqualToString:
+      NSAccessibilityNumberOfCharactersAttribute]) {
+    return [NSNumber numberWithInt:browserAccessibility_->value().length()];
+  }
+  if ([attribute isEqualToString:
+      NSAccessibilityVisibleCharacterRangeAttribute]) {
+    return [NSValue valueWithRange:
+        NSMakeRange(0, browserAccessibility_->value().length())];
+  }
+
+  int selStart, selEnd;
+  if (browserAccessibility_->
+          GetAttributeAsInt(WebAccessibility::ATTR_TEXT_SEL_START, &selStart) &&
+      browserAccessibility_->
+          GetAttributeAsInt(WebAccessibility::ATTR_TEXT_SEL_END, &selEnd)) {
+    if (selStart > selEnd)
+      std::swap(selStart, selEnd);
+    int selLength = selEnd - selStart;
+    if ([attribute isEqualToString:
+        NSAccessibilityInsertionPointLineNumberAttribute]) {
+      return [NSNumber numberWithInt:0];
+    }
+    if ([attribute isEqualToString:NSAccessibilitySelectedTextAttribute]) {
+      return base::SysUTF16ToNSString(browserAccessibility_->value().substr(
+          selStart, selLength));
+    }
+    if ([attribute isEqualToString:NSAccessibilitySelectedTextRangeAttribute]) {
+      return [NSValue valueWithRange:NSMakeRange(selStart, selLength)];
+    }
+  }
   return nil;
 }
 
 // Returns an array of action names that this object will respond to.
 - (NSArray*)accessibilityActionNames {
-  return [NSArray arrayWithObjects:
-      NSAccessibilityPressAction, NSAccessibilityShowMenuAction, nil];
+  NSMutableArray* ret = [[[NSMutableArray alloc] init] autorelease];
+
+  // General actions.
+  [ret addObject:NSAccessibilityShowMenuAction];
+
+  // TODO(dtseng): this should only get set when there's a default action.
+  if ([self role] != NSAccessibilityStaticTextRole)
+    [ret addObject:NSAccessibilityPressAction];
+
+  return ret;
 }
 
 // Returns a sub-array of values for the given attribute value, starting at
@@ -248,7 +321,10 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
 
 // Returns the list of accessibility attributes that this object supports.
 - (NSArray*)accessibilityAttributeNames {
-  return [NSArray arrayWithObjects:
+  NSMutableArray* ret = [[NSMutableArray alloc] init];
+
+  // General attributes.
+  [ret addObjectsFromArray:[NSArray arrayWithObjects:
       NSAccessibilityChildrenAttribute,
       NSAccessibilityDescriptionAttribute,
       NSAccessibilityEnabledAttribute,
@@ -263,7 +339,19 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
       NSAccessibilityTopLevelUIElementAttribute,
       NSAccessibilityValueAttribute,
       NSAccessibilityWindowAttribute,
-      nil];
+      nil]];
+
+  // Specific role attributes.
+  if ([self role] == NSAccessibilityTextFieldRole) {
+    [ret addObjectsFromArray:[NSArray arrayWithObjects:
+        NSAccessibilityInsertionPointLineNumberAttribute,
+        NSAccessibilityNumberOfCharactersAttribute,
+        NSAccessibilitySelectedTextAttribute,
+        NSAccessibilitySelectedTextRangeAttribute,
+        NSAccessibilityVisibleCharacterRangeAttribute,
+        nil]];
+  }
+  return ret;
 }
 
 // Returns the index of the child in this objects array of children.
@@ -272,8 +360,7 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
   for (BrowserAccessibilityCocoa* childToCheck in [self children]) {
     if ([child isEqual:childToCheck])
       return index;
-    if (![childToCheck isIgnored])
-      ++index;
+    ++index;
   }
   return NSNotFound;
 }
@@ -353,6 +440,9 @@ bool GetState(BrowserAccessibility* accessibility, int state) {
 }
 
 - (NSUInteger)hash {
+  // Potentially called during dealloc.
+  if (!browserAccessibility_)
+    return [super hash];
   return browserAccessibility_->renderer_id();
 }
 

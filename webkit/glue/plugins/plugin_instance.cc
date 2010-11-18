@@ -91,7 +91,7 @@ PluginStreamUrl* PluginInstance::CreateStream(unsigned long resource_id,
 }
 
 void PluginInstance::AddStream(PluginStream* stream) {
-  open_streams_.push_back(stream);
+  open_streams_.push_back(make_scoped_refptr(stream));
 }
 
 void PluginInstance::RemoveStream(PluginStream* stream) {
@@ -176,6 +176,11 @@ void PluginInstance::DidFinishLoadWithReason(
   }
 
   NPP_URLNotify(url.spec().c_str(), reason, notify_data);
+}
+
+unsigned PluginInstance::GetBackingTextureId() {
+  // By default the plugin instance is not backed by an OpenGL texture.
+  return 0;
 }
 
 // NPAPI methods

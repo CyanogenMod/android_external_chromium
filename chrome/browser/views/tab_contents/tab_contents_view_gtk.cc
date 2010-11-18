@@ -393,6 +393,16 @@ void TabContentsViewGtk::ShowContextMenu(const ContextMenuParams& params) {
   MessageLoop::current()->SetNestableTasksAllowed(old_state);
 }
 
+void TabContentsViewGtk::ShowPopupMenu(const gfx::Rect& bounds,
+                                       int item_height,
+                                       double item_font_size,
+                                       int selected_item,
+                                       const std::vector<WebMenuItem>& items,
+                                       bool right_aligned) {
+  // External popup menus are only used on Mac.
+  NOTREACHED();
+}
+
 gboolean TabContentsViewGtk::OnButtonPress(GtkWidget* widget,
                                            GdkEventButton* event) {
   last_mouse_down_ = *event;
@@ -426,10 +436,13 @@ gboolean TabContentsViewGtk::OnPaint(GtkWidget* widget, GdkEventExpose* event) {
     // we need to pass on the message to paint the page
     gfx::Rect bounds;
     GetBounds(&bounds, true);
-    views::View *view = reinterpret_cast<RenderWidgetHostViewViews *>(tab_contents()->render_view_host()->view());
-    view->SetBounds(gfx::Rect(0, 0, bounds.width(), bounds.height()));
-    gfx::CanvasSkiaPaint canvas(event);
-    view->ProcessPaint(&canvas);
+    views::View *view = reinterpret_cast<RenderWidgetHostViewViews *>
+        (tab_contents()->render_view_host()->view());
+    if (view) {
+      view->SetBounds(gfx::Rect(0, 0, bounds.width(), bounds.height()));
+      gfx::CanvasSkiaPaint canvas(event);
+      view->ProcessPaint(&canvas);
+    }
 #endif
   }
   return false;  // False indicates other widgets should get the event as well.
@@ -485,7 +498,7 @@ void TabContentsViewGtk::SetFloatingPosition(const gfx::Size& size) {
     gtk_widget_size_request(widget, &requisition);
 
     int child_x = std::max(half_view_width - (requisition.width / 2), 0);
-    PositionChild(widget, child_x, 0, requisition.width, requisition.height);
+    PositionChild(widget, child_x, 0, 0, 0);
   }
 }
 

@@ -10,6 +10,7 @@
 
 #include "base/message_loop.h"
 #include "base/observer_list.h"
+#include "base/scoped_ptr.h"
 #include "chrome/browser/chromeos/dom_ui/domui_menu_control.h"
 #include "googleurl/src/gurl.h"
 #include "views/controls/menu/menu_wrapper.h"
@@ -22,6 +23,14 @@ namespace menus {
 class MenuModel;
 }  // namespace menus
 
+namespace views {
+class NestedDispatcherGtk;
+}  // namespace views;
+
+#if defined(TOUCH_UI)
+typedef union _XEvent XEvent;
+#endif
+
 namespace chromeos {
 
 class MenuLocator;
@@ -30,7 +39,7 @@ class DOMUIMenuWidget;
 // A DOMUI implementation of MenuWrapper.
 class NativeMenuDOMUI : public views::MenuWrapper,
                         public DOMUIMenuControl,
-                        public MessageLoopForUI::Dispatcher {
+                        public MessageLoop::Dispatcher {
  public:
   NativeMenuDOMUI(menus::MenuModel* menu_model, bool root);
   virtual ~NativeMenuDOMUI();
@@ -54,6 +63,9 @@ class NativeMenuDOMUI : public views::MenuWrapper,
 
   // Overriden from MessageLoopForUI::Dispatcher:
   virtual bool Dispatch(GdkEvent* event);
+#if defined(TOUCH_UI)
+  virtual bool Dispatch(XEvent* xevent);
+#endif
 
   // Overriden from DOMUIMenuControl;
   virtual menus::MenuModel* GetMenuModel() { return model_; }
@@ -139,6 +151,11 @@ class NativeMenuDOMUI : public views::MenuWrapper,
 
   // A guard flag to avoid calling MenuListener::OnMenuOpened twice.
   bool on_menu_opened_called_;
+
+  // Nested dispatcher object that can outlive this object.
+  // This is to deal with the menu being deleted while the nested
+  // message loop is handled. see http://crosbug.com/7929 .
+  views::NestedDispatcherGtk* nested_dispatcher_;
 
   DISALLOW_COPY_AND_ASSIGN(NativeMenuDOMUI);
 };

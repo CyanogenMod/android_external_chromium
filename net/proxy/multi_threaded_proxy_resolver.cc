@@ -247,8 +247,8 @@ class MultiThreadedProxyResolver::GetProxyForURLJob
 
     net_log_.AddEvent(
         NetLog::TYPE_SUBMITTED_TO_RESOLVER_THREAD,
-        new NetLogIntegerParameter(
-            "thread_number", executor()->thread_number()));
+        make_scoped_refptr(new NetLogIntegerParameter(
+            "thread_number", executor()->thread_number())));
   }
 
   // Runs on the worker thread.
@@ -410,8 +410,8 @@ int MultiThreadedProxyResolver::GetProxyForURL(const GURL& url,
   DCHECK(current_script_data_.get())
       << "Resolver is un-initialized. Must call SetPacScript() first!";
 
-  scoped_refptr<GetProxyForURLJob> job =
-      new GetProxyForURLJob(url, results, callback, net_log);
+  scoped_refptr<GetProxyForURLJob> job(
+      new GetProxyForURLJob(url, results, callback, net_log));
 
   // Completion will be notified through |callback|, unless the caller cancels
   // the request using |request|.
@@ -557,7 +557,7 @@ MultiThreadedProxyResolver::AddNewExecutor() {
   ProxyResolver* resolver = resolver_factory_->CreateProxyResolver();
   Executor* executor = new Executor(
       this, resolver, thread_number);
-  executors_.push_back(executor);
+  executors_.push_back(make_scoped_refptr(executor));
   return executor;
 }
 

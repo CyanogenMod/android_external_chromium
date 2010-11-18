@@ -335,7 +335,7 @@ class OffTheRecordProfileImpl : public Profile,
     profile_->InitThemes();
   }
 
-  virtual void SetTheme(Extension* extension) {
+  virtual void SetTheme(const Extension* extension) {
     profile_->SetTheme(extension);
   }
 
@@ -347,7 +347,7 @@ class OffTheRecordProfileImpl : public Profile,
     profile_->ClearTheme();
   }
 
-  virtual Extension* GetTheme() {
+  virtual const Extension* GetTheme() {
     return profile_->GetTheme();
   }
 
@@ -424,6 +424,11 @@ class OffTheRecordProfileImpl : public Profile,
     return false;
   }
 
+  virtual bool HasProfileSyncService() const {
+    // We never have a profile sync service.
+    return false;
+  }
+
   virtual bool DidLastSessionExitCleanly() {
     return profile_->DidLastSessionExitCleanly();
   }
@@ -451,6 +456,10 @@ class OffTheRecordProfileImpl : public Profile,
   virtual ProfileSyncService* GetProfileSyncService(
       const std::string& cros_user) {
     return NULL;
+  }
+
+  virtual BrowserSignin* GetBrowserSignin() {
+    return profile_->GetBrowserSignin();
   }
 
   virtual CloudPrintProxyService* GetCloudPrintProxyService() {
@@ -485,6 +494,10 @@ class OffTheRecordProfileImpl : public Profile,
       webkit_context_ = new WebKitContext(this);
     DCHECK(webkit_context_.get());
     return webkit_context_.get();
+  }
+
+  virtual history::TopSites* GetTopSitesWithoutCreating() {
+    return NULL;
   }
 
   virtual history::TopSites* GetTopSites() {

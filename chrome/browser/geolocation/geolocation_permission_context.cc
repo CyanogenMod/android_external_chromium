@@ -11,7 +11,7 @@
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
-#include "chrome/browser/geolocation/geolocation_dispatcher_host.h"
+#include "chrome/browser/geolocation/geolocation_dispatcher_host_old.h"
 #include "chrome/browser/geolocation/geolocation_provider.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
@@ -362,7 +362,7 @@ void GeolocationPermissionContext::RequestGeolocationPermission(
 
   ExtensionsService* extensions = profile_->GetExtensionsService();
   if (extensions) {
-    Extension* ext = extensions->GetExtensionByURL(requesting_frame);
+    const Extension* ext = extensions->GetExtensionByURL(requesting_frame);
     if (!ext)
       ext = extensions->GetExtensionByWebExtent(requesting_frame);
     if (ext && ext->HasApiPermission(Extension::kGeolocationPermission)) {

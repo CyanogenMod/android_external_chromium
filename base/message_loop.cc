@@ -23,9 +23,13 @@
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
 #include "base/message_pump_glib.h"
 #endif
+#if defined(TOUCH_UI)
+#include "base/message_pump_glib_x.h"
+#endif
 
 using base::Time;
 using base::TimeDelta;
+using base::TimeTicks;
 
 namespace {
 
@@ -134,8 +138,14 @@ MessageLoop::MessageLoop(Type type)
 #elif defined(OS_MACOSX)
 #define MESSAGE_PUMP_UI base::MessagePumpMac::Create()
 #define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
+<<<<<<< HEAD
 #elif defined(ANDROID)
 #define MESSAGE_PUMP_UI new base::MessagePumpDefault()
+=======
+#elif defined(TOUCH_UI)
+// TODO(sadrul): enable the new message pump when ready
+#define MESSAGE_PUMP_UI new base::MessagePumpForUI()
+>>>>>>> chromium.org at r65505
 #define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
 #elif defined(OS_POSIX)  // POSIX but not MACOSX.
 #define MESSAGE_PUMP_UI new base::MessagePumpForUI()
@@ -330,7 +340,7 @@ void MessageLoop::PostTask_Helper(
 
   if (delay_ms > 0) {
     pending_task.delayed_run_time =
-        Time::Now() + TimeDelta::FromMilliseconds(delay_ms);
+        TimeTicks::Now() + TimeDelta::FromMilliseconds(delay_ms);
 
 #if defined(OS_WIN)
     if (high_resolution_timer_expiration_.is_null()) {
@@ -343,7 +353,7 @@ void MessageLoop::PostTask_Helper(
           delay_ms < (2 * Time::kMinLowResolutionThresholdMs);
       if (needs_high_res_timers) {
         Time::ActivateHighResolutionTimer(true);
-        high_resolution_timer_expiration_ = base::TimeTicks::Now() +
+        high_resolution_timer_expiration_ = TimeTicks::Now() +
             TimeDelta::FromMilliseconds(kHighResolutionTimerModeLeaseTimeMs);
       }
     }
@@ -354,9 +364,9 @@ void MessageLoop::PostTask_Helper(
 
 #if defined(OS_WIN)
   if (!high_resolution_timer_expiration_.is_null()) {
-    if (base::TimeTicks::Now() > high_resolution_timer_expiration_) {
+    if (TimeTicks::Now() > high_resolution_timer_expiration_) {
       Time::ActivateHighResolutionTimer(false);
-      high_resolution_timer_expiration_ = base::TimeTicks();
+      high_resolution_timer_expiration_ = TimeTicks();
     }
   }
 #endif
@@ -411,9 +421,9 @@ void MessageLoop::RunTask(Task* task) {
 
   HistogramEvent(kTaskRunEvent);
   FOR_EACH_OBSERVER(TaskObserver, task_observers_,
-                    WillProcessTask(task->tracked_birth_time()));
+                    WillProcessTask(task));
   task->Run();
-  FOR_EACH_OBSERVER(TaskObserver, task_observers_, DidProcessTask());
+  FOR_EACH_OBSERVER(TaskObserver, task_observers_, DidProcessTask(task));
   delete task;
 
   nestable_tasks_allowed_ = true;
@@ -475,7 +485,7 @@ bool MessageLoop::DeletePendingTasks() {
       // TODO(darin): Delete all tasks once it is safe to do so.
       // Until it is totally safe, just do it when running Purify or
       // Valgrind.
-#if defined(PURIFY)
+#if defined(PURIFY) || defined(USE_HEAPCHECKER)
       delete pending_task.task;
 #elif defined(OS_POSIX)
       if (RUNNING_ON_VALGRIND)
@@ -488,7 +498,7 @@ bool MessageLoop::DeletePendingTasks() {
     // TODO(darin): Delete all tasks once it is safe to do so.
     // Until it is totaly safe, only delete them under Purify and Valgrind.
     Task* task = NULL;
-#if defined(PURIFY)
+#if defined(PURIFY) || defined(USE_HEAPCHECKER)
     task = deferred_non_nestable_work_queue_.front().task;
 #elif defined(OS_POSIX)
     if (RUNNING_ON_VALGRIND)
@@ -538,15 +548,26 @@ bool MessageLoop::DoWork() {
   return false;
 }
 
-bool MessageLoop::DoDelayedWork(Time* next_delayed_work_time) {
+bool MessageLoop::DoDelayedWork(base::TimeTicks* next_delayed_work_time) {
   if (!nestable_tasks_allowed_ || delayed_work_queue_.empty()) {
-    *next_delayed_work_time = Time();
+    recent_time_ = *next_delayed_work_time = TimeTicks();
     return false;
   }
 
-  if (delayed_work_queue_.top().delayed_run_time > Time::Now()) {
-    *next_delayed_work_time = delayed_work_queue_.top().delayed_run_time;
-    return false;
+  // When we "fall behind," there will be a lot of tasks in the delayed work
+  // queue that are ready to run.  To increase efficiency when we fall behind,
+  // we will only call Time::Now() intermittently, and then process all tasks
+  // that are ready to run before calling it again.  As a result, the more we
+  // fall behind (and have a lot of ready-to-run delayed tasks), the more
+  // efficient we'll be at handling the tasks.
+
+  TimeTicks next_run_time = delayed_work_queue_.top().delayed_run_time;
+  if (next_run_time > recent_time_) {
+    recent_time_ = TimeTicks::Now();  // Get a better view of Now();
+    if (next_run_time > recent_time_) {
+      *next_delayed_work_time = next_run_time;
+      return false;
+    }
   }
 
   PendingTask pending_task = delayed_work_queue_.top();

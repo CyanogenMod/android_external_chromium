@@ -142,7 +142,9 @@ bool TransportSecurityState::ParseHeader(const std::string& value,
       case AFTER_MAX_AGE_EQUALS:
         if (IsAsciiWhitespace(*tokenizer.token_begin()))
           continue;
-        if (!base::StringToInt(tokenizer.token(), &max_age_candidate))
+        if (!base::StringToInt(tokenizer.token_begin(),
+                               tokenizer.token_end(),
+                               &max_age_candidate))
           return false;
         if (max_age_candidate < 0)
           return false;
@@ -408,6 +410,7 @@ bool TransportSecurityState::IsPreloadedSTS(
     {12, true,  "\006jottit\003com"},
     {19, true,  "\015sunshinepress\003org"},
     {21, false, "\003www\013noisebridge\003net"},
+    {10, false, "\004neg9\003org"},
   };
   static const size_t kNumPreloadedSTS = ARRAYSIZE_UNSAFE(kPreloadedSTS);
 

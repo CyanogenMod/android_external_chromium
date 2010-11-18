@@ -41,7 +41,6 @@
 #include "third_party/WebKit/WebKit/chromium/public/WebInputEvent.h"
 #include "webkit/glue/plugins/webplugin.h"
 #include "webkit/glue/webaccessibility.h"
-#include "webkit/glue/webmenurunner_mac.h"
 #import "third_party/mozilla/ComplexTextInputPanel.h"
 
 using WebKit::WebInputEvent;
@@ -284,9 +283,11 @@ static CVReturn DrawOneAcceleratedPluginCallback(
   // Called on a background thread. Synchronized via the CGL context lock.
   CGLLockContext(cglContext_);
 
-  // TODO(thakis): Pixel or view coordinates for size?
-  renderWidgetHostView_->DrawAcceleratedSurfaceInstance(
-      cglContext_, pluginHandle_, [self cachedSize]);
+  if (renderWidgetHostView_) {
+    // TODO(thakis): Pixel or view coordinates for size?
+    renderWidgetHostView_->DrawAcceleratedSurfaceInstance(
+        cglContext_, pluginHandle_, [self cachedSize]);
+  }
 
   CGLFlushDrawable(cglContext_);
   CGLUnlockContext(cglContext_);
@@ -408,6 +409,17 @@ static CVReturn DrawOneAcceleratedPluginCallback(
   [self setCachedSize:newSize];
   [super setFrameSize:newSize];
 }
+
+- (BOOL)acceptsFirstResponder {
+  // Accept first responder if the first responder isn't the RWHVMac.
+  return [[self window] firstResponder] != [self superview];
+}
+
+- (BOOL)becomeFirstResponder {
+  // Delegate first responder to the RWHVMac.
+  [[self window] makeFirstResponder:[self superview]];
+  return YES;
+}
 @end
 
 // RenderWidgetHostView --------------------------------------------------------
@@ -438,9 +450,8 @@ RenderWidgetHostViewMac::RenderWidgetHostViewMac(RenderWidgetHost* widget)
       text_input_type_(WebKit::WebTextInputTypeNone),
       is_loading_(false),
       is_hidden_(false),
-      is_popup_menu_(false),
       shutdown_factory_(this),
-      parent_view_(NULL) {
+      needs_gpu_visibility_update_after_repaint_(false) {
   // |cocoa_view_| owns us and we will be deleted when |cocoa_view_| goes away.
   // Since we autorelease it, our caller must put |native_view()| into the view
   // hierarchy right after calling us.
@@ -676,45 +687,53 @@ void RenderWidgetHostViewMac::ImeCancelComposition() {
 void RenderWidgetHostViewMac::DidUpdateBackingStore(
     const gfx::Rect& scroll_rect, int scroll_dx, int scroll_dy,
     const std::vector<gfx::Rect>& copy_rects) {
-  if (is_hidden_)
-    return;
+  if (!is_hidden_) {
+    std::vector<gfx::Rect> rects(copy_rects);
 
-  std::vector<gfx::Rect> rects(copy_rects);
+    // Because the findbar might be open, we cannot use scrollRect:by: here.  For
+    // now, simply mark all of scroll rect as dirty.
+    if (!scroll_rect.IsEmpty())
+      rects.push_back(scroll_rect);
 
-  // Because the findbar might be open, we cannot use scrollRect:by: here.  For
-  // now, simply mark all of scroll rect as dirty.
-  if (!scroll_rect.IsEmpty())
-    rects.push_back(scroll_rect);
+    for (size_t i = 0; i < rects.size(); ++i) {
+      NSRect ns_rect = [cocoa_view_ flipRectToNSRect:rects[i]];
 
-  for (size_t i = 0; i < rects.size(); ++i) {
-    NSRect ns_rect = [cocoa_view_ flipRectToNSRect:rects[i]];
-
-    if (about_to_validate_and_paint_) {
-      // As much as we'd like to use -setNeedsDisplayInRect: here, we can't.
-      // We're in the middle of executing a -drawRect:, and as soon as it
-      // returns Cocoa will clear its record of what needs display. We instead
-      // use |performSelector:| to call |setNeedsDisplayInRect:| after returning
-      // to the main loop, at which point |drawRect:| is no longer on the stack.
-      DCHECK([NSThread isMainThread]);
-      if (!call_set_needs_display_in_rect_pending_) {
-        [cocoa_view_ performSelector:@selector(callSetNeedsDisplayInRect)
-                     withObject:nil
-                     afterDelay:0];
-        call_set_needs_display_in_rect_pending_ = true;
-        invalid_rect_ = ns_rect;
+      if (about_to_validate_and_paint_) {
+        // As much as we'd like to use -setNeedsDisplayInRect: here, we can't.
+        // We're in the middle of executing a -drawRect:, and as soon as it
+        // returns Cocoa will clear its record of what needs display. We
+        // instead use |performSelector:| to call |setNeedsDisplayInRect:|
+        // after returning to the main loop, at which point |drawRect:| is no
+        // longer on the stack.
+        DCHECK([NSThread isMainThread]);
+        if (!call_set_needs_display_in_rect_pending_) {
+          [cocoa_view_ performSelector:@selector(callSetNeedsDisplayInRect)
+                       withObject:nil
+                       afterDelay:0];
+          call_set_needs_display_in_rect_pending_ = true;
+          invalid_rect_ = ns_rect;
+        } else {
+          // The old invalid rect is probably invalid now, since the view has
+          // most likely been resized, but there's no harm in dirtying the
+          // union.  In the limit, this becomes equivalent to dirtying the
+          // whole view.
+          invalid_rect_ = NSUnionRect(invalid_rect_, ns_rect);
+        }
       } else {
-        // The old invalid rect is probably invalid now, since the view has most
-        // likely been resized, but there's no harm in dirtying the union.  In
-        // the limit, this becomes equivalent to dirtying the whole view.
-        invalid_rect_ = NSUnionRect(invalid_rect_, ns_rect);
+        [cocoa_view_ setNeedsDisplayInRect:ns_rect];
       }
-    } else {
-      [cocoa_view_ setNeedsDisplayInRect:ns_rect];
     }
+
+    if (!about_to_validate_and_paint_)
+      [cocoa_view_ displayIfNeeded];
   }
 
+  // If |about_to_validate_and_paint_| is set, then -drawRect: is on the stack
+  // and it's not allowed to call -setHidden on the accelerated view.  In that
+  // case, -callSetNeedsDisplayInRect: will hide it later.
+  // If |about_to_validate_and_paint_| is not set, do it now.
   if (!about_to_validate_and_paint_)
-    [cocoa_view_ displayIfNeeded];
+    HandleDelayedGpuViewHiding();
 }
 
 void RenderWidgetHostViewMac::RenderViewGone() {
@@ -732,36 +751,22 @@ void RenderWidgetHostViewMac::Destroy() {
   // time Destroy() was called. On the Mac we have to destroy all the popups
   // ourselves.
 
-  if (!is_popup_menu_) {
-    // Depth-first destroy all popups. Use ShutdownHost() to enforce
-    // deepest-first ordering.
-    for (NSView* subview in [cocoa_view_ subviews]) {
-      if ([subview isKindOfClass:[RenderWidgetHostViewCocoa class]]) {
-        [static_cast<RenderWidgetHostViewCocoa*>(subview)
-            renderWidgetHostViewMac]->ShutdownHost();
-      } else if ([subview isKindOfClass:[AcceleratedPluginView class]]) {
-        [static_cast<AcceleratedPluginView*>(subview)
-            onRenderWidgetHostViewGone];
-      }
+  // Depth-first destroy all popups. Use ShutdownHost() to enforce
+  // deepest-first ordering.
+  for (NSView* subview in [cocoa_view_ subviews]) {
+    if ([subview isKindOfClass:[RenderWidgetHostViewCocoa class]]) {
+      [static_cast<RenderWidgetHostViewCocoa*>(subview)
+          renderWidgetHostViewMac]->ShutdownHost();
+    } else if ([subview isKindOfClass:[AcceleratedPluginView class]]) {
+      [static_cast<AcceleratedPluginView*>(subview)
+          onRenderWidgetHostViewGone];
     }
-
-    // We've been told to destroy.
-    [cocoa_view_ retain];
-    [cocoa_view_ removeFromSuperview];
-    [cocoa_view_ autorelease];
-  } else {
-    // From the renderer's perspective, the pop-up menu is represented by a
-    // RenderWidget. The actual Mac implementation uses a native pop-up menu
-    // and doesn't actually make use of the RenderWidgetHostViewCocoa that
-    // was allocated to own it in its constructor.  When the pop-up menu goes
-    // away, free the RenderWidgetHostViewCocoa. Its deallocation will result
-    // in this object's destruction.
-
-    DCHECK([[cocoa_view_ subviews] count] == 0);
-    DCHECK([cocoa_view_ superview] == nil);
-
-    [cocoa_view_ autorelease];
   }
+
+  // We've been told to destroy.
+  [cocoa_view_ retain];
+  [cocoa_view_ removeFromSuperview];
+  [cocoa_view_ autorelease];
 
   // We get this call just before |render_widget_host_| deletes
   // itself.  But we are owned by |cocoa_view_|, which may be retained
@@ -804,87 +809,9 @@ BackingStore* RenderWidgetHostViewMac::AllocBackingStore(
   return new BackingStoreMac(render_widget_host_, size);
 }
 
-VideoLayer* RenderWidgetHostViewMac::AllocVideoLayer(
-    const gfx::Size& size) {
-  NOTIMPLEMENTED();
-  return NULL;
-}
-
 // Sets whether or not to accept first responder status.
 void RenderWidgetHostViewMac::SetTakesFocusOnlyOnMouseDown(bool flag) {
   [cocoa_view_ setTakesFocusOnlyOnMouseDown:flag];
-}
-
-// Display a popup menu for WebKit using Cocoa widgets.
-void RenderWidgetHostViewMac::ShowPopupWithItems(
-    gfx::Rect bounds,
-    int item_height,
-    double item_font_size,
-    int selected_item,
-    const std::vector<WebMenuItem>& items,
-    bool right_aligned) {
-  is_popup_menu_ = true;
-
-  // Retain the Cocoa view for the duration of the pop-up so that it can't
-  // be dealloced if my Destroy() method is called while the pop-up's up
-  // (which would in turn delete me, causing a crash once the -runMenuInView
-  // call returns. That's what was happening in <http://crbug.com/33250>).
-  scoped_nsobject<RenderWidgetHostViewCocoa> retainedCocoaView
-      ([cocoa_view_ retain]);
-
-  NSRect view_rect = [cocoa_view_ bounds];
-  NSRect parent_rect = [parent_view_ bounds];
-  int y_offset = bounds.y() + bounds.height();
-  NSRect position = NSMakeRect(bounds.x(), parent_rect.size.height - y_offset,
-                               bounds.width(), bounds.height());
-
-  // Display the menu.
-  scoped_nsobject<WebMenuRunner> menu_runner;
-  menu_runner.reset([[WebMenuRunner alloc] initWithItems:items
-                                                fontSize:item_font_size
-                                            rightAligned:right_aligned]);
-
-  {
-    // Make sure events can be pumped while the menu is up.
-    MessageLoop::ScopedNestableTaskAllower allow(MessageLoop::current());
-
-    // One of the events that could be pumped is |window.close()|.
-    // User-initiated event-tracking loops protect against this by
-    // setting flags in -[CrApplication sendEvent:], but since
-    // web-content menus are initiated by IPC message the setup has to
-    // be done manually.
-    chrome_application_mac::ScopedSendingEvent sendingEventScoper;
-
-    // Now run a SYNCHRONOUS NESTED EVENT LOOP until the pop-up is finished.
-    [menu_runner runMenuInView:parent_view_
-                    withBounds:position
-                  initialIndex:selected_item];
-  }
-
-  if (!render_widget_host_) {
-    // Bad news -- my Destroy() was called while I was off running the menu.
-    // Return ASAP, and the release of retainedCocoaView will dealloc my NSView,
-    // which will delete me (whew).
-    return;
-  }
-
-  int window_num = [[parent_view_ window] windowNumber];
-  NSEvent* event =
-      webkit_glue::EventWithMenuAction([menu_runner menuItemWasChosen],
-                                       window_num, item_height,
-                                       [menu_runner indexOfSelectedItem],
-                                       position, view_rect);
-
-  if ([menu_runner menuItemWasChosen]) {
-    // Simulate a menu selection event.
-    const WebMouseEvent& mouse_event =
-        WebInputEventFactory::mouseEvent(event, cocoa_view_);
-    render_widget_host_->ForwardMouseEvent(mouse_event);
-  } else {
-    // Simulate a menu dismiss event.
-    NativeWebKeyboardEvent keyboard_event(event);
-    render_widget_host_->ForwardKeyboardEvent(keyboard_event);
-  }
 }
 
 void RenderWidgetHostViewMac::KillSelf() {
@@ -1000,7 +927,7 @@ void RenderWidgetHostViewMac::AcceleratedSurfaceSetTransportDIB(
 }
 
 void RenderWidgetHostViewMac::AcceleratedSurfaceBuffersSwapped(
-    gfx::PluginWindowHandle window) {
+    gfx::PluginWindowHandle window, uint64 surface_id) {
   CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   PluginViewMap::iterator it = plugin_views_.find(window);
   DCHECK(plugin_views_.end() != it);
@@ -1009,7 +936,7 @@ void RenderWidgetHostViewMac::AcceleratedSurfaceBuffersSwapped(
   }
   DCHECK([it->second isKindOfClass:[AcceleratedPluginView class]]);
 
-  plugin_container_manager_.SetSurfaceWasPaintedTo(window);
+  plugin_container_manager_.SetSurfaceWasPaintedTo(window, surface_id);
   AcceleratedPluginView* view =
       static_cast<AcceleratedPluginView*>(it->second);
   // The surface is hidden until its first paint, to not show gargabe.
@@ -1018,16 +945,15 @@ void RenderWidgetHostViewMac::AcceleratedSurfaceBuffersSwapped(
   [view setSurfaceWasSwapped:YES];
 }
 
-void RenderWidgetHostViewMac::GpuRenderingStateDidChange() {
-  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+void RenderWidgetHostViewMac::UpdateRootGpuViewVisibility(
+    bool show_gpu_widget) {
   // Plugins are destroyed on page navigate. The compositor layer on the other
   // hand is created on demand and then stays alive until its renderer process
   // dies (usually on cross-domain navigation). Instead, only a flag
   // |is_gpu_rendering_active()| is flipped when the compositor output should be
   // shown/hidden.
   // Show/hide the view belonging to the compositor here.
-  plugin_container_manager_.set_gpu_rendering_active(
-      GetRenderWidgetHost()->is_gpu_rendering_active());
+  plugin_container_manager_.set_gpu_rendering_active(show_gpu_widget);
 
   gfx::PluginWindowHandle root_handle =
       plugin_container_manager_.root_container_handle();
@@ -1039,7 +965,25 @@ void RenderWidgetHostViewMac::GpuRenderingStateDidChange() {
     }
     bool visible =
         plugin_container_manager_.SurfaceShouldBeVisible(root_handle);
+    [[it->second window] disableScreenUpdatesUntilFlush];
     [it->second setHidden:!visible];
+  }
+}
+
+void RenderWidgetHostViewMac::HandleDelayedGpuViewHiding() {
+  if (needs_gpu_visibility_update_after_repaint_) {
+    UpdateRootGpuViewVisibility(false);
+    needs_gpu_visibility_update_after_repaint_ = false;
+  }
+}
+
+void RenderWidgetHostViewMac::GpuRenderingStateDidChange() {
+  CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  if (GetRenderWidgetHost()->is_gpu_rendering_active()) {
+    UpdateRootGpuViewVisibility(
+        GetRenderWidgetHost()->is_gpu_rendering_active());
+  } else {
+    needs_gpu_visibility_update_after_repaint_ = true;
   }
 }
 
@@ -1488,6 +1432,7 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
       return;
   }
 
+  const NSUInteger kCtrlCmdKeyMask = NSControlKeyMask | NSCommandKeyMask;
   // Only send a corresponding key press event if there is no marked text.
   if (!hasMarkedText_) {
     if (!textInserted && textToBeInserted_.length() == 1) {
@@ -1499,7 +1444,9 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
       event.skip_in_browser = true;
       widgetHost->ForwardKeyboardEvent(event);
     } else if ((!textInserted || delayEventUntilAfterImeCompostion) &&
-               editCommands_.empty() && [[theEvent characters] length] > 0) {
+               [[theEvent characters] length] > 0 &&
+               (([theEvent modifierFlags] & kCtrlCmdKeyMask) ||
+                (hasEditCommands_ && editCommands_.empty()))) {
       // We don't get insertText: calls if ctrl or cmd is down, or the key event
       // generates an insert command. So synthesize a keypress event for these
       // cases, unless the key event generated any other command.
@@ -1570,6 +1517,8 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
   [self setNeedsDisplayInRect:renderWidgetHostView_->invalid_rect_];
   renderWidgetHostView_->call_set_needs_display_in_rect_pending_ = false;
   renderWidgetHostView_->invalid_rect_ = NSZeroRect;
+
+  renderWidgetHostView_->HandleDelayedGpuViewHiding();
 }
 
 // Fills with white the parts of the area to the right and bottom for |rect|
@@ -1750,6 +1699,16 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
   // somehow that method won't be called when switching among different tabs.
   // See http://crbug.com/47209
   [self cancelComposition];
+
+  NSNumber* direction = [NSNumber numberWithUnsignedInteger:
+      [[self window] keyViewSelectionDirection]];
+  NSDictionary* userInfo =
+      [NSDictionary dictionaryWithObject:direction
+                                  forKey:kSelectionDirection];
+  [[NSNotificationCenter defaultCenter]
+      postNotificationName:kViewDidBecomeFirstResponder
+                    object:self
+                  userInfo:userInfo];
 
   return YES;
 }

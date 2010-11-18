@@ -1511,12 +1511,13 @@ TEST_F(TabStripModelTest, Apps) {
 #elif defined(OS_POSIX)
   FilePath path(FILE_PATH_LITERAL("/foo"));
 #endif
-  Extension extension_app(path);
-  extension_app.mutable_static_data_->launch_web_url = "http://www.google.com";
+  scoped_refptr<Extension> extension_app(new Extension(path,
+                                                       Extension::INVALID));
+  extension_app->launch_web_url_ = "http://www.google.com";
   TabContents* contents1 = CreateTabContents();
-  contents1->SetExtensionApp(&extension_app);
+  contents1->SetExtensionApp(extension_app);
   TabContents* contents2 = CreateTabContents();
-  contents2->SetExtensionApp(&extension_app);
+  contents2->SetExtensionApp(extension_app);
   TabContents* contents3 = CreateTabContents();
 
   SetID(contents1, 1);
@@ -1684,11 +1685,14 @@ TEST_F(TabStripModelTest, Pinning) {
   {
     tabstrip.SetTabPinned(2, true);
 
-    // The pinning should have resulted in a move.
-    ASSERT_EQ(1, observer.GetStateCount());
+    // The pinning should have resulted in a move and a pinned notification.
+    ASSERT_EQ(2, observer.GetStateCount());
     State state(contents3, 0, MockTabStripModelObserver::MOVE);
     state.src_index = 2;
     EXPECT_TRUE(observer.StateEquals(0, state));
+
+    state = State(contents3, 0, MockTabStripModelObserver::PINNED);
+    EXPECT_TRUE(observer.StateEquals(1, state));
 
     // And verify the state.
     EXPECT_EQ("3p 1 2", GetPinnedState(tabstrip));
@@ -1728,10 +1732,13 @@ TEST_F(TabStripModelTest, Pinning) {
   {
     tabstrip.SetTabPinned(0, false);
 
-    ASSERT_EQ(1, observer.GetStateCount());
+    ASSERT_EQ(2, observer.GetStateCount());
     State state(contents3, 1, MockTabStripModelObserver::MOVE);
     state.src_index = 0;
     EXPECT_TRUE(observer.StateEquals(0, state));
+
+    state = State(contents3, 1, MockTabStripModelObserver::PINNED);
+    EXPECT_TRUE(observer.StateEquals(1, state));
 
     // And verify the state.
     EXPECT_EQ("1p 3 2", GetPinnedState(tabstrip));

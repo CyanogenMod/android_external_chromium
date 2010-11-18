@@ -30,6 +30,7 @@
 <link rel="stylesheet" href="options/import_data_overlay.css">
 <link rel="stylesheet" href="options/search_engine_manager.css">
 <link rel="stylesheet" href="options/subpages_tab_controls.css">
+<link rel="stylesheet" href="options/zippy.css">
 <if expr="pp_ifdef('chromeos')">
   <link rel="stylesheet" href="options/about_page.css">
   <link rel="stylesheet" href="options/chromeos_accounts_options_page.css">
@@ -116,12 +117,14 @@
 <script src="options/font_settings.js"></script>
 <script src="options/font_settings_ui.js"></script>
 <script src="options/import_data_overlay.js"></script>
+<script src="options/instant_confirm_overlay.js"></script>
 <script src="options/passwords_exceptions.js"></script>
 <script src="options/passwords_exceptions_list.js"></script>
 <script src="options/personal_options.js"></script>
 <script src="options/search_engine_manager.js"></script>
 <script src="options/search_engine_manager_engine_list.js"></script>
 <script src="options/sync_options.js"></script>
+<script src="options/zippy.js"></script>
 <script>
 
 var AddStartupPageOverlay = options.AddStartupPageOverlay;
@@ -137,6 +140,7 @@ var CookiesView = options.CookiesView;
 var EditSearchEngineOverlay = options.EditSearchEngineOverlay;
 var FontSettings = options.FontSettings;
 var ImportDataOverlay = options.ImportDataOverlay;
+var InstantConfirmOverlay = options.InstantConfirmOverlay;
 var OptionsPage = options.OptionsPage;
 var PasswordsExceptions = options.PasswordsExceptions;
 var PersonalOptions = options.PersonalOptions;
@@ -187,6 +191,7 @@ function load() {
   OptionsPage.registerOverlay(ClearBrowserDataOverlay.getInstance());
   OptionsPage.registerOverlay(EditSearchEngineOverlay.getInstance());
   OptionsPage.registerOverlay(ImportDataOverlay.getInstance());
+  OptionsPage.registerOverlay(InstantConfirmOverlay.getInstance());
 
   if (cr.isChromeOS) {
     OptionsPage.register(AccountsOptions.getInstance());
@@ -254,6 +259,8 @@ function load() {
   // Allow platform specific CSS rules.
   if (cr.isMac)
     document.documentElement.setAttribute('os', 'mac');
+  if (cr.isViews)
+    document.documentElement.setAttribute('toolkit', 'views');
 
   var end = new Date();
   var total = end - start;
@@ -279,6 +286,7 @@ window.onpopstate = function(e) {
   <include src="options/clear_browser_data_overlay.html">
   <include src="options/edit_search_engine_overlay.html">
   <include src="options/import_data_overlay.html">
+  <include src="options/instant_confirm_overlay.html">
   <if expr="pp_ifdef('chromeos')">
      <include src="options/chromeos_language_add_language_overlay.html">
      <include
@@ -304,7 +312,8 @@ window.onpopstate = function(e) {
   <div id="mainview">
      <div class="hidden" id="managed-prefs-banner">
        <span id="managed-prefs-icon"></span>
-       <span i18n-content="managedPrefsBannerText"></span>
+       <span id="managed-prefs-text"
+             i18n-content="managedPrefsBannerText"></span>
      </div>
      <div id="mainview-content">
        <if expr="pp_ifdef('chromeos')">

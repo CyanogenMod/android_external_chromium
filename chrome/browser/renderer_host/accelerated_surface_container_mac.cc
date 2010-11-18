@@ -14,7 +14,7 @@ AcceleratedSurfaceContainerMac::AcceleratedSurfaceContainerMac(
     bool opaque)
     : manager_(manager),
       opaque_(opaque),
-      surface_(NULL),
+      surface_id_(0),
       width_(0),
       height_(0),
       texture_(0),
@@ -25,29 +25,17 @@ AcceleratedSurfaceContainerMac::AcceleratedSurfaceContainerMac(
 }
 
 AcceleratedSurfaceContainerMac::~AcceleratedSurfaceContainerMac() {
-  ReleaseIOSurface();
-}
-
-void AcceleratedSurfaceContainerMac::ReleaseIOSurface() {
-  if (surface_) {
-    CFRelease(surface_);
-    surface_ = NULL;
-  }
 }
 
 void AcceleratedSurfaceContainerMac::SetSizeAndIOSurface(
     int32 width,
     int32 height,
     uint64 io_surface_identifier) {
-  ReleaseIOSurface();
-  IOSurfaceSupport* io_surface_support = IOSurfaceSupport::Initialize();
-  if (io_surface_support) {
-    surface_ = io_surface_support->IOSurfaceLookup(
-        static_cast<uint32>(io_surface_identifier));
-    EnqueueTextureForDeletion();
-    width_ = width;
-    height_ = height;
-  }
+  // Ignore |io_surface_identifier|: The surface hasn't been painted to and
+  // only contains garbage data. Update the surface in |set_was_painted_to()|
+  // instead.
+  width_ = width;
+  height_ = height;
 }
 
 void AcceleratedSurfaceContainerMac::SetSizeAndTransportDIB(
@@ -85,7 +73,7 @@ void AcceleratedSurfaceContainerMac::Draw(CGLContextObj context) {
     texture_pending_deletion_ = 0;
   }
   if (!texture_) {
-    if ((io_surface_support && !surface_) ||
+    if ((io_surface_support && !surface_.get()) ||
         (!io_surface_support && !transport_dib_.get()))
       return;
     glGenTextures(1, &texture_);
@@ -112,18 +100,18 @@ void AcceleratedSurfaceContainerMac::Draw(CGLContextObj context) {
   // When using an IOSurface, the texture does not need to be repeatedly
   // uploaded, just when we've been told we have to.
   if (io_surface_support && texture_needs_upload_) {
-    DCHECK(surface_);
+    DCHECK(surface_.get());
     glBindTexture(target, texture_);
     // Don't think we need to identify a plane.
     GLuint plane = 0;
     io_surface_support->CGLTexImageIOSurface2D(context,
                                                target,
                                                GL_RGBA,
-                                               width_,
-                                               height_,
+                                               surface_width_,
+                                               surface_height_,
                                                GL_BGRA,
                                                GL_UNSIGNED_INT_8_8_8_8_REV,
-                                               surface_,
+                                               surface_.get(),
                                                plane);
     texture_needs_upload_ = false;
   }
@@ -146,6 +134,9 @@ void AcceleratedSurfaceContainerMac::Draw(CGLContextObj context) {
   }
 
   if (texture_) {
+    int texture_width = io_surface_support ? surface_width_ : width_;
+    int texture_height = io_surface_support ? surface_height_ : height_;
+
     // TODO(kbr): convert this to use only OpenGL ES 2.0 functionality.
 
     // TODO(kbr): may need to pay attention to cutout rects.
@@ -153,6 +144,11 @@ void AcceleratedSurfaceContainerMac::Draw(CGLContextObj context) {
     int clipY = clipRect_.y();
     int clipWidth = clipRect_.width();
     int clipHeight = clipRect_.height();
+
+    if (clipX + clipWidth > texture_width)
+      clipWidth = texture_width - clipX;
+    if (clipY + clipHeight > texture_height)
+      clipHeight = texture_height - clipY;
 
     if (opaque_) {
       // Pepper 3D's output is currently considered opaque even if the
@@ -184,21 +180,42 @@ void AcceleratedSurfaceContainerMac::Draw(CGLContextObj context) {
     glEnable(target);
     glBegin(GL_TRIANGLE_STRIP);
 
-      glTexCoord2f(clipX, height_ - clipY);
+      glTexCoord2f(clipX, texture_height - clipY);
       glVertex3f(0, 0, 0);
 
-      glTexCoord2f(clipX + clipWidth, height_ - clipY);
+      glTexCoord2f(clipX + clipWidth, texture_height - clipY);
       glVertex3f(clipWidth, 0, 0);
 
-      glTexCoord2f(clipX, height_ - clipY - clipHeight);
+      glTexCoord2f(clipX, texture_height - clipY - clipHeight);
       glVertex3f(0, clipHeight, 0);
 
-      glTexCoord2f(clipX + clipWidth, height_ - clipY - clipHeight);
+      glTexCoord2f(clipX + clipWidth, texture_height - clipY - clipHeight);
       glVertex3f(clipWidth, clipHeight, 0);
 
     glEnd();
     glDisable(target);
   }
+}
+
+void AcceleratedSurfaceContainerMac::set_was_painted_to(uint64 surface_id) {
+  if (surface_id && (!surface_ || surface_id != surface_id_)) {
+    // Keep the surface that was most recently painted to around.
+    if (IOSurfaceSupport* io_surface_support = IOSurfaceSupport::Initialize()) {
+      CFTypeRef surface = io_surface_support->IOSurfaceLookup(
+          static_cast<uint32>(surface_id));
+      // Can fail if IOSurface with that ID was already released by the
+      // gpu process or the plugin process. We will get a |set_was_painted_to()|
+      // message with a new surface soon in that case.
+      if (surface) {
+        surface_.reset(surface);
+        surface_id_ = surface_id;
+        surface_width_ = io_surface_support->IOSurfaceGetWidth(surface_);
+        surface_height_ = io_surface_support->IOSurfaceGetHeight(surface_);
+        EnqueueTextureForDeletion();
+      }
+    }
+  }
+  was_painted_to_ = true;
 }
 
 void AcceleratedSurfaceContainerMac::EnqueueTextureForDeletion() {

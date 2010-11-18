@@ -58,7 +58,6 @@ void ExtensionBrowserTest::SetUpCommandLine(CommandLine* command_line) {
 bool ExtensionBrowserTest::LoadExtensionImpl(const FilePath& path,
                                              bool incognito_enabled) {
   ExtensionsService* service = browser()->profile()->GetExtensionsService();
-  size_t num_before = service->extensions()->size();
   {
     NotificationRegistrar registrar;
     registrar.Add(this, NotificationType::EXTENSION_LOADED,
@@ -66,15 +65,26 @@ bool ExtensionBrowserTest::LoadExtensionImpl(const FilePath& path,
     service->LoadExtension(path);
     ui_test_utils::RunMessageLoop();
   }
-  size_t num_after = service->extensions()->size();
-  if (num_after != (num_before + 1))
+
+  // Find the extension by iterating backwards since it is likely last.
+  FilePath extension_path = path;
+  file_util::AbsolutePath(&extension_path);
+  const Extension* extension = NULL;
+  for (ExtensionList::const_reverse_iterator iter =
+           service->extensions()->rbegin();
+       iter != service->extensions()->rend(); ++iter) {
+    if ((*iter)->path() == extension_path) {
+      extension = *iter;
+      break;
+    }
+  }
+  if (!extension)
     return false;
 
   if (incognito_enabled) {
     // Enable the incognito bit in the extension prefs. The call to
     // OnExtensionInstalled ensures the other extension prefs are set up with
     // the defaults.
-    Extension* extension = service->extensions()->at(num_after - 1);
     service->extension_prefs()->OnExtensionInstalled(
         extension, Extension::ENABLED, false);
     service->SetIsIncognitoEnabled(extension, true);
@@ -97,14 +107,15 @@ class MockAbortExtensionInstallUI : public ExtensionInstallUI {
   MockAbortExtensionInstallUI() : ExtensionInstallUI(NULL) {}
 
   // Simulate a user abort on an extension installation.
-  virtual void ConfirmInstall(Delegate* delegate, Extension* extension) {
+  virtual void ConfirmInstall(Delegate* delegate, const Extension* extension) {
     delegate->InstallUIAbort();
     MessageLoopForUI::current()->Quit();
   }
 
-  virtual void ConfirmUninstall(Delegate* delegate, Extension* extension) {}
+  virtual void ConfirmUninstall(Delegate* delegate,
+                                const Extension* extension) {}
 
-  virtual void OnInstallSuccess(Extension* extension) {}
+  virtual void OnInstallSuccess(const Extension* extension) {}
 
   virtual void OnInstallFailure(const std::string& error) {}
 };
@@ -142,21 +153,19 @@ bool ExtensionBrowserTest::InstallOrUpdateExtension(const std::string& id,
 
   size_t num_after = service->extensions()->size();
   if (num_after != (num_before + expected_change)) {
-    LOG(INFO) << "Num extensions before: "
-              << base::IntToString(num_before) << " "
-              << "num after: " << base::IntToString(num_after) << " "
-              << "Installed extensions follow:";
+    VLOG(1) << "Num extensions before: " << base::IntToString(num_before)
+            << " num after: " << base::IntToString(num_after)
+            << " Installed extensions follow:";
 
     for (size_t i = 0; i < service->extensions()->size(); ++i)
-      LOG(INFO) << "  " << service->extensions()->at(i)->id();
+      VLOG(1) << "  " << (*service->extensions())[i]->id();
 
-    LOG(INFO) << "Errors follow:";
+    VLOG(1) << "Errors follow:";
     const std::vector<std::string>* errors =
         ExtensionErrorReporter::GetInstance()->GetErrors();
     for (std::vector<std::string>::const_iterator iter = errors->begin();
-         iter != errors->end(); ++iter) {
-      LOG(INFO) << *iter;
-    }
+         iter != errors->end(); ++iter)
+      VLOG(1) << *iter;
 
     return false;
   }
@@ -280,48 +289,47 @@ void ExtensionBrowserTest::Observe(NotificationType type,
                                    const NotificationDetails& details) {
   switch (type.value) {
     case NotificationType::EXTENSION_LOADED:
-      last_loaded_extension_id_ = Details<Extension>(details).ptr()->id();
-      LOG(INFO) << "Got EXTENSION_LOADED notification.";
+      last_loaded_extension_id_ = Details<const Extension>(details).ptr()->id();
+      VLOG(1) << "Got EXTENSION_LOADED notification.";
       MessageLoopForUI::current()->Quit();
       break;
 
     case NotificationType::EXTENSION_UPDATE_DISABLED:
-      LOG(INFO) << "Got EXTENSION_UPDATE_DISABLED notification.";
+      VLOG(1) << "Got EXTENSION_UPDATE_DISABLED notification.";
       MessageLoopForUI::current()->Quit();
       break;
 
     case NotificationType::EXTENSION_HOST_DID_STOP_LOADING:
-      LOG(INFO) << "Got EXTENSION_HOST_DID_STOP_LOADING notification.";
+      VLOG(1) << "Got EXTENSION_HOST_DID_STOP_LOADING notification.";
       MessageLoopForUI::current()->Quit();
       break;
 
     case NotificationType::EXTENSION_INSTALLED:
-      LOG(INFO) << "Got EXTENSION_INSTALLED notification.";
+      VLOG(1) << "Got EXTENSION_INSTALLED notification.";
       ++extension_installs_observed_;
       MessageLoopForUI::current()->Quit();
       break;
 
     case NotificationType::EXTENSION_INSTALL_ERROR:
-      LOG(INFO) << "Got EXTENSION_INSTALL_ERROR notification.";
+      VLOG(1) << "Got EXTENSION_INSTALL_ERROR notification.";
       MessageLoopForUI::current()->Quit();
       break;
 
     case NotificationType::EXTENSION_PROCESS_CREATED:
-      LOG(INFO) << "Got EXTENSION_PROCESS_CREATED notification.";
+      VLOG(1) << "Got EXTENSION_PROCESS_CREATED notification.";
       MessageLoopForUI::current()->Quit();
       break;
 
     case NotificationType::EXTENSION_PROCESS_TERMINATED:
-      LOG(INFO) << "Got EXTENSION_PROCESS_TERMINATED notification.";
+      VLOG(1) << "Got EXTENSION_PROCESS_TERMINATED notification.";
       MessageLoopForUI::current()->Quit();
       break;
 
     case NotificationType::EXTENSION_PAGE_ACTION_COUNT_CHANGED: {
       LocationBarTesting* location_bar =
           browser()->window()->GetLocationBar()->GetLocationBarForTesting();
-      LOG(INFO) << "Got EXTENSION_PAGE_ACTION_COUNT_CHANGED "
-                << "notification. Number of page actions: "
-                << location_bar->PageActionCount() << "";
+      VLOG(1) << "Got EXTENSION_PAGE_ACTION_COUNT_CHANGED notification. Number "
+                 "of page actions: " << location_bar->PageActionCount();
       if (location_bar->PageActionCount() ==
           target_page_action_count_) {
         target_page_action_count_ = -1;
@@ -333,9 +341,9 @@ void ExtensionBrowserTest::Observe(NotificationType type,
     case NotificationType::EXTENSION_PAGE_ACTION_VISIBILITY_CHANGED: {
       LocationBarTesting* location_bar =
           browser()->window()->GetLocationBar()->GetLocationBarForTesting();
-      LOG(INFO) << "Got EXTENSION_PAGE_ACTION_VISIBILITY_CHANGED "
-                << "notification. Number of visible page actions: "
-                << location_bar->PageActionVisibleCount();
+      VLOG(1) << "Got EXTENSION_PAGE_ACTION_VISIBILITY_CHANGED notification. "
+                 "Number of visible page actions: "
+              << location_bar->PageActionVisibleCount();
       if (location_bar->PageActionVisibleCount() ==
           target_visible_page_action_count_) {
         target_visible_page_action_count_ = -1;

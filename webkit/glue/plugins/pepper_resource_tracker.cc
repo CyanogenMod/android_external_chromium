@@ -9,7 +9,7 @@
 
 #include "base/logging.h"
 #include "base/rand_util.h"
-#include "third_party/ppapi/c/pp_resource.h"
+#include "ppapi/c/pp_resource.h"
 #include "webkit/glue/plugins/pepper_resource.h"
 
 namespace pepper {
@@ -64,6 +64,16 @@ bool ResourceTracker::UnrefResource(PP_Resource res) {
   } else {
     return false;
   }
+}
+
+void ResourceTracker::ForceDeletePluginResourceRefs(PP_Resource res) {
+  ResourceMap::iterator i = live_resources_.find(res);
+  if (i != live_resources_.end())
+    return;  // Nothing to do.
+
+  i->second.second = 0;
+  i->second.first->StoppedTracking();
+  live_resources_.erase(i);
 }
 
 uint32 ResourceTracker::GetLiveObjectsForModule(PluginModule* module) const {

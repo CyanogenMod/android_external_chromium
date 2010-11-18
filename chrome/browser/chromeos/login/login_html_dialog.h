@@ -29,7 +29,7 @@ class LoginHtmlDialog : public HtmlDialogUIDelegate {
   enum Style {
     STYLE_GENERIC, // Use generic CreateChromeWindow as a host.
     STYLE_BUBBLE   // Use chromeos::BubbleWindow as a host.
-  } style_;
+  };
 
   LoginHtmlDialog(Delegate* delegate,
                   gfx::NativeWindow parent_window,
@@ -57,6 +57,7 @@ class LoginHtmlDialog : public HtmlDialogUIDelegate {
   virtual std::string GetDialogArgs() const { return std::string(); }
   virtual void OnDialogClosed(const std::string& json_retval);
   virtual void OnCloseContents(TabContents* source, bool* out_close_dialog);
+  virtual bool ShouldShowDialogTitle() const { return true; }
 
  private:
   // Notifications receiver.
@@ -65,6 +66,7 @@ class LoginHtmlDialog : public HtmlDialogUIDelegate {
   gfx::NativeWindow parent_window_;
   std::wstring title_;
   GURL url_;
+  Style style_;
 
   // Dialog display size.
   int width_;

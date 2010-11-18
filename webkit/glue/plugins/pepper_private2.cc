@@ -10,8 +10,8 @@
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
 #include "googleurl/src/gurl.h"
-#include "third_party/ppapi/c/dev/pp_file_info_dev.h"
-#include "third_party/ppapi/c/dev/ppb_file_io_dev.h"
+#include "ppapi/c/dev/pp_file_info_dev.h"
+#include "ppapi/c/dev/ppb_file_io_dev.h"
 #include "webkit/glue/plugins/pepper_error_util.h"
 #include "webkit/glue/plugins/pepper_plugin_delegate.h"
 #include "webkit/glue/plugins/pepper_plugin_instance.h"
@@ -210,6 +210,15 @@ void FreeModuleLocalDirContents(PP_Module module,
   delete contents;
 }
 
+bool NavigateToURL(PP_Instance pp_instance,
+                   const char* url,
+                   const char* target) {
+  PluginInstance* instance = ResourceTracker::Get()->GetInstance(pp_instance);
+  if (!instance)
+    return false;
+  return instance->NavigateToURL(url, target);
+}
+
 const PPB_Private2 ppb_private2 = {
   &SetInstanceAlwaysOnTop,
   &Private2::DrawGlyphs,
@@ -221,6 +230,7 @@ const PPB_Private2 ppb_private2 = {
   &QueryModuleLocalFile,
   &GetModuleLocalDirContents,
   &FreeModuleLocalDirContents,
+  &NavigateToURL,
 };
 
 }  // namespace

@@ -6,15 +6,16 @@
 
 #include "webkit/glue/plugins/pepper_private.h"
 
+#include "unicode/usearch.h"
+
 #include "app/resource_bundle.h"
 #include "base/metrics/histogram.h"
 #include "base/utf_string_conversions.h"
 #include "grit/webkit_resources.h"
 #include "grit/webkit_strings.h"
 #include "skia/ext/platform_canvas.h"
-#include "third_party/ppapi/c/pp_resource.h"
+#include "ppapi/c/pp_resource.h"
 #include "third_party/skia/include/core/SkBitmap.h"
-#include "third_party/icu/public/i18n/unicode/usearch.h"
 #include "webkit/glue/webkit_glue.h"
 #include "webkit/glue/plugins/pepper_image_data.h"
 #include "webkit/glue/plugins/pepper_plugin_delegate.h"
@@ -258,6 +259,12 @@ void HistogramPDFPageCount(int count) {
   UMA_HISTOGRAM_COUNTS_10000("PDF.PageCount", count);
 }
 
+void UserMetricsRecordAction(PP_Var action) {
+  scoped_refptr<StringVar> action_str(StringVar::FromPPVar(action));
+  if (action_str)
+    webkit_glue::UserMetricsRecordAction(action_str->value());
+}
+
 const PPB_Private ppb_private = {
   &GetLocalizedString,
   &GetResourceImage,
@@ -267,7 +274,8 @@ const PPB_Private ppb_private = {
   &DidStartLoading,
   &DidStopLoading,
   &SetContentRestriction,
-  &HistogramPDFPageCount
+  &HistogramPDFPageCount,
+  &UserMetricsRecordAction
 };
 
 }  // namespace

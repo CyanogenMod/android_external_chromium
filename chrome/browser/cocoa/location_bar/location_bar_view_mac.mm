@@ -11,7 +11,7 @@
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/app/chrome_dll_resource.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/alternate_nav_url_fetcher.h"
 #import "chrome/browser/app_controller_mac.h"
 #import "chrome/browser/autocomplete/autocomplete_edit_view_mac.h"
@@ -56,6 +56,13 @@
 #include "skia/ext/skia_utils_mac.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
+namespace {
+
+// Vertical space between the bottom edge of the location_bar and the first run
+// bubble arrow point.
+const static int kFirstRunBubbleYOffset = 1;
+
+}
 
 // TODO(shess): This code is mostly copied from the gtk
 // implementation.  Make sure it's all appropriate and flesh it out.
@@ -117,9 +124,15 @@ void LocationBarViewMac::ShowFirstRunBubbleInternal(
   if (!field_ || ![field_ window])
     return;
 
-  // The bubble needs to be just below the Omnibox and slightly to the right
-  // of the left omnibox icon, so shift x and y co-ordinates.
-  const NSPoint kOffset = NSMakePoint(1, 4);
+  // The first run bubble's left edge should line up with the left edge of the
+  // omnibox. This is different from other bubbles, which line up at a point
+  // set by their top arrow. Because the BaseBubbleController adjusts the
+  // window origin left to account for the arrow spacing, the first run bubble
+  // moves the window origin right by this spacing, so that the
+  // BaseBubbleController will move it back to the correct position.
+  const NSPoint kOffset = NSMakePoint(
+      info_bubble::kBubbleArrowXOffset + info_bubble::kBubbleArrowWidth/2.0,
+      kFirstRunBubbleYOffset);
   [FirstRunBubbleController showForView:field_ offset:kOffset profile:profile_];
 }
 
@@ -236,6 +249,11 @@ void LocationBarViewMac::OnAutocompleteWillAccept() {
 
 bool LocationBarViewMac::OnCommitSuggestedText(const std::wstring& typed_text) {
   return false;
+}
+
+void LocationBarViewMac::OnSetSuggestedSearchText(
+    const string16& suggested_text) {
+  SetSuggestedText(suggested_text);
 }
 
 void LocationBarViewMac::OnPopupBoundsChanged(const gfx::Rect& bounds) {
@@ -474,10 +492,19 @@ NSPoint LocationBarViewMac::GetBookmarkBubblePoint() const {
 
 NSPoint LocationBarViewMac::GetPageInfoBubblePoint() const {
   AutocompleteTextFieldCell* cell = [field_ cell];
-  const NSRect frame = [cell frameForDecoration:location_icon_decoration_.get()
-                                        inFrame:[field_ bounds]];
-  const NSPoint point = location_icon_decoration_->GetBubblePointInFrame(frame);
-  return [field_ convertPoint:point toView:nil];
+  if (ev_bubble_decoration_->IsVisible()) {
+    const NSRect frame = [cell frameForDecoration:ev_bubble_decoration_.get()
+                                          inFrame:[field_ bounds]];
+    const NSPoint point = ev_bubble_decoration_->GetBubblePointInFrame(frame);
+    return [field_ convertPoint:point toView:nil];
+  } else {
+    const NSRect frame =
+        [cell frameForDecoration:location_icon_decoration_.get()
+                         inFrame:[field_ bounds]];
+    const NSPoint point =
+        location_icon_decoration_->GetBubblePointInFrame(frame);
+    return [field_ convertPoint:point toView:nil];
+  }
 }
 
 NSImage* LocationBarViewMac::GetKeywordImage(const std::wstring& keyword) {

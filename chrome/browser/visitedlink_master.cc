@@ -21,6 +21,7 @@
 #include "base/rand_util.h"
 #include "base/stack_container.h"
 #include "base/string_util.h"
+#include "base/thread_restrictions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history.h"
@@ -251,6 +252,10 @@ void VisitedLinkMaster::InitMembers(Listener* listener, Profile* profile) {
 }
 
 bool VisitedLinkMaster::Init() {
+  // We probably shouldn't be loading this from the UI thread,
+  // but it does need to happen early on in startup.
+  //   http://code.google.com/p/chromium/issues/detail?id=24163
+  base::ThreadRestrictions::ScopedAllowIO allow_io;
   if (!InitFromFile())
     return InitFromScratch(suppress_rebuild_);
   return true;
@@ -670,14 +675,7 @@ bool VisitedLinkMaster::CreateURLTable(int32 num_entries, bool init_to_empty) {
   if (!shared_memory_)
     return false;
 
-  if (!shared_memory_->Create(std::string() /* anonymous */,
-                              false /* read-write */, false /* create */,
-                              alloc_size)) {
-    return false;
-  }
-
-  // Map into our process.
-  if (!shared_memory_->Map(alloc_size)) {
+  if (!shared_memory_->CreateAndMapAnonymous(alloc_size)) {
     delete shared_memory_;
     shared_memory_ = NULL;
     return false;
@@ -889,6 +887,9 @@ void VisitedLinkMaster::OnTableRebuildComplete(
       // Send an update notification to all child processes.
       listener_->NewTable(shared_memory_);
 
+      // We shouldn't be writing the table from the main thread!
+      //   http://code.google.com/p/chromium/issues/detail?id=24163
+      base::ThreadRestrictions::ScopedAllowIO allow_io;
       WriteFullTable();
     }
   }

@@ -30,6 +30,7 @@ namespace net {
 class BoundNetLog;
 class CertVerifier;
 class ClientSocketHandle;
+class DnsRRResolver;
 class SSLHostInfo;
 class X509Certificate;
 
@@ -43,14 +44,15 @@ class SSLClientSocketNSS : public SSLClientSocket {
   SSLClientSocketNSS(ClientSocketHandle* transport_socket,
                      const std::string& hostname,
                      const SSLConfig& ssl_config,
-                     SSLHostInfo* ssl_host_info);
+                     SSLHostInfo* ssl_host_info,
+                     DnsRRResolver* dnsrr_resolver);
   ~SSLClientSocketNSS();
 
   // SSLClientSocket methods:
   virtual void GetSSLInfo(SSLInfo* ssl_info);
   virtual void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info);
   virtual NextProtoStatus GetNextProto(std::string* proto);
-  virtual void UseDNSSEC(DNSSECProvider*);
+  virtual void UseDNSSEC(DNSSECProvider* provider);
 
   // ClientSocket methods:
   virtual int Connect(CompletionCallback* callback);
@@ -62,6 +64,7 @@ class SSLClientSocketNSS : public SSLClientSocket {
   virtual void SetSubresourceSpeculation();
   virtual void SetOmniboxSpeculation();
   virtual bool WasEverUsed() const;
+  virtual bool UsingTCPFastOpen() const;
 
   // Socket methods:
   virtual int Read(IOBuffer* buf, int buf_len, CompletionCallback* callback);
@@ -73,13 +76,16 @@ class SSLClientSocketNSS : public SSLClientSocket {
   // Initializes NSS SSL options.  Returns a net error code.
   int InitializeSSLOptions();
 
+  // Initializes the socket peer name in SSL.  Returns a net error code.
+  int InitializeSSLPeerName();
+
   void InvalidateSessionIfBadCertificate();
 #if defined(OS_MACOSX) || defined(OS_WIN)
   // Creates an OS certificate from a DER-encoded certificate.
   static X509Certificate::OSCertHandle CreateOSCert(const SECItem& der_cert);
 #endif
   X509Certificate* UpdateServerCert();
-  void CheckSecureRenegotiation() const;
+  void UpdateConnectionStatus();
   void DoReadCallback(int result);
   void DoWriteCallback(int result);
   void DoConnectCallback(int result);
@@ -101,6 +107,7 @@ class SSLClientSocketNSS : public SSLClientSocket {
   int DoVerifyCertComplete(int result);
   int DoPayloadRead();
   int DoPayloadWrite();
+  void LogConnectionTypeMetrics() const;
   int Init();
   void SaveSnapStartInfo();
   bool LoadSnapStartInfo();
@@ -118,11 +125,19 @@ class SSLClientSocketNSS : public SSLClientSocket {
   static SECStatus OwnAuthCertHandler(void* arg, PRFileDesc* socket,
                                       PRBool checksig, PRBool is_server);
   // NSS calls this when client authentication is requested.
+#if defined(NSS_PLATFORM_CLIENT_AUTH)
+  static SECStatus PlatformClientAuthHandler(void* arg,
+                                             PRFileDesc* socket,
+                                             CERTDistNames* ca_names,
+                                             CERTCertList** result_certs,
+                                             void** result_private_key);
+#else
   static SECStatus ClientAuthHandler(void* arg,
                                      PRFileDesc* socket,
                                      CERTDistNames* ca_names,
                                      CERTCertificate** result_certificate,
                                      SECKEYPrivateKey** result_private_key);
+#endif
   // NSS calls this when handshake is completed.  We pass 'this' as the second
   // argument.
   static void HandshakeCallback(PRFileDesc* socket, void* arg);
@@ -161,7 +176,12 @@ class SSLClientSocketNSS : public SSLClientSocket {
   // converted into an X509Certificate object (server_cert_).
   scoped_refptr<X509Certificate> server_cert_;
   CERTCertificate* server_cert_nss_;
-  CertVerifyResult server_cert_verify_result_;
+  // |server_cert_verify_result_| points at the verification result, which may,
+  // or may not be, |&local_server_cert_verify_result_|, depending on whether
+  // we used an SSLHostInfo's verification.
+  const CertVerifyResult* server_cert_verify_result_;
+  CertVerifyResult local_server_cert_verify_result_;
+  int ssl_connection_status_;
 
   // Stores client authentication information between ClientAuthHandler and
   // GetSSLCertRequestInfo calls.
@@ -184,9 +204,12 @@ class SSLClientSocketNSS : public SSLClientSocket {
   // HTTPS connections.
   bool eset_mitm_detected_;
 
-  // True iff we believe that the user has NetNanny intercepting our HTTPS
-  // connections.
-  bool netnanny_mitm_detected_;
+  // True iff |ssl_host_info_| contained a predicted certificate chain and
+  // that we found the prediction to be correct.
+  bool predicted_cert_chain_correct_;
+
+  // True if the peer name has been initialized.
+  bool peername_initialized_;
 
   // This pointer is owned by the caller of UseDNSSEC.
   DNSSECProvider* dnssec_provider_;
@@ -222,16 +245,7 @@ class SSLClientSocketNSS : public SSLClientSocket {
   bool predicted_npn_proto_used_;
 
   scoped_ptr<SSLHostInfo> ssl_host_info_;
-
-#if defined(OS_WIN)
-  // A CryptoAPI in-memory certificate store.  We use it for two purposes:
-  // 1. Import server certificates into this store so that we can verify and
-  //    display the certificates using CryptoAPI.
-  // 2. Copy client certificates from the "MY" system certificate store into
-  //    this store so that we can close the system store when we finish
-  //    searching for client certificates.
-  static HCERTSTORE cert_store_;
-#endif
+  DnsRRResolver* const dnsrr_resolver_;
 };
 
 }  // namespace net

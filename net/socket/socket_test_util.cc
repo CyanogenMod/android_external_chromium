@@ -513,6 +513,10 @@ bool MockSSLClientSocket::WasEverUsed() const {
   return transport_->socket()->WasEverUsed();
 }
 
+bool MockSSLClientSocket::UsingTCPFastOpen() const {
+  return transport_->socket()->UsingTCPFastOpen();
+}
+
 int MockSSLClientSocket::Read(net::IOBuffer* buf, int buf_len,
                               net::CompletionCallback* callback) {
   return transport_->socket()->Read(buf, buf_len, callback);
@@ -1011,7 +1015,8 @@ SSLClientSocket* MockClientSocketFactory::CreateSSLClientSocket(
     ClientSocketHandle* transport_socket,
     const std::string& hostname,
     const SSLConfig& ssl_config,
-    SSLHostInfo* ssl_host_info) {
+    SSLHostInfo* ssl_host_info,
+    DnsRRResolver* dnsrr_resolver) {
   MockSSLClientSocket* socket =
       new MockSSLClientSocket(transport_socket, hostname, ssl_config,
                               ssl_host_info, mock_ssl_data_.GetNext());
@@ -1060,7 +1065,8 @@ SSLClientSocket* DeterministicMockClientSocketFactory::CreateSSLClientSocket(
     ClientSocketHandle* transport_socket,
     const std::string& hostname,
     const SSLConfig& ssl_config,
-    SSLHostInfo* ssl_host_info) {
+    SSLHostInfo* ssl_host_info,
+    DnsRRResolver* dnsrr_resolver) {
   MockSSLClientSocket* socket =
       new MockSSLClientSocket(transport_socket, hostname, ssl_config,
                               ssl_host_info, mock_ssl_data_.GetNext());

@@ -17,6 +17,7 @@
 #include "base/string_util.h"
 #include "base/stringprintf.h"
 #include "base/thread.h"
+#include "base/thread_restrictions.h"
 #include "base/time.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
@@ -222,7 +223,7 @@ static void RecordStatsDelayed(
 void BootTimesLoader::WriteLoginTimes(
     const std::vector<TimeMarker> login_times) {
   const int kMinTimeMillis = 1;
-  const int kMaxTimeMillis = 30;
+  const int kMaxTimeMillis = 30000;
   const int kNumBuckets = 100;
   const char kUmaPrefix[] = "BootTime.";
   const FilePath log_path(kLogPath);
@@ -281,7 +282,7 @@ BootTimesLoader::Stats BootTimesLoader::GetCurrentStats() {
   const FilePath kProcUptime("/proc/uptime");
   const FilePath kDiskStat("/sys/block/sda/stat");
   Stats stats;
-
+  base::ThreadRestrictions::ScopedAllowIO allow_io;
   file_util::ReadFileToString(kProcUptime, &stats.uptime);
   file_util::ReadFileToString(kDiskStat, &stats.disk);
   return stats;
@@ -334,7 +335,7 @@ void BootTimesLoader::Observe(
     // and the page is reloaded.
     if (NetworkStateNotifier::Get()->is_connected()) {
       // Post difference between first tab and login success time.
-      AddLoginTimeMarker("LoginDone", false);
+      AddLoginTimeMarker("LoginDone", true);
       RecordCurrentStats(kChromeFirstRender);
       // Post chrome first render stat.
       registrar_.Remove(this, NotificationType::LOAD_START,

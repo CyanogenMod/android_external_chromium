@@ -19,6 +19,8 @@ using net::SSLFalseStartBlacklist;
 
 static const unsigned kBuckets = SSLFalseStartBlacklist::kBuckets;
 
+static bool verbose = false;
+
 static int
 usage(const char* argv0) {
   fprintf(stderr, "Usage: %s <blacklist file> <output .c file>\n", argv0);
@@ -48,7 +50,8 @@ static void RemoveDuplicateEntries(std::vector<std::string>* hosts) {
   for (std::vector<std::string>::const_iterator
        i = hosts->begin(); i != hosts->end(); i++) {
     if (hosts_set.count(*i)) {
-      fprintf(stderr, "Removing duplicate entry for %s\n", i->c_str());
+      if (verbose)
+        fprintf(stderr, "Removing duplicate entry for %s\n", i->c_str());
       continue;
     }
     hosts_set.insert(*i);
@@ -93,7 +96,8 @@ static void RemoveRedundantEntries(std::vector<std::string>* hosts) {
     if (parent.empty()) {
       ret.push_back(*i);
     } else {
-      fprintf(stderr, "Removing %s as redundant\n", i->c_str());
+      if (verbose)
+        fprintf(stderr, "Removing %s as redundant\n", i->c_str());
     }
   }
 
@@ -124,7 +128,7 @@ int main(int argc, char** argv) {
 
   const char* input_file = argv[1];
   const char* output_file = argv[2];
-  FILE* input = fopen(input_file, "r");
+  FILE* input = fopen(input_file, "rb");
   if (!input) {
     perror("open");
     return usage(argv[0]);
@@ -143,11 +147,16 @@ int main(int argc, char** argv) {
   }
 
   char* buffer = static_cast<char*>(malloc(input_size));
-  if (fread(buffer, input_size, 1, input) != 1) {
-    perror("fread");
-    free(buffer);
-    fclose(input);
-    return 1;
+  long done = 0;
+  while (done < input_size) {
+    size_t n = fread(buffer + done, 1, input_size - done, input);
+    if (n == 0) {
+      perror("fread");
+      free(buffer);
+      fclose(input);
+      return 1;
+    }
+    done += n;
   }
   fclose(input);
 
@@ -158,8 +167,12 @@ int main(int argc, char** argv) {
   bool non_whitespace_seen = false;
   for (long i = 0; i <= input_size; i++) {
     if (i == input_size || buffer[i] == '\n') {
-      if (!is_comment && non_whitespace_seen)
-        hosts.push_back(std::string(&buffer[line_start], i - line_start));
+      if (!is_comment && non_whitespace_seen) {
+        long len = i - line_start;
+        if (i > 0 && buffer[i-1] == '\r')
+          len--;
+        hosts.push_back(std::string(&buffer[line_start], len));
+      }
       is_comment = false;
       non_whitespace_seen = false;
       line_start = i + 1;
@@ -168,7 +181,7 @@ int main(int argc, char** argv) {
 
     if (i == line_start && buffer[i] == '#')
       is_comment = true;
-    if (buffer[i] != ' ' && buffer[i] != '\t')
+    if (buffer[i] != ' ' && buffer[i] != '\t' && buffer[i] != '\r')
       non_whitespace_seen = true;
   }
   free(buffer);
@@ -185,7 +198,7 @@ int main(int argc, char** argv) {
   }
 
   fprintf(stderr, "Using %d entry hash table\n", kBuckets);
-  uint16 table[kBuckets];
+  uint32 table[kBuckets];
   std::vector<std::string> buckets[kBuckets];
 
   for (std::vector<std::string>::const_iterator
@@ -199,11 +212,6 @@ int main(int argc, char** argv) {
   std::string table_data;
   unsigned max_bucket_size = 0;
   for (unsigned i = 0; i < kBuckets; i++) {
-    if (table_data.size() > 65535) {
-      fprintf(stderr, "Hash table overflowed a uint16_t index\n");
-      return 3;
-    }
-
     if (buckets[i].size() > max_bucket_size)
       max_bucket_size = buckets[i].size();
 
@@ -231,31 +239,24 @@ int main(int argc, char** argv) {
   fprintf(out, "#include \"base/basictypes.h\"\n\n");
   fprintf(out, "#include \"net/base/ssl_false_start_blacklist.h\"\n\n");
   fprintf(out, "namespace net {\n\n");
-  fprintf(out, "const uint16 SSLFalseStartBlacklist::kHashTable[%d + 1] = {\n",
+  fprintf(out, "const uint32 SSLFalseStartBlacklist::kHashTable[%d + 1] = {\n",
           kBuckets);
   for (unsigned i = 0; i < kBuckets; i++) {
-    fprintf(out, "  %d,\n", (int) table[i]);
+    fprintf(out, "  %u,\n", (unsigned) table[i]);
   }
-  fprintf(out, "  %d,\n", (int) table_data.size());
+  fprintf(out, "  %u,\n", (unsigned) table_data.size());
   fprintf(out, "};\n\n");
 
-  fprintf(out, "const char SSLFalseStartBlacklist::kHashData[] = \n");
+  fprintf(out, "const char SSLFalseStartBlacklist::kHashData[] = {\n");
   for (unsigned i = 0, line_length = 0; i < table_data.size(); i++) {
     if (line_length == 0)
-      fprintf(out, "  \"");
+      fprintf(out, "  ");
     uint8 c = static_cast<uint8>(table_data[i]);
-    if (c < 32 || c > 127 || c == '"') {
-      fprintf(out, "\\%c%c%c", '0' + ((c >> 6) & 7), '0' + ((c >> 3) & 7),
-              '0' + (c & 7));
-      line_length += 4;
-    } else {
-      fprintf(out, "%c", c);
-      line_length++;
-    }
+    line_length += fprintf(out, "%d, ", c);
     if (i == table_data.size() - 1) {
-      fprintf(out, "\";\n");
+      fprintf(out, "\n};\n");
     } else if (line_length >= 70) {
-      fprintf(out, "\"\n");
+      fprintf(out, "\n");
       line_length = 0;
     }
   }

@@ -4,22 +4,26 @@
 
 #include "chrome/browser/speech/speech_recognition_request.h"
 
+#include "app/l10n_util.h"
 #include "base/json/json_reader.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/common/net/url_request_context_getter.h"
+#include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/url_request/url_request_status.h"
 
 namespace {
 
+const char* const kDefaultSpeechRecognitionUrl =
+    "http://www.google.com/speech-api/v1/recognize?client=chromium&";
 const char* const kHypothesesString = "hypotheses";
 const char* const kUtteranceString = "utterance";
+const char* const kConfidenceString = "confidence";
 
-bool ParseServerResponse(const std::string& response_body, string16* value) {
-  DCHECK(value);
-
+bool ParseServerResponse(const std::string& response_body,
+                         speech_input::SpeechInputResultArray* result) {
   if (response_body.empty()) {
     LOG(WARNING) << "ParseServerResponse: Response was empty.";
     return false;
@@ -61,21 +65,38 @@ bool ParseServerResponse(const std::string& response_body, string16* value) {
     return false;
   }
 
-  Value* first_hypotheses = NULL;
-  if (!hypotheses_list->Get(0, &first_hypotheses)) {
-    LOG(WARNING) << "ParseServerResponse: Unable to read hypotheses value.";
-    return false;
+  size_t index = 0;
+  for (; index < hypotheses_list->GetSize(); ++index) {
+    Value* hypothesis = NULL;
+    if (!hypotheses_list->Get(index, &hypothesis)) {
+      LOG(WARNING) << "ParseServerResponse: Unable to read hypothesis value.";
+      break;
+    }
+    DCHECK(hypothesis);
+    if (!hypothesis->IsType(Value::TYPE_DICTIONARY)) {
+      LOG(WARNING) << "ParseServerResponse: Unexpected value type "
+                   << hypothesis->GetType();
+      break;
+    }
+
+    const DictionaryValue* hypothesis_value =
+        static_cast<DictionaryValue*>(hypothesis);
+    string16 utterance;
+    if (!hypothesis_value->GetString(kUtteranceString, &utterance)) {
+      LOG(WARNING) << "ParseServerResponse: Missing utterance value.";
+      break;
+    }
+
+    // It is not an error if the 'confidence' field is missing.
+    double confidence = 0.0;
+    hypothesis_value->GetReal(kConfidenceString, &confidence);
+
+    result->push_back(speech_input::SpeechInputResultItem(utterance,
+                                                          confidence));
   }
-  DCHECK(first_hypotheses);
-  if (!first_hypotheses->IsType(Value::TYPE_DICTIONARY)) {
-    LOG(WARNING) << "ParseServerResponse: Unexpected value type "
-                 << first_hypotheses->GetType();
-    return false;
-  }
-  const DictionaryValue* first_hypotheses_value =
-      static_cast<DictionaryValue*>(first_hypotheses);
-  if (!first_hypotheses_value->GetString(kUtteranceString, value)) {
-    LOG(WARNING) << "ParseServerResponse: Missing utterance value.";
+
+  if (index < hypotheses_list->GetSize()) {
+    result->clear();
     return false;
   }
 
@@ -89,19 +110,36 @@ namespace speech_input {
 int SpeechRecognitionRequest::url_fetcher_id_for_tests = 0;
 
 SpeechRecognitionRequest::SpeechRecognitionRequest(
-    URLRequestContextGetter* context, const GURL& url, Delegate* delegate)
+    URLRequestContextGetter* context, Delegate* delegate)
     : url_context_(context),
-      url_(url),
       delegate_(delegate) {
   DCHECK(delegate);
 }
 
-bool SpeechRecognitionRequest::Send(const std::string& content_type,
+SpeechRecognitionRequest::~SpeechRecognitionRequest() {}
+
+bool SpeechRecognitionRequest::Send(const std::string& language,
+                                    const std::string& grammar,
+                                    const std::string& content_type,
                                     const std::string& audio_data) {
   DCHECK(!url_fetcher_.get());
 
-  url_fetcher_.reset(URLFetcher::Create(
-      url_fetcher_id_for_tests, url_, URLFetcher::POST, this));
+  std::vector<std::string> parts;
+  if (!language.empty()) {
+    parts.push_back("lang=" + EscapeQueryParamValue(language, true));
+  } else {
+    std::string app_locale = l10n_util::GetApplicationLocale("");
+    parts.push_back("lang=" + EscapeQueryParamValue(app_locale, true));
+  }
+
+  if (!grammar.empty())
+    parts.push_back("grammar=" + EscapeQueryParamValue(grammar, true));
+  GURL url(std::string(kDefaultSpeechRecognitionUrl) + JoinString(parts, '&'));
+
+  url_fetcher_.reset(URLFetcher::Create(url_fetcher_id_for_tests,
+                                        url,
+                                        URLFetcher::POST,
+                                        this));
   url_fetcher_->set_upload_data(content_type, audio_data);
   url_fetcher_->set_request_context(url_context_);
 
@@ -124,16 +162,15 @@ void SpeechRecognitionRequest::OnURLFetchComplete(
     const ResponseCookies& cookies,
     const std::string& data) {
   DCHECK_EQ(url_fetcher_.get(), source);
-  DCHECK(url_.possibly_invalid_spec() == url.possibly_invalid_spec());
 
   bool error = !status.is_success() || response_code != 200;
-  string16 value;
+  SpeechInputResultArray result;
   if (!error)
-    error = !ParseServerResponse(data, &value);
+    error = !ParseServerResponse(data, &result);
   url_fetcher_.reset();
 
   DVLOG(1) << "SpeechRecognitionRequest: Invoking delegate with result.";
-  delegate_->SetRecognitionResult(error, value);
+  delegate_->SetRecognitionResult(error, result);
 }
 
 }  // namespace speech_input

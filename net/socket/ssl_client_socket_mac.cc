@@ -614,6 +614,14 @@ bool SSLClientSocketMac::WasEverUsed() const {
   return false;
 }
 
+bool SSLClientSocketMac::UsingTCPFastOpen() const {
+  if (transport_.get() && transport_->socket()) {
+    return transport_->socket()->UsingTCPFastOpen();
+  }
+  NOTREACHED();
+  return false;
+}
+
 int SSLClientSocketMac::Read(IOBuffer* buf, int buf_len,
                              CompletionCallback* callback) {
   DCHECK(completed_handshake());
@@ -1124,8 +1132,8 @@ int SSLClientSocketMac::DidCompleteHandshake() {
   DCHECK(!server_cert_ || renegotiating_);
   VLOG(1) << "Handshake completed, next verify cert";
 
-  scoped_refptr<X509Certificate> new_server_cert =
-      GetServerCert(ssl_context_);
+  scoped_refptr<X509Certificate> new_server_cert(
+      GetServerCert(ssl_context_));
   if (!new_server_cert)
     return ERR_UNEXPECTED;
 

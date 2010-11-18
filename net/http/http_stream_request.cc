@@ -21,7 +21,6 @@
 #include "net/socket/client_socket_pool.h"
 #include "net/socket/socks_client_socket_pool.h"
 #include "net/socket/ssl_client_socket.h"
-#include "net/socket/ssl_client_socket.h"
 #include "net/socket/ssl_client_socket_pool.h"
 #include "net/socket/tcp_client_socket_pool.h"
 #include "net/spdy/spdy_http_stream.h"
@@ -481,9 +480,9 @@ int HttpStreamRequest::DoInitConnection() {
   } else {
     ProxyServer proxy_server = proxy_info()->proxy_server();
     proxy_host_port.reset(new HostPortPair(proxy_server.host_port_pair()));
-    scoped_refptr<TCPSocketParams> proxy_tcp_params =
+    scoped_refptr<TCPSocketParams> proxy_tcp_params(
         new TCPSocketParams(*proxy_host_port, request_info().priority,
-                            request_info().referrer, disable_resolver_cache);
+                            request_info().referrer, disable_resolver_cache));
 
     if (proxy_info()->is_http() || proxy_info()->is_https()) {
       GURL authentication_url = request_info().url;
@@ -727,8 +726,12 @@ int HttpStreamRequest::DoCreateStream() {
   if (connection_->socket() && !connection_->is_reused())
     SetSocketMotivation();
 
+  const ProxyServer& proxy_server = proxy_info()->proxy_server();
+
   if (!using_spdy_) {
-    stream_.reset(new HttpBasicStream(connection_.release()));
+    bool using_proxy = (proxy_info()->is_http() || proxy_info()->is_https()) &&
+        request_info().url.SchemeIs("http");
+    stream_.reset(new HttpBasicStream(connection_.release(), using_proxy));
     return OK;
   }
 
@@ -738,7 +741,6 @@ int HttpStreamRequest::DoCreateStream() {
   SpdySessionPool* spdy_pool = session_->spdy_session_pool();
   scoped_refptr<SpdySession> spdy_session;
 
-  const ProxyServer& proxy_server = proxy_info()->proxy_server();
   HostPortProxyPair pair(endpoint_, proxy_server);
   if (spdy_pool->HasSession(pair)) {
     // We have a SPDY session to the origin server.  This might be a direct
@@ -850,17 +852,17 @@ scoped_refptr<SSLSocketParams> HttpStreamRequest::GenerateSslParams(
   if (request_info().load_flags & LOAD_VERIFY_EV_CERT)
     ssl_config()->verify_ev_cert = true;
 
-    if (proxy_info()->proxy_server().scheme() == ProxyServer::SCHEME_HTTP ||
-        proxy_info()->proxy_server().scheme() == ProxyServer::SCHEME_HTTPS) {
-      ssl_config()->mitm_proxies_allowed = true;
-    }
+  if (proxy_info()->proxy_server().scheme() == ProxyServer::SCHEME_HTTP ||
+      proxy_info()->proxy_server().scheme() == ProxyServer::SCHEME_HTTPS) {
+    ssl_config()->mitm_proxies_allowed = true;
+  }
 
-  scoped_refptr<SSLSocketParams> ssl_params =
+  scoped_refptr<SSLSocketParams> ssl_params(
       new SSLSocketParams(tcp_params, socks_params, http_proxy_params,
                           proxy_scheme, hostname,
                           *ssl_config(), load_flags,
                           force_spdy_always_ && force_spdy_over_ssl_,
-                          want_spdy_over_npn);
+                          want_spdy_over_npn));
 
   return ssl_params;
 }

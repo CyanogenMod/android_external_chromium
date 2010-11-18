@@ -14,6 +14,7 @@
 #include "app/system_monitor.h"
 #include "base/at_exit.h"
 #include "base/command_line.h"
+#include "base/debug/trace_event.h"
 #include "base/file_path.h"
 #include "base/file_util.h"
 #include "base/mac/scoped_nsautorelease_pool.h"
@@ -27,8 +28,8 @@
 #include "base/string_split.h"
 #include "base/string_util.h"
 #include "base/sys_string_conversions.h"
+#include "base/thread_restrictions.h"
 #include "base/time.h"
-#include "base/trace_event.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
@@ -62,9 +63,9 @@
 #include "chrome/browser/profile.h"
 #include "chrome/browser/profile_manager.h"
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
+#include "chrome/browser/search_engines/search_engine_type.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
-#include "chrome/browser/search_engines/template_url_prepopulate_data.h"
 #include "chrome/browser/service/service_process_control.h"
 #include "chrome/browser/service/service_process_control_manager.h"
 #include "chrome/browser/shell_integration.h"
@@ -93,6 +94,8 @@
 #include "net/http/http_stream_factory.h"
 #include "net/socket/client_socket_pool_base.h"
 #include "net/socket/client_socket_pool_manager.h"
+#include "net/socket/tcp_client_socket.h"
+#include "net/spdy/spdy_session.h"
 #include "net/spdy/spdy_session_pool.h"
 
 #if defined(USE_LINUX_BREAKPAD)
@@ -194,6 +197,13 @@ void BrowserMainParts::EarlyInitialization() {
     net::SSLConfigService::AllowMITMProxies();
   if (parsed_command_line().HasSwitch(switches::kEnableSnapStart))
     net::SSLConfigService::EnableSnapStart();
+  if (parsed_command_line().HasSwitch(
+          switches::kEnableDNSCertProvenanceChecking)) {
+    net::SSLConfigService::EnableDNSCertProvenanceChecking();
+  }
+
+  if (parsed_command_line().HasSwitch(switches::kEnableTcpFastOpen))
+    net::set_tcp_fastopen_enabled(true);
 
   PostEarlyInitialization();
 }
@@ -208,8 +218,8 @@ void BrowserMainParts::ConnectionFieldTrial() {
   const base::FieldTrial::Probability kConnectDivisor = 100;
   const base::FieldTrial::Probability kConnectProbability = 1;  // 1% prob.
 
-  scoped_refptr<base::FieldTrial> connect_trial =
-      new base::FieldTrial("ConnCountImpact", kConnectDivisor);
+  scoped_refptr<base::FieldTrial> connect_trial(
+      new base::FieldTrial("ConnCountImpact", kConnectDivisor));
 
   const int connect_5 = connect_trial->AppendGroup("conn_count_5",
                                                    kConnectProbability);
@@ -253,8 +263,8 @@ void BrowserMainParts::SocketTimeoutFieldTrial() {
   // 1% probability for all experimental settings.
   const base::FieldTrial::Probability kSocketTimeoutProbability = 1;
 
-  scoped_refptr<base::FieldTrial> socket_timeout_trial =
-      new base::FieldTrial("IdleSktToImpact", kIdleSocketTimeoutDivisor);
+  scoped_refptr<base::FieldTrial> socket_timeout_trial(
+      new base::FieldTrial("IdleSktToImpact", kIdleSocketTimeoutDivisor));
 
   const int socket_timeout_5 =
       socket_timeout_trial->AppendGroup("idle_timeout_5",
@@ -289,8 +299,8 @@ void BrowserMainParts::ProxyConnectionsFieldTrial() {
   // 25% probability
   const base::FieldTrial::Probability kProxyConnectionProbability = 1;
 
-  scoped_refptr<base::FieldTrial> proxy_connection_trial =
-      new base::FieldTrial("ProxyConnectionImpact", kProxyConnectionsDivisor);
+  scoped_refptr<base::FieldTrial> proxy_connection_trial(
+      new base::FieldTrial("ProxyConnectionImpact", kProxyConnectionsDivisor));
 
   // The number of max sockets per group cannot be greater than the max number
   // of sockets per proxy server.  We tried using 8, and it can easily
@@ -340,8 +350,8 @@ void BrowserMainParts::SpdyFieldTrial() {
     const base::FieldTrial::Probability kSpdyDivisor = 100;
     // 10% to preclude SPDY.
     base::FieldTrial::Probability npnhttp_probability = 10;
-    scoped_refptr<base::FieldTrial> trial =
-        new base::FieldTrial("SpdyImpact", kSpdyDivisor);
+    scoped_refptr<base::FieldTrial> trial(
+        new base::FieldTrial("SpdyImpact", kSpdyDivisor));
     // npn with only http support, no spdy.
     int npn_http_grp = trial->AppendGroup("npn_with_http", npnhttp_probability);
     // npn with spdy support.
@@ -358,6 +368,14 @@ void BrowserMainParts::SpdyFieldTrial() {
       CHECK(!is_spdy_trial);
     }
   }
+  if (parsed_command_line().HasSwitch(switches::kMaxSpdyConcurrentStreams)) {
+    int value = 0;
+    base::StringToInt(parsed_command_line().GetSwitchValueASCII(
+            switches::kMaxSpdyConcurrentStreams),
+        &value);
+    if (value > 0)
+      net::SpdySession::set_max_concurrent_streams(value);
+  }
 }
 
 // If neither --enable-content-prefetch or --disable-content-prefetch
@@ -370,8 +388,8 @@ void BrowserMainParts::PrefetchFieldTrial() {
   } else {
     const base::FieldTrial::Probability kPrefetchDivisor = 1000;
     const base::FieldTrial::Probability no_prefetch_probability = 500;
-    scoped_refptr<base::FieldTrial> trial =
-        new base::FieldTrial("Prefetch", kPrefetchDivisor);
+    scoped_refptr<base::FieldTrial> trial(
+        new base::FieldTrial("Prefetch", kPrefetchDivisor));
     trial->AppendGroup("ContentPrefetchDisabled", no_prefetch_probability);
     const int yes_prefetch_grp =
         trial->AppendGroup("ContentPrefetchEnabled",
@@ -397,9 +415,9 @@ void BrowserMainParts::ConnectBackupJobsFieldTrial() {
     const base::FieldTrial::Probability kConnectBackupJobsDivisor = 100;
     // 1% probability.
     const base::FieldTrial::Probability kConnectBackupJobsProbability = 1;
-    scoped_refptr<base::FieldTrial> trial =
+    scoped_refptr<base::FieldTrial> trial(
         new base::FieldTrial("ConnnectBackupJobs",
-                             kConnectBackupJobsDivisor);
+                             kConnectBackupJobsDivisor));
     trial->AppendGroup("ConnectBackupJobsDisabled",
                        kConnectBackupJobsProbability);
     const int connect_backup_jobs_enabled =
@@ -468,6 +486,14 @@ void HandleTestParameters(const CommandLine& command_line) {
 
 void RunUIMessageLoop(BrowserProcess* browser_process) {
   TRACE_EVENT_BEGIN("BrowserMain:MESSAGE_LOOP", 0, "");
+
+#if !defined(OS_CHROMEOS)
+  // If the UI thread blocks, the whole UI is unresponsive.
+  // Do not allow disk IO from the UI thread.
+  // TODO(evanm): turn this on for all platforms.
+  //   http://code.google.com/p/chromium/issues/detail?id=60211
+  base::ThreadRestrictions::SetIOAllowed(false);
+#endif
 
 #if defined(TOOLKIT_VIEWS)
   views::AcceleratorHandler accelerator_handler;
@@ -784,9 +810,10 @@ class StubLogin : public chromeos::LoginStatusConsumer {
   }
 
   void OnLoginSuccess(const std::string& username,
+                      const std::string& password,
                       const GaiaAuthConsumer::ClientLoginResult& credentials,
                       bool pending_requests) {
-    chromeos::LoginUtils::Get()->CompleteLogin(username, credentials);
+    chromeos::LoginUtils::Get()->CompleteLogin(username, password, credentials);
     delete this;
   }
 
@@ -1061,8 +1088,8 @@ int BrowserMain(const MainFunctionParams& parameters) {
   // for posting tasks via NewRunnableMethod. Its deleted when it goes out of
   // scope. Even though NewRunnableMethod does AddRef and Release, the object
   // will not be deleted after the Task is executed.
-  scoped_refptr<HistogramSynchronizer> histogram_synchronizer =
-      new HistogramSynchronizer();
+  scoped_refptr<HistogramSynchronizer> histogram_synchronizer(
+      new HistogramSynchronizer());
 
   // Initialize the prefs of the local state.
   browser::RegisterLocalState(local_state);
@@ -1169,6 +1196,10 @@ int BrowserMain(const MainFunctionParams& parameters) {
   }
 #endif
 
+#if defined(USE_X11)
+  SetBrowserX11ErrorHandlers();
+#endif
+
   // Profile creation ----------------------------------------------------------
 
 #if defined(OS_CHROMEOS)
@@ -1196,22 +1227,9 @@ int BrowserMain(const MainFunctionParams& parameters) {
     VLOG(1) << "Relaunching browser for user: " << username;
     chromeos::UserManager::Get()->UserLoggedIn(username);
 
-    // Redirect logs.
-    FilePath user_data_dir;
-    PathService::Get(chrome::DIR_USER_DATA, &user_data_dir);
-    ProfileManager* profile_manager = g_browser_process->profile_manager();
-    // The default profile will have been changed because the ProfileManager
-    // will process the notification that the UserManager sends out.
-
-    logging::RedirectChromeLogging(
-        user_data_dir.Append(profile_manager->GetCurrentProfileDir()),
-        *(CommandLine::ForCurrentProcess()),
-        logging::DELETE_OLD_LOG_FILE);
+    // Redirects Chrome logging to the user data dir.
+    logging::RedirectChromeLogging(parsed_command_line);
   }
-#endif
-
-#if defined(USE_X11)
-  SetBrowserX11ErrorHandlers();
 #endif
 
   // Modifies the current command line based on active experiments on
@@ -1366,8 +1384,8 @@ int BrowserMain(const MainFunctionParams& parameters) {
   // layout globally.
   base::FieldTrial::Probability kSDCH_DIVISOR = 1000;
   base::FieldTrial::Probability kSDCH_DISABLE_PROBABILITY = 1;  // 0.1% prob.
-  scoped_refptr<base::FieldTrial> sdch_trial =
-      new base::FieldTrial("GlobalSdch", kSDCH_DIVISOR);
+  scoped_refptr<base::FieldTrial> sdch_trial(
+      new base::FieldTrial("GlobalSdch", kSDCH_DIVISOR));
 
   // Use default of "" so that all domains are supported.
   std::string sdch_supported_domain("");
@@ -1509,15 +1527,15 @@ int BrowserMain(const MainFunctionParams& parameters) {
         profile->GetTemplateURLModel()->GetDefaultSearchProvider();
     // The default engine can be NULL if the administrator has disabled
     // default search.
-    TemplateURLPrepopulateData::SearchEngineType search_engine_type =
+    SearchEngineType search_engine_type =
         default_search_engine ? default_search_engine->search_engine_type() :
-                                TemplateURLPrepopulateData::SEARCH_ENGINE_OTHER;
+                                SEARCH_ENGINE_OTHER;
     // Record the search engine chosen.
     if (master_prefs.run_search_engine_experiment) {
       UMA_HISTOGRAM_ENUMERATION(
           "Chrome.SearchSelectExperiment",
           search_engine_type,
-          TemplateURLPrepopulateData::SEARCH_ENGINE_MAX);
+          SEARCH_ENGINE_MAX);
       // If the selection has been randomized, also record the winner by slot.
       if (master_prefs.randomize_search_engine_experiment) {
         size_t engine_pos = profile->GetTemplateURLModel()->
@@ -1529,7 +1547,7 @@ int BrowserMain(const MainFunctionParams& parameters) {
           UMA_HISTOGRAM_ENUMERATION(
               experiment_type,
               search_engine_type,
-              TemplateURLPrepopulateData::SEARCH_ENGINE_MAX);
+              SEARCH_ENGINE_MAX);
         } else {
           NOTREACHED() << "Invalid search engine selection slot.";
         }
@@ -1538,7 +1556,7 @@ int BrowserMain(const MainFunctionParams& parameters) {
       UMA_HISTOGRAM_ENUMERATION(
           "Chrome.SearchSelectExempt",
           search_engine_type,
-          TemplateURLPrepopulateData::SEARCH_ENGINE_MAX);
+          SEARCH_ENGINE_MAX);
     }
   }
 #endif

@@ -29,16 +29,14 @@
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/renderer_host/backing_store_x.h"
-#include "chrome/browser/renderer_host/gpu_view_host.h"
 #include "chrome/browser/renderer_host/gtk_im_context_wrapper.h"
 #include "chrome/browser/renderer_host/gtk_key_bindings_handler.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/renderer_host/render_widget_host.h"
-#include "chrome/browser/renderer_host/video_layer_x.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/native_web_keyboard_event.h"
-#include "gfx/gtk_util.h"
+#include "gfx/gtk_preserve_window.h"
 #include "third_party/WebKit/WebKit/chromium/public/gtk/WebInputEventFactory.h"
 #include "webkit/glue/plugins/webplugin.h"
 #include "webkit/glue/webaccessibility.h"
@@ -71,17 +69,16 @@ using WebKit::WebMouseWheelEvent;
 class RenderWidgetHostViewGtkWidget {
  public:
   static GtkWidget* CreateNewWidget(RenderWidgetHostViewGtk* host_view) {
-    GtkWidget* widget = gtk_fixed_new();
+    GtkWidget* widget = gtk_preserve_window_new();
     gtk_widget_set_name(widget, "chrome-render-widget-host-view");
-    gtk_fixed_set_has_window(GTK_FIXED(widget), TRUE);
     // We manually double-buffer in Paint() because Paint() may or may not be
     // called in repsonse to an "expose-event" signal.
     gtk_widget_set_double_buffered(widget, FALSE);
     gtk_widget_set_redraw_on_allocate(widget, FALSE);
 #if defined(NDEBUG)
-    gtk_widget_modify_bg(widget, GTK_STATE_NORMAL, &gfx::kGdkWhite);
+    gtk_widget_modify_bg(widget, GTK_STATE_NORMAL, &gtk_util::kGdkWhite);
 #else
-    gtk_widget_modify_bg(widget, GTK_STATE_NORMAL, &gfx::kGdkGreen);
+    gtk_widget_modify_bg(widget, GTK_STATE_NORMAL, &gtk_util::kGdkGreen);
 #endif
     // Allow the browser window to be resized freely.
     gtk_widget_set_size_request(widget, 0, 0);
@@ -266,6 +263,10 @@ class RenderWidgetHostViewGtkWidget {
     if (event->type == GDK_2BUTTON_PRESS || event->type == GDK_3BUTTON_PRESS)
       return FALSE;
 
+    // If we don't have focus already, this mouse click will focus us.
+    if (!gtk_widget_is_focus(widget))
+      host_view->host_->OnMouseActivate();
+
     // Confirm existing composition text on mouse click events, to make sure
     // the input caret won't be moved with an ongoing composition session.
     host_view->im_context_->ConfirmComposition();
@@ -353,9 +354,9 @@ class RenderWidgetHostViewGtkWidget {
 
   static gboolean ClientEvent(GtkWidget* widget, GdkEventClient* event,
                               RenderWidgetHostViewGtk* host_view) {
-    LOG(INFO) << "client event type: " << event->message_type
-              << " data_format: " << event->data_format
-              << " data: " << event->data.l;
+    VLOG(1) << "client event type: " << event->message_type
+            << " data_format: " << event->data_format
+            << " data: " << event->data.l;
     return true;
   }
 
@@ -471,7 +472,6 @@ RenderWidgetHostView* RenderWidgetHostView::CreateViewForWidget(
 
 RenderWidgetHostViewGtk::RenderWidgetHostViewGtk(RenderWidgetHost* widget_host)
     : host_(widget_host),
-      enable_gpu_rendering_(false),
       about_to_validate_and_paint_(false),
       is_hidden_(false),
       is_loading_(false),
@@ -485,11 +485,6 @@ RenderWidgetHostViewGtk::RenderWidgetHostViewGtk(RenderWidgetHost* widget_host)
       dragged_at_horizontal_edge_(0),
       dragged_at_vertical_edge_(0) {
   host_->set_view(this);
-
-  // Enable experimental out-of-process GPU rendering.
-  CommandLine* command_line = CommandLine::ForCurrentProcess();
-  enable_gpu_rendering_ =
-      command_line->HasSwitch(switches::kEnableGPURendering);
 }
 
 RenderWidgetHostViewGtk::~RenderWidgetHostViewGtk() {
@@ -749,36 +744,9 @@ bool RenderWidgetHostViewGtk::IsPopup() {
 
 BackingStore* RenderWidgetHostViewGtk::AllocBackingStore(
     const gfx::Size& size) {
-  if (enable_gpu_rendering_) {
-    // Use a special GPU accelerated backing store.
-    if (!gpu_view_host_.get()) {
-      // Here we lazily make the GpuViewHost. This must be allocated when we
-      // have a native view realized, which happens sometime after creation
-      // when our owner puts us in the parent window.
-      DCHECK(GetNativeView());
-      XID window_xid = x11_util::GetX11WindowFromGtkWidget(GetNativeView());
-      gpu_view_host_.reset(new GpuViewHost(host_, window_xid));
-    }
-    return gpu_view_host_->CreateBackingStore(size);
-  }
-
   return new BackingStoreX(host_, size,
                            x11_util::GetVisualFromGtkWidget(view_.get()),
                            gtk_widget_get_visual(view_.get())->depth);
-}
-
-VideoLayer* RenderWidgetHostViewGtk::AllocVideoLayer(const gfx::Size& size) {
-  if (enable_gpu_rendering_) {
-    // TODO(scherkus): is it possible for a video layer to be allocated before a
-    // backing store?
-    DCHECK(gpu_view_host_.get())
-        << "AllocVideoLayer() called before AllocBackingStore()";
-    return gpu_view_host_->CreateVideoLayer(size);
-  }
-
-  return new VideoLayerX(host_, size,
-                         x11_util::GetVisualFromGtkWidget(view_.get()),
-                         gtk_widget_get_visual(view_.get())->depth);
 }
 
 void RenderWidgetHostViewGtk::SetBackground(const SkBitmap& background) {
@@ -839,17 +807,6 @@ void RenderWidgetHostViewGtk::ModifyEventForEdgeDragging(
 }
 
 void RenderWidgetHostViewGtk::Paint(const gfx::Rect& damage_rect) {
-  if (enable_gpu_rendering_) {
-    // When we're proxying painting, we don't actually display the web page
-    // ourselves.
-    if (gpu_view_host_.get())
-      gpu_view_host_->OnWindowPainted();
-
-    // Erase the background. This will prevent a flash of black when resizing
-    // or exposing the window. White is usually better than black.
-    return;
-  }
-
   // If the GPU process is rendering directly into the View,
   // call the compositor directly.
   RenderWidgetHost* render_widget_host = GetRenderWidgetHost();
@@ -876,26 +833,11 @@ void RenderWidgetHostViewGtk::Paint(const gfx::Rect& damage_rect) {
     // period where this object isn't attached to a window but hasn't been
     // Destroy()ed yet and it receives paint messages...
     if (window) {
-      gfx::Rect drop_shadow_area(0, 0, kMaxWindowWidth,
-                                 gtk_util::kInfoBarDropShadowHeight);
-      bool drop_shadow = host_->IsRenderView() &&
-          static_cast<RenderViewHost*>(host_)->delegate()->GetViewDelegate()->
-              ShouldDrawDropShadow() &&
-          drop_shadow_area.Intersects(paint_rect);
-
-      if (!visually_deemphasized_ && !drop_shadow) {
+      if (!visually_deemphasized_) {
         // In the common case, use XCopyArea. We don't draw more than once, so
         // we don't need to double buffer.
         backing_store->XShowRect(
             paint_rect, x11_util::GetX11WindowFromGtkWidget(view_.get()));
-
-        // Paint the video layer using XCopyArea.
-        // TODO(scherkus): implement VideoLayerX::CairoShow() for grey
-        // blending.
-        VideoLayerX* video_layer = static_cast<VideoLayerX*>(
-            host_->video_layer());
-        if (video_layer)
-          video_layer->XShow(x11_util::GetX11WindowFromGtkWidget(view_.get()));
       } else {
         // If the grey blend is showing, we make two drawing calls. Use double
         // buffering to prevent flicker. Use CairoShowRect because XShowRect
@@ -915,15 +857,9 @@ void RenderWidgetHostViewGtk::Paint(const gfx::Rect& damage_rect) {
         backing_store->CairoShowRect(damage_rect, GDK_DRAWABLE(window));
 
         cairo_t* cr = gdk_cairo_create(window);
-        if (visually_deemphasized_) {
-          gdk_cairo_rectangle(cr, &rect);
-          cairo_set_source_rgba(cr, 0, 0, 0, 0.7);
-          cairo_fill(cr);
-        }
-        if (drop_shadow) {
-          gtk_util::DrawTopDropShadowForRenderView(
-              cr, gfx::Point(), damage_rect);
-        }
+        gdk_cairo_rectangle(cr, &rect);
+        cairo_set_source_rgba(cr, 0, 0, 0, 0.7);
+        cairo_fill(cr);
         cairo_destroy(cr);
 
         gdk_window_end_paint(window);

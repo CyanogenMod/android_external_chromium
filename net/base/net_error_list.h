@@ -50,7 +50,7 @@ NET_ERROR(FILE_TOO_BIG, -8)
 // invalid assumption.
 NET_ERROR(UNEXPECTED, -9)
 
-// Permission to access a resource was denied.
+// Permission to access a resource, other than the network, was denied.
 NET_ERROR(ACCESS_DENIED, -10)
 
 // The operation failed because of unimplemented functionality.
@@ -66,7 +66,7 @@ NET_ERROR(OUT_OF_MEMORY, -13)
 // from the expectation.
 NET_ERROR(UPLOAD_FILE_CHANGED, -14)
 
-// The socket is not connected
+// The socket is not connected.
 NET_ERROR(SOCKET_NOT_CONNECTED, -15)
 
 // A connection was closed (corresponding to a TCP FIN).
@@ -191,10 +191,7 @@ NET_ERROR(SSL_SNAP_START_NPN_MISPREDICTION, -131)
 // give the user a helpful error message rather than have the connection hang.
 NET_ERROR(ESET_ANTI_VIRUS_SSL_INTERCEPTION, -132)
 
-// We detected NetNanny intercepting our HTTPS connections. Since this product
-// is False Start intolerant, we return this error so that we can give the user
-// a helpful error message rather than have the connection hang.
-NET_ERROR(NETNANNY_SSL_INTERCEPTION, -133)
+// Missing -133. Feel free to reuse in the future.
 
 // The permission to use the SSL client certificate's private key was denied.
 NET_ERROR(SSL_CLIENT_AUTH_PRIVATE_KEY_ACCESS_DENIED, -134)
@@ -207,6 +204,11 @@ NET_ERROR(PROXY_CERTIFICATE_INVALID, -136)
 
 // An error occurred when trying to do a name resolution (DNS).
 NET_ERROR(NAME_RESOLUTION_FAILED, -137)
+
+// Permission to access the network was denied. This is used to distinguish
+// errors that were most likely caused by a firewall from other access denied
+// errors. See also ERR_ACCESS_DENIED.
+NET_ERROR(NETWORK_ACCESS_DENIED, -138)
 
 // Certificate error codes
 //

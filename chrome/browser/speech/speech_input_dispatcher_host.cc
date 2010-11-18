@@ -140,12 +140,15 @@ bool SpeechInputDispatcherHost::OnMessageReceived(
 void SpeechInputDispatcherHost::OnStartRecognition(
     int render_view_id,
     int request_id,
-    const gfx::Rect& element_rect) {
+    const gfx::Rect& element_rect,
+    const std::string& language,
+    const std::string& grammar) {
   int caller_id = callers_->CreateId(resource_message_filter_process_id_,
                                      render_view_id, request_id);
   manager()->StartRecognition(this, caller_id,
                               resource_message_filter_process_id_,
-                              render_view_id, element_rect);
+                              render_view_id, element_rect,
+                              language, grammar);
 }
 
 void SpeechInputDispatcherHost::OnCancelRecognition(int render_view_id,
@@ -173,8 +176,8 @@ void SpeechInputDispatcherHost::SendMessageToRenderView(IPC::Message* message,
       &RenderViewHost::Send, message);
 }
 
-void SpeechInputDispatcherHost::SetRecognitionResult(int caller_id,
-                                                     const string16& result) {
+void SpeechInputDispatcherHost::SetRecognitionResult(
+    int caller_id, const SpeechInputResultArray& result) {
   VLOG(1) << "SpeechInputDispatcherHost::SetRecognitionResult enter";
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
   int caller_render_view_id = callers_->render_view_id(caller_id);

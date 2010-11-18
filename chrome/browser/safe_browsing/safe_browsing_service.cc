@@ -1,7 +1,6 @@
 // Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-//
 
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
 
@@ -56,6 +55,24 @@ struct SafeBrowsingService::WhiteListedEntry {
   std::string domain;
   UrlCheckResult result;
 };
+
+SafeBrowsingService::UnsafeResource::UnsafeResource()
+    : resource_type(ResourceType::MAIN_FRAME),
+      threat_type(URL_SAFE),
+      client(NULL),
+      render_process_host_id(-1),
+      render_view_id(-1) {
+}
+
+SafeBrowsingService::UnsafeResource::~UnsafeResource() {}
+
+SafeBrowsingService::SafeBrowsingCheck::SafeBrowsingCheck()
+    : client(NULL),
+      need_get_hash(false),
+      result(URL_SAFE) {
+}
+
+SafeBrowsingService::SafeBrowsingCheck::~SafeBrowsingCheck() {}
 
 SafeBrowsingService::SafeBrowsingService()
     : database_(NULL),
@@ -619,7 +636,7 @@ SafeBrowsingService::UrlCheckResult SafeBrowsingService::GetResultFromListname(
     return URL_MALWARE;
   }
 
-  SB_DLOG(INFO) << "Unknown safe browsing list " << list_name;
+  DVLOG(1) << "Unknown safe browsing list " << list_name;
   return URL_SAFE;
 }
 
@@ -652,8 +669,8 @@ void SafeBrowsingService::Start() {
   }
 
   // We will issue network fetches using the default profile's request context.
-  scoped_refptr<URLRequestContextGetter> request_context_getter =
-      GetDefaultProfile()->GetRequestContext();
+  scoped_refptr<URLRequestContextGetter> request_context_getter(
+      GetDefaultProfile()->GetRequestContext());
 
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
@@ -808,9 +825,9 @@ void SafeBrowsingService::ReportSafeBrowsingHit(
   if (!enabled_)
     return;
 
-  DLOG(INFO) << "ReportSafeBrowsingHit: " << malicious_url << " " << page_url
-             << " " << referrer_url << " " << is_subresource
-             << " " << threat_type;
+  DVLOG(1) << "ReportSafeBrowsingHit: " << malicious_url << " " << page_url
+           << " " << referrer_url << " " << is_subresource << " "
+           << threat_type;
   protocol_manager_->ReportSafeBrowsingHit(malicious_url, page_url,
                                            referrer_url, is_subresource,
                                            threat_type);

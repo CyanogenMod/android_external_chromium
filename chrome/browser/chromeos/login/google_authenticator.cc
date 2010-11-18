@@ -24,6 +24,7 @@
 #include "chrome/browser/chromeos/login/authentication_notification_details.h"
 #include "chrome/browser/chromeos/login/login_status_consumer.h"
 #include "chrome/browser/chromeos/login/ownership_service.h"
+#include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/profile_manager.h"
 #include "chrome/common/chrome_paths.h"
@@ -56,6 +57,8 @@ const int kPassHashLen = 32;
 
 GoogleAuthenticator::GoogleAuthenticator(LoginStatusConsumer* consumer)
     : Authenticator(consumer),
+      user_manager_(UserManager::Get()),
+      hosted_policy_(GaiaAuthenticator2::HostedAccountsAllowed),
       unlock_(false),
       try_again_(true),
       checked_for_localaccount_(false) {
@@ -89,7 +92,7 @@ void GoogleAuthenticator::TryClientLogin() {
       GaiaConstants::kContactsService,
       login_token_,
       login_captcha_,
-      GaiaAuthenticator2::HostedAccountsAllowed);
+      hosted_policy_);
 
   BrowserThread::PostDelayedTask(
       BrowserThread::UI,
@@ -111,7 +114,8 @@ void GoogleAuthenticator::PrepareClientLoginAttempt(
 }
 
 void GoogleAuthenticator::ClearClientLoginAttempt() {
-  password_.clear();
+  // Not clearing the password, because we may need to pass it to the
+  // sync service if login is successful.
   login_token_.clear();
   login_captcha_.clear();
 }
@@ -141,23 +145,19 @@ bool GoogleAuthenticator::AuthenticateToLogin(
 
 bool GoogleAuthenticator::AuthenticateToUnlock(const std::string& username,
                                                const std::string& password) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   username_.assign(Canonicalize(username));
   ascii_hash_.assign(HashPassword(password));
   unlock_ = true;
-  LoadLocalaccount(kLocalaccountFile);
-  if (!localaccount_.empty() && localaccount_ == username) {
-    VLOG(1) << "Unlocking localaccount";
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        NewRunnableMethod(this,
-                          &GoogleAuthenticator::OnLoginSuccess,
-                          GaiaAuthConsumer::ClientLoginResult(), false));
-  } else {
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        NewRunnableMethod(this, &GoogleAuthenticator::CheckOffline,
-                          LoginFailure(LoginFailure::UNLOCK_FAILED)));
-  }
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
+      NewRunnableMethod(this,
+                        &GoogleAuthenticator::LoadLocalaccount,
+                        std::string(kLocalaccountFile)));
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
+      NewRunnableMethod(this, &GoogleAuthenticator::CheckOffline,
+                        LoginFailure(LoginFailure::UNLOCK_FAILED)));
   return true;
 }
 
@@ -184,6 +184,19 @@ void GoogleAuthenticator::OnClientLoginSuccess(
   VLOG(1) << "Online login successful!";
   ClearClientLoginAttempt();
 
+  if (hosted_policy_ == GaiaAuthenticator2::HostedAccountsAllowed &&
+      !user_manager_->IsKnownUser(username_)) {
+    // First time user, and we don't know if the account is HOSTED or not.
+    // Since we don't allow HOSTED accounts to log in, we need to try
+    // again, without allowing HOSTED accounts.
+    //
+    // NOTE: we used to do this in the opposite order, so that we'd only
+    // try the HOSTED pathway if GOOGLE-only failed.  This breaks CAPTCHA
+    // handling, though.
+    hosted_policy_ = GaiaAuthenticator2::HostedAccountsNotAllowed;
+    TryClientLogin();
+    return;
+  }
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(this,
@@ -202,6 +215,26 @@ void GoogleAuthenticator::OnClientLoginFailure(
       return;
     }
     LOG(ERROR) << "Login attempt canceled again?  Already retried...";
+  }
+
+  if (error.state() == GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS &&
+      !user_manager_->IsKnownUser(username_) &&
+      hosted_policy_ != GaiaAuthenticator2::HostedAccountsAllowed) {
+    // This was a first-time login, we already tried allowing HOSTED accounts
+    // and succeeded.  That we've failed with INVALID_GAIA_CREDENTIALS now
+    // indicates that the account is HOSTED.
+    LoginFailure failure_details =
+        LoginFailure::FromNetworkAuthFailure(
+            GoogleServiceAuthError(
+                GoogleServiceAuthError::HOSTED_NOT_ALLOWED));
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
+        NewRunnableMethod(this,
+                          &GoogleAuthenticator::OnLoginFailure,
+                          failure_details));
+    LOG(WARNING) << "Rejecting valid HOSTED account.";
+    hosted_policy_ = GaiaAuthenticator2::HostedAccountsNotAllowed;
+    return;
   }
 
   ClearClientLoginAttempt();
@@ -254,7 +287,10 @@ void GoogleAuthenticator::OnLoginSuccess(
                                                          ascii_hash_.c_str(),
                                                          &mount_error))) {
     BootTimesLoader::Get()->AddLoginTimeMarker("CryptohomeMounted", true);
-    consumer_->OnLoginSuccess(username_, credentials, request_pending);
+    consumer_->OnLoginSuccess(username_,
+                              password_,
+                              credentials,
+                              request_pending);
   } else if (!unlock_ &&
              mount_error == chromeos::kCryptohomeMountErrorKeyFailure) {
     consumer_->OnPasswordChangeDetected(credentials);
@@ -298,6 +334,7 @@ void GoogleAuthenticator::CheckLocalaccount(const LoginFailure& error) {
         &mount_error)) {
       LOG(WARNING) << "Logging in with localaccount: " << localaccount_;
       consumer_->OnLoginSuccess(username_,
+                                std::string(),
                                 GaiaAuthConsumer::ClientLoginResult(),
                                 false);
     } else {

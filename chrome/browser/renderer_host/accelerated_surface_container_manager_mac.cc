@@ -53,6 +53,13 @@ bool AcceleratedSurfaceContainerManagerMac::IsRootContainer(
       root_container_handle_ == id;
 }
 
+void AcceleratedSurfaceContainerManagerMac::
+    set_gpu_rendering_active(bool active) {
+  if (gpu_rendering_active_ && !active)
+    SetRootSurfaceInvalid();
+  gpu_rendering_active_ = active;
+}
+
 void AcceleratedSurfaceContainerManagerMac::SetSizeAndIOSurface(
     gfx::PluginWindowHandle id,
     int32 width,
@@ -92,7 +99,10 @@ void AcceleratedSurfaceContainerManagerMac::Draw(CGLContextObj context,
   AutoLock lock(lock_);
 
   glColorMask(true, true, true, true);
-  glClearColor(0, 0, 0, 0);
+  // Should match the clear color of RenderWidgetHostViewMac.
+  glClearColor(255, 255, 255, 255);
+  // TODO(thakis): Clearing the whole color buffer is wasteful, since most of
+  // it is overwritten by the surface.
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   glDisable(GL_DEPTH_TEST);
   glDisable(GL_BLEND);
@@ -124,12 +134,18 @@ void AcceleratedSurfaceContainerManagerMac::ForceTextureReload() {
 }
 
 void AcceleratedSurfaceContainerManagerMac::SetSurfaceWasPaintedTo(
-    gfx::PluginWindowHandle id) {
+    gfx::PluginWindowHandle id, uint64 surface_id) {
   AutoLock lock(lock_);
 
   AcceleratedSurfaceContainerMac* container = MapIDToContainer(id);
   if (container)
-    container->set_was_painted_to();
+    container->set_was_painted_to(surface_id);
+}
+
+void AcceleratedSurfaceContainerManagerMac::SetRootSurfaceInvalid() {
+  AutoLock lock(lock_);
+  if (root_container_)
+    root_container_->set_surface_invalid();
 }
 
 bool AcceleratedSurfaceContainerManagerMac::SurfaceShouldBeVisible(

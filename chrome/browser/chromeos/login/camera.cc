@@ -22,6 +22,7 @@
 #include "base/logging.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
+#include "base/thread.h"
 #include "base/time.h"
 #include "chrome/browser/browser_thread.h"
 #include "gfx/size.h"
@@ -127,8 +128,9 @@ const long kSelectTimeout = 1 * base::Time::kMicrosecondsPerSecond;
 ///////////////////////////////////////////////////////////////////////////////
 // Camera, public members:
 
-Camera::Camera(Delegate* delegate, bool mirrored)
+Camera::Camera(Delegate* delegate, base::Thread* thread, bool mirrored)
     : delegate_(delegate),
+      thread_(thread),
       device_name_(kDeviceName),
       device_descriptor_(-1),
       is_capturing_(false),
@@ -144,7 +146,7 @@ Camera::~Camera() {
 }
 
 void Camera::ReportFailure() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK(IsOnCameraThread());
   if (device_descriptor_ == -1) {
     BrowserThread::PostTask(
         BrowserThread::UI,
@@ -168,8 +170,7 @@ void Camera::ReportFailure() {
 
 void Camera::Initialize(int desired_width, int desired_height) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  BrowserThread::PostTask(
-      BrowserThread::IO,
+  PostCameraTask(
       FROM_HERE,
       NewRunnableMethod(this,
                         &Camera::DoInitialize,
@@ -178,8 +179,7 @@ void Camera::Initialize(int desired_width, int desired_height) {
 }
 
 void Camera::DoInitialize(int desired_width, int desired_height) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
-  DCHECK(delegate_);
+  DCHECK(IsOnCameraThread());
 
   if (device_descriptor_ != -1) {
     LOG(WARNING) << "Camera is initialized already.";
@@ -246,15 +246,11 @@ void Camera::DoInitialize(int desired_width, int desired_height) {
 
 void Camera::Uninitialize() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  BrowserThread::PostTask(
-      BrowserThread::IO,
-      FROM_HERE,
-      NewRunnableMethod(this,
-                        &Camera::DoUninitialize));
+  PostCameraTask(FROM_HERE, NewRunnableMethod(this, &Camera::DoUninitialize));
 }
 
 void Camera::DoUninitialize() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK(IsOnCameraThread());
   if (device_descriptor_ == -1) {
     LOG(WARNING) << "Calling uninitialize for uninitialized camera.";
     return;
@@ -266,18 +262,14 @@ void Camera::DoUninitialize() {
   device_descriptor_ = -1;
 }
 
-void Camera::StartCapturing(int64 rate) {
+void Camera::StartCapturing() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  BrowserThread::PostTask(
-      BrowserThread::IO,
-      FROM_HERE,
-      NewRunnableMethod(this,
-                        &Camera::DoStartCapturing,
-                        rate));
+  PostCameraTask(FROM_HERE,
+                 NewRunnableMethod(this, &Camera::DoStartCapturing));
 }
 
-void Camera::DoStartCapturing(int64 rate) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+void Camera::DoStartCapturing() {
+  DCHECK(IsOnCameraThread());
   if (is_capturing_) {
     LOG(WARNING) << "Capturing is already started.";
     return;
@@ -300,31 +292,26 @@ void Camera::DoStartCapturing(int64 rate) {
     ReportFailure();
     return;
   }
+  // No need to post DidProcessCameraThreadMethod() as this method is
+  // being posted instead.
   BrowserThread::PostTask(
       BrowserThread::UI,
       FROM_HERE,
       NewRunnableMethod(this,
                         &Camera::OnStartCapturingSuccess));
   is_capturing_ = true;
-  capturing_rate_ = rate;
-  BrowserThread::PostTask(
-      BrowserThread::IO,
-      FROM_HERE,
-      NewRunnableMethod(this,
-                        &Camera::OnCapture));
+  PostCameraTask(FROM_HERE,
+                 NewRunnableMethod(this, &Camera::OnCapture));
 }
 
 void Camera::StopCapturing() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  BrowserThread::PostTask(
-      BrowserThread::IO,
-      FROM_HERE,
-      NewRunnableMethod(this,
-                        &Camera::DoStopCapturing));
+  PostCameraTask(FROM_HERE,
+                 NewRunnableMethod(this, &Camera::DoStopCapturing));
 }
 
 void Camera::DoStopCapturing() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK(IsOnCameraThread());
   if (!is_capturing_) {
     LOG(WARNING) << "Calling StopCapturing when capturing is not started.";
     return;
@@ -336,11 +323,16 @@ void Camera::DoStopCapturing() {
     log_errno("VIDIOC_STREAMOFF failed.");
 }
 
+void Camera::GetFrame(SkBitmap* frame) {
+  AutoLock lock(image_lock_);
+  frame->swap(frame_image_);
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Camera, private members:
 
 int Camera::OpenDevice(const char* device_name) const {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK(IsOnCameraThread());
   struct stat st;
   if (stat(device_name, &st) == -1) {
     log_errno(base::StringPrintf("Cannot identify %s", device_name));
@@ -359,7 +351,7 @@ int Camera::OpenDevice(const char* device_name) const {
 }
 
 bool Camera::InitializeReadingMode(int fd) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK(IsOnCameraThread());
   v4l2_requestbuffers req;
   req.count = kRequestBuffersCount;
   req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -404,7 +396,7 @@ bool Camera::InitializeReadingMode(int fd) {
 }
 
 void Camera::UnmapVideoBuffers() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK(IsOnCameraThread());
   for (size_t i = 0; i < buffers_.size(); ++i) {
     if (munmap(buffers_[i].start, buffers_[i].length) == -1)
       log_errno("munmap failed.");
@@ -412,7 +404,7 @@ void Camera::UnmapVideoBuffers() {
 }
 
 void Camera::OnCapture() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK(IsOnCameraThread());
   if (!is_capturing_)
     return;
 
@@ -441,16 +433,12 @@ void Camera::OnCapture() {
     // EAGAIN - continue select loop.
   } while (!ReadFrame());
 
-  BrowserThread::PostDelayedTask(
-      BrowserThread::IO,
-      FROM_HERE,
-      NewRunnableMethod(this,
-                        &Camera::OnCapture),
-      capturing_rate_);
+  PostCameraTask(FROM_HERE,
+                 NewRunnableMethod(this, &Camera::OnCapture));
 }
 
 bool Camera::ReadFrame() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK(IsOnCameraThread());
   v4l2_buffer buffer = {};
   buffer.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   buffer.memory = V4L2_MEMORY_MMAP;
@@ -475,7 +463,7 @@ bool Camera::ReadFrame() {
 }
 
 void Camera::ProcessImage(void* data) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK(IsOnCameraThread());
   // If desired resolution is higher than available, we crop the available
   // image to get the same aspect ratio and scale the result.
   int desired_width = desired_width_;
@@ -538,12 +526,14 @@ void Camera::ProcessImage(void* data) {
         desired_height_);
   }
   image.setIsOpaque(true);
+  {
+    AutoLock lock(image_lock_);
+    frame_image_.swap(image);
+  }
   BrowserThread::PostTask(
       BrowserThread::UI,
       FROM_HERE,
-      NewRunnableMethod(this,
-                        &Camera::OnCaptureSuccess,
-                        image));
+      NewRunnableMethod(this, &Camera::OnCaptureSuccess));
 }
 
 void Camera::OnInitializeSuccess() {
@@ -570,16 +560,30 @@ void Camera::OnStartCapturingFailure() {
     delegate_->OnStartCapturingFailure();
 }
 
-void Camera::OnCaptureSuccess(const SkBitmap& frame) {
+void Camera::OnCaptureSuccess() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (delegate_)
-    delegate_->OnCaptureSuccess(frame);
+    delegate_->OnCaptureSuccess();
 }
 
 void Camera::OnCaptureFailure() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   if (delegate_)
     delegate_->OnCaptureFailure();
+}
+
+bool Camera::IsOnCameraThread() const {
+  AutoLock lock(thread_lock_);
+  return thread_ && MessageLoop::current() == thread_->message_loop();
+}
+
+void Camera::PostCameraTask(const tracked_objects::Location& from_here,
+                            Task* task) {
+  AutoLock lock(thread_lock_);
+  if (!thread_)
+    return;
+  DCHECK(thread_->IsRunning());
+  thread_->message_loop()->PostTask(from_here, task);
 }
 
 }  // namespace chromeos

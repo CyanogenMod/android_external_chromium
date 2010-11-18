@@ -55,6 +55,11 @@ class BrowserAccessibility {
   // than windows.
   virtual void ReleaseReference() = 0;
 
+  // Replace a child object. Used when updating the accessibility tree.
+  virtual void ReplaceChild(
+      BrowserAccessibility* old_acc,
+      BrowserAccessibility* new_acc);
+
   // Initialize this object
   void Initialize(BrowserAccessibilityManager* manager,
                   BrowserAccessibility* parent,
@@ -85,10 +90,11 @@ class BrowserAccessibility {
   // of its parent.
   BrowserAccessibility* GetNextSibling();
 
-  // Replace a child object. Used when updating the accessibility tree.
-  void ReplaceChild(
-      const BrowserAccessibility* old_acc,
-      BrowserAccessibility* new_acc);
+  // Returns the bounds of this object in screen coordinates.
+  gfx::Rect GetBoundsRect();
+
+  // Returns the deepest descendant that contains the specified point.
+  BrowserAccessibility* BrowserAccessibilityForPoint(const gfx::Point& point);
 
   // Accessors
   const std::map<int32, string16>& attributes() const { return attributes_; }
@@ -114,6 +120,21 @@ class BrowserAccessibility {
 #elif defined(OS_WIN)
   BrowserAccessibilityWin* toBrowserAccessibilityWin();
 #endif
+
+  // BrowserAccessibilityCocoa needs access to these methods.
+  // Return true if this attribute is in the attributes map.
+  bool HasAttribute(WebAccessibility::Attribute attribute);
+
+  // Retrieve the string value of an attribute from the attribute map and
+  // returns true if found.
+  bool GetAttribute(WebAccessibility::Attribute attribute, string16* value);
+
+  // Retrieve the value of an attribute from the attribute map and
+  // if found and nonempty, try to convert it to an integer.
+  // Returns true only if both the attribute was found and it was successfully
+  // converted to an integer.
+  bool GetAttributeAsInt(
+      WebAccessibility::Attribute attribute, int* value_int);
 
  protected:
   BrowserAccessibility();

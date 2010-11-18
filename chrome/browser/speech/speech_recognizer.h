@@ -36,9 +36,10 @@ class SpeechRecognizer
   // Implemented by the caller to receive recognition events.
   class Delegate {
    public:
-    virtual void SetRecognitionResult(int caller_id,
-                                      bool error,
-                                      const string16& value) = 0;
+    virtual void SetRecognitionResult(
+        int caller_id,
+        bool error,
+        const SpeechInputResultArray& result) = 0;
 
     // Invoked when audio recording stops, either due to the end pointer
     // detecting silence in user input or if |StopRecording| was called. The
@@ -72,7 +73,10 @@ class SpeechRecognizer
     virtual ~Delegate() {}
   };
 
-  SpeechRecognizer(Delegate* delegate, int caller_id);
+  SpeechRecognizer(Delegate* delegate,
+                   int caller_id,
+                   const std::string& language,
+                   const std::string& grammar);
   ~SpeechRecognizer();
 
   // Starts audio recording and does recognition after recording ends. The same
@@ -96,7 +100,7 @@ class SpeechRecognizer
               uint32 size);
 
   // SpeechRecognitionRequest::Delegate methods.
-  void SetRecognitionResult(bool error, const string16& value);
+  void SetRecognitionResult(bool error, const SpeechInputResultArray& result);
 
   static const int kAudioSampleRate;
   static const int kAudioPacketIntervalMs;  // Duration of each audio packet.
@@ -116,6 +120,8 @@ class SpeechRecognizer
 
   Delegate* delegate_;
   int caller_id_;
+  std::string language_;
+  std::string grammar_;
 
   // Buffer holding the recorded audio. Owns the strings inside the list.
   typedef std::list<std::string*> AudioBufferQueue;

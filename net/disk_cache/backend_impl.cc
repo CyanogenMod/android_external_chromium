@@ -13,6 +13,7 @@
 #include "base/string_util.h"
 #include "base/stringprintf.h"
 #include "base/sys_info.h"
+#include "base/thread_restrictions.h"
 #include "base/time.h"
 #include "base/timer.h"
 #include "base/worker_pool.h"
@@ -115,6 +116,10 @@ FilePath GetTempCacheName(const FilePath& path, const std::string& name) {
 
 // Moves the cache files to a new folder and creates a task to delete them.
 bool DelayedCacheCleanup(const FilePath& full_path) {
+  // GetTempCacheName() and MoveCache() use synchronous file
+  // operations.
+  base::ThreadRestrictions::ScopedAllowIO allow_io;
+
   FilePath current_path = full_path.StripTrailingSeparators();
 
   FilePath path = current_path.DirName();
@@ -169,13 +174,13 @@ bool SetFieldTrialInfo(int size_group) {
 
   // Field trials involve static objects so we have to do this only once.
   first = false;
-  scoped_refptr<base::FieldTrial> trial1 =
-      new base::FieldTrial("CacheSize", 10);
+  scoped_refptr<base::FieldTrial> trial1(
+      new base::FieldTrial("CacheSize", 10));
   std::string group1 = base::StringPrintf("CacheSizeGroup_%d", size_group);
   trial1->AppendGroup(group1, base::FieldTrial::kAllRemainingProbability);
 
-  scoped_refptr<base::FieldTrial> trial2 =
-      new base::FieldTrial("CacheThrottle", 100);
+  scoped_refptr<base::FieldTrial> trial2(
+      new base::FieldTrial("CacheThrottle", 100));
   int group2a = trial2->AppendGroup("CacheThrottle_On", 10);  // 10 % in.
   trial2->AppendGroup("CacheThrottle_Off", 10);  // 10 % control.
 
@@ -1308,6 +1313,13 @@ int BackendImpl::FlushQueueForTest(CompletionCallback* callback) {
 int BackendImpl::RunTaskForTest(Task* task, CompletionCallback* callback) {
   background_queue_.RunTask(task, callback);
   return net::ERR_IO_PENDING;
+}
+
+void BackendImpl::ThrottleRequestsForTest(bool throttle) {
+  if (throttle)
+    background_queue_.StartQueingOperations();
+  else
+    background_queue_.StopQueingOperations();
 }
 
 int BackendImpl::SelfCheck() {

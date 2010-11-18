@@ -6,6 +6,7 @@
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/search_provider.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/history/history.h"
@@ -131,6 +132,11 @@ void SearchProviderTest::SetUp() {
                               history::SOURCE_BROWSED);
   history->SetKeywordSearchTermsForURL(keyword_url_, keyword_t_url_->id(),
                                        keyword_term_);
+
+  // Keywords are updated by the InMemoryHistoryBackend only after the message
+  // has been processed on the history thread. Block until history processes all
+  // requests to ensure the InMemoryDatabase is the state we expect it.
+  profile_.BlockUntilHistoryProcessesPendingRequests();
 
   provider_ = new SearchProvider(this, &profile_);
 

@@ -392,6 +392,11 @@
           'NACL_WIN64',
         ],
       }],
+      ['OS=="mac" or (OS=="linux" and chromeos==0 and target_arch!="arm")', {
+        'use_cups%': 1,
+      }, {
+        'use_cups%': 0,
+      }],
     ],
 
     # NOTE: When these end up in the Mac bundle, we need to replace '-' for '_'
@@ -429,6 +434,12 @@
       # See http://msdn.microsoft.com/en-us/library/47238hez(VS.71).aspx
       'win_debug_InlineFunctionExpansion%': '',    # empty = default, 0 = off,
       'win_release_InlineFunctionExpansion%': '2', # 1 = only __inline, 2 = max
+      # VS inserts quite a lot of extra checks to algorithms like
+      # std::partial_sort in Debug build which make them O(N^2)
+      # instead of O(N*logN). This is particularly slow under memory
+      # tools like ThreadSanitizer so we want it to be disablable.
+      # See http://msdn.microsoft.com/en-us/library/aa985982(v=VS.80).aspx
+      'win_debug_disable_iterator_debugging%': '0',
 
       'release_extra_cflags%': '',
       'debug_extra_cflags%': '',
@@ -650,8 +661,7 @@
       #   2 == /INCREMENTAL
       # Debug links incremental, Release does not.
       #
-      # Abstract base configurations to cover common
-      # attributes.
+      # Abstract base configurations to cover common attributes.
       #
       'Common_Base': {
         'abstract': 1,
@@ -717,6 +727,9 @@
               ['win_debug_InlineFunctionExpansion!=""', {
                 'InlineFunctionExpansion':
                   '<(win_debug_InlineFunctionExpansion)',
+              }],
+              ['win_debug_disable_iterator_debugging==1', {
+                'PreprocessorDefinitions': ['_HAS_ITERATOR_DEBUGGING=0'],
               }],
             ],
           },
@@ -1152,6 +1165,9 @@
               # http://code.google.com/p/googletest/source/detail?r=446 .
               # TODO(thakis): Use -isystem instead (http://crbug.com/58751 ).
               '-Wno-unnamed-type-template-args',
+              # The integrated assembler chokes on one ffmpeg file.
+              # http://crbug.com/61931
+              '-no-integrated-as',
             ],
             'cflags!': [
               # Clang doesn't seem to know know this flag.

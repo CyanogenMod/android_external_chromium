@@ -27,7 +27,7 @@
 
 #include "base/at_exit.h"
 #include "base/command_line.h"
-#include "base/debug_util.h"
+#include "base/debug/debugger.h"
 #include "base/file_path.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
@@ -130,7 +130,7 @@ void StressTheCache(int iteration) {
   }
 
   const int kSize = 4000;
-  scoped_refptr<net::IOBuffer> buffer = new net::IOBuffer(kSize);
+  scoped_refptr<net::IOBuffer> buffer(new net::IOBuffer(kSize));
   memset(buffer->data(), 'k', kSize);
 
   for (int i = 0;; i++) {
@@ -213,7 +213,7 @@ bool StartCrashThread() {
 
 void CrashHandler(const std::string& str) {
   g_crashing = true;
-  DebugUtil::BreakDebugger();
+  base::debug::BreakDebugger();
 }
 
 // -----------------------------------------------------------------------

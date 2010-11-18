@@ -26,11 +26,13 @@ namespace chromeos {
 
 class HelpAppLauncher;
 class MessageBubble;
+class UserCrosSettingsProvider;
 
-// ExistingUserController is used to handle login when someone has already
-// logged into the machine. When Init is invoked a UserController is created for
-// each of the Users's in the UserManager (including one for new user and
-// one for BWSI login), and the window manager is then told to show the windows.
+// ExistingUserController is used to handle login when someone has
+// already logged into the machine. When Init is invoked, a
+// UserController is created for each of the Users's in the
+// UserManager (including one for new user and one for Guest login),
+// and the window manager is then told to show the windows.
 //
 // To use ExistingUserController create an instance of it and invoke Init.
 //
@@ -38,7 +40,6 @@ class MessageBubble;
 // the user logs in (or chooses to see other settings).
 class ExistingUserController : public WmMessageListener::Observer,
                                public UserController::Delegate,
-                               public BackgroundView::Delegate,
                                public LoginPerformer::Delegate,
                                public MessageBubbleDelegate,
                                public CaptchaView::Delegate,
@@ -85,13 +86,11 @@ class ExistingUserController : public WmMessageListener::Observer,
   virtual void AddStartUrl(const GURL& start_url) { start_url_ = start_url; }
   virtual void SelectUser(int index);
 
-  // BackgroundView::Delegate
-  virtual void OnGoIncognitoButton();
-
   // LoginPerformer::Delegate implementation:
   virtual void OnLoginFailure(const LoginFailure& error);
   virtual void OnLoginSuccess(
       const std::string& username,
+      const std::string& password,
       const GaiaAuthConsumer::ClientLoginResult& credentials,
       bool pending_requests);
   virtual void OnOffTheRecordLoginSuccess();
@@ -165,6 +164,9 @@ class ExistingUserController : public WmMessageListener::Observer,
 
   // Help application used for help dialogs.
   scoped_ptr<HelpAppLauncher> help_app_;
+
+  // A user settings provider instance to trigger settings cache update.
+  scoped_ptr<UserCrosSettingsProvider> user_settings_;
 
   DISALLOW_COPY_AND_ASSIGN(ExistingUserController);
 };

@@ -110,6 +110,7 @@
 #include "third_party/WebKit/WebKit/chromium/public/WebView.h"
 #include "webkit/glue/webpreferences.h"
 #include "webkit/glue/password_form.h"
+#include "webkit/glue/plugins/plugin_list.h"
 
 // Cross-Site Navigations
 //
@@ -167,6 +168,7 @@ const int kJavascriptMessageExpectedDelay = 1000;
 // The list of prefs we want to observe.
 const char* kPrefsToObserve[] = {
   prefs::kAlternateErrorPagesEnabled,
+  prefs::kDefaultZoomLevel,
   prefs::kWebKitJavaEnabled,
   prefs::kWebKitJavascriptEnabled,
   prefs::kWebKitLoadsImagesAutomatically,
@@ -586,7 +588,7 @@ RenderProcessHost* TabContents::GetRenderProcessHost() const {
   return render_manager_.current_host()->process();
 }
 
-void TabContents::SetExtensionApp(Extension* extension) {
+void TabContents::SetExtensionApp(const Extension* extension) {
   DCHECK(!extension || extension->GetFullLaunchURL().is_valid());
   extension_app_ = extension;
 
@@ -604,7 +606,7 @@ void TabContents::SetExtensionAppById(const std::string& extension_app_id) {
 
   ExtensionsService* extension_service = profile()->GetExtensionsService();
   if (extension_service && extension_service->is_ready()) {
-    Extension* extension =
+    const Extension* extension =
         extension_service->GetExtensionById(extension_app_id, false);
     if (extension)
       SetExtensionApp(extension);
@@ -1465,12 +1467,10 @@ void TabContents::UpdateHistoryPageTitle(const NavigationEntry& entry) {
     hs->SetPageTitle(entry.virtual_url(), entry.title());
 }
 
-int TabContents::GetZoomPercent(bool* enable_increment,
-                                bool* enable_decrement) {
-  *enable_decrement = *enable_increment = false;
+double TabContents::GetZoomLevel() const {
   HostZoomMap* zoom_map = profile()->GetHostZoomMap();
   if (!zoom_map)
-    return 100;
+    return 0;
 
   double zoom_level;
   if (temporary_zoom_settings_) {
@@ -1479,9 +1479,14 @@ int TabContents::GetZoomPercent(bool* enable_increment,
   } else {
     zoom_level = zoom_map->GetZoomLevel(GetURL());
   }
+  return zoom_level;
+}
 
+int TabContents::GetZoomPercent(bool* enable_increment,
+                                bool* enable_decrement) {
+  *enable_decrement = *enable_increment = false;
   int percent = static_cast<int>(
-      WebKit::WebView::zoomLevelToZoomFactor(zoom_level) * 100);
+      WebKit::WebView::zoomLevelToZoomFactor(GetZoomLevel()) * 100);
   *enable_decrement = percent > minimum_zoom_percent_;
   *enable_increment = percent < maximum_zoom_percent_;
   return percent;
@@ -1759,6 +1764,10 @@ void TabContents::UpdateWebPreferences() {
   render_view_host()->UpdateWebPreferences(GetWebkitPrefs());
 }
 
+void TabContents::UpdateZoomLevel() {
+  render_view_host()->SetZoomLevel(GetZoomLevel());
+}
+
 void TabContents::UpdateMaxPageIDIfNecessary(SiteInstance* site_instance,
                                              RenderViewHost* rvh) {
   // If we are creating a RVH for a restored controller, then we might
@@ -2018,25 +2027,19 @@ void TabContents::OnCrashedPlugin(const FilePath& plugin_path) {
   DCHECK(!plugin_path.value().empty());
 
   std::wstring plugin_name = plugin_path.ToWStringHack();
-#if defined(OS_WIN) || defined(OS_MACOSX)
-  scoped_ptr<FileVersionInfo> version_info(
-      FileVersionInfo::CreateFileVersionInfo(plugin_path));
-  if (version_info.get()) {
-    const std::wstring& product_name = version_info->product_name();
-    if (!product_name.empty()) {
-      plugin_name = product_name;
+  WebPluginInfo plugin_info;
+  if (NPAPI::PluginList::Singleton()->GetPluginInfoByPath(
+          plugin_path, &plugin_info) &&
+      !plugin_info.name.empty()) {
+    plugin_name = UTF16ToWide(plugin_info.name);
 #if defined(OS_MACOSX)
-      // Many plugins on the Mac have .plugin in the actual name, which looks
-      // terrible, so look for that and strip it off if present.
-      const std::wstring plugin_extension(L".plugin");
-      if (EndsWith(plugin_name, plugin_extension, true))
-        plugin_name.erase(plugin_name.length() - plugin_extension.length());
+    // Many plugins on the Mac have .plugin in the actual name, which looks
+    // terrible, so look for that and strip it off if present.
+    const std::wstring plugin_extension(L".plugin");
+    if (EndsWith(plugin_name, plugin_extension, true))
+      plugin_name.erase(plugin_name.length() - plugin_extension.length());
 #endif  // OS_MACOSX
-    }
   }
-#else
-  NOTIMPLEMENTED() << " convert plugin path to plugin name";
-#endif
   SkBitmap* crash_icon = ResourceBundle::GetSharedInstance().GetBitmapNamed(
       IDR_INFOBAR_PLUGIN_CRASHED);
   AddInfoBar(new SimpleAlertInfoBarDelegate(
@@ -2112,9 +2115,16 @@ void TabContents::OnPageTranslated(int32 page_id,
       Details<PageTranslatedDetails>(&details));
 }
 
-void TabContents::OnSetSuggestResult(int32 page_id, const std::string& result) {
+void TabContents::OnSetSuggestions(
+    int32 page_id,
+    const std::vector<std::string>& suggestions) {
   if (delegate())
-    delegate()->OnSetSuggestResult(page_id, result);
+    delegate()->OnSetSuggestions(page_id, suggestions);
+}
+
+void TabContents::OnInstantSupportDetermined(int32 page_id, bool result) {
+  if (delegate())
+    delegate()->OnInstantSupportDetermined(page_id, result);
 }
 
 void TabContents::DidStartProvisionalLoadForFrame(
@@ -2238,8 +2248,19 @@ void TabContents::DidFailProvisionalLoadWithError(
       Details<ProvisionalLoadDetails>(&details));
 }
 
-void TabContents::DocumentLoadedInFrame() {
+void TabContents::DocumentLoadedInFrame(long long frame_id) {
   controller_.DocumentLoadedInFrame();
+  NotificationService::current()->Notify(
+      NotificationType::FRAME_DOM_CONTENT_LOADED,
+      Source<NavigationController>(&controller_),
+      Details<long long>(&frame_id));
+}
+
+void TabContents::DidFinishLoad(long long frame_id) {
+  NotificationService::current()->Notify(
+      NotificationType::FRAME_DID_FINISH_LOAD,
+      Source<NavigationController>(&controller_),
+      Details<long long>(&frame_id));
 }
 
 void TabContents::OnContentSettingsAccessed(bool content_was_blocked) {
@@ -2564,16 +2585,19 @@ void TabContents::UpdateTargetURL(int32 page_id, const GURL& url) {
 void TabContents::UpdateThumbnail(const GURL& url,
                                   const SkBitmap& bitmap,
                                   const ThumbnailScore& score) {
+  if (profile()->IsOffTheRecord())
+    return;
+
   // Tell History about this thumbnail
   if (history::TopSites::IsEnabled()) {
-    if (!profile()->IsOffTheRecord())
-      profile()->GetTopSites()->SetPageThumbnail(url, bitmap, score);
+    history::TopSites* ts = profile()->GetTopSites();
+    if (ts)
+      ts->SetPageThumbnail(url, bitmap, score);
   } else {
-    HistoryService* hs;
-    if (!profile()->IsOffTheRecord() &&
-        (hs = profile()->GetHistoryService(Profile::IMPLICIT_ACCESS))) {
+    HistoryService* hs =
+        profile()->GetHistoryService(Profile::IMPLICIT_ACCESS);
+    if (hs)
       hs->SetPageThumbnail(url, bitmap, score);
-    }
   }
 }
 
@@ -2878,7 +2902,8 @@ WebPreferences TabContents::GetWebkitPrefs() {
 
   // Force accelerated compositing and 2d canvas off for chrome: and
   // chrome-extension: pages.
-  if (GetURL().SchemeIs(chrome::kChromeUIScheme)) {
+  if (GetURL().SchemeIs(chrome::kChromeDevToolsScheme) ||
+      GetURL().SchemeIs(chrome::kChromeUIScheme)) {
     web_prefs.accelerated_compositing_enabled = false;
     web_prefs.accelerated_2d_canvas_enabled = false;
   }
@@ -3080,6 +3105,8 @@ void TabContents::Observe(NotificationType type,
       } else if ((*pref_name_in == prefs::kDefaultCharset) ||
                  StartsWithASCII(*pref_name_in, "webkit.webprefs.", true)) {
         UpdateWebPreferences();
+      } else if (*pref_name_in == prefs::kDefaultZoomLevel) {
+        UpdateZoomLevel();
       } else {
         NOTREACHED() << "unexpected pref change notification" << *pref_name_in;
       }
@@ -3143,7 +3170,7 @@ void TabContents::Observe(NotificationType type,
   }
 }
 
-void TabContents::UpdateExtensionAppIcon(Extension* extension) {
+void TabContents::UpdateExtensionAppIcon(const Extension* extension) {
   extension_app_icon_.reset();
 
   if (extension) {
@@ -3160,12 +3187,12 @@ void TabContents::UpdateExtensionAppIcon(Extension* extension) {
   }
 }
 
-Extension* TabContents::GetExtensionContaining(const GURL& url) {
+const Extension* TabContents::GetExtensionContaining(const GURL& url) {
   ExtensionsService* extensions_service = profile()->GetExtensionsService();
   if (!extensions_service)
     return NULL;
 
-  Extension* extension = extensions_service->GetExtensionByURL(url);
+  const Extension* extension = extensions_service->GetExtensionByURL(url);
   return extension ?
       extension : extensions_service->GetExtensionByWebExtent(url);
 }

@@ -7,7 +7,7 @@
 
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
-#include "third_party/ppapi/c/pp_resource.h"
+#include "ppapi/c/pp_resource.h"
 #include "webkit/glue/plugins/pepper_resource_tracker.h"
 
 namespace pepper {
@@ -36,6 +36,7 @@ namespace pepper {
   F(URLRequestInfo) \
   F(URLResponseInfo) \
   F(Var) \
+  F(VarObjectClass) \
   F(VideoDecoder) \
   F(Widget)
 
@@ -69,6 +70,18 @@ class Resource : public base::RefCountedThreadSafe<Resource> {
   // reference to the plugin.
   PP_Resource GetReference();
 
+  // Returns the resource ID of this object OR NULL IF THERE IS NONE ASSIGNED.
+  // This will happen if the plugin doesn't have a reference to the given
+  // resource. The resource will not be addref'ed.
+  //
+  // This should only be used as an input parameter to the plugin for status
+  // updates in the proxy layer, where if the plugin has no reference, it will
+  // just give up since nothing needs to be updated.
+  //
+  // Generally you should use GetReference instead. This is why it has this
+  // obscure name rather than pp_resource().
+  PP_Resource GetReferenceNoAddRef() const;
+
   // When you need to ensure that a resource has a reference, but you do not
   // want to increase the refcount (for example, if you need to call a plugin
   // callback function with a reference), you can use this class. For example:
@@ -93,7 +106,6 @@ class Resource : public base::RefCountedThreadSafe<Resource> {
   FOR_ALL_RESOURCES(DEFINE_TYPE_GETTER)
   #undef DEFINE_TYPE_GETTER
 
- private:
   // If referenced by a plugin, holds the id of this resource object. Do not
   // access this member directly, because it is possible that the plugin holds
   // no references to the object, and therefore the resource_id_ is zero. Use

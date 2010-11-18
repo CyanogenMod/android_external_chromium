@@ -4,6 +4,7 @@
 
 #include "chrome/browser/chromeos/frame/bubble_frame_view.h"
 
+#include "app/resource_bundle.h"
 #include "gfx/canvas_skia.h"
 #include "gfx/font.h"
 #include "gfx/insets.h"
@@ -11,6 +12,8 @@
 #include "gfx/rect.h"
 #include "chrome/browser/chromeos/frame/bubble_window.h"
 #include "chrome/browser/views/bubble_border.h"
+#include "grit/theme_resources.h"
+#include "views/controls/button/image_button.h"
 #include "views/controls/label.h"
 #include "views/window/hit_test.h"
 #include "views/window/window.h"
@@ -27,15 +30,32 @@ static const int kHorizontalPadding = 10;
 
 namespace chromeos {
 
-BubbleFrameView::BubbleFrameView(views::Window* frame)
+BubbleFrameView::BubbleFrameView(views::Window* frame,
+                                 BubbleWindow::Style style)
     : frame_(frame),
-      title_(NULL) {
+      style_(style),
+      title_(NULL),
+      close_button_(NULL) {
   set_border(new BubbleBorder(BubbleBorder::NONE));
 
-  title_ = new views::Label(frame_->GetDelegate()->GetWindowTitle());
-  title_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
-  title_->SetFont(title_->font().DeriveFont(1, gfx::Font::BOLD));
-  AddChildView(title_);
+  if (frame_->GetDelegate()->ShouldShowWindowTitle()) {
+    title_ = new views::Label(frame_->GetDelegate()->GetWindowTitle());
+    title_->SetHorizontalAlignment(views::Label::ALIGN_LEFT);
+    title_->SetFont(title_->font().DeriveFont(1, gfx::Font::BOLD));
+    AddChildView(title_);
+  }
+
+  if (style_ & BubbleWindow::STYLE_XBAR) {
+    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+    close_button_ = new views::ImageButton(this);
+    close_button_->SetImage(views::CustomButton::BS_NORMAL,
+        rb.GetBitmapNamed(IDR_CLOSE_BAR));
+    close_button_->SetImage(views::CustomButton::BS_HOT,
+        rb.GetBitmapNamed(IDR_CLOSE_BAR_H));
+    close_button_->SetImage(views::CustomButton::BS_PUSHED,
+        rb.GetBitmapNamed(IDR_CLOSE_BAR_P));
+    AddChildView(close_button_);
+  }
 }
 
 BubbleFrameView::~BubbleFrameView() {
@@ -48,8 +68,20 @@ gfx::Rect BubbleFrameView::GetBoundsForClientView() const {
 gfx::Rect BubbleFrameView::GetWindowBoundsForClientBounds(
     const gfx::Rect& client_bounds) const {
   gfx::Insets insets = GetInsets();
-  gfx::Size title_size = title_->GetPreferredSize();
-  int top_height = insets.top() + title_size.height() + kTitleContentPadding;
+  gfx::Size title_size;
+  if (title_) {
+    title_size = title_->GetPreferredSize();
+  }
+
+  gfx::Size close_button_size = gfx::Size();
+  if (close_button_) {
+    close_button_size = close_button_->GetPreferredSize();
+  }
+
+  int top_height = insets.top();
+  if (title_size.height() > 0 || close_button_size.height() > 0)
+    top_height += std::max(title_size.height(), close_button_size.height()) +
+        kTitleContentPadding;
   return gfx::Rect(std::max(0, client_bounds.x() - insets.left()),
                    std::max(0, client_bounds.y() - top_height),
                    client_bounds.width() + insets.width(),
@@ -92,12 +124,33 @@ gfx::Size BubbleFrameView::GetPreferredSize() {
 void BubbleFrameView::Layout() {
   gfx::Insets insets = GetInsets();
 
-  gfx::Size title_size = title_->GetPreferredSize();
-  title_->SetBounds(insets.left(), insets.top(),
-      std::max(0, width() - insets.width()),
-      title_size.height());
+  gfx::Size title_size;
+  if (title_) {
+    title_size = title_->GetPreferredSize();
+  }
 
-  int top_height = insets.top() + title_size.height() + kTitleContentPadding;
+  gfx::Size close_button_size = gfx::Size();
+  if (close_button_) {
+    close_button_size = close_button_->GetPreferredSize();
+  }
+
+  if (title_) {
+    title_->SetBounds(
+        insets.left(), insets.top(),
+        std::max(0, width() - insets.width() - close_button_size.width()),
+        title_size.height());
+  }
+
+  if (close_button_) {
+    close_button_->SetBounds(
+        width() - insets.right() - close_button_size.width(), insets.top(),
+        close_button_size.width(), close_button_size.height());
+  }
+
+  int top_height = insets.top();
+  if (title_size.height() > 0 || close_button_size.height() > 0)
+    top_height += std::max(title_size.height(), close_button_size.height()) +
+        kTitleContentPadding;
   client_view_bounds_.SetRect(insets.left(), top_height,
       std::max(0, width() - insets.width()),
       std::max(0, height() - top_height - insets.bottom()));
@@ -120,6 +173,13 @@ void BubbleFrameView::Paint(gfx::Canvas* canvas) {
   canvas->AsCanvasSkia()->drawPath(path, paint);
 
   PaintBorder(canvas);
+}
+
+void BubbleFrameView::ButtonPressed(views::Button* sender,
+                                    const views::Event& event) {
+  if (close_button_ != NULL && sender == close_button_) {
+    frame_->Close();
+  }
 }
 
 }  // namespace chromeos

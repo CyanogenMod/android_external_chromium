@@ -50,10 +50,13 @@ const char kApplicationLocaleValue[] = "ApplicationLocaleValue";
 const char kSyncDisabled[] = "SyncDisabled";
 const char kExtensionInstallAllowList[] = "ExtensionInstallWhitelist";
 const char kExtensionInstallDenyList[] = "ExtensionInstallBlacklist";
+const char kExtensionInstallForceList[] = "ExtensionInstallForcelist";
 const char kShowHomeButton[] = "ShowHomeButton";
 const char kPrintingEnabled[] = "PrintingEnabled";
 const char kJavascriptEnabled[] = "JavascriptEnabled";
 const char kSavingBrowserHistoryDisabled[] = "SavingBrowserHistoryDisabled";
+const char kDeveloperToolsDisabled[] = "DeveloperToolsDisabled";
+const char kBlockThirdPartyCookies[] = "BlockThirdPartyCookies";
 
 // Chrome Frame specific policy constants
 const char kChromeFrameRendererSettings[] = "ChromeFrameRendererSettings";

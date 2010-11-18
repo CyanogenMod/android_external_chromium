@@ -21,7 +21,7 @@ const char kWorkScheduled = '\0';
 
 // Return a timeout suitable for the glib loop, -1 to block forever,
 // 0 to return right away, or a timeout in milliseconds from now.
-int GetTimeIntervalMilliseconds(base::Time from) {
+int GetTimeIntervalMilliseconds(const base::TimeTicks& from) {
   if (from.is_null())
     return -1;
 
@@ -29,7 +29,7 @@ int GetTimeIntervalMilliseconds(base::Time from) {
   // value in milliseconds.  If there are 5.5ms left, should the delay be 5 or
   // 6?  It should be 6 to avoid executing delayed work too early.
   int delay = static_cast<int>(
-      ceil((from - base::Time::Now()).InMillisecondsF()));
+      ceil((from - base::TimeTicks::Now()).InMillisecondsF()));
 
   // If this value is negative, then we need to run delayed work soon.
   return delay < 0 ? 0 : delay;
@@ -207,8 +207,7 @@ void MessagePumpForUI::RunWithDispatcher(Delegate* delegate,
     // Don't block if we think we have more work to do.
     bool block = !more_work_is_plausible;
 
-    // g_main_context_iteration returns true if events have been dispatched.
-    more_work_is_plausible = g_main_context_iteration(context_, block);
+    more_work_is_plausible = RunOnce(context_, block);
     if (state_->should_quit)
       break;
 
@@ -230,6 +229,11 @@ void MessagePumpForUI::RunWithDispatcher(Delegate* delegate,
   }
 
   state_ = previous_state;
+}
+
+bool MessagePumpForUI::RunOnce(GMainContext* context, bool block) {
+  // g_main_context_iteration returns true if events have been dispatched.
+  return g_main_context_iteration(context, block);
 }
 
 // Return the timeout we want passed to poll.
@@ -299,6 +303,10 @@ void MessagePumpForUI::RemoveObserver(Observer* observer) {
   observers_.RemoveObserver(observer);
 }
 
+MessagePumpForUI::Dispatcher* MessagePumpForUI::GetDispatcher() {
+  return state_ ? state_->dispatcher : NULL;
+}
+
 void MessagePumpForUI::WillProcessEvent(GdkEvent* event) {
   FOR_EACH_OBSERVER(Observer, observers_, WillProcessEvent(event));
 }
@@ -325,26 +333,28 @@ void MessagePumpForUI::ScheduleWork() {
   }
 }
 
-void MessagePumpForUI::ScheduleDelayedWork(const Time& delayed_work_time) {
+void MessagePumpForUI::ScheduleDelayedWork(const TimeTicks& delayed_work_time) {
   // We need to wake up the loop in case the poll timeout needs to be
   // adjusted.  This will cause us to try to do work, but that's ok.
   delayed_work_time_ = delayed_work_time;
   ScheduleWork();
 }
 
-// static
-void MessagePumpForUI::EventDispatcher(GdkEvent* event, gpointer data) {
-  MessagePumpForUI* message_pump = reinterpret_cast<MessagePumpForUI*>(data);
-
-  message_pump->WillProcessEvent(event);
-  if (message_pump->state_ &&  // state_ may be null during tests.
-      message_pump->state_->dispatcher) {
-    if (!message_pump->state_->dispatcher->Dispatch(event))
-      message_pump->state_->should_quit = true;
+void MessagePumpForUI::DispatchEvents(GdkEvent* event) {
+  WillProcessEvent(event);
+  if (state_ && state_->dispatcher) { // state_ may be null during tests.
+    if (!state_->dispatcher->Dispatch(event))
+      state_->should_quit = true;
   } else {
     gtk_main_do_event(event);
   }
-  message_pump->DidProcessEvent(event);
+  DidProcessEvent(event);
+}
+
+// static
+void MessagePumpForUI::EventDispatcher(GdkEvent* event, gpointer data) {
+  MessagePumpForUI* message_pump = reinterpret_cast<MessagePumpForUI*>(data);
+  message_pump->DispatchEvents(event);
 }
 
 }  // namespace base
