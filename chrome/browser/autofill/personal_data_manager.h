@@ -220,30 +220,6 @@ class PersonalDataManager
   // True if personal data has been loaded from the web database.
   bool is_data_loaded_;
 
-<<<<<<< HEAD
-  // The set of already created unique IDs, shared by both profiles and credit
-  // cards, since IDs must be unique among the two groups.
-  std::set<int> unique_ids_;
-
-  // The set of already created unique profile IDs, used to create a new unique
-  // profile ID.
-  std::set<int> unique_profile_ids_;
-
-  // The set of already created unique profile IDs for auxiliary profiles, used
-  // to create a new unique auxiliary profile ID.
-  std::set<int> unique_auxiliary_profile_ids_;
-
-  // The set of already created unique credit card IDs, used to create a new
-  // unique credit card ID.
-  std::set<int> unique_creditcard_ids_;
-
-  // Protects unique_*_ids_ members.
-#ifndef ANDROID
-  Lock unique_ids_lock_;
-#endif
-
-=======
->>>>>>> chromium.org at r65505
   // The loaded web profiles.
   ScopedVector<AutoFillProfile> web_profiles_;
 

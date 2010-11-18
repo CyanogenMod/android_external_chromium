@@ -138,14 +138,12 @@ MessageLoop::MessageLoop(Type type)
 #elif defined(OS_MACOSX)
 #define MESSAGE_PUMP_UI base::MessagePumpMac::Create()
 #define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
-<<<<<<< HEAD
 #elif defined(ANDROID)
 #define MESSAGE_PUMP_UI new base::MessagePumpDefault()
-=======
+#define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
 #elif defined(TOUCH_UI)
 // TODO(sadrul): enable the new message pump when ready
 #define MESSAGE_PUMP_UI new base::MessagePumpForUI()
->>>>>>> chromium.org at r65505
 #define MESSAGE_PUMP_IO new base::MessagePumpLibevent()
 #elif defined(OS_POSIX)  // POSIX but not MACOSX.
 #define MESSAGE_PUMP_UI new base::MessagePumpForUI()

@@ -171,15 +171,11 @@ void PersonalDataManager::RemoveObserver(
 bool PersonalDataManager::ImportFormData(
     const std::vector<FormStructure*>& form_structures,
     AutoFillManager* autofill_manager) {
-<<<<<<< HEAD
 #ifdef ANDROID
   // TODO: Is this the funcionality that tries to create a profile for the user
   // based on what they've entered into forms?
   return false;
 #else
-  AutoLock lock(unique_ids_lock_);
-=======
->>>>>>> chromium.org at r65505
   // Parse the form and construct a profile based on the information that is
   // possible to import.
   int importable_fields = 0;
@@ -291,9 +287,7 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
                      std::mem_fun_ref(&AutoFillProfile::IsEmpty)),
       profiles->end());
 
-<<<<<<< HEAD
 #ifndef ANDROID
-=======
   // Ensure that profile labels are up to date.  Currently, sync relies on
   // labels to identify a profile.
   // TODO(dhollowa): We need to deprecate labels and update the way sync
@@ -303,33 +297,10 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
       address_of<AutoFillProfile>);
   AutoFillProfile::AdjustInferredLabels(&profile_pointers);
 
->>>>>>> chromium.org at r65505
   WebDataService* wds = profile_->GetWebDataService(Profile::EXPLICIT_ACCESS);
   if (!wds)
     return;
 
-<<<<<<< HEAD
-  // ANDROID FIXME: AutoLock does not build on Android as of the initial checkin.
-  AutoLock lock(unique_ids_lock_);
-
-  // Remove the unique IDs of the new set of profiles from the unique ID set.
-  for (std::vector<AutoFillProfile>::iterator iter = profiles->begin();
-       iter != profiles->end(); ++iter) {
-    if (iter->unique_id() != 0)
-      unique_profile_ids_.erase(iter->unique_id());
-  }
-
-  // Any remaining IDs are not in the new profile list and should be removed
-  // from the web database.
-
-  // ANDROID TODO: Need a web database service on Android
-  for (std::set<int>::iterator iter = unique_profile_ids_.begin();
-       iter != unique_profile_ids_.end(); ++iter) {
-    wds->RemoveAutoFillProfile(*iter);
-
-    // Also remove these IDs from the total set of unique IDs.
-    unique_ids_.erase(*iter);
-=======
   // Any profiles that are not in the new profile list should be removed from
   // the web database.
   for (std::vector<AutoFillProfile*>::const_iterator iter =
@@ -337,7 +308,6 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
        iter != web_profiles_.end(); ++iter) {
     if (!FindInProfilesByGUID(*profiles, (*iter)->guid()))
       wds->RemoveAutoFillProfileGUID((*iter)->guid());
->>>>>>> chromium.org at r65505
   }
 
   // Update the web database with the existing profiles.
@@ -365,25 +335,13 @@ void PersonalDataManager::SetProfiles(std::vector<AutoFillProfile>* profiles) {
   // Read our writes to ensure consistency with the database.
   Refresh();
 
-<<<<<<< HEAD
-#if !defined(ANDROID)
-  {
-    // We're now done with the unique IDs, and observers might call into a
-    // method that needs the lock, so release it.  For example, observers on Mac
-    // might call profiles() which calls LoadAuxiliaryProfiles(), which needs
-    // the lock.
-    AutoUnlock unlock(unique_ids_lock_);
-
-    FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
-  }
-#endif
-=======
   FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
->>>>>>> chromium.org at r65505
 }
 
 void PersonalDataManager::SetCreditCards(
     std::vector<CreditCard>* credit_cards) {
+#ifndef ANDROID
+  // Android does not do credit cards and does not have a WebDataService.
   if (profile_->IsOffTheRecord())
     return;
 
@@ -400,36 +358,12 @@ void PersonalDataManager::SetCreditCards(
   if (!wds)
     return;
 
-<<<<<<< HEAD
-#ifndef ANDROID
-  AutoLock lock(unique_ids_lock_);
-
-  // Remove the unique IDs of the new set of credit cards from the unique ID
-  // set.
-  for (std::vector<CreditCard>::iterator iter = credit_cards->begin();
-       iter != credit_cards->end(); ++iter) {
-    if (iter->unique_id() != 0)
-      unique_creditcard_ids_.erase(iter->unique_id());
-  }
-
-  // Any remaining IDs are not in the new credit card list and should be removed
-  // from the web database.
-  for (std::set<int>::iterator iter = unique_creditcard_ids_.begin();
-       iter != unique_creditcard_ids_.end(); ++iter) {
-    // ANDROID TODO: Android needs some sort of WebDatabaseService backing store for sensitive data
-    // like credit cards.
-    wds->RemoveCreditCard(*iter);
-
-    // Also remove these IDs from the total set of unique IDs.
-    unique_ids_.erase(*iter);
-=======
   // Any credit cards that are not in the new credit card list should be
   // removed.
   for (std::vector<CreditCard*>::const_iterator iter = credit_cards_.begin();
        iter != credit_cards_.end(); ++iter) {
     if (!FindInCreditCardsByGUID(*credit_cards, (*iter)->guid()))
       wds->RemoveCreditCardGUID((*iter)->guid());
->>>>>>> chromium.org at r65505
   }
 
   // Update the web database with the existing credit cards.
@@ -445,7 +379,6 @@ void PersonalDataManager::SetCreditCards(
     if (!FindInScopedCreditCardsByGUID(credit_cards_, iter->guid()))
       wds->AddCreditCardGUID(*iter);
   }
-#endif
 
   // Copy in the new credit cards.
   credit_cards_.reset();
@@ -457,21 +390,8 @@ void PersonalDataManager::SetCreditCards(
   // Read our writes to ensure consistency with the database.
   Refresh();
 
-<<<<<<< HEAD
-#if !defined(ANDROID)
-  {
-    // We're now done with the unique IDs, and observers might call into a
-    // method that needs the lock, so release it.  For example, observers on Mac
-    // might call profiles() which calls LoadAuxiliaryProfiles(), which needs
-    // the lock.
-    AutoUnlock unlock(unique_ids_lock_);
-
-    FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
-  }
-#endif
-=======
   FOR_EACH_OBSERVER(Observer, observers_, OnPersonalDataChanged());
->>>>>>> chromium.org at r65505
+#endif
 }
 
 // TODO(jhawkins): Refactor SetProfiles so this isn't so hacky.
@@ -722,25 +642,6 @@ void PersonalDataManager::Init(Profile* profile) {
   LoadCreditCards();
 }
 
-<<<<<<< HEAD
-int PersonalDataManager::CreateNextUniqueIDFor(std::set<int>* id_set) {
-  // Profile IDs MUST start at 1 to allow 0 as an error value when reading
-  // the ID from the WebDB (see LoadData()).
-#ifdef ANDROID
-  return 1;
-#else
-  unique_ids_lock_.AssertAcquired();
-  int id = 1;
-  while (unique_ids_.count(id) != 0)
-    ++id;
-  unique_ids_.insert(id);
-  id_set->insert(id);
-  return id;
-#endif
-}
-
-=======
->>>>>>> chromium.org at r65505
 void PersonalDataManager::LoadProfiles() {
 #ifdef ANDROID
   // This shoud request the profile(s) from java land on Android.
@@ -787,13 +688,7 @@ void PersonalDataManager::ReceiveLoadedProfiles(WebDataService::Handle h,
                                                 const WDTypedResult* result) {
   DCHECK_EQ(pending_profiles_query_, h);
 
-<<<<<<< HEAD
-#ifndef ANDROID
-  AutoLock lock(unique_ids_lock_);
-  unique_profile_ids_.clear();
-=======
   pending_profiles_query_ = 0;
->>>>>>> chromium.org at r65505
   web_profiles_.reset();
 
   const WDResult<std::vector<AutoFillProfile*> >* r =
@@ -804,20 +699,13 @@ void PersonalDataManager::ReceiveLoadedProfiles(WebDataService::Handle h,
        iter != profiles.end(); ++iter) {
     web_profiles_.push_back(*iter);
   }
-#endif
 }
 
 void PersonalDataManager::ReceiveLoadedCreditCards(
     WebDataService::Handle h, const WDTypedResult* result) {
   DCHECK_EQ(pending_creditcards_query_, h);
 
-<<<<<<< HEAD
-#ifndef ANDROID
-  AutoLock lock(unique_ids_lock_);
-  unique_creditcard_ids_.clear();
-=======
   pending_creditcards_query_ = 0;
->>>>>>> chromium.org at r65505
   credit_cards_.reset();
 
   const WDResult<std::vector<CreditCard*> >* r =
@@ -828,7 +716,6 @@ void PersonalDataManager::ReceiveLoadedCreditCards(
        iter != credit_cards.end(); ++iter) {
     credit_cards_.push_back(*iter);
   }
-#endif
 }
 
 void PersonalDataManager::CancelPendingQuery(WebDataService::Handle* handle) {

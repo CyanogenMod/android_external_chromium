@@ -74,22 +74,16 @@ HostCache* CreateDefaultCache() {
 HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
                                        HostResolverProc* resolver_proc,
                                        NetLog* net_log) {
-<<<<<<< HEAD
-  // Maximum of 50 concurrent threads.
-  // TODO(eroman): Adjust this, do some A/B experiments.
 #ifdef ANDROID
   static HostResolver* systemResolver = NULL;
   static const size_t kDefaultMaxJobs = 4u;
 #else
-  static const size_t kDefaultMaxJobs = 50u;
-#endif
-=======
   // Maximum of 8 concurrent resolver threads.
   // Some routers (or resolvers) appear to start to provide host-not-found if
   // too many simultaneous resolutions are pending.  This number needs to be
   // further optimized, but 8 is what FF currently does.
   static const size_t kDefaultMaxJobs = 8u;
->>>>>>> chromium.org at r65505
+#endif
 
   if (max_concurrent_resolves == HostResolver::kDefaultParallelism)
     max_concurrent_resolves = kDefaultMaxJobs;

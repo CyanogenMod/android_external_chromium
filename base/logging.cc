@@ -409,12 +409,8 @@ int GetVlogLevelHelper(const char* file, size_t N) {
   DCHECK_GT(N, 0U);
   return g_vlog_info ?
       g_vlog_info->GetVlogLevel(base::StringPiece(file, N - 1)) :
-<<<<<<< HEAD
-      VlogInfo::kDefaultVlogLevel;
-#endif
-=======
       GetVlogVerbosity();
->>>>>>> chromium.org at r65505
+#endif
 }
 
 void SetLogItems(bool enable_process_id, bool enable_thread_id,

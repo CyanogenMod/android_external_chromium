@@ -47,21 +47,20 @@
 
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_OPENBSD) || \
     defined(OS_SOLARIS)
+
+#if defined(ANDROID)
+#define USE_OPENSSL 1
+#define USE_SYSTEM_ZLIB 1
+#endif
+
 #if !defined(USE_OPENSSL)
 #define USE_NSS 1  // Default to use NSS for crypto, unless OpenSSL is chosen.
 #endif
 #define USE_X11 1  // Use X for graphics.
 #endif
 
-<<<<<<< HEAD
-#if defined(ANDROID)
-#define USE_OPENSSL 1
-#undef USE_NSS
-#define USE_SYSTEM_ZLIB 1
-=======
 #if defined(USE_OPENSSL) && defined(USE_NSS)
 #error Cannot use both OpenSSL and NSS
->>>>>>> chromium.org at r65505
 #endif
 
 // For access to standard POSIXish features, use OS_POSIX instead of a
