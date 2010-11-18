@@ -59,6 +59,7 @@ class DatabaseTracker;
 class AutocompleteClassifier;
 class BackgroundContentsService;
 class BookmarkModel;
+class BrowserSignin;
 class BrowserThemeProvider;
 class ChromeURLRequestContextGetter;
 class DesktopNotificationService;
@@ -146,17 +147,17 @@ class ProfileImplAndroid : public Profile {
   virtual DownloadManager* GetDownloadManager() { NOTREACHED(); return NULL; }
   virtual FileSystemHostContext* GetFileSystemHostContext() { NOTREACHED(); return NULL; }
   virtual void InitThemes() { NOTREACHED(); }
-  virtual void SetTheme(Extension* extension) { NOTREACHED(); }
+  virtual void SetTheme(const Extension* extension) { NOTREACHED(); }
   virtual void SetNativeTheme() { NOTREACHED(); }
   virtual void ClearTheme() { NOTREACHED(); }
-  virtual Extension* GetTheme() { NOTREACHED(); return NULL; }
+  virtual const Extension* GetTheme() { NOTREACHED(); return NULL; }
   virtual BrowserThemeProvider* GetThemeProvider()  { NOTREACHED(); return NULL; }
   virtual bool HasCreatedDownloadManager() const { NOTREACHED(); return false; }
   virtual URLRequestContextGetter* GetRequestContext()  { NOTREACHED(); return NULL; }
   virtual URLRequestContextGetter* GetRequestContextForMedia()  { NOTREACHED(); return NULL; }
   virtual URLRequestContextGetter* GetRequestContextForExtensions()  { NOTREACHED(); return NULL; }
-  virtual void RegisterExtensionWithRequestContexts(Extension* extension) { NOTREACHED(); }
-  virtual void UnregisterExtensionWithRequestContexts(Extension* extension) { NOTREACHED(); }
+  virtual void RegisterExtensionWithRequestContexts(const Extension* extension) { NOTREACHED(); }
+  virtual void UnregisterExtensionWithRequestContexts(const Extension* extension) { NOTREACHED(); }
   virtual net::SSLConfigService* GetSSLConfigService()  { NOTREACHED(); return NULL; }
   virtual HostContentSettingsMap* GetHostContentSettingsMap()  { NOTREACHED(); return NULL; }
   virtual HostZoomMap* GetHostZoomMap()  { NOTREACHED(); return NULL; }
@@ -193,6 +194,11 @@ class ProfileImplAndroid : public Profile {
   void InitSyncService() { NOTREACHED(); }
   virtual CloudPrintProxyService* GetCloudPrintProxyService()  { NOTREACHED(); return NULL; }
   void InitCloudPrintProxyService() { NOTREACHED(); }
+
+  virtual history::TopSites* GetTopSitesWithoutCreating() { NOTREACHED(); return NULL; }
+  virtual BrowserSignin* GetBrowserSignin() { NOTREACHED(); return NULL; }
+  virtual bool HasProfileSyncService() const { NOTREACHED(); return false; }
+
 
  private:
   friend class Profile;
