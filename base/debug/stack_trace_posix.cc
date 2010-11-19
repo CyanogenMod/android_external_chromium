@@ -108,6 +108,9 @@ void DemangleSymbols(std::string* text) {
 bool GetBacktraceStrings(void **trace, int size,
                          std::vector<std::string>* trace_strings,
                          std::string* error_message) {
+#ifdef ANDROID
+  return false;
+#endif
   bool symbolized = false;
 
 #if defined(USE_SYMBOLIZE)
@@ -150,11 +153,15 @@ bool GetBacktraceStrings(void **trace, int size,
 }  // namespace
 
 StackTrace::StackTrace() {
-#if defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
+#if (defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5) || defined(ANDROID)
+#if defined(ANDROID)
+  return;
+#else
   if (backtrace == NULL) {
     count_ = 0;
     return;
   }
+#endif // ANDROID
 #endif
   // Though the backtrace API man page does not list any possible negative
   // return values, we take no chance.
@@ -162,9 +169,13 @@ StackTrace::StackTrace() {
 }
 
 void StackTrace::PrintBacktrace() {
-#if defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
+#if (defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5) || defined(ANDROID)
+#if defined(ANDROID)
+  return;
+#else
   if (backtrace_symbols_fd == NULL)
     return;
+#endif // ANDROID
 #endif
   fflush(stderr);
   std::vector<std::string> trace_strings;
@@ -175,9 +186,13 @@ void StackTrace::PrintBacktrace() {
 }
 
 void StackTrace::OutputToStream(std::ostream* os) {
-#if defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5
+#if (defined(OS_MACOSX) && MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_5) || defined(ANDROID)
+#if defined(ANDROID)
+  return;
+#else
   if (backtrace_symbols == NULL)
     return;
+#endif // ANDROID
 #endif
   std::vector<std::string> trace_strings;
   std::string error_message;
