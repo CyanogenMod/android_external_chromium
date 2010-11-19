@@ -442,13 +442,8 @@ string16 AutoFillProfile::ConstructInferredLabel(
     const std::vector<AutoFillFieldType>* included_fields) const {
   DCHECK(included_fields);
   string16 label;
-#ifdef ANDROID
-  // TODO: Hook up l10n on Android.
-  string16 separator;
-#else
   string16 separator = l10n_util::GetStringUTF16(
                        IDS_AUTOFILL_DIALOG_ADDRESS_SUMMARY_SEPARATOR);
-#endif
   for (std::vector<AutoFillFieldType>::const_iterator it =
        included_fields->begin(); it != included_fields->end(); ++it) {
     string16 field = GetFieldText(AutoFillType(*it));
@@ -456,9 +451,8 @@ string16 AutoFillProfile::ConstructInferredLabel(
       if (!label.empty()) {
         label.append(separator);
       }
-#ifdef ANDROID
-      // TODO: Hook up l10n on Android.
-#else
+#ifndef ANDROID
+      // No support on Android for FAX numbers at the moment.
       // Fax number has special format, to indicate that this is a fax number.
       if (*it == PHONE_FAX_WHOLE_NUMBER) {
         field = l10n_util::GetStringFUTF16(
