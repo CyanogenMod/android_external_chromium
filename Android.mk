@@ -71,7 +71,6 @@ LOCAL_SRC_FILES := \
     base/base64.cc \
     base/cancellation_flag.cc \
     base/condition_variable_posix.cc \
-    base/debug_util_posix.cc \
     base/file_descriptor_shuffle.cc \
     base/file_path.cc \
     base/file_util.cc \
@@ -121,7 +120,6 @@ LOCAL_SRC_FILES := \
     base/time.cc \
     base/time_posix.cc \
     base/timer.cc \
-    base/trace_event.cc \
     base/tracked.cc \
     base/tracked_objects.cc \
     base/waitable_event_posix.cc \
@@ -131,6 +129,10 @@ LOCAL_SRC_FILES := \
     base/values.cc \
     base/weak_ptr.cc \
     base/worker_pool_linux.cc \
+    \
+    base/debug/debugger_posix.cc \
+    base/debug/stack_trace.cc \
+    base/debug/stack_trace_posix.cc \
     \
     base/i18n/file_util_icu.cc \
     base/i18n/icu_string_conversions.cc \
@@ -210,6 +212,7 @@ LOCAL_SRC_FILES := \
     net/base/x509_cert_types.cc \
     net/base/x509_certificate.cc \
     net/base/x509_certificate_openssl.cc \
+    net/base/x509_openssl_util.cc \
     \
     net/disk_cache/addr.cc \
     net/disk_cache/backend_impl.cc \
@@ -303,6 +306,7 @@ LOCAL_SRC_FILES := \
     net/socket/ssl_client_socket_openssl.cc \
     net/socket/ssl_client_socket_pool.cc \
     net/socket/ssl_host_info.cc \
+    net/socket/tcp_client_socket.cc \
     net/socket/tcp_client_socket_libevent.cc \
     net/socket/tcp_client_socket_pool.cc \
     \
@@ -354,6 +358,7 @@ LOCAL_SRC_FILES += \
     base/base_paths_linux.cc \
     base/path_service.cc \
     \
+    chrome/browser/guid.cc \
     chrome/browser/guid_posix.cc \
     \
     chrome/browser/autofill/address.cc \
