@@ -14,6 +14,7 @@
 namespace JSC {
 namespace Bindings {
 JNIEnv* getJNIEnv();
+JavaVM* getJavaVM();
 }
 }
 
@@ -21,6 +22,7 @@ JNIEnv* getJNIEnv();
 namespace android {
 std::string jstringToStdString(JNIEnv* env, jstring jstr);
 string16 jstringToString16(JNIEnv* env, jstring jstr);
+bool checkException(JNIEnv*);
 }
 
 namespace android {
@@ -36,6 +38,22 @@ std::string JstringToStdString(JNIEnv* env, jstring jstr) {
 string16 JstringToString16(JNIEnv* env, jstring jstr)
 {
     return jstringToString16(env, jstr);
+}
+
+bool CheckException(JNIEnv* env)
+{
+    return checkException(env);
+}
+
+jstring ConvertUTF8ToJavaString(JNIEnv* env, std::string str)
+{
+    return env->NewStringUTF(str.c_str());
+}
+
+void DetachFromVM()
+{
+    JavaVM* vm = JSC::Bindings::getJavaVM();
+    vm->DetachCurrentThread();
 }
 
 } // namespace android

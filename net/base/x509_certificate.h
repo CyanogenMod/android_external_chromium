@@ -296,6 +296,13 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   // (all zero) fingerprint on failure.
   static SHA1Fingerprint CalculateFingerprint(OSCertHandle cert_handle);
 
+#if defined(USE_OPENSSL)
+  // Returns the certificate in DER-encoded form, using the application DER
+  // cache as appropriate. The returned string piece will be valid as long
+  // as the handle is.
+  static std::string GetDEREncodedBytes(OSCertHandle handle);
+#endif
+
   // The subject of the certificate.
   CertPrincipal subject_;
 

@@ -374,6 +374,8 @@ void X509Certificate::GetDNSNames(std::vector<std::string>* dns_names) const {
     dns_names->push_back(subject_.common_name);
 }
 
+#ifndef ANDROID
+
 int X509Certificate::Verify(const std::string& hostname,
                             int flags,
                             CertVerifyResult* verify_result) const {
@@ -398,12 +400,7 @@ int X509Certificate::Verify(const std::string& hostname,
   if (X509_verify_cert(ctx.get()) == 1) {
     return OK;
   }
-#if defined(ANDROID)
-  // TODO: Remove this hack when the trusted CA root certificates are imported
-  // from the Java side.
-  LOG(WARNING) << "X509 certificate not verified (NOT IMPLEMENTED YET)";
-  return OK;
-#else
+
   int x509_error = X509_STORE_CTX_get_error(ctx.get());
   int cert_status = MapCertErrorToCertStatus(x509_error);
   LOG(ERROR) << "X509 Verification error "
@@ -413,8 +410,9 @@ int X509Certificate::Verify(const std::string& hostname,
       << " : " << cert_status;
   verify_result->cert_status |= cert_status;
   return MapCertStatusToNetError(verify_result->cert_status);
-#endif
 }
+
+#endif
 
 // static
 bool X509Certificate::IsSameOSCert(X509Certificate::OSCertHandle a,
@@ -432,6 +430,14 @@ bool X509Certificate::IsSameOSCert(X509Certificate::OSCertHandle a,
       GetDERAndCacheIfNeeded(b, &der_cache_b) &&
       der_cache_a.data_length == der_cache_b.data_length &&
       memcmp(der_cache_a.data, der_cache_b.data, der_cache_a.data_length) == 0;
+}
+
+// static
+std::string X509Certificate::GetDEREncodedBytes(OSCertHandle handle) {
+  DERCache der_cache = {0};
+  GetDERAndCacheIfNeeded(handle, &der_cache);
+  return std::string(reinterpret_cast<const char*>(der_cache.data),
+                     der_cache.data_length);
 }
 
 } // namespace net

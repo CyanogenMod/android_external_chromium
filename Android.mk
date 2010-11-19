@@ -61,6 +61,7 @@ LOCAL_SRC_FILES := \
     android/app/l10n_util.cc \
     android/jni/mime_utils.cc \
     android/jni/jni_utils.cc \
+    android/net/android_network_library_impl.cc \
     \
     app/sql/connection.cc \
     app/sql/meta_table.cc \
@@ -162,6 +163,7 @@ LOCAL_SRC_FILES := \
     \
     net/base/address_list.cc \
     net/base/address_list_net_log_param.cc \
+    net/base/android_network_library.cc \
     net/base/auth.cc \
     net/base/capturing_net_log.cc \
     net/base/cert_status_flags.cc \
@@ -212,6 +214,7 @@ LOCAL_SRC_FILES := \
     net/base/x509_cert_types.cc \
     net/base/x509_certificate.cc \
     net/base/x509_certificate_openssl.cc \
+    net/base/x509_certificate_openssl_android.cc \
     net/base/x509_openssl_util.cc \
     \
     net/disk_cache/addr.cc \
