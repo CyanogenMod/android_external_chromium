@@ -74,7 +74,8 @@ public:
                   URLFetcher::Delegate* d)
       : URLFetcher(url /*unused*/, URLFetcher::POST /*unused*/, d),
         request_type_(request_type),
-        retry_(true)
+        retry_(true),
+        url_(url)
   {
   }
 
@@ -129,7 +130,7 @@ public:
 private:
   void DoStart()
   {
-    real_fetcher_.reset(new URLFetcher(url(), request_type_, this));
+    real_fetcher_.reset(new URLFetcher(url_, request_type_, this));
     real_fetcher_->set_automatically_retry_on_5xx(retry_);
     // We expect set_upload_data() to have been called on this object.
     real_fetcher_->set_upload_data(upload_content_type_, upload_content_);
