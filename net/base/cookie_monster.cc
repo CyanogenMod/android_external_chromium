@@ -1634,8 +1634,9 @@ void CookieMonster::ParsedCookie::ParseValue(
   // value_start should point at the first character of the value.
   *value_start = *it;
 
+#ifdef ANDROID
   // It is unclear exactly how quoted string values should be handled.
-  // Major browsers do different things, for example, Firefox supports
+  // Major browsers do different things, for example, Firefox and Safari support
   // semicolons embedded in a quoted value, while IE does not.  Looking at
   // the specs, RFC 2109 and 2965 allow for a quoted-string as the value.
   // However, these specs were apparently written after browsers had
@@ -1643,17 +1644,39 @@ void CookieMonster::ParsedCookie::ParseValue(
   // what is actually implemented and used on the web.  The original spec
   // from Netscape is possibly what is closest to the cookies used today.
   // This spec didn't have explicit support for double quoted strings, and
-  // states that ; is not allowed as part of a value.  We had originally
-  // implement the Firefox behavior (A="B;C"; -> A="B;C";).  However, since
-  // there is no standard that makes sense, we decided to follow the behavior
-  // of IE and Safari, which is closer to the original Netscape proposal.
-  // This means that A="B;C" -> A="B;.  This also makes the code much simpler
-  // and reduces the possibility for invalid cookies, where other browsers
-  // like Opera currently reject those invalid cookies (ex A="B" "C";).
+  // states that ; is not allowed as part of a value.
 
+  // The spec disallows control characters and separators in the unquoted value,
+  // but we allow all of these, other than the value separator ';'.
+#ifdef ALLOW_QUOTED_COOKIE_VALUES
+  // When a value is quoted, the spec states that any text (other than a double
+  // quote character, but including an escaped double quote character) is
+  // treated as an opaque part of the value. The spec allows for exactly one
+  // such quoted string for the value, but we allow multiple such strings,
+  // possibly with intermediate separators. This matches our policy of allowing
+  // separators in the unquoted value. This matches the behaviour of Safari, but
+  // not that of FF.
+  bool isInQuotedString = false;
+  for (; *it != end && (isInQuotedString || !CharIsA(**it, kValueSeparator)); ++(*it)) {
+    // Inside a quoted string, a backslash esacpes the next character, which can
+    // be any character and should be ignored.
+    if (isInQuotedString && **it == '\\') {
+      ++(*it);
+      // If this backslash is the last character, we just take what we have.
+      if (*it == end)
+        break;
+      continue;
+    }
+
+    if (**it == '\"')
+      isInQuotedString = !isInQuotedString;
+  }
+#else
   // Just look for ';' to terminate ('=' allowed).
   // We can hit the end, maybe they didn't terminate.
   SeekTo(it, end, kValueSeparator);
+#endif
+#endif // ANDROID
 
   // Will be pointed at the ; seperator or the end.
   *value_end = *it;
@@ -1986,4 +2009,3 @@ std::string CookieMonster::CanonicalCookie::DebugString() const {
 }
 
 }  // namespace
-
