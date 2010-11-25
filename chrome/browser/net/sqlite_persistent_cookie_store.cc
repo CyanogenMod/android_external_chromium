@@ -343,7 +343,14 @@ bool InitTable(sql::Connection* db) {
                      "name TEXT NOT NULL,"
                      "value TEXT NOT NULL,"
                      "path TEXT NOT NULL,"
+#if defined(ANDROID)
+                     // On some mobile platforms, we persist session cookies
+                     // because the OS can kill the browser during a session.
+                     // If so, expires_utc is set to 0. When the field is read
+                     // into a Time object, Time::is_null() will return true.
+#else
                      // We only store persistent, so we know it expires
+#endif
                      "expires_utc INTEGER NOT NULL,"
                      "secure INTEGER NOT NULL,"
                      "httponly INTEGER NOT NULL,"
@@ -390,6 +397,9 @@ bool SQLitePersistentCookieStore::Load(
   }
 
   while (smt.Step()) {
+#if defined(ANDROID)
+    base::Time expires = Time::FromInternalValue(smt.ColumnInt64(5));
+#endif
     scoped_ptr<net::CookieMonster::CanonicalCookie> cc(
         new net::CookieMonster::CanonicalCookie(
             smt.ColumnString(2),                            // name
@@ -400,8 +410,13 @@ bool SQLitePersistentCookieStore::Load(
             smt.ColumnInt(7) != 0,                          // httponly
             Time::FromInternalValue(smt.ColumnInt64(0)),    // creation_utc
             Time::FromInternalValue(smt.ColumnInt64(8)),    // last_access_utc
+#if defined(ANDROID)
+            !expires.is_null(),                             // has_expires
+            expires));                                      // expires_utc
+#else
             true,                                           // has_expires
             Time::FromInternalValue(smt.ColumnInt64(5))));  // expires_utc
+#endif
     DLOG_IF(WARNING,
             cc->CreationDate() > Time::Now()) << L"CreationDate too recent";
     cookies->push_back(cc.release());

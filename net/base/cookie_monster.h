@@ -517,7 +517,13 @@ class CookieMonster::CanonicalCookie {
   const base::Time& CreationDate() const { return creation_date_; }
   const base::Time& LastAccessDate() const { return last_access_date_; }
   bool DoesExpire() const { return has_expires_; }
+#if defined(ANDROID)
+  // Android can shut down our app at any time, so we persist session cookies.
+  bool IsPersistent() const { return true; }
+  bool IsSessionCookie() const { return !DoesExpire(); }
+#else
   bool IsPersistent() const { return DoesExpire(); }
+#endif
   const base::Time& ExpiryDate() const { return expiry_date_; }
   bool IsSecure() const { return secure_; }
   bool IsHttpOnly() const { return httponly_; }
