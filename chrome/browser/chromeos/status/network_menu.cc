@@ -11,10 +11,10 @@
 #include "base/command_line.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/dom_ui/network_menu_ui.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/browser/views/window.h"
@@ -145,6 +145,7 @@ bool NetworkMenu::GetNetworkAt(int index, NetworkInfo* info) const {
       }
       info->ip_address = wifi->ip_address();
       info->remembered = wifi->favorite();
+      info->auto_connect = info->remembered ? wifi->auto_connect() : true;
     } else {
       res = false;  // Network not found, hide entry.
     }
@@ -200,7 +201,7 @@ bool NetworkMenu::GetNetworkAt(int index, NetworkInfo* info) const {
 bool NetworkMenu::ConnectToNetworkAt(int index,
                                      const std::string& passphrase,
                                      const std::string& ssid,
-                                     int remember) const {
+                                     int auto_connect) const {
   int flags = menu_items_[index].flags;
   NetworkLibrary* cros = CrosLibrary::Get()->GetNetworkLibrary();
   if (flags & FLAG_WIFI) {
@@ -208,8 +209,8 @@ bool NetworkMenu::ConnectToNetworkAt(int index,
         menu_items_[index].wireless_path);
     if (wifi) {
       // Connect or reconnect.
-      if (remember >= 0)
-        wifi->set_favorite(remember ? true : false);
+      if (auto_connect >= 0)
+        wifi->set_auto_connect(auto_connect ? true : false);
       if (cros->wifi_network() &&
           wifi->service_path() == cros->wifi_network()->service_path()) {
         // Show the config settings for the active network.
@@ -255,7 +256,8 @@ bool NetworkMenu::ConnectToNetworkAt(int index,
     CellularNetwork* cellular = cros->FindCellularNetworkByPath(
         menu_items_[index].wireless_path);
     if (cellular) {
-      if (cellular->activation_state() != ACTIVATION_STATE_ACTIVATED) {
+      if (cellular->activation_state() != ACTIVATION_STATE_ACTIVATED ||
+          cellular->needs_new_plan()) {
         ActivateCellular(cellular);
         return true;
       } else if (cros->cellular_network() &&
@@ -278,10 +280,11 @@ bool NetworkMenu::ConnectToNetworkAt(int index,
   } else if (flags & FLAG_OTHER_NETWORK) {
     bool connected = false;
     if (MenuUI::IsEnabled()) {
-      bool favorite = remember == 0 ? false : true;  // default is true
+      // default is true
+      bool auto_connect_bool = auto_connect == 0 ? false : true;
       connected = cros->ConnectToWifiNetwork(
           passphrase.empty() ? SECURITY_NONE : SECURITY_UNKNOWN,
-          ssid, passphrase, std::string(), std::string(), favorite);
+          ssid, passphrase, std::string(), std::string(), auto_connect_bool);
     }
     if (!connected) {
       ShowOther();
@@ -385,6 +388,7 @@ SkBitmap NetworkMenu::IconForNetworkStrength(int strength, bool black) {
   return *ResourceBundle::GetSharedInstance().GetBitmapNamed(images[index]);
 }
 
+// static
 SkBitmap NetworkMenu::IconForNetworkStrength(const CellularNetwork* cellular) {
   DCHECK(cellular);
   // Compose wifi icon by superimposing various icons.
@@ -405,6 +409,22 @@ SkBitmap NetworkMenu::IconForNetworkStrength(const CellularNetwork* cellular) {
       break;
   }
   return *ResourceBundle::GetSharedInstance().GetBitmapNamed(images[index]);
+}
+
+// static
+SkBitmap NetworkMenu::IconForNetworkConnecting(double animation_value,
+                                               bool black) {
+  // Draw animation of bars icon fading in and out.
+  // We are fading between 0 bars and a third of the opacity of 4 bars.
+  // Use the current value of the animation to calculate the alpha value
+  // of how transparent the icon is.
+  ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+  return SkBitmapOperations::CreateBlendedBitmap(
+      *rb.GetBitmapNamed(black ? IDR_STATUSBAR_NETWORK_BARS0_BLACK :
+                                 IDR_STATUSBAR_NETWORK_BARS0),
+      *rb.GetBitmapNamed(black ? IDR_STATUSBAR_NETWORK_BARS4_BLACK :
+                                 IDR_STATUSBAR_NETWORK_BARS4),
+      animation_value / 3);
 }
 
 // static
@@ -490,13 +510,12 @@ void NetworkMenu::InitMenuItems() {
   NetworkLibrary* cros = CrosLibrary::Get()->GetNetworkLibrary();
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
 
-  bool no_networks = true;
   string16 label;
 
   // Ethernet
   bool ethernet_available = cros->ethernet_available();
-  if (ethernet_available) {
-    no_networks = false;
+  bool ethernet_enabled = cros->ethernet_enabled();
+  if (ethernet_available && ethernet_enabled) {
     bool ethernet_connected = cros->ethernet_connected();
     bool ethernet_connecting = cros->ethernet_connecting();
 
@@ -521,15 +540,12 @@ void NetworkMenu::InitMenuItems() {
 
   // Wifi Networks
   bool wifi_available = cros->wifi_available();
-  if (wifi_available) {
+  bool wifi_enabled = cros->wifi_enabled();
+  if (wifi_available && wifi_enabled) {
     const WifiNetworkVector& wifi_networks = cros->wifi_networks();
     const WifiNetwork* active_wifi = cros->wifi_network();
 
-    if (wifi_networks.size() > 0) {
-      no_networks = false;
-      // Separator
-      menu_items_.push_back(MenuItem());
-    }
+    bool separator_added = false;
     // List Wifi networks.
     for (size_t i = 0; i < wifi_networks.size(); ++i) {
       if (wifi_networks[i]->connecting()) {
@@ -540,11 +556,22 @@ void NetworkMenu::InitMenuItems() {
       } else {
         label = ASCIIToUTF16(wifi_networks[i]->name());
       }
+
+      // First add a separator if necessary.
+      if (!separator_added) {
+        separator_added = true;
+        if (!menu_items_.empty()) {  // Don't add if first menu item.
+          menu_items_.push_back(MenuItem());  // Separator
+        }
+      }
+
       SkBitmap icon = IconForNetworkStrength(wifi_networks[i]->strength(),
                                              true);
       SkBitmap badge = wifi_networks[i]->encrypted() ?
           *rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_SECURE) : SkBitmap();
       int flag = FLAG_WIFI;
+      if (!wifi_networks[i]->connectable())
+        flag |= FLAG_DISABLED;
       if (active_wifi
           && wifi_networks[i]->service_path() == active_wifi->service_path())
         flag |= FLAG_ASSOCIATED;
@@ -557,7 +584,8 @@ void NetworkMenu::InitMenuItems() {
 
   // Cellular Networks
   bool cellular_available = cros->cellular_available();
-  if (cellular_available) {
+  bool cellular_enabled = cros->cellular_enabled();
+  if (cellular_available && cellular_enabled) {
     const CellularNetworkVector& cell_networks = cros->cellular_networks();
     const CellularNetwork* active_cellular = cros->cellular_network();
 
@@ -566,15 +594,17 @@ void NetworkMenu::InitMenuItems() {
     for (size_t i = 0; i < cell_networks.size(); ++i) {
       chromeos::ActivationState activation_state =
           cell_networks[i]->activation_state();
-      if (activation_state == ACTIVATION_STATE_NOT_ACTIVATED) {
-        // If we are on the OOBE/login screen, do not show activating 3G option.
-        if (!IsBrowserMode())
-          continue;
+
+      // If we are on the OOBE/login screen, do not show activating 3G option.
+      if (!IsBrowserMode() && activation_state != ACTIVATION_STATE_ACTIVATED)
+        continue;
+
+      if (activation_state == ACTIVATION_STATE_NOT_ACTIVATED ||
+          activation_state == ACTIVATION_STATE_PARTIALLY_ACTIVATED) {
         label = l10n_util::GetStringFUTF16(
             IDS_STATUSBAR_NETWORK_DEVICE_ACTIVATE,
             ASCIIToUTF16(cell_networks[i]->name()));
-      } else if (activation_state == ACTIVATION_STATE_PARTIALLY_ACTIVATED ||
-                 activation_state == ACTIVATION_STATE_ACTIVATING) {
+      } else if (activation_state == ACTIVATION_STATE_ACTIVATING) {
         label = l10n_util::GetStringFUTF16(
             IDS_STATUSBAR_NETWORK_DEVICE_STATUS,
             ASCIIToUTF16(cell_networks[i]->name()),
@@ -590,29 +620,48 @@ void NetworkMenu::InitMenuItems() {
 
       // First add a separator if necessary.
       if (!separator_added) {
-        no_networks = false;
-        menu_items_.push_back(MenuItem());
         separator_added = true;
+        if (!menu_items_.empty()) {  // Don't add if first menu item.
+          menu_items_.push_back(MenuItem());  // Separator
+        }
       }
 
       SkBitmap icon = IconForNetworkStrength(cell_networks[i]->strength(),
                                              true);
       SkBitmap badge = BadgeForNetworkTechnology(cell_networks[i]);
       int flag = FLAG_CELLULAR;
-      if (active_cellular &&
-          cell_networks[i]->service_path() ==
-              active_cellular->service_path() &&
-          (cell_networks[i]->connecting() || cell_networks[i]->connected()))
+      if (!cell_networks[i]->connectable())
+        flag |= FLAG_DISABLED;
+      bool isActive = active_cellular &&
+          cell_networks[i]->service_path() == active_cellular->service_path() &&
+          (cell_networks[i]->connecting() || cell_networks[i]->connected());
+      if (isActive)
         flag |= FLAG_ASSOCIATED;
       menu_items_.push_back(
           MenuItem(menus::MenuModel::TYPE_COMMAND, label,
                    IconForDisplay(icon, badge),
                    cell_networks[i]->service_path(), flag));
+      if (isActive) {
+        label.clear();
+        if (active_cellular->needs_new_plan()) {
+          label = l10n_util::GetStringUTF16(IDS_OPTIONS_SETTINGS_NO_PLAN_LABEL);
+        } else if (!active_cellular->GetDataPlans().empty()) {
+          const chromeos::CellularDataPlan& plan =
+              *active_cellular->GetDataPlans().begin();
+          label = plan.GetUsageInfo();
+        }
+        if (label.length()) {
+          menu_items_.push_back(
+              MenuItem(menus::MenuModel::TYPE_COMMAND,
+                       label, SkBitmap(),
+                       std::string(), FLAG_DISABLED));
+        }
+      }
     }
   }
 
   // No networks available message.
-  if (no_networks) {
+  if (menu_items_.empty()) {
     label = l10n_util::GetStringFUTF16(IDS_STATUSBAR_NETWORK_MENU_ITEM_INDENT,
                 l10n_util::GetStringUTF16(IDS_STATUSBAR_NO_NETWORKS_MESSAGE));
     menu_items_.push_back(MenuItem(menus::MenuModel::TYPE_COMMAND, label,
@@ -620,10 +669,8 @@ void NetworkMenu::InitMenuItems() {
   }
 
   // Add network.
-  if (wifi_available) {
-    // Separator
-    menu_items_.push_back(MenuItem());
-
+  if (wifi_available && wifi_enabled) {
+    menu_items_.push_back(MenuItem());  // Separator
     menu_items_.push_back(MenuItem(
         menus::MenuModel::TYPE_COMMAND,
         l10n_util::GetStringUTF16(IDS_OPTIONS_SETTINGS_OTHER_NETWORKS),
@@ -634,12 +681,11 @@ void NetworkMenu::InitMenuItems() {
 
   // Enable / disable wireless.
   if (wifi_available || cellular_available) {
-    // Separator
-    menu_items_.push_back(MenuItem());
+    menu_items_.push_back(MenuItem());  // Separator
 
     if (wifi_available) {
-      int id = cros->wifi_enabled() ? IDS_STATUSBAR_NETWORK_DEVICE_DISABLE :
-                                      IDS_STATUSBAR_NETWORK_DEVICE_ENABLE;
+      int id = wifi_enabled ? IDS_STATUSBAR_NETWORK_DEVICE_DISABLE :
+                              IDS_STATUSBAR_NETWORK_DEVICE_ENABLE;
       label = l10n_util::GetStringFUTF16(id,
           l10n_util::GetStringUTF16(IDS_STATUSBAR_NETWORK_DEVICE_WIFI));
       menu_items_.push_back(MenuItem(menus::MenuModel::TYPE_COMMAND, label,
@@ -647,8 +693,8 @@ void NetworkMenu::InitMenuItems() {
     }
 
     if (cellular_available) {
-      int id = cros->cellular_enabled() ? IDS_STATUSBAR_NETWORK_DEVICE_DISABLE :
-                                          IDS_STATUSBAR_NETWORK_DEVICE_ENABLE;
+      int id = cellular_enabled ? IDS_STATUSBAR_NETWORK_DEVICE_DISABLE :
+                                  IDS_STATUSBAR_NETWORK_DEVICE_ENABLE;
       label = l10n_util::GetStringFUTF16(id,
           l10n_util::GetStringUTF16(IDS_STATUSBAR_NETWORK_DEVICE_CELLULAR));
       menu_items_.push_back(MenuItem(menus::MenuModel::TYPE_COMMAND, label,
@@ -663,31 +709,24 @@ void NetworkMenu::InitMenuItems() {
   //     l10n_util::GetStringUTF16(IDS_STATUSBAR_NETWORK_OFFLINE_MODE),
   //     SkBitmap(), std::string(), FLAG_TOGGLE_OFFLINE));
 
-  bool connected = cros->Connected();  // alwasy call for test expectations.
-  bool show_ip = !MenuUI::IsEnabled() && connected;
-  bool show_settings = ShouldOpenButtonOptions();
+  bool connected = cros->Connected();  // always call for test expectations.
+  bool oobe = !ShouldOpenButtonOptions();  // we don't show options for OOBE.
+  // Network settings. (And IP Address)
+  if (!oobe) {
+    menu_items_.push_back(MenuItem());  // Separator
 
-  // Separator.
-  if (show_ip || show_settings) {
-    menu_items_.push_back(MenuItem());
-  }
-
-  // IP Address
-  if (show_ip) {
-    menu_items_.push_back(MenuItem(menus::MenuModel::TYPE_COMMAND,
-                                   ASCIIToUTF16(cros->IPAddress()), SkBitmap(),
-                                   std::string(), FLAG_DISABLED));
-  }
-
-  // Network settings.
-  if (show_settings) {
-    if (IsBrowserMode()) {
-      label = l10n_util::GetStringUTF16(
-          IDS_STATUSBAR_NETWORK_OPEN_OPTIONS_DIALOG);
-    } else {
-      label = l10n_util::GetStringUTF16(
-          IDS_STATUSBAR_NETWORK_OPEN_PROXY_SETTINGS_DIALOG);
+    if (!MenuUI::IsEnabled() && connected) {
+      std::string ip_address = cros->IPAddress();
+      if (!ip_address.empty()) {
+        menu_items_.push_back(MenuItem(menus::MenuModel::TYPE_COMMAND,
+            ASCIIToUTF16(cros->IPAddress()), SkBitmap(), std::string(),
+                         FLAG_DISABLED));
+      }
     }
+
+    label = l10n_util::GetStringUTF16(IsBrowserMode() ?
+        IDS_STATUSBAR_NETWORK_OPEN_OPTIONS_DIALOG :
+        IDS_STATUSBAR_NETWORK_OPEN_PROXY_SETTINGS_DIALOG);
     menu_items_.push_back(MenuItem(menus::MenuModel::TYPE_COMMAND, label,
                                    SkBitmap(), std::string(), FLAG_OPTIONS));
   }
@@ -745,8 +784,9 @@ void NetworkMenu::ShowCellular(const CellularNetwork* cellular,
 void NetworkMenu::ActivateCellular(const CellularNetwork* cellular) const {
   DCHECK(cellular);
   Browser* browser = BrowserList::GetLastActive();
-  // TODO(stevenjb) : specify which service to activate.
-  browser->ShowSingletonTab(GURL(chrome::kChromeUIMobileSetupURL));
+  if (!browser)
+    return;
+  browser->OpenMobilePlanTabAndActivate();
 }
 
 void NetworkMenu::ShowEthernet(const EthernetNetwork* ethernet) const {

@@ -64,7 +64,7 @@ class NetworkScreenTest : public WizardInProcessBrowserTest {
     // Status bar expectations are defined with RetiresOnSaturation() so
     // these mocks will be active once status bar is initialized.
     EXPECT_CALL(*mock_network_library_, active_network())
-        .Times(1)
+        .Times(AnyNumber())
         .WillRepeatedly((Return((const Network*)(NULL))))
         .RetiresOnSaturation();
     EXPECT_CALL(*mock_network_library_, ethernet_connected())
@@ -89,13 +89,25 @@ class NetworkScreenTest : public WizardInProcessBrowserTest {
         .Times(1)
         .WillRepeatedly((Return(true)))
         .RetiresOnSaturation();
+    EXPECT_CALL(*mock_network_library_, ethernet_enabled())
+        .Times(1)
+        .WillRepeatedly((Return(true)))
+        .RetiresOnSaturation();
     EXPECT_CALL(*mock_network_library_, wifi_available())
         .Times(1)
         .WillRepeatedly((Return(false)))
         .RetiresOnSaturation();
+    EXPECT_CALL(*mock_network_library_, wifi_enabled())
+        .Times(1)
+        .WillRepeatedly((Return(true)))
+        .RetiresOnSaturation();
     EXPECT_CALL(*mock_network_library_, cellular_available())
         .Times(1)
         .WillRepeatedly((Return(false)))
+        .RetiresOnSaturation();
+    EXPECT_CALL(*mock_network_library_, cellular_enabled())
+        .Times(1)
+        .WillRepeatedly((Return(true)))
         .RetiresOnSaturation();
 
     // Add a Connecting for prewarming auth url check.

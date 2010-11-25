@@ -16,7 +16,6 @@
 #include "base/string_util.h"
 #include "base/timer.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
@@ -34,6 +33,7 @@
 #include "chrome/browser/chromeos/system_key_event_listener.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
 #include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
 #include "cros/chromeos_wm_ipc_enums.h"
@@ -45,11 +45,16 @@
 #include "views/widget/widget_gtk.h"
 
 namespace {
-// The maxium times that the screen locker should try to grab input,
-// and its interval. It has to be able to grab all inputs in 30 seconds,
-// otherwise chromium process fails and the session is terminated.
+
+// The maximum duration for which locker should try to grab the keyboard and
+// mouse and its interval for regrabbing on failure.
+const int kMaxGrabFailureSec = 30;
 const int64 kRetryGrabIntervalMs = 500;
-const int kGrabFailureLimit = 60;
+
+// Maximum number of times we'll try to grab the keyboard and mouse before
+// giving up.  If we hit the limit, Chrome exits and the session is terminated.
+const int kMaxGrabFailures = kMaxGrabFailureSec * 1000 / kRetryGrabIntervalMs;
+
 // Each keyboard layout has a dummy input method ID which starts with "xkb:".
 const char kValidInputMethodPrefix[] = "xkb:";
 
@@ -176,12 +181,12 @@ class ScreenLockObserver : public chromeos::ScreenLockLibrary::Observer,
   DISALLOW_COPY_AND_ASSIGN(ScreenLockObserver);
 };
 
-// A ScreenLock window that covers entire screen to keeps the keyboard
+// A ScreenLock window that covers entire screen to keep the keyboard
 // focus/events inside the grab widget.
 class LockWindow : public views::WidgetGtk {
  public:
   LockWindow()
-      : WidgetGtk(views::WidgetGtk::TYPE_WINDOW),
+      : views::WidgetGtk(views::WidgetGtk::TYPE_WINDOW),
         toplevel_focus_widget_(NULL) {
     EnableDoubleBuffer(true);
   }
@@ -267,8 +272,6 @@ class GrabWidget : public views::WidgetGtk {
 
   virtual void Show() {
     views::WidgetGtk::Show();
-    // Now steal all inputs.
-    TryGrabAllInputs();
   }
 
   void ClearGrab() {
@@ -338,9 +341,10 @@ void GrabWidget::TryGrabAllInputs() {
   }
   if ((kbd_grab_status_ != GDK_GRAB_SUCCESS ||
        mouse_grab_status_ != GDK_GRAB_SUCCESS) &&
-      grab_failure_count_++ < kGrabFailureLimit) {
-    LOG(WARNING) << "Failed to grab inputs. Trying again in 1 second: kbd="
-        << kbd_grab_status_ << ", mouse=" << mouse_grab_status_;
+      grab_failure_count_++ < kMaxGrabFailures) {
+    LOG(WARNING) << "Failed to grab inputs. Trying again in "
+                 << kRetryGrabIntervalMs << " ms: kbd="
+                 << kbd_grab_status_ << ", mouse=" << mouse_grab_status_;
     MessageLoop::current()->PostDelayedTask(
         FROM_HERE,
         task_factory_.NewRunnableMethod(&GrabWidget::TryGrabAllInputs),
@@ -575,14 +579,18 @@ void ScreenLocker::Init() {
     MessageLoopForUI::current()->AddObserver(input_event_observer_.get());
   }
 
-  lock_widget_ = new GrabWidget(this);
+  // Hang on to a cast version of the grab widget so we can call its
+  // TryGrabAllInputs() method later.  (Nobody else needs to use it, so moving
+  // its declaration to the header instead of keeping it in an anonymous
+  // namespace feels a bit ugly.)
+  GrabWidget* cast_lock_widget = new GrabWidget(this);
+  lock_widget_ = cast_lock_widget;
   lock_widget_->MakeTransparent();
   lock_widget_->InitWithWidget(lock_window_, gfx::Rect());
   if (screen_lock_view_) {
     lock_widget_->SetContentsView(
         new GrabWidgetRootView(screen_lock_view_));
   }
-
   lock_widget_->Show();
 
   // Configuring the background url.
@@ -603,6 +611,18 @@ void ScreenLocker::Init() {
 
   lock_window_->SetContentsView(background_view_);
   lock_window_->Show();
+
+  cast_lock_widget->TryGrabAllInputs();
+
+  // Add the window to its own group so that its grab won't be stolen if
+  // gtk_grab_add() gets called on behalf on a non-screen-locker widget (e.g.
+  // a modal dialog) -- see http://crosbug.com/8999.  We intentionally do this
+  // after calling TryGrabAllInputs(), as want to be in the default window group
+  // then so we can break any existing GTK grabs.
+  GtkWindowGroup* window_group = gtk_window_group_new();
+  gtk_window_group_add_window(window_group,
+                              GTK_WINDOW(lock_window_->GetNativeView()));
+  g_object_unref(window_group);
 
   // Don't let X draw default background, which was causing flash on
   // resume.

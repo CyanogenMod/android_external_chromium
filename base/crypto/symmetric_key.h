@@ -24,6 +24,8 @@ namespace base {
 // scoped_ptr.
 class SymmetricKey {
  public:
+  // Defines the algorithm that a key will be used with. See also
+  // classs Encrptor.
   enum Algorithm {
     AES,
     HMAC_SHA1,
@@ -31,14 +33,16 @@ class SymmetricKey {
 
   virtual ~SymmetricKey();
 
-  // Generates a random key suitable to be used with |cipher| and of
+  // Generates a random key suitable to be used with |algorithm| and of
   // |key_size_in_bits| bits.
   // The caller is responsible for deleting the returned SymmetricKey.
   static SymmetricKey* GenerateRandomKey(Algorithm algorithm,
                                          size_t key_size_in_bits);
 
-  // Derives a key from the supplied password and salt using PBKDF2. The caller
-  // is responsible for deleting the returned SymmetricKey.
+  // Derives a key from the supplied password and salt using PBKDF2, suitable
+  // for use with specified |algorithm|. Note |algorithm| is not the algorithm
+  // used to derive the key from the password. The caller is responsible for
+  // deleting the returned SymmetricKey.
   static SymmetricKey* DeriveKeyFromPassword(Algorithm algorithm,
                                              const std::string& password,
                                              const std::string& salt,
@@ -51,7 +55,9 @@ class SymmetricKey {
   // SymmetricKey.
   static SymmetricKey* Import(Algorithm algorithm, const std::string& raw_key);
 
-#if defined(USE_NSS)
+#if defined(USE_OPENSSL)
+  const std::string& key() { return key_; }
+#elif defined(USE_NSS)
   PK11SymKey* key() const { return key_.get(); }
 #elif defined(OS_MACOSX)
   CSSM_DATA cssm_data() const;
@@ -66,8 +72,8 @@ class SymmetricKey {
 
  private:
 #if defined(USE_OPENSSL)
-  // TODO(joth): Add a constructor that accepts OpenSSL symmetric key data, and
-  // the appropriate data members to store it in.
+  SymmetricKey() {}
+  std::string key_;
 #elif defined(USE_NSS)
   explicit SymmetricKey(PK11SymKey* key);
   ScopedPK11SymKey key_;

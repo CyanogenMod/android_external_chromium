@@ -68,10 +68,9 @@ private:
 #include "chrome/common/property_bag.h"
 #include "chrome/common/renderer_preferences.h"
 #include "chrome/common/translate_errors.h"
+#include "chrome/common/web_apps.h"
 #include "gfx/native_widget_types.h"
-#include "gfx/rect.h"
 #include "net/base/load_states.h"
-#include "webkit/glue/dom_operations.h"
 
 namespace gfx {
 class Rect;
@@ -96,7 +95,6 @@ struct PasswordForm;
 class AutocompleteHistoryManager;
 class AutoFillManager;
 class BlockedContentContainer;
-class BlockedPluginManager;
 class DOMUI;
 class DownloadItem;
 class Extension;
@@ -317,7 +315,7 @@ class TabContents : public PageNavigator,
     encoding_.clear();
   }
 
-  const webkit_glue::WebApplicationInfo& web_app_info() const {
+  const WebApplicationInfo& web_app_info() const {
     return web_app_info_;
   }
 
@@ -900,9 +898,8 @@ class TabContents : public PageNavigator,
   virtual void OnMissingPluginStatus(int status);
   virtual void OnCrashedPlugin(const FilePath& plugin_path);
   virtual void OnCrashedWorker();
-  virtual void OnDidGetApplicationInfo(
-      int32 page_id,
-      const webkit_glue::WebApplicationInfo& info);
+  virtual void OnDidGetApplicationInfo(int32 page_id,
+                                       const WebApplicationInfo& info);
   virtual void OnDisabledOutdatedPlugin(const string16& name,
                                         const GURL& update_url);
   virtual void OnPageContents(const GURL& url,
@@ -961,7 +958,6 @@ class TabContents : public PageNavigator,
   virtual RenderViewHostDelegate::FavIcon* GetFavIconDelegate();
   virtual RenderViewHostDelegate::Autocomplete* GetAutocompleteDelegate();
   virtual RenderViewHostDelegate::AutoFill* GetAutoFillDelegate();
-  virtual RenderViewHostDelegate::BlockedPlugin* GetBlockedPluginDelegate();
   virtual RenderViewHostDelegate::SSL* GetSSLDelegate();
   virtual RenderViewHostDelegate::FileSelect* GetFileSelectDelegate();
   virtual AutomationResourceRoutingDelegate*
@@ -1031,7 +1027,6 @@ class TabContents : public PageNavigator,
   virtual void OnJSOutOfMemory();
   virtual void OnCrossSiteResponse(int new_render_process_host_id,
                                    int new_request_id);
-  virtual gfx::Rect GetRootWindowResizerRect() const;
   virtual void RendererUnresponsive(RenderViewHost* render_view_host,
                                     bool is_during_unload);
   virtual void RendererResponsive(RenderViewHost* render_view_host);
@@ -1139,9 +1134,6 @@ class TabContents : public PageNavigator,
   // TabContentsSSLHelper, lazily created.
   scoped_ptr<TabContentsSSLHelper> ssl_helper_;
 
-  // BlockedPluginManager, lazily created.
-  scoped_ptr<BlockedPluginManager> blocked_plugin_manager_;
-
   // FileSelectHelper, lazily created.
   scoped_ptr<FileSelectHelper> file_select_helper_;
 
@@ -1152,7 +1144,7 @@ class TabContents : public PageNavigator,
   FavIconHelper fav_icon_helper_;
 
   // Cached web app info data.
-  webkit_glue::WebApplicationInfo web_app_info_;
+  WebApplicationInfo web_app_info_;
 
   // Cached web app icon.
   SkBitmap app_icon_;

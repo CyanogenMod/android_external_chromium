@@ -168,7 +168,7 @@ class DownloadManager
   void OnQueryDownloadEntriesComplete(
       std::vector<DownloadCreateInfo>* entries);
   void OnCreateDownloadEntryComplete(
-      const DownloadCreateInfo& info, int64 db_handle);
+      DownloadCreateInfo info, int64 db_handle);
 
   // Display a new download in the appropriate browser UI.
   void ShowDownloadInBrowser(const DownloadCreateInfo& info,
@@ -203,6 +203,13 @@ class DownloadManager
 
   // Called when the user has validated the download of a dangerous file.
   void DangerousDownloadValidated(DownloadItem* download);
+
+  // Performs the last steps required when a download has been completed.
+  // It is necessary to break down the flow when a download is finished as
+  // dangerous downloads are downloaded to temporary files that need to be
+  // renamed on the file thread first.
+  // Invoked on the UI thread.
+  void DownloadFinished(DownloadItem* download);
 
  private:
   // This class is used to let an incognito DownloadManager observe changes to
@@ -252,13 +259,6 @@ class DownloadManager
   void DownloadCancelledInternal(int download_id,
                                  int render_process_id,
                                  int request_id);
-
-  // Performs the last steps required when a download has been completed.
-  // It is necessary to break down the flow when a download is finished as
-  // dangerous downloads are downloaded to temporary files that need to be
-  // renamed on the file thread first.
-  // Invoked on the UI thread.
-  void ContinueDownloadFinished(DownloadItem* download);
 
   // Renames a finished dangerous download from its temporary file name to its
   // real file name.
@@ -353,7 +353,7 @@ class DownloadManager
   // destination, so that observers are appropriately notified of completion
   // after this determination is made.
   // The map is of download_id->remaining size (bytes), both of which are
-  // required when calling DownloadFinished.
+  // required when calling OnAllDataSaved.
   typedef std::map<int32, int64> PendingFinishedMap;
   PendingFinishedMap pending_finished_downloads_;
 

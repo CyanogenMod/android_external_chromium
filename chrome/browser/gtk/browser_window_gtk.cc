@@ -24,7 +24,6 @@
 #include "chrome/browser/app_modal_dialog_queue.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/debugger/devtools_window.h"
@@ -69,12 +68,11 @@
 #include "chrome/browser/page_info_window.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
-#include "chrome/browser/renderer_host/render_view_host.h"
-#include "chrome/browser/renderer_host/render_widget_host_view_gtk.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/window_sizer.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/native_web_keyboard_event.h"
@@ -302,26 +300,6 @@ bool ShouldExecuteReservedCommandImmediately(
 
   // All other reserved accelerators should be processed immediately.
   return true;
-}
-
-// Performs Cut/Copy/Paste operation on the |window|.
-// If the current render view is focused, then just call the specified |method|
-// against the current render view host, otherwise emit the specified |signal|
-// against the focused widget.
-// TODO(suzhe): This approach does not work for plugins.
-void DoCutCopyPaste(BrowserWindowGtk* window, void (RenderViewHost::*method)(),
-                    const char* signal) {
-  TabContents* current_tab_contents =
-      window->browser()->tabstrip_model()->GetSelectedTabContents();
-  if (current_tab_contents && current_tab_contents->GetContentNativeView() &&
-      gtk_widget_is_focus(current_tab_contents->GetContentNativeView())) {
-    (current_tab_contents->render_view_host()->*method)();
-  } else {
-    GtkWidget* widget = gtk_window_get_focus(window->window());
-    guint id;
-    if (widget && (id = g_signal_lookup(signal, G_OBJECT_TYPE(widget))) != 0)
-      g_signal_emit(widget, id, 0);
-  }
 }
 
 }  // namespace
@@ -590,9 +568,10 @@ void BrowserWindowGtk::DrawCustomFrame(cairo_t* cr,
   CairoCachedSurface* surface = theme_provider->GetSurfaceNamed(
       image_name, widget);
   if (event->area.y < surface->Height()) {
-    surface->SetSource(cr,
-        0,
-        UseCustomFrame() ? 0 : -kCustomFrameBackgroundVerticalOffset);
+    int offset = (IsMaximized() || (!UseCustomFrame())) ?
+                 -kCustomFrameBackgroundVerticalOffset : 0;
+    surface->SetSource(cr, 0, offset);
+
     // The frame background isn't tiled vertically.
     cairo_pattern_set_extend(cairo_get_source(cr), CAIRO_EXTEND_REPEAT);
     cairo_rectangle(cr, event->area.x, event->area.y,
@@ -899,10 +878,6 @@ bool BrowserWindowGtk::IsToolbarVisible() const {
   return IsToolbarSupported();
 }
 
-gfx::Rect BrowserWindowGtk::GetRootWindowResizerRect() const {
-  return gfx::Rect();
-}
-
 void BrowserWindowGtk::ConfirmAddSearchProvider(const TemplateURL* template_url,
                                                 Profile* profile) {
   new EditSearchEngineDialog(window_, template_url, NULL, profile);
@@ -1116,15 +1091,19 @@ void BrowserWindowGtk::ShowCreateShortcutsDialog(TabContents* tab_contents) {
 }
 
 void BrowserWindowGtk::Cut() {
-  DoCutCopyPaste(this, &RenderViewHost::Cut, "cut-clipboard");
+  gtk_util::DoCut(this);
 }
 
 void BrowserWindowGtk::Copy() {
-  DoCutCopyPaste(this, &RenderViewHost::Copy, "copy-clipboard");
+  gtk_util::DoCopy(this);
 }
 
 void BrowserWindowGtk::Paste() {
-  DoCutCopyPaste(this, &RenderViewHost::Paste, "paste-clipboard");
+  gtk_util::DoPaste(this);
+}
+
+void BrowserWindowGtk::PrepareForInstant() {
+  // TODO: implement fade as done on windows.
 }
 
 void BrowserWindowGtk::ShowInstant(TabContents* preview_contents) {

@@ -6,7 +6,6 @@
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_window.h"
@@ -17,6 +16,7 @@
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
@@ -185,7 +185,8 @@ IN_PROC_BROWSER_TEST_F(InstantTest, MAYBE_OnChangeEvent) {
 }
 
 #if defined(OS_WIN)
-#define MAYBE_OnSubmitEvent OnSubmitEvent
+// Disabled, http://crbug.com/62940.
+#define MAYBE_OnSubmitEvent DISABLED_OnSubmitEvent
 #else
 #define MAYBE_OnSubmitEvent DISABLED_OnSubmitEvent
 #endif

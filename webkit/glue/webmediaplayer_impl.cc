@@ -11,6 +11,7 @@
 #include "media/base/limits.h"
 #include "media/base/media_format.h"
 #include "media/base/media_switches.h"
+#include "media/base/pipeline_impl.h"
 #include "media/base/video_frame.h"
 #include "media/filters/ffmpeg_audio_decoder.h"
 #include "media/filters/ffmpeg_demuxer.h"
@@ -259,12 +260,13 @@ WebMediaPlayerImpl::WebMediaPlayerImpl(
   proxy_->SetVideoRenderer(web_video_renderer);
 
   // Set our pipeline callbacks.
-  pipeline_->SetPipelineEndedCallback(NewCallback(proxy_.get(),
-      &WebMediaPlayerImpl::Proxy::PipelineEndedCallback));
-  pipeline_->SetPipelineErrorCallback(NewCallback(proxy_.get(),
-      &WebMediaPlayerImpl::Proxy::PipelineErrorCallback));
-  pipeline_->SetNetworkEventCallback(NewCallback(proxy_.get(),
-      &WebMediaPlayerImpl::Proxy::NetworkEventCallback));
+  pipeline_->Init(
+      NewCallback(proxy_.get(),
+                  &WebMediaPlayerImpl::Proxy::PipelineEndedCallback),
+      NewCallback(proxy_.get(),
+                  &WebMediaPlayerImpl::Proxy::PipelineErrorCallback),
+      NewCallback(proxy_.get(),
+                  &WebMediaPlayerImpl::Proxy::NetworkEventCallback));
 
   // A simple data source that keeps all data in memory.
   scoped_refptr<SimpleDataSource> simple_data_source(
@@ -276,18 +278,18 @@ WebMediaPlayerImpl::WebMediaPlayerImpl(
   proxy_->SetDataSource(buffered_data_source);
 
   if (use_simple_data_source) {
-    filter_collection_->AddFilter(simple_data_source);
-    filter_collection_->AddFilter(buffered_data_source);
+    filter_collection_->AddDataSource(simple_data_source);
+    filter_collection_->AddDataSource(buffered_data_source);
   } else {
-    filter_collection_->AddFilter(buffered_data_source);
-    filter_collection_->AddFilter(simple_data_source);
+    filter_collection_->AddDataSource(buffered_data_source);
+    filter_collection_->AddDataSource(simple_data_source);
   }
 
   // Add in the default filter factories.
-  filter_collection_->AddFilter(new media::FFmpegDemuxer());
-  filter_collection_->AddFilter(new media::FFmpegAudioDecoder());
-  filter_collection_->AddFilter(new media::FFmpegVideoDecoder(NULL));
-  filter_collection_->AddFilter(new media::NullAudioRenderer());
+  filter_collection_->AddDemuxer(new media::FFmpegDemuxer());
+  filter_collection_->AddAudioDecoder(new media::FFmpegAudioDecoder());
+  filter_collection_->AddVideoDecoder(new media::FFmpegVideoDecoder(NULL));
+  filter_collection_->AddAudioRenderer(new media::NullAudioRenderer());
 }
 
 WebMediaPlayerImpl::~WebMediaPlayerImpl() {

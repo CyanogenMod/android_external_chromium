@@ -14,12 +14,12 @@
 #if defined(OS_WIN)
 #include <windows.h>
 #elif defined(OS_MACOSX)
-#import <Carbon/Carbon.h>
+#import <CoreFoundation/CoreFoundation.h>
 #endif  // OS_*
 
 #include "base/string16.h"
 
-// Macro usefull for writing cross-platform function pointers.
+// Macro useful for writing cross-platform function pointers.
 #if defined(OS_WIN) && !defined(CDECL)
 #define CDECL __cdecl
 #else

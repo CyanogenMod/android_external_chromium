@@ -24,6 +24,8 @@ class HttpAuthHandler;
 class HttpAuthHandlerRegistryFactory;
 
 // An HttpAuthHandlerFactory is used to create HttpAuthHandler objects.
+// The HttpAuthHandlerFactory object _must_ outlive any of the HttpAuthHandler
+// objects that it creates.
 class HttpAuthHandlerFactory {
  public:
   HttpAuthHandlerFactory() : url_security_manager_(NULL) {}
@@ -49,7 +51,7 @@ class HttpAuthHandlerFactory {
   // challenge specified by |*challenge|. |challenge| must point to a valid
   // non-NULL tokenizer.
   //
-  // If an HttpAuthHandler object  is successfully created it is passed back to
+  // If an HttpAuthHandler object is successfully created it is passed back to
   // the caller through |*handler| and OK is returned.
   //
   // If |*challenge| specifies an unsupported authentication scheme, |*handler|
@@ -174,12 +176,16 @@ class HttpAuthHandlerRegistryFactory : public HttpAuthHandlerFactory {
   // scheme is used and |negotiate_disable_cname_lookup| is false,
   // |host_resolver| must not be NULL.
   //
+  // |gssapi_library_name| specifies the name of the GSSAPI library that will
+  // be loaded on all platforms except Windows.
+  //
   // |negotiate_disable_cname_lookup| and |negotiate_enable_port| both control
   // how Negotiate does SPN generation, by default these should be false.
   static HttpAuthHandlerRegistryFactory* Create(
       const std::vector<std::string>& supported_schemes,
       URLSecurityManager* security_manager,
       HostResolver* host_resolver,
+      const std::string& gssapi_library_name,
       bool negotiate_disable_cname_lookup,
       bool negotiate_enable_port);
 

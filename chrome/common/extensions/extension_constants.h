@@ -38,6 +38,7 @@ namespace extension_manifest_keys {
   extern const char* kMatches;
   extern const char* kMinimumChromeVersion;
   extern const char* kName;
+  extern const char* kOmnibox;
   extern const char* kOmniboxKeyword;
   extern const char* kOptionsPage;
   extern const char* kPageAction;
@@ -67,7 +68,6 @@ namespace extension_manifest_keys {
   extern const char* kType;
   extern const char* kUpdateURL;
   extern const char* kVersion;
-  extern const char* kWebLaunchUrl;
   extern const char* kWebURLs;
 }  // namespace extension_manifest_keys
 
@@ -176,7 +176,6 @@ namespace extension_manifest_errors {
   extern const char* kManifestUnreadable;
   extern const char* kMissingFile;
   extern const char* kMultipleOverrides;
-  extern const char* kOmniboxExperimental;
   extern const char* kOneUISurfaceOnly;
   extern const char* kReservedMessageFound;
   extern const char* kThemesCannotContainExtensions;
@@ -238,6 +237,18 @@ namespace extension_misc {
     LAUNCH_WINDOW,
     LAUNCH_PANEL,
     LAUNCH_TAB
+  };
+
+  // The name of the apps promo histogram.
+  extern const char* kAppsPromoHistogram;
+
+  // The buckets used in the apps promo histogram.
+  enum AppsPromoBuckets {
+    PROMO_LAUNCH_APP,
+    PROMO_LAUNCH_WEB_STORE,
+    PROMO_CLOSE,
+    PROMO_EXPIRE,
+    PROMO_BUCKET_BOUNDARY = PROMO_EXPIRE + 1
   };
 }  // extension_misc
 

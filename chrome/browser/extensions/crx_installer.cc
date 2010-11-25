@@ -4,7 +4,7 @@
 
 #include "chrome/browser/extensions/crx_installer.h"
 
-#include <list>
+#include <set>
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
@@ -12,6 +12,7 @@
 #include "base/path_service.h"
 #include "base/scoped_temp_dir.h"
 #include "base/singleton.h"
+#include "base/stl_util-inl.h"
 #include "base/stringprintf.h"
 #include "base/task.h"
 #include "base/thread_restrictions.h"
@@ -45,7 +46,7 @@ static void DeleteFileHelper(const FilePath& path, bool recursive) {
 
 struct WhitelistedInstallData {
   WhitelistedInstallData() {}
-  std::list<std::string> ids;
+  std::set<std::string> ids;
 };
 
 }  // namespace
@@ -53,25 +54,24 @@ struct WhitelistedInstallData {
 // static
 void CrxInstaller::SetWhitelistedInstallId(const std::string& id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  Singleton<WhitelistedInstallData>::get()->ids.push_back(id);
+  Singleton<WhitelistedInstallData>::get()->ids.insert(id);
+}
+
+// static
+bool CrxInstaller::IsIdWhitelisted(const std::string& id) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  std::set<std::string>& ids = Singleton<WhitelistedInstallData>::get()->ids;
+  return ContainsKey(ids, id);
 }
 
 // static
 bool CrxInstaller::ClearWhitelistedInstallId(const std::string& id) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  std::list<std::string>& ids = Singleton<WhitelistedInstallData>::get()->ids;
-  std::list<std::string>::iterator iter = ids.begin();
-  for (; iter != ids.end(); ++iter) {
-    if (*iter == id) {
-      break;
-    }
-  }
-
-  if (iter != ids.end()) {
-    ids.erase(iter);
+  std::set<std::string>& ids = Singleton<WhitelistedInstallData>::get()->ids;
+  if (ContainsKey(ids, id)) {
+    ids.erase(id);
     return true;
   }
-
   return false;
 }
 
@@ -204,10 +204,7 @@ bool CrxInstaller::AllowInstall(const Extension* extension,
       // For apps with a gallery update URL, require that they be installed
       // from the gallery.
       // TODO(erikkay) Apply this rule for paid extensions and themes as well.
-      if ((extension->update_url() ==
-           GURL(extension_urls::kGalleryUpdateHttpsUrl)) ||
-          (extension->update_url() ==
-           GURL(extension_urls::kGalleryUpdateHttpUrl))) {
+      if (extension->UpdatesFromGallery()) {
         *error = l10n_util::GetStringFUTF8(
             IDS_EXTENSION_DISALLOW_NON_DOWNLOADED_GALLERY_INSTALLS,
             l10n_util::GetStringUTF16(IDS_EXTENSION_WEB_STORE_TITLE));
@@ -299,7 +296,7 @@ void CrxInstaller::ConfirmInstall() {
       frontend_->extension_prefs()->GetVersionString(extension_->id());
 
   bool whitelisted = ClearWhitelistedInstallId(extension_->id()) &&
-      extension_->plugins().empty();
+      extension_->plugins().empty() && is_gallery_install_;
 
   if (client_ &&
       (!allow_silent_install_ || !whitelisted)) {

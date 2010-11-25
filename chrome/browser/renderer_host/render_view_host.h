@@ -43,7 +43,9 @@ struct ViewHostMsg_DomMessage_Params;
 struct ViewHostMsg_PageHasOSDD_Type;
 struct ViewHostMsg_RunFileChooser_Params;
 struct ViewHostMsg_ShowNotification_Params;
+struct ViewHostMsg_ShowPopup_Params;
 struct ViewMsg_Navigate_Params;
+struct WebApplicationInfo;
 struct WebDropData;
 struct WebPreferences;
 struct UserMetricsAction;
@@ -58,7 +60,6 @@ class FormField;
 struct PasswordForm;
 struct PasswordFormFillData;
 struct WebAccessibility;
-struct WebApplicationInfo;
 }  // namespace webkit_glue
 
 namespace WebKit {
@@ -411,18 +412,18 @@ class RenderViewHost : public RenderWidgetHost {
   // set to false when creating a renderer-initiated window via window.open.
   void AllowScriptToClose(bool visible);
 
+  // Resets the stored AutoFill state.
+  void ResetAutoFillState(int query_id);
+
   // Called by the AutoFillManager when the list of suggestions is ready.
-  void AutoFillSuggestionsReturned(
-      int query_id,
-      const std::vector<string16>& values,
-      const std::vector<string16>& labels,
-      const std::vector<string16>& icons,
-      const std::vector<int>& unique_ids);
+  void AutoFillSuggestionsReturned(const std::vector<string16>& values,
+                                   const std::vector<string16>& labels,
+                                   const std::vector<string16>& icons,
+                                   const std::vector<int>& unique_ids);
 
   // Called by the AutocompleteHistoryManager when the list of suggestions is
   // ready.
   void AutocompleteSuggestionsReturned(
-      int query_id,
       const std::vector<string16>& suggestions);
 
   // Called by the AutoFillManager when the FormData has been filled out.
@@ -445,7 +446,6 @@ class RenderViewHost : public RenderWidgetHost {
                                   const std::string& value);
   virtual void ForwardEditCommandsForNextKeyEvent(
       const EditCommands& edit_commands);
-  virtual gfx::Rect GetRootWindowResizerRect() const;
 
   // Creates a new RenderView with the given route id.
   void CreateNewWindow(int route_id,
@@ -656,9 +656,6 @@ class RenderViewHost : public RenderWidgetHost {
   void OnDevToolsRuntimePropertyChanged(const std::string& name,
                                         const std::string& value);
   void OnMissingPluginStatus(int status);
-  void OnNonSandboxedPluginBlocked(const std::string& plugin,
-                                   const string16& name);
-  void OnBlockedPluginLoaded();
   void OnCrashedPlugin(const FilePath& plugin_path);
   void OnDisabledOutdatedPlugin(const string16& name, const GURL& update_url);
 
@@ -671,8 +668,7 @@ class RenderViewHost : public RenderWidgetHost {
                                     const std::string& data,
                                     int32 status);
 
-  void OnDidGetApplicationInfo(int32 page_id,
-                               const webkit_glue::WebApplicationInfo& info);
+  void OnDidGetApplicationInfo(int32 page_id, const WebApplicationInfo& info);
   void OnMsgShouldCloseACK(bool proceed);
   void OnQueryFormFieldAutoFill(int request_id,
                                 bool form_autofilled,
@@ -736,6 +732,9 @@ class RenderViewHost : public RenderWidgetHost {
 
  private:
   friend class TestRenderViewHost;
+
+  // Get/Create print preview tab.
+  TabContents* GetOrCreatePrintPreviewTab();
 
   // The SiteInstance associated with this RenderViewHost.  All pages drawn
   // in this RenderViewHost are part of this SiteInstance.  Should not change
@@ -805,12 +804,14 @@ class RenderViewHost : public RenderWidgetHost {
   // what process type we use.
   bool is_extension_process_;
 
+  // TODO(isherman): Consider splitting these off into a helper class.
   // AutoFill and Autocomplete suggestions.  We accumulate these separately and
   // send them back to the renderer together.
   std::vector<string16> autofill_values_;
   std::vector<string16> autofill_labels_;
   std::vector<string16> autofill_icons_;
   std::vector<int> autofill_unique_ids_;
+  int autofill_query_id_;
 
   // Whether the accessibility tree should be saved, for unit testing.
   bool save_accessibility_tree_for_testing_;

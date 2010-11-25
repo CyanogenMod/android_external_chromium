@@ -42,12 +42,16 @@ class ExtensionOmniboxEventRouter {
 class OmniboxSendSuggestionsFunction : public SyncExtensionFunction {
  public:
   virtual bool RunImpl();
-  DECLARE_EXTENSION_FUNCTION_NAME("experimental.omnibox.sendSuggestions");
+  DECLARE_EXTENSION_FUNCTION_NAME("omnibox.sendSuggestions");
 };
 
 struct ExtensionOmniboxSuggestion {
   ExtensionOmniboxSuggestion();
   ~ExtensionOmniboxSuggestion();
+
+  // Converts a list of style ranges from the extension into the format expected
+  // by the autocomplete system.
+  bool ReadStylesFromValue(const ListValue& value);
 
   // The text that gets put in the edit box.
   string16 content;

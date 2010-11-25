@@ -12,10 +12,10 @@
 #include "chrome/common/notification_service.h"
 
 namespace events {
-const char kOnInputStarted[] = "experimental.omnibox.onInputStarted";
-const char kOnInputChanged[] = "experimental.omnibox.onInputChanged";
-const char kOnInputEntered[] = "experimental.omnibox.onInputEntered";
-const char kOnInputCancelled[] = "experimental.omnibox.onInputCancelled";
+const char kOnInputStarted[] = "omnibox.onInputStarted";
+const char kOnInputChanged[] = "omnibox.onInputChanged";
+const char kOnInputEntered[] = "omnibox.onInputEntered";
+const char kOnInputCancelled[] = "omnibox.onInputCancelled";
 };  // namespace events
 
 namespace {
@@ -30,6 +30,7 @@ const char kSuggestionDescription[] = "description";
 const char kSuggestionDescriptionStyles[] = "descriptionStyles";
 const char kDescriptionStylesType[] = "type";
 const char kDescriptionStylesOffset[] = "offset";
+const char kDescriptionStylesLength[] = "length";
 };  // namespace
 
 // static
@@ -103,47 +104,10 @@ bool OmniboxSendSuggestionsFunction::RunImpl() {
       ListValue* styles;
       EXTENSION_FUNCTION_VALIDATE(
           suggestion_value->GetList(kSuggestionDescriptionStyles, &styles));
-
+      EXTENSION_FUNCTION_VALIDATE(suggestion.ReadStylesFromValue(*styles));
+    } else {
       suggestion.description_styles.clear();
-
-      int last_offset = -1;
-      for (size_t j = 0; j < styles->GetSize(); ++j) {
-        DictionaryValue* style;
-        std::string type;
-        int offset;
-        EXTENSION_FUNCTION_VALIDATE(styles->GetDictionary(j, &style));
-        EXTENSION_FUNCTION_VALIDATE(
-            style->GetString(kDescriptionStylesType, &type));
-        EXTENSION_FUNCTION_VALIDATE(
-            style->GetInteger(kDescriptionStylesOffset, &offset));
-
-        int type_class =
-            (type == "none") ? ACMatchClassification::NONE :
-            (type == "url") ? ACMatchClassification::URL :
-            (type == "match") ? ACMatchClassification::MATCH :
-            (type == "dim") ? ACMatchClassification::DIM : -1;
-        EXTENSION_FUNCTION_VALIDATE(type_class != -1);
-
-        if (offset <= last_offset) {
-          error_ = kDescriptionStylesOrderError;
-          return false;
-        }
-        if (static_cast<size_t>(offset) >= suggestion.description.length()) {
-          error_ = kDescriptionStylesLengthError;
-          return false;
-        }
-
-        suggestion.description_styles.push_back(
-            ACMatchClassification(offset, type_class));
-        last_offset = offset;
-      }
-    }
-
-    // Ensure the styles cover the whole range of text.
-    if (suggestion.description_styles.empty() ||
-        suggestion.description_styles[0].offset != 0) {
-      suggestion.description_styles.insert(
-          suggestion.description_styles.begin(),
+      suggestion.description_styles.push_back(
           ACMatchClassification(0, ACMatchClassification::NONE));
     }
   }
@@ -160,7 +124,52 @@ ExtensionOmniboxSuggestion::ExtensionOmniboxSuggestion() {}
 
 ExtensionOmniboxSuggestion::~ExtensionOmniboxSuggestion() {}
 
+bool ExtensionOmniboxSuggestion::ReadStylesFromValue(
+    const ListValue& styles_value) {
+  description_styles.clear();
+
+  // Step 1: Build a vector of styles, 1 per character of description text.
+  std::vector<int> styles;
+  styles.resize(description.length());  // sets all styles to 0
+
+  for (size_t i = 0; i < styles_value.GetSize(); ++i) {
+    DictionaryValue* style;
+    std::string type;
+    int offset;
+    int length;
+    if (!styles_value.GetDictionary(i, &style))
+      return false;
+    if (!style->GetString(kDescriptionStylesType, &type))
+      return false;
+    if (!style->GetInteger(kDescriptionStylesOffset, &offset))
+      return false;
+    if (!style->GetInteger(kDescriptionStylesLength, &length) || length < 0)
+      length = description.length();
+
+    if (offset < 0)
+      offset = std::max(0, static_cast<int>(description.length()) + offset);
+
+    int type_class =
+        (type == "url") ? ACMatchClassification::URL :
+        (type == "match") ? ACMatchClassification::MATCH :
+        (type == "dim") ? ACMatchClassification::DIM : -1;
+    if (type_class == -1)
+      return false;
+
+    for (int j = offset;
+         j < offset + length && j < static_cast<int>(styles.size()); ++j)
+      styles[j] |= type_class;
+  }
+
+  // Step 2: Convert the vector into continous runs of common styles.
+  for (size_t i = 0; i < styles.size(); ++i) {
+    if (i == 0 || styles[i] != styles[i-1])
+      description_styles.push_back(ACMatchClassification(i, styles[i]));
+  }
+
+  return true;
+}
+
 ExtensionOmniboxSuggestions::ExtensionOmniboxSuggestions() : request_id(0) {}
 
 ExtensionOmniboxSuggestions::~ExtensionOmniboxSuggestions() {}
-

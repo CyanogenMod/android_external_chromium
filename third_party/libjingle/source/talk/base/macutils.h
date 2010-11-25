@@ -55,6 +55,10 @@ bool GetOSVersion(int* major, int* minor, int* bugfix);
 MacOSVersionName GetOSVersionName();
 bool GetQuickTimeVersion(std::string* version);
 
+// Runs the given apple script. Only supports scripts that does not
+// require user interaction.
+bool RunAppleScript(const std::string& script);
+
 ///////////////////////////////////////////////////////////////////////////////
 
 }  // namespace talk_base

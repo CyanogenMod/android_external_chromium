@@ -23,7 +23,7 @@
 #include "chrome/browser/chromeos/login/online_attempt.h"
 #include "chrome/common/net/gaia/gaia_auth_consumer.h"
 
-class GaiaAuthenticator2;
+class GaiaAuthFetcher;
 class Lock;
 class LoginFailure;
 class Profile;
@@ -96,6 +96,10 @@ class ParallelAuthenticator : public Authenticator,
   // Uses |profile| when doing URL fetches.
   // Optionally could pass CAPTCHA challenge token - |login_token| and
   // |login_captcha| string that user has entered.
+  //
+  // NOTE: We do not allow HOSTED accounts to log in.  In the event that
+  // we are asked to authenticate valid HOSTED account creds, we will
+  // call OnLoginFailure() with HOSTED_NOT_ALLOWED.
   //
   // Returns true if the attempt gets sent successfully and false if not.
   bool AuthenticateToLogin(Profile* profile,
@@ -230,7 +234,7 @@ class ParallelAuthenticator : public Authenticator,
   static const int kLocalaccountRetryIntervalMs;
 
   // Handles all net communications with Gaia.
-  scoped_ptr<GaiaAuthenticator2> gaia_authenticator_;
+  scoped_ptr<GaiaAuthFetcher> gaia_authenticator_;
 
   // Used when we need to try online authentication again, after successful
   // mount, but failed online login.

@@ -54,7 +54,7 @@ class ExtensionProcessManager;
 class ExtensionsService;
 class FaviconService;
 class FilePath;
-class FileSystemHostContext;
+class BrowserFileSystemContext;
 class FindBarState;
 class GeolocationContentSettingsMap;
 class GeolocationPermissionContext;
@@ -68,6 +68,7 @@ class PersonalDataManager;
 class PinnedTabService;
 class PrefService;
 class ExtensionInfoMap;
+class PromoCounter;
 class ProfileSyncService;
 class ProfileSyncFactory;
 class SessionService;
@@ -287,8 +288,10 @@ class Profile {
   // Returns the PersonalDataManager associated with this profile.
   virtual PersonalDataManager* GetPersonalDataManager() = 0;
 
-  // Returns the HTML5 FileSystemHostContext assigned to this profile.
-  virtual FileSystemHostContext* GetFileSystemHostContext() = 0;
+  // Returns the FileSystemContext associated to this profile.  The context
+  // is lazily created the first time this method is called.  This is owned
+  // by the profile.
+  virtual BrowserFileSystemContext* GetFileSystemContext() = 0;
 
   // Returns the BrowserSignin object assigned to this profile.
   virtual BrowserSignin* GetBrowserSignin() = 0;
@@ -434,7 +437,7 @@ class Profile {
   virtual DesktopNotificationService* GetDesktopNotificationService() = 0;
 
   // Returns the service that manages BackgroundContents for this profile.
-  virtual BackgroundContentsService* GetBackgroundContentsService() = 0;
+  virtual BackgroundContentsService* GetBackgroundContentsService() const = 0;
 
   // Returns the StatusTray, which provides an API for displaying status icons
   // in the system status tray. Returns NULL if status icons are not supported
@@ -465,6 +468,9 @@ class Profile {
 
   // Returns the IO-thread-accessible profile data for this profile.
   virtual ExtensionInfoMap* GetExtensionInfoMap() = 0;
+
+  // Returns the PromoCounter for Instant, or NULL if not applicable.
+  virtual PromoCounter* GetInstantPromoCounter() = 0;
 
 #if defined(OS_CHROMEOS)
   // Returns ChromeOS's ProxyConfigServiceImpl, creating if not yet created.

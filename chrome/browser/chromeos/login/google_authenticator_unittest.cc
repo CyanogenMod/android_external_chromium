@@ -25,7 +25,7 @@
 #include "chrome/browser/chromeos/login/mock_user_manager.h"
 #include "chrome/browser/chromeos/login/user_manager.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/net/gaia/gaia_authenticator2_unittest.h"
+#include "chrome/common/net/gaia/gaia_auth_fetcher_unittest.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "chrome/test/testing_profile.h"
 #include "googleurl/src/gurl.h"
@@ -136,7 +136,7 @@ class GoogleAuthenticatorTest : public ::testing::Test {
 
   void PrepForFailedLogin(GoogleAuthenticator* auth) {
     PrepForLogin(auth);
-    auth->set_hosted_policy(GaiaAuthenticator2::HostedAccountsAllowed);
+    auth->set_hosted_policy(GaiaAuthFetcher::HostedAccountsAllowed);
   }
 
   void CancelLogin(GoogleAuthenticator* auth) {
@@ -589,49 +589,6 @@ TEST_F(GoogleAuthenticatorTest, FullLogin) {
 
   URLFetcher::set_factory(NULL);
   message_loop.RunAllPending();
-}
-
-TEST_F(GoogleAuthenticatorTest, FullHostedLogin) {
-  MessageLoopForUI message_loop;
-  BrowserThread ui_thread(BrowserThread::UI, &message_loop);
-  chromeos::CryptohomeBlob salt_v(fake_hash_, fake_hash_ + sizeof(fake_hash_));
-
-  LoginFailure failure_details =
-      LoginFailure::FromNetworkAuthFailure(
-          GoogleServiceAuthError(
-              GoogleServiceAuthError::HOSTED_NOT_ALLOWED));
-
-  MockConsumer consumer;
-  EXPECT_CALL(consumer, OnLoginFailure(failure_details))
-      .WillOnce(Invoke(MockConsumer::OnFailQuit))
-      .RetiresOnSaturation();
-  // A failure case, but we still want the test to finish gracefully.
-  ON_CALL(consumer, OnLoginSuccess(username_, password_, _, _))
-      .WillByDefault(Invoke(MockConsumer::OnSuccessQuitAndFail));
-
-  EXPECT_CALL(*mock_library_, GetSystemSalt())
-      .WillOnce(Return(salt_v))
-      .RetiresOnSaturation();
-
-  TestingProfile profile;
-
-  MockFactory<HostedFetcher> factory_invalid;
-  URLFetcher::set_factory(&factory_invalid);
-
-  scoped_refptr<GoogleAuthenticator> auth(new GoogleAuthenticator(&consumer));
-  auth->set_user_manager(user_manager_.get());
-  EXPECT_CALL(*user_manager_.get(), IsKnownUser(username_))
-      .WillOnce(Return(false))
-      .WillOnce(Return(false))
-      .RetiresOnSaturation();
-  auth->AuthenticateToLogin(
-      &profile, username_, hash_ascii_, std::string(), std::string());
-
-  MockFactory<SuccessFetcher> factory_success;
-  URLFetcher::set_factory(&factory_success);
-
-  message_loop.RunAllPending();
-  URLFetcher::set_factory(NULL);
 }
 
 TEST_F(GoogleAuthenticatorTest, FullHostedLoginFailure) {

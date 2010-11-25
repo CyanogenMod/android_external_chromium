@@ -163,7 +163,7 @@ MessageLoop::MessageLoop(Type type)
 }
 
 MessageLoop::~MessageLoop() {
-  DCHECK(this == current());
+  DCHECK_EQ(this, current());
 
   // Let interested parties have one last shot at accessing this.
   FOR_EACH_OBSERVER(DestructionObserver, destruction_observers_,
@@ -194,13 +194,13 @@ MessageLoop::~MessageLoop() {
 
 void MessageLoop::AddDestructionObserver(
     DestructionObserver* destruction_observer) {
-  DCHECK(this == current());
+  DCHECK_EQ(this, current());
   destruction_observers_.AddObserver(destruction_observer);
 }
 
 void MessageLoop::RemoveDestructionObserver(
     DestructionObserver* destruction_observer) {
-  DCHECK(this == current());
+  DCHECK_EQ(this, current());
   destruction_observers_.RemoveObserver(destruction_observer);
 }
 
@@ -254,7 +254,7 @@ __declspec(noinline) void MessageLoop::RunInternalInSEHFrame() {
 //------------------------------------------------------------------------------
 
 void MessageLoop::RunInternal() {
-  DCHECK(this == current());
+  DCHECK_EQ(this, current());
 
 #ifndef ANDROID
   StartHistogrammer();
@@ -291,7 +291,7 @@ bool MessageLoop::ProcessNextDelayedNonNestableTask() {
 //------------------------------------------------------------------------------
 
 void MessageLoop::Quit() {
-  DCHECK(current() == this);
+  DCHECK_EQ(this, current());
   if (state_) {
     state_->quit_received = true;
   } else {
@@ -300,7 +300,7 @@ void MessageLoop::Quit() {
 }
 
 void MessageLoop::QuitNow() {
-  DCHECK(current() == this);
+  DCHECK_EQ(this, current());
   if (state_) {
     pump_->Quit();
   } else {

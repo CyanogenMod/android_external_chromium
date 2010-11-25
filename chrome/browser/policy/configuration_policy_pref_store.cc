@@ -4,6 +4,7 @@
 
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
 
+#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/path_service.h"
 #include "base/singleton.h"
@@ -19,6 +20,7 @@
 #elif defined(OS_POSIX)
 #include "chrome/browser/policy/config_dir_policy_provider.h"
 #endif
+#include "chrome/browser/policy/device_management_policy_provider.h"
 #include "chrome/browser/policy/dummy_configuration_policy_provider.h"
 #include "chrome/browser/search_engines/search_terms_data.h"
 #include "chrome/browser/search_engines/template_url.h"
@@ -29,28 +31,36 @@
 
 namespace policy {
 
-// Manages the lifecycle of the shared platform-specific policy providers
-// for managed and recommended policy. Instantiated as a Singleton.
+// Manages the lifecycle of the shared platform-specific policy providers for
+// managed platform, device management and recommended policy. Instantiated as a
+// Singleton.
 class ConfigurationPolicyProviderKeeper {
  public:
   ConfigurationPolicyProviderKeeper()
-      : managed_provider_(CreateManagedProvider()),
+      : managed_platform_provider_(CreateManagedPlatformProvider()),
+        device_management_provider_(CreateDeviceManagementProvider()),
         recommended_provider_(CreateRecommendedProvider()) {}
   virtual ~ConfigurationPolicyProviderKeeper() {}
 
-  ConfigurationPolicyProvider* managed_provider() const {
-    return managed_provider_.get();
+  ConfigurationPolicyProvider* managed_platform_provider() const {
+    return managed_platform_provider_.get();
   }
 
-  ConfigurationPolicyProvider* recommended_provider() const {
+  ConfigurationPolicyProvider* device_management_provider() const {
+    return device_management_provider_.get();
+  }
+
+ConfigurationPolicyProvider* recommended_provider() const {
     return recommended_provider_.get();
   }
 
  private:
-  scoped_ptr<ConfigurationPolicyProvider> managed_provider_;
+  scoped_ptr<ConfigurationPolicyProvider> managed_platform_provider_;
+  scoped_ptr<ConfigurationPolicyProvider> device_management_provider_;
   scoped_ptr<ConfigurationPolicyProvider> recommended_provider_;
 
-  static ConfigurationPolicyProvider* CreateManagedProvider();
+  static ConfigurationPolicyProvider* CreateManagedPlatformProvider();
+  static ConfigurationPolicyProvider* CreateDeviceManagementProvider();
   static ConfigurationPolicyProvider* CreateRecommendedProvider();
 
   DISALLOW_COPY_AND_ASSIGN(ConfigurationPolicyProviderKeeper);
@@ -58,7 +68,19 @@ class ConfigurationPolicyProviderKeeper {
 
 
 ConfigurationPolicyProvider*
-    ConfigurationPolicyProviderKeeper::CreateManagedProvider() {
+    ConfigurationPolicyProviderKeeper::CreateDeviceManagementProvider() {
+  const ConfigurationPolicyProvider::PolicyDefinitionList* policy_list =
+      ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList();
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDeviceManagementUrl)) {
+    return new DeviceManagementPolicyProvider(policy_list);
+  } else {
+    return new DummyConfigurationPolicyProvider(policy_list);
+  }
+}
+
+ConfigurationPolicyProvider*
+    ConfigurationPolicyProviderKeeper::CreateManagedPlatformProvider() {
   const ConfigurationPolicyProvider::PolicyDefinitionList* policy_list =
       ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList();
 #if defined(OS_WIN)
@@ -144,6 +166,28 @@ const ConfigurationPolicyPrefStore::PolicyToPreferenceMapEntry
     prefs::kDevToolsDisabled },
   { Value::TYPE_BOOLEAN, kPolicyBlockThirdPartyCookies,
     prefs::kBlockThirdPartyCookies},
+  { Value::TYPE_INTEGER, kPolicyDefaultCookiesSetting,
+    prefs::kManagedDefaultCookiesSetting},
+  { Value::TYPE_INTEGER, kPolicyDefaultImagesSetting,
+    prefs::kManagedDefaultImagesSetting},
+  { Value::TYPE_INTEGER, kPolicyDefaultJavaScriptSetting,
+    prefs::kManagedDefaultJavaScriptSetting},
+  { Value::TYPE_INTEGER, kPolicyDefaultPluginsSetting,
+    prefs::kManagedDefaultPluginsSetting},
+  { Value::TYPE_INTEGER, kPolicyDefaultPopupsSetting,
+    prefs::kManagedDefaultPopupsSetting},
+  { Value::TYPE_STRING, kPolicyAuthSchemes,
+    prefs::kAuthSchemes },
+  { Value::TYPE_BOOLEAN, kPolicyDisableAuthNegotiateCnameLookup,
+    prefs::kDisableAuthNegotiateCnameLookup },
+  { Value::TYPE_BOOLEAN, kPolicyEnableAuthNegotiatePort,
+    prefs::kEnableAuthNegotiatePort },
+  { Value::TYPE_STRING, kPolicyAuthServerWhitelist,
+    prefs::kAuthServerWhitelist },
+  { Value::TYPE_STRING, kPolicyAuthNegotiateDelegateWhitelist,
+    prefs::kAuthNegotiateDelegateWhitelist },
+  { Value::TYPE_STRING, kPolicyGSSAPILibraryName,
+    prefs::kGSSAPILibraryName },
 
 #if defined(OS_CHROMEOS)
   { Value::TYPE_BOOLEAN, kPolicyChromeOsLockOnIdleSuspend,
@@ -177,7 +221,7 @@ const ConfigurationPolicyPrefStore::PolicyToPreferenceMapEntry
 };
 
 /* static */
-ConfigurationPolicyProvider::PolicyDefinitionList*
+const ConfigurationPolicyProvider::PolicyDefinitionList*
 ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList() {
   static ConfigurationPolicyProvider::PolicyDefinitionList::Entry entries[] = {
     { kPolicyHomePage, Value::TYPE_STRING, key::kHomepageLocation },
@@ -239,6 +283,28 @@ ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList() {
       key::kDeveloperToolsDisabled },
     { kPolicyBlockThirdPartyCookies, Value::TYPE_BOOLEAN,
       key::kBlockThirdPartyCookies },
+    { kPolicyDefaultCookiesSetting, Value::TYPE_INTEGER,
+      key::kDefaultCookiesSetting},
+    { kPolicyDefaultImagesSetting, Value::TYPE_INTEGER,
+      key::kDefaultImagesSetting},
+    { kPolicyDefaultJavaScriptSetting, Value::TYPE_INTEGER,
+      key::kDefaultJavaScriptSetting},
+    { kPolicyDefaultPluginsSetting, Value::TYPE_INTEGER,
+      key::kDefaultPluginsSetting},
+    { kPolicyDefaultPopupsSetting, Value::TYPE_INTEGER,
+      key::kDefaultPopupsSetting},
+    { kPolicyAuthSchemes, Value::TYPE_STRING, key::kAuthSchemes },
+    { kPolicyDisableAuthNegotiateCnameLookup, Value::TYPE_BOOLEAN,
+      key::kDisableAuthNegotiateCnameLookup },
+    { kPolicyEnableAuthNegotiatePort, Value::TYPE_BOOLEAN,
+      key::kEnableAuthNegotiatePort },
+    { kPolicyAuthServerWhitelist, Value::TYPE_STRING,
+      key::kAuthServerWhitelist },
+    { kPolicyAuthNegotiateDelegateWhitelist, Value::TYPE_STRING,
+      key::kAuthNegotiateDelegateWhitelist },
+    { kPolicyGSSAPILibraryName, Value::TYPE_STRING,
+      key::kGSSAPILibraryName },
+
 
 #if defined(OS_CHROMEOS)
     { kPolicyChromeOsLockOnIdleSuspend, Value::TYPE_BOOLEAN,
@@ -300,10 +366,19 @@ void ConfigurationPolicyPrefStore::Apply(ConfigurationPolicyType policy,
 
 // static
 ConfigurationPolicyPrefStore*
-ConfigurationPolicyPrefStore::CreateManagedPolicyPrefStore() {
+ConfigurationPolicyPrefStore::CreateManagedPlatformPolicyPrefStore() {
   ConfigurationPolicyProviderKeeper* keeper =
       Singleton<ConfigurationPolicyProviderKeeper>::get();
-  return new ConfigurationPolicyPrefStore(keeper->managed_provider());
+  return new ConfigurationPolicyPrefStore(keeper->managed_platform_provider());
+}
+
+// static
+ConfigurationPolicyPrefStore*
+ConfigurationPolicyPrefStore::CreateDeviceManagementPolicyPrefStore() {
+  ConfigurationPolicyProviderKeeper* keeper =
+      Singleton<ConfigurationPolicyProviderKeeper>::get();
+  return new ConfigurationPolicyPrefStore(
+      keeper->device_management_provider());
 }
 
 // static

@@ -2,10 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator.h"
 
 #include "base/command_line.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_url_handler.h"
 #include "chrome/browser/browser_window.h"
@@ -15,7 +14,9 @@
 #include "chrome/browser/status_bubble.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/url_constants.h"
 
 namespace {
 
@@ -52,20 +53,17 @@ Browser* GetOrCreateBrowser(Profile* profile) {
   return browser ? browser : Browser::Create(profile);
 }
 
-// Returns true if two URLs are equal ignoring their ref (hash fragment).
-bool CompareURLsIgnoreRef(const GURL& url, const GURL& other) {
+// Returns true if two URLs are equal after taking |replacements| into account.
+bool CompareURLsWithReplacements(
+    const GURL& url,
+    const GURL& other,
+    const url_canon::Replacements<char>& replacements) {
   if (url == other)
     return true;
-  // If neither has a ref than there is no point in stripping the refs and
-  // the URLs are different since the comparison failed in the previous if
-  // statement.
-  if (!url.has_ref() && !other.has_ref())
-    return false;
-  url_canon::Replacements<char> replacements;
-  replacements.ClearRef();
-  GURL url_no_ref = url.ReplaceComponents(replacements);
-  GURL other_no_ref = other.ReplaceComponents(replacements);
-  return url_no_ref == other_no_ref;
+
+  GURL url_replaced = url.ReplaceComponents(replacements);
+  GURL other_replaced = other.ReplaceComponents(replacements);
+  return url_replaced == other_replaced;
 }
 
 // Returns the index of an existing singleton tab in |params->browser| matching
@@ -85,13 +83,43 @@ int GetIndexOfSingletonTab(browser::NavigateParams* params) {
 
   for (int i = 0; i < params->browser->tab_count(); ++i) {
     TabContents* tab = params->browser->GetTabContentsAt(i);
-    if (CompareURLsIgnoreRef(tab->GetURL(), params->url) ||
-        CompareURLsIgnoreRef(tab->GetURL(), rewritten_url)) {
+
+    url_canon::Replacements<char> replacements;
+    replacements.ClearRef();
+    if (params->ignore_path)
+      replacements.ClearPath();
+
+    if (CompareURLsWithReplacements(tab->GetURL(), params->url, replacements) ||
+        CompareURLsWithReplacements(tab->GetURL(), rewritten_url,
+                                    replacements)) {
       params->target_contents = tab;
       return i;
     }
   }
+
   return -1;
+}
+
+// Change some of the navigation parameters based on the particular URL.
+// Currently this applies to chrome://settings and the bookmark manager,
+// which we always want to open in a normal (not incognito) window.
+void AdjustNavigateParamsForURL(browser::NavigateParams* params) {
+  if (!params->target_contents &&
+      params->url.scheme() == chrome::kChromeUIScheme &&
+      (params->url.host() == chrome::kChromeUISettingsHost ||
+       params->url.host() == chrome::kChromeUIBookmarksHost)) {
+    Profile* profile =
+        params->browser ? params->browser->profile() : params->profile;
+
+    if (profile->IsOffTheRecord()) {
+      profile = profile->GetOriginalProfile();
+
+      params->disposition = SINGLETON_TAB;
+      params->profile = profile;
+      params->browser = Browser::GetOrCreateTabbedBrowser(profile);
+      params->show_window = true;
+    }
+  }
 }
 
 // Returns a Browser that can host the navigation or tab addition specified in
@@ -180,17 +208,27 @@ void NormalizeDisposition(browser::NavigateParams* params) {
     params->disposition = NEW_FOREGROUND_TAB;
   }
 
-  // Disposition trumps add types. ADD_SELECTED is a default, so we need to
-  // remove it if disposition implies the tab is going to open in the
-  // background.
-  if (params->disposition == NEW_BACKGROUND_TAB)
-    params->tabstrip_add_types &= ~TabStripModel::ADD_SELECTED;
+  switch (params->disposition) {
+    case NEW_BACKGROUND_TAB:
+      // Disposition trumps add types. ADD_SELECTED is a default, so we need to
+      // remove it if disposition implies the tab is going to open in the
+      // background.
+      params->tabstrip_add_types &= ~TabStripModel::ADD_SELECTED;
+      break;
 
-  // Code that wants to open a new window typically expects it to be shown
-  // automatically.
-  if (params->disposition == NEW_WINDOW || params->disposition == NEW_POPUP) {
-    params->show_window = true;
-    params->tabstrip_add_types |= TabStripModel::ADD_SELECTED;
+    case NEW_WINDOW:
+    case NEW_POPUP:
+      // Code that wants to open a new window typically expects it to be shown
+      // automatically.
+      params->show_window = true;
+      // Fall-through.
+    case NEW_FOREGROUND_TAB:
+    case SINGLETON_TAB:
+      params->tabstrip_add_types |= TabStripModel::ADD_SELECTED;
+      break;
+
+    default:
+      break;
   }
 }
 
@@ -281,10 +319,19 @@ NavigateParams::~NavigateParams() {
 }
 
 void Navigate(NavigateParams* params) {
+  Browser* browser = params->browser;
+  AdjustNavigateParamsForURL(params);
+
   params->browser = GetBrowserForDisposition(params);
   if (!params->browser)
     return;
   // Navigate() must not return early after this point.
+
+  if (browser != params->browser &&
+      params->browser->tabstrip_model()->empty()) {
+    // A new window has been created. So it needs to be displayed.
+    params->show_window = true;
+  }
 
   // Make sure the Browser is shown if params call for it.
   ScopedBrowserDisplayer displayer(params);
@@ -358,6 +405,15 @@ void Navigate(NavigateParams* params) {
     // The navigation occurred in some other tab.
     int singleton_index = GetIndexOfSingletonTab(params);
     if (params->disposition == SINGLETON_TAB && singleton_index >= 0) {
+      TabContents* target = params->browser->GetTabContentsAt(singleton_index);
+
+      // Load the URL if the target contents URL doesn't match. This can happen
+      // if the URL path is ignored when locating the singleton tab.
+      if (target->GetURL() != params->url) {
+        target->controller().LoadURL(
+            params->url, params->referrer, params->transition);
+      }
+
       // The navigation should re-select an existing tab in the target Browser.
       params->browser->SelectTabContentsAt(singleton_index, user_initiated);
     } else {

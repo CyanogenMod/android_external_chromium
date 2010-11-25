@@ -402,8 +402,9 @@ class Browser : public TabHandlerDelegate,
 
   // Show a given a URL. If a tab with the same URL (ignoring the ref) is
   // already visible in this browser, it becomes selected. Otherwise a new tab
-  // is created.
-  void ShowSingletonTab(const GURL& url);
+  // is created. If |ignore_path| is true, the paths of the URLs are ignored
+  // when locating the singleton tab.
+  void ShowSingletonTab(const GURL& url, bool ignore_path);
 
   // Update commands whose state depends on whether the window is in fullscreen
   // mode. This is a public function because on Linux, fullscreen mode is an
@@ -728,7 +729,6 @@ class Browser : public TabHandlerDelegate,
   virtual bool IsApplication() const;
   virtual void ConvertContentsToApplication(TabContents* source);
   virtual bool ShouldDisplayURLField();
-  virtual gfx::Rect GetRootWindowResizerRect() const;
   virtual void ShowHtmlDialog(HtmlDialogUIDelegate* delegate,
                               gfx::NativeWindow parent_window);
   virtual void BeforeUnloadFired(TabContents* source,
@@ -773,6 +773,7 @@ class Browser : public TabHandlerDelegate,
   virtual void OnStateChanged();
 
   // Overriden from InstantDelegate:
+  virtual void PrepareForInstant();
   virtual void ShowInstant(TabContents* preview_contents);
   virtual void HideInstant();
   virtual void CommitInstant(TabContents* preview_contents);

@@ -26,7 +26,6 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/win/windows_version.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
@@ -42,6 +41,7 @@
 #include "chrome/browser/renderer_host/resource_dispatcher_host.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/time_format.h"
@@ -85,6 +85,13 @@ namespace download_util {
 // How many times to cycle the complete animation. This should be an odd number
 // so that the animation ends faded out.
 static const int kCompleteAnimationCycles = 5;
+
+// The maximum number of 'uniquified' files we will try to create.
+// This is used when the filename we're trying to download is already in use,
+// so we create a new unique filename by appending " (nnn)" before the
+// extension, where 1 <= nnn <= kMaxUniqueFiles.
+// Also used by code that cleans up said files.
+static const int kMaxUniqueFiles = 100;
 
 // Download temporary file creation --------------------------------------------
 
@@ -223,52 +230,35 @@ void OpenChromeExtension(Profile* profile,
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
   DCHECK(download_item.is_extension_install());
 
-  // We don't support extensions in OTR mode.
   ExtensionsService* service = profile->GetExtensionsService();
-  if (service) {
-    NotificationService* nservice = NotificationService::current();
-    GURL nonconst_download_url = download_item.url();
-    nservice->Notify(NotificationType::EXTENSION_READY_FOR_INSTALL,
-                     Source<DownloadManager>(download_manager),
-                     Details<GURL>(&nonconst_download_url));
+  CHECK(service);
+  NotificationService* nservice = NotificationService::current();
+  GURL nonconst_download_url = download_item.url();
+  nservice->Notify(NotificationType::EXTENSION_READY_FOR_INSTALL,
+                   Source<DownloadManager>(download_manager),
+                   Details<GURL>(&nonconst_download_url));
 
-    scoped_refptr<CrxInstaller> installer(
-        new CrxInstaller(service->install_directory(),
-                         service,
-                         new ExtensionInstallUI(profile)));
-    installer->set_delete_source(true);
+  scoped_refptr<CrxInstaller> installer(
+      new CrxInstaller(service->install_directory(),
+                       service,
+                       new ExtensionInstallUI(profile)));
+  installer->set_delete_source(true);
 
-    if (UserScript::HasUserScriptFileExtension(download_item.url())) {
-      installer->InstallUserScript(download_item.full_path(),
-                                   download_item.url());
-    } else {
-      bool is_gallery_download = service->IsDownloadFromGallery(
-          download_item.url(), download_item.referrer_url());
-      installer->set_original_mime_type(download_item.original_mime_type());
-      installer->set_apps_require_extension_mime_type(true);
-      installer->set_allow_privilege_increase(true);
-      installer->set_original_url(download_item.url());
-      installer->set_is_gallery_install(is_gallery_download);
-      installer->InstallCrx(download_item.full_path());
-      installer->set_allow_silent_install(is_gallery_download);
-    }
-  } else {
-    TabContents* contents = NULL;
-    // Get last active normal browser of profile.
-    Browser* last_active =
-        BrowserList::FindBrowserWithType(profile, Browser::TYPE_NORMAL, true);
-    if (last_active)
-      contents = last_active->GetSelectedTabContents();
-    if (contents) {
-      contents->AddInfoBar(
-          new SimpleAlertInfoBarDelegate(contents,
-              l10n_util::GetStringUTF16(
-                  IDS_EXTENSION_INCOGNITO_INSTALL_INFOBAR_LABEL),
-              ResourceBundle::GetSharedInstance().GetBitmapNamed(
-                  IDR_INFOBAR_PLUGIN_INSTALL),
-              true));
-    }
+  if (UserScript::HasUserScriptFileExtension(download_item.url())) {
+    installer->InstallUserScript(download_item.full_path(),
+                                 download_item.url());
+    return;
   }
+
+  bool is_gallery_download = service->IsDownloadFromGallery(
+      download_item.url(), download_item.referrer_url());
+  installer->set_original_mime_type(download_item.original_mime_type());
+  installer->set_apps_require_extension_mime_type(true);
+  installer->set_allow_privilege_increase(true);
+  installer->set_original_url(download_item.url());
+  installer->set_is_gallery_install(is_gallery_download);
+  installer->InstallCrx(download_item.full_path());
+  installer->set_allow_silent_install(is_gallery_download);
 }
 
 // Download progress painting --------------------------------------------------
@@ -575,10 +565,10 @@ std::wstring GetProgressStatusText(DownloadItem* download) {
   } else {
     amount.assign(received_size);
   }
-  amount_units = GetByteDisplayUnits(download->CurrentSpeed());
-  std::wstring speed_text =
-      UTF16ToWideHack(FormatSpeed(download->CurrentSpeed(), amount_units,
-                                  true));
+  int64 current_speed = download->CurrentSpeed();
+  amount_units = GetByteDisplayUnits(current_speed);
+  std::wstring speed_text = UTF16ToWideHack(FormatSpeed(current_speed,
+                                                        amount_units, true));
   std::wstring speed_text_localized;
   if (base::i18n::AdjustStringForLocaleDirection(speed_text,
                                                  &speed_text_localized))
@@ -647,13 +637,11 @@ void AppendNumberToPath(FilePath* path, int number) {
 // unique. If |path| does not exist, 0 is returned.  If it fails to find such
 // a number, -1 is returned.
 int GetUniquePathNumber(const FilePath& path) {
-  const int kMaxAttempts = 100;
-
   if (!file_util::PathExists(path))
     return 0;
 
   FilePath new_path;
-  for (int count = 1; count <= kMaxAttempts; ++count) {
+  for (int count = 1; count <= kMaxUniqueFiles; ++count) {
     new_path = FilePath(path);
     AppendNumberToPath(&new_path, count);
 
@@ -695,14 +683,12 @@ void CancelDownloadRequest(ResourceDispatcherHost* rdh,
 }
 
 int GetUniquePathNumberWithCrDownload(const FilePath& path) {
-  const int kMaxAttempts = 100;
-
   if (!file_util::PathExists(path) &&
       !file_util::PathExists(GetCrDownloadPath(path)))
     return 0;
 
   FilePath new_path;
-  for (int count = 1; count <= kMaxAttempts; ++count) {
+  for (int count = 1; count <= kMaxUniqueFiles; ++count) {
     new_path = FilePath(path);
     AppendNumberToPath(&new_path, count);
 
@@ -712,6 +698,27 @@ int GetUniquePathNumberWithCrDownload(const FilePath& path) {
   }
 
   return -1;
+}
+
+namespace {
+
+// NOTE: If index is 0, deletes files that do not have the " (nnn)" appended.
+void DeleteUniqueDownloadFile(const FilePath& path, int index) {
+  FilePath new_path(path);
+  if (index > 0)
+    AppendNumberToPath(&new_path, index);
+  file_util::Delete(new_path, false);
+}
+
+}
+
+void EraseUniqueDownloadFiles(const FilePath& path) {
+  FilePath cr_path = GetCrDownloadPath(path);
+
+  for (int index = 0; index <= kMaxUniqueFiles; ++index) {
+    DeleteUniqueDownloadFile(path, index);
+    DeleteUniqueDownloadFile(cr_path, index);
+  }
 }
 
 FilePath GetCrDownloadPath(const FilePath& suggested_path) {

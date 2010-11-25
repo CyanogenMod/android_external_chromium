@@ -46,6 +46,7 @@
       "lastError": {
         "type": "object",
         "optional": true,
+        "unprivileged": true,
         "description": "Set for the lifetime of a callback if an ansychronous extension api has resulted in an error. If no error has occured lastError will be <var>undefined</var>.",
         "properties": {
           "message": { "type": "string", "description": "Description of the error that has taken place." }
@@ -80,14 +81,14 @@
         ],
         "returns": {
           "$ref": "Port",
-          "description": "Port through which messages can be sent and received with the extension."
+          "description": "Port through which messages can be sent and received with the extension. The port's <a href='extension.html#type-Port'>onDisconnect</a> event is fired if extension does not exist. "
         }
       },
       {
         "name": "sendRequest",
         "type": "function",
         "unprivileged": true,
-        "description": "Sends a single request to other listeners within the extension. Similar to chrome.extension.connect, but only sends a single request with an optional response.",
+        "description": "Sends a single request to other listeners within the extension. Similar to chrome.extension.connect, but only sends a single request with an optional response. The <a href='extension.html#event-onRequest'>chrome.extension.onRequest</a> event is fired in each page of the extension.",
         "parameters": [
           {"type": "string", "name": "extensionId", "optional": true, "description": "The extension ID of the extension you want to connect to. If omitted, default is your own extension."},
           { "type": "any", "name": "request" },
@@ -99,7 +100,7 @@
               {
                 "name": "response",
                 "type": "any",
-                "description": "The JSON response object sent by the handler of the request."
+                "description": "The JSON response object sent by the handler of the request. If an error occurs while connecting to the extension, the callback will be called with no arguments and <a href='extension.html#property-lastError'>chrome.extension.lastError</a> will be set to the error message."
               }
             ]
           }
@@ -188,6 +189,14 @@
           "description": "Array of global window objects",
           "items": { "type": "object", "isInstanceOf": "DOMWindow", "properties": {}, "additionalProperties": { "type": "any" } }
         }
+      },
+      {
+        "name": "setUpdateUrlData",
+        "type": "function",
+        "description": "Sets the value of the ap CGI parameter used in the extension's update URL.  This value is ignored for extensions that are hosted in the Chrome Extension Gallery.",
+        "parameters": [
+          {"type": "string", "name": "data", "maxLength": 1024}
+        ]
       }
     ],
     "events": [
@@ -3899,7 +3908,7 @@
     ]
   },
   {
-    "namespace": "experimental.omnibox",
+    "namespace": "omnibox",
     "types": [
       {
         "id": "SuggestResult",
@@ -3919,12 +3928,13 @@
           "descriptionStyles": {
             "type": "array",
             "optional": true,
+            "description": "An array of style objects, created using styleUrl, styleMatch, or styleDim. A style applies to the region of text specified by the style's starting offset and length. If there are any overlapping regions of text covered by multiple styles, they will be added together (e.g. 'match' + 'dim' will display a dimmed match). Not all style combinations will be visually distinct (e.g. 'url' + 'dim' may look identical to 'url').",
             "items": {
               "type": "object",
-              "description": "A style object, created using styleNone, styleUrl, styleMatch, or styleDim. A style applies to the region of text starting at the style's offset, until either the next style or the end of the description.",
               "properties": {
-                "type": {"type": "string", "enum": ["none", "url", "match", "dim"]},
-                "offset": {"type": "integer"}
+                "type": {"type": "string", "enum": ["url", "match", "dim"]},
+                "offset": {"type": "integer"},
+                "length": {"type": "integer", "optional": true}
               }
             }
           }
@@ -3949,28 +3959,31 @@
         ]
       },
       {
-        "name": "styleNone",
-        "type": "function",
-        "description": "Constructor for the descriptionStyles parameter of the suggest callback.",
-        "parameters": [ {"type": "integer", "name": "offset", "minimum": 0} ]
-      },
-      {
         "name": "styleUrl",
         "type": "function",
-        "description": "Constructor for the descriptionStyles parameter of the suggest callback. This style designates a region of text matching a URL or filename.",
-        "parameters": [ {"type": "integer", "name": "offset", "minimum": 0} ]
+        "description": "Constructor for the descriptionStyles parameter of the suggest callback. This style designates a region of text matching a URL or filename. A negative offset means the region will start at that many characters from the end of the description. If length is omitted, the region will apply for the rest of the description text.",
+        "parameters": [
+           {"type": "integer", "name": "offset"},
+           {"type": "integer", "name": "length", "minimum": 0, "optional": true}
+        ]
       },
       {
         "name": "styleMatch",
         "type": "function",
-        "description": "Constructor for the descriptionStyles parameter of the suggest callback. This style designates a region of text matching what the user typed.",
-        "parameters": [ {"type": "integer", "name": "offset", "minimum": 0} ]
+        "description": "Constructor for the descriptionStyles parameter of the suggest callback. This style designates a region of text matching what the user typed. A negative offset means the region will start at that many characters from the end of the description. If length is omitted, the region will apply for the rest of the description text.",
+        "parameters": [
+           {"type": "integer", "name": "offset"},
+           {"type": "integer", "name": "length", "minimum": 0, "optional": true}
+        ]
       },
       {
         "name": "styleDim",
         "type": "function",
-        "description": "Constructor for the descriptionStyles parameter of the suggest callback. This style designates a region of dim helper text.",
-        "parameters": [ {"type": "integer", "name": "offset", "minimum": 0} ]
+        "description": "Constructor for the descriptionStyles parameter of the suggest callback. This style designates a region of dim helper text. A negative offset means the region will start at that many characters from the end of the description. If length is omitted, the region will apply for the rest of the description text.",
+        "parameters": [
+           {"type": "integer", "name": "offset"},
+           {"type": "integer", "name": "length", "minimum": 0, "optional": true}
+        ]
       }
     ],
     "events": [
@@ -3994,7 +4007,6 @@
             "type": "function",
             "description": "A callback passed to the onInputChanged event used for sending suggestions back to the browser.",
             "parameters": [
-              {"type": "integer", "name": "requestId"},
               {
                 "type": "array",
                 "description": "Array of suggest results",
@@ -4229,6 +4241,40 @@
             "name": "expected_id",
             "type": "string",
             "description": "The id of the extension to install."
+          },
+          {
+            "name": "callback",
+            "type": "function",
+            "optional": "true",
+            "parameters": []
+          }
+        ]
+      },
+      {
+        "name": "beginInstall",
+        "description": "Initiates the install process for the given extension id",
+        "parameters": [
+          {
+            "name": "expected_id",
+            "type": "string",
+            "description": "The id of the extension to be installled. Must be called during a user gesture."
+          },
+          {
+            "name": "callback",
+            "type": "function",
+            "optional": "true",
+            "parameters": []
+          }
+        ]
+      },
+      {
+        "name": "completeInstall",
+        "description": "",
+        "parameters": [
+          {
+            "name": "expected_id",
+            "type": "string",
+            "description": "The id of the extension to be installled. This should match a previous call to beginInstall."
           },
           {
             "name": "callback",

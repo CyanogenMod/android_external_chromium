@@ -31,15 +31,24 @@ const KeyboardShortcutData* GetWindowKeyboardShortcutTable
     {false, false, true,  false, kVK_PageUp,    0,   IDC_SELECT_PREVIOUS_TAB},
     {false, true,  true,  false, kVK_Tab,       0,   IDC_SELECT_PREVIOUS_TAB},
     // Cmd-0..8 select the Nth tab, with cmd-9 being "last tab".
-    {true,  false, false, false, kVK_ANSI_1,    0, IDC_SELECT_TAB_0},
-    {true,  false, false, false, kVK_ANSI_2,    0, IDC_SELECT_TAB_1},
-    {true,  false, false, false, kVK_ANSI_3,    0, IDC_SELECT_TAB_2},
-    {true,  false, false, false, kVK_ANSI_4,    0, IDC_SELECT_TAB_3},
-    {true,  false, false, false, kVK_ANSI_5,    0, IDC_SELECT_TAB_4},
-    {true,  false, false, false, kVK_ANSI_6,    0, IDC_SELECT_TAB_5},
-    {true,  false, false, false, kVK_ANSI_7,    0, IDC_SELECT_TAB_6},
-    {true,  false, false, false, kVK_ANSI_8,    0, IDC_SELECT_TAB_7},
-    {true,  false, false, false, kVK_ANSI_9,    0, IDC_SELECT_LAST_TAB},
+    {true,  false, false, false, kVK_ANSI_1,          0, IDC_SELECT_TAB_0},
+    {true,  false, false, false, kVK_ANSI_Keypad1,    0, IDC_SELECT_TAB_0},
+    {true,  false, false, false, kVK_ANSI_2,          0, IDC_SELECT_TAB_1},
+    {true,  false, false, false, kVK_ANSI_Keypad2,    0, IDC_SELECT_TAB_1},
+    {true,  false, false, false, kVK_ANSI_3,          0, IDC_SELECT_TAB_2},
+    {true,  false, false, false, kVK_ANSI_Keypad3,    0, IDC_SELECT_TAB_2},
+    {true,  false, false, false, kVK_ANSI_4,          0, IDC_SELECT_TAB_3},
+    {true,  false, false, false, kVK_ANSI_Keypad4,    0, IDC_SELECT_TAB_3},
+    {true,  false, false, false, kVK_ANSI_5,          0, IDC_SELECT_TAB_4},
+    {true,  false, false, false, kVK_ANSI_Keypad5,    0, IDC_SELECT_TAB_4},
+    {true,  false, false, false, kVK_ANSI_6,          0, IDC_SELECT_TAB_5},
+    {true,  false, false, false, kVK_ANSI_Keypad6,    0, IDC_SELECT_TAB_5},
+    {true,  false, false, false, kVK_ANSI_7,          0, IDC_SELECT_TAB_6},
+    {true,  false, false, false, kVK_ANSI_Keypad7,    0, IDC_SELECT_TAB_6},
+    {true,  false, false, false, kVK_ANSI_8,          0, IDC_SELECT_TAB_7},
+    {true,  false, false, false, kVK_ANSI_Keypad8,    0, IDC_SELECT_TAB_7},
+    {true,  false, false, false, kVK_ANSI_9,          0, IDC_SELECT_LAST_TAB},
+    {true,  false, false, false, kVK_ANSI_Keypad9,    0, IDC_SELECT_LAST_TAB},
   };
 
   *num_entries = arraysize(keyboard_shortcuts);
@@ -152,8 +161,20 @@ int CommandForBrowserKeyboardShortcut(
 }
 
 unichar KeyCharacterForEvent(NSEvent* event) {
-  const NSString* eventString = [event charactersIgnoringModifiers];
-  const NSString* characters = [event characters];
+  NSString* eventString = [event charactersIgnoringModifiers];
+  NSString* characters = [event characters];
+
+  // Character pairs that undergo BiDi mirrored.
+  // There are actually many more such pairs, but these are the ones that
+  // are likely to show up in keyboard shortcuts.
+  const struct {
+    unichar a;
+    unichar b;
+  } kMirroredBiDiChars[] = {
+    {'{', '}'},
+    {'[', ']'},
+    {'(', ')'},
+  };
 
   if ([eventString length] != 1)
     return 0;
@@ -161,13 +182,30 @@ unichar KeyCharacterForEvent(NSEvent* event) {
   if ([characters length] != 1)
     return [eventString characterAtIndex:0];
 
+  unichar noModifiersChar = [eventString characterAtIndex:0];
+  unichar rawChar = [characters characterAtIndex:0];
   // When both |characters| and |charactersIgnoringModifiers| are ascii,
   // return the first character of |characters|, if...
-  if (isascii([eventString characterAtIndex:0]) &&
-      isascii([characters characterAtIndex:0])) {
+  if (isascii(noModifiersChar) && isascii(rawChar)) {
     // |characters| is an alphabet (mainly for dvorak-qwerty layout), or
-    if (isalpha([characters characterAtIndex:0]))
-      return [characters characterAtIndex:0];
+    if (isalpha(rawChar))
+      return rawChar;
+
+    // http://crbug.com/42517
+    // In RTL keyboard layouts, Cocoa mirrors characters in the string
+    // returned by [event charactersIgnoringModifiers].  In this case, return
+    // the raw (unmirrored) char.
+    // FIXME: If there is a need to add any more characters to the
+    // kMirroredBiDiChars table, then it's probably better to use ICU's
+    // u_charMirror() function to perform this test.
+    for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kMirroredBiDiChars); ++i) {
+      const unichar& a = kMirroredBiDiChars[i].a;
+      const unichar& b = kMirroredBiDiChars[i].b;
+      if ((rawChar == a && noModifiersChar == b) ||
+          (rawChar == b && noModifiersChar == a))
+          return rawChar;
+    }
+
     // opt/alt modifier is set (e.g. on german layout we want '{' for opt-8).
     if ([event modifierFlags] & NSAlternateKeyMask)
       return [characters characterAtIndex:0];

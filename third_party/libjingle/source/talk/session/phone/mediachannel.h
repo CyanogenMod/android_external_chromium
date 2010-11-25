@@ -1,6 +1,6 @@
 /*
  * libjingle
- * Copyright 2004--2007, Google Inc.
+ * Copyright 2004--2010, Google Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are met:
@@ -88,7 +88,7 @@ class MediaChannel : public sigslot::has_slots<> {
   virtual bool Mute(bool on) = 0;
 
   virtual bool SetRtpExtensionHeaders(bool enable_all) { return true; }
-  virtual bool SetMaxSendBandwidth(int max_bandwidth) = 0;
+  virtual bool SetSendBandwidth(bool autobw, int bps) = 0;
   virtual bool SetOptions(int options) = 0;
 
  protected:
@@ -101,7 +101,6 @@ enum SendFlags {
   SEND_MICROPHONE
 };
 
-// TODO: separate into VoiceMediaInfo and VideoMediaInfo
 struct MediaInfo {
   int fraction_lost;
   int cum_lost;
@@ -114,8 +113,13 @@ struct MediaInfo {
   int packetsReceived;
 };
 
-typedef MediaInfo VoiceMediaInfo;
-typedef MediaInfo VideoMediaInfo;
+struct VoiceMediaInfo : MediaInfo {
+};
+
+struct VideoMediaInfo : MediaInfo {
+  int receive_framerate;
+  int send_framerate;
+};
 
 class VoiceMediaChannel : public MediaChannel {
  public:
@@ -180,6 +184,11 @@ class VideoFrame {
   virtual void SetElapsedTime(int64 elapsed_time) = 0;
   virtual void SetTimeStamp(int64 time_stamp) = 0;
 
+  // Make a copy of the frame. The frame buffer itself may not be copied,
+  // in which case both the current and new VideoFrame will share a single
+  // reference-counted frame buffer.
+  virtual VideoFrame *Copy() const = 0;
+
   // Writes the frame into the given frame buffer, provided that it is of
   // sufficient size. Returns the frame's actual size, regardless of whether
   // it was written or not (like snprintf). If there is insufficient space,
@@ -228,7 +237,7 @@ class VideoFrame {
 
   // Size of an I420 image of given dimensions when stored as a frame buffer.
   static size_t SizeOf(size_t w, size_t h) {
-    return w * h * 3 / 2;
+    return w * h + ((w + 1) / 2) * ((h + 1) / 2) * 2;
   }
 
  protected:
@@ -259,6 +268,10 @@ class NullVideoFrame : public VideoFrame {
   virtual int64 GetTimeStamp() const { return 0; }
   virtual void SetElapsedTime(int64 elapsed_time) {}
   virtual void SetTimeStamp(int64 time_stamp) {}
+
+  virtual VideoFrame *Copy() const {
+    return NULL;
+  }
 
   virtual size_t CopyToBuffer(uint8 *buffer, size_t size) const {
     return 0;
@@ -332,6 +345,13 @@ class VideoMediaChannel : public MediaChannel {
   virtual bool SetRenderer(uint32 ssrc, VideoRenderer* renderer) = 0;
   // Gets quality stats for the channel.
   virtual bool GetStats(VideoMediaInfo* info) = 0;
+
+  // Send an intra frame to the receivers.
+  virtual bool SendIntraFrame() = 0;
+  // Reuqest each of the remote senders to send an intra frame.
+  virtual bool RequestIntraFrame() = 0;
+
+
  protected:
   VideoRenderer *renderer_;
 };

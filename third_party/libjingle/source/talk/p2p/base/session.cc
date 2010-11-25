@@ -416,6 +416,42 @@ TransportInfos Session::GetEmptyTransportInfos(
   return tinfos;
 }
 
+
+bool Session::OnRemoteCandidates(
+    const TransportInfos& tinfos, ParseError* error) {
+  for (TransportInfos::const_iterator tinfo = tinfos.begin();
+       tinfo != tinfos.end(); ++tinfo) {
+    TransportProxy* transproxy = GetTransportProxy(tinfo->content_name);
+    if (transproxy == NULL) {
+      return BadParse("Unknown content name: " + tinfo->content_name, error);
+    }
+
+    // Must complete negotiation before sending remote candidates, or
+    // there won't be any channel impls.
+    transproxy->CompleteNegotiation();
+    for (Candidates::const_iterator cand = tinfo->candidates.begin();
+         cand != tinfo->candidates.end(); ++cand) {
+      if (!transproxy->impl()->VerifyCandidate(*cand, error))
+        return false;
+
+      if (!transproxy->impl()->HasChannel(cand->name())) {
+        buzz::XmlElement* extra_info =
+            new buzz::XmlElement(QN_GINGLE_P2P_UNKNOWN_CHANNEL_NAME);
+        extra_info->AddAttr(buzz::QN_NAME, cand->name());
+        error->extra = extra_info;
+
+        return BadParse("channel named in candidate does not exist: " +
+                        cand->name() + " for content: "+ tinfo->content_name,
+                        error);
+      }
+    }
+    transproxy->impl()->OnRemoteCandidates(tinfo->candidates);
+  }
+
+  return true;
+}
+
+
 TransportProxy* Session::GetOrCreateTransportProxy(
     const std::string& content_name) {
   TransportProxy* transproxy = GetTransportProxy(content_name);
@@ -464,16 +500,6 @@ void Session::SpeculativelyConnectAllTransportChannels() {
   for (TransportMap::iterator iter = transports_.begin();
        iter != transports_.end(); ++iter) {
     iter->second->SpeculativelyConnectChannels();
-  }
-}
-
-void Session::CompleteTransportNegotiations(const TransportInfos& transports) {
-  for (TransportInfos::const_iterator transport = transports.begin();
-       transport != transports.end(); ++transport) {
-    TransportProxy* transproxy = GetTransportProxy(transport->content_name);
-    if (transproxy) {
-      transproxy->CompleteNegotiation();
-    }
   }
 }
 
@@ -646,6 +672,20 @@ void Session::OnFailedSend(const buzz::XmlElement* orig_stanza,
     return;
   }
 
+  // If the error is a session redirect, call OnRedirectError, which will
+  // continue the session with a new remote JID.
+  SessionRedirect redirect;
+  if (FindSessionRedirect(error_stanza, &redirect)) {
+    SessionError error;
+    if (!OnRedirectError(redirect, &error)) {
+      // TODO: Should we send a message back?  The standard
+      // says nothing about it.
+      LOG(LS_ERROR) << "Failed to redirect: " << error.text;
+      SetError(ERROR_RESPONSE);
+    }
+    return;
+  }
+
   std::string error_type = "cancel";
 
   const buzz::XmlElement* error = error_stanza->FirstNamed(buzz::QN_ERROR);
@@ -706,9 +746,8 @@ bool Session::OnInitiateMessage(const SessionMessage& msg,
 
   // Users of Session may listen to state change and call Reject().
   if (state_ != STATE_SENTREJECT) {
-    // TODO: Jingle spec allows candidates to be in the
-    // initiate.  We should support receiving them.
-    CompleteTransportNegotiations(init.transports);
+    if (!OnRemoteCandidates(init.transports, error))
+      return false;
   }
   return true;
 }
@@ -728,9 +767,8 @@ bool Session::OnAcceptMessage(const SessionMessage& msg, MessageError* error) {
 
   // Users of Session may listen to state change and call Reject().
   if (state_ != STATE_SENTREJECT) {
-    // TODO: Jingle spec allows candidates to be in the
-    // accept.  We should support receiving them.
-    CompleteTransportNegotiations(accept.transports);
+    if (!OnRemoteCandidates(accept.transports, error))
+      return false;
   }
 
   return true;
@@ -773,31 +811,8 @@ bool Session::OnTransportInfoMessage(const SessionMessage& msg,
                            GetTransportParsers(), &tinfos, error))
     return false;
 
-  for (TransportInfos::iterator tinfo = tinfos.begin();
-       tinfo != tinfos.end(); ++tinfo) {
-    TransportProxy* transproxy = GetTransportProxy(tinfo->content_name);
-    if (transproxy == NULL)
-      return BadParse("Unknown content name: " + tinfo->content_name, error);
-
-    for (Candidates::const_iterator cand = tinfo->candidates.begin();
-         cand != tinfo->candidates.end(); ++cand) {
-      if (!transproxy->impl()->VerifyCandidate(*cand, error))
-        return false;
-
-      if (!transproxy->impl()->HasChannel(cand->name())) {
-        buzz::XmlElement* extra_info =
-            new buzz::XmlElement(QN_GINGLE_P2P_UNKNOWN_CHANNEL_NAME);
-        extra_info->AddAttr(buzz::QN_NAME, cand->name());
-        error->extra = extra_info;
-        return BadParse("channel named in candidate does not exist: " +
-                        cand->name() + " for content: "+ tinfo->content_name,
-                        error);
-      }
-    }
-
-    transproxy->impl()->OnRemoteCandidates(tinfo->candidates);
-    transproxy->CompleteNegotiation();
-  }
+  if (!OnRemoteCandidates(tinfos, error))
+    return false;
 
   return true;
 }
@@ -807,6 +822,32 @@ bool Session::OnTransportAcceptMessage(const SessionMessage& msg,
   // TODO: Currently here only for compatibility with
   // Gingle 1.1 clients (notably, Google Voice).
   return true;
+}
+
+bool BareJidsEqual(const std::string& name1,
+                   const std::string& name2) {
+  buzz::Jid jid1(name1);
+  buzz::Jid jid2(name2);
+
+  return jid1.IsValid() && jid2.IsValid() && jid1.BareEquals(jid2);
+}
+
+bool Session::OnRedirectError(const SessionRedirect& redirect,
+                              SessionError* error) {
+  MessageError message_error;
+  if (!CheckState(STATE_SENTINITIATE, &message_error)) {
+    return BadWrite(message_error.text, error);
+  }
+
+  if (!BareJidsEqual(remote_name_, redirect.target))
+    return BadWrite("Redirection not allowed: must be the same bare jid.",
+                    error);
+
+  // When we receive a redirect, we point the session at the new JID
+  // and resend the candidates.
+  remote_name_ = redirect.target;
+  return (SendInitiateMessage(local_description(), error) &&
+          ResendAllTransportInfoMessages(error));
 }
 
 bool Session::CheckState(State state, MessageError* error) {
@@ -907,6 +948,25 @@ bool Session::WriteSessionAction(SignalingProtocol protocol,
 
   return WriteTransportInfos(protocol, tinfos, parsers,
                              elems, error);
+}
+
+bool Session::ResendAllTransportInfoMessages(SessionError* error) {
+  for (TransportMap::iterator iter = transports_.begin();
+       iter != transports_.end(); ++iter) {
+    TransportProxy* transproxy = iter->second;
+    if (transproxy->sent_candidates().size() > 0) {
+      if (!SendTransportInfoMessage(
+              TransportInfo(
+                  transproxy->content_name(),
+                  transproxy->type(),
+                  transproxy->sent_candidates()),
+              error)) {
+        return false;
+      }
+      transproxy->ClearSentCandidates();
+    }
+  }
+  return true;
 }
 
 bool Session::SendMessage(ActionType type, const XmlElements& action_elems,

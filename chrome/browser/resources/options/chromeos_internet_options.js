@@ -29,7 +29,6 @@ cr.define('options', function() {
      * Calls base class implementation to starts preference initialization.
      */
     initializePage: function() {
-      // Call base class implementation to starts preference initialization.
       OptionsPage.prototype.initializePage.call(this);
 
       options.internet.NetworkElement.decorate($('wiredList'));
@@ -91,13 +90,18 @@ cr.define('options', function() {
     }
   };
 
+  // Network status update will be blocked while typing in WEP password etc.
+  InternetOptions.updateLocked = false;
+  InternetOptions.updatePending = false;
+  InternetOptions.updataData = null;
+
   InternetOptions.loginFromDetails = function () {
     var data = $('inetAddress').data;
     var servicePath = data.servicePath;
-    if (data.certinpkcs) {
+    if (data.certInPkcs) {
       chrome.send('loginToCertNetwork',[String(servicePath),
                                         String(data.certPath),
-                                        String(data.ident)]);
+                                        String($('inetIdentPkcs').value)]);
     } else {
       chrome.send('loginToCertNetwork',[String(servicePath),
                                         String($('inetCert').value),
@@ -112,11 +116,15 @@ cr.define('options', function() {
     if (data.type == 2) {
       var newinfo = [];
       newinfo.push(data.servicePath);
-      newinfo.push($('rememberNetwork').checked ? "true" : "false");
+      newinfo.push($('autoConnectNetwork').checked ? "true" : "false");
       if (data.encrypted && data.certNeeded) {
-        newinfo.push($('inetIdent').value);
-        newinfo.push($('inetCert').value);
-        newinfo.push($('inetCertPass').value);
+        if (data.certInPkcs) {
+          newinfo.push($('inetIdentPkcs').value);
+        } else {
+          newinfo.push($('inetIdent').value);
+          newinfo.push($('inetCert').value);
+          newinfo.push($('inetCertPass').value);
+        }
       }
       chrome.send('setDetails', newinfo);
     }
@@ -150,18 +158,37 @@ cr.define('options', function() {
     }
   };
 
+  // Prevent clobbering of password input field.
+  InternetOptions.lockUpdates = function () {
+    InternetOptions.updateLocked = true;
+  };
+
+  InternetOptions.unlockUpdates = function () {
+    InternetOptions.updateLocked = false;
+    if (InternetOptions.updatePending) {
+      InternetOptions.refreshNetworkData(InternetOptions.updateData);
+    }
+  };
+
   //
   //Chrome callbacks
   //
   InternetOptions.refreshNetworkData = function (data) {
-    $('wiredList').load(data.wiredList);
-    $('wirelessList').load(data.wirelessList);
-    $('rememberedList').load(data.rememberedList);
+    if (InternetOptions.updateLocked) {
+      InternetOptions.updateData = data;
+      InternetOptions.updatePending = true;
+    } else {
+      $('wiredList').load(data.wiredList);
+      $('wirelessList').load(data.wirelessList);
+      $('rememberedList').load(data.rememberedList);
 
-    $('wiredSection').hidden = (data.wiredList.length == 0);
-    $('wirelessSection').hidden = (data.wirelessList.length == 0);
-    InternetOptions.setupAttributes(data);
-    $('rememberedSection').hidden = (data.rememberedList.length == 0);
+      $('wiredSection').hidden = (data.wiredList.length == 0);
+      $('wirelessSection').hidden = (data.wirelessList.length == 0);
+      InternetOptions.setupAttributes(data);
+      $('rememberedSection').hidden = (data.rememberedList.length == 0);
+      InternetOptions.updateData = null;
+      InternetOptions.updatePending = false;
+    }
   };
 
   InternetOptions.updateCellularPlans = function (data) {
@@ -216,7 +243,6 @@ cr.define('options', function() {
     } else {
       // This is most likely a transient state due to device still connecting.
       address.textContent = '?';
-      address.data = null;
       $('inetSubnetAddress').textContent = '?';
       $('inetGateway').textContent = '?';
       $('inetDns').textContent = '?';
@@ -235,10 +261,10 @@ cr.define('options', function() {
       page.removeAttribute('cellular');
       page.removeAttribute('gsm');
       $('inetSsid').textContent = data.ssid;
-      $('rememberNetwork').checked = data.autoConnect;
+      $('autoConnectNetwork').checked = data.autoConnect;
       if (!AccountsOptions.currentUserIsOwner()) {
         // Disable this for guest non-Owners.
-        $('rememberNetwork').disabled = true;
+        $('autoConnectNetwork').disabled = true;
       }
       page.removeAttribute('password');
       page.removeAttribute('cert');

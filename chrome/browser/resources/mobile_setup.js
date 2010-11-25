@@ -46,13 +46,8 @@ cr.define('mobile', function() {
       window.addEventListener('message', function(e) {
           self.onMessageReceived_(e);
       });
-      $('cheat').addEventListener('click', function(e) {
-        console.log('calling setTransactionStatus from cheat.onclick');
-        if (self.faked_transaction_)
-          return;
-        $('paymentForm').classList.add('hidden');
-        chrome.send('setTransactionStatus', ['OK']);
-        self.faked_transaction_ = true;
+      $('closeButton').addEventListener('click', function(e) {
+          $('finalMessage').classList.add('hidden');
       });
       $(frame_name).addEventListener('load', function(e) {
         // Flip the visibility of the payment page only after the frame is
@@ -62,6 +57,7 @@ cr.define('mobile', function() {
           $('finalMessage').classList.add('hidden');
           $('errorMessage').classList.add('hidden');
           $('systemStatus').classList.add('hidden');
+          $('canvas').classList.add('hidden');
           $('paymentForm').classList.remove('hidden');
         }
       });
@@ -104,6 +100,7 @@ cr.define('mobile', function() {
       switch(new_state) {
         case MobileSetup.PLAN_ACTIVATION_LOADING:
         case MobileSetup.PLAN_ACTIVATION_START:
+        case MobileSetup.PLAN_ACTIVATION_RECONNECTING:
           $('statusHeader').textContent =
               MobileSetup.localStrings_.getString('connecting_header');
           $('errorMessage').textContent = '';
@@ -111,9 +108,9 @@ cr.define('mobile', function() {
           $('finalMessage').classList.add('hidden');
           $('errorMessage').classList.add('hidden');
           $('systemStatus').classList.remove('hidden');
+          $('canvas').classList.remove('hidden');
           break;
         case MobileSetup.PLAN_ACTIVATION_INITIATING_ACTIVATION:
-        case MobileSetup.PLAN_ACTIVATION_RECONNECTING:
           $('statusHeader').textContent =
               MobileSetup.localStrings_.getString('activating_header');
           $('errorMessage').textContent = '';
@@ -121,18 +118,21 @@ cr.define('mobile', function() {
           $('finalMessage').classList.add('hidden');
           $('errorMessage').classList.add('hidden');
           $('systemStatus').classList.remove('hidden');
+          $('canvas').classList.remove('hidden');
           break;
         case MobileSetup.PLAN_ACTIVATION_SHOWING_PAYMENT:
           $('paymentForm').classList.add('hidden');
           $('finalMessage').classList.add('hidden');
           $('errorMessage').classList.add('hidden');
           $('systemStatus').classList.remove('hidden');
+          $('canvas').classList.remove('hidden');
           this.loadPaymentFrame_(deviceInfo);
           break;
         case MobileSetup.PLAN_ACTIVATION_DONE:
           $('statusHeader').textContent = '';
           $('errorMessage').classList.add('hidden');
           $('systemStatus').classList.add('hidden');
+          $('canvas').classList.add('hidden');
           $('paymentForm').classList.remove('hidden');
           $('finalMessage').classList.remove('hidden');
           break;
@@ -142,6 +142,7 @@ cr.define('mobile', function() {
           $('errorMessage').textContent = deviceInfo.error;
           $('paymentForm').classList.add('hidden');
           $('finalMessage').classList.add('hidden');
+          $('canvas').classList.add('hidden');
           $('errorMessage').classList.remove('hidden');
           $('systemStatus').classList.remove('hidden');
           break;

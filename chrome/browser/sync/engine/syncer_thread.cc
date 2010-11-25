@@ -53,20 +53,63 @@ static const int kBackoffRandomizationFactor = 2;
 
 const int SyncerThread::kMaxBackoffSeconds = 60 * 60 * 4;  // 4 hours.
 
-void SyncerThread::NudgeSyncer(int milliseconds_from_now, NudgeSource source) {
+void SyncerThread::NudgeSyncerWithDataTypes(
+    int milliseconds_from_now,
+    NudgeSource source,
+    const syncable::ModelTypeBitSet& model_types) {
   AutoLock lock(lock_);
   if (vault_.syncer_ == NULL) {
     return;
   }
 
-  NudgeSyncImpl(milliseconds_from_now, source);
+  NudgeSyncImpl(milliseconds_from_now, source, model_types);
+}
+
+void SyncerThread::NudgeSyncer(
+    int milliseconds_from_now,
+    NudgeSource source) {
+  AutoLock lock(lock_);
+  if (vault_.syncer_ == NULL) {
+    return;
+  }
+
+  syncable::ModelTypeBitSet model_types;  // All false by default.
+  NudgeSyncImpl(milliseconds_from_now, source, model_types);
+}
+
+// Sets |*connected| to false if it is currently true but |code| suggests that
+// the current network configuration and/or auth state cannot be used to make
+// forward progress, and user intervention (e.g changing server URL or auth
+// credentials) is likely necessary.  If |*connected| is false, set it to true
+// if |code| suggests that we just recently made healthy contact with the
+// server.
+static inline void CheckConnected(bool* connected,
+                                  HttpResponse::ServerConnectionCode code,
+                                  ConditionVariable* condvar) {
+  if (*connected) {
+    // Note, be careful when adding cases here because if the SyncerThread
+    // thinks there is no valid connection as determined by this method, it
+    // will drop out of *all* forward progress sync loops (it won't poll and it
+    // will queue up Talk notifications but not actually call SyncShare) until
+    // some external action causes a ServerConnectionManager to broadcast that
+    // a valid connection has been re-established.
+    if (HttpResponse::CONNECTION_UNAVAILABLE == code ||
+        HttpResponse::SYNC_AUTH_ERROR == code) {
+      *connected = false;
+      condvar->Broadcast();
+    }
+  } else {
+    if (HttpResponse::SERVER_CONNECTION_OK == code) {
+      *connected = true;
+      condvar->Broadcast();
+    }
+  }
 }
 
 SyncerThread::SyncerThread(sessions::SyncSessionContext* context)
     : thread_main_started_(false, false),
       thread_("SyncEngine_SyncerThread"),
       vault_field_changed_(&lock_),
-      conn_mgr_hookup_(NULL),
       syncer_short_poll_interval_seconds_(kDefaultShortPollIntervalSeconds),
       syncer_long_poll_interval_seconds_(kDefaultLongPollIntervalSeconds),
       syncer_polling_interval_(kDefaultShortPollIntervalSeconds),
@@ -75,13 +118,17 @@ SyncerThread::SyncerThread(sessions::SyncSessionContext* context)
       disable_idle_detection_(false) {
   DCHECK(context);
 
-  if (context->connection_manager())
-    WatchConnectionManager(context->connection_manager());
-
+  if (context->connection_manager()) {
+    context->connection_manager()->AddListener(this);
+    CheckConnected(&vault_.connected_,
+                   context->connection_manager()->server_status(),
+                   &vault_field_changed_);
+  }
 }
 
 SyncerThread::~SyncerThread() {
-  conn_mgr_hookup_.reset();
+  if (session_context_->connection_manager())
+    session_context_->connection_manager()->RemoveListener(this);
   delete vault_.syncer_;
   CHECK(!thread_.IsRunning());
 }
@@ -189,6 +236,8 @@ bool SyncerThread::RequestResume() {
     if (vault_.pause_requested_) {
       // If pause was requested we have not yet paused.  In this case,
       // the resume cancels the pause request.
+      vault_.pause_requested_ = false;
+      vault_field_changed_.Broadcast();
       Notify(SyncEngineEvent::SYNCER_THREAD_RESUMED);
       VLOG(1) << "Pending pause canceled by resume.";
     } else {
@@ -321,7 +370,24 @@ void SyncerThread::ThreadMainLoop() {
 
     VLOG(1) << "Calling Sync Main at time " << Time::Now().ToInternalValue();
     SyncMain(vault_.syncer_);
-    last_sync_time = TimeTicks::Now();
+
+    // Update timing information for how often these datatypes are triggering
+    // nudges.
+    base::TimeTicks now = TimeTicks::Now();
+    for (size_t i = syncable::FIRST_REAL_MODEL_TYPE;
+         i < vault_.pending_nudge_types_.size();
+         ++i) {
+      if (vault_.pending_nudge_types_[i]) {
+        syncable::PostTimeToTypeHistogram(syncable::ModelType(i),
+                                          now - last_sync_time);
+      }
+    }
+
+    // Now that the nudge has been handled, we can reset our tracking of the
+    // datatypes triggering a nudge.
+    vault_.pending_nudge_types_.reset();
+
+    last_sync_time = now;
 
     VLOG(1) << "Updating the next polling time after SyncMain";
     vault_.current_wait_interval_ = CalculatePollingWaitTime(
@@ -555,7 +621,8 @@ void SyncerThread::SetUpdatesSource(bool nudged, NudgeSource nudge_source,
         break;
     }
   }
-  vault_.syncer_->set_updates_source(updates_source);
+  vault_.syncer_->set_updates_source(
+      updates_source, vault_.pending_nudge_types_);
 }
 
 void SyncerThread::CreateSyncer(const std::string& dirname) {
@@ -569,48 +636,14 @@ void SyncerThread::CreateSyncer(const std::string& dirname) {
   vault_field_changed_.Broadcast();
 }
 
-// Sets |*connected| to false if it is currently true but |code| suggests that
-// the current network configuration and/or auth state cannot be used to make
-// forward progress, and user intervention (e.g changing server URL or auth
-// credentials) is likely necessary.  If |*connected| is false, set it to true
-// if |code| suggests that we just recently made healthy contact with the
-// server.
-static inline void CheckConnected(bool* connected,
-                                  HttpResponse::ServerConnectionCode code,
-                                  ConditionVariable* condvar) {
-  if (*connected) {
-    // Note, be careful when adding cases here because if the SyncerThread
-    // thinks there is no valid connection as determined by this method, it
-    // will drop out of *all* forward progress sync loops (it won't poll and it
-    // will queue up Talk notifications but not actually call SyncShare) until
-    // some external action causes a ServerConnectionManager to broadcast that
-    // a valid connection has been re-established.
-    if (HttpResponse::CONNECTION_UNAVAILABLE == code ||
-        HttpResponse::SYNC_AUTH_ERROR == code) {
-      *connected = false;
-      condvar->Broadcast();
-    }
-  } else {
-    if (HttpResponse::SERVER_CONNECTION_OK == code) {
-      *connected = true;
-      condvar->Broadcast();
-    }
-  }
-}
-
-void SyncerThread::WatchConnectionManager(ServerConnectionManager* conn_mgr) {
-  conn_mgr_hookup_.reset(NewEventListenerHookup(conn_mgr->channel(), this,
-                         &SyncerThread::HandleServerConnectionEvent));
-  CheckConnected(&vault_.connected_, conn_mgr->server_status(),
-                 &vault_field_changed_);
-}
-
-void SyncerThread::HandleServerConnectionEvent(
-    const ServerConnectionEvent& event) {
+void SyncerThread::OnServerConnectionEvent(const ServerConnectionEvent& event) {
   if (ServerConnectionEvent::STATUS_CHANGED == event.what_happened) {
     AutoLock lock(lock_);
     CheckConnected(&vault_.connected_, event.connection_code,
                    &vault_field_changed_);
+  } else {
+    DCHECK_EQ(ServerConnectionEvent::SHUTDOWN, event.what_happened);
+    session_context_->connection_manager()->RemoveListener(this);
   }
 }
 
@@ -658,7 +691,8 @@ int SyncerThread::CalculateSyncWaitTime(int last_interval, int user_idle_ms) {
 
 // Called with mutex_ already locked.
 void SyncerThread::NudgeSyncImpl(int milliseconds_from_now,
-                                 NudgeSource source) {
+                                 NudgeSource source,
+                                 const syncable::ModelTypeBitSet& model_types) {
   // TODO(sync): Add the option to reset the backoff state machine.
   // This is needed so nudges that are a result of the user's desire
   // to download updates for a new data type can be satisfied quickly.
@@ -676,6 +710,10 @@ void SyncerThread::NudgeSyncImpl(int milliseconds_from_now,
             << " dropped due to existing later pending nudge";
     return;
   }
+
+  // Union the current bitset with any from nudges that may have already
+  // posted (coalesce the nudge datatype information).
+  vault_.pending_nudge_types_ |= model_types;
 
   VLOG(1) << "Replacing pending nudge for source " << source
           << " at " << nudge_time.ToInternalValue();

@@ -299,7 +299,7 @@ void Graphics2D::Scroll(const PP_Rect* clip_rect, const PP_Point* amount) {
   int32 dx = amount->x;
   int32 dy = amount->y;
   if (dx <= -image_data_->width() || dx >= image_data_->width() ||
-      dx <= -image_data_->height() || dy >= image_data_->height())
+      dy <= -image_data_->height() || dy >= image_data_->height())
     return;
 
   operation.scroll_dx = dx;
@@ -420,6 +420,7 @@ bool Graphics2D::ReadImageData(PP_Resource image,
                        SkIntToScalar(image_resource->width()),
                        SkIntToScalar(image_resource->height()) };
 
+  ImageDataAutoMapper auto_mapper2(image_data_);
   if (image_resource->format() != image_data_->format()) {
     // Convert the image data if the format does not match.
     ConvertImageData(image_data_, src_irect, image_resource.get(), dest_rect);
@@ -472,7 +473,7 @@ bool Graphics2D::BindToInstance(PluginInstance* new_instance) {
 void Graphics2D::Paint(WebKit::WebCanvas* canvas,
                        const gfx::Rect& plugin_rect,
                        const gfx::Rect& paint_rect) {
-  // We're guaranteed to have a mapped canvas since we mapped it in Init().
+  ImageDataAutoMapper auto_mapper(image_data_);
   const SkBitmap& backing_bitmap = *image_data_->GetMappedBitmap();
 
 #if defined(OS_MACOSX)

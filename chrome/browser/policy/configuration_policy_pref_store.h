@@ -6,8 +6,9 @@
 #define CHROME_BROWSER_POLICY_CONFIGURATION_POLICY_PREF_STORE_H_
 #pragma once
 
-#include <string>
 #include <set>
+#include <string>
+
 #include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
@@ -37,14 +38,18 @@ class ConfigurationPolicyPrefStore : public PrefStore,
   // ConfigurationPolicyStore methods:
   virtual void Apply(ConfigurationPolicyType setting, Value* value);
 
-  // Creates a ConfigurationPolicyPrefStore that reads managed policy.
-  static ConfigurationPolicyPrefStore* CreateManagedPolicyPrefStore();
+  // Creates a ConfigurationPolicyPrefStore that reads managed platform policy.
+  static ConfigurationPolicyPrefStore* CreateManagedPlatformPolicyPrefStore();
+
+  // Creates a ConfigurationPolicyPrefStore that supplies policy from
+  // the device management server.
+  static ConfigurationPolicyPrefStore* CreateDeviceManagementPolicyPrefStore();
 
   // Creates a ConfigurationPolicyPrefStore that reads recommended policy.
   static ConfigurationPolicyPrefStore* CreateRecommendedPolicyPrefStore();
 
   // Returns the default policy definition list for Chrome.
-  static ConfigurationPolicyProvider::PolicyDefinitionList*
+  static const ConfigurationPolicyProvider::PolicyDefinitionList*
       GetChromePolicyDefinitionList();
 
   // Returns the set of preference paths that can be affected by a proxy

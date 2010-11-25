@@ -8,17 +8,17 @@
 #include "base/scoped_ptr.h"
 #include "base/stl_util-inl.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/sync/profile_sync_factory_mock.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_setup_flow.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/net/gaia/google_service_auth_error.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/browser_with_test_window_test.h"
-#include "chrome/test/testing_profile.h"
 #include "chrome/test/test_browser_window.h"
+#include "chrome/test/testing_profile.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 static const char kTestUser[] = "chrome.p13n.test@gmail.com";
@@ -59,7 +59,8 @@ class ProfileSyncServiceForWizardTest : public ProfileSyncService {
     user_cancelled_dialog_ = true;
   }
 
-  virtual void SetSecondaryPassphrase(const std::string& passphrase) {
+  virtual void SetPassphrase(const std::string& passphrase,
+                             bool is_explicit) {
     passphrase_ = passphrase;
   }
 
@@ -352,7 +353,8 @@ TEST_F(SyncSetupWizardTest, EnterPassphraseRequired) {
   EXPECT_EQ(SyncSetupWizard::ENTER_PASSPHRASE,
             test_window_->flow()->current_state_);
   ListValue value;
-  value.Append(new StringValue("{\"passphrase\":\"myPassphrase\"}"));
+  value.Append(new StringValue("{\"passphrase\":\"myPassphrase\","
+                                "\"mode\":\"gaia\"}"));
   test_window_->flow()->flow_handler_->HandlePassphraseEntry(&value);
   EXPECT_EQ("myPassphrase", service_->passphrase_);
 }

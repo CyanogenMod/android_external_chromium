@@ -22,8 +22,8 @@
 #include "chrome/browser/views/autocomplete/autocomplete_popup_contents_view.h"
 #include "chrome/common/page_transition_types.h"
 #include "gfx/font.h"
-#include "webkit/glue/window_open_disposition.h"
 #include "views/controls/menu/menu_2.h"
+#include "webkit/glue/window_open_disposition.h"
 
 class Profile;
 class TabContents;
@@ -113,6 +113,8 @@ class AutocompleteEditViewWin
 
   virtual void SetWindowTextAndCaretPos(const std::wstring& text,
                                         size_t caret_pos);
+
+  virtual void ReplaceSelection(const string16& text);
 
   virtual void SetForcedQuery();
 

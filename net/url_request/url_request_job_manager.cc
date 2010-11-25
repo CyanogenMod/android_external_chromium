@@ -38,7 +38,7 @@ static const SchemeToFactory kBuiltinFactories[] = {
 #endif
 };
 
-URLRequestJobManager::URLRequestJobManager() {
+URLRequestJobManager::URLRequestJobManager() : enable_file_access_(false) {
 #ifndef NDEBUG
   allowed_thread_ = 0;
   allowed_thread_initialized_ = false;

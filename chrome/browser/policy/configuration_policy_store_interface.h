@@ -51,8 +51,19 @@ enum ConfigurationPolicyType {
   kPolicySavingBrowserHistoryDisabled,
   kPolicyDeveloperToolsDisabled,
   kPolicyBlockThirdPartyCookies,
+  kPolicyDefaultCookiesSetting,
+  kPolicyDefaultImagesSetting,
+  kPolicyDefaultJavaScriptSetting,
+  kPolicyDefaultPluginsSetting,
+  kPolicyDefaultPopupsSetting,
   kPolicyExtensionInstallForceList,
   kPolicyChromeOsLockOnIdleSuspend,
+  kPolicyAuthSchemes,
+  kPolicyDisableAuthNegotiateCnameLookup,
+  kPolicyEnableAuthNegotiatePort,
+  kPolicyAuthServerWhitelist,
+  kPolicyAuthNegotiateDelegateWhitelist,
+  kPolicyGSSAPILibraryName,
 };
 
 static const int kPolicyNoProxyServerMode = 0;

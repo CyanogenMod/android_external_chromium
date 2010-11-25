@@ -19,9 +19,10 @@
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/input_method_library.h"
-#include "chrome/browser/chromeos/cros_settings_provider_user.h"
 #include "chrome/browser/chromeos/login/ownership_service.h"
+#include "chrome/browser/chromeos/user_cros_settings_provider.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
+#include "chrome/browser/defaults.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/notification_service.h"
@@ -237,6 +238,11 @@ void UserManager::UserLoggedIn(const std::string& email) {
     return;
   }
 
+  if (!IsKnownUser(email)) {
+    current_user_is_new_ = true;
+    browser_defaults::skip_restore = true;
+  }
+
   // Get a copy of the current users.
   std::vector<User> users = GetUsers();
 
@@ -393,7 +399,8 @@ void UserManager::OnImageLoaded(const std::string& username,
 // Private constructor and destructor. Do nothing.
 UserManager::UserManager()
     : ALLOW_THIS_IN_INITIALIZER_LIST(image_loader_(new UserImageLoader(this))),
-      current_user_is_owner_(false) {
+      current_user_is_owner_(false),
+      current_user_is_new_(false) {
   registrar_.Add(this, NotificationType::OWNER_KEY_FETCH_ATTEMPT_SUCCEEDED,
       NotificationService::AllSources());
 }

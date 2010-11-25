@@ -80,10 +80,11 @@ struct NavigateParams {
   // CURRENT_TAB          "     "     "                     NEW_FOREGROUND_TAB
   // OFF_THE_RECORD       target browser profile is incog.  NEW_FOREGROUND_TAB
   //
-  // If disposition is NEW_WINDOW or NEW_POPUP, |show_window| is set to true
-  // automatically.
   // If disposition is NEW_BACKGROUND_TAB, TabStripModel::ADD_SELECTED is
   // removed from |tabstrip_add_types| automatically.
+  // If disposition is one of NEW_WINDOW, NEW_POPUP, NEW_FOREGROUND_TAB or
+  // SINGLETON_TAB, then TabStripModel::ADD_SELECTED is automatically added to
+  // |tabstrip_add_types|.
   WindowOpenDisposition disposition;
 
   // The transition type of the navigation. Default is PageTransition::LINK
@@ -114,7 +115,13 @@ struct NavigateParams {
   // True if the target window should be made visible at the end of the call
   // to Navigate(). This activates the window if it was already visible.
   // Default is false.
+  // If disposition is NEW_WINDOW or NEW_POPUP, |show_window| is set to true
+  // automatically.
   bool show_window;
+
+  // True if the paths of the target content's URL and |url| should be ignored
+  // when locating a singleton tab.
+  bool ignore_path;
 
   // [in]  Specifies a Browser object where the navigation could occur or the
   //       tab could be added. Navigate() is not obliged to use this Browser if

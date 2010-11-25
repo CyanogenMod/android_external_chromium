@@ -11,6 +11,7 @@
 #include "base/json/string_escape.h"
 #include "base/path_service.h"
 #include "base/stringprintf.h"
+#include "base/thread_restrictions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
@@ -43,6 +44,11 @@
 #include "chrome/browser/location_bar.h"
 #include "chrome/browser/login_prompt.h"
 #include "chrome/browser/native_app_modal_dialog.h"
+#include "chrome/browser/notifications/balloon.h"
+#include "chrome/browser/notifications/balloon_collection.h"
+#include "chrome/browser/notifications/balloon_host.h"
+#include "chrome/browser/notifications/notification.h"
+#include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -62,11 +68,7 @@
 #include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
-#include "chrome/browser/notifications/balloon.h"
-#include "chrome/browser/notifications/balloon_collection.h"
-#include "chrome/browser/notifications/notification.h"
-#include "chrome/browser/notifications/notification_ui_manager.h"
-#include "chrome/test/automation/automation_messages.h"
+#include "chrome/common/automation_messages.h"
 #include "net/base/cookie_store.h"
 #include "net/url_request/url_request_context.h"
 #include "views/event.h"
@@ -415,6 +417,8 @@ void TestingAutomationProvider::OnMessageReceived(
     IPC_MESSAGE_HANDLER(AutomationMsg_WindowTitle, GetWindowTitle)
     IPC_MESSAGE_HANDLER(AutomationMsg_SetShelfVisibility, SetShelfVisibility)
     IPC_MESSAGE_HANDLER(AutomationMsg_BlockedPopupCount, GetBlockedPopupCount)
+    IPC_MESSAGE_HANDLER_DELAY_REPLY(AutomationMsg_CaptureEntirePageAsPNG,
+                                    CaptureEntirePageAsPNG)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(AutomationMsg_SendJSONRequest,
                                     SendJSONRequest)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(AutomationMsg_WaitForTabCountToBecome,
@@ -1354,7 +1358,7 @@ void TestingAutomationProvider::GetSecurityState(int handle,
 void TestingAutomationProvider::GetPageType(
     int handle,
     bool* success,
-    NavigationEntry::PageType* page_type) {
+    PageType* page_type) {
   if (tab_tracker_->ContainsHandle(handle)) {
     NavigationController* tab = tab_tracker_->GetResource(handle);
     NavigationEntry* entry = tab->GetActiveEntry();
@@ -1362,12 +1366,12 @@ void TestingAutomationProvider::GetPageType(
     *success = true;
     // In order to return the proper result when an interstitial is shown and
     // no navigation entry were created for it we need to ask the TabContents.
-    if (*page_type == NavigationEntry::NORMAL_PAGE &&
+    if (*page_type == NORMAL_PAGE &&
         tab->tab_contents()->showing_interstitial_page())
-      *page_type = NavigationEntry::INTERSTITIAL_PAGE;
+      *page_type = INTERSTITIAL_PAGE;
   } else {
     *success = false;
-    *page_type = NavigationEntry::NORMAL_PAGE;
+    *page_type = NORMAL_PAGE;
   }
 }
 
@@ -1385,7 +1389,7 @@ void TestingAutomationProvider::ActionOnSSLBlockingPage(
   if (tab_tracker_->ContainsHandle(handle)) {
     NavigationController* tab = tab_tracker_->GetResource(handle);
     NavigationEntry* entry = tab->GetActiveEntry();
-    if (entry->page_type() == NavigationEntry::INTERSTITIAL_PAGE) {
+    if (entry->page_type() == INTERSTITIAL_PAGE) {
       TabContents* tab_contents = tab->tab_contents();
       InterstitialPage* ssl_blocking_page =
           InterstitialPage::GetInterstitialPage(tab_contents);
@@ -1981,6 +1985,22 @@ void TestingAutomationProvider::GetBlockedPopupCount(int handle, int* count) {
   }
 }
 
+void TestingAutomationProvider::CaptureEntirePageAsPNG(
+    int tab_handle, const FilePath& path, IPC::Message* reply_message) {
+  RenderViewHost* render_view = GetViewForTab(tab_handle);
+  if (render_view) {
+    // This will delete itself when finished.
+    PageSnapshotTaker* snapshot_taker = new PageSnapshotTaker(
+        this, reply_message, render_view, path);
+    snapshot_taker->Start();
+  } else {
+    LOG(ERROR) << "Could not get render view for tab handle";
+    AutomationMsg_CaptureEntirePageAsPNG::WriteReplyParams(reply_message,
+                                                           false);
+    Send(reply_message);
+  }
+}
+
 void TestingAutomationProvider::SendJSONRequest(int handle,
                                                 std::string json_request,
                                                 IPC::Message* reply_message) {
@@ -2319,6 +2339,7 @@ void TestingAutomationProvider::GetBrowserInfo(
     Browser* browser,
     DictionaryValue* args,
     IPC::Message* reply_message) {
+  base::ThreadRestrictions::ScopedAllowIO allow_io;  // needed for PathService
   DictionaryValue* properties = new DictionaryValue;
   properties->SetString("ChromeVersion", chrome::kChromeVersion);
   properties->SetString("BrowserProcessExecutableName",
@@ -2469,10 +2490,10 @@ void TestingAutomationProvider::GetNavigationInfo(
   return_value->Set("ssl", ssl);
 
   // Page type.
-  std::map<NavigationEntry::PageType, std::string> pagetype_to_string;
-  pagetype_to_string[NavigationEntry::NORMAL_PAGE] = "NORMAL_PAGE";
-  pagetype_to_string[NavigationEntry::ERROR_PAGE] = "ERROR_PAGE";
-  pagetype_to_string[NavigationEntry::INTERSTITIAL_PAGE] = "INTERSTITIAL_PAGE";
+  std::map<PageType, std::string> pagetype_to_string;
+  pagetype_to_string[NORMAL_PAGE] = "NORMAL_PAGE";
+  pagetype_to_string[ERROR_PAGE] = "ERROR_PAGE";
+  pagetype_to_string[INTERSTITIAL_PAGE] = "INTERSTITIAL_PAGE";
   return_value->SetString("page_type",
                           pagetype_to_string[nav_entry->page_type()]);
 
@@ -4229,6 +4250,11 @@ void TestingAutomationProvider::GetActiveNotifications(
     balloon->SetString("content_url", notification.content_url().spec());
     balloon->SetString("origin_url", notification.origin_url().spec());
     balloon->SetString("display_source", notification.display_source());
+    BalloonView* view = (*iter)->view();
+    if (view && view->GetHost() && view->GetHost()->render_view_host()) {
+      balloon->SetInteger("pid", base::GetProcId(
+          view->GetHost()->render_view_host()->process()->GetHandle()));
+    }
     list->Append(balloon);
   }
   AutomationJSONReply(this, reply_message).SendSuccess(return_value.get());

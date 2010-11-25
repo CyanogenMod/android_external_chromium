@@ -47,8 +47,6 @@ void PersonalOptionsHandler::GetLocalizedValues(
     DictionaryValue* localized_strings) {
   DCHECK(localized_strings);
 
-  localized_strings->SetString("sync_disabled_info",
-      l10n_util::GetStringUTF16(IDS_SYNC_IS_DISABLED_INFO));
   localized_strings->SetString("sync_section",
       l10n_util::GetStringUTF16(IDS_SYNC_OPTIONS_GROUP_NAME));
   localized_strings->SetString("sync_not_setup_info",
@@ -89,6 +87,11 @@ void PersonalOptionsHandler::GetLocalizedValues(
   localized_strings->SetString("import_data",
       l10n_util::GetStringUTF16(IDS_OPTIONS_IMPORT_DATA_BUTTON));
 
+  localized_strings->SetString("themes_gallery",
+      l10n_util::GetStringUTF16(IDS_THEMES_GALLERY_BUTTON));
+  localized_strings->SetString("themes_gallery_url",
+      l10n_util::GetStringUTF16(IDS_THEMES_GALLERY_URL));
+
 #if defined(TOOLKIT_GTK)
   localized_strings->SetString("appearance",
       l10n_util::GetStringUTF16(IDS_APPEARANCE_GROUP_NAME));
@@ -100,15 +103,11 @@ void PersonalOptionsHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(IDS_SHOW_WINDOW_DECORATIONS_RADIO));
   localized_strings->SetString("hideWindow_decorations_radio",
       l10n_util::GetStringUTF16(IDS_HIDE_WINDOW_DECORATIONS_RADIO));
-  localized_strings->SetString("themes_gallery",
-      l10n_util::GetStringUTF16(IDS_THEMES_GALLERY_BUTTON));
 #else
   localized_strings->SetString("themes",
       l10n_util::GetStringUTF16(IDS_THEMES_GROUP_NAME));
   localized_strings->SetString("themes_reset",
       l10n_util::GetStringUTF16(IDS_THEMES_RESET_BUTTON));
-  localized_strings->SetString("themes_gallery",
-      l10n_util::GetStringUTF16(IDS_THEMES_GALLERY_BUTTON));
   localized_strings->SetString("themes_default",
       l10n_util::GetStringUTF16(IDS_THEMES_DEFAULT_THEME_LABEL));
 #endif
@@ -120,15 +119,8 @@ void PersonalOptionsHandler::RegisterMessages() {
       "showSyncLoginDialog",
       NewCallback(this, &PersonalOptionsHandler::ShowSyncLoginDialog));
   dom_ui_->RegisterMessageCallback(
-      "openPrivacyDashboardTabAndActivate",
-      NewCallback(this,
-                  &PersonalOptionsHandler::OpenPrivacyDashboardTabAndActivate));
-  dom_ui_->RegisterMessageCallback(
       "themesReset",
       NewCallback(this, &PersonalOptionsHandler::ThemesReset));
-  dom_ui_->RegisterMessageCallback(
-      "themesGallery",
-      NewCallback(this, &PersonalOptionsHandler::ThemesGallery));
 #if defined(TOOLKIT_GTK)
   dom_ui_->RegisterMessageCallback(
       "themesSetGTK",
@@ -270,6 +262,8 @@ void PersonalOptionsHandler::Initialize() {
   if (sync_service) {
     sync_service->AddObserver(this);
     OnStateChanged();
+  } else {
+    dom_ui_->CallJavascriptFunction(L"options.PersonalOptions.hideSyncSection");
   }
 }
 
@@ -279,19 +273,9 @@ void PersonalOptionsHandler::ShowSyncLoginDialog(const ListValue* args) {
   ProfileSyncService::SyncEvent(ProfileSyncService::START_FROM_OPTIONS);
 }
 
-void PersonalOptionsHandler::OpenPrivacyDashboardTabAndActivate(
-    const ListValue* args) {
-  BrowserList::GetLastActive()->OpenPrivacyDashboardTabAndActivate();
-}
-
 void PersonalOptionsHandler::ThemesReset(const ListValue* args) {
   UserMetricsRecordAction(UserMetricsAction("Options_ThemesReset"));
   dom_ui_->GetProfile()->ClearTheme();
-}
-
-void PersonalOptionsHandler::ThemesGallery(const ListValue* args) {
-  UserMetricsRecordAction(UserMetricsAction("Options_ThemesGallery"));
-  BrowserList::GetLastActive()->OpenThemeGalleryTabAndActivate();
 }
 
 #if defined(TOOLKIT_GTK)

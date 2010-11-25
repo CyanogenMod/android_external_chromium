@@ -57,7 +57,7 @@ cr.define('options.internet', function() {
           while (item && !item.data) {
             item = item.parentNode;
           }
-          if (item.connecting)
+          if (item.connecting || !item.connectable)
             return;
 
           if (item) {
@@ -70,6 +70,7 @@ cr.define('options.internet', function() {
               if (this.childNodes[i] != item)
                 this.childNodes[i].hidePassword();
             }
+            InternetOptions.unlockUpdates();
             // If clicked on other networks item.
             if (data && data.servicePath == '?') {
               item.showOtherLogin();
@@ -105,7 +106,8 @@ cr.define('options.internet', function() {
       iconURL: network[6],
       remembered: network[7],
       activation_state: network[8],
-      restricted: network[9]
+      restricted: network[9],
+      connectable: network[10]
     };
     NetworkItem.decorate(el);
     return el;
@@ -147,6 +149,7 @@ cr.define('options.internet', function() {
     decorate: function() {
       this.className = 'network-item';
       this.connected = this.data.connected;
+      this.connectable = this.data.connectable;
       this.other = this.data.servicePath == '?';
       this.id = this.data.servicePath;
       // textDiv holds icon, name and status text.
@@ -254,6 +257,9 @@ cr.define('options.internet', function() {
     showPassword: function() {
       if (this.connecting)
         return;
+
+      InternetOptions.lockUpdates();
+
       var passwordDiv = this.ownerDocument.createElement('div');
       passwordDiv.className = 'network-password';
       var passInput = this.ownerDocument.createElement('input');
@@ -316,6 +322,8 @@ cr.define('options.internet', function() {
     showOtherLogin: function() {
       if (this.connecting)
         return;
+
+      InternetOptions.lockUpdates();
 
       var ssidDiv = this.ownerDocument.createElement('div');
       ssidDiv.className = 'network-password';
@@ -405,6 +413,9 @@ cr.define('options.internet', function() {
     },
 
     handleLogin_: function(e) {
+      // The user has clicked on the Login button. It's now safe to
+      // unclock UI updates.
+      InternetOptions.unlockUpdates();
       var el = e.target;
       var parent = el.parentNode;
       el.disabled = true;
@@ -414,6 +425,8 @@ cr.define('options.internet', function() {
     },
 
     handleOtherLogin_: function(e) {
+      // See comments in handleLogin_().
+      InternetOptions.unlockUpdates();
       var el = e.target;
       var parent = el.parentNode.parentNode;
       el.disabled = true;
@@ -459,6 +472,12 @@ cr.define('options.internet', function() {
    * @type {boolean}
    */
   cr.defineProperty(NetworkItem, 'other', cr.PropertyKind.BOOL_ATTR);
+
+  /**
+   * Whether the underlying network is connectable.
+   * @type {boolean}
+   */
+  cr.defineProperty(NetworkItem, 'connectable', cr.PropertyKind.BOOL_ATTR);
 
   return {
     NetworkElement: NetworkElement

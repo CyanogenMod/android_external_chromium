@@ -10,6 +10,7 @@
 #pragma once
 
 #include <list>
+#include <string>
 #include <vector>
 
 #include "base/basictypes.h"
@@ -24,10 +25,9 @@
 #include "chrome/browser/sync/engine/idle_query_linux.h"
 #endif
 #include "chrome/browser/sync/engine/syncer_types.h"
+#include "chrome/browser/sync/engine/net/server_connection_manager.h"
 #include "chrome/browser/sync/sessions/sync_session.h"
-#include "chrome/common/deprecated/event_sys-inl.h"
-
-class EventListenerHookup;
+#include "chrome/browser/sync/syncable/model_type.h"
 
 namespace browser_sync {
 
@@ -38,11 +38,13 @@ class URLFactory;
 struct ServerConnectionEvent;
 
 class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
-                     public sessions::SyncSession::Delegate {
+                     public sessions::SyncSession::Delegate,
+                     public ServerConnectionEventListener {
   FRIEND_TEST_ALL_PREFIXES(SyncerThreadTest, CalculateSyncWaitTime);
   FRIEND_TEST_ALL_PREFIXES(SyncerThreadTest, CalculatePollingWaitTime);
   FRIEND_TEST_ALL_PREFIXES(SyncerThreadWithSyncerTest, Polling);
   FRIEND_TEST_ALL_PREFIXES(SyncerThreadWithSyncerTest, Nudge);
+  FRIEND_TEST_ALL_PREFIXES(SyncerThreadWithSyncerTest, NudgeWithDataTypes);
   FRIEND_TEST_ALL_PREFIXES(SyncerThreadWithSyncerTest, Throttling);
   FRIEND_TEST_ALL_PREFIXES(SyncerThreadWithSyncerTest, AuthInvalid);
   FRIEND_TEST_ALL_PREFIXES(SyncerThreadWithSyncerTest, Pause);
@@ -100,8 +102,6 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
   explicit SyncerThread(sessions::SyncSessionContext* context);
   virtual ~SyncerThread();
 
-  virtual void WatchConnectionManager(ServerConnectionManager* conn_mgr);
-
   // Starts a syncer thread.
   // Returns true if it creates a thread or if there's currently a thread
   // running and false otherwise.
@@ -126,6 +126,13 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
   // Nudges the syncer to sync with a delay specified. This API is for access
   // from the SyncerThread's controller and will cause a mutex lock.
   virtual void NudgeSyncer(int milliseconds_from_now, NudgeSource source);
+
+  // Same as |NudgeSyncer|, but supports tracking the datatypes that caused
+  // the nudge to occur.
+  virtual void NudgeSyncerWithDataTypes(
+      int milliseconds_from_now,
+      NudgeSource source,
+      const syncable::ModelTypeBitSet& model_type);
 
   void SetNotificationsEnabled(bool notifications_enabled);
 
@@ -185,6 +192,11 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
     // could be a pending nudge of type kUnknown, so it's better to
     // check pending_nudge_time_.)
     NudgeSource pending_nudge_source_;
+
+    // BitSet of the datatypes that have triggered the current nudge
+    // (can be union of various bitsets when multiple nudges are coalesced)
+    syncable::ModelTypeBitSet pending_nudge_types_;
+
     // null iff there is no pending nudge.
     base::TimeTicks pending_nudge_time_;
 
@@ -224,7 +236,8 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
       const base::TimeDelta& new_interval);
   virtual void OnShouldStopSyncingPermanently();
 
-  void HandleServerConnectionEvent(const ServerConnectionEvent& event);
+  // ServerConnectionEventListener implementation.
+  virtual void OnServerConnectionEvent(const ServerConnectionEvent& event);
 
   void SyncMain(Syncer* syncer);
 
@@ -281,8 +294,6 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
 
   void Notify(SyncEngineEvent::EventCause cause);
 
-  scoped_ptr<EventListenerHookup> conn_mgr_hookup_;
-
   // Modifiable versions of kDefaultLongPollIntervalSeconds which can be
   // updated by the server.
   int syncer_short_poll_interval_seconds_;
@@ -300,7 +311,10 @@ class SyncerThread : public base::RefCountedThreadSafe<SyncerThread>,
   // This causes syncer to start syncing ASAP. If the rate of requests is too
   // high the request will be silently dropped.  mutex_ should be held when
   // this is called.
-  void NudgeSyncImpl(int milliseconds_from_now, NudgeSource source);
+  void NudgeSyncImpl(
+      int milliseconds_from_now,
+      NudgeSource source,
+      const syncable::ModelTypeBitSet& model_types);
 
 #if defined(OS_LINUX)
   // On Linux, we need this information in order to query idle time.

@@ -5,10 +5,13 @@
 #include "chrome/browser/instant/instant_controller.h"
 
 #include "base/command_line.h"
+#include "base/metrics/histogram.h"
+#include "base/rand_util.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/instant/instant_delegate.h"
 #include "chrome/browser/instant/instant_loader.h"
 #include "chrome/browser/instant/instant_loader_manager.h"
+#include "chrome/browser/instant/promo_counter.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
@@ -24,29 +27,6 @@
 // Number of ms to delay between loading urls.
 static const int kUpdateDelayMS = 200;
 
-// static
-void InstantController::RegisterUserPrefs(PrefService* prefs) {
-  prefs->RegisterBooleanPref(prefs::kInstantConfirmDialogShown, false);
-  prefs->RegisterBooleanPref(prefs::kInstantEnabled, false);
-}
-
-// static
-bool InstantController::IsEnabled(Profile* profile) {
-  return IsEnabled(profile, PREDICTIVE_TYPE) ||
-      IsEnabled(profile, VERBATIM_TYPE);
-}
-
-// static
-bool InstantController::IsEnabled(Profile* profile, Type type) {
-  CommandLine* cl = CommandLine::ForCurrentProcess();
-  if (type == PREDICTIVE_TYPE) {
-    return (cl->HasSwitch(switches::kEnablePredictiveInstant) ||
-            (profile->GetPrefs() &&
-             profile->GetPrefs()->GetBoolean(prefs::kInstantEnabled)));
-  }
-  return cl->HasSwitch(switches::kEnableVerbatimInstant);
-}
-
 static InstantController::Type GetType(Profile* profile) {
   return InstantController::IsEnabled(profile,
                                       InstantController::PREDICTIVE_TYPE) ?
@@ -61,10 +41,120 @@ InstantController::InstantController(Profile* profile,
       commit_on_mouse_up_(false),
       last_transition_type_(PageTransition::LINK),
       type_(GetType(profile)) {
+  PrefService* service = profile->GetPrefs();
+  if (service) {
+    // kInstantWasEnabledOnce was added after instant, set it now to make sure
+    // it is correctly set.
+    service->SetBoolean(prefs::kInstantEnabledOnce, true);
+  }
 }
 
 InstantController::~InstantController() {
 }
+
+// static
+void InstantController::RegisterUserPrefs(PrefService* prefs) {
+  prefs->RegisterBooleanPref(prefs::kInstantConfirmDialogShown, false);
+  prefs->RegisterBooleanPref(prefs::kInstantEnabled, false);
+  prefs->RegisterBooleanPref(prefs::kInstantEnabledOnce, false);
+  prefs->RegisterInt64Pref(prefs::kInstantEnabledTime, false);
+  prefs->RegisterIntegerPref(prefs::kInstantType, 0);
+  PromoCounter::RegisterUserPrefs(prefs, prefs::kInstantPromo);
+}
+
+// static
+void InstantController::RecordMetrics(Profile* profile) {
+  if (!IsEnabled(profile))
+    return;
+
+  PrefService* service = profile->GetPrefs();
+  if (service) {
+    int64 enable_time = service->GetInt64(prefs::kInstantEnabledTime);
+    if (!enable_time) {
+      service->SetInt64(prefs::kInstantEnabledTime,
+                        base::Time::Now().ToInternalValue());
+    } else {
+      base::TimeDelta delta =
+          base::Time::Now() - base::Time::FromInternalValue(enable_time);
+      std::string name = IsEnabled(profile, PREDICTIVE_TYPE) ?
+          "Instant.EnabledTime.Predictive" : "Instant.EnabledTime.Verbatim";
+      // Histogram from 1 hour to 30 days.
+      UMA_HISTOGRAM_CUSTOM_COUNTS(name, delta.InHours(), 1, 30 * 24, 50);
+    }
+  }
+}
+
+// static
+bool InstantController::IsEnabled(Profile* profile) {
+  return IsEnabled(profile, PREDICTIVE_TYPE) ||
+      IsEnabled(profile, VERBATIM_TYPE);
+}
+
+// static
+bool InstantController::IsEnabled(Profile* profile, Type type) {
+  // CommandLine takes precedence.
+  CommandLine* cl = CommandLine::ForCurrentProcess();
+  if (type == PREDICTIVE_TYPE &&
+      cl->HasSwitch(switches::kEnablePredictiveInstant)) {
+    return true;
+  }
+  if (type == VERBATIM_TYPE &&
+      cl->HasSwitch(switches::kEnableVerbatimInstant)) {
+    return true;
+  }
+
+  // Then prefs.
+  PrefService* prefs = profile->GetPrefs();
+  if (!prefs->GetBoolean(prefs::kInstantEnabled))
+    return false;
+
+  Type pref_type = prefs->GetInteger(prefs::kInstantType) ==
+      static_cast<int>(PREDICTIVE_TYPE) ? PREDICTIVE_TYPE : VERBATIM_TYPE;
+  return pref_type == type;
+}
+
+// static
+void InstantController::Enable(Profile* profile) {
+  PromoCounter* promo_counter = profile->GetInstantPromoCounter();
+  if (promo_counter)
+    promo_counter->Hide();
+
+  PrefService* service = profile->GetPrefs();
+  if (!service)
+    return;
+
+  service->SetBoolean(prefs::kInstantEnabled, true);
+  service->SetBoolean(prefs::kInstantConfirmDialogShown, true);
+  service->SetInt64(prefs::kInstantEnabledTime,
+                    base::Time::Now().ToInternalValue());
+  service->SetBoolean(prefs::kInstantEnabledOnce, true);
+  // Randomly pick a type. We're doing this to get feedback as to which variant
+  // folks prefer.
+  service->SetInteger(prefs::kInstantType,
+                      base::RandInt(static_cast<int>(PREDICTIVE_TYPE),
+                                    static_cast<int>(LAST_TYPE)));
+}
+
+// static
+void InstantController::Disable(Profile* profile) {
+  PrefService* service = profile->GetPrefs();
+  if (!service)
+    return;
+
+  service->SetBoolean(prefs::kInstantEnabled, false);
+
+  int64 enable_time = service->GetInt64(prefs::kInstantEnabledTime);
+  if (!enable_time)
+    return;
+
+  base::TimeDelta delta =
+      base::Time::Now() - base::Time::FromInternalValue(enable_time);
+  std::string name = IsEnabled(profile, PREDICTIVE_TYPE) ?
+      "Instant.TimeToDisable.Predictive" : "Instant.TimeToDisable.Verbatim";
+  // histogram from 1 minute to 10 days.
+  UMA_HISTOGRAM_CUSTOM_COUNTS(name, delta.InMinutes(), 1, 60 * 24 * 10, 50);
+}
+
 
 void InstantController::Update(TabContents* tab_contents,
                                const AutocompleteMatch& match,
@@ -82,7 +172,7 @@ void InstantController::Update(TabContents* tab_contents,
   if (loader_manager_.get() && loader_manager_->active_loader()->url() == url)
     return;
 
-  if (url.is_empty() || !url.is_valid() || !ShouldShowPreviewFor(url)) {
+  if (url.is_empty() || !url.is_valid() || !ShouldShowPreviewFor(match)) {
     DestroyPreviewContents();
     return;
   }
@@ -92,6 +182,9 @@ void InstantController::Update(TabContents* tab_contents,
 
   if (!loader_manager_.get())
     loader_manager_.reset(new InstantLoaderManager(this));
+
+  if (!is_active_)
+    delegate_->PrepareForInstant();
 
   if (ShouldUpdateNow(template_url_id, match.destination_url)) {
     UpdateLoader(template_url, match.destination_url, match.transition,
@@ -159,8 +252,10 @@ void InstantController::OnAutocompleteLostFocus(
 
   RenderWidgetHostView* rwhv =
       GetPreviewContents()->GetRenderWidgetHostView();
-  if (!view_gaining_focus || !rwhv)
-    return DestroyPreviewContents();
+  if (!view_gaining_focus || !rwhv) {
+    DestroyPreviewContents();
+    return;
+  }
 
   gfx::NativeView tab_view = GetPreviewContents()->GetNativeView();
   // Focus is going to the renderer.
@@ -169,17 +264,20 @@ void InstantController::OnAutocompleteLostFocus(
     if (!IsMouseDownFromActivate()) {
       // If the mouse is not down, focus is not going to the renderer. Someone
       // else moved focus and we shouldn't commit.
-      return DestroyPreviewContents();
+      DestroyPreviewContents();
+      return;
     }
 
     if (IsShowingInstant()) {
       // We're showing instant results. As instant results may shift when
       // committing we commit on the mouse up. This way a slow click still
       // works fine.
-      return SetCommitOnMouseUp();
+      SetCommitOnMouseUp();
+      return;
     }
 
-    return CommitCurrentPreview(INSTANT_COMMIT_FOCUS_LOST);
+    CommitCurrentPreview(INSTANT_COMMIT_FOCUS_LOST);
+    return;
   }
 
   // Walk up the view hierarchy. If the view gaining focus is a subview of the
@@ -193,10 +291,12 @@ void InstantController::OnAutocompleteLostFocus(
         platform_util::GetParent(view_gaining_focus_ancestor);
   }
 
-  if (view_gaining_focus_ancestor)
-    return CommitCurrentPreview(INSTANT_COMMIT_FOCUS_LOST);
+  if (view_gaining_focus_ancestor) {
+    CommitCurrentPreview(INSTANT_COMMIT_FOCUS_LOST);
+    return;
+  }
 
-  return DestroyPreviewContents();
+  DestroyPreviewContents();
 }
 
 TabContents* InstantController::ReleasePreviewContents(InstantCommitType type) {
@@ -366,8 +466,15 @@ void InstantController::UpdateLoader(const TemplateURL* template_url,
     delegate_->ShowInstant(new_loader->preview_contents());
 }
 
-bool InstantController::ShouldShowPreviewFor(const GURL& url) {
-  return !url.SchemeIs(chrome::kJavaScriptScheme);
+bool InstantController::ShouldShowPreviewFor(const AutocompleteMatch& match) {
+  if (match.destination_url.SchemeIs(chrome::kJavaScriptScheme))
+    return false;
+
+  // Extension keywords don't have a real destionation URL.
+  if (match.template_url && match.template_url->IsExtensionKeyword())
+    return false;
+
+  return true;
 }
 
 void InstantController::BlacklistFromInstant(TemplateURLID id) {

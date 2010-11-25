@@ -19,13 +19,13 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/weak_ptr.h"
-#include "chrome/browser/browser.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/bug_report_data.h"
 #include "chrome/browser/bug_report_util.h"
 #include "chrome/browser/dom_ui/dom_ui_screenshot_source.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/url_constants.h"
@@ -148,7 +148,7 @@ void ShowHtmlBugReportView(views::Window* parent, Browser* browser) {
       "#" + base::IntToString(browser->selected_index());
 
   RefreshLastScreenshot(parent);
-  browser->ShowSingletonTab(GURL(bug_report_url));
+  browser->ShowSingletonTab(GURL(bug_report_url), false);
 }
 
 }  // namespace browser

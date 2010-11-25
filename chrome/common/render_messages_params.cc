@@ -136,8 +136,7 @@ ViewHostMsg_DidPrintPage_Params::ViewHostMsg_DidPrintPage_Params()
 ViewHostMsg_DidPrintPage_Params::~ViewHostMsg_DidPrintPage_Params() {
 }
 
-ViewHostMsg_Audio_CreateStream_Params::ViewHostMsg_Audio_CreateStream_Params()
-    : packet_size(0) {
+ViewHostMsg_Audio_CreateStream_Params::ViewHostMsg_Audio_CreateStream_Params() {
 }
 
 ViewHostMsg_Audio_CreateStream_Params::
@@ -842,6 +841,7 @@ void ParamTraits<ViewHostMsg_UpdateRect_Params>::Write(
   WriteParam(m, p.scroll_rect);
   WriteParam(m, p.copy_rects);
   WriteParam(m, p.view_size);
+  WriteParam(m, p.resizer_rect);
   WriteParam(m, p.plugin_window_moves);
   WriteParam(m, p.flags);
 }
@@ -856,6 +856,7 @@ bool ParamTraits<ViewHostMsg_UpdateRect_Params>::Read(
       ReadParam(m, iter, &p->scroll_rect) &&
       ReadParam(m, iter, &p->copy_rects) &&
       ReadParam(m, iter, &p->view_size) &&
+      ReadParam(m, iter, &p->resizer_rect) &&
       ReadParam(m, iter, &p->plugin_window_moves) &&
       ReadParam(m, iter, &p->flags);
 }
@@ -876,6 +877,8 @@ void ParamTraits<ViewHostMsg_UpdateRect_Params>::Log(const param_type& p,
   LogParam(p.copy_rects, l);
   l->append(", ");
   LogParam(p.view_size, l);
+  l->append(", ");
+  LogParam(p.resizer_rect, l);
   l->append(", ");
   LogParam(p.plugin_window_moves, l);
   l->append(", ");
@@ -1096,7 +1099,7 @@ void ParamTraits<ViewHostMsg_Audio_CreateStream_Params>::Write(
   WriteParam(m, p.params.channels);
   WriteParam(m, p.params.sample_rate);
   WriteParam(m, p.params.bits_per_sample);
-  WriteParam(m, p.packet_size);
+  WriteParam(m, p.params.samples_per_packet);
 }
 
 bool ParamTraits<ViewHostMsg_Audio_CreateStream_Params>::Read(const Message* m,
@@ -1107,7 +1110,7 @@ bool ParamTraits<ViewHostMsg_Audio_CreateStream_Params>::Read(const Message* m,
       ReadParam(m, iter, &p->params.channels) &&
       ReadParam(m, iter, &p->params.sample_rate) &&
       ReadParam(m, iter, &p->params.bits_per_sample) &&
-      ReadParam(m, iter, &p->packet_size);
+      ReadParam(m, iter, &p->params.samples_per_packet);
 }
 
 void ParamTraits<ViewHostMsg_Audio_CreateStream_Params>::Log(
@@ -1122,7 +1125,7 @@ void ParamTraits<ViewHostMsg_Audio_CreateStream_Params>::Log(
   l->append(", ");
   LogParam(p.params.bits_per_sample, l);
   l->append(", ");
-  LogParam(p.packet_size, l);
+  LogParam(p.params.samples_per_packet, l);
   l->append(")");
 }
 

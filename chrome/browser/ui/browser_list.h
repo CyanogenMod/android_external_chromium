@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "base/observer_list.h"
-#include "chrome/browser/browser.h"
+#include "chrome/browser/ui/browser.h"
 
 // Stores a list of all Browser objects.
 class BrowserList {
@@ -107,8 +107,8 @@ class BrowserList {
   // message.
   static void CloseAllBrowsers();
 
-  // Begins shutdown of the application when the Windows session is ending.
-  static void WindowsSessionEnding();
+  // Begins shutdown of the application when the session is ending.
+  static void SessionEnding();
 
   // Returns true if there is at least one Browser with the specified profile.
   static bool HasBrowserWithProfile(Profile* profile);
@@ -195,6 +195,12 @@ class TabContentsIterator {
     return cur_ == NULL;
   }
 
+  // Returns the Browser instance associated with the current TabContents.
+  // Valid as long as !Done()
+  Browser* browser() const {
+    return *browser_iterator_;
+  }
+
   // Returns the current TabContents, valid as long as !Done()
   TabContents* operator->() const {
     return cur_;
@@ -204,11 +210,11 @@ class TabContentsIterator {
   }
 
   // Incrementing operators, valid as long as !Done()
-  TabContents* operator++() { // ++preincrement
+  TabContents* operator++() {  // ++preincrement
     Advance();
     return cur_;
   }
-  TabContents* operator++(int) { // postincrement++
+  TabContents* operator++(int) {  // postincrement++
     TabContents* tmp = cur_;
     Advance();
     return tmp;

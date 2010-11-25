@@ -17,7 +17,6 @@
 #include "base/task.h"
 #include "base/utf_string_conversions.h"
 #include "build/build_config.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
@@ -37,6 +36,7 @@
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_util.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
@@ -531,16 +531,7 @@ void DownloadManager::OnAllDataSaved(int32 download_id, int64 size) {
     return;
   }
 
-  if (download->NeedsRename()) {
-    BrowserThread::PostTask(
-        BrowserThread::FILE, FROM_HERE,
-        NewRunnableMethod(
-            file_manager_, &DownloadFileManager::OnFinalDownloadName,
-            download->id(), download->GetTargetFilePath(), false, this));
-    return;
-  }
-
-  ContinueDownloadFinished(download);
+  download->OnSafeDownloadFinished(file_manager_);
 }
 
 void DownloadManager::DownloadRenamedToFinalName(int download_id,
@@ -549,20 +540,10 @@ void DownloadManager::DownloadRenamedToFinalName(int download_id,
   DownloadItem* item = GetDownloadItem(download_id);
   if (!item)
     return;
-
-  bool needed_rename = item->NeedsRename();
-  item->Rename(full_path);
-
-  item->OnNameFinalized();
-
-  if (needed_rename) {
-    // This was called from OnAllDataSaved; continue to call
-    // ContinueDownloadFinished.
-    ContinueDownloadFinished(item);
-  }
+  item->OnDownloadRenamedToFinalName(full_path);
 }
 
-void DownloadManager::ContinueDownloadFinished(DownloadItem* download) {
+void DownloadManager::DownloadFinished(DownloadItem* download) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   // If this was a dangerous download, it has now been approved and must be
@@ -622,7 +603,7 @@ void DownloadManager::DangerousDownloadRenamed(int64 download_handle,
   }
 
   // Continue the download finished sequence.
-  ContinueDownloadFinished(download);
+  DownloadFinished(download);
 }
 
 void DownloadManager::DownloadCancelled(int32 download_id) {
@@ -918,7 +899,7 @@ void DownloadManager::OnQueryDownloadEntriesComplete(
 // service, we associate the DownloadItem with the db handle, update our
 // 'downloads_' map and inform observers.
 void DownloadManager::OnCreateDownloadEntryComplete(
-    const DownloadCreateInfo& info,
+    DownloadCreateInfo info,
     int64 db_handle) {
   DownloadMap::iterator it = in_progress_.find(info.download_id);
   DCHECK(it != in_progress_.end());

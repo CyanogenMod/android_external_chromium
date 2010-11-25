@@ -216,11 +216,6 @@ bool BrowserWindowCocoa::IsFullscreenBubbleVisible() const {
   return false;
 }
 
-gfx::Rect BrowserWindowCocoa::GetRootWindowResizerRect() const {
-  NSRect tabRect = [controller_ selectedTabGrowBoxRect];
-  return gfx::Rect(NSRectToCGRect(tabRect));
-}
-
 void BrowserWindowCocoa::ConfirmAddSearchProvider(
     const TemplateURL* template_url,
     Profile* profile) {
@@ -575,6 +570,10 @@ void BrowserWindowCocoa::ToggleTabStripMode() {
 
 void BrowserWindowCocoa::OpenTabpose() {
   [controller_ openTabpose];
+}
+
+void BrowserWindowCocoa::PrepareForInstant() {
+  // TODO: implement fade as done on windows.
 }
 
 void BrowserWindowCocoa::ShowInstant(TabContents* preview_contents) {

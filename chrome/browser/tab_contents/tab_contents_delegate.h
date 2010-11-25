@@ -28,8 +28,8 @@ namespace history {
 class HistoryAddPageArgs;
 }
 
+struct ContextMenuParams;
 class DownloadItem;
-class ExtensionFunctionDispatcher;
 class GURL;
 class HtmlDialogUIDelegate;
 struct NativeWebKeyboardEvent;
@@ -38,7 +38,6 @@ class RenderViewHost;
 class TabContents;
 class TemplateURL;
 class TemplateURLModel;
-struct ContextMenuParams;
 
 // Objects implement this interface to get notified about changes in the
 // TabContents and to provide necessary functionality.
@@ -147,10 +146,6 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
   // Reloading can be disabled e. g. for the DevTools window.
   virtual bool CanReloadContents(TabContents* source) const;
 
-  // Return the rect where to display the resize corner, if any, otherwise
-  // an empty rect.
-  virtual gfx::Rect GetRootWindowResizerRect() const;
-
   // Show a dialog with HTML content. |delegate| contains a pointer to the
   // delegate who knows how to display the dialog (which file URL and JSON
   // string input to use during initialization). |parent_window| is the window
@@ -188,12 +183,6 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
   // this to disable inactive rendering for the frame in the window the select
   // is opened within if necessary.
   virtual void RenderWidgetShowing();
-
-  // This is used when the contents is an extension that needs to route
-  // api calls through to the Browser process.
-  virtual ExtensionFunctionDispatcher* CreateExtensionFunctionDispatcher(
-      RenderViewHost* render_view_host,
-      const std::string& extension_id);
 
   // This is called when WebKit tells us that it is done tabbing through
   // controls on the page. Provides a way for TabContentsDelegates to handle
@@ -281,7 +270,7 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
       const history::HistoryAddPageArgs& add_page_args,
       NavigationType::Type navigation_type);
 
-  // Notification when web app info data is available
+  // Notification that a user's request to install an application has completed.
   virtual void OnDidGetApplicationInfo(TabContents* tab_contents,
                                        int32 page_id);
 

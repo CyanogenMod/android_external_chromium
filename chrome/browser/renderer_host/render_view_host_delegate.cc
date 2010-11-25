@@ -69,11 +69,6 @@ RenderViewHostDelegate::GetBookmarkDragDelegate() {
   return NULL;
 }
 
-RenderViewHostDelegate::BlockedPlugin*
-RenderViewHostDelegate::GetBlockedPluginDelegate() {
-  return NULL;
-}
-
 RenderViewHostDelegate::SSL*
 RenderViewHostDelegate::GetSSLDelegate() {
   return NULL;
@@ -97,16 +92,16 @@ TabContents* RenderViewHostDelegate::GetAsTabContents() {
   return NULL;
 }
 
+BackgroundContents* RenderViewHostDelegate::GetAsBackgroundContents() {
+  return NULL;
+}
+
 GURL RenderViewHostDelegate::GetAlternateErrorPageURL() const {
   return GURL();
 }
 
 WebPreferences RenderViewHostDelegate::GetWebkitPrefs() {
   return WebPreferences();
-}
-
-gfx::Rect RenderViewHostDelegate::GetRootWindowResizerRect() const {
-  return gfx::Rect();
 }
 
 bool RenderViewHostDelegate::IsExternalTabContainer() const {

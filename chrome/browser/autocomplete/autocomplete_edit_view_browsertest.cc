@@ -17,7 +17,6 @@
 #include "chrome/browser/autocomplete/autocomplete_popup_model.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/location_bar.h"
@@ -25,6 +24,7 @@
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
@@ -278,7 +278,7 @@ class AutocompleteEditViewTest : public InProcessBrowserTest,
 
 // Test if ctrl-* accelerators are workable in omnibox.
 // See http://crbug.com/19193: omnibox blocks ctrl-* commands
-// FAILS on windows, http://crbug.com/57965
+// Sometimes times out on Windows: http://crbug.com/57965
 #if defined(OS_WIN)
 #define MAYBE_BrowserAccelerators DISABLED_BrowserAccelerators
 #else
@@ -337,7 +337,7 @@ IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, MAYBE_BrowserAccelerators) {
 #endif
 }
 
-// FAILS on windows, http://crbug.com/57965
+// Sometimes times out on Windows: http://crbug.com/57965
 #if defined(OS_WIN)
 #define MAYBE_PopupAccelerators DISABLED_PopupAccelerators
 #else
@@ -390,7 +390,7 @@ IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, MAYBE_PopupAccelerators) {
 #endif
 }
 
-// FAILS on windows, http://crbug.com/57965
+// Sometimes times out on Windows: http://crbug.com/57965
 #if defined(OS_WIN)
 #define MAYBE_BackspaceInKeywordMode DISABLED_BackspaceInKeywordMode
 #else
@@ -448,7 +448,7 @@ IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, MAYBE_BackspaceInKeywordMode) {
             WideToUTF8(edit_view->GetText()));
 }
 
-// FAILS on windows, http://crbug.com/57965
+// Sometimes times out on Windows: http://crbug.com/57965
 #if defined(OS_WIN)
 #define MAYBE_Escape DISABLED_Escape
 #else
@@ -476,7 +476,7 @@ IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, MAYBE_Escape) {
   EXPECT_TRUE(edit_view->IsSelectAll());
 }
 
-// FAILS on windows, http://crbug.com/57965
+// Sometimes times out on Windows: http://crbug.com/57965
 #if defined(OS_WIN)
 #define MAYBE_DesiredTLD DISABLED_DesiredTLD
 #else
@@ -502,7 +502,7 @@ IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, MAYBE_DesiredTLD) {
   EXPECT_STREQ(kDesiredTLDHostname, url.host().c_str());
 }
 
-// FAILS on windows, http://crbug.com/57965
+// Sometimes times out on Windows: http://crbug.com/57965
 #if defined(OS_WIN)
 #define MAYBE_AltEnter DISABLED_AltEnter
 #else
@@ -522,7 +522,7 @@ IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, MAYBE_AltEnter) {
   ASSERT_NO_FATAL_FAILURE(WaitForTabOpenOrClose(tab_count + 1));
 }
 
-// FAILS on windows, http://crbug.com/57965
+// Sometimes times out on Windows: http://crbug.com/57965
 #if defined(OS_WIN)
 #define MAYBE_EnterToSearch DISABLED_EnterToSearch
 #else
@@ -572,7 +572,7 @@ IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, MAYBE_EnterToSearch) {
 
 // See http://crbug.com/20934: Omnibox keyboard behavior wrong for
 // "See recent pages in history"
-// FAILS on windows, http://crbug.com/57965
+// Sometimes times out on Windows: http://crbug.com/57965
 #if defined(OS_WIN)
 #define MAYBE_EnterToOpenHistoryPage DISABLED_EnterToOpenHistoryPage
 #else
@@ -615,7 +615,7 @@ IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, MAYBE_EnterToOpenHistoryPage) {
   EXPECT_STREQ(kHistoryPageURL, url.spec().c_str());
 }
 
-// FAILS on windows, http://crbug.com/57965
+// Sometimes times out on Windows: http://crbug.com/57965
 #if defined(OS_WIN)
 #define MAYBE_EscapeToDefaultMatch DISABLED_EscapeToDefaultMatch
 #else
@@ -660,7 +660,13 @@ IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, MAYBE_EscapeToDefaultMatch) {
   EXPECT_EQ(old_selected_line, popup_model->selected_line());
 }
 
-IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, BasicTextOperations) {
+// Sometimes times out on Windows: http://crbug.com/57965
+#if defined(OS_WIN)
+#define MAYBE_BasicTextOperations DISABLED_BasicTextOperations
+#else
+#define MAYBE_BasicTextOperations BasicTextOperations
+#endif
+IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, MAYBE_BasicTextOperations) {
   ASSERT_NO_FATAL_FAILURE(SetupComponents());
   ui_test_utils::NavigateToURL(browser(), GURL(chrome::kAboutBlankURL));
   browser()->FocusLocationBar();

@@ -15,7 +15,6 @@
 #include "base/string_util.h"
 #include "base/time.h"
 #include "base/values.h"
-#include "chrome/browser/blocked_plugin_manager.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/cross_site_request_manager.h"
@@ -25,6 +24,7 @@
 #include "chrome/browser/in_process_webkit/session_storage_namespace.h"
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
+#include "chrome/browser/printing/print_preview_tab_controller.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
@@ -45,12 +45,12 @@
 #include "chrome/common/thumbnail_score.h"
 #include "chrome/common/translate_errors.h"
 #include "chrome/common/url_constants.h"
+#include "chrome/common/web_apps.h"
 #include "gfx/native_widget_types.h"
 #include "net/base/net_util.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebFindOptions.h"
 #include "webkit/glue/context_menu.h"
-#include "webkit/glue/dom_operations.h"
 #include "webkit/glue/form_data.h"
 #include "webkit/glue/form_field.h"
 #include "webkit/glue/password_form_dom_manager.h"
@@ -62,7 +62,6 @@ using webkit_glue::FormData;
 using webkit_glue::PasswordForm;
 using webkit_glue::PasswordFormDomManager;
 using webkit_glue::PasswordFormFillData;
-using webkit_glue::WebApplicationInfo;
 using WebKit::WebConsoleMessage;
 using WebKit::WebDragOperation;
 using WebKit::WebDragOperationNone;
@@ -134,6 +133,7 @@ RenderViewHost::RenderViewHost(SiteInstance* instance,
       sudden_termination_allowed_(false),
       session_storage_namespace_(session_storage),
       is_extension_process_(false),
+      autofill_query_id_(0),
       save_accessibility_tree_for_testing_(false) {
   if (!session_storage_namespace_) {
     session_storage_namespace_ =
@@ -843,10 +843,6 @@ void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(ViewHostMsg_DevToolsRuntimePropertyChanged,
                         OnDevToolsRuntimePropertyChanged);
     IPC_MESSAGE_HANDLER(ViewHostMsg_MissingPluginStatus, OnMissingPluginStatus);
-    IPC_MESSAGE_HANDLER(ViewHostMsg_NonSandboxedPluginBlocked,
-                        OnNonSandboxedPluginBlocked);
-    IPC_MESSAGE_HANDLER(ViewHostMsg_BlockedPluginLoaded,
-                        OnBlockedPluginLoaded);
     IPC_MESSAGE_HANDLER(ViewHostMsg_CrashedPlugin, OnCrashedPlugin);
     IPC_MESSAGE_HANDLER(ViewHostMsg_DisabledOutdatedPlugin,
                         OnDisabledOutdatedPlugin);
@@ -1620,23 +1616,6 @@ void RenderViewHost::OnMissingPluginStatus(int status) {
     integration_delegate->OnMissingPluginStatus(status);
 }
 
-void RenderViewHost::OnNonSandboxedPluginBlocked(const std::string& plugin,
-                                                 const string16& name) {
-  RenderViewHostDelegate::BlockedPlugin* blocked_plugin_delegate =
-      delegate_->GetBlockedPluginDelegate();
-  if (blocked_plugin_delegate) {
-    blocked_plugin_delegate->OnNonSandboxedPluginBlocked(plugin, name);
-  }
-}
-
-void RenderViewHost::OnBlockedPluginLoaded() {
-  RenderViewHostDelegate::BlockedPlugin* blocked_plugin_delegate =
-      delegate_->GetBlockedPluginDelegate();
-  if (blocked_plugin_delegate) {
-    blocked_plugin_delegate->OnBlockedPluginLoaded();
-  }
-}
-
 void RenderViewHost::OnCrashedPlugin(const FilePath& plugin_path) {
   RenderViewHostDelegate::BrowserIntegration* integration_delegate =
       delegate_->GetBrowserIntegrationDelegate();
@@ -1712,33 +1691,27 @@ void RenderViewHost::OnMsgShouldCloseACK(bool proceed) {
 }
 
 void RenderViewHost::OnQueryFormFieldAutoFill(
-    int query_id, bool form_autofilled, const webkit_glue::FormField& field) {
+    int query_id, bool field_autofilled, const webkit_glue::FormField& field) {
+  ResetAutoFillState(query_id);
+
+  // We first query the autofill delegate for suggestions. We keep track of the
+  // results it gives us, which we will later combine with the autocomplete
+  // suggestions.
   RenderViewHostDelegate::AutoFill* autofill_delegate =
       delegate_->GetAutoFillDelegate();
-  // We first save the AutoFill delegate's suggestions. Then we fetch the
-  // Autocomplete delegate's suggestions and send the combined results back to
-  // the render view.
-  if (autofill_delegate &&
-      autofill_delegate->GetAutoFillSuggestions(query_id,
-                                                form_autofilled,
-                                                field)) {
-  } else {
-    // No suggestions provided, so supply an empty vector as the results.
-    AutoFillSuggestionsReturned(query_id,
-                                std::vector<string16>(),
-                                std::vector<string16>(),
-                                std::vector<string16>(),
-                                std::vector<int>());
+  if (autofill_delegate) {
+    autofill_delegate->GetAutoFillSuggestions(field_autofilled, field);
   }
 
+  // Now query the Autocomplete delegate for suggestions. These will be combined
+  // with the saved autofill suggestions in |AutocompleteSuggestionsReturned()|.
   RenderViewHostDelegate::Autocomplete* autocomplete_delegate =
       delegate_->GetAutocompleteDelegate();
-  if (autocomplete_delegate &&
-      autocomplete_delegate->GetAutocompleteSuggestions(
-          query_id, field.name(), field.value())) {
+  if (autocomplete_delegate) {
+      autocomplete_delegate->GetAutocompleteSuggestions(field.name(),
+                                                        field.value());
   } else {
-    // No suggestions provided, so send an empty vector as the results.
-    AutocompleteSuggestionsReturned(query_id, std::vector<string16>());
+    AutocompleteSuggestionsReturned(std::vector<string16>());
   }
 }
 
@@ -1792,24 +1765,33 @@ void RenderViewHost::OnDidFillAutoFillFormData() {
       NotificationService::NoDetails());
 }
 
+void RenderViewHost::ResetAutoFillState(int query_id) {
+  autofill_query_id_ = query_id;
+
+  autofill_values_.clear();
+  autofill_labels_.clear();
+  autofill_icons_.clear();
+  autofill_unique_ids_.clear();
+}
+
 void RenderViewHost::AutoFillSuggestionsReturned(
-    int query_id,
-    const std::vector<string16>& names,
+    const std::vector<string16>& values,
     const std::vector<string16>& labels,
     const std::vector<string16>& icons,
     const std::vector<int>& unique_ids) {
-  autofill_values_.assign(names.begin(), names.end());
+  autofill_values_.assign(values.begin(), values.end());
   autofill_labels_.assign(labels.begin(), labels.end());
   autofill_icons_.assign(icons.begin(), icons.end());
   autofill_unique_ids_.assign(unique_ids.begin(), unique_ids.end());
 }
 
 void RenderViewHost::AutocompleteSuggestionsReturned(
-    int query_id, const std::vector<string16>& suggestions) {
+    const std::vector<string16>& suggestions) {
   // Combine AutoFill and Autocomplete values into values and labels.
   for (size_t i = 0; i < suggestions.size(); ++i) {
     bool unique = true;
     for (size_t j = 0; j < autofill_values_.size(); ++j) {
+      // TODO(isherman): Why just when the label is empty?
       // If the AutoFill label is empty, we need to make sure we don't add a
       // duplicate value.
       if (autofill_labels_[j].empty() &&
@@ -1828,7 +1810,7 @@ void RenderViewHost::AutocompleteSuggestionsReturned(
   }
 
   Send(new ViewMsg_AutoFillSuggestionsReturned(routing_id(),
-                                               query_id,
+                                               autofill_query_id_,
                                                autofill_values_,
                                                autofill_labels_,
                                                autofill_icons_,
@@ -1881,10 +1863,6 @@ void RenderViewHost::OnMsgBlur() {
   RenderViewHostDelegate::View* view = delegate_->GetViewDelegate();
   if (view)
     view->Deactivate();
-}
-
-gfx::Rect RenderViewHost::GetRootWindowResizerRect() const {
-  return delegate_->GetRootWindowResizerRect();
 }
 
 void RenderViewHost::ForwardMouseEvent(
@@ -2235,9 +2213,26 @@ void RenderViewHost::OnMsgShowPopup(
 }
 #endif
 
+TabContents* RenderViewHost::GetOrCreatePrintPreviewTab() {
+  TabContents* initiator_tab = delegate_ ? delegate_->GetAsTabContents() : NULL;
+  if (initiator_tab) {
+    // Get/Create preview tab for initiator tab.
+    printing::PrintPreviewTabController* tab_controller =
+        printing::PrintPreviewTabController::GetInstance();
+    if (tab_controller)
+      return tab_controller->GetOrCreatePreviewTab(
+        initiator_tab, delegate_->GetBrowserWindowID());
+  }
+  return NULL;
+}
+
 #if defined(OS_MACOSX) || defined(OS_WIN)
 void RenderViewHost::OnPageReadyForPreview(
     const ViewHostMsg_DidPrintPage_Params& params) {
+  // Get/Create print preview tab.
+  TabContents* print_preview_tab = GetOrCreatePrintPreviewTab();
+  DCHECK(print_preview_tab);
+
   // TODO(kmadhusu): Function definition needs to be changed.
   // 'params' contains the metafile handle for preview.
 
@@ -2246,6 +2241,10 @@ void RenderViewHost::OnPageReadyForPreview(
 }
 #else
 void RenderViewHost::OnPagesReadyForPreview(int fd_in_browser) {
+  // Get/Create print preview tab.
+  TabContents* print_preview_tab = GetOrCreatePrintPreviewTab();
+  DCHECK(print_preview_tab);
+
   // TODO(kmadhusu): Function definition needs to be changed.
   // fd_in_browser should be the file descriptor of the metafile.
 

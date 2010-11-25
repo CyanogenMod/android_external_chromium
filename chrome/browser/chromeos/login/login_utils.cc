@@ -14,9 +14,9 @@
 #include "base/scoped_ptr.h"
 #include "base/singleton.h"
 #include "base/string_util.h"
+#include "base/stringprintf.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser_init.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/boot_times_loader.h"
@@ -26,6 +26,7 @@
 #include "chrome/browser/chromeos/input_method/input_method_util.h"
 #include "chrome/browser/chromeos/login/cookie_fetcher.h"
 #include "chrome/browser/chromeos/login/google_authenticator.h"
+#include "chrome/browser/chromeos/login/language_switch_menu.h"
 #include "chrome/browser/chromeos/login/ownership_service.h"
 #include "chrome/browser/chromeos/login/parallel_authenticator.h"
 #include "chrome/browser/chromeos/login/user_image_downloader.h"
@@ -37,10 +38,11 @@
 #include "chrome/browser/profile.h"
 #include "chrome/browser/profile_manager.h"
 #include "chrome/browser/sync/profile_sync_service.h"
+#include "chrome/browser/ui/browser_init.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/logging_chrome.h"
-#include "chrome/common/net/gaia/gaia_authenticator2.h"
+#include "chrome/common/net/gaia/gaia_auth_fetcher.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "chrome/common/pref_names.h"
@@ -53,10 +55,15 @@ namespace chromeos {
 
 namespace {
 
-// Prefix for Auth token received from ClientLogin request.
+// Affixes for Auth token received from ClientLogin request.
 const char kAuthPrefix[] = "Auth=";
-// Suffix for Auth token received from ClientLogin request.
 const char kAuthSuffix[] = "\n";
+
+// Increase logging level for Guest mode to avoid LOG(INFO) messages in logs.
+const char kGuestModeLoggingLevel[] = "1";
+
+// Format of command line switch.
+const char kSwitchFormatString[] = "--%s=\"%s\"";
 
 }  // namespace
 
@@ -92,6 +99,9 @@ class LoginUtilsImpl : public LoginUtils {
   virtual void PrewarmAuthentication();
 
  private:
+  // Check user's profile for kApplicationLocale setting.
+  void RespectLocalePreference(PrefService* pref);
+
   // Indicates if DoBrowserLaunch will actually launch the browser or not.
   bool browser_launch_enabled_;
 
@@ -184,7 +194,7 @@ void LoginUtilsImpl::CompleteLogin(
 
   // Set the CrOS user by getting this constructor run with the
   // user's email on first retrieval.
-  profile->GetProfileSyncService(username)->SetPassphrase(password);
+  profile->GetProfileSyncService(username)->SetPassphrase(password, false);
   btl->AddLoginTimeMarker("SyncStarted", false);
 
   // Attempt to take ownership; this will fail if device is already owned.
@@ -203,6 +213,8 @@ void LoginUtilsImpl::CompleteLogin(
     }
   }
   btl->AddLoginTimeMarker("TPMOwned", false);
+
+  RespectLocalePreference(profile->GetPrefs());
 
   static const char kFallbackInputMethodLocale[] = "en-US";
   if (first_login) {
@@ -251,6 +263,19 @@ void LoginUtilsImpl::CompleteLogin(
   DoBrowserLaunch(profile);
 }
 
+void LoginUtilsImpl::RespectLocalePreference(PrefService* pref) {
+  std::string pref_locale = pref->GetString(prefs::kApplicationLocale);
+  if (pref_locale.empty()) {
+    // TODO(dilmah): current code will clobber existing setting in case
+    // language preference was set via another device
+    // but still not synced yet.  Profile is not synced at this point yet.
+    pref->SetString(prefs::kApplicationLocale,
+                    g_browser_process->GetApplicationLocale());
+  } else {
+    LanguageSwitchMenu::SwitchLanguage(pref_locale);
+  }
+}
+
 void LoginUtilsImpl::CompleteOffTheRecordLogin(const GURL& start_url) {
   VLOG(1) << "Completing off the record login";
 
@@ -260,13 +285,17 @@ void LoginUtilsImpl::CompleteOffTheRecordLogin(const GURL& start_url) {
     // For guest session we ask session manager to restart Chrome with --bwsi
     // flag. We keep only some of the arguments of this process.
     static const char* kForwardSwitches[] = {
-        switches::kLoggingLevel,
         switches::kEnableLogging,
         switches::kUserDataDir,
         switches::kScrollPixels,
         switches::kEnableGView,
         switches::kNoFirstRun,
-        switches::kLoginProfile
+        switches::kLoginProfile,
+        switches::kEnableTabbedOptions,
+        switches::kCompressSystemFeedback,
+#if defined(USE_SECCOMP_SANDBOX)
+        switches::kDisableSeccompSandbox,
+#endif
     };
     const CommandLine& browser_command_line =
         *CommandLine::ForCurrentProcess();
@@ -276,15 +305,28 @@ void LoginUtilsImpl::CompleteOffTheRecordLogin(const GURL& start_url) {
                                   arraysize(kForwardSwitches));
     command_line.AppendSwitch(switches::kGuestSession);
     command_line.AppendSwitch(switches::kIncognito);
-    command_line.AppendSwitch(switches::kEnableTabbedOptions);
+    command_line.AppendSwitchASCII(switches::kLoggingLevel,
+                                   kGuestModeLoggingLevel);
     command_line.AppendSwitchASCII(
         switches::kLoginUser,
         UserManager::Get()->logged_in_user().email());
+
     if (start_url.is_valid())
       command_line.AppendArg(start_url.spec());
-    CrosLibrary::Get()->GetLoginLibrary()->RestartJob(
-        getpid(),
-        command_line.command_line_string());
+
+    std::string cmd_line_str = command_line.command_line_string();
+    // Special workaround for the arguments that should be quoted.
+    // Copying switches won't be needed when Guest mode won't need restart
+    // http://crosbug.com/6924
+    if (browser_command_line.HasSwitch(switches::kRegisterPepperPlugins)) {
+      cmd_line_str += base::StringPrintf(
+          kSwitchFormatString,
+          switches::kRegisterPepperPlugins,
+          browser_command_line.GetSwitchValueNative(
+              switches::kRegisterPepperPlugins).c_str());
+    }
+
+    CrosLibrary::Get()->GetLoginLibrary()->RestartJob(getpid(), cmd_line_str);
   }
 }
 
@@ -318,7 +360,7 @@ class WarmingObserver : public NetworkLibrary::NetworkManagerObserver {
   void OnNetworkManagerChanged(NetworkLibrary* netlib) {
     if (netlib->Connected()) {
       chrome_browser_net::Preconnect::PreconnectOnUIThread(
-          GURL(GaiaAuthenticator2::kClientLoginUrl),
+          GURL(GaiaAuthFetcher::kClientLoginUrl),
           chrome_browser_net::UrlInfo::EARLY_LOAD_MOTIVATED);
       netlib->RemoveNetworkManagerObserver(this);
       delete this;
@@ -331,7 +373,7 @@ void LoginUtilsImpl::PrewarmAuthentication() {
     NetworkLibrary *network = CrosLibrary::Get()->GetNetworkLibrary();
     if (network->Connected()) {
       chrome_browser_net::Preconnect::PreconnectOnUIThread(
-          GURL(GaiaAuthenticator2::kClientLoginUrl),
+          GURL(GaiaAuthFetcher::kClientLoginUrl),
           chrome_browser_net::UrlInfo::EARLY_LOAD_MOTIVATED);
     } else {
       new WarmingObserver();

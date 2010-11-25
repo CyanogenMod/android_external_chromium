@@ -6,13 +6,13 @@ body {
 
 #settings-title {
   -webkit-padding-end: 24px;
-  padding-top: 16px;
-  padding-bottom: 34px;
-  text-align: end;
-  font-size: 125%;
+  color: #53637d;
+  font-size: 200%;
   font-weight: normal;
-  color: #53627d;
   margin: 0;
+  padding-bottom: 14px;
+  padding-top: 13px;
+  text-align: end;
 }
 
 #main-content {
@@ -56,18 +56,18 @@ html[dir='rtl'] #close-overlay {
 }
 
 .action-area {
+  -webkit-box-orient: horizontal;
+  -webkit-box-align: center;
   padding: 12px;
   position: absolute;
   right: 0px;
   bottom: 0px;
   display: -webkit-box;
-  -webkit-box-orient: horizontal;
-  -webkit-box-align: center;
 }
 
 .button-strip {
-  display: -webkit-box;
   -webkit-box-orient: horizontal;
+  display: -webkit-box;
 }
 
 html[toolkit=views] .button-strip {
@@ -75,18 +75,18 @@ html[toolkit=views] .button-strip {
 }
 
 .button-strip > button {
-  display: block;
   -webkit-margin-start: 4px;
+  display: block;
 }
 
 .overlay > div {
+  -webkit-box-shadow: 3px 3px 3px #666;
   background: white;
   border-radius: 5px;
   padding: 15px;
   border: 1px solid #666;
   padding-bottom: 50px;
   position: relative;
-  -webkit-box-shadow: 3px 3px 3px #666;
 }
 
 #navbar {
@@ -108,12 +108,12 @@ html[toolkit=views] .button-strip {
                                to(#d3d7db));
   bottom: 0;
   cursor: pointer;
+  display: none;
   left: 0;
   position: fixed;
   top: 0;
   width: 250px;
   z-index: 2;
-  display: none;
 }
 
 html[dir='rtl'] #navbar-container {
@@ -145,32 +145,28 @@ html[hide-menu=false] #navbar-container {
   width: 65%;
 }
 
+#navbar-container > ul {
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+}
+
 .navbar-item, .navbar-item2 {
-  padding: 7px 0;
-  -webkit-padding-end: 24px;
-  text-align: end;
-  display: block;
   color: #426dc9;
-  outline:none;
+  display: block;
+  font-size: 105%;
+  outline: none;
+  padding: 7px 0;
+  text-align: end;
+  -webkit-padding-end: 24px;
 }
 
 .navbar-item-selected {
-  background: -webkit-gradient(linear,
-                               left top,
-                               right top,
-                               from(#eaeef3),
-                               color-stop(0.95, #b4c8ea),
-                               to(#9bacc5));
-  font-weight: bold;
+  background: #bbcee9;
+  border-bottom: 1px solid #8faad9;
+  border-top: 1px solid #8faad9;
   color: black;
-}
-
-html[dir='rtl'] .navbar-item-selected {
-  background: -webkit-gradient(linear,
-                               right top,
-                               left top,
-                               from(white),
-                               to(#d6def3));
+  font-weight: bold;
 }
 
 .navbar-item-normal {
@@ -194,8 +190,33 @@ html[hide-menu=true] #mainview {
 }
 
 #mainview-content {
-  width: 600px;
+  box-sizing: border-box;
+  min-height: 100%;
   padding: 0 24px;
+  position: relative;
+  width: 600px;
+}
+
+#subpage-sheet-container {
+  box-sizing: border-box;
+  height: 100%;
+  padding: 8px;
+  -webkit-padding-start: 60px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 748px;
+}
+
+#subpage-sheet {
+  -webkit-box-shadow: #666 0px 3px 5px;
+  background-color: white;
+  border: 1px solid #b8b8b8;
+  border-radius: 2px;
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 0px 20px;
+  width: 100%;
 }
 
 #managed-prefs-banner {
@@ -219,11 +240,11 @@ html[hide-menu=true] #mainview {
   background-image: url("chrome://theme/IDR_WARNING");
   background-repeat: no-repeat;
   background-position:center;
-  padding: 5px;
-  width: 24px;
-  height: 21px;
   display: inline-block;
+  padding: 5px;
+  height: 21px;
   vertical-align: middle;
+  width: 24px;
 }
 
 #managed-prefs-text {
@@ -232,33 +253,37 @@ html[hide-menu=true] #mainview {
 
 .page > h1 {
   -webkit-padding-end: 24px;
-  padding-top: 1em;
-  padding-bottom: 1em;
   border-bottom: 1px solid #eeeeee;
-  -webkit-padding-start: 0;
-  font-size: 125%;
-  color: #54637f;
+  color: #53637d;
+  font-size: 200%;
+  font-weight: normal;
   margin: 0;
+  padding-bottom: 4px;
+  padding-top: 13px;
+}
+
+#subpage-sheet .page > h1 {
+  padding-top: 7px;
 }
 
 section {
-  display: -webkit-box;
   -webkit-box-orient: horizontal;
   border-bottom: 1px solid #eeeeee;
-  margin-top: 1em;
-  margin-bottom: 1em;
-  padding-bottom: 0.5em;
+  display: -webkit-box;
+  margin-top: 17px;
+  padding-bottom: 20px;
+}
+
+section:last-child {
+  border-bottom: none;
 }
 
 section > h3 {
-  width: 150px;
-  font-weight: normal;
-  -webkit-padding-start: 0;
-  vertical-align: middle;
-  margin: 0;
-  font-size: 100%;
-  padding-top: 2px;
+  font-size: 105%;
   font-weight: bold;
+  margin: 0;
+  vertical-align: middle;
+  width: 140px;
 }
 
 section > div:only-of-type {
@@ -279,7 +304,7 @@ section > div:only-of-type {
  */
 section > div:only-of-type label {
   display: block;
-  margin: 3px 0;
+  margin: 5px 0;
 }
 
 .hidden {
@@ -345,10 +370,11 @@ html[dir=rtl].option-name {
 }
 
 .favicon-cell {
+  -webkit-padding-start: 20px;
   background-position: left;
   background-repeat: no-repeat;
-  -webkit-padding-start: 20px;
 }
+
 html[dir=rtl] .favicon-cell {
   background-position: right;
 }

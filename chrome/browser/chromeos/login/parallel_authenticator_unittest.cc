@@ -22,7 +22,7 @@
 #include "chrome/browser/chromeos/login/mock_url_fetchers.h"
 #include "chrome/browser/chromeos/login/test_attempt_state.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/net/gaia/gaia_authenticator2_unittest.h"
+#include "chrome/common/net/gaia/gaia_auth_fetcher_unittest.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "chrome/test/testing_profile.h"
 #include "chrome/test/thread_test_helper.h"
@@ -101,7 +101,8 @@ class ParallelAuthenticatorTest : public ::testing::Test {
                                       password_,
                                       hash_ascii_,
                                       "",
-                                      ""));
+                                      "",
+                                      false));
   }
 
   // Tears down the test fixture.
@@ -534,7 +535,10 @@ TEST_F(ParallelAuthenticatorTest, DriveOfflineLoginGetNewPassword) {
 
   // Set up mock cryptohome library to respond successfully to a key migration.
   mock_library_->SetUp(true, 0);
-  EXPECT_CALL(*mock_library_, AsyncMigrateKey(username_, _, _, _))
+  EXPECT_CALL(*mock_library_, AsyncMigrateKey(username_,
+                                              state_->ascii_hash,
+                                              _,
+                                              _))
       .Times(1)
       .RetiresOnSaturation();
   EXPECT_CALL(*mock_library_, GetSystemSalt())

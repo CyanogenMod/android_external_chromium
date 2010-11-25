@@ -1125,6 +1125,10 @@ IPC_BEGIN_MESSAGES(View)
   IPC_MESSAGE_ROUTED1(ViewMsg_SelectPopupMenuItem,
                       int /* selected index, -1 means no selection */)
 
+  // Indicate whether speech input API is enabled or not.
+  IPC_MESSAGE_CONTROL1(ViewMsg_SpeechInput_SetFeatureEnabled,
+                       bool /* enabled */)
+
 IPC_END_MESSAGES(View)
 
 
@@ -1578,6 +1582,14 @@ IPC_BEGIN_MESSAGES(ViewHost)
                               WebPluginInfo /* info */)
 
   // A renderer sends this to the browser process when it wants to
+  // create a pepper plugin.  The browser will create the plugin process if
+  // necessary, and will return a handle to the channel on success.
+  // On error an empty string is returned.
+  IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_OpenChannelToPepperPlugin,
+                              FilePath /* path */,
+                              IPC::ChannelHandle /* handle to channel */)
+
+  // A renderer sends this to the browser process when it wants to
   // create connect to the GPU.  The browser will create the GPU process if
   // necessary, and will return a handle to the channel via
   // a GpuChannelEstablished message.
@@ -1850,16 +1862,6 @@ IPC_BEGIN_MESSAGES(ViewHost)
   IPC_MESSAGE_ROUTED1(ViewHostMsg_MissingPluginStatus,
                       int /* status */)
 
-  // Notifies when a non-sandboxed plugin was blocked.
-  // |plugin| is the identifier for the plugin (currently its path),
-  // |name| is its user-visible name.
-  IPC_MESSAGE_ROUTED2(ViewHostMsg_NonSandboxedPluginBlocked,
-                      std::string /* plugin */,
-                      string16 /* name */)
-
-  // Notifies when a blocked plugin was loaded via click-to-load.
-  IPC_MESSAGE_ROUTED0(ViewHostMsg_BlockedPluginLoaded)
-
   // Sent by the renderer process to indicate that a plugin instance has
   // crashed.
   IPC_MESSAGE_ROUTED1(ViewHostMsg_CrashedPlugin,
@@ -1901,7 +1903,7 @@ IPC_BEGIN_MESSAGES(ViewHost)
 
   IPC_MESSAGE_ROUTED2(ViewHostMsg_DidGetApplicationInfo,
                       int32 /* page_id */,
-                      webkit_glue::WebApplicationInfo)
+                      WebApplicationInfo)
 
   // Provides the result from running OnMsgShouldClose.  |proceed| matches the
   // return value of the the frame's shouldClose method (which includes the
@@ -2085,7 +2087,7 @@ IPC_BEGIN_MESSAGES(ViewHost)
   // Queries the browser for AutoFill suggestions for a form input field.
   IPC_MESSAGE_ROUTED3(ViewHostMsg_QueryFormFieldAutoFill,
                       int /* id of this message */,
-                      bool /* form_autofilled */,
+                      bool /* field autofilled */,
                       webkit_glue::FormField /* the form field */)
 
   // Sent when the popup with AutoFill suggestions for a form is shown.

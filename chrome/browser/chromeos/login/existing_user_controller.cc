@@ -20,13 +20,14 @@
 #include "chrome/browser/chromeos/cros/cryptohome_library.h"
 #include "chrome/browser/chromeos/cros/login_library.h"
 #include "chrome/browser/chromeos/cros/network_library.h"
-#include "chrome/browser/chromeos/cros_settings_provider_user.h"
 #include "chrome/browser/chromeos/login/background_view.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/login_utils.h"
 #include "chrome/browser/chromeos/login/message_bubble.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
+#include "chrome/browser/chromeos/status/status_area_view.h"
+#include "chrome/browser/chromeos/user_cros_settings_provider.h"
 #include "chrome/browser/chromeos/view_ids.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
 #include "chrome/browser/views/window.h"
@@ -213,6 +214,12 @@ void ExistingUserController::LoginNewUser(const std::string& username,
 
 void ExistingUserController::SelectNewUser() {
   SelectUser(controllers_.size() - 1);
+}
+
+void ExistingUserController::SetStatusAreaEnabled(bool enable) {
+  if (background_view_) {
+    background_view_->SetStatusAreaEnabled(enable);
+  }
 }
 
 ExistingUserController::~ExistingUserController() {
@@ -517,7 +524,13 @@ void ExistingUserController::OnPasswordChangeDetected(
     return;
   }
 
-  PasswordChangedView* view = new PasswordChangedView(this);
+  // TODO(altimofeev): remove this constrain when full sync for the owner will
+  // be correctly handled.
+  // TODO(xiyuan): Wait for the cached settings update before using them.
+  bool full_sync_disabled = (UserCrosSettingsProvider::cached_owner() ==
+      controllers_[selected_view_index_]->user().email());
+
+  PasswordChangedView* view = new PasswordChangedView(this, full_sync_disabled);
   views::Window* window = browser::CreateViewsWindow(GetNativeWindow(),
                                                      gfx::Rect(),
                                                      view);

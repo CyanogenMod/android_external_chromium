@@ -27,6 +27,8 @@
 #include "chrome/common/renderer_preferences.h"
 #include "chrome/common/serialized_script_value.h"
 #include "chrome/common/window_container_type.h"
+#include "gfx/rect.h"
+#include "gfx/size.h"
 #include "googleurl/src/gurl.h"
 #include "ipc/ipc_param_traits.h"
 #include "media/audio/audio_parameters.h"
@@ -347,6 +349,10 @@ struct ViewHostMsg_UpdateRect_Params {
   // progress.
   gfx::Size view_size;
 
+  // The area of the RenderView reserved for resize corner when this message
+  // was generated.  Reported for the same reason as view_size is.
+  gfx::Rect resizer_rect;
+
   // New window locations for plugin child windows.
   std::vector<webkit_glue::WebPluginGeometry> plugin_window_moves;
 
@@ -577,14 +583,10 @@ struct ViewHostMsg_Audio_CreateStream_Params {
   ViewHostMsg_Audio_CreateStream_Params();
   ~ViewHostMsg_Audio_CreateStream_Params();
 
-  // Format request for the stream.
+  // Parameters for the new audio stream.
+  // If |samples_per_packet| is set 0, the audio packet size is selected
+  // automatically by the browser process.
   AudioParameters params;
-
-  // Number of bytes per packet. Determines the maximum number of bytes
-  // transported for each audio packet request.
-  // A value of 0 means that the audio packet size is selected automatically
-  // by the browser process.
-  uint32 packet_size;
 };
 
 // This message is used for supporting popup menus on Mac OS X using native

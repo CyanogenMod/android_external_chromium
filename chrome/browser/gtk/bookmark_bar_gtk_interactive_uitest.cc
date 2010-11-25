@@ -4,10 +4,10 @@
 
 #include <gtk/gtk.h>
 
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/gtk/view_id_util.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "net/test/test_server.h"
@@ -22,12 +22,12 @@ void OnClicked(GtkWidget* widget, bool* clicked_bit) {
 
 }  // namespace
 
-class BookmarkBarGtkBrowserTest : public InProcessBrowserTest {
+class BookmarkBarGtkInteractiveUITest : public InProcessBrowserTest {
 };
 
 // Makes sure that when you switch back to an NTP with an active findbar,
 // the findbar is above the floating bookmark bar.
-IN_PROC_BROWSER_TEST_F(BookmarkBarGtkBrowserTest, FindBarTest) {
+IN_PROC_BROWSER_TEST_F(BookmarkBarGtkInteractiveUITest, FindBarTest) {
   ASSERT_TRUE(test_server()->Start());
 
   // Create new tab; open findbar.
@@ -52,7 +52,7 @@ IN_PROC_BROWSER_TEST_F(BookmarkBarGtkBrowserTest, FindBarTest) {
 }
 
 // Makes sure that you can click on the floating bookmark bar.
-IN_PROC_BROWSER_TEST_F(BookmarkBarGtkBrowserTest, ClickOnFloatingTest) {
+IN_PROC_BROWSER_TEST_F(BookmarkBarGtkInteractiveUITest, ClickOnFloatingTest) {
   ASSERT_TRUE(test_server()->Start());
 
   GtkWidget* other_bookmarks =

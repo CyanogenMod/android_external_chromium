@@ -94,7 +94,7 @@ bool Sandbox::QuotePlainString(const std::string& src_utf8, std::string* dst) {
     if (c < 32 || c > 126) {
       // Any characters that aren't printable ASCII get the \u treatment.
       unsigned int as_uint = static_cast<unsigned int>(c);
-      StringAppendF(dst, "\\u%04X", as_uint);
+      base::StringAppendF(dst, "\\u%04X", as_uint);
       continue;
     }
 
@@ -485,23 +485,20 @@ bool Sandbox::EnableSandbox(SandboxProcessType sandbox_type,
     substitutions["DISABLE_SANDBOX_DENIAL_LOGGING"] = SandboxSubstring("");
   }
 
+  // Splice the path of the user's home directory into the sandbox profile
+  // (see renderer.sb for details).
+  std::string home_dir = base::SysNSStringToUTF8(NSHomeDirectory());
+
+  FilePath home_dir_canonical(home_dir);
+  GetCanonicalSandboxPath(&home_dir_canonical);
+
+  substitutions["USER_HOMEDIR_AS_LITERAL"] =
+      SandboxSubstring(home_dir_canonical.value(),
+          SandboxSubstring::LITERAL);
+
   if (snow_leopard_or_higher) {
     // 10.6-only Sandbox rules.
     [tokens_to_remove addObject:@";10.6_ONLY"];
-    // Splice the path of the user's home directory into the sandbox profile
-    // (see renderer.sb for details).
-    // This code is in the 10.6-only block because the sandbox syntax we use
-    // for this "subdir" is only supported on 10.6.
-    // If we ever need this on pre-10.6 OSs then we'll have to rethink the
-    // surrounding sandbox syntax.
-    std::string home_dir = base::SysNSStringToUTF8(NSHomeDirectory());
-
-    FilePath home_dir_canonical(home_dir);
-    GetCanonicalSandboxPath(&home_dir_canonical);
-
-    substitutions["USER_HOMEDIR_AS_LITERAL"] =
-        SandboxSubstring(home_dir_canonical.value(),
-            SandboxSubstring::LITERAL);
   } else {
     // Sandbox rules only for versions before 10.6.
     [tokens_to_remove addObject:@";BEFORE_10.6"];

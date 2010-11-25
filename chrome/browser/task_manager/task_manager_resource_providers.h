@@ -17,33 +17,33 @@
 #include "chrome/common/notification_registrar.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebCache.h"
 
+class BackgroundContents;
 class BalloonHost;
 class Extension;
 class ExtensionHost;
+class RenderViewHost;
 class TabContents;
 
 // These file contains the resource providers used in the task manager.
 
-class TaskManagerTabContentsResource : public TaskManager::Resource {
+// Base class for various types of render process resources that provides common
+// functionality like stats tracking.
+class TaskManagerRendererResource : public TaskManager::Resource {
  public:
-  explicit TaskManagerTabContentsResource(TabContents* tab_contents);
-  ~TaskManagerTabContentsResource();
+  TaskManagerRendererResource(base::ProcessHandle process,
+                              RenderViewHost* render_view_host);
+  virtual ~TaskManagerRendererResource();
 
-  // TaskManagerResource methods:
-  std::wstring GetTitle() const;
-  SkBitmap GetIcon() const;
+  // TaskManager::Resource methods:
   base::ProcessHandle GetProcess() const;
   Type GetType() const { return RENDERER; }
-  TabContents* GetTabContents() const;
-
   virtual bool ReportsCacheStats() const { return true; }
   virtual WebKit::WebCache::ResourceTypeStats GetWebCoreCacheStats() const;
-
   virtual bool ReportsV8MemoryStats() const { return true; }
   virtual size_t GetV8MemoryAllocated() const;
   virtual size_t GetV8MemoryUsed() const;
 
-  // TabContents always provide the network usage.
+  // RenderResources always provide the network usage.
   bool SupportNetworkUsage() const { return true; }
   void SetSupportNetworkUsage() { }
 
@@ -56,9 +56,11 @@ class TaskManagerTabContentsResource : public TaskManager::Resource {
                                  size_t v8_memory_used);
 
  private:
-  TabContents* tab_contents_;
   base::ProcessHandle process_;
   int pid_;
+
+  // RenderViewHost we use to fetch stats.
+  RenderViewHost* render_view_host_;
   // The stats_ field holds information about resource usage in the renderer
   // process and so it is updated asynchronously by the Refresh() call.
   WebKit::WebCache::ResourceTypeStats stats_;
@@ -69,6 +71,22 @@ class TaskManagerTabContentsResource : public TaskManager::Resource {
   size_t v8_memory_allocated_;
   size_t v8_memory_used_;
   bool pending_v8_memory_allocated_update_;
+
+  DISALLOW_COPY_AND_ASSIGN(TaskManagerRendererResource);
+};
+
+class TaskManagerTabContentsResource : public TaskManagerRendererResource {
+ public:
+  explicit TaskManagerTabContentsResource(TabContents* tab_contents);
+  ~TaskManagerTabContentsResource();
+
+  // TaskManager::Resource methods:
+  virtual std::wstring GetTitle() const;
+  virtual SkBitmap GetIcon() const;
+  virtual TabContents* GetTabContents() const;
+
+ private:
+  TabContents* tab_contents_;
 
   DISALLOW_COPY_AND_ASSIGN(TaskManagerTabContentsResource);
 };
@@ -112,6 +130,77 @@ class TaskManagerTabContentsResourceProvider
   NotificationRegistrar registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(TaskManagerTabContentsResourceProvider);
+};
+
+class TaskManagerBackgroundContentsResource
+    : public TaskManagerRendererResource {
+ public:
+  TaskManagerBackgroundContentsResource(
+      BackgroundContents* background_contents,
+      const std::wstring& application_name);
+  ~TaskManagerBackgroundContentsResource();
+
+  // TaskManager::Resource methods:
+  virtual std::wstring GetTitle() const;
+  virtual SkBitmap GetIcon() const;
+  virtual bool IsBackground() const;
+
+  const std::wstring& application_name() const { return application_name_; }
+ private:
+  BackgroundContents* background_contents_;
+
+  std::wstring application_name_;
+
+  // The icon painted for BackgroundContents.
+  // TODO(atwilson): Use the favicon when there's a way to get the favicon for
+  // BackgroundContents.
+  static SkBitmap* default_icon_;
+
+  DISALLOW_COPY_AND_ASSIGN(TaskManagerBackgroundContentsResource);
+};
+
+class TaskManagerBackgroundContentsResourceProvider
+    : public TaskManager::ResourceProvider,
+      public NotificationObserver {
+ public:
+  explicit TaskManagerBackgroundContentsResourceProvider(
+      TaskManager* task_manager);
+
+  virtual TaskManager::Resource* GetResource(int origin_pid,
+                                             int render_process_host_id,
+                                             int routing_id);
+  virtual void StartUpdating();
+  virtual void StopUpdating();
+
+  // NotificationObserver method:
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
+ private:
+  virtual ~TaskManagerBackgroundContentsResourceProvider();
+
+  void Add(BackgroundContents* background_contents, const std::wstring& title);
+  void Remove(BackgroundContents* background_contents);
+
+  void AddToTaskManager(BackgroundContents* background_contents,
+                        const std::wstring& title);
+
+  // Whether we are currently reporting to the task manager. Used to ignore
+  // notifications sent after StopUpdating().
+  bool updating_;
+
+  TaskManager* task_manager_;
+
+  // Maps the actual resources (the BackgroundContents) to the Task Manager
+  // resources.
+  std::map<BackgroundContents*, TaskManagerBackgroundContentsResource*>
+      resources_;
+
+  // A scoped container for notification registries.
+  NotificationRegistrar registrar_;
+
+  DISALLOW_COPY_AND_ASSIGN(TaskManagerBackgroundContentsResourceProvider);
 };
 
 class TaskManagerChildProcessResource : public TaskManager::Resource {
@@ -221,6 +310,8 @@ class TaskManagerExtensionProcessResource : public TaskManager::Resource {
   // Returns the pid of the extension process.
   int process_id() const { return pid_; }
 
+  // Returns true if the associated extension has a background page.
+  bool IsBackground() const;
  private:
   // The icon painted for the extension process.
   static SkBitmap* default_icon_;

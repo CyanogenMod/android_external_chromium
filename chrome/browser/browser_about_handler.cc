@@ -25,7 +25,6 @@
 #include "base/tracked_objects.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/about_flags.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/defaults.h"
@@ -43,6 +42,7 @@
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/about_handler.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_version_info.h"
@@ -758,21 +758,27 @@ void DxDiagNodeToHTML(std::string* output, const DxDiagNode& node) {
 }
 
 std::string AboutGpu() {
-  GPUInfo gpu_info = GpuProcessHost::Get()->gpu_info();
+  const GPUInfo& gpu_info = GpuProcessHostUIShim::Get()->gpu_info();
 
   std::string html;
-  if (!gpu_info.initialized()) {
+
+  html.append("<html><head><title>About GPU</title></head>\n");
+
+  if (gpu_info.progress() != GPUInfo::kComplete) {
     GpuProcessHostUIShim::Get()->CollectGraphicsInfoAsynchronously();
-    // If it's not initialized yet, let the user know and reload the page
-    html.append("<html><head><title>About GPU</title></head>\n");
+
+    // If it's not fully initialized yet, set a timeout to reload the page.
     html.append("<body onload=\"setTimeout('window.location.reload(true)',");
     html.append("2000)\">\n");
-    html.append("<h2>GPU Information</h2>\n");
-    html.append("<p>Retrieving GPU information . . .</p>\n");
-    html.append("</body></html> ");
   } else {
-    html.append("<html><head><title>About GPU</title></head><body>\n");
-    html.append("<h2>GPU Information</h2>\n");
+    html.append("<body>\n");
+  }
+
+  html.append("<h2>GPU Information</h2>\n");
+
+  if (gpu_info.progress() == GPUInfo::kUninitialized) {
+    html.append("<p>Retrieving GPU information . . .</p>\n");
+  } else {
     html.append("<table><tr>");
     html.append("<td><strong>Initialization time</strong></td><td>");
     html.append(base::Int64ToString(
@@ -799,12 +805,17 @@ std::string AboutGpu() {
     html.append("</td></tr></table>");
 
 #if defined(OS_WIN)
-    html.append("<h2>DirectX Diagnostics</h2>");
-    DxDiagNodeToHTML(&html, gpu_info.dx_diagnostics());
+    if (gpu_info.progress() != GPUInfo::kComplete) {
+      html.append("<p>Retrieving DirectX Diagnostics . . .</p>\n");
+    } else {
+      html.append("<h2>DirectX Diagnostics</h2>");
+      DxDiagNodeToHTML(&html, gpu_info.dx_diagnostics());
+    }
 #endif
-
-    html.append("</body></html>");
   }
+
+  html.append("</body></html>");
+
   return html;
 }
 

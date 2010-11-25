@@ -38,7 +38,7 @@
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/extensions/user_script_master.h"
 #include "chrome/browser/favicon_service.h"
-#include "chrome/browser/file_system/file_system_host_context.h"
+#include "chrome/browser/file_system/browser_file_system_context.h"
 #include "chrome/browser/find_bar_state.h"
 #include "chrome/browser/geolocation/geolocation_content_settings_map.h"
 #include "chrome/browser/geolocation/geolocation_permission_context.h"
@@ -46,6 +46,7 @@
 #include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/host_content_settings_map.h"
 #include "chrome/browser/host_zoom_map.h"
+#include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/in_process_webkit/webkit_context.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/net/gaia/token_service.h"
@@ -92,7 +93,9 @@
 #endif
 
 #if defined(OS_WIN)
+#include "chrome/browser/instant/promo_counter.h"
 #include "chrome/browser/password_manager/password_store_win.h"
+#include "chrome/installer/util/install_util.h"
 #elif defined(OS_MACOSX)
 #include "chrome/browser/keychain_mac.h"
 #include "chrome/browser/password_manager/password_store_mac.h"
@@ -255,6 +258,9 @@ ProfileImpl::ProfileImpl(const FilePath& path)
       start_time_(Time::Now()),
       spellcheck_host_(NULL),
       spellcheck_host_ready_(false),
+#if defined(OS_WIN)
+      checked_instant_promo_(false),
+#endif
       shutdown_session_service_(false) {
   DCHECK(!path.empty()) << "Using an empty path will attempt to write " <<
                             "profile files to the root directory!";
@@ -293,15 +299,21 @@ ProfileImpl::ProfileImpl(const FilePath& path)
   // for a spec on where cache files go.  The net effect for most systems is we
   // use ~/.cache/chromium/ for Chromium and ~/.cache/google-chrome/ for
   // official builds.
+  // If we're using a different user-data-dir, though, fall through
+  // to the "normal" cache directory (a subdirectory of that).
+  // TODO(evan): all of this logic belongs in path_service; refactor and remove
+  // this IsOverriden business.
+  if (!PathService::IsOverridden(chrome::DIR_USER_DATA)) {
 #if defined(GOOGLE_CHROME_BUILD)
-  const char kCacheDir[] = "google-chrome";
+    const char kCacheDir[] = "google-chrome";
 #else
-  const char kCacheDir[] = "chromium";
+    const char kCacheDir[] = "chromium";
 #endif
-  PathService::Get(base::DIR_USER_CACHE, &base_cache_path_);
-  base_cache_path_ = base_cache_path_.Append(kCacheDir);
-  if (!file_util::PathExists(base_cache_path_))
-    file_util::CreateDirectory(base_cache_path_);
+    PathService::Get(base::DIR_USER_CACHE, &base_cache_path_);
+    base_cache_path_ = base_cache_path_.Append(kCacheDir);
+    if (!file_util::PathExists(base_cache_path_))
+      file_util::CreateDirectory(base_cache_path_);
+  }
 #endif
   if (base_cache_path_.empty())
     base_cache_path_ = path_;
@@ -342,6 +354,8 @@ ProfileImpl::ProfileImpl(const FilePath& path)
   // Log the profile size after a reasonable startup delay.
   BrowserThread::PostDelayedTask(BrowserThread::FILE, FROM_HERE,
                                  new ProfileSizeTask(path_), 112000);
+
+  InstantController::RecordMetrics(this);
 }
 
 void ProfileImpl::InitExtensions() {
@@ -620,7 +634,7 @@ ExtensionsService* ProfileImpl::GetExtensionsService() {
   return extensions_service_.get();
 }
 
-BackgroundContentsService* ProfileImpl::GetBackgroundContentsService() {
+BackgroundContentsService* ProfileImpl::GetBackgroundContentsService() const {
   return background_contents_service_.get();
 }
 
@@ -1010,12 +1024,12 @@ PersonalDataManager* ProfileImpl::GetPersonalDataManager() {
   return personal_data_manager_.get();
 }
 
-FileSystemHostContext* ProfileImpl::GetFileSystemHostContext() {
-  if (!file_system_host_context_.get())
-    file_system_host_context_ = new FileSystemHostContext(
+BrowserFileSystemContext* ProfileImpl::GetFileSystemContext() {
+  if (!browser_file_system_context_.get())
+    browser_file_system_context_ = new BrowserFileSystemContext(
         GetPath(), IsOffTheRecord());
-  DCHECK(file_system_host_context_.get());
-  return file_system_host_context_.get();
+  DCHECK(browser_file_system_context_.get());
+  return browser_file_system_context_.get();
 }
 
 void ProfileImpl::InitThemes() {
@@ -1295,6 +1309,28 @@ ChromeBlobStorageContext* ProfileImpl::GetBlobStorageContext() {
 
 ExtensionInfoMap* ProfileImpl::GetExtensionInfoMap() {
   return extension_info_map_.get();
+}
+
+PromoCounter* ProfileImpl::GetInstantPromoCounter() {
+#if defined(OS_WIN)
+  // TODO: enable this when we're ready to turn on the promo.
+  /*
+  if (!checked_instant_promo_) {
+    checked_instant_promo_ = true;
+    PrefService* prefs = GetPrefs();
+    if (!prefs->GetBoolean(prefs::kInstantEnabledOnce) &&
+        !InstantController::IsEnabled(this) &&
+        InstallUtil::IsChromeSxSProcess()) {
+      DCHECK(!instant_promo_counter_.get());
+      instant_promo_counter_.reset(
+          new PromoCounter(this, prefs::kInstantPromo, "Instant.Promo", 3, 3));
+    }
+  }
+  */
+  return instant_promo_counter_.get();
+#else
+  return NULL;
+#endif
 }
 
 #if defined(OS_CHROMEOS)

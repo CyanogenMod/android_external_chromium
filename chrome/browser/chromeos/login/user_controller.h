@@ -15,6 +15,7 @@
 #include "chrome/browser/chromeos/wm_ipc.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
+#include "testing/gtest/include/gtest/gtest_prod.h"
 #include "views/controls/button/button.h"
 #include "views/controls/textfield/textfield.h"
 #include "views/widget/widget_delegate.h"
@@ -49,6 +50,7 @@ class UserController : public views::ButtonListener,
     virtual void ActivateWizard(const std::string& screen_name) = 0;
     virtual void RemoveUser(UserController* source) = 0;
     virtual void AddStartUrl(const GURL& start_url) = 0;
+    virtual void SetStatusAreaEnabled(bool enable) = 0;
 
     // Selects user entry with specified |index|.
     // Does nothing if current user is already selected.
@@ -145,6 +147,8 @@ class UserController : public views::ButtonListener,
   static const int kNewUserUnselectedSize;
 
  private:
+  FRIEND_TEST(UserControllerTest, GetNameTooltip);
+
   // Invoked when the user wants to login. Forwards the call to the delegate.
   void Login();
 

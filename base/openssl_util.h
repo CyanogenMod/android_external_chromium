@@ -2,13 +2,28 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef BASE_OPENNSSL_UTIL_H_
-#define BASE_OPENNSSL_UTIL_H_
+#ifndef BASE_OPENSSL_UTIL_H_
+#define BASE_OPENSSL_UTIL_H_
 #pragma once
 
 #include "base/basictypes.h"
+#include "base/tracked.h"
 
 namespace base {
+
+// A helper class that takes care of destroying OpenSSL objects when it goes out
+// of scope.
+template <typename T, void (*destructor)(T*)>
+class ScopedOpenSSL {
+ public:
+  explicit ScopedOpenSSL(T* ptr_) : ptr_(ptr_) { }
+  ~ScopedOpenSSL() { if (ptr_) (*destructor)(ptr_); }
+
+  T* get() const { return ptr_; }
+
+ private:
+  T* ptr_;
+};
 
 // Provides a buffer of at least MIN_SIZE bytes, for use when calling OpenSSL's
 // SHA256, HMAC, etc functions, adapting the buffer sizing rules to meet those
@@ -46,8 +61,20 @@ class ScopedOpenSSLSafeSizeBuffer {
   // Temporary buffer writen into in the case where the caller's
   // buffer is not of sufficient size.
   unsigned char min_sized_buffer_[MIN_SIZE];
+
+  DISALLOW_COPY_AND_ASSIGN(ScopedOpenSSLSafeSizeBuffer);
 };
+
+// Initialize OpenSSL if it isn't already initialized. This must be called
+// before any other OpenSSL functions.
+// This function is thread-safe, and OpenSSL will only ever be initialized once.
+// OpenSSL will be properly shut down on program exit.
+void EnsureOpenSSLInit();
+
+// Drains the OpenSSL ERR_get_error stack. On a debug build the error codes
+// are send to VLOG(1), on a release build they are disregarded.
+void ClearOpenSSLERRStack();
 
 }  // namespace base
 
-#endif  // BASE_NSS_UTIL_H_
+#endif  // BASE_OPENSSL_UTIL_H_

@@ -314,6 +314,9 @@
     # whether to compile in the sources for the GPU plugin / process.
     'enable_gpu%': 1,
 
+    # Use GConf, the GNOME configuration system.
+    'use_gconf%': 1,
+
     # Use OpenSSL instead of NSS. Currently in development.
     'use_openssl%': 0,
 
@@ -612,31 +615,31 @@
         ],
         'conditions': [
           ['OS!="win"', {
-            'sources/': [ ['exclude', '_win(_unittest)?\\.cc$'],
-                          ['exclude', '/win/'],
-                          ['exclude', '/win_[^/]*\\.cc$'] ],
+            'sources/': [ ['exclude', '_win(_unittest)?\\.(h|cc)$'],
+                          ['exclude', '(^|/)win/'],
+                          ['exclude', '(^|/)win_[^/]*\\.(h|cc)$'] ],
           }],
           ['OS!="mac"', {
-            'sources/': [ ['exclude', '_(cocoa|mac)(_unittest)?\\.cc$'],
-                          ['exclude', '/(cocoa|mac)/'],
-                          ['exclude', '\.mm?$' ] ],
+            'sources/': [ ['exclude', '_(cocoa|mac)(_unittest)?\\.(h|cc)$'],
+                          ['exclude', '(^|/)(cocoa|mac)/'],
+                          ['exclude', '\\.mm?$' ] ],
           }],
           ['OS!="linux" and OS!="freebsd" and OS!="openbsd"', {
             'sources/': [
-              ['exclude', '_(chromeos|gtk|x|x11|xdg)(_unittest)?\\.cc$'],
-              ['exclude', '/gtk/'],
-              ['exclude', '/(gtk|x11)_[^/]*\\.cc$'],
+              ['exclude', '_(chromeos|gtk|x|x11|xdg)(_unittest)?\\.(h|cc)$'],
+              ['exclude', '(^|/)gtk/'],
+              ['exclude', '(^|/)(gtk|x11)_[^/]*\\.(h|cc)$'],
             ],
           }],
           ['OS!="linux"', {
             'sources/': [
-              ['exclude', '_linux(_unittest)?\\.cc$'],
-              ['exclude', '/linux/'],
+              ['exclude', '_linux(_unittest)?\\.(h|cc)$'],
+              ['exclude', '(^|/)linux/'],
             ],
           }],
           # We use "POSIX" to refer to all non-Windows operating systems.
           ['OS=="win"', {
-            'sources/': [ ['exclude', '_posix\\.cc$'] ],
+            'sources/': [ ['exclude', '_posix\\.(h|cc)$'] ],
             # turn on warnings for signed/unsigned mismatch on chromium code.
             'msvs_settings': {
               'VCCLCompilerTool': {
@@ -645,10 +648,10 @@
             },
           }],
           ['chromeos!=1', {
-            'sources/': [ ['exclude', '_chromeos\\.cc$'] ]
+            'sources/': [ ['exclude', '_chromeos\\.(h|cc)$'] ]
           }],
           ['toolkit_views==0', {
-            'sources/': [ ['exclude', '_views\\.cc$'] ]
+            'sources/': [ ['exclude', '_views\\.(h|cc)$'] ]
           }],
         ],
       }],
@@ -1165,9 +1168,6 @@
               # http://code.google.com/p/googletest/source/detail?r=446 .
               # TODO(thakis): Use -isystem instead (http://crbug.com/58751 ).
               '-Wno-unnamed-type-template-args',
-              # The integrated assembler chokes on one ffmpeg file.
-              # http://crbug.com/61931
-              '-no-integrated-as',
             ],
             'cflags!': [
               # Clang doesn't seem to know know this flag.

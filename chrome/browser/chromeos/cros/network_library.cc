@@ -8,6 +8,7 @@
 #include <map>
 
 #include "app/l10n_util.h"
+#include "base/i18n/time_formatting.h"
 #include "base/stl_util-inl.h"
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
@@ -15,6 +16,7 @@
 #include "base/values.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
+#include "chrome/common/time_format.h"
 #include "grit/generated_resources.h"
 
 namespace {
@@ -33,6 +35,7 @@ namespace {
 // straight out of libcros:chromeos_network.cc. Fix this by moving
 // all handling of properties into libcros.
 // Network service properties we are interested in monitoring
+static const char* kConnectableProperty = "Connectable";
 static const char* kIsActiveProperty = "IsActive";
 static const char* kStateProperty = "State";
 static const char* kSignalStrengthProperty = "Strength";
@@ -157,9 +160,11 @@ static std::string WrapWithTD(std::string text) {
 // Helper function to create an Html table header for a Network.
 static std::string ToHtmlTableHeader(Network* network) {
   std::string str;
-  if (network->type() == TYPE_WIFI || network->type() == TYPE_CELLULAR) {
-    str += WrapWithTH("Name") + WrapWithTH("Auto-Connect") +
-        WrapWithTH("Strength");
+  if (network->type() == TYPE_ETHERNET) {
+    str += WrapWithTH("Active");
+  } else if (network->type() == TYPE_WIFI || network->type() == TYPE_CELLULAR) {
+    str += WrapWithTH("Name") + WrapWithTH("Active") +
+        WrapWithTH("Auto-Connect") + WrapWithTH("Strength");
     if (network->type() == TYPE_WIFI)
       str += WrapWithTH("Encryption") + WrapWithTH("Passphrase") +
           WrapWithTH("Identity") + WrapWithTH("Certificate");
@@ -171,9 +176,12 @@ static std::string ToHtmlTableHeader(Network* network) {
 // Helper function to create an Html table row for a Network.
 static std::string ToHtmlTableRow(Network* network) {
   std::string str;
-  if (network->type() == TYPE_WIFI || network->type() == TYPE_CELLULAR) {
+  if (network->type() == TYPE_ETHERNET) {
+    str += WrapWithTD(base::IntToString(network->is_active()));
+  } else if (network->type() == TYPE_WIFI || network->type() == TYPE_CELLULAR) {
     WirelessNetwork* wireless = static_cast<WirelessNetwork*>(network);
     str += WrapWithTD(wireless->name()) +
+        WrapWithTD(base::IntToString(network->is_active())) +
         WrapWithTD(base::IntToString(wireless->auto_connect())) +
         WrapWithTD(base::IntToString(wireless->strength()));
     if (network->type() == TYPE_WIFI) {
@@ -217,14 +225,18 @@ Network::Network(const Network& network) {
   type_ = network.type();
   state_ = network.state();
   error_ = network.error();
+  connectable_ = network.connectable();
+  is_active_ = network.is_active();
 }
 
 void Network::Clear() {
-  state_ = STATE_UNKNOWN;
-  error_ = ERROR_UNKNOWN;
   service_path_.clear();
   device_path_.clear();
   ip_address_.clear();
+  type_ = TYPE_UNKNOWN;
+  state_ = STATE_UNKNOWN;
+  error_ = ERROR_UNKNOWN;
+  connectable_ = true;
   is_active_ = false;
 }
 
@@ -234,20 +246,9 @@ Network::Network(const ServiceInfo* service) {
   error_ = service->error;
   service_path_ = SafeString(service->service_path);
   device_path_ = SafeString(service->device_path);
+  connectable_ = service->connectable;
   is_active_ = service->is_active;
-  ip_address_.clear();
-  // If connected, get ip config.
-  if (EnsureCrosLoaded() && connected() && service->device_path) {
-    IPConfigStatus* ipconfig_status = ListIPConfigs(service->device_path);
-    if (ipconfig_status) {
-      for (int i = 0; i < ipconfig_status->size; i++) {
-        IPConfig ipconfig = ipconfig_status->ips[i];
-        if (strlen(ipconfig.address) > 0)
-          ip_address_ = ipconfig.address;
-      }
-      FreeIPConfigStatus(ipconfig_status);
-    }
-  }
+  InitIPAddress();
 }
 
 // Used by GetHtmlInfo() which is called from the about:network handler.
@@ -316,6 +317,24 @@ std::string Network::GetErrorString() const {
   return l10n_util::GetStringUTF8(IDS_CHROMEOS_NETWORK_STATE_UNRECOGNIZED);
 }
 
+void Network::InitIPAddress() {
+  ip_address_.clear();
+  // If connected, get ip config.
+  if (EnsureCrosLoaded() && connected()) {
+    IPConfigStatus* ipconfig_status = ListIPConfigs(device_path_.c_str());
+    if (ipconfig_status) {
+      for (int i = 0; i < ipconfig_status->size; i++) {
+        IPConfig ipconfig = ipconfig_status->ips[i];
+        if (strlen(ipconfig.address) > 0) {
+          ip_address_ = ipconfig.address;
+          break;
+        }
+      }
+      FreeIPConfigStatus(ipconfig_status);
+    }
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // WirelessNetwork
 WirelessNetwork::WirelessNetwork(const WirelessNetwork& network)
@@ -342,6 +361,124 @@ void WirelessNetwork::Clear() {
   favorite_ = false;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// CellularDataPlan
+
+string16 CellularDataPlan::GetPlanDesciption() const {
+  switch (plan_type) {
+    case chromeos::CELLULAR_DATA_PLAN_UNLIMITED: {
+      return l10n_util::GetStringFUTF16(
+          IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_PURCHASE_UNLIMITED_DATA,
+          WideToUTF16(base::TimeFormatFriendlyDate(plan_start_time)));
+      break;
+    }
+    case chromeos::CELLULAR_DATA_PLAN_METERED_PAID: {
+      return l10n_util::GetStringFUTF16(
+                IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_PURCHASE_DATA,
+                FormatBytes(plan_data_bytes,
+                            GetByteDisplayUnits(plan_data_bytes),
+                            true),
+                WideToUTF16(base::TimeFormatFriendlyDate(
+                                plan_start_time)));
+    }
+    case chromeos::CELLULAR_DATA_PLAN_METERED_BASE: {
+      return l10n_util::GetStringFUTF16(
+                IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_RECEIVED_FREE_DATA,
+                FormatBytes(plan_data_bytes,
+                            GetByteDisplayUnits(plan_data_bytes),
+                            true),
+                WideToUTF16(base::TimeFormatFriendlyDate(
+                                plan_start_time)));
+    default:
+      break;
+    }
+  }
+  return string16();
+}
+
+string16 CellularDataPlan::GetRemainingWarning() const {
+  if (plan_type == chromeos::CELLULAR_DATA_PLAN_UNLIMITED) {
+    // Time based plan. Show nearing expiration and data expiration.
+    int64 time_left = base::TimeDelta(
+        plan_end_time - update_time).InSeconds();
+    if (time_left <= 0) {
+      return l10n_util::GetStringFUTF16(
+          IDS_NETWORK_MINUTES_REMAINING_MESSAGE, ASCIIToUTF16("0"));
+    } else if (time_left <= chromeos::kCellularDataVeryLowSecs) {
+      return l10n_util::GetStringFUTF16(
+          IDS_NETWORK_MINUTES_UNTIL_EXPIRATION_MESSAGE,
+          UTF8ToUTF16(base::Int64ToString(time_left/60)));
+    }
+  } else if (plan_type == chromeos::CELLULAR_DATA_PLAN_METERED_PAID ||
+             plan_type == chromeos::CELLULAR_DATA_PLAN_METERED_BASE) {
+    // Metered plan. Show low data and out of data.
+    int64 bytes_remaining = plan_data_bytes - data_bytes_used;
+    if (bytes_remaining <= 0) {
+      return l10n_util::GetStringFUTF16(
+          IDS_NETWORK_DATA_REMAINING_MESSAGE, ASCIIToUTF16("0"));
+    } else if (bytes_remaining <= chromeos::kCellularDataVeryLowBytes) {
+      return l10n_util::GetStringFUTF16(
+          IDS_NETWORK_DATA_REMAINING_MESSAGE,
+          UTF8ToUTF16(base::Int64ToString(bytes_remaining/(1024*1024))));
+    }
+  }
+  return string16();
+}
+
+string16 CellularDataPlan::GetDataRemainingDesciption() const {
+  switch (plan_type) {
+    case chromeos::CELLULAR_DATA_PLAN_UNLIMITED: {
+      return l10n_util::GetStringUTF16(
+          IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_UNLIMITED);
+    }
+    case chromeos::CELLULAR_DATA_PLAN_METERED_PAID: {
+      return FormatBytes(plan_data_bytes - data_bytes_used,
+          GetByteDisplayUnits(plan_data_bytes - data_bytes_used),
+          true);
+    }
+    case chromeos::CELLULAR_DATA_PLAN_METERED_BASE: {
+      return FormatBytes(plan_data_bytes - data_bytes_used,
+          GetByteDisplayUnits(plan_data_bytes - data_bytes_used),
+          true);
+    }
+    default:
+      break;
+  }
+  return string16();
+}
+
+string16 CellularDataPlan::GetUsageInfo() const {
+  if (plan_type == chromeos::CELLULAR_DATA_PLAN_UNLIMITED) {
+    // Time based plan. Show nearing expiration and data expiration.
+    int64 time_left = base::TimeDelta(
+        plan_end_time - update_time).InSeconds();
+    return l10n_util::GetStringFUTF16(
+          IDS_NETWORK_MINUTES_UNTIL_EXPIRATION_MESSAGE,
+          UTF8ToUTF16(base::Int64ToString(time_left/60)));
+  } else if (plan_type == chromeos::CELLULAR_DATA_PLAN_METERED_PAID ||
+             plan_type == chromeos::CELLULAR_DATA_PLAN_METERED_BASE) {
+    // Metered plan. Show low data and out of data.
+    int64 bytes_remaining = plan_data_bytes - data_bytes_used;
+    if (bytes_remaining <= 0)
+      bytes_remaining = 0;
+    return l10n_util::GetStringFUTF16(
+        IDS_NETWORK_DATA_AVAILABLE_MESSAGE,
+        UTF8ToUTF16(base::Int64ToString(bytes_remaining/(1024*1024))));
+  }
+  return string16();
+}
+
+int64 CellularDataPlan::remaining_minutes() const {
+  return base::TimeDelta(plan_end_time - update_time).InMinutes();
+}
+
+int64 CellularDataPlan::remaining_mbytes() const {
+  return (plan_data_bytes - data_bytes_used) / (1024 * 1024);
+}
+
+string16 CellularDataPlan::GetPlanExpiration() const {
+  return TimeFormat::TimeRemaining(plan_end_time - base::Time::Now());
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // CellularNetwork
@@ -1048,6 +1185,23 @@ class NetworkLibraryImpl : public NetworkLibrary  {
       return wifi_;
     if (cellular_ && cellular_->is_active())
       return cellular_;
+    // Due to bug chromium-os:9310, if no active network is found,
+    // use the first connected.
+    // TODO(chocobo): Remove when bug 9310 is fixed.
+    // START BUG 9310 WORKAROUND
+    if (ethernet_ && ethernet_->connected()) {
+      ethernet_->set_active(true);
+      return ethernet_;
+    }
+    if (wifi_ && wifi_->connected()) {
+      wifi_->set_active(true);
+      return wifi_;
+    }
+    if (cellular_ && cellular_->connected()) {
+      cellular_->set_active(true);
+      return cellular_;
+    }
+    // END BUG 9310 WORKAROUND
     return NULL;
   }
 
@@ -1119,25 +1273,32 @@ class NetworkLibraryImpl : public NetworkLibrary  {
       output.append("(To auto-refresh this page: about:network/&lt;secs&gt;)");
     }
 
-    output.append("<h3>Ethernet:</h3><table border=1>");
-    if (ethernet_ && ethernet_enabled()) {
-      output.append("<tr>" + ToHtmlTableHeader(ethernet_) + "</tr>");
-      output.append("<tr>" + ToHtmlTableRow(ethernet_) + "</tr>");
+    if (ethernet_enabled()) {
+      output.append("<h3>Ethernet:</h3><table border=1>");
+      if (ethernet_) {
+        output.append("<tr>" + ToHtmlTableHeader(ethernet_) + "</tr>");
+        output.append("<tr>" + ToHtmlTableRow(ethernet_) + "</tr>");
+      }
     }
 
-    output.append("</table><h3>Wifi:</h3><table border=1>");
-    for (size_t i = 0; i < wifi_networks_.size(); ++i) {
-      if (i == 0)
-        output.append("<tr>" + ToHtmlTableHeader(wifi_networks_[i]) + "</tr>");
-      output.append("<tr>" + ToHtmlTableRow(wifi_networks_[i]) + "</tr>");
+    if (wifi_enabled()) {
+      output.append("</table><h3>Wifi:</h3><table border=1>");
+      for (size_t i = 0; i < wifi_networks_.size(); ++i) {
+        if (i == 0)
+          output.append("<tr>" + ToHtmlTableHeader(wifi_networks_[i]) +
+                        "</tr>");
+        output.append("<tr>" + ToHtmlTableRow(wifi_networks_[i]) + "</tr>");
+      }
     }
 
-    output.append("</table><h3>Cellular:</h3><table border=1>");
-    for (size_t i = 0; i < cellular_networks_.size(); ++i) {
-      if (i == 0)
-        output.append("<tr>" + ToHtmlTableHeader(cellular_networks_[i]) +
-            "</tr>");
-      output.append("<tr>" + ToHtmlTableRow(cellular_networks_[i]) + "</tr>");
+    if (cellular_enabled()) {
+      output.append("</table><h3>Cellular:</h3><table border=1>");
+      for (size_t i = 0; i < cellular_networks_.size(); ++i) {
+        if (i == 0)
+          output.append("<tr>" + ToHtmlTableHeader(cellular_networks_[i]) +
+                        "</tr>");
+        output.append("<tr>" + ToHtmlTableRow(cellular_networks_[i]) + "</tr>");
+      }
     }
 
     output.append("</table><h3>Remembered Wifi:</h3><table border=1>");
@@ -1251,16 +1412,16 @@ class NetworkLibraryImpl : public NetworkLibrary  {
     DVLOG(1) << "Remembered networks:";
     for (int i = 0; i < system->remembered_service_size; i++) {
       const ServiceInfo* service = system->GetRememberedServiceInfo(i);
-      // Only services marked as auto_connect are considered remembered
-      // networks.
+      // Only services marked as favorite are considered remembered networks.
       // TODO(chocobo): Don't add to remembered service if currently available.
-      if (service->auto_connect) {
+      if (service->favorite) {
         DVLOG(1) << "  (" << service->type << ") " << service->name
                  << " mode=" << service->mode
                  << " sec=" << service->security
                  << " pass=" << service->passphrase
                  << " id=" << service->identity
                  << " certpath=" << service->cert_path
+                 << " fav=" << service->favorite
                  << " auto=" << service->auto_connect;
         if (service->type == TYPE_WIFI) {
           remembered_wifi_networks->push_back(new WifiNetwork(service));
@@ -1304,7 +1465,9 @@ class NetworkLibraryImpl : public NetworkLibrary  {
     wifi3->set_name("Fake Wifi 3");
     wifi3->set_strength(50);
     wifi3->set_connected(false);
-    wifi3->set_encryption(SECURITY_WEP);
+    wifi3->set_encryption(SECURITY_8021X);
+    wifi3->set_identity("nobody@google.com");
+    wifi3->set_cert_path("SETTINGS:key_id=3,cert_id=3,pin=111111");
     wifi_networks_.push_back(wifi3);
 
     wifi_ = wifi2;
@@ -1424,6 +1587,8 @@ class NetworkLibraryImpl : public NetworkLibrary  {
 
     std::string prev_cellular_service_path = cellular_ ?
         cellular_->service_path() : std::string();
+    bool prev_cellular_connected = cellular_ ?
+        cellular_->connected() : false;
 
     ClearNetworks();
 
@@ -1442,8 +1607,9 @@ class NetworkLibraryImpl : public NetworkLibrary  {
       if (cellular_networks_[i]->connecting_or_connected()) {
         cellular_ = cellular_networks_[i];
         // If new cellular, then request update of the data plan list.
-        if (cellular_networks_[i]->service_path() !=
-                prev_cellular_service_path) {
+        if ((cellular_networks_[i]->service_path() !=
+                 prev_cellular_service_path) ||
+            (!prev_cellular_connected && cellular_networks_[i]->connected())) {
           RefreshCellularDataPlans(cellular_);
         }
         break;  // There is only one connected or connecting cellular network.
@@ -1518,12 +1684,18 @@ class NetworkLibraryImpl : public NetworkLibrary  {
       }
       network = wireless;
     }
-    if (strcmp(key, kIsActiveProperty) == 0) {
+    if (strcmp(key, kConnectableProperty) == 0) {
+      if (value->GetAsBoolean(&boolval))
+        network->set_connectable(boolval);
+    } else if (strcmp(key, kIsActiveProperty) == 0) {
       if (value->GetAsBoolean(&boolval))
         network->set_active(boolval);
     } else if (strcmp(key, kStateProperty) == 0) {
-      if (value->GetAsString(&stringval))
+      if (value->GetAsString(&stringval)) {
         network->set_state(ParseState(stringval));
+        // State changed, so refresh IP address.
+        network->InitIPAddress();
+      }
     }
     NotifyNetworkChanged(network);
   }

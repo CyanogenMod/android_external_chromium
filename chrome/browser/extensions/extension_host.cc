@@ -13,7 +13,6 @@
 #include "base/singleton.h"
 #include "base/metrics/histogram.h"
 #include "base/string_util.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/browser_window.h"
@@ -38,6 +37,7 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/bindings_policy.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
@@ -157,14 +157,6 @@ ExtensionHost::~ExtensionHost() {
       Details<ExtensionHost>(this));
   ProcessCreationQueue::get()->Remove(this);
   render_view_host_->Shutdown();  // deletes render_view_host
-
-  if (recently_deleted()->size() >= 20)
-    recently_deleted()->pop_front();
-  recently_deleted()->push_back(this);
-}
-
-ExtensionHost::HostPointerList* ExtensionHost::recently_deleted() {
-  return Singleton<HostPointerList>::get();
 }
 
 void ExtensionHost::CreateView(Browser* browser) {

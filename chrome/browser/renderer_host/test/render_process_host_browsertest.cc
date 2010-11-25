@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/browser.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
@@ -58,7 +58,7 @@ IN_PROC_BROWSER_TEST_F(RenderProcessHostTest, DISABLED_ProcessOverflow) {
 
   // Create a new TYPE_NORMAL tab.  It should be in its own process.
   GURL page1("data:text/html,hello world1");
-  browser()->ShowSingletonTab(page1);
+  browser()->ShowSingletonTab(page1, false);
   if (browser()->tab_count() == tab_count)
     ui_test_utils::WaitForNewTab(browser());
   tab_count++;
@@ -72,7 +72,7 @@ IN_PROC_BROWSER_TEST_F(RenderProcessHostTest, DISABLED_ProcessOverflow) {
 
   // Create another TYPE_NORMAL tab.  It should share the previous process.
   GURL page2("data:text/html,hello world2");
-  browser()->ShowSingletonTab(page2);
+  browser()->ShowSingletonTab(page2, false);
   if (browser()->tab_count() == tab_count)
     ui_test_utils::WaitForNewTab(browser());
   tab_count++;
@@ -87,7 +87,7 @@ IN_PROC_BROWSER_TEST_F(RenderProcessHostTest, DISABLED_ProcessOverflow) {
   // bug 43448 where extension and DOMUI tabs could get combined into normal
   // renderers.
   GURL history(chrome::kChromeUIHistoryURL);
-  browser()->ShowSingletonTab(history);
+  browser()->ShowSingletonTab(history, false);
   if (browser()->tab_count() == tab_count)
     ui_test_utils::WaitForNewTab(browser());
   tab_count++;
@@ -100,7 +100,7 @@ IN_PROC_BROWSER_TEST_F(RenderProcessHostTest, DISABLED_ProcessOverflow) {
   // Create a TYPE_EXTENSION tab.  It should be in its own process.
   // (the bookmark manager is implemented as an extension)
   GURL bookmarks(chrome::kChromeUIBookmarksURL);
-  browser()->ShowSingletonTab(bookmarks);
+  browser()->ShowSingletonTab(bookmarks, false);
   if (browser()->tab_count() == tab_count)
     ui_test_utils::WaitForNewTab(browser());
   tab_count++;

@@ -25,7 +25,10 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <string>
+
 #include "talk/p2p/base/constants.h"
+#include "talk/xmllite/qname.h"
 
 namespace cricket {
 
@@ -61,6 +64,10 @@ const std::string GINGLE_ACTION_REJECT("reject");
 const std::string GINGLE_ACTION_TERMINATE("terminate");
 const std::string GINGLE_ACTION_CANDIDATES("candidates");
 
+const std::string LN_ERROR("error");
+const buzz::QName QN_GINGLE_REDIRECT(true, NS_GINGLE, "redirect");
+const std::string STR_REDIRECT_PREFIX("xmpp:");
+
 // Session Contents (aka Gingle <session><description>
 //                   or Jingle <content><description>)
 const std::string LN_DESCRIPTION("description");
@@ -81,6 +88,7 @@ const std::string PAYLOADTYPE_PARAMETER_BITRATE("bitrate");
 const std::string PAYLOADTYPE_PARAMETER_HEIGHT("height");
 const std::string PAYLOADTYPE_PARAMETER_WIDTH("width");
 const std::string PAYLOADTYPE_PARAMETER_FRAMERATE("framerate");
+const std::string LN_BANDWIDTH("bandwidth");
 
 const std::string CN_AUDIO("audio");
 const std::string CN_VIDEO("video");
@@ -91,6 +99,8 @@ const buzz::QName QN_JINGLE_RTP_CONTENT(
     true, NS_JINGLE_RTP, LN_DESCRIPTION);
 const buzz::QName QN_JINGLE_RTP_PAYLOADTYPE(
     true, NS_JINGLE_RTP, LN_PAYLOADTYPE);
+const buzz::QName QN_JINGLE_RTP_BANDWIDTH(
+    true, NS_JINGLE_RTP, LN_BANDWIDTH);
 const buzz::QName QN_PARAMETER(true, NS_JINGLE_RTP, "parameter");
 
 const std::string NS_GINGLE_AUDIO("http://www.google.com/session/phone");
@@ -105,7 +115,19 @@ const buzz::QName QN_GINGLE_VIDEO_CONTENT(
 const buzz::QName QN_GINGLE_VIDEO_PAYLOADTYPE(
     true, NS_GINGLE_VIDEO, LN_PAYLOADTYPE);
 const buzz::QName QN_GINGLE_VIDEO_SRCID(true, NS_GINGLE_VIDEO, "src-id");
-const buzz::QName QN_GINGLE_VIDEO_BANDWIDTH(true, NS_GINGLE_VIDEO, "bandwidth");
+const buzz::QName QN_GINGLE_VIDEO_BANDWIDTH(
+    true, NS_GINGLE_VIDEO, LN_BANDWIDTH);
+
+// Crypto support.
+const buzz::QName QN_ENCRYPTION(true, NS_JINGLE_RTP, "encryption");
+const buzz::QName QN_ENCRYPTION_REQUIRED(true, NS_EMPTY, "required");
+const buzz::QName QN_CRYPTO(true, NS_JINGLE_RTP, "crypto");
+const buzz::QName QN_GINGLE_AUDIO_CRYPTO_USAGE(true, NS_GINGLE_AUDIO, "usage");
+const buzz::QName QN_GINGLE_VIDEO_CRYPTO_USAGE(true, NS_GINGLE_VIDEO, "usage");
+const buzz::QName QN_CRYPTO_SUITE(true, NS_EMPTY, "crypto-suite");
+const buzz::QName QN_CRYPTO_KEY_PARAMS(true, NS_EMPTY, "key-params");
+const buzz::QName QN_CRYPTO_TAG(true, NS_EMPTY, "tag");
+const buzz::QName QN_CRYPTO_SESSION_PARAMS(true, NS_EMPTY, "session-params");
 
 // transports and candidates
 const std::string LN_TRANSPORT("transport");

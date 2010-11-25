@@ -41,10 +41,6 @@ bool TabContentsDelegate::CanReloadContents(TabContents* source) const {
   return true;
 }
 
-gfx::Rect TabContentsDelegate::GetRootWindowResizerRect() const {
-  return gfx::Rect();
-}
-
 void TabContentsDelegate::ShowHtmlDialog(HtmlDialogUIDelegate* delegate,
                                          gfx::NativeWindow parent_window) {
 }
@@ -70,13 +66,6 @@ bool TabContentsDelegate::ShouldFocusPageAfterCrash() {
 }
 
 void TabContentsDelegate::RenderWidgetShowing() {}
-
-ExtensionFunctionDispatcher*
-TabContentsDelegate::CreateExtensionFunctionDispatcher(
-    RenderViewHost* render_view_host,
-    const std::string& extension_id) {
-  return NULL;
-}
 
 bool TabContentsDelegate::TakeFocus(bool reverse) {
   return false;

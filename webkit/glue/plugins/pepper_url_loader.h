@@ -9,13 +9,13 @@
 
 #include "base/scoped_ptr.h"
 #include "ppapi/c/pp_completion_callback.h"
-#include "ppapi/c/dev/ppb_url_loader_trusted_dev.h"
+#include "ppapi/c/trusted/ppb_url_loader_trusted.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebURLLoaderClient.h"
 #include "webkit/glue/plugins/pepper_plugin_instance.h"
 #include "webkit/glue/plugins/pepper_resource.h"
 
-struct PPB_URLLoader_Dev;
-struct PPB_URLLoaderTrusted_Dev;
+struct PPB_URLLoader;
+struct PPB_URLLoaderTrusted;
 
 namespace WebKit {
 class WebFrame;
@@ -37,11 +37,11 @@ class URLLoader : public Resource,
 
   // Returns a pointer to the interface implementing PPB_URLLoader that is
   // exposed to the plugin.
-  static const PPB_URLLoader_Dev* GetInterface();
+  static const PPB_URLLoader* GetInterface();
 
   // Returns a pointer to the interface implementing PPB_URLLoaderTrusted that
   // is exposed to the plugin.
-  static const PPB_URLLoaderTrusted_Dev* GetTrustedInterface();
+  static const PPB_URLLoaderTrusted* GetTrustedInterface();
 
   // Resource overrides.
   URLLoader* AsURLLoader() { return this; }
@@ -100,6 +100,14 @@ class URLLoader : public Resource,
   // synchronize an out-of-process plugin's state.
   void UpdateStatus();
 
+  // Returns true if the plugin has requested we record download or upload
+  // progress. When false, we don't need to update the counters. We go out of
+  // our way not to allow access to this information unless it's requested,
+  // even when it would be easier just to return it and not check, so that
+  // plugins don't depend on access without setting the flag.
+  bool RecordDownloadProgress() const;
+  bool RecordUploadProgress() const;
+
   // This will be NULL if the instance has been deleted but this URLLoader was
   // somehow leaked. In general, you should not need to check this for NULL.
   // However, if you see a NULL pointer crash, that means somebody is holding
@@ -121,9 +129,6 @@ class URLLoader : public Resource,
   char* user_buffer_;
   size_t user_buffer_size_;
   int32_t done_status_;
-
-  bool record_download_progress_;
-  bool record_upload_progress_;
 
   bool has_universal_access_;
 

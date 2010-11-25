@@ -17,6 +17,7 @@
 #include "app/surface/transport_dib.h"
 #include "base/callback.h"
 #include "base/file_path.h"
+#include "base/linked_ptr.h"
 #include "base/process.h"
 #include "base/ref_counted.h"
 #include "base/string16.h"
@@ -42,7 +43,9 @@ struct FontDescriptor;
 class GeolocationDispatcherHostOld;
 class HostZoomMap;
 class IndexedDBDispatcherHost;
+class MimeRegistryDispatcher;
 class NotificationsPrefsCache;
+class PpapiPluginProcessHost;
 class Profile;
 class RenderWidgetHelper;
 class SearchProviderInstallStateDispatcherHost;
@@ -195,6 +198,8 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
   void OnOpenChannelToPlugin(const GURL& url,
                              const std::string& mime_type,
                              IPC::Message* reply_msg);
+  void OnOpenChannelToPepperPlugin(const FilePath& path,
+                                   IPC::Message* reply_msg);
   void OnLaunchNaCl(const std::wstring& url,
                     int channel_descriptor,
                     IPC::Message* reply_msg);
@@ -254,12 +259,6 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
 #endif
 
   void OnRevealFolderInOS(const FilePath& path);
-  void OnGetMimeTypeFromExtension(const FilePath::StringType& ext,
-                                  std::string* mime_type);
-  void OnGetMimeTypeFromFile(const FilePath& file_path,
-                             std::string* mime_type);
-  void OnGetPreferredExtensionForMimeType(const std::string& mime_type,
-                                          FilePath::StringType* ext);
   void OnGetCPBrowsingContext(uint32* context);
 
 #if defined(OS_WIN)
@@ -474,6 +473,9 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
 
   base::TimeTicks last_plugin_refresh_time_;  // Initialized to 0.
 
+  // A list of all Ppapi plugin processes for this renderer.
+  std::vector<linked_ptr<PpapiPluginProcessHost> > ppapi_plugin_hosts_;
+
   // A callback to create a routing id for the associated renderer process.
   scoped_ptr<CallbackWithReturnValue<int>::Type> next_route_id_callback_;
 
@@ -500,6 +502,9 @@ class ResourceMessageFilter : public IPC::ChannelProxy::MessageFilter,
 
   // Handles file utilities messages.
   scoped_refptr<FileUtilitiesDispatcherHost> file_utilities_dispatcher_host_;
+
+  // Handles mime registry requests.
+  scoped_refptr<MimeRegistryDispatcher> mime_registry_dispatcher_;
 
   DISALLOW_COPY_AND_ASSIGN(ResourceMessageFilter);
 };

@@ -34,16 +34,18 @@ cr.define('options', function() {
       $('customize-sync').onclick = function(event) {
         OptionsPage.showPageByName('sync');
       };
+      $('sync-action-link').onclick = function(event) {
+        chrome.send('showSyncLoginDialog');
+      };
       $('start-stop-sync').onclick = function(event) {
         if (self.syncSetupCompleted)
           self.showStopSyncingOverlay_();
         else
-          self.showSyncLoginDialog_();
+          chrome.send('showSyncLoginDialog');
       };
       $('privacy-dashboard-link').onclick = function(event) {
         chrome.send('openPrivacyDashboardTabAndActivate');
       };
-
       $('showpasswords').onclick = function(event) {
         PasswordsExceptions.load();
         OptionsPage.showPageByName('passwordsExceptions');
@@ -51,7 +53,6 @@ cr.define('options', function() {
         chrome.send('coreOptionsUserMetricsAction',
             ['Options_ShowPasswordsExceptions']);
       };
-
       $('autofill_options').onclick = function(event) {
         OptionsPage.showPageByName('autoFillOptions');
         chrome.send('coreOptionsUserMetricsAction',
@@ -69,22 +70,15 @@ cr.define('options', function() {
         $('themes_GTK_button').onclick = function(event) {
           chrome.send('themesSetGTK');
         };
-
         $('themes_set_classic').onclick = function(event) {
           chrome.send('themesReset');
         };
-        $('themes-gallery').onclick = function(event) {
-          chrome.send('themesGallery');
-        }
       }
 
       if (cr.isMac || cr.isWindows || cr.isChromeOS) {
         $('themes_reset').onclick = function(event) {
           chrome.send('themesReset');
         };
-        $('themes-gallery').onclick = function(event) {
-          chrome.send('themesGallery');
-        }
       }
 
       if (cr.isChromeOS) {
@@ -101,12 +95,11 @@ cr.define('options', function() {
           function() { chrome.send('stopSyncing'); });
     },
 
-    showSyncLoginDialog_: function(event) {
-      chrome.send('showSyncLoginDialog');
-    },
-
     setElementVisible_: function(element, visible) {
-      element.style.display = visible ? 'inline' : 'none';
+      if (visible)
+        element.classList.remove('hidden');
+      else
+        element.classList.add('hidden');
     },
 
     setElementClassSyncError_: function(element, visible) {
@@ -185,6 +178,10 @@ cr.define('options', function() {
         $('themes_set_classic').disabled = !enabled;
       }
     },
+
+    hideSyncSection_: function() {
+      this.setElementVisible_($('sync-section'), false);
+    },
   };
 
   // Forward public APIs to private implementations.
@@ -205,6 +202,7 @@ cr.define('options', function() {
     'setCustomizeButtonLabel',
     'setGtkThemeButtonEnabled',
     'setClassicThemeButtonEnabled',
+    'hideSyncSection',
   ].forEach(function(name) {
     PersonalOptions[name] = function(value) {
       PersonalOptions.getInstance()[name + '_'](value);

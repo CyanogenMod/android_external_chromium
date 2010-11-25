@@ -14,6 +14,7 @@
 #include "net/base/x509_certificate.h"
 #endif
 
+#include "base/base64.h"
 #include "base/command_line.h"
 #include "base/debug/leak_annotations.h"
 #include "base/file_util.h"
@@ -39,59 +40,6 @@ const int kServerConnectionAttempts = 10;
 
 // Connection timeout in milliseconds for tests.
 const int kServerConnectionTimeoutMs = 1000;
-
-const char kTestServerShardFlag[] = "test-server-shard";
-
-int GetHTTPSPortBase(const TestServer::HTTPSOptions& options) {
-  if (options.request_client_certificate)
-    return 9543;
-
-  switch (options.server_certificate) {
-    case TestServer::HTTPSOptions::CERT_OK:
-      return 9443;
-    case TestServer::HTTPSOptions::CERT_MISMATCHED_NAME:
-      return 9643;
-    case TestServer::HTTPSOptions::CERT_EXPIRED:
-      // TODO(phajdan.jr): Some tests rely on this hardcoded value.
-      // Some uses of this are actually in .html/.js files.
-      return 9666;
-    default:
-      NOTREACHED();
-  }
-  return -1;
-}
-
-int GetPortBase(TestServer::Type type,
-                const TestServer::HTTPSOptions& options) {
-  switch (type) {
-    case TestServer::TYPE_FTP:
-      return 3117;
-    case TestServer::TYPE_HTTP:
-      return 1337;
-    case TestServer::TYPE_HTTPS:
-      return GetHTTPSPortBase(options);
-    default:
-      NOTREACHED();
-  }
-  return -1;
-}
-
-int GetPort(TestServer::Type type,
-            const TestServer::HTTPSOptions& options) {
-  int port = GetPortBase(type, options);
-  if (CommandLine::ForCurrentProcess()->HasSwitch(kTestServerShardFlag)) {
-    std::string shard_str(CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-                              kTestServerShardFlag));
-    int shard = -1;
-    if (base::StringToInt(shard_str, &shard)) {
-      port += shard;
-    } else {
-      LOG(FATAL) << "Got invalid " << kTestServerShardFlag << " flag value. "
-                 << "An integer is expected.";
-    }
-  }
-  return port;
-}
 
 std::string GetHostname(TestServer::Type type,
                         const TestServer::HTTPSOptions& options) {
@@ -138,13 +86,16 @@ FilePath TestServer::HTTPSOptions::GetCertificateFile() const {
 }
 
 TestServer::TestServer(Type type, const FilePath& document_root)
-    : type_(type) {
+    : type_(type),
+      started_(false) {
   Init(document_root);
 }
 
 TestServer::TestServer(const HTTPSOptions& https_options,
                        const FilePath& document_root)
-    : https_options_(https_options), type_(TYPE_HTTPS) {
+    : https_options_(https_options),
+      type_(TYPE_HTTPS),
+      started_(false) {
   Init(document_root);
 }
 
@@ -156,8 +107,11 @@ TestServer::~TestServer() {
 }
 
 void TestServer::Init(const FilePath& document_root) {
-  host_port_pair_ = HostPortPair(GetHostname(type_, https_options_),
-                                 GetPort(type_, https_options_));
+  // At this point, the port that the testserver will listen on is unknown.
+  // The testserver will listen on an ephemeral port, and write the port
+  // number out over a pipe that this TestServer object will read from. Once
+  // that is complete, the host_port_pair_ will contain the actual port.
+  host_port_pair_ = HostPortPair(GetHostname(type_, https_options_), 0);
   process_handle_ = base::kNullProcessHandle;
 
   FilePath src_dir;
@@ -202,12 +156,15 @@ bool TestServer::Start() {
     return false;
   }
 
+  started_ = true;
   return true;
 }
 
 bool TestServer::Stop() {
   if (!process_handle_)
     return true;
+
+  started_ = false;
 
   // First check if the process has already terminated.
   bool ret = base::WaitForSingleProcess(process_handle_, 0);
@@ -224,11 +181,17 @@ bool TestServer::Stop() {
   return ret;
 }
 
+const HostPortPair& TestServer::host_port_pair() const {
+  DCHECK(started_);
+  return host_port_pair_;
+}
+
 std::string TestServer::GetScheme() const {
   switch (type_) {
     case TYPE_FTP:
       return "ftp";
     case TYPE_HTTP:
+    case TYPE_SYNC:
       return "http";
     case TYPE_HTTPS:
       return "https";
@@ -252,13 +215,13 @@ bool TestServer::GetAddressList(AddressList* address_list) const {
   return true;
 }
 
-GURL TestServer::GetURL(const std::string& path) {
+GURL TestServer::GetURL(const std::string& path) const {
   return GURL(GetScheme() + "://" + host_port_pair_.ToString() +
               "/" + path);
 }
 
 GURL TestServer::GetURLWithUser(const std::string& path,
-                                const std::string& user) {
+                                const std::string& user) const {
   return GURL(GetScheme() + "://" + user + "@" +
               host_port_pair_.ToString() +
               "/" + path);
@@ -266,10 +229,45 @@ GURL TestServer::GetURLWithUser(const std::string& path,
 
 GURL TestServer::GetURLWithUserAndPassword(const std::string& path,
                                            const std::string& user,
-                                           const std::string& password) {
+                                           const std::string& password) const {
   return GURL(GetScheme() + "://" + user + ":" + password +
               "@" + host_port_pair_.ToString() +
               "/" + path);
+}
+
+// static
+bool TestServer::GetFilePathWithReplacements(
+    const std::string& original_file_path,
+    const std::vector<StringPair>& text_to_replace,
+    std::string* replacement_path) {
+  std::string new_file_path = original_file_path;
+  bool first_query_parameter = true;
+  const std::vector<StringPair>::const_iterator end = text_to_replace.end();
+  for (std::vector<StringPair>::const_iterator it = text_to_replace.begin();
+       it != end;
+       ++it) {
+    const std::string& old_text = it->first;
+    const std::string& new_text = it->second;
+    std::string base64_old;
+    std::string base64_new;
+    if (!base::Base64Encode(old_text, &base64_old))
+      return false;
+    if (!base::Base64Encode(new_text, &base64_new))
+      return false;
+    if (first_query_parameter) {
+      new_file_path += "?";
+      first_query_parameter = false;
+    } else {
+      new_file_path += "&";
+    }
+    new_file_path += "replace_text=";
+    new_file_path += base64_old;
+    new_file_path += ":";
+    new_file_path += base64_new;
+  }
+
+  *replacement_path = new_file_path;
+  return true;
 }
 
 bool TestServer::SetPythonPath() {
@@ -284,33 +282,16 @@ bool TestServer::SetPythonPath() {
   AppendToPythonPath(third_party_dir.Append(FILE_PATH_LITERAL("pyftpdlib")));
 
   // Locate the Python code generated by the protocol buffers compiler.
-  FilePath generated_code_dir;
-  if (!PathService::Get(base::DIR_EXE, &generated_code_dir)) {
-    LOG(ERROR) << "Failed to get DIR_EXE";
+  FilePath pyproto_code_dir;
+  if (!GetPyProtoPath(&pyproto_code_dir)) {
+    LOG(ERROR) << "Failed to get python dir for generated code.";
     return false;
   }
 
-  static const FilePath kPyProto(FILE_PATH_LITERAL("pyproto"));
-
-#if defined(OS_MACOSX)
-  // On Mac, DIR_EXE might be pointing deep into the Release/ (or Debug/)
-  // directory and we can't depend on how far down it goes. So we walk upwards
-  // from DIR_EXE until we find a likely looking spot.
-  while (!file_util::DirectoryExists(generated_code_dir.Append(kPyProto))) {
-    FilePath parent = generated_code_dir.DirName();
-    if (parent == generated_code_dir) {
-      // We hit the root directory. Maybe we didn't build any targets which
-      // produced Python protocol buffers.
-      PathService::Get(base::DIR_EXE, &generated_code_dir);
-      break;
-    }
-    generated_code_dir = parent;
-  }
-#endif
-
-  AppendToPythonPath(generated_code_dir.Append(kPyProto));
-  AppendToPythonPath(generated_code_dir.Append(kPyProto).
-                     Append(FILE_PATH_LITERAL("sync_pb")));
+  AppendToPythonPath(pyproto_code_dir);
+  AppendToPythonPath(pyproto_code_dir.Append(FILE_PATH_LITERAL("sync_pb")));
+  AppendToPythonPath(pyproto_code_dir.Append(
+      FILE_PATH_LITERAL("device_management_pb")));
 
   return true;
 }
@@ -350,6 +331,8 @@ bool TestServer::AddCommandLineArguments(CommandLine* command_line) const {
 
   if (type_ == TYPE_FTP) {
     command_line->AppendArg("-f");
+  } else if (type_ == TYPE_SYNC) {
+    command_line->AppendArg("--sync");
   } else if (type_ == TYPE_HTTPS) {
     FilePath certificate_path(certificates_dir_);
     certificate_path = certificate_path.Append(

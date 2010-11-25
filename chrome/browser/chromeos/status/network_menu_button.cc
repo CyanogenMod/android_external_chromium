@@ -15,7 +15,6 @@
 #include "chrome/browser/chromeos/options/network_config_view.h"
 #include "chrome/browser/chromeos/status/status_area_host.h"
 #include "gfx/canvas_skia.h"
-#include "gfx/skbitmap_operations.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "views/window/window.h"
@@ -52,16 +51,8 @@ NetworkMenuButton::~NetworkMenuButton() {
 
 void NetworkMenuButton::AnimationProgressed(const Animation* animation) {
   if (animation == &animation_connecting_) {
-    // Draw animation of bars icon fading in and out.
-    // We are fading between 0 bars and a third of the opacity of 4 bars.
-    // Use the current value of the animation to calculate the alpha value
-    // of how transparent the icon is.
-    SetIcon(SkBitmapOperations::CreateBlendedBitmap(
-        *ResourceBundle::GetSharedInstance().GetBitmapNamed(
-            IDR_STATUSBAR_NETWORK_BARS0),
-        *ResourceBundle::GetSharedInstance().GetBitmapNamed(
-            IDR_STATUSBAR_NETWORK_BARS4),
-        animation_connecting_.GetCurrentValue() / 3));
+    SetIcon(IconForNetworkConnecting(animation_connecting_.GetCurrentValue(),
+                                     false));
     SchedulePaint();
   } else {
     MenuButton::AnimationProgressed(animation);
@@ -82,28 +73,13 @@ void NetworkMenuButton::DrawIcon(gfx::Canvas* canvas) {
 void NetworkMenuButton::OnNetworkManagerChanged(NetworkLibrary* cros) {
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   if (CrosLibrary::Get()->EnsureLoaded()) {
-    // Add an observer for the active network, if any
     const Network* network = cros->active_network();
-    if (active_network_.empty() || network == NULL ||
-        active_network_ != network->service_path()) {
-      if (!active_network_.empty()) {
-        cros->RemoveNetworkObserver(active_network_, this);
-      }
-      if (network != NULL) {
-        cros->AddNetworkObserver(network->service_path(), this);
-      }
-    }
-    if (network)
-      active_network_ = network->service_path();
-    else
-      active_network_ = "";
-
     if (cros->wifi_connecting() || cros->cellular_connecting()) {
       // Start the connecting animation if not running.
       if (!animation_connecting_.is_animating()) {
         animation_connecting_.Reset();
-        animation_connecting_.StartThrobbing(std::numeric_limits<int>::max());
-        SetIcon(*rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_BARS0));
+        animation_connecting_.StartThrobbing(-1);
+        SetIcon(IconForNetworkConnecting(0, false));
       }
       std::string network_name = cros->wifi_connecting() ?
           cros->wifi_network()->name() : cros->cellular_network()->name();
@@ -134,6 +110,7 @@ void NetworkMenuButton::OnNetworkManagerChanged(NetworkLibrary* cros) {
         IDS_STATUSBAR_NETWORK_NO_NETWORK_TOOLTIP));
   }
 
+  RefreshNetworkObserver(cros);
   SchedulePaint();
   UpdateMenu();
 }
@@ -154,6 +131,7 @@ void NetworkMenuButton::OnNetworkChanged(NetworkLibrary* cros,
         IDS_STATUSBAR_NETWORK_NO_NETWORK_TOOLTIP));
   }
 
+  RefreshNetworkObserver(cros);
   SchedulePaint();
   UpdateMenu();
 }
@@ -229,6 +207,20 @@ void NetworkMenuButton::SetNetworkBadge(NetworkLibrary* cros,
     SetBadge(*rb.GetBitmapNamed(IDR_STATUSBAR_NETWORK_DISCONNECTED));
   } else {
     SetBadge(SkBitmap());
+  }
+}
+
+void NetworkMenuButton::RefreshNetworkObserver(NetworkLibrary* cros) {
+  const Network* network = cros->active_network();
+  std::string new_network = network ? network->service_path() : std::string();
+  if (active_network_ != new_network) {
+    if (!active_network_.empty()) {
+      cros->RemoveNetworkObserver(active_network_, this);
+    }
+    if (!new_network.empty()) {
+      cros->AddNetworkObserver(new_network, this);
+    }
+    active_network_ = new_network;
   }
 }
 

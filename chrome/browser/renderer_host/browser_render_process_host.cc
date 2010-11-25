@@ -25,6 +25,7 @@
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/thread.h"
+#include "base/thread_restrictions.h"
 #include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/child_process_security_policy.h"
@@ -36,6 +37,7 @@
 #include "chrome/browser/gpu_process_host.h"
 #include "chrome/browser/history/history.h"
 #include "chrome/browser/io_thread.h"
+#include "chrome/browser/platform_util.h"
 #include "chrome/browser/plugin_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/audio_renderer_host.h"
@@ -619,11 +621,13 @@ void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
     switches::kBlockNonSandboxedPlugins,
     switches::kDisableOutdatedPlugins,
     switches::kEnableRemoting,
-    switches::kDisableClickToPlay,
+    switches::kEnableClickToPlay,
     switches::kEnableResourceContentSettings,
     switches::kPrelaunchGpuProcess,
     switches::kEnableAcceleratedDecoding,
-    switches::kDisableFileSystem
+    switches::kDisableFileSystem,
+    switches::kPpapiOutOfProcess,
+    switches::kEnablePrintPreview,
   };
   renderer_cmd->CopySwitchesFrom(browser_cmd, kSwitchNames,
                                  arraysize(kSwitchNames));
@@ -677,6 +681,26 @@ void BrowserRenderProcessHost::InitExtensions() {
   std::vector<std::string> function_names;
   ExtensionFunctionDispatcher::GetAllFunctionNames(&function_names);
   Send(new ViewMsg_Extension_SetFunctionNames(function_names));
+}
+
+void BrowserRenderProcessHost::InitSpeechInput() {
+  bool enabled = true;
+  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
+
+  if (command_line.HasSwitch(switches::kDisableSpeechInput)) {
+    enabled = false;
+#if defined(GOOGLE_CHROME_BUILD)
+  } else if (!command_line.HasSwitch(switches::kEnableSpeechInput)) {
+    // We need to evaluate whether IO is OK here. http://crbug.com/63335.
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    // Official Chrome builds don't have speech input enabled by default in the
+    // beta and stable channels.
+    std::string channel = platform_util::GetVersionStringModifier();
+    enabled = (!channel.empty() && channel != "beta");
+#endif
+  }
+
+  Send(new ViewMsg_SpeechInput_SetFeatureEnabled(enabled));
 }
 
 void BrowserRenderProcessHost::SendUserScriptsUpdate(
@@ -855,6 +879,12 @@ void BrowserRenderProcessHost::OnMessageReceived(const IPC::Message& msg) {
   // valid, so we ignore incoming messages.
   if (deleting_soon_)
     return;
+
+#if defined(OS_CHROMEOS)
+  // To troubleshoot crosbug.com/7327.
+  CHECK(this);
+  CHECK(&msg);
+#endif
 
   mark_child_process_activity_time();
   if (msg.routing_id() == MSG_ROUTING_CONTROL) {
@@ -1044,6 +1074,7 @@ void BrowserRenderProcessHost::OnProcessLaunched() {
 
   Send(new ViewMsg_SetIsIncognitoProcess(profile()->IsOffTheRecord()));
 
+  InitSpeechInput();
   InitVisitedLinks();
   InitUserScripts();
   InitExtensions();

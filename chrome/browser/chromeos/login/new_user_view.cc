@@ -20,17 +20,16 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
-#include "chrome/browser/chromeos/cros_settings_provider_user.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
 #include "chrome/browser/chromeos/login/textfield_with_margin.h"
 #include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
+#include "chrome/browser/chromeos/user_cros_settings_provider.h"
+#include "chrome/browser/chromeos/views/copy_background.h"
 #include "gfx/font.h"
 #include "grit/app_resources.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
-#include "views/background.h"
-#include "views/controls/button/native_button.h"
 #include "views/controls/label.h"
 #include "views/controls/throbber.h"
 #include "views/widget/widget_gtk.h"
@@ -55,16 +54,6 @@ const SkColor kSplitterUp2Color = 0xFFE1E3E4;
 const SkColor kSplitterDown1Color = 0xFFE3E6E8;
 const SkColor kSplitterDown2Color = 0xFFEAEDEE;
 const char kDefaultDomain[] = "@gmail.com";
-
-// Colors for gradient background of textfields. These should be consistent
-// with border window background so textfield border is not visible to the
-// user. The background is needed for username and password textfield to
-// imitate its borders transparency correctly.
-const SkColor kUsernameBackgroundColorTop = SkColorSetRGB(229, 232, 233);
-const SkColor kUsernameBackgroundColorBottom = SkColorSetRGB(226, 229, 230);
-const SkColor kPasswordBackgroundColorTop = SkColorSetRGB(224, 227, 229);
-const SkColor kPasswordBackgroundColorBottom = SkColorSetRGB(221, 224, 226);
-
 
 // Textfield that adds domain to the entered username if focus is lost and
 // username doesn't have full domain.
@@ -163,17 +152,12 @@ void NewUserView::Init() {
 
   username_field_ = new UsernameField();
   CorrectTextfieldFontSize(username_field_);
-  username_field_->set_background(
-      views::Background::CreateVerticalGradientBackground(
-          kUsernameBackgroundColorTop,
-          kUsernameBackgroundColorBottom));
+  username_field_->set_background(new CopyBackground(this));
   AddChildView(username_field_);
 
   password_field_ = new TextfieldWithMargin(views::Textfield::STYLE_PASSWORD);
   CorrectTextfieldFontSize(password_field_);
-  password_field_->set_background(
-      views::Background::CreateVerticalGradientBackground(
-          kPasswordBackgroundColorTop, kPasswordBackgroundColorBottom));
+  password_field_->set_background(new CopyBackground(this));
   AddChildView(password_field_);
 
   throbber_ = CreateDefaultSmoothedThrobber();
@@ -242,8 +226,7 @@ void NewUserView::RecreatePeculiarControls() {
   // There is no way to get native button preferred size after the button was
   // sized so delete and recreate the button on text update.
   delete sign_in_button_;
-  sign_in_button_ = new views::NativeButton(this, std::wstring());
-  CorrectNativeButtonFontSize(sign_in_button_);
+  sign_in_button_ = new login::WideButton(this, std::wstring());
   UpdateSignInButtonState();
 
   if (!CrosLibrary::Get()->EnsureLoaded())
@@ -282,8 +265,7 @@ void NewUserView::AddChildView(View* view) {
 }
 
 void NewUserView::UpdateLocalizedStrings() {
-  title_label_->SetText(l10n_util::GetStringF(
-      IDS_LOGIN_TITLE, l10n_util::GetString(IDS_PRODUCT_OS_NAME)));
+  title_label_->SetText(l10n_util::GetString(IDS_LOGIN_TITLE));
   title_hint_label_->SetText(l10n_util::GetString(IDS_LOGIN_TITLE_HINT));
   username_field_->set_text_to_display_when_empty(
       l10n_util::GetStringUTF16(IDS_LOGIN_USERNAME));
@@ -438,9 +420,7 @@ void NewUserView::Layout() {
   y += setViewBounds(password_field_, x, y, width, true) + kRowPad;
 
   int throbber_y = y;
-  int sign_in_button_width =
-      std::max(login::kButtonMinWidth,
-               sign_in_button_->GetPreferredSize().width());
+  int sign_in_button_width = sign_in_button_->GetPreferredSize().width();
   setViewBounds(sign_in_button_, x, y, sign_in_button_width,true);
   setViewBounds(throbber_,
                 x + width - throbber_->GetPreferredSize().width(),

@@ -128,11 +128,10 @@ class SafeBrowsingTestServer {
         FILE_PATH_LITERAL("safebrowsing_test_server.py"));
 
     FilePath pyproto_code_dir;
-    if (!PathService::Get(base::DIR_EXE, &pyproto_code_dir)) {
-      LOG(ERROR) << "Failed to get DIR_EXE";
+    if (!GetPyProtoPath(&pyproto_code_dir)) {
+      LOG(ERROR) << "Failed to get generated python protobuf dir";
       return false;
     }
-    pyproto_code_dir = pyproto_code_dir.Append(FILE_PATH_LITERAL("pyproto"));
     AppendToPythonPath(pyproto_code_dir);
     pyproto_code_dir = pyproto_code_dir.Append(FILE_PATH_LITERAL("google"));
     AppendToPythonPath(pyproto_code_dir);
@@ -290,6 +289,10 @@ class SafeBrowsingServiceTest : public InProcessBrowserTest {
     // Makes sure the auto update is not triggered. This test will force the
     // update when needed.
     command_line->AppendSwitch(switches::kSbDisableAutoUpdate);
+    // This test uses loopback. No need to use IPv6 especially it makes
+    // local requests slow on Windows trybot when ipv6 local address [::1]
+    // is not setup.
+    command_line->AppendSwitch(switches::kDisableIPv6);
 
     // In this test, we fetch SafeBrowsing data and Mac key from the same
     // server. Although in real production, they are served from different
@@ -520,11 +523,6 @@ class SafeBrowsingServiceTestHelper
   DISALLOW_COPY_AND_ASSIGN(SafeBrowsingServiceTestHelper);
 };
 
-
-#if defined(OS_MACOSX)
-// TODO(lzheng): http://crbug.com/62415, can not start on MacOS.
-#define SafeBrowsingSystemTest DISABLED_SafeBrowsingSystemTest
-#endif
 IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceTest, SafeBrowsingSystemTest) {
   LOG(INFO) << "Start test";
   const char* server_host = SafeBrowsingTestServer::Host();
@@ -559,15 +557,6 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceTest, SafeBrowsingSystemTest) {
     SCOPED_TRACE(StringPrintf("step=%d", step));
     EXPECT_TRUE(is_database_ready());
     EXPECT_FALSE(is_update_scheduled());
-
-    // TODO(lzheng): Remove the following #if and #elif to enable the rest of
-    // the test once bot is restarted with change
-    // http://codereview.chromium.org/3750002.
-#if defined(OS_WIN)
-    break;
-#elif defined(OS_POSIX)
-    if (step > 2 ) break;
-#endif
 
     // Starts safebrowsing update on IO thread. Waits till scheduled
     // update finishes. Stops waiting after kMaxWaitSecPerStep if the update
@@ -629,14 +618,11 @@ IN_PROC_BROWSER_TEST_F(SafeBrowsingServiceTest, SafeBrowsingSystemTest) {
     last_step = step;
   }
 
-  // TODO(lzheng): Enable this check after safebrowsing server updated with
-  // the latest data in the next revision.
-
   // Verifies with server if test is done and waits till server responses.
-  // EXPECT_EQ(URLRequestStatus::SUCCESS,
-  //           safe_browsing_helper->VerifyTestComplete(server_host,
-  //                                                    server_port,
-  //                                                    last_step));
-  // EXPECT_EQ("yes", safe_browsing_helper->response_data());
+  EXPECT_EQ(URLRequestStatus::SUCCESS,
+            safe_browsing_helper->VerifyTestComplete(server_host,
+                                                     server_port,
+                                                     last_step));
+  EXPECT_EQ("yes", safe_browsing_helper->response_data());
   test_server.Stop();
 }

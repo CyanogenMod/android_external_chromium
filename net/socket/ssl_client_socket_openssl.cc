@@ -10,10 +10,10 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
-#include "net/base/cert_verifier.h"
 #include "base/metrics/histogram.h"
+#include "base/openssl_util.h"
+#include "net/base/cert_verifier.h"
 #include "net/base/net_errors.h"
-#include "net/base/openssl_util.h"
 #include "net/base/ssl_connection_status_flags.h"
 #include "net/base/ssl_info.h"
 
@@ -58,11 +58,34 @@ int MapOpenSSLError(int err) {
   }
 }
 
+// We do certificate verification after handshake, so we disable the default
+// by registering a no-op verify function.
+int NoOpVerifyCallback(X509_STORE_CTX*, void *) {
+  DVLOG(3) << "skipping cert verify";
+  return 1;
+}
+
+struct SSLContextSingletonTraits : public DefaultSingletonTraits<SSL_CTX> {
+  static SSL_CTX* New() {
+    base::EnsureOpenSSLInit();
+    SSL_CTX* self = SSL_CTX_new(SSLv23_client_method());
+    SSL_CTX_set_cert_verify_callback(self, NoOpVerifyCallback, NULL);
+    return self;
+  }
+  static void Delete(SSL_CTX* self) {
+    SSL_CTX_free(self);
+  }
+};
+
+SSL_CTX* GetSSLContext() {
+  return Singleton<SSL_CTX, SSLContextSingletonTraits>::get();
+}
+
 }  // namespace
 
 SSLClientSocketOpenSSL::SSLClientSocketOpenSSL(
     ClientSocketHandle* transport_socket,
-    const std::string& hostname,
+    const HostPortPair& host_and_port,
     const SSLConfig& ssl_config)
     : ALLOW_THIS_IN_INITIALIZER_LIST(buffer_send_callback_(
           this, &SSLClientSocketOpenSSL::BufferSendComplete)),
@@ -79,7 +102,7 @@ SSLClientSocketOpenSSL::SSLClientSocketOpenSSL(
       ssl_(NULL),
       transport_bio_(NULL),
       transport_(transport_socket),
-      hostname_(hostname),
+      host_and_port_(host_and_port),
       ssl_config_(ssl_config),
       completed_handshake_(false),
       net_log_(transport_socket->socket()->NetLog()) {
@@ -93,13 +116,13 @@ bool SSLClientSocketOpenSSL::Init() {
   DCHECK(!ssl_);
   DCHECK(!transport_bio_);
 
-  ssl_ = SSL_new(GetOpenSSLInitSingleton()->ssl_ctx());
+  ssl_ = SSL_new(GetSSLContext());
   if (!ssl_) {
     MaybeLogSSLError();
     return false;
   }
 
-  if (!SSL_set_tlsext_host_name(ssl_, hostname_.c_str())) {
+  if (!SSL_set_tlsext_host_name(ssl_, host_and_port_.host().c_str())) {
     MaybeLogSSLError();
     return false;
   }
@@ -348,7 +371,7 @@ int SSLClientSocketOpenSSL::DoVerifyCert(int result) {
   if (ssl_config_.verify_ev_cert)
     flags |= X509Certificate::VERIFY_EV_CERT;
   verifier_.reset(new CertVerifier);
-  return verifier_->Verify(server_cert_, hostname_, flags,
+  return verifier_->Verify(server_cert_, host_and_port_.host(), flags,
                            &server_cert_verify_result_,
                            &handshake_io_callback_);
 }
@@ -394,8 +417,7 @@ void SSLClientSocketOpenSSL::InvalidateSessionIfBadCertificate() {
     // see SSL_CTX_set_session_cache_mode(SSL_SESS_CACHE_CLIENT).
     SSL_SESSION* session = SSL_get_session(ssl_);
     LOG_IF(ERROR, session) << "Connection has a session?? " << session;
-    int rv = SSL_CTX_remove_session(GetOpenSSLInitSingleton()->ssl_ctx(),
-                                    session);
+    int rv = SSL_CTX_remove_session(GetSSLContext(), session);
     LOG_IF(ERROR, rv) << "Session was cached?? " << rv;
   }
 }
@@ -404,7 +426,7 @@ X509Certificate* SSLClientSocketOpenSSL::UpdateServerCert() {
   if (server_cert_)
     return server_cert_;
 
-  ScopedSSL<X509, X509_free> cert(SSL_get_peer_certificate(ssl_));
+  base::ScopedOpenSSL<X509, X509_free> cert(SSL_get_peer_certificate(ssl_));
   if (!cert.get()) {
     LOG(WARNING) << "SSL_get_peer_certificate returned NULL";
     return NULL;

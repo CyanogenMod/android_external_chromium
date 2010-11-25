@@ -17,9 +17,9 @@
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/chrome_blob_storage_context.h"
 #include "chrome/browser/download/download_manager.h"
-#include "chrome/browser/file_system/file_system_host_context.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/extensions/extension_process_manager.h"
+#include "chrome/browser/file_system/browser_file_system_context.h"
 #include "chrome/browser/find_bar_state.h"
 #include "chrome/browser/in_process_webkit/webkit_context.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
@@ -96,6 +96,14 @@ void Profile::RegisterUserPrefs(PrefService* prefs) {
   prefs->RegisterDictionaryPref(prefs::kCurrentThemeDisplayProperties);
   prefs->RegisterBooleanPref(prefs::kDisableExtensions, false);
   prefs->RegisterStringPref(prefs::kSelectFileLastDirectory, "");
+#if defined(OS_CHROMEOS)
+  // TODO(dilmah): For OS_CHROMEOS we maintain kApplicationLocale in both
+  // local state and user's profile.  For other platforms we maintain
+  // kApplicationLocale only in local state.
+  // In the future we may want to maintain kApplicationLocale
+  // in user's profile for other platforms as well.
+  prefs->RegisterStringPref(prefs::kApplicationLocale, "");
+#endif
 }
 
 // static
@@ -204,7 +212,7 @@ class OffTheRecordProfileImpl : public Profile,
     return GetOriginalProfile()->GetExtensionsService();
   }
 
-  virtual BackgroundContentsService* GetBackgroundContentsService() {
+  virtual BackgroundContentsService* GetBackgroundContentsService() const {
     return background_contents_service_.get();
   }
 
@@ -323,12 +331,12 @@ class OffTheRecordProfileImpl : public Profile,
     return NULL;
   }
 
-  virtual FileSystemHostContext* GetFileSystemHostContext() {
-    if (!file_system_host_context_)
-      file_system_host_context_ = new FileSystemHostContext(
+  virtual BrowserFileSystemContext* GetFileSystemContext() {
+    if (!browser_file_system_context_)
+      browser_file_system_context_ = new BrowserFileSystemContext(
           GetPath(), IsOffTheRecord());
-    DCHECK(file_system_host_context_.get());
-    return file_system_host_context_.get();
+    DCHECK(browser_file_system_context_.get());
+    return browser_file_system_context_.get();
   }
 
   virtual void InitThemes() {
@@ -573,6 +581,10 @@ class OffTheRecordProfileImpl : public Profile,
     return profile_->GetExtensionInfoMap();
   }
 
+  virtual PromoCounter* GetInstantPromoCounter() {
+    return NULL;
+  }
+
  private:
   NotificationRegistrar registrar_;
 
@@ -632,7 +644,7 @@ class OffTheRecordProfileImpl : public Profile,
   scoped_refptr<ChromeBlobStorageContext> blob_storage_context_;
 
   // The file_system context for this profile.
-  scoped_refptr<FileSystemHostContext> file_system_host_context_;
+  scoped_refptr<BrowserFileSystemContext> browser_file_system_context_;
 
   DISALLOW_COPY_AND_ASSIGN(OffTheRecordProfileImpl);
 };

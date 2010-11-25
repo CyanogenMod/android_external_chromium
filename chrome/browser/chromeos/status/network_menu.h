@@ -52,7 +52,8 @@ class NetworkMenu : public views::ViewMenuDelegate,
                     public menus::MenuModel {
  public:
   struct NetworkInfo {
-    NetworkInfo() : need_passphrase(false), remembered(true) {}
+    NetworkInfo() :
+        need_passphrase(false), remembered(true), auto_connect(true) {}
     // "ethernet" | "wifi" | "cellular" | "other".
     std::string network_type;
     // "connected" | "connecting" | "disconnected" | "error".
@@ -67,6 +68,8 @@ class NetworkMenu : public views::ViewMenuDelegate,
     bool need_passphrase;
     // true if the network is currently remembered.
     bool remembered;
+    // true if the network is auto connect (meaningful for Wifi only).
+    bool auto_connect;
   };
 
   NetworkMenu();
@@ -118,6 +121,11 @@ class NetworkMenu : public views::ViewMenuDelegate,
   // Returns the Icon for a network strength for CellularNetwork |cellular|.
   // This returns different colored bars depending on cellular data left.
   static SkBitmap IconForNetworkStrength(const CellularNetwork* cellular);
+  // Returns the Icon for animating network connecting.
+  // |animation_value| is the value from Animation.GetCurrentValue()
+  // |black| is used to specify whether to return a black icon for display
+  // on a light background or a white icon for display on a dark background.
+  static SkBitmap IconForNetworkConnecting(double animation_value, bool black);
   // Returns the Badge for a given network technology.
   // This returns different colored symbols depending on cellular data left.
   static SkBitmap BadgeForNetworkTechnology(const CellularNetwork* cellular);

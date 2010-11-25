@@ -24,7 +24,6 @@
 #include "chrome/browser/autocomplete_history_manager.h"
 #include "chrome/browser/autofill/autofill_manager.h"
 #include "chrome/browser/blocked_content_container.h"
-#include "chrome/browser/blocked_plugin_manager.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
@@ -60,6 +59,7 @@
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/plugin_installer.h"
 #include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/printing/print_preview_tab_controller.h"
 #include "chrome/browser/printing/print_view_manager.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
@@ -685,7 +685,7 @@ bool TabContents::ShouldDisplayURL() {
   // Don't hide the url in view source mode and with interstitials.
   NavigationEntry* entry = controller_.GetActiveEntry();
   if (entry && (entry->IsViewSourceMode() ||
-                entry->page_type() == NavigationEntry::INTERSTITIAL_PAGE)) {
+                entry->page_type() == INTERSTITIAL_PAGE)) {
     return true;
   }
 
@@ -865,12 +865,11 @@ bool TabContents::NavigateToEntry(
         kPreferredSizeWidth | kPreferredSizeHeightThisIsSlow);
   }
 
-  // For security, we should never send non-DOM-UI URLs (other than about:blank)
-  // to a DOM UI renderer.  Double check that here.
+  // For security, we should never send non-DOM-UI URLs to a DOM UI renderer.
+  // Double check that here.
   int enabled_bindings = dest_render_view_host->enabled_bindings();
   bool is_allowed_in_dom_ui_renderer =
-      DOMUIFactory::UseDOMUIForURL(profile(), entry.url()) ||
-      entry.url() == GURL(chrome::kAboutBlankURL);
+      DOMUIFactory::IsURLAcceptableForDOMUI(profile(), entry.url());
   CHECK(!BindingsPolicy::is_dom_ui_enabled(enabled_bindings) ||
         is_allowed_in_dom_ui_renderer);
 
@@ -1178,9 +1177,8 @@ bool TabContents::ShouldShowBookmarkBar() {
   // is so the bookmarks bar disappears at the same time the page does.
   if (controller_.GetLastCommittedEntry()) {
     // Not the first load, always use the committed DOM UI.
-    if (render_manager_.dom_ui())
-      return render_manager_.dom_ui()->force_bookmark_bar_visible();
-    return false;  // Default.
+    return (render_manager_.dom_ui() == NULL) ?
+        false : render_manager_.dom_ui()->force_bookmark_bar_visible();
   }
 
   // When it's the first load, we know either the pending one or the committed
@@ -1188,9 +1186,8 @@ bool TabContents::ShouldShowBookmarkBar() {
   // of them will be valid, so we can just check both.
   if (render_manager_.pending_dom_ui())
     return render_manager_.pending_dom_ui()->force_bookmark_bar_visible();
-  if (render_manager_.dom_ui())
-    return render_manager_.dom_ui()->force_bookmark_bar_visible();
-  return false;  // Default.
+  return (render_manager_.dom_ui() == NULL) ?
+      false : render_manager_.dom_ui()->force_bookmark_bar_visible();
 }
 
 void TabContents::ToolbarSizeChanged(bool is_animating) {
@@ -1217,18 +1214,17 @@ void TabContents::OnStartDownload(DownloadItem* download) {
 }
 
 void TabContents::WillClose(ConstrainedWindow* window) {
-  ConstrainedWindowList::iterator it =
-      find(child_windows_.begin(), child_windows_.end(), window);
-  bool removed_topmost_window = it == child_windows_.begin();
-  if (it != child_windows_.end())
-    child_windows_.erase(it);
-  if (child_windows_.size() > 0) {
-    if (removed_topmost_window) {
-      child_windows_[0]->ShowConstrainedWindow();
-    }
-    BlockTabContent(true);
-  } else {
+  ConstrainedWindowList::iterator i(
+      std::find(child_windows_.begin(), child_windows_.end(), window));
+  bool removed_topmost_window = i == child_windows_.begin();
+  if (i != child_windows_.end())
+    child_windows_.erase(i);
+  if (child_windows_.empty()) {
     BlockTabContent(false);
+  } else {
+    if (removed_topmost_window)
+      child_windows_[0]->ShowConstrainedWindow();
+    BlockTabContent(true);
   }
 }
 
@@ -1353,8 +1349,14 @@ void TabContents::EmailPageLocation() {
 }
 
 void TabContents::PrintPreview() {
-  // We don't show the print preview yet, only the print dialog.
-  PrintNow();
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnablePrintPreview)) {
+    if (showing_interstitial_page())
+      return;
+    render_view_host()->PrintPreview();
+  } else {
+    PrintNow();
+  }
 }
 
 bool TabContents::PrintNow() {
@@ -2054,9 +2056,8 @@ void TabContents::OnCrashedWorker() {
       NULL, true));
 }
 
-void TabContents::OnDidGetApplicationInfo(
-    int32 page_id,
-    const webkit_glue::WebApplicationInfo& info) {
+void TabContents::OnDidGetApplicationInfo(int32 page_id,
+                                          const WebApplicationInfo& info) {
   web_app_info_ = info;
 
   if (delegate())
@@ -2311,12 +2312,6 @@ RenderViewHostDelegate::Autocomplete* TabContents::GetAutocompleteDelegate() {
 
 RenderViewHostDelegate::AutoFill* TabContents::GetAutoFillDelegate() {
   return GetAutoFillManager();
-}
-
-RenderViewHostDelegate::BlockedPlugin* TabContents::GetBlockedPluginDelegate() {
-  if (blocked_plugin_manager_.get() == NULL)
-    blocked_plugin_manager_.reset(new BlockedPluginManager(this));
-  return blocked_plugin_manager_.get();
 }
 
 RenderViewHostDelegate::SSL* TabContents::GetSSLDelegate() {
@@ -2938,12 +2933,6 @@ void TabContents::OnCrossSiteResponse(int new_render_process_host_id,
   // handler of the old RenderViewHost before we can allow it to proceed.
   render_manager_.OnCrossSiteResponse(new_render_process_host_id,
                                       new_request_id);
-}
-
-gfx::Rect TabContents::GetRootWindowResizerRect() const {
-  if (delegate())
-    return delegate()->GetRootWindowResizerRect();
-  return gfx::Rect();
 }
 
 void TabContents::RendererUnresponsive(RenderViewHost* rvh,

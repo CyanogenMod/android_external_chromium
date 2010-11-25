@@ -168,12 +168,6 @@ class BrowserWindow {
   // Returns whether the tool bar is visible or not.
   virtual bool IsToolbarVisible() const = 0;
 
-  // Returns the rect where the resize corner should be drawn by the render
-  // widget host view (on top of what the renderer returns). We return an empty
-  // rect to identify that there shouldn't be a resize corner (in the cases
-  // where we take care of it ourselves at the browser level).
-  virtual gfx::Rect GetRootWindowResizerRect() const = 0;
-
   // Tells the frame not to render as inactive until the next activation change.
   // This is required on Windows when dropdown selects are shown to prevent the
   // select from deactivating the browser frame. A stub implementation is
@@ -321,6 +315,9 @@ class BrowserWindow {
   // Opens the tabpose view.
   virtual void OpenTabpose() = 0;
 #endif
+
+  // See InstantDelegate for details.
+  virtual void PrepareForInstant() = 0;
 
   // Invoked when instant's tab contents should be shown.
   virtual void ShowInstant(TabContents* preview_contents) = 0;

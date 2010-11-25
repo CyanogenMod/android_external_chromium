@@ -24,6 +24,7 @@
 
 
 class AutomationResourceRoutingDelegate;
+class BackgroundContents;
 struct BookmarkDragData;
 class BookmarkNode;
 struct ContextMenuParams;
@@ -49,6 +50,7 @@ struct ViewHostMsg_DomMessage_Params;
 struct ViewHostMsg_FrameNavigate_Params;
 struct ViewHostMsg_PageHasOSDD_Type;
 struct ViewHostMsg_RunFileChooser_Params;
+struct WebApplicationInfo;
 struct WebDropData;
 struct WebMenuItem;
 class WebKeyboardEvent;
@@ -72,7 +74,6 @@ namespace webkit_glue {
 struct FormData;
 class FormField;
 struct PasswordForm;
-struct WebApplicationInfo;
 }
 
 //
@@ -279,10 +280,11 @@ class RenderViewHostDelegate {
     virtual void OnDisabledOutdatedPlugin(const string16& name,
                                           const GURL& update_url) = 0;
 
-    // Notification that a request for install info has completed.
+    // Notification that a user's request to install an application has
+    // completed.
     virtual void OnDidGetApplicationInfo(
         int32 page_id,
-        const webkit_glue::WebApplicationInfo& app_info) = 0;
+        const WebApplicationInfo& app_info) = 0;
 
     // Notification that the contents of the page has been loaded.
     virtual void OnPageContents(const GURL& url,
@@ -520,10 +522,7 @@ class RenderViewHostDelegate {
     // query. When the database thread is finished, the AutocompleteHistory
     // manager retrieves the calling RenderViewHost and then passes the vector
     // of suggestions to RenderViewHost::AutocompleteSuggestionsReturned.
-    // Returns true to indicate that FormFieldHistorySuggestionsReturned will be
-    // called.
-    virtual bool GetAutocompleteSuggestions(int query_id,
-                                            const string16& field_name,
+    virtual void GetAutocompleteSuggestions(const string16& field_name,
                                             const string16& user_text) = 0;
 
     // Called when the user has indicated that she wants to remove the specified
@@ -548,13 +547,13 @@ class RenderViewHostDelegate {
     virtual void FormsSeen(const std::vector<webkit_glue::FormData>& forms) = 0;
 
     // Called to retrieve a list of AutoFill suggestions from the web database
-    // given the name of the field and what the user has already typed in the
-    // field. |form_autofilled| is true if the form containing |field| has any
-    // auto-filled fields. Returns true to indicate that
-    // RenderViewHost::AutoFillSuggestionsReturned has been called.
+    // given the name of the field, whether it is auto-filled, and what the user
+    // has already typed in it. If there is a warning to be returned to the
+    // user, it is stored into |values|, with corresponding unique id -1.
+    // Returns true to indicate that RenderViewHost::AutoFillSuggestionsReturned
+    // has been called.
     virtual bool GetAutoFillSuggestions(
-        int query_id,
-        bool form_autofilled,
+        bool field_autofilled,
         const webkit_glue::FormField& field) = 0;
 
     // Called to fill the FormData object with AutoFill profile information that
@@ -584,13 +583,6 @@ class RenderViewHostDelegate {
 
    protected:
     virtual ~BookmarkDrag() {}
-  };
-
-  class BlockedPlugin {
-   public:
-    virtual void OnNonSandboxedPluginBlocked(const std::string& plugin,
-                                             const string16& name) = 0;
-    virtual void OnBlockedPluginLoaded() = 0;
   };
 
   // SSL -----------------------------------------------------------------------
@@ -663,7 +655,6 @@ class RenderViewHostDelegate {
   virtual Autocomplete* GetAutocompleteDelegate();
   virtual AutoFill* GetAutoFillDelegate();
   virtual BookmarkDrag* GetBookmarkDragDelegate();
-  virtual BlockedPlugin* GetBlockedPluginDelegate();
   virtual SSL* GetSSLDelegate();
   virtual FileSelect* GetFileSelectDelegate();
 
@@ -678,6 +669,10 @@ class RenderViewHostDelegate {
   // Return this object cast to a TabContents, if it is one. If the object is
   // not a TabContents, returns NULL.
   virtual TabContents* GetAsTabContents();
+
+  // Return this object cast to a BackgroundContents, if it is one. If the
+  // object is not a BackgroundContents, returns NULL.
+  virtual BackgroundContents* GetAsBackgroundContents();
 
   // Return id number of browser window which this object is attached to. If no
   // browser window is attached to, just return -1.
@@ -827,10 +822,6 @@ class RenderViewHostDelegate {
 
   // Notification from the renderer that JS runs out of memory.
   virtual void OnJSOutOfMemory() {}
-
-  // Return the rect where to display the resize corner, if any, otherwise
-  // an empty rect.
-  virtual gfx::Rect GetRootWindowResizerRect() const;
 
   // Notification that the renderer has become unresponsive. The
   // delegate can use this notification to show a warning to the user.

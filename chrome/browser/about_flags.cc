@@ -24,6 +24,12 @@ namespace {
 
 const unsigned kOsAll = kOsMac | kOsWin | kOsLinux | kOsCrOS;
 
+// Names for former Chrome OS Labs experiments, shared with prefs migration
+// code.
+const char kMediaPlayerExperimentName[] = "media-player";
+const char kAdvancedFileSystemExperimentName[] = "advanced-file-system";
+const char kVerticalTabsExperimentName[] = "vertical-tabs";
+
 const Experiment kExperiments[] = {
   {
     "expose-for-tabs",  // Do not change; see above.
@@ -38,12 +44,34 @@ const Experiment kExperiments[] = {
 #endif
   },
   {
-    "vertical-tabs",  // Do not change; see above.
+    kMediaPlayerExperimentName,
+    IDS_FLAGS_MEDIA_PLAYER_NAME,
+    IDS_FLAGS_MEDIA_PLAYER_DESCRIPTION,
+    kOsCrOS,
+#if defined(OS_CHROMEOS)
+    // The switch exists only on Chrome OS.
+    switches::kEnableMediaPlayer
+#else
+    ""
+#endif
+  },
+  {
+    kAdvancedFileSystemExperimentName,
+    IDS_FLAGS_ADVANCED_FS_NAME,
+    IDS_FLAGS_ADVANCED_FS_DESCRIPTION,
+    kOsCrOS,
+#if defined(OS_CHROMEOS)
+    // The switch exists only on Chrome OS.
+    switches::kEnableAdvancedFileSystem
+#else
+    ""
+#endif
+  },
+  {
+    kVerticalTabsExperimentName,
     IDS_FLAGS_SIDE_TABS_NAME,
     IDS_FLAGS_SIDE_TABS_DESCRIPTION,
-    // TODO(thakis): Move sidetabs to about:flags on ChromeOS
-    // http://crbug.com/57634
-    kOsWin,
+    kOsWin | kOsCrOS,
     switches::kEnableVerticalTabs
   },
   {
@@ -111,13 +139,6 @@ const Experiment kExperiments[] = {
     kOsMac,
     switches::kEnablePredictiveInstant
   },
-  {
-    "verbatim-instant",  // Do not change; see above.
-    IDS_FLAGS_VERBATIM_INSTANT_NAME,
-    IDS_FLAGS_VERBATIM_INSTANT_DESCRIPTION,
-    kOsMac | kOsLinux | kOsWin,
-    switches::kEnableVerbatimInstant
-  },
   // FIXME(scheib): Add Flags entry for accelerated Compositing,
   // or pull it and the strings in generated_resources.grd by Dec 2010
   // {
@@ -178,6 +199,27 @@ const Experiment kExperiments[] = {
     kOsMac,
     switches::kEnableConfirmToQuit
   },
+  {
+    "snap-start",   // Do not change; see above.
+    IDS_FLAGS_SNAP_START_NAME,
+    IDS_FLAGS_SNAP_START_DESCRIPTION,
+    kOsAll,
+    switches::kEnableSnapStart
+  },
+  {
+    "extension-apis",   // Do not change; see above.
+    IDS_FLAGS_EXPERIMENTAL_EXTENSION_APIS_NAME,
+    IDS_FLAGS_EXPERIMENTAL_EXTENSION_APIS_DESCRIPTION,
+    kOsAll,
+    switches::kEnableExperimentalExtensionApis
+  },
+  {
+    "click-to-play",   // Do not change; see above.
+    IDS_FLAGS_CLICK_TO_PLAY_NAME,
+    IDS_FLAGS_CLICK_TO_PLAY_DESCRIPTION,
+    kOsAll,
+    switches::kEnableClickToPlay
+  },
 };
 
 const Experiment* experiments = kExperiments;
@@ -206,6 +248,25 @@ class FlagsState {
 
   DISALLOW_COPY_AND_ASSIGN(FlagsState);
 };
+
+#if defined(OS_CHROMEOS)
+// Migrates Chrome OS Labs settings to experiments adding flags to enabled
+// experiment list if the corresponding pref is on.
+void MigrateChromeOSLabsPrefs(PrefService* prefs,
+                              std::set<std::string>* result) {
+  DCHECK(prefs);
+  DCHECK(result);
+  if (prefs->GetBoolean(prefs::kLabsMediaplayerEnabled))
+    result->insert(kMediaPlayerExperimentName);
+  if (prefs->GetBoolean(prefs::kLabsAdvancedFilesystemEnabled))
+    result->insert(kAdvancedFileSystemExperimentName);
+  if (prefs->GetBoolean(prefs::kUseVerticalTabs))
+    result->insert(kVerticalTabsExperimentName);
+  prefs->SetBoolean(prefs::kLabsMediaplayerEnabled, false);
+  prefs->SetBoolean(prefs::kLabsAdvancedFilesystemEnabled, false);
+  prefs->SetBoolean(prefs::kUseVerticalTabs, false);
+}
+#endif
 
 // Extracts the list of enabled lab experiments from preferences and stores them
 // in a set.
@@ -366,6 +427,13 @@ void FlagsState::ConvertFlagsToSwitches(
     return;
 
   std::set<std::string> enabled_experiments;
+
+#if defined(OS_CHROMEOS)
+  // Some experiments were implemented via prefs on Chrome OS and we want to
+  // seamlessly migrate these prefs to about:flags for updated users.
+  MigrateChromeOSLabsPrefs(prefs, &enabled_experiments);
+#endif
+
   GetSanitizedEnabledFlagsForCurrentPlatform(prefs, &enabled_experiments);
 
   std::map<std::string, const Experiment*> experiment_map;

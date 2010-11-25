@@ -85,6 +85,7 @@
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/translate/translate_infobar_delegate.h"
 #include "chrome/common/automation_constants.h"
+#include "chrome/common/automation_messages.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -95,7 +96,6 @@
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
-#include "chrome/test/automation/automation_messages.h"
 #include "chrome/test/automation/tab_proxy.h"
 #include "net/proxy/proxy_service.h"
 #include "net/proxy/proxy_config_service_fixed.h"
@@ -123,7 +123,7 @@ AutomationProvider::AutomationProvider(Profile* profile)
   autocomplete_edit_tracker_.reset(
       new AutomationAutocompleteEditTracker(this));
   new_tab_ui_load_observer_.reset(new NewTabUILoadObserver(this));
-  dom_operation_observer_.reset(new DomOperationNotificationObserver(this));
+  dom_operation_observer_.reset(new DomOperationMessageSender(this));
   metric_event_duration_observer_.reset(new MetricEventDurationObserver());
   extension_test_result_observer_.reset(
       new ExtensionTestResultNotificationObserver(this));

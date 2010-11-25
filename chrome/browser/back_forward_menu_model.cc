@@ -9,11 +9,11 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/string_number_conversions.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -137,8 +137,7 @@ void BackForwardMenuModel::ActivatedAt(int index) {
 }
 
 void BackForwardMenuModel::ActivatedAtWithDisposition(
-      int index,
-      WindowOpenDisposition disposition) {
+      int index, int disposition) {
   Profile* profile = browser_->profile();
 
   DCHECK(!IsSeparator(index));
@@ -147,7 +146,7 @@ void BackForwardMenuModel::ActivatedAtWithDisposition(
   if (index == GetItemCount() - 1) {
     UserMetrics::RecordComputedAction(BuildActionName("ShowFullHistory", -1),
                                       profile);
-    browser_->ShowSingletonTab(GURL(chrome::kChromeUIHistoryURL));
+    browser_->ShowSingletonTab(GURL(chrome::kChromeUIHistoryURL), false);
     return;
   }
 
@@ -162,8 +161,8 @@ void BackForwardMenuModel::ActivatedAtWithDisposition(
   }
 
   int controller_index = MenuIndexToNavEntryIndex(index);
-  if (!browser_->NavigateToIndexWithDisposition(controller_index,
-                                                disposition)) {
+  if (!browser_->NavigateToIndexWithDisposition(
+          controller_index, static_cast<WindowOpenDisposition>(disposition))) {
     NOTREACHED();
   }
 }

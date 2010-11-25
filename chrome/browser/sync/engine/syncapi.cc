@@ -67,6 +67,7 @@ using browser_sync::ModelSafeRoutingInfo;
 using browser_sync::ModelSafeWorker;
 using browser_sync::ModelSafeWorkerRegistrar;
 using browser_sync::ServerConnectionEvent;
+using browser_sync::ServerConnectionEventListener;
 using browser_sync::SyncEngineEvent;
 using browser_sync::SyncEngineEventListener;
 using browser_sync::Syncer;
@@ -186,8 +187,8 @@ std::string BaseNode::GenerateSyncableHash(
 
 sync_pb::PasswordSpecificsData* DecryptPasswordSpecifics(
     const sync_pb::EntitySpecifics& specifics, Cryptographer* crypto) {
- if (!specifics.HasExtension(sync_pb::password))
-   return NULL;
+  if (!specifics.HasExtension(sync_pb::password))
+    return NULL;
   const sync_pb::EncryptedData& encrypted =
       specifics.GetExtension(sync_pb::password).encrypted();
   scoped_ptr<sync_pb::PasswordSpecificsData> data(
@@ -932,7 +933,8 @@ class SyncManager::SyncInternal
       public TalkMediator::Delegate,
       public sync_notifier::StateWriter,
       public browser_sync::ChannelEventHandler<syncable::DirectoryChangeEvent>,
-      public SyncEngineEventListener {
+      public SyncEngineEventListener,
+      public ServerConnectionEventListener {
   static const int kDefaultNudgeDelayMilliseconds;
   static const int kPreferencesNudgeDelayMilliseconds;
  public:
@@ -976,7 +978,13 @@ class SyncManager::SyncInternal
   // Tell the sync engine to start the syncing process.
   void StartSyncing();
 
-  void SetPassphrase(const std::string& passphrase);
+  // Whether or not the Nigori node is encrypted using an explicit passphrase.
+  bool IsUsingExplicitPassphrase();
+
+  // Try to set the current passphrase to |passphrase|, and record whether
+  // it is an explicit passphrase or implicitly using gaia in the Nigori
+  // node.
+  void SetPassphrase(const std::string& passphrase, bool is_explicit);
 
   // Call periodically from a database-safe thread to persist recent changes
   // to the syncapi model.
@@ -996,7 +1004,7 @@ class SyncManager::SyncInternal
       const syncable::DirectoryChangeEvent& event);
 
   // Listens for notifications from the ServerConnectionManager
-  void HandleServerConnectionEvent(const ServerConnectionEvent& event);
+  virtual void OnServerConnectionEvent(const ServerConnectionEvent& event);
 
   // Open the directory named with username_for_share
   bool OpenDirectory();
@@ -1173,6 +1181,12 @@ class SyncManager::SyncInternal
   // decryption.  Otherwise, the cryptographer is made ready (is_ready()).
   void BootstrapEncryption(const std::string& restored_key_for_bootstrapping);
 
+  // Helper for migration to new nigori proto to set
+  // 'using_explicit_passphrase' in the NigoriSpecifics.
+  // TODO(tim): Bug 62103.  Remove this after it has been pushed out to dev
+  // channel users.
+  void SetUsingExplicitPassphrasePrefForMigration();
+
   // Checks for server reachabilty and requests a nudge.
   void OnIPAddressChangedImpl();
 
@@ -1219,9 +1233,6 @@ class SyncManager::SyncInternal
   // The event listener hookup that is registered for HandleChangeEvent.
   scoped_ptr<browser_sync::ChannelHookup<syncable::DirectoryChangeEvent> >
       dir_change_hookup_;
-
-  // Event listener hookup for the ServerConnectionManager.
-  scoped_ptr<EventListenerHookup> connection_manager_hookup_;
 
   // The sync dir_manager to which we belong.
   SyncManager* const sync_manager_;
@@ -1297,8 +1308,13 @@ void SyncManager::StartSyncing() {
   data_->StartSyncing();
 }
 
-void SyncManager::SetPassphrase(const std::string& passphrase) {
-  data_->SetPassphrase(passphrase);
+void SyncManager::SetPassphrase(const std::string& passphrase,
+     bool is_explicit) {
+  data_->SetPassphrase(passphrase, is_explicit);
+}
+
+bool SyncManager::IsUsingExplicitPassphrase() {
+  return data_ && data_->IsUsingExplicitPassphrase();
 }
 
 bool SyncManager::RequestPause() {
@@ -1354,9 +1370,7 @@ bool SyncManager::SyncInternal::Init(
   connection_manager_.reset(new SyncAPIServerConnectionManager(
       sync_server_and_path, port, use_ssl, user_agent, post_factory));
 
-  connection_manager_hookup_.reset(
-      NewEventListenerHookup(connection_manager()->channel(), this,
-          &SyncManager::SyncInternal::HandleServerConnectionEvent));
+  connection_manager_->AddListener(this);
 
   net::NetworkChangeNotifier::AddObserver(this);
   // TODO(akalin): CheckServerReachable() can block, which may cause jank if we
@@ -1572,8 +1586,21 @@ void SyncManager::SyncInternal::RaiseAuthNeededEvent() {
   }
 }
 
+void SyncManager::SyncInternal::SetUsingExplicitPassphrasePrefForMigration() {
+  WriteTransaction trans(&share_);
+  WriteNode node(&trans);
+  if (!node.InitByTagLookup(kNigoriTag)) {
+    // TODO(albertb): Plumb an UnrecoverableError all the way back to the PSS.
+    NOTREACHED();
+    return;
+  }
+  sync_pb::NigoriSpecifics specifics(node.GetNigoriSpecifics());
+  specifics.set_using_explicit_passphrase(true);
+  node.SetNigoriSpecifics(specifics);
+}
+
 void SyncManager::SyncInternal::SetPassphrase(
-    const std::string& passphrase) {
+    const std::string& passphrase, bool is_explicit) {
   Cryptographer* cryptographer = dir_manager()->cryptographer();
   KeyParams params = {"localhost", "dummy", passphrase};
   if (cryptographer->has_pending_keys()) {
@@ -1581,6 +1608,13 @@ void SyncManager::SyncInternal::SetPassphrase(
       observer_->OnPassphraseRequired();
       return;
     }
+
+    // TODO(tim): If this is the first time the user has entered a passphrase
+    // since the protocol changed to store passphrase preferences in the cloud,
+    // make sure we update this preference. See bug 62103.
+    if (is_explicit)
+      SetUsingExplicitPassphrasePrefForMigration();
+
     // Nudge the syncer so that passwords updates that were waiting for this
     // passphrase get applied as soon as possible.
     sync_manager_->RequestNudge();
@@ -1592,6 +1626,12 @@ void SyncManager::SyncInternal::SetPassphrase(
       NOTREACHED();
       return;
     }
+
+    // Prevent an implicit SetPassphrase request from changing an explicitly
+    // set passphrase.
+    if (!is_explicit && node.GetNigoriSpecifics().using_explicit_passphrase())
+      return;
+
     cryptographer->AddKey(params);
 
     // TODO(tim): Bug 58231. It would be nice if SetPassphrase didn't require
@@ -1600,6 +1640,7 @@ void SyncManager::SyncInternal::SetPassphrase(
     // safe to defer this work.
     sync_pb::NigoriSpecifics specifics;
     cryptographer->GetKeys(specifics.mutable_encrypted());
+    specifics.set_using_explicit_passphrase(is_explicit);
     node.SetNigoriSpecifics(specifics);
     ReEncryptEverything(&trans);
   }
@@ -1607,6 +1648,18 @@ void SyncManager::SyncInternal::SetPassphrase(
   std::string bootstrap_token;
   cryptographer->GetBootstrapToken(&bootstrap_token);
   observer_->OnPassphraseAccepted(bootstrap_token);
+}
+
+bool SyncManager::SyncInternal::IsUsingExplicitPassphrase() {
+  ReadTransaction trans(&share_);
+  ReadNode node(&trans);
+  if (!node.InitByTagLookup(kNigoriTag)) {
+    // TODO(albertb): Plumb an UnrecoverableError all the way back to the PSS.
+    NOTREACHED();
+    return false;
+  }
+
+  return node.GetNigoriSpecifics().using_explicit_passphrase();
 }
 
 void SyncManager::SyncInternal::ReEncryptEverything(WriteTransaction* trans) {
@@ -1688,7 +1741,7 @@ void SyncManager::SyncInternal::Shutdown() {
 
   net::NetworkChangeNotifier::RemoveObserver(this);
 
-  connection_manager_hookup_.reset();
+  connection_manager_->RemoveListener(this);
 
   if (dir_manager()) {
     dir_manager()->FinalSaveChangesForAll();
@@ -1768,7 +1821,7 @@ void SyncManager::SyncInternal::HandleTransactionCompleteChangeEvent(
   }
 }
 
-void SyncManager::SyncInternal::HandleServerConnectionEvent(
+void SyncManager::SyncInternal::OnServerConnectionEvent(
     const ServerConnectionEvent& event) {
   allstatus_.HandleServerConnectionEvent(event);
   if (event.what_happened == ServerConnectionEvent::STATUS_CHANGED) {
@@ -1784,6 +1837,9 @@ void SyncManager::SyncInternal::HandleServerConnectionEvent(
         observer_->OnAuthError(AuthError(AuthError::INVALID_GAIA_CREDENTIALS));
       }
     }
+  } else {
+    DCHECK_EQ(ServerConnectionEvent::SHUTDOWN, event.what_happened);
+    connection_manager_->RemoveListener(this);
   }
 }
 
@@ -1828,6 +1884,7 @@ void SyncManager::SyncInternal::HandleCalculateChangesChangeEventFromSyncApi(
 
   bool exists_unsynced_items = false;
   bool only_preference_changes = true;
+  syncable::ModelTypeBitSet model_types;
   for (syncable::OriginalEntries::const_iterator i = event.originals->begin();
        i != event.originals->end() && !exists_unsynced_items;
        ++i) {
@@ -1846,6 +1903,7 @@ void SyncManager::SyncInternal::HandleCalculateChangesChangeEventFromSyncApi(
       // Unsynced items will cause us to nudge the the syncer.
       exists_unsynced_items = true;
 
+      model_types[model_type] = true;
       if (model_type != syncable::PREFERENCES)
         only_preference_changes = false;
     }
@@ -1853,7 +1911,10 @@ void SyncManager::SyncInternal::HandleCalculateChangesChangeEventFromSyncApi(
   if (exists_unsynced_items && syncer_thread()) {
     int nudge_delay = only_preference_changes ?
         kPreferencesNudgeDelayMilliseconds : kDefaultNudgeDelayMilliseconds;
-    syncer_thread()->NudgeSyncer(nudge_delay, SyncerThread::kLocal);
+    syncer_thread()->NudgeSyncerWithDataTypes(
+        nudge_delay,
+        SyncerThread::kLocal,
+        model_types);
   }
 }
 
@@ -2090,25 +2151,47 @@ void SyncManager::SyncInternal::TalkMediatorLogin(
 
 void SyncManager::SyncInternal::OnIncomingNotification(
     const IncomingNotificationData& notification_data) {
+  syncable::ModelTypeBitSet model_types;
+
   // Check if the service url is a sync URL.  An empty service URL is
   // treated as a legacy sync notification.  If we're listening to
   // server-issued notifications, no need to check the service_url.
-  if ((notifier_options_.notification_method ==
-       notifier::NOTIFICATION_SERVER) ||
-      notification_data.service_url.empty() ||
-      (notification_data.service_url ==
-       browser_sync::kSyncLegacyServiceUrl) ||
-      (notification_data.service_url ==
-       browser_sync::kSyncServiceUrl)) {
-    VLOG(1) << "P2P: Updates on server, pushing syncer";
-    if (syncer_thread()) {
-      // Introduce a delay to help coalesce initial notifications.
-      syncer_thread()->NudgeSyncer(250, SyncerThread::kNotification);
+  if (notifier_options_.notification_method ==
+      notifier::NOTIFICATION_SERVER) {
+    VLOG(1) << "Sync received server notification: " <<
+        notification_data.service_specific_data;
+
+    if (!syncable::ModelTypeBitSetFromString(
+            notification_data.service_specific_data,
+            &model_types)) {
+      LOG(DFATAL) << "Could not extract model types from server data.";
+      model_types.set();
     }
-    allstatus_.IncrementNotificationsReceived();
+  } else if (notification_data.service_url.empty() ||
+             (notification_data.service_url ==
+              browser_sync::kSyncLegacyServiceUrl) ||
+             (notification_data.service_url ==
+              browser_sync::kSyncServiceUrl)) {
+    VLOG(1) << "Sync received P2P notification.";
+
+    // Catch for sync integration tests (uses p2p). Just set all datatypes.
+    model_types.set();
   } else {
     LOG(WARNING) << "Notification fron unexpected source: "
                  << notification_data.service_url;
+  }
+
+  if (model_types.any()) {
+    if (syncer_thread()) {
+     // Introduce a delay to help coalesce initial notifications.
+     syncer_thread()->NudgeSyncerWithDataTypes(
+         250,
+         SyncerThread::kNotification,
+         model_types);
+    }
+    allstatus_.IncrementNotificationsReceived();
+  } else {
+    LOG(WARNING) << "Sync received notification without any type information.";
   }
 }
 

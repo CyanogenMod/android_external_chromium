@@ -7,6 +7,7 @@
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "build/build_config.h"
@@ -41,6 +42,7 @@ class TestServer {
     TYPE_FTP,
     TYPE_HTTP,
     TYPE_HTTPS,
+    TYPE_SYNC,
   };
 
   // Container for various options to control how the HTTPS server is
@@ -113,18 +115,24 @@ class TestServer {
   bool Stop();
 
   const FilePath& document_root() const { return document_root_; }
-  const HostPortPair& host_port_pair() const { return host_port_pair_; }
+  const HostPortPair& host_port_pair() const;
   std::string GetScheme() const;
   bool GetAddressList(AddressList* address_list) const WARN_UNUSED_RESULT;
 
-  GURL GetURL(const std::string& path);
+  GURL GetURL(const std::string& path) const;
 
   GURL GetURLWithUser(const std::string& path,
-                      const std::string& user);
+                      const std::string& user) const;
 
   GURL GetURLWithUserAndPassword(const std::string& path,
                                  const std::string& user,
-                                 const std::string& password);
+                                 const std::string& password) const;
+
+  typedef std::pair<std::string, std::string> StringPair;
+  static bool GetFilePathWithReplacements(
+      const std::string& original_path,
+      const std::vector<StringPair>& text_to_replace,
+      std::string* replacement_path);
 
  private:
   void Init(const FilePath& document_root);
@@ -188,6 +196,9 @@ class TestServer {
 #endif
 
   Type type_;
+
+  // Has the server been started?
+  bool started_;
 
   DISALLOW_COPY_AND_ASSIGN(TestServer);
 };

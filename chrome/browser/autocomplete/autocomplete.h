@@ -42,10 +42,11 @@
 // --------------------------------------------------------------------|-----
 // Keyword (non-substituting or in keyword UI mode, exact match)       | 1500
 // HistoryURL (exact or inline autocomplete match)                     | 1400
+// Search Primary Provider (past query in history within 2 days)       | 1399**
 // Search Primary Provider (what you typed)                            | 1300
 // HistoryURL (what you typed)                                         | 1200
 // Keyword (substituting, exact match)                                 | 1100
-// Search Primary Provider (past query in history)                     | 1050--
+// Search Primary Provider (past query in history older than 2 days)   | 1050--
 // HistoryContents (any match in title of starred page)                | 1000++
 // HistoryURL (inexact match)                                          |  900++
 // Search Primary Provider (navigational suggestion)                   |  800++
@@ -63,10 +64,11 @@
 // --------------------------------------------------------------------|-----
 // Keyword (non-substituting or in keyword UI mode, exact match)       | 1500
 // HistoryURL (exact or inline autocomplete match)                     | 1400
+// Search Primary Provider (past query in history within 2 days)       | 1399**
 // HistoryURL (what you typed)                                         | 1200
 // Search Primary Provider (what you typed)                            | 1150
 // Keyword (substituting, exact match)                                 | 1100
-// Search Primary Provider (past query in history)                     | 1050--
+// Search Primary Provider (past query in history older than 2 days)   | 1050--
 // HistoryContents (any match in title of starred page)                | 1000++
 // HistoryURL (inexact match)                                          |  900++
 // Search Primary Provider (navigational suggestion)                   |  800++
@@ -102,8 +104,9 @@
 // Keyword (non-substituting or in keyword UI mode, exact match)       | 1500
 // Keyword (substituting, exact match)                                 | 1450
 // HistoryURL (exact or inline autocomplete match)                     | 1400
+// Search Primary Provider (past query in history within 2 days)       | 1399**
 // Search Primary Provider (what you typed)                            | 1300
-// Search Primary Provider (past query in history)                     | 1050--
+// Search Primary Provider (past query in history older than 2 days)   | 1050--
 // HistoryContents (any match in title of starred page)                | 1000++
 // HistoryURL (inexact match)                                          |  900++
 // Search Primary Provider (navigational suggestion)                   |  800++
@@ -119,8 +122,9 @@
 //
 // FORCED_QUERY input type:
 // --------------------------------------------------------------------|-----
+// Search Primary Provider (past query in history within 2 days)       | 1399**
 // Search Primary Provider (what you typed)                            | 1300
-// Search Primary Provider (past query in history)                     | 1050--
+// Search Primary Provider (past query in history older than 2 days)   | 1050--
 // HistoryContents (any match in title of starred page)                | 1000++
 // Search Primary Provider (navigational suggestion)                   |  800++
 // HistoryContents (any match in title of nonstarred page)             |  700++
@@ -140,6 +144,8 @@
 // ++: a series of matches with relevance from n up to (n + max_matches).
 // --: relevance score falls off over time (discounted 50 points @ 15 minutes,
 //     450 points @ two weeks)
+// --: relevance score falls off over two days (discounted 99 points after two
+//     days).
 
 class AutocompleteInput;
 struct AutocompleteMatch;
@@ -177,6 +183,7 @@ class AutocompleteInput {
                     const std::wstring& desired_tld,
                     bool prevent_inline_autocomplete,
                     bool prefer_keyword,
+                    bool allow_exact_keyword_match,
                     bool synchronous_only);
   ~AutocompleteInput();
 
@@ -246,6 +253,11 @@ class AutocompleteInput {
   // keyword, we should score it like a non-substituting keyword.
   bool prefer_keyword() const { return prefer_keyword_; }
 
+  // Returns whether this input is allowed to be treated as an exact
+  // keyword match.  If not, the default result is guaranteed not to be a
+  // keyword search, even if the input is "<keyword> <search string>".
+  bool allow_exact_keyword_match() const { return allow_exact_keyword_match_; }
+
   // Returns whether providers should avoid scheduling asynchronous work.  If
   // this is true, providers should stop after returning all the
   // synchronously-available matches.  This also means any in-progress
@@ -267,6 +279,7 @@ class AutocompleteInput {
   GURL canonicalized_url_;
   bool prevent_inline_autocomplete_;
   bool prefer_keyword_;
+  bool allow_exact_keyword_match_;
   bool synchronous_only_;
 };
 
@@ -544,6 +557,10 @@ class AutocompleteController : public ACProviderListener {
   // bias the autocomplete result set toward the keyword provider when the input
   // string is a bare keyword.
   //
+  // |allow_exact_keyword_match| should be false when triggering keyword mode on
+  // the input string would be surprising or wrong, e.g. when highlighting text
+  // in a page and telling the browser to search for it or navigate to it.
+
   // If |synchronous_only| is true, the controller asks the providers to only
   // return matches which are synchronously available, which should mean that
   // all providers will be done immediately.
@@ -559,6 +576,7 @@ class AutocompleteController : public ACProviderListener {
              const std::wstring& desired_tld,
              bool prevent_inline_autocomplete,
              bool prefer_keyword,
+             bool allow_exact_keyword_match,
              bool synchronous_only);
 
   // Cancels the current query, ensuring there will be no future notifications

@@ -9,9 +9,9 @@
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
+#include "app/slide_animation.h"
 #include "app/throb_animation.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/gtk/bookmark_utils_gtk.h"
 #include "chrome/browser/gtk/custom_button.h"
@@ -19,9 +19,11 @@
 #include "chrome/browser/gtk/gtk_util.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/notification_service.h"
 #include "gfx/canvas_skia_paint.h"
 #include "gfx/favicon_size.h"
+#include "gfx/platform_font_gtk.h"
 #include "gfx/skbitmap_operations.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
@@ -1070,10 +1072,11 @@ void TabRendererGtk::InitResources() {
   LoadTabImages();
 
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  // Force the font size to 9pt, which matches Windows' default font size
-  // (taken from the system).
   const gfx::Font& base_font = rb.GetFont(ResourceBundle::BaseFont);
-  title_font_ = new gfx::Font(base_font.GetFontName(), 9);
+  // Dividing by the pango scale factor maintains an absolute pixel size across
+  // all DPIs.
+  int size = static_cast<int>(13 / gfx::PlatformFontGtk::GetPangoScaleFactor());
+  title_font_ = new gfx::Font(base_font.GetFontName(), size);
   title_font_height_ = title_font_->GetHeight();
 
   crashed_fav_icon = rb.GetBitmapNamed(IDR_SAD_FAVICON);

@@ -11,11 +11,7 @@
 #include "base/scoped_ptr.h"
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
-#include "chrome/browser/browser.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_navigator.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/sessions/session_service.h"
@@ -24,6 +20,10 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
@@ -199,13 +199,11 @@ void TabLoader::Observe(NotificationType type,
             loading_ = true;
             LoadNextTab();
           }
-          // start loading
+          // Start loading
           break;
         case chromeos::NetworkStateDetails::CONNECTING:
-          // keep it going
-          break;
         case chromeos::NetworkStateDetails::DISCONNECTED:
-          // disconnected while loading. set loaing_ false so
+          // Disconnected while loading. Set loading_ false so
           // that it stops trying to load next tab.
           loading_ = false;
           break;

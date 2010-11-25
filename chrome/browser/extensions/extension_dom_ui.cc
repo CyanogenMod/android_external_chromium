@@ -9,7 +9,6 @@
 #include "net/base/file_stream.h"
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/extensions/extension_bookmark_manager_api.h"
@@ -19,13 +18,14 @@
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/bindings_policy.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/page_transition_types.h"
-#include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
+#include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_icon_set.h"
 #include "chrome/common/extensions/extension_resource.h"
+#include "chrome/common/page_transition_types.h"
 #include "chrome/common/url_constants.h"
 #include "gfx/codec/png_codec.h"
 #include "gfx/favicon_size.h"
@@ -185,9 +185,14 @@ void ExtensionDOMUI::ProcessDOMUIMessage(
 }
 
 Browser* ExtensionDOMUI::GetBrowser() const {
-  // TODO(beng): This is an improper direct dependency on Browser. Route this
-  // through some sort of delegate.
-  return BrowserList::FindBrowserWithProfile(DOMUI::GetProfile());
+  TabContents* contents = tab_contents();
+  TabContentsIterator tab_iterator;
+  for (; !tab_iterator.done(); ++tab_iterator) {
+    if (contents == *tab_iterator)
+      return tab_iterator.browser();
+  }
+
+  return NULL;
 }
 
 TabContents* ExtensionDOMUI::associated_tab_contents() const {

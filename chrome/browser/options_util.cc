@@ -4,6 +4,7 @@
 
 #include "chrome/browser/options_util.h"
 
+#include "base/thread_restrictions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_prefs.h"
@@ -31,6 +32,12 @@ void OptionsUtil::ResetToDefaults(Profile* profile) {
     prefs::kCookieBehavior,
     prefs::kDefaultCharset,
     prefs::kDefaultZoomLevel,
+    prefs::kDeleteBrowsingHistory,
+    prefs::kDeleteCache,
+    prefs::kDeleteCookies,
+    prefs::kDeleteDownloadHistory,
+    prefs::kDeleteFormData,
+    prefs::kDeletePasswords,
     prefs::kDnsPrefetchingEnabled,
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_OPENBSD)
     prefs::kCertRevocationCheckingEnabled,
@@ -97,6 +104,10 @@ void OptionsUtil::ResetToDefaults(Profile* profile) {
 
 // static
 bool OptionsUtil::ResolveMetricsReportingEnabled(bool enabled) {
+  // GoogleUpdateSettings touches the disk from the UI thread. MetricsService
+  // also calls GoogleUpdateSettings below. http://crbug/62626
+  base::ThreadRestrictions::ScopedAllowIO allow_io;
+
   GoogleUpdateSettings::SetCollectStatsConsent(enabled);
   bool update_pref = GoogleUpdateSettings::GetCollectStatsConsent();
 

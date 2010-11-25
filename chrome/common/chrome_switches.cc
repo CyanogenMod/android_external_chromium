@@ -22,6 +22,10 @@ const char kActivateOnLaunch[]              = "activate-on-launch";
 // override for developers who need the old behavior for testing.
 const char kAllowFileAccessFromFiles[]      = "allow-file-access-from-files";
 
+// On ChromeOS, file:// access is disabled except for certain whitelisted
+// directories. This switch re-enables file:// for testing.
+const char kAllowFileAccess[]               = "allow-file-access";
+
 // Disable checking of the renegotiation extension and any future checks over
 // and above what a "traditional" SSL stack might do. This has been requested
 // in order to support some web development tools that intercept SSL
@@ -46,6 +50,11 @@ const char kApp[]                           = "app";
 // Specifies that the extension-app with the specified id should be launched
 // according to its configuration.
 const char kAppId[]                         = "app-id";
+
+// Specifying this flag allows the webstorePrivate APIs to return browser (aka
+// sync) login tokens to be used for auto-login in the Web Store (normally they
+// do not).
+const char kAppsGalleryReturnTokens[]       = "apps-gallery-return-tokens";
 
 // The URL to use for the gallery link in the app launcher.
 const char kAppsGalleryURL[]                = "apps-gallery-url";
@@ -92,6 +101,10 @@ const char kCheckForUpdateIntervalSec[]     = "check-for-update-interval";
 // as a dependent process of the Chrome Frame plugin.
 const char kChromeFrame[]                   = "chrome-frame";
 
+// Tells chrome to load the specified version of chrome.dll on Windows. If
+// this version cannot be loaded, Chrome will exit.
+const char kChromeVersion[]                 = "chrome-version";
+
 // The unique id to be used for this cloud print proxy instance.
 const char kCloudPrintProxyId[]             = "cloud-print-proxy-id";
 
@@ -111,6 +124,11 @@ const char kCountry[]                       = "country";
 
 // Enables support to debug printing subsystem.
 const char kDebugPrint[]                    = "debug-print";
+
+// Specifies the URL at which to fetch configuration policy from the device
+// management backend. Specifying this switch turns on managed policy from the
+// device management backend.
+const char kDeviceManagementUrl[]           = "device-management-url";
 
 // Triggers a pletora of diagnostic modes.
 const char kDiagnostics[]                   = "diagnostics";
@@ -147,9 +165,6 @@ const char kDisableBackgroundNetworking[] = "disable-background-networking";
 // Disable limits on the number of backing stores. Can prevent blinking for
 // users with many windows/tabs and lots of memory.
 const char kDisableBackingStoreLimit[]      = "disable-backing-store-limit";
-
-// Disable click-to-play for blocked plug-ins.
-const char kDisableClickToPlay[]            = "disable-click-to-play";
 
 // Disables establishing a backup TCP connection if a specified timeout is
 // exceeded.
@@ -188,6 +203,9 @@ const char kDisableExtensionsFileAccessCheck[] =
 
 // Disable FileSystem API.
 const char kDisableFileSystem[]             = "disable-file-system";
+
+// Disables the sandbox for the built-in flash player.
+const char kDisableFlashSandbox[]           = "disable-flash-sandbox";
 
 // Suppresses support for the Geolocation javascript API.
 const char kDisableGeolocation[]            = "disable-geolocation";
@@ -382,6 +400,9 @@ const char kEnableBenchmarking[]            = "enable-benchmarking";
 // until there's a server endpoint deployed.
 const char kEnableClearServerData[]         = "enable-clear-server-data";
 
+// Enable click-to-play for blocked plug-ins.
+const char kEnableClickToPlay[]            = "enable-click-to-play";
+
 // This applies only when the process type is "service". Enables the
 // Cloud Print Proxy component within the service process.
 const char kEnableCloudPrintProxy[]         = "enable-cloud-print-proxy";
@@ -489,6 +510,9 @@ const char kEnableSearchProviderApiV2[]     = "enable-search-provider-api-v2";
 
 // Enables 0-RTT HTTPS handshakes.
 const char kEnableSnapStart[]               = "enable-snap-start";
+
+// Enables speech input.
+const char kEnableSpeechInput[]             = "enable-speech-input";
 
 // Enables StatsTable, logging statistics to a global named shared memory table.
 const char kEnableStatsTable[]              = "enable-stats-table";
@@ -624,6 +648,9 @@ const char kGpuProcess[]                    = "gpu-process";
 
 // Causes the GPU process to display a dialog on launch.
 const char kGpuStartupDialog[]              = "gpu-startup-dialog";
+
+// Specifies a custom name for the GSSAPI library to load.
+const char kGSSAPILibraryName[]             = "gssapi-library-name";
 
 // These flags show the man page on Linux. They are equivalent to each
 // other.
@@ -841,6 +868,18 @@ const char kPluginProcess[]                 = "plugin";
 // Causes the plugin process to display a dialog on launch.
 const char kPluginStartupDialog[]           = "plugin-startup-dialog";
 
+// Runs PPAPI (Pepper) plugins out-of-process.
+const char kPpapiOutOfProcess[]             = "ppapi-out-of-process";
+
+// Like kPluginLauncher for PPAPI plugins.
+const char kPpapiPluginLauncher[]           = "ppapi-plugin-launcher";
+
+// Argument to the process type that indicates a PPAPI plugin process type.
+const char kPpapiPluginProcess[]            = "ppapi";
+
+// Causes the PPAPI sub process to display a dialog on launch.
+const char kPpapiStartupDialog[]            = "ppapi-startup-dialog";
+
 // Establishes a channel to the GPU process asynchronously and (re)launches it
 // if necessary when a renderer process starts.
 const char kPrelaunchGpuProcess[]           = "prelaunch-gpu-process";
@@ -971,9 +1010,6 @@ const char kServiceAccountLsid[]            = "service-account-lsid";
 
 // See kHideIcons.
 const char kShowIcons[]                     = "show-icons";
-
-// If true the instant opt-in promo is shown in the omnibox.
-const char kShowInstantOptIn[]              = "show-instant-opt-in";
 
 // Renders a border around composited Render Layers to help debug and study
 // layer compositing.
@@ -1164,6 +1200,9 @@ const char kLoginUser[]                     = "login-user";
 // Specifies a password to be used to login (along with login-user).
 const char kLoginPassword[]                 = "login-password";
 
+// Allows to emulate situation when user logins with new password.
+const char kLoginUserWithNewPassword[]      = "login-user-with-new-password";
+
 // Attempts to perform Chrome OS offline and online login in parallel.
 const char kParallelAuth[]                  = "parallel-auth";
 
@@ -1189,11 +1228,16 @@ const char kCompressSystemFeedback[]        = "compress-sys-feedback";
 
 // Forces usage of libcros stub implementation. For testing purposes, this
 // switch separates chrome code from the rest of ChromeOS.
-const char kForceStubLibcros[]        = "force-stub-libcros";
+const char kForceStubLibcros[]              = "force-stub-libcros";
 
 // Enables DOMUI menu.
-const char kEnableDOMUIMenu[]              = "enable-domui-menu";
+const char kEnableDOMUIMenu[]               = "enable-domui-menu";
 
+// Enables Media Player.
+const char kEnableMediaPlayer[]             = "enable-media-player";
+
+// Enables Advanced File System.
+const char kEnableAdvancedFileSystem[]      = "enable-advanced-fs";
 #endif
 
 #if defined(OS_LINUX)

@@ -51,8 +51,38 @@ class SessionDescription;
 typedef std::vector<AudioCodec> AudioCodecs;
 typedef std::vector<VideoCodec> VideoCodecs;
 
+// SEC_ENABLED and SEC_REQUIRED should only be used if the session
+// was negotiated over TLS, to protect the inline crypto material
+// exchange.
+// SEC_DISABLED: No crypto in outgoing offer and answer. Fail any
+//               offer with crypto required.
+// SEC_ENABLED: Crypto in outgoing offer and answer. Fail any offer
+//              with unsupported required crypto. Crypto set but not
+//              required in outgoing offer.
+// SEC_REQUIRED: Crypto in outgoing offer and answer with
+//               required='true'. Fail any offer with no or
+//               unsupported crypto (implicit crypto required='true'
+//               in the offer.)
+enum SecureMediaPolicy {SEC_DISABLED, SEC_ENABLED, SEC_REQUIRED};
+
+const int kAutoBandwidth = -1;
+
+struct CallOptions {
+  CallOptions() :
+      is_video(false),
+      is_muc(false),
+      video_bandwidth(kAutoBandwidth) {
+  }
+
+  bool is_video;
+  bool is_muc;
+  // bps. -1 == auto.
+  int video_bandwidth;
+};
+
 class MediaSessionClient: public SessionClient, public sigslot::has_slots<> {
  public:
+
   MediaSessionClient(const buzz::Jid& jid, SessionManager *manager);
   // Alternative constructor, allowing injection of media_engine
   // and device_manager.
@@ -66,7 +96,7 @@ class MediaSessionClient: public SessionClient, public sigslot::has_slots<> {
 
   int GetCapabilities() { return channel_manager_->GetCapabilities(); }
 
-  Call *CreateCall(bool video = false, bool mux = false);
+  Call *CreateCall();
   void DestroyCall(Call *call);
 
   Call *GetFocus();
@@ -100,8 +130,12 @@ class MediaSessionClient: public SessionClient, public sigslot::has_slots<> {
   sigslot::signal1<Call *> SignalCallDestroy;
   sigslot::repeater0<> SignalDevicesChange;
 
-  SessionDescription* CreateOffer(bool video = false, bool set_ssrc = false);
-  SessionDescription* CreateAnswer(const SessionDescription* offer);
+  SessionDescription* CreateOffer(const CallOptions& options);
+  SessionDescription* CreateAnswer(const SessionDescription* offer,
+                                   const CallOptions& options);
+
+  SecureMediaPolicy secure() const { return secure_; }
+  void set_secure(SecureMediaPolicy s) { secure_ = s; }
 
  private:
   void Construct();
@@ -124,7 +158,7 @@ class MediaSessionClient: public SessionClient, public sigslot::has_slots<> {
   ChannelManager *channel_manager_;
   std::map<uint32, Call *> calls_;
   std::map<std::string, Call *> session_map_;
-
+  SecureMediaPolicy secure_;
   friend class Call;
 };
 
@@ -135,8 +169,14 @@ enum MediaType {
 
 class MediaContentDescription : public ContentDescription {
  public:
-  MediaContentDescription() : ssrc_(0), ssrc_set_(false), rtcp_mux_(false),
-                              rtp_headers_disabled_(false) {}
+  MediaContentDescription()
+      : ssrc_(0),
+        ssrc_set_(false),
+        rtcp_mux_(false), 
+        rtp_headers_disabled_(false),
+        crypto_required_(false),
+        bandwidth_(kAutoBandwidth) {
+  }
 
   virtual MediaType type() const = 0;
 
@@ -161,12 +201,22 @@ class MediaContentDescription : public ContentDescription {
   void AddCrypto(const CryptoParams& params) {
     cryptos_.push_back(params);
   }
+  bool crypto_required() const { return crypto_required_; }
+  void set_crypto_required(bool crypto) {
+    crypto_required_ = crypto;
+  }
 
+  int bandwidth() const { return bandwidth_; }
+  void set_bandwidth(int bandwidth) { bandwidth_ = bandwidth; }
+
+ protected:
   uint32 ssrc_;
   bool ssrc_set_;
   bool rtcp_mux_;
   bool rtp_headers_disabled_;
   std::vector<CryptoParams> cryptos_;
+  bool crypto_required_;
+  int bandwidth_;
 };
 
 template <class C>
@@ -190,16 +240,22 @@ class MediaContentDescriptionImpl : public MediaContentDescription {
 
 class AudioContentDescription : public MediaContentDescriptionImpl<AudioCodec> {
  public:
-  AudioContentDescription()
-      {}
+  AudioContentDescription() :
+      conference_mode_(false) {}
 
   virtual MediaType type() const { return MEDIA_TYPE_AUDIO; }
+
+  bool conference_mode() const { return conference_mode_; }
+  void set_conference_mode(bool enable) {
+    conference_mode_ = enable;
+  }
 
   const std::string &lang() const { return lang_; }
   void set_lang(const std::string &lang) { lang_ = lang; }
 
 
  private:
+  bool conference_mode_;
   std::string lang_;
 };
 

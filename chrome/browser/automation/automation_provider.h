@@ -23,9 +23,9 @@
 #include "chrome/browser/autofill/field_types.h"
 #include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
+#include "chrome/common/automation_constants.h"
 #include "chrome/common/content_settings.h"
 #include "chrome/common/notification_observer.h"
-#include "chrome/test/automation/automation_constants.h"
 #include "ipc/ipc_message.h"
 #include "ipc/ipc_channel.h"
 #if defined(OS_WIN)
@@ -178,6 +178,10 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
   // Returns the protocol version which typically is the module version.
   virtual std::string GetProtocolVersion();
 
+  // Returns the associated view for the tab handle passed in.
+  // Returns NULL on failure.
+  RenderViewHost* GetViewForTab(int tab_handle);
+
   scoped_ptr<AutomationAutocompleteEditTracker> autocomplete_edit_tracker_;
   scoped_ptr<AutomationBrowserTracker> browser_tracker_;
   scoped_ptr<InitialLoadObserver> initial_load_observer_;
@@ -316,10 +320,6 @@ class AutomationProvider : public base::RefCounted<AutomationProvider>,
                             const std::string& password,
                             IPC::Message* reply_message);
 #endif
-
-  // Returns the associated view for the tab handle passed in.
-  // Returns NULL on failure.
-  RenderViewHost* GetViewForTab(int tab_handle);
 
   // Returns the extension for the given handle. Returns NULL if there is
   // no extension for the handle.

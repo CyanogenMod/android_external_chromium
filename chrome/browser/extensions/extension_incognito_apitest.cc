@@ -2,16 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/extensions/browser_action_test_util.h"
 #include "chrome/browser/extensions/extension_apitest.h"
-#include "chrome/browser/extensions/extension_test_message_listener.h"
 #include "chrome/browser/extensions/extensions_service.h"
+#include "chrome/browser/extensions/extension_test_message_listener.h"
 #include "chrome/browser/extensions/user_script_master.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/ui_test_utils.h"
@@ -91,8 +91,16 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, DontCreateIncognitoProfile) {
   ASSERT_FALSE(browser()->profile()->HasOffTheRecordProfile());
 }
 
+// TODO(kochi): Flaky at r65757 and after on buildbot for ChromiumOS.
+// http://crosbug.com/9049
+#if defined(OS_CHROMEOS)
+#define MAYBE_Incognito FLAKY_Incognito
+#else
+#define MAYBE_Incognito Incognito
+#endif
+
 // Tests that the APIs in an incognito-enabled extension work properly.
-IN_PROC_BROWSER_TEST_F(ExtensionApiTest, Incognito) {
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, MAYBE_Incognito) {
   host_resolver()->AddRule("*", "127.0.0.1");
   ASSERT_TRUE(StartTestServer());
 

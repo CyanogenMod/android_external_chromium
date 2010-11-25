@@ -77,7 +77,7 @@ TEST_F(ResourceDispatcherTest, ContentDispositionInline) {
 }
 
 // Test for bug #1091358.
-// Flakey due to NavigateToURL bug: see http://crbug.com/55380
+// Flaky: http://crbug.com/62595
 TEST_F(ResourceDispatcherTest, FLAKY_SyncXMLHttpRequest) {
   net::TestServer test_server(net::TestServer::TYPE_HTTP,
                               FilePath(FILE_PATH_LITERAL("chrome/test/data")));
@@ -99,7 +99,8 @@ TEST_F(ResourceDispatcherTest, FLAKY_SyncXMLHttpRequest) {
   EXPECT_TRUE(success);
 }
 
-TEST_F(ResourceDispatcherTest, SyncXMLHttpRequest_Disallowed) {
+// http://code.google.com/p/chromium/issues/detail?id=62776
+TEST_F(ResourceDispatcherTest, FLAKY_SyncXMLHttpRequest_Disallowed) {
   net::TestServer test_server(net::TestServer::TYPE_HTTP,
                               FilePath(FILE_PATH_LITERAL("chrome/test/data")));
   ASSERT_TRUE(test_server.Start());

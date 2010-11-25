@@ -11,7 +11,7 @@
 #include "app/resource_bundle.h"
 #include "base/stringprintf.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/chromeos/cros_settings_provider_user.h"
+#include "chrome/browser/chromeos/user_cros_settings_provider.h"
 #include "chrome/browser/chromeos/login/existing_user_view.h"
 #include "chrome/browser/chromeos/login/guest_user_view.h"
 #include "chrome/browser/chromeos/login/helper.h"
@@ -49,6 +49,9 @@ const int kUserNameGap = 4;
 // case to make border window size close to existing users.
 const int kControlsHeight = 28;
 
+// Delta for the unselected username font.
+const int kUnselectedUsernameFontDelta = 1;
+
 // Widget that notifies window manager about clicking on itself.
 // Doesn't send anything if user is selected.
 class ClickNotifyingWidget : public views::WidgetGtk {
@@ -71,6 +74,13 @@ class ClickNotifyingWidget : public views::WidgetGtk {
 
   DISALLOW_COPY_AND_ASSIGN(ClickNotifyingWidget);
 };
+
+void CloseWindow(views::WidgetGtk* window) {
+  if (!window)
+    return;
+  window->SetWidgetDelegate(NULL);
+  window->Close();
+}
 
 }  // namespace
 
@@ -146,17 +156,11 @@ UserController::~UserController() {
   // Reset the widget delegate of every window to NULL, so the user
   // controller will not get notified about the active window change.
   // See also crosbug.com/7400.
-  controls_window_->SetWidgetDelegate(NULL);
-  image_window_->SetWidgetDelegate(NULL);
-  border_window_->SetWidgetDelegate(NULL);
-  label_window_->SetWidgetDelegate(NULL);
-  unselected_label_window_->SetWidgetDelegate(NULL);
-
-  controls_window_->Close();
-  image_window_->Close();
-  border_window_->Close();
-  label_window_->Close();
-  unselected_label_window_->Close();
+  CloseWindow(controls_window_);
+  CloseWindow(image_window_);
+  CloseWindow(border_window_);
+  CloseWindow(label_window_);
+  CloseWindow(unselected_label_window_);
 }
 
 void UserController::Init(int index,
@@ -177,7 +181,13 @@ void UserController::Init(int index,
 void UserController::SetPasswordEnabled(bool enable) {
   DCHECK(!is_new_user_);
   existing_user_view_->password_field()->SetEnabled(enable);
-  enable ? user_view_->StopThrobber() : user_view_->StartThrobber();
+  if (enable) {
+    user_view_->StopThrobber();
+    delegate_->SetStatusAreaEnabled(enable);
+  } else {
+    delegate_->SetStatusAreaEnabled(enable);
+    user_view_->StartThrobber();
+  }
 }
 
 std::wstring UserController::GetNameTooltip() const {
@@ -188,18 +198,18 @@ std::wstring UserController::GetNameTooltip() const {
 
   // Tooltip contains user's display name and his email domain to distinguish
   // this user from the other one with the same display name.
-  const std::wstring& email = UTF8ToWide(user_.email());
+  const std::string& email = user_.email();
   size_t at_pos = email.rfind('@');
-  if (at_pos == std::wstring::npos) {
+  if (at_pos == std::string::npos) {
     NOTREACHED();
     return std::wstring();
   }
   size_t domain_start = at_pos + 1;
-  std::wstring domain = email.substr(domain_start,
-                                     email.length() - domain_start);
-  return base::StringPrintf(L"%s (%s)",
-                            user_.GetDisplayName().c_str(),
-                            domain.c_str());
+  std::string domain = email.substr(domain_start,
+                                    email.length() - domain_start);
+  return UTF8ToWide(base::StringPrintf("%s (%s)",
+                                       user_.GetDisplayName().c_str(),
+                                       domain.c_str()));
 }
 
 void UserController::ClearAndEnablePassword() {
@@ -430,8 +440,9 @@ WidgetGtk* UserController::CreateLabelWindow(int index,
                                              WmIpcWindowType type) {
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
   const gfx::Font& font = (type == WM_IPC_WINDOW_LOGIN_LABEL) ?
-      rb.GetFont(ResourceBundle::LargeFont).DeriveFont(0, gfx::Font::BOLD) :
-      rb.GetFont(ResourceBundle::BaseFont).DeriveFont(0, gfx::Font::BOLD);
+      rb.GetFont(ResourceBundle::MediumBoldFont) :
+      rb.GetFont(ResourceBundle::BaseFont).DeriveFont(
+          kUnselectedUsernameFontDelta, gfx::Font::BOLD);
   std::wstring text;
   if (is_guest_) {
     text = l10n_util::GetString(IDS_GUEST);
@@ -444,19 +455,11 @@ WidgetGtk* UserController::CreateLabelWindow(int index,
     text = UTF8ToWide(user_.GetDisplayName());
   }
 
-  views::Label *label;
-  views::View *view;
-  if (is_new_user_) {
-    label = new views::Label(text);
-    label->SetColor(kTextColor);
-    label->SetFont(font);
-    view = label;
-  } else {
-    UsernameView* username_view = new UsernameView(text);
-    username_view->SetFont(font);
-    label = username_view->label();
-    view = username_view;
-  }
+  views::Label *label = is_new_user_ ?
+      new views::Label(text) : new UsernameView(text);
+
+  label->SetColor(kTextColor);
+  label->SetFont(font);
 
   if (type == WM_IPC_WINDOW_LOGIN_LABEL)
     label_view_ = label;
@@ -469,13 +472,14 @@ WidgetGtk* UserController::CreateLabelWindow(int index,
     // Make label as small as possible to don't show tooltip.
     width = 0;
   }
-  int height = label->GetPreferredSize().height();
+  int height = (type == WM_IPC_WINDOW_LOGIN_LABEL) ?
+      login::kSelectedLabelHeight : login::kUnselectedLabelHeight;
   WidgetGtk* window = new ClickNotifyingWidget(WidgetGtk::TYPE_WINDOW, this);
   ConfigureLoginWindow(window,
                        index,
                        gfx::Rect(0, 0, width, height),
                        type,
-                       view);
+                       label);
   return window;
 }
 

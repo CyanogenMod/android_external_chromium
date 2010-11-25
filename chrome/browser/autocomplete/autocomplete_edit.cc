@@ -171,6 +171,11 @@ void AutocompleteEditModel::GetDataForURLExport(GURL* url,
   }
 }
 
+bool AutocompleteEditModel::PreventInlineAutocomplete() {
+  return
+      popup_->autocomplete_controller()->input().prevent_inline_autocomplete();
+}
+
 std::wstring AutocompleteEditModel::GetDesiredTLD() const {
   // Tricky corner case: The user has typed "foo" and currently sees an inline
   // autocomplete suggestion of "foo.net".  He now presses ctrl-a (e.g. to
@@ -296,7 +301,7 @@ bool AutocompleteEditModel::CanPasteAndGo(const std::wstring& text) const {
     return false;
 
   AutocompleteMatch match;
-  profile_->GetAutocompleteClassifier()->Classify(text, std::wstring(),
+  profile_->GetAutocompleteClassifier()->Classify(text, std::wstring(), false,
       &match, &paste_and_go_alternate_nav_url_);
   paste_and_go_url_ = match.destination_url;
   paste_and_go_transition_ = match.transition;
@@ -610,10 +615,10 @@ void AutocompleteEditModel::OnPopupDataChanged(
       return;
   }
 
-  // If the above changes didn't warrant a text update but we did change keyword
-  // state, we have yet to notify the controller about it.
-  if (keyword_state_changed)
-    controller_->OnChanged();
+  // All other code paths that return invoke OnChanged. We need to invoke
+  // OnChanged in case the destination url changed (as could happen when control
+  // is toggled).
+  controller_->OnChanged();
 }
 
 bool AutocompleteEditModel::OnAfterPossibleChange(const std::wstring& new_text,
@@ -772,8 +777,8 @@ void AutocompleteEditModel::GetInfoForCurrentText(
     popup_->InfoForCurrentSelection(match, alternate_nav_url);
   } else {
     profile_->GetAutocompleteClassifier()->Classify(
-        UserTextFromDisplayText(view_->GetText()), GetDesiredTLD(), match,
-        alternate_nav_url);
+        UserTextFromDisplayText(view_->GetText()), GetDesiredTLD(), true,
+        match, alternate_nav_url);
   }
 }
 

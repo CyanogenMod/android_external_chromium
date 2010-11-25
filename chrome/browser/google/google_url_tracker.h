@@ -10,13 +10,13 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/scoped_ptr.h"
+#include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/common/net/url_fetcher.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/network_change_notifier.h"
 
-class InfoBarDelegate;
 class NavigationController;
 class PrefService;
 class TabContents;
@@ -39,14 +39,6 @@ class GoogleURLTracker : public URLFetcher::Delegate,
                          public NotificationObserver,
                          public net::NetworkChangeNotifier::Observer {
  public:
-  class InfoBarDelegateFactory {
-   public:
-    virtual ~InfoBarDelegateFactory() {}
-    virtual InfoBarDelegate* CreateInfoBar(TabContents* tab_contents,
-                                           GoogleURLTracker* google_url_tracker,
-                                           const GURL& new_google_url);
-  };
-
   // Only the main browser process loop should call this, when setting up
   // g_browser_process->google_url_tracker_.  No code other than the
   // GoogleURLTracker itself should actually use
@@ -89,15 +81,21 @@ class GoogleURLTracker : public URLFetcher::Delegate,
   void InfoBarClosed();
   void RedoSearch();
 
-  NavigationController* controller() const { return controller_; }
-
  private:
   friend class GoogleURLTrackerTest;
+
+  typedef InfoBarDelegate* (*InfobarCreator)(TabContents*,
+                                             GoogleURLTracker*,
+                                             const GURL&);
 
   // Registers consumer interest in getting an updated URL from the server.
   // It will be notified as NotificationType::GOOGLE_URL_UPDATED, so the
   // consumer should observe this notification before calling this.
   void SetNeedToFetch();
+
+  // Begins the five-second startup sleep period, unless a test has cleared
+  // |queue_wakeup_task_|.
+  void QueueWakeupTask();
 
   // Called when the five second startup sleep has finished.  Runs any pending
   // fetch.
@@ -124,10 +122,14 @@ class GoogleURLTracker : public URLFetcher::Delegate,
   virtual void OnIPAddressChanged();
 
   void SearchCommitted();
-
+  void OnNavigationPending(const NotificationSource& source,
+                           const GURL& pending_url);
+  void OnNavigationCommittedOrTabClosed(TabContents* tab_contents,
+                                        NotificationType::Type type);
   void ShowGoogleURLInfoBarIfNecessary(TabContents* tab_contents);
 
   NotificationRegistrar registrar_;
+  InfobarCreator infobar_creator_;
   // TODO(ukai): GoogleURLTracker should track google domain (e.g. google.co.uk)
   // rather than URL (e.g. http://www.google.co.uk/), so that user could
   // configure to use https in search engine templates.
@@ -136,6 +138,7 @@ class GoogleURLTracker : public URLFetcher::Delegate,
   ScopedRunnableMethodFactory<GoogleURLTracker> runnable_method_factory_;
   scoped_ptr<URLFetcher> fetcher_;
   int fetcher_id_;
+  bool queue_wakeup_task_;
   bool in_startup_sleep_;  // True if we're in the five-second "no fetching"
                            // period that begins at browser start.
   bool already_fetched_;   // True if we've already fetched a URL once this run;
@@ -153,11 +156,39 @@ class GoogleURLTracker : public URLFetcher::Delegate,
                            // matched with current user's default Google URL
                            // nor the last prompted Google URL.
   NavigationController* controller_;
-  scoped_ptr<InfoBarDelegateFactory> infobar_factory_;
   InfoBarDelegate* infobar_;
   GURL search_url_;
 
   DISALLOW_COPY_AND_ASSIGN(GoogleURLTracker);
+};
+
+
+// This infobar delegate is declared here (rather than in the .cc file) so test
+// code can subclass it.
+class GoogleURLTrackerInfoBarDelegate : public ConfirmInfoBarDelegate {
+ public:
+  GoogleURLTrackerInfoBarDelegate(TabContents* tab_contents,
+                                  GoogleURLTracker* google_url_tracker,
+                                  const GURL& new_google_url);
+
+  // ConfirmInfoBarDelegate
+  virtual bool Accept();
+  virtual bool Cancel();
+  virtual void InfoBarClosed();
+
+ protected:
+  virtual ~GoogleURLTrackerInfoBarDelegate();
+
+  GoogleURLTracker* google_url_tracker_;
+  const GURL new_google_url_;
+
+ private:
+  // ConfirmInfoBarDelegate
+  virtual string16 GetMessageText() const;
+  virtual int GetButtons() const;
+  virtual string16 GetButtonLabel(InfoBarButton button) const;
+
+  DISALLOW_COPY_AND_ASSIGN(GoogleURLTrackerInfoBarDelegate);
 };
 
 #endif  // CHROME_BROWSER_GOOGLE_GOOGLE_URL_TRACKER_H_

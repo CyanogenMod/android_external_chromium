@@ -25,10 +25,12 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <string>
 #include "talk/p2p/base/sessionmessages.h"
 
 #include "talk/base/logging.h"
 #include "talk/base/scoped_ptr.h"
+#include "talk/xmllite/xmlconstants.h"
 #include "talk/xmpp/constants.h"
 #include "talk/p2p/base/constants.h"
 #include "talk/p2p/base/p2ptransport.h"
@@ -163,7 +165,7 @@ bool ParseJingleSessionMessage(const buzz::XmlElement* jingle,
   std::string type_string = jingle->Attr(buzz::QN_ACTION);
   msg->type = ToActionType(type_string);
   msg->sid = jingle->Attr(buzz::QN_ID);
-  msg->initiator = GetXmlAttr(jingle, QN_INITIATOR, "");
+  msg->initiator = GetXmlAttr(jingle, QN_INITIATOR, buzz::STR_EMPTY);
   msg->action_elem = jingle;
 
   if (msg->type == ACTION_UNKNOWN)
@@ -816,6 +818,36 @@ bool WriteTransportInfos(SignalingProtocol protocol,
     return WriteJingleTransportInfos(tinfos, trans_parsers,
                                      elems, error);
   }
+}
+
+bool GetUriTarget(const std::string& prefix, const std::string& str,
+                  std::string* after) {
+  size_t pos = str.find(prefix);
+  if (pos == std::string::npos)
+    return false;
+
+  *after = str.substr(pos + prefix.size(), std::string::npos);
+  return true;
+}
+
+bool FindSessionRedirect(const buzz::XmlElement* stanza,
+                         SessionRedirect* redirect) {
+  const buzz::XmlElement* error_elem = GetXmlChild(stanza, LN_ERROR);
+  if (error_elem == NULL)
+    return false;
+
+  const buzz::XmlElement* redirect_elem =
+      error_elem->FirstNamed(QN_GINGLE_REDIRECT);
+  if (redirect_elem == NULL)
+    redirect_elem = error_elem->FirstNamed(buzz::QN_STANZA_REDIRECT);
+  if (redirect_elem == NULL)
+    return false;
+
+  if (!GetUriTarget(STR_REDIRECT_PREFIX, redirect_elem->BodyText(),
+                    &redirect->target))
+    return false;
+
+  return true;
 }
 
 }  // namespace cricket

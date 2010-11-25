@@ -212,6 +212,19 @@ const char kInstantConfirmDialogShown[] = "instant.confirm_dialog_shown";
 // Boolean pref indicating if instant is enabled.
 const char kInstantEnabled[] = "instant.enabled";
 
+// Boolean pref indicating if instant was ever enabled.
+const char kInstantEnabledOnce[] = "instant.enabled_once";
+
+// Time when instant was last enabled.
+const char kInstantEnabledTime[] = "instant.enabled_time";
+
+// Used to maintain instant promo keys. See PromoCounter for details of subkeys
+// that are used.
+const char kInstantPromo[] = "instant.promo";
+
+// Type of instant. This is one of the enums defined in InstantController::TYPE.
+const char kInstantType[] = "instant.type";
+
 #if defined(USE_NSS) || defined(USE_OPENSSL)
 // Prefs for SSLConfigServicePref.  Currently, these are only present on
 // and used by NSS/OpenSSL using OSes.
@@ -1025,6 +1038,25 @@ const char kRemotingHasSetupCompleted[] = "remoting.has_setup_completed";
 // launches.
 const char kRegisteredBackgroundContents[] = "background_contents.registered";
 
+// String that lists supported HTTP authentication schemes.
+const char kAuthSchemes[] = "auth.schemes";
+
+// Boolean that specifies whether to disable CNAME lookups when generating
+// Kerberos SPN.
+const char kDisableAuthNegotiateCnameLookup[] =
+    "auth.disable_negotiate_cname_lookup";
+// Boolean that specifies whether to include the port in a generated Kerberos
+// SPN.
+const char kEnableAuthNegotiatePort[] = "auth.enable_negotiate_port";
+// Whitelist containing servers for which Integrated Authentication is enabled.
+const char kAuthServerWhitelist[] = "auth.server_whitelist";
+// Whitelist containing servers Chrome is allowed to do Kerberos delegation
+// with.
+const char kAuthNegotiateDelegateWhitelist[] =
+    "auth.negotiate_delegate_whitelist";
+// String that specifies the name of a custom GSSAPI library to load.
+const char kGSSAPILibraryName[] = "auth.gssapi_library_name";
+
 #if defined(OS_CHROMEOS)
 // Dictionary for transient storage of settings that should go into signed
 // settings storage before owner has been assigned.
@@ -1065,5 +1097,18 @@ const char kProxyPacUrl[] = "proxy.pac_url";
 // String containing proxy bypass rules. For a specification of the
 // expected syntax see net::ProxyBypassRules::ParseFromString().
 const char kProxyBypassList[] = "proxy.bypass_list";
+
+// Preferences that are exclusivly used to store managed values for default
+// content settings.
+const char kManagedDefaultCookiesSetting[] =
+    "profile.managed_default_content_settings.cookies";
+const char kManagedDefaultImagesSetting[] =
+    "profile.managed_default_content_settings.images";
+const char kManagedDefaultJavaScriptSetting[] =
+    "profile.managed_default_content_settings.javascript";
+const char kManagedDefaultPluginsSetting[] =
+    "profile.managed_default_content_settings.plugins";
+const char kManagedDefaultPopupsSetting[] =
+    "profile.managed_default_content_settings.popups";
 
 }  // namespace prefs

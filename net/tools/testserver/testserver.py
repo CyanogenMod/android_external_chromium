@@ -6,7 +6,9 @@
 """This is a simple HTTP server used for testing Chrome.
 
 It supports several test URLs, as specified by the handlers in TestPageHandler.
-It defaults to living on localhost:8888.
+By default, it listens on an ephemeral port and sends the port number back to
+the originating process over a pipe. The originating process can specify an
+explicit port if necessary.
 It can use https if you specify the flag --https=CERT where CERT is the path
 to a pem file containing the certificate and private key that should be used.
 """
@@ -20,6 +22,7 @@ import re
 import shutil
 import SocketServer
 import sys
+import struct
 import time
 import urlparse
 import warnings
@@ -43,6 +46,7 @@ if sys.platform == 'win32':
 
 SERVER_HTTP = 0
 SERVER_FTP = 1
+SERVER_SYNC = 2
 
 debug_output = sys.stderr
 def debug(str):
@@ -103,14 +107,75 @@ class HTTPSServer(tlslite.api.TLSSocketServerMixIn, StoppableHTTPServer):
       print "Handshake failure:", str(error)
       return False
 
-class TestPageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+
+class SyncHTTPServer(StoppableHTTPServer):
+  """An HTTP server that handles sync commands."""
+
+  def __init__(self, server_address, request_handler_class):
+    # We import here to avoid pulling in chromiumsync's dependencies
+    # unless strictly necessary.
+    import chromiumsync
+    self._sync_handler = chromiumsync.TestServer()
+    StoppableHTTPServer.__init__(self, server_address, request_handler_class)
+
+  def HandleCommand(self, query, raw_request):
+    return self._sync_handler.HandleCommand(query, raw_request)
+
+
+class BasePageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
+
+  def __init__(self, request, client_address, socket_server,
+               connect_handlers, get_handlers, post_handlers, put_handlers):
+    self._connect_handlers = connect_handlers
+    self._get_handlers = get_handlers
+    self._post_handlers = post_handlers
+    self._put_handlers = put_handlers
+    BaseHTTPServer.BaseHTTPRequestHandler.__init__(
+      self, request, client_address, socket_server)
+
+  def log_request(self, *args, **kwargs):
+    # Disable request logging to declutter test log output.
+    pass
+
+  def _ShouldHandleRequest(self, handler_name):
+    """Determines if the path can be handled by the handler.
+
+    We consider a handler valid if the path begins with the
+    handler name. It can optionally be followed by "?*", "/*".
+    """
+
+    pattern = re.compile('%s($|\?|/).*' % handler_name)
+    return pattern.match(self.path)
+
+  def do_CONNECT(self):
+    for handler in self._connect_handlers:
+      if handler():
+        return
+
+  def do_GET(self):
+    for handler in self._get_handlers:
+      if handler():
+        return
+
+  def do_POST(self):
+    for handler in self._post_handlers:
+      if handler():
+        return
+
+  def do_PUT(self):
+    for handler in self._put_handlers:
+      if handler():
+        return
+
+
+class TestPageHandler(BasePageHandler):
 
   def __init__(self, request, client_address, socket_server):
-    self._connect_handlers = [
+    connect_handlers = [
       self.RedirectConnectHandler,
       self.ServerAuthConnectHandler,
       self.DefaultConnectResponseHandler]
-    self._get_handlers = [
+    get_handlers = [
       self.NoCacheMaxAgeTimeHandler,
       self.NoCacheTimeHandler,
       self.CacheTimeHandler,
@@ -139,45 +204,31 @@ class TestPageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
       self.ContentTypeHandler,
       self.ServerRedirectHandler,
       self.ClientRedirectHandler,
-      self.ChromiumSyncTimeHandler,
       self.MultipartHandler,
       self.DefaultResponseHandler]
-    self._post_handlers = [
+    post_handlers = [
       self.EchoTitleHandler,
       self.EchoAllHandler,
-      self.ChromiumSyncCommandHandler,
-      self.EchoHandler] + self._get_handlers
-    self._put_handlers = [
+      self.EchoHandler,
+      self.DeviceManagementHandler] + get_handlers
+    put_handlers = [
       self.EchoTitleHandler,
       self.EchoAllHandler,
-      self.EchoHandler] + self._get_handlers
+      self.EchoHandler] + get_handlers
 
     self._mime_types = {
       'crx' : 'application/x-chrome-extension',
       'gif': 'image/gif',
       'jpeg' : 'image/jpeg',
       'jpg' : 'image/jpeg',
-      'xml' : 'text/xml'
+      'xml' : 'text/xml',
+      'pdf' : 'application/pdf'
     }
     self._default_mime_type = 'text/html'
 
-    BaseHTTPServer.BaseHTTPRequestHandler.__init__(self, request,
-                                                   client_address,
-                                                   socket_server)
-
-  def log_request(self, *args, **kwargs):
-    # Disable request logging to declutter test log output.
-    pass
-
-  def _ShouldHandleRequest(self, handler_name):
-    """Determines if the path can be handled by the handler.
-
-    We consider a handler valid if the path begins with the
-    handler name. It can optionally be followed by "?*", "/*".
-    """
-
-    pattern = re.compile('%s($|\?|/).*' % handler_name)
-    return pattern.match(self.path)
+    BasePageHandler.__init__(self, request, client_address, socket_server,
+                             connect_handlers, get_handlers, post_handlers,
+                             put_handlers)
 
   def GetMIMETypeFromName(self, file_name):
     """Returns the mime type for the specified file_name. So far it only looks
@@ -500,7 +551,7 @@ class TestPageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
       'pre { border: 1px solid black; margin: 5px; padding: 5px }'
       '</style></head><body>'
       '<div style="float: right">'
-      '<a href="http://localhost:8888/echo">back to referring page</a></div>'
+      '<a href="/echo">back to referring page</a></div>'
       '<h1>Request Body:</h1><pre>')
 
     if self.command == 'POST' or self.command == 'PUT':
@@ -576,20 +627,26 @@ class TestPageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
   def _ReplaceFileData(self, data, query_parameters):
     """Replaces matching substrings in a file.
 
-    If the 'replace_orig' and 'replace_new' URL query parameters are present,
-    a new string is returned with all occasions of the 'replace_orig' value
-    replaced by the 'replace_new' value.
+    If the 'replace_text' URL query parameter is present, it is expected to be
+    of the form old_text:new_text, which indicates that any old_text strings in
+    the file are replaced with new_text. Multiple 'replace_text' parameters may
+    be specified.
 
     If the parameters are not present, |data| is returned.
     """
     query_dict = cgi.parse_qs(query_parameters)
-    orig_values = query_dict.get('replace_orig', [])
-    new_values = query_dict.get('replace_new', [])
-    if not orig_values or not new_values:
-      return data
-    orig_value = orig_values[0]
-    new_value = new_values[0]
-    return data.replace(orig_value, new_value)
+    replace_text_values = query_dict.get('replace_text', [])
+    for replace_text_value in replace_text_values:
+      replace_text_args = replace_text_value.split(':')
+      if len(replace_text_args) != 2:
+        raise ValueError(
+          'replace_text must be of form old_text:new_text. Actual value: %s' %
+          replace_text_value)
+      old_text_b64, new_text_b64 = replace_text_args
+      old_text = base64.urlsafe_b64decode(old_text_b64)
+      new_text = base64.urlsafe_b64decode(new_text_b64)
+      data = data.replace(old_text, new_text)
+    return data
 
   def FileHandler(self):
     """This handler sends the contents of the requested file.  Wow, it's like
@@ -642,9 +699,27 @@ class TestPageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     else:
       # Could be more generic once we support mime-type sniffing, but for
       # now we need to set it explicitly.
-      self.send_response(200)
+
+      range = self.headers.get('Range')
+      if range and range.startswith('bytes='):
+        # Note this doesn't handle all valid byte range values (i.e. open ended
+        # ones), just enough for what we needed so far.
+        range = range[6:].split('-')
+        start = int(range[0])
+        end = int(range[1])
+
+        self.send_response(206)
+        content_range = 'bytes ' + str(start) + '-' + str(end) + '/' + \
+                        str(len(data))
+        self.send_header('Content-Range', content_range)
+        data = data[start: end + 1]
+      else:
+        self.send_response(200)
+
       self.send_header('Content-type', self.GetMIMETypeFromName(file_path))
+      self.send_header('Accept-Ranges', 'bytes')
       self.send_header('Content-Length', len(data))
+      self.send_header('ETag', '\'' + file_path + '\'')
     self.end_headers()
 
     self.wfile.write(data)
@@ -986,43 +1061,6 @@ class TestPageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     return True
 
-  def ChromiumSyncTimeHandler(self):
-    """Handle Chromium sync .../time requests.
-
-    The syncer sometimes checks server reachability by examining /time.
-    """
-    test_name = "/chromiumsync/time"
-    if not self._ShouldHandleRequest(test_name):
-      return False
-
-    self.send_response(200)
-    self.send_header('Content-type', 'text/html')
-    self.end_headers()
-    return True
-
-  def ChromiumSyncCommandHandler(self):
-    """Handle a chromiumsync command arriving via http.
-
-    This covers all sync protocol commands: authentication, getupdates, and
-    commit.
-    """
-    test_name = "/chromiumsync/command"
-    if not self._ShouldHandleRequest(test_name):
-      return False
-
-    length = int(self.headers.getheader('content-length'))
-    raw_request = self.rfile.read(length)
-
-    if not self.server._sync_handler:
-      import chromiumsync
-      self.server._sync_handler = chromiumsync.TestServer()
-    http_response, raw_reply = self.server._sync_handler.HandleCommand(
-        self.path, raw_request)
-    self.send_response(http_response)
-    self.end_headers()
-    self.wfile.write(raw_reply)
-    return True
-
   def MultipartHandler(self):
     """Send a multipart response (10 text/html pages)."""
     test_name = "/multipart"
@@ -1104,25 +1142,28 @@ class TestPageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     self.wfile.write(contents)
     return True
 
-  def do_CONNECT(self):
-    for handler in self._connect_handlers:
-      if handler():
-        return
+  def DeviceManagementHandler(self):
+    """Delegates to the device management service used for cloud policy."""
+    if not self._ShouldHandleRequest("/device_management"):
+      return False
 
-  def do_GET(self):
-    for handler in self._get_handlers:
-      if handler():
-        return
+    length = int(self.headers.getheader('content-length'))
+    raw_request = self.rfile.read(length)
 
-  def do_POST(self):
-    for handler in self._post_handlers:
-      if handler():
-        return
+    if not self.server._device_management_handler:
+      import device_management
+      policy_path = os.path.join(self.server.data_dir, 'device_management')
+      self.server._device_management_handler = (
+          device_management.TestServer(policy_path))
 
-  def do_PUT(self):
-    for handler in self._put_handlers:
-      if handler():
-        return
+    http_response, raw_reply = (
+        self.server._device_management_handler.HandleRequest(self.path,
+                                                             self.headers,
+                                                             raw_request))
+    self.send_response(http_response)
+    self.end_headers()
+    self.wfile.write(raw_reply)
+    return True
 
   # called by the redirect handling function when there is no parameter
   def sendRedirectHelp(self, redirect_name):
@@ -1132,6 +1173,52 @@ class TestPageHandler(BaseHTTPServer.BaseHTTPRequestHandler):
     self.wfile.write('<html><body><h1>Error: no redirect destination</h1>')
     self.wfile.write('Use <pre>%s?http://dest...</pre>' % redirect_name)
     self.wfile.write('</body></html>')
+
+
+class SyncPageHandler(BasePageHandler):
+  """Handler for the main HTTP sync server."""
+
+  def __init__(self, request, client_address, sync_http_server):
+    get_handlers = [self.ChromiumSyncTimeHandler]
+    post_handlers = [self.ChromiumSyncCommandHandler]
+    BasePageHandler.__init__(self, request, client_address,
+                             sync_http_server, [], get_handlers,
+                             post_handlers, [])
+
+  def ChromiumSyncTimeHandler(self):
+    """Handle Chromium sync .../time requests.
+
+    The syncer sometimes checks server reachability by examining /time.
+    """
+    test_name = "/chromiumsync/time"
+    if not self._ShouldHandleRequest(test_name):
+      return False
+
+    self.send_response(200)
+    self.send_header('Content-type', 'text/html')
+    self.end_headers()
+    return True
+
+  def ChromiumSyncCommandHandler(self):
+    """Handle a chromiumsync command arriving via http.
+
+    This covers all sync protocol commands: authentication, getupdates, and
+    commit.
+    """
+    test_name = "/chromiumsync/command"
+    if not self._ShouldHandleRequest(test_name):
+      return False
+
+    length = int(self.headers.getheader('content-length'))
+    raw_request = self.rfile.read(length)
+
+    http_response, raw_reply = self.server.HandleCommand(
+        self.path, raw_request)
+    self.send_response(http_response)
+    self.end_headers()
+    self.wfile.write(raw_reply)
+    return True
+
 
 def MakeDataDir():
   if options.data_dir:
@@ -1191,15 +1278,19 @@ def main(options, args):
       server = HTTPSServer(('127.0.0.1', port), TestPageHandler, options.cert,
                            options.ssl_client_auth, options.ssl_client_ca,
                            options.ssl_bulk_cipher)
-      print 'HTTPS server started on port %d...' % port
+      print 'HTTPS server started on port %d...' % server.server_port
     else:
       server = StoppableHTTPServer(('127.0.0.1', port), TestPageHandler)
-      print 'HTTP server started on port %d...' % port
+      print 'HTTP server started on port %d...' % server.server_port
 
     server.data_dir = MakeDataDir()
     server.file_root_url = options.file_root_url
-    server._sync_handler = None
-
+    listen_port = server.server_port
+    server._device_management_handler = None
+  elif options.server_type == SERVER_SYNC:
+    server = SyncHTTPServer(('127.0.0.1', port), SyncPageHandler)
+    print 'Sync HTTP server started on port %d...' % server.server_port
+    listen_port = server.server_port
   # means FTP Server
   else:
     my_data_dir = MakeDataDir()
@@ -1224,7 +1315,8 @@ def main(options, args):
     # Instantiate FTP server class and listen to 127.0.0.1:port
     address = ('127.0.0.1', port)
     server = pyftpdlib.ftpserver.FTPServer(address, ftp_handler)
-    print 'FTP server started on port %d...' % port
+    listen_port = server.socket.getsockname()[1]
+    print 'FTP server started on port %d...' % listen_port
 
   # Notify the parent that we've started. (BaseServer subclasses
   # bind their sockets on construction.)
@@ -1234,7 +1326,10 @@ def main(options, args):
     else:
       fd = options.startup_pipe
     startup_pipe = os.fdopen(fd, "w")
-    startup_pipe.write("READY")
+    # Write the listening port as a 2 byte value. This is _not_ using
+    # network byte ordering since the other end of the pipe is on the same
+    # machine.
+    startup_pipe.write(struct.pack('@H', listen_port))
     startup_pipe.close()
 
   try:
@@ -1248,9 +1343,14 @@ if __name__ == '__main__':
   option_parser.add_option("-f", '--ftp', action='store_const',
                            const=SERVER_FTP, default=SERVER_HTTP,
                            dest='server_type',
-                           help='FTP or HTTP server: default is HTTP.')
-  option_parser.add_option('', '--port', default='8888', type='int',
-                           help='Port used by the server.')
+                           help='start up an FTP server.')
+  option_parser.add_option('', '--sync', action='store_const',
+                           const=SERVER_SYNC, default=SERVER_HTTP,
+                           dest='server_type',
+                           help='start up a sync server.')
+  option_parser.add_option('', '--port', default='0', type='int',
+                           help='Port used by the server. If unspecified, the '
+                           'server will listen on an ephemeral port.')
   option_parser.add_option('', '--data-dir', dest='data_dir',
                            help='Directory from which to read the files.')
   option_parser.add_option('', '--https', dest='cert',

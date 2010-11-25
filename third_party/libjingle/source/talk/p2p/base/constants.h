@@ -36,13 +36,6 @@
 
 namespace cricket {
 
-// There are 3 different types of Jingle messages or protocols: Jingle
-// (the spec in XEP-166, etc), Gingle (the legacy protocol) and hybrid
-// (both at the same time).  Gingle2 is a temporary protocol that we
-// are only keeping around right now during this refactoring phase.
-// Once we finish refactoring and start implementing Jingle, we will
-// remove Gingle2.
-
 // NS_ == namespace
 // QN_ == buzz::QName (namespace + name)
 // LN_ == "local name" == QName::LocalPart()
@@ -87,6 +80,9 @@ extern const std::string GINGLE_ACTION_REJECT;
 extern const std::string GINGLE_ACTION_TERMINATE;
 extern const std::string GINGLE_ACTION_CANDIDATES;
 
+extern const std::string LN_ERROR;
+extern const buzz::QName QN_GINGLE_REDIRECT;
+extern const std::string STR_REDIRECT_PREFIX;
 
 // Session Contents (aka Gingle <session><description>
 //                   or Jingle <content><description>)
@@ -109,6 +105,7 @@ extern const std::string PAYLOADTYPE_PARAMETER_BITRATE;
 extern const std::string PAYLOADTYPE_PARAMETER_HEIGHT;
 extern const std::string PAYLOADTYPE_PARAMETER_WIDTH;
 extern const std::string PAYLOADTYPE_PARAMETER_FRAMERATE;
+extern const std::string LN_BANDWIDTH;
 
 // CN_ == "content name".  When we initiate a session, we choose the
 // name, and when we receive a Gingle session, we provide default
@@ -122,6 +119,7 @@ extern const std::string CN_OTHER;
 extern const std::string NS_JINGLE_RTP;
 extern const buzz::QName QN_JINGLE_RTP_CONTENT;
 extern const buzz::QName QN_JINGLE_RTP_PAYLOADTYPE;
+extern const buzz::QName QN_JINGLE_RTP_BANDWIDTH;
 
 extern const std::string NS_GINGLE_AUDIO;
 extern const buzz::QName QN_GINGLE_AUDIO_CONTENT;
@@ -132,6 +130,17 @@ extern const buzz::QName QN_GINGLE_VIDEO_CONTENT;
 extern const buzz::QName QN_GINGLE_VIDEO_PAYLOADTYPE;
 extern const buzz::QName QN_GINGLE_VIDEO_SRCID;
 extern const buzz::QName QN_GINGLE_VIDEO_BANDWIDTH;
+
+// Crypto support.
+extern const buzz::QName QN_ENCRYPTION;
+extern const buzz::QName QN_ENCRYPTION_REQUIRED;
+extern const buzz::QName QN_CRYPTO;
+extern const buzz::QName QN_GINGLE_AUDIO_CRYPTO_USAGE;
+extern const buzz::QName QN_GINGLE_VIDEO_CRYPTO_USAGE;
+extern const buzz::QName QN_CRYPTO_SUITE;
+extern const buzz::QName QN_CRYPTO_KEY_PARAMS;
+extern const buzz::QName QN_CRYPTO_TAG;
+extern const buzz::QName QN_CRYPTO_SESSION_PARAMS;
 
 // transports and candidates
 extern const std::string LN_TRANSPORT;

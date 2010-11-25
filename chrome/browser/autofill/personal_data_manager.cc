@@ -10,7 +10,6 @@
 #include "base/logging.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/autofill/autofill_manager.h"
 #include "chrome/browser/autofill/autofill_field.h"
 #include "chrome/browser/autofill/form_structure.h"
 #include "chrome/browser/autofill/phone_number.h"
@@ -169,6 +168,7 @@ void PersonalDataManager::RemoveObserver(
 }
 
 bool PersonalDataManager::ImportFormData(
+<<<<<<< HEAD
     const std::vector<FormStructure*>& form_structures,
     AutoFillManager* autofill_manager) {
 #ifdef ANDROID
@@ -176,6 +176,9 @@ bool PersonalDataManager::ImportFormData(
   // based on what they've entered into forms?
   return false;
 #else
+=======
+    const std::vector<FormStructure*>& form_structures) {
+>>>>>>> chromium.org at r66597
   // Parse the form and construct a profile based on the information that is
   // possible to import.
   int importable_fields = 0;
@@ -184,7 +187,6 @@ bool PersonalDataManager::ImportFormData(
   // TODO(jhawkins): Use a hash of the CC# instead of a list of unique IDs?
   imported_credit_card_.reset(new CreditCard);
 
-  bool billing_address_info = false;
   std::vector<FormStructure*>::const_iterator iter;
   for (iter = form_structures.begin(); iter != form_structures.end(); ++iter) {
     const FormStructure* form = *iter;
@@ -239,12 +241,6 @@ bool PersonalDataManager::ImportFormData(
 
         imported_profile_->SetInfo(AutoFillType(field_type.field_type()),
                                    value);
-
-        // If we found any billing address information, then set the profile to
-        // use a separate billing address.
-        if (group == AutoFillType::ADDRESS_BILLING)
-          billing_address_info = true;
-
         ++importable_fields;
       }
     }
@@ -260,6 +256,25 @@ bool PersonalDataManager::ImportFormData(
 
   if (importable_credit_card_fields == 0)
     imported_credit_card_.reset();
+
+  if (imported_credit_card_.get()) {
+    if (!CreditCard::IsCreditCardNumber(imported_credit_card_->GetFieldText(
+          AutoFillType(CREDIT_CARD_NUMBER)))) {
+      imported_credit_card_.reset();
+    }
+  }
+
+  // Don't import if we already have this info.
+  if (imported_credit_card_.get()) {
+    for (std::vector<CreditCard*>::const_iterator iter = credit_cards_.begin();
+         iter != credit_cards_.end();
+         ++iter) {
+      if (imported_credit_card_->IsSubsetOf(**iter)) {
+        imported_credit_card_.reset();
+        break;
+      }
+    }
+  }
 
   // We always save imported profiles.
   SaveImportedProfile();
@@ -396,9 +411,6 @@ void PersonalDataManager::SetCreditCards(
 
 // TODO(jhawkins): Refactor SetProfiles so this isn't so hacky.
 void PersonalDataManager::AddProfile(const AutoFillProfile& profile) {
-  // Set to true if |profile| is merged into the profile list.
-  bool merged = false;
-
   // Don't save a web profile if the data in the profile is a subset of an
   // auxiliary profile.
   for (std::vector<AutoFillProfile*>::const_iterator iter =
@@ -408,24 +420,50 @@ void PersonalDataManager::AddProfile(const AutoFillProfile& profile) {
       return;
   }
 
+  // Set to true if |profile| is merged into the profile list.
+  bool merged = false;
+
+  // First preference is to add missing values to an existing profile.
+  // Only merge with the first match.
   std::vector<AutoFillProfile> profiles;
   for (std::vector<AutoFillProfile*>::const_iterator iter =
            web_profiles_.begin();
        iter != web_profiles_.end(); ++iter) {
-    if (profile.IsSubsetOf(**iter)) {
-      // In this case, the existing profile already contains all of the data
-      // in |profile|, so consider the profiles already merged.
-      merged = true;
-    } else if ((*iter)->IntersectionOfTypesHasEqualValues(profile)) {
-      // |profile| contains all of the data in this profile, plus
-      // more.
-      merged = true;
-      (*iter)->MergeWith(profile);
+    if (!merged) {
+      if (profile.IsSubsetOf(**iter)) {
+        // In this case, the existing profile already contains all of the data
+        // in |profile|, so consider the profiles already merged.
+        merged = true;
+      } else if ((*iter)->IntersectionOfTypesHasEqualValues(profile)) {
+        // |profile| contains all of the data in this profile, plus more.
+        merged = true;
+        (*iter)->MergeWith(profile);
+      }
     }
-
     profiles.push_back(**iter);
   }
 
+  // The second preference, if not merged above, is to alter non-primary values
+  // where the primary values match.
+  // Again, only merge with the first match.
+  if (!merged) {
+    profiles.clear();
+    for (std::vector<AutoFillProfile*>::const_iterator iter =
+             web_profiles_.begin();
+         iter != web_profiles_.end(); ++iter) {
+      if (!merged) {
+        if (!profile.PrimaryValue().empty() &&
+            (*iter)->PrimaryValue() == profile.PrimaryValue()) {
+          merged = true;
+          (*iter)->OverwriteWith(profile);
+        }
+      }
+      profiles.push_back(**iter);
+    }
+  }
+
+  // Finally, if the new profile was not merged with an existing profile then
+  // add the new profile to the list.
   if (!merged)
     profiles.push_back(profile);
 
@@ -793,10 +831,13 @@ void PersonalDataManager::SaveImportedCreditCard() {
       merged = true;
     } else if ((*iter)->IntersectionOfTypesHasEqualValues(
         *imported_credit_card_)) {
-      // |imported_profile| contains all of the data in this profile, plus
-      // more.
+      // |imported_profile| contains all of the data in this profile, plus more.
       merged = true;
       (*iter)->MergeWith(*imported_credit_card_);
+    } else if (!imported_credit_card_->number().empty() &&
+               (*iter)->number() == imported_credit_card_->number()) {
+      merged = true;
+      (*iter)->OverwriteWith(*imported_credit_card_);
     }
 
     creditcards.push_back(**iter);

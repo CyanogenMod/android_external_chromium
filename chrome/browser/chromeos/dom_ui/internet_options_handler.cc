@@ -20,7 +20,6 @@
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
@@ -29,6 +28,7 @@
 #include "chrome/browser/dom_ui/dom_ui_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/time_format.h"
 #include "grit/browser_resources.h"
@@ -158,7 +158,7 @@ void InternetOptionsHandler::GetLocalizedValues(
   localized_strings->SetString("inetPassProtected",
       l10n_util::GetStringUTF16(
           IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_NET_PROTECTED));
-  localized_strings->SetString("inetRememberNetwork",
+  localized_strings->SetString("inetAutoConnectNetwork",
       l10n_util::GetStringUTF16(
           IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_AUTO_CONNECT));
   localized_strings->SetString("inetCertPkcs",
@@ -449,97 +449,21 @@ DictionaryValue* InternetOptionsHandler::CellularDataPlanToDictionary(
 
   DictionaryValue* plan_dict = new DictionaryValue();
   plan_dict->SetInteger("plan_type", plan.plan_type);
-  // Format plan details into readable text.
-  string16 description;
-  string16 remaining;
-  switch (plan.plan_type) {
-    case chromeos::CELLULAR_DATA_PLAN_UNKNOWN: {
-      return NULL;
-      break;
-    }
-    case chromeos::CELLULAR_DATA_PLAN_UNLIMITED: {
-      description = l10n_util::GetStringFUTF16(
-          IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_PURCHASE_UNLIMITED_DATA,
-          WideToUTF16(base::TimeFormatFriendlyDate(plan.plan_start_time)));
-
-      remaining = l10n_util::GetStringUTF16(
-          IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_UNLIMITED);
-      break;
-    }
-    case chromeos::CELLULAR_DATA_PLAN_METERED_PAID: {
-      description = l10n_util::GetStringFUTF16(
-                IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_PURCHASE_DATA,
-                FormatBytes(plan.plan_data_bytes,
-                            GetByteDisplayUnits(plan.plan_data_bytes),
-                            true),
-                WideToUTF16(base::TimeFormatFriendlyDate(
-                    plan.plan_start_time)));
-      remaining = FormatBytes(plan.plan_data_bytes - plan.data_bytes_used,
-          GetByteDisplayUnits(plan.plan_data_bytes - plan.data_bytes_used),
-          true);
-      break;
-    }
-    case chromeos::CELLULAR_DATA_PLAN_METERED_BASE: {
-      description = l10n_util::GetStringFUTF16(
-                IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_RECEIVED_FREE_DATA,
-                FormatBytes(plan.plan_data_bytes,
-                            GetByteDisplayUnits(plan.plan_data_bytes),
-                            true),
-                WideToUTF16(base::TimeFormatFriendlyDate(
-                            plan.plan_start_time)));
-      remaining = FormatBytes(plan.plan_data_bytes - plan.data_bytes_used,
-          GetByteDisplayUnits(plan.plan_data_bytes - plan.data_bytes_used),
-          true);
-      break;
-    }
-  }
-  string16 expiration = TimeFormat::TimeRemaining(
-      plan.plan_end_time - base::Time::Now());
   plan_dict->SetString("name", plan.plan_name);
-  plan_dict->SetString("planSummary", description);
-  plan_dict->SetString("dataRemaining", remaining);
-  plan_dict->SetString("planExpires", expiration);
-  plan_dict->SetString("warning", GetPlanWarning(plan));
+  plan_dict->SetString("planSummary", plan.GetPlanDesciption());
+  plan_dict->SetString("dataRemaining", plan.GetDataRemainingDesciption());
+  plan_dict->SetString("planExpires", plan.GetPlanExpiration());
+  plan_dict->SetString("warning", plan.GetRemainingWarning());
   return plan_dict;
-}
-
-string16 InternetOptionsHandler::GetPlanWarning(
-    const chromeos::CellularDataPlan& plan) {
-  if (plan.plan_type == chromeos::CELLULAR_DATA_PLAN_UNLIMITED) {
-    // Time based plan. Show nearing expiration and data expiration.
-    int64 time_left = base::TimeDelta(
-        plan.plan_end_time - plan.update_time).InSeconds();
-    if (time_left <= 0) {
-      return l10n_util::GetStringFUTF16(
-          IDS_NETWORK_MINUTES_REMAINING_MESSAGE, ASCIIToUTF16("0"));
-    } else if (time_left <= chromeos::kCellularDataVeryLowSecs) {
-      return l10n_util::GetStringFUTF16(
-          IDS_NETWORK_MINUTES_UNTIL_EXPIRATION_MESSAGE,
-          UTF8ToUTF16(base::Int64ToString(time_left/60)));
-    }
-  } else if (plan.plan_type == chromeos::CELLULAR_DATA_PLAN_METERED_PAID ||
-             plan.plan_type == chromeos::CELLULAR_DATA_PLAN_METERED_BASE) {
-    // Metered plan. Show low data and out of data.
-    int64 bytes_remaining = plan.plan_data_bytes - plan.data_bytes_used;
-    if (bytes_remaining <= 0) {
-      return l10n_util::GetStringFUTF16(
-          IDS_NETWORK_DATA_REMAINING_MESSAGE, ASCIIToUTF16("0"));
-    } else if (bytes_remaining <= chromeos::kCellularDataVeryLowBytes) {
-      return l10n_util::GetStringFUTF16(
-          IDS_NETWORK_DATA_REMAINING_MESSAGE,
-          UTF8ToUTF16(base::Int64ToString(bytes_remaining/(1024*1024))));
-    }
-  }
-  return string16();
 }
 
 void InternetOptionsHandler::SetDetailsCallback(const ListValue* args) {
   std::string service_path;
-  std::string remember;
+  std::string auto_connect_str;
 
   if (args->GetSize() < 2 ||
       !args->GetString(0, &service_path) ||
-      !args->GetString(1, &remember)) {
+      !args->GetString(1, &auto_connect_str)) {
     NOTREACHED();
     return;
   }
@@ -559,10 +483,7 @@ void InternetOptionsHandler::SetDetailsCallback(const ListValue* args) {
     if (network->encrypted() &&
         network->encryption() == chromeos::SECURITY_8021X) {
       std::string ident;
-      std::string certpath;
-
-      if (!args->GetString(2, &ident) ||
-          !args->GetString(3, &certpath)) {
+      if (!args->GetString(2, &ident)) {
         NOTREACHED();
         return;
       }
@@ -570,14 +491,21 @@ void InternetOptionsHandler::SetDetailsCallback(const ListValue* args) {
         network->set_identity(ident);
         changed = true;
       }
-      if (certpath != network->cert_path()) {
-        network->set_cert_path(certpath);
-        changed = true;
+      if (!is_certificate_in_pkcs11(network->cert_path())) {
+        std::string certpath;
+        if (!args->GetString(3, &certpath)) {
+          NOTREACHED();
+          return;
+        }
+        if (certpath != network->cert_path()) {
+          network->set_cert_path(certpath);
+          changed = true;
+        }
       }
     }
   }
 
-  bool auto_connect = remember == "true";
+  bool auto_connect = auto_connect_str == "true";
   if (auto_connect != network->auto_connect()) {
     network->set_auto_connect(auto_connect);
     changed = true;
@@ -880,13 +808,15 @@ void InternetOptionsHandler::RefreshCellularPlanCallback(
 
 ListValue* InternetOptionsHandler::GetNetwork(const std::string& service_path,
     const SkBitmap& icon, const std::string& name, bool connecting,
-    bool connected, chromeos::ConnectionType connection_type, bool remembered,
-    chromeos::ActivationState activation_state, bool restricted_ip) {
-
+    bool connected, bool connectable, chromeos::ConnectionType connection_type,
+    bool remembered, chromeos::ActivationState activation_state,
+    bool restricted_ip) {
   ListValue* network = new ListValue();
 
   int connection_state = IDS_STATUSBAR_NETWORK_DEVICE_DISCONNECTED;
-  if (connecting)
+  if (!connectable)
+    connection_state = IDS_STATUSBAR_NETWORK_DEVICE_NOT_CONFIGURED;
+  else if (connecting)
     connection_state = IDS_STATUSBAR_NETWORK_DEVICE_CONNECTING;
   else if (connected)
     connection_state = IDS_STATUSBAR_NETWORK_DEVICE_CONNECTED;
@@ -923,6 +853,8 @@ ListValue* InternetOptionsHandler::GetNetwork(const std::string& service_path,
                     static_cast<int>(activation_state)));
   // restricted
   network->Append(Value::CreateBooleanValue(restricted_ip));
+  // connectable
+  network->Append(Value::CreateBooleanValue(connectable));
   return network;
 }
 
@@ -949,6 +881,7 @@ ListValue* InternetOptionsHandler::GetWiredList() {
           l10n_util::GetStringUTF8(IDS_STATUSBAR_NETWORK_DEVICE_ETHERNET),
           ethernet_network->connecting(),
           ethernet_network->connected(),
+          ethernet_network->connectable(),
           chromeos::TYPE_ETHERNET,
           false,
           chromeos::ACTIVATION_STATE_UNKNOWN,
@@ -979,6 +912,7 @@ ListValue* InternetOptionsHandler::GetWirelessList() {
         (*it)->name(),
         (*it)->connecting(),
         (*it)->connected(),
+        (*it)->connectable(),
         chromeos::TYPE_WIFI,
         false,
         chromeos::ACTIVATION_STATE_UNKNOWN,
@@ -999,6 +933,7 @@ ListValue* InternetOptionsHandler::GetWirelessList() {
         (*it)->name(),
         (*it)->connecting(),
         (*it)->connected(),
+        (*it)->connectable(),
         chromeos::TYPE_CELLULAR,
         false,
         (*it)->activation_state(),
@@ -1013,6 +948,7 @@ ListValue* InternetOptionsHandler::GetWirelessList() {
         l10n_util::GetStringUTF8(IDS_OPTIONS_SETTINGS_OTHER_NETWORKS),
         false,
         false,
+        true,
         chromeos::TYPE_WIFI,
         false,
         chromeos::ACTIVATION_STATE_UNKNOWN,
@@ -1043,6 +979,7 @@ ListValue* InternetOptionsHandler::GetRememberedList() {
         (*it)->name(),
         (*it)->connecting(),
         (*it)->connected(),
+        true,
         chromeos::TYPE_WIFI,
         true,
         chromeos::ACTIVATION_STATE_UNKNOWN,

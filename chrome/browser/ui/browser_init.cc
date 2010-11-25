@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/browser_init.h"
+#include "chrome/browser/ui/browser_init.h"
 
 #include <algorithm>   // For max().
 
@@ -22,7 +22,6 @@
 #include "chrome/browser/automation/chrome_frame_automation_provider.h"
 #include "chrome/browser/automation/testing_automation_provider.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_navigator.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/browser_window.h"
@@ -51,6 +50,7 @@
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tabs/pinned_tab_codec.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
@@ -666,7 +666,7 @@ void BrowserInit::LaunchWithProfile::ProcessLaunchURLs(
   if (adjust_urls.empty())
     AddStartupURLs(&adjust_urls);
   else if (!command_line_.HasSwitch(switches::kOpenInNewWindow))
-    browser = BrowserList::GetLastActive();
+    browser = BrowserList::GetLastActiveWithProfile(profile_);
 
   OpenURLsInBrowser(browser, process_startup, adjust_urls);
 }

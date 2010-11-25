@@ -33,7 +33,8 @@ const char* kLaunchWidth = "app.launch.width";
 const char* kMatches = "matches";
 const char* kMinimumChromeVersion = "minimum_chrome_version";
 const char* kName = "name";
-const char* kOmniboxKeyword = "omnibox_keyword";
+const char* kOmnibox = "omnibox";
+const char* kOmniboxKeyword = "omnibox.keyword";
 const char* kOptionsPage = "options_page";
 const char* kPageAction = "page_action";
 const char* kPageActionDefaultIcon = "default_icon";
@@ -167,7 +168,7 @@ const char* kInvalidMinimumChromeVersion =
 const char* kInvalidName =
     "Required value 'name' is missing or invalid.";
 const char* kInvalidOmniboxKeyword =
-    "Invalid value for 'omnibox_keyword'.";
+    "Invalid value for 'omnibox.keyword'.";
 const char* kInvalidOptionsPage =
     "Invalid value for 'options_page'.";
 const char* kInvalidOptionsPageExpectUrlInPackage =
@@ -263,9 +264,6 @@ const char* kMissingFile =
     "At least one js or css file is required for 'content_scripts[*]'.";
 const char* kMultipleOverrides =
     "An extension cannot override more than one page.";
-const char* kOmniboxExperimental =
-    "You must request the 'experimental' permission in order to use the"
-    " omnibox API.";
 const char* kOneUISurfaceOnly =
     "Only one of 'browser_action', 'page_action', and 'app' can be specified.";
 const char* kReservedMessageFound =
@@ -304,4 +302,5 @@ const char* kDecodedMessageCatalogsFilename = "DECODED_MESSAGE_CATALOGS";
 namespace extension_misc {
 const char* kBookmarkManagerId = "eemcgdkfndhakfknompkggombfjjjeno";
 const char* kWebStoreAppId = "ahfgeienlihckogmohjhadlkjgocpleb";
+const char* kAppsPromoHistogram = "Extensions.AppsPromo";
 }

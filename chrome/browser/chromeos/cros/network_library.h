@@ -9,9 +9,11 @@
 #include <string>
 #include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "base/observer_list.h"
 #include "base/platform_thread.h"
 #include "base/singleton.h"
+#include "base/string16.h"
 #include "base/timer.h"
 #include "cros/chromeos_network.h"
 
@@ -48,6 +50,9 @@ class Network {
       state_ == STATE_IDLE; }
   ConnectionError error() const { return error_; }
   ConnectionState state() const { return state_; }
+  // Is this network connectable. Some networks are not yet ready to be
+  // connected. For example, an 8021X network without certificates.
+  bool connectable() const { return connectable_; }
   // Is this the active network, i.e, the one through which
   // network traffic is being routed? A network can be connected,
   // but not be carrying traffic.
@@ -67,6 +72,7 @@ class Network {
       : type_(TYPE_UNKNOWN),
         state_(STATE_UNKNOWN),
         error_(ERROR_UNKNOWN),
+        connectable_(true),
         is_active_(false) {}
   explicit Network(const Network& network);
   explicit Network(const ServiceInfo* service);
@@ -78,6 +84,7 @@ class Network {
   ConnectionType type_;
   ConnectionState state_;
   ConnectionError error_;
+  bool connectable_;
   bool is_active_;
 
  private:
@@ -88,7 +95,11 @@ class Network {
   void set_connected(bool connected) { state_ = (connected ?
       STATE_READY : STATE_IDLE); }
   void set_state(ConnectionState state) { state_ = state; }
+  void set_connectable(bool connectable) { connectable_ = connectable; }
   void set_active(bool is_active) { is_active_ = is_active; }
+
+  // Initialize the IP address field
+  void InitIPAddress();
 
   friend class NetworkLibraryImpl;
 };
@@ -131,7 +142,9 @@ class WirelessNetwork : public Network {
   bool favorite() const { return favorite_; }
 
   void set_auto_connect(bool auto_connect) { auto_connect_ = auto_connect; }
-  void set_favorite(bool favorite) { favorite_ = favorite; }
+  // We don't have a setter for |favorite_| because to unfavorite a network is
+  // equivalent to forget a network, so we call forget network on cros for
+  // that.  See ForgetWifiNetwork().
 
   // Network overrides.
   virtual void Clear();
@@ -151,6 +164,9 @@ class WirelessNetwork : public Network {
   bool favorite_;
 
  private:
+  // ChangeAutoConnectSaveTest accesses |favorite_|.
+  FRIEND_TEST_ALL_PREFIXES(WifiConfigViewTest, ChangeAutoConnectSaveTest);
+
   void set_name(const std::string& name) { name_ = name; }
   void set_strength(int strength) { strength_ = strength; }
 
@@ -172,7 +188,19 @@ class CellularDataPlan {
       plan_end_time(base::Time::FromInternalValue(plan.plan_end_time)),
       plan_data_bytes(plan.plan_data_bytes),
       data_bytes_used(plan.data_bytes_used) { }
-
+  // Formats cellular plan description.
+  string16 GetPlanDesciption() const;
+  // Evaluates cellular plans status and returns warning string if it is near
+  // expiration.
+  string16 GetRemainingWarning() const;
+  // Formats remaining plan data description.
+  string16 GetDataRemainingDesciption() const;
+  // Formats plan expiration description.
+  string16 GetPlanExpiration() const;
+  // Formats plan usage info.
+  string16 GetUsageInfo() const;
+  int64 remaining_minutes() const;
+  int64 remaining_mbytes() const;
   std::string plan_name;
   CellularDataPlanType plan_type;
   base::Time update_time;
@@ -206,6 +234,10 @@ class CellularNetwork : public WirelessNetwork {
   }
   const NetworkRoamingState roaming_state() const { return roaming_state_; }
   bool restricted_pool() const { return restricted_pool_; }
+  bool needs_new_plan() const {
+    return restricted_pool() && connected() &&
+        activation_state() == ACTIVATION_STATE_ACTIVATED;
+  }
   const std::string& service_name() const { return service_name_; }
   const std::string& operator_name() const { return operator_name_; }
   const std::string& operator_code() const { return operator_code_; }

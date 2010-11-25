@@ -15,13 +15,16 @@
 #include "base/string_number_conversions.h"
 #include "base/string_util.h"
 #include "base/stringprintf.h"
+#include "base/thread_restrictions.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/debugger/devtools_manager.h"
+#include "chrome/browser/dom_ui/shown_sections_handler.h"
 #include "chrome/browser/extensions/crx_installer.h"
 #include "chrome/browser/extensions/default_apps.h"
 #include "chrome/browser/extensions/extension_accessibility_api.h"
@@ -54,6 +57,7 @@
 #include "chrome/common/extensions/extension_error_utils.h"
 #include "chrome/common/extensions/extension_file_util.h"
 #include "chrome/common/extensions/extension_l10n_util.h"
+#include "chrome/common/extensions/extension_resource.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/notification_type.h"
 #include "chrome/common/json_value_serializer.h"
@@ -85,14 +89,27 @@ static const int kOmniboxIconPaddingLeft = 0;
 static const int kOmniboxIconPaddingRight = 0;
 #endif
 
-bool ShouldReloadExtensionManifest(const ExtensionInfo& info) {
-  // Always reload LOAD extension manifests, because they can change on disk
-  // independent of the manifest in our prefs.
-  if (info.extension_location == Extension::LOAD)
-    return true;
+// The following enumeration is used in histograms matching
+// Extensions.ManifestReload* .  Values may be added, as long
+// as existing values are not changed.
+enum ManifestReloadReason {
+  NOT_NEEDED = 0,  // Reload not needed.
+  UNPACKED_DIR,  // Unpacked directory
+  NEEDS_RELOCALIZATION,  // The local has changed since we read this extension.
+  NUM_MANIFEST_RELOAD_REASONS
+};
 
-  // Otherwise, reload the manifest it needs to be relocalized.
-  return extension_l10n_util::ShouldRelocalizeManifest(info);
+ManifestReloadReason ShouldReloadExtensionManifest(const ExtensionInfo& info) {
+  // Always reload manifests of unpacked extensions, because they can change
+  // on disk independent of the manifest in our prefs.
+  if (info.extension_location == Extension::LOAD)
+    return UNPACKED_DIR;
+
+  // Reload the manifest if it needs to be relocalized.
+  if (extension_l10n_util::ShouldRelocalizeManifest(info))
+    return NEEDS_RELOCALIZATION;
+
+  return NOT_NEEDED;
 }
 
 void GetExplicitOriginsInExtent(const Extension* extension,
@@ -214,13 +231,6 @@ class ExtensionsServiceBackend
   virtual void OnExternalExtensionUpdateUrlFound(const std::string& id,
                                                  const GURL& update_url,
                                                  Extension::Location location);
-
-  // Reloads the given extensions from their manifests on disk (instead of what
-  // we have cached in the prefs).
-  void ReloadExtensionManifests(
-      ExtensionPrefs::ExtensionsInfo* extensions_to_reload,
-      base::TimeTicks start_time,
-      scoped_refptr<ExtensionsService> frontend);
 
  private:
   friend class base::RefCountedThreadSafe<ExtensionsServiceBackend>;
@@ -442,41 +452,6 @@ void ExtensionsServiceBackend::OnExternalExtensionUpdateUrlFound(
           &ExtensionsService::AddPendingExtensionFromExternalUpdateUrl,
           id, update_url, location));
   external_extension_added_ |= true;
-}
-
-void ExtensionsServiceBackend::ReloadExtensionManifests(
-    ExtensionPrefs::ExtensionsInfo* extensions_to_reload,
-    base::TimeTicks start_time,
-    scoped_refptr<ExtensionsService> frontend) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
-
-  frontend_ = frontend;
-
-  for (size_t i = 0; i < extensions_to_reload->size(); ++i) {
-    ExtensionInfo* info = extensions_to_reload->at(i).get();
-    if (!ShouldReloadExtensionManifest(*info))
-      continue;
-
-    // We need to reload original manifest in order to localize properly.
-    std::string error;
-    scoped_refptr<const Extension> extension(extension_file_util::LoadExtension(
-        info->extension_path, info->extension_location, false, &error));
-
-    if (extension.get())
-      extensions_to_reload->at(i)->extension_manifest.reset(
-          static_cast<DictionaryValue*>(
-              extension->manifest_value()->DeepCopy()));
-  }
-
-  // Finish installing on UI thread.
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
-      NewRunnableMethod(
-          frontend_,
-          &ExtensionsService::ContinueLoadAllExtensions,
-          extensions_to_reload,
-          start_time,
-          true));
 }
 
 bool ExtensionsService::IsDownloadFromGallery(const GURL& download_url,
@@ -782,7 +757,7 @@ void ExtensionsService::AddPendingExtensionInternal(
   // type to be external.  An external extension should not be
   // rejected if it fails the safty checks for a syncable extension.
   // TODO(skerner): Work out other potential overlapping conditions.
-  // (crbug/61000)
+  // (crbug.com/61000)
   PendingExtensionMap::iterator it = pending_extensions_.find(id);
   if (it != pending_extensions_.end()) {
     VLOG(1) << "Extension id " << id
@@ -988,46 +963,65 @@ void ExtensionsService::LoadComponentExtensions() {
 }
 
 void ExtensionsService::LoadAllExtensions() {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
   base::TimeTicks start_time = base::TimeTicks::Now();
 
   // Load any component extensions.
   LoadComponentExtensions();
 
   // Load the previously installed extensions.
-  scoped_ptr<ExtensionPrefs::ExtensionsInfo> info(
+  scoped_ptr<ExtensionPrefs::ExtensionsInfo> extensions_info(
       extension_prefs_->GetInstalledExtensionsInfo());
 
-  // If any extensions need localization, we bounce them all to the file thread
-  // for re-reading and localization.
-  for (size_t i = 0; i < info->size(); ++i) {
-    if (ShouldReloadExtensionManifest(*info->at(i))) {
-      BrowserThread::PostTask(
-        BrowserThread::FILE, FROM_HERE, NewRunnableMethod(
-            backend_.get(),
-            &ExtensionsServiceBackend::ReloadExtensionManifests,
-            info.release(),  // Callee takes ownership of the memory.
-            start_time,
-            scoped_refptr<ExtensionsService>(this)));
-      return;
+  std::vector<int> reload_reason_counts(NUM_MANIFEST_RELOAD_REASONS, 0);
+  bool should_write_prefs = false;
+
+  for (size_t i = 0; i < extensions_info->size(); ++i) {
+    ExtensionInfo* info = extensions_info->at(i).get();
+
+    ManifestReloadReason reload_reason = ShouldReloadExtensionManifest(*info);
+    ++reload_reason_counts[reload_reason];
+    UMA_HISTOGRAM_ENUMERATION("Extensions.ManifestReloadEnumValue",
+                              reload_reason, 100);
+
+    if (reload_reason != NOT_NEEDED) {
+      // Reloading and extension reads files from disk.  We do this on the
+      // UI thread because reloads should be very rare, and the complexity
+      // added by delaying the time when the extensions service knows about
+      // all extensions is significant.  See crbug.com/37548 for details.
+      // |allow_io| disables tests that file operations run on the file
+      // thread.
+      base::ThreadRestrictions::ScopedAllowIO allow_io;
+
+      std::string error;
+      scoped_refptr<const Extension> extension(
+          extension_file_util::LoadExtension(
+              info->extension_path, info->extension_location, false, &error));
+
+      if (extension.get()) {
+        extensions_info->at(i)->extension_manifest.reset(
+            static_cast<DictionaryValue*>(
+                extension->manifest_value()->DeepCopy()));
+        should_write_prefs = true;
+      }
     }
   }
 
-  // Don't update prefs.
-  // Callee takes ownership of the memory.
-  ContinueLoadAllExtensions(info.release(), start_time, false);
-}
-
-void ExtensionsService::ContinueLoadAllExtensions(
-    ExtensionPrefs::ExtensionsInfo* extensions_info,
-    base::TimeTicks start_time,
-    bool write_to_prefs) {
-  scoped_ptr<ExtensionPrefs::ExtensionsInfo> info(extensions_info);
-
-  for (size_t i = 0; i < info->size(); ++i) {
-    LoadInstalledExtension(*info->at(i), write_to_prefs);
+  for (size_t i = 0; i < extensions_info->size(); ++i) {
+    LoadInstalledExtension(*extensions_info->at(i), should_write_prefs);
   }
 
   OnLoadedInstalledExtensions();
+
+  // The histograms Extensions.ManifestReload* allow us to validate
+  // the assumption that reloading manifest is a rare event.
+  UMA_HISTOGRAM_COUNTS_100("Extensions.ManifestReloadNotNeeded",
+                           reload_reason_counts[NOT_NEEDED]);
+  UMA_HISTOGRAM_COUNTS_100("Extensions.ManifestReloadUnpackedDir",
+                           reload_reason_counts[UNPACKED_DIR]);
+  UMA_HISTOGRAM_COUNTS_100("Extensions.ManifestReloadNeedsRelocalization",
+                           reload_reason_counts[NEEDS_RELOCALIZATION]);
 
   UMA_HISTOGRAM_COUNTS_100("Extensions.LoadAll", extensions_.size());
   UMA_HISTOGRAM_COUNTS_100("Extensions.Disabled", disabled_extensions_.size());
@@ -1072,30 +1066,30 @@ void ExtensionsService::ContinueLoadAllExtensions(
     UMA_HISTOGRAM_ENUMERATION("Extensions.LoadType", type, 100);
     switch (type) {
       case Extension::TYPE_THEME:
-        theme_count++;
+        ++theme_count;
         break;
       case Extension::TYPE_USER_SCRIPT:
-        user_script_count++;
+        ++user_script_count;
         break;
       case Extension::TYPE_HOSTED_APP:
-        app_count++;
-        hosted_app_count++;
+        ++app_count;
+        ++hosted_app_count;
         break;
       case Extension::TYPE_PACKAGED_APP:
-        app_count++;
-        packaged_app_count++;
+        ++app_count;
+        ++packaged_app_count;
         break;
       case Extension::TYPE_EXTENSION:
       default:
-        extension_count++;
+        ++extension_count;
         break;
     }
     if (Extension::IsExternalLocation(location))
-      external_count++;
+      ++external_count;
     if ((*ex)->page_action() != NULL)
-      page_action_count++;
+      ++page_action_count;
     if ((*ex)->browser_action() != NULL)
-      browser_action_count++;
+      ++browser_action_count;
   }
   UMA_HISTOGRAM_COUNTS_100("Extensions.LoadApp", app_count);
   UMA_HISTOGRAM_COUNTS_100("Extensions.LoadHostedApp", hosted_app_count);
@@ -1108,6 +1102,7 @@ void ExtensionsService::ContinueLoadAllExtensions(
   UMA_HISTOGRAM_COUNTS_100("Extensions.LoadBrowserAction",
                            browser_action_count);
 }
+
 
 void ExtensionsService::LoadInstalledExtension(const ExtensionInfo& info,
                                                bool write_to_prefs) {
@@ -1243,8 +1238,8 @@ void ExtensionsService::GrantUnlimitedStorage(const Extension* extension) {
       BrowserThread::PostTask(
           BrowserThread::IO, FROM_HERE,
           NewRunnableMethod(
-              profile_->GetFileSystemHostContext(),
-              &FileSystemHostContext::SetOriginQuotaUnlimited,
+              profile_->GetFileSystemContext(),
+              &BrowserFileSystemContext::SetOriginQuotaUnlimited,
               origin));
     }
   }
@@ -1278,8 +1273,8 @@ void ExtensionsService::RevokeUnlimitedStorage(const Extension* extension) {
       BrowserThread::PostTask(
           BrowserThread::IO, FROM_HERE,
           NewRunnableMethod(
-              profile_->GetFileSystemHostContext(),
-              &FileSystemHostContext::ResetOriginQuotaUnlimited,
+              profile_->GetFileSystemContext(),
+              &BrowserFileSystemContext::ResetOriginQuotaUnlimited,
               origin));
     }
   }
@@ -1398,8 +1393,10 @@ void ExtensionsService::UnloadExtension(const std::string& extension_id) {
   scoped_refptr<const Extension> extension(
       GetExtensionByIdInternal(extension_id, true, true));
 
-  // Callers should not send us nonexistent extensions.
-  CHECK(extension.get());
+  // This method can be called via PostTask, so the extension may have been
+  // unloaded by the time this runs.
+  if (!extension)
+    return;
 
   // Keep information about the extension so that we can reload it later
   // even if it's not permanently installed.
@@ -1466,6 +1463,13 @@ void ExtensionsService::GarbageCollectExtensions() {
       NewRunnableFunction(
           &extension_file_util::GarbageCollectExtensions, install_directory_,
           extension_paths));
+
+  // Also garbage-collect themes.  We check |profile_| to be
+  // defensive; in the future, we may call GarbageCollectExtensions()
+  // from somewhere other than Init() (e.g., in a timer).
+  if (profile_) {
+    profile_->GetThemeProvider()->RemoveUnusedThemes();
+  }
 }
 
 void ExtensionsService::OnLoadedInstalledExtensions() {
@@ -1689,6 +1693,7 @@ void ExtensionsService::OnExtensionInstalled(const Extension* extension,
 
   UMA_HISTOGRAM_ENUMERATION("Extensions.InstallType",
                             extension->GetHistogramType(), 100);
+  ShownSectionsHandler::OnExtensionInstalled(profile_->GetPrefs(), extension);
   extension_prefs_->OnExtensionInstalled(
       extension, initial_state, initial_enable_incognito);
 
@@ -1880,19 +1885,6 @@ void ExtensionsService::Observe(NotificationType type,
         break;
 
       ExtensionHost* host = Details<ExtensionHost>(details).ptr();
-
-      // TODO(rafaelw): Remove this check and ExtensionHost::recently_deleted().
-      // This is only here to help track down crbug.com/49114.
-      ExtensionHost::HostPointerList::iterator iter =
-          ExtensionHost::recently_deleted()->begin();
-      for (; iter != ExtensionHost::recently_deleted()->end(); iter++) {
-        if (*iter == host) {
-          CHECK(host->GetURL().spec().size() + 2 != 0);
-          break;
-        }
-      }
-      if (iter == ExtensionHost::recently_deleted()->end())
-        CHECK(host->GetURL().spec().size() + 1 != 0);
 
       // Unload the entire extension. We want it to be in a consistent state:
       // either fully working or not loaded at all, but never half-crashed.

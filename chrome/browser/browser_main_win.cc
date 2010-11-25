@@ -11,6 +11,7 @@
 #include <algorithm>
 
 #include "app/l10n_util.h"
+#include "app/l10n_util_win.h"
 #include "app/win_util.h"
 #include "base/command_line.h"
 #include "base/environment.h"
@@ -26,6 +27,7 @@
 #include "chrome/browser/views/uninstall_view.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/env_vars.h"
+#include "chrome/common/main_function_params.h"
 #include "chrome/common/result_codes.h"
 #include "chrome/installer/util/helper.h"
 #include "chrome/installer/util/install_util.h"
@@ -188,12 +190,12 @@ bool CheckMachineLevelInstall() {
       const std::wstring caption = l10n_util::GetString(IDS_PRODUCT_NAME);
       const UINT flags = MB_OK | MB_ICONERROR | MB_TOPMOST;
       win_util::MessageBox(NULL, text, caption, flags);
-      std::wstring uninstall_cmd = InstallUtil::GetChromeUninstallCmd(false);
-      if (!uninstall_cmd.empty()) {
-        uninstall_cmd.append(L" --");
-        uninstall_cmd.append(installer_util::switches::kForceUninstall);
-        uninstall_cmd.append(L" --");
-        uninstall_cmd.append(installer_util::switches::kDoNotRemoveSharedItems);
+      FilePath uninstall_path(InstallUtil::GetChromeUninstallCmd(false));
+      CommandLine uninstall_cmd(uninstall_path);
+      if (!uninstall_cmd.GetProgram().value().empty()) {
+        uninstall_cmd.AppendSwitch(installer_util::switches::kForceUninstall);
+        uninstall_cmd.AppendSwitch(
+            installer_util::switches::kDoNotRemoveSharedItems);
         base::LaunchApp(uninstall_cmd, false, false, NULL);
       }
       return true;
@@ -217,6 +219,13 @@ class BrowserMainPartsWin : public BrowserMainParts {
 
   virtual void PreMainMessageLoopStart() {
     OleInitialize(NULL);
+
+    // If we're running tests (ui_task is non-null), then the ResourceBundle
+    // has already been initialized.
+    if (!parameters().ui_task) {
+      // Override the configured locale with the user's preferred UI language.
+      l10n_util::OverrideLocaleWithUILanguageList();
+    }
   }
 
  private:

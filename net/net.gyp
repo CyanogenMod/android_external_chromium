@@ -142,8 +142,6 @@
         'base/network_config_watcher_mac.h',
         'base/nss_memio.c',
         'base/nss_memio.h',
-        'base/openssl_util.cc',
-        'base/openssl_util.h',
         'base/pem_tokenizer.cc',
         'base/pem_tokenizer.h',
         'base/platform_mime_util.h',
@@ -287,8 +285,6 @@
             'sources!': [
               'base/cert_database_openssl.cc',
               'base/keygen_handler_openssl.cc',
-              'base/openssl_util.cc',
-              'base/openssl_util.h',
               'base/x509_certificate_openssl.cc',
               'base/x509_openssl_util.cc',
               'base/x509_openssl_util.h',
@@ -610,6 +606,8 @@
         'socket/ssl_client_socket_pool.h',
         'socket/ssl_client_socket_win.cc',
         'socket/ssl_client_socket_win.h',
+        'socket/ssl_error_params.cc',
+        'socket/ssl_error_params.h',
         'socket/tcp_client_socket.cc',
         'socket/tcp_client_socket.h',
         'socket/tcp_client_socket_libevent.cc',
@@ -722,6 +720,8 @@
         }],
         ['use_openssl==1', {
             'sources!': [
+              'ocsp/nss_ocsp.cc',
+              'ocsp/nss_ocsp.h',
               'socket/dns_cert_provenance_check.cc',
               'socket/dns_cert_provenance_check.h',
               'socket/ssl_client_socket_nss.cc',
@@ -863,6 +863,7 @@
         'base/upload_data_stream_unittest.cc',
         'base/x509_certificate_unittest.cc',
         'base/x509_cert_types_unittest.cc',
+        'base/x509_openssl_util_unittest.cc',
         'disk_cache/addr_unittest.cc',
         'disk_cache/backend_unittest.cc',
         'disk_cache/bitmap_unittest.cc',
@@ -967,6 +968,7 @@
         'websockets/websocket_handshake_handler_unittest.cc',
         'websockets/websocket_handshake_unittest.cc',
         'websockets/websocket_job_unittest.cc',
+        'websockets/websocket_net_log_params_unittest.cc',
         'websockets/websocket_throttle_unittest.cc',
         'websockets/websocket_unittest.cc',
       ],
@@ -1009,6 +1011,11 @@
               'base/dnssec_unittest.cc',
             ],
           },
+          { # else, remove openssl specific tests
+            'sources!': [
+              'base/x509_openssl_util_unittest.cc',
+            ],
+          }
         ],
         [ 'OS == "win"', {
             'sources!': [
@@ -1172,6 +1179,7 @@
         ['inside_chromium_build==1', {
           'dependencies': [
             '../chrome/browser/sync/protocol/sync_proto.gyp:sync_proto',
+            '../chrome/browser/policy/proto/device_management_proto.gyp:device_management_proto',
             '../third_party/protobuf/protobuf.gyp:py_proto',
           ],
         }],
@@ -1381,6 +1389,36 @@
     #     },
     #   ]
     # }],
+    ['OS=="linux"', {
+      'targets': [
+        {
+          'target_name': 'snap_start_unittests',
+          'type': 'executable',
+          'dependencies': [
+            'net',
+            'net_test_support',
+            'openssl_helper',
+            '../build/linux/system.gyp:nss',
+            '../testing/gmock.gyp:gmock',
+            '../testing/gtest.gyp:gtest',
+          ],
+          'sources': [
+            'base/run_all_unittests.cc',
+            'socket/ssl_client_socket_snapstart_unittest.cc',
+          ]
+        },
+        {
+          'target_name': 'openssl_helper',
+          'type': 'executable',
+          'dependencies': [
+            '../third_party/openssl/openssl.gyp:openssl',
+          ],
+          'sources': [
+            'test/openssl_helper.cc',
+          ],
+        },
+      ],
+    }],
     ['OS=="win"', {
       'targets': [
         {

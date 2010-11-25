@@ -70,7 +70,7 @@ class ProfileImpl : public Profile,
   virtual TemplateURLFetcher* GetTemplateURLFetcher();
   virtual DownloadManager* GetDownloadManager();
   virtual PersonalDataManager* GetPersonalDataManager();
-  virtual FileSystemHostContext* GetFileSystemHostContext();
+  virtual BrowserFileSystemContext* GetFileSystemContext();
   virtual void InitThemes();
   virtual void SetTheme(const Extension* extension);
   virtual void SetNativeTheme();
@@ -105,7 +105,7 @@ class ProfileImpl : public Profile,
   virtual void ReinitializeSpellCheckHost(bool force);
   virtual WebKitContext* GetWebKitContext();
   virtual DesktopNotificationService* GetDesktopNotificationService();
-  virtual BackgroundContentsService* GetBackgroundContentsService();
+  virtual BackgroundContentsService* GetBackgroundContentsService() const;
   virtual StatusTray* GetStatusTray();
   virtual void MarkAsCleanShutdown();
   virtual void InitExtensions();
@@ -122,6 +122,7 @@ class ProfileImpl : public Profile,
   void InitCloudPrintProxyService();
   virtual ChromeBlobStorageContext* GetBlobStorageContext();
   virtual ExtensionInfoMap* GetExtensionInfoMap();
+  virtual PromoCounter* GetInstantPromoCounter();
   virtual BrowserSignin* GetBrowserSignin();
 
 #if defined(OS_CHROMEOS)
@@ -221,7 +222,7 @@ class ProfileImpl : public Profile,
   scoped_ptr<StatusTray> status_tray_;
   scoped_refptr<PersonalDataManager> personal_data_manager_;
   scoped_ptr<PinnedTabService> pinned_tab_service_;
-  scoped_refptr<FileSystemHostContext> file_system_host_context_;
+  scoped_refptr<BrowserFileSystemContext> browser_file_system_context_;
   scoped_ptr<BrowserSignin> browser_signin_;
   bool history_service_created_;
   bool favicon_service_created_;
@@ -246,6 +247,11 @@ class ProfileImpl : public Profile,
   // Indicates whether |spellcheck_host_| has told us initialization is
   // finished.
   bool spellcheck_host_ready_;
+
+#if defined(OS_WIN)
+  bool checked_instant_promo_;
+  scoped_ptr<PromoCounter> instant_promo_counter_;
+#endif
 
   // Set to true when ShutdownSessionService is invoked. If true
   // GetSessionService won't recreate the SessionService.

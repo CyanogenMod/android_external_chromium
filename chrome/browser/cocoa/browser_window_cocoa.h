@@ -66,7 +66,6 @@ class BrowserWindowCocoa : public BrowserWindow,
   virtual bool IsBookmarkBarVisible() const;
   virtual bool IsBookmarkBarAnimating() const;
   virtual bool IsToolbarVisible() const;
-  virtual gfx::Rect GetRootWindowResizerRect() const;
   virtual void ConfirmAddSearchProvider(const TemplateURL* template_url,
                                         Profile* profile);
   virtual void ToggleBookmarkBar();
@@ -107,6 +106,7 @@ class BrowserWindowCocoa : public BrowserWindow,
   virtual void Paste();
   virtual void ToggleTabStripMode();
   virtual void OpenTabpose();
+  virtual void PrepareForInstant();
   virtual void ShowInstant(TabContents* preview_contents);
   virtual void HideInstant();
   virtual gfx::Rect GetInstantBounds();

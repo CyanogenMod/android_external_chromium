@@ -24,7 +24,6 @@
 #include "chrome/browser/download/download_types.h"
 #include "chrome/browser/extensions/extension_message_service.h"
 #include "chrome/browser/file_system/file_system_dispatcher_host.h"
-#include "chrome/browser/file_system/file_system_host_context.h"
 #include "chrome/browser/geolocation/geolocation_dispatcher_host_old.h"
 #include "chrome/browser/geolocation/geolocation_permission_context.h"
 #include "chrome/browser/gpu_process_host.h"
@@ -32,16 +31,18 @@
 #include "chrome/browser/in_process_webkit/dom_storage_dispatcher_host.h"
 #include "chrome/browser/in_process_webkit/indexed_db_dispatcher_host.h"
 #include "chrome/browser/metrics/histogram_synchronizer.h"
+#include "chrome/browser/mime_registry_dispatcher.h"
 #include "chrome/browser/nacl_host/nacl_process_host.h"
 #include "chrome/browser/net/chrome_url_request_context.h"
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
 #include "chrome/browser/platform_util.h"
-#include "chrome/browser/plugin_service.h"
 #include "chrome/browser/plugin_process_host.h"
-#include "chrome/browser/printing/printer_query.h"
+#include "chrome/browser/plugin_service.h"
+#include "chrome/browser/ppapi_plugin_process_host.h"
 #include "chrome/browser/printing/print_job_manager.h"
+#include "chrome/browser/printing/printer_query.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/audio_renderer_host.h"
 #include "chrome/browser/renderer_host/blob_dispatcher_host.h"
@@ -290,7 +291,9 @@ ResourceMessageFilter::ResourceMessageFilter(
           new BlobDispatcherHost(
               this->id(), profile->GetBlobStorageContext()))),
       ALLOW_THIS_IN_INITIALIZER_LIST(file_utilities_dispatcher_host_(
-          new FileUtilitiesDispatcherHost(this, this->id()))) {
+          new FileUtilitiesDispatcherHost(this, this->id()))),
+      ALLOW_THIS_IN_INITIALIZER_LIST(mime_registry_dispatcher_(
+          new MimeRegistryDispatcher(this))) {
   request_context_ = profile_->GetRequestContext();
   DCHECK(request_context_);
   DCHECK(media_request_context_);
@@ -328,6 +331,9 @@ ResourceMessageFilter::~ResourceMessageFilter() {
 
   // Shut down the async file_utilities dispatcher host.
   file_utilities_dispatcher_host_->Shutdown();
+
+  // Shut down the mime registry dispatcher host.
+  mime_registry_dispatcher_->Shutdown();
 
   // Let interested observers know we are being deleted.
   NotificationService::current()->Notify(
@@ -407,7 +413,8 @@ bool ResourceMessageFilter::OnMessageReceived(const IPC::Message& msg) {
       device_orientation_dispatcher_host_->OnMessageReceived(msg, &msg_is_ok) ||
       file_system_dispatcher_host_->OnMessageReceived(msg, &msg_is_ok) ||
       blob_dispatcher_host_->OnMessageReceived(msg, &msg_is_ok) ||
-      file_utilities_dispatcher_host_->OnMessageReceived(msg, &msg_is_ok);
+      file_utilities_dispatcher_host_->OnMessageReceived(msg) ||
+      mime_registry_dispatcher_->OnMessageReceived(msg);
 
   if (!handled) {
     DCHECK(msg_is_ok);  // It should have been marked handled if it wasn't OK.
@@ -450,6 +457,8 @@ bool ResourceMessageFilter::OnMessageReceived(const IPC::Message& msg) {
                                   OnReceiveContextMenuMsg(msg))
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_OpenChannelToPlugin,
                                       OnOpenChannelToPlugin)
+      IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_OpenChannelToPepperPlugin,
+                                      OnOpenChannelToPepperPlugin)
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_LaunchNaCl, OnLaunchNaCl)
       IPC_MESSAGE_HANDLER(ViewHostMsg_CreateWorker, OnCreateWorker)
       IPC_MESSAGE_HANDLER(ViewHostMsg_LookupSharedWorker, OnLookupSharedWorker)
@@ -498,13 +507,7 @@ bool ResourceMessageFilter::OnMessageReceived(const IPC::Message& msg) {
                                       OnClipboardReadFilenames)
       IPC_MESSAGE_HANDLER(ViewHostMsg_CheckNotificationPermission,
                           OnCheckNotificationPermission)
-      IPC_MESSAGE_HANDLER(ViewHostMsg_GetMimeTypeFromExtension,
-                          OnGetMimeTypeFromExtension)
       IPC_MESSAGE_HANDLER(ViewHostMsg_RevealFolderInOS, OnRevealFolderInOS)
-      IPC_MESSAGE_HANDLER(ViewHostMsg_GetMimeTypeFromFile,
-                          OnGetMimeTypeFromFile)
-      IPC_MESSAGE_HANDLER(ViewHostMsg_GetPreferredExtensionForMimeType,
-                          OnGetPreferredExtensionForMimeType)
       IPC_MESSAGE_HANDLER(ViewHostMsg_GetCPBrowsingContext,
                           OnGetCPBrowsingContext)
 #if defined(OS_WIN)
@@ -877,6 +880,14 @@ void ResourceMessageFilter::OnOpenChannelToPlugin(const GURL& url,
       new OpenChannelToPluginCallback(this, reply_msg));
 }
 
+void ResourceMessageFilter::OnOpenChannelToPepperPlugin(
+    const FilePath& path,
+    IPC::Message* reply_msg) {
+  PpapiPluginProcessHost* host = new PpapiPluginProcessHost(this);
+  host->Init(path, reply_msg);
+  ppapi_plugin_hosts_.push_back(linked_ptr<PpapiPluginProcessHost>(host));
+}
+
 void ResourceMessageFilter::OnLaunchNaCl(
     const std::wstring& url, int channel_descriptor, IPC::Message* reply_msg) {
   NaClProcessHost* host = new NaClProcessHost(resource_dispatcher_host_, url);
@@ -1073,21 +1084,6 @@ void ResourceMessageFilter::OnCheckNotificationPermission(
   // Fall back to the regular notification preferences, which works on an
   // origin basis.
   *result = notification_prefs_->HasPermission(source_url.GetOrigin());
-}
-
-void ResourceMessageFilter::OnGetMimeTypeFromExtension(
-    const FilePath::StringType& ext, std::string* mime_type) {
-  net::GetMimeTypeFromExtension(ext, mime_type);
-}
-
-void ResourceMessageFilter::OnGetMimeTypeFromFile(
-    const FilePath& file_path, std::string* mime_type) {
-  net::GetMimeTypeFromFile(file_path, mime_type);
-}
-
-void ResourceMessageFilter::OnGetPreferredExtensionForMimeType(
-    const std::string& mime_type, FilePath::StringType* ext) {
-  net::GetPreferredExtensionForMimeType(mime_type, ext);
 }
 
 void ResourceMessageFilter::OnGetCPBrowsingContext(uint32* context) {

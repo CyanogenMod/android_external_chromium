@@ -20,7 +20,12 @@ extern const char kHomePage[];
 extern const char kSessionExitedCleanly[];
 extern const char kRestoreOnStartup[];
 extern const char kURLsToRestoreOnStartup[];
+
+// For OS_CHROMEOS we maintain kApplicationLocale property in both local state
+// and user's profile.  Global property determines locale of login screen,
+// while user's profile determines his personal locale preference.
 extern const char kApplicationLocale[];
+
 extern const char kDefaultCharset[];
 extern const char kAcceptLanguages[];
 extern const char kStaticEncodings[];
@@ -75,6 +80,10 @@ extern const char kDisableSpdy[];
 extern const char kCookiePromptExpanded[];
 extern const char kInstantConfirmDialogShown[];
 extern const char kInstantEnabled[];
+extern const char kInstantEnabledOnce[];
+extern const char kInstantEnabledTime[];
+extern const char kInstantPromo[];
+extern const char kInstantType[];
 #if defined(USE_NSS) || defined(USE_OPENSSL)
 extern const char kCertRevocationCheckingEnabled[];
 extern const char kSSL2Enabled[];
@@ -394,11 +403,24 @@ extern const char kProxyServer[];
 extern const char kProxyPacUrl[];
 extern const char kProxyBypassList[];
 
+extern const char kManagedDefaultCookiesSetting[];
+extern const char kManagedDefaultImagesSetting[];
+extern const char kManagedDefaultJavaScriptSetting[];
+extern const char kManagedDefaultPluginsSetting[];
+extern const char kManagedDefaultPopupsSetting[];
+
 #if defined(OS_CHROMEOS)
 extern const char kSignedSettingsTempStorage[];
 #endif
 
 extern const char kRegisteredBackgroundContents[];
+
+extern const char kAuthSchemes[];
+extern const char kDisableAuthNegotiateCnameLookup[];
+extern const char kEnableAuthNegotiatePort[];
+extern const char kAuthServerWhitelist[];
+extern const char kAuthNegotiateDelegateWhitelist[];
+extern const char kGSSAPILibraryName[];
 
 }  // namespace prefs
 

@@ -18,8 +18,6 @@
 #include "net/http/http_request_info.h"
 #include "net/http/http_util.h"
 
-// TODO(eroman): support qop=auth-int
-
 namespace net {
 
 // Digest authentication is specified in RFC 2617.
@@ -47,16 +45,19 @@ namespace net {
 // auth-int |          | req-method:req-uri:MD5(req-entity-body)  |
 //=====================+==========================================+
 
+HttpAuthHandlerDigest::NonceGenerator::NonceGenerator() {
+}
 
-//static
-bool HttpAuthHandlerDigest::fixed_cnonce_ = false;
+HttpAuthHandlerDigest::NonceGenerator::~NonceGenerator() {
+}
 
-// static
-std::string HttpAuthHandlerDigest::GenerateNonce() {
+HttpAuthHandlerDigest::DynamicNonceGenerator::DynamicNonceGenerator() {
+}
+
+std::string HttpAuthHandlerDigest::DynamicNonceGenerator::GenerateNonce()
+    const {
   // This is how mozilla generates their cnonce -- a 16 digit hex string.
   static const char domain[] = "0123456789abcdef";
-  if (fixed_cnonce_)
-    return std::string(domain);
   std::string cnonce;
   cnonce.reserve(16);
   for (int i = 0; i < 16; ++i)
@@ -64,35 +65,52 @@ std::string HttpAuthHandlerDigest::GenerateNonce() {
   return cnonce;
 }
 
+HttpAuthHandlerDigest::FixedNonceGenerator::FixedNonceGenerator(
+    const std::string& nonce)
+    : nonce_(nonce) {
+}
+
+std::string HttpAuthHandlerDigest::FixedNonceGenerator::GenerateNonce() const {
+  return nonce_;
+}
+
 // static
-std::string HttpAuthHandlerDigest::QopToString(int qop) {
+std::string HttpAuthHandlerDigest::QopToString(QualityOfProtection qop) {
   switch (qop) {
+    case QOP_UNSPECIFIED:
+      return "";
     case QOP_AUTH:
       return "auth";
-    case QOP_AUTH_INT:
-      return "auth-int";
     default:
+      NOTREACHED();
       return "";
   }
 }
 
 // static
-std::string HttpAuthHandlerDigest::AlgorithmToString(int algorithm) {
+std::string HttpAuthHandlerDigest::AlgorithmToString(
+    DigestAlgorithm algorithm) {
   switch (algorithm) {
+    case ALGORITHM_UNSPECIFIED:
+      return "";
     case ALGORITHM_MD5:
       return "MD5";
     case ALGORITHM_MD5_SESS:
       return "MD5-sess";
     default:
+      NOTREACHED();
       return "";
   }
 }
 
-HttpAuthHandlerDigest::HttpAuthHandlerDigest(int nonce_count)
+HttpAuthHandlerDigest::HttpAuthHandlerDigest(
+    int nonce_count, const NonceGenerator* nonce_generator)
     : stale_(false),
       algorithm_(ALGORITHM_UNSPECIFIED),
-      qop_(0),
-      nonce_count_(nonce_count) {
+      qop_(QOP_UNSPECIFIED),
+      nonce_count_(nonce_count),
+      nonce_generator_(nonce_generator) {
+  DCHECK(nonce_generator_);
 }
 
 HttpAuthHandlerDigest::~HttpAuthHandlerDigest() {
@@ -105,7 +123,7 @@ int HttpAuthHandlerDigest::GenerateAuthTokenImpl(
     CompletionCallback* callback,
     std::string* auth_token) {
   // Generate a random client nonce.
-  std::string cnonce = GenerateNonce();
+  std::string cnonce = nonce_generator_->GenerateNonce();
 
   // Extract the request method and path -- the meaning of 'path' is overloaded
   // in certain cases, to be a hostname.
@@ -308,12 +326,13 @@ bool HttpAuthHandlerDigest::ParseChallengeProperty(const std::string& name,
     }
   } else if (LowerCaseEqualsASCII(name, "qop")) {
     // Parse the comma separated list of qops.
+    // auth is the only supported qop, and all other values are ignored.
     HttpUtil::ValuesIterator qop_values(value.begin(), value.end(), ',');
+    qop_ = QOP_UNSPECIFIED;
     while (qop_values.GetNext()) {
       if (LowerCaseEqualsASCII(qop_values.value(), "auth")) {
-        qop_ |= QOP_AUTH;
-      } else if (LowerCaseEqualsASCII(qop_values.value(), "auth-int")) {
-        qop_ |= QOP_AUTH_INT;
+        qop_ = QOP_AUTH;
+        break;
       }
     }
   } else {
@@ -323,10 +342,16 @@ bool HttpAuthHandlerDigest::ParseChallengeProperty(const std::string& name,
   return true;
 }
 
-HttpAuthHandlerDigest::Factory::Factory() {
+HttpAuthHandlerDigest::Factory::Factory()
+    : nonce_generator_(new DynamicNonceGenerator()) {
 }
 
 HttpAuthHandlerDigest::Factory::~Factory() {
+}
+
+void HttpAuthHandlerDigest::Factory::set_nonce_generator(
+    const NonceGenerator* nonce_generator) {
+  nonce_generator_.reset(nonce_generator);
 }
 
 int HttpAuthHandlerDigest::Factory::CreateAuthHandler(
@@ -340,7 +365,7 @@ int HttpAuthHandlerDigest::Factory::CreateAuthHandler(
   // TODO(cbentzel): Move towards model of parsing in the factory
   //                 method and only constructing when valid.
   scoped_ptr<HttpAuthHandler> tmp_handler(
-      new HttpAuthHandlerDigest(digest_nonce_count));
+      new HttpAuthHandlerDigest(digest_nonce_count, nonce_generator_.get()));
   if (!tmp_handler->InitFromChallenge(challenge, target, origin, net_log))
     return ERR_INVALID_RESPONSE;
   handler->swap(tmp_handler);

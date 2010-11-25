@@ -18,13 +18,13 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/cryptohome_library.h"
-#include "chrome/browser/chromeos/cros_settings_provider_stats.h"
 #include "chrome/browser/chromeos/customization_document.h"
 #include "chrome/browser/chromeos/login/help_app_launcher.h"
 #include "chrome/browser/chromeos/login/helper.h"
 #include "chrome/browser/chromeos/login/network_screen_delegate.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
+#include "chrome/browser/chromeos/metrics_cros_settings_provider.h"
 #include "chrome/browser/profile_manager.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
@@ -196,18 +196,19 @@ void TpmInfoView::PullPassword() {
   chromeos::CryptohomeLibrary* cryptohome =
       chromeos::CrosLibrary::Get()->GetCryptohomeLibrary();
 
-  bool password_was_cleared = false;
+  bool password_acquired = false;
   if (password_->empty() && cryptohome->TpmIsReady()) {
-    bool password_acquired = cryptohome->TpmGetPassword(password_);
-    if (password_acquired) {
-      cryptohome->TpmClearStoredPassword();
-      if (password_->empty())
-        password_was_cleared = true;
-    } else {
+    password_acquired = cryptohome->TpmGetPassword(password_);
+    if (!password_acquired) {
       password_->clear();
+    } else if (password_->empty()) {
+      // For a fresh OOBE flow TPM is uninitialized,
+      // ownership process is started at the EULA screen,
+      // password is cleared after EULA is accepted.
+      LOG(ERROR) << "TPM returned an empty password.";
     }
   }
-  if (password_->empty() && !password_was_cleared) {
+  if (password_->empty() && !password_acquired) {
     // Password hasn't been acquired, reschedule pulling.
     MessageLoop::current()->PostDelayedTask(
         FROM_HERE,

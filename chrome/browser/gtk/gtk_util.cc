@@ -22,11 +22,15 @@
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete.h"
+#include "chrome/browser/autocomplete/autocomplete_classifier.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_window.h"
 #include "chrome/browser/gtk/cairo_cached_surface.h"
 #include "chrome/browser/gtk/gtk_theme_provider.h"
+#include "chrome/browser/profile.h"
+#include "chrome/browser/renderer_host/render_view_host.h"
+#include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/common/renderer_preferences.h"
 #include "gfx/gtk_util.h"
 #include "googleurl/src/gurl.h"
@@ -35,10 +39,13 @@
 #include "third_party/skia/include/core/SkColor.h"
 
 #if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/frame/browser_view.h"
 #include "chrome/browser/chromeos/native_dialog_window.h"
 #include "chrome/browser/chromeos/options/options_window_view.h"
 #include "views/window/window.h"
-#endif  // defined(OS_CHROMEOS)
+#else
+#include "chrome/browser/gtk/browser_window_gtk.h"
+#endif
 
 using WebKit::WebDragOperationsMask;
 using WebKit::WebDragOperation;
@@ -170,6 +177,40 @@ gboolean PaintNoBackground(GtkWidget* widget,
 
   return TRUE;
 }
+
+#if defined(OS_CHROMEOS)
+
+TabContents* GetBrowserWindowSelectedTabContents(BrowserWindow* window) {
+  chromeos::BrowserView* browser_view = static_cast<chromeos::BrowserView*>(
+      window);
+  return browser_view->GetSelectedTabContents();
+}
+
+GtkWidget* GetBrowserWindowFocusedWidget(BrowserWindow* window) {
+  gfx::NativeView widget = gtk_window_get_focus(window->GetNativeHandle());
+
+  if (widget == NULL) {
+    chromeos::BrowserView* browser_view = static_cast<chromeos::BrowserView*>(
+        window);
+    widget = browser_view->saved_focused_widget();
+  }
+
+  return widget;
+}
+
+#else
+
+TabContents* GetBrowserWindowSelectedTabContents(BrowserWindow* window) {
+  BrowserWindowGtk* browser_window = static_cast<BrowserWindowGtk*>(
+      window);
+  return browser_window->browser()->GetSelectedTabContents();
+}
+
+GtkWidget* GetBrowserWindowFocusedWidget(BrowserWindow* window) {
+  return gtk_window_get_focus(window->GetNativeHandle());
+}
+
+#endif
 
 }  // namespace
 
@@ -774,6 +815,7 @@ void DrawTextEntryBackground(GtkWidget* offscreen_entry,
                      rec->width - 2 * xborder,
                      rec->height - 2 * yborder);
 
+  gtk_style_detach(our_style);
   g_object_unref(our_style);
 }
 
@@ -959,22 +1001,14 @@ bool URLFromPrimarySelection(Profile* profile, GURL* url) {
 
   // Use autocomplete to clean up the text, going so far as to turn it into
   // a search query if necessary.
-  AutocompleteController controller(profile);
-  controller.Start(UTF8ToWide(selection_text),
-                   std::wstring(),  // desired_tld
-                   true,            // prevent_inline_autocomplete
-                   false,           // prefer_keyword
-                   true);           // synchronous_only
+  AutocompleteMatch match;
+  profile->GetAutocompleteClassifier()->Classify(UTF8ToWide(selection_text),
+      std::wstring(), false, &match, NULL);
   g_free(selection_text);
-  const AutocompleteResult& result = controller.result();
-  AutocompleteResult::const_iterator it = result.default_match();
-  if (it == result.end())
+  if (!match.destination_url.is_valid())
     return false;
 
-  if (!it->destination_url.is_valid())
-    return false;
-
-  *url = it->destination_url;
+  *url = match.destination_url;
   return true;
 }
 
@@ -1131,6 +1165,7 @@ gfx::Rect GetDialogBounds(GtkWidget* dialog) {
 
   return gfx::Rect(x, y, width, height);
 }
+
 #endif
 
 string16 GetStockPreferencesMenuLabel() {
@@ -1213,6 +1248,40 @@ void ApplyMessageDialogQuirks(GtkWidget* dialog) {
         base::nix::GetDesktopEnvironment(env.get()))
       gtk_window_set_skip_taskbar_hint(GTK_WINDOW(dialog), FALSE);
   }
+}
+
+// Performs Cut/Copy/Paste operation on the |window|.
+// If the current render view is focused, then just call the specified |method|
+// against the current render view host, otherwise emit the specified |signal|
+// against the focused widget.
+// TODO(suzhe): This approach does not work for plugins.
+void DoCutCopyPaste(BrowserWindow* window,
+                    void (RenderViewHost::*method)(),
+                    const char* signal) {
+  GtkWidget* widget = GetBrowserWindowFocusedWidget(window);
+  if (widget == NULL)
+    return;  // Do nothing if no focused widget.
+
+  TabContents* current_tab = GetBrowserWindowSelectedTabContents(window);
+  if (current_tab && widget == current_tab->GetContentNativeView()) {
+    (current_tab->render_view_host()->*method)();
+  } else {
+    guint id;
+    if ((id = g_signal_lookup(signal, G_OBJECT_TYPE(widget))) != 0)
+      g_signal_emit(widget, id, 0);
+  }
+}
+
+void DoCut(BrowserWindow* window) {
+  DoCutCopyPaste(window, &RenderViewHost::Cut, "cut-clipboard");
+}
+
+void DoCopy(BrowserWindow* window) {
+  DoCutCopyPaste(window, &RenderViewHost::Copy, "copy-clipboard");
+}
+
+void DoPaste(BrowserWindow* window) {
+  DoCutCopyPaste(window, &RenderViewHost::Paste, "paste-clipboard");
 }
 
 }  // namespace gtk_util

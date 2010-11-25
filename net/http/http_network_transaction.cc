@@ -172,8 +172,8 @@ int HttpNetworkTransaction::RestartWithCertificate(
 
   ssl_config_.client_cert = client_cert;
   if (client_cert) {
-    session_->ssl_client_auth_cache()->Add(GetHostAndPort(request_->url),
-                                           client_cert);
+    session_->ssl_client_auth_cache()->Add(
+        response_.cert_request_info->host_and_port, client_cert);
   }
   ssl_config_.send_client_cert = true;
   // Reset the other member variables.
@@ -635,12 +635,6 @@ int HttpNetworkTransaction::DoSendRequest() {
     if (session_->network_delegate())
       session_->network_delegate()->OnSendHttpRequest(&request_headers_);
   }
-  if (net_log_.IsLoggingAllEvents()) {
-    net_log_.AddEvent(
-        NetLog::TYPE_HTTP_TRANSACTION_SEND_REQUEST_HEADERS,
-        make_scoped_refptr(new NetLogHttpRequestParameter(
-            request_->url.spec(), request_->extra_headers)));
-  }
 
   headers_valid_ = false;
   return stream_->SendRequest(request_headers_, request_body, &response_,
@@ -979,8 +973,8 @@ int HttpNetworkTransaction::HandleCertificateRequest(int error) {
 
   // If the user selected one of the certificate in client_certs for this
   // server before, use it automatically.
-  X509Certificate* client_cert = session_->ssl_client_auth_cache()->
-                                 Lookup(GetHostAndPort(request_->url));
+  X509Certificate* client_cert = session_->ssl_client_auth_cache()->Lookup(
+      response_.cert_request_info->host_and_port);
   if (client_cert) {
     const std::vector<scoped_refptr<X509Certificate> >& client_certs =
         response_.cert_request_info->client_certs;
@@ -1019,6 +1013,16 @@ int HttpNetworkTransaction::HandleIOError(int error) {
         ResetConnectionAndRequestForResend();
         error = OK;
       }
+      break;
+    case ERR_SSL_SNAP_START_NPN_MISPREDICTION:
+      // This means that we tried to Snap Start a connection, but we
+      // mispredicted the NPN result. This isn't a problem from the point of
+      // view of the SSL layer because the server will ignore the application
+      // data in the Snap Start extension. However, at the HTTP layer, we have
+      // already decided that it's a HTTP or SPDY connection and it's easier to
+      // abort and start again.
+      ResetConnectionAndRequestForResend();
+      error = OK;
       break;
   }
   return error;

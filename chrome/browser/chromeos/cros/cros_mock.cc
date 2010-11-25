@@ -7,7 +7,6 @@
 #include "base/message_loop.h"
 #include "base/ref_counted.h"
 #include "base/time.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/cros/mock_cryptohome_library.h"
 #include "chrome/browser/chromeos/cros/mock_input_method_library.h"
@@ -21,6 +20,7 @@
 #include "chrome/browser/chromeos/cros/mock_touchpad_library.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/login/wizard_screen.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/test/in_process_browser_test.h"
 #include "chrome/test/ui_test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -279,7 +279,7 @@ void CrosMock::SetNetworkLibraryStatusAreaExpectations() {
 
   // NetworkMenuButton::OnNetworkManagerChanged() calls:
   EXPECT_CALL(*mock_network_library_, active_network())
-      .Times(1)
+      .Times(AnyNumber())
       .WillRepeatedly((Return((const Network*)(NULL))))
       .RetiresOnSaturation();
   EXPECT_CALL(*mock_network_library_, wifi_connecting())
@@ -304,6 +304,10 @@ void CrosMock::SetNetworkLibraryStatusAreaExpectations() {
       .Times(1)
       .WillRepeatedly((Return(true)))
       .RetiresOnSaturation();
+  EXPECT_CALL(*mock_network_library_, ethernet_enabled())
+      .Times(1)
+      .WillRepeatedly((Return(true)))
+      .RetiresOnSaturation();
   EXPECT_CALL(*mock_network_library_, ethernet_connected())
       .Times(1)
       .WillRepeatedly((Return(false)))
@@ -316,7 +320,15 @@ void CrosMock::SetNetworkLibraryStatusAreaExpectations() {
       .Times(1)
       .WillRepeatedly((Return(false)))
       .RetiresOnSaturation();
+  EXPECT_CALL(*mock_network_library_, wifi_enabled())
+      .Times(1)
+      .WillRepeatedly((Return(false)))
+      .RetiresOnSaturation();
   EXPECT_CALL(*mock_network_library_, cellular_available())
+      .Times(1)
+      .WillRepeatedly((Return(false)))
+      .RetiresOnSaturation();
+  EXPECT_CALL(*mock_network_library_, cellular_enabled())
       .Times(1)
       .WillRepeatedly((Return(false)))
       .RetiresOnSaturation();

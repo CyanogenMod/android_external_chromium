@@ -76,7 +76,14 @@ TEST_F(PipeReaderTest, SuccessfulMultiLineReadTest) {
   }
 }
 
-TEST_F(PipeReaderTest, SuccessfulMultiLineReadNoEndingNewlineTest) {
+// http://crbug.com/63228
+#if defined(OS_CHROMEOS)
+#define MAYBE_SuccessfulMultiLineReadNoEndingNewlineTest FLAKY_SuccessfulMultiLineReadNoEndingNewlineTest
+#else
+#define MAYBE_SuccessfulMultiLineReadNoEndingNewlineTest SuccessfulMultiLineReadNoEndingNewlineTest
+#endif
+
+TEST_F(PipeReaderTest, MAYBE_SuccessfulMultiLineReadNoEndingNewlineTest) {
   FilePath pipe_name("/tmp/TESTFIFO");
   /* Create the FIFO if it does not exist */
   umask(0);

@@ -14,6 +14,8 @@
 #include "chrome/browser/chromeos/login/user_view.h"
 #include "chrome/browser/chromeos/login/username_view.h"
 #include "chrome/browser/chromeos/login/wizard_accessibility_helper.h"
+#include "chrome/browser/chromeos/login/textfield_with_margin.h"
+#include "chrome/browser/chromeos/views/copy_background.h"
 #include "chrome/browser/profile_manager.h"
 #include "chrome/common/notification_service.h"
 #include "grit/generated_resources.h"
@@ -33,10 +35,10 @@ const int kCornerRadius = 5;
 // A Textfield for password, which also sets focus to itself
 // when a mouse is clicked on it. This is necessary in screen locker
 // as mouse events are grabbed in the screen locker.
-class PasswordField : public views::Textfield {
+class PasswordField : public TextfieldWithMargin {
  public:
   PasswordField()
-      : views::Textfield(views::Textfield::STYLE_PASSWORD) {
+      : TextfieldWithMargin(views::Textfield::STYLE_PASSWORD) {
     set_text_to_display_when_empty(
         l10n_util::GetStringUTF16(IDS_LOGIN_EMPTY_PASSWORD_TEXT));
   }
@@ -70,7 +72,7 @@ gfx::Size ScreenLockView::GetPreferredSize() {
 }
 
 void ScreenLockView::Layout() {
-  int username_height = username_->GetPreferredSize().height();
+  int username_height = login::kSelectedLabelHeight;
   main_->SetBounds(0, 0, width(), height());
   username_->SetBounds(
       kBorderSize,
@@ -99,6 +101,7 @@ void ScreenLockView::Init() {
   // Password field.
   password_field_ = new PasswordField();
   password_field_->SetController(this);
+  password_field_->set_background(new CopyBackground(main_));
 
   // User icon.
   UserManager::User user = screen_locker_->user();
@@ -108,8 +111,7 @@ void ScreenLockView::Init() {
   std::wstring text = UTF8ToWide(user.GetDisplayName());
 
   ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-  const gfx::Font& font =
-      rb.GetFont(ResourceBundle::LargeFont).DeriveFont(0, gfx::Font::BOLD);
+  const gfx::Font& font = rb.GetFont(ResourceBundle::MediumBoldFont);
 
   // Layouts image, textfield and button components.
   GridLayout* layout = new GridLayout(main_);
@@ -138,6 +140,7 @@ void ScreenLockView::Init() {
 
   UsernameView* username = new UsernameView(text);
   username_ = username;
+  username->SetColor(login::kTextColor);
   username->SetFont(font);
   AddChildView(username);
 }

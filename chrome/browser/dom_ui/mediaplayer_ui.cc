@@ -5,6 +5,7 @@
 #include "chrome/browser/dom_ui/mediaplayer_ui.h"
 
 #include "app/resource_bundle.h"
+#include "base/command_line.h"
 #include "base/logging.h"
 #include "base/message_loop.h"
 #include "base/path_service.h"
@@ -16,23 +17,22 @@
 #include "base/values.h"
 #include "base/weak_ptr.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
-#include "chrome/browser/browser.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/dom_ui/dom_ui_favicon_source.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/download/download_util.h"
-#include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/history/history_types.h"
-#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/chrome_paths.h"
+#include "chrome/common/chrome_switches.h"
 #include "chrome/common/jstemplate_builder.h"
 #include "chrome/common/net/url_fetcher.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/time_format.h"
 #include "chrome/common/url_constants.h"
 #include "grit/browser_resources.h"
@@ -381,9 +381,8 @@ void MediaPlayer::ForcePlayMediaURL(const GURL& url, Browser* creator) {
 
 bool MediaPlayer::Enabled() {
 #if defined(OS_CHROMEOS)
-  Profile* profile = BrowserList::GetLastActive()->profile();
-  PrefService* pref_service = profile->GetPrefs();
-  return pref_service->GetBoolean(prefs::kLabsMediaplayerEnabled);
+  return CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableMediaPlayer);
 #else
   return true;
 #endif

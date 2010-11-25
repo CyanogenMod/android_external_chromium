@@ -66,7 +66,9 @@ class MediaEngine;
 class MediaSessionClient;
 class Receiver;
 class Call;
+struct CallOptions;
 class SessionManagerTask;
+enum SignalingProtocol;
 }
 
 struct RosterItem {
@@ -98,11 +100,20 @@ class CallClient: public sigslot::has_slots<> {
 
   void ParseLine(const std::string &str);
 
+  void SendChat(const std::string& to, const std::string msg);
   void InviteFriend(const std::string& user);
   void JoinMuc(const std::string& room);
   void InviteToMuc(const std::string& user, const std::string& room);
   void LeaveMuc(const std::string& room);
   void SetPortAllocatorFlags(uint32 flags) { portallocator_flags_ = flags; }
+  void SetAllowLocalIps(bool allow_local_ips) {
+    allow_local_ips_ = allow_local_ips;
+  }
+
+  void SetInitialProtocol(cricket::SignalingProtocol initial_protocol) {
+    initial_protocol_ = initial_protocol;
+  }
+
 
   typedef std::map<buzz::Jid, buzz::Muc*> MucMap;
 
@@ -119,6 +130,7 @@ class CallClient: public sigslot::has_slots<> {
   void InitPresence();
   void RefreshStatus();
   void OnRequestSignaling();
+  void OnSessionCreate(cricket::Session* session, bool initiate);
   void OnCallCreate(cricket::Call* call);
   void OnCallDestroy(cricket::Call* call);
   void OnSessionState(cricket::Call* call,
@@ -137,10 +149,10 @@ class CallClient: public sigslot::has_slots<> {
   static const std::string strerror(buzz::XmppEngine::Error err);
 
   void PrintRoster();
-  void MakeCallTo(const std::string& name, bool video);
-  void PlaceCall(const buzz::Jid& jid, bool is_muc, bool video);
+  void MakeCallTo(const std::string& name, const cricket::CallOptions& options);
+  void PlaceCall(const buzz::Jid& jid, const cricket::CallOptions& options);
   void CallVoicemail(const std::string& name);
-  void Accept();
+  void Accept(const cricket::CallOptions& options);
   void Reject();
   void Quit();
 
@@ -178,6 +190,10 @@ class CallClient: public sigslot::has_slots<> {
   buzz::FriendInviteSendTask* friend_invite_send_;
   RosterMap* roster_;
   uint32 portallocator_flags_;
+
+  bool allow_local_ips_;
+  cricket::SignalingProtocol initial_protocol_;
+  std::string last_sent_to_;
 #ifdef USE_TALK_SOUND
   cricket::SoundSystemFactory* sound_system_factory_;
 #endif

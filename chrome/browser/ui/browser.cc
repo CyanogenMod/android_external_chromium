@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/browser.h"
+#include "chrome/browser/ui/browser.h"
 
 #if defined(OS_WIN)
 #include <shellapi.h>
@@ -26,13 +26,9 @@
 #include "gfx/point.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/autofill/autofill_manager.h"
-#if defined(OS_WIN)
-#include "chrome/browser/autofill/autofill_ie_toolbar_import_win.h"
-#endif  // defined(OS_WIN)
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_navigator.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/browser_window.h"
@@ -88,6 +84,7 @@
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tab_menu_model.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/upgrade_detector.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/browser/window_sizer.h"
@@ -115,6 +112,7 @@
 
 #if defined(OS_WIN)
 #include "app/win_util.h"
+#include "chrome/browser/autofill/autofill_ie_toolbar_import_win.h"
 #include "chrome/browser/browser_child_process_host.h"
 #include "chrome/browser/cert_store.h"
 #include "chrome/browser/download/save_package.h"
@@ -138,31 +136,41 @@
 
 using base::TimeDelta;
 
-// How long we wait before updating the browser chrome while loading a page.
-static const int kUIUpdateCoalescingTimeMS = 200;
-
-// The URL to be loaded to display Help.
-#if defined(OS_CHROMEOS)
-static const char* const kHelpContentUrl =
-    "chrome-extension://nifaohjgppdbmalmmgkmfdlodaggnbpe/main.html";
-#else
-static const char* const kHelpContentUrl =
-    "http://www.google.com/support/chrome/";
-#endif
-
-// The URL to be loaded to display the "Report a broken page" form.
-static const std::string kBrokenPageUrl =
-    "http://www.google.com/support/chrome/bin/request.py?contact_type="
-    "broken_website&format=inproduct&p.page_title=$1&p.page_url=$2";
-
-static const std::string kHashMark = "#";
-
-// The URL for the privacy dashboard.
-static const char kPrivacyDashboardUrl[] = "https://www.google.com/dashboard";
-
 ///////////////////////////////////////////////////////////////////////////////
 
 namespace {
+
+// The URL to be loaded to display Help.
+#if defined(OS_CHROMEOS)
+const char kHelpContentUrl[] =
+    "chrome-extension://nifaohjgppdbmalmmgkmfdlodaggnbpe/main.html";
+const char kHelpContentOnlineUrl[] =
+    "http://www.google.com/support/chromeos/";
+#else
+const char kHelpContentUrl[] =
+    "http://www.google.com/support/chrome/";
+#endif
+
+// The URL to be opened when the Help link on the Autofill dialog is clicked.
+const char kAutofillHelpUrl[] =
+#if defined(OS_CHROMEOS)
+    "http://www.google.com/support/chromeos/bin/answer.py?answer=142893";
+#else
+    "http://www.google.com/support/chrome/bin/answer.py?answer=142893";
+#endif
+
+// The URL to be loaded to display the "Report a broken page" form.
+const char kBrokenPageUrl[] =
+    "http://www.google.com/support/chrome/bin/request.py?contact_type="
+    "broken_website&format=inproduct&p.page_title=$1&p.page_url=$2";
+
+// The URL for the privacy dashboard.
+const char kPrivacyDashboardUrl[] = "https://www.google.com/dashboard";
+
+// How long we wait before updating the browser chrome while loading a page.
+const int kUIUpdateCoalescingTimeMS = 200;
+
+const char kHashMark[] = "#";
 
 #if defined(OS_CHROMEOS)
 // If a popup window is bigger than this fraction of the screen on chrome os,
@@ -664,6 +672,7 @@ void Browser::OpenHelpWindow(Profile* profile) {
   browser->window()->Show();
 }
 
+// static
 void Browser::OpenOptionsWindow(Profile* profile) {
   Browser* browser = Browser::Create(profile);
   browser->ShowOptionsTab(chrome::kDefaultOptionsSubPage);
@@ -1028,10 +1037,11 @@ bool Browser::NavigateToIndexWithDisposition(int index,
   return true;
 }
 
-void Browser::ShowSingletonTab(const GURL& url) {
+void Browser::ShowSingletonTab(const GURL& url, bool ignore_path) {
   browser::NavigateParams params(this, url, PageTransition::AUTO_BOOKMARK);
   params.disposition = SINGLETON_TAB;
   params.show_window = true;
+  params.ignore_path = ignore_path;
   browser::Navigate(&params);
 }
 
@@ -1712,27 +1722,27 @@ void Browser::ShowAppMenu() {
 
 void Browser::ShowBookmarkManagerTab() {
   UserMetrics::RecordAction(UserMetricsAction("ShowBookmarks"), profile_);
-  ShowSingletonTab(GURL(chrome::kChromeUIBookmarksURL));
+  ShowSingletonTab(GURL(chrome::kChromeUIBookmarksURL), false);
 }
 
 void Browser::ShowHistoryTab() {
   UserMetrics::RecordAction(UserMetricsAction("ShowHistory"), profile_);
-  ShowSingletonTab(GURL(chrome::kChromeUIHistoryURL));
+  ShowSingletonTab(GURL(chrome::kChromeUIHistoryURL), false);
 }
 
 void Browser::ShowDownloadsTab() {
   UserMetrics::RecordAction(UserMetricsAction("ShowDownloads"), profile_);
-  ShowSingletonTab(GURL(chrome::kChromeUIDownloadsURL));
+  ShowSingletonTab(GURL(chrome::kChromeUIDownloadsURL), false);
 }
 
 void Browser::ShowExtensionsTab() {
   UserMetrics::RecordAction(UserMetricsAction("ShowExtensions"), profile_);
-  ShowSingletonTab(GURL(chrome::kChromeUIExtensionsURL));
+  ShowSingletonTab(GURL(chrome::kChromeUIExtensionsURL), false);
 }
 
 void Browser::ShowAboutConflictsTab() {
   UserMetrics::RecordAction(UserMetricsAction("AboutConflicts"), profile_);
-  ShowSingletonTab(GURL(chrome::kChromeUIConflictsURL));
+  ShowSingletonTab(GURL(chrome::kChromeUIConflictsURL), false);
 }
 
 void Browser::ShowBrokenPageTab(TabContents* contents) {
@@ -1747,33 +1757,12 @@ void Browser::ShowBrokenPageTab(TabContents* contents) {
   subst.push_back(page_url);
   std::string report_page_url =
       ReplaceStringPlaceholders(kBrokenPageUrl, subst, NULL);
-  ShowSingletonTab(GURL(report_page_url));
+  ShowSingletonTab(GURL(report_page_url), false);
 }
 
 void Browser::ShowOptionsTab(const std::string& sub_page) {
   GURL url(chrome::kChromeUISettingsURL + sub_page);
-
-  // See if there is already an options tab open that we can use.
-  TabStripModel* model = tab_handler_->GetTabStripModel();
-  for (int i = 0; i < model->count(); i++) {
-    TabContents* tc = model->GetTabContentsAt(i);
-    const GURL& tab_url = tc->GetURL();
-
-    if (tab_url.scheme() == url.scheme() && tab_url.host() == url.host()) {
-      // We found an existing options tab, load the URL in this tab.  (Note:
-      // this may cause us to unnecessarily reload the same page.  We can't
-      // really detect that unless the options page is permitted to change the
-      // URL in the address bar, but security policy doesn't allow that.
-      browser::NavigateParams params(this, url, PageTransition::GENERATED);
-      params.source_contents = tc;
-      browser::Navigate(&params);
-      model->SelectTabContentsAt(i, false);
-      return;
-    }
-  }
-
-  // No options tab found, so create a new one.
-  AddSelectedTabWithURL(url, PageTransition::AUTO_BOOKMARK);
+  ShowSingletonTab(url, true);
 }
 
 void Browser::OpenClearBrowsingDataDialog() {
@@ -1782,7 +1771,7 @@ void Browser::OpenClearBrowsingDataDialog() {
   if (CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kEnableTabbedOptions)) {
     ShowOptionsTab(
-        chrome::kAdvancedOptionsSubPage + kHashMark +
+        chrome::kAdvancedOptionsSubPage + std::string(kHashMark) +
         chrome::kClearBrowserDataSubPage);
   } else {
     window_->ShowClearBrowsingDataDialog();
@@ -1818,7 +1807,7 @@ void Browser::OpenImportSettingsDialog() {
   if (CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kEnableTabbedOptions)) {
     ShowOptionsTab(
-        chrome::kPersonalOptionsSubPage + kHashMark +
+        chrome::kPersonalOptionsSubPage + std::string(kHashMark) +
         chrome::kImportDataSubPage);
   } else {
     window_->ShowImportDialog();
@@ -1839,7 +1828,7 @@ void Browser::OpenRemotingSetupDialog() {
 void Browser::OpenAboutChromeDialog() {
   UserMetrics::RecordAction(UserMetricsAction("AboutChrome"), profile_);
 #if defined(OS_CHROMEOS)
-  ShowSingletonTab(GURL(chrome::kChromeUIAboutURL));
+  ShowSingletonTab(GURL(chrome::kChromeUIAboutURL), false);
 #else
   window_->ShowAboutChromeDialog();
 #endif
@@ -1851,8 +1840,14 @@ void Browser::OpenUpdateChromeDialog() {
 }
 
 void Browser::OpenHelpTab() {
-  GURL help_url = google_util::AppendGoogleLocaleParam(GURL(kHelpContentUrl));
-  AddSelectedTabWithURL(help_url, PageTransition::AUTO_BOOKMARK);
+  GURL help_url(kHelpContentUrl);
+#if defined(OS_CHROMEOS)
+  // TODO(nkostylev): Always redirect to HelpApp http://crosbug.com/6923
+  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kGuestSession))
+    help_url = GURL(kHelpContentOnlineUrl);
+#endif
+  GURL localized_help_url = google_util::AppendGoogleLocaleParam(help_url);
+  AddSelectedTabWithURL(localized_help_url, PageTransition::AUTO_BOOKMARK);
 }
 
 void Browser::OpenThemeGalleryTabAndActivate() {
@@ -1867,8 +1862,8 @@ void Browser::OpenPrivacyDashboardTabAndActivate() {
 }
 
 void Browser::OpenAutoFillHelpTabAndActivate() {
-  AddSelectedTabWithURL(GURL(l10n_util::GetStringUTF8(IDS_AUTOFILL_HELP_URL)),
-                        PageTransition::LINK);
+  GURL help_url = google_util::AppendGoogleLocaleParam(GURL(kAutofillHelpUrl));
+  AddSelectedTabWithURL(help_url, PageTransition::LINK);
 }
 
 void Browser::OpenSearchEngineOptionsDialog() {
@@ -2349,8 +2344,6 @@ TabContents* Browser::AddBlankTabAt(int index, bool foreground) {
   base::TimeTicks new_tab_start_time = base::TimeTicks::Now();
   browser::NavigateParams params(this, GURL(chrome::kChromeUINewTabURL),
                                  PageTransition::TYPED);
-  params.tabstrip_add_types =
-      foreground ? TabStripModel::ADD_SELECTED : TabStripModel::ADD_NONE;
   params.disposition = foreground ? NEW_FOREGROUND_TAB : NEW_BACKGROUND_TAB;
   params.tabstrip_index = index;
   browser::Navigate(&params);
@@ -2971,10 +2964,6 @@ void Browser::BeforeUnloadFired(TabContents* tab,
   *proceed_to_fire_unload = true;
 }
 
-gfx::Rect Browser::GetRootWindowResizerRect() const {
-  return window_->GetRootWindowResizerRect();
-}
-
 void Browser::ShowHtmlDialog(HtmlDialogUIDelegate* delegate,
                              gfx::NativeWindow parent_window) {
   window_->ShowHTMLDialog(delegate, parent_window);
@@ -3084,7 +3073,7 @@ void Browser::ShowContentSettingsWindow(ContentSettingsType content_type) {
   if (CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kEnableTabbedOptions)) {
     ShowOptionsTab(
-        chrome::kContentSettingsSubPage + kHashMark +
+        chrome::kContentSettingsSubPage + std::string(kHashMark) +
         ContentSettingsHandler::ContentSettingsTypeToGroupName(content_type));
   } else {
     window()->ShowContentSettingsWindow(content_type,
@@ -3322,6 +3311,10 @@ void Browser::OnStateChanged() {
 
 ///////////////////////////////////////////////////////////////////////////////
 // Browser, InstantDelegate implementation:
+
+void Browser::PrepareForInstant() {
+  window_->PrepareForInstant();
+}
 
 void Browser::ShowInstant(TabContents* preview_contents) {
   DCHECK(instant_->tab_contents() == GetSelectedTabContents());
@@ -3996,8 +3989,12 @@ void Browser::CloseFrame() {
 void Browser::TabDetachedAtImpl(TabContents* contents, int index,
                                 DetachType type) {
   if (type == DETACH_TYPE_DETACH) {
-    // Save what the user's currently typed.
-    window_->GetLocationBar()->SaveStateToContents(contents);
+    // Save the current location bar state, but only if the tab being detached
+    // is the selected tab.  Because saving state can conditionally revert the
+    // location bar, saving the current tab's location bar state to a
+    // non-selected tab can corrupt both tabs.
+    if (contents == GetSelectedTabContents())
+      window_->GetLocationBar()->SaveStateToContents(contents);
 
     if (!tab_handler_->GetTabStripModel()->closing_all())
       SyncHistoryWithTabs(0);

@@ -1,9 +1,5 @@
 <div class="page hidden" id="autoFillOptionsPage">
-  <h1>
-    <span i18n-content="personalPage"></span>
-    &gt;
-    <span i18n-content="autoFillOptionsTitle"></span>
-  </h1>
+  <h1 i18n-content="autoFillOptionsTitle"></h1>
 
   <div class="autofill-section">
     <label class="checkbox">
@@ -38,7 +34,13 @@
   </div>
 
   <div class="autofill-section">
+<if expr="pp_ifdef('chromeos')">
+    <a href="http://www.google.com/support/chromeos/bin/answer.py?answer=142893"
+        target="_blank" i18n-content="helpButton"></a>
+</if>
+<if expr="not pp_ifdef('chromeos')">
     <a href="http://www.google.com/support/chrome/bin/answer.py?answer=142893"
-        target=”_blank” i18n-content="helpButton"></a>
+        target="_blank" i18n-content="helpButton"></a>
+</if>
   </div>
 </div>
