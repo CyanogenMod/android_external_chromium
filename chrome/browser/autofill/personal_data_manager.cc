@@ -168,17 +168,12 @@ void PersonalDataManager::RemoveObserver(
 }
 
 bool PersonalDataManager::ImportFormData(
-<<<<<<< HEAD
-    const std::vector<FormStructure*>& form_structures,
-    AutoFillManager* autofill_manager) {
+    const std::vector<FormStructure*>& form_structures) {
 #ifdef ANDROID
   // TODO: Is this the funcionality that tries to create a profile for the user
   // based on what they've entered into forms?
   return false;
 #else
-=======
-    const std::vector<FormStructure*>& form_structures) {
->>>>>>> chromium.org at r66597
   // Parse the form and construct a profile based on the information that is
   // possible to import.
   int importable_fields = 0;

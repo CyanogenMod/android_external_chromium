@@ -43,7 +43,7 @@ PrefValueStore* PrefValueStore::CreatePrefValueStore(
     Profile* profile,
     bool user_only) {
 #ifdef ANDROID
-  return new PrefValueStore(NULL, NULL, NULL, NULL, NULL, new DefaultPrefStore());
+  return new PrefValueStore(NULL, NULL, NULL, NULL, NULL, NULL, new DefaultPrefStore());
 #else
   using policy::ConfigurationPolicyPrefStore;
   ConfigurationPolicyPrefStore* managed = NULL;
@@ -67,14 +67,10 @@ PrefValueStore* PrefValueStore::CreatePrefValueStore(
     recommended =
         ConfigurationPolicyPrefStore::CreateRecommendedPolicyPrefStore();
   }
-<<<<<<< HEAD
-  return new PrefValueStore(managed, extension, command_line, user,
-                            recommended, default_store);
-#endif
-=======
+
   return new PrefValueStore(managed, device_management, extension,
                             command_line, user, recommended, default_store);
->>>>>>> chromium.org at r66597
+#endif
 }
 
 PrefValueStore::~PrefValueStore() {}
@@ -308,46 +304,7 @@ bool PrefValueStore::GetValueFromStore(
   return false;
 }
 
-<<<<<<< HEAD
 #ifndef ANDROID
-void PrefValueStore::RefreshPolicyPrefsCompletion(
-    PrefStore* new_managed_pref_store,
-    PrefStore* new_recommended_pref_store,
-    AfterRefreshCallback* callback_pointer) {
-  scoped_ptr<AfterRefreshCallback> callback(callback_pointer);
-  DictionaryValue* managed_prefs_before(
-      pref_stores_[PrefNotifier::MANAGED_STORE]->prefs());
-  DictionaryValue* managed_prefs_after(new_managed_pref_store->prefs());
-  DictionaryValue* recommended_prefs_before(
-      pref_stores_[PrefNotifier::RECOMMENDED_STORE]->prefs());
-  DictionaryValue* recommended_prefs_after(new_recommended_pref_store->prefs());
-
-  std::vector<std::string> changed_managed_paths;
-  managed_prefs_before->GetDifferingPaths(managed_prefs_after,
-                                          &changed_managed_paths);
-
-  std::vector<std::string> changed_recommended_paths;
-  recommended_prefs_before->GetDifferingPaths(recommended_prefs_after,
-                                              &changed_recommended_paths);
-
-  std::vector<std::string> changed_paths(changed_managed_paths.size() +
-                                         changed_recommended_paths.size());
-  std::vector<std::string>::iterator last_insert =
-      std::merge(changed_managed_paths.begin(),
-                 changed_managed_paths.end(),
-                 changed_recommended_paths.begin(),
-                 changed_recommended_paths.end(),
-                 changed_paths.begin());
-  changed_paths.resize(last_insert - changed_paths.begin());
-
-  pref_stores_[PrefNotifier::MANAGED_STORE].reset(new_managed_pref_store);
-  pref_stores_[PrefNotifier::RECOMMENDED_STORE].reset(
-      new_recommended_pref_store);
-  callback->Run(changed_paths);
-}
-
-=======
->>>>>>> chromium.org at r66597
 void PrefValueStore::RefreshPolicyPrefsOnFileThread(
     BrowserThread::ID calling_thread_id,
     PrefStore* new_managed_platform_pref_store,

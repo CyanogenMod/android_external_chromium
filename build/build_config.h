@@ -68,11 +68,8 @@
 // For access to standard POSIXish features, use OS_POSIX instead of a
 // more specific macro.
 #if defined(OS_MACOSX) || defined(OS_LINUX) || defined(OS_FREEBSD) || \
-<<<<<<< HEAD
-    defined(OS_OPENBSD) || defined(OS_SOLARIS) || defined(ANDROID)
-=======
-    defined(OS_OPENBSD) || defined(OS_SOLARIS) || defined(OS_NACL)
->>>>>>> chromium.org at r66597
+    defined(OS_OPENBSD) || defined(OS_SOLARIS) || defined(OS_NACL) || \
+    defined(ANDROID)
 #define OS_POSIX 1
 // Use base::DataPack for name/value pairs.
 #define USE_BASE_DATA_PACK 1

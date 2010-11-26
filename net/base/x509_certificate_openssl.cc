@@ -384,15 +384,12 @@ void X509Certificate::GetDNSNames(std::vector<std::string>* dns_names) const {
     dns_names->push_back(subject_.common_name);
 }
 
-<<<<<<< HEAD
-#ifndef ANDROID
-=======
 // static
 X509_STORE* X509Certificate::cert_store() {
   return Singleton<X509InitSingleton>::get()->store();
 }
->>>>>>> chromium.org at r66597
 
+#ifndef ANDROID
 int X509Certificate::Verify(const std::string& hostname,
                             int flags,
                             CertVerifyResult* verify_result) const {
@@ -437,7 +434,6 @@ int X509Certificate::Verify(const std::string& hostname,
   verify_result->cert_status |= cert_status;
   return MapCertStatusToNetError(verify_result->cert_status);
 }
-
 #endif
 
 // static

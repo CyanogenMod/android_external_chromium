@@ -164,22 +164,13 @@ class PrefValueStore : public base::RefCountedThreadSafe<PrefValueStore> {
   // lifecycle is managed in another thread.
   typedef Callback1<std::vector<std::string> >::Type AfterRefreshCallback;
 
-<<<<<<< HEAD
 #ifndef ANDROID
-  // Called as a result of a notification of policy change. Triggers a
-  // reload of managed preferences from policy from a Task on the FILE
-  // thread. The Task will take ownership of the |callback|. |callback| is
-  // called with the set of preferences changed by the policy refresh.
-  // |callback| is called on the caller's thread as a Task after
-  // RefreshPolicyPrefs has returned.
-=======
   // Called as a result of a notification of policy change. Triggers a reload of
   // managed platform, device management and recommended preferences from policy
   // from a Task on the FILE thread. The Task will take ownership of the
   // |callback|. |callback| is called with the set of preferences changed by the
   // policy refresh. |callback| is called on the caller's thread as a Task
   // after RefreshPolicyPrefs has returned.
->>>>>>> chromium.org at r66597
   void RefreshPolicyPrefs(AfterRefreshCallback* callback);
 #endif
 
