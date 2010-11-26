@@ -90,6 +90,7 @@ LOCAL_SRC_FILES := \
     base/md5.cc \
     base/native_library_linux.cc \
     base/non_thread_safe.cc \
+    base/openssl_util.cc \
     base/pickle.cc \
     base/platform_file_posix.cc \
     base/platform_thread_posix.cc \
@@ -197,7 +198,6 @@ LOCAL_SRC_FILES := \
     net/base/network_change_notifier.cc \
     net/base/network_change_notifier_linux.cc \
     net/base/network_change_notifier_netlink_linux.cc \
-    net/base/openssl_util.cc \
     net/base/pem_tokenizer.cc \
     net/base/platform_mime_util_android.cc \
     net/base/registry_controlled_domain.cc \
