@@ -81,6 +81,7 @@ class NTPResourceCache;
 class PasswordStore;
 class PersonalDataManager;
 class PinnedTabService;
+class PromoCounter;
 class ProfileSyncService;
 class ProfileSyncFactory;
 class SessionService;
@@ -145,7 +146,7 @@ class ProfileImplAndroid : public Profile {
   virtual TemplateURLModel* GetTemplateURLModel() { NOTREACHED(); return NULL; }
   virtual TemplateURLFetcher* GetTemplateURLFetcher() { NOTREACHED(); return NULL; }
   virtual DownloadManager* GetDownloadManager() { NOTREACHED(); return NULL; }
-  virtual FileSystemHostContext* GetFileSystemHostContext() { NOTREACHED(); return NULL; }
+  virtual BrowserFileSystemContext* GetFileSystemContext() { NOTREACHED(); return NULL; }
   virtual void InitThemes() { NOTREACHED(); }
   virtual void SetTheme(const Extension* extension) { NOTREACHED(); }
   virtual void SetNativeTheme() { NOTREACHED(); }
@@ -178,7 +179,7 @@ class ProfileImplAndroid : public Profile {
   virtual void ReinitializeSpellCheckHost(bool force) { NOTREACHED(); }
   virtual WebKitContext* GetWebKitContext()  { NOTREACHED(); return NULL; }
   virtual DesktopNotificationService* GetDesktopNotificationService() { NOTREACHED(); return NULL; }
-  virtual BackgroundContentsService* GetBackgroundContentsService()  { NOTREACHED(); return NULL; }
+  virtual BackgroundContentsService* GetBackgroundContentsService() const { NOTREACHED(); return NULL; }
   virtual StatusTray* GetStatusTray() { NOTREACHED(); return NULL; }
   virtual void MarkAsCleanShutdown() { NOTREACHED(); }
   virtual void InitExtensions() { NOTREACHED(); }
@@ -188,6 +189,7 @@ class ProfileImplAndroid : public Profile {
   virtual void set_last_selected_directory(const FilePath& path) { NOTREACHED(); }
   virtual ChromeBlobStorageContext* GetBlobStorageContext() { NOTREACHED(); return NULL; }
   virtual ExtensionInfoMap* GetExtensionInfoMap() { NOTREACHED(); return NULL; }
+  virtual PromoCounter* GetInstantPromoCounter() { NOTREACHED(); return NULL; }
   virtual ProfileSyncService* GetProfileSyncService()  { NOTREACHED();  return NULL; }
   virtual ProfileSyncService* GetProfileSyncService(const std::string&) { NOTREACHED(); return NULL; }
   virtual TokenService* GetTokenService()  { NOTREACHED(); return NULL; }
