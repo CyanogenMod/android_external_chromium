@@ -27,7 +27,9 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#ifndef ANDROID
 #include "grit/generated_resources.h"
+#endif
 #include "webkit/glue/form_data.h"
 #ifdef ANDROID
 #include <WebCoreSupport/autofill/FormFieldAndroid.h>
@@ -229,6 +231,7 @@ bool AutoFillManager::GetAutoFillSuggestions(bool field_autofilled,
   if (values.empty())
     return false;
 
+#ifndef ANDROID
   // Don't provide AutoFill suggestions when AutoFill is disabled, but provide a
   // warning to the user.
   if (!form->IsAutoFillable(true)) {
@@ -240,7 +243,9 @@ bool AutoFillManager::GetAutoFillSuggestions(bool field_autofilled,
     host->AutoFillSuggestionsReturned(values, labels, icons, unique_ids);
     return true;
   }
+#endif
 
+#ifndef ANDROID
   // Don't provide credit card suggestions for non-HTTPS pages, but provide a
   // warning to the user.
   if (!FormIsHTTPS(form) && type.group() == AutoFillType::CREDIT_CARD) {
@@ -252,6 +257,7 @@ bool AutoFillManager::GetAutoFillSuggestions(bool field_autofilled,
     host->AutoFillSuggestionsReturned(values, labels, icons, unique_ids);
     return true;
   }
+#endif
 
   // If the form is auto-filled and the renderer is querying for suggestions,
   // then the user is editing the value of a field.  In this case, mimick
