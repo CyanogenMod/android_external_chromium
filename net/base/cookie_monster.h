@@ -213,6 +213,14 @@ class CookieMonster : public CookieStore {
   static void EnableFileScheme();
   static bool enable_file_scheme_;
 
+#if defined(ANDROID)
+  // Flush the backing store to disk. This is not synchronous, and is not
+  // guaranteed to do anything at all; it's just a hint that now is a good time
+  // to flush the store. (In Android, we call this when the browser is sent to
+  // the background.)
+  void FlushStore();
+#endif
+
  private:
   ~CookieMonster();
 
@@ -691,6 +699,11 @@ class CookieMonster::PersistentCookieStore
   virtual void AddCookie(const CanonicalCookie&) = 0;
   virtual void UpdateCookieAccessTime(const CanonicalCookie&) = 0;
   virtual void DeleteCookie(const CanonicalCookie&) = 0;
+
+#if defined(ANDROID)
+  // Hint that this is a good time to start flushing the store (may be a no-op).
+  virtual void Flush() = 0;
+#endif
 
  protected:
   PersistentCookieStore() { }

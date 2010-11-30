@@ -406,6 +406,15 @@ void CookieMonster::SetExpiryAndKeyScheme(ExpiryAndKeyScheme key_scheme) {
   expiry_and_key_scheme_ = key_scheme;
 }
 
+#if defined(ANDROID)
+void CookieMonster::FlushStore() {
+    AutoLock autolock(lock_);
+    InitIfNecessary();
+    if (store_)
+      store_->Flush();
+}
+#endif
+
 // The system resolution is not high enough, so we can have multiple
 // set cookies that result in the same system time.  When this happens, we
 // increment by one Time unit.  Let's hope computers don't get too fast.

@@ -68,6 +68,11 @@ class SQLitePersistentCookieStore::Backend
   // Batch a cookie deletion.
   void DeleteCookie(const net::CookieMonster::CanonicalCookie& cc);
 
+#if defined(ANDROID)
+  // Commit any pending operations.
+  void Flush();
+#endif
+
   // Commit any pending operations and close the database.  This must be called
   // before the object is destructed.
   void Close();
@@ -273,6 +278,23 @@ void SQLitePersistentCookieStore::Backend::Commit() {
   UMA_HISTOGRAM_ENUMERATION("Cookie.BackingStoreUpdateResults",
                             succeeded ? 0 : 1, 2);
 }
+
+#if defined(ANDROID)
+void SQLitePersistentCookieStore::Backend::Flush() {
+// Keep this #ifdef when upstreaming to Chromium.
+#if defined(ANDROID)
+    if (!getDbThread())
+      return;
+    MessageLoop* loop = getDbThread()->message_loop();
+    loop->PostTask(FROM_HERE, NewRunnableMethod(this, &Backend::Commit));
+#else
+    DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::DB));
+    BrowserThread::PostTask(
+        BrowserThread::DB, FROM_HERE,
+        NewRunnableMethod(this, &Backend::Commit));
+#endif
+}
+#endif
 
 // Fire off a close message to the background thread.  We could still have a
 // pending commit timer that will be holding a reference on us, but if/when
@@ -516,6 +538,13 @@ void SQLitePersistentCookieStore::DeleteCookie(
   if (backend_.get())
     backend_->DeleteCookie(cc);
 }
+
+#if defined(ANDROID)
+void SQLitePersistentCookieStore::Flush() {
+  if (backend_.get())
+    backend_->Flush();
+}
+#endif
 
 // static
 void SQLitePersistentCookieStore::ClearLocalState(
