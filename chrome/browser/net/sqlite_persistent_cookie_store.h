@@ -36,7 +36,7 @@ class SQLitePersistentCookieStore
   virtual void DeleteCookie(const net::CookieMonster::CanonicalCookie&);
 
 #if defined(ANDROID)
-  virtual void Flush();
+  virtual void Flush(Task* completion_task);
 #endif
 
   static void ClearLocalState(const FilePath& path);

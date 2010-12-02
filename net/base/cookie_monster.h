@@ -18,6 +18,7 @@
 #include "base/lock.h"
 #include "base/ref_counted.h"
 #include "base/scoped_ptr.h"
+#include "base/task.h"
 #include "base/time.h"
 #include "net/base/cookie_store.h"
 
@@ -214,11 +215,12 @@ class CookieMonster : public CookieStore {
   static bool enable_file_scheme_;
 
 #if defined(ANDROID)
-  // Flush the backing store to disk. This is not synchronous, and is not
-  // guaranteed to do anything at all; it's just a hint that now is a good time
-  // to flush the store. (In Android, we call this when the browser is sent to
-  // the background.)
-  void FlushStore();
+  // Flush the backing store (if any) to disk and post the given task when done.
+  // WARNING: THE CALLBACK WILL RUN ON A RANDOM THREAD. IT MUST BE THREAD SAFE.
+  // It may be posted to the current thread, or it may run on the thread that
+  // actually does the flushing. Your Task should generally post a notification
+  // to the thread you actually want to be notified on.
+  void FlushStore(Task* completion_task);
 #endif
 
  private:
@@ -701,8 +703,8 @@ class CookieMonster::PersistentCookieStore
   virtual void DeleteCookie(const CanonicalCookie&) = 0;
 
 #if defined(ANDROID)
-  // Hint that this is a good time to start flushing the store (may be a no-op).
-  virtual void Flush() = 0;
+  // Flush the store and post the given Task when complete.
+  virtual void Flush(Task* completion_task) = 0;
 #endif
 
  protected:

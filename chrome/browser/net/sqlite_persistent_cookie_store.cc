@@ -69,8 +69,8 @@ class SQLitePersistentCookieStore::Backend
   void DeleteCookie(const net::CookieMonster::CanonicalCookie& cc);
 
 #if defined(ANDROID)
-  // Commit any pending operations.
-  void Flush();
+  // Commit pending operations as soon as possible.
+  void Flush(Task* completion_task);
 #endif
 
   // Commit any pending operations and close the database.  This must be called
@@ -111,7 +111,11 @@ class SQLitePersistentCookieStore::Backend
   void BatchOperation(PendingOperation::OperationType op,
                       const net::CookieMonster::CanonicalCookie& cc);
   // Commit our pending operations to the database.
+#if defined(ANDROID)
+  void Commit(Task* completion_task);
+#else
   void Commit();
+#endif
   // Close() executed on the background thread.
   void InternalBackgroundClose();
 
@@ -171,7 +175,7 @@ void SQLitePersistentCookieStore::Backend::BatchOperation(
     // We've gotten our first entry for this batch, fire off the timer.
 #ifdef ANDROID
     loop->PostDelayedTask(FROM_HERE, NewRunnableMethod(
-        this, &Backend::Commit), kCommitIntervalMs);
+        this, &Backend::Commit, static_cast<Task*>(NULL)), kCommitIntervalMs);
 #else
     BrowserThread::PostDelayedTask(
         BrowserThread::DB, FROM_HERE,
@@ -180,7 +184,8 @@ void SQLitePersistentCookieStore::Backend::BatchOperation(
   } else if (num_pending == kCommitAfterBatchSize) {
     // We've reached a big enough batch, fire off a commit now.
 #ifdef ANDROID
-    loop->PostTask(FROM_HERE, NewRunnableMethod(this, &Backend::Commit));
+    loop->PostTask(FROM_HERE, NewRunnableMethod(
+        this, &Backend::Commit, static_cast<Task*>(NULL)));
 #else
     BrowserThread::PostTask(
         BrowserThread::DB, FROM_HERE,
@@ -189,10 +194,20 @@ void SQLitePersistentCookieStore::Backend::BatchOperation(
   }
 }
 
+#if defined(ANDROID)
+void SQLitePersistentCookieStore::Backend::Commit(Task* completion_task) {
+#else
 void SQLitePersistentCookieStore::Backend::Commit() {
-#ifndef ANDROID
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
 #endif
+
+#if defined(ANDROID)
+  if (completion_task) {
+    // We post this task to the current thread, so it won't run until we exit.
+    MessageLoop::current()->PostTask(FROM_HERE, completion_task);
+  }
+#endif
+
   PendingOperationsList ops;
   {
     AutoLock locked(pending_lock_);
@@ -280,18 +295,19 @@ void SQLitePersistentCookieStore::Backend::Commit() {
 }
 
 #if defined(ANDROID)
-void SQLitePersistentCookieStore::Backend::Flush() {
+void SQLitePersistentCookieStore::Backend::Flush(Task* completion_task) {
 // Keep this #ifdef when upstreaming to Chromium.
 #if defined(ANDROID)
     if (!getDbThread())
       return;
     MessageLoop* loop = getDbThread()->message_loop();
-    loop->PostTask(FROM_HERE, NewRunnableMethod(this, &Backend::Commit));
+    loop->PostTask(FROM_HERE, NewRunnableMethod(
+        this, &Backend::Commit, completion_task));
 #else
     DCHECK(!BrowserThread::CurrentlyOn(BrowserThread::DB));
     BrowserThread::PostTask(
-        BrowserThread::DB, FROM_HERE,
-        NewRunnableMethod(this, &Backend::Commit));
+        BrowserThread::DB, FROM_HERE, NewRunnableMethod(
+            this, &Backend::Commit, completion_task));
 #endif
 }
 #endif
@@ -324,8 +340,11 @@ void SQLitePersistentCookieStore::Backend::InternalBackgroundClose() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::DB));
 #endif
   // Commit any pending operations
+#if defined(ANDROID)
+  Commit(NULL);
+#else
   Commit();
-
+#endif
   delete db_;
   db_ = NULL;
 }
@@ -540,9 +559,9 @@ void SQLitePersistentCookieStore::DeleteCookie(
 }
 
 #if defined(ANDROID)
-void SQLitePersistentCookieStore::Flush() {
+void SQLitePersistentCookieStore::Flush(Task* completion_callback) {
   if (backend_.get())
-    backend_->Flush();
+    backend_->Flush(completion_callback);
 }
 #endif
 

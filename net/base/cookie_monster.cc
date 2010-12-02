@@ -49,6 +49,7 @@
 #include "base/basictypes.h"
 #include "base/format_macros.h"
 #include "base/logging.h"
+#include "base/message_loop.h"
 #include "base/metrics/histogram.h"
 #include "base/scoped_ptr.h"
 #include "base/string_tokenizer.h"
@@ -407,11 +408,12 @@ void CookieMonster::SetExpiryAndKeyScheme(ExpiryAndKeyScheme key_scheme) {
 }
 
 #if defined(ANDROID)
-void CookieMonster::FlushStore() {
-    AutoLock autolock(lock_);
-    InitIfNecessary();
-    if (store_)
-      store_->Flush();
+void CookieMonster::FlushStore(Task* completion_task) {
+  AutoLock autolock(lock_);
+  if (initialized_ && store_)
+    store_->Flush(completion_task);
+  else if (completion_task)
+    MessageLoop::current()->PostTask(FROM_HERE, completion_task);
 }
 #endif
 
