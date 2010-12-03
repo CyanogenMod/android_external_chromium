@@ -1,4 +1,4 @@
 We use a Chromium revision that has been used for a Chromium release.
 
-http://src.chromium.org/svn/releases/9.0.577.0/DEPS
-/trunk/src@65505
+http://src.chromium.org/svn/releases/9.0.589.0/DEPS
+/trunk/src@66597
