@@ -54,8 +54,12 @@ class SQLitePersistentCookieStore::Backend
   // The passed database pointer must be already-initialized. This object will
   // take ownership.
   explicit Backend(sql::Connection* db)
-      : db_(db),
-        num_pending_(0) {
+      : db_(db)
+      , num_pending_(0)
+#if defined(ANDROID)
+      , cookie_count_(0)
+#endif
+  {
     DCHECK(db_) << "Database must exist.";
   }
 
@@ -76,6 +80,11 @@ class SQLitePersistentCookieStore::Backend
   // Commit any pending operations and close the database.  This must be called
   // before the object is destructed.
   void Close();
+
+#if defined(ANDROID)
+  int get_cookie_count() const { return cookie_count_; }
+  void set_cookie_count(int count) { cookie_count_ = count; }
+#endif
 
  private:
   friend class base::RefCountedThreadSafe<SQLitePersistentCookieStore::Backend>;
@@ -125,6 +134,11 @@ class SQLitePersistentCookieStore::Backend
   PendingOperationsList pending_;
   PendingOperationsList::size_type num_pending_;
   Lock pending_lock_;  // Guard pending_ and num_pending_
+
+#if defined(ANDROID)
+  // Number of cookies that have actually been saved. Updated during Commit().
+  volatile int cookie_count_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(Backend);
 };
@@ -247,12 +261,18 @@ void SQLitePersistentCookieStore::Backend::Commit() {
     NOTREACHED();
     return;
   }
+#if defined(ANDROID)
+  int cookie_delta = 0;
+#endif
   for (PendingOperationsList::iterator it = ops.begin();
        it != ops.end(); ++it) {
     // Free the cookies as we commit them to the database.
     scoped_ptr<PendingOperation> po(*it);
     switch (po->op()) {
       case PendingOperation::COOKIE_ADD:
+#if defined(ANDROID)
+        ++cookie_delta;
+#endif
         add_smt.Reset();
         add_smt.BindInt64(0, po->cc().CreationDate().ToInternalValue());
         add_smt.BindString(1, po->cc().Domain());
@@ -278,6 +298,9 @@ void SQLitePersistentCookieStore::Backend::Commit() {
         break;
 
       case PendingOperation::COOKIE_DELETE:
+#if defined(ANDROID)
+        --cookie_delta;
+#endif
         del_smt.Reset();
         del_smt.BindInt64(0, po->cc().CreationDate().ToInternalValue());
         if (!del_smt.Run())
@@ -290,6 +313,10 @@ void SQLitePersistentCookieStore::Backend::Commit() {
     }
   }
   bool succeeded = transaction.Commit();
+#if defined(ANDROID)
+  if (succeeded)
+      cookie_count_ += cookie_delta;
+#endif
   UMA_HISTOGRAM_ENUMERATION("Cookie.BackingStoreUpdateResults",
                             succeeded ? 0 : 1, 2);
 }
@@ -465,6 +492,9 @@ bool SQLitePersistentCookieStore::Load(
 
   // Create the backend, this will take ownership of the db pointer.
   backend_ = new Backend(db.release());
+#if defined(ANDROID)
+  backend_->set_cookie_count(cookies->size());
+#endif
   return true;
 }
 
@@ -562,6 +592,13 @@ void SQLitePersistentCookieStore::DeleteCookie(
 void SQLitePersistentCookieStore::Flush(Task* completion_callback) {
   if (backend_.get())
     backend_->Flush(completion_callback);
+}
+#endif
+
+#if defined(ANDROID)
+int SQLitePersistentCookieStore::GetCookieCount() {
+  int result = backend_ ? backend_->get_cookie_count() : 0;
+  return result;
 }
 #endif
 

@@ -39,6 +39,10 @@ class SQLitePersistentCookieStore
   virtual void Flush(Task* completion_task);
 #endif
 
+#if defined(ANDROID)
+  int GetCookieCount();
+#endif
+
   static void ClearLocalState(const FilePath& path);
 
  private:
