@@ -83,16 +83,4 @@ friend class test_case_name##_##test_name##_Test
 // We use the C99 style, but this is not defined
 #define HAVE_UINT16_T 1
 
-// Bionic does not provide timegm(), but it does provide a 64 bit version.
-// We replicate the behaviour of timegm() when the result overflows time_t.
-#include <time64.h>
-inline time_t timegm(tm* const t) {
-  static const time_t TIME_T_MIN = (1 << (sizeof(time_t) * CHAR_BIT - 1));
-  static const time_t TIME_T_MAX = ~(1 << (sizeof(time_t) * CHAR_BIT - 1));
-  time64_t result = timegm64(t);
-  if (result < TIME_T_MIN || result > TIME_T_MAX)
-    return -1;
-  return result;
-}
-
 #endif
