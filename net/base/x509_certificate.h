@@ -241,6 +241,12 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   static X509_STORE* cert_store();
 #endif
 
+#if defined(ANDROID)
+  // Returns the certificate chain in DER-encoded form, using the application DER
+  // cache as appropriate.
+  void GetChainDEREncodedBytes(std::vector<std::string>* chain_bytes) const;
+#endif
+
   // Verifies the certificate against the given hostname.  Returns OK if
   // successful or an error code upon failure.
   //
