@@ -835,7 +835,11 @@ void Rankings::InvalidateIterators(CacheRankingsBlock* node) {
   for (IteratorList::iterator it = iterators_.begin(); it != iterators_.end();
        ++it) {
     if (it->first == address) {
+#ifndef ANDROID
+// Confirmed with chromium developers that this is normal, and removing from
+// Android to close bug 3239659
       LOG(WARNING) << "Invalidating iterator at 0x" << std::hex << address;
+#endif
       it->second->Discard();
     }
   }
