@@ -4,9 +4,6 @@
 
 #include "net/base/address_list.h"
 
-#ifdef ANDROID
-#include <netinet/in.h>
-#endif
 #include <stdlib.h>
 
 #include "base/logging.h"

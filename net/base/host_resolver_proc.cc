@@ -10,10 +10,6 @@
 #include <resolv.h>
 #endif
 
-#ifdef ANDROID
-#include <netinet/in.h>
-#endif
-
 #include "base/logging.h"
 #include "net/base/address_list.h"
 #include "net/base/dns_reload_timer.h"

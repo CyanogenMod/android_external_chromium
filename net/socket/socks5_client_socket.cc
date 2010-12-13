@@ -4,10 +4,6 @@
 
 #include "net/socket/socks5_client_socket.h"
 
-#ifdef ANDROID
-#include <netinet/in.h>
-#endif
-
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/debug/trace_event.h"
