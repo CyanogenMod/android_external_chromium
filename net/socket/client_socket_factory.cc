@@ -13,8 +13,6 @@
 #include "net/socket/ssl_client_socket_openssl.h"
 #elif defined(USE_NSS)
 #include "net/socket/ssl_client_socket_nss.h"
-#elif defined(USE_OPENSSL) && defined(ANDROID)
-#include "net/socket/ssl_client_socket_openssl.h"
 #elif defined(OS_MACOSX)
 #include "net/socket/ssl_client_socket_nss.h"
 #endif
