@@ -74,34 +74,20 @@ HostCache* CreateDefaultCache() {
 HostResolver* CreateSystemHostResolver(size_t max_concurrent_resolves,
                                        HostResolverProc* resolver_proc,
                                        NetLog* net_log) {
-#ifdef ANDROID
-  static HostResolver* systemResolver = NULL;
-  static const size_t kDefaultMaxJobs = 4u;
-#else
   // Maximum of 8 concurrent resolver threads.
   // Some routers (or resolvers) appear to start to provide host-not-found if
   // too many simultaneous resolutions are pending.  This number needs to be
   // further optimized, but 8 is what FF currently does.
   static const size_t kDefaultMaxJobs = 8u;
-#endif
 
   if (max_concurrent_resolves == HostResolver::kDefaultParallelism)
     max_concurrent_resolves = kDefaultMaxJobs;
 
-#ifdef ANDROID
-  // TODO: Clean this up!
-  if (!systemResolver)
-    systemResolver = new HostResolverImpl(
-        NULL, CreateDefaultCache(), max_concurrent_resolves, net_log);
-
-  return systemResolver;
-#else
   HostResolverImpl* resolver =
       new HostResolverImpl(resolver_proc, CreateDefaultCache(),
                            max_concurrent_resolves, net_log);
 
   return resolver;
-#endif
 }
 
 static int ResolveAddrInfo(HostResolverProc* resolver_proc,
