@@ -286,6 +286,7 @@ LOCAL_SRC_FILES := \
     net/proxy/init_proxy_resolver.cc \
     net/proxy/proxy_bypass_rules.cc \
     net/proxy/proxy_config.cc \
+    net/proxy/proxy_config_service_android.cc \
     net/proxy/proxy_info.cc \
     net/proxy/proxy_list.cc \
     net/proxy/multi_threaded_proxy_resolver.cc \
