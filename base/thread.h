@@ -8,6 +8,9 @@
 
 #include <string>
 
+#ifdef ANDROID
+#include "base/lock.h"
+#endif
 #include "base/message_loop.h"
 #include "base/message_loop_proxy.h"
 #include "base/platform_thread.h"
@@ -165,6 +168,9 @@ class Thread : PlatformThread::Delegate {
   bool stopping_;
 
   // Used to pass data to ThreadMain.
+#ifdef ANDROID
+  Lock startup_data_lock_;  // protects startup_data_
+#endif
   struct StartupData;
   StartupData* startup_data_;
 
