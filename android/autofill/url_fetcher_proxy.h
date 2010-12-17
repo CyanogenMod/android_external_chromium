@@ -98,7 +98,8 @@ public:
 
   virtual void Start()
   {
-    URLRequestContextGetter* con =  Profile::GetDefaultRequestContext();
+    scoped_refptr<URLRequestContextGetter> con = request_context();
+    CHECK(con.get()) << "No URLRequestContextGetter!";
     scoped_refptr<base::MessageLoopProxy> mlp = con->GetIOMessageLoopProxy();
     // TODO: See the template specialisation at the top of the file. Can we use
     // an alternative to RunnableMethod that doesn't expect a ref counted object?
@@ -134,7 +135,7 @@ private:
     real_fetcher_->set_automatically_retry_on_5xx(retry_);
     // We expect set_upload_data() to have been called on this object.
     real_fetcher_->set_upload_data(upload_content_type_, upload_content_);
-    real_fetcher_->set_request_context(ProfileImplAndroid::GetDefaultRequestContext());
+    real_fetcher_->set_request_context(request_context());
     real_fetcher_->Start();
   };
 

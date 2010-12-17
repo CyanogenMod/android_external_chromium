@@ -7,6 +7,7 @@
 #pragma once
 
 #ifdef ANDROID
+#include "android/autofill/profile_android.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/autofill/autofill_host.h"
 
@@ -16,6 +17,7 @@
 // data for AutoFill. Then Android won't care about this
 // file which as it stands does not compile for us.
 class RenderViewHost;
+class URLRequestContextGetter;
 
 class TabContents {
 public:
@@ -26,6 +28,7 @@ public:
   }
 
   Profile* profile() { return profile_; }
+  void SetProfileRequestContext(URLRequestContextGetter* context) { static_cast<ProfileImplAndroid*>(profile_)->SetRequestContext(context); }
   AutoFillHost* autofill_host() { return autofill_host_; }
   void SetAutoFillHost(AutoFillHost* autofill_host) { autofill_host_ = autofill_host; }
 

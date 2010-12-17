@@ -60,11 +60,10 @@ PrefService* ProfileImplAndroid::GetPrefs() {
   return preferences_.get();
 }
 
-Profile* Profile::CreateProfile(const FilePath& path) {
-  return new ProfileImplAndroid(path);
+URLRequestContextGetter* ProfileImplAndroid::GetRequestContext() {
+  return url_request_context_getter_.get();
 }
 
-URLRequestContextGetter* Profile::GetDefaultRequestContext()
-{
-  return AndroidURLRequestContextGetter::Get();
+Profile* Profile::CreateProfile(const FilePath& path) {
+    return new ProfileImplAndroid(path);
 }

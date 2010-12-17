@@ -155,6 +155,10 @@ class URLFetcher {
   void set_request_context(
       URLRequestContextGetter* request_context_getter);
 
+#ifdef ANDROID
+  URLRequestContextGetter* request_context();
+#endif
+
   // If |retry| is false, 5xx responses will be propagated to the observer,
   // if it is true URLFetcher will automatically re-execute the request,
   // after backoff_delay() elapses. URLFetcher has it set to true by default.

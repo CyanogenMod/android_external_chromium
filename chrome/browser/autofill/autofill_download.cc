@@ -179,7 +179,13 @@ bool AutoFillDownloadManager::StartRequest(
                                            this);
   url_fetchers_[fetcher] = request_data;
   fetcher->set_automatically_retry_on_5xx(false);
+#ifdef ANDROID
+  // On Android, use the webview request context getter which was passed
+  // through in the WebAutoFill::init() method in WebKit.
+  fetcher->set_request_context(profile_->GetRequestContext());
+#else
   fetcher->set_request_context(Profile::GetDefaultRequestContext());
+#endif
   fetcher->set_upload_data("text/plain", form_xml);
   fetcher->Start();
   return true;

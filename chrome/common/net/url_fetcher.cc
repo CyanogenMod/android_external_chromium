@@ -419,6 +419,12 @@ void URLFetcher::set_request_context(
   core_->request_context_getter_ = request_context_getter;
 }
 
+#ifdef ANDROID
+URLRequestContextGetter* URLFetcher::request_context() {
+    return core_->request_context_getter_;
+}
+#endif
+
 void URLFetcher::set_automatically_retry_on_5xx(bool retry) {
   automatically_retry_on_5xx_ = retry;
 }

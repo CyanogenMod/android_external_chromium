@@ -26,11 +26,9 @@
 
 #include "android_url_request_context_getter.h"
 
-scoped_refptr<AndroidURLRequestContextGetter> AndroidURLRequestContextGetter::instance_ = NULL;
-
 URLRequestContext* AndroidURLRequestContextGetter::GetURLRequestContext()
 {
-  return context_;
+  return context_.get();
 }
 
 scoped_refptr<base::MessageLoopProxy> AndroidURLRequestContextGetter::GetIOMessageLoopProxy() const
@@ -49,14 +47,3 @@ scoped_refptr<base::MessageLoopProxy> AndroidURLRequestContextGetter::GetIOMessa
   return io_thread_->message_loop_proxy();
 }
 
-AndroidURLRequestContextGetter* AndroidURLRequestContextGetter::Get()
-{
-  if (!instance_)
-    instance_ = new AndroidURLRequestContextGetter;
-  return instance_;
-}
-
-void AndroidURLRequestContextGetter::SetURLRequestContext(URLRequestContext* context)
-{
-  context_ = context;
-}

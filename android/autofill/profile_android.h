@@ -112,11 +112,14 @@ class ProfileImplAndroid : public Profile {
  public:
   virtual ~ProfileImplAndroid();
 
+  void SetRequestContext(URLRequestContextGetter* context) { url_request_context_getter_ = context; }
+
   // Profile implementation.
   virtual Profile* GetOriginalProfile();
   virtual PersonalDataManager* GetPersonalDataManager();
   virtual PrefService* GetPrefs();
   virtual FilePath GetPath() { return path_; }
+  virtual URLRequestContextGetter* GetRequestContext();
 
   // Functions from Profile that we don't need on Android for AutoFill.
   virtual ProfileId GetRuntimeId() { NOTREACHED(); return 0; }
@@ -154,7 +157,6 @@ class ProfileImplAndroid : public Profile {
   virtual const Extension* GetTheme() { NOTREACHED(); return NULL; }
   virtual BrowserThemeProvider* GetThemeProvider()  { NOTREACHED(); return NULL; }
   virtual bool HasCreatedDownloadManager() const { NOTREACHED(); return false; }
-  virtual URLRequestContextGetter* GetRequestContext()  { NOTREACHED(); return NULL; }
   virtual URLRequestContextGetter* GetRequestContextForMedia()  { NOTREACHED(); return NULL; }
   virtual URLRequestContextGetter* GetRequestContextForExtensions()  { NOTREACHED(); return NULL; }
   virtual void RegisterExtensionWithRequestContexts(const Extension* extension) { NOTREACHED(); }
@@ -201,7 +203,6 @@ class ProfileImplAndroid : public Profile {
   virtual BrowserSignin* GetBrowserSignin() { NOTREACHED(); return NULL; }
   virtual bool HasProfileSyncService() const { NOTREACHED(); return false; }
 
-
  private:
   friend class Profile;
 
@@ -225,6 +226,7 @@ class ProfileImplAndroid : public Profile {
   FilePath path_;
   scoped_ptr<PrefService> preferences_;
   scoped_refptr<PersonalDataManager> personal_data_;
+  scoped_refptr<URLRequestContextGetter> url_request_context_getter_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileImplAndroid);
 };
