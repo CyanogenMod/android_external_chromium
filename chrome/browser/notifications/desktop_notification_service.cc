@@ -215,7 +215,7 @@ DesktopNotificationService::DesktopNotificationService(Profile* profile,
     NotificationUIManager* ui_manager)
     : profile_(profile),
       ui_manager_(ui_manager) {
-  registrar_.Init(profile_->GetPrefs());
+  prefs_registrar_.Init(profile_->GetPrefs());
   InitPrefs();
   StartObserving();
 }
@@ -260,16 +260,24 @@ void DesktopNotificationService::InitPrefs() {
 
 void DesktopNotificationService::StartObserving() {
   if (!profile_->IsOffTheRecord()) {
-    registrar_.Add(prefs::kDesktopNotificationDefaultContentSetting, this);
-    registrar_.Add(prefs::kDesktopNotificationAllowedOrigins, this);
-    registrar_.Add(prefs::kDesktopNotificationDeniedOrigins, this);
+    prefs_registrar_.Add(prefs::kDesktopNotificationDefaultContentSetting,
+                         this);
+    prefs_registrar_.Add(prefs::kDesktopNotificationAllowedOrigins, this);
+    prefs_registrar_.Add(prefs::kDesktopNotificationDeniedOrigins, this);
+
+    notification_registrar_.Add(this, NotificationType::EXTENSION_UNLOADED,
+                                NotificationService::AllSources());
   }
+
+  notification_registrar_.Add(this, NotificationType::PROFILE_DESTROYED,
+                              Source<Profile>(profile_));
 }
 
 void DesktopNotificationService::StopObserving() {
   if (!profile_->IsOffTheRecord()) {
-    registrar_.RemoveAll();
+    prefs_registrar_.RemoveAll();
   }
+  notification_registrar_.RemoveAll();
 }
 
 void DesktopNotificationService::GrantPermission(const GURL& origin) {
@@ -282,6 +290,8 @@ void DesktopNotificationService::GrantPermission(const GURL& origin) {
       NewRunnableMethod(
           prefs_cache_.get(), &NotificationsPrefsCache::CacheAllowedOrigin,
           origin));
+
+  NotifySettingsChange();
 }
 
 void DesktopNotificationService::DenyPermission(const GURL& origin) {
@@ -294,20 +304,32 @@ void DesktopNotificationService::DenyPermission(const GURL& origin) {
       NewRunnableMethod(
           prefs_cache_.get(), &NotificationsPrefsCache::CacheDeniedOrigin,
           origin));
+
+  NotifySettingsChange();
 }
 
 void DesktopNotificationService::Observe(NotificationType type,
                                          const NotificationSource& source,
                                          const NotificationDetails& details) {
-  DCHECK(NotificationType::PREF_CHANGED == type);
-  PrefService* prefs = profile_->GetPrefs();
-  const std::string& name = *Details<std::string>(details).ptr();
+  if (NotificationType::PREF_CHANGED == type) {
+    const std::string& name = *Details<std::string>(details).ptr();
+    OnPrefsChanged(name);
+  } else if (NotificationType::EXTENSION_UNLOADED == type) {
+    // Remove all notifications currently shown or queued by the extension
+    // which was unloaded.
+    Extension* extension = Details<Extension>(details).ptr();
+    if (extension)
+      ui_manager_->CancelAllBySourceOrigin(extension->url());
+  } else if (NotificationType::PROFILE_DESTROYED == type) {
+    StopObserving();
+  }
+}
 
-  if (name == prefs::kDesktopNotificationAllowedOrigins) {
-    NotificationService::current()->Notify(
-        NotificationType::DESKTOP_NOTIFICATION_SETTINGS_CHANGED,
-        Source<DesktopNotificationService>(this),
-        NotificationService::NoDetails());
+void DesktopNotificationService::OnPrefsChanged(const std::string& pref_name) {
+  PrefService* prefs = profile_->GetPrefs();
+
+  if (pref_name == prefs::kDesktopNotificationAllowedOrigins) {
+    NotifySettingsChange();
 
     std::vector<GURL> allowed_origins(GetAllowedOrigins());
     // Schedule a cache update on the IO thread.
@@ -317,11 +339,8 @@ void DesktopNotificationService::Observe(NotificationType type,
             prefs_cache_.get(),
             &NotificationsPrefsCache::SetCacheAllowedOrigins,
             allowed_origins));
-  } else if (name == prefs::kDesktopNotificationDeniedOrigins) {
-    NotificationService::current()->Notify(
-        NotificationType::DESKTOP_NOTIFICATION_SETTINGS_CHANGED,
-        Source<DesktopNotificationService>(this),
-        NotificationService::NoDetails());
+  } else if (pref_name == prefs::kDesktopNotificationDeniedOrigins) {
+    NotifySettingsChange();
 
     std::vector<GURL> denied_origins(GetBlockedOrigins());
     // Schedule a cache update on the IO thread.
@@ -331,7 +350,7 @@ void DesktopNotificationService::Observe(NotificationType type,
             prefs_cache_.get(),
             &NotificationsPrefsCache::SetCacheDeniedOrigins,
             denied_origins));
-  } else if (name == prefs::kDesktopNotificationDefaultContentSetting) {
+  } else if (pref_name == prefs::kDesktopNotificationDefaultContentSetting) {
     NotificationService::current()->Notify(
         NotificationType::DESKTOP_NOTIFICATION_DEFAULT_CHANGED,
         Source<DesktopNotificationService>(this),
@@ -563,9 +582,7 @@ bool DesktopNotificationService::CancelDesktopNotification(
   scoped_refptr<NotificationObjectProxy> proxy(
       new NotificationObjectProxy(process_id, route_id, notification_id,
                                   false));
-  // TODO(johnnyg): clean up this "empty" notification.
-  Notification notif(GURL(), GURL(), string16(), string16(), proxy);
-  return ui_manager_->Cancel(notif);
+  return ui_manager_->CancelById(proxy->id());
 }
 
 
@@ -606,4 +623,11 @@ string16 DesktopNotificationService::DisplayNameForOrigin(
     }
   }
   return UTF8ToUTF16(origin.host());
+}
+
+void DesktopNotificationService::NotifySettingsChange() {
+  NotificationService::current()->Notify(
+      NotificationType::DESKTOP_NOTIFICATION_SETTINGS_CHANGED,
+      Source<DesktopNotificationService>(this),
+      NotificationService::NoDetails());
 }

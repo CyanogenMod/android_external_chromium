@@ -26,8 +26,8 @@ const struct ExtraLanguage {
   // The code "fil" comes from app/l10_util.cc.
   { "fil", "xkb:us::eng" },  // For Filipino, use US keyboard layout.
   // The code "es-419" comes from app/l10_util.cc.
-  // For Spanish in Latin America, use Spanish keyboard layout.
-  { "es-419", "xkb:es::spa" },
+  // For Spanish in Latin America, use Latin American keyboard layout.
+  { "es-419", "xkb:latam::spa" },
 };
 // TODO(yusukes): Move |kExtraLanguages| to input_method_util.cc.
 
@@ -75,6 +75,18 @@ std::string GetLanguageCodeFromDescriptor(
 // "xkb:gb::eng"       => "gb"
 // "pinyin"            => ""
 std::string GetKeyboardLayoutName(const std::string& input_method_id);
+
+// Gets the ID for the keyboard overlay from the given input method ID.
+// If the ID is invalid, an empty string will be returned.
+//
+// Examples:
+//
+// "xkb:us::eng"       => "en_US"
+// "xkb:us:dvorak:eng" => "en_US_dvorak"
+// "xkb:gb::eng"       => "en_GB"
+// "pinyin"            => "zh_CN"
+// "mozc"              => "ja"
+std::string GetKeyboardOverlayId(const std::string& input_method_id);
 
 // Converts an input method ID to a language code of the IME. Returns "Eng"
 // when |input_method_id| is unknown.

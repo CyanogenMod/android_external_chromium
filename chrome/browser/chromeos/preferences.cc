@@ -30,7 +30,7 @@ Preferences::~Preferences() {}
 
 // static
 void Preferences::RegisterUserPrefs(PrefService* prefs) {
-  prefs->RegisterBooleanPref(prefs::kTapToClickEnabled, false);
+  prefs->RegisterBooleanPref(prefs::kTapToClickEnabled, true);
   prefs->RegisterBooleanPref(prefs::kLabsMediaplayerEnabled, false);
   prefs->RegisterBooleanPref(prefs::kLabsAdvancedFilesystemEnabled, false);
   // Check if the accessibility pref is already registered, which can happen
@@ -116,6 +116,9 @@ void Preferences::RegisterUserPrefs(PrefService* prefs) {
 
   // Screen lock default to off.
   prefs->RegisterBooleanPref(prefs::kEnableScreenLock, false);
+
+  // Mobile plan notifications default to on.
+  prefs->RegisterBooleanPref(prefs::kShowPlanNotifications, true);
 }
 
 void Preferences::Init(PrefService* prefs) {

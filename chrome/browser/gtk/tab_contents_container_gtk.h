@@ -8,6 +8,7 @@
 
 #include <gtk/gtk.h>
 
+#include "app/gtk_signal.h"
 #include "base/basictypes.h"
 #include "chrome/browser/gtk/owned_widget_gtk.h"
 #include "chrome/browser/gtk/view_id_util.h"
@@ -31,6 +32,10 @@ class TabContentsContainerGtk : public NotificationObserver,
   // Make the specified tab visible.
   void SetTabContents(TabContents* tab_contents);
   TabContents* GetTabContents() const { return tab_contents_; }
+
+  // Gets the tab contents currently being displayed (either |tab_contents_| or
+  // |preview_contents_|).
+  TabContents* GetVisibleTabContents();
 
   void SetPreviewContents(TabContents* preview);
   void PopPreviewContents();
@@ -68,6 +73,11 @@ class TabContentsContainerGtk : public NotificationObserver,
 
   // Removes |preview_contents_|.
   void RemovePreviewContents();
+
+  // Handle focus traversal on the tab contents container. Focus should not
+  // traverse to the preview contents.
+  CHROMEGTK_CALLBACK_1(TabContentsContainerGtk, gboolean, OnFocus,
+                       GtkDirectionType);
 
   NotificationRegistrar registrar_;
 

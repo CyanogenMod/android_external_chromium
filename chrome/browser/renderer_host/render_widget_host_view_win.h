@@ -25,6 +25,9 @@
 #include "webkit/glue/webcursor.h"
 
 namespace app {
+
+class ViewProp;
+
 namespace win {
 class ScopedProp;
 }
@@ -151,13 +154,18 @@ class RenderWidgetHostViewWin
       const gfx::Rect& scroll_rect, int scroll_dx, int scroll_dy,
       const std::vector<gfx::Rect>& copy_rects);
   virtual void RenderViewGone();
+  virtual void WillWmDestroy();  // called by TabContents before DestroyWindow
   virtual void WillDestroyRenderWidget(RenderWidgetHost* rwh);
   virtual void Destroy();
   virtual void SetTooltipText(const std::wstring& tooltip_text);
   virtual BackingStore* AllocBackingStore(const gfx::Size& size);
   virtual void SetBackground(const SkBitmap& background);
   virtual bool ContainsNativeView(gfx::NativeView native_view) const;
-  virtual void SetVisuallyDeemphasized(bool deemphasized);
+  virtual void SetVisuallyDeemphasized(const SkColor* color, bool animate);
+
+  virtual gfx::PluginWindowHandle GetCompositorHostWindow();
+  virtual void ShowCompositorHostWindow(bool show);
+
   virtual void OnAccessibilityNotifications(
       const std::vector<ViewHostMsg_AccessibilityNotification_Params>& params);
 
@@ -256,11 +264,17 @@ class RenderWidgetHostViewWin
   // Create an intermediate window between the given HWND and its parent.
   HWND ReparentWindow(HWND window);
 
+  // Clean up the compositor window, if needed.
+  void CleanupCompositorWindow();
+
   // Whether the window should be activated.
   bool IsActivatable() const;
 
   // The associated Model.
   RenderWidgetHost* render_widget_host_;
+
+  // When we are doing accelerated compositing
+  HWND compositor_host_window_;
 
   // The cursor for the page. This is passed up from the renderer.
   WebCursor current_cursor_;
@@ -329,9 +343,9 @@ class RenderWidgetHostViewWin
   // The time it took after this view was selected for it to be fully painted.
   base::TimeTicks tab_switch_paint_time_;
 
-  // True if we are showing a constrained window. We will grey out the view
-  // whenever we paint.
-  bool visually_deemphasized_;
+  // A color we use to shade the entire render view. If 100% transparent, we do
+  // not shade the render view.
+  SkColor overlay_color_;
 
   // Registrar so we can listen to RENDERER_PROCESS_TERMINATED events.
   NotificationRegistrar registrar_;
@@ -340,7 +354,8 @@ class RenderWidgetHostViewWin
   // method.
   WebKit::WebTextInputType text_input_type_;
 
-  ScopedVector<app::win::ScopedProp> props_;
+  ScopedVector<app::ViewProp> props_;
+  scoped_ptr<app::win::ScopedProp> renderer_id_prop_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostViewWin);
 };

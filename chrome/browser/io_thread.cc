@@ -23,6 +23,7 @@
 #include "chrome/browser/net/connect_interceptor.h"
 #include "chrome/browser/net/passive_log_collector.h"
 #include "chrome/browser/net/predictor_api.h"
+#include "chrome/browser/net/prerender_interceptor.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/net/raw_host_resolver_proc.h"
@@ -332,6 +333,12 @@ void IOThread::Init() {
   globals_->dnsrr_resolver.reset(new net::DnsRRResolver);
   globals_->http_auth_handler_factory.reset(CreateDefaultAuthHandlerFactory(
       globals_->host_resolver.get()));
+
+  if (CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnablePagePrerender)) {
+    prerender_interceptor_.reset(
+        new chrome_browser_net::PrerenderInterceptor());
+  }
 }
 
 void IOThread::CleanUp() {
@@ -347,8 +354,19 @@ void IOThread::CleanUp() {
 
   // Break any cycles between the ProxyScriptFetcher and URLRequestContext.
   for (ProxyScriptFetchers::const_iterator it = fetchers_.begin();
-       it != fetchers_.end(); ++it) {
-    (*it)->Cancel();
+       it != fetchers_.end();) {
+    ManagedProxyScriptFetcher* fetcher = *it;
+    {
+      // Hang on to the context while cancelling to avoid problems
+      // with the cancellation causing the context to be destroyed
+      // (see http://crbug.com/63796 ).  Ideally, the IOThread would
+      // own the URLRequestContexts.
+      scoped_refptr<URLRequestContext> context(fetcher->GetRequestContext());
+      fetcher->Cancel();
+    }
+    // Any number of fetchers may have been deleted at this point, so
+    // use upper_bound instead of a simple increment.
+    it = fetchers_.upper_bound(fetcher);
   }
 
   // If any child processes are still running, terminate them and
@@ -362,6 +380,11 @@ void IOThread::CleanUp() {
        url_request_context_getters.begin();
        it != url_request_context_getters.end(); ++it) {
     ChromeURLRequestContextGetter* getter = *it;
+    // Stop all pending certificate provenance check uploads
+    net::DnsCertProvenanceChecker* checker =
+        getter->GetURLRequestContext()->dns_cert_checker();
+    if (checker)
+      checker->Shutdown();
     getter->ReleaseURLRequestContext();
   }
 
@@ -385,6 +408,8 @@ void IOThread::CleanUp() {
   // Deletion will unregister this interceptor.
   delete speculative_interceptor_;
   speculative_interceptor_ = NULL;
+
+  prerender_interceptor_.reset();
 
   // TODO(eroman): hack for http://crbug.com/15513
   if (globals_->host_resolver->GetAsHostResolverImpl()) {
@@ -434,11 +459,16 @@ void IOThread::RegisterPrefs(PrefService* local_state) {
 
 net::HttpAuthHandlerFactory* IOThread::CreateDefaultAuthHandlerFactory(
     net::HostResolver* resolver) {
-
-  net::HttpAuthFilterWhitelist* auth_filter_default_credentials =
-      new net::HttpAuthFilterWhitelist(auth_server_whitelist_);
-  net::HttpAuthFilterWhitelist* auth_filter_delegate =
-      new net::HttpAuthFilterWhitelist(auth_delegate_whitelist_);
+  net::HttpAuthFilterWhitelist* auth_filter_default_credentials = NULL;
+  if (!auth_server_whitelist_.empty()) {
+    auth_filter_default_credentials =
+        new net::HttpAuthFilterWhitelist(auth_server_whitelist_);
+  }
+  net::HttpAuthFilterWhitelist* auth_filter_delegate = NULL;
+  if (!auth_delegate_whitelist_.empty()) {
+    auth_filter_delegate =
+        new net::HttpAuthFilterWhitelist(auth_delegate_whitelist_);
+  }
   globals_->url_security_manager.reset(
       net::URLSecurityManager::Create(auth_filter_default_credentials,
                                       auth_filter_delegate));

@@ -33,12 +33,18 @@ class DeviceManagementPolicyCache {
   // cache files are ignored.
   void LoadPolicyFromFile();
 
-  // Resets the policy information.
-  void SetPolicy(const em::DevicePolicyResponse& policy);
+  // Resets the policy information. Returns true if the new policy is different
+  // from the previously stored policy.
+  bool SetPolicy(const em::DevicePolicyResponse& policy);
 
   // Gets the policy information. Ownership of the return value is transferred
   // to the caller.
   DictionaryValue* GetPolicy();
+
+  void SetDeviceUnmanaged(bool is_device_unmanaged);
+  bool is_device_unmanaged() const {
+    return is_device_unmanaged_;
+  }
 
   // Returns the time as which the policy was last fetched.
   base::Time last_policy_refresh_time() const {
@@ -75,6 +81,8 @@ class DeviceManagementPolicyCache {
   // Tracks whether the store received a SetPolicy() call, which overrides any
   // information loaded from the file.
   bool fresh_policy_;
+
+  bool is_device_unmanaged_;
 
   // The time at which the policy was last refreshed.
   base::Time last_policy_refresh_time_;

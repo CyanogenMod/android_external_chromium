@@ -15,6 +15,14 @@
 
 class Profile;
 
+namespace WebResourceServiceUtil {
+
+// Certain promotions should only be shown to certain classes of users. This
+// function will change to reflect each kind of promotion.
+bool CanShowPromo(Profile* profile);
+
+}  // namespace WebResourceService
+
 class WebResourceService
     : public UtilityProcessHost::Client {
  public:
@@ -48,14 +56,57 @@ class WebResourceService
   // Public for unit testing.
   void UnpackTips(const DictionaryValue& parsed_json);
 
-  // Unpack the web resource as a custom logo signal. Expects json in the form
-  // of:
+  // Unpack the web resource as a custom promo signal. Expects a start and end
+  // signal, with the promo to be shown in the tooltip of the start signal
+  // field. Delivery will be in json in the form of:
   // {
   //   "topic": {
   //     "answers": [
   //       {
-  //         "custom_logo_start": "31/12/10 01:00",
-  //         "custom_logo_end": "31/01/11 01:00"
+  //         "answer_id": "1067976",
+  //         "name": "promo_start",
+  //         "question": "",
+  //         "tooltip":
+  //       "Click \u003ca href=http://www.google.com\u003ehere\u003c/a\u003e!",
+  //         "inproduct": "10/8/09 12:00",
+  //         "inproduct_target": null
+  //       },
+  //       {
+  //         "answer_id": "1067976",
+  //         "name": "promo_end",
+  //         "question": "",
+  //         "tooltip": "",
+  //         "inproduct": "10/8/11 12:00",
+  //         "inproduct_target": null
+  //       },
+  //       ...
+  //     ]
+  //   }
+  // }
+  //
+  // Public for unit testing.
+  void UnpackPromoSignal(const DictionaryValue& parsed_json);
+
+  // Unpack the web resource as a custom logo signal. Expects a start and end
+  // signal. Delivery will be in json in the form of:
+  // {
+  //   "topic": {
+  //     "answers": [
+  //       {
+  //         "answer_id": "107366",
+  //         "name": "custom_logo_start",
+  //         "question": "",
+  //         "tooltip": "",
+  //         "inproduct": "10/8/09 12:00",
+  //         "inproduct_target": null
+  //       },
+  //       {
+  //         "answer_id": "107366",
+  //         "name": "custom_logo_end",
+  //         "question": "",
+  //         "tooltip": "",
+  //         "inproduct": "10/8/09 12:00",
+  //         "inproduct_target": null
   //       },
   //       ...
   //     ]
@@ -65,11 +116,13 @@ class WebResourceService
   // Public for unit testing.
   void UnpackLogoSignal(const DictionaryValue& parsed_json);
 
+  int cache_update_delay() const { return cache_update_delay_; }
+
   static const char* kCurrentTipPrefName;
   static const char* kTipCachePrefName;
 
-  // Default server from which to gather resources.
-  static const char* kDefaultResourceServer;
+  // Default server of dynamically loaded NTP HTML elements (promotions, tips):
+  static const char* kDefaultWebResourceServer;
 
  private:
   class WebResourceFetcher;
@@ -87,16 +140,29 @@ class WebResourceService
   // Puts parsed json data in the right places, and writes to prefs file.
   void OnWebResourceUnpacked(const DictionaryValue& parsed_json);
 
+  // Notify listeners that the state of a web resource has changed.
+  void WebResourceStateChange();
+
+  // Schedule a notification that a web resource is either going to become
+  // available or be no longer valid.
+  void ScheduleNotification(double ms_start_time, double ms_end_time);
+
   // We need to be able to load parsed resource data into preferences file,
   // and get proper install directory.
   PrefService* prefs_;
 
-  // Server from which we are currently pulling web resource data.
-  std::string web_resource_server_;
+  // Display and fetch of promo lines depends on data associated with a user's
+  // profile.
+  Profile* profile_;
 
   scoped_ptr<WebResourceFetcher> web_resource_fetcher_;
 
   ResourceDispatcherHost* resource_dispatcher_host_;
+
+  // Allows the creation of tasks to send a WEB_RESOURCE_STATE_CHANGED
+  // notification. This allows the WebResourceService to notify the New Tab
+  // Page immediately when a new web resource should be shown or removed.
+  ScopedRunnableMethodFactory<WebResourceService> service_factory_;
 
   // Gets mutable dictionary attached to user's preferences, so that we
   // can write resource data back to user's pref file.
@@ -107,11 +173,13 @@ class WebResourceService
   // kCacheUpdateDelay time, and silently exit.
   bool in_fetch_;
 
-  // Delay on first fetch so we don't interfere with startup.
-  static const int kStartResourceFetchDelay = 5000;
+  // Delay between calls to update the web resource cache. This delay may be
+  // different for different builds of Chrome.
+  int cache_update_delay_;
 
-  // Delay between calls to update the cache (48 hours).
-  static const int kCacheUpdateDelay = 48 * 60 * 60 * 1000;
+  // True if a task has been set to update the cache when a new web resource
+  // becomes available.
+  bool web_resource_update_scheduled_;
 
   DISALLOW_COPY_AND_ASSIGN(WebResourceService);
 };

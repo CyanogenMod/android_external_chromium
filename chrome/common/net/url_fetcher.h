@@ -16,6 +16,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "base/message_loop.h"
 #include "base/ref_counted.h"
@@ -168,6 +169,10 @@ class URLFetcher {
 #endif
   void set_automatically_retry_on_5xx(bool retry);
 
+  int max_retries() const { return max_retries_; }
+
+  void set_max_retries(int max_retries) { max_retries_ = max_retries; }
+
   // Returns the back-off delay before the request will be retried,
   // when a 5xx response was received.
   base::TimeDelta backoff_delay() const { return backoff_delay_; }
@@ -189,6 +194,9 @@ class URLFetcher {
 
   // Return the URL that this fetcher is processing.
   const GURL& url() const;
+
+  // Reports that the received content was malformed.
+  void ReceivedContentWasMalformed();
 
   // Cancels all existing URLRequests.  Will notify the URLFetcher::Delegates.
   // Note that any new URLFetchers created while this is running will not be
@@ -219,6 +227,8 @@ class URLFetcher {
   bool automatically_retry_on_5xx_;
   // Back-off time delay. 0 by default.
   base::TimeDelta backoff_delay_;
+  // Maximum retries allowed.
+  int max_retries_;
 
   static bool g_interception_enabled;
 

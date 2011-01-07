@@ -37,6 +37,11 @@ cr.define('options', function() {
   OptionsPage.registeredOverlayPages_ = {};
 
   /**
+   * Whether or not |initialize| has been called.
+   */
+  OptionsPage.initialized_ = false;
+
+  /**
    * Shows a registered page. This handles both top-level pages and sub-pages.
    * @param {string} pageName Page name.
    */
@@ -48,7 +53,7 @@ cr.define('options', function() {
     for (var name in OptionsPage.registeredSubPages_) {
       var pageInfo = OptionsPage.registeredSubPages_[name];
       var match = name == pageName;
-      if (match)
+      if (match && document.documentElement.getAttribute('hide-menu') != 'true')
         pageInfo.parentPage.visible = true;
       pageInfo.page.visible = match;
     }
@@ -207,6 +212,7 @@ cr.define('options', function() {
    */
   OptionsPage.initialize = function() {
     chrome.send('coreOptionsInitialize');
+    this.initialized_ = true;
 
     // Set up the overlay sheet. Clicks on the visible part of the parent page
     // should close the overlay, not fall through to the parent page.
@@ -216,6 +222,18 @@ cr.define('options', function() {
       event.stopPropagation();
     }
   };
+
+  /**
+   * Re-initializes the C++ handlers if necessary. This is called if the
+   * handlers are torn down and recreated but the DOM may not have been (in
+   * which case |initialize| won't be called again). If |initialize| hasn't been
+   * called, this does nothing (since it will be later, once the DOM has
+   * finished loading).
+   */
+  OptionsPage.reinitializeCore = function() {
+    if (this.initialized_)
+      chrome.send('coreOptionsInitialize');
+  }
 
   OptionsPage.prototype = {
     __proto__: cr.EventTarget.prototype,

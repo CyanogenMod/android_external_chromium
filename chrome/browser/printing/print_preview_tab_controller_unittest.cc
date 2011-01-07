@@ -26,8 +26,8 @@ TEST_F(PrintPreviewTabControllerTest, GetOrCreatePreviewTab) {
   // Create a reference to initiator tab contents.
   TabContents* initiator_tab = browser()->GetSelectedTabContents();
 
-  printing::PrintPreviewTabController* tab_controller =
-      new printing::PrintPreviewTabController();
+  scoped_refptr<printing::PrintPreviewTabController>
+      tab_controller(new printing::PrintPreviewTabController());
   ASSERT_TRUE(tab_controller);
 
   // Get the preview tab for initiator tab.
@@ -73,8 +73,8 @@ TEST_F(PrintPreviewTabControllerTest, MultiplePreviewTabs) {
   ASSERT_TRUE(tab_contents_2);
   EXPECT_EQ(2, browser()->tab_count());
 
-  printing::PrintPreviewTabController* tab_controller =
-      new printing::PrintPreviewTabController();
+  scoped_refptr<printing::PrintPreviewTabController>
+      tab_controller(new printing::PrintPreviewTabController());
   ASSERT_TRUE(tab_controller);
 
   // Create preview tab for |tab_contents_1|
@@ -95,8 +95,8 @@ TEST_F(PrintPreviewTabControllerTest, MultiplePreviewTabs) {
   TabStripModel* model = browser()->tabstrip_model();
   ASSERT_TRUE(model);
 
-  int preview_tab_1_index = model->GetIndexOfTabContents(preview_tab_1);
-  int preview_tab_2_index = model->GetIndexOfTabContents(preview_tab_2);
+  int preview_tab_1_index = model->GetWrapperIndex(preview_tab_1);
+  int preview_tab_2_index = model->GetWrapperIndex(preview_tab_2);
 
   EXPECT_NE(-1, preview_tab_1_index);
   EXPECT_NE(-1, preview_tab_2_index);

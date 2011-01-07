@@ -40,6 +40,16 @@ bool TabSpecificContentSettings::IsContentBlocked(
   return false;
 }
 
+bool TabSpecificContentSettings::IsBlockageIndicated(
+    ContentSettingsType content_type) const {
+  return content_blockage_indicated_to_user_[content_type];
+}
+
+void TabSpecificContentSettings::SetBlockageHasBeenIndicated(
+    ContentSettingsType content_type) {
+  content_blockage_indicated_to_user_[content_type] = true;
+}
+
 bool TabSpecificContentSettings::IsContentAccessed(
     ContentSettingsType content_type) const {
   // This method currently only returns meaningful values for cookies.
@@ -94,9 +104,10 @@ void TabSpecificContentSettings::OnContentAccessed(ContentSettingsType type) {
 }
 
 void TabSpecificContentSettings::OnCookieAccessed(
-    const GURL& url, const std::string& cookie_line, bool blocked_by_policy) {
-  net::CookieOptions options;
-  options.set_include_httponly();
+    const GURL& url,
+    const std::string& cookie_line,
+    const net::CookieOptions& options,
+    bool blocked_by_policy) {
   if (blocked_by_policy) {
     blocked_local_shared_objects_.cookies()->SetCookieWithOptions(
         url, cookie_line, options);
@@ -196,6 +207,7 @@ void TabSpecificContentSettings::ClearBlockedContentSettingsExceptForCookies() {
     blocked_resources_[i].reset();
     content_blocked_[i] = false;
     content_accessed_[i] = false;
+    content_blockage_indicated_to_user_[i] = false;
   }
   load_plugins_link_enabled_ = true;
   if (delegate_)
@@ -207,12 +219,14 @@ void TabSpecificContentSettings::ClearCookieSpecificContentSettings() {
   allowed_local_shared_objects_.Reset();
   content_blocked_[CONTENT_SETTINGS_TYPE_COOKIES] = false;
   content_accessed_[CONTENT_SETTINGS_TYPE_COOKIES] = false;
+  content_blockage_indicated_to_user_[CONTENT_SETTINGS_TYPE_COOKIES] = false;
   if (delegate_)
     delegate_->OnContentSettingsAccessed(false);
 }
 
 void TabSpecificContentSettings::SetPopupsBlocked(bool blocked) {
   content_blocked_[CONTENT_SETTINGS_TYPE_POPUPS] = blocked;
+  content_blockage_indicated_to_user_[CONTENT_SETTINGS_TYPE_POPUPS] = false;
   if (delegate_)
     delegate_->OnContentSettingsAccessed(blocked);
 }

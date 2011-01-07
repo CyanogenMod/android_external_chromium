@@ -73,14 +73,14 @@ cr.define('options.internet', function() {
             InternetOptions.unlockUpdates();
             // If clicked on other networks item.
             if (data && data.servicePath == '?') {
-              item.showOtherLogin();
-            } else if (data) {
-                if (!data.connecting && !data.connected) {
-                  chrome.send('buttonClickCallback',
-                              [String(data.networkType),
-                               data.servicePath,
-                               'connect']);
-                }
+              if (InternetOptions.useSettingsUI) {
+                item.showOtherLogin();
+              } else {
+                chrome.send('buttonClickCallback',
+                            [String(data.networkType),
+                             data.servicePath,
+                             'connect']);
+              }
             }
           }
         }
@@ -106,7 +106,7 @@ cr.define('options.internet', function() {
       iconURL: network[6],
       remembered: network[7],
       activation_state: network[8],
-      restricted: network[9],
+      needs_new_plan: network[9],
       connectable: network[10]
     };
     NetworkItem.decorate(el);
@@ -189,10 +189,7 @@ cr.define('options.internet', function() {
       if (!this.data.remembered) {
         var no_plan =
             this.data.networkType == NetworkItem.TYPE_CELLULAR &&
-            this.data.activation_state ==
-                NetworkItem.ACTIVATION_STATE_ACTIVATED &&
-            this.data.restricted &&
-            this.data.connected;
+            this.data.needs_new_plan;
         var show_activate =
           (this.data.networkType == NetworkItem.TYPE_CELLULAR &&
            this.data.activation_state !=
@@ -225,7 +222,24 @@ cr.define('options.internet', function() {
                              'activate']);
               }));
         }
-        if (this.data.connected) {
+        if (!this.data.connected && !this.data.connecting &&
+            this.data.connectable) {
+          // connect button (if not ethernet and not showing activate button
+          // and connectable)
+          if (this.data.networkType != NetworkItem.TYPE_ETHERNET &&
+              !show_activate && !no_plan) {
+            buttonsDiv.appendChild(
+                this.createButton_('connect_button', 'connect',
+                                   function(e) {
+                  chrome.send('buttonClickCallback',
+                              [String(self.data.networkType),
+                               self.data.servicePath,
+                               'connect']);
+                }));
+          }
+        }
+        if (this.data.connected ||
+            this.data.networkType == NetworkItem.TYPE_CELLULAR) {
           buttonsDiv.appendChild(
               this.createButton_('options_button', 'options',
                                  function(e) {

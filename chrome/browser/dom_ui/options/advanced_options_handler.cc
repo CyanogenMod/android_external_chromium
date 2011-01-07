@@ -44,7 +44,9 @@
 #endif
 
 AdvancedOptionsHandler::AdvancedOptionsHandler() {
-#if !defined(OS_CHROMEOS)
+#if defined(GOOGLE_CHROME_BUILD) && defined(OS_WIN)
+  cloud_print_proxy_ui_enabled_ = true;
+#elif !defined(OS_CHROMEOS)
   cloud_print_proxy_ui_enabled_ =
       CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnableCloudPrintProxy);
@@ -120,9 +122,9 @@ void AdvancedOptionsHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(IDS_OPTIONS_FONTSETTINGS_INFO));
   localized_strings->SetString("defaultZoomLevelLabel",
       l10n_util::GetStringUTF16(IDS_OPTIONS_DEFAULT_ZOOM_LEVEL_LABEL));
-  localized_strings->SetString("fontSettingsConfigureFontsOnlyButton",
+  localized_strings->SetString("fontSettingsCustomizeFontsButton",
       l10n_util::GetStringUTF16(
-          IDS_OPTIONS_FONTSETTINGS_CONFIGUREFONTSONLY_BUTTON));
+          IDS_OPTIONS_FONTSETTINGS_CUSTOMIZE_FONTS_BUTTON));
   localized_strings->SetString("advancedSectionTitlePrivacy",
       l10n_util::GetStringUTF16(IDS_OPTIONS_ADVANCED_SECTION_TITLE_PRIVACY));
   localized_strings->SetString("advancedSectionTitleContent",
@@ -135,19 +137,6 @@ void AdvancedOptionsHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(IDS_OPTIONS_ADVANCED_SECTION_TITLE_TRANSLATE));
   localized_strings->SetString("translateEnableTranslate",
       l10n_util::GetStringUTF16(IDS_OPTIONS_TRANSLATE_ENABLE_TRANSLATE));
-  // Add ChromeApps preferences if background mode is runtime-enabled.
-  bool background_mode_enabled = CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBackgroundMode);
-  localized_strings->SetString("enable-background-mode",
-      background_mode_enabled ? "true" : "false");
-  localized_strings->SetString("advancedSectionTitleChromeApps",
-      l10n_util::GetStringUTF16(
-          IDS_OPTIONS_ADVANCED_SECTION_TITLE_CHROME_APPS));
-  localized_strings->SetString("chromeAppsEnableBackgroundMode",
-      l10n_util::GetStringUTF16(
-          IDS_OPTIONS_CHROME_APPS_ENABLE_BACKGROUND_MODE));
-  localized_strings->SetString("chromeAppsLearnMoreBackgroundModeURL",
-      l10n_util::GetStringUTF16(IDS_LEARN_MORE_BACKGROUND_MODE_URL));
 #if !defined(OS_CHROMEOS)
   // Add the cloud print proxy management ui section if it's been runtime
   // enabled.

@@ -14,6 +14,7 @@
 #include "base/time.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "gfx/native_widget_types.h"
+#include "third_party/WebKit/WebKit/chromium/public/WebInputEvent.h"
 #include "views/controls/native/native_view_host.h"
 #include "views/event.h"
 #include "views/view.h"
@@ -21,10 +22,6 @@
 
 class RenderWidgetHost;
 struct NativeWebKeyboardEvent;
-
-namespace WebKit {
-class WebMouseEvent;
-}
 
 // -----------------------------------------------------------------------------
 // See comments in render_widget_host_view.h about this class and its members.
@@ -73,15 +70,20 @@ class RenderWidgetHostViewViews : public RenderWidgetHostView,
   virtual void SetBackground(const SkBitmap& background);
   virtual void CreatePluginContainer(gfx::PluginWindowHandle id);
   virtual void DestroyPluginContainer(gfx::PluginWindowHandle id);
-  virtual void SetVisuallyDeemphasized(bool deemphasized);
+  virtual void SetVisuallyDeemphasized(const SkColor* color, bool animate);
   virtual bool ContainsNativeView(gfx::NativeView native_view) const;
+  virtual void AcceleratedCompositingActivated(bool activated);
 
   gfx::NativeView native_view() const;
   virtual gfx::NativeView GetNativeView() { return native_view(); }
 
   virtual void Paint(gfx::Canvas* canvas);
 
-  // Views mouse events
+  // Overridden from views::View.
+  gfx::NativeCursor GetCursorForPoint(views::Event::EventType type,
+                                      const gfx::Point& point);
+
+  // Views mouse events, overridden from views::View.
   virtual bool OnMousePressed(const views::MouseEvent& event);
   virtual bool OnMouseDragged(const views::MouseEvent& event);
   virtual void OnMouseReleased(const views::MouseEvent& event, bool canceled);
@@ -90,7 +92,7 @@ class RenderWidgetHostViewViews : public RenderWidgetHostView,
   virtual void OnMouseExited(const views::MouseEvent& event);
   virtual bool OnMouseWheel(const views::MouseWheelEvent& e);
 
-  // Views keyboard events
+  // Views keyboard events, overridden from views::View.
   virtual bool OnKeyPressed(const views::KeyEvent &e);
   virtual bool OnKeyReleased(const views::KeyEvent &e);
 
@@ -99,6 +101,9 @@ class RenderWidgetHostViewViews : public RenderWidgetHostView,
 
   // Forwards a keyboard event to renderer.
   void ForwardKeyboardEvent(const NativeWebKeyboardEvent& event);
+
+  // Views touch events, overridden from views::View.
+  virtual bool OnTouchEvent(const views::TouchEvent& e);
 
  private:
   friend class RenderWidgetHostViewViewsWidget;
@@ -138,6 +143,9 @@ class RenderWidgetHostViewViews : public RenderWidgetHostView,
   // The cursor for the page. This is passed up from the renderer.
   WebCursor current_cursor_;
 
+  // The native cursor.
+  gfx::NativeCursor native_cursor_;
+
   // Whether we are showing a context menu.
   bool is_showing_context_menu_;
 
@@ -154,6 +162,11 @@ class RenderWidgetHostViewViews : public RenderWidgetHostView,
 
   // The size that we want the renderer to be.
   gfx::Size requested_size_;
+
+  // The touch-event. Its touch-points are updated as necessary. A new
+  // touch-point is added from an ET_TOUCH_PRESSED event, and a touch-point is
+  // removed from the list on an ET_TOUCH_RELEASED event.
+  WebKit::WebTouchEvent touch_event_;
 
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostViewViews);
 };

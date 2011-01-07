@@ -10,6 +10,7 @@
 #include "chrome/browser/autocomplete/autocomplete_edit.h"
 #include "chrome/browser/autocomplete/autocomplete_match.h"
 #include "chrome/browser/autocomplete/autocomplete_popup_view.h"
+#include "chrome/browser/autocomplete/search_provider.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/search_engines/template_url.h"
@@ -221,17 +222,27 @@ bool AutocompletePopupModel::GetKeywordForMatch(const AutocompleteMatch& match,
   if (!TemplateURL::SupportsReplacement(template_url))
     return false;
 
-  // Don't provide a hint if this is an extension keyword not enabled for
-  // incognito mode (and if this is an incognito profile).
-  if (template_url->IsExtensionKeyword() && profile_->IsOffTheRecord()) {
+  // Don't provide a hint for inactive/disabled extension keywords.
+  if (template_url->IsExtensionKeyword()) {
     const Extension* extension = profile_->GetExtensionsService()->
         GetExtensionById(template_url->GetExtensionId(), false);
-    if (!profile_->GetExtensionsService()->IsIncognitoEnabled(extension))
+    if (!extension ||
+        (profile_->IsOffTheRecord() &&
+         !profile_->GetExtensionsService()->IsIncognitoEnabled(extension)))
       return false;
   }
 
   keyword->assign(keyword_hint);
   return true;
+}
+
+void AutocompletePopupModel::FinalizeInstantQuery(
+    const std::wstring& input_text,
+    const std::wstring& suggest_text) {
+  if (IsOpen()) {
+    SearchProvider* search_provider = controller_->search_provider();
+    search_provider->FinalizeInstantQuery(input_text, suggest_text);
+  }
 }
 
 AutocompleteLog* AutocompletePopupModel::GetAutocompleteLog() {

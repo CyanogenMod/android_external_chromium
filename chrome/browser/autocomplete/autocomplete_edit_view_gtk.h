@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <string>
 
+#include "app/animation_delegate.h"
 #include "app/gtk_signal.h"
 #include "app/gtk_signal_registrar.h"
 #include "base/basictypes.h"
@@ -28,6 +29,7 @@
 class AutocompleteEditController;
 class AutocompleteEditModel;
 class AutocompletePopupView;
+class MultiAnimation;
 class Profile;
 class TabContents;
 
@@ -44,7 +46,8 @@ class GtkThemeProvider;
 #endif
 
 class AutocompleteEditViewGtk : public AutocompleteEditView,
-                                public NotificationObserver {
+                                public NotificationObserver,
+                                public AnimationDelegate {
  public:
   // Modeled like the Windows CHARRANGE.  Represent a pair of cursor position
   // offsets.  Since GtkTextIters are invalid after the buffer is changed, we
@@ -117,11 +120,10 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   virtual void SetWindowTextAndCaretPos(const std::wstring& text,
                                         size_t caret_pos);
 
-  virtual void ReplaceSelection(const string16& text);
-
   virtual void SetForcedQuery();
 
   virtual bool IsSelectAll();
+  virtual bool DeleteAtEndPressed();
   virtual void GetSelectionBounds(std::wstring::size_type* start,
                                   std::wstring::size_type* end);
   virtual void SelectAll(bool reversed);
@@ -147,7 +149,16 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
+  // Overridden from AnimationDelegate.
+  virtual void AnimationEnded(const Animation* animation);
+  virtual void AnimationProgressed(const Animation* animation);
+  virtual void AnimationCanceled(const Animation* animation);
+
+  // Sets the colors of the text view according to the theme.
   void SetBaseColor();
+  // Sets the colors of the instant suggestion view according to the theme and
+  // the animation state.
+  void UpdateInstantViewColors();
 
   void SetInstantSuggestion(const std::string& suggestion);
   bool CommitInstantSuggestion();
@@ -330,6 +341,9 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   // make sure they have the same baseline.
   void AdjustVerticalAlignmentOfInstantView();
 
+  // Stop showing the instant suggest auto-commit animation.
+  void StopAnimation();
+
   // The widget we expose, used for vertically centering the real text edit,
   // since the height will change based on the font / font size, etc.
   OwnedWidgetGtk alignment_;
@@ -350,6 +364,9 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   // A widget for displaying instant suggestion text. It'll be attached to a
   // child anchor in the |text_buffer_| object.
   GtkWidget* instant_view_;
+  // Animation from instant suggest (faded text) to autocomplete (selected
+  // text).
+  scoped_ptr<MultiAnimation> instant_animation_;
 
   // A mark to split the content and the instant anchor. Wherever the end
   // iterator of the text buffer is required, the iterator to this mark should
@@ -464,6 +481,12 @@ class AutocompleteEditViewGtk : public AutocompleteEditView,
   // Indicates if the selected text is suggested text or not. If the selection
   // is not suggested text, that means the user manually made the selection.
   bool selection_suggested_;
+
+  // Was delete pressed?
+  bool delete_was_pressed_;
+
+  // Was the delete key pressed with an empty selection at the end of the edit?
+  bool delete_at_end_pressed_;
 
 #if GTK_CHECK_VERSION(2, 20, 0)
   // Stores the text being composed by the input method.

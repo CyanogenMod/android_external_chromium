@@ -229,15 +229,21 @@ spdy::SpdyFrame* ConstructSpdyPush(const char* const extra_headers[],
                                   int extra_header_count,
                                   int stream_id,
                                   int associated_stream_id,
-                                  const char* path);
+                                  const char* url);
 spdy::SpdyFrame* ConstructSpdyPush(const char* const extra_headers[],
                                   int extra_header_count,
                                   int stream_id,
                                   int associated_stream_id,
-                                  const char* path,
+                                  const char* url,
                                   const char* status,
-                                  const char* location,
+                                  const char* location);
+spdy::SpdyFrame* ConstructSpdyPush(int stream_id,
+                                  int associated_stream_id,
                                   const char* url);
+
+spdy::SpdyFrame* ConstructSpdyPushHeaders(int stream_id,
+                                          const char* const extra_headers[],
+                                          int extra_header_count);
 
 // Constructs a standard SPDY SYN_REPLY packet to match the SPDY GET.
 // |extra_headers| are the extra header-value pairs, which typically
@@ -358,6 +364,7 @@ class SpdySessionDependencies {
       SpdySessionDependencies* session_deps) {
     return new HttpNetworkSession(session_deps->host_resolver.get(),
                                   NULL /* dnsrr_resolver */,
+                                  NULL /* dns_cert_checker */,
                                   NULL /* ssl_host_info_factory */,
                                   session_deps->proxy_service,
                                   session_deps->socket_factory.get(),
@@ -371,6 +378,7 @@ class SpdySessionDependencies {
       SpdySessionDependencies* session_deps) {
     return new HttpNetworkSession(session_deps->host_resolver.get(),
                                   NULL /* dnsrr_resolver */,
+                                  NULL /* dns_cert_checker */,
                                   NULL /* ssl_host_info_factory */,
                                   session_deps->proxy_service,
                                   session_deps->
@@ -395,6 +403,7 @@ class SpdyURLRequestContext : public URLRequestContext {
         new HttpNetworkLayer(&socket_factory_,
                              host_resolver_,
                              NULL /* dnsrr_resolver */,
+                             NULL /* dns_cert_checker */,
                              NULL /* ssl_host_info_factory */,
                              proxy_service_,
                              ssl_config_service_,

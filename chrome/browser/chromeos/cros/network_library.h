@@ -1,4 +1,4 @@
-// Copyright (c) 2010 The Chromium Authors. All rights reserved.
+  // Copyright (c) 2010 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -12,6 +12,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/observer_list.h"
 #include "base/platform_thread.h"
+#include "base/scoped_vector.h"
 #include "base/singleton.h"
 #include "base/string16.h"
 #include "base/timer.h"
@@ -97,6 +98,7 @@ class Network {
   void set_state(ConnectionState state) { state_ = state; }
   void set_connectable(bool connectable) { connectable_ = connectable; }
   void set_active(bool is_active) { is_active_ = is_active; }
+  void set_error(ConnectionError error) { error_ = error; }
 
   // Initialize the IP address field
   void InitIPAddress();
@@ -199,7 +201,9 @@ class CellularDataPlan {
   string16 GetPlanExpiration() const;
   // Formats plan usage info.
   string16 GetUsageInfo() const;
+  base::TimeDelta remaining_time() const;
   int64 remaining_minutes() const;
+  int64 remaining_data() const;
   int64 remaining_mbytes() const;
   std::string plan_name;
   CellularDataPlanType plan_type;
@@ -210,7 +214,7 @@ class CellularDataPlan {
   int64 data_bytes_used;
 };
 
-typedef std::vector<CellularDataPlan> CellularDataPlanVector;
+typedef ScopedVector<CellularDataPlan> CellularDataPlanVector;
 
 class CellularNetwork : public WirelessNetwork {
  public:
@@ -233,7 +237,12 @@ class CellularNetwork : public WirelessNetwork {
     return network_technology_;
   }
   const NetworkRoamingState roaming_state() const { return roaming_state_; }
-  bool restricted_pool() const { return restricted_pool_; }
+  const ConnectivityState connectivity_state() const {
+    return connectivity_state_;
+  }
+  bool restricted_pool() const {
+    return connectivity_state() == CONN_STATE_RESTRICTED;
+  }
   bool needs_new_plan() const {
     return restricted_pool() && connected() &&
         activation_state() == ACTIVATION_STATE_ACTIVATED;
@@ -254,8 +263,11 @@ class CellularNetwork : public WirelessNetwork {
   const std::string& hardware_revision() const { return hardware_revision_; }
   const std::string& last_update() const { return last_update_; }
   const unsigned int prl_version() const { return prl_version_; }
-  bool is_gsm() const;
-  DataLeft data_left() const;
+  bool is_gsm() const {
+    return network_technology_ != NETWORK_TECHNOLOGY_EVDO &&
+        network_technology_ != NETWORK_TECHNOLOGY_1XRTT &&
+        network_technology_ != NETWORK_TECHNOLOGY_UNKNOWN;
+  }
 
   // WirelessNetwork overrides.
   virtual void Clear();
@@ -265,14 +277,27 @@ class CellularNetwork : public WirelessNetwork {
   }
 
   void SetDataPlans(const CellularDataPlanList* data_plan_list) {
-    data_plans_.clear();
+    data_plans_.reset();
     for (size_t i = 0; i < data_plan_list->plans_size; i++) {
       const CellularDataPlanInfo* info(data_plan_list->GetCellularDataPlan(i));
-      data_plans_.push_back(CellularDataPlan(*info));
+      data_plans_.push_back(new CellularDataPlan(*info));
     }
   }
+
+  // This returns the significant data plan. If the user only has the
+  // base data plan, then return that. If there is a base and a paid data plan,
+  // then the significant one is the paid one. So return the paid plan.
+  // If there are no data plans, then this method returns NULL.
+  // This returns a pointer to a member of data_plans_, so if SetDataPlans()
+  // gets called, the result becomes invalid.
+  const CellularDataPlan* GetSignificantDataPlan() const;
+
+  DataLeft GetDataLeft() const;
+
   // Return a string representation of network technology.
   std::string GetNetworkTechnologyString() const;
+  // Return a string representation of connectivity state.
+  std::string GetConnectivityStateString() const;
   // Return a string representation of activation state.
   std::string GetActivationStateString() const;
   // Return a string representation of roaming state.
@@ -286,7 +311,7 @@ class CellularNetwork : public WirelessNetwork {
   ActivationState activation_state_;
   NetworkTechnology network_technology_;
   NetworkRoamingState roaming_state_;
-  bool restricted_pool_;
+  ConnectivityState connectivity_state_;
   std::string service_name_;
   // Carrier Info
   std::string operator_name_;
@@ -320,8 +345,8 @@ class CellularNetwork : public WirelessNetwork {
   void set_roaming_state(NetworkRoamingState state) {
     roaming_state_ = state;
   }
-  void set_restricted_pool(bool restricted_pool) {
-    restricted_pool_ = restricted_pool;
+  void set_connectivity_state(ConnectivityState connectivity_state) {
+    connectivity_state_ = connectivity_state;
   }
 
   friend class NetworkLibraryImpl;
@@ -528,8 +553,9 @@ class NetworkLibrary {
   // TODO(joth): Add GetCellTowers to retrieve a CellTowerVector.
 
   // Connect to the specified wireless network with password.
-  // Returns false if the attempt fails immediately (e.g. passphrase too short).
-  virtual bool ConnectToWifiNetwork(const WifiNetwork* network,
+  // Returns false if the attempt fails immediately (e.g. passphrase too short)
+  // and sets network->error().
+  virtual bool ConnectToWifiNetwork(WifiNetwork* network,
                                     const std::string& password,
                                     const std::string& identity,
                                     const std::string& certpath) = 0;
@@ -569,6 +595,8 @@ class NetworkLibrary {
   virtual bool ethernet_enabled() const = 0;
   virtual bool wifi_enabled() const = 0;
   virtual bool cellular_enabled() const = 0;
+
+  virtual bool wifi_scanning() const = 0;
 
   virtual const Network* active_network() const = 0;
 

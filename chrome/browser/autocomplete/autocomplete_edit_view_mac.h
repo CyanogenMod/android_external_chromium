@@ -9,6 +9,7 @@
 #import <Cocoa/Cocoa.h>
 
 #include "base/scoped_ptr.h"
+#include "base/string16.h"
 #include "chrome/browser/autocomplete/autocomplete_edit_view.h"
 #include "chrome/browser/cocoa/location_bar/autocomplete_text_field.h"
 
@@ -57,11 +58,10 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
   virtual void SetWindowTextAndCaretPos(const std::wstring& text,
                                         size_t caret_pos);
 
-  virtual void ReplaceSelection(const string16& text);
-
   virtual void SetForcedQuery();
 
   virtual bool IsSelectAll();
+  virtual bool DeleteAtEndPressed();
   virtual void GetSelectionBounds(std::wstring::size_type* start,
                                   std::wstring::size_type* end);
 
@@ -81,6 +81,7 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
   virtual CommandUpdater* GetCommandUpdater();
 
   // Implement the AutocompleteTextFieldObserver interface.
+  virtual NSRange SelectionRangeForProposedRange(NSRange proposed_range);
   virtual void OnControlKeyChanged(bool pressed);
   virtual bool CanCopy();
   virtual void CopyToPasteboard(NSPasteboard* pboard);
@@ -95,6 +96,10 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
   virtual bool OnDoCommandBySelector(SEL cmd);
   virtual void OnSetFocus(bool control_down);
   virtual void OnKillFocus();
+
+  // Suggest text should be in the model, but for now, it's here.
+  void SetSuggestText(const string16& suggest_text);
+  bool CommitSuggestText();
 
   // Helper for LocationBarViewMac.  Optionally selects all in |field_|.
   void FocusLocation(bool select_all);
@@ -131,13 +136,20 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
   // the selection to |range|.  Otherwise does nothing.
   void SetSelectedRange(const NSRange range);
 
-  // Update the field with |display_text| and highlight the host and
-  // scheme (if it's an URL or URL-fragment).
+  // Update the field with |display_text| and highlight the host and scheme (if
+  // it's an URL or URL-fragment).  Resets any suggest text that may be present.
   void SetText(const std::wstring& display_text);
+
+  // Internal implementation of SetText.  Does not reset the suggest text before
+  // setting the display text.  Most callers should use |SetText()| instead.
+  void SetTextInternal(const std::wstring& display_text);
 
   // Update the field with |display_text| and set the selection.
   void SetTextAndSelectedRange(const std::wstring& display_text,
                                const NSRange range);
+
+  // Returns the non-suggest portion of |field_|'s string value.
+  NSString* GetNonSuggestTextSubstring() const;
 
   // Pass the current content of |field_| to SetText(), maintaining
   // any selection.  Named to be consistent with GTK and Windows,
@@ -169,6 +181,16 @@ class AutocompleteEditViewMac : public AutocompleteEditView,
   // to model_.
   NSRange selection_before_change_;
   std::wstring text_before_change_;
+
+  // Length of the suggest text.  The suggest text always appears at the end of
+  // the field.
+  size_t suggest_text_length_;
+
+  // Was delete pressed?
+  bool delete_was_pressed_;
+
+  // Was the delete key pressed with an empty selection at the end of the edit?
+  bool delete_at_end_pressed_;
 
   // The maximum/standard line height for the displayed text.
   CGFloat line_height_;

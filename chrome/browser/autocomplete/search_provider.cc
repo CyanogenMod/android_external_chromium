@@ -18,6 +18,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/history/history.h"
+#include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/net/url_fixer_upper.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
@@ -59,12 +60,64 @@ void SearchProvider::Providers::Set(const TemplateURL* default_provider,
 SearchProvider::SearchProvider(ACProviderListener* listener, Profile* profile)
     : AutocompleteProvider(listener, profile, "Search"),
       suggest_results_pending_(0),
-      have_suggest_results_(false) {
+      instant_finalized_(false) {
+}
+
+void SearchProvider::FinalizeInstantQuery(const std::wstring& input_text,
+                                          const std::wstring& suggest_text) {
+  if (done_ || instant_finalized_)
+    return;
+
+  instant_finalized_ = true;
+  UpdateDone();
+
+  if (input_text.empty()) {
+    // We only need to update the listener if we're actually done.
+    if (done_)
+      listener_->OnProviderUpdate(false);
+    return;
+  }
+
+  std::wstring adjusted_input_text(input_text);
+  AutocompleteInput::RemoveForcedQueryStringIfNecessary(input_.type(),
+                                                        &adjusted_input_text);
+
+  const std::wstring text = adjusted_input_text + suggest_text;
+  // Remove any matches that are identical to |text|. We don't use the
+  // destination_url for comparison as it varies depending upon the index passed
+  // to TemplateURL::ReplaceSearchTerms.
+  for (ACMatches::iterator i = matches_.begin(); i != matches_.end();) {
+    if (((i->type == AutocompleteMatch::SEARCH_HISTORY) ||
+         (i->type == AutocompleteMatch::SEARCH_SUGGEST)) &&
+        (i->fill_into_edit == text)) {
+      i = matches_.erase(i);
+    } else {
+      ++i;
+    }
+  }
+
+  // Add the new suggest result. We give it a rank higher than
+  // SEARCH_WHAT_YOU_TYPED so that it gets autocompleted.
+  int did_not_accept_default_suggestion = default_suggest_results_.empty() ?
+        TemplateURLRef::NO_SUGGESTIONS_AVAILABLE :
+        TemplateURLRef::NO_SUGGESTION_CHOSEN;
+  MatchMap match_map;
+  AddMatchToMap(text, adjusted_input_text,
+                CalculateRelevanceForWhatYouTyped() + 1,
+                AutocompleteMatch::SEARCH_SUGGEST,
+                did_not_accept_default_suggestion, false,
+                input_.initial_prevent_inline_autocomplete(), &match_map);
+  DCHECK_EQ(1u, match_map.size());
+  matches_.push_back(match_map.begin()->second);
+
+  listener_->OnProviderUpdate(true);
 }
 
 void SearchProvider::Start(const AutocompleteInput& input,
                            bool minimal_changes) {
   matches_.clear();
+
+  instant_finalized_ = input.synchronous_only();
 
   // Can't return search/suggest results for bogus input or without a profile.
   if (!profile_ || (input.type() == AutocompleteInput::INVALID)) {
@@ -462,9 +515,11 @@ void SearchProvider::ConvertResultsToAutocompleteMatches() {
         TemplateURLRef::NO_SUGGESTIONS_AVAILABLE :
         TemplateURLRef::NO_SUGGESTION_CHOSEN;
   if (providers_.valid_default_provider()) {
-    AddMatchToMap(input_.text(), CalculateRelevanceForWhatYouTyped(),
+    AddMatchToMap(input_.text(), input_.text(),
+                  CalculateRelevanceForWhatYouTyped(),
                   AutocompleteMatch::SEARCH_WHAT_YOU_TYPED,
-                  did_not_accept_default_suggestion, false, &map);
+                  did_not_accept_default_suggestion, false,
+                  input_.initial_prevent_inline_autocomplete(), &map);
   }
 
   AddHistoryResultsToMap(keyword_history_results_, true,
@@ -494,9 +549,7 @@ void SearchProvider::ConvertResultsToAutocompleteMatches() {
 
   UpdateStarredStateOfMatches();
 
-  // We're done when there are no more suggest queries pending (this is set to 1
-  // when the timer is started).
-  done_ = suggest_results_pending_ == 0;
+  UpdateDone();
 }
 
 void SearchProvider::AddNavigationResultsToMatches(
@@ -521,9 +574,11 @@ void SearchProvider::AddHistoryResultsToMap(const HistoryResults& results,
   for (HistoryResults::const_iterator i(results.begin()); i != results.end();
        ++i) {
     AddMatchToMap(UTF16ToWide(i->term),
+                  is_keyword ? keyword_input_text_ : input_.text(),
                   CalculateRelevanceForHistory(i->time, is_keyword),
                   AutocompleteMatch::SEARCH_HISTORY, did_not_accept_suggestion,
-                  is_keyword, map);
+                  is_keyword, input_.initial_prevent_inline_autocomplete(),
+                  map);
   }
 }
 
@@ -534,10 +589,12 @@ void SearchProvider::AddSuggestResultsToMap(
     MatchMap* map) {
   for (size_t i = 0; i < suggest_results.size(); ++i) {
     AddMatchToMap(suggest_results[i],
+                  is_keyword ? keyword_input_text_ : input_.text(),
                   CalculateRelevanceForSuggestion(suggest_results.size(), i,
                                                   is_keyword),
                   AutocompleteMatch::SEARCH_SUGGEST,
-                  static_cast<int>(i), is_keyword, map);
+                  static_cast<int>(i), is_keyword,
+                  input_.initial_prevent_inline_autocomplete(), map);
   }
 }
 
@@ -622,13 +679,13 @@ int SearchProvider::CalculateRelevanceForNavigation(size_t num_results,
 }
 
 void SearchProvider::AddMatchToMap(const std::wstring& query_string,
+                                   const std::wstring& input_text,
                                    int relevance,
                                    AutocompleteMatch::Type type,
                                    int accepted_suggestion,
                                    bool is_keyword,
+                                   bool prevent_inline_autocomplete,
                                    MatchMap* map) {
-  const std::wstring& input_text =
-      is_keyword ? keyword_input_text_ : input_.text();
   AutocompleteMatch match(this, relevance, false, type);
   std::vector<size_t> content_param_offsets;
   const TemplateURL& provider = is_keyword ? providers_.keyword_provider() :
@@ -693,7 +750,7 @@ void SearchProvider::AddMatchToMap(const std::wstring& query_string,
   }
   match.fill_into_edit.append(query_string);
   // Not all suggestions start with the original input.
-  if (!input_.prevent_inline_autocomplete() &&
+  if (!prevent_inline_autocomplete &&
       !match.fill_into_edit.compare(search_start, input_text.length(),
                                    input_text))
     match.inline_autocomplete_offset = search_start + input_text.length();
@@ -760,4 +817,11 @@ AutocompleteMatch SearchProvider::NavigationToMatch(
   // inline-autocompletable?
 
   return match;
+}
+
+void SearchProvider::UpdateDone() {
+  // We're done when there are no more suggest queries pending (this is set to 1
+  // when the timer is started) and we're not waiting on instant.
+  done_ = ((suggest_results_pending_ == 0) &&
+           (instant_finalized_ || !InstantController::IsEnabled(profile_)));
 }

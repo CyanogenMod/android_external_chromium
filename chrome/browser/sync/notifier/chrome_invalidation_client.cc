@@ -21,6 +21,10 @@ ChromeInvalidationClient::Listener::~Listener() {}
 
 ChromeInvalidationClient::ChromeInvalidationClient()
     : chrome_system_resources_(ALLOW_THIS_IN_INITIALIZER_LIST(this)),
+      scoped_callback_factory_(ALLOW_THIS_IN_INITIALIZER_LIST(this)),
+      handle_outbound_packet_callback_(
+          scoped_callback_factory_.NewCallback(
+              &ChromeInvalidationClient::HandleOutboundPacket)),
       listener_(NULL),
       state_writer_(NULL) {
   DCHECK(non_thread_safe_.CalledOnValidThread());
@@ -38,7 +42,6 @@ void ChromeInvalidationClient::Start(
     Listener* listener, StateWriter* state_writer,
     base::WeakPtr<talk_base::Task> base_task) {
   DCHECK(non_thread_safe_.CalledOnValidThread());
-  DCHECK(base_task.get());
   Stop();
 
   chrome_system_resources_.StartScheduler();
@@ -61,14 +64,27 @@ void ChromeInvalidationClient::Start(
   client_config.max_ops_per_message = 40;
   invalidation_client_.reset(
       new invalidation::InvalidationClientImpl(
-          &chrome_system_resources_, client_type, client_id,
-          state, client_config, this));
-  cache_invalidation_packet_handler_.reset(
-      new CacheInvalidationPacketHandler(base_task,
-                                         invalidation_client_.get()));
+          &chrome_system_resources_, client_type, client_id, client_config,
+          this));
+  invalidation_client_->Start(state);
+  invalidation::NetworkEndpoint* network_endpoint =
+      invalidation_client_->network_endpoint();
+  CHECK(network_endpoint);
+  network_endpoint->RegisterOutboundListener(
+      handle_outbound_packet_callback_.get());
+  ChangeBaseTask(base_task);
   registration_manager_.reset(
       new RegistrationManager(invalidation_client_.get()));
   RegisterTypes();
+}
+
+void ChromeInvalidationClient::ChangeBaseTask(
+    base::WeakPtr<talk_base::Task> base_task) {
+  DCHECK(invalidation_client_.get());
+  DCHECK(base_task.get());
+  cache_invalidation_packet_handler_.reset(
+      new CacheInvalidationPacketHandler(base_task,
+                                         invalidation_client_.get()));
 }
 
 void ChromeInvalidationClient::Stop() {
@@ -175,7 +191,17 @@ void ChromeInvalidationClient::RegistrationLost(
 }
 
 void ChromeInvalidationClient::WriteState(const std::string& state) {
+  DCHECK(non_thread_safe_.CalledOnValidThread());
+  CHECK(state_writer_);
   state_writer_->WriteState(state);
+}
+
+void ChromeInvalidationClient::HandleOutboundPacket(
+    invalidation::NetworkEndpoint* const& network_endpoint) {
+  DCHECK(non_thread_safe_.CalledOnValidThread());
+  CHECK(cache_invalidation_packet_handler_.get());
+  cache_invalidation_packet_handler_->
+      HandleOutboundPacket(network_endpoint);
 }
 
 }  // namespace sync_notifier

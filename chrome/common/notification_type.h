@@ -670,6 +670,13 @@ class NotificationType {
     // details the TopSites.
     TOP_SITES_LOADED,
 
+    // Sent by TopSites when it has finished updating its most visited URLs
+    // cache after querying the history service. The source is the TopSites and
+    // the details a CancelableRequestProvider::Handle from the history service
+    // query.
+    // Used only in testing.
+    TOP_SITES_UPDATED,
+
     // Thumbnails---------------------------------------------------------------
 
     // Sent by the ThumbnailGenerator whenever a render widget host
@@ -735,9 +742,10 @@ class NotificationType {
     // should be the UI thread.
     DEFAULT_REQUEST_CONTEXT_AVAILABLE,
 
-    // A new web resource has been made available. Source is the
-    // WebResourceService, and the details are NoDetails.
-    WEB_RESOURCE_AVAILABLE,
+    // The state of a web resource has been changed. A resource may have been
+    // added, removed, or altered. Source is WebResourceService, and the
+    // details are NoDetails.
+    WEB_RESOURCE_STATE_CHANGED,
 
     // Autocomplete ------------------------------------------------------------
 
@@ -914,6 +922,10 @@ class NotificationType {
     // are no details.
     EXTENSION_PAGE_ACTION_COUNT_CHANGED,
 
+    // Sent when a browser action's visibility has changed. The source is the
+    // ExtensionPrefs* that changed. The details are a Extension*.
+    EXTENSION_BROWSER_ACTION_VISIBILITY_CHANGED,
+
     // Sent when a page action's visibility has changed. The source is the
     // ExtensionAction* that changed. The details are a TabContents*.
     EXTENSION_PAGE_ACTION_VISIBILITY_CHANGED,
@@ -942,6 +954,10 @@ class NotificationType {
     // Sent when the user accepts the input in an extension omnibox keyword
     // session. The source is the profile.
     EXTENSION_OMNIBOX_INPUT_ENTERED,
+
+    // Sent when an omnibox extension has updated the default suggestion. The
+    // source is the profile.
+    EXTENSION_OMNIBOX_DEFAULT_SUGGESTION_CHANGED,
 
     // Sent when an extension changes a preference value. The source is the
     // profile, and the details are an ExtensionPrefStore::ExtensionPrefDetails
@@ -1028,6 +1044,12 @@ class NotificationType {
     // if only suspected bad modules were found.
     MODULE_INCOMPATIBILITY_DETECTED,
 
+    // Background App Tracking Notifications -----------------------------------
+    // Sent when the state of the background page tracker has changed (the
+    // number of unacknowledged background pages have changed). Source is the
+    // BackgroundPageTracker and there are no Details.
+    BACKGROUND_PAGE_TRACKER_CHANGED,
+
     // Accessibility Notifications ---------------------------------------------
 
     // Notification that a window in the browser UI (not the web content)
@@ -1112,8 +1134,9 @@ class NotificationType {
     // The syncer requires a passphrase to decrypt sensitive updates. This
     // notification is sent when the first sensitive data type is setup by the
     // user as well as anytime any the passphrase is changed in another synced
-    // client.  The source is the SyncBackendHost wanting a passphrase.  No
-    // details.
+    // client.  The source is the SyncBackendHost wanting a passphrase.  The
+    // details are a boolean: true if the passphrase is required for decryption,
+    // false if only required for encryption.
     SYNC_PASSPHRASE_REQUIRED,
 
     // Sent when the passphrase provided by the user is accepted. After this
@@ -1271,6 +1294,10 @@ class NotificationType {
     // This notification is sent whenever the device token becomes available
     // that the policy subsystem uses to fetch policy from the cloud.
     DEVICE_TOKEN_AVAILABLE,
+
+    // This notification is sent whenever cloud policies are fetched and
+    // updated. The detail of this notification is not used.
+    CLOUD_POLICY_UPDATE,
 
     // Count (must be last) ----------------------------------------------------
     // Used to determine the number of notification types.  Not valid as

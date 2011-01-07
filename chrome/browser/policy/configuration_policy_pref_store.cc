@@ -12,6 +12,7 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/browser/profile.h"
 #include "chrome/browser/policy/configuration_policy_provider.h"
 #if defined(OS_WIN)
 #include "chrome/browser/policy/configuration_policy_provider_win.h"
@@ -22,6 +23,7 @@
 #endif
 #include "chrome/browser/policy/device_management_policy_provider.h"
 #include "chrome/browser/policy/dummy_configuration_policy_provider.h"
+#include "chrome/browser/policy/profile_policy_context.h"
 #include "chrome/browser/search_engines/search_terms_data.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/common/chrome_paths.h"
@@ -50,7 +52,7 @@ class ConfigurationPolicyProviderKeeper {
     return device_management_provider_.get();
   }
 
-ConfigurationPolicyProvider* recommended_provider() const {
+  ConfigurationPolicyProvider* recommended_provider() const {
     return recommended_provider_.get();
   }
 
@@ -65,19 +67,6 @@ ConfigurationPolicyProvider* recommended_provider() const {
 
   DISALLOW_COPY_AND_ASSIGN(ConfigurationPolicyProviderKeeper);
 };
-
-
-ConfigurationPolicyProvider*
-    ConfigurationPolicyProviderKeeper::CreateDeviceManagementProvider() {
-  const ConfigurationPolicyProvider::PolicyDefinitionList* policy_list =
-      ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList();
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kDeviceManagementUrl)) {
-    return new DeviceManagementPolicyProvider(policy_list);
-  } else {
-    return new DummyConfigurationPolicyProvider(policy_list);
-  }
-}
 
 ConfigurationPolicyProvider*
     ConfigurationPolicyProviderKeeper::CreateManagedPlatformProvider() {
@@ -99,6 +88,12 @@ ConfigurationPolicyProvider*
 #else
   return new DummyConfigurationPolicyProvider(policy_list);
 #endif
+}
+
+ConfigurationPolicyProvider*
+    ConfigurationPolicyProviderKeeper::CreateDeviceManagementProvider() {
+  return new DummyConfigurationPolicyProvider(
+      ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList());
 }
 
 ConfigurationPolicyProvider*
@@ -374,11 +369,16 @@ ConfigurationPolicyPrefStore::CreateManagedPlatformPolicyPrefStore() {
 
 // static
 ConfigurationPolicyPrefStore*
-ConfigurationPolicyPrefStore::CreateDeviceManagementPolicyPrefStore() {
+ConfigurationPolicyPrefStore::CreateDeviceManagementPolicyPrefStore(
+    Profile* profile) {
   ConfigurationPolicyProviderKeeper* keeper =
       Singleton<ConfigurationPolicyProviderKeeper>::get();
-  return new ConfigurationPolicyPrefStore(
-      keeper->device_management_provider());
+  ConfigurationPolicyProvider* provider = NULL;
+  if (profile)
+    provider = profile->GetPolicyContext()->GetDeviceManagementPolicyProvider();
+  if (!provider)
+    provider = keeper->device_management_provider();
+  return new ConfigurationPolicyPrefStore(provider);
 }
 
 // static

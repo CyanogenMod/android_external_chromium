@@ -6,13 +6,13 @@
 #include "base/command_line.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
-#include "chrome/browser/browser.h"
-#include "chrome/browser/browser_window.h"
 #include "chrome/browser/cocoa/view_id_util.h"
 #include "chrome/browser/download/download_shelf.h"
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/sidebar/sidebar_manager.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -71,7 +71,8 @@ class ViewIDTest : public InProcessBrowserTest {
       if (i == VIEW_ID_STAR_BUTTON ||
           i == VIEW_ID_AUTOCOMPLETE ||
           i == VIEW_ID_CONTENTS_SPLIT ||
-          i == VIEW_ID_SIDE_BAR_SPLIT) {
+          i == VIEW_ID_SIDE_BAR_SPLIT ||
+          i == VIEW_ID_FEEDBACK_BUTTON) {
         continue;
       }
 

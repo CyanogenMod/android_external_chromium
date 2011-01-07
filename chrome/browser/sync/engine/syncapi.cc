@@ -67,7 +67,6 @@ using browser_sync::ModelSafeRoutingInfo;
 using browser_sync::ModelSafeWorker;
 using browser_sync::ModelSafeWorkerRegistrar;
 using browser_sync::ServerConnectionEvent;
-using browser_sync::ServerConnectionEventListener;
 using browser_sync::SyncEngineEvent;
 using browser_sync::SyncEngineEventListener;
 using browser_sync::Syncer;
@@ -84,6 +83,7 @@ using syncable::Directory;
 using syncable::DirectoryManager;
 using syncable::Entry;
 using syncable::SPECIFICS;
+using sync_pb::AutofillProfileSpecifics;
 
 typedef GoogleServiceAuthError AuthError;
 
@@ -280,6 +280,11 @@ const sync_pb::AppSpecifics& BaseNode::GetAppSpecifics() const {
 const sync_pb::AutofillSpecifics& BaseNode::GetAutofillSpecifics() const {
   DCHECK(GetModelType() == syncable::AUTOFILL);
   return GetEntry()->Get(SPECIFICS).GetExtension(sync_pb::autofill);
+}
+
+const AutofillProfileSpecifics& BaseNode::GetAutofillProfileSpecifics() const {
+  DCHECK_EQ(GetModelType(), syncable::AUTOFILL_PROFILE);
+  return GetEntry()->Get(SPECIFICS).GetExtension(sync_pb::autofill_profile);
 }
 
 const sync_pb::BookmarkSpecifics& BaseNode::GetBookmarkSpecifics() const {
@@ -758,6 +763,11 @@ ReadNode::ReadNode(const BaseTransaction* transaction)
   DCHECK(transaction);
 }
 
+ReadNode::ReadNode() {
+  entry_ = NULL;
+  transaction_ = NULL;
+}
+
 ReadNode::~ReadNode() {
   delete entry_;
 }
@@ -933,8 +943,7 @@ class SyncManager::SyncInternal
       public TalkMediator::Delegate,
       public sync_notifier::StateWriter,
       public browser_sync::ChannelEventHandler<syncable::DirectoryChangeEvent>,
-      public SyncEngineEventListener,
-      public ServerConnectionEventListener {
+      public SyncEngineEventListener {
   static const int kDefaultNudgeDelayMilliseconds;
   static const int kPreferencesNudgeDelayMilliseconds;
  public:
@@ -1004,7 +1013,7 @@ class SyncManager::SyncInternal
       const syncable::DirectoryChangeEvent& event);
 
   // Listens for notifications from the ServerConnectionManager
-  virtual void OnServerConnectionEvent(const ServerConnectionEvent& event);
+  void HandleServerConnectionEvent(const ServerConnectionEvent& event);
 
   // Open the directory named with username_for_share
   bool OpenDirectory();
@@ -1234,6 +1243,9 @@ class SyncManager::SyncInternal
   scoped_ptr<browser_sync::ChannelHookup<syncable::DirectoryChangeEvent> >
       dir_change_hookup_;
 
+  // Event listener hookup for the ServerConnectionManager.
+  scoped_ptr<EventListenerHookup> connection_manager_hookup_;
+
   // The sync dir_manager to which we belong.
   SyncManager* const sync_manager_;
 
@@ -1370,7 +1382,9 @@ bool SyncManager::SyncInternal::Init(
   connection_manager_.reset(new SyncAPIServerConnectionManager(
       sync_server_and_path, port, use_ssl, user_agent, post_factory));
 
-  connection_manager_->AddListener(this);
+  connection_manager_hookup_.reset(
+      NewEventListenerHookup(connection_manager()->channel(), this,
+          &SyncManager::SyncInternal::HandleServerConnectionEvent));
 
   net::NetworkChangeNotifier::AddObserver(this);
   // TODO(akalin): CheckServerReachable() can block, which may cause jank if we
@@ -1429,7 +1443,7 @@ void SyncManager::SyncInternal::BootstrapEncryption(
       cryptographer->SetKeys(nigori.encrypted());
     } else {
       cryptographer->SetPendingKeys(nigori.encrypted());
-      observer_->OnPassphraseRequired();
+      observer_->OnPassphraseRequired(true);
     }
   }
 }
@@ -1605,7 +1619,7 @@ void SyncManager::SyncInternal::SetPassphrase(
   KeyParams params = {"localhost", "dummy", passphrase};
   if (cryptographer->has_pending_keys()) {
     if (!cryptographer->DecryptPendingKeys(params)) {
-      observer_->OnPassphraseRequired();
+      observer_->OnPassphraseRequired(true);
       return;
     }
 
@@ -1741,7 +1755,7 @@ void SyncManager::SyncInternal::Shutdown() {
 
   net::NetworkChangeNotifier::RemoveObserver(this);
 
-  connection_manager_->RemoveListener(this);
+  connection_manager_hookup_.reset();
 
   if (dir_manager()) {
     dir_manager()->FinalSaveChangesForAll();
@@ -1821,7 +1835,7 @@ void SyncManager::SyncInternal::HandleTransactionCompleteChangeEvent(
   }
 }
 
-void SyncManager::SyncInternal::OnServerConnectionEvent(
+void SyncManager::SyncInternal::HandleServerConnectionEvent(
     const ServerConnectionEvent& event) {
   allstatus_.HandleServerConnectionEvent(event);
   if (event.what_happened == ServerConnectionEvent::STATUS_CHANGED) {
@@ -1837,9 +1851,6 @@ void SyncManager::SyncInternal::OnServerConnectionEvent(
         observer_->OnAuthError(AuthError(AuthError::INVALID_GAIA_CREDENTIALS));
       }
     }
-  } else {
-    DCHECK_EQ(ServerConnectionEvent::SHUTDOWN, event.what_happened);
-    connection_manager_->RemoveListener(this);
   }
 }
 
@@ -2052,8 +2063,10 @@ void SyncManager::SyncInternal::OnSyncEngineEvent(
 
       // If we've completed a sync cycle and the cryptographer isn't ready yet,
       // prompt the user for a passphrase.
-      if (!cryptographer->is_ready() || cryptographer->has_pending_keys()) {
-        observer_->OnPassphraseRequired();
+      if (cryptographer->has_pending_keys()) {
+        observer_->OnPassphraseRequired(true);
+      } else if (!cryptographer->is_ready()) {
+        observer_->OnPassphraseRequired(false);
       }
     }
 

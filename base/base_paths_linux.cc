@@ -105,11 +105,15 @@ bool PathProviderPosix(int key, FilePath* result) {
                  << "Try running from your chromium/src directory.";
       return false;
     }
+<<<<<<< HEAD
     case base::DIR_USER_CACHE:
 #ifdef ANDROID
       NOTREACHED();
       return false;
 #else
+=======
+    case base::DIR_CACHE:
+>>>>>>> Chromium.org at 9.0.597.55
       scoped_ptr<base::Environment> env(base::Environment::Create());
       FilePath cache_dir(base::nix::GetXDGDirectory(env.get(), "XDG_CACHE_HOME",
                                                     ".cache"));

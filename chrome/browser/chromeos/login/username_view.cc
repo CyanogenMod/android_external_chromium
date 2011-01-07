@@ -5,12 +5,12 @@
 #include "chrome/browser/chromeos/login/username_view.h"
 
 #include "base/logging.h"
+#include "base/utf_string_conversions.h"
 #include "gfx/canvas.h"
 #include "gfx/canvas_skia.h"
 #include "gfx/rect.h"
 #include "third_party/skia/include/core/SkComposeShader.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
-#include "views/background.h"
 
 namespace {
 // Username label background color.
@@ -78,15 +78,18 @@ void UsernameView::PaintUsername(const gfx::Rect& bounds) {
       gfx::Canvas::TEXT_VALIGN_MIDDLE |
       gfx::Canvas::NO_ELLIPSIS;
   int text_height;
-  gfx::CanvasSkia::SizeStringInt(GetText(), font(),
+  gfx::CanvasSkia::SizeStringInt(WideToUTF16Hack(GetText()), font(),
                                  &text_width_, &text_height,
                                  flags);
   text_width_ = std::min(text_width_, bounds.width() - margin_width_);
   // Draw the text.
-  canvas.DrawStringInt(GetText(), font(), GetColor(),
-                        bounds.x() + margin_width_, bounds.y(),
-                        bounds.width() - margin_width_, bounds.height(),
-                        flags);
+  // Note, direct call of the DrawStringInt method produces the green dots
+  // along the text perimeter (when the label is place on the white background).
+  SkColor kInvisibleHaloColor = 0x00000000;
+  canvas.DrawStringWithHalo(GetText(), font(), GetColor(), kInvisibleHaloColor,
+                            bounds.x() + margin_width_, bounds.y(),
+                            bounds.width() - margin_width_, bounds.height(),
+                            flags);
 
   text_image_.reset(new SkBitmap(canvas.ExtractBitmap()));
   text_image_->buildMipMap(false);

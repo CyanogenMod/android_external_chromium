@@ -76,9 +76,7 @@ std::wstring NetworkConfigView::GetDialogButtonLabel(
     MessageBoxFlags::DialogButton button) const {
   if (button == MessageBoxFlags::DIALOGBUTTON_OK) {
     if (flags_ & FLAG_LOGIN_ONLY)
-      return l10n_util::GetString(IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_LOGIN);
-    else
-      return l10n_util::GetString(IDS_CANCEL);
+      return l10n_util::GetString(IDS_OPTIONS_SETTINGS_CONNECT);
   }
   return std::wstring();
 }
@@ -94,6 +92,8 @@ bool NetworkConfigView::IsDialogButtonEnabled(
 bool NetworkConfigView::Cancel() {
   if (delegate_)
     delegate_->OnDialogCancelled();
+  if (flags_ & FLAG_WIFI)
+    wificonfig_view_->Cancel();
   return true;
 }
 

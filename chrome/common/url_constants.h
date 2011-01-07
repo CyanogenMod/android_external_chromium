@@ -148,6 +148,7 @@ extern const char kBlobViewInternalsURL[];
 // Cloud Print dialog URL components.
 extern const char kCloudPrintResourcesURL[];
 extern const char kCloudPrintResourcesHost[];
+extern const char kCloudPrintSetupHost[];
 
 // Network related URLs.
 extern const char kNetworkViewCacheURL[];
@@ -169,6 +170,9 @@ extern const char kInternetOptionsSubPage[];
 extern const char kLanguageOptionsSubPage[];
 extern const char kSystemOptionsSubPage[];
 #endif
+
+// General help link for Chrome.
+extern const char kChromeHelpURL[];
 
 // "What do these mean?" URL for the Page Info bubble.
 extern const char kPageInfoHelpCenterURL[];

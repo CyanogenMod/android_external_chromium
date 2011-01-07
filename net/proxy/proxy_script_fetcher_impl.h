@@ -8,6 +8,7 @@
 
 #include "base/basictypes.h"
 #include "base/ref_counted.h"
+#include "base/scoped_ptr.h"
 #include "base/string16.h"
 #include "base/task.h"
 #include "base/time.h"
@@ -59,6 +60,10 @@ class ProxyScriptFetcherImpl : public ProxyScriptFetcher,
  private:
   // Read more bytes from the response.
   void ReadBody(URLRequest* request);
+
+  // Handles a response from Read(). Returns true if we should continue trying
+  // to read. |num_bytes| is 0 for EOF, and < 0 on errors.
+  bool ConsumeBytesRead(URLRequest* request, int num_bytes);
 
   // Called once the request has completed to notify the caller of
   // |response_code_| and |response_text_|.

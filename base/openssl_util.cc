@@ -22,6 +22,20 @@ unsigned long CurrentThreadId() {
 
 // Singleton for initializing and cleaning up the OpenSSL library.
 class OpenSSLInitSingleton {
+ public:
+  static OpenSSLInitSingleton* Get() {
+    // We allow the SSL environment to leak for multiple reasons:
+    //   -  it is used from a non-joinable worker thread that is not stopped on
+    //      shutdown, hence may still be using OpenSSL library after the AtExit
+    //      runner has completed.
+    //   -  There are other OpenSSL related singletons (e.g. the client socket
+    //      context) who's cleanup depends on the global environment here, but
+    //      we can't control the order the AtExit handlers will run in so
+    //      allowing the global environment to leak at least ensures it is
+    //      available for those other singletons to reliably cleanup.
+    return Singleton<OpenSSLInitSingleton,
+                     LeakySingletonTraits<OpenSSLInitSingleton> >::get();
+  }
  private:
   friend struct DefaultSingletonTraits<OpenSSLInitSingleton>;
   OpenSSLInitSingleton() {
@@ -43,8 +57,7 @@ class OpenSSLInitSingleton {
   }
 
   static void LockingCallback(int mode, int n, const char* file, int line) {
-    Singleton<OpenSSLInitSingleton>::get()->OnLockingCallback(mode, n, file,
-                                                              line);
+    OpenSSLInitSingleton::Get()->OnLockingCallback(mode, n, file, line);
   }
 
   void OnLockingCallback(int mode, int n, const char* file, int line) {
@@ -64,16 +77,18 @@ class OpenSSLInitSingleton {
 }  // namespace
 
 void EnsureOpenSSLInit() {
-  (void)Singleton<OpenSSLInitSingleton>::get();
+  (void)OpenSSLInitSingleton::Get();
 }
 
-void ClearOpenSSLERRStack() {
+void ClearOpenSSLERRStack(const tracked_objects::Location& location) {
   if (logging::DEBUG_MODE && VLOG_IS_ON(1)) {
     int error_num = ERR_get_error();
     if (error_num == 0)
       return;
 
-    DVLOG(1) << "OpenSSL ERR_get_error stack:";
+    std::string message;
+    location.Write(true, true, &message);
+    DVLOG(1) << "OpenSSL ERR_get_error stack from " << message;
     char buf[140];
     do {
       ERR_error_string_n(error_num, buf, arraysize(buf));

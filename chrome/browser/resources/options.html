@@ -1,7 +1,6 @@
 <!DOCTYPE HTML>
 <html
     i18n-values="dir:textdirection;
-                 enable-background-mode:enable-background-mode;
                  enable-cloud-print-proxy:enable-cloud-print-proxy"
     id="t">
 <head>
@@ -36,6 +35,7 @@
   <link rel="stylesheet" href="options/chromeos_accounts_options_page.css">
   <link rel="stylesheet" href="options/chromeos_internet_options_page.css">
   <link rel="stylesheet" href="options/chromeos_language_options.css">
+  <link rel="stylesheet" href="options/chromeos_proxy.css">
 </if>
 
 <if expr="not pp_ifdef('win32') and not pp_ifdef('darwin')">
@@ -63,6 +63,7 @@
 <script src="options/options_page.js"></script>
 <if expr="pp_ifdef('chromeos')">
   <script src="options/about_page.js"></script>
+  <script src="options/chromeos_cellular_plan_element.js"></script>
   <script src="options/chromeos_internet_network_element.js"></script>
   <script src="options/chromeos_internet_options.js"></script>
   <script src="options/chromeos_language_add_language_overlay.js"></script>
@@ -123,6 +124,7 @@
 <script src="options/personal_options.js"></script>
 <script src="options/search_engine_manager.js"></script>
 <script src="options/search_engine_manager_engine_list.js"></script>
+<script src="options/search_page.js"></script>
 <script src="options/sync_options.js"></script>
 <script src="options/zippy.js"></script>
 <script>
@@ -146,6 +148,7 @@ var PasswordsExceptions = options.PasswordsExceptions;
 var PersonalOptions = options.PersonalOptions;
 var Preferences = options.Preferences;
 var SearchEngineManager = options.SearchEngineManager;
+var SearchPage = options.SearchPage;
 var ProxyOptions = options.ProxyOptions;
 var SyncOptions = options.SyncOptions;
 
@@ -190,6 +193,7 @@ function load() {
     OptionsPage.register(InternetOptions.getInstance());
   }
 
+  OptionsPage.register(SearchPage.getInstance());
   OptionsPage.register(BrowserOptions.getInstance());
   OptionsPage.registerSubPage(SearchEngineManager.getInstance(),
                               BrowserOptions.getInstance());
@@ -324,14 +328,19 @@ window.onpopstate = function(e) {
              i18n-content="managedPrefsBannerText"></span>
      </div>
      <div id="mainview-content">
+       <!-- Start main pages -->
+       <!-- Please keep the main pages in desired order of display.  This will
+            allow search results to display in the desired order. -->
+       <include src="options/search_page.html">
        <if expr="pp_ifdef('chromeos')">
          <include src="options/chromeos_system_options.html">
          <include src="options/chromeos_internet_options.html">
          <include src="options/chromeos_accounts_options.html">
        </if>
-       <include src="options/advanced_options.html">
        <include src="options/browser_options.html">
        <include src="options/personal_options.html">
+       <include src="options/advanced_options.html">
+       <!-- End main pages -->
        <div id="subpage-sheet-container" class="hidden">
          <div id="subpage-sheet">
            <if expr="pp_ifdef('chromeos')">

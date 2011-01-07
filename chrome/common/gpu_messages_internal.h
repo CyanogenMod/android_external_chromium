@@ -51,6 +51,18 @@ IPC_BEGIN_MESSAGES(Gpu)
   // information.
   IPC_MESSAGE_CONTROL0(GpuMsg_CollectGraphicsInfo)
 
+#if defined(OS_MACOSX)
+  // Tells the GPU process that the browser process handled the swap
+  // buffers request with the given number. Note that it is possible
+  // for the browser process to coalesce frames; it is not guaranteed
+  // that every GpuHostMsg_AcceleratedSurfaceBuffersSwapped message
+  // will result in a buffer swap on the browser side.
+  IPC_MESSAGE_CONTROL3(GpuMsg_AcceleratedSurfaceBuffersSwappedACK,
+                       int /* renderer_id */,
+                       int32 /* route_id */,
+                       uint64 /* swap_buffers_count */)
+#endif
+
   // Tells the GPU process to crash.
   IPC_MESSAGE_CONTROL0(GpuMsg_Crash)
 
@@ -81,6 +93,17 @@ IPC_BEGIN_MESSAGES(GpuHost)
   IPC_SYNC_MESSAGE_CONTROL1_1(GpuHostMsg_GetViewXID,
                               gfx::NativeViewId, /* view */
                               unsigned long /* xid */)
+
+  // Release the lock on the window.
+  // If the associated view has been destroyed, destroy the window.
+  IPC_MESSAGE_CONTROL1(GpuHostMsg_ReleaseXID,
+                       unsigned long /* xid */)
+
+  IPC_SYNC_MESSAGE_CONTROL2_1(GpuHostMsg_ResizeXID,
+                              unsigned long, /* xid */
+                              gfx::Size, /* size */
+                              bool /* success */)
+
 #elif defined(OS_MACOSX)
   // This message, used on Mac OS X 10.6 and later (where IOSurface is
   // supported), is sent from the GPU process to the browser to indicate that a
@@ -93,11 +116,18 @@ IPC_BEGIN_MESSAGES(GpuHost)
   // This message notifies the browser process that the renderer
   // swapped the buffers associated with the given "window", which
   // should cause the browser to redraw the compositor's contents.
-  IPC_MESSAGE_CONTROL4(GpuHostMsg_AcceleratedSurfaceBuffersSwapped,
+  IPC_MESSAGE_CONTROL1(GpuHostMsg_AcceleratedSurfaceBuffersSwapped,
+                       GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params)
+#elif defined(OS_WIN)
+  // Get the HWND for the compositor window and if necessary, create it
+  IPC_SYNC_MESSAGE_CONTROL2_1(GpuHostMsg_GetCompositorHostWindow,
+                              int32, /* renderer_id */
+                              int32, /* render_view_id */
+                              gfx::PluginWindowHandle /* compositor_host_id */)
+
+  IPC_MESSAGE_CONTROL2(GpuHostMsg_ScheduleComposite,
                        int32, /* renderer_id */
-                       int32, /* render_view_id */
-                       gfx::PluginWindowHandle /* window */,
-                       uint64 /* surface_id */)
+                       int32 /* render_view_id */)
 #endif
 
 IPC_END_MESSAGES(GpuHost)
@@ -225,13 +255,6 @@ IPC_BEGIN_MESSAGES(GpuCommandBuffer)
   // browser. This message is currently used only on 10.6 and later.
   IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_SetWindowSize,
                       gfx::Size /* size */)
-
-  // This message is sent from the GPU process to the renderer process (and
-  // from there the browser process) that the buffers associated with the
-  // given "window" were swapped, which should cause the browser to redraw
-  // the various accelerated surfaces.
-  IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_AcceleratedSurfaceBuffersSwapped,
-                      gfx::PluginWindowHandle /* window */)
 #endif
 
 IPC_END_MESSAGES(GpuCommandBuffer)

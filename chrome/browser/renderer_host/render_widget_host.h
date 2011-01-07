@@ -203,7 +203,9 @@ class RenderWidgetHost : public IPC::Channel::Listener,
   virtual void LostCapture();
 
   // Tells us whether the page is rendered directly via the GPU process.
-  bool is_gpu_rendering_active() { return is_gpu_rendering_active_; }
+  bool is_accelerated_compositing_active() {
+    return is_accelerated_compositing_active_;
+  }
 
   // Notifies the RenderWidgetHost that the View was destroyed.
   void ViewDestroyed();
@@ -279,6 +281,10 @@ class RenderWidgetHost : public IPC::Channel::Listener,
                                   const std::string& value);
   virtual void ForwardEditCommandsForNextKeyEvent(
       const EditCommands& edit_commands);
+#if defined(TOUCH_UI)
+  virtual void ForwardTouchEvent(const WebKit::WebTouchEvent& touch_event);
+#endif
+
 
   // Update the text direction of the focused input element and notify it to a
   // renderer process.
@@ -480,7 +486,7 @@ class RenderWidgetHost : public IPC::Channel::Listener,
                                     const gfx::Rect& caret_rect);
   void OnMsgImeCancelComposition();
 
-  void OnMsgGpuRenderingActivated(bool activated);
+  void OnMsgDidActivateAcceleratedCompositing(bool activated);
 
 #if defined(OS_MACOSX)
   void OnMsgGetScreenInfo(gfx::NativeViewId view,
@@ -560,7 +566,7 @@ class RenderWidgetHost : public IPC::Channel::Listener,
   bool is_hidden_;
 
   // True when a page is rendered directly via the GPU process.
-  bool is_gpu_rendering_active_;
+  bool is_accelerated_compositing_active_;
 
   // Set if we are waiting for a repaint ack for the view.
   bool repaint_ack_pending_;

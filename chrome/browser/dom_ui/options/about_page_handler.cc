@@ -17,9 +17,9 @@
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/platform_util.h"
+#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/url_constants.h"
-#include "chrome/common/chrome_version_info.h"
 #include "googleurl/src/gurl.h"
 #include "grit/browser_resources.h"
 #include "grit/chromium_strings.h"
@@ -36,6 +36,7 @@
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros/power_library.h"
 #include "chrome/browser/chromeos/cros/update_library.h"
+#include "chrome/browser/chromeos/login/wizard_controller.h"
 #endif
 
 namespace {
@@ -81,6 +82,8 @@ const LocalizeEntry localize_table[] = {
     { "beta", IDS_ABOUT_PAGE_CHANNEL_BETA },
     { "development", IDS_ABOUT_PAGE_CHANNEL_DEVELOPMENT },
     { "canary", IDS_ABOUT_PAGE_CHANNEL_CANARY },
+    { "channel_warning_header", IDS_ABOUT_PAGE_CHANNEL_WARNING_HEADER },
+    { "channel_warning_text", IDS_ABOUT_PAGE_CHANNEL_WARNING_TEXT },
     { "user_agent", IDS_ABOUT_VERSION_USER_AGENT },
     { "command_line", IDS_ABOUT_VERSION_COMMAND_LINE },
     { "aboutPage", IDS_ABOUT_PAGE_TITLE }
@@ -255,7 +258,7 @@ void AboutPageHandler::PageReady(const ListValue* args) {
   // Version information is loaded from a callback
   loader_.GetVersion(&consumer_,
                      NewCallback(this, &AboutPageHandler::OnOSVersion),
-                     true);
+                     chromeos::VersionLoader::VERSION_FULL);
 
   chromeos::UpdateLibrary* update_library =
       chromeos::CrosLibrary::Get()->GetUpdateLibrary();
@@ -290,8 +293,12 @@ void AboutPageHandler::SetReleaseTrack(const ListValue* args) {
 #if defined(OS_CHROMEOS)
 
 void AboutPageHandler::CheckNow(const ListValue* args) {
-  if (chromeos::InitiateUpdateCheck)
-    chromeos::InitiateUpdateCheck();
+  // Make sure that libcros is loaded and OOBE is complete.
+  if (chromeos::CrosLibrary::Get()->EnsureLoaded() &&
+      (!WizardController::default_controller() ||
+        WizardController::IsDeviceRegistered())) {
+    chromeos::CrosLibrary::Get()->GetUpdateLibrary()->CheckForUpdate();
+  }
 }
 
 void AboutPageHandler::RestartNow(const ListValue* args) {
@@ -361,9 +368,13 @@ void AboutPageHandler::UpdateStatus(
       break;
   }
   if (message.size()) {
-    scoped_ptr<Value> version_string(Value::CreateStringValue(message));
+    scoped_ptr<Value> update_message(Value::CreateStringValue(message));
+    // "Checking for update..." needs to be shown for a while, so users
+    // can read it, hence insert delay for this.
+    scoped_ptr<Value> insert_delay(Value::CreateBooleanValue(
+        status.status == chromeos::UPDATE_STATUS_CHECKING_FOR_UPDATE));
     dom_ui_->CallJavascriptFunction(L"AboutPage.updateStatusCallback",
-                                    *version_string);
+                                    *update_message, *insert_delay);
 
     scoped_ptr<Value> enabled_value(Value::CreateBooleanValue(enabled));
     dom_ui_->CallJavascriptFunction(L"AboutPage.updateEnableCallback",

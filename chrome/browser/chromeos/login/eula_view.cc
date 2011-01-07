@@ -37,7 +37,6 @@
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
 #include "views/controls/button/checkbox.h"
-#include "views/controls/button/native_button.h"
 #include "views/controls/label.h"
 #include "views/controls/throbber.h"
 #include "views/grid_layout.h"
@@ -52,7 +51,7 @@ using views::WidgetGtk;
 namespace {
 
 const int kBorderSize = 10;
-const int kCheckBowWidth = 22;
+const int kCheckboxWidth = 20;
 const int kLastButtonHorizontalMargin = 10;
 const int kMargin = 20;
 const int kTextMargin = 10;
@@ -266,7 +265,7 @@ static void SetUpGridLayout(views::GridLayout* layout) {
   column_set->AddPaddingColumn(0, kPadding);
 
   column_set = layout->AddColumnSet(SINGLE_LINK_WITH_SHIFT_ROW);
-  column_set->AddPaddingColumn(0, kPadding + kTextMargin + kCheckBowWidth);
+  column_set->AddPaddingColumn(0, kPadding + kTextMargin + kCheckboxWidth);
   column_set->AddColumn(views::GridLayout::LEADING, views::GridLayout::FILL, 1,
                         views::GridLayout::USE_PREF, 0, 0);
   column_set->AddPaddingColumn(0, kPadding);
@@ -394,10 +393,10 @@ void EulaView::Init() {
 
   layout->AddView(system_security_settings_link_);
 
-  back_button_ = new views::NativeButton(this, std::wstring());
+  back_button_ = new login::WideButton(this, std::wstring());
   layout->AddView(back_button_);
 
-  continue_button_ = new views::NativeButton(this, std::wstring());
+  continue_button_ = new login::WideButton(this, std::wstring());
   layout->AddView(continue_button_);
   layout->AddPaddingRow(0, kPadding);
 

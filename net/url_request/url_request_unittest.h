@@ -162,6 +162,7 @@ class TestURLRequestContext : public URLRequestContext {
     http_transaction_factory_ = new net::HttpCache(
         net::HttpNetworkLayer::CreateFactory(host_resolver_,
                                              NULL /* dnsrr_resolver */,
+                                             NULL /* dns_cert_checker */,
                                              NULL /* ssl_host_info_factory */,
                                              proxy_service_,
                                              ssl_config_service_,
@@ -318,6 +319,7 @@ class TestDelegate : public URLRequest::Delegate {
 
   virtual void OnSetCookie(URLRequest* request,
                            const std::string& cookie_line,
+                           const net::CookieOptions& options,
                            bool blocked_by_policy) {
     if (blocked_by_policy) {
       blocked_set_cookie_count_++;

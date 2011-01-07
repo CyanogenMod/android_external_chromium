@@ -57,6 +57,7 @@ extern const char kPasswordManagerEnabled[];
 extern const char kPasswordManagerAllowShowPasswords[];
 extern const char kFormAutofillEnabled[];  // OBSOLETE
 extern const char kSafeBrowsingEnabled[];
+extern const char kSafeBrowsingReportingEnabled[];
 extern const char kSearchSuggestEnabled[];
 extern const char kCookieBehavior[];  // OBSOLETE
 extern const char kDefaultSearchProviderEnabled[];
@@ -83,7 +84,6 @@ extern const char kInstantEnabled[];
 extern const char kInstantEnabledOnce[];
 extern const char kInstantEnabledTime[];
 extern const char kInstantPromo[];
-extern const char kInstantType[];
 #if defined(USE_NSS) || defined(USE_OPENSSL)
 extern const char kCertRevocationCheckingEnabled[];
 extern const char kSSL2Enabled[];
@@ -156,6 +156,7 @@ extern const char kAccessibilityEnabled[];
 extern const char kLabsAdvancedFilesystemEnabled[];
 extern const char kLabsMediaplayerEnabled[];
 extern const char kEnableScreenLock[];
+extern const char kShowPlanNotifications[];
 #endif
 extern const char kIpcDisabledMessages[];
 extern const char kShowHomeButton[];
@@ -274,7 +275,6 @@ extern const char kKeywordEditorWindowPlacement[];
 extern const char kPreferencesWindowPlacement[];
 extern const char kMemoryCacheSize[];
 
-extern const char kBackgroundModeEnabled[];
 extern const char kLaunchOnStartupResetAllowed[];
 
 extern const char kDownloadDefaultDirectory[];
@@ -340,16 +340,22 @@ extern const char kExtensionBlacklistUpdateVersion[];
 
 extern const char kExtensionSidebarWidth[];
 
+extern const char kNTPTipsResourceServer[];
+
 extern const char kNTPMostVisitedURLsBlacklist[];
 extern const char kNTPMostVisitedPinnedURLs[];
 extern const char kNTPWebResourceCache[];
 extern const char kNTPWebResourceCacheUpdate[];
-extern const char kNTPTipsResourceServer[];
-extern const char kNTPLogoResourceServer[];
+extern const char kNTPWebResourceServer[];
+extern const char kNTPDateResourceServer[];
 extern const char kNTPShownSections[];
 extern const char kNTPPrefVersion[];
 extern const char kNTPCustomLogoStart[];
 extern const char kNTPCustomLogoEnd[];
+extern const char kNTPPromoStart[];
+extern const char kNTPPromoEnd[];
+extern const char kNTPPromoLine[];
+extern const char kNTPPromoClosed[];
 
 extern const char kDevToolsDisabled[];
 extern const char kDevToolsOpenDocked[];
@@ -421,6 +427,8 @@ extern const char kEnableAuthNegotiatePort[];
 extern const char kAuthServerWhitelist[];
 extern const char kAuthNegotiateDelegateWhitelist[];
 extern const char kGSSAPILibraryName[];
+
+extern const char kKnownBackgroundPages[];
 
 }  // namespace prefs
 

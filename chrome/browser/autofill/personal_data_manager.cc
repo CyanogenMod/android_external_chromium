@@ -22,8 +22,10 @@
 namespace {
 
 // The minimum number of fields that must contain user data and have known types
-// before AutoFill will attempt to import the data into a profile.
-const int kMinImportSize = 3;
+// before AutoFill will attempt to import the data into a profile or a credit
+// card.
+const int kMinProfileImportSize = 3;
+const int kMinCreditCardImportSize = 2;
 
 template<typename T>
 class FormGroupGUIDMatchesFunctor {
@@ -212,26 +214,45 @@ bool PersonalDataManager::ImportFormData(
           string16 number;
           string16 city_code;
           string16 country_code;
+          PhoneNumber::ParsePhoneNumber(value,
+                                        &number,
+                                        &city_code,
+                                        &country_code);
+          if (number.empty())
+            continue;
+
           if (group == AutoFillType::PHONE_HOME) {
-            PhoneNumber::ParsePhoneNumber(
-                value, &number, &city_code, &country_code);
-            imported_profile_->SetInfo(
-                AutoFillType(PHONE_HOME_COUNTRY_CODE), country_code);
-            imported_profile_->SetInfo(
-                AutoFillType(PHONE_HOME_CITY_CODE), city_code);
-            imported_profile_->SetInfo(
-                AutoFillType(PHONE_HOME_NUMBER), number);
+            imported_profile_->SetInfo(AutoFillType(PHONE_HOME_COUNTRY_CODE),
+                                       country_code);
+            imported_profile_->SetInfo(AutoFillType(PHONE_HOME_CITY_CODE),
+                                       city_code);
+            imported_profile_->SetInfo(AutoFillType(PHONE_HOME_NUMBER), number);
           } else if (group == AutoFillType::PHONE_FAX) {
-            PhoneNumber::ParsePhoneNumber(
-                value, &number, &city_code, &country_code);
-            imported_profile_->SetInfo(
-                AutoFillType(PHONE_FAX_COUNTRY_CODE), country_code);
-            imported_profile_->SetInfo(
-                AutoFillType(PHONE_FAX_CITY_CODE), city_code);
-            imported_profile_->SetInfo(
-                AutoFillType(PHONE_FAX_NUMBER), number);
+            imported_profile_->SetInfo(AutoFillType(PHONE_FAX_COUNTRY_CODE),
+                                       country_code);
+            imported_profile_->SetInfo(AutoFillType(PHONE_FAX_CITY_CODE),
+                                       city_code);
+            imported_profile_->SetInfo(AutoFillType(PHONE_FAX_NUMBER), number);
           }
+
           continue;
+        }
+
+        // Phone and fax numbers can be split across multiple fields, so we
+        // might have already stored the prefix, and now be at the suffix.
+        // If so, combine them to form the full number.
+        if (group == AutoFillType::PHONE_HOME ||
+            group == AutoFillType::PHONE_FAX) {
+          AutoFillType number_type(PHONE_HOME_NUMBER);
+          if (group == AutoFillType::PHONE_FAX)
+            number_type = AutoFillType(PHONE_FAX_NUMBER);
+
+          string16 stored_number = imported_profile_->GetFieldText(number_type);
+          if (stored_number.size() ==
+                  static_cast<size_t>(PhoneNumber::kPrefixLength) &&
+              value.size() == static_cast<size_t>(PhoneNumber::kSuffixLength)) {
+            value = stored_number + value;
+          }
         }
 
         imported_profile_->SetInfo(AutoFillType(field_type.field_type()),
@@ -243,13 +264,9 @@ bool PersonalDataManager::ImportFormData(
 
   // If the user did not enter enough information on the page then don't bother
   // importing the data.
-  if (importable_fields + importable_credit_card_fields < kMinImportSize)
-    return false;
-
-  if (importable_fields == 0)
+  if (importable_fields < kMinProfileImportSize)
     imported_profile_.reset();
-
-  if (importable_credit_card_fields == 0)
+  if (importable_credit_card_fields < kMinCreditCardImportSize)
     imported_credit_card_.reset();
 
   if (imported_credit_card_.get()) {
@@ -271,11 +288,17 @@ bool PersonalDataManager::ImportFormData(
     }
   }
 
-  // We always save imported profiles.
-  SaveImportedProfile();
+  if (imported_profile_.get()) {
+    // We always save imported profiles.
+    SaveImportedProfile();
+  }
 
+<<<<<<< HEAD
   return true;
 #endif
+=======
+  return imported_profile_.get() || imported_credit_card_.get();
+>>>>>>> Chromium.org at 9.0.597.55
 }
 
 void PersonalDataManager::GetImportedFormData(AutoFillProfile** profile,
@@ -612,35 +635,24 @@ bool PersonalDataManager::HasPassword() {
 
 const std::vector<AutoFillProfile*>& PersonalDataManager::profiles() {
   // |profile_| is NULL in AutoFillManagerTest.
-  if (!profile_)
-    return web_profiles_.get();
-
-  bool auxiliary_profiles_enabled = profile_->GetPrefs()->GetBoolean(
-      prefs::kAutoFillAuxiliaryProfilesEnabled);
+  bool auxiliary_profiles_enabled = profile_ ? profile_->GetPrefs()->GetBoolean(
+      prefs::kAutoFillAuxiliaryProfilesEnabled) : false;
+  if (!auxiliary_profiles_enabled)
+    return web_profiles();
 
 #if !defined(OS_MACOSX)
-  DCHECK(!auxiliary_profiles_enabled)
-      << "Auxiliary profiles supported on Mac only";
+  NOTREACHED() << "Auxiliary profiles supported on Mac only";
 #endif
 
-  if (auxiliary_profiles_enabled) {
-    profiles_.clear();
+  profiles_.clear();
 
-    // Populates |auxiliary_profiles_|.
-    LoadAuxiliaryProfiles();
+  // Populates |auxiliary_profiles_|.
+  LoadAuxiliaryProfiles();
 
-    profiles_.insert(profiles_.end(),
-        web_profiles_.begin(), web_profiles_.end());
-    profiles_.insert(profiles_.end(),
-        auxiliary_profiles_.begin(), auxiliary_profiles_.end());
-    return profiles_;
-  } else {
-    return web_profiles_.get();
-  }
-}
-
-const std::vector<AutoFillProfile*>& PersonalDataManager::web_profiles() {
-  return web_profiles_.get();
+  profiles_.insert(profiles_.end(), web_profiles_.begin(), web_profiles_.end());
+  profiles_.insert(profiles_.end(),
+      auxiliary_profiles_.begin(), auxiliary_profiles_.end());
+  return profiles_;
 }
 
 AutoFillProfile* PersonalDataManager::CreateNewEmptyAutoFillProfileForDBThread(

@@ -252,6 +252,10 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
     return observed_passphrase_required_;
   }
 
+  bool passphrase_required_for_decryption() const {
+    return passphrase_required_for_decryption_;
+  }
+
   // A timestamp marking the last time the service observed a transition from
   // the SYNCING state to the READY state. Note that this does not reflect the
   // last time we polled the server to see if there were any changes; the
@@ -355,8 +359,9 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   bool ShouldPushChanges();
 
   const GURL& sync_service_url() const { return sync_service_url_; }
+  SigninManager* signin() { return signin_.get(); }
+  const std::string& cros_user() const { return cros_user_; }
 
-  SigninManager* signin() { return &signin_; }
  protected:
   // Used by ProfileSyncServiceMock only.
   //
@@ -403,6 +408,10 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   // Whether we have seen a SYNC_PASSPHRASE_REQUIRED since initializing the
   // backend, telling us that it is safe to send a passphrase down ASAP.
   bool observed_passphrase_required_;
+
+  // Was the last SYNC_PASSPHRASE_REQUIRED notification sent because it
+  // was required for decryption?
+  bool passphrase_required_for_decryption_;
 
  private:
   friend class ProfileSyncServiceTest;
@@ -463,7 +472,7 @@ class ProfileSyncService : public browser_sync::SyncFrontend,
   SyncSetupWizard wizard_;
 
   // Encapsulates user signin with TokenService.
-  SigninManager signin_;
+  scoped_ptr<SigninManager> signin_;
 
   // True if an unrecoverable error (e.g. violation of an assumed invariant)
   // occurred during syncer operation.  This value should be checked before

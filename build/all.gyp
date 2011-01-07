@@ -187,7 +187,8 @@
             '../sandbox/sandbox.gyp:sbox_integration_tests',
             '../sandbox/sandbox.gyp:sbox_unittests',
             '../sandbox/sandbox.gyp:sbox_validation_tests',
-            '../webkit/support/webkit_support.gyp:npapi_layout_test_plugin',
+            '../views/views.gyp:views_unittests',
+            '../third_party/WebKit/WebKit/chromium/WebKit.gyp:copy_TestNetscapePlugIn',
             # TODO(nsylvain) ui_tests.exe depends on test_shell_common.
             # This should:
             # 1) not be the case. OR.
@@ -343,7 +344,7 @@
             '../printing/printing.gyp:printing_unittests',
             '../remoting/remoting.gyp:remoting_unittests',
             '../third_party/cacheinvalidation/cacheinvalidation.gyp:cacheinvalidation_unittests',
-            '../webkit/support/webkit_support.gyp:npapi_layout_test_plugin',
+            '../third_party/WebKit/WebKit/chromium/WebKit.gyp:copy_TestNetscapePlugIn',
             # TODO(nsylvain) ui_tests.exe depends on test_shell_common.
             # This should:
             # 1) not be the case. OR.
@@ -380,6 +381,32 @@
           ],
         },
       ],  # targets
+      'conditions': [
+        ['(branding=="Chrome" and buildtype=="Official")', {
+          'targets': [
+            {
+              'target_name': 'chrome_official_builder',
+              'type': 'none',
+              'dependencies': [
+                '../chrome/app/locales/locales.gyp:*',
+                '../chrome/chrome.gyp:crash_service',
+                '../chrome/chrome.gyp:page_cycler_tests',
+                '../chrome/chrome.gyp:pyautolib',
+                '../chrome/chrome.gyp:reliability_tests',
+                '../chrome/chrome.gyp:startup_tests',
+                '../chrome/chrome.gyp:automated_ui_tests',
+                '../chrome/installer/mini_installer.gyp:mini_installer',
+                '../chrome_frame/chrome_frame.gyp:chrome_frame_unittests',
+                '../chrome_frame/chrome_frame.gyp:npchrome_frame',
+                '../courgette/courgette.gyp:courgette',
+                '../pdf/pdf.gyp:pdf',
+                '../third_party/adobe/flash/flash_player.gyp:flash_player',
+                '../webkit/webkit.gyp:test_shell',
+              ],
+            },
+          ], # targets
+        }], # (branding=="Chrome" and buildtype=="Official")
+       ], # conditions
     }], # OS="win"
     ['chromeos==1', {
       'targets': [

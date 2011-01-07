@@ -115,7 +115,7 @@
           {
             "type": "string",
             "name": "path",
-            "description": "A path to a resource within an extension expressed relative to it's install directory."
+            "description": "A path to a resource within an extension expressed relative to its install directory."
           }
         ],
         "returns": {
@@ -2342,6 +2342,24 @@
                 "description": "Pass 'bubble' to give the pop-up window a bubble-chrome border, including an arrow pointing at the relative-to point.  Pass 'rectangle' to give the pop-up a rectangular black border with drop-shadow.  Default behaviour is to pass 'bubble'.",
                 "optional": true,
                 "enum": ["bubble", "rectangle"]
+              },
+              "maxSize": {
+                "type": "object",
+                "optional": true,
+                "properties": {
+                  "width": {
+                    "type": "integer",
+                    "description": "The maximal width to which the popup will resize.  If not present, the popup will be no wider than 800 pixels.  The popup will widen to no larger than the minimum of the width parameter and the width of the screen.",
+                    "optional": true,
+                    "minimum": 32
+                  },
+                  "height": {
+                    "type": "integer",
+                    "description": "The maximal height to which the popup will resize.  If not present, the popup will be no taller than 600 pixels.  The popup will grow to no taller than than the minimum of the height parameter and the width of the screen.",
+                    "optional": true,
+                    "minimum": 32
+                  }
+                }
               }
             }
           },
@@ -2381,7 +2399,7 @@
     "nodoc": true,
     "types": [
       {
-        "id": "BookmarkDragDataElement",
+        "id": "BookmarkNodeDataElement",
         "nodoc": true,
         "type": "object",
         "properties": {
@@ -2402,12 +2420,12 @@
           },
           "children": {
             "type": "array",
-            "items": {"$ref": "BookmarkDragDataElement"}
+            "items": {"$ref": "BookmarkNodeDataElement"}
           }
         }
       },
       {
-        "id": "BookmarkDragData",
+        "id": "BookmarkNodeData",
         "nodoc": true,
         "type": "object",
         "description": "Information about the drag and drop data for use with drag and drop events.",
@@ -2415,7 +2433,7 @@
           "sameProfile": {"type": "boolean"},
           "elements": {
             "type": "array",
-            "items": {"$ref": "BookmarkDragDataElement"}
+            "items": {"$ref": "BookmarkNodeDataElement"}
           }
         }
       }
@@ -2570,7 +2588,7 @@
         "type": "function",
         "description": "Fired when dragging bookmarks over the document",
         "parameters": [
-          {"$ref": "BookmarkDragData"}
+          {"$ref": "BookmarkNodeData"}
         ]
       },
       {
@@ -2578,7 +2596,7 @@
         "type": "function",
         "description": "Fired when the drag and drop leaves the document",
         "parameters": [
-          {"$ref": "BookmarkDragData"}
+          {"$ref": "BookmarkNodeData"}
         ]
       },
       {
@@ -2586,7 +2604,7 @@
         "type": "function",
         "description": "Fired when the user drops bookmarks on the document",
         "parameters": [
-          {"$ref": "BookmarkDragData"}
+          {"$ref": "BookmarkNodeData"}
         ]
       }
     ]
@@ -2867,7 +2885,7 @@
               "parentId": {
                 "type": "integer",
                 "optional": true,
-                "description": "Note: you cannot change an item to be a child of one of it's own descendants."
+                "description": "Note: You cannot change an item to be a child of one of its own descendants."
               },
               "documentUrlPatterns": {
                 "type": "array",
@@ -3959,6 +3977,37 @@
         ]
       },
       {
+        "name": "setDefaultSuggestion",
+        "type": "function",
+        "description": "Sets the description and styling for the default suggestion. The default suggestion is the text that is displayed in the first suggestion row underneath the URL bar.",
+        "parameters": [
+          {
+            "type": "object",
+            "name": "suggestion",
+            "description": "A partial SuggestResult object, without the 'content' parameter. See SuggestResult for a description of the parameters.",
+            "properties": {
+	          "description": {
+	            "type": "string",
+	            "minLength": 1,
+                    "description": "The text to display in the default suggestion. The placeholder string '%s' can be included and will be replaced with the user's input."
+	          },
+	          "descriptionStyles": {
+	            "type": "array",
+	            "optional": true,
+	            "items": {
+	              "type": "object",
+	              "properties": {
+	                "type": {"type": "string", "enum": ["url", "match", "dim"]},
+	                "offset": {"type": "integer"},
+	                "length": {"type": "integer", "optional": true}
+	              }
+	            }
+	          }
+            }
+          }
+        ]
+      },
+      {
         "name": "styleUrl",
         "type": "function",
         "description": "Constructor for the descriptionStyles parameter of the suggest callback. This style designates a region of text matching a URL or filename. A negative offset means the region will start at that many characters from the end of the description. If length is omitted, the region will apply for the rest of the description text.",
@@ -4062,6 +4111,10 @@
             "description": "The name of this extension or app.",
             "type": "string"
           },
+          "description": {
+            "description": "The description of this extension or app.",
+            "type": "string"
+          },
           "version": {
             "description": "The <a href='manifest.html#version'>version</a> of this extension or app.",
             "type": "string"
@@ -4081,8 +4134,7 @@
           },
           "optionsUrl": {
             "description": "The url for the item's options page, if it has one.",
-            "type": "string",
-            "optional": true
+            "type": "string"
           },
           "icons": {
             "description": "A list of icon information. Note that this just reflects what was declared in the manifest, and the actual image at that url may be larger or smaller than what was declared, so you might consider using explicit width and height attributes on img tags referencing these images. See the <a href='manifest.html#icons'>manifest documentation on icons</a> for more details.",
@@ -4090,6 +4142,20 @@
             "optional": true,
             "items": {
               "$ref": "IconInfo"
+            }
+          },
+          "permissions": {
+            "description": "Returns a list of API based permissions.",
+            "type": "array",
+            "items" : {
+              "type": "string"
+            }
+          },
+          "hostPermissions": {
+            "description": "Returns a list of host based permissions.",
+            "type": "array",
+            "items" : {
+              "type": "string"
             }
           }
         }

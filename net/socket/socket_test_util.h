@@ -172,6 +172,7 @@ class StaticSocketDataProvider : public SocketDataProvider {
   virtual MockRead GetNextRead();
   virtual MockWriteResult OnWrite(const std::string& data);
   virtual void Reset();
+  virtual void CompleteRead() {}
 
   // These functions get access to the next available read and write data.
   const MockRead& PeekRead() const;
@@ -284,7 +285,7 @@ class DelayedSocketData : public StaticSocketDataProvider,
   virtual MockRead GetNextRead();
   virtual MockWriteResult OnWrite(const std::string& data);
   virtual void Reset();
-  void CompleteRead();
+  virtual void CompleteRead();
   void ForceNextRead();
 
  private:
@@ -327,14 +328,14 @@ class OrderedSocketData : public StaticSocketDataProvider,
   virtual MockRead GetNextRead();
   virtual MockWriteResult OnWrite(const std::string& data);
   virtual void Reset();
+  virtual void CompleteRead();
+
   void SetCompletionCallback(CompletionCallback* callback) {
     callback_ = callback;
   }
 
   // Posts a quit message to the current message loop, if one is running.
   void EndLoop();
-
-  void CompleteRead();
 
  private:
   friend class base::RefCounted<OrderedSocketData>;
@@ -425,6 +426,8 @@ class DeterministicSocketData : public StaticSocketDataProvider,
 
   virtual void Reset();
 
+  virtual void CompleteRead() {}
+
   // Consume all the data up to the give stop point (via SetStop()).
   void Run();
 
@@ -442,7 +445,6 @@ class DeterministicSocketData : public StaticSocketDataProvider,
   virtual void StopAfter(int seq) {
     SetStop(sequence_number_ + seq);
   }
-  void CompleteRead();
   bool stopped() const { return stopped_; }
   void SetStopped(bool val) { stopped_ = val; }
   MockRead& current_read() { return current_read_; }
@@ -535,7 +537,7 @@ class MockClientSocketFactory : public ClientSocketFactory {
       const HostPortPair& host_and_port,
       const SSLConfig& ssl_config,
       SSLHostInfo* ssl_host_info,
-      DnsRRResolver* dnsrr_resolver);
+      DnsCertProvenanceChecker* dns_cert_checker);
   SocketDataProviderArray<SocketDataProvider>& mock_data() {
     return mock_data_;
   }
@@ -880,7 +882,7 @@ class DeterministicMockClientSocketFactory : public ClientSocketFactory {
       const HostPortPair& host_and_port,
       const SSLConfig& ssl_config,
       SSLHostInfo* ssl_host_info,
-      DnsRRResolver* dnsrr_resolver);
+      DnsCertProvenanceChecker* dns_cert_checker);
 
   SocketDataProviderArray<DeterministicSocketData>& mock_data() {
     return mock_data_;

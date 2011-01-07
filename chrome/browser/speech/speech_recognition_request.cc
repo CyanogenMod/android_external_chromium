@@ -4,20 +4,22 @@
 
 #include "chrome/browser/speech/speech_recognition_request.h"
 
+#include <vector>
+
 #include "app/l10n_util.h"
 #include "base/json/json_reader.h"
 #include "base/string_util.h"
-#include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
+#include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_status.h"
 
 namespace {
 
 const char* const kDefaultSpeechRecognitionUrl =
-    "http://www.google.com/speech-api/v1/recognize?client=chromium&";
+    "https://www.google.com/speech-api/v1/recognize?client=chromium&";
 const char* const kHypothesesString = "hypotheses";
 const char* const kUtteranceString = "utterance";
 const char* const kConfidenceString = "confidence";
@@ -120,20 +122,36 @@ SpeechRecognitionRequest::~SpeechRecognitionRequest() {}
 
 bool SpeechRecognitionRequest::Send(const std::string& language,
                                     const std::string& grammar,
+                                    const std::string& hardware_info,
                                     const std::string& content_type,
                                     const std::string& audio_data) {
   DCHECK(!url_fetcher_.get());
 
   std::vector<std::string> parts;
-  if (!language.empty()) {
-    parts.push_back("lang=" + EscapeQueryParamValue(language, true));
-  } else {
-    std::string app_locale = l10n_util::GetApplicationLocale("");
-    parts.push_back("lang=" + EscapeQueryParamValue(app_locale, true));
+
+  std::string lang_param = language;
+  if (lang_param.empty() && url_context_) {
+    // If no language is provided then we use the first from the accepted
+    // language list. If this list is empty then it defaults to "en-US".
+    // Example of the contents of this list: "es,en-GB;q=0.8", ""
+    URLRequestContext* request_context = url_context_->GetURLRequestContext();
+    DCHECK(request_context);
+    std::string accepted_language_list = request_context->accept_language();
+    size_t separator = accepted_language_list.find_first_of(",;");
+    lang_param = accepted_language_list.substr(0, separator);
   }
+  if (lang_param.empty())
+    lang_param = "en-US";
+  parts.push_back("lang=" + EscapeQueryParamValue(lang_param, true));
 
   if (!grammar.empty())
-    parts.push_back("grammar=" + EscapeQueryParamValue(grammar, true));
+    parts.push_back("lm=" + EscapeQueryParamValue(grammar, true));
+  if (!hardware_info.empty())
+    parts.push_back("xhw=" + EscapeQueryParamValue(hardware_info, true));
+  // TODO(satish): Remove this hardcoded value once the page is allowed to
+  // set this via an attribute.
+  parts.push_back("maxresults=3");
+
   GURL url(std::string(kDefaultSpeechRecognitionUrl) + JoinString(parts, '&'));
 
   url_fetcher_.reset(URLFetcher::Create(url_fetcher_id_for_tests,

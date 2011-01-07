@@ -19,6 +19,7 @@
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/cros_settings.h"
 #include "chrome/browser/chromeos/cros_settings_names.h"
+#include "chrome/browser/chromeos/login/ownership_service.h"
 #include "grit/generated_resources.h"
 #include "unicode/calendar.h"
 #include "unicode/timezone.h"
@@ -145,7 +146,7 @@ string16 GetExemplarCity(const icu::TimeZone& zone) {
       zone_strings = ures_getByKey(zone_bundle, "zone_strings", NULL, &status);
   }
 
-  UnicodeString zone_id;
+  icu::UnicodeString zone_id;
   zone.getID(zone_id);
   std::string zone_id_str;
   zone_id.toUTF8String(zone_id_str);
@@ -154,10 +155,10 @@ string16 GetExemplarCity(const icu::TimeZone& zone) {
   ReplaceSubstringsAfterOffset(&zone_id_str, 0, "/", ":");
   scoped_ptr_malloc<UResourceBundle, UResClose> zone_item(
       ures_getByKey(zone_strings, zone_id_str.c_str(), NULL, &status));
-  UnicodeString city;
+  icu::UnicodeString city;
   if (U_FAILURE(status))
     goto fallback;
-  city = ures_getUnicodeStringByKey(zone_item.get(), "ec", &status);
+  city = icu::ures_getUnicodeStringByKey(zone_item.get(), "ec", &status);
   if (U_SUCCESS(status))
     return string16(city.getBuffer(), city.length());
 
@@ -194,6 +195,10 @@ SystemSettingsProvider::~SystemSettingsProvider() {
 }
 
 void SystemSettingsProvider::DoSet(const std::string& path, Value* in_value) {
+  // Only the owner can change the time zone.
+  if (!OwnershipService::GetSharedInstance()->CurrentUserIsOwner())
+    return;
+
   if (path == kSystemTimezone) {
     string16 value;
     if (!in_value || !in_value->IsType(Value::TYPE_STRING) ||
@@ -272,9 +277,8 @@ string16 SystemSettingsProvider::GetTimezoneName(
   string16 result(l10n_util::GetStringFUTF16(
       IDS_OPTIONS_SETTINGS_TIMEZONE_DISPLAY_TEMPLATE, ASCIIToUTF16(offset_str),
       string16(name.getBuffer(), name.length()), GetExemplarCity(timezone)));
-  string16 rtl_safe_result = result;
-  base::i18n::AdjustStringForLocaleDirection(result, &rtl_safe_result);
-  return rtl_safe_result;
+  base::i18n::AdjustStringForLocaleDirection(&result);
+  return result;
 }
 
 string16 SystemSettingsProvider::GetTimezoneID(

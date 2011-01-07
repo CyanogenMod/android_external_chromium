@@ -41,7 +41,6 @@ UpdateScreen::UpdateScreen(WizardScreenDelegate* delegate)
                                               kUpdateScreenWidth,
                                               kUpdateScreenHeight),
       checking_for_update_(true),
-      maximal_curtain_time_(0),
       reboot_check_delay_(0),
       is_downloading_update_(false),
       is_all_updates_critical_(false) {
@@ -68,12 +67,12 @@ void UpdateScreen::UpdateStatusChanged(UpdateLibrary* library) {
     case UPDATE_STATUS_UPDATE_AVAILABLE:
       view()->SetProgress(kBeforeDownloadProgress);
       if (!HasCriticalUpdate()) {
-        VLOG(1) << "Noncritical update available: "
-                << library->status().new_version;
-        ExitUpdate();
+        LOG(INFO) << "Noncritical update available: "
+                  << library->status().new_version;
+        ExitUpdate(false);
       } else {
-        VLOG(1) << "Critical update available: "
-                << library->status().new_version;
+        LOG(INFO) << "Critical update available: "
+                  << library->status().new_version;
       }
       break;
     case UPDATE_STATUS_DOWNLOADING:
@@ -83,12 +82,12 @@ void UpdateScreen::UpdateStatusChanged(UpdateLibrary* library) {
           // we need to is update critical on first downloading notification.
           is_downloading_update_ = true;
           if (!HasCriticalUpdate()) {
-            VLOG(1) << "Non-critical update available: "
-                    << library->status().new_version;
-            ExitUpdate();
+            LOG(INFO) << "Non-critical update available: "
+                      << library->status().new_version;
+            ExitUpdate(false);
           } else {
-            VLOG(1) << "Critical update available: "
-                    << library->status().new_version;
+            LOG(INFO) << "Critical update available: "
+                      << library->status().new_version;
           }
         }
         view()->ShowCurtain(false);
@@ -115,13 +114,13 @@ void UpdateScreen::UpdateStatusChanged(UpdateLibrary* library) {
                             this,
                             &UpdateScreen::OnWaitForRebootTimeElapsed);
       } else {
-        ExitUpdate();
+        ExitUpdate(false);
       }
       break;
     case UPDATE_STATUS_IDLE:
     case UPDATE_STATUS_ERROR:
     case UPDATE_STATUS_REPORTING_ERROR_EVENT:
-      ExitUpdate();
+      ExitUpdate(false);
       break;
     default:
       NOTREACHED();
@@ -134,17 +133,6 @@ void UpdateScreen::StartUpdate() {
   view()->Reset();
   view()->set_controller(this);
   is_downloading_update_ = false;
-
-  // Start the maximal curtain time timer.
-  if (maximal_curtain_time_ > 0) {
-    maximal_curtain_time_timer_.Start(
-        base::TimeDelta::FromSeconds(maximal_curtain_time_),
-        this,
-        &UpdateScreen::OnMaximalCurtainTimeElapsed);
-  } else {
-    view()->ShowCurtain(false);
-  }
-
   view()->SetProgress(kBeforeUpdateCheckProgress);
 
   if (!CrosLibrary::Get()->EnsureLoaded()) {
@@ -153,23 +141,29 @@ void UpdateScreen::StartUpdate() {
     CrosLibrary::Get()->GetUpdateLibrary()->AddObserver(this);
     VLOG(1) << "Initiate update check";
     if (!CrosLibrary::Get()->GetUpdateLibrary()->CheckForUpdate()) {
-      ExitUpdate();
+      ExitUpdate(true);
     }
   }
 }
 
 void UpdateScreen::CancelUpdate() {
-#if !defined(OFFICIAL_BUILD)
-  ExitUpdate();
-#endif
+  // Screen has longer lifetime than it's view.
+  // View is deleted after wizard proceeds to the next screen.
+  if (view())
+    ExitUpdate(true);
 }
 
-void UpdateScreen::ExitUpdate() {
-  maximal_curtain_time_timer_.Stop();
+void UpdateScreen::ExitUpdate(bool forced) {
   ScreenObserver* observer = delegate()->GetObserver(this);
 
   if (!CrosLibrary::Get()->EnsureLoaded()) {
     observer->OnExit(ScreenObserver::UPDATE_ERROR_CHECKING_FOR_UPDATE);
+    return;
+  }
+
+  if (forced) {
+    observer->OnExit(ScreenObserver::UPDATE_NOUPDATE);
+    return;
   }
 
   UpdateLibrary* update_library = CrosLibrary::Get()->GetUpdateLibrary();
@@ -178,6 +172,8 @@ void UpdateScreen::ExitUpdate() {
     case UPDATE_STATUS_UPDATE_AVAILABLE:
     case UPDATE_STATUS_UPDATED_NEED_REBOOT:
     case UPDATE_STATUS_DOWNLOADING:
+    case UPDATE_STATUS_FINALIZING:
+    case UPDATE_STATUS_VERIFYING:
       DCHECK(!HasCriticalUpdate());
       // Noncritical update, just exit screen as if there is no update.
       // no break
@@ -195,20 +191,9 @@ void UpdateScreen::ExitUpdate() {
   }
 }
 
-void UpdateScreen::OnMaximalCurtainTimeElapsed() {
-  view()->ShowCurtain(false);
-}
-
 void UpdateScreen::OnWaitForRebootTimeElapsed() {
   LOG(ERROR) << "Unable to reboot - asking user for a manual reboot.";
   view()->ShowManualRebootInfo();
-}
-
-void UpdateScreen::SetMaximalCurtainTime(int seconds) {
-  if (seconds <= 0)
-    maximal_curtain_time_timer_.Stop();
-  DCHECK(!maximal_curtain_time_timer_.IsRunning());
-  maximal_curtain_time_ = seconds;
 }
 
 void UpdateScreen::SetRebootCheckDelay(int seconds) {

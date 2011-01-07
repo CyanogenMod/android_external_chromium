@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "base/ref_counted.h"
 #include "base/singleton.h"
 #include "base/string16.h"
@@ -29,8 +30,9 @@ class ModuleEnumerator : public base::RefCountedThreadSafe<ModuleEnumerator> {
   // modules of interest and may or may not be loaded in the process at the
   // time of scan.
   enum ModuleType {
-    LOADED_MODULE,
-    WINSOCK_MODULE_REGISTRATION,
+    LOADED_MODULE               = 1 << 0,
+    SHELL_EXTENSION             = 1 << 1,
+    WINSOCK_MODULE_REGISTRATION = 1 << 2,
   };
 
   // The blacklist status of the module. Suspected Bad modules have been
@@ -80,6 +82,8 @@ class ModuleEnumerator : public base::RefCountedThreadSafe<ModuleEnumerator> {
     string16 digital_signer;
     // The help tips bitmask.
     RecommendedAction recommended_action;
+    // The duplicate count within each category of modules.
+    int duplicate_count;
     // Whether this module has been normalized (necessary before checking it
     // against blacklist).
     bool normalized;
@@ -93,8 +97,8 @@ class ModuleEnumerator : public base::RefCountedThreadSafe<ModuleEnumerator> {
     const char* filename;
     const char* location;
     const char* desc_or_signer;
-    const char* version_from;
-    const char* version_to;
+    const char* version_from;  // Version where conflict started.
+    const char* version_to;    // First version that works.
     RecommendedAction help_tip;
   };
 
@@ -122,6 +126,8 @@ class ModuleEnumerator : public base::RefCountedThreadSafe<ModuleEnumerator> {
   void ScanNow(ModulesVector* list);
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(EnumerateModulesTest, CollapsePath);
+
   // The (currently) hard coded blacklist of known bad modules.
   static const BlacklistEntry kModuleBlacklist[];
 
@@ -132,6 +138,28 @@ class ModuleEnumerator : public base::RefCountedThreadSafe<ModuleEnumerator> {
   // them against a blacklist of known bad modules. Finally, it calls
   // ReportBack to let the observer know we are done.
   void ScanOnFileThread();
+
+  // Enumerate all modules loaded into the Chrome process.
+  void EnumerateLoadedModules();
+
+  // Enumerate all registered Windows shell extensions.
+  void EnumerateShellExtensions();
+
+  // Enumerate all registered Winsock LSP modules.
+  void EnumerateWinsockModules();
+
+  // Reads the registered shell extensions found under |parent| key in the
+  // registry.
+  void ReadShellExtensions(HKEY parent);
+
+  // Given a |module|, initializes the structure and loads additional
+  // information using the location field of the module.
+  void PopulateModuleInformation(Module* module);
+
+  // Checks the module list to see if a |module| of the same type, location
+  // and name has been added before and if so, increments its duplication
+  // counter. If it doesn't appear in the list, it is added.
+  void AddToListWithoutDuplicating(const Module&);
 
   // Builds up a vector of path values mapping to environment variable,
   // with pairs like [c:\windows\, %systemroot%]. This is later used to

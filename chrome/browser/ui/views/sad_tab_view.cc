@@ -6,6 +6,7 @@
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
+#include "base/utf_string_conversions.h"
 #include "chrome/browser/google/google_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_delegate.h"
@@ -29,6 +30,15 @@ static const SkColor kMessageColor = SK_ColorWHITE;
 static const SkColor kLinkColor = SK_ColorWHITE;
 static const SkColor kBackgroundColor = SkColorSetRGB(35, 48, 64);
 static const SkColor kBackgroundEndColor = SkColorSetRGB(35, 48, 64);
+
+// Font size correction.
+#if defined(CROS_FONTS_USING_BCI)
+static const int kTitleFontSizeDelta = 1;
+static const int kMessageFontSizeDelta = 0;
+#else
+static const int kTitleFontSizeDelta = 2;
+static const int kMessageFontSizeDelta = 1;
+#endif
 
 // static
 SkBitmap* SadTabView::sad_tab_bitmap_ = NULL;
@@ -95,8 +105,8 @@ void SadTabView::Layout() {
   gfx::CanvasSkia cc(0, 0, true);
   int message_width = static_cast<int>(width() * kMessageSize);
   int message_height = 0;
-  cc.SizeStringInt(message_, *message_font_, &message_width, &message_height,
-                   gfx::Canvas::MULTI_LINE);
+  cc.SizeStringInt(WideToUTF16Hack(message_), *message_font_, &message_width,
+                   &message_height, gfx::Canvas::MULTI_LINE);
   int message_x = (width() - message_width) / 2;
   int message_y = title_bounds_.bottom() + kTitleMessageSpacing;
   message_bounds_.SetRect(message_x, message_y, message_width, message_height);
@@ -133,9 +143,10 @@ void SadTabView::InitClass() {
   if (!initialized) {
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();
     title_font_ = new gfx::Font(
-        rb.GetFont(ResourceBundle::BaseFont).DeriveFont(2, gfx::Font::BOLD));
+        rb.GetFont(ResourceBundle::BaseFont).DeriveFont(kTitleFontSizeDelta,
+                                                        gfx::Font::BOLD));
     message_font_ = new gfx::Font(
-        rb.GetFont(ResourceBundle::BaseFont).DeriveFont(1));
+        rb.GetFont(ResourceBundle::BaseFont).DeriveFont(kMessageFontSizeDelta));
     sad_tab_bitmap_ = rb.GetBitmapNamed(IDR_SAD_TAB);
 
     title_ = l10n_util::GetString(IDS_SAD_TAB_TITLE);

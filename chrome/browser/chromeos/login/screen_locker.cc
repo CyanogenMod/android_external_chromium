@@ -4,11 +4,17 @@
 
 #include "chrome/browser/chromeos/login/screen_locker.h"
 
+#include <gdk/gdkx.h>
 #include <string>
 #include <vector>
+#include <X11/extensions/XTest.h>
+#include <X11/keysym.h>
+// Evil hack to undo X11 evil #define. See crosbug.com/
+#undef Status
 
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
+#include "app/x11_util.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram.h"
 #include "base/message_loop.h"
@@ -33,6 +39,8 @@
 #include "chrome/browser/chromeos/system_key_event_listener.h"
 #include "chrome/browser/chromeos/wm_ipc.h"
 #include "chrome/browser/metrics/user_metrics.h"
+#include "chrome/browser/profile_manager.h"
+#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
@@ -141,6 +149,9 @@ class ScreenLockObserver : public chromeos::ScreenLockLibrary::Observer,
       if (should_add_hardware_keyboard) {
         value.string_list_value.push_back(hardware_keyboard);
       }
+      // We don't want to shut down the IME, even if the hardware layout is the
+      // only IME left.
+      language->SetEnableAutoImeShutdown(false);
       language->SetImeConfig(
           chromeos::language_prefs::kGeneralSectionName,
           chromeos::language_prefs::kPreloadEnginesConfigName,
@@ -157,6 +168,7 @@ class ScreenLockObserver : public chromeos::ScreenLockLibrary::Observer,
       chromeos::ImeConfigValue value;
       value.type = chromeos::ImeConfigValue::kValueTypeStringList;
       value.string_list_value = saved_active_input_method_list_;
+      language->SetEnableAutoImeShutdown(true);
       language->SetImeConfig(
           chromeos::language_prefs::kGeneralSectionName,
           chromeos::language_prefs::kPreloadEnginesConfigName,
@@ -274,12 +286,13 @@ class GrabWidget : public views::WidgetGtk {
     views::WidgetGtk::Show();
   }
 
-  void ClearGrab() {
+  void ClearGtkGrab() {
     GtkWidget* current_grab_window;
-    // Grab gtk input first so that the menu holding grab will close itself.
+    // Grab gtk input first so that the menu holding gtk grab will
+    // close itself.
     gtk_grab_add(window_contents());
 
-    // Make sure there is no grab widget so that gtk simply propagates
+    // Make sure there is no gtk grab widget so that gtk simply propagates
     // an event.  This is necessary to allow message bubble and password
     // field, button to process events simultaneously. GTK
     // maintains grab widgets in a linked-list, so we need to remove
@@ -297,6 +310,11 @@ class GrabWidget : public views::WidgetGtk {
   // Try to grab all inputs. It initiates another try if it fails to
   // grab and the retry count is within a limit, or fails with CHECK.
   void TryGrabAllInputs();
+
+  // This method tries to steal pointer/keyboard grab from other
+  // client by sending events that will hopefully close menus or windows
+  // that have the grab.
+  void TryUngrabOtherClients();
 
  private:
   virtual void HandleGrabBroke() {
@@ -322,8 +340,9 @@ class GrabWidget : public views::WidgetGtk {
 };
 
 void GrabWidget::TryGrabAllInputs() {
-  ClearGrab();
-
+  // Grab x server so that we can atomically grab and take
+  // action when grab fails.
+  gdk_x11_grab_server();
   if (kbd_grab_status_ != GDK_GRAB_SUCCESS) {
     kbd_grab_status_ = gdk_keyboard_grab(window_contents()->window, FALSE,
                                          GDK_CURRENT_TIME);
@@ -345,17 +364,68 @@ void GrabWidget::TryGrabAllInputs() {
     LOG(WARNING) << "Failed to grab inputs. Trying again in "
                  << kRetryGrabIntervalMs << " ms: kbd="
                  << kbd_grab_status_ << ", mouse=" << mouse_grab_status_;
+    TryUngrabOtherClients();
+    gdk_x11_ungrab_server();
     MessageLoop::current()->PostDelayedTask(
         FROM_HERE,
         task_factory_.NewRunnableMethod(&GrabWidget::TryGrabAllInputs),
         kRetryGrabIntervalMs);
   } else {
+    gdk_x11_ungrab_server();
     CHECK_EQ(GDK_GRAB_SUCCESS, kbd_grab_status_)
         << "Failed to grab keyboard input:" << kbd_grab_status_;
     CHECK_EQ(GDK_GRAB_SUCCESS, mouse_grab_status_)
         << "Failed to grab pointer input:" << mouse_grab_status_;
     DVLOG(1) << "Grab Success";
     screen_locker_->OnGrabInputs();
+  }
+}
+
+void GrabWidget::TryUngrabOtherClients() {
+#if !defined(NDEBUG)
+  {
+    int event_base, error_base;
+    int major, minor;
+    // Make sure we have XTest extension.
+    DCHECK(XTestQueryExtension(x11_util::GetXDisplay(),
+                               &event_base, &error_base,
+                               &major, &minor));
+  }
+#endif
+
+  // The following code is an attempt to grab inputs by closing
+  // supposedly opened menu. This happens when a plugin has a menu
+  // opened.
+  if (mouse_grab_status_ == GDK_GRAB_ALREADY_GRABBED ||
+      mouse_grab_status_ == GDK_GRAB_FROZEN) {
+    // Successfully grabbed the keyboard, but pointer is still
+    // grabbed by other client. Another attempt to close supposedly
+    // opened menu by emulating keypress at the left top corner.
+    Display* display = x11_util::GetXDisplay();
+    Window root, child;
+    int root_x, root_y, win_x, winy;
+    unsigned int mask;
+    XQueryPointer(display,
+                  x11_util::GetX11WindowFromGtkWidget(window_contents()),
+                  &root, &child, &root_x, &root_y,
+                  &win_x, &winy, &mask);
+    XTestFakeMotionEvent(display, -1, -10000, -10000, CurrentTime);
+    XTestFakeButtonEvent(display, 1, True, CurrentTime);
+    XTestFakeButtonEvent(display, 1, False, CurrentTime);
+    // Move the pointer back.
+    XTestFakeMotionEvent(display, -1, root_x, root_y, CurrentTime);
+    XFlush(display);
+  } else if (kbd_grab_status_ == GDK_GRAB_ALREADY_GRABBED ||
+             kbd_grab_status_ == GDK_GRAB_FROZEN) {
+    // Successfully grabbed the pointer, but keyboard is still grabbed
+    // by other client. Another attempt to close supposedly opened
+    // menu by emulating escape key.  Such situation must be very
+    // rare, but handling this just in case
+    Display* display = x11_util::GetXDisplay();
+    KeyCode escape = XKeysymToKeycode(display, XK_Escape);
+    XTestFakeKeyEvent(display, escape, True, CurrentTime);
+    XTestFakeKeyEvent(display, escape, False, CurrentTime);
+    XFlush(display);
   }
 }
 
@@ -612,12 +682,16 @@ void ScreenLocker::Init() {
   lock_window_->SetContentsView(background_view_);
   lock_window_->Show();
 
+  cast_lock_widget->ClearGtkGrab();
+
+  // Call this after lock_window_->Show(); otherwise the 1st invocation
+  // of gdk_xxx_grab() will always fail.
   cast_lock_widget->TryGrabAllInputs();
 
   // Add the window to its own group so that its grab won't be stolen if
   // gtk_grab_add() gets called on behalf on a non-screen-locker widget (e.g.
   // a modal dialog) -- see http://crosbug.com/8999.  We intentionally do this
-  // after calling TryGrabAllInputs(), as want to be in the default window group
+  // after calling ClearGtkGrab(), as want to be in the default window group
   // then so we can break any existing GTK grabs.
   GtkWindowGroup* window_group = gtk_window_group_new();
   gtk_window_group_add_window(window_group,
@@ -698,6 +772,15 @@ void ScreenLocker::OnLoginSuccess(
     base::TimeDelta delta = base::Time::Now() - authentication_start_time_;
     VLOG(1) << "Authentication success time: " << delta.InSecondsF();
     UMA_HISTOGRAM_TIMES("ScreenLocker.AuthenticationSuccessTime", delta);
+  }
+
+  Profile* profile = ProfileManager::GetDefaultProfile();
+  if (profile) {
+    ProfileSyncService* service = profile->GetProfileSyncService(username);
+    if (service && !service->HasSyncSetupCompleted()) {
+      // If sync has failed somehow, try setting the sync passphrase here.
+      service->SetPassphrase(password, false);
+    }
   }
 
   if (CrosLibrary::Get()->EnsureLoaded())

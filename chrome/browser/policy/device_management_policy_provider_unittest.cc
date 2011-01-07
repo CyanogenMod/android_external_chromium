@@ -2,24 +2,30 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/file_util.h"
 #include "base/message_loop.h"
 #include "base/scoped_temp_dir.h"
 #include "chrome/browser/browser_thread.h"
 #include "chrome/browser/net/gaia/token_service.h"
 #include "chrome/browser/policy/configuration_policy_pref_store.h"
+#include "chrome/browser/policy/device_management_policy_cache.h"
 #include "chrome/browser/policy/device_management_policy_provider.h"
 #include "chrome/browser/policy/mock_configuration_policy_store.h"
 #include "chrome/browser/policy/mock_device_management_backend.h"
 #include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/policy_constants.h"
-#include "chrome/test/device_management_test_util.h"
 #include "chrome/test/mock_notification_observer.h"
+#include "chrome/test/testing_device_token_fetcher.h"
+#include "chrome/test/testing_profile.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+const char kTestToken[] = "device_policy_provider_test_auth_token";
 
 namespace policy {
 
 using ::testing::_;
+using ::testing::InSequence;
 using ::testing::Mock;
 
 class DeviceManagementPolicyProviderTest : public testing::Test {
@@ -31,36 +37,69 @@ class DeviceManagementPolicyProviderTest : public testing::Test {
   virtual ~DeviceManagementPolicyProviderTest() {}
 
   virtual void SetUp() {
-    EXPECT_TRUE(storage_dir_.CreateUniqueTempDir());
-    CreateNewBackend();
+    profile_.reset(new TestingProfile);
     CreateNewProvider();
-  }
-
-  void CreateNewBackend() {
-    backend_ = new MockDeviceManagementBackend;
-    backend_->AddBooleanPolicy(key::kDisableSpdy, true);
+    EXPECT_TRUE(provider_->waiting_for_initial_policies());
+    loop_.RunAllPending();
   }
 
   void CreateNewProvider() {
+    backend_ = new MockDeviceManagementBackend;
     provider_.reset(new DeviceManagementPolicyProvider(
         ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList(),
         backend_,
-        storage_dir_.path()));
-    loop_.RunAllPending();
+        profile_.get()));
+    provider_->SetDeviceTokenFetcher(
+        new TestingDeviceTokenFetcher(backend_,
+                                      profile_.get(),
+                                      provider_->GetTokenPath()));
+  }
+
+  void CreateNewProvider(int64 policy_refresh_rate_ms,
+                         int64 policy_refresh_max_earlier_ms,
+                         int64 policy_refresh_error_delay_ms,
+                         int64 token_fetch_error_delay_ms,
+                         int64 unmanaged_device_refresh_rate_ms) {
+    backend_ = new MockDeviceManagementBackend;
+    provider_.reset(new DeviceManagementPolicyProvider(
+        ConfigurationPolicyPrefStore::GetChromePolicyDefinitionList(),
+        backend_,
+        profile_.get(),
+        policy_refresh_rate_ms,
+        policy_refresh_max_earlier_ms,
+        policy_refresh_error_delay_ms,
+        token_fetch_error_delay_ms,
+        unmanaged_device_refresh_rate_ms));
+    provider_->SetDeviceTokenFetcher(
+        new TestingDeviceTokenFetcher(backend_,
+                                      profile_.get(),
+                                      provider_->GetTokenPath()));
+  }
+
+  FilePath GetTokenPath() const {
+    return provider_->GetTokenPath();
   }
 
   void SimulateSuccessfulLoginAndRunPending() {
     loop_.RunAllPending();
-    SimulateSuccessfulLogin();
+    profile_->GetTokenService()->IssueAuthTokenForTest(
+        GaiaConstants::kDeviceManagementService, kTestToken);
+    TestingDeviceTokenFetcher* fetcher =
+        static_cast<TestingDeviceTokenFetcher*>(
+            provider_->token_fetcher_.get());
+    fetcher->SimulateLogin(kTestManagedDomainUsername);
     loop_.RunAllPending();
   }
 
   void SimulateSuccessfulInitialPolicyFetch() {
     MockConfigurationPolicyStore store;
-    backend_->AllShouldSucceed();
-    EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).Times(1);
-    EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _)).Times(1);
+    EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+        MockDeviceManagementBackendSucceedRegister());
+    EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+        MockDeviceManagementBackendSucceedBooleanPolicy(
+            key::kDisableSpdy, true));
     SimulateSuccessfulLoginAndRunPending();
+    EXPECT_FALSE(provider_->waiting_for_initial_policies());
     EXPECT_CALL(store, Apply(kPolicyDisableSpdy, _)).Times(1);
     provider_->Provide(&store);
     ASSERT_EQ(1U, store.policy_map().size());
@@ -72,15 +111,20 @@ class DeviceManagementPolicyProviderTest : public testing::Test {
     loop_.RunAllPending();
   }
 
- protected:
   MockDeviceManagementBackend* backend_;  // weak
   scoped_ptr<DeviceManagementPolicyProvider> provider_;
 
- private:
+ protected:
+  DeviceManagementPolicyCache* cache(DeviceManagementPolicyProvider* provider) {
+    return provider->cache_.get();
+  }
+
   MessageLoop loop_;
+
+ private:
   BrowserThread ui_thread_;
   BrowserThread file_thread_;
-  ScopedTempDir storage_dir_;
+  scoped_ptr<Profile> profile_;
 
   DISALLOW_COPY_AND_ASSIGN(DeviceManagementPolicyProviderTest);
 };
@@ -89,26 +133,28 @@ class DeviceManagementPolicyProviderTest : public testing::Test {
 // provide an empty policy.
 TEST_F(DeviceManagementPolicyProviderTest, InitialProvideNoLogin) {
   MockConfigurationPolicyStore store;
-  backend_->AllShouldSucceed();
   EXPECT_CALL(store, Apply(_, _)).Times(0);
   provider_->Provide(&store);
   EXPECT_TRUE(store.policy_map().empty());
+  EXPECT_TRUE(provider_->waiting_for_initial_policies());
 }
 
 // If the login is successful and there's no previously-fetched policy, the
 // policy should be fetched from the server and should be available the first
 // time the Provide method is called.
 TEST_F(DeviceManagementPolicyProviderTest, InitialProvideWithLogin) {
+  EXPECT_TRUE(provider_->waiting_for_initial_policies());
   SimulateSuccessfulInitialPolicyFetch();
 }
 
-// If the login succeeds but the device management backend is unreachable,
+// If the login succeed but the device management backend is unreachable,
 // there should be no policy provided if there's no previously-fetched policy,
 TEST_F(DeviceManagementPolicyProviderTest, EmptyProvideWithFailedBackend) {
   MockConfigurationPolicyStore store;
-  backend_->AllShouldFail();
-  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).Times(1);
-  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _)).Times(0);
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailRegister(
+          DeviceManagementBackend::kErrorRequestFailed));
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).Times(0);
   SimulateSuccessfulLoginAndRunPending();
   EXPECT_CALL(store, Apply(kPolicyDisableSpdy, _)).Times(0);
   provider_->Provide(&store);
@@ -122,13 +168,26 @@ TEST_F(DeviceManagementPolicyProviderTest, SecondProvide) {
   SimulateSuccessfulInitialPolicyFetch();
 
   // Simulate a app relaunch by constructing a new provider. Policy should be
-  // immediately provided and no refresh should be triggered.
-  CreateNewBackend();
-  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _)).Times(0);
+  // refreshed (since that might be the purpose of the app relaunch).
   CreateNewProvider();
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedBooleanPolicy(
+          key::kDisableSpdy, true));
+  loop_.RunAllPending();
+  Mock::VerifyAndClearExpectations(backend_);
+
+  // Simulate another app relaunch, this time against a failing backend.
+  // Cached policy should still be available.
   MockConfigurationPolicyStore store;
+  CreateNewProvider();
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailPolicy(
+          DeviceManagementBackend::kErrorRequestFailed));
+  loop_.RunAllPending();
+  SimulateSuccessfulLoginAndRunPending();
   EXPECT_CALL(store, Apply(kPolicyDisableSpdy, _)).Times(1);
   provider_->Provide(&store);
+  ASSERT_EQ(1U, store.policy_map().size());
 }
 
 // When policy is successfully fetched from the device management server, it
@@ -139,9 +198,122 @@ TEST_F(DeviceManagementPolicyProviderTest, FetchTriggersRefresh) {
   registrar.Add(&observer,
                 NotificationType::POLICY_CHANGED,
                 NotificationService::AllSources());
-  EXPECT_CALL(observer,
-              Observe(_, _, _)).Times(1);
+  EXPECT_CALL(observer, Observe(_, _, _)).Times(1);
   SimulateSuccessfulInitialPolicyFetch();
 }
 
+TEST_F(DeviceManagementPolicyProviderTest, ErrorCausesNewRequest) {
+  InSequence s;
+  CreateNewProvider(1000 * 1000, 0, 0, 0, 0);
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailRegister(
+          DeviceManagementBackend::kErrorRequestFailed));
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailPolicy(
+          DeviceManagementBackend::kErrorRequestFailed));
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailPolicy(
+          DeviceManagementBackend::kErrorRequestFailed));
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedBooleanPolicy(key::kDisableSpdy, true));
+  SimulateSuccessfulLoginAndRunPending();
 }
+
+TEST_F(DeviceManagementPolicyProviderTest, RefreshPolicies) {
+  InSequence s;
+  CreateNewProvider(0, 0, 1000 * 1000, 1000, 0);
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedBooleanPolicy(key::kDisableSpdy, true));
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedBooleanPolicy(key::kDisableSpdy, true));
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedBooleanPolicy(key::kDisableSpdy, true));
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailPolicy(
+          DeviceManagementBackend::kErrorRequestFailed));
+  SimulateSuccessfulLoginAndRunPending();
+}
+
+// The client should try to re-register the device if the device server reports
+// back that it doesn't recognize the device token on a policy request.
+TEST_F(DeviceManagementPolicyProviderTest, DeviceNotFound) {
+  InSequence s;
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailPolicy(
+          DeviceManagementBackend::kErrorServiceDeviceNotFound));
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedBooleanPolicy(key::kDisableSpdy, true));
+  SimulateSuccessfulLoginAndRunPending();
+}
+
+// The client should try to re-register the device if the device server reports
+// back that the device token is invalid on a policy request.
+TEST_F(DeviceManagementPolicyProviderTest, InvalidTokenOnPolicyRequest) {
+  InSequence s;
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailPolicy(
+          DeviceManagementBackend::kErrorServiceManagementTokenInvalid));
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedBooleanPolicy(key::kDisableSpdy, true));
+  SimulateSuccessfulLoginAndRunPending();
+}
+
+// If the client is successfully managed, but the admin stops managing the
+// device, the client should notice and throw away the device token and id.
+TEST_F(DeviceManagementPolicyProviderTest, DeviceNoLongerManaged) {
+  InSequence s;
+  CreateNewProvider(0, 0, 0, 0, 1000 * 1000);
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedBooleanPolicy(key::kDisableSpdy, true));
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedBooleanPolicy(key::kDisableSpdy, true));
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailPolicy(
+          DeviceManagementBackend::kErrorServiceManagementNotSupported));
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailRegister(
+          DeviceManagementBackend::kErrorServiceManagementNotSupported));
+  SimulateSuccessfulLoginAndRunPending();
+  FilePath token_path(GetTokenPath());
+  EXPECT_FALSE(file_util::PathExists(token_path));
+}
+
+// This test tests three things (see numbered comments below):
+TEST_F(DeviceManagementPolicyProviderTest, UnmanagedDevice) {
+  InSequence s;
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailRegister(
+          DeviceManagementBackend::kErrorServiceManagementNotSupported));
+  SimulateSuccessfulLoginAndRunPending();
+  // (1) The provider's DMPolicyCache should know that the device is not
+  // managed.
+  EXPECT_TRUE(cache(provider_.get())->is_device_unmanaged());
+  // (2) On restart, the provider should detect that this is not the first
+  // login.
+  CreateNewProvider(1000*1000, 0, 0, 0, 0);
+  EXPECT_FALSE(provider_->waiting_for_initial_policies());
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  EXPECT_CALL(*backend_, ProcessPolicyRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedBooleanPolicy(key::kDisableSpdy, true));
+  SimulateSuccessfulLoginAndRunPending();
+  // (3) Since the backend call this time returned a device id, the "unmanaged"
+  // marker should have been deleted.
+  EXPECT_FALSE(cache(provider_.get())->is_device_unmanaged());
+}
+
+}  // namespace policy

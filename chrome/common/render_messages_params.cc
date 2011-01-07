@@ -194,7 +194,8 @@ ViewHostMsg_IDBDatabaseCreateObjectStore_Params::
 
 ViewHostMsg_IDBIndexOpenCursor_Params::ViewHostMsg_IDBIndexOpenCursor_Params()
     : response_id_(0),
-      key_flags_(0),
+      lower_open_(false),
+      upper_open_(false),
       direction_(0),
       idb_index_id_(0),
       transaction_id_(0) {
@@ -230,7 +231,8 @@ ViewHostMsg_IDBObjectStoreCreateIndex_Params::
 ViewHostMsg_IDBObjectStoreOpenCursor_Params::
     ViewHostMsg_IDBObjectStoreOpenCursor_Params()
     : response_id_(0),
-      flags_(0),
+      lower_open_(false),
+      upper_open_(false),
       direction_(0),
       idb_object_store_id_(0),
       transaction_id_(0) {
@@ -568,6 +570,7 @@ void ParamTraits<ViewMsg_Navigate_Params>::Write(Message* m,
   WriteParam(m, p.state);
   WriteParam(m, p.navigation_type);
   WriteParam(m, p.request_time);
+  WriteParam(m, p.extra_headers);
 }
 
 bool ParamTraits<ViewMsg_Navigate_Params>::Read(const Message* m, void** iter,
@@ -582,7 +585,8 @@ bool ParamTraits<ViewMsg_Navigate_Params>::Read(const Message* m, void** iter,
       ReadParam(m, iter, &p->transition) &&
       ReadParam(m, iter, &p->state) &&
       ReadParam(m, iter, &p->navigation_type) &&
-      ReadParam(m, iter, &p->request_time);
+      ReadParam(m, iter, &p->request_time) &&
+      ReadParam(m, iter, &p->extra_headers);
 }
 
 void ParamTraits<ViewMsg_Navigate_Params>::Log(const param_type& p,
@@ -599,6 +603,8 @@ void ParamTraits<ViewMsg_Navigate_Params>::Log(const param_type& p,
   LogParam(p.navigation_type, l);
   l->append(", ");
   LogParam(p.request_time, l);
+  l->append(", ");
+  LogParam(p.extra_headers, l);
   l->append(")");
 }
 
@@ -1328,9 +1334,10 @@ void ParamTraits<ViewHostMsg_IDBIndexOpenCursor_Params>::Write(
     Message* m,
     const param_type& p) {
   WriteParam(m, p.response_id_);
-  WriteParam(m, p.left_key_);
-  WriteParam(m, p.right_key_);
-  WriteParam(m, p.key_flags_);
+  WriteParam(m, p.lower_key_);
+  WriteParam(m, p.upper_key_);
+  WriteParam(m, p.lower_open_);
+  WriteParam(m, p.upper_open_);
   WriteParam(m, p.direction_);
   WriteParam(m, p.idb_index_id_);
   WriteParam(m, p.transaction_id_);
@@ -1342,9 +1349,10 @@ bool ParamTraits<ViewHostMsg_IDBIndexOpenCursor_Params>::Read(
     param_type* p) {
   return
       ReadParam(m, iter, &p->response_id_) &&
-      ReadParam(m, iter, &p->left_key_) &&
-      ReadParam(m, iter, &p->right_key_) &&
-      ReadParam(m, iter, &p->key_flags_) &&
+      ReadParam(m, iter, &p->lower_key_) &&
+      ReadParam(m, iter, &p->upper_key_) &&
+      ReadParam(m, iter, &p->lower_open_) &&
+      ReadParam(m, iter, &p->upper_open_) &&
       ReadParam(m, iter, &p->direction_) &&
       ReadParam(m, iter, &p->idb_index_id_) &&
       ReadParam(m, iter, &p->transaction_id_);
@@ -1356,11 +1364,13 @@ void ParamTraits<ViewHostMsg_IDBIndexOpenCursor_Params>::Log(
   l->append("(");
   LogParam(p.response_id_, l);
   l->append(", ");
-  LogParam(p.left_key_, l);
+  LogParam(p.lower_key_, l);
   l->append(", ");
-  LogParam(p.right_key_, l);
+  LogParam(p.upper_key_, l);
   l->append(", ");
-  LogParam(p.key_flags_, l);
+  LogParam(p.lower_open_, l);
+  l->append(", ");
+  LogParam(p.upper_open_, l);
   l->append(", ");
   LogParam(p.direction_, l);
   l->append(", ");
@@ -1454,9 +1464,10 @@ void ParamTraits<ViewHostMsg_IDBObjectStoreOpenCursor_Params>::Write(
     Message* m,
     const param_type& p) {
   WriteParam(m, p.response_id_);
-  WriteParam(m, p.left_key_);
-  WriteParam(m, p.right_key_);
-  WriteParam(m, p.flags_);
+  WriteParam(m, p.lower_key_);
+  WriteParam(m, p.upper_key_);
+  WriteParam(m, p.lower_open_);
+  WriteParam(m, p.upper_open_);
   WriteParam(m, p.direction_);
   WriteParam(m, p.idb_object_store_id_);
   WriteParam(m, p.transaction_id_);
@@ -1468,9 +1479,10 @@ bool ParamTraits<ViewHostMsg_IDBObjectStoreOpenCursor_Params>::Read(
     param_type* p) {
   return
       ReadParam(m, iter, &p->response_id_) &&
-      ReadParam(m, iter, &p->left_key_) &&
-      ReadParam(m, iter, &p->right_key_) &&
-      ReadParam(m, iter, &p->flags_) &&
+      ReadParam(m, iter, &p->lower_key_) &&
+      ReadParam(m, iter, &p->upper_key_) &&
+      ReadParam(m, iter, &p->lower_open_) &&
+      ReadParam(m, iter, &p->upper_open_) &&
       ReadParam(m, iter, &p->direction_) &&
       ReadParam(m, iter, &p->idb_object_store_id_) &&
       ReadParam(m, iter, &p->transaction_id_);
@@ -1482,11 +1494,13 @@ void ParamTraits<ViewHostMsg_IDBObjectStoreOpenCursor_Params>::Log(
   l->append("(");
   LogParam(p.response_id_, l);
   l->append(", ");
-  LogParam(p.left_key_, l);
+  LogParam(p.lower_key_, l);
   l->append(", ");
-  LogParam(p.right_key_, l);
+  LogParam(p.upper_key_, l);
   l->append(", ");
-  LogParam(p.flags_, l);
+  LogParam(p.lower_open_, l);
+  l->append(", ");
+  LogParam(p.upper_open_, l);
   l->append(", ");
   LogParam(p.direction_, l);
   l->append(", ");

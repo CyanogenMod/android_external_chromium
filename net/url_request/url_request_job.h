@@ -23,17 +23,16 @@ class HttpRequestHeaders;
 class HttpResponseInfo;
 class IOBuffer;
 class UploadData;
-class X509Certificate;
-}
-
 class URLRequest;
+class X509Certificate;
+}  // namespace net
+
 class URLRequestStatus;
 class URLRequestJobMetrics;
 
-// The URLRequestJob is using RefCounterThreadSafe because some sub classes
-// can be destroyed on multiple threads. This is the case of the
-// UrlRequestFileJob.
-class URLRequestJob : public base::RefCountedThreadSafe<URLRequestJob>,
+namespace net {
+
+class URLRequestJob : public base::RefCounted<URLRequestJob>,
                       public FilterContext {
  public:
   // When histogramming results related to SDCH and/or an SDCH latency test, the
@@ -43,11 +42,11 @@ class URLRequestJob : public base::RefCountedThreadSafe<URLRequestJob>,
   // congestion window on stalling of transmissions.
   static const size_t kSdchPacketHistogramCount = 5;
 
-  explicit URLRequestJob(URLRequest* request);
+  explicit URLRequestJob(net::URLRequest* request);
 
   // Returns the request that owns this job. THIS POINTER MAY BE NULL if the
   // request was destroyed.
-  URLRequest* request() const {
+  net::URLRequest* request() const {
     return request_;
   }
 
@@ -218,7 +217,7 @@ class URLRequestJob : public base::RefCountedThreadSafe<URLRequestJob>,
   virtual void RecordPacketStats(StatisticSelector statistic) const;
 
  protected:
-  friend class base::RefCountedThreadSafe<URLRequestJob>;
+  friend class base::RefCounted<URLRequestJob>;
   virtual ~URLRequestJob();
 
   // Notifies the job that headers have been received.
@@ -281,7 +280,7 @@ class URLRequestJob : public base::RefCountedThreadSafe<URLRequestJob>,
 
   // The request that initiated this job. This value MAY BE NULL if the
   // request was released by DetachRequest().
-  URLRequest* request_;
+  net::URLRequest* request_;
 
   // The status of the job.
   const URLRequestStatus GetStatus();
@@ -422,5 +421,9 @@ class URLRequestJob : public base::RefCountedThreadSafe<URLRequestJob>,
 
   DISALLOW_COPY_AND_ASSIGN(URLRequestJob);
 };
+
+}  // namespace net
+
+typedef net::URLRequestJob URLRequestJob;
 
 #endif  // NET_URL_REQUEST_URL_REQUEST_JOB_H_

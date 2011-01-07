@@ -73,6 +73,8 @@ class GaiaAuthFetcherTest : public testing::Test {
   GURL client_login_source_;
   GURL issue_auth_token_source_;
   TestingProfile profile_;
+ protected:
+  MessageLoop message_loop_;
 };
 
 class MockGaiaConsumer : public GaiaAuthConsumer {
@@ -157,7 +159,7 @@ TEST_F(GaiaAuthFetcherTest, TokenNetFailure) {
 
 
 TEST_F(GaiaAuthFetcherTest, LoginDenied) {
-  std::string data("Error: NO!");
+  std::string data("Error=BadAuthentication");
   URLRequestStatus status(URLRequestStatus::SUCCESS, 0);
 
   GoogleServiceAuthError expected_error(
@@ -310,6 +312,22 @@ TEST_F(GaiaAuthFetcherTest, AccountDisabledError) {
   GoogleServiceAuthError error =
       GaiaAuthFetcher::GenerateAuthError(data, status);
   EXPECT_EQ(error.state(), GoogleServiceAuthError::ACCOUNT_DISABLED);
+}
+
+TEST_F(GaiaAuthFetcherTest,BadAuthenticationError) {
+  URLRequestStatus status(URLRequestStatus::SUCCESS, 0);
+  std::string data = "Error=BadAuthentication\n";
+  GoogleServiceAuthError error =
+      GaiaAuthFetcher::GenerateAuthError(data, status);
+  EXPECT_EQ(error.state(), GoogleServiceAuthError::INVALID_GAIA_CREDENTIALS);
+}
+
+TEST_F(GaiaAuthFetcherTest,IncomprehensibleError) {
+  URLRequestStatus status(URLRequestStatus::SUCCESS, 0);
+  std::string data = "Error=Gobbledygook\n";
+  GoogleServiceAuthError error =
+      GaiaAuthFetcher::GenerateAuthError(data, status);
+  EXPECT_EQ(error.state(), GoogleServiceAuthError::SERVICE_UNAVAILABLE);
 }
 
 TEST_F(GaiaAuthFetcherTest,ServiceUnavailableError) {

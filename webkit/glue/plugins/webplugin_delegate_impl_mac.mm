@@ -270,7 +270,8 @@ WebPluginDelegateImpl::WebPluginDelegateImpl(
       first_set_window_call_(true),
       plugin_has_focus_(false),
       has_webkit_focus_(false),
-      containing_view_has_focus_(true) {
+      containing_view_has_focus_(true),
+      creation_succeeded_(false) {
   memset(&window_, 0, sizeof(window_));
 #ifndef NP_NO_CARBON
   memset(&np_cg_context_, 0, sizeof(np_cg_context_));
@@ -376,9 +377,14 @@ bool WebPluginDelegateImpl::PlatformInitialize() {
         layer_ = layer;
         surface_ = plugin_->GetAcceleratedSurface();
 
-        renderer_ = [[CARenderer rendererWithCGLContext:surface_->context()
-                                                options:NULL] retain];
-        [renderer_ setLayer:layer_];
+        // If surface initialization fails for some reason, just continue
+        // without any drawing; returning false would be a more confusing user
+        // experience (since it triggers a missing plugin placeholder).
+        if (surface_->context()) {
+          renderer_ = [[CARenderer rendererWithCGLContext:surface_->context()
+                                                  options:NULL] retain];
+          [renderer_ setLayer:layer_];
+        }
         plugin_->BindFakePluginWindowHandle(false);
       }
       break;
@@ -978,10 +984,8 @@ void WebPluginDelegateImpl::SetImeEnabled(bool enabled) {
 
 void WebPluginDelegateImpl::DrawLayerInSurface() {
   // If we haven't plumbed up the surface yet, don't try to draw.
-  if (!windowed_handle())
+  if (!windowed_handle() || !renderer_)
     return;
-
-  surface_->StartDrawing();
 
   [renderer_ beginFrameAtTime:CACurrentMediaTime() timeStamp:NULL];
   if (CGRectIsEmpty([renderer_ updateBounds])) {
@@ -989,6 +993,9 @@ void WebPluginDelegateImpl::DrawLayerInSurface() {
     [renderer_ endFrame];
     return;
   }
+
+  surface_->StartDrawing();
+
   CGRect layerRect = [layer_ bounds];
   [renderer_ addUpdateRect:layerRect];
   [renderer_ render];

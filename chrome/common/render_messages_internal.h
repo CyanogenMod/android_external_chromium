@@ -165,19 +165,12 @@ IPC_BEGIN_MESSAGES(View)
   // requested pages for print preview.
   IPC_MESSAGE_ROUTED0(ViewMsg_PrintPreview)
 
-#if defined(OS_MACOSX) || defined(OS_WIN)
   // Sends back to the browser the rendered "printed page" for preview that was
   // requested by a ViewMsg_PrintPage message or from scripted printing. The
   // memory handle in this message is already valid in the browser process.
-  IPC_MESSAGE_ROUTED1(ViewHostMsg_PageReadyForPreview,
-                      ViewHostMsg_DidPrintPage_Params /* page content */)
-#else
-  // Sends back to the browser the rendered "printed page" for preview that was
-  // requested by a ViewMsg_PrintPage message or from scripted printing. The
-  // memory handle in this message is already valid in the browser process.
-  IPC_MESSAGE_ROUTED1(ViewHostMsg_PagesReadyForPreview,
+  IPC_MESSAGE_ROUTED2(ViewHostMsg_PagesReadyForPreview,
+                      int /* document cookie */,
                       int /* fd in browser */)
-#endif
 
   // Tells the renderer to dump as much memory as it can, perhaps because we
   // have memory pressure or the renderer is (or will be) paged out.  This
@@ -833,8 +826,9 @@ IPC_BEGIN_MESSAGES(View)
   IPC_MESSAGE_ROUTED0(ViewMsg_SearchBoxCancel)
   IPC_MESSAGE_ROUTED1(ViewMsg_SearchBoxResize,
                       gfx::Rect /*search_box_bounds*/)
-  IPC_MESSAGE_ROUTED1(ViewMsg_DetermineIfPageSupportsInstant,
-                      string16 /*value*/)
+  IPC_MESSAGE_ROUTED2(ViewMsg_DetermineIfPageSupportsInstant,
+                      string16 /*value*/,
+                      bool /* verbatim */)
 
   // Used to tell the renderer not to add scrollbars with height and
   // width below a threshold.
@@ -1314,10 +1308,10 @@ IPC_BEGIN_MESSAGES(ViewHost)
   IPC_MESSAGE_ROUTED1(ViewHostMsg_UpdateRect,
                       ViewHostMsg_UpdateRect_Params)
 
-  // Sent by the renderer when GPU compositing is enabled or disabled to notify
-  // the browser whether or not is should do paiting.
-  IPC_MESSAGE_ROUTED1(ViewHostMsg_GpuRenderingActivated,
-                      bool /* true if the GPU process renders to window */)
+  // Sent by the renderer when accelerated compositing is enabled or disabled to
+  // notify the browser whether or not is should do painting.
+  IPC_MESSAGE_ROUTED1(ViewHostMsg_DidActivateAcceleratedCompositing,
+                      bool /* true if the accelerated compositor is actve */)
 
   // Acknowledges receipt of a ViewMsg_HandleInputEvent message.
   // Payload is a WebInputEvent::Type which is the type of the event, followed
@@ -1377,22 +1371,22 @@ IPC_BEGIN_MESSAGES(ViewHost)
                              ViewHostMsg_Resource_Request,
                              SyncLoadResult)
 
-  // Used to set a cookie.  The cookie is set asynchronously, but will be
+  // Used to set a cookie. The cookie is set asynchronously, but will be
   // available to a subsequent ViewHostMsg_GetCookies request.
   IPC_MESSAGE_ROUTED3(ViewHostMsg_SetCookie,
                       GURL /* url */,
                       GURL /* first_party_for_cookies */,
                       std::string /* cookie */)
 
-  // Used to get cookies for the given URL.  This may be blocked by a user
-  // prompt to validate a previous SetCookie message.
+  // Used to get cookies for the given URL. This may block waiting for a
+  // previous SetCookie message to be processed.
   IPC_SYNC_MESSAGE_ROUTED2_1(ViewHostMsg_GetCookies,
                              GURL /* url */,
                              GURL /* first_party_for_cookies */,
                              std::string /* cookies */)
 
-  // Used to get raw cookie information for the given URL.  This may be blocked
-  // by a user prompt to validate a previous SetCookie message.
+  // Used to get raw cookie information for the given URL. This may block
+  // waiting for a previous SetCookie message to be processed.
   IPC_SYNC_MESSAGE_ROUTED2_1(ViewHostMsg_GetRawCookies,
                              GURL /* url */,
                              GURL /* first_party_for_cookies */,
@@ -1403,6 +1397,13 @@ IPC_BEGIN_MESSAGES(ViewHost)
   IPC_SYNC_MESSAGE_CONTROL2_0(ViewHostMsg_DeleteCookie,
                               GURL /* url */,
                               std::string /* cookie_name */)
+
+  // Used to check if cookies are enabled for the given URL. This may block
+  // waiting for a previous SetCookie message to be processed.
+  IPC_SYNC_MESSAGE_ROUTED2_1(ViewHostMsg_CookiesEnabled,
+                             GURL /* url */,
+                             GURL /* first_party_for_cookies */,
+                             bool /* cookies_enabled */)
 
   // Used to get the list of plugins
   IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_GetPlugins,
@@ -1905,6 +1906,10 @@ IPC_BEGIN_MESSAGES(ViewHost)
                       int32 /* page_id */,
                       WebApplicationInfo)
 
+  // Sent by the renderer to implement chrome.app.installApplication().
+  IPC_MESSAGE_ROUTED1(ViewHostMsg_InstallApplication,
+                      WebApplicationInfo)
+
   // Provides the result from running OnMsgShouldClose.  |proceed| matches the
   // return value of the the frame's shouldClose method (which includes the
   // onbeforeunload handler): true if the user decided to proceed with leaving
@@ -2087,7 +2092,7 @@ IPC_BEGIN_MESSAGES(ViewHost)
   // Queries the browser for AutoFill suggestions for a form input field.
   IPC_MESSAGE_ROUTED3(ViewHostMsg_QueryFormFieldAutoFill,
                       int /* id of this message */,
-                      bool /* field autofilled */,
+                      webkit_glue::FormData /* the form */,
                       webkit_glue::FormField /* the form field */)
 
   // Sent when the popup with AutoFill suggestions for a form is shown.
@@ -2095,9 +2100,10 @@ IPC_BEGIN_MESSAGES(ViewHost)
 
   // Instructs the browser to fill in the values for a form using AutoFill
   // profile data.
-  IPC_MESSAGE_ROUTED3(ViewHostMsg_FillAutoFillFormData,
+  IPC_MESSAGE_ROUTED4(ViewHostMsg_FillAutoFillFormData,
                       int /* id of this message */,
                       webkit_glue::FormData /* the form  */,
+                      webkit_glue::FormField /* the form field  */,
                       int /* profile unique ID */)
 
   // Sent when a form is previewed or filled with AutoFill suggestions.
@@ -2461,20 +2467,15 @@ IPC_BEGIN_MESSAGES(ViewHost)
                               int32, /* idb_database_id */
                               string16 /* name */)
 
-  // WebIDBDatabase::description() message.
-  IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_IDBDatabaseDescription,
-                              int32, /* idb_database_id */
-                              string16 /* description */)
-
   // WebIDBDatabase::version() message.
   IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_IDBDatabaseVersion,
                               int32, /* idb_database_id */
                               string16 /* vesion */)
 
-  // WebIDBDatabase::objectStores() message.
-  IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_IDBDatabaseObjectStores,
+  // WebIDBDatabase::objectStoreNames() message.
+  IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_IDBDatabaseObjectStoreNames,
                               int32, /* idb_database_id */
-                              std::vector<string16> /* objectStores */)
+                              std::vector<string16> /* objectStoreNames */)
 
   // WebIDBDatabase::createObjectStore() message.
   IPC_SYNC_MESSAGE_CONTROL1_2(ViewHostMsg_IDBDatabaseCreateObjectStore,
@@ -2633,10 +2634,11 @@ IPC_BEGIN_MESSAGES(ViewHost)
                        int32 /* idb_cursor_id */)
 
   // IDBTransaction::ObjectStore message.
-  IPC_SYNC_MESSAGE_CONTROL2_1(ViewHostMsg_IDBTransactionObjectStore,
+  IPC_SYNC_MESSAGE_CONTROL2_2(ViewHostMsg_IDBTransactionObjectStore,
                               int32, /* transaction_id */
                               string16, /* name */
-                              int32 /* object_store_id */)
+                              int32, /* object_store_id */
+                              WebKit::WebExceptionCode /* ec */)
 
   // WebIDBTransaction::mode() message.
   IPC_SYNC_MESSAGE_CONTROL1_1(ViewHostMsg_IDBTransactionMode,

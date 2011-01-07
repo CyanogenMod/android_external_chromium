@@ -56,7 +56,6 @@
 #include "chrome/browser/speech/speech_input_dispatcher_host.h"
 #include "chrome/browser/spellchecker_platform_engine.h"
 #include "chrome/browser/task_manager/task_manager.h"
-#include "chrome/browser/ui_thread_helpers.h"
 #include "chrome/browser/worker_host/message_port_dispatcher.h"
 #include "chrome/browser/worker_host/worker_service.h"
 #include "chrome/common/chrome_switches.h"
@@ -88,6 +87,7 @@
 #include "chrome/browser/chromeos/plugin_selection_policy.h"
 #endif
 #if defined(OS_MACOSX)
+#include "chrome/browser/cocoa/task_helpers.h"
 #include "chrome/common/font_descriptor_mac.h"
 #include "chrome/common/font_loader_mac.h"
 #endif
@@ -443,6 +443,8 @@ bool ResourceMessageFilter::OnMessageReceived(const IPC::Message& msg) {
       IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_GetRawCookies,
                                       OnGetRawCookies)
       IPC_MESSAGE_HANDLER(ViewHostMsg_DeleteCookie, OnDeleteCookie)
+      IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_CookiesEnabled,
+                                      OnCookiesEnabled)
 #if defined(OS_MACOSX)
       IPC_MESSAGE_HANDLER(ViewHostMsg_LoadFont, OnLoadFont)
 #endif
@@ -750,6 +752,28 @@ void ResourceMessageFilter::OnDeleteCookie(const GURL& url,
                                            const std::string& cookie_name) {
   URLRequestContext* context = GetRequestContextForURL(url);
   context->cookie_store()->DeleteCookie(url, cookie_name);
+}
+
+void ResourceMessageFilter::OnCookiesEnabled(
+    const GURL& url,
+    const GURL& first_party_for_cookies,
+    IPC::Message* reply_msg) {
+  URLRequestContext* context = GetRequestContextForURL(url);
+  CookiesEnabledCompletion* callback =
+      new CookiesEnabledCompletion(reply_msg, this);
+  int policy = net::OK;
+  // TODO(ananta): If this render view is associated with an automation channel,
+  // aka ChromeFrame then we need to retrieve cookie settings from the external
+  // host.
+  if (context->cookie_policy()) {
+    policy = context->cookie_policy()->CanGetCookies(
+        url, first_party_for_cookies, callback);
+    if (policy == net::ERR_IO_PENDING) {
+      Send(new ViewMsg_SignalCookiePromptEvent());
+      return; // CanGetCookies will take care to call our callback in this case.
+    }
+  }
+  callback->Run(policy);
 }
 
 #if defined(OS_MACOSX)
@@ -1172,10 +1196,14 @@ void ResourceMessageFilter::OnDidZoomURL(const IPC::Message& message,
                                          double zoom_level,
                                          bool remember,
                                          const GURL& url) {
-  ui_thread_helpers::PostTaskWhileRunningMenu(FROM_HERE,
-      NewRunnableMethod(
-          this, &ResourceMessageFilter::UpdateHostZoomLevelsOnUIThread,
-          zoom_level, remember, url, id(), message.routing_id()));
+  Task* task = NewRunnableMethod(this,
+      &ResourceMessageFilter::UpdateHostZoomLevelsOnUIThread, zoom_level,
+      remember, url, id(), message.routing_id());
+#if defined(OS_MACOSX)
+  cocoa_utils::PostTaskInEventTrackingRunLoopMode(FROM_HERE, task);
+#else
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE, task);
+#endif
 }
 
 void ResourceMessageFilter::UpdateHostZoomLevelsOnUIThread(
@@ -1579,8 +1607,6 @@ void ResourceMessageFilter::OnKeygenOnWorkerThread(
     const GURL& url,
     IPC::Message* reply_msg) {
   DCHECK(reply_msg);
-  // Verify we are on a worker thread.
-  DCHECK(!MessageLoop::current());
 
   // Generate a signed public key and challenge, then send it back.
   net::KeygenHandler keygen_handler(key_size_in_bits, challenge_string, url);
@@ -1728,10 +1754,10 @@ SetCookieCompletion::~SetCookieCompletion() {}
 void SetCookieCompletion::RunWithParams(const Tuple1<int>& params) {
   int result = params.a;
   bool blocked_by_policy = true;
+  net::CookieOptions options;
   if (result == net::OK ||
       result == net::OK_FOR_SESSION_ONLY) {
     blocked_by_policy = false;
-    net::CookieOptions options;
     if (result == net::OK_FOR_SESSION_ONLY)
       options.set_force_session();
     context_->cookie_store()->SetCookieWithOptions(url_, cookie_line_,
@@ -1741,7 +1767,7 @@ void SetCookieCompletion::RunWithParams(const Tuple1<int>& params) {
     CallRenderViewHostContentSettingsDelegate(
         render_process_id_, render_view_id_,
         &RenderViewHostDelegate::ContentSettings::OnCookieAccessed,
-        url_, cookie_line_, blocked_by_policy);
+        url_, cookie_line_, options, blocked_by_policy);
   }
   delete this;
 }
@@ -1797,4 +1823,20 @@ void GetCookiesCompletion::RunWithParams(const Tuple1<int>& params) {
 
 void GetCookiesCompletion::set_cookie_store(CookieStore* cookie_store) {
   cookie_store_ = cookie_store;
+}
+
+CookiesEnabledCompletion::CookiesEnabledCompletion(
+    IPC::Message* reply_msg,
+    ResourceMessageFilter* filter)
+    : reply_msg_(reply_msg),
+      filter_(filter) {
+}
+
+CookiesEnabledCompletion::~CookiesEnabledCompletion() {}
+
+void CookiesEnabledCompletion::RunWithParams(const Tuple1<int>& params) {
+  bool result = params.a != net::ERR_ACCESS_DENIED;
+  ViewHostMsg_CookiesEnabled::WriteReplyParams(reply_msg_, result);
+  filter_->Send(reply_msg_);
+  delete this;
 }

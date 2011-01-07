@@ -99,6 +99,10 @@ class AutocompletePopupModel : public NotificationObserver {
   bool GetKeywordForMatch(const AutocompleteMatch& match,
                           std::wstring* keyword) const;
 
+  // Calls through to SearchProvider::FinalizeInstantQuery.
+  void FinalizeInstantQuery(const std::wstring& input_text,
+                            const std::wstring& suggest_text);
+
   // Returns a pointer to a heap-allocated AutocompleteLog containing the
   // current input text, selected match, and result set.  The caller is
   // responsible for deleting the object.

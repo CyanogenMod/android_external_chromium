@@ -16,8 +16,10 @@
 #include "chrome/browser/io_thread.h"
 #include "chrome/browser/net/chrome_cookie_notification_details.h"
 #include "chrome/browser/net/chrome_net_log.h"
+#include "chrome/browser/net/chrome_dns_cert_provenance_checker_factory.h"
 #include "chrome/browser/net/sqlite_persistent_cookie_store.h"
 #include "chrome/browser/net/predictor_api.h"
+#include "chrome/browser/net/pref_proxy_config_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
@@ -67,26 +69,25 @@ net::ProxyConfigService* CreateProxyConfigService(Profile* profile) {
   // from the UI thread.
   CheckCurrentlyOnMainThread();
 
-  scoped_ptr<net::ProxyConfig> proxy_config(CreateProxyConfig(
-      profile->GetPrefs()));
+  // Create a baseline service that provides proxy configuration in case nothing
+  // is configured through prefs (Note: prefs include command line and
+  // configuration policy).
+  net::ProxyConfigService* base_service = NULL;
 
-  if (!proxy_config.get()) {
-    // Use system settings.
-    // TODO(port): the IO and FILE message loops are only used by Linux.  Can
-    // that code be moved to chrome/browser instead of being in net, so that it
-    // can use BrowserThread instead of raw MessageLoop pointers? See bug 25354.
+  // TODO(port): the IO and FILE message loops are only used by Linux.  Can
+  // that code be moved to chrome/browser instead of being in net, so that it
+  // can use BrowserThread instead of raw MessageLoop pointers? See bug 25354.
 #if defined(OS_CHROMEOS)
-    return new chromeos::ProxyConfigService(
-        profile->GetChromeOSProxyConfigServiceImpl());
+  base_service = new chromeos::ProxyConfigService(
+      profile->GetChromeOSProxyConfigServiceImpl());
 #else
-    return net::ProxyService::CreateSystemProxyConfigService(
-        g_browser_process->io_thread()->message_loop(),
-        g_browser_process->file_thread()->message_loop());
+  base_service = net::ProxyService::CreateSystemProxyConfigService(
+      g_browser_process->io_thread()->message_loop(),
+      g_browser_process->file_thread()->message_loop());
 #endif  // defined(OS_CHROMEOS)
-  }
 
-  // Otherwise use the fixed settings from the command line.
-  return new net::ProxyConfigServiceFixed(*proxy_config.get());
+  return new PrefProxyConfigService(profile->GetProxyConfigTracker(),
+                                    base_service);
 }
 
 // Create a proxy service according to the options on command line.
@@ -265,6 +266,10 @@ ChromeURLRequestContext* FactoryForOriginal::Create() {
   context->set_http_auth_handler_factory(
       io_thread_globals->http_auth_handler_factory.get());
 
+  context->set_dns_cert_checker(
+      CreateDnsCertProvenanceChecker(io_thread_globals->dnsrr_resolver.get(),
+                                     context));
+
   const CommandLine& command_line = *CommandLine::ForCurrentProcess();
 
   context->set_proxy_service(
@@ -280,6 +285,7 @@ ChromeURLRequestContext* FactoryForOriginal::Create() {
   net::HttpCache* cache =
       new net::HttpCache(context->host_resolver(),
                          context->dnsrr_resolver(),
+                         context->dns_cert_checker(),
                          context->proxy_service(),
                          context->ssl_config_service(),
                          context->http_auth_handler_factory(),
@@ -406,6 +412,7 @@ ChromeURLRequestContext* FactoryForOffTheRecord::Create() {
   net::HttpCache* cache =
       new net::HttpCache(context->host_resolver(),
                          context->dnsrr_resolver(),
+                         NULL /* dns_cert_checker */,
                          context->proxy_service(),
                          context->ssl_config_service(),
                          context->http_auth_handler_factory(),
@@ -498,6 +505,7 @@ ChromeURLRequestContext* FactoryForMedia::Create() {
     // new set of network stack.
     cache = new net::HttpCache(main_context->host_resolver(),
                                main_context->dnsrr_resolver(),
+                               NULL /* dns_cert_checker */,
                                main_context->proxy_service(),
                                main_context->ssl_config_service(),
                                main_context->http_auth_handler_factory(),
@@ -930,65 +938,4 @@ void ChromeURLRequestContextFactory::ApplyProfileParametersToContext(
   context->set_blob_storage_context(blob_storage_context_);
   context->set_browser_file_system_context(browser_file_system_context_);
   context->set_extension_info_map(extension_info_map_);
-}
-
-// ----------------------------------------------------------------------------
-
-net::ProxyConfig* CreateProxyConfig(const PrefService* pref_service) {
-  // Scan for all "enable" type proxy switches.
-  static const char* proxy_prefs[] = {
-    prefs::kProxyPacUrl,
-    prefs::kProxyServer,
-    prefs::kProxyBypassList,
-    prefs::kProxyAutoDetect
-  };
-
-  // Check whether the preference system holds a valid proxy configuration. Note
-  // that preferences coming from a lower-priority source than the user settings
-  // are ignored. That's because chrome treats the system settings as the
-  // default values, which should apply if there's no explicit value forced by
-  // policy or the user.
-  bool found_enable_proxy_pref = false;
-  for (size_t i = 0; i < arraysize(proxy_prefs); i++) {
-    const PrefService::Preference* pref =
-        pref_service->FindPreference(proxy_prefs[i]);
-    DCHECK(pref);
-    if (pref && (!pref->IsUserModifiable() || pref->HasUserSetting())) {
-      found_enable_proxy_pref = true;
-      break;
-    }
-  }
-
-  if (!found_enable_proxy_pref &&
-      !pref_service->GetBoolean(prefs::kNoProxyServer)) {
-    return NULL;
-  }
-
-  net::ProxyConfig* proxy_config = new net::ProxyConfig();
-  if (pref_service->GetBoolean(prefs::kNoProxyServer)) {
-    // Ignore all the other proxy config preferences if the use of a proxy
-    // has been explicitly disabled.
-    return proxy_config;
-  }
-
-  if (pref_service->HasPrefPath(prefs::kProxyServer)) {
-    std::string proxy_server = pref_service->GetString(prefs::kProxyServer);
-    proxy_config->proxy_rules().ParseFromString(proxy_server);
-  }
-
-  if (pref_service->HasPrefPath(prefs::kProxyPacUrl)) {
-    std::string proxy_pac = pref_service->GetString(prefs::kProxyPacUrl);
-    proxy_config->set_pac_url(GURL(proxy_pac));
-  }
-
-  proxy_config->set_auto_detect(pref_service->GetBoolean(
-      prefs::kProxyAutoDetect));
-
-  if (pref_service->HasPrefPath(prefs::kProxyBypassList)) {
-    std::string proxy_bypass =
-        pref_service->GetString(prefs::kProxyBypassList);
-    proxy_config->proxy_rules().bypass_rules.ParseFromString(proxy_bypass);
-  }
-
-  return proxy_config;
 }

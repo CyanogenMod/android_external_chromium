@@ -45,6 +45,10 @@ class WebKitClientImpl : public WebKit::WebKitClient {
   virtual void getPluginList(bool refresh, WebKit::WebPluginListBuilder*);
   virtual void decrementStatsCounter(const char* name);
   virtual void incrementStatsCounter(const char* name);
+  virtual void histogramCustomCounts(
+    const char* name, int sample, int min, int max, int bucket_count);
+  virtual void histogramEnumeration(
+    const char* name, int sample, int boundary_value);
   virtual void traceEventBegin(const char* name, void* id, const char* extra);
   virtual void traceEventEnd(const char* name, void* id, const char* extra);
   virtual WebKit::WebData loadResource(const char* name);
@@ -52,6 +56,11 @@ class WebKitClientImpl : public WebKit::WebKitClient {
       WebKit::WebLocalizedString::Name name);
   virtual WebKit::WebString queryLocalizedString(
       WebKit::WebLocalizedString::Name name, int numeric_value);
+  virtual WebKit::WebString queryLocalizedString(
+      WebKit::WebLocalizedString::Name name, const WebKit::WebString& value);
+  virtual WebKit::WebString queryLocalizedString(
+      WebKit::WebLocalizedString::Name name,
+      const WebKit::WebString& value1, const WebKit::WebString& value2);
   virtual void suddenTerminationChanged(bool enabled) { }
   virtual double currentTime();
   virtual void setSharedTimerFiredFunction(void (*func)());

@@ -49,10 +49,10 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
     COMPONENT,          // An integral component of Chrome itself, which
                         // happens to be implemented as an extension. We don't
                         // show these in the management UI.
-    EXTERNAL_PREF_DOWNLOAD, // A crx file from an external directory (via
-                            // prefs), installed from an update URL.
-    EXTERNAL_POLICY_DOWNLOAD, // A crx file from an external directory (via
-                              // admin policies), installed from an update URL.
+    EXTERNAL_PREF_DOWNLOAD,    // A crx file from an external directory (via
+                               // prefs), installed from an update URL.
+    EXTERNAL_POLICY_DOWNLOAD,  // A crx file from an external directory (via
+                               // admin policies), installed from an update URL.
 
     NUM_LOCATIONS
   };
@@ -113,6 +113,9 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
                                          bool require_key,
                                          std::string* error);
 
+  // Return the update url used by gallery/webstore extensions.
+  static GURL GalleryUpdateUrl(bool secure);
+
   // The install message id for |permission|.  Returns 0 if none exists.
   static int GetPermissionMessageId(const std::string& permission);
 
@@ -120,13 +123,21 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // should display at install time.
   std::vector<string16> GetPermissionMessages() const;
 
-  // Returns the distinct hosts that should be displayed in the install UI. This
-  // discards some of the detail that is present in the manifest to make it as
-  // easy as possible to process by users. In particular we disregard the scheme
-  // and path components of URLPatterns and de-dupe the result.
-  static std::vector<std::string> GetDistinctHosts(
-      const URLPatternList& host_patterns);
-  std::vector<std::string> GetDistinctHosts() const;
+  // Returns the distinct hosts that should be displayed in the install UI
+  // for the URL patterns |list|. This discards some of the detail that is
+  // present in the manifest to make it as easy as possible to process by
+  // users. In particular we disregard the scheme and path components of
+  // URLPatterns and de-dupe the result, which includes filtering out common
+  // hosts with differing RCDs. (NOTE: when de-duping hosts with common RCDs,
+  // the first pattern is returned and the rest discarded)
+  static std::vector<std::string> GetDistinctHostsForDisplay(
+      const URLPatternList& list);
+
+  // Compares two URLPatternLists for security equality by returning whether
+  // the URL patterns in |new_list| contain additional distinct hosts compared
+  // to |old_list|.
+  static bool IsElevatedHostList(
+      const URLPatternList& old_list, const URLPatternList& new_list);
 
   // Icon sizes used by the extension system.
   static const int kIconSizes[];
@@ -162,6 +173,12 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // The old name for the unlimited storage permission, which is deprecated but
   // still accepted as meaning the same thing as kUnlimitedStoragePermission.
   static const char kOldUnlimitedStoragePermission[];
+
+  // Valid schemes for web extent URLPatterns.
+  static const int kValidWebExtentSchemes;
+
+  // Valid schemes for host permission URLPatterns.
+  static const int kValidHostPermissionSchemes;
 
   // Returns true if the string is one of the known hosted app permissions (see
   // kHostedAppPermissionNames).
@@ -250,8 +267,11 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
       std::string* output, bool is_public);
 
   // Determine whether |new_extension| has increased privileges compared to
-  // |old_extension|.
-  static bool IsPrivilegeIncrease(const Extension* old_extension,
+  // its previously granted permissions, specified by |granted_apis|,
+  // |granted_extent| and |granted_full_access|.
+  static bool IsPrivilegeIncrease(const bool granted_full_access,
+                                  const std::set<std::string>& granted_apis,
+                                  const ExtensionExtent& granted_extent,
                                   const Extension* new_extension);
 
   // Given an extension and icon size, read it if present and decode it into
@@ -301,6 +321,13 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   static bool HasApiPermission(const std::set<std::string>& api_permissions,
                                const std::string& function_name);
 
+  // Whether the |effective_host_permissions| and |api_permissions| include
+  // effective access to all hosts. See the non-static version of the method
+  // for more details.
+  static bool HasEffectiveAccessToAllHosts(
+      const ExtensionExtent& effective_host_permissions,
+      const std::set<std::string>& api_permissions);
+
   bool HasApiPermission(const std::string& function_name) const {
     return HasApiPermission(this->api_permissions(), function_name);
   }
@@ -324,6 +351,10 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // permission that effectively grants access to all hosts (e.g. proxy,
   // network, etc.)
   bool HasEffectiveAccessToAllHosts() const;
+
+  // Whether the extension effectively has all permissions (for example, by
+  // having an NPAPI plugin).
+  bool HasFullPermissions() const;
 
   // Returns the Homepage URL for this extension. If homepage_url was not
   // specified in the manifest, this returns the Google Gallery URL. For
@@ -432,6 +463,22 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // Normalize the path for use by the extension. On Windows, this will make
   // sure the drive letter is uppercase.
   static FilePath MaybeNormalizePath(const FilePath& path);
+
+  // Returns the distinct hosts that can be displayed in the install UI or be
+  // used for privilege comparisons. This discards some of the detail that is
+  // present in the manifest to make it as easy as possible to process by users.
+  // In particular we disregard the scheme and path components of URLPatterns
+  // and de-dupe the result, which includes filtering out common hosts with
+  // differing RCDs. If |include_rcd| is true, then the de-duped result
+  // will be the first full entry, including its RCD. So if the list was
+  // "*.google.co.uk" and "*.google.com", the returned value would just be
+  // "*.google.co.uk". Keeping the RCD in the result is useful for display
+  // purposes when you want to show the user one sample hostname from the list.
+  // If you need to compare two URLPatternLists for security equality, then set
+  // |include_rcd| to false, which will return a result like "*.google.",
+  // regardless of the order of the patterns.
+  static std::vector<std::string> GetDistinctHosts(
+      const URLPatternList& host_patterns, bool include_rcd);
 
   Extension(const FilePath& path, Location location);
   ~Extension();
@@ -644,6 +691,8 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   // The Omnibox keyword for this extension, or empty if there is none.
   std::string omnibox_keyword_;
 
+  FRIEND_TEST_ALL_PREFIXES(ExtensionsServiceTest,
+                           UpdateExtensionPreservesLocation);
   FRIEND_TEST_ALL_PREFIXES(ExtensionTest, LoadPageActionHelper);
   FRIEND_TEST_ALL_PREFIXES(ExtensionTest, InitFromValueInvalid);
   FRIEND_TEST_ALL_PREFIXES(ExtensionTest, InitFromValueValid);

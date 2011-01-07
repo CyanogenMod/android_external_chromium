@@ -19,6 +19,7 @@
 class Browser;
 class BrowserView;
 class EditSearchEngineControllerDelegate;
+class Extension;
 class FilePath;
 class FindBar;
 class GURL;
@@ -44,9 +45,6 @@ namespace browser {
 void ShowBugReportView(views::Window* parent,
                        Profile* profile,
                        TabContents* tab);
-
-// Shows the "Report a problem with this page" page in a new tab
-void ShowHtmlBugReportView(views::Window* parent, Browser* browser);
 
 // Shows the "Clear browsing data" dialog box. See ClearBrowsingDataView.
 void ShowClearBrowsingDataView(gfx::NativeWindow parent,
@@ -121,9 +119,15 @@ void ShowContentSettingsWindow(gfx::NativeWindow parent_window,
 void ShowCollectedCookiesDialog(gfx::NativeWindow parent_window,
                                 TabContents* tab_contents);
 
+
 // Shows the create web app shortcut dialog box.
-void ShowCreateShortcutsDialog(gfx::NativeWindow parent_window,
-                               TabContents* tab_contents);
+void ShowCreateWebAppShortcutsDialog(gfx::NativeWindow parent_window,
+                                     TabContents* tab_contents);
+
+// Shows the create chrome app shortcut dialog box.
+void ShowCreateChromeAppShortcutsDialog(gfx::NativeWindow parent_window,
+                                        Profile* profile,
+                                        const Extension* app);
 
 }  // namespace browser
 

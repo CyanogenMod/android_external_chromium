@@ -96,7 +96,7 @@ class ToolbarView : public AccessiblePaneView,
   virtual void RunMenu(views::View* source, const gfx::Point& pt);
 
   // Overridden from LocationBarView::Delegate:
-  virtual TabContents* GetTabContents();
+  virtual TabContentsWrapper* GetTabContentsWrapper();
   virtual InstantController* GetInstant();
   virtual void OnInputInProgress(bool in_progress);
 
@@ -138,6 +138,9 @@ class ToolbarView : public AccessiblePaneView,
   // Returns true if we should show the upgrade recommended dot.
   bool IsUpgradeRecommended();
 
+  // Returns true if we should show the background page badge.
+  bool ShouldShowBackgroundPageBadge();
+
   // Returns true if we should show the warning for incompatible software.
   bool ShouldShowIncompatibilityWarning();
 
@@ -164,6 +167,10 @@ class ToolbarView : public AccessiblePaneView,
   // badge.
   SkBitmap GetAppMenuIcon(views::CustomButton::ButtonState state);
 
+  // Gets a badge for the wrench icon corresponding to the number of
+  // unacknowledged background pages in the system.
+  SkBitmap GetBackgroundPageBadge();
+
   scoped_ptr<BackForwardMenuModel> back_menu_model_;
   scoped_ptr<BackForwardMenuModel> forward_menu_model_;
 
@@ -174,6 +181,9 @@ class ToolbarView : public AccessiblePaneView,
   views::ImageButton* back_;
   views::ImageButton* forward_;
   ReloadButton* reload_;
+#if defined(OS_CHROMEOS)
+  views::ImageButton* feedback_;
+#endif
   views::ImageButton* home_;
   LocationBarView* location_bar_;
   BrowserActionsContainer* browser_actions_;

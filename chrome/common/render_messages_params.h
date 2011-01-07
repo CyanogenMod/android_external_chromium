@@ -92,6 +92,7 @@ struct ViewMsg_Navigate_Params {
 
   // The URL to send in the "Referer" header field. Can be empty if there is
   // no referrer.
+  // TODO: consider folding this into extra_headers.
   GURL referrer;
 
   // The type of transition.
@@ -105,6 +106,9 @@ struct ViewMsg_Navigate_Params {
 
   // The time the request was created
   base::Time request_time;
+
+  // Extra headers (separated by \n) to send during the request.
+  std::string extra_headers;
 };
 
 // Current status of the audio output stream in the browser process. Browser
@@ -705,14 +709,17 @@ struct ViewHostMsg_IDBIndexOpenCursor_Params {
   // The response should have this id.
   int32 response_id_;
 
-  // The serialized left key.
-  IndexedDBKey left_key_;
+  // The serialized lower key.
+  IndexedDBKey lower_key_;
 
-  // The serialized right key.
-  IndexedDBKey right_key_;
+  // The serialized upper key.
+  IndexedDBKey upper_key_;
 
-  // The key flags.
-  int32 key_flags_;
+  // Is the lower bound open?
+  bool lower_open_;
+
+  // Is the upper bound open?
+  bool upper_open_;
 
   // The direction of this cursor.
   int32 direction_;
@@ -777,14 +784,17 @@ struct ViewHostMsg_IDBObjectStoreOpenCursor_Params {
   // The response should have this id.
   int32 response_id_;
 
-  // The serialized left key.
-  IndexedDBKey left_key_;
+  // The serialized lower key.
+  IndexedDBKey lower_key_;
 
-  // The serialized right key.
-  IndexedDBKey right_key_;
+  // The serialized upper key.
+  IndexedDBKey upper_key_;
 
-  // The key flags.
-  int32 flags_;
+  // Is the lower bound open?
+  bool lower_open_;
+
+  // Is the upper bound open?
+  bool upper_open_;
 
   // The direction of this cursor.
   int32 direction_;

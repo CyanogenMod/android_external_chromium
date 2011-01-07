@@ -24,6 +24,7 @@
 #include "chrome/browser/browser_trial.h"
 #import "chrome/browser/cocoa/rwhvm_editcommand_helper.h"
 #import "chrome/browser/cocoa/view_id_util.h"
+#include "chrome/browser/gpu_process_host.h"
 #include "chrome/browser/plugin_process_host.h"
 #include "chrome/browser/renderer_host/backing_store_mac.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
@@ -33,6 +34,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/edit_command.h"
+#include "chrome/common/gpu_messages.h"
 #include "chrome/common/plugin_messages.h"
 #include "chrome/common/render_messages.h"
 #include "skia/ext/platform_canvas.h"
@@ -170,8 +172,21 @@ void DisablePasswordInput() {
   RenderWidgetHostViewMac* renderWidgetHostView_;  // weak
   gfx::PluginWindowHandle pluginHandle_;  // weak
 
-  // True if the backing IO surface was updated since we last painted.
-  BOOL surfaceWasSwapped_;
+  // The number of swap buffers calls that have been requested by the
+  // GPU process, or a monotonically increasing number of calls to
+  // updateSwapBuffersCount:fromRenderer:routeId: if the update came
+  // from an accelerated plugin.
+  uint64 swapBuffersCount_;
+  // The number of swap buffers calls that have been processed by the
+  // display link thread. This is only used with the GPU process
+  // update path.
+  volatile uint64 acknowledgedSwapBuffersCount_;
+
+  // Auxiliary information needed to formulate an acknowledgment to
+  // the GPU process. These are constant after the first message.
+  // These are both zero for updates coming from a plugin process.
+  volatile int rendererId_;
+  volatile int32 routeId_;
 
   // Cocoa methods can only be called on the main thread, so have a copy of the
   // view's size, since it's required on the displaylink thread.
@@ -186,6 +201,15 @@ void DisablePasswordInput() {
                          pluginHandle:(gfx::PluginWindowHandle)pluginHandle;
 - (void)drawView;
 
+// Updates the number of swap buffers calls that have been requested.
+// This is currently called with non-zero values only in response to
+// updates from the GPU process. For accelerated plugins, all zeros
+// are passed, and the view takes this as a hint that no flow control
+// or acknowledgment of the swap buffers are desired.
+- (void)updateSwapBuffersCount:(uint64)count
+                  fromRenderer:(int)rendererId
+                       routeId:(int32)routeId;
+
 // NSViews autorelease subviews when they die. The RWHVMac gets destroyed when
 // RHWVCocoa gets dealloc'd, which means the AcceleratedPluginView child views
 // can be around a little longer than the RWHVMac. This is called when the
@@ -193,14 +217,10 @@ void DisablePasswordInput() {
 - (void)onRenderWidgetHostViewGone;
 
 // This _must_ be atomic, since it's accessed from several threads.
-@property BOOL surfaceWasSwapped;
-
-// This _must_ be atomic, since it's accessed from several threads.
 @property NSSize cachedSize;
 @end
 
 @implementation AcceleratedPluginView
-@synthesize surfaceWasSwapped = surfaceWasSwapped_;
 @synthesize cachedSize = cachedSize_;
 
 - (CVReturn)getFrameForTime:(const CVTimeStamp*)outputTime {
@@ -208,11 +228,22 @@ void DisablePasswordInput() {
   // called from a background thread.
   base::mac::ScopedNSAutoreleasePool pool;
 
-  if (![self surfaceWasSwapped])
+  bool sendAck = (rendererId_ != 0 || routeId_ != 0);
+  uint64 currentSwapBuffersCount = swapBuffersCount_;
+  if (currentSwapBuffersCount == acknowledgedSwapBuffersCount_) {
     return kCVReturnSuccess;
+  }
 
   [self drawView];
-  [self setSurfaceWasSwapped:NO];
+
+  acknowledgedSwapBuffersCount_ = currentSwapBuffersCount;
+  if (sendAck && renderWidgetHostView_) {
+    renderWidgetHostView_->AcknowledgeSwapBuffers(
+        rendererId_,
+        routeId_,
+        acknowledgedSwapBuffersCount_);
+  }
+
   return kCVReturnSuccess;
 }
 
@@ -235,6 +266,10 @@ static CVReturn DrawOneAcceleratedPluginCallback(
     renderWidgetHostView_ = r;
     pluginHandle_ = pluginHandle;
     cachedSize_ = NSZeroSize;
+    swapBuffersCount_ = 0;
+    acknowledgedSwapBuffersCount_ = 0;
+    rendererId_ = 0;
+    routeId_ = 0;
 
     [self setAutoresizingMask:NSViewMaxXMargin|NSViewMinYMargin];
 
@@ -290,10 +325,29 @@ static CVReturn DrawOneAcceleratedPluginCallback(
   }
 
   CGLFlushDrawable(cglContext_);
+  CGLSetCurrentContext(0);
   CGLUnlockContext(cglContext_);
 }
 
+- (void)updateSwapBuffersCount:(uint64)count
+                  fromRenderer:(int)rendererId
+                       routeId:(int32)routeId {
+  if (rendererId == 0 && routeId == 0) {
+    // This notification is coming from a plugin process, for which we
+    // don't have flow control implemented right now. Fake up a swap
+    // buffers count so that we can at least skip useless renders.
+    ++swapBuffersCount_;
+  } else {
+    rendererId_ = rendererId;
+    routeId_ = routeId;
+    swapBuffersCount_ = count;
+  }
+}
+
 - (void)onRenderWidgetHostViewGone {
+  if (!renderWidgetHostView_)
+    return;
+
   CGLLockContext(cglContext_);
   // Deallocate the plugin handle while we still can.
   renderWidgetHostView_->DeallocFakePluginWindowHandle(pluginHandle_);
@@ -337,6 +391,7 @@ static CVReturn DrawOneAcceleratedPluginCallback(
   NSSize size = [self frame].size;
   glViewport(0, 0, size.width, size.height);
 
+  CGLSetCurrentContext(0);
   CGLUnlockContext(cglContext_);
   globalFrameDidChangeCGLLockCount_--;
 
@@ -411,14 +466,22 @@ static CVReturn DrawOneAcceleratedPluginCallback(
 }
 
 - (BOOL)acceptsFirstResponder {
-  // Accept first responder if the first responder isn't the RWHVMac.
-  return [[self window] firstResponder] != [self superview];
+  // Accept first responder if the first responder isn't the RWHVMac, and if the
+  // RWHVMac accepts first responder.  If the RWHVMac does not accept first
+  // responder, do not accept on its behalf.
+  return ([[self window] firstResponder] != [self superview] &&
+          [[self superview] acceptsFirstResponder]);
 }
 
 - (BOOL)becomeFirstResponder {
   // Delegate first responder to the RWHVMac.
   [[self window] makeFirstResponder:[self superview]];
   return YES;
+}
+
+- (void)viewDidMoveToSuperview {
+  if (![self superview])
+    [self onRenderWidgetHostViewGone];
 }
 @end
 
@@ -547,6 +610,7 @@ void RenderWidgetHostViewMac::SetSize(const gfx::Size& size) {
   // upper-left corner pinned. If the new size is valid, this is a popup whose
   // superview is another RenderWidgetHostViewCocoa, but even if it's directly
   // in a TabContentsViewCocoa, they're both BaseViews.
+  DCHECK([[cocoa_view_ superview] isKindOfClass:[BaseView class]]);
   gfx::Rect rect =
       [(BaseView*)[cocoa_view_ superview] flipNSRectToRect:[cocoa_view_ frame]];
   rect.set_width(size.width());
@@ -569,36 +633,30 @@ void RenderWidgetHostViewMac::MovePluginWindows(
        iter != moves.end();
        ++iter) {
     webkit_glue::WebPluginGeometry geom = *iter;
-    // Ignore bogus moves which claim to move the plugin to (0, 0)
-    // with width and height (0, 0)
-    if (geom.window_rect.x() == 0 &&
-        geom.window_rect.y() == 0 &&
-        geom.window_rect.IsEmpty()) {
-      continue;
-    }
 
-    gfx::Rect rect = geom.window_rect;
-    if (geom.visible) {
-      rect.set_x(rect.x() + geom.clip_rect.x());
-      rect.set_y(rect.y() + geom.clip_rect.y());
-      rect.set_width(geom.clip_rect.width());
-      rect.set_height(geom.clip_rect.height());
-    }
-
-    PluginViewMap::iterator it = plugin_views_.find(geom.window);
-    DCHECK(plugin_views_.end() != it);
-    if (plugin_views_.end() == it) {
+    AcceleratedPluginView* view = ViewForPluginWindowHandle(geom.window);
+    DCHECK(view);
+    if (!view)
       continue;
+
+    if (geom.rects_valid) {
+      gfx::Rect rect = geom.window_rect;
+      if (geom.visible) {
+        rect.set_x(rect.x() + geom.clip_rect.x());
+        rect.set_y(rect.y() + geom.clip_rect.y());
+        rect.set_width(geom.clip_rect.width());
+        rect.set_height(geom.clip_rect.height());
+      }
+      NSRect new_rect([cocoa_view_ flipRectToNSRect:rect]);
+      [view setFrame:new_rect];
+      [view setNeedsDisplay:YES];
     }
-    NSRect new_rect([cocoa_view_ flipRectToNSRect:rect]);
-    [it->second setFrame:new_rect];
-    [it->second setNeedsDisplay:YES];
 
     plugin_container_manager_.SetPluginContainerGeometry(geom);
 
     BOOL visible =
         plugin_container_manager_.SurfaceShouldBeVisible(geom.window);
-    [it->second setHidden:!visible];
+    [view setHidden:!visible];
   }
 }
 
@@ -690,7 +748,7 @@ void RenderWidgetHostViewMac::DidUpdateBackingStore(
   if (!is_hidden_) {
     std::vector<gfx::Rect> rects(copy_rects);
 
-    // Because the findbar might be open, we cannot use scrollRect:by: here.  For
+    // Because the findbar might be open, we cannot use scrollRect:by: here. For
     // now, simply mark all of scroll rect as dirty.
     if (!scroll_rect.IsEmpty())
       rects.push_back(scroll_rect);
@@ -852,6 +910,13 @@ gfx::PluginWindowHandle
 RenderWidgetHostViewMac::AllocateFakePluginWindowHandle(bool opaque,
                                                         bool root) {
   CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+
+  // |render_widget_host_| is set to NULL when |RWHVMac::Destroy()| has
+  // completed. If |AllocateFakePluginWindowHandle()| is called after that,
+  // we will crash when the AcceleratedPluginView we allocate below is
+  // destroyed.
+  DCHECK(render_widget_host_);
+
   // Create an NSView to host the plugin's/compositor's pixels.
   gfx::PluginWindowHandle handle =
       plugin_container_manager_.AllocateFakePluginWindowHandle(opaque, root);
@@ -889,6 +954,15 @@ void RenderWidgetHostViewMac::DeallocFakePluginWindowHandle(
   plugin_container_manager_.DestroyFakePluginWindowHandle(window);
 }
 
+AcceleratedPluginView* RenderWidgetHostViewMac::ViewForPluginWindowHandle(
+    gfx::PluginWindowHandle window) {
+  PluginViewMap::iterator it = plugin_views_.find(window);
+  DCHECK(plugin_views_.end() != it);
+  if (plugin_views_.end() == it)
+    return nil;
+  return it->second;
+}
+
 void RenderWidgetHostViewMac::AcceleratedSurfaceSetIOSurface(
     gfx::PluginWindowHandle window,
     int32 width,
@@ -910,6 +984,7 @@ void RenderWidgetHostViewMac::AcceleratedSurfaceSetIOSurface(
     geom.window_rect = rect;
     geom.clip_rect = rect;
     geom.visible = true;
+    geom.rects_valid = true;
     MovePluginWindows(std::vector<webkit_glue::WebPluginGeometry>(1, geom));
   }
 }
@@ -927,22 +1002,25 @@ void RenderWidgetHostViewMac::AcceleratedSurfaceSetTransportDIB(
 }
 
 void RenderWidgetHostViewMac::AcceleratedSurfaceBuffersSwapped(
-    gfx::PluginWindowHandle window, uint64 surface_id) {
+    gfx::PluginWindowHandle window,
+    uint64 surface_id,
+    int renderer_id,
+    int32 route_id,
+    uint64 swap_buffers_count) {
   CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  PluginViewMap::iterator it = plugin_views_.find(window);
-  DCHECK(plugin_views_.end() != it);
-  if (plugin_views_.end() == it) {
+  AcceleratedPluginView* view = ViewForPluginWindowHandle(window);
+  DCHECK(view);
+  if (!view)
     return;
-  }
-  DCHECK([it->second isKindOfClass:[AcceleratedPluginView class]]);
 
   plugin_container_manager_.SetSurfaceWasPaintedTo(window, surface_id);
-  AcceleratedPluginView* view =
-      static_cast<AcceleratedPluginView*>(it->second);
+
   // The surface is hidden until its first paint, to not show gargabe.
   if (plugin_container_manager_.SurfaceShouldBeVisible(window))
     [view setHidden:NO];
-  [view setSurfaceWasSwapped:YES];
+  [view updateSwapBuffersCount:swap_buffers_count
+                  fromRenderer:renderer_id
+                       routeId:route_id];
 }
 
 void RenderWidgetHostViewMac::UpdateRootGpuViewVisibility(
@@ -950,23 +1028,20 @@ void RenderWidgetHostViewMac::UpdateRootGpuViewVisibility(
   // Plugins are destroyed on page navigate. The compositor layer on the other
   // hand is created on demand and then stays alive until its renderer process
   // dies (usually on cross-domain navigation). Instead, only a flag
-  // |is_gpu_rendering_active()| is flipped when the compositor output should be
-  // shown/hidden.
+  // |is_accelerated_compositing_active()| is flipped when the compositor output
+  // should be shown/hidden.
   // Show/hide the view belonging to the compositor here.
   plugin_container_manager_.set_gpu_rendering_active(show_gpu_widget);
 
   gfx::PluginWindowHandle root_handle =
       plugin_container_manager_.root_container_handle();
   if (root_handle != gfx::kNullPluginWindow) {
-    PluginViewMap::iterator it = plugin_views_.find(root_handle);
-    DCHECK(plugin_views_.end() != it);
-    if (plugin_views_.end() == it) {
-      return;
-    }
+    AcceleratedPluginView* view = ViewForPluginWindowHandle(root_handle);
+    DCHECK(view);
     bool visible =
         plugin_container_manager_.SurfaceShouldBeVisible(root_handle);
-    [[it->second window] disableScreenUpdatesUntilFlush];
-    [it->second setHidden:!visible];
+    [[view window] disableScreenUpdatesUntilFlush];
+    [view setHidden:!visible];
   }
 }
 
@@ -977,11 +1052,48 @@ void RenderWidgetHostViewMac::HandleDelayedGpuViewHiding() {
   }
 }
 
+namespace {
+class BuffersSwappedAcknowledger : public Task {
+ public:
+  BuffersSwappedAcknowledger(
+      int renderer_id,
+      int32 route_id,
+      uint64 swap_buffers_count)
+      : renderer_id_(renderer_id),
+        route_id_(route_id),
+        swap_buffers_count_(swap_buffers_count) {
+  }
+
+  void Run() {
+    GpuProcessHost::Get()->Send(
+        new GpuMsg_AcceleratedSurfaceBuffersSwappedACK(
+            renderer_id_, route_id_, swap_buffers_count_));
+  }
+
+ private:
+  int renderer_id_;
+  int32 route_id_;
+  uint64 swap_buffers_count_;
+
+  DISALLOW_COPY_AND_ASSIGN(BuffersSwappedAcknowledger);
+};
+}  // anonymous namespace
+
+void RenderWidgetHostViewMac::AcknowledgeSwapBuffers(
+    int renderer_id,
+    int32 route_id,
+    uint64 swap_buffers_count) {
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
+      new BuffersSwappedAcknowledger(
+          renderer_id, route_id, swap_buffers_count));
+}
+
 void RenderWidgetHostViewMac::GpuRenderingStateDidChange() {
   CHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  if (GetRenderWidgetHost()->is_gpu_rendering_active()) {
+  if (GetRenderWidgetHost()->is_accelerated_compositing_active()) {
     UpdateRootGpuViewVisibility(
-        GetRenderWidgetHost()->is_gpu_rendering_active());
+        GetRenderWidgetHost()->is_accelerated_compositing_active());
   } else {
     needs_gpu_visibility_update_after_repaint_ = true;
   }
@@ -1009,8 +1121,9 @@ void RenderWidgetHostViewMac::ForceTextureReload() {
   plugin_container_manager_.ForceTextureReload();
 }
 
-void RenderWidgetHostViewMac::SetVisuallyDeemphasized(bool deemphasized) {
-  // Mac uses tab-modal sheets, so this is a no-op.
+void RenderWidgetHostViewMac::SetVisuallyDeemphasized(const SkColor* color,
+                                                      bool animate) {
+  // This is not used on mac.
 }
 
 void RenderWidgetHostViewMac::ShutdownHost() {
@@ -1579,19 +1692,19 @@ void RenderWidgetHostViewMac::SetTextInputActive(bool active) {
 
   const gfx::Rect damagedRect([self flipNSRectToRect:dirtyRect]);
 
-  if (renderWidgetHostView_->render_widget_host_->is_gpu_rendering_active()) {
+  if (renderWidgetHostView_->render_widget_host_->
+      is_accelerated_compositing_active()) {
     gfx::Rect gpuRect;
 
     gfx::PluginWindowHandle root_handle =
        renderWidgetHostView_->plugin_container_manager_.root_container_handle();
     if (root_handle != gfx::kNullPluginWindow) {
-      RenderWidgetHostViewMac::PluginViewMap::iterator it =
-          renderWidgetHostView_->plugin_views_.find(root_handle);
-      DCHECK(it != renderWidgetHostView_->plugin_views_.end());
-      if (it != renderWidgetHostView_->plugin_views_.end() &&
-          ![it->second isHidden]) {
-        NSRect frame = [it->second frame];
-        frame.size = [it->second cachedSize];
+      AcceleratedPluginView* view =
+          renderWidgetHostView_->ViewForPluginWindowHandle(root_handle);
+      DCHECK(view);
+      if (view && ![view isHidden]) {
+        NSRect frame = [view frame];
+        frame.size = [view cachedSize];
         gpuRect = [self flipNSRectToRect:frame];
       }
     }

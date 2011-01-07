@@ -20,6 +20,30 @@
 #include "chrome/common/url_constants.h"
 #include "webkit/glue/webpreferences.h"
 
+namespace {
+class BalloonPaintObserver : public RenderWidgetHost::PaintObserver {
+ public:
+  explicit BalloonPaintObserver(BalloonHost* balloon_host)
+      : balloon_host_(balloon_host) {
+  }
+
+  virtual void RenderWidgetHostWillPaint(RenderWidgetHost* rhw) {}
+  virtual void RenderWidgetHostDidPaint(RenderWidgetHost* rwh);
+
+ private:
+  BalloonHost* balloon_host_;
+
+  DISALLOW_COPY_AND_ASSIGN(BalloonPaintObserver);
+};
+
+void BalloonPaintObserver::RenderWidgetHostDidPaint(RenderWidgetHost* rwh) {
+  balloon_host_->RenderWidgetHostDidPaint();
+  // WARNING: we may have been deleted (if the balloon host cleared the paint
+  // observer).
+}
+
+}  // namespace
+
 BalloonHost::BalloonHost(Balloon* balloon)
     : render_view_host_(NULL),
       balloon_(balloon),
@@ -66,9 +90,10 @@ const string16& BalloonHost::GetSource() const {
 }
 
 WebPreferences BalloonHost::GetWebkitPrefs() {
-  WebPreferences prefs;
-  prefs.allow_scripts_to_close_windows = true;
-  return prefs;
+  WebPreferences web_prefs =
+      RenderViewHostDelegateHelper::GetWebkitPrefs(GetProfile(), enable_dom_ui_);
+  web_prefs.allow_scripts_to_close_windows = true;
+  return web_prefs;
 }
 
 SiteInstance* BalloonHost::GetSiteInstance() const {
@@ -92,8 +117,12 @@ void BalloonHost::RenderViewCreated(RenderViewHost* render_view_host) {
   render_view_host->Send(new ViewMsg_DisableScrollbarsForSmallWindows(
       render_view_host->routing_id(), balloon_->min_scrollbar_size()));
   render_view_host->WasResized();
+#if !defined(OS_MACOSX)
+  // TODO(levin): Make all of the code that went in originally with this change
+  // to be cross-platform. See http://crbug.com/64720
   render_view_host->EnablePreferredSizeChangedMode(
       kPreferredSizeWidth | kPreferredSizeHeightThisIsSlow);
+#endif
 }
 
 void BalloonHost::RenderViewReady(RenderViewHost* render_view_host) {
@@ -198,6 +227,9 @@ void BalloonHost::Init() {
 
   rvh->set_view(render_widget_host_view());
   rvh->CreateRenderView(string16());
+#if defined(OS_MACOSX)
+  rvh->set_paint_observer(new BalloonPaintObserver(this));
+#endif
   rvh->NavigateToURL(balloon_->notification().content_url());
 
   initialized_ = true;
@@ -219,7 +251,15 @@ void BalloonHost::ClearInspectorSettings() {
   RenderViewHostDelegateHelper::ClearInspectorSettings(GetProfile());
 }
 
-BalloonHost::~BalloonHost() {}
+void BalloonHost::RenderWidgetHostDidPaint() {
+  render_view_host_->set_paint_observer(NULL);
+  render_view_host_->EnablePreferredSizeChangedMode(
+      kPreferredSizeWidth | kPreferredSizeHeightThisIsSlow);
+}
+
+BalloonHost::~BalloonHost() {
+  DCHECK(!render_view_host_);
+}
 
 void BalloonHost::NotifyDisconnect() {
   if (!should_notify_on_disconnect_)

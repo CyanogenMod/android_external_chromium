@@ -11,6 +11,7 @@
 #include "chrome/browser/chromeos/cros/power_library.h"
 #include "chrome/browser/chromeos/login/rounded_rect_painter.h"
 #include "chrome/browser/chromeos/view_ids.h"
+#include "gfx/gtk_util.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "views/background.h"
@@ -24,8 +25,8 @@ const int kBottomPadding = 12;
 const int kRightPadding = 12;
 
 // Normal/Hover colors.
-const SkColor kButtonColor = 0xFF242A35;
-const SkColor kHoverColor = 0xFF353E4E;
+const SkColor kShutdownButtonColor = 0xFF242A35;
+const SkColor kShutdownHoverColor = 0xFF353E4E;
 
 // Padding inside button.
 const int kVerticalPadding = 13;
@@ -83,9 +84,9 @@ void ShutdownButton::Init() {
   set_background(
       new HoverBackground(
           CreateRoundedBackground(
-              kCornerRadius, 0, kButtonColor, 0),
+              kCornerRadius, 0, kShutdownButtonColor, 0),
           CreateRoundedBackground(
-              kCornerRadius, 0, kHoverColor, 0)));
+              kCornerRadius, 0, kShutdownHoverColor, 0)));
   set_border(
       views::Border::CreateEmptyBorder(kVerticalPadding,
                                        kHorizontalPadding,
@@ -119,7 +120,7 @@ gfx::NativeCursor ShutdownButton::GetCursorForPoint(
   if (!IsEnabled()) {
     return NULL;
   }
-  return gdk_cursor_new(GDK_HAND2);
+  return gfx::GetCursor(GDK_HAND2);
 }
 
 void ShutdownButton::ButtonPressed(views::Button* sender,

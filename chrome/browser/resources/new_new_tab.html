@@ -232,28 +232,37 @@ if ('mode' in hashParams) {
 <command id="apps-launch-command">
 <command id="apps-options-command" i18n-values=".label:appoptions">
 <command id="apps-uninstall-command" i18n-values=".label:appuninstall">
+<command id="apps-create-shortcut-command"
+    i18n-values=".label:appcreateshortcut">
 <command id="apps-launch-type-pinned" i18n-values=".label:applaunchtypepinned"
     launch-type="0">
 <command id="apps-launch-type-regular" i18n-values=".label:applaunchtyperegular"
     launch-type="1">
+<command id="apps-launch-type-window"
+    i18n-values=".label:applaunchtypewindow" launch-type="3">
 <command id="apps-launch-type-fullscreen"
     i18n-values=".label:applaunchtypefullscreen" launch-type="2">
+
+<!-- These are populated dynamically -->
+<menu id="apps-menu"></menu>
+<menu id="most-visited-menu"></menu>
+<menu id="recently-closed-menu"></menu>
 
 <menu id="app-context-menu">
   <button class="default" command="#apps-launch-command"></button>
   <hr>
   <button command="#apps-launch-type-regular" launch-type="1"></button>
   <button command="#apps-launch-type-pinned" launch-type="0"></button>
+  <button id="apps-launch-type-window-menu-item"
+      command="#apps-launch-type-window" launch-type="3"></button>
   <button command="#apps-launch-type-fullscreen" launch-type="2"></button>
   <hr>
   <button command="#apps-options-command"></button>
   <button command="#apps-uninstall-command"></button>
+  <hr>
+  <button id="apps-create-shortcut-command-menu-item"
+      command="#apps-create-shortcut-command"></button>
 </menu>
-
-<!-- These are populated dynamically -->
-<menu id="apps-menu"></menu>
-<menu id="most-visited-menu"></menu>
-<menu id="recently-closed-menu"></menu>
 
 </body>
 
@@ -280,12 +289,13 @@ i18nTemplate.process(document, templateData);
 <script src="ntp/apps.js"></script>
 
 <script>
-cr.ui.decorate('menu', cr.ui.Menu);
-cr.ui.decorate('command', cr.ui.Command);
-cr.ui.decorate('button[menu]', cr.ui.MenuButton);
-</script>
+  cr.ui.decorate('menu', cr.ui.Menu);
+  cr.ui.decorate('command', cr.ui.Command);
+  cr.ui.decorate('button[menu]', cr.ui.MenuButton);
 
-<script>
+  if (cr.isChromeOS)
+    $('closed-sections-bar').setAttribute('chromeos', true);
+
   initializeLogin();
 
   initializeSection('apps', MINIMIZED_APPS, Section.APPS);

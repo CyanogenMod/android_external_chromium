@@ -52,6 +52,16 @@ class SearchProvider : public AutocompleteProvider,
   }
 #endif
 
+  // Marks the instant query as done. If |input_text| is non-empty this changes
+  // the 'search what you typed' results text to |input_text| + |suggest_text|.
+  // |input_text| is the text the user input into the edit. |input_text| differs
+  // from |input_.text()| if the input contained whitespace.
+  //
+  // This method also marks the search provider as no longer needing to wait for
+  // the instant result.
+  void FinalizeInstantQuery(const std::wstring& input_text,
+                            const std::wstring& suggest_text);
+
   // AutocompleteProvider
   virtual void Start(const AutocompleteInput& input,
                      bool minimal_changes);
@@ -242,15 +252,21 @@ class SearchProvider : public AutocompleteProvider,
   // the supplied relevance.  Adds this match to |map|; if such a match already
   // exists, whichever one has lower relevance is eliminated.
   void AddMatchToMap(const std::wstring& query_string,
+                     const std::wstring& input_text,
                      int relevance,
                      AutocompleteMatch::Type type,
                      int accepted_suggestion,
                      bool is_keyword,
+                     bool prevent_inline_autocomplete,
                      MatchMap* map);
+
   // Returns an AutocompleteMatch for a navigational suggestion.
   AutocompleteMatch NavigationToMatch(const NavigationResult& query_string,
                                       int relevance,
                                       bool is_keyword);
+
+  // Updates the value of |done_| from the internal state.
+  void UpdateDone();
 
   // Should we query for suggest results immediately? This is normally false,
   // but may be set to true during testing.
@@ -294,6 +310,9 @@ class SearchProvider : public AutocompleteProvider,
 
   // Whether suggest_results_ is valid.
   bool have_suggest_results_;
+
+  // Has FinalizeInstantQuery been invoked since the last |Start|?
+  bool instant_finalized_;
 
   DISALLOW_COPY_AND_ASSIGN(SearchProvider);
 };

@@ -9,17 +9,18 @@
 #include "base/scoped_ptr.h"
 #include "base/time.h"
 #import "chrome/browser/app_controller_mac.h"
-#include "chrome/browser/browser.h"
-#include "chrome/browser/browser_list.h"
-#include "chrome/browser/browser_window.h"
 #import "chrome/browser/chrome_browser_application_mac.h"
 #include "chrome/browser/cocoa/applescript/constants_applescript.h"
 #include "chrome/browser/cocoa/applescript/error_applescript.h"
 #import "chrome/browser/cocoa/applescript/tab_applescript.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/url_constants.h"
 
 @interface WindowAppleScript(WindowAppleScriptPrivateMethods)
@@ -170,15 +171,15 @@
 
   // Set how long it takes a tab to be created.
   base::TimeTicks newTabStartTime = base::TimeTicks::Now();
-  TabContents* contents =
+  TabContentsWrapper* contents =
       browser_->AddSelectedTabWithURL(GURL(chrome::kChromeUINewTabURL),
                                       PageTransition::TYPED);
-  contents->set_new_tab_start_time(newTabStartTime);
-
-  [aTab setTabContent:contents];
+  contents->tab_contents()->set_new_tab_start_time(newTabStartTime);
+  [aTab setTabContent:contents->tab_contents()];
 }
 
 - (void)insertInTabs:(TabAppleScript*)aTab atIndex:(int)index {
+  // This method gets called when a new tab is created so
   // This method gets called when a new tab is created so
   // the container and property are set here.
   [aTab setContainer:self
@@ -192,9 +193,10 @@
   params.disposition = NEW_FOREGROUND_TAB;
   params.tabstrip_index = index;
   browser::Navigate(&params);
-  params.target_contents->set_new_tab_start_time(newTabStartTime);
+  params.target_contents->tab_contents()->set_new_tab_start_time(
+      newTabStartTime);
 
-  [aTab setTabContent:params.target_contents];
+  [aTab setTabContent:params.target_contents->tab_contents()];
 }
 
 - (void)removeFromTabsAtIndex:(int)index {

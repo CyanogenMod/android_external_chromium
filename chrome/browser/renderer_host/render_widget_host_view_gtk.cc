@@ -46,20 +46,27 @@
 #include "views/widget/tooltip_window_gtk.h"
 #endif  // defined(OS_CHROMEOS)
 
-static const int kMaxWindowWidth = 4000;
-static const int kMaxWindowHeight = 4000;
-static const char* kRenderWidgetHostViewKey = "__RENDER_WIDGET_HOST_VIEW__";
+namespace {
+
+const int kMaxWindowWidth = 4000;
+const int kMaxWindowHeight = 4000;
+const char* kRenderWidgetHostViewKey = "__RENDER_WIDGET_HOST_VIEW__";
+
+// The duration of the fade-out animation. See |overlay_animation_|.
+const int kFadeEffectDuration = 300;
 
 #if defined(OS_CHROMEOS)
 // TODO(davemoore) Under Chromeos we are increasing the rate that the trackpad
 // generates events to get better precisions. Eventually we will coordinate the
 // driver and this setting to ensure they match.
-static const float kDefaultScrollPixelsPerTick = 20;
+const float kDefaultScrollPixelsPerTick = 20;
 #else
 // See WebInputEventFactor.cpp for a reason for this being the default
 // scroll size for linux.
-static const float kDefaultScrollPixelsPerTick = 160.0f / 3.0f;
+const float kDefaultScrollPixelsPerTick = 160.0f / 3.0f;
 #endif
+
+}  // namespace
 
 using WebKit::WebInputEventFactory;
 using WebKit::WebMouseWheelEvent;
@@ -199,6 +206,9 @@ class RenderWidgetHostViewGtkWidget {
     // focus.
     if (!host_view->is_showing_context_menu_)
       host_view->GetRenderWidgetHost()->Blur();
+
+    // Prevents us from stealing input context focus in OnGrabNotify() handler.
+    host_view->was_focused_before_grab_ = false;
 
     // Disable the GtkIMContext object.
     host_view->im_context_->OnFocusOut();
@@ -366,6 +376,7 @@ class RenderWidgetHostViewGtkWidget {
   static float GetScrollPixelsPerTick() {
     static float scroll_pixels = -1;
     if (scroll_pixels < 0) {
+      // TODO(brettw): Remove the command line switch (crbug.com/63525)
       scroll_pixels = kDefaultScrollPixelsPerTick;
       CommandLine* command_line = CommandLine::ForCurrentProcess();
       std::string scroll_pixels_option =
@@ -476,7 +487,8 @@ RenderWidgetHostViewGtk::RenderWidgetHostViewGtk(RenderWidgetHost* widget_host)
       is_hidden_(false),
       is_loading_(false),
       is_showing_context_menu_(false),
-      visually_deemphasized_(false),
+      overlay_color_(0),
+      overlay_animation_(this),
       parent_host_view_(NULL),
       parent_(NULL),
       is_popup_first_mouse_release_(true),
@@ -502,6 +514,9 @@ void RenderWidgetHostViewGtk::InitAsChild() {
 #if defined(OS_CHROMEOS)
   tooltip_window_.reset(new views::TooltipWindowGtk(view_.get()));
 #endif  // defined(OS_CHROMEOS)
+
+  overlay_animation_.SetDuration(kFadeEffectDuration);
+  overlay_animation_.SetSlideDuration(kFadeEffectDuration);
 
   gtk_widget_show(view_.get());
 }
@@ -810,7 +825,7 @@ void RenderWidgetHostViewGtk::Paint(const gfx::Rect& damage_rect) {
   // If the GPU process is rendering directly into the View,
   // call the compositor directly.
   RenderWidgetHost* render_widget_host = GetRenderWidgetHost();
-  if (render_widget_host->is_gpu_rendering_active()) {
+  if (render_widget_host->is_accelerated_compositing_active()) {
     host_->ScheduleComposite();
     return;
   }
@@ -833,10 +848,10 @@ void RenderWidgetHostViewGtk::Paint(const gfx::Rect& damage_rect) {
     // period where this object isn't attached to a window but hasn't been
     // Destroy()ed yet and it receives paint messages...
     if (window) {
-      if (!visually_deemphasized_) {
+      if (SkColorGetA(overlay_color_) == 0) {
         // In the common case, use XCopyArea. We don't draw more than once, so
         // we don't need to double buffer.
-        backing_store->XShowRect(
+        backing_store->XShowRect(gfx::Point(0, 0),
             paint_rect, x11_util::GetX11WindowFromGtkWidget(view_.get()));
       } else {
         // If the grey blend is showing, we make two drawing calls. Use double
@@ -858,7 +873,15 @@ void RenderWidgetHostViewGtk::Paint(const gfx::Rect& damage_rect) {
 
         cairo_t* cr = gdk_cairo_create(window);
         gdk_cairo_rectangle(cr, &rect);
-        cairo_set_source_rgba(cr, 0, 0, 0, 0.7);
+        SkColor overlay = SkColorSetA(
+            overlay_color_,
+            SkColorGetA(overlay_color_) *
+                overlay_animation_.GetCurrentValue());
+        float r = SkColorGetR(overlay) / 255.;
+        float g = SkColorGetG(overlay) / 255.;
+        float b = SkColorGetB(overlay) / 255.;
+        float a = SkColorGetA(overlay) / 255.;
+        cairo_set_source_rgba(cr, r, g, b, a);
         cairo_fill(cr);
         cairo_destroy(cr);
 
@@ -897,40 +920,34 @@ void RenderWidgetHostViewGtk::ShowCurrentCursor() {
   if (!view_.get()->window)
     return;
 
+  // TODO(port): WebKit bug https://bugs.webkit.org/show_bug.cgi?id=16388 is
+  // that calling gdk_window_set_cursor repeatedly is expensive.  We should
+  // avoid it here where possible.
   GdkCursor* gdk_cursor;
-  switch (current_cursor_.GetCursorType()) {
-    case GDK_CURSOR_IS_PIXMAP:
-      // TODO(port): WebKit bug https://bugs.webkit.org/show_bug.cgi?id=16388 is
-      // that calling gdk_window_set_cursor repeatedly is expensive.  We should
-      // avoid it here where possible.
-      gdk_cursor = current_cursor_.GetCustomCursor();
-      break;
-
-    case GDK_LAST_CURSOR:
-      if (is_loading_) {
-        // Use MOZ_CURSOR_SPINNING if we are showing the default cursor and
-        // the page is loading.
-        static const GdkColor fg = { 0, 0, 0, 0 };
-        static const GdkColor bg = { 65535, 65535, 65535, 65535 };
-        GdkPixmap* source =
-            gdk_bitmap_create_from_data(NULL, moz_spinning_bits, 32, 32);
-        GdkPixmap* mask =
-            gdk_bitmap_create_from_data(NULL, moz_spinning_mask_bits, 32, 32);
-        gdk_cursor = gdk_cursor_new_from_pixmap(source, mask, &fg, &bg, 2, 2);
-        g_object_unref(source);
-        g_object_unref(mask);
-      } else {
-        gdk_cursor = NULL;
-      }
-      break;
-
-    default:
-      gdk_cursor = gtk_util::GetCursor(
-          static_cast<GdkCursorType>(current_cursor_.GetCursorType()));
+  bool should_unref = false;
+  if (current_cursor_.GetCursorType() == GDK_LAST_CURSOR) {
+    if (is_loading_) {
+      // Use MOZ_CURSOR_SPINNING if we are showing the default cursor and
+      // the page is loading.
+      static const GdkColor fg = { 0, 0, 0, 0 };
+      static const GdkColor bg = { 65535, 65535, 65535, 65535 };
+      GdkPixmap* source =
+        gdk_bitmap_create_from_data(NULL, moz_spinning_bits, 32, 32);
+      GdkPixmap* mask =
+        gdk_bitmap_create_from_data(NULL, moz_spinning_mask_bits, 32, 32);
+      gdk_cursor = gdk_cursor_new_from_pixmap(source, mask, &fg, &bg, 2, 2);
+      should_unref = true;
+      g_object_unref(source);
+      g_object_unref(mask);
+    } else {
+      gdk_cursor = NULL;
+    }
+  } else {
+    gdk_cursor = current_cursor_.GetNativeCursor();
   }
   gdk_window_set_cursor(view_.get()->window, gdk_cursor);
   // The window now owns the cursor.
-  if (gdk_cursor)
+  if (should_unref && gdk_cursor)
     gdk_cursor_unref(gdk_cursor);
 }
 
@@ -1032,12 +1049,22 @@ void RenderWidgetHostViewGtk::DestroyPluginContainer(
   plugin_container_manager_.DestroyPluginContainer(id);
 }
 
-void RenderWidgetHostViewGtk::SetVisuallyDeemphasized(bool deemphasized) {
-  if (deemphasized == visually_deemphasized_)
+void RenderWidgetHostViewGtk::SetVisuallyDeemphasized(
+    const SkColor* color, bool animate) {
+  // Do nothing unless |color| has changed, meaning |animate| is only
+  // respected for the first call.
+  if (color && (*color == overlay_color_))
     return;
 
-  visually_deemphasized_ = deemphasized;
-  gtk_widget_queue_draw(view_.get());
+  overlay_color_ = color ? *color : 0;
+
+  if (animate) {
+    overlay_animation_.Reset();
+    overlay_animation_.Show();
+  } else {
+    overlay_animation_.Reset(1.0);
+    gtk_widget_queue_draw(view_.get());
+  }
 }
 
 bool RenderWidgetHostViewGtk::ContainsNativeView(
@@ -1046,6 +1073,13 @@ bool RenderWidgetHostViewGtk::ContainsNativeView(
   NOTREACHED() <<
     "RenderWidgetHostViewGtk::ContainsNativeView not implemented.";
   return false;
+}
+
+void RenderWidgetHostViewGtk::AcceleratedCompositingActivated(bool activated) {
+  GtkPreserveWindow* widget =
+    reinterpret_cast<GtkPreserveWindow*>(view_.get());
+
+  gtk_preserve_window_delegate_resize(widget, activated);
 }
 
 void RenderWidgetHostViewGtk::ForwardKeyboardEvent(
@@ -1059,6 +1093,18 @@ void RenderWidgetHostViewGtk::ForwardKeyboardEvent(
     host_->ForwardEditCommandsForNextKeyEvent(edit_commands);
   }
   host_->ForwardKeyboardEvent(event);
+}
+
+void RenderWidgetHostViewGtk::AnimationEnded(const Animation* animation) {
+  gtk_widget_queue_draw(view_.get());
+}
+
+void RenderWidgetHostViewGtk::AnimationProgressed(const Animation* animation) {
+  gtk_widget_queue_draw(view_.get());
+}
+
+void RenderWidgetHostViewGtk::AnimationCanceled(const Animation* animation) {
+  gtk_widget_queue_draw(view_.get());
 }
 
 // static

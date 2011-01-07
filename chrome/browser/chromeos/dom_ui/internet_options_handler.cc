@@ -29,6 +29,7 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/views/window.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/time_format.h"
 #include "grit/browser_resources.h"
@@ -36,6 +37,7 @@
 #include "grit/generated_resources.h"
 #include "grit/locale_settings.h"
 #include "grit/theme_resources.h"
+#include "views/window/window.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 static const char kOtherNetworksFakePath[] = "?";
@@ -56,7 +58,8 @@ std::string FormatHardwareAddress(const std::string& address) {
 
 }  // namespace
 
-InternetOptionsHandler::InternetOptionsHandler() {
+InternetOptionsHandler::InternetOptionsHandler()
+    : use_settings_ui_(false) {
   chromeos::NetworkLibrary* netlib =
       chromeos::CrosLibrary::Get()->GetNetworkLibrary();
   netlib->AddNetworkManagerObserver(this);
@@ -246,15 +249,18 @@ void InternetOptionsHandler::GetLocalizedValues(
       l10n_util::GetStringUTF16(
           IDS_OPTIONS_SETTINGS_INTERNET_CELLULAR_PRL_VERSION));
 
+  localized_strings->SetString("planName",
+      l10n_util::GetStringUTF16(
+          IDS_OPTIONS_SETTINGS_INTERNET_CELL_PLAN_NAME));
   localized_strings->SetString("planLoading",
       l10n_util::GetStringUTF16(
           IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_LOADING_PLAN));
+  localized_strings->SetString("noPlansFound",
+      l10n_util::GetStringUTF16(
+          IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_NO_PLANS_FOUND));
   localized_strings->SetString("purchaseMore",
       l10n_util::GetStringUTF16(
           IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_PURCHASE_MORE));
-  localized_strings->SetString("moreInfo",
-      l10n_util::GetStringUTF16(
-          IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_MORE_INFO));
   localized_strings->SetString("dataRemaining",
       l10n_util::GetStringUTF16(
           IDS_OPTIONS_SETTINGS_INTERNET_OPTIONS_DATA_REMAINING));
@@ -307,6 +313,8 @@ void InternetOptionsHandler::GetLocalizedValues(
   localized_strings->SetBoolean("cellularAvailable",
                                 cros->cellular_available());
   localized_strings->SetBoolean("cellularEnabled", cros->cellular_enabled());
+
+  localized_strings->SetBoolean("networkUseSettingsUI", use_settings_ui_);
 }
 
 void InternetOptionsHandler::RegisterMessages() {
@@ -439,21 +447,21 @@ void InternetOptionsHandler::OnCellularDataPlanChanged(
     plan_list->Append(CellularDataPlanToDictionary(*iter));
   }
   connection_plans.SetString("servicePath", cellular->service_path());
+  connection_plans.SetBoolean("needsPlan", cellular->needs_new_plan());
   connection_plans.Set("plans", plan_list);
   dom_ui_->CallJavascriptFunction(
       L"options.InternetOptions.updateCellularPlans", connection_plans);
 }
 
 DictionaryValue* InternetOptionsHandler::CellularDataPlanToDictionary(
-    const chromeos::CellularDataPlan& plan) {
-
+    const chromeos::CellularDataPlan* plan) {
   DictionaryValue* plan_dict = new DictionaryValue();
-  plan_dict->SetInteger("plan_type", plan.plan_type);
-  plan_dict->SetString("name", plan.plan_name);
-  plan_dict->SetString("planSummary", plan.GetPlanDesciption());
-  plan_dict->SetString("dataRemaining", plan.GetDataRemainingDesciption());
-  plan_dict->SetString("planExpires", plan.GetPlanExpiration());
-  plan_dict->SetString("warning", plan.GetRemainingWarning());
+  plan_dict->SetInteger("planType", plan->plan_type);
+  plan_dict->SetString("name", plan->plan_name);
+  plan_dict->SetString("planSummary", plan->GetPlanDesciption());
+  plan_dict->SetString("dataRemaining", plan->GetDataRemainingDesciption());
+  plan_dict->SetString("planExpires", plan->GetPlanExpiration());
+  plan_dict->SetString("warning", plan->GetRemainingWarning());
   return plan_dict;
 }
 
@@ -717,6 +725,18 @@ void InternetOptionsHandler::LoginToOtherCallback(const ListValue* args) {
                              true);
 }
 
+void InternetOptionsHandler::CreateModalPopup(views::WindowDelegate* view) {
+  DCHECK(!use_settings_ui_);
+
+  // TODO(beng): This is an improper direct dependency on Browser. Route this
+  // through some sort of delegate.
+  Browser* browser = BrowserList::FindBrowserWithProfile(dom_ui_->GetProfile());
+  views::Window* window = browser::CreateViewsWindow(
+      browser->window()->GetNativeHandle(), gfx::Rect(), view);
+  window->SetIsAlwaysOnTop(true);
+  window->Show();
+}
+
 void InternetOptionsHandler::ButtonClickCallback(const ListValue* args) {
   std::string str_type;
   std::string service_path;
@@ -747,17 +767,31 @@ void InternetOptionsHandler::ButtonClickCallback(const ListValue* args) {
         return;
       }
       cros->ForgetWifiNetwork(service_path);
+    } else if (!use_settings_ui_ &&
+               service_path == kOtherNetworksFakePath) {
+      // Other wifi networks.
+      chromeos::NetworkConfigView* view =
+          new chromeos::NetworkConfigView();
+      CreateModalPopup(view);
+      view->SetLoginTextfieldFocus();
     } else if ((network = cros->FindWifiNetworkByPath(service_path))) {
       if (command == "connect") {
         // Connect to wifi here. Open password page if appropriate.
         if (network->encrypted() && !network->auto_connect()) {
-          if (network->encryption() == chromeos::SECURITY_8021X) {
-            PopulateDictionaryDetails(network, cros);
+          if (use_settings_ui_) {
+            if (network->encryption() == chromeos::SECURITY_8021X) {
+              PopulateDictionaryDetails(network, cros);
+            } else {
+              DictionaryValue dictionary;
+              dictionary.SetString("servicePath", network->service_path());
+              dom_ui_->CallJavascriptFunction(
+                  L"options.InternetOptions.showPasswordEntry", dictionary);
+            }
           } else {
-            DictionaryValue dictionary;
-            dictionary.SetString("servicePath", network->service_path());
-            dom_ui_->CallJavascriptFunction(
-                L"options.InternetOptions.showPasswordEntry", dictionary);
+            chromeos::NetworkConfigView* view =
+                new chromeos::NetworkConfigView(network, true);
+            CreateModalPopup(view);
+            view->SetLoginTextfieldFocus();
           }
         } else {
           cros->ConnectToWifiNetwork(
@@ -810,7 +844,7 @@ ListValue* InternetOptionsHandler::GetNetwork(const std::string& service_path,
     const SkBitmap& icon, const std::string& name, bool connecting,
     bool connected, bool connectable, chromeos::ConnectionType connection_type,
     bool remembered, chromeos::ActivationState activation_state,
-    bool restricted_ip) {
+    bool needs_new_plan) {
   ListValue* network = new ListValue();
 
   int connection_state = IDS_STATUSBAR_NETWORK_DEVICE_DISCONNECTED;
@@ -822,8 +856,7 @@ ListValue* InternetOptionsHandler::GetNetwork(const std::string& service_path,
     connection_state = IDS_STATUSBAR_NETWORK_DEVICE_CONNECTED;
   std::string status = l10n_util::GetStringUTF8(connection_state);
   if (connection_type == chromeos::TYPE_CELLULAR) {
-    if (activation_state == chromeos::ACTIVATION_STATE_ACTIVATED &&
-        restricted_ip && connected) {
+    if (needs_new_plan) {
       status = l10n_util::GetStringUTF8(IDS_OPTIONS_SETTINGS_NO_PLAN_LABEL);
     } else if (activation_state != chromeos::ACTIVATION_STATE_ACTIVATED) {
       status.append(" / ");
@@ -851,8 +884,8 @@ ListValue* InternetOptionsHandler::GetNetwork(const std::string& service_path,
   // activation_state
   network->Append(Value::CreateIntegerValue(
                     static_cast<int>(activation_state)));
-  // restricted
-  network->Append(Value::CreateBooleanValue(restricted_ip));
+  // needs_new_plan
+  network->Append(Value::CreateBooleanValue(needs_new_plan));
   // connectable
   network->Append(Value::CreateBooleanValue(connectable));
   return network;

@@ -11,8 +11,6 @@
 #include "chrome/browser/bookmarks/bookmark_editor.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
-#include "chrome/browser/browser.h"
-#include "chrome/browser/browser_list.h"
 #import "chrome/browser/cocoa/background_gradient_view.h"
 #import "chrome/browser/cocoa/bookmarks/bookmark_bar_bridge.h"
 #import "chrome/browser/cocoa/bookmarks/bookmark_bar_folder_controller.h"
@@ -41,6 +39,8 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #import "chrome/browser/themes/browser_theme_provider.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/pref_names.h"
 #include "grit/app_resources.h"
 #include "grit/generated_resources.h"
@@ -1970,9 +1970,8 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 #pragma mark BookmarkBarToolbarViewController Protocol
 
 - (int)currentTabContentsHeight {
-  return browser_->GetSelectedTabContents() ?
-      browser_->GetSelectedTabContents()->view()->GetContainerSize().height() :
-      0;
+  TabContents* tc = browser_->GetSelectedTabContents();
+  return tc ? tc->view()->GetContainerSize().height() : 0;
 }
 
 - (ThemeProvider*)themeProvider {
@@ -2143,7 +2142,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 
 - (BOOL)dragBookmarkData:(id<NSDraggingInfo>)info {
   BOOL dragged = NO;
-  std::vector<const BookmarkNode*> nodes([self retrieveBookmarkDragDataNodes]);
+  std::vector<const BookmarkNode*> nodes([self retrieveBookmarkNodeData]);
   if (nodes.size()) {
     BOOL copy = !([info draggingSourceOperationMask] & NSDragOperationMove);
     NSPoint dropPoint = [info draggingLocation];
@@ -2156,9 +2155,9 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   return dragged;
 }
 
-- (std::vector<const BookmarkNode*>)retrieveBookmarkDragDataNodes {
+- (std::vector<const BookmarkNode*>)retrieveBookmarkNodeData {
   std::vector<const BookmarkNode*> dragDataNodes;
-  BookmarkDragData dragData;
+  BookmarkNodeData dragData;
   if(dragData.ReadFromDragClipboard()) {
     BookmarkModel* bookmarkModel = [self bookmarkModel];
     Profile* profile = bookmarkModel->profile();

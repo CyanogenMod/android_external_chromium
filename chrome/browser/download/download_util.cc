@@ -239,9 +239,7 @@ void OpenChromeExtension(Profile* profile,
                    Details<GURL>(&nonconst_download_url));
 
   scoped_refptr<CrxInstaller> installer(
-      new CrxInstaller(service->install_directory(),
-                       service,
-                       new ExtensionInstallUI(profile)));
+      new CrxInstaller(service, new ExtensionInstallUI(profile)));
   installer->set_delete_source(true);
 
   if (UserScript::HasUserScriptFileExtension(download_item.url())) {
@@ -254,7 +252,6 @@ void OpenChromeExtension(Profile* profile,
       download_item.url(), download_item.referrer_url());
   installer->set_original_mime_type(download_item.original_mime_type());
   installer->set_apps_require_extension_mime_type(true);
-  installer->set_allow_privilege_increase(true);
   installer->set_original_url(download_item.url());
   installer->set_is_gallery_install(is_gallery_download);
   installer->InstallCrx(download_item.full_path());
@@ -544,21 +541,15 @@ std::wstring GetProgressStatusText(DownloadItem* download) {
 
   // Adjust both strings for the locale direction since we don't yet know which
   // string we'll end up using for constructing the final progress string.
-  std::wstring amount_localized;
-  if (base::i18n::AdjustStringForLocaleDirection(amount, &amount_localized)) {
-    amount.assign(amount_localized);
-    received_size.assign(amount_localized);
-  }
+  base::i18n::AdjustStringForLocaleDirection(&amount);
 
   if (total) {
     amount_units = GetByteDisplayUnits(total);
     std::wstring total_text =
         UTF16ToWideHack(FormatBytes(total, amount_units, true));
-    std::wstring total_text_localized;
-    if (base::i18n::AdjustStringForLocaleDirection(total_text,
-                                                   &total_text_localized))
-      total_text.assign(total_text_localized);
+    base::i18n::AdjustStringForLocaleDirection(&total_text);
 
+    base::i18n::AdjustStringForLocaleDirection(&received_size);
     amount = l10n_util::GetStringF(IDS_DOWNLOAD_TAB_PROGRESS_SIZE,
                                    received_size,
                                    total_text);
@@ -569,10 +560,7 @@ std::wstring GetProgressStatusText(DownloadItem* download) {
   amount_units = GetByteDisplayUnits(current_speed);
   std::wstring speed_text = UTF16ToWideHack(FormatSpeed(current_speed,
                                                         amount_units, true));
-  std::wstring speed_text_localized;
-  if (base::i18n::AdjustStringForLocaleDirection(speed_text,
-                                                 &speed_text_localized))
-    speed_text.assign(speed_text_localized);
+  base::i18n::AdjustStringForLocaleDirection(&speed_text);
 
   base::TimeDelta remaining;
   string16 time_remaining;
@@ -582,6 +570,7 @@ std::wstring GetProgressStatusText(DownloadItem* download) {
     time_remaining = TimeFormat::TimeRemaining(remaining);
 
   if (time_remaining.empty()) {
+    base::i18n::AdjustStringForLocaleDirection(&amount);
     return l10n_util::GetStringF(IDS_DOWNLOAD_TAB_PROGRESS_STATUS_TIME_UNKNOWN,
                                  speed_text, amount);
   }

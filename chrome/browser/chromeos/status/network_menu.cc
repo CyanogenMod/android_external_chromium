@@ -211,8 +211,7 @@ bool NetworkMenu::ConnectToNetworkAt(int index,
       // Connect or reconnect.
       if (auto_connect >= 0)
         wifi->set_auto_connect(auto_connect ? true : false);
-      if (cros->wifi_network() &&
-          wifi->service_path() == cros->wifi_network()->service_path()) {
+      if (wifi->connecting() || wifi->connected()) {
         // Show the config settings for the active network.
         ShowWifi(wifi, false);
         return true;
@@ -227,9 +226,13 @@ bool NetworkMenu::ConnectToNetworkAt(int index,
           ShowWifi(wifi, true);
           return true;
         } else {
-          if (MenuUI::IsEnabled() || !wifi->passphrase_required()) {
+          // If a passphrase is provided use it, otherwise use the saved one.
+          std::string pass =
+              !passphrase.empty() ? passphrase : wifi->passphrase();
+          if (MenuUI::IsEnabled() ||
+              (!pass.empty() && !wifi->passphrase_required())) {
             connected = cros->ConnectToWifiNetwork(
-                wifi, passphrase, std::string(), std::string());
+                wifi, pass, std::string(), std::string());
           }
         }
       } else {
@@ -260,18 +263,14 @@ bool NetworkMenu::ConnectToNetworkAt(int index,
           cellular->needs_new_plan()) {
         ActivateCellular(cellular);
         return true;
-      } else if (cros->cellular_network() &&
-                 (cellular->service_path() ==
-                  cros->cellular_network()->service_path())) {
-        // Show the config settings for the cellular network.
+      } else if (cellular->connecting() || cellular->connected()) {
+        // Cellular network is connecting or connected,
+        // so we show the config settings for the cellular network.
         ShowCellular(cellular, false);
         return true;
-      } else {
-        bool connected = cros->ConnectToCellularNetwork(cellular);
-        if (!connected) {
-          ShowCellular(cellular, true);
-        }
       }
+      // Clicked on a disconnected cellular network, so connect to it.
+      cros->ConnectToCellularNetwork(cellular);
     } else {
       // If we are attempting to connect to a network that no longer exists,
       // display a notification.
@@ -391,19 +390,17 @@ SkBitmap NetworkMenu::IconForNetworkStrength(int strength, bool black) {
 // static
 SkBitmap NetworkMenu::IconForNetworkStrength(const CellularNetwork* cellular) {
   DCHECK(cellular);
-  // Compose wifi icon by superimposing various icons.
+  // Compose cellular icon by superimposing various icons.
   int index = static_cast<int>(cellular->strength() / 100.0 *
       nextafter(static_cast<float>(kNumWifiImages), 0));
   index = std::max(std::min(index, kNumWifiImages - 1), 0);
   const int* images = kBarsImages;
-  switch (cellular->data_left()) {
+  switch (cellular->GetDataLeft()) {
     case CellularNetwork::DATA_NONE:
-    case CellularNetwork::DATA_VERY_LOW:
       images = kBarsImagesVLowData;
       break;
+    case CellularNetwork::DATA_VERY_LOW:
     case CellularNetwork::DATA_LOW:
-      images = kBarsImagesLowData;
-      break;
     case CellularNetwork::DATA_NORMAL:
       images = kBarsImages;
       break;
@@ -431,41 +428,37 @@ SkBitmap NetworkMenu::IconForNetworkConnecting(double animation_value,
 // TODO(ers) update for GSM when we have the necessary images
 SkBitmap NetworkMenu::BadgeForNetworkTechnology(
     const CellularNetwork* cellular) {
+  if (!cellular)
+    return SkBitmap();
 
-    int id = -1;
-    if (cellular->network_technology() == NETWORK_TECHNOLOGY_EVDO) {
-      switch (cellular->data_left()) {
-        case CellularNetwork::DATA_NONE:
-        case CellularNetwork::DATA_VERY_LOW:
-          id = IDR_STATUSBAR_NETWORK_3G_ERROR;
-          break;
-        case CellularNetwork::DATA_LOW:
-          id = IDR_STATUSBAR_NETWORK_3G_WARN;
-          break;
-        case CellularNetwork::DATA_NORMAL:
-          id = IDR_STATUSBAR_NETWORK_3G;
-          break;
-      }
-    } else if (cellular->network_technology() == NETWORK_TECHNOLOGY_1XRTT) {
-      switch (cellular->data_left()) {
-        case CellularNetwork::DATA_NONE:
-        case CellularNetwork::DATA_VERY_LOW:
-          id = IDR_STATUSBAR_NETWORK_1X_ERROR;
-          break;
-        case CellularNetwork::DATA_LOW:
-          id = IDR_STATUSBAR_NETWORK_1X_WARN;
-          break;
-        case CellularNetwork::DATA_NORMAL:
-          id = IDR_STATUSBAR_NETWORK_1X;
-          break;
-      }
-    } else {
-      id = -1;
+  int id = -1;
+  if (cellular->network_technology() == NETWORK_TECHNOLOGY_EVDO) {
+    switch (cellular->GetDataLeft()) {
+      case CellularNetwork::DATA_NONE:
+        id = IDR_STATUSBAR_NETWORK_3G_ERROR;
+        break;
+      case CellularNetwork::DATA_VERY_LOW:
+      case CellularNetwork::DATA_LOW:
+      case CellularNetwork::DATA_NORMAL:
+        id = IDR_STATUSBAR_NETWORK_3G;
+        break;
     }
-    if (id == -1)
-      return SkBitmap();
-    else
-      return *ResourceBundle::GetSharedInstance().GetBitmapNamed(id);
+  } else if (cellular->network_technology() == NETWORK_TECHNOLOGY_1XRTT) {
+    switch (cellular->GetDataLeft()) {
+      case CellularNetwork::DATA_NONE:
+        id = IDR_STATUSBAR_NETWORK_1X_ERROR;
+        break;
+      case CellularNetwork::DATA_VERY_LOW:
+      case CellularNetwork::DATA_LOW:
+      case CellularNetwork::DATA_NORMAL:
+        id = IDR_STATUSBAR_NETWORK_1X;
+        break;
+    }
+  }
+  if (id == -1)
+    return SkBitmap();
+  else
+    return *ResourceBundle::GetSharedInstance().GetBitmapNamed(id);
 }
 
 // static
@@ -489,8 +482,10 @@ void NetworkMenu::RunMenu(views::View* source, const gfx::Point& pt) {
   NetworkLibrary* cros = CrosLibrary::Get()->GetNetworkLibrary();
   cros->RequestWifiScan();
 
-  // Menu contents are built in UpdateMenu, which is called
-  // when NetworkChagned is called.
+  // Build initial menu items. They will be updated when UpdateMenu is
+  // called from NetworkChanged.
+  InitMenuItems();
+  network_menu_->Rebuild();
 
   // Restore menu width, if it was set up.
   // NOTE: width isn't checked for correctness here since all width-related
@@ -645,10 +640,11 @@ void NetworkMenu::InitMenuItems() {
         label.clear();
         if (active_cellular->needs_new_plan()) {
           label = l10n_util::GetStringUTF16(IDS_OPTIONS_SETTINGS_NO_PLAN_LABEL);
-        } else if (!active_cellular->GetDataPlans().empty()) {
-          const chromeos::CellularDataPlan& plan =
-              *active_cellular->GetDataPlans().begin();
-          label = plan.GetUsageInfo();
+        } else {
+          const chromeos::CellularDataPlan* plan =
+              active_cellular->GetSignificantDataPlan();
+          if (plan)
+            label = plan->GetUsageInfo();
         }
         if (label.length()) {
           menu_items_.push_back(
@@ -684,6 +680,13 @@ void NetworkMenu::InitMenuItems() {
     menu_items_.push_back(MenuItem());  // Separator
 
     if (wifi_available) {
+      // Add 'Scanning...'
+      if (cros->wifi_scanning()) {
+        label = l10n_util::GetStringUTF16(IDS_STATUSBAR_WIFI_SCANNING_MESSAGE);
+        menu_items_.push_back(MenuItem(menus::MenuModel::TYPE_COMMAND, label,
+            SkBitmap(), std::string(), FLAG_DISABLED));
+      }
+
       int id = wifi_enabled ? IDS_STATUSBAR_NETWORK_DEVICE_DISABLE :
                               IDS_STATUSBAR_NETWORK_DEVICE_ENABLE;
       label = l10n_util::GetStringFUTF16(id,
@@ -772,13 +775,12 @@ void NetworkMenu::ShowWifi(const WifiNetwork* wifi, bool focus_login) const {
 void NetworkMenu::ShowCellular(const CellularNetwork* cellular,
                                bool focus_login) const {
   DCHECK(cellular);
-  if (use_settings_ui_ &&
-      (MenuUI::IsEnabled() || cellular->connected() ||
-          cellular->connecting())) {
+  // We should always use settings UI for cellular network because native UI
+  // is not complete and only settings UI version has full implementation.
+  if (use_settings_ui_)
     ShowTabbedNetworkSettings(cellular);
-  } else {
+  else
     ShowNetworkConfigView(new NetworkConfigView(cellular), focus_login);
-  }
 }
 
 void NetworkMenu::ActivateCellular(const CellularNetwork* cellular) const {

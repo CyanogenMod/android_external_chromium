@@ -134,11 +134,13 @@ bool ProfileSyncServiceHarness::SetupSync() {
   return SetupSync(synced_datatypes);
 }
 
-void ProfileSyncServiceHarness::StartObservingPassphraseAcceptance() {
+void ProfileSyncServiceHarness::StartObservingPassphraseEvents() {
   // Prime the counter to account for the implicit set passphrase due to
   // gaia login.
   passphrase_acceptance_counter_--;
   registrar_.Add(this, NotificationType::SYNC_PASSPHRASE_ACCEPTED,
+      Source<browser_sync::SyncBackendHost>(service_->backend()));
+  registrar_.Add(this, NotificationType::SYNC_PASSPHRASE_REQUIRED,
       Source<browser_sync::SyncBackendHost>(service_->backend()));
 }
 
@@ -174,8 +176,32 @@ bool ProfileSyncServiceHarness::SetupSync(
       (syncable::MODEL_TYPE_COUNT - syncable::FIRST_REAL_MODEL_TYPE));
   service()->OnUserChoseDatatypes(sync_everything, synced_datatypes);
 
-  // Wait for initial sync cycle to complete.
+  // Wait for a passphrase to be required.
+  DCHECK_EQ(wait_state_, WAITING_FOR_PASSPHRASE_REQUIRED);
+  if (!AwaitStatusChangeWithTimeout(kLiveSyncOperationTimeoutMs,
+      "Waiting for Passphrase required.")) {
+    LOG(ERROR) << "Passphrase required not seen after "
+               << kLiveSyncOperationTimeoutMs / 1000
+               << " seconds.";
+    return false;
+  }
+
+  DCHECK(service()->observed_passphrase_required());
+  if (id_ == 0)
+    DCHECK(!service()->passphrase_required_for_decryption());
+
+  // Wait for initial gaia passphrase to be accepted.
+  DCHECK_EQ(wait_state_, WAITING_FOR_PASSPHRASE_ACCEPTED);
+  if (!AwaitStatusChangeWithTimeout(kLiveSyncOperationTimeoutMs,
+      "Waiting for Passphrase accept.")) {
+    LOG(ERROR) << "Passphrase accept not seen after "
+               << kLiveSyncOperationTimeoutMs / 1000
+               << " seconds.";
+    return false;
+  }
+
   DCHECK_EQ(wait_state_, WAITING_FOR_INITIAL_SYNC);
+  // Wait for initial sync cycle to be completed.
   if (!AwaitStatusChangeWithTimeout(kLiveSyncOperationTimeoutMs,
       "Waiting for initial sync cycle to complete.")) {
     LOG(ERROR) << "Initial sync cycle did not complete after "
@@ -206,11 +232,22 @@ bool ProfileSyncServiceHarness::RunStateChangeMachine() {
     case WAITING_FOR_ON_BACKEND_INITIALIZED: {
       LogClientInfo("WAITING_FOR_ON_BACKEND_INITIALIZED");
       if (service()->sync_initialized()) {
-        // The sync backend is initialized. Start waiting for the first sync
-        // cycle to complete.
-        StartObservingPassphraseAcceptance();
-        SignalStateCompleteWithNextState(WAITING_FOR_INITIAL_SYNC);
+        // The sync backend is initialized.  Watch for passphrase events.
+        StartObservingPassphraseEvents();
+        SignalStateCompleteWithNextState(WAITING_FOR_PASSPHRASE_REQUIRED);
       }
+      break;
+    }
+    case WAITING_FOR_PASSPHRASE_REQUIRED: {
+      LogClientInfo("WAITING_FOR_PASSPHRASE_REQUIRED");
+      if (service_->observed_passphrase_required())
+        SignalStateCompleteWithNextState(WAITING_FOR_PASSPHRASE_ACCEPTED);
+      break;
+    }
+    case WAITING_FOR_PASSPHRASE_ACCEPTED: {
+      LogClientInfo("WAITING_FOR_PASSPHRASE_ACCEPTED");
+      if (passphrase_acceptance_counter_ >= 0)
+        SignalStateCompleteWithNextState(WAITING_FOR_INITIAL_SYNC);
       break;
     }
     case WAITING_FOR_INITIAL_SYNC: {
@@ -260,12 +297,6 @@ bool ProfileSyncServiceHarness::RunStateChangeMachine() {
       LogClientInfo("FULLY_SYNCED");
       break;
     }
-    case WAITING_FOR_PASSPHRASE_ACCEPTED: {
-      LogClientInfo("WAITING_FOR_PASSPHRASE_ACCEPTED");
-      if (passphrase_acceptance_counter_ >= 0)
-        SignalStateCompleteWithNextState(FULLY_SYNCED);
-      break;
-    }
     case SYNC_DISABLED: {
       // Syncing is disabled for the client. There is nothing to do.
       LogClientInfo("SYNC_DISABLED");
@@ -298,10 +329,14 @@ bool ProfileSyncServiceHarness::AwaitPassphraseAccepted() {
 }
 
 void ProfileSyncServiceHarness::Observe(NotificationType type,
-    const NotificationSource& source, const NotificationDetails& details) {
-  DCHECK_EQ(NotificationType::SYNC_PASSPHRASE_ACCEPTED, type.value);
-  passphrase_acceptance_counter_++;
-  RunStateChangeMachine();
+                                        const NotificationSource& source,
+                                        const NotificationDetails& details) {
+  if (NotificationType::SYNC_PASSPHRASE_ACCEPTED == type.value) {
+    passphrase_acceptance_counter_++;
+    RunStateChangeMachine();
+  } else if (NotificationType::SYNC_PASSPHRASE_REQUIRED == type.value) {
+    RunStateChangeMachine();
+  }
 }
 
 bool ProfileSyncServiceHarness::AwaitSyncCycleCompletion(
@@ -425,6 +460,7 @@ ProfileSyncService::Status ProfileSyncServiceHarness::GetStatus() {
 }
 
 bool ProfileSyncServiceHarness::IsSynced() {
+  LogClientInfo("IsSynced");
   if (service() == NULL)
     return false;
   const SyncSessionSnapshot* snap = GetLastSessionSnapshot();
@@ -542,8 +578,11 @@ void ProfileSyncServiceHarness::LogClientInfo(std::string message) {
               << ": max_local_timestamp: " << snap->max_local_timestamp
               << ", has_more_to_sync: " << snap->has_more_to_sync
               << ", unsynced_count: " << snap->unsynced_count
+              << ", num_conflicting_updates: " << snap->num_conflicting_updates
               << ", has_unsynced_items: "
               << service()->backend()->HasUnsyncedItems()
+              << ", observed_passphrase_required: "
+              << service()->observed_passphrase_required()
               << ", notifications_enabled: "
               << GetStatus().notifications_enabled
               << ", service_is_pushing_changes: " << ServiceIsPushingChanges();
