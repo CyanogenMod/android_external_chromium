@@ -52,6 +52,10 @@ class TransportSecurityState;
 class SSLConfigService;
 }
 
+namespace policy {
+class ProfilePolicyContext;
+}
+
 namespace webkit_database {
 class DatabaseTracker;
 }
@@ -81,6 +85,7 @@ class NTPResourceCache;
 class PasswordStore;
 class PersonalDataManager;
 class PinnedTabService;
+class PrefProxyConfigTracker;
 class PromoCounter;
 class ProfileSyncService;
 class ProfileSyncFactory;
@@ -202,6 +207,9 @@ class ProfileImplAndroid : public Profile {
   virtual history::TopSites* GetTopSitesWithoutCreating() { NOTREACHED(); return NULL; }
   virtual BrowserSignin* GetBrowserSignin() { NOTREACHED(); return NULL; }
   virtual bool HasProfileSyncService() const { NOTREACHED(); return false; }
+
+  virtual policy::ProfilePolicyContext* GetPolicyContext() { NOTREACHED(); return NULL; }
+  virtual PrefProxyConfigTracker* GetProxyConfigTracker() { NOTREACHED(); return NULL; }
 
  private:
   friend class Profile;
