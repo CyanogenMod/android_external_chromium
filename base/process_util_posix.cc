@@ -36,6 +36,11 @@
 extern char** environ;
 #endif
 
+#ifdef ANDROID
+// No ucontext.h on Android
+typedef void ucontext_t;
+#endif
+
 namespace base {
 
 namespace {
