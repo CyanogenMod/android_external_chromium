@@ -8,6 +8,7 @@
 
 #ifdef ANDROID
 #include "android/autofill/profile_android.h"
+#include "base/scoped_ptr.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/autofill/autofill_host.h"
 
@@ -27,13 +28,13 @@ public:
   {
   }
 
-  Profile* profile() { return profile_; }
-  void SetProfileRequestContext(URLRequestContextGetter* context) { static_cast<ProfileImplAndroid*>(profile_)->SetRequestContext(context); }
+  Profile* profile() { return profile_.get(); }
+  void SetProfileRequestContext(URLRequestContextGetter* context) { static_cast<ProfileImplAndroid*>(profile_.get())->SetRequestContext(context); }
   AutoFillHost* autofill_host() { return autofill_host_; }
   void SetAutoFillHost(AutoFillHost* autofill_host) { autofill_host_ = autofill_host; }
 
 private:
-  Profile* profile_;
+  scoped_ptr<Profile> profile_;
   AutoFillHost* autofill_host_;
 };
 
