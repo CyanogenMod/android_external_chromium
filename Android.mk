@@ -338,6 +338,9 @@ LOCAL_SRC_FILES := \
     net/url_request/url_request_job_tracker.cc \
     net/url_request/url_request_netlog_params.cc \
     net/url_request/url_request_redirect_job.cc \
+    net/url_request/url_request_throttler_entry.cc \
+    net/url_request/url_request_throttler_header_adapter.cc \
+    net/url_request/url_request_throttler_manager.cc \
     \
     sdch/open-vcdiff/src/addrcache.cc \
     sdch/open-vcdiff/src/blockhash.cc \
@@ -370,6 +373,7 @@ LOCAL_SRC_FILES += \
     chrome/browser/autofill/autofill_download.cc \
     chrome/browser/autofill/autofill_field.cc \
     chrome/browser/autofill/autofill_manager.cc \
+    chrome/browser/autofill/autofill_metrics.cc \
     chrome/browser/autofill/autofill_profile.cc \
     chrome/browser/autofill/autofill_type.cc \
     chrome/browser/autofill/autofill_xml_parser.cc \
