@@ -29,6 +29,10 @@ class FormStructure;
 class PrefService;
 class TabContents;
 
+#ifdef ANDROID
+class AutoFillHost;
+#endif
+
 namespace webkit_glue {
 struct FormData;
 class FormField;
@@ -118,7 +122,11 @@ class AutoFillManager :
   // Returns false if AutoFill is disabled or if the host is unavailable.
   bool GetHost(const std::vector<AutoFillProfile*>& profiles,
                const std::vector<CreditCard*>& credit_cards,
+#ifdef ANDROID
+               AutoFillHost** host) WARN_UNUSED_RESULT;
+#else
                RenderViewHost** host) WARN_UNUSED_RESULT;
+#endif
 
   // Fills |form_structure| and |autofill_field| with the cached elements
   // corresponding to |form| and |field|. Returns false if the cached elements
