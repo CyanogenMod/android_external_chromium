@@ -81,16 +81,7 @@ bool Thread::StartWithOptions(const Options& options) {
   SetThreadWasQuitProperly(false);
 
   StartupData startup_data(options);
-#ifdef ANDROID
-  {
-    // Use a lock to issue a cpu barrier and force the new thread to load
-    // startup_data_.
-    AutoLock lock(startup_data_lock_);
-    startup_data_ = &startup_data;
-  }
-#else
   startup_data_ = &startup_data;
-#endif
 
   if (!PlatformThread::Create(options.stack_size, this, &thread_)) {
     DLOG(ERROR) << "failed to create thread";
@@ -151,19 +142,8 @@ void Thread::Run(MessageLoop* message_loop) {
 
 void Thread::ThreadMain() {
   {
-#ifdef ANDROID
-    StartupData* startup_data = NULL;
-    {
-      // Use a lock to ensure startup_data_ has been written.
-      AutoLock lock(startup_data_lock_);
-      startup_data = startup_data_;
-    }
-    // The message loop for this thread.
-    MessageLoop message_loop(startup_data->options.message_loop_type);
-#else
     // The message loop for this thread.
     MessageLoop message_loop(startup_data_->options.message_loop_type);
-#endif
 
     // Complete the initialization of our Thread object.
     thread_id_ = PlatformThread::CurrentId();
@@ -177,11 +157,7 @@ void Thread::ThreadMain() {
     // Let's do this before signaling we are started.
     Init();
 
-#ifdef ANDROID
-    startup_data->event.Signal();
-#else
     startup_data_->event.Signal();
-#endif
     // startup_data_ can't be touched anymore since the starting thread is now
     // unlocked.
 
