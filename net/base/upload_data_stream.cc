@@ -91,6 +91,12 @@ int UploadDataStream::FillBuf() {
           }
         }
         next_element_remaining_ = element.GetContentLength();
+#ifdef ANDROID
+        if (element.file_path().value().find("content://") == 0) {
+            next_element_java_stream_.reset(
+                new android::JavaInputStreamWrapper(element.file_path()));
+        } else
+#endif
         next_element_stream_.reset(element.NewFileStreamForReading());
       }
 
@@ -99,8 +105,16 @@ int UploadDataStream::FillBuf() {
           static_cast<int>(std::min(next_element_remaining_,
                                     static_cast<uint64>(size_remaining)));
       if (count > 0) {
+#ifdef ANDROID
+        if (next_element_java_stream_.get())
+            rv = next_element_java_stream_->Read(buf_->data() + buf_len_, count);
+        else {
+#endif
         if (next_element_stream_.get())
           rv = next_element_stream_->Read(buf_->data() + buf_len_, count, NULL);
+#ifdef ANDROID
+        }
+#endif
         if (rv <= 0) {
           // If there's less data to read than we initially observed, then
           // pad with zero.  Otherwise the server will hang waiting for the

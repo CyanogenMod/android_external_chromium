@@ -61,6 +61,7 @@ LOCAL_SRC_FILES := \
     android/app/l10n_util.cc \
     android/jni/mime_utils.cc \
     android/jni/jni_utils.cc \
+    android/jni/platform_file_jni.cc \
     android/net/android_network_library_impl.cc \
     \
     app/sql/connection.cc \

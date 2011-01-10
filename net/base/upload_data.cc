@@ -9,6 +9,10 @@
 #include "net/base/file_stream.h"
 #include "net/base/net_errors.h"
 
+#ifdef ANDROID
+#include "android/jni/platform_file_jni.h"
+#endif
+
 namespace net {
 
 UploadData::Element::Element()
@@ -45,6 +49,14 @@ uint64 UploadData::Element::GetContentLength() {
 
   content_length_computed_ = true;
   content_length_ = 0;
+
+#ifdef ANDROID
+  if (file_path_.value().find("content://") == 0) {
+    content_length_computed_ = true;
+    content_length_ = android::contentUrlSize(file_path_);
+    return content_length_;
+  }
+#endif
 
   // We need to open the file here to decide if we should report the file's
   // size or zero.  We cache the open file, so that we can still read it when
