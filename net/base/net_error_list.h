@@ -191,7 +191,9 @@ NET_ERROR(SSL_SNAP_START_NPN_MISPREDICTION, -131)
 // give the user a helpful error message rather than have the connection hang.
 NET_ERROR(ESET_ANTI_VIRUS_SSL_INTERCEPTION, -132)
 
-// Missing -133. Feel free to reuse in the future.
+// We've hit the max socket limit for the socket pool while preconnecting.  We
+// don't bother trying to preconnect more sockets.
+NET_ERROR(PRECONNECT_MAX_SOCKET_LIMIT, -133)
 
 // The permission to use the SSL client certificate's private key was denied.
 NET_ERROR(SSL_CLIENT_AUTH_PRIVATE_KEY_ACCESS_DENIED, -134)
@@ -209,6 +211,9 @@ NET_ERROR(NAME_RESOLUTION_FAILED, -137)
 // errors that were most likely caused by a firewall from other access denied
 // errors. See also ERR_ACCESS_DENIED.
 NET_ERROR(NETWORK_ACCESS_DENIED, -138)
+
+// The request throttler module cancelled this request to avoid DDOS.
+NET_ERROR(TEMPORARILY_THROTTLED, -139)
 
 // Certificate error codes
 //
@@ -420,6 +425,10 @@ NET_ERROR(RESPONSE_BODY_TOO_BIG_TO_DRAIN, -345)
 
 // The HTTP response was too big to drain.
 NET_ERROR(RESPONSE_HEADERS_MULTIPLE_CONTENT_LENGTH, -346)
+
+// SPDY Headers have been received, but not all of them - status or version
+// headers are missing, so we're expecting additional frames to complete them.
+NET_ERROR(INCOMPLETE_SPDY_HEADERS, -347)
 
 // The cache does not have the requested entry.
 NET_ERROR(CACHE_MISS, -400)

@@ -11,25 +11,28 @@
 #include "chrome/browser/net/gaia/token_service.h"
 #include "chrome/browser/policy/device_token_fetcher.h"
 #include "chrome/browser/policy/mock_device_management_backend.h"
+#include "chrome/common/net/gaia/gaia_constants.h"
 #include "chrome/common/notification_service.h"
-#include "chrome/test/device_management_test_util.h"
+#include "chrome/test/testing_device_token_fetcher.h"
+#include "chrome/test/testing_profile.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace policy {
 
+const char kTestToken[] = "device_token_fetcher_test_auth_token";
+
 using testing::_;
 using testing::Mock;
 
-class MockTokenAvailableObserver : public NotificationObserver {
+class MockTokenAvailableObserver : public DeviceTokenFetcher::Observer {
  public:
   MockTokenAvailableObserver() {}
   virtual ~MockTokenAvailableObserver() {}
 
-  MOCK_METHOD3(Observe, void(
-      NotificationType type,
-      const NotificationSource& source,
-      const NotificationDetails& details));
+  MOCK_METHOD0(OnTokenSuccess, void());
+  MOCK_METHOD0(OnTokenError, void());
+  MOCK_METHOD0(OnNotManaged, void());
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockTokenAvailableObserver);
@@ -46,19 +49,25 @@ class DeviceTokenFetcherTest : public testing::Test {
   }
 
   virtual void TearDown() {
+    backend_.reset();
+    profile_.reset();
     loop_.RunAllPending();
   }
 
-  void SimulateSuccessfulLoginAndRunPending() {
+  void SimulateSuccessfulLoginAndRunPending(const std::string& username) {
     loop_.RunAllPending();
-    SimulateSuccessfulLogin();
+    profile_->GetTokenService()->IssueAuthTokenForTest(
+        GaiaConstants::kDeviceManagementService, kTestToken);
+    fetcher_->SimulateLogin(username);
     loop_.RunAllPending();
   }
 
-  DeviceTokenFetcher* NewTestFetcher(const FilePath& token_dir) {
+  TestingDeviceTokenFetcher* NewTestFetcher(const FilePath& token_dir) {
+    profile_.reset(new TestingProfile());
     backend_.reset(new MockDeviceManagementBackend());
-    return new DeviceTokenFetcher(
+    return new TestingDeviceTokenFetcher(
         backend_.get(),
+        profile_.get(),
         token_dir.Append(FILE_PATH_LITERAL("test-token-file.txt")));
   }
 
@@ -74,7 +83,8 @@ class DeviceTokenFetcherTest : public testing::Test {
   MessageLoop loop_;
   scoped_ptr<MockDeviceManagementBackend> backend_;
   ScopedTempDir temp_user_data_dir_;
-  scoped_refptr<DeviceTokenFetcher> fetcher_;
+  scoped_refptr<TestingDeviceTokenFetcher> fetcher_;
+  scoped_ptr<Profile> profile_;
 
  private:
   BrowserThread ui_thread_;
@@ -83,16 +93,16 @@ class DeviceTokenFetcherTest : public testing::Test {
 
 TEST_F(DeviceTokenFetcherTest, IsPending) {
   ASSERT_TRUE(fetcher_->IsTokenPending());
-  backend_->AllShouldSucceed();
-  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).Times(1);
-  SimulateSuccessfulLoginAndRunPending();
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  SimulateSuccessfulLoginAndRunPending(kTestManagedDomainUsername);
   ASSERT_FALSE(fetcher_->IsTokenPending());
 }
 
 TEST_F(DeviceTokenFetcherTest, StoreAndLoad) {
-  backend_->AllShouldSucceed();
-  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).Times(1);
-  SimulateSuccessfulLoginAndRunPending();
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  SimulateSuccessfulLoginAndRunPending(kTestManagedDomainUsername);
   ASSERT_FALSE(fetcher_->IsTokenPending());
   std::string device_token = fetcher_->GetDeviceToken();
   std::string device_id = fetcher_->GetDeviceID();
@@ -101,7 +111,8 @@ TEST_F(DeviceTokenFetcherTest, StoreAndLoad) {
   FilePath token_path;
   GetDeviceTokenPath(fetcher_, &token_path);
   scoped_refptr<DeviceTokenFetcher> fetcher2(
-      new DeviceTokenFetcher(backend_.get(), token_path));
+      new TestingDeviceTokenFetcher(
+          backend_.get(), profile_.get(), token_path));
   fetcher2->StartFetching();
   loop_.RunAllPending();
   ASSERT_EQ(device_id, fetcher2->GetDeviceID());
@@ -109,9 +120,9 @@ TEST_F(DeviceTokenFetcherTest, StoreAndLoad) {
 }
 
 TEST_F(DeviceTokenFetcherTest, SimpleFetchSingleLogin) {
-  backend_->AllShouldSucceed();
-  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).Times(1);
-  SimulateSuccessfulLoginAndRunPending();
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  SimulateSuccessfulLoginAndRunPending(kTestManagedDomainUsername);
   ASSERT_FALSE(fetcher_->IsTokenPending());
   ASSERT_TRUE(fetcher_->IsTokenValid());
   const std::string token(fetcher_->GetDeviceToken());
@@ -119,14 +130,14 @@ TEST_F(DeviceTokenFetcherTest, SimpleFetchSingleLogin) {
 }
 
 TEST_F(DeviceTokenFetcherTest, SimpleFetchDoubleLogin) {
-  backend_->AllShouldSucceed();
-  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).Times(1);
-  SimulateSuccessfulLoginAndRunPending();
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  SimulateSuccessfulLoginAndRunPending(kTestManagedDomainUsername);
   ASSERT_FALSE(fetcher_->IsTokenPending());
   const std::string token(fetcher_->GetDeviceToken());
   EXPECT_NE("", token);
 
-  SimulateSuccessfulLoginAndRunPending();
+  SimulateSuccessfulLoginAndRunPending(kTestManagedDomainUsername);
   ASSERT_FALSE(fetcher_->IsTokenPending());
   const std::string token2(fetcher_->GetDeviceToken());
   EXPECT_NE("", token2);
@@ -134,15 +145,15 @@ TEST_F(DeviceTokenFetcherTest, SimpleFetchDoubleLogin) {
 }
 
 TEST_F(DeviceTokenFetcherTest, FetchBetweenBrowserLaunchAndNotify) {
-  NotificationRegistrar registrar;
   MockTokenAvailableObserver observer;
-  registrar.Add(&observer,
-                NotificationType::DEVICE_TOKEN_AVAILABLE,
-                NotificationService::AllSources());
-  EXPECT_CALL(observer, Observe(_, _, _)).Times(1);
-  backend_->AllShouldSucceed();
-  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).Times(1);
-  SimulateSuccessfulLoginAndRunPending();
+  DeviceTokenFetcher::ObserverRegistrar registrar;
+  registrar.Init(fetcher_);
+  registrar.AddObserver(&observer);
+  EXPECT_CALL(observer, OnTokenSuccess()).Times(1);
+  EXPECT_CALL(observer, OnTokenError()).Times(0);
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendSucceedRegister());
+  SimulateSuccessfulLoginAndRunPending(kTestManagedDomainUsername);
   ASSERT_FALSE(fetcher_->IsTokenPending());
   const std::string token(fetcher_->GetDeviceToken());
   EXPECT_NE("", token);
@@ -150,8 +161,9 @@ TEST_F(DeviceTokenFetcherTest, FetchBetweenBrowserLaunchAndNotify) {
 
   // Swap out the fetchers, including copying the device management token on
   // disk to where the new fetcher expects it.
-  fetcher_ = NewTestFetcher(
-      temp_user_data_dir_.path());
+  registrar.RemoveAll();
+  fetcher_ = NewTestFetcher(temp_user_data_dir_.path());
+  registrar.Init(fetcher_);
   fetcher_->StartFetching();
   ASSERT_TRUE(fetcher_->IsTokenPending());
   loop_.RunAllPending();
@@ -162,24 +174,55 @@ TEST_F(DeviceTokenFetcherTest, FetchBetweenBrowserLaunchAndNotify) {
 }
 
 TEST_F(DeviceTokenFetcherTest, FailedServerRequest) {
-  backend_->AllShouldFail();
-  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).Times(1);
-  SimulateSuccessfulLoginAndRunPending();
+  MockTokenAvailableObserver observer;
+  DeviceTokenFetcher::ObserverRegistrar registrar;
+  registrar.Init(fetcher_);
+  registrar.AddObserver(&observer);
+  EXPECT_CALL(observer, OnTokenSuccess()).Times(0);
+  EXPECT_CALL(observer, OnTokenError()).Times(1);
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailRegister(
+          DeviceManagementBackend::kErrorRequestFailed));
+  SimulateSuccessfulLoginAndRunPending(kTestManagedDomainUsername);
   ASSERT_FALSE(fetcher_->IsTokenPending());
   const std::string token(fetcher_->GetDeviceToken());
   EXPECT_EQ("", token);
 }
 
 TEST_F(DeviceTokenFetcherTest, UnmanagedDevice) {
-  backend_->UnmanagedDevice();
-  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).Times(1);
-  SimulateSuccessfulLoginAndRunPending();
+  FilePath token_path;
+  GetDeviceTokenPath(fetcher_, &token_path);
+  file_util::WriteFile(token_path, "foo", 3);
+  ASSERT_TRUE(file_util::PathExists(token_path));
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).WillOnce(
+      MockDeviceManagementBackendFailRegister(
+          DeviceManagementBackend::kErrorServiceManagementNotSupported));
+  SimulateSuccessfulLoginAndRunPending(kTestManagedDomainUsername);
   ASSERT_FALSE(fetcher_->IsTokenPending());
   ASSERT_EQ("", fetcher_->GetDeviceToken());
   ASSERT_EQ("", device_id(fetcher_));
-  FilePath token_path;
-  GetDeviceTokenPath(fetcher_, &token_path);
   ASSERT_FALSE(file_util::PathExists(token_path));
+}
+
+
+TEST_F(DeviceTokenFetcherTest, FetchBetweenTokenNotifyAndLoginNotify) {
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).Times(0);
+
+  // Simulate an available token, but without available user name.
+  loop_.RunAllPending();
+  profile_->GetTokenService()->IssueAuthTokenForTest(
+      GaiaConstants::kDeviceManagementService, kTestToken);
+  loop_.RunAllPending();
+
+  ASSERT_TRUE(fetcher_->IsTokenPending());
+  ASSERT_FALSE(fetcher_->IsTokenValid());
+}
+
+TEST_F(DeviceTokenFetcherTest, FetchWithNonManagedUsername) {
+  EXPECT_CALL(*backend_, ProcessRegisterRequest(_, _, _, _)).Times(0);
+  SimulateSuccessfulLoginAndRunPending("___@gmail.com");
+  ASSERT_FALSE(fetcher_->IsTokenPending());
+  ASSERT_FALSE(fetcher_->IsTokenValid());
 }
 
 }  // namespace policy

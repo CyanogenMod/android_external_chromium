@@ -80,9 +80,6 @@ class AutocompleteEditView {
   virtual void SetWindowTextAndCaretPos(const std::wstring& text,
                                         size_t caret_pos) = 0;
 
-  // Replaces the selection with the specified text and selects it.
-  virtual void ReplaceSelection(const string16& text) = 0;
-
   // Sets the edit to forced query mode.  Practically speaking, this means that
   // if the edit is not in forced query mode, its text is set to "?" with the
   // cursor at the end, and if the edit is in forced query mode (its first
@@ -94,6 +91,9 @@ class AutocompleteEditView {
 
   // Returns true if all text is selected or there is no text at all.
   virtual bool IsSelectAll() = 0;
+
+  // Returns true if the user deleted the suggested text.
+  virtual bool DeleteAtEndPressed() = 0;
 
   // Fills |start| and |end| with the indexes of the current selection's bounds.
   // It is not guaranteed that |*start < *end|, as the selection can be

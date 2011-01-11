@@ -410,6 +410,7 @@ AutocompleteEditViewWin::AutocompleteEditViewWin(
       double_click_time_(0),
       can_discard_mousemove_(false),
       ignore_ime_messages_(false),
+      delete_at_end_pressed_(false),
       font_(font),
       possible_drag_(false),
       in_drag_(false),
@@ -652,20 +653,6 @@ void AutocompleteEditViewWin::SetWindowTextAndCaretPos(const std::wstring& text,
   PlaceCaretAt(caret_pos);
 }
 
-void AutocompleteEditViewWin::ReplaceSelection(const string16& text) {
-  CHARRANGE selection;
-  GetSel(selection);
-  if (selection.cpMin == selection.cpMax && text.empty())
-    return;
-
-  const std::wstring w_text(UTF16ToWide(text));
-  ScopedFreeze freeze(this, GetTextObjectModel());
-  OnBeforePossibleChange();
-  ReplaceSel(w_text.c_str(), TRUE);
-  SetSelection(selection.cpMin, selection.cpMin + w_text.size());
-  OnAfterPossibleChange();
-}
-
 void AutocompleteEditViewWin::SetForcedQuery() {
   const std::wstring current_text(GetText());
   const size_t start = current_text.find_first_not_of(kWhitespaceWide);
@@ -679,6 +666,10 @@ bool AutocompleteEditViewWin::IsSelectAll() {
   CHARRANGE selection;
   GetSel(selection);
   return IsSelectAllForRange(selection);
+}
+
+bool AutocompleteEditViewWin::DeleteAtEndPressed() {
+  return delete_at_end_pressed_;
 }
 
 void AutocompleteEditViewWin::GetSelectionBounds(std::wstring::size_type* start,
@@ -915,6 +906,8 @@ bool AutocompleteEditViewWin::OnAfterPossibleChange() {
     // Notify assistive technology that the cursor or selection changed.
     parent_view_->NotifyAccessibilityEvent(
         AccessibilityTypes::EVENT_SELECTION_CHANGED);
+  } else if (delete_at_end_pressed_) {
+    controller_->OnChanged();
   }
 
   return something_changed;
@@ -1363,6 +1356,8 @@ LRESULT AutocompleteEditViewWin::OnImeNotify(UINT message,
 void AutocompleteEditViewWin::OnKeyDown(TCHAR key,
                                         UINT repeat_count,
                                         UINT flags) {
+  delete_at_end_pressed_ = false;
+
   if (OnKeyDownAllModes(key, repeat_count, flags))
     return;
 
@@ -1912,7 +1907,8 @@ bool AutocompleteEditViewWin::OnKeyDownOnlyWritable(TCHAR key,
     //
     // Cut:   Shift-Delete and Ctrl-x are treated as cut.  Ctrl-Shift-Delete and
     //        Ctrl-Shift-x are not treated as cut even though the underlying
-    //        CRichTextEdit would treat them as such.
+    //        CRichTextEdit would treat them as such.  Also note that we bring
+    //        up 'clear browsing data' on control-shift-delete.
     // Copy:  Ctrl-Insert and Ctrl-c is treated as copy.  Shift-Ctrl-c is not.
     //        (This is handled in OnKeyDownAllModes().)
     // Paste: Shift-Insert and Ctrl-v are treated as paste.  Ctrl-Shift-Insert
@@ -1922,8 +1918,17 @@ bool AutocompleteEditViewWin::OnKeyDownOnlyWritable(TCHAR key,
     // conforms to what users expect.
 
     case VK_DELETE:
-      if ((flags & KF_ALTDOWN) || GetKeyState(VK_SHIFT) >= 0)
+      if (flags & KF_ALTDOWN)
         return false;
+      if (GetKeyState(VK_SHIFT) >= 0) {
+        if (GetKeyState(VK_CONTROL) >= 0) {
+          CHARRANGE selection;
+          GetSel(selection);
+          delete_at_end_pressed_ = ((selection.cpMin == selection.cpMax) &&
+                                    (selection.cpMin == GetTextLength()));
+        }
+        return false;
+      }
       if (GetKeyState(VK_CONTROL) >= 0) {
         // Cut text if possible.
         CHARRANGE selection;
@@ -1999,6 +2004,8 @@ bool AutocompleteEditViewWin::OnKeyDownOnlyWritable(TCHAR key,
         // Accept the keyword.
         ScopedFreeze freeze(this, GetTextObjectModel());
         model_->AcceptKeyword();
+      } else {
+        controller_->OnCommitSuggestedText(GetText());
       }
       return true;
     }

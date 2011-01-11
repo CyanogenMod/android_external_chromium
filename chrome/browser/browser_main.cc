@@ -33,6 +33,7 @@
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
+#include "chrome/browser/about_flags.h"
 #include "chrome/browser/browser_main_win.h"
 #include "chrome/browser/prefs/browser_prefs.h"
 #include "chrome/browser/browser_process.h"
@@ -49,8 +50,10 @@
 #include "chrome/browser/metrics/metrics_log.h"
 #include "chrome/browser/metrics/metrics_service.h"
 #include "chrome/browser/net/blob_url_request_job_factory.h"
-#include "chrome/browser/net/predictor_api.h"
+#include "chrome/browser/net/chrome_dns_cert_provenance_checker.h"
+#include "chrome/browser/net/chrome_dns_cert_provenance_checker_factory.h"
 #include "chrome/browser/net/metadata_url_request.h"
+#include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/net/sdch_dictionary_fetcher.h"
 #include "chrome/browser/net/websocket_experiment/websocket_experiment_runner.h"
 #include "chrome/browser/plugin_service.h"
@@ -112,6 +115,7 @@
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/boot_times_loader.h"
+#include "chrome/browser/oom_priority_manager.h"
 #endif
 
 // TODO(port): several win-only methods have been pulled out of this, but
@@ -201,8 +205,9 @@ void BrowserMainParts::EarlyInitialization() {
     net::SSLConfigService::DisableFalseStart();
   if (parsed_command_line().HasSwitch(switches::kAllowSSLMITMProxies))
     net::SSLConfigService::AllowMITMProxies();
-  if (parsed_command_line().HasSwitch(switches::kEnableSnapStart))
-    net::SSLConfigService::EnableSnapStart();
+  // Disabled to stop people playing with it.
+  // if (parsed_command_line().HasSwitch(switches::kEnableSnapStart))
+  //   net::SSLConfigService::EnableSnapStart();
   if (parsed_command_line().HasSwitch(
           switches::kEnableDNSCertProvenanceChecking)) {
     net::SSLConfigService::EnableDNSCertProvenanceChecking();
@@ -509,6 +514,10 @@ void RunUIMessageLoop(BrowserProcess* browser_process) {
 #elif defined(OS_POSIX)
   MessageLoopForUI::current()->Run();
 #endif
+#if defined(OS_CHROMEOS)
+  chromeos::BootTimesLoader::Get()->AddLogoutTimeMarker("UIMessageLoopEnded",
+                                                        true);
+#endif
 
   TRACE_EVENT_END("BrowserMain:MESSAGE_LOOP", 0, "");
 }
@@ -556,6 +565,8 @@ void InitializeNetworkOptions(const CommandLine& parsed_command_line) {
         &value);
     net::SpdySessionPool::set_max_sessions_per_domain(value);
   }
+
+  SetDnsCertProvenanceCheckerFactory(CreateChromeDnsCertProvenanceChecker);
 }
 
 // Creates key child threads. We need to do this explicitly since
@@ -584,7 +595,8 @@ PrefService* InitializeLocalState(const CommandLine& parsed_command_line,
   // Initialize ResourceBundle which handles files loaded from external
   // sources. This has to be done before uninstall code path and before prefs
   // are registered.
-  local_state->RegisterStringPref(prefs::kApplicationLocale, "");
+  local_state->RegisterStringPref(prefs::kApplicationLocale,
+                                  std::string());
 #if !defined(OS_CHROMEOS)
   local_state->RegisterBooleanPref(prefs::kMetricsReportingEnabled,
       GoogleUpdateSettings::GetCollectStatsConsent());
@@ -981,13 +993,15 @@ DLLEXPORT void __cdecl RelaunchChromeBrowserWithNewCommandLineIfNeeded() {
 #if defined(USE_LINUX_BREAKPAD)
 bool IsMetricsReportingEnabled(const PrefService* local_state) {
   // Check whether we should initialize the crash reporter. It may be disabled
-  // through configuration policy or user preference. The kHeadless environment
-  // variable overrides the decision, but only if the crash service is under
-  // control of the user. The CHROME_HEADLESS environment variable is used by QA
-  // testing infrastructure to switch on generation of crash reports.
+  // through configuration policy or user preference.
+  // The kHeadless environment variable overrides the decision, but only if the
+  // crash service is under control of the user. It is used by QA testing
+  // infrastructure to switch on generation of crash reports.
 #if defined(OS_CHROMEOS)
   bool breakpad_enabled =
       chromeos::MetricsCrosSettingsProvider::GetMetricsStatus();
+  if (!breakpad_enabled)
+    breakpad_enabled = getenv(env_vars::kHeadless) != NULL;
 #else
   const PrefService::Preference* metrics_reporting_enabled =
       local_state->FindPreference(prefs::kMetricsReportingEnabled);
@@ -1114,9 +1128,12 @@ int BrowserMain(const MainFunctionParams& parameters) {
 #else
     // On a POSIX OS other than ChromeOS, the parameter that is passed to the
     // method InitSharedInstance is ignored.
-    std::string app_locale = ResourceBundle::InitSharedInstance(
-        local_state->GetString(prefs::kApplicationLocale));
-    g_browser_process->SetApplicationLocale(app_locale);
+    const std::string locale =
+        local_state->GetString(prefs::kApplicationLocale);
+    const std::string loaded_locale =
+        ResourceBundle::InitSharedInstance(locale);
+    CHECK(!loaded_locale.empty()) << "Locale could not be found for " << locale;
+    g_browser_process->SetApplicationLocale(loaded_locale);
 
     FilePath resources_pack_path;
     PathService::Get(chrome::FILE_RESOURCES_PACK, &resources_pack_path);
@@ -1164,6 +1181,7 @@ int BrowserMain(const MainFunctionParams& parameters) {
     // (first run) UI.
     if (!first_run_ui_bypass &&
         (parsed_command_line.HasSwitch(switches::kApp) ||
+         parsed_command_line.HasSwitch(switches::kAppId) ||
          parsed_command_line.HasSwitch(switches::kNoFirstRun)))
       first_run_ui_bypass = true;
   }
@@ -1513,6 +1531,7 @@ int BrowserMain(const MainFunctionParams& parameters) {
 
   HandleTestParameters(parsed_command_line);
   RecordBreakpadStatusUMA(metrics);
+  about_flags::RecordUMAStatistics(user_prefs);
 
   // Stat the directory with the inspector's files so that we can know if we
   // should display the entry in the context menu or not.
@@ -1549,9 +1568,9 @@ int BrowserMain(const MainFunctionParams& parameters) {
   bool record_search_engine = is_first_run && !profile->IsOffTheRecord();
 #endif
 
-    // ChildProcess:: is a misnomer unless you consider context.  Use
-    // of --wait-for-debugger only makes sense when Chrome itself is a
-    // child process (e.g. when launched by PyAuto).
+  // ChildProcess:: is a misnomer unless you consider context.  Use
+  // of --wait-for-debugger only makes sense when Chrome itself is a
+  // child process (e.g. when launched by PyAuto).
   if (parsed_command_line.HasSwitch(switches::kWaitForDebugger)) {
     ChildProcess::WaitForDebugger(L"Browser");
   }
@@ -1568,6 +1587,17 @@ int BrowserMain(const MainFunctionParams& parameters) {
        control->Launch(NULL, NULL);
     }
   }
+
+#if defined(OS_CHROMEOS)
+  // Run the Out of Memory priority manager while in this scope.  Wait
+  // until here to start so that we give the most amount of time for
+  // the other services to start up before we start adjusting the oom
+  // priority.  In reality, it doesn't matter much where in this scope
+  // this is started, but it must be started in this scope so it will
+  // also be terminated when this scope exits.
+  scoped_ptr<browser::OomPriorityManager> oom_priority_manager(
+      new browser::OomPriorityManager);
+#endif
 
   // Create the instance of the cloud print proxy service so that it can launch
   // the service process if needed. This is needed because the service process
@@ -1667,6 +1697,13 @@ int BrowserMain(const MainFunctionParams& parameters) {
   ignore_result(browser_process.release());
   browser_shutdown::Shutdown();
 
+#if defined(OS_CHROMEOS)
+  // To be precise, logout (browser shutdown) is not yet done, but the
+  // remaining work is negligible, hence we say LogoutDone here.
+  chromeos::BootTimesLoader::Get()->AddLogoutTimeMarker("LogoutDone",
+                                                        false);
+  chromeos::BootTimesLoader::Get()->WriteLogoutTimes();
+#endif
   TRACE_EVENT_END("BrowserMain", 0, 0);
   return result_code;
 }

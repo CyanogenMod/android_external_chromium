@@ -10,10 +10,10 @@
 #include "base/string_util.h"
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/browser.h"
 #include "chrome/browser/chromeos/cros/cros_library.h"
 #include "chrome/browser/chromeos/status/status_area_host.h"
 #include "chrome/browser/profile.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/common/pref_names.h"
 #include "gfx/canvas.h"
 #include "gfx/font.h"
@@ -25,6 +25,12 @@ namespace chromeos {
 // when the timer goes off.
 const int kTimerSlopSeconds = 1;
 
+#if defined(CROS_FONTS_USING_BCI)
+const int kFontSizeDelta = 0;
+#else
+const int kFontSizeDelta = 1;
+#endif
+
 ClockMenuButton::ClockMenuButton(StatusAreaHost* host)
     : StatusAreaButton(this),
       host_(host) {
@@ -34,7 +40,7 @@ ClockMenuButton::ClockMenuButton(StatusAreaHost* host)
   set_border(NULL);
   set_use_menu_button_paint(true);
   SetFont(ResourceBundle::GetSharedInstance().GetFont(
-      ResourceBundle::BaseFont).DeriveFont(1));
+      ResourceBundle::BaseFont).DeriveFont(kFontSizeDelta));
   SetEnabledColor(0xB3FFFFFF); // White with 70% Alpha
   SetShowMultipleIconStates(false);
   set_alignment(TextButton::ALIGN_CENTER);

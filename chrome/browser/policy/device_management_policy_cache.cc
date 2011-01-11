@@ -12,6 +12,7 @@
 #include "base/task.h"
 #include "base/values.h"
 #include "chrome/browser/browser_thread.h"
+#include "chrome/browser/policy/proto/device_management_constants.h"
 #include "chrome/browser/policy/proto/device_management_local.pb.h"
 
 using google::protobuf::RepeatedField;
@@ -24,7 +25,12 @@ class PersistPolicyTask : public Task {
  public:
   PersistPolicyTask(const FilePath& path,
                     const em::DevicePolicyResponse* policy,
-                    const base::Time& timestamp);
+                    const base::Time& timestamp,
+                    const bool is_device_unmanaged)
+      : path_(path),
+        policy_(policy),
+        timestamp_(timestamp),
+        is_device_unmanaged_(is_device_unmanaged) {}
 
  private:
   // Task override.
@@ -33,20 +39,16 @@ class PersistPolicyTask : public Task {
   const FilePath path_;
   scoped_ptr<const em::DevicePolicyResponse> policy_;
   const base::Time timestamp_;
+  const bool is_device_unmanaged_;
 };
-
-PersistPolicyTask::PersistPolicyTask(const FilePath& path,
-                                     const em::DevicePolicyResponse* policy,
-                                     const base::Time& timestamp)
-    : path_(path),
-      policy_(policy),
-      timestamp_(timestamp) {
-}
 
 void PersistPolicyTask::Run() {
   std::string data;
   em::CachedDevicePolicyResponse cached_policy;
-  cached_policy.mutable_policy()->CopyFrom(*policy_);
+  if (policy_.get())
+    cached_policy.mutable_policy()->CopyFrom(*policy_);
+  if (is_device_unmanaged_)
+    cached_policy.set_unmanaged(true);
   cached_policy.set_timestamp(timestamp_.ToInternalValue());
   if (!cached_policy.SerializeToString(&data)) {
     LOG(WARNING) << "Failed to serialize policy data";
@@ -64,7 +66,8 @@ DeviceManagementPolicyCache::DeviceManagementPolicyCache(
     const FilePath& backing_file_path)
     : backing_file_path_(backing_file_path),
       policy_(new DictionaryValue),
-      fresh_policy_(false) {
+      fresh_policy_(false),
+      is_device_unmanaged_(false) {
 }
 
 void DeviceManagementPolicyCache::LoadPolicyFromFile() {
@@ -94,6 +97,7 @@ void DeviceManagementPolicyCache::LoadPolicyFromFile() {
                  << ", file is from the future.";
     return;
   }
+  is_device_unmanaged_ = cached_policy.unmanaged();
 
   // Decode and swap in the new policy information.
   scoped_ptr<DictionaryValue> value(DecodePolicy(cached_policy.policy()));
@@ -105,10 +109,12 @@ void DeviceManagementPolicyCache::LoadPolicyFromFile() {
   }
 }
 
-void DeviceManagementPolicyCache::SetPolicy(
+bool DeviceManagementPolicyCache::SetPolicy(
     const em::DevicePolicyResponse& policy) {
+  is_device_unmanaged_ = false;
   DictionaryValue* value = DeviceManagementPolicyCache::DecodePolicy(policy);
-  base::Time now(base::Time::Now());
+  const bool new_policy_differs = !(value->Equals(policy_.get()));
+  base::Time now(base::Time::NowFromSystemTime());
   {
     AutoLock lock(lock_);
     policy_.reset(value);
@@ -121,13 +127,35 @@ void DeviceManagementPolicyCache::SetPolicy(
   BrowserThread::PostTask(
       BrowserThread::FILE,
       FROM_HERE,
-      new PersistPolicyTask(backing_file_path_, policy_copy,
-                            base::Time::NowFromSystemTime()));
+      new PersistPolicyTask(backing_file_path_, policy_copy, now, false));
+  return new_policy_differs;
 }
 
 DictionaryValue* DeviceManagementPolicyCache::GetPolicy() {
   AutoLock lock(lock_);
   return static_cast<DictionaryValue*>(policy_->DeepCopy());
+}
+
+void DeviceManagementPolicyCache::SetDeviceUnmanaged(bool is_device_unmanaged) {
+  if (is_device_unmanaged_ == is_device_unmanaged)
+    return;
+
+  is_device_unmanaged_ = is_device_unmanaged;
+  base::Time now(base::Time::NowFromSystemTime());
+  DictionaryValue* empty = new DictionaryValue();
+  {
+    AutoLock lock(lock_);
+    policy_.reset(empty);
+    last_policy_refresh_time_ = now;
+  }
+  BrowserThread::PostTask(
+      BrowserThread::FILE,
+      FROM_HERE,
+      new PersistPolicyTask(backing_file_path_,
+                            (is_device_unmanaged ? NULL
+                                : new em::DevicePolicyResponse()),
+                            now,
+                            is_device_unmanaged_));
 }
 
 // static
@@ -220,6 +248,10 @@ DictionaryValue* DeviceManagementPolicyCache::DecodePolicy(
   for (setting = policy.setting().begin();
        setting != policy.setting().end();
        ++setting) {
+    // Wrong policy key? Skip.
+    if (setting->policy_key().compare(kChromeDevicePolicySettingKey) != 0)
+      continue;
+
     // No policy value? Skip.
     if (!setting->has_policy_value())
       continue;

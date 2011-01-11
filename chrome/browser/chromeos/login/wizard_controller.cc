@@ -46,6 +46,7 @@
 #include "chrome/browser/profile_manager.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_service.h"
+#include "chrome/common/notification_type.h"
 #include "chrome/common/pref_names.h"
 #include "cros/chromeos_wm_ipc_enums.h"
 #include "unicode/timezone.h"
@@ -70,9 +71,6 @@ const char kStartupCustomizationManifestPath[] =
 const char kOobeCompleteFlagFilePath[] =
     "/home/chronos/.oobe_completed";
 
-// Upadate window will be behind the curtain at most |kMaximalCurtainTimeSec|.
-const int kMaximalCurtainTimeSec = 15;
-
 // Time in seconds that we wait for the device to reboot.
 // If reboot didn't happen, ask user to reboot device manually.
 const int kWaitForRebootTimeSec = 3;
@@ -84,8 +82,12 @@ class ContentView : public views::View {
   ContentView()
       : accel_enable_accessibility_(
             chromeos::WizardAccessibilityHelper::GetAccelerator()) {
-    AddAccelerator(accel_enable_accessibility_);
-#if !defined(OFFICIAL_BUILD)
+#if defined(OFFICIAL_BUILD)
+    accel_cancel_update_ =  views::Accelerator(app::VKEY_ESCAPE,
+                                               true, true, true);
+#else
+    accel_cancel_update_ =  views::Accelerator(app::VKEY_ESCAPE,
+                                               false, false, false);
     accel_account_screen_ = views::Accelerator(app::VKEY_A,
                                                false, true, true);
     accel_login_screen_ = views::Accelerator(app::VKEY_L,
@@ -108,6 +110,8 @@ class ContentView : public views::View {
     AddAccelerator(accel_eula_screen_);
     AddAccelerator(accel_register_screen_);
 #endif
+    AddAccelerator(accel_enable_accessibility_);
+    AddAccelerator(accel_cancel_update_);
   }
 
   ~ContentView() {
@@ -124,7 +128,9 @@ class ContentView : public views::View {
 
     if (accel == accel_enable_accessibility_) {
       chromeos::WizardAccessibilityHelper::GetInstance()->EnableAccessibility(
-          controller->contents());
+          controller->contents()); }
+    else if (accel == accel_cancel_update_) {
+      controller->CancelOOBEUpdate();
 #if !defined(OFFICIAL_BUILD)
     } else if (accel == accel_account_screen_) {
       controller->ShowAccountScreen();
@@ -169,6 +175,7 @@ class ContentView : public views::View {
   views::Accelerator accel_register_screen_;
 #endif
   views::Accelerator accel_enable_accessibility_;
+  views::Accelerator accel_cancel_update_;
 
   DISALLOW_COPY_AND_ASSIGN(ContentView);
 };
@@ -257,6 +264,10 @@ WizardController::WizardController()
       observer_(NULL) {
   DCHECK(default_controller_ == NULL);
   default_controller_ = this;
+  registrar_.Add(
+      this,
+      NotificationType::APP_TERMINATING,
+      NotificationService::AllSources());
 }
 
 WizardController::~WizardController() {
@@ -322,6 +333,13 @@ void WizardController::OwnBackground(
   background_view_ = background_view;
 }
 
+void WizardController::CancelOOBEUpdate() {
+  if (update_screen_.get() &&
+      update_screen_.get() == current_screen_) {
+    GetUpdateScreen()->CancelUpdate();
+  }
+}
+
 chromeos::NetworkScreen* WizardController::GetNetworkScreen() {
   if (!network_screen_.get())
     network_screen_.reset(new chromeos::NetworkScreen(this));
@@ -343,7 +361,6 @@ chromeos::AccountScreen* WizardController::GetAccountScreen() {
 chromeos::UpdateScreen* WizardController::GetUpdateScreen() {
   if (!update_screen_.get()) {
     update_screen_.reset(new chromeos::UpdateScreen(this));
-    update_screen_->SetMaximalCurtainTime(kMaximalCurtainTimeSec);
     update_screen_->SetRebootCheckDelay(kWaitForRebootTimeSec);
   }
   return update_screen_.get();
@@ -446,6 +463,7 @@ void WizardController::ShowUserImageScreen() {
   SetStatusAreaVisible(false);
   SetCurrentScreen(GetUserImageScreen());
   background_view_->SetOobeProgress(chromeos::BackgroundView::PICTURE);
+  background_view_->EnableShutdownButton(false);
 }
 
 void WizardController::ShowEulaScreen() {
@@ -494,6 +512,18 @@ void WizardController::SkipRegistration() {
     OnRegistrationSkipped();
   else
     LOG(ERROR) << "Registration screen is not active.";
+}
+
+void WizardController::Observe(NotificationType type,
+                               const NotificationSource& source,
+                               const NotificationDetails& details) {
+  CHECK(type == NotificationType::APP_TERMINATING);
+
+  MessageLoop::current()->DeleteSoon(FROM_HERE, this);
+  MessageLoop::current()->Quit();
+  registrar_.Remove(this,
+                    NotificationType::APP_TERMINATING,
+                    NotificationService::AllSources());
 }
 
 // static
@@ -825,7 +855,7 @@ void WizardController::MarkDeviceRegistered() {
 ///////////////////////////////////////////////////////////////////////////////
 // WizardController, chromeos::ScreenObserver overrides:
 void WizardController::OnExit(ExitCodes exit_code) {
-  VLOG(1) << "Wizard screen exit code: " << exit_code;
+  LOG(INFO) << "Wizard screen exit code: " << exit_code;
   switch (exit_code) {
     case LOGIN_SIGN_IN_SELECTED:
       OnLoginSignInSelected();
@@ -977,7 +1007,10 @@ void ShowLoginWizard(const std::string& first_screen_name,
       locale = controller->GetCustomization()->initial_locale();
       VLOG(1) << "Initial locale: " << locale;
       if (!locale.empty()) {
-        ResourceBundle::ReloadSharedInstance(locale);
+        const std::string loaded_locale =
+            ResourceBundle::ReloadSharedInstance(locale);
+        CHECK(!loaded_locale.empty()) << "Locale could not be found for "
+                                      << locale;
       }
     }
   }

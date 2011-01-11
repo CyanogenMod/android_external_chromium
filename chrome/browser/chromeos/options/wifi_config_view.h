@@ -54,11 +54,14 @@ class WifiConfigView : public views::View,
   // SelectFileDialog::Listener implementation.
   virtual void FileSelected(const FilePath& path, int index, void* params);
 
-  // Login to network.
+  // Login to network. Returns false if the dialog should remain open.
   virtual bool Login();
 
   // Save network information.
   virtual bool Save();
+
+  // Cancel the dialog.
+  virtual void Cancel();
 
   // Get the typed in ssid.
   const std::string GetSSID() const;
@@ -95,6 +98,9 @@ class WifiConfigView : public views::View,
   // Updates state of the "view password" button.
   void UpdateCanViewPassword();
 
+  // Updates the error text label.
+  void UpdateErrorLabel(bool failed);
+
   NetworkConfigView* parent_;
 
   bool other_network_;
@@ -114,6 +120,7 @@ class WifiConfigView : public views::View,
   views::Textfield* passphrase_textfield_;
   views::ImageButton* passphrase_visible_button_;
   views::Checkbox* autoconnect_checkbox_;
+  views::Label* error_label_;
 
   DISALLOW_COPY_AND_ASSIGN(WifiConfigView);
 };

@@ -17,6 +17,7 @@
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
+#include "chrome/common/render_messages_params.h"
 #include "grit/generated_resources.h"
 
 using webkit_glue::PasswordForm;
@@ -148,6 +149,13 @@ void PasswordManager::DidStopLoading() {
     provisional_save_manager_->Save();
     provisional_save_manager_.reset();
   }
+}
+
+void PasswordManager::DidNavigateAnyFramePostCommit(
+      const NavigationController::LoadCommittedDetails& details,
+      const ViewHostMsg_FrameNavigate_Params& params) {
+  if (params.password_form.origin.is_valid())
+    ProvisionallySavePassword(params.password_form);
 }
 
 void PasswordManager::PasswordFormsFound(

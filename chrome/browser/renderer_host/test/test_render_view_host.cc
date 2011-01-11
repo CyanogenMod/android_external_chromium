@@ -172,10 +172,24 @@ void TestRenderWidgetHostView::AcceleratedSurfaceSetTransportDIB(
 }
 
 void TestRenderWidgetHostView::AcceleratedSurfaceBuffersSwapped(
-    gfx::PluginWindowHandle window, uint64 surface_id) {
+    gfx::PluginWindowHandle window,
+    uint64 surface_id,
+    int renderer_id,
+    int32 route_id,
+    uint64 swap_buffers_count) {
 }
 
 void TestRenderWidgetHostView::GpuRenderingStateDidChange() {
+}
+#elif defined(OS_WIN)
+gfx::PluginWindowHandle TestRenderWidgetHostView::GetCompositorHostWindow() {
+  return gfx::kNullPluginWindow;
+}
+
+void TestRenderWidgetHostView::WillWmDestroy() {
+}
+
+void TestRenderWidgetHostView::ShowCompositorHostWindow(bool show) {
 }
 #endif
 

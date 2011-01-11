@@ -132,10 +132,10 @@ GtkWindow* GeneralPageGtk::GetWindow() {
 
 void GeneralPageGtk::NotifyPrefChanged(const std::string* pref_name) {
   initializing_ = true;
+  PrefService* prefs = profile()->GetPrefs();
   if (!pref_name ||
       *pref_name == prefs::kRestoreOnStartup ||
       *pref_name == prefs::kURLsToRestoreOnStartup) {
-    PrefService* prefs = profile()->GetPrefs();
     const SessionStartupPref startup_pref =
         SessionStartupPref::GetStartupPref(prefs);
     bool radio_buttons_enabled = !SessionStartupPref::TypeIsManaged(prefs);
@@ -751,9 +751,8 @@ void GeneralPageGtk::UpdateHomepageIsNewTabRadio(bool homepage_is_new_tab,
 }
 
 void GeneralPageGtk::EnableHomepageURLField(bool enabled) {
-  if (homepage_.IsManaged()) {
+  if (homepage_.IsManaged())
     enabled = false;
-  }
   gtk_widget_set_sensitive(homepage_use_url_entry_, enabled);
 }
 
@@ -804,5 +803,5 @@ void GeneralPageGtk::OnInstantLabelSizeAllocate(GtkWidget* sender,
 }
 
 void GeneralPageGtk::OnSearchLearnMoreClicked(GtkWidget* sender) {
-  browser::ShowOptionsURL(profile(), GURL(browser::kInstantLearnMoreURL));
+  browser::ShowOptionsURL(profile(), browser::InstantLearnMoreURL());
 }

@@ -9,6 +9,7 @@
 #include "chrome/browser/tab_contents/interstitial_page.h"
 #include "chrome/browser/tab_contents/navigation_entry.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
@@ -284,11 +285,6 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, MAYBE_TestHTTPSExpiredCertAndDontProceed) {
 }
 
 // Visits a page with https error and then goes back using Browser::GoBack.
-#if defined(OS_WIN)
-// Disabled on win. Times out. crbug.com/43575 and crbug.com/61528
-#define TestHTTPSExpiredCertAndGoBackViaButton \
-    DISABLED_TestHTTPSExpiredCertAndGoBackViaButton
-#endif
 IN_PROC_BROWSER_TEST_F(SSLUITest, TestHTTPSExpiredCertAndGoBackViaButton) {
   ASSERT_TRUE(test_server()->Start());
   ASSERT_TRUE(https_server_expired_.Start());
@@ -316,11 +312,6 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, TestHTTPSExpiredCertAndGoBackViaButton) {
 
 // Visits a page with https error and then goes back using GoToOffset.
 // Marked as flaky, see bug 40932.
-#if defined(OS_WIN)
-// Disabled on win. Times out. crbug.com/43575 and crbug.com/61528
-#define FLAKY_TestHTTPSExpiredCertAndGoBackViaMenu \
-    DISABLED_TestHTTPSExpiredCertAndGoBackViaMenu
-#endif
 IN_PROC_BROWSER_TEST_F(SSLUITest, FLAKY_TestHTTPSExpiredCertAndGoBackViaMenu) {
   ASSERT_TRUE(test_server()->Start());
   ASSERT_TRUE(https_server_expired_.Start());
@@ -396,7 +387,7 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, TestHTTPSErrorWithNoNavEntry) {
   ASSERT_TRUE(https_server_expired_.Start());
 
   GURL url = https_server_expired_.GetURL("files/ssl/google.htm");
-  TabContents* tab2 =
+  TabContentsWrapper* tab2 =
       browser()->AddSelectedTabWithURL(url, PageTransition::TYPED);
   ui_test_utils::WaitForLoadStop(&(tab2->controller()));
 
@@ -404,7 +395,7 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, TestHTTPSErrorWithNoNavEntry) {
   EXPECT_FALSE(browser()->command_updater()->IsCommandEnabled(IDC_BACK));
 
   // We should have an interstitial page showing.
-  ASSERT_TRUE(tab2->interstitial_page());
+  ASSERT_TRUE(tab2->tab_contents()->interstitial_page());
 }
 
 //
@@ -432,9 +423,7 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, TestDisplaysInsecureContent) {
 // Visits a page that runs insecure content and tries to suppress the insecure
 // content warnings by randomizing location.hash.
 // Based on http://crbug.com/8706
-// Fails to terminate on all platforms.  See bug http://crbug.com/58230
-IN_PROC_BROWSER_TEST_F(SSLUITest,
-    DISABLED_TestRunsInsecuredContentRandomizeHash) {
+IN_PROC_BROWSER_TEST_F(SSLUITest, TestRunsInsecuredContentRandomizeHash) {
   ASSERT_TRUE(test_server()->Start());
   ASSERT_TRUE(https_server_.Start());
 
@@ -526,10 +515,10 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, TestDisplaysInsecureContentTwoTabs) {
   ui_test_utils::NavigateToURL(browser(),
       https_server_.GetURL("files/ssl/blank_page.html"));
 
-  TabContents* tab1 = browser()->GetSelectedTabContents();
+  TabContentsWrapper* tab1 = browser()->GetSelectedTabContentsWrapper();
 
   // This tab should be fine.
-  CheckAuthenticatedState(tab1, false);
+  CheckAuthenticatedState(tab1->tab_contents(), false);
 
   // Create a new tab.
   std::string replacement_path;
@@ -544,14 +533,14 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, TestDisplaysInsecureContentTwoTabs) {
   params.tabstrip_index = 0;
   params.source_contents = tab1;
   browser::Navigate(&params);
-  TabContents* tab2 = params.target_contents;
+  TabContentsWrapper* tab2 = params.target_contents;
   ui_test_utils::WaitForNavigation(&(tab2->controller()));
 
   // The new tab has insecure content.
-  CheckAuthenticatedState(tab2, true);
+  CheckAuthenticatedState(tab2->tab_contents(), true);
 
   // The original tab should not be contaminated.
-  CheckAuthenticatedState(tab1, false);
+  CheckAuthenticatedState(tab1->tab_contents(), false);
 }
 
 // Visits two pages from the same origin: one that runs insecure content and one
@@ -564,10 +553,10 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, TestRunsInsecureContentTwoTabs) {
   ui_test_utils::NavigateToURL(browser(),
       https_server_.GetURL("files/ssl/blank_page.html"));
 
-  TabContents* tab1 = browser()->GetSelectedTabContents();
+  TabContentsWrapper* tab1 = browser()->GetSelectedTabContentsWrapper();
 
   // This tab should be fine.
-  CheckAuthenticatedState(tab1, false);
+  CheckAuthenticatedState(tab1->tab_contents(), false);
 
   std::string replacement_path;
   ASSERT_TRUE(GetFilePathWithHostAndPortReplacement(
@@ -581,15 +570,15 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, TestRunsInsecureContentTwoTabs) {
   params.disposition = NEW_FOREGROUND_TAB;
   params.source_contents = tab1;
   browser::Navigate(&params);
-  TabContents* tab2 = params.target_contents;
+  TabContentsWrapper* tab2 = params.target_contents;
   ui_test_utils::WaitForNavigation(&(tab2->controller()));
 
   // The new tab has insecure content.
-  CheckAuthenticationBrokenState(tab2, 0, true, false);
+  CheckAuthenticationBrokenState(tab2->tab_contents(), 0, true, false);
 
   // Which means the origin for the first tab has also been contaminated with
   // insecure content.
-  CheckAuthenticationBrokenState(tab1, 0, true, false);
+  CheckAuthenticationBrokenState(tab1->tab_contents(), 0, true, false);
 }
 
 // Visits a page with an image over http.  Visits another page over https
@@ -743,7 +732,7 @@ IN_PROC_BROWSER_TEST_F(SSLUITest, DISABLED_TestCloseTabWithUnsafePopup) {
   // Let's add another tab to make sure the browser does not exit when we close
   // the first tab.
   GURL url = test_server()->GetURL("files/ssl/google.html");
-  TabContents* tab2 =
+  TabContentsWrapper* tab2 =
       browser()->AddSelectedTabWithURL(url, PageTransition::TYPED);
   ui_test_utils::WaitForNavigation(&(tab2->controller()));
 

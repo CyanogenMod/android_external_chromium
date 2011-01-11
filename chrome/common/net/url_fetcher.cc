@@ -14,15 +14,16 @@
 #include "base/stl_util-inl.h"
 #include "base/string_util.h"
 #include "base/thread.h"
-#include "chrome/common/net/url_fetcher_protect.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "googleurl/src/gurl.h"
 #include "net/base/load_flags.h"
 #include "net/base/io_buffer.h"
+#include "net/base/net_errors.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_throttler_manager.h"
 
 #ifdef ANDROID
 #include "android/autofill/url_fetcher_proxy.h"
@@ -57,6 +58,9 @@ class URLFetcher::Core
   // safe to call this multiple times.
   void Stop();
 
+  // Reports that the received content was malformed.
+  void ReceivedContentWasMalformed();
+
   // URLRequest::Delegate implementation.
   virtual void OnResponseStarted(URLRequest* request);
   virtual void OnReadCompleted(URLRequest* request, int bytes_read);
@@ -89,19 +93,27 @@ class URLFetcher::Core
   // Wrapper functions that allow us to ensure actions happen on the right
   // thread.
   void StartURLRequest();
+  void StartURLRequestWhenAppropriate();
   void CancelURLRequest();
   void OnCompletedURLRequest(const URLRequestStatus& status);
+  void NotifyMalformedContent();
 
   // Deletes the request, removes it from the registry, and removes the
   // destruction observer.
   void ReleaseRequest();
+
+  // Returns the max value of exponential back-off release time for
+  // |original_url_| and |url_|.
+  base::TimeTicks GetBackoffReleaseTime();
 
   URLFetcher* fetcher_;              // Corresponding fetcher object
   GURL original_url_;                // The URL we were asked to fetch
   GURL url_;                         // The URL we eventually wound up at
   RequestType request_type_;         // What type of request is this?
   URLFetcher::Delegate* delegate_;   // Object to notify on completion
-  MessageLoop* delegate_loop_;       // Message loop of the creating thread
+  scoped_refptr<base::MessageLoopProxy> delegate_loop_proxy_;
+                                     // Message loop proxy of the creating
+                                     // thread.
   scoped_refptr<base::MessageLoopProxy> io_message_loop_proxy_;
                                      // The message loop proxy for the thread
                                      // on which the request IO happens.
@@ -120,19 +132,30 @@ class URLFetcher::Core
   std::string upload_content_;       // HTTP POST payload
   std::string upload_content_type_;  // MIME type of POST payload
 
-  // The overload protection entry for this URL.  This is used to
-  // incrementally back off how rapidly we'll send requests to a particular
-  // URL, to avoid placing too much demand on the remote resource.  We update
-  // this with the status of all requests as they return, and in turn use it
-  // to determine how long to wait before making another request.
-  URLFetcherProtectEntry* protect_entry_;
+  // Used to determine how long to wait before making a request or doing a
+  // retry.
+  // Both of them can only be accessed on the IO thread.
+  // We need not only the throttler entry for |original_URL|, but also the one
+  // for |url|. For example, consider the case that URL A redirects to URL B,
+  // for which the server returns a 500 response. In this case, the exponential
+  // back-off release time of URL A won't increase. If we retry without
+  // considering the back-off constraint of URL B, we may send out too many
+  // requests for URL A in a short period of time.
+  scoped_refptr<net::URLRequestThrottlerEntryInterface>
+      original_url_throttler_entry_;
+  scoped_refptr<net::URLRequestThrottlerEntryInterface> url_throttler_entry_;
+
   // |num_retries_| indicates how many times we've failed to successfully
   // fetch this URL.  Once this value exceeds the maximum number of retries
-  // specified by the protection manager, we'll give up.
+  // specified by the owner URLFetcher instance, we'll give up.
   int num_retries_;
 
   // True if the URLFetcher has been cancelled.
   bool was_cancelled_;
+
+  // Since GetBackoffReleaseTime() can only be called on the IO thread, we cache
+  // its value to be used by OnCompletedURLRequest on the creating thread.
+  base::TimeTicks backoff_release_time_;
 
   static base::LazyInstance<Registry> g_registry;
 
@@ -174,7 +197,8 @@ URLFetcher::URLFetcher(const GURL& url,
                        Delegate* d)
     : ALLOW_THIS_IN_INITIALIZER_LIST(
       core_(new Core(this, url, request_type, d))),
-      automatically_retry_on_5xx_(true) {
+      automatically_retry_on_5xx_(true),
+      max_retries_(0) {
 }
 
 URLFetcher::~URLFetcher() {
@@ -201,13 +225,11 @@ URLFetcher::Core::Core(URLFetcher* fetcher,
       original_url_(original_url),
       request_type_(request_type),
       delegate_(d),
-      delegate_loop_(MessageLoop::current()),
+      delegate_loop_proxy_(base::MessageLoopProxy::CreateForCurrentThread()),
       request_(NULL),
       load_flags_(net::LOAD_NORMAL),
       response_code_(-1),
       buffer_(new net::IOBuffer(kBufferSize)),
-      protect_entry_(URLFetcherProtectManager::GetInstance()->Register(
-          original_url_.host())),
       num_retries_(0),
       was_cancelled_(false) {
 }
@@ -219,23 +241,31 @@ URLFetcher::Core::~Core() {
 }
 
 void URLFetcher::Core::Start() {
-  DCHECK(delegate_loop_);
+  DCHECK(delegate_loop_proxy_);
   CHECK(request_context_getter_) << "We need an URLRequestContext!";
   io_message_loop_proxy_ = request_context_getter_->GetIOMessageLoopProxy();
   CHECK(io_message_loop_proxy_.get()) << "We need an IO message loop proxy";
-  io_message_loop_proxy_->PostDelayedTask(
+
+  io_message_loop_proxy_->PostTask(
       FROM_HERE,
-      NewRunnableMethod(this, &Core::StartURLRequest),
-          protect_entry_->UpdateBackoff(URLFetcherProtectEntry::SEND));
+      NewRunnableMethod(this, &Core::StartURLRequestWhenAppropriate));
 }
 
 void URLFetcher::Core::Stop() {
-  DCHECK_EQ(MessageLoop::current(), delegate_loop_);
+  DCHECK(delegate_loop_proxy_->BelongsToCurrentThread());
   delegate_ = NULL;
   fetcher_ = NULL;
   if (io_message_loop_proxy_.get()) {
     io_message_loop_proxy_->PostTask(
         FROM_HERE, NewRunnableMethod(this, &Core::CancelURLRequest));
+  }
+}
+
+void URLFetcher::Core::ReceivedContentWasMalformed() {
+  DCHECK(delegate_loop_proxy_->BelongsToCurrentThread());
+  if (io_message_loop_proxy_.get()) {
+    io_message_loop_proxy_->PostTask(
+        FROM_HERE, NewRunnableMethod(this, &Core::NotifyMalformedContent));
   }
 }
 
@@ -266,6 +296,8 @@ void URLFetcher::Core::OnReadCompleted(URLRequest* request, int bytes_read) {
   DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
 
   url_ = request->url();
+  url_throttler_entry_ =
+      net::URLRequestThrottlerManager::GetInstance()->RegisterRequestUrl(url_);
 
   do {
     if (!request_->status().is_success() || bytes_read <= 0)
@@ -278,8 +310,16 @@ void URLFetcher::Core::OnReadCompleted(URLRequest* request, int bytes_read) {
 
   // See comments re: HEAD requests in OnResponseStarted().
   if (!request_->status().is_io_pending() || (request_type_ == HEAD)) {
-    delegate_loop_->PostTask(FROM_HERE, NewRunnableMethod(
-        this, &Core::OnCompletedURLRequest, request_->status()));
+    backoff_release_time_ = GetBackoffReleaseTime();
+
+    bool posted = delegate_loop_proxy_->PostTask(
+        FROM_HERE,
+        NewRunnableMethod(this,
+                          &Core::OnCompletedURLRequest,
+                          request_->status()));
+    // If the delegate message loop does not exist any more, then the delegate
+    // should be gone too.
+    DCHECK(posted || !delegate_);
     ReleaseRequest();
   }
 }
@@ -331,7 +371,34 @@ void URLFetcher::Core::StartURLRequest() {
   if (!extra_request_headers_.IsEmpty())
     request_->SetExtraRequestHeaders(extra_request_headers_);
 
+  // There might be data left over from a previous request attempt.
+  data_.clear();
+
   request_->Start();
+}
+
+void URLFetcher::Core::StartURLRequestWhenAppropriate() {
+  DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
+
+  if (was_cancelled_)
+    return;
+
+  if (original_url_throttler_entry_ == NULL) {
+    original_url_throttler_entry_ =
+        net::URLRequestThrottlerManager::GetInstance()->RegisterRequestUrl(
+            original_url_);
+  }
+
+  int64 delay = original_url_throttler_entry_->ReserveSendingTimeForNextRequest(
+      GetBackoffReleaseTime());
+  if (delay == 0) {
+    StartURLRequest();
+  } else {
+    MessageLoop::current()->PostDelayedTask(
+        FROM_HERE,
+        NewRunnableMethod(this, &Core::StartURLRequest),
+        delay);
+  }
 }
 
 void URLFetcher::Core::CancelURLRequest() {
@@ -350,33 +417,31 @@ void URLFetcher::Core::CancelURLRequest() {
 }
 
 void URLFetcher::Core::OnCompletedURLRequest(const URLRequestStatus& status) {
-  DCHECK(MessageLoop::current() == delegate_loop_);
+  DCHECK(delegate_loop_proxy_->BelongsToCurrentThread());
 
   // Checks the response from server.
-  if (response_code_ >= 500) {
+  if (response_code_ >= 500 ||
+      status.os_error() == net::ERR_TEMPORARILY_THROTTLED) {
     // When encountering a server error, we will send the request again
     // after backoff time.
-    int64 back_off_time =
-        protect_entry_->UpdateBackoff(URLFetcherProtectEntry::FAILURE);
-    if (delegate_) {
-      fetcher_->backoff_delay_ =
-          base::TimeDelta::FromMilliseconds(back_off_time);
-    }
     ++num_retries_;
     // Restarts the request if we still need to notify the delegate.
     if (delegate_) {
+      fetcher_->backoff_delay_ = backoff_release_time_ - base::TimeTicks::Now();
+      if (fetcher_->backoff_delay_ < base::TimeDelta())
+        fetcher_->backoff_delay_ = base::TimeDelta();
+
       if (fetcher_->automatically_retry_on_5xx_ &&
-          num_retries_ <= protect_entry_->max_retries()) {
-        io_message_loop_proxy_->PostDelayedTask(
+          num_retries_ <= fetcher_->max_retries()) {
+        io_message_loop_proxy_->PostTask(
             FROM_HERE,
-            NewRunnableMethod(this, &Core::StartURLRequest), back_off_time);
+            NewRunnableMethod(this, &Core::StartURLRequestWhenAppropriate));
       } else {
         delegate_->OnURLFetchComplete(fetcher_, url_, status, response_code_,
                                       cookies_, data_);
       }
     }
   } else {
-    protect_entry_->UpdateBackoff(URLFetcherProtectEntry::SUCCESS);
     if (delegate_) {
       fetcher_->backoff_delay_ = base::TimeDelta();
       delegate_->OnURLFetchComplete(fetcher_, url_, status, response_code_,
@@ -385,13 +450,36 @@ void URLFetcher::Core::OnCompletedURLRequest(const URLRequestStatus& status) {
   }
 }
 
+void URLFetcher::Core::NotifyMalformedContent() {
+  DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
+  if (url_throttler_entry_ != NULL)
+    url_throttler_entry_->ReceivedContentWasMalformed();
+}
+
 void URLFetcher::Core::ReleaseRequest() {
   request_.reset();
   g_registry.Get().RemoveURLFetcherCore(this);
 }
 
+base::TimeTicks URLFetcher::Core::GetBackoffReleaseTime() {
+  DCHECK(io_message_loop_proxy_->BelongsToCurrentThread());
+  DCHECK(original_url_throttler_entry_ != NULL);
+
+  base::TimeTicks original_url_backoff =
+      original_url_throttler_entry_->GetExponentialBackoffReleaseTime();
+  base::TimeTicks destination_url_backoff;
+  if (url_throttler_entry_ != NULL &&
+      original_url_throttler_entry_ != url_throttler_entry_) {
+    destination_url_backoff =
+        url_throttler_entry_->GetExponentialBackoffReleaseTime();
+  }
+
+  return original_url_backoff > destination_url_backoff ?
+      original_url_backoff : destination_url_backoff;
+}
+
 void URLFetcher::set_upload_data(const std::string& upload_content_type,
-                     const std::string& upload_content) {
+                                 const std::string& upload_content) {
   core_->upload_content_type_ = upload_content_type;
   core_->upload_content_ = upload_content;
 }
@@ -439,6 +527,10 @@ void URLFetcher::Start() {
 
 const GURL& URLFetcher::url() const {
   return core_->url_;
+}
+
+void URLFetcher::ReceivedContentWasMalformed() {
+  core_->ReceivedContentWasMalformed();
 }
 
 // static

@@ -23,6 +23,8 @@
 #elif defined(OS_MACOSX)
 #include <CoreFoundation/CFArray.h>
 #include <Security/SecBase.h>
+
+#include "base/lock.h"
 #elif defined(USE_OPENSSL)
 // Forward declaration; real one in <x509.h>
 struct x509_st;
@@ -289,8 +291,6 @@ class X509Certificate : public base::RefCountedThreadSafe<X509Certificate> {
   friend class base::RefCountedThreadSafe<X509Certificate>;
   FRIEND_TEST_ALL_PREFIXES(X509CertificateTest, Cache);
   FRIEND_TEST_ALL_PREFIXES(X509CertificateTest, IntermediateCertificates);
-
-  class Cache;
 
   // Construct an X509Certificate from a handle to the certificate object
   // in the underlying crypto library.

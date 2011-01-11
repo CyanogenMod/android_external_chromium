@@ -19,6 +19,7 @@
 #include "base/time.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
+#include "base/values_util.h"
 #include "base/version.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
@@ -189,11 +190,8 @@ class ExtensionsServiceBackend
       public ExternalExtensionProvider::Visitor {
  public:
   // |install_directory| is a path where to look for extensions to load.
-  // |load_external_extensions| indicates whether or not backend should load
-  // external extensions listed in JSON file and Windows registry.
   ExtensionsServiceBackend(PrefService* prefs,
-                           const FilePath& install_directory,
-                           bool load_external_extensions);
+                           const FilePath& install_directory);
 
   // Loads a single extension from |path| where |path| is the top directory of
   // a specific extension where its manifest file lives.
@@ -232,6 +230,9 @@ class ExtensionsServiceBackend
                                                  const GURL& update_url,
                                                  Extension::Location location);
 
+  virtual void UpdateExternalPolicyExtensionProvider(
+      scoped_refptr<RefCountedList> forcelist);
+
  private:
   friend class base::RefCountedThreadSafe<ExtensionsServiceBackend>;
 
@@ -269,6 +270,8 @@ class ExtensionsServiceBackend
   typedef std::vector<linked_ptr<ExternalExtensionProvider> >
       ProviderCollection;
   ProviderCollection external_extension_providers_;
+  linked_ptr<ExternalPolicyExtensionProvider>
+      external_policy_extension_provider_;
 
   // Set to true by OnExternalExtensionUpdateUrlFound() when an external
   // extension URL is found.  Used in CheckForExternalUpdates() to see
@@ -280,15 +283,11 @@ class ExtensionsServiceBackend
 
 ExtensionsServiceBackend::ExtensionsServiceBackend(
     PrefService* prefs,
-    const FilePath& install_directory,
-    bool load_external_extensions)
+    const FilePath& install_directory)
         : frontend_(NULL),
           install_directory_(install_directory),
           alert_on_error_(false),
           external_extension_added_(false) {
-  if (!load_external_extensions)
-    return;
-
   // TODO(aa): This ends up doing blocking IO on the UI thread because it reads
   // pref data in the ctor and that is called on the UI thread. Would be better
   // to re-read data each time we list external extensions, anyway.
@@ -300,12 +299,14 @@ ExtensionsServiceBackend::ExtensionsServiceBackend(
       linked_ptr<ExternalExtensionProvider>(
           new ExternalRegistryExtensionProvider()));
 #endif
-  ExternalPolicyExtensionProvider* policy_extension_provider =
-      new ExternalPolicyExtensionProvider();
-  policy_extension_provider->SetPreferences(prefs);
-  external_extension_providers_.push_back(
-      linked_ptr<ExternalExtensionProvider>(policy_extension_provider));
-
+  // The policy-controlled extension provider is also stored in a member
+  // variable so that UpdateExternalPolicyExtensionProvider can access it and
+  // update its extension list later.
+  external_policy_extension_provider_.reset(
+      new ExternalPolicyExtensionProvider());
+  external_policy_extension_provider_->SetPreferences(
+      prefs->GetList(prefs::kExtensionInstallForceList));
+  external_extension_providers_.push_back(external_policy_extension_provider_);
 }
 
 ExtensionsServiceBackend::~ExtensionsServiceBackend() {
@@ -339,8 +340,9 @@ void ExtensionsServiceBackend::LoadSingleExtension(
   // prefs.
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
-      NewRunnableMethod(frontend_, &ExtensionsService::OnExtensionInstalled,
-                        extension, true));
+      NewRunnableMethod(frontend_,
+                        &ExtensionsService::OnExtensionInstalled,
+                        extension));
 }
 
 void ExtensionsServiceBackend::ReportExtensionLoadError(
@@ -408,6 +410,12 @@ void ExtensionsServiceBackend::CheckExternalUninstall(
       BrowserThread::UI, FROM_HERE,
       NewRunnableMethod(
           frontend.get(), &ExtensionsService::UninstallExtension, id, true));
+}
+
+void ExtensionsServiceBackend::UpdateExternalPolicyExtensionProvider(
+    scoped_refptr<RefCountedList> forcelist) {
+  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  external_policy_extension_provider_->SetPreferences(forcelist->Get());
 }
 
 void ExtensionsServiceBackend::ClearProvidersForTesting() {
@@ -556,6 +564,7 @@ ExtensionsService::ExtensionsService(Profile* profile,
   pref_change_registrar_.Init(profile->GetPrefs());
   pref_change_registrar_.Add(prefs::kExtensionInstallAllowList, this);
   pref_change_registrar_.Add(prefs::kExtensionInstallDenyList, this);
+  pref_change_registrar_.Add(prefs::kExtensionInstallForceList, this);
 
   // Set up the ExtensionUpdater
   if (autoupdate_enabled) {
@@ -571,8 +580,7 @@ ExtensionsService::ExtensionsService(Profile* profile,
   }
 
   backend_ = new ExtensionsServiceBackend(profile->GetPrefs(),
-                                          install_directory_,
-                                          extensions_enabled_);
+                                          install_directory_);
 
   // Use monochrome icons for Omnibox icons.
   omnibox_popup_icon_manager_.set_monochrome(true);
@@ -608,7 +616,7 @@ void ExtensionsService::InitEventRouters() {
 void ExtensionsService::Init() {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
-  DCHECK(!ready_);
+  DCHECK(!ready_);  // Can't redo init.
   DCHECK_EQ(extensions_.size(), 0u);
 
   // Hack: we need to ensure the ResourceDispatcherHost is ready before we load
@@ -627,10 +635,8 @@ void ExtensionsService::Init() {
 
 void ExtensionsService::InstallExtension(const FilePath& extension_path) {
   scoped_refptr<CrxInstaller> installer(
-      new CrxInstaller(install_directory_,
-                       this,  // frontend
+      new CrxInstaller(this,  // frontend
                        NULL));  // no client (silent install)
-  installer->set_allow_privilege_increase(true);
   installer->InstallCrx(extension_path);
 }
 
@@ -651,8 +657,8 @@ void ExtensionsService::UpdateExtension(const std::string& id,
   PendingExtensionMap::const_iterator it = pending_extensions_.find(id);
   bool is_pending_extension = (it != pending_extensions_.end());
 
-  if (!is_pending_extension &&
-      !GetExtensionByIdInternal(id, true, true)) {
+  const Extension* extension = GetExtensionByIdInternal(id, true, true);
+  if (!is_pending_extension && !extension) {
     LOG(WARNING) << "Will not update extension " << id
                  << " because it is not installed or pending";
     // Delete extension_path since we're not creating a CrxInstaller
@@ -670,12 +676,13 @@ void ExtensionsService::UpdateExtension(const std::string& id,
       NULL : new ExtensionInstallUI(profile_);
 
   scoped_refptr<CrxInstaller> installer(
-      new CrxInstaller(install_directory_,
-                       this,  // frontend
+      new CrxInstaller(this,  // frontend
                        client));
   installer->set_expected_id(id);
   if (is_pending_extension)
     installer->set_install_source(it->second.install_source);
+  else if (extension)
+    installer->set_install_source(extension->location());
   installer->set_delete_source(true);
   installer->set_original_url(download_url);
   installer->InstallCrx(extension_path);
@@ -826,7 +833,7 @@ void ExtensionsService::UninstallExtension(const std::string& extension_id,
       GetExtensionByIdInternal(extension_id, true, true);
 
   // Callers should not send us nonexistent extensions.
-  DCHECK(extension);
+  CHECK(extension);
 
   // Get hold of information we need after unloading, since the extension
   // pointer will be invalid then.
@@ -881,9 +888,8 @@ void ExtensionsService::EnableExtension(const std::string& extension_id) {
 
   const Extension* extension =
       GetExtensionByIdInternal(extension_id, false, true);
-  if (!extension) {
+  if (!extension)
     return;
-  }
 
   extension_prefs_->SetExtensionState(extension, Extension::ENABLED);
 
@@ -893,6 +899,9 @@ void ExtensionsService::EnableExtension(const std::string& extension_id) {
                                            disabled_extensions_.end(),
                                            extension);
   disabled_extensions_.erase(iter);
+
+  // Make sure any browser action contained within it is not hidden.
+  extension_prefs_->SetBrowserActionVisibility(extension, true);
 
   ExtensionDOMUI::RegisterChromeURLOverrides(profile_,
       extension->GetChromeURLOverrides());
@@ -924,6 +933,27 @@ void ExtensionsService::DisableExtension(const std::string& extension_id) {
 
   NotifyExtensionUnloaded(extension);
   UpdateActiveExtensionsInCrashReporter();
+}
+
+void ExtensionsService::GrantPermissions(const Extension* extension) {
+  CHECK(extension);
+
+  // We only maintain the granted permissions prefs for INTERNAL extensions.
+  CHECK(extension->location() == Extension::INTERNAL);
+
+  ExtensionExtent effective_hosts = extension->GetEffectiveHostPermissions();
+  extension_prefs_->AddGrantedPermissions(extension->id(),
+                                          extension->HasFullPermissions(),
+                                          extension->api_permissions(),
+                                          effective_hosts);
+}
+
+void ExtensionsService::GrantPermissionsAndEnableExtension(
+    const Extension* extension) {
+  CHECK(extension);
+  GrantPermissions(extension);
+  extension_prefs_->SetDidExtensionEscalatePermissions(extension, false);
+  EnableExtension(extension->id());
 }
 
 void ExtensionsService::LoadExtension(const FilePath& extension_path) {
@@ -958,7 +988,7 @@ void ExtensionsService::LoadComponentExtensions() {
       return;
     }
 
-    OnExtensionLoaded(extension, false);  // Don't allow privilege increase.
+    OnExtensionLoaded(extension);
   }
 }
 
@@ -1103,7 +1133,6 @@ void ExtensionsService::LoadAllExtensions() {
                            browser_action_count);
 }
 
-
 void ExtensionsService::LoadInstalledExtension(const ExtensionInfo& info,
                                                bool write_to_prefs) {
   std::string error;
@@ -1130,7 +1159,7 @@ void ExtensionsService::LoadInstalledExtension(const ExtensionInfo& info,
   if (write_to_prefs)
     extension_prefs_->UpdateManifest(extension);
 
-  OnExtensionLoaded(extension, true);
+  OnExtensionLoaded(extension);
 
   if (Extension::IsExternalLocation(info.extension_location)) {
     BrowserThread::PostTask(
@@ -1375,6 +1404,15 @@ void ExtensionsService::SetAllowFileAccess(const Extension* extension,
       Details<const Extension>(extension));
 }
 
+bool ExtensionsService::GetBrowserActionVisibility(const Extension* extension) {
+  return extension_prefs_->GetBrowserActionVisibility(extension);
+}
+
+void ExtensionsService::SetBrowserActionVisibility(const Extension* extension,
+                                                   bool visible) {
+  extension_prefs_->SetBrowserActionVisibility(extension, visible);
+}
+
 void ExtensionsService::CheckForExternalUpdates() {
   // This installs or updates externally provided extensions.
   // TODO(aa): Why pass this list into the provider, why not just filter it
@@ -1386,6 +1424,21 @@ void ExtensionsService::CheckForExternalUpdates() {
       NewRunnableMethod(
           backend_.get(), &ExtensionsServiceBackend::CheckForExternalUpdates,
           killed_extensions, scoped_refptr<ExtensionsService>(this)));
+}
+
+void ExtensionsService::UpdateExternalPolicyExtensionProvider() {
+  const ListValue* list_pref =
+      profile_->GetPrefs()->GetList(prefs::kExtensionInstallForceList);
+  ListValue* list_copy = NULL;
+  if (list_pref)
+    list_copy = static_cast<ListValue*>(list_pref->DeepCopy());
+  BrowserThread::PostTask(
+      BrowserThread::FILE, FROM_HERE,
+      NewRunnableMethod(
+          backend_.get(),
+          &ExtensionsServiceBackend::UpdateExternalPolicyExtensionProvider,
+          scoped_refptr<RefCountedList>(
+              new RefCountedList(list_copy))));
 }
 
 void ExtensionsService::UnloadExtension(const std::string& extension_id) {
@@ -1473,18 +1526,18 @@ void ExtensionsService::GarbageCollectExtensions() {
 }
 
 void ExtensionsService::OnLoadedInstalledExtensions() {
-  ready_ = true;
   if (updater_.get()) {
     updater_->Start();
   }
+
+  ready_ = true;
   NotificationService::current()->Notify(
       NotificationType::EXTENSIONS_READY,
       Source<Profile>(profile_),
       NotificationService::NoDetails());
 }
 
-void ExtensionsService::OnExtensionLoaded(const Extension* extension,
-                                          bool allow_privilege_increase) {
+void ExtensionsService::OnExtensionLoaded(const Extension* extension) {
   // Ensure extension is deleted unless we transfer ownership.
   scoped_refptr<const Extension> scoped_extension(extension);
 
@@ -1495,63 +1548,38 @@ void ExtensionsService::OnExtensionLoaded(const Extension* extension,
   if (disabled_extension_paths_.erase(extension->id()) > 0)
     EnableExtension(extension->id());
 
-  // TODO(aa): Need to re-evaluate this branch. Does this still make sense now
-  // that extensions are enabled by default?
-  if (extensions_enabled() ||
-      extension->is_theme() ||
-      extension->location() == Extension::LOAD ||
-      extension->location() == Extension::COMPONENT ||
-      Extension::IsExternalLocation(extension->location())) {
-    const Extension* old = GetExtensionByIdInternal(extension->id(),
-                                                    true, true);
-    if (old) {
-      // CrxInstaller should have guaranteed that we aren't downgrading.
-      CHECK(extension->version()->CompareTo(*(old->version())) >= 0);
+  // TODO(jstritar): We may be able to get rid of this branch by overriding the
+  // default extension state to DISABLED when the --disable-extensions flag
+  // is set (http://crbug.com/29067).
+  if (!extensions_enabled() &&
+      !extension->is_theme() &&
+      extension->location() != Extension::COMPONENT &&
+      !Extension::IsExternalLocation(extension->location()))
+    return;
 
-      bool allow_silent_upgrade =
-          allow_privilege_increase || !Extension::IsPrivilegeIncrease(
-              old, extension);
+  // Check if the extension's privileges have changed and disable the
+  // extension if necessary.
+  DisableIfPrivilegeIncrease(extension);
 
-      // Extensions get upgraded if silent upgrades are allowed, otherwise
-      // they get disabled.
-      if (allow_silent_upgrade) {
-        SetBeingUpgraded(old, true);
-        SetBeingUpgraded(extension, true);
-      }
+  switch (extension_prefs_->GetExtensionState(extension->id())) {
+    case Extension::ENABLED:
+      extensions_.push_back(scoped_extension);
 
-      // To upgrade an extension in place, unload the old one and
-      // then load the new one.
-      UnloadExtension(old->id());
-      old = NULL;
+      NotifyExtensionLoaded(extension);
 
-      if (!allow_silent_upgrade) {
-        // Extension has changed permissions significantly. Disable it. We
-        // send a notification below.
-        extension_prefs_->SetExtensionState(extension, Extension::DISABLED);
-        extension_prefs_->SetDidExtensionEscalatePermissions(extension, true);
-      }
-    }
-
-    switch (extension_prefs_->GetExtensionState(extension->id())) {
-      case Extension::ENABLED:
-        extensions_.push_back(scoped_extension);
-
-        NotifyExtensionLoaded(extension);
-
-        ExtensionDOMUI::RegisterChromeURLOverrides(profile_,
-            extension->GetChromeURLOverrides());
-        break;
-      case Extension::DISABLED:
-        disabled_extensions_.push_back(scoped_extension);
-        NotificationService::current()->Notify(
-            NotificationType::EXTENSION_UPDATE_DISABLED,
-            Source<Profile>(profile_),
-            Details<const Extension>(extension));
-        break;
-      default:
-        NOTREACHED();
-        break;
-    }
+      ExtensionDOMUI::RegisterChromeURLOverrides(
+          profile_, extension->GetChromeURLOverrides());
+      break;
+    case Extension::DISABLED:
+      disabled_extensions_.push_back(scoped_extension);
+      NotificationService::current()->Notify(
+          NotificationType::EXTENSION_UPDATE_DISABLED,
+          Source<Profile>(profile_),
+          Details<const Extension>(extension));
+      break;
+    default:
+      NOTREACHED();
+      break;
   }
 
   SetBeingUpgraded(extension, false);
@@ -1569,6 +1597,86 @@ void ExtensionsService::OnExtensionLoaded(const Extension* extension,
   }
 }
 
+void ExtensionsService::DisableIfPrivilegeIncrease(const Extension* extension) {
+  // We keep track of all permissions the user has granted each extension.
+  // This allows extensions to gracefully support backwards compatibility
+  // by including unknown permissions in their manifests. When the user
+  // installs the extension, only the recognized permissions are recorded.
+  // When the unknown permissions become recognized (e.g., through browser
+  // upgrade), we can prompt the user to accept these new permissions.
+  // Extensions can also silently upgrade to less permissions, and then
+  // silently upgrade to a version that adds these permissions back.
+  //
+  // For example, pretend that Chrome 10 includes a permission "omnibox"
+  // for an API that adds suggestions to the omnibox. An extension can
+  // maintain backwards compatibility while still having "omnibox" in the
+  // manifest. If a user installs the extension on Chrome 9, the browser
+  // will record the permissions it recognized, not including "omnibox."
+  // When upgrading to Chrome 10, "omnibox" will be recognized and Chrome
+  // will disable the extension and prompt the user to approve the increase
+  // in privileges. The extension could then release a new version that
+  // removes the "omnibox" permission. When the user upgrades, Chrome will
+  // still remember that "omnibox" had been granted, so that if the
+  // extension once again includes "omnibox" in an upgrade, the extension
+  // can upgrade without requiring this user's approval.
+  const Extension* old = GetExtensionByIdInternal(extension->id(),
+                                                  true, true);
+  bool granted_full_access;
+  std::set<std::string> granted_apis;
+  ExtensionExtent granted_extent;
+
+  bool is_extension_upgrade = old != NULL;
+  bool is_privilege_increase = false;
+
+  // We only record the granted permissions for INTERNAL extensions, since
+  // they can't silently increase privileges.
+  if (extension->location() == Extension::INTERNAL) {
+    // Add all the recognized permissions if the granted permissions list
+    // hasn't been initialized yet.
+    if (!extension_prefs_->GetGrantedPermissions(extension->id(),
+                                                 &granted_full_access,
+                                                 &granted_apis,
+                                                 &granted_extent)) {
+      GrantPermissions(extension);
+      CHECK(extension_prefs_->GetGrantedPermissions(extension->id(),
+                                                    &granted_full_access,
+                                                    &granted_apis,
+                                                    &granted_extent));
+    }
+
+    // Here, we check if an extension's privileges have increased in a manner
+    // that requires the user's approval. This could occur because the browser
+    // upgraded and recognized additional privileges, or an extension upgrades
+    // to a version that requires additional privileges.
+    is_privilege_increase = Extension::IsPrivilegeIncrease(
+        granted_full_access, granted_apis, granted_extent, extension);
+  }
+
+  if (is_extension_upgrade) {
+    // CrxInstaller should have guaranteed that we aren't downgrading.
+    CHECK(extension->version()->CompareTo(*(old->version())) >= 0);
+
+    // Extensions get upgraded if the privileges are allowed to increase or
+    // the privileges haven't increased.
+    if (!is_privilege_increase) {
+      SetBeingUpgraded(old, true);
+      SetBeingUpgraded(extension, true);
+    }
+
+    // To upgrade an extension in place, unload the old one and
+    // then load the new one.
+    UnloadExtension(old->id());
+    old = NULL;
+  }
+
+  // Extension has changed permissions significantly. Disable it. A
+  // notification should be sent by the caller.
+  if (is_privilege_increase) {
+    extension_prefs_->SetExtensionState(extension, Extension::DISABLED);
+    extension_prefs_->SetDidExtensionEscalatePermissions(extension, true);
+  }
+}
+
 void ExtensionsService::UpdateActiveExtensionsInCrashReporter() {
   std::set<std::string> extension_ids;
   for (size_t i = 0; i < extensions_.size(); ++i) {
@@ -1580,8 +1688,7 @@ void ExtensionsService::UpdateActiveExtensionsInCrashReporter() {
   child_process_logging::SetActiveExtensions(extension_ids);
 }
 
-void ExtensionsService::OnExtensionInstalled(const Extension* extension,
-                                             bool allow_privilege_increase) {
+void ExtensionsService::OnExtensionInstalled(const Extension* extension) {
   DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
 
   // Ensure extension is deleted unless we transfer ownership.
@@ -1723,7 +1830,7 @@ void ExtensionsService::OnExtensionInstalled(const Extension* extension,
   }
 
   // Transfer ownership of |extension| to OnExtensionLoaded.
-  OnExtensionLoaded(scoped_extension, allow_privilege_increase);
+  OnExtensionLoaded(scoped_extension);
 }
 
 const Extension* ExtensionsService::GetExtensionByIdInternal(
@@ -1837,12 +1944,10 @@ void ExtensionsService::OnExternalExtensionFileFound(
   }
 
   scoped_refptr<CrxInstaller> installer(
-      new CrxInstaller(install_directory_,
-                       this,  // frontend
+      new CrxInstaller(this,  // frontend
                        NULL));  // no client (silent install)
   installer->set_install_source(location);
   installer->set_expected_id(id);
-  installer->set_allow_privilege_increase(true);
   installer->InstallCrx(path);
 }
 
@@ -1898,9 +2003,18 @@ void ExtensionsService::Observe(NotificationType type,
 
     case NotificationType::PREF_CHANGED: {
       std::string* pref_name = Details<std::string>(details).ptr();
-      DCHECK(*pref_name == prefs::kExtensionInstallAllowList ||
-             *pref_name == prefs::kExtensionInstallDenyList);
-      CheckAdminBlacklist();
+      if (*pref_name == prefs::kExtensionInstallAllowList ||
+          *pref_name == prefs::kExtensionInstallDenyList) {
+        CheckAdminBlacklist();
+      } else if (*pref_name == prefs::kExtensionInstallForceList) {
+        UpdateExternalPolicyExtensionProvider();
+        CheckForExternalUpdates();
+        // TODO(gfeher): Also check for external extensions that can be
+        // uninstalled because they were removed from the pref.
+        // (crbug.com/63667)
+      } else {
+        NOTREACHED() << "Unexpected preference name.";
+      }
       break;
     }
 
@@ -1945,4 +2059,8 @@ bool ExtensionsService::IsBeingUpgraded(const Extension* extension) {
 void ExtensionsService::SetBeingUpgraded(const Extension* extension,
                                          bool value) {
   extension_runtime_data_[extension->id()].being_upgraded = value;
+}
+
+PropertyBag* ExtensionsService::GetPropertyBag(const Extension* extension) {
+  return &extension_runtime_data_[extension->id()].property_bag;
 }

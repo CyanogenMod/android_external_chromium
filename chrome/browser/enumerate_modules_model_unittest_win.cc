@@ -160,9 +160,19 @@ const struct MatchingEntryList {
     kStandardModule,
     { kMatchName, kMatchLocation, kMatchSignature,
       kEmpty, kVersionHigh, ModuleEnumerator::SEE_LINK }
+  }, {  // Matches: Name, Location, Version lower is inclusive => Confirmed.
+    ModuleEnumerator::CONFIRMED_BAD,
+    kStandardModule,
+    { kMatchName, kMatchLocation, kMatchSignature,
+      "1.0", "2.0", ModuleEnumerator::SEE_LINK }
+  }, {  // Matches: Name, Location, Version higher is exclusive => No match.
+    ModuleEnumerator::NOT_MATCHED,
+    kStandardModule,
+    { kMatchName, kMatchLocation, kEmpty,
+      "0.0", "1.0", ModuleEnumerator::SEE_LINK }
   }, {  // All empty fields doesn't produce a match.
     ModuleEnumerator::NOT_MATCHED,
-    {kType, kStatus, L"", L"", L"", L"", L""},
+    { kType, kStatus, L"", L"", L"", L"", L""},
     { "a.dll", "", "", "", "", ModuleEnumerator::SEE_LINK }
   },
 };
@@ -178,5 +188,36 @@ TEST_F(EnumerateModulesTest, MatchFunction) {
                  ": '" + UTF16ToASCII(test.name) + "'");
     EXPECT_EQ(kMatchineEntryList[i].expected_result,
               ModuleEnumerator::Match(test, blacklist));
+  }
+}
+
+const struct CollapsePathList {
+  string16 expected_result;
+  string16 test_case;
+} kCollapsePathList[] = {
+  // Negative testing (should not collapse this path).
+  { ASCIIToUTF16("c:\\a\\a.dll"), ASCIIToUTF16("c:\\a\\a.dll") },
+  // These two are to test that we select the maximum collapsed path.
+  { ASCIIToUTF16("%foo%\\a.dll"), ASCIIToUTF16("c:\\foo\\a.dll") },
+  { ASCIIToUTF16("%x%\\a.dll"), ASCIIToUTF16("c:\\foo\\bar\\a.dll") },
+};
+
+TEST_F(EnumerateModulesTest, CollapsePath) {
+  scoped_refptr<ModuleEnumerator> module_enumerator(new ModuleEnumerator(NULL));
+  module_enumerator->path_mapping_.clear();
+  module_enumerator->path_mapping_.push_back(
+      std::make_pair(L"c:\\foo\\", L"%foo%"));
+  module_enumerator->path_mapping_.push_back(
+      std::make_pair(L"c:\\foo\\bar\\", L"%x%"));
+
+  for (size_t i = 0; i < arraysize(kCollapsePathList); ++i) {
+    ModuleEnumerator::Module module;
+    module.location = kCollapsePathList[i].test_case;
+    module_enumerator->CollapsePath(&module);
+
+    SCOPED_TRACE("Test case no " + base::IntToString(i) +
+                 ": '" + UTF16ToASCII(kCollapsePathList[i].expected_result) +
+                 "'");
+    EXPECT_EQ(kCollapsePathList[i].expected_result, module.location);
   }
 }

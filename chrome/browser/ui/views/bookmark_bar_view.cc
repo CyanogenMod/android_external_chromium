@@ -143,9 +143,8 @@ static std::wstring CreateToolTipForURLAndTitle(const gfx::Point& screen_loc,
 
   // First the title.
   if (!title.empty()) {
-    std::wstring localized_title;
-    if (!base::i18n::AdjustStringForLocaleDirection(title, &localized_title))
-      localized_title = title;
+    std::wstring localized_title = title;
+    base::i18n::AdjustStringForLocaleDirection(&localized_title);
     result.append(UTF16ToWideHack(gfx::ElideText(WideToUTF16Hack(
         localized_title), tt_font, max_width, false)));
   }
@@ -319,7 +318,7 @@ struct BookmarkBarView::DropInfo {
   int drag_operation;
 
   // DropData for the drop.
-  BookmarkDragData data;
+  BookmarkNodeData data;
 };
 
 // ButtonSeparatorView  --------------------------------------------------------
@@ -569,7 +568,7 @@ bool BookmarkBarView::GetDropFormats(
   if (!model_ || !model_->IsLoaded())
     return false;
   *formats = OSExchangeData::URL;
-  custom_formats->insert(BookmarkDragData::GetBookmarkCustomFormat());
+  custom_formats->insert(BookmarkNodeData::GetBookmarkCustomFormat());
   return true;
 }
 
@@ -683,7 +682,7 @@ int BookmarkBarView::OnPerformDrop(const DropTargetEvent& event) {
                                   model_->GetBookmarkBarNode();
   int index = drop_info_->drop_index;
   const bool drop_on = drop_info_->drop_on;
-  const BookmarkDragData data = drop_info_->data;
+  const BookmarkNodeData data = drop_info_->data;
   const bool is_over_other = drop_info_->is_over_other;
   DCHECK(data.is_valid());
 
@@ -1174,7 +1173,7 @@ bool BookmarkBarView::CanStartDrag(views::View* sender,
 void BookmarkBarView::WriteDragData(const BookmarkNode* node,
                                     OSExchangeData* data) {
   DCHECK(node && data);
-  BookmarkDragData drag_data(node);
+  BookmarkNodeData drag_data(node);
   drag_data.Write(profile_, data);
 }
 
@@ -1402,7 +1401,7 @@ void BookmarkBarView::StartShowFolderDropMenuTimer(const BookmarkNode* node) {
 }
 
 int BookmarkBarView::CalculateDropOperation(const DropTargetEvent& event,
-                                            const BookmarkDragData& data,
+                                            const BookmarkNodeData& data,
                                             int* index,
                                             bool* drop_on,
                                             bool* is_over_overflow,

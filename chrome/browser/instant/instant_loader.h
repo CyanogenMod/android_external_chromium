@@ -21,6 +21,7 @@
 class InstantLoaderDelegate;
 class InstantLoaderManagerTest;
 class TabContents;
+class TabContentsWrapper;
 class TemplateURL;
 
 // InstantLoader does the loading of a particular URL for InstantController.
@@ -40,11 +41,12 @@ class InstantLoader : public NotificationObserver {
 
   // Invoked to load a URL. |tab_contents| is the TabContents the preview is
   // going to be shown on top of and potentially replace.
-  void Update(TabContents* tab_contents,
+  void Update(TabContentsWrapper* tab_contents,
               const TemplateURL* template_url,
               const GURL& url,
               PageTransition::Type transition_type,
               const string16& user_text,
+              bool verbatim,
               string16* suggested_text);
 
   // Sets the bounds of the omnibox (in screen coordinates). The bounds are
@@ -59,27 +61,27 @@ class InstantLoader : public NotificationObserver {
   // Releases the preview TabContents passing ownership to the caller. This is
   // intended to be called when the preview TabContents is committed. This does
   // not notify the delegate.
-  TabContents* ReleasePreviewContents(InstantCommitType type);
+  TabContentsWrapper* ReleasePreviewContents(InstantCommitType type);
 
   // Calls through to method of same name on delegate.
   bool ShouldCommitInstantOnMouseUp();
   void CommitInstantLoader();
-
-  // Resets the template_url_id_ to zero and shows this loader. This is only
-  // intended to be invoked from InstantLoaderDoesntSupportInstant.
-  void ClearTemplateURLID();
 
   virtual void Observe(NotificationType type,
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
   // The preview TabContents; may be null.
-  TabContents* preview_contents() const { return preview_contents_.get(); }
+  TabContentsWrapper* preview_contents() const {
+    return preview_contents_.get();
+  }
 
   // Returns true if the preview TabContents is ready to be shown.
   bool ready() const { return ready_; }
 
   const GURL& url() const { return url_; }
+
+  bool verbatim() const { return verbatim_; }
 
   // Are we showing instant results?
   bool is_showing_instant() const { return template_url_id_ != 0; }
@@ -125,36 +127,44 @@ class InstantLoader : public NotificationObserver {
   // the page needs to be reloaded.
   void PageDoesntSupportInstant(bool needs_reload);
 
-  // Invoked from the timer to update the bounds of the omnibox.
+  // Invokes |SetBoundsToPage(false)|. This is called from the timer.
   void ProcessBoundsChange();
+
+  // Notifes the page of the omnibox bounds. If |force_if_loading| is true the
+  // bounds are sent down even if we're waiting on the load, otherwise if we're
+  // waiting on the load and |force_if_loading| is false this does nothing.
+  void SendBoundsToPage(bool force_if_loading);
+
+  // Creates and sets the preview TabContentsWrapper.
+  void CreatePreviewContents(TabContentsWrapper* tab_contents);
 
   InstantLoaderDelegate* delegate_;
 
   // If we're showing instant results this is the ID of the TemplateURL driving
   // the results. A value of 0 means there is no TemplateURL.
-  TemplateURLID template_url_id_;
+  const TemplateURLID template_url_id_;
 
   // The url we're displaying.
   GURL url_;
-
-  // The URL first used to load instant results.
-  GURL initial_instant_url_;
 
   // Delegate of the preview TabContents. Used to detect when the user does some
   // gesture on the TabContents and the preview needs to be activated.
   scoped_ptr<TabContentsDelegateImpl> preview_tab_contents_delegate_;
 
   // The preview TabContents; may be null.
-  scoped_ptr<TabContents> preview_contents_;
+  scoped_ptr<TabContentsWrapper> preview_contents_;
 
   // Is the preview_contents ready to be shown?
   bool ready_;
 
-  // The text the user typed in the omnibox.
+  // The text the user typed in the omnibox, stripped of the leading ?, if any.
   string16 user_text_;
 
   // The latest suggestion from the page.
   string16 complete_suggested_text_;
+
+  // The latest suggestion (suggested text less the user text).
+  string16 last_suggestion_;
 
   // See description above setter.
   gfx::Rect omnibox_bounds_;
@@ -172,6 +182,9 @@ class InstantLoader : public NotificationObserver {
 
   // Used to get notifications about renderers coming and going.
   NotificationRegistrar registrar_;
+
+  // Last value of verbatim passed to |Update|.
+  bool verbatim_;
 
   DISALLOW_COPY_AND_ASSIGN(InstantLoader);
 };

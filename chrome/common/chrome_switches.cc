@@ -59,6 +59,8 @@ const char kAppsGalleryReturnTokens[]       = "apps-gallery-return-tokens";
 // The URL to use for the gallery link in the app launcher.
 const char kAppsGalleryURL[]                = "apps-gallery-url";
 
+const char kAppsGalleryUpdateURL[]          = "apps-gallery-update-url";
+
 // Disable throbber for extension apps.
 const char kAppsNoThrob[]                   = "apps-no-throb";
 
@@ -156,6 +158,11 @@ const char kDisableAudio[]                  = "disable-audio";
 // for more background.
 const char kDisableAuthNegotiateCnameLookup[] =
     "disable-auth-negotiate-cname-lookup";
+
+// Disable background mode (background apps will not keep chrome running in the
+// background). This has priority over the kEnableBackgroundMode flag which is
+// settable via about:labs.
+const char kDisableBackgroundMode[] = "disable-background-mode";
 
 // Disable several subsystems which run network requests in the background.
 // This is for use when doing network performance testing to avoid noise
@@ -322,6 +329,10 @@ const char kDisableSyncPreferences[]        = "disable-sync-preferences";
 // Disable syncing of themes.
 const char kDisableSyncThemes[]             = "disable-sync-themes";
 
+// Enable the new autofill type.
+const char kEnableSyncNewAutofill[]     =
+    "enable-sync-new-autofill-data-type";
+
 // TabCloseableStateWatcher disallows closing of tabs and browsers under certain
 // situations on ChromeOS.  Some tests expect tabs or browsers to close, so we
 // need a switch to disable the watcher.
@@ -375,6 +386,9 @@ extern const char kLogNetLog[]              = "log-net-log";
 // Enable gpu-accelerated 2d canvas.
 const char kEnableAccelerated2dCanvas[]     = "enable-accelerated-2d-canvas";
 
+// Enables the hardware acceleration of 3D CSS, Video and animation.
+const char kEnableAcceleratedLayers[]       = "enable-accelerated-layers";
+
 // Enables WebKit accessibility within the renderer process.
 const char kEnableAccessibility[]           = "enable-accessibility";
 
@@ -390,11 +404,20 @@ const char kEnableAppLauncher[]             = "enable-app-launcher";
 const char kEnableAuthNegotiatePort[]       = "enable-auth-negotiate-port";
 
 // Enable background mode (background apps will keep chrome running in the
-// background and allow chrome to launch on startup).
+// background and allow chrome to launch on startup). Has no effect on Windows
+// because background mode is enabled there by default.
 const char kEnableBackgroundMode[] = "enable-background-mode";
 
 // Enables the benchmarking extensions.
 const char kEnableBenchmarking[]            = "enable-benchmarking";
+
+// Enables blocked content warning animation. Currently shows animation for
+// blocked pop-ups only.
+const char kEnableBlockContentAnimation[] = "enable-blocked-content-animation";
+
+// Enable experimental client-side detection of phishing pages.
+const char kEnableClientSidePhishingDetection[] =
+    "enable-client-side-phishing-detection";
 
 // This flag enables UI for clearing server data.  Temporarily in place
 // until there's a server endpoint deployed.
@@ -421,6 +444,9 @@ const char kEnableConnectBackupJobs[]       = "enable-connect-backup-jobs";
 // writing only <link rel=prefetch...> but also eventually
 // Link: headers.
 const char kEnableContentPrefetch[]         = "enable-content-prefetch";
+
+// Enables web developers to create apps for Chrome without using crx packages.
+const char kEnableCrxlessWebApps[]          = "enable-crxless-web-apps";
 
 // Whether default apps should be installed in this profile. This flag has no
 // effect on Chrome OS because default apps are always enabled  there.
@@ -1308,6 +1334,11 @@ const char kSetToken[]                      = "set-token";
 // to make it faster to test websocket live experiment code.
 const char kWebSocketLiveExperimentHost[]   = "websocket-live-experiment-host";
 #endif
+
+#if defined(HAVE_XINPUT2)
+const char kTouchDevices[]                  = "touch-devices";
+#endif
+
 
 // USE_SECCOMP_SANDBOX controls whether the seccomp sandbox is opt-in or -out.
 // TODO(evan): unify all of these once we turn the seccomp sandbox always

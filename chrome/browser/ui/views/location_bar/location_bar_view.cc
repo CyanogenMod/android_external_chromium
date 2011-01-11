@@ -25,6 +25,7 @@
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/search_engines/template_url.h"
 #include "chrome/browser/search_engines/template_url_model.h"
+#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/ui/views/location_bar/suggested_text_view.h"
 #include "chrome/browser/view_ids.h"
 #include "chrome/browser/views/browser_dialogs.h"
@@ -49,6 +50,13 @@
 #endif
 
 using views::View;
+
+namespace {
+TabContents* GetTabContentsFromDelegate(LocationBarView::Delegate* delegate) {
+  const TabContentsWrapper* wrapper = delegate->GetTabContentsWrapper();
+  return wrapper ? wrapper->tab_contents() : NULL;
+}
+}  // namespace
 
 // static
 const int LocationBarView::kNormalHorizontalEdgeThickness = 1;
@@ -122,7 +130,8 @@ void LocationBarView::Init() {
         ResourceBundle::BaseFont);
   } else {
     // Use a larger version of the system font.
-    font_ = font_.DeriveFont(3);
+    font_ = ResourceBundle::GetSharedInstance().GetFont(
+        ResourceBundle::MediumFont);
   }
 
   // If this makes the font too big, try to make it smaller so it will fit.
@@ -335,8 +344,8 @@ void LocationBarView::SetProfile(Profile* profile) {
   }
 }
 
-TabContents* LocationBarView::GetTabContents() const {
-  return delegate_->GetTabContents();
+TabContentsWrapper* LocationBarView::GetTabContentsWrapper() const {
+  return delegate_->GetTabContentsWrapper();
 }
 
 void LocationBarView::SetPreviewEnabledPageAction(ExtensionAction* page_action,
@@ -345,7 +354,7 @@ void LocationBarView::SetPreviewEnabledPageAction(ExtensionAction* page_action,
     return;
 
   DCHECK(page_action);
-  TabContents* contents = delegate_->GetTabContents();
+  TabContents* contents = GetTabContentsFromDelegate(delegate_);
 
   RefreshPageActionViews();
   PageActionWithBadgeView* page_action_view =
@@ -403,10 +412,7 @@ void LocationBarView::OnCommitSuggestedText() {
   InstantController* instant = delegate_->GetInstant();
   DCHECK(instant);
   DCHECK(suggested_text_view_);
-  location_entry_->ReplaceSelection(
-      WideToUTF16(suggested_text_view_->GetText()));
-  // TODO(sky): We need to route the suggestion through InstantController so it
-  // doesn't fetch suggestions.
+  OnCommitSuggestedText(location_entry_->GetText());
 }
 
 gfx::Size LocationBarView::GetPreferredSize() {
@@ -769,14 +775,12 @@ void LocationBarView::OnAutocompleteWillAccept() {
 
 bool LocationBarView::OnCommitSuggestedText(const std::wstring& typed_text) {
   InstantController* instant = delegate_->GetInstant();
-  if (!instant || !suggested_text_view_ ||
-      suggested_text_view_->size().IsEmpty() ||
-      suggested_text_view_->GetText().empty()) {
+  if (!instant || !HasValidSuggestText()) {
     return false;
   }
-  // TODO(sky): I may need to route this through InstantController so that we
-  // don't fetch suggestions for the new combined text.
-  location_entry_->SetUserText(typed_text + suggested_text_view_->GetText());
+  location_entry_->model()->FinalizeInstantQuery(
+      typed_text,
+      suggested_text_view_->GetText());
   return true;
 }
 
@@ -837,17 +841,26 @@ void LocationBarView::OnChanged() {
   Layout();
   SchedulePaint();
 
+  // TODO(sky): code for updating instant is nearly identical on all platforms.
+  // It sould be pushed to a common place.
   InstantController* instant = delegate_->GetInstant();
   string16 suggested_text;
-  if (update_instant_ && instant && GetTabContents()) {
+  if (update_instant_ && instant && GetTabContentsWrapper()) {
     if (location_entry_->model()->user_input_in_progress() &&
         location_entry_->model()->popup_model()->IsOpen()) {
-      instant->Update(GetTabContents(),
+      instant->Update(GetTabContentsWrapper(),
                       location_entry_->model()->CurrentMatch(),
                       WideToUTF16(location_entry_->GetText()),
+                      location_entry_->model()->UseVerbatimInstant(),
                       &suggested_text);
+      if (!instant->MightSupportInstant()) {
+        location_entry_->model()->FinalizeInstantQuery(std::wstring(),
+                                                       std::wstring());
+      }
     } else {
       instant->DestroyPreviewContents();
+      location_entry_->model()->FinalizeInstantQuery(std::wstring(),
+                                                     std::wstring());
     }
   }
 
@@ -876,15 +889,11 @@ void LocationBarView::OnSetFocus() {
 }
 
 SkBitmap LocationBarView::GetFavIcon() const {
-  DCHECK(delegate_);
-  DCHECK(delegate_->GetTabContents());
-  return delegate_->GetTabContents()->GetFavIcon();
+  return GetTabContentsFromDelegate(delegate_)->GetFavIcon();
 }
 
 std::wstring LocationBarView::GetTitle() const {
-  DCHECK(delegate_);
-  DCHECK(delegate_->GetTabContents());
-  return UTF16ToWideHack(delegate_->GetTabContents()->GetTitle());
+  return UTF16ToWideHack(GetTabContentsFromDelegate(delegate_)->GetTitle());
 }
 
 int LocationBarView::AvailableWidth(int location_bar_width) {
@@ -911,11 +920,10 @@ void LocationBarView::LayoutView(views::View* view,
 }
 
 void LocationBarView::RefreshContentSettingViews() {
-  const TabContents* tab_contents = delegate_->GetTabContents();
   for (ContentSettingViews::const_iterator i(content_setting_views_.begin());
        i != content_setting_views_.end(); ++i) {
     (*i)->UpdateFromTabContents(
-        model_->input_in_progress() ? NULL : tab_contents);
+        model_->input_in_progress() ? NULL : GetTabContentsFromDelegate(delegate_));
   }
 }
 
@@ -964,7 +972,7 @@ void LocationBarView::RefreshPageActionViews() {
     }
   }
 
-  TabContents* contents = delegate_->GetTabContents();
+  TabContents* contents = GetTabContentsFromDelegate(delegate_);
   if (!page_action_views_.empty() && contents) {
     GURL url = GURL(WideToUTF8(model_->GetText()));
 
@@ -1037,10 +1045,23 @@ std::string LocationBarView::GetClassName() const {
 }
 
 bool LocationBarView::SkipDefaultKeyEventProcessing(const views::KeyEvent& e) {
-  if (keyword_hint_view_->IsVisible() &&
-      views::FocusManager::IsTabTraversalKeyEvent(e)) {
-    // We want to receive tab key events when the hint is showing.
-    return true;
+  if (views::FocusManager::IsTabTraversalKeyEvent(e)) {
+    if (HasValidSuggestText()) {
+      // Return true so that the edit sees the tab and commits the suggestion.
+      return true;
+    }
+    if (keyword_hint_view_->IsVisible() && !e.IsShiftDown()) {
+      // Return true so the edit gets the tab event and enters keyword mode.
+      return true;
+    }
+    InstantController* instant = delegate_->GetInstant();
+    if (instant && instant->IsCurrent()) {
+      // Tab while showing instant commits instant immediately.
+      instant->CommitCurrentPreview(INSTANT_COMMIT_PRESSED_ENTER);
+      // Return true so that focus traversal isn't attempted. The edit ends
+      // up doing nothing in this case.
+      return true;
+    }
   }
 
 #if defined(OS_WIN)
@@ -1067,7 +1088,7 @@ void LocationBarView::WriteDragData(views::View* sender,
                                     OSExchangeData* data) {
   DCHECK(GetDragOperations(sender, press_pt) != DragDropTypes::DRAG_NONE);
 
-  TabContents* tab_contents = delegate_->GetTabContents();
+  TabContents* tab_contents = GetTabContentsFromDelegate(delegate_);
   DCHECK(tab_contents);
   drag_utils::SetURLAndDragImage(tab_contents->GetURL(),
                                  UTF16ToWideHack(tab_contents->GetTitle()),
@@ -1077,7 +1098,7 @@ void LocationBarView::WriteDragData(views::View* sender,
 int LocationBarView::GetDragOperations(views::View* sender,
                                        const gfx::Point& p) {
   DCHECK((sender == location_icon_view_) || (sender == ev_bubble_view_));
-  TabContents* tab_contents = delegate_->GetTabContents();
+  TabContents* tab_contents = GetTabContentsFromDelegate(delegate_);
   return (tab_contents && tab_contents->GetURL().is_valid() &&
           !location_entry()->IsEditingOrEmpty()) ?
       (DragDropTypes::DRAG_COPY | DragDropTypes::DRAG_LINK) :
@@ -1107,7 +1128,7 @@ void LocationBarView::ShowFirstRunBubble(FirstRun::BubbleType bubble_type) {
 
 void LocationBarView::SetSuggestedText(const string16& input) {
   // Don't show the suggested text if inline autocomplete is prevented.
-  string16 text = location_entry_->model()->PreventInlineAutocomplete() ?
+  string16 text = location_entry_->model()->UseVerbatimInstant() ?
       string16() : input;
   if (!text.empty()) {
     if (!suggested_text_view_) {
@@ -1119,17 +1140,10 @@ void LocationBarView::SetSuggestedText(const string16& input) {
       suggested_text_view_->SetText(UTF16ToWide(text));
       suggested_text_view_->SetFont(location_entry_->GetFont());
       AddChildView(suggested_text_view_);
-    } else if (suggested_text_view_->GetText() == UTF16ToWide(text)) {
-      return;
-    } else {
+    } else if (suggested_text_view_->GetText() != UTF16ToWide(text)) {
       suggested_text_view_->SetText(UTF16ToWide(text));
     }
-    // Only start the animation to commit the suggested text if the selection is
-    // at the end.
-    std::wstring::size_type start, end;
-    location_entry_->GetSelectionBounds(&start, &end);
-    if (start == end && start == location_entry_->GetText().size())
-      suggested_text_view_->StartAnimation();
+    suggested_text_view_->StartAnimation();
   } else if (suggested_text_view_) {
     delete suggested_text_view_;
     suggested_text_view_ = NULL;
@@ -1229,4 +1243,9 @@ void LocationBarView::OnTemplateURLModelChanged() {
   template_url_model_->RemoveObserver(this);
   template_url_model_ = NULL;
   ShowFirstRunBubble(bubble_type_);
+}
+
+bool LocationBarView::HasValidSuggestText() {
+  return suggested_text_view_ && !suggested_text_view_->size().IsEmpty() &&
+      !suggested_text_view_->GetText().empty();
 }

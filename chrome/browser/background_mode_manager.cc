@@ -150,10 +150,9 @@ BackgroundModeManager::BackgroundModeManager(Profile* profile,
       keep_alive_for_startup_(false),
       status_tray_(NULL),
       status_icon_(NULL) {
-  // If background mode or apps are disabled, just exit - don't listen for
-  // any notifications.
-  if (!command_line->HasSwitch(switches::kEnableBackgroundMode) ||
-      command_line->HasSwitch(switches::kDisableExtensions))
+  // If background mode is disabled, just exit - don't listen for any
+  // notifications.
+  if (!IsBackgroundModeEnabled(command_line))
     return;
 
   // Keep the browser alive until extensions are done loading - this is needed
@@ -196,10 +195,6 @@ BackgroundModeManager::BackgroundModeManager(Profile* profile,
   registrar_.Add(this, NotificationType::APP_TERMINATING,
                  NotificationService::AllSources());
 
-  // Listen for changes to the background mode preference.
-  pref_registrar_.Init(profile_->GetPrefs());
-  pref_registrar_.Add(prefs::kBackgroundModeEnabled, this);
-
   applications_.AddObserver(this);
 }
 
@@ -211,10 +206,6 @@ BackgroundModeManager::~BackgroundModeManager() {
   // because in an actual running system we'd get an APP_TERMINATING
   // notification before being destroyed.
   EndBackgroundMode();
-}
-
-bool BackgroundModeManager::IsBackgroundModeEnabled() {
-  return profile_->GetPrefs()->GetBoolean(prefs::kBackgroundModeEnabled);
 }
 
 bool BackgroundModeManager::IsLaunchOnStartupResetAllowed() {
@@ -239,8 +230,7 @@ void BackgroundModeManager::Observe(NotificationType type,
       // don't want to stomp on user choice every time we start and load
       // registered extensions.
 #if !defined(OS_MACOSX)
-      EnableLaunchOnStartup(IsBackgroundModeEnabled() &&
-                            background_app_count_ > 0);
+      EnableLaunchOnStartup(background_app_count_ > 0);
 #endif
       break;
     case NotificationType::EXTENSION_LOADED:
@@ -280,11 +270,6 @@ void BackgroundModeManager::Observe(NotificationType type,
       // try to re-enter/exit background mode again.
       registrar_.RemoveAll();
       break;
-    case NotificationType::PREF_CHANGED:
-      DCHECK(0 == Details<std::string>(details).ptr()->compare(
-          prefs::kBackgroundModeEnabled));
-      OnBackgroundModePrefChanged();
-      break;
     default:
       NOTREACHED();
       break;
@@ -302,28 +287,11 @@ void BackgroundModeManager::EndKeepAliveForStartup() {
   }
 }
 
-void BackgroundModeManager::OnBackgroundModePrefChanged() {
-  // Background mode has been enabled/disabled in preferences, so update our
-  // state accordingly.
-  if (IsBackgroundModeEnabled() && !in_background_mode_ &&
-      background_app_count_ > 0) {
-    // We should be in background mode, but we're not, so switch to background
-    // mode.
-    EnableLaunchOnStartup(true);
-    StartBackgroundMode();
-  }
-  if (!IsBackgroundModeEnabled() && in_background_mode_) {
-    // We're in background mode, but we shouldn't be any longer.
-    EnableLaunchOnStartup(false);
-    EndBackgroundMode();
-  }
-}
-
 void BackgroundModeManager::OnBackgroundAppLoaded() {
   // When a background app loads, increment our count and also enable
   // KeepAlive mode if the preference is set.
   background_app_count_++;
-  if (background_app_count_ == 1 && IsBackgroundModeEnabled())
+  if (background_app_count_ == 1)
     StartBackgroundMode();
 }
 
@@ -347,7 +315,7 @@ void BackgroundModeManager::OnBackgroundAppUnloaded() {
   // KeepAlive mode if appropriate.
   background_app_count_--;
   DCHECK(background_app_count_ >= 0);
-  if (background_app_count_ == 0 && IsBackgroundModeEnabled())
+  if (background_app_count_ == 0)
     EndBackgroundMode();
 }
 
@@ -364,14 +332,14 @@ void BackgroundModeManager::EndBackgroundMode() {
 void BackgroundModeManager::OnBackgroundAppInstalled() {
   // We're installing a background app. If this is the first background app
   // being installed, make sure we are set to launch on startup.
-  if (IsBackgroundModeEnabled() && background_app_count_ == 0)
+  if (background_app_count_ == 0)
     EnableLaunchOnStartup(true);
 }
 
 void BackgroundModeManager::OnBackgroundAppUninstalled() {
   // When uninstalling a background app, disable launch on startup if
   // we have no more background apps.
-  if (IsBackgroundModeEnabled() && background_app_count_ == 0)
+  if (background_app_count_ == 0)
     EnableLaunchOnStartup(false);
 }
 
@@ -484,20 +452,18 @@ void BackgroundModeManager::UpdateStatusTrayIconContextMenu() {
       l10n_util::GetStringUTF16(IDS_PRODUCT_NAME)));
 
   // Add Preferences item
-  if (CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableTabbedOptions)) {
-    menu->AddItemWithStringId(IDC_OPTIONS, IDS_SETTINGS);
-  } else {
-#if defined(TOOLKIT_GTK)
-    string16 preferences = gtk_util::GetStockPreferencesMenuLabel();
-    if (preferences.empty())
-      menu->AddItemWithStringId(IDC_OPTIONS, IDS_OPTIONS);
-    else
-      menu->AddItem(IDC_OPTIONS, preferences);
+#if defined(OS_CHROMEOS)
+  menu->AddItemWithStringId(IDC_OPTIONS, IDS_SETTINGS);
+#elif defined(TOOLKIT_GTK)
+  string16 preferences = gtk_util::GetStockPreferencesMenuLabel();
+  if (!preferences.empty())
+    menu->AddItem(IDC_OPTIONS, preferences);
+  else
+    menu->AddItemWithStringId(IDC_OPTIONS, IDS_PREFERENCES);
 #else
-    menu->AddItemWithStringId(IDC_OPTIONS, IDS_OPTIONS);
+  menu->AddItemWithStringId(IDC_OPTIONS, IDS_OPTIONS);
 #endif
-  }
+  menu->AddItemWithStringId(IDC_TASK_MANAGER, IDS_TASK_MANAGER);
   menu->AddSeparator();
   int application_position = 0;
   context_menu_application_offset_ = menu->GetItemCount();
@@ -553,15 +519,18 @@ void BackgroundModeManager::ExecuteApplication(int item) {
 
 void BackgroundModeManager::ExecuteCommand(int item) {
   switch (item) {
+    case IDC_ABOUT:
+      GetBrowserWindow()->OpenAboutChromeDialog();
+      break;
     case IDC_EXIT:
       UserMetrics::RecordAction(UserMetricsAction("Exit"), profile_);
       BrowserList::CloseAllBrowsersAndExit();
       break;
-    case IDC_ABOUT:
-      GetBrowserWindow()->OpenAboutChromeDialog();
-      break;
     case IDC_OPTIONS:
       GetBrowserWindow()->OpenOptionsDialog();
+      break;
+    case IDC_TASK_MANAGER:
+      GetBrowserWindow()->OpenTaskManager();
       break;
     default:
       ExecuteApplication(item);
@@ -580,6 +549,22 @@ Browser* BackgroundModeManager::GetBrowserWindow() {
 
 // static
 void BackgroundModeManager::RegisterUserPrefs(PrefService* prefs) {
-  prefs->RegisterBooleanPref(prefs::kBackgroundModeEnabled, true);
   prefs->RegisterBooleanPref(prefs::kLaunchOnStartupResetAllowed, false);
 }
+
+// static
+bool BackgroundModeManager::IsBackgroundModeEnabled(
+    const CommandLine* command_line) {
+
+  // Background mode is disabled if the appropriate flag is passed, or if
+  // extensions are disabled.
+  bool background_mode_enabled =
+      !command_line->HasSwitch(switches::kDisableBackgroundMode) &&
+      !command_line->HasSwitch(switches::kDisableExtensions);
+
+  // Only enable BackgroundMode if the associated flag is enabled.
+  background_mode_enabled = background_mode_enabled &&
+      command_line->HasSwitch(switches::kEnableBackgroundMode);
+  return background_mode_enabled;
+}
+

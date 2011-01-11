@@ -56,7 +56,7 @@ class BrowserWindowCocoa : public BrowserWindow,
   virtual LocationBar* GetLocationBar() const;
   virtual void SetFocusToLocationBar(bool select_all);
   virtual void UpdateReloadStopState(bool is_loading, bool force);
-  virtual void UpdateToolbar(TabContents* contents,
+  virtual void UpdateToolbar(TabContentsWrapper* contents,
                              bool should_restore_state);
   virtual void FocusToolbar();
   virtual void FocusAppMenu();
@@ -100,7 +100,9 @@ class BrowserWindowCocoa : public BrowserWindow,
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
                                       bool* is_keyboard_shortcut);
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event);
-  virtual void ShowCreateShortcutsDialog(TabContents* tab_contents);
+  virtual void ShowCreateWebAppShortcutsDialog(TabContents* tab_contents);
+  virtual void ShowCreateChromeAppShortcutsDialog(Profile* profile,
+                                                  const Extension* app);
   virtual void Cut();
   virtual void Copy();
   virtual void Paste();
@@ -108,7 +110,7 @@ class BrowserWindowCocoa : public BrowserWindow,
   virtual void OpenTabpose();
   virtual void PrepareForInstant();
   virtual void ShowInstant(TabContents* preview_contents);
-  virtual void HideInstant();
+  virtual void HideInstant(bool instant_is_active);
   virtual gfx::Rect GetInstantBounds();
 
   // Overridden from NotificationObserver

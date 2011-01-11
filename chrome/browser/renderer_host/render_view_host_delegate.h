@@ -25,7 +25,7 @@
 
 class AutomationResourceRoutingDelegate;
 class BackgroundContents;
-struct BookmarkDragData;
+struct BookmarkNodeData;
 class BookmarkNode;
 struct ContextMenuParams;
 class FilePath;
@@ -68,6 +68,10 @@ class Size;
 
 namespace IPC {
 class Message;
+}
+
+namespace net {
+class CookieOptions;
 }
 
 namespace webkit_glue {
@@ -286,6 +290,10 @@ class RenderViewHostDelegate {
         int32 page_id,
         const WebApplicationInfo& app_info) = 0;
 
+    // Notification when an application programmatically requests installation.
+    virtual void OnInstallApplication(
+        const WebApplicationInfo& app_info) = 0;
+
     // Notification that the contents of the page has been loaded.
     virtual void OnPageContents(const GURL& url,
                                 int renderer_process_id,
@@ -392,6 +400,7 @@ class RenderViewHostDelegate {
     // OnContentBlocked.
     virtual void OnCookieAccessed(const GURL& url,
                                   const std::string& cookie_line,
+                                  const net::CookieOptions& options,
                                   bool blocked_by_policy) = 0;
 
     // Called when a specific indexed db factory in the current page was
@@ -546,21 +555,22 @@ class RenderViewHostDelegate {
     // frame.
     virtual void FormsSeen(const std::vector<webkit_glue::FormData>& forms) = 0;
 
-    // Called to retrieve a list of AutoFill suggestions from the web database
-    // given the name of the field, whether it is auto-filled, and what the user
-    // has already typed in it. If there is a warning to be returned to the
-    // user, it is stored into |values|, with corresponding unique id -1.
+    // Called to retrieve a list of AutoFill suggestions for the portion of the
+    // |form| containing |field|, given the current state of the |form|.
     // Returns true to indicate that RenderViewHost::AutoFillSuggestionsReturned
     // has been called.
     virtual bool GetAutoFillSuggestions(
-        bool field_autofilled,
+        const webkit_glue::FormData& form,
         const webkit_glue::FormField& field) = 0;
 
-    // Called to fill the FormData object with AutoFill profile information that
-    // matches the |value|, |unique_id| key. Returns true to indicate that
-    // RenderViewHost::AutoFillFormDataFilled has been called.
+    // Called to fill the |form| with AutoFill profile information that matches
+    // the |unique_id| key. If the portion of the form containing |field| has
+    // been autofilled already, only fills |field|.
+    // Returns true to indicate that RenderViewHost::AutoFillFormDataFilled
+    // has been called.
     virtual bool FillAutoFillFormData(int query_id,
                                       const webkit_glue::FormData& form,
+                                      const webkit_glue::FormField& field,
                                       int unique_id) = 0;
 
     // Called when the user selects the 'AutoFill Options...' suggestions in the
@@ -576,10 +586,10 @@ class RenderViewHostDelegate {
 
   class BookmarkDrag {
    public:
-    virtual void OnDragEnter(const BookmarkDragData& data) = 0;
-    virtual void OnDragOver(const BookmarkDragData& data) = 0;
-    virtual void OnDragLeave(const BookmarkDragData& data) = 0;
-    virtual void OnDrop(const BookmarkDragData& data) = 0;
+    virtual void OnDragEnter(const BookmarkNodeData& data) = 0;
+    virtual void OnDragOver(const BookmarkNodeData& data) = 0;
+    virtual void OnDragLeave(const BookmarkNodeData& data) = 0;
+    virtual void OnDrop(const BookmarkNodeData& data) = 0;
 
    protected:
     virtual ~BookmarkDrag() {}

@@ -10,12 +10,18 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
+#include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notifications_prefs_cache.h"
 #include "chrome/browser/profile.h"
 #include "chrome/common/content_settings_types.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/url_constants.h"
 #include "grit/generated_resources.h"
+
+#if defined(OS_WIN)
+#include "chrome/browser/ui/views/browser_dialogs.h"
+#include "chrome/installer/util/install_util.h"
+#endif  // OS_WIN
 
 // Menu commands
 const int kTogglePermissionCommand = 0;
@@ -139,9 +145,19 @@ void NotificationOptionsMenuModel::ExecuteCommand(int command_id) {
     }
     case kOpenContentSettingsCommand: {
       Browser* browser = BrowserList::GetLastActive();
-      if (browser)
+      if (browser) {
         static_cast<TabContentsDelegate*>(browser)->ShowContentSettingsWindow(
             CONTENT_SETTINGS_TYPE_NOTIFICATIONS);
+      } else {
+#if defined(OS_WIN)
+        if (InstallUtil::IsChromeFrameProcess()) {
+          // We may not have a browser if this is a chrome frame process.
+          browser::ShowContentSettingsWindow(NULL,
+                                             CONTENT_SETTINGS_TYPE_DEFAULT,
+                                             balloon_->profile());
+        }
+#endif  // OS_WIN
+      }
       break;
     }
     default:

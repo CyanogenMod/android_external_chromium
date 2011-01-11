@@ -15,12 +15,31 @@
 #include "chrome/browser/chromeos/cros/network_library.h"
 #include "chrome/browser/chromeos/notifications/balloon_view_host.h"
 #include "chrome/browser/chromeos/options/network_config_view.h"
+#include "chrome/browser/prefs/pref_service.h"
+#include "chrome/browser/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/views/window.h"
+#include "chrome/common/pref_names.h"
+#include "chrome/common/time_format.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
 #include "views/window/dialog_delegate.h"
 #include "views/window/window.h"
+
+namespace {
+
+// Returns prefs::kShowPlanNotifications in the profile of the last active
+// browser. If there is no active browser, returns true.
+bool ShouldShowMobilePlanNotifications() {
+  Browser* browser = BrowserList::GetLastActive();
+  if (!browser || !browser->profile())
+    return true;
+
+  PrefService* prefs = browser->profile()->GetPrefs();
+  return prefs->GetBoolean(prefs::kShowPlanNotifications);
+}
+
+}  // namespace
 
 namespace chromeos {
 
@@ -174,26 +193,36 @@ void NetworkMessageObserver::OnCellularDataPlanChanged(NetworkLibrary* obj) {
   const CellularNetwork* cellular = obj->cellular_network();
   if (!cellular)
     return;
-  // Active plan is the first one in the list. Use empty one if none found.
-  const CellularDataPlanVector& plans = cellular->GetDataPlans();
-  CellularDataPlan plan = plans.empty() ? CellularDataPlan() : plans[0];
+  const CellularDataPlan* plan = cellular->GetSignificantDataPlan();
+  std::string new_plan_name = plan ? plan->plan_name : "";
+  CellularDataPlanType new_plan_type = plan ? plan->plan_type :
+                                              CELLULAR_DATA_PLAN_UNKNOWN;
+
   // If connected cellular network changed, or data plan is different, then
   // it's a new network. Then hide all previous notifications.
   bool new_plan = false;
   if (cellular->service_path() != cellular_service_path_) {
     cellular_service_path_ = cellular->service_path();
     new_plan = true;
-  } else if (plan.plan_name != cellular_data_plan_.plan_name ||
-      plan.plan_type != cellular_data_plan_.plan_type) {
+  } else if (new_plan_name != cellular_data_plan_name_ ||
+      new_plan_type != cellular_data_plan_type_) {
     new_plan = true;
   }
 
-  cellular_data_plan_ = plan;
+  cellular_data_plan_name_ = new_plan_name;
+  cellular_data_plan_type_ = new_plan_type;
+
+  bool should_show_notifications = ShouldShowMobilePlanNotifications();
+  if (!should_show_notifications) {
+    notification_low_data_.Hide();
+    notification_no_data_.Hide();
+    return;
+  }
 
   if (new_plan) {
     notification_low_data_.Hide();
     notification_no_data_.Hide();
-    if (plans.empty() && cellular->needs_new_plan()) {
+    if (!plan && cellular->needs_new_plan()) {
       notification_no_data_.set_title(
           l10n_util::GetStringFUTF16(IDS_NETWORK_NO_DATA_PLAN_TITLE,
                                      UTF8ToUTF16(cellular->service_name())));
@@ -205,46 +234,45 @@ void NetworkMessageObserver::OnCellularDataPlanChanged(NetworkLibrary* obj) {
           NewCallback(this, &NetworkMessageObserver::OpenMobileSetupPage),
           false, false);
       return;
-    } else if (plan.plan_type == CELLULAR_DATA_PLAN_UNLIMITED) {
+    } else if (cellular_data_plan_type_ == CELLULAR_DATA_PLAN_UNLIMITED) {
       notification_no_data_.set_title(
           l10n_util::GetStringFUTF16(IDS_NETWORK_DATA_EXPIRED_TITLE,
-                                     ASCIIToUTF16(plan.plan_name)));
+                                     ASCIIToUTF16(cellular_data_plan_name_)));
       notification_low_data_.set_title(
           l10n_util::GetStringFUTF16(IDS_NETWORK_NEARING_EXPIRATION_TITLE,
-                                     ASCIIToUTF16(plan.plan_name)));
+                                     ASCIIToUTF16(cellular_data_plan_name_)));
     } else {
       notification_no_data_.set_title(
           l10n_util::GetStringFUTF16(IDS_NETWORK_OUT_OF_DATA_TITLE,
-                                     ASCIIToUTF16(plan.plan_name)));
+                                     ASCIIToUTF16(cellular_data_plan_name_)));
       notification_low_data_.set_title(
           l10n_util::GetStringFUTF16(IDS_NETWORK_LOW_DATA_TITLE,
-                                     ASCIIToUTF16(plan.plan_name)));
+                                     ASCIIToUTF16(cellular_data_plan_name_)));
     }
   }
 
-  if (plan.plan_type == CELLULAR_DATA_PLAN_UNKNOWN)
+  if (cellular_data_plan_type_ == CELLULAR_DATA_PLAN_UNKNOWN)
     return;
 
-  if (cellular->data_left() == CellularNetwork::DATA_NONE) {
+  if (cellular->GetDataLeft() == CellularNetwork::DATA_NONE) {
     notification_low_data_.Hide();
-    int message = plan.plan_type == CELLULAR_DATA_PLAN_UNLIMITED ?
-        IDS_NETWORK_MINUTES_REMAINING_MESSAGE :
-        IDS_NETWORK_DATA_REMAINING_MESSAGE;
-    notification_no_data_.Show(l10n_util::GetStringFUTF16(
-        message, ASCIIToUTF16("0")),
+    string16 message =
+        cellular_data_plan_type_ == CELLULAR_DATA_PLAN_UNLIMITED ?
+            TimeFormat::TimeRemaining(base::TimeDelta()) :
+            l10n_util::GetStringFUTF16(IDS_NETWORK_DATA_REMAINING_MESSAGE,
+                                       ASCIIToUTF16("0"));
+    notification_no_data_.Show(message,
         l10n_util::GetStringUTF16(IDS_NETWORK_PURCHASE_MORE_MESSAGE),
         NewCallback(this, &NetworkMessageObserver::OpenMobileSetupPage),
         false, false);
-  } else if (cellular->data_left() == CellularNetwork::DATA_VERY_LOW) {
+  } else if (cellular->GetDataLeft() == CellularNetwork::DATA_VERY_LOW) {
     notification_no_data_.Hide();
-    int message = plan.plan_type == CELLULAR_DATA_PLAN_UNLIMITED ?
-        IDS_NETWORK_MINUTES_REMAINING_MESSAGE :
-        IDS_NETWORK_DATA_REMAINING_MESSAGE;
-    int64 remaining = plan.plan_type ==
-        CELLULAR_DATA_PLAN_UNLIMITED ? plan.remaining_minutes() :
-                                       plan.remaining_mbytes();
-    notification_low_data_.Show(l10n_util::GetStringFUTF16(
-        message, UTF8ToUTF16(base::Int64ToString(remaining))),
+    string16 message =
+        cellular_data_plan_type_ == CELLULAR_DATA_PLAN_UNLIMITED ?
+            plan->GetPlanExpiration() :
+            l10n_util::GetStringFUTF16(IDS_NETWORK_DATA_REMAINING_MESSAGE,
+                 UTF8ToUTF16(base::Int64ToString(plan->remaining_mbytes())));
+    notification_low_data_.Show(message,
         l10n_util::GetStringUTF16(IDS_NETWORK_MORE_INFO_MESSAGE),
         NewCallback(this, &NetworkMessageObserver::OpenMoreInfoPage),
         false, false);

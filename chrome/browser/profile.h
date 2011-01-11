@@ -30,6 +30,10 @@ class TransportSecurityState;
 class SSLConfigService;
 }
 
+namespace policy {
+class ProfilePolicyContext;
+}
+
 namespace webkit_database {
 class DatabaseTracker;
 }
@@ -68,6 +72,7 @@ class PersonalDataManager;
 class PinnedTabService;
 class PrefService;
 class ExtensionInfoMap;
+class PrefProxyConfigTracker;
 class PromoCounter;
 class ProfileSyncService;
 class ProfileSyncFactory;
@@ -472,11 +477,18 @@ class Profile {
   // Returns the PromoCounter for Instant, or NULL if not applicable.
   virtual PromoCounter* GetInstantPromoCounter() = 0;
 
+  // Gets the policy context associated with this profile.
+  virtual policy::ProfilePolicyContext* GetPolicyContext() = 0;
+
 #if defined(OS_CHROMEOS)
   // Returns ChromeOS's ProxyConfigServiceImpl, creating if not yet created.
   virtual chromeos::ProxyConfigServiceImpl*
       GetChromeOSProxyConfigServiceImpl() = 0;
 #endif  // defined(OS_CHROMEOS)
+
+  // Returns the helper object that provides the proxy configuration service
+  // access to the the proxy configuration possibly defined by preferences.
+  virtual PrefProxyConfigTracker* GetProxyConfigTracker() = 0;
 
 #ifdef UNIT_TEST
   // Use with caution.  GetDefaultRequestContext may be called on any thread!

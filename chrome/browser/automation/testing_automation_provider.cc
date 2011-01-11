@@ -41,6 +41,7 @@
 #include "chrome/browser/extensions/extension_host.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/find_bar.h"
+#include "chrome/browser/history/top_sites.h"
 #include "chrome/browser/location_bar.h"
 #include "chrome/browser/login_prompt.h"
 #include "chrome/browser/native_app_modal_dialog.h"
@@ -60,7 +61,7 @@
 #include "chrome/browser/search_engines/template_url_model.h"
 #include "chrome/browser/tab_contents/infobar_delegate.h"
 #include "chrome/browser/tab_contents/interstitial_page.h"
-#include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/translate/translate_infobar_delegate.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
@@ -485,7 +486,7 @@ void TestingAutomationProvider::AppendTab(int handle, const GURL& url,
   if (browser_tracker_->ContainsHandle(handle)) {
     Browser* browser = browser_tracker_->GetResource(handle);
     observer = AddTabStripObserver(browser, reply_message);
-    TabContents* contents =
+    TabContentsWrapper* contents =
         browser->AddSelectedTabWithURL(url, PageTransition::TYPED);
     if (contents) {
       append_tab_response =
@@ -963,8 +964,7 @@ void TestingAutomationProvider::GetTab(int win_handle,
   if (browser_tracker_->ContainsHandle(win_handle) && (tab_index >= 0)) {
     Browser* browser = browser_tracker_->GetResource(win_handle);
     if (tab_index < browser->tab_count()) {
-      TabContents* tab_contents =
-          browser->GetTabContentsAt(tab_index);
+      TabContents* tab_contents = browser->GetTabContentsAt(tab_index);
       *tab_handle = tab_tracker_->Add(&tab_contents->controller());
     }
   }
@@ -2142,6 +2142,17 @@ void TestingAutomationProvider::SendJSONRequest(int handle,
       &TestingAutomationProvider::EnableSyncForDatatypes;
   handler_map["DisableSyncForDatatypes"] =
       &TestingAutomationProvider::DisableSyncForDatatypes;
+
+  handler_map["GetNTPInfo"] =
+      &TestingAutomationProvider::GetNTPInfo;
+  handler_map["MoveNTPMostVisitedThumbnail"] =
+      &TestingAutomationProvider::MoveNTPMostVisitedThumbnail;
+  handler_map["RemoveNTPMostVisitedThumbnail"] =
+      &TestingAutomationProvider::RemoveNTPMostVisitedThumbnail;
+  handler_map["UnpinNTPMostVisitedThumbnail"] =
+      &TestingAutomationProvider::UnpinNTPMostVisitedThumbnail;
+  handler_map["RestoreAllNTPMostVisitedThumbnails"] =
+      &TestingAutomationProvider::RestoreAllNTPMostVisitedThumbnails;
 
   if (handler_map.find(std::string(command)) != handler_map.end()) {
     (this->*handler_map[command])(browser, dict_value, reply_message);
@@ -4285,7 +4296,7 @@ void TestingAutomationProvider::CloseNotification(
   // This will delete itself when finished.
   new OnNotificationBalloonCountObserver(
       this, reply_message, collection, balloon_count - 1);
-  manager->Cancel(balloons[index]->notification());
+  manager->CancelById(balloons[index]->notification().notification_id());
 }
 
 // Refer to WaitForNotificationCount() in chrome/test/pyautolib/pyauto.py for
@@ -4311,6 +4322,102 @@ void TestingAutomationProvider::WaitForNotificationCount(
   // This will delete itself when finished.
   new OnNotificationBalloonCountObserver(
       this, reply_message, collection, count);
+}
+
+// Sample JSON input: { "command": "GetNTPInfo" }
+// For output, refer to chrome/test/pyautolib/ntp_model.py.
+void TestingAutomationProvider::GetNTPInfo(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  // This observer will delete itself.
+  new NTPInfoObserver(this, reply_message, &consumer_);
+}
+
+void TestingAutomationProvider::MoveNTPMostVisitedThumbnail(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  AutomationJSONReply reply(this, reply_message);
+  std::string url, error;
+  int index, old_index;
+  if (!args->GetString("url", &url)) {
+    reply.SendError("Missing or invalid 'url' key.");
+    return;
+  }
+  if (!args->GetInteger("index", &index)) {
+    reply.SendError("Missing or invalid 'index' key.");
+    return;
+  }
+  if (!args->GetInteger("old_index", &old_index)) {
+    reply.SendError("Missing or invalid 'old_index' key");
+    return;
+  }
+  history::TopSites* top_sites = browser->profile()->GetTopSites();
+  if (!top_sites) {
+    reply.SendError("TopSites service is not initialized.");
+    return;
+  }
+  GURL swapped;
+  // If thumbnail A is switching positions with a pinned thumbnail B, B
+  // should be pinned in the old index of A.
+  if (top_sites->GetPinnedURLAtIndex(index, &swapped)) {
+    top_sites->AddPinnedURL(swapped, old_index);
+  }
+  top_sites->AddPinnedURL(GURL(url), index);
+  reply.SendSuccess(NULL);
+}
+
+void TestingAutomationProvider::RemoveNTPMostVisitedThumbnail(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  AutomationJSONReply reply(this, reply_message);
+  std::string url;
+  if (!args->GetString("url", &url)) {
+    reply.SendError("Missing or invalid 'url' key.");
+    return;
+  }
+  history::TopSites* top_sites = browser->profile()->GetTopSites();
+  if (!top_sites) {
+    reply.SendError("TopSites service is not initialized.");
+    return;
+  }
+  top_sites->AddBlacklistedURL(GURL(url));
+  reply.SendSuccess(NULL);
+}
+
+void TestingAutomationProvider::UnpinNTPMostVisitedThumbnail(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  AutomationJSONReply reply(this, reply_message);
+  std::string url;
+  if (!args->GetString("url", &url)) {
+    reply.SendError("Missing or invalid 'url' key.");
+    return;
+  }
+  history::TopSites* top_sites = browser->profile()->GetTopSites();
+  if (!top_sites) {
+    reply.SendError("TopSites service is not initialized.");
+    return;
+  }
+  top_sites->RemovePinnedURL(GURL(url));
+  reply.SendSuccess(NULL);
+}
+
+void TestingAutomationProvider::RestoreAllNTPMostVisitedThumbnails(
+    Browser* browser,
+    DictionaryValue* args,
+    IPC::Message* reply_message) {
+  AutomationJSONReply reply(this, reply_message);
+  history::TopSites* top_sites = browser->profile()->GetTopSites();
+  if (!top_sites) {
+    reply.SendError("TopSites service is not initialized.");
+    return;
+  }
+  top_sites->ClearBlacklistedURLs();
+  reply.SendSuccess(NULL);
 }
 
 void TestingAutomationProvider::WaitForTabCountToBecome(

@@ -119,6 +119,10 @@ const char kFormAutofillEnabled[] = "profile.form_autofill_enabled";
 // Boolean that is true when SafeBrowsing is enabled.
 const char kSafeBrowsingEnabled[] = "safebrowsing.enabled";
 
+// Boolean that is true when SafeBrowsing Malware Report is enabled.
+const char kSafeBrowsingReportingEnabled[] =
+    "safebrowsing.reporting_enabled";
+
 // Boolean that is true when Suggest support is enabled.
 const char kSearchSuggestEnabled[] = "search.suggest_enabled";
 
@@ -221,9 +225,6 @@ const char kInstantEnabledTime[] = "instant.enabled_time";
 // Used to maintain instant promo keys. See PromoCounter for details of subkeys
 // that are used.
 const char kInstantPromo[] = "instant.promo";
-
-// Type of instant. This is one of the enums defined in InstantController::TYPE.
-const char kInstantType[] = "instant.type";
 
 #if defined(USE_NSS) || defined(USE_OPENSSL)
 // Prefs for SSLConfigServicePref.  Currently, these are only present on
@@ -412,6 +413,10 @@ const char kLabsMediaplayerEnabled[] = "settings.labs.mediaplayer";
 
 // A boolean pref that turns on screen locker.
 const char kEnableScreenLock[] = "settings.enable_screen_lock";
+
+// A boolean pref of whether to show mobile plan notifications.
+const char kShowPlanNotifications[] =
+    "settings.internet.mobile.show_plan_notifications";
 
 #endif  // defined(OS_CHROMEOS)
 
@@ -755,10 +760,6 @@ const char kPreferencesWindowPlacement[] = "preferences.window_placement";
 // renderer's in-memory cache of objects.
 const char kMemoryCacheSize[] = "renderer.memory_cache.size";
 
-// Boolean that records if chrome should run in background mode when background
-// apps are installed.
-const char kBackgroundModeEnabled[] = "background_mode.enabled";
-
 // Boolean that records if chrome has set "launch on startup" property for
 // itself earlier and is allowed to reset it later, reducing likelihood of
 // overriding user choices.
@@ -935,11 +936,14 @@ const char kNTPWebResourceCache[] = "ntp.web_resource_cache";
 // Last time of update of web_resource_cache.
 const char kNTPWebResourceCacheUpdate[] = "ntp.web_resource_cache_update";
 
-// Last server used to fill tips.
+// Serves resources for the NTP.
+const char kNTPWebResourceServer[] = "ntp.web_resource_server";
+
+// Serves tips for the NTP.
 const char kNTPTipsResourceServer[] = "ntp.tips_resource_server";
 
-// Last server used to fill logo_resource_cache.
-const char kNTPLogoResourceServer[] = "ntp.alt_logo_resource_server";
+// Serves dates to determine display of elements on the NTP.
+const char kNTPDateResourceServer[] = "ntp.date_resource_server";
 
 // Which sections should be visible on the new tab page
 // 1 - Show the most visited sites in a grid
@@ -956,6 +960,17 @@ const char kNTPPrefVersion[] = "ntp.pref_version";
 // standard one.
 const char kNTPCustomLogoStart[] = "ntp.alt_logo_start";
 const char kNTPCustomLogoEnd[] = "ntp.alt_logo_end";
+
+// Dates between which the NTP should show a promotional line downloaded
+// from the promo server.
+const char kNTPPromoStart[] = "ntp.promo_start";
+const char kNTPPromoEnd[] = "ntp.promo_end";
+
+// Promo line from server.
+const char kNTPPromoLine[] = "ntp.promo_line";
+
+// True if user has explicitly closed the promo line.
+const char kNTPPromoClosed[] = "ntp.promo_closed";
 
 const char kDevToolsDisabled[] = "devtools.disabled";
 
@@ -1111,4 +1126,8 @@ const char kManagedDefaultPluginsSetting[] =
 const char kManagedDefaultPopupsSetting[] =
     "profile.managed_default_content_settings.popups";
 
+// Dictionary for storing the set of known background pages (keys are extension
+// IDs of background page owners, value is a boolean that is true if the user
+// needs to acknowledge this page.
+const char kKnownBackgroundPages[] = "background_pages.known";
 }  // namespace prefs

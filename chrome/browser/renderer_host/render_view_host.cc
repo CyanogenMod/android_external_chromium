@@ -16,6 +16,8 @@
 #include "base/time.h"
 #include "base/values.h"
 #include "chrome/browser/browser_list.h"
+#include "chrome/browser/browser_process.h"
+#include "chrome/browser/browser_thread.h"
 #include "chrome/browser/child_process_security_policy.h"
 #include "chrome/browser/cross_site_request_manager.h"
 #include "chrome/browser/debugger/devtools_manager.h"
@@ -24,6 +26,8 @@
 #include "chrome/browser/in_process_webkit/session_storage_namespace.h"
 #include "chrome/browser/net/predictor_api.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
+#include "chrome/browser/printing/printer_query.h"
+#include "chrome/browser/printing/print_job_manager.h"
 #include "chrome/browser/printing/print_preview_tab_controller.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/renderer_host/render_process_host.h"
@@ -59,6 +63,7 @@
 
 using base::TimeDelta;
 using webkit_glue::FormData;
+using webkit_glue::FormField;
 using webkit_glue::PasswordForm;
 using webkit_glue::PasswordFormDomManager;
 using webkit_glue::PasswordFormFillData;
@@ -262,12 +267,11 @@ void RenderViewHost::Navigate(const ViewMsg_Navigate_Params& params) {
     // don't want to either.
     if (!params.url.SchemeIs(chrome::kJavaScriptScheme))
       delegate_->DidStartLoading();
-
-    const GURL& url = params.url;
-    if (!delegate_->IsExternalTabContainer() &&
-        (url.SchemeIs("http") || url.SchemeIs("https")))
-      chrome_browser_net::PreconnectUrlAndSubresources(url);
   }
+  const GURL& url = params.url;
+  if (!delegate_->IsExternalTabContainer() &&
+      (url.SchemeIs("http") || url.SchemeIs("https")))
+    chrome_browser_net::PreconnectUrlAndSubresources(url);
 }
 
 void RenderViewHost::NavigateToURL(const GURL& url) {
@@ -852,6 +856,8 @@ void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
                         OnReceivedSerializedHtmlData);
     IPC_MESSAGE_HANDLER(ViewHostMsg_DidGetApplicationInfo,
                         OnDidGetApplicationInfo);
+    IPC_MESSAGE_HANDLER(ViewHostMsg_InstallApplication,
+                        OnInstallApplication);
     IPC_MESSAGE_FORWARD(ViewHostMsg_JSOutOfMemory, delegate_,
                         RenderViewHostDelegate::OnJSOutOfMemory);
     IPC_MESSAGE_HANDLER(ViewHostMsg_ShouldClose_ACK, OnMsgShouldCloseACK);
@@ -898,13 +904,8 @@ void RenderViewHost::OnMessageReceived(const IPC::Message& msg) {
 #if defined(OS_MACOSX)
     IPC_MESSAGE_HANDLER(ViewHostMsg_ShowPopup, OnMsgShowPopup)
 #endif
-#if defined(OS_MACOSX) || defined(OS_WIN)
-    IPC_MESSAGE_HANDLER(ViewHostMsg_PageReadyForPreview,
-                        OnPageReadyForPreview)
-#else
     IPC_MESSAGE_HANDLER(ViewHostMsg_PagesReadyForPreview,
                         OnPagesReadyForPreview)
-#endif
     // Have the super handle all other messages.
     IPC_MESSAGE_UNHANDLED(RenderWidgetHost::OnMessageReceived(msg))
   IPC_END_MESSAGE_MAP_EX()
@@ -1656,6 +1657,14 @@ void RenderViewHost::OnDidGetApplicationInfo(
     integration_delegate->OnDidGetApplicationInfo(page_id, info);
 }
 
+void RenderViewHost::OnInstallApplication(
+    const WebApplicationInfo& info) {
+  RenderViewHostDelegate::BrowserIntegration* integration_delegate =
+      delegate_->GetBrowserIntegrationDelegate();
+  if (integration_delegate)
+    integration_delegate->OnInstallApplication(info);
+}
+
 void RenderViewHost::GetSerializedHtmlDataForCurrentPageWithLocalLinks(
     const std::vector<GURL>& links,
     const std::vector<FilePath>& local_paths,
@@ -1690,8 +1699,9 @@ void RenderViewHost::OnMsgShouldCloseACK(bool proceed) {
   }
 }
 
-void RenderViewHost::OnQueryFormFieldAutoFill(
-    int query_id, bool field_autofilled, const webkit_glue::FormField& field) {
+void RenderViewHost::OnQueryFormFieldAutoFill(int query_id,
+                                              const FormData& form,
+                                              const FormField& field) {
   ResetAutoFillState(query_id);
 
   // We first query the autofill delegate for suggestions. We keep track of the
@@ -1699,9 +1709,8 @@ void RenderViewHost::OnQueryFormFieldAutoFill(
   // suggestions.
   RenderViewHostDelegate::AutoFill* autofill_delegate =
       delegate_->GetAutoFillDelegate();
-  if (autofill_delegate) {
-    autofill_delegate->GetAutoFillSuggestions(field_autofilled, field);
-  }
+  if (autofill_delegate)
+    autofill_delegate->GetAutoFillSuggestions(form, field);
 
   // Now query the Autocomplete delegate for suggestions. These will be combined
   // with the saved autofill suggestions in |AutocompleteSuggestionsReturned()|.
@@ -1749,13 +1758,14 @@ void RenderViewHost::OnShowAutoFillDialog() {
 
 void RenderViewHost::OnFillAutoFillFormData(int query_id,
                                             const FormData& form,
+                                            const FormField& field,
                                             int unique_id) {
   RenderViewHostDelegate::AutoFill* autofill_delegate =
       delegate_->GetAutoFillDelegate();
   if (!autofill_delegate)
     return;
 
-  autofill_delegate->FillAutoFillFormData(query_id, form, unique_id);
+  autofill_delegate->FillAutoFillFormData(query_id, form, field, unique_id);
 }
 
 void RenderViewHost::OnDidFillAutoFillFormData() {
@@ -1791,11 +1801,8 @@ void RenderViewHost::AutocompleteSuggestionsReturned(
   for (size_t i = 0; i < suggestions.size(); ++i) {
     bool unique = true;
     for (size_t j = 0; j < autofill_values_.size(); ++j) {
-      // TODO(isherman): Why just when the label is empty?
-      // If the AutoFill label is empty, we need to make sure we don't add a
-      // duplicate value.
-      if (autofill_labels_[j].empty() &&
-          autofill_values_[j] == suggestions[i]) {
+      // Don't add duplicate values.
+      if (autofill_values_[j] == suggestions[i]) {
         unique = false;
         break;
       }
@@ -2054,8 +2061,10 @@ void RenderViewHost::SearchBoxResize(const gfx::Rect& search_box_bounds) {
   Send(new ViewMsg_SearchBoxResize(routing_id(), search_box_bounds));
 }
 
-void RenderViewHost::DetermineIfPageSupportsInstant(const string16& value) {
-  Send(new ViewMsg_DetermineIfPageSupportsInstant(routing_id(), value));
+void RenderViewHost::DetermineIfPageSupportsInstant(const string16& value,
+                                                    bool verbatim) {
+  Send(new ViewMsg_DetermineIfPageSupportsInstant(routing_id(), value,
+                                                  verbatim));
 }
 
 void RenderViewHost::OnExtensionPostMessage(
@@ -2226,21 +2235,8 @@ TabContents* RenderViewHost::GetOrCreatePrintPreviewTab() {
   return NULL;
 }
 
-#if defined(OS_MACOSX) || defined(OS_WIN)
-void RenderViewHost::OnPageReadyForPreview(
-    const ViewHostMsg_DidPrintPage_Params& params) {
-  // Get/Create print preview tab.
-  TabContents* print_preview_tab = GetOrCreatePrintPreviewTab();
-  DCHECK(print_preview_tab);
-
-  // TODO(kmadhusu): Function definition needs to be changed.
-  // 'params' contains the metafile handle for preview.
-
-  // Send the printingDone msg for now.
-  Send(new ViewMsg_PrintingDone(routing_id(), -1, true));
-}
-#else
-void RenderViewHost::OnPagesReadyForPreview(int fd_in_browser) {
+void RenderViewHost::OnPagesReadyForPreview(int document_cookie,
+                                            int fd_in_browser) {
   // Get/Create print preview tab.
   TabContents* print_preview_tab = GetOrCreatePrintPreviewTab();
   DCHECK(print_preview_tab);
@@ -2248,7 +2244,16 @@ void RenderViewHost::OnPagesReadyForPreview(int fd_in_browser) {
   // TODO(kmadhusu): Function definition needs to be changed.
   // fd_in_browser should be the file descriptor of the metafile.
 
+  scoped_refptr<printing::PrinterQuery> printer_query;
+  g_browser_process->print_job_manager()->PopPrinterQuery(document_cookie,
+                                                          &printer_query);
+  if (printer_query.get()) {
+      BrowserThread::PostTask(
+          BrowserThread::IO, FROM_HERE,
+          NewRunnableMethod(printer_query.get(),
+                            &printing::PrinterQuery::StopWorker));
+  }
+
   // Send the printingDone msg for now.
   Send(new ViewMsg_PrintingDone(routing_id(), -1, true));
 }
-#endif

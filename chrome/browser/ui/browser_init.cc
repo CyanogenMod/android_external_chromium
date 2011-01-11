@@ -15,6 +15,7 @@
 #include "base/path_service.h"
 #include "base/scoped_ptr.h"
 #include "base/string_number_conversions.h"
+#include "base/string_split.h"
 #include "base/thread_restrictions.h"
 #include "base/utf_string_conversions.h"
 #include "chrome/browser/automation/automation_provider.h"
@@ -48,6 +49,7 @@
 #include "chrome/browser/tab_contents/navigation_controller.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
+#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/pinned_tab_codec.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser_navigator.h"
@@ -93,6 +95,10 @@
 #include "chrome/browser/chromeos/wm_message_listener.h"
 #include "chrome/browser/chromeos/wm_overview_controller.h"
 #include "chrome/browser/dom_ui/mediaplayer_ui.h"
+#endif
+
+#if defined(HAVE_XINPUT2)
+#include "views/focus/accelerator_handler.h"
 #endif
 
 namespace {
@@ -383,6 +389,15 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
                                 int* return_code) {
   in_startup = process_startup;
   DCHECK(profile);
+#if defined(OS_CHROMEOS)
+  if (process_startup) {
+    // NetworkStateNotifier has to be initialized before Launching browser
+    // because the page load can happen in parallel to this UI thread
+    // and IO thread may access the NetworkStateNotifier.
+    chromeos::CrosLibrary::Get()->GetNetworkLibrary()
+        ->AddNetworkManagerObserver(chromeos::NetworkStateNotifier::Get());
+  }
+#endif
 
   // Continue with the off-the-record profile from here on if --incognito
   if (command_line.HasSwitch(switches::kIncognito))
@@ -445,9 +460,6 @@ bool BrowserInit::LaunchBrowser(const CommandLine& command_line,
         ->AddNetworkManagerObserver(network_message_observer);
     chromeos::CrosLibrary::Get()->GetNetworkLibrary()
         ->AddCellularDataPlanObserver(network_message_observer);
-
-    chromeos::CrosLibrary::Get()->GetNetworkLibrary()
-        ->AddNetworkManagerObserver(chromeos::NetworkStateNotifier::Get());
   }
 #endif
   return true;
@@ -604,17 +616,29 @@ bool BrowserInit::LaunchWithProfile::OpenApplicationWindow(Profile* profile) {
   if (!IsAppLaunch(&url_string, &app_id))
     return false;
 
-  // http://crbug.com/37548
-  // TODO(rafaelw): There are two legitimate cases where the extensions
-  // service could not be ready at this point which need to be handled:
-  // 1) The locale has changed and the manifests stored in the preferences
-  //    need to be relocalized.
-  // 2) An externally installed extension will be found and installed.
-  // Note that this can also fail if the app_id is simply invalid.
-  // TODO(rafaelw): Do something reasonable here. Pop up a warning panel?
+  // This can fail if the app_id is invalid.  It can also fail if the
+  // extension is external, and has not yet been installed.
+  // TODO(skerner): Do something reasonable here. Pop up a warning panel?
   // Open an URL to the gallery page of the extension id?
-  if (!app_id.empty())
-    return Browser::OpenApplication(profile, app_id, NULL) != NULL;
+  if (!app_id.empty()) {
+    ExtensionsService* extensions_service = profile->GetExtensionsService();
+    const Extension* extension =
+        extensions_service->GetExtensionById(app_id, false);
+
+    // The extension with id |app_id| may have been uninstalled.
+    if (!extension)
+      return false;
+
+    // Look at preferences to find the right launch container.  If no
+    // preference is set, launch as a window.
+    extension_misc::LaunchContainer launch_container =
+        extensions_service->extension_prefs()->GetLaunchContainer(
+            extension, ExtensionPrefs::LAUNCH_WINDOW);
+
+    TabContents* app_window = Browser::OpenApplication(
+        profile, extension, launch_container, NULL);
+    return (app_window != NULL);
+  }
 
   if (url_string.empty())
     return false;
@@ -630,8 +654,11 @@ bool BrowserInit::LaunchWithProfile::OpenApplicationWindow(Profile* profile) {
         ChildProcessSecurityPolicy::GetInstance();
     if (policy->IsWebSafeScheme(url.scheme()) ||
         url.SchemeIs(chrome::kFileScheme)) {
-      Browser::OpenApplicationWindow(profile, url);
-      return true;
+      TabContents* app_tab = Browser::OpenAppShortcutWindow(
+          profile,
+          url,
+          true);  // Update app info.
+      return (app_tab != NULL);
     }
   }
   return false;
@@ -777,8 +804,8 @@ Browser* BrowserInit::LaunchWithProfile::OpenTabsInBrowser(
     browser::Navigate(&params);
 
     if (profile_ && first_tab && process_startup) {
-      AddCrashedInfoBarIfNecessary(params.target_contents);
-      AddBadFlagsInfoBarIfNecessary(params.target_contents);
+      AddCrashedInfoBarIfNecessary(params.target_contents->tab_contents());
+      AddBadFlagsInfoBarIfNecessary(params.target_contents->tab_contents());
     }
 
     first_tab = false;
@@ -870,7 +897,12 @@ std::vector<GURL> BrowserInit::LaunchWithProfile::GetURLsFromCommandLine(
             ChildProcessSecurityPolicy::GetInstance();
         if (policy->IsWebSafeScheme(url.scheme()) ||
             url.SchemeIs(chrome::kFileScheme) ||
-            !url.spec().compare(chrome::kAboutBlankURL)) {
+#if defined(OS_CHROMEOS)
+            // In ChromeOS, allow a settings page to be specified on the
+            // command line. See ExistingUserController::OnLoginSuccess.
+            (url.spec().find(chrome::kChromeUISettingsURL) == 0) ||
+#endif
+            (url.spec().compare(chrome::kAboutBlankURL) == 0)) {
           urls.push_back(url);
         }
       }
@@ -961,10 +993,11 @@ bool BrowserInit::ProcessCmdLineImpl(const CommandLine& command_line,
         expected_tab_count =
             std::max(1, static_cast<int>(command_line.args().size()));
       }
-      CreateAutomationProvider<TestingAutomationProvider>(
+      if (!CreateAutomationProvider<TestingAutomationProvider>(
           testing_channel_id,
           profile,
-          static_cast<size_t>(expected_tab_count));
+          static_cast<size_t>(expected_tab_count)))
+        return false;
     }
   }
 
@@ -981,11 +1014,13 @@ bool BrowserInit::ProcessCmdLineImpl(const CommandLine& command_line,
       silent_launch = true;
 
     if (command_line.HasSwitch(switches::kChromeFrame)) {
-      CreateAutomationProvider<ChromeFrameAutomationProvider>(
-          automation_channel_id, profile, expected_tabs);
+      if (!CreateAutomationProvider<ChromeFrameAutomationProvider>(
+          automation_channel_id, profile, expected_tabs))
+        return false;
     } else {
-      CreateAutomationProvider<AutomationProvider>(automation_channel_id,
-                                                   profile, expected_tabs);
+      if (!CreateAutomationProvider<AutomationProvider>(
+          automation_channel_id, profile, expected_tabs))
+        return false;
     }
   }
 
@@ -1010,6 +1045,30 @@ bool BrowserInit::ProcessCmdLineImpl(const CommandLine& command_line,
   }
 #endif
 
+#if defined(HAVE_XINPUT2) && defined(TOUCH_UI)
+  // Get a list of pointer-devices that should be treated as touch-devices.
+  // TODO(sad): Instead of/in addition to getting the list from the
+  // command-line, query X for a list of touch devices.
+  std::string touch_devices =
+    command_line.GetSwitchValueASCII(switches::kTouchDevices);
+
+  if (!touch_devices.empty()) {
+    std::vector<std::string> devs;
+    std::vector<unsigned int> device_ids;
+    unsigned int devid;
+    base::SplitString(touch_devices, ',', &devs);
+    for (std::vector<std::string>::iterator iter = devs.begin();
+        iter != devs.end(); ++iter) {
+      if (base::StringToInt(*iter, reinterpret_cast<int*>(&devid))) {
+        device_ids.push_back(devid);
+      } else {
+        DLOG(WARNING) << "Invalid touch-device id: " << *iter;
+      }
+    }
+    views::SetTouchDeviceList(device_ids);
+  }
+#endif
+
   // If we don't want to launch a new browser window or tab (in the case
   // of an automation request), we are done here.
   if (!silent_launch) {
@@ -1020,16 +1079,20 @@ bool BrowserInit::ProcessCmdLineImpl(const CommandLine& command_line,
 }
 
 template <class AutomationProviderClass>
-void BrowserInit::CreateAutomationProvider(const std::string& channel_id,
+bool BrowserInit::CreateAutomationProvider(const std::string& channel_id,
                                            Profile* profile,
                                            size_t expected_tabs) {
   scoped_refptr<AutomationProviderClass> automation =
       new AutomationProviderClass(profile);
-  automation->ConnectToChannel(channel_id);
+
+  if (!automation->InitializeChannel(channel_id))
+    return false;
   automation->SetExpectedTabCount(expected_tabs);
 
   AutomationProviderList* list =
       g_browser_process->InitAutomationProviderList();
   DCHECK(list);
   list->AddProvider(automation);
+
+  return true;
 }

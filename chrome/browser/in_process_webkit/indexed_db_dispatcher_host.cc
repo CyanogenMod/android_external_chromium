@@ -82,11 +82,6 @@ IndexedDBDispatcherHost::IndexedDBDispatcherHost(
 }
 
 IndexedDBDispatcherHost::~IndexedDBDispatcherHost() {
-  DeleteOnWebKitThread(database_dispatcher_host_.release());
-  DeleteOnWebKitThread(index_dispatcher_host_.release());
-  DeleteOnWebKitThread(object_store_dispatcher_host_.release());
-  DeleteOnWebKitThread(cursor_dispatcher_host_.release());
-  DeleteOnWebKitThread(transaction_dispatcher_host_.release());
 }
 
 void IndexedDBDispatcherHost::Init(int process_id,
@@ -116,6 +111,9 @@ void IndexedDBDispatcherHost::Shutdown() {
 
   database_dispatcher_host_.reset();
   index_dispatcher_host_.reset();
+  object_store_dispatcher_host_.reset();
+  cursor_dispatcher_host_.reset();
+  transaction_dispatcher_host_.reset();
 }
 
 bool IndexedDBDispatcherHost::OnMessageReceived(const IPC::Message& message) {
@@ -132,9 +130,8 @@ bool IndexedDBDispatcherHost::OnMessageReceived(const IPC::Message& message) {
     case ViewHostMsg_IDBCursorDestroyed::ID:
     case ViewHostMsg_IDBFactoryOpen::ID:
     case ViewHostMsg_IDBDatabaseName::ID:
-    case ViewHostMsg_IDBDatabaseDescription::ID:
     case ViewHostMsg_IDBDatabaseVersion::ID:
-    case ViewHostMsg_IDBDatabaseObjectStores::ID:
+    case ViewHostMsg_IDBDatabaseObjectStoreNames::ID:
     case ViewHostMsg_IDBDatabaseCreateObjectStore::ID:
     case ViewHostMsg_IDBDatabaseRemoveObjectStore::ID:
     case ViewHostMsg_IDBDatabaseSetVersion::ID:
@@ -364,11 +361,9 @@ bool IndexedDBDispatcherHost::DatabaseDispatcherHost::OnMessageReceived(
   IPC_BEGIN_MESSAGE_MAP_EX(IndexedDBDispatcherHost::DatabaseDispatcherHost,
                            message, *msg_is_ok)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_IDBDatabaseName, OnName)
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_IDBDatabaseDescription,
-                                    OnDescription)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_IDBDatabaseVersion, OnVersion)
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_IDBDatabaseObjectStores,
-                                    OnObjectStores)
+    IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_IDBDatabaseObjectStoreNames,
+                                    OnObjectStoreNames)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_IDBDatabaseCreateObjectStore,
                                     OnCreateObjectStore)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(ViewHostMsg_IDBDatabaseRemoveObjectStore,
@@ -397,34 +392,27 @@ void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnName(
       &map_, object_id, reply_msg, &WebIDBDatabase::name);
 }
 
-// TODO(hans): Delete this?
-void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnDescription(
-    int32 object_id, IPC::Message* reply_msg) {
-  parent_->SyncGetter<string16, ViewHostMsg_IDBDatabaseDescription>(
-      &map_, object_id, reply_msg, &WebIDBDatabase::description);
-}
-
 void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnVersion(
     int32 object_id, IPC::Message* reply_msg) {
   parent_->SyncGetter<string16, ViewHostMsg_IDBDatabaseVersion>(
       &map_, object_id, reply_msg, &WebIDBDatabase::version);
 }
 
-void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnObjectStores(
+void IndexedDBDispatcherHost::DatabaseDispatcherHost::OnObjectStoreNames(
     int32 idb_database_id, IPC::Message* reply_msg) {
   WebIDBDatabase* idb_database = parent_->GetOrTerminateProcess(
       &map_, idb_database_id, reply_msg,
-      ViewHostMsg_IDBDatabaseObjectStores::ID);
+      ViewHostMsg_IDBDatabaseObjectStoreNames::ID);
   if (!idb_database)
     return;
 
-  WebDOMStringList web_object_stores = idb_database->objectStores();
+  WebDOMStringList web_object_stores = idb_database->objectStoreNames();
   std::vector<string16> object_stores;
   object_stores.reserve(web_object_stores.length());
   for (unsigned i = 0; i < web_object_stores.length(); ++i)
     object_stores.push_back(web_object_stores.item(i));
-  ViewHostMsg_IDBDatabaseObjectStores::WriteReplyParams(reply_msg,
-                                                        object_stores);
+  ViewHostMsg_IDBDatabaseObjectStoreNames::WriteReplyParams(reply_msg,
+                                                            object_stores);
   parent_->Send(reply_msg);
 }
 
@@ -609,7 +597,8 @@ void IndexedDBDispatcherHost::IndexDispatcherHost::OnOpenObjectCursor(
       new IndexedDBCallbacks<WebIDBCursor>(parent_, params.response_id_));
   WebExceptionCode ec = 0;
   idb_index->openObjectCursor(
-      WebIDBKeyRange(params.left_key_, params.right_key_, params.key_flags_),
+      WebIDBKeyRange(params.lower_key_, params.upper_key_, params.lower_open_,
+                     params.upper_open_),
       params.direction_, callbacks.release(), *idb_transaction, ec);
   ViewHostMsg_IDBIndexOpenObjectCursor::WriteReplyParams(reply_msg, ec);
   parent_->Send(reply_msg);
@@ -631,7 +620,8 @@ void IndexedDBDispatcherHost::IndexDispatcherHost::OnOpenKeyCursor(
       new IndexedDBCallbacks<WebIDBCursor>(parent_, params.response_id_));
   WebExceptionCode ec = 0;
   idb_index->openKeyCursor(
-      WebIDBKeyRange(params.left_key_, params.right_key_, params.key_flags_),
+      WebIDBKeyRange(params.lower_key_, params.upper_key_, params.lower_open_,
+                     params.upper_open_),
       params.direction_, callbacks.release(), *idb_transaction, ec);
   ViewHostMsg_IDBIndexOpenKeyCursor::WriteReplyParams(reply_msg, ec);
   parent_->Send(reply_msg);
@@ -888,7 +878,7 @@ void IndexedDBDispatcherHost::ObjectStoreDispatcherHost::OnRemoveIndex(
     return;
 
   WebExceptionCode ec = 0;
-  idb_object_store->removeIndex(name, *idb_transaction, ec);
+  idb_object_store->deleteIndex(name, *idb_transaction, ec);
   ViewHostMsg_IDBObjectStoreRemoveIndex::WriteReplyParams(reply_msg, ec);
   parent_->Send(reply_msg);
 }
@@ -911,7 +901,8 @@ void IndexedDBDispatcherHost::ObjectStoreDispatcherHost::OnOpenCursor(
       new IndexedDBCallbacks<WebIDBCursor>(parent_, params.response_id_));
   WebExceptionCode ec = 0;
   idb_object_store->openCursor(
-      WebIDBKeyRange(params.left_key_, params.right_key_, params.flags_),
+      WebIDBKeyRange(params.lower_key_, params.upper_key_, params.lower_open_,
+                     params.upper_open_),
       params.direction_, callbacks.release(), *idb_transaction, ec);
   ViewHostMsg_IDBObjectStoreOpenCursor::WriteReplyParams(reply_msg, ec);
   parent_->Send(reply_msg);
@@ -1075,6 +1066,11 @@ IndexedDBDispatcherHost::TransactionDispatcherHost::TransactionDispatcherHost(
 
 IndexedDBDispatcherHost::
     TransactionDispatcherHost::~TransactionDispatcherHost() {
+  MapType::iterator it(&map_);
+  while (!it.IsAtEnd()) {
+    it.GetCurrentValue()->abort();
+    it.Advance();
+  }
 }
 
 bool IndexedDBDispatcherHost::TransactionDispatcherHost::OnMessageReceived(
@@ -1133,10 +1129,11 @@ void IndexedDBDispatcherHost::TransactionDispatcherHost::OnObjectStore(
   if (!idb_transaction)
     return;
 
-  WebIDBObjectStore* object_store = idb_transaction->objectStore(name);
+  WebExceptionCode ec = 0;
+  WebIDBObjectStore* object_store = idb_transaction->objectStore(name, ec);
   int32 object_id = object_store ? parent_->Add(object_store) : 0;
   ViewHostMsg_IDBTransactionObjectStore::WriteReplyParams(
-      reply_msg, object_id);
+      reply_msg, object_id, ec);
   parent_->Send(reply_msg);
 }
 

@@ -16,7 +16,7 @@ cr.define('options', function() {
   //
   function PersonalOptions() {
     OptionsPage.call(this, 'personal', templateData.personalPage,
-                     'personalPage');
+                     'personal-page');
   }
 
   cr.addSingletonGetter(PersonalOptions);
@@ -46,43 +46,42 @@ cr.define('options', function() {
       $('privacy-dashboard-link').onclick = function(event) {
         chrome.send('openPrivacyDashboardTabAndActivate');
       };
-      $('showpasswords').onclick = function(event) {
+      $('manage-passwords').onclick = function(event) {
         PasswordsExceptions.load();
         OptionsPage.showPageByName('passwordsExceptions');
         OptionsPage.showTab($('passwords-nav-tab'));
         chrome.send('coreOptionsUserMetricsAction',
             ['Options_ShowPasswordsExceptions']);
       };
-      $('autofill_options').onclick = function(event) {
+      $('autofill-options').onclick = function(event) {
         OptionsPage.showPageByName('autoFillOptions');
         chrome.send('coreOptionsUserMetricsAction',
             ['Options_ShowAutoFillSettings']);
       };
+      $('themes-reset').onclick = function(event) {
+        chrome.send('themesReset');
+      };
 
       if (!cr.isChromeOS) {
-        $('import_data').onclick = function(event) {
+        $('import-data').onclick = function(event) {
           OptionsPage.showOverlay('importDataOverlay');
           chrome.send('coreOptionsUserMetricsAction', ['Import_ShowDlg']);
         };
-      }
 
-      if (!cr.isChromeOS && navigator.platform.match(/linux|BSD/i)) {
-        $('themes_GTK_button').onclick = function(event) {
-          chrome.send('themesSetGTK');
-        };
-        $('themes_set_classic').onclick = function(event) {
-          chrome.send('themesReset');
-        };
-      }
-
-      if (cr.isMac || cr.isWindows || cr.isChromeOS) {
-        $('themes_reset').onclick = function(event) {
-          chrome.send('themesReset');
-        };
-      }
-
-      if (cr.isChromeOS) {
+        if (navigator.platform.match(/linux|BSD/i)) {
+          $('themes-GTK-button').onclick = function(event) {
+            chrome.send('themesSetGTK');
+          };
+        }
+      } else {
         chrome.send('loadAccountPicture');
+      }
+      // Disable the screen lock checkbox for the guest mode.
+      if (cr.commandLine.options['--bwsi']) {
+        var enableScreenLock = $('enable-screen-lock');
+        enableScreenLock.disabled = true;
+        // Mark that this is manually disabled. See also pref_ui.js.
+        enableScreenLock.manually_disabled = true;
       }
     },
 
@@ -169,14 +168,12 @@ cr.define('options', function() {
 
     setGtkThemeButtonEnabled_: function(enabled) {
       if (!cr.isChromeOS && navigator.platform.match(/linux|BSD/i)) {
-        $('themes_GTK_button').disabled = !enabled;
+        $('themes-GTK-button').disabled = !enabled;
       }
     },
 
-    setClassicThemeButtonEnabled_: function(enabled) {
-      if (!cr.isChromeOS && navigator.platform.match(/linux|BSD/i)) {
-        $('themes_set_classic').disabled = !enabled;
-      }
+    setThemesResetButtonEnabled_: function(enabled) {
+      $('themes-reset').disabled = !enabled;
     },
 
     hideSyncSection_: function() {
@@ -201,7 +198,7 @@ cr.define('options', function() {
     'setCustomizeButtonEnabled',
     'setCustomizeButtonLabel',
     'setGtkThemeButtonEnabled',
-    'setClassicThemeButtonEnabled',
+    'setThemesResetButtonEnabled',
     'hideSyncSection',
   ].forEach(function(name) {
     PersonalOptions[name] = function(value) {

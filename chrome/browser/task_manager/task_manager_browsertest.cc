@@ -12,6 +12,7 @@
 #include "chrome/browser/extensions/crashed_extension_infobar.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/notifications/desktop_notification_service.h"
+#include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_test_util.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
 #include "chrome/browser/profile.h"
@@ -84,19 +85,11 @@ class TaskManagerBrowserTest : public ExtensionBrowserTest {
   }
 };
 
-// Crashes on Vista (dbg): http://crbug.com/44991
-#if defined(OS_WIN)
-#define ShutdownWhileOpen DISABLED_ShutdownWhileOpen
-#endif
 // Regression test for http://crbug.com/13361
 IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, ShutdownWhileOpen) {
   browser()->window()->ShowTaskManager();
 }
 
-// Times out on Vista; disabled to keep tests fast. http://crbug.com/44991
-#if defined(OS_WIN)
-#define NoticeTabContentsChanges DISABLED_NoticeTabContentsChanges
-#endif
 IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeTabContentsChanges) {
   EXPECT_EQ(0, model()->ResourceCount());
 
@@ -200,16 +193,12 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, NoticeNotificationChanges) {
   WaitForResourceChange(3);
   notifications->Add(n2, browser()->profile());
   WaitForResourceChange(4);
-  notifications->Cancel(n1);
+  notifications->CancelById(n1.notification_id());
   WaitForResourceChange(3);
-  notifications->Cancel(n2);
+  notifications->CancelById(n2.notification_id());
   WaitForResourceChange(2);
 }
 
-// Times out on Vista; disabled to keep tests fast. http://crbug.com/44991
-#if defined(OS_WIN)
-#define KillExtension DISABLED_KillExtension
-#endif
 IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, KillExtension) {
   // Show the task manager. This populates the model, and helps with debugging
   // (you see the task manager).
@@ -231,10 +220,6 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, KillExtension) {
   WaitForResourceChange(2);
 }
 
-// Times out on Vista; disabled to keep tests fast. http://crbug.com/44991
-#if defined(OS_WIN)
-#define KillExtensionAndReload DISABLED_KillExtensionAndReload
-#endif
 IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest, KillExtensionAndReload) {
   // Show the task manager. This populates the model, and helps with debugging
   // (you see the task manager).

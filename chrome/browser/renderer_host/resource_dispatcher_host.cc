@@ -210,7 +210,7 @@ ResourceDispatcherHost::ResourceDispatcherHost()
       ALLOW_THIS_IN_INITIALIZER_LIST(
           save_file_manager_(new SaveFileManager(this))),
       user_script_listener_(new UserScriptListener(&resource_queue_)),
-      safe_browsing_(new SafeBrowsingService),
+      safe_browsing_(SafeBrowsingService::CreateSafeBrowsingService()),
       socket_stream_dispatcher_host_(new SocketStreamDispatcherHost),
       webkit_thread_(new WebKitThread),
       request_id_(-1),
@@ -449,6 +449,8 @@ void ResourceDispatcherHost::BeginRequest(
     load_flags |= net::LOAD_MAIN_FRAME;
   } else if (request_data.resource_type == ResourceType::SUB_FRAME) {
     load_flags |= net::LOAD_SUB_FRAME;
+  } else if (request_data.resource_type == ResourceType::PREFETCH) {
+    load_flags |= net::LOAD_PREFETCH;
   }
   // Raw headers are sensitive, as they inclide Cookie/Set-Cookie, so only
   // allow requesting them if requestor has ReadRawCookies permission.
@@ -1078,6 +1080,7 @@ void ResourceDispatcherHost::OnSSLCertificateError(
 
 void ResourceDispatcherHost::OnSetCookie(URLRequest* request,
                                          const std::string& cookie_line,
+                                         const net::CookieOptions& options,
                                          bool blocked_by_policy) {
   VLOG(1) << "OnSetCookie: " << request->url().spec();
 
@@ -1088,7 +1091,7 @@ void ResourceDispatcherHost::OnSetCookie(URLRequest* request,
   CallRenderViewHostContentSettingsDelegate(
       render_process_id, render_view_id,
       &RenderViewHostDelegate::ContentSettings::OnCookieAccessed,
-      request->url(), cookie_line, blocked_by_policy);
+      request->url(), cookie_line, options, blocked_by_policy);
 }
 
 void ResourceDispatcherHost::OnResponseStarted(URLRequest* request) {

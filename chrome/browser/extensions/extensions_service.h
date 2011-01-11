@@ -33,6 +33,7 @@
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_registrar.h"
 #include "chrome/common/extensions/extension.h"
+#include "chrome/common/property_bag.h"
 
 class ExtensionsServiceBackend;
 class ExtensionToolbarModel;
@@ -189,6 +190,10 @@ class ExtensionsService
   bool AllowFileAccess(const Extension* extension);
   void SetAllowFileAccess(const Extension* extension, bool allow);
 
+  // Getter and setter for the Browser Action visibility in the toolbar.
+  bool GetBrowserActionVisibility(const Extension* extension);
+  void SetBrowserActionVisibility(const Extension* extension, bool visible);
+
   // Whether the background page, if any, is ready. We don't load other
   // components until then. If there is no background page, we consider it to
   // be ready.
@@ -199,6 +204,9 @@ class ExtensionsService
   // being upgraded.
   bool IsBeingUpgraded(const Extension* extension);
   void SetBeingUpgraded(const Extension* extension, bool value);
+
+  // Getter for the extension's runtime data PropertyBag.
+  PropertyBag* GetPropertyBag(const Extension* extension);
 
   // Initialize and start all installed extensions.
   void Init();
@@ -269,6 +277,15 @@ class ExtensionsService
   void EnableExtension(const std::string& extension_id);
   void DisableExtension(const std::string& extension_id);
 
+  // Updates the |extension|'s granted permissions lists to include all
+  // permissions in the |extension|'s manifest.
+  void GrantPermissions(const Extension* extension);
+
+  // Updates the |extension|'s granted permissions lists to include all
+  // permissions in the |extension|'s manifest and re-enables the
+  // extension.
+  void GrantPermissionsAndEnableExtension(const Extension* extension);
+
   // Load the extension from the directory |extension_path|.
   void LoadExtension(const FilePath& extension_path);
 
@@ -287,6 +304,10 @@ class ExtensionsService
 
   // Check for updates (or potentially new extensions from external providers)
   void CheckForExternalUpdates();
+
+  // Copies the list of force-installed extensions from the user PrefService
+  // to ExternalPolicyExtensionProvider.
+  void UpdateExternalPolicyExtensionProvider();
 
   // Unload the specified extension.
   void UnloadExtension(const std::string& extension_id);
@@ -339,18 +360,20 @@ class ExtensionsService
   virtual void OnLoadedInstalledExtensions();
 
   // Called when an extension has been loaded.
-  void OnExtensionLoaded(const Extension* extension,
-                         bool allow_privilege_increase);
+  void OnExtensionLoaded(const Extension* extension);
 
   // Called by the backend when an extension has been installed.
-  void OnExtensionInstalled(const Extension* extension,
-                            bool allow_privilege_increase);
+  void OnExtensionInstalled(const Extension* extension);
 
   // Called by the backend when an external extension is found.
   void OnExternalExtensionFileFound(const std::string& id,
                                     const std::string& version,
                                     const FilePath& path,
                                     Extension::Location location);
+
+  // Checks if the privileges requested by |extension| have increased, and if
+  // so, disables the extension and prompts the user to approve the change.
+  void DisableIfPrivilegeIncrease(const Extension* extension);
 
   // Go through each extensions in pref, unload blacklisted extensions
   // and update the blacklist state in pref.
@@ -382,6 +405,7 @@ class ExtensionsService
   ExtensionPrefs* extension_prefs() { return extension_prefs_.get(); }
 
   // Whether the extension service is ready.
+  // TODO(skerner): Get rid of this method.  crbug.com/63756
   bool is_ready() { return ready_; }
 
   // Note that this may return NULL if autoupdate is not turned on.
@@ -431,6 +455,9 @@ class ExtensionsService
 
     // True while the extension is being upgraded.
     bool being_upgraded;
+
+    // Generic bag of runtime data that users can associate with extensions.
+    PropertyBag property_bag;
 
     ExtensionRuntimeData();
     ~ExtensionRuntimeData();
@@ -508,7 +535,8 @@ class ExtensionsService
   // Used by dispatchers to limit API quota for individual extensions.
   ExtensionsQuotaService quota_service_;
 
-  // Is the service ready to go?
+  // Record that Init() has been called, and NotificationType::EXTENSIONS_READY
+  // has fired.
   bool ready_;
 
   // Our extension updater, if updates are turned on.

@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_TAB_CONTENTS_TAB_CONTENTS_H_
 #pragma once
 
+<<<<<<< HEAD
 #ifdef ANDROID
 #include "android/autofill/profile_android.h"
 #include "base/scoped_ptr.h"
@@ -42,6 +43,8 @@ private:
 
 #include "build/build_config.h"
 
+=======
+>>>>>>> Chromium.org at 9.0.597.55
 #include <deque>
 #include <map>
 #include <string>
@@ -59,7 +62,6 @@ private:
 #include "chrome/browser/find_notification_details.h"
 #include "chrome/browser/js_modal_dialog.h"
 #include "chrome/browser/prefs/pref_change_registrar.h"
-#include "chrome/browser/password_manager/password_manager_delegate.h"
 #include "chrome/browser/renderer_host/render_view_host_delegate.h"
 #include "chrome/browser/tab_contents/constrained_window.h"
 #include "chrome/browser/tab_contents/language_state.h"
@@ -106,7 +108,6 @@ class FileSelectHelper;
 class InfoBarDelegate;
 class LoadNotificationDetails;
 class OmniboxSearchHint;
-class PasswordManager;
 class PluginInstaller;
 class Profile;
 struct RendererPreferences;
@@ -122,6 +123,7 @@ class URLPattern;
 struct ThumbnailScore;
 struct ViewHostMsg_DomMessage_Params;
 struct ViewHostMsg_FrameNavigate_Params;
+class WebNavigationObserver;
 struct WebPreferences;
 
 // Describes what goes in the main content area of a tab. TabContents is
@@ -134,7 +136,6 @@ class TabContents : public PageNavigator,
                     public RenderViewHostManager::Delegate,
                     public JavaScriptAppModalDialogDelegate,
                     public ImageLoadingTracker::Observer,
-                    public PasswordManagerDelegate,
                     public TabSpecificContentSettings::Delegate {
  public:
   // Flags passed to the TabContentsDelegate.NavigationStateChanged to tell it
@@ -190,9 +191,6 @@ class TabContents : public PageNavigator,
 
   // Returns the AutoFillManager, creating it if necessary.
   AutoFillManager* GetAutoFillManager();
-
-  // Returns the PasswordManager, creating it if necessary.
-  PasswordManager* GetPasswordManager();
 
   // Returns the PluginInstaller, creating it if necessary.
   PluginInstaller* GetPluginInstaller();
@@ -303,6 +301,13 @@ class TabContents : public PageNavigator,
   // Returns a human-readable description the tab's loading state.
   virtual std::wstring GetStatusText() const;
 
+  // Add and remove observers for page navigation notifications. Adding or
+  // removing multiple times has no effect. The order in which notifications
+  // are sent to observers is undefined. Clients must be sure to remove the
+  // observer before they go away.
+  void AddNavigationObserver(WebNavigationObserver* observer);
+  void RemoveNavigationObserver(WebNavigationObserver* observer);
+
   // Return whether this tab contents is loading a resource.
   bool is_loading() const { return is_loading_; }
 
@@ -360,6 +365,9 @@ class TabContents : public PageNavigator,
   // Invoked when the tab contents becomes selected. If you override, be sure
   // and invoke super's implementation.
   virtual void DidBecomeSelected();
+  base::TimeTicks last_selected_time() const {
+    return last_selected_time_;
+  }
 
   // Invoked when the tab contents becomes hidden.
   // NOTE: If you override this, call the superclass version too!
@@ -375,6 +383,12 @@ class TabContents : public PageNavigator,
   // TODO(brettw) document these.
   virtual void ShowContents();
   virtual void HideContents();
+
+  // Returns true if the before unload and unload listeners need to be
+  // fired. The value of this changes over time. For example, if true and the
+  // before unload listener is executed and allows the user to exit, then this
+  // returns false.
+  bool NeedToFireBeforeUnload();
 
 #ifdef UNIT_TEST
   // Expose the render manager for testing.
@@ -729,13 +743,6 @@ class TabContents : public PageNavigator,
   // state by various UI elements.
   TabSpecificContentSettings* GetTabSpecificContentSettings() const;
 
-  // PasswordManagerDelegate implementation.
-  virtual void FillPasswordForm(
-      const webkit_glue::PasswordFormFillData& form_data);
-  virtual void AddSavePasswordInfoBar(PasswordFormManager* form_to_save);
-  virtual Profile* GetProfileForPasswordManager();
-  virtual bool DidLastPageLoadEncounterSSLErrors();
-
   // Updates history with the specified navigation. This is called by
   // OnMsgNavigate to update history state.
   void UpdateHistoryForNavigation(
@@ -750,6 +757,12 @@ class TabContents : public PageNavigator,
 
   // Gets the zoom percent for this tab.
   int GetZoomPercent(bool* enable_increment, bool* enable_decrement);
+
+  // Shows a fade effect over this tab contents. Repeated calls will be ignored
+  // until the fade is canceled. If |animate| is true the fade should animate.
+  void FadeForInstant(bool animate);
+  // Immediately removes the fade.
+  void CancelInstantFade();
 
   // Gets the minimum/maximum zoom percent.
   int minimum_zoom_percent() const { return minimum_zoom_percent_; }
@@ -904,6 +917,7 @@ class TabContents : public PageNavigator,
   virtual void OnCrashedWorker();
   virtual void OnDidGetApplicationInfo(int32 page_id,
                                        const WebApplicationInfo& info);
+  virtual void OnInstallApplication(const WebApplicationInfo& info);
   virtual void OnDisabledOutdatedPlugin(const string16& name,
                                         const GURL& update_url);
   virtual void OnPageContents(const GURL& url,
@@ -1129,9 +1143,6 @@ class TabContents : public PageNavigator,
   // AutoFillManager, lazily created.
   scoped_ptr<AutoFillManager> autofill_manager_;
 
-  // PasswordManager, lazily created.
-  scoped_ptr<PasswordManager> password_manager_;
-
   // PluginInstaller, lazily created.
   scoped_ptr<PluginInstaller> plugin_installer_;
 
@@ -1199,7 +1210,7 @@ class TabContents : public PageNavigator,
   // used to check whether we can do something for some special contents.
   std::string contents_mime_type_;
 
-  // Character encoding. TODO(jungshik) : convert to std::string
+  // Character encoding.
   std::string encoding_;
 
   // Object that holds any blocked TabContents spawned from this TabContents.
@@ -1324,6 +1335,9 @@ class TabContents : public PageNavigator,
   // The time that we started to close the tab.
   base::TimeTicks tab_close_start_time_;
 
+  // The time that this tab was last selected.
+  base::TimeTicks last_selected_time_;
+
   // Information about the language the page is in and has been translated to.
   LanguageState language_state_;
 
@@ -1337,6 +1351,9 @@ class TabContents : public PageNavigator,
   // case we don't want saved settings to apply to it and we don't want to
   // remember it.
   bool temporary_zoom_settings_;
+
+  // A list of observers notified when page state changes. Weak references.
+  ObserverList<WebNavigationObserver> web_navigation_observers_;
 
   // Content restrictions, used to disable print/copy etc based on content's
   // (full-page plugins for now only) permissions.

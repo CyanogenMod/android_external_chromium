@@ -5,8 +5,10 @@
 #include "chrome/browser/download/download_item.h"
 
 #include "app/l10n_util.h"
+#include "base/basictypes.h"
 #include "base/file_util.h"
 #include "base/logging.h"
+#include "base/stringprintf.h"
 #include "base/timer.h"
 #include "base/utf_string_conversions.h"
 #include "net/base/net_util.h"
@@ -34,6 +36,36 @@ void DeleteDownloadedFile(const FilePath& path) {
   // Make sure we only delete files.
   if (!file_util::DirectoryExists(path))
     file_util::Delete(path, false);
+}
+
+const char* DebugSafetyStateString(DownloadItem::SafetyState state) {
+  switch (state) {
+    case DownloadItem::SAFE:
+      return "SAFE";
+    case DownloadItem::DANGEROUS:
+      return "DANGEROUS";
+    case DownloadItem::DANGEROUS_BUT_VALIDATED:
+      return "DANGEROUS_BUT_VALIDATED";
+    default:
+      NOTREACHED() << "Unknown safety state " << state;
+      return "unknown";
+  };
+}
+
+const char* DebugDownloadStateString(DownloadItem::DownloadState state) {
+  switch (state) {
+    case DownloadItem::IN_PROGRESS:
+      return "IN_PROGRESS";
+    case DownloadItem::COMPLETE:
+      return "COMPLETE";
+    case DownloadItem::CANCELLED:
+      return "CANCELLED";
+    case DownloadItem::REMOVING:
+      return "REMOVING";
+    default:
+      NOTREACHED() << "Unknown download state " << state;
+      return "unknown";
+  };
 }
 
 }  // namespace
@@ -169,15 +201,15 @@ bool DownloadItem::CanOpenDownload() {
 
 bool DownloadItem::ShouldOpenFileBasedOnExtension() {
   return download_manager_->ShouldOpenFileBasedOnExtension(
-      GetUserVerifiedFileName());
+      GetUserVerifiedFilePath());
 }
 
 void DownloadItem::OpenFilesBasedOnExtension(bool open) {
   DownloadPrefs* prefs = download_manager_->download_prefs();
   if (open)
-    prefs->EnableAutoOpenBasedOnExtension(GetUserVerifiedFileName());
+    prefs->EnableAutoOpenBasedOnExtension(GetUserVerifiedFilePath());
   else
-    prefs->DisableAutoOpenBasedOnExtension(GetUserVerifiedFileName());
+    prefs->DisableAutoOpenBasedOnExtension(GetUserVerifiedFilePath());
 }
 
 void DownloadItem::OpenDownload() {
@@ -251,6 +283,7 @@ void DownloadItem::Update(int64 bytes_so_far) {
 
 // Triggered by a user action.
 void DownloadItem::Cancel(bool update_history) {
+  VLOG(20) << __FUNCTION__ << "()" << " download = " << DebugString(true);
   if (state_ != IN_PROGRESS) {
     // Small downloads might be complete before this method has a chance to run.
     return;
@@ -277,7 +310,7 @@ void DownloadItem::Finished() {
     auto_opened_ = true;
   } else if (open_when_complete() ||
              download_manager_->ShouldOpenFileBasedOnExtension(
-                 GetUserVerifiedFileName()) ||
+                 GetUserVerifiedFilePath()) ||
              is_temporary()) {
     // If the download is temporary, like in drag-and-drop, do not open it but
     // we still need to set it auto-opened so that it can be removed from the
@@ -431,10 +464,10 @@ FilePath DownloadItem::GetFileNameToReportUser() const {
   return target_name_;
 }
 
-FilePath DownloadItem::GetUserVerifiedFileName() const {
+FilePath DownloadItem::GetUserVerifiedFilePath() const {
   if (safety_state_ == DownloadItem::SAFE)
-    return target_name_;
-  return full_path_.BaseName();
+    return GetTargetFilePath();
+  return full_path_;
 }
 
 void DownloadItem::Init(bool start_timer) {
@@ -442,4 +475,24 @@ void DownloadItem::Init(bool start_timer) {
     target_name_ = full_path_.BaseName();
   if (start_timer)
     StartProgressTimer();
+}
+
+std::string DownloadItem::DebugString(bool verbose) const {
+  std::string description =
+      base::StringPrintf("{ url = \"%s\"", url().spec().c_str());
+
+  if (verbose) {
+    description += base::StringPrintf(
+        " target_name_ = " "\"%s\""
+        " full_path = " "\"%s\""
+        " safety_state = " "%s",
+        target_name_.value().c_str(),
+        full_path().value().c_str(),
+        DebugSafetyStateString(safety_state()));
+  }
+
+  description += base::StringPrintf(" state = %s }",
+                                    DebugDownloadStateString(state()));
+
+  return description;
 }

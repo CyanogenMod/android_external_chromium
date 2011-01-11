@@ -154,6 +154,7 @@ class AutocompleteResult;
 class AutocompleteController;
 class HistoryContentsProvider;
 class Profile;
+class SearchProvider;
 class TemplateURL;
 
 typedef std::vector<AutocompleteMatch> ACMatches;
@@ -186,6 +187,9 @@ class AutocompleteInput {
                     bool allow_exact_keyword_match,
                     bool synchronous_only);
   ~AutocompleteInput();
+
+  // If type is |FORCED_QUERY| and |text| starts with '?', it is removed.
+  static void RemoveForcedQueryStringIfNecessary(Type type, std::wstring* text);
 
   // Converts |type| to a string representation.  Used in logging.
   static std::string TypeToString(Type type);
@@ -249,6 +253,13 @@ class AutocompleteInput {
     return prevent_inline_autocomplete_;
   }
 
+  // Returns the value of |prevent_inline_autocomplete| supplied to the
+  // constructor. This differs from the value returned by
+  // |prevent_inline_autocomplete()| if the input contained trailing whitespace.
+  bool initial_prevent_inline_autocomplete() const {
+    return initial_prevent_inline_autocomplete_;
+  }
+
   // Returns whether, given an input string consisting solely of a substituting
   // keyword, we should score it like a non-substituting keyword.
   bool prefer_keyword() const { return prefer_keyword_; }
@@ -277,6 +288,7 @@ class AutocompleteInput {
   url_parse::Parsed parts_;
   std::wstring scheme_;
   GURL canonicalized_url_;
+  bool initial_prevent_inline_autocomplete_;
   bool prevent_inline_autocomplete_;
   bool prefer_keyword_;
   bool allow_exact_keyword_match_;
@@ -529,6 +541,7 @@ class AutocompleteController : public ACProviderListener {
   explicit AutocompleteController(const ACProviders& providers)
       : providers_(providers),
         history_contents_provider_(NULL),
+        search_provider_(NULL),
         updated_latest_result_(false),
         delay_interval_has_passed_(false),
         have_committed_during_this_query_(false),
@@ -595,6 +608,8 @@ class AutocompleteController : public ACProviderListener {
   // This is used by the popup to ensure it's not showing an out-of-date query.
   void CommitIfQueryHasNeverBeenCommitted();
 
+  SearchProvider* search_provider() const { return search_provider_; }
+
   // Getters
   const AutocompleteInput& input() const { return input_; }
   const AutocompleteResult& result() const { return result_; }
@@ -641,6 +656,8 @@ class AutocompleteController : public ACProviderListener {
   ACProviders providers_;
 
   HistoryContentsProvider* history_contents_provider_;
+
+  SearchProvider* search_provider_;
 
   // Input passed to Start.
   AutocompleteInput input_;

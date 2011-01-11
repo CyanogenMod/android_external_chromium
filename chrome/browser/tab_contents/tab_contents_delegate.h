@@ -38,6 +38,7 @@ class RenderViewHost;
 class TabContents;
 class TemplateURL;
 class TemplateURLModel;
+struct WebApplicationInfo;
 
 // Objects implement this interface to get notified about changes in the
 // TabContents and to provide necessary functionality.
@@ -60,6 +61,10 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
   // |TabContents::InvalidateTypes| bits.
   virtual void NavigationStateChanged(const TabContents* source,
                                       unsigned changed_flags) = 0;
+
+  // Returns the set of headers to add to the navigation request. Use
+  // net::HttpUtil::AppendHeaderIfMissing to build the set of headers.
+  virtual std::string GetNavigationHeaders(const GURL& url);
 
   // Creates a new tab with the already-created TabContents 'new_contents'.
   // The window for the added contents should be reparented correctly when this
@@ -152,6 +157,13 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
   // that should be parent of the dialog, or NULL for the default.
   virtual void ShowHtmlDialog(HtmlDialogUIDelegate* delegate,
                               gfx::NativeWindow parent_window);
+
+  // Invoked prior to showing before unload handler confirmation dialog.
+  virtual void WillRunBeforeUnloadConfirm();
+
+  // Returns true if javascript dialogs and unload alerts are suppressed.
+  // Default is false.
+  virtual bool ShouldSuppressDialogs();
 
   // Tells us that we've finished firing this tab's beforeunload event.
   // The proceed bool tells us whether the user chose to proceed closing the
@@ -273,6 +285,10 @@ class TabContentsDelegate : public AutomationResourceRoutingDelegate {
   // Notification that a user's request to install an application has completed.
   virtual void OnDidGetApplicationInfo(TabContents* tab_contents,
                                        int32 page_id);
+
+  // Notification when an application programmatically requests installation.
+  virtual void OnInstallApplication(TabContents* tab_contents,
+                                    const WebApplicationInfo& app_info);
 
   // Returns the native window framing the view containing the tab contents.
   virtual gfx::NativeWindow GetFrameNativeWindow();

@@ -8,8 +8,10 @@
 #include <Security/Security.h>
 #include <time.h>
 
+#include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/pickle.h"
+#include "base/singleton.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/sys_string_conversions.h"
 #include "net/base/cert_status_flags.h"
@@ -20,6 +22,8 @@ using base::mac::ScopedCFTypeRef;
 using base::Time;
 
 namespace net {
+
+namespace {
 
 class MacTrustedCertificates {
  public:
@@ -57,7 +61,7 @@ class MacTrustedCertificates {
     return merged_array;
   }
  private:
-  friend struct DefaultSingletonTraits<MacTrustedCertificates>;
+  friend struct base::DefaultLazyInstanceTraits<MacTrustedCertificates>;
 
   // Obtain an instance of MacTrustedCertificates via the singleton
   // interface.
@@ -73,11 +77,9 @@ class MacTrustedCertificates {
   DISALLOW_COPY_AND_ASSIGN(MacTrustedCertificates);
 };
 
-void SetMacTestCertificate(X509Certificate* cert) {
-  Singleton<MacTrustedCertificates>::get()->SetTestCertificate(cert);
-}
-
-namespace {
+base::LazyInstance<MacTrustedCertificates,
+    base::LeakyLazyInstanceTraits<MacTrustedCertificates> >
+    g_mac_trusted_certificates(base::LINKER_INITIALIZED);
 
 typedef OSStatus (*SecTrustCopyExtendedResultFuncPtr)(SecTrustRef,
                                                       CFDictionaryRef*);
@@ -443,6 +445,10 @@ void AddCertificatesFromBytes(const char* data, size_t length,
 
 }  // namespace
 
+void SetMacTestCertificate(X509Certificate* cert) {
+  g_mac_trusted_certificates.Get().SetTestCertificate(cert);
+}
+
 void X509Certificate::Initialize() {
   const CSSM_X509_NAME* name;
   OSStatus status = SecCertificateGetSubject(cert_handle_, &name);
@@ -545,7 +551,7 @@ int X509Certificate::Verify(const std::string& hostname, int flags,
   // Set the trusted anchor certificates for the SecTrustRef by merging the
   // system trust anchors and the test root certificate.
   CFArrayRef anchor_array =
-      Singleton<MacTrustedCertificates>::get()->CopyTrustedCertificateArray();
+      g_mac_trusted_certificates.Get().CopyTrustedCertificateArray();
   ScopedCFTypeRef<CFArrayRef> scoped_anchor_array(anchor_array);
   if (anchor_array) {
     status = SecTrustSetAnchorCertificates(trust_ref, anchor_array);

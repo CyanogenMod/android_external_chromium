@@ -13,6 +13,7 @@
 #include "chrome/browser/extensions/extension_install_ui.h"
 #include "chrome/browser/extensions/sandboxed_extension_unpacker.h"
 #include "chrome/common/extensions/extension.h"
+#include "chrome/common/web_apps.h"
 
 class ExtensionsService;
 class SkBitmap;
@@ -60,21 +61,22 @@ class CrxInstaller
   // only be called on the UI thread.
   static bool ClearWhitelistedInstallId(const std::string& id);
 
-  // Constructor.  Extensions will be unpacked to |install_directory|.
-  // Extension objects will be sent to |frontend|, and any UI will be shown
-  // via |client|. For silent install, pass NULL for |client|.
-  CrxInstaller(const FilePath& install_directory,
-               ExtensionsService* frontend,
+  // Constructor.  Extensions will be installed into
+  // frontend->install_directory() then registered with |frontend|. Any install
+  // UI will be displayed using |client|. Pass NULL for |client| for silent
+  // install.
+  CrxInstaller(ExtensionsService* frontend,
                ExtensionInstallUI* client);
 
-  // Install the crx in |source_file|. Note that this will most likely
-  // complete asynchronously.
+  // Install the crx in |source_file|.
   void InstallCrx(const FilePath& source_file);
 
-  // Install the user script in |source_file|. Note that this will most likely
-  // complete asynchronously.
+  // Convert the specified user script into an extension and install it.
   void InstallUserScript(const FilePath& source_file,
                          const GURL& original_url);
+
+  // Convert the specified web app into an extension and install it.
+  void InstallWebApp(const WebApplicationInfo& web_app);
 
   // Overridden from ExtensionInstallUI::Delegate:
   virtual void InstallUIProceed();
@@ -93,11 +95,6 @@ class CrxInstaller
 
   bool delete_source() const { return delete_source_; }
   void set_delete_source(bool val) { delete_source_ = val; }
-
-  bool allow_privilege_increase() const { return allow_privilege_increase_; }
-  void set_allow_privilege_increase(bool val) {
-    allow_privilege_increase_ = val;
-  }
 
   bool allow_silent_install() const { return allow_silent_install_; }
   void set_allow_silent_install(bool val) { allow_silent_install_ = val; }
@@ -121,6 +118,9 @@ class CrxInstaller
 
   // Converts the source user script to an extension.
   void ConvertUserScriptOnFileThread();
+
+  // Converts the source web app to an extension.
+  void ConvertWebAppOnFileThread(const WebApplicationInfo& web_app);
 
   // Called after OnUnpackSuccess as a last check to see whether the install
   // should complete.
@@ -172,14 +172,6 @@ class CrxInstaller
   // Whether we're supposed to delete the source file on destruction. Defaults
   // to false.
   bool delete_source_;
-
-  // Whether privileges should be allowed to silently increaes from any
-  // previously installed version of the extension. This is used for things
-  // like external extensions, where extensions come with third-party software
-  // or are distributed by the network administrator. There is no UI shown
-  // for these extensions, so there shouldn't be UI for privilege increase,
-  // either. Defaults to false.
-  bool allow_privilege_increase_;
 
   // Whether the install originated from the gallery.
   bool is_gallery_install_;

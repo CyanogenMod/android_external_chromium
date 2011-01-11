@@ -11,8 +11,6 @@
 #include "base/sys_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
-#include "chrome/browser/browser.h"
-#include "chrome/browser/browser_list.h"
 #import "chrome/browser/cocoa/browser_window_controller.h"
 #import "chrome/browser/cocoa/bug_report_window_controller.h"
 #import "chrome/browser/cocoa/chrome_event_processing_window.h"
@@ -40,6 +38,9 @@
 #include "chrome/browser/sidebar/sidebar_container.h"
 #include "chrome/browser/sidebar/sidebar_manager.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tab_contents_wrapper.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/notification_service.h"
@@ -180,7 +181,7 @@ void BrowserWindowCocoa::ShelfVisibilityChanged() {
 
 void BrowserWindowCocoa::UpdateDevTools() {
   [controller_ updateDevToolsForContents:
-      browser_->tabstrip_model()->GetSelectedTabContents()];
+      browser_->GetSelectedTabContents()];
 }
 
 void BrowserWindowCocoa::UpdateLoadingAnimations(bool should_animate) {
@@ -243,9 +244,9 @@ void BrowserWindowCocoa::UpdateReloadStopState(bool is_loading, bool force) {
   [controller_ setIsLoading:is_loading force:force];
 }
 
-void BrowserWindowCocoa::UpdateToolbar(TabContents* contents,
+void BrowserWindowCocoa::UpdateToolbar(TabContentsWrapper* contents,
                                        bool should_restore_state) {
-  [controller_ updateToolbarWithContents:contents
+  [controller_ updateToolbarWithContents:contents->tab_contents()
                       shouldRestoreState:should_restore_state ? YES : NO];
 }
 
@@ -548,7 +549,13 @@ bool BrowserWindowCocoa::HandleKeyboardEventInternal(NSEvent* event) {
   return [event_window redispatchKeyEvent:event];
 }
 
-void BrowserWindowCocoa::ShowCreateShortcutsDialog(TabContents* tab_contents) {
+void BrowserWindowCocoa::ShowCreateWebAppShortcutsDialog(
+    TabContents* tab_contents) {
+  NOTIMPLEMENTED();
+}
+
+void BrowserWindowCocoa::ShowCreateChromeAppShortcutsDialog(
+    Profile* profile, const Extension* app) {
   NOTIMPLEMENTED();
 }
 
@@ -580,8 +587,10 @@ void BrowserWindowCocoa::ShowInstant(TabContents* preview_contents) {
   [controller_ showInstant:preview_contents];
 }
 
-void BrowserWindowCocoa::HideInstant() {
+void BrowserWindowCocoa::HideInstant(bool instant_is_active) {
   [controller_ hideInstant];
+
+  // TODO: add support for |instant_is_active|.
 }
 
 gfx::Rect BrowserWindowCocoa::GetInstantBounds() {
@@ -625,7 +634,7 @@ NSWindow* BrowserWindowCocoa::window() const {
 }
 
 void BrowserWindowCocoa::UpdateSidebarForContents(TabContents* tab_contents) {
-  if (tab_contents == browser_->tabstrip_model()->GetSelectedTabContents()) {
+  if (tab_contents == browser_->GetSelectedTabContents()) {
     [controller_ updateSidebarForContents:tab_contents];
   }
 }

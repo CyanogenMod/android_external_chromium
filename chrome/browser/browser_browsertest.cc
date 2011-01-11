@@ -21,6 +21,7 @@
 #include "chrome/browser/renderer_host/render_process_host.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/pinned_tab_codec.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
@@ -88,7 +89,7 @@ class MockTabStripModelObserver : public TabStripModelObserver {
   MockTabStripModelObserver() : closing_count_(0) {}
 
   virtual void TabClosingAt(TabStripModel* tab_strip_model,
-                            TabContents* contents,
+                            TabContentsWrapper* contents,
                             int index) {
     closing_count_++;
   }
@@ -196,14 +197,7 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, Title) {
   EXPECT_EQ(WideToUTF16(test_title), tab_title);
 }
 
-#if defined(OS_MACOSX)
-// Test is crashing on Mac, see http://crbug.com/29424.
-#define MAYBE_JavascriptAlertActivatesTab DISABLED_JavascriptAlertActivatesTab
-#else
-#define MAYBE_JavascriptAlertActivatesTab JavascriptAlertActivatesTab
-#endif
-
-IN_PROC_BROWSER_TEST_F(BrowserTest, MAYBE_JavascriptAlertActivatesTab) {
+IN_PROC_BROWSER_TEST_F(BrowserTest, JavascriptAlertActivatesTab) {
   GURL url(ui_test_utils::GetTestUrl(FilePath(FilePath::kCurrentDirectory),
                                      FilePath(kTitle1File)));
   ui_test_utils::NavigateToURL(browser(), url);
@@ -375,6 +369,55 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, CommandCreateAppShortcutInvalid) {
   ui_test_utils::NavigateToURL(browser(), blank_url);
   EXPECT_FALSE(command_updater->IsCommandEnabled(IDC_CREATE_SHORTCUTS));
 }
+
+// Change a tab into an application window.
+IN_PROC_BROWSER_TEST_F(BrowserTest, ConvertTabToAppShortcut) {
+  ASSERT_TRUE(test_server()->Start());
+  GURL http_url(test_server()->GetURL(""));
+  ASSERT_TRUE(http_url.SchemeIs(chrome::kHttpScheme));
+
+  ASSERT_EQ(1, browser()->tab_count());
+  TabContents* initial_tab = browser()->GetTabContentsAt(0);
+  TabContents* app_tab = browser()->AddSelectedTabWithURL(
+      http_url, PageTransition::TYPED)->tab_contents();
+  ASSERT_EQ(2, browser()->tab_count());
+  ASSERT_EQ(1u, BrowserList::GetBrowserCount(browser()->profile()));
+
+  // Normal tabs should accept load drops.
+  EXPECT_TRUE(initial_tab->GetMutableRendererPrefs()->can_accept_load_drops);
+  EXPECT_TRUE(app_tab->GetMutableRendererPrefs()->can_accept_load_drops);
+
+  // Turn |app_tab| into a tab in an app panel.
+  browser()->ConvertContentsToApplication(app_tab);
+
+  // The launch should have created a new browser.
+  ASSERT_EQ(2u, BrowserList::GetBrowserCount(browser()->profile()));
+
+  // Find the new browser.
+  Browser* app_browser = NULL;
+  for (BrowserList::const_iterator i = BrowserList::begin();
+       i != BrowserList::end() && !app_browser; ++i) {
+    if (*i != browser())
+      app_browser = *i;
+  }
+  ASSERT_TRUE(app_browser);
+
+  // Check that the tab contents is in the new browser, and not in the old.
+  ASSERT_EQ(1, browser()->tab_count());
+  ASSERT_EQ(initial_tab, browser()->GetTabContentsAt(0));
+
+  // Check that the appliaction browser has a single tab, and that tab contains
+  // the content that we app-ified.
+  ASSERT_EQ(1, app_browser->tab_count());
+  ASSERT_EQ(app_tab, app_browser->GetTabContentsAt(0));
+
+  // Normal tabs should accept load drops.
+  EXPECT_TRUE(initial_tab->GetMutableRendererPrefs()->can_accept_load_drops);
+
+  // The tab in an aopp window should not.
+  EXPECT_FALSE(app_tab->GetMutableRendererPrefs()->can_accept_load_drops);
+}
+
 #endif  // !defined(OS_MACOSX)
 
 // Test RenderView correctly send back favicon url for web page that redirects
@@ -424,9 +467,10 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, TabClosingWhenRemovingExtension) {
 
   ui_test_utils::NavigateToURL(browser(), url);
 
-  TabContents* app_contents = new TabContents(browser()->profile(), NULL,
-                                              MSG_ROUTING_NONE, NULL, NULL);
-  app_contents->SetExtensionApp(extension_app);
+  TabContentsWrapper* app_contents =
+      Browser::TabContentsFactory(browser()->profile(), NULL,
+                                  MSG_ROUTING_NONE, NULL, NULL);
+  app_contents->tab_contents()->SetExtensionApp(extension_app);
 
   model->AddTabContents(app_contents, 0, 0, TabStripModel::ADD_NONE);
   model->SetTabPinned(0, true);
@@ -505,9 +549,10 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
   ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("app/")));
   const Extension* extension_app = GetExtension();
   ui_test_utils::NavigateToURL(browser(), url);
-  TabContents* app_contents = new TabContents(browser()->profile(), NULL,
-                                              MSG_ROUTING_NONE, NULL, NULL);
-  app_contents->SetExtensionApp(extension_app);
+  TabContentsWrapper* app_contents =
+    Browser::TabContentsFactory(browser()->profile(), NULL,
+                                MSG_ROUTING_NONE, NULL, NULL);
+  app_contents->tab_contents()->SetExtensionApp(extension_app);
   model->AddTabContents(app_contents, 0, 0, TabStripModel::ADD_NONE);
   model->SetTabPinned(0, true);
   ui_test_utils::NavigateToURL(browser(), url);
@@ -553,8 +598,9 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, RestorePinnedTabs) {
   EXPECT_TRUE(new_model->IsTabPinned(0));
   EXPECT_TRUE(new_model->IsTabPinned(1));
 
-  EXPECT_TRUE(new_model->GetTabContentsAt(0)->extension_app() ==
-              extension_app);
+  EXPECT_TRUE(
+      new_model->GetTabContentsAt(0)->tab_contents()->extension_app() ==
+          extension_app);
 }
 #endif  // !defined(OS_CHROMEOS)
 
@@ -568,6 +614,42 @@ IN_PROC_BROWSER_TEST_F(BrowserTest, CloseWithAppMenuOpen) {
   MessageLoop::current()->PostTask(FROM_HERE,
                                    new RunCloseWithAppMenuTask(browser()));
 }
+
+#if !defined(OS_MACOSX)
+IN_PROC_BROWSER_TEST_F(BrowserTest, OpenAppWindowLikeNtp) {
+  ASSERT_TRUE(test_server()->Start());
+
+  // Load an app
+  host_resolver()->AddRule("www.example.com", "127.0.0.1");
+  ASSERT_TRUE(LoadExtension(test_data_dir_.AppendASCII("app/")));
+  const Extension* extension_app = GetExtension();
+
+  // Launch it in a window, as AppLauncherHandler::HandleLaunchApp() would.
+  TabContents* app_window = Browser::OpenApplication(
+      browser()->profile(), extension_app, extension_misc::LAUNCH_WINDOW, NULL);
+  ASSERT_TRUE(app_window);
+
+  // Apps launched in a window from the NTP do not have extension_app set in
+  // tab contents.
+  EXPECT_FALSE(app_window->extension_app());
+  EXPECT_EQ(extension_app->GetFullLaunchURL(), app_window->GetURL());
+
+  // The launch should have created a new browser.
+  ASSERT_EQ(2u, BrowserList::GetBrowserCount(browser()->profile()));
+
+  // Find the new browser.
+  Browser* new_browser = NULL;
+  for (BrowserList::const_iterator i = BrowserList::begin();
+       i != BrowserList::end() && !new_browser; ++i) {
+    if (*i != browser())
+      new_browser = *i;
+  }
+  ASSERT_TRUE(new_browser);
+  ASSERT_TRUE(new_browser != browser());
+
+  EXPECT_EQ(Browser::TYPE_APP, new_browser->type());
+}
+#endif  // !defined(OS_MACOSX)
 
 // TODO(ben): this test was never enabled. It has bit-rotted since being added.
 // It originally lived in browser_unittest.cc, but has been moved here to make

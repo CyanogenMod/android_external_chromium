@@ -7,10 +7,13 @@
 #pragma once
 
 #include <set>
+#include <string>
 
 #include "base/basictypes.h"
 #include "base/scoped_ptr.h"
+#include "base/scoped_vector.h"
 #include "base/string16.h"
+#include "base/task.h"
 #include "base/timer.h"
 #include "chrome/browser/instant/instant_commit_type.h"
 #include "chrome/browser/instant/instant_loader_delegate.h"
@@ -22,10 +25,13 @@
 
 struct AutocompleteMatch;
 class InstantDelegate;
+class InstantLoader;
 class InstantLoaderManager;
+class InstantTest;
 class PrefService;
 class Profile;
 class TabContents;
+class TabContentsWrapper;
 class TemplateURL;
 
 // InstantController maintains a TabContents that is intended to give a preview
@@ -39,8 +45,11 @@ class TemplateURL;
 class InstantController : public InstantLoaderDelegate {
  public:
   // Variations of instant support.
+  // TODO(sky): nuke these when we decide the default behavior.
   enum Type {
     // NOTE: these values are persisted to prefs. Don't change them!
+
+    FIRST_TYPE = 0,
 
     // Search results are shown for the best guess of what we think the user was
     // planning on typing.
@@ -49,8 +58,17 @@ class InstantController : public InstantLoaderDelegate {
     // Search results are shown for exactly what was typed.
     VERBATIM_TYPE,
 
-    LAST_TYPE = VERBATIM_TYPE,
+    // Variant of predictive that does not auto-complete after a delay.
+    PREDICTIVE_NO_AUTO_COMPLETE_TYPE,
+
+    LAST_TYPE = PREDICTIVE_NO_AUTO_COMPLETE_TYPE
   };
+
+
+  // Amount of time to wait before starting the instant animation.
+  static const int kAutoCommitPauseTimeMS = 1000;
+  // Duration of the instant animation in which the colors change.
+  static const int kAutoCommitFadeInTimeMS = 300;
 
   InstantController(Profile* profile, InstantDelegate* delegate);
   ~InstantController();
@@ -76,10 +94,14 @@ class InstantController : public InstantLoaderDelegate {
   // Invoked as the user types in the omnibox with the url to navigate to.  If
   // the url is empty and there is a preview TabContents it is destroyed. If url
   // is non-empty and the preview TabContents has not been created it is
-  // created.
-  void Update(TabContents* tab_contents,
+  // created. If |verbatim| is true search results are shown for |user_text|
+  // rather than the best guess as to what the search thought the user meant.
+  // |verbatim| only matters if the AutocompleteMatch is for a search engine
+  // that supports instant.
+  void Update(TabContentsWrapper* tab_contents,
               const AutocompleteMatch& match,
               const string16& user_text,
+              bool verbatim,
               string16* suggested_text);
 
   // Sets the bounds of the omnibox (in screen coordinates). The bounds are
@@ -120,29 +142,47 @@ class InstantController : public InstantLoaderDelegate {
   // not notify the delegate.
   // WARNING: be sure and invoke CompleteRelease after adding the returned
   // TabContents to a tabstrip.
-  TabContents* ReleasePreviewContents(InstantCommitType type);
+  TabContentsWrapper* ReleasePreviewContents(InstantCommitType type);
 
   // Does cleanup after the preview contents has been added to the tabstrip.
   // Invoke this if you explicitly invoke ReleasePreviewContents.
   void CompleteRelease(TabContents* tab);
 
   // TabContents the match is being shown for.
-  TabContents* tab_contents() const { return tab_contents_; }
+  TabContentsWrapper* tab_contents() const { return tab_contents_; }
 
   // The preview TabContents; may be null.
-  TabContents* GetPreviewContents();
+  TabContentsWrapper* GetPreviewContents();
 
-  // Returns true if the preview TabContents is active. In some situations this
-  // may return false yet preview_contents() returns non-NULL.
+  // Returns true if |Update| has been invoked without a corresponding call to
+  // |DestroyPreviewContents| or |CommitCurrentPreview|.
   bool is_active() const { return is_active_; }
+
+  // Returns true if the preview TabContents is ready to be displayed. In some
+  // situations this may return false yet GetPreviewContents() returns non-NULL.
+  bool is_displayable() const { return is_displayable_; }
 
   // Returns the transition type of the last AutocompleteMatch passed to Update.
   PageTransition::Type last_transition_type() const {
     return last_transition_type_;
   }
 
-  // Are we showing instant results?
+  // Returns true if we're showing results from a provider that supports the
+  // instant API. See description of |MightSupportInstant| for how this
+  // differs from actual loading state.
   bool IsShowingInstant();
+
+  // Returns true if we're attempting to use the instant API with the last URL
+  // passed to |Update|. The value of this may change if it turns the provider
+  // doesn't really support the instant API.
+  // The value of |IsShowingInstant| indicates whether what is currently
+  // displayed supports instant, whereas this returns the loading state.  The
+  // state of |IsShowingInstant| differs when transitioning from a non-search
+  // provider to a search provider that supports instant (or the other way
+  // around). For example, if |Update| is passed www.foo.com, followed by a
+  // search string then this returns true, but |IsShowingInstant| returns false
+  // (until the search provider loads, then both return true).
+  bool MightSupportInstant();
 
   // InstantLoaderDelegate
   virtual void ShowInstantLoader(InstantLoader* loader);
@@ -151,11 +191,22 @@ class InstantController : public InstantLoaderDelegate {
   virtual gfx::Rect GetInstantBounds();
   virtual bool ShouldCommitInstantOnMouseUp();
   virtual void CommitInstantLoader(InstantLoader* loader);
-  virtual void InstantLoaderDoesntSupportInstant(InstantLoader* loader,
-                                                 bool needs_reload,
-                                                 const GURL& url_to_load);
+  virtual void InstantLoaderDoesntSupportInstant(InstantLoader* loader);
+  virtual void AddToBlacklist(InstantLoader* loader, const GURL& url);
+
 
  private:
+  friend class InstantTest;
+
+  typedef std::set<std::string> HostBlacklist;
+
+  // Destroys the current loaders but remains actives.
+  void DestroyAndLeaveActive();
+
+  // Returns the TabContents of the pending loader (or NULL). This is only used
+  // for testing.
+  TabContentsWrapper* GetPendingPreviewContents();
+
   // Returns true if we should update immediately.
   bool ShouldUpdateNow(TemplateURLID instant_id, const GURL& url);
 
@@ -171,10 +222,13 @@ class InstantController : public InstantLoaderDelegate {
                     const GURL& url,
                     PageTransition::Type transition_type,
                     const string16& user_text,
+                    bool verbatim,
                     string16* suggested_text);
 
-  // Returns true if we should show preview for |match|.
-  bool ShouldShowPreviewFor(const AutocompleteMatch& match);
+  // Returns true if a preview should be shown for |match|. If |match| has
+  // a TemplateURL that supports the instant API it is set in |template_url|.
+  bool ShouldShowPreviewFor(const AutocompleteMatch& match,
+                            const TemplateURL** template_url);
 
   // Marks the specified search engine id as not supporting instant.
   void BlacklistFromInstant(TemplateURLID id);
@@ -186,18 +240,39 @@ class InstantController : public InstantLoaderDelegate {
   // Clears the set of search engines blacklisted.
   void ClearBlacklist();
 
-  // Returns the TemplateURL to use for the specified AutocompleteMatch, or NULL
-  // if non TemplateURL should be used.
+  // Deletes |loader| after a delay. At the time we determine a site doesn't
+  // want to participate in instant we can't destroy the loader (because
+  // destroying the loader destroys the TabContents and the TabContents is on
+  // the stack). Instead we place the loader in |loaders_to_destroy_| and
+  // schedule a task.
+  void ScheduleDestroy(InstantLoader* loader);
+
+  // Destroys all loaders scheduled for destruction in |ScheduleForDestroy|.
+  void DestroyLoaders();
+
+  // Returns the TemplateURL to use for the specified AutocompleteMatch, or
+  // NULL if there is no TemplateURL for |match|.
   const TemplateURL* GetTemplateURL(const AutocompleteMatch& match);
+
+  // If instant is enabled for the specified profile the type of instant is set
+  // in |type| and true is returned. Otherwise returns false.
+  static bool GetType(Profile* profile, Type* type);
+
+  // Returns a string description for the currently enabled type. This is used
+  // for histograms.
+  static std::string GetTypeString(Profile* profile);
 
   InstantDelegate* delegate_;
 
   // The TabContents last passed to |Update|.
-  TabContents* tab_contents_;
+  TabContentsWrapper* tab_contents_;
+
+  // See description above getter for details.
+  bool is_active_;
 
   // Has notification been sent out that the preview TabContents is ready to be
   // shown?
-  bool is_active_;
+  bool is_displayable_;
 
   // See description above setter.
   gfx::Rect omnibox_bounds_;
@@ -218,10 +293,20 @@ class InstantController : public InstantLoaderDelegate {
 
   base::OneShotTimer<InstantController> update_timer_;
 
+  // Used by ScheduleForDestroy; see it for details.
+  ScopedRunnableMethodFactory<InstantController> destroy_factory_;
+
   // URL last pased to ScheduleUpdate.
   GURL scheduled_url_;
 
-  const Type type_;
+  Type type_;
+
+  // List of InstantLoaders to destroy. See ScheduleForDestroy for details.
+  ScopedVector<InstantLoader> loaders_to_destroy_;
+
+  // The set of hosts that we don't use instant with. This is shared across all
+  // instances and only maintained for the current session.
+  static HostBlacklist* host_blacklist_;
 
   DISALLOW_COPY_AND_ASSIGN(InstantController);
 };

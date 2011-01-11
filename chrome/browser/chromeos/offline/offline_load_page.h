@@ -8,11 +8,14 @@
 
 #include <string>
 
+#include "base/task.h"
 #include "chrome/browser/chromeos/network_state_notifier.h"
 #include "chrome/browser/tab_contents/interstitial_page.h"
 #include "chrome/common/notification_observer.h"
 #include "chrome/common/notification_service.h"
 
+class DictionaryValue;
+class Extension;
 class TabContents;
 
 namespace chromeos {
@@ -47,6 +50,11 @@ class OfflineLoadPage : public InterstitialPage {
                   Delegate* delegate);
   virtual ~OfflineLoadPage() {}
 
+  // Only for testing.
+  void EnableTest() {
+    in_test_ = true;
+  }
+
  private:
   // InterstitialPage implementation.
   virtual std::string GetHTMLContents();
@@ -59,8 +67,25 @@ class OfflineLoadPage : public InterstitialPage {
                        const NotificationSource& source,
                        const NotificationDetails& details);
 
+  // Retrieves template strings of the offline page for app and
+  // normal site.
+  void GetAppOfflineStrings(const Extension* app,
+                            const string16& faield_url,
+                            DictionaryValue* strings) const;
+  void GetNormalOfflineStrings(const string16& faield_url,
+                               DictionaryValue* strings) const;
+
+  // Really proceed with loading.
+  void DoProceed();
+
   Delegate* delegate_;
   NotificationRegistrar registrar_;
+
+  // True if the proceed is chosen.
+  bool proceeded_;
+  ScopedRunnableMethodFactory<OfflineLoadPage> method_factory_;
+
+  bool in_test_;
 
   DISALLOW_COPY_AND_ASSIGN(OfflineLoadPage);
 };

@@ -10,7 +10,7 @@
 #include "app/slide_animation.h"
 #include "app/resource_bundle.h"
 #include "base/utf_string_conversions.h"
-#include "chrome/browser/bookmarks/bookmark_drag_data.h"
+#include "chrome/browser/bookmarks/bookmark_node_data.h"
 #include "chrome/browser/bookmarks/bookmark_model.h"
 #include "chrome/browser/bookmarks/bookmark_utils.h"
 #include "chrome/browser/browser_shutdown.h"
@@ -621,8 +621,8 @@ int BookmarkBarGtk::GetFirstHiddenBookmark(
 
 bool BookmarkBarGtk::ShouldBeFloating() {
   return (!IsAlwaysShown() || (window_ && window_->IsFullscreen())) &&
-         browser_ && browser_->GetSelectedTabContents() &&
-         browser_->GetSelectedTabContents()->ShouldShowBookmarkBar();
+      window_ && window_->GetDisplayedTabContents() &&
+      window_->GetDisplayedTabContents()->ShouldShowBookmarkBar();
 }
 
 void BookmarkBarGtk::UpdateFloatingState() {

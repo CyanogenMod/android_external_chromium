@@ -17,6 +17,7 @@
 #include "gfx/native_widget_types.h"
 #include "gfx/rect.h"
 #include "third_party/skia/include/core/SkBitmap.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebPopupType.h"
 #include "third_party/WebKit/WebKit/chromium/public/WebTextInputType.h"
 
@@ -225,26 +226,47 @@ class RenderWidgetHostView {
       int32 width,
       int32 height,
       TransportDIB::Handle transport_dib) = 0;
+  // |window| and |surface_id| indicate which accelerated surface's
+  // buffers swapped. |renderer_id|, |route_id| and
+  // |swap_buffers_count| are used to formulate a reply to the GPU
+  // process to prevent it from getting too far ahead. They may all be
+  // zero, in which case no flow control is enforced; this case is
+  // currently used for accelerated plugins.
   virtual void AcceleratedSurfaceBuffersSwapped(
-      gfx::PluginWindowHandle window, uint64 surface_id) = 0;
+      gfx::PluginWindowHandle window,
+      uint64 surface_id,
+      int renderer_id,
+      int32 route_id,
+      uint64 swap_buffers_count) = 0;
   virtual void GpuRenderingStateDidChange() = 0;
 #endif
 
 #if defined(TOOLKIT_USES_GTK)
   virtual void CreatePluginContainer(gfx::PluginWindowHandle id) = 0;
   virtual void DestroyPluginContainer(gfx::PluginWindowHandle id) = 0;
+  virtual void AcceleratedCompositingActivated(bool activated) = 0;
+#endif
+
+#if defined(OS_WIN)
+  virtual gfx::PluginWindowHandle GetCompositorHostWindow() = 0;
+  virtual void WillWmDestroy() = 0;
+  virtual void ShowCompositorHostWindow(bool show) = 0;
 #endif
 
   // Toggles visual muting of the render view area. This is on when a
-  // constrained window is showing.
-  virtual void SetVisuallyDeemphasized(bool deemphasized) = 0;
+  // constrained window is showing, for example. |color| is the shade of
+  // the overlay that covers the render view. If |animate| is true, the overlay
+  // gradually fades in; otherwise it takes effect immediately. To remove the
+  // fade effect, pass a NULL value for |color|. In this case, |animate| is
+  // ignored.
+  virtual void SetVisuallyDeemphasized(const SkColor* color, bool animate) = 0;
 
   void set_popup_type(WebKit::WebPopupType popup_type) {
     popup_type_ = popup_type;
   }
   WebKit::WebPopupType popup_type() const { return popup_type_; }
 
-  // Subclasses should override this method to do whatever is appropriate to set
+  // Subclasses should override this method to do  is appropriate to set
   // the custom background for their platform.
   virtual void SetBackground(const SkBitmap& background) {
     background_ = background;

@@ -114,11 +114,10 @@ class AutocompleteEditViewWin
   virtual void SetWindowTextAndCaretPos(const std::wstring& text,
                                         size_t caret_pos);
 
-  virtual void ReplaceSelection(const string16& text);
-
   virtual void SetForcedQuery();
 
   virtual bool IsSelectAll();
+  virtual bool DeleteAtEndPressed();
   virtual void GetSelectionBounds(std::wstring::size_type* start,
                                   std::wstring::size_type* end);
   virtual void SelectAll(bool reversed);
@@ -476,6 +475,9 @@ class AutocompleteEditViewWin
   // Holds the user's selection across focus changes.  cpMin holds -1 when
   // there is no saved selection.
   CHARRANGE saved_selection_for_focus_change_;
+
+  // Was the delete key pressed with an empty selection at the end of the edit?
+  bool delete_at_end_pressed_;
 
   // The context menu for the edit.
   scoped_ptr<menus::SimpleMenuModel> context_menu_contents_;

@@ -7,6 +7,10 @@
 #include "chrome/browser/search_engines/template_url.h"
 #include "gfx/rect.h"
 
+std::string TabContentsDelegate::GetNavigationHeaders(const GURL& url) {
+  return std::string();
+}
+
 void TabContentsDelegate::DetachContents(TabContents* source) {
 }
 
@@ -43,6 +47,13 @@ bool TabContentsDelegate::CanReloadContents(TabContents* source) const {
 
 void TabContentsDelegate::ShowHtmlDialog(HtmlDialogUIDelegate* delegate,
                                          gfx::NativeWindow parent_window) {
+}
+
+void TabContentsDelegate::WillRunBeforeUnloadConfirm() {
+}
+
+bool TabContentsDelegate::ShouldSuppressDialogs() {
+  return false;
 }
 
 void TabContentsDelegate::BeforeUnloadFired(TabContents* tab,
@@ -160,6 +171,12 @@ bool TabContentsDelegate::ShouldAddNavigationToHistory(
 
 void TabContentsDelegate::OnDidGetApplicationInfo(TabContents* tab_contents,
                                                   int32 page_id) {
+}
+
+// Notification when an application programmatically requests installation.
+void TabContentsDelegate::OnInstallApplication(
+    TabContents* tab_contents,
+    const WebApplicationInfo& app_info) {
 }
 
 gfx::NativeWindow TabContentsDelegate::GetFrameNativeWindow() {

@@ -18,8 +18,6 @@
 #include "chrome/browser/autofill/autofill_dialog.h"
 #include "chrome/browser/autofill/autofill_type.h"
 #include "chrome/browser/autofill/personal_data_manager.h"
-#include "chrome/browser/browser.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #import "chrome/browser/cocoa/clear_browsing_data_controller.h"
 #import "chrome/browser/cocoa/content_settings_dialog_controller.h"
@@ -35,6 +33,8 @@
 #include "chrome/browser/download/download_prefs.h"
 #include "chrome/browser/extensions/extensions_service.h"
 #include "chrome/browser/google/google_util.h"
+#include "chrome/browser/instant/instant_confirm_dialog.h"
+#include "chrome/browser/instant/instant_controller.h"
 #include "chrome/browser/metrics/metrics_service.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/net/url_fixer_upper.h"
@@ -50,6 +50,8 @@
 #include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_list.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/notification_details.h"
 #include "chrome/common/notification_observer.h"
@@ -106,7 +108,8 @@ enum AutoSizeGroupBehavior {
   kAutoSizeGroupBehaviorVerticalToFit,
   kAutoSizeGroupBehaviorVerticalFirstToFit,
   kAutoSizeGroupBehaviorHorizontalToFit,
-  kAutoSizeGroupBehaviorHorizontalFirstGrows
+  kAutoSizeGroupBehaviorHorizontalFirstGrows,
+  kAutoSizeGroupBehaviorFirstTwoAsRowVerticalToFit
 };
 
 // Helper to tweak the layout of the "pref groups" and also ripple any height
@@ -190,6 +193,50 @@ CGFloat AutoSizeGroup(NSArray* views, AutoSizeGroupBehavior behavior,
         [GTMUILocalizerAndLayoutTweaker
             resizeViewWithoutAutoResizingSubViews:view
                                             delta:delta];
+      }
+      break;
+    }
+    case kAutoSizeGroupBehaviorFirstTwoAsRowVerticalToFit: {
+      // Start out like kAutoSizeGroupBehaviorVerticalToFit but don't do
+      // the first two.  Then handle the two as a row, but apply any
+      // vertical shift.
+      // All but the first two (in the row); walk bottom up.
+      for (NSUInteger index = [views count] - 1; index > 2; --index) {
+        NSView* view = [views objectAtIndex:index];
+        NSSize delta = cocoa_l10n_util::WrapOrSizeToFit(view);
+        DCHECK_GE(delta.height, 0.0) << "Should NOT shrink in height";
+        if (localVerticalShift) {
+          NSPoint origin = [view frame].origin;
+          origin.y += localVerticalShift;
+          [view setFrameOrigin:origin];
+        }
+        localVerticalShift += delta.height;
+      }
+      // Deal with the two for the horizontal row.  Size the second one.
+      CGFloat horizontalShift = 0.0;
+      NSView* view = [views objectAtIndex:2];
+      NSSize delta = cocoa_l10n_util::WrapOrSizeToFit(view);
+      DCHECK_GE(delta.height, 0.0) << "Should NOT shrink in height";
+      horizontalShift -= delta.width;
+      NSPoint origin = [view frame].origin;
+      origin.x += horizontalShift;
+      if (localVerticalShift) {
+        origin.y += localVerticalShift;
+      }
+      [view setFrameOrigin:origin];
+      // Now expand the first item in the row to consume the space opened up.
+      view = [views objectAtIndex:1];
+      if (horizontalShift) {
+        NSSize delta = NSMakeSize(horizontalShift, 0.0);
+        [GTMUILocalizerAndLayoutTweaker
+         resizeViewWithoutAutoResizingSubViews:view
+                                         delta:delta];
+      }
+      // And move it up by any amount needed from the previous items.
+      if (localVerticalShift) {
+        NSPoint origin = [view frame].origin;
+        origin.y += localVerticalShift;
+        [view setFrameOrigin:origin];
       }
       break;
     }
@@ -334,6 +381,7 @@ CGFloat AutoSizeUnderTheHoodContent(NSView* view,
 // Record the user performed a certain action and save the preferences.
 - (void)recordUserAction:(const UserMetricsAction&) action;
 - (void)registerPrefObservers;
+- (void)configureInstant;
 
 // KVC setter methods.
 - (void)setNewTabPageIsHomePageIndex:(NSInteger)val;
@@ -351,7 +399,6 @@ CGFloat AutoSizeUnderTheHoodContent(NSView* view,
 - (void)setFileHandlerUIEnabled:(BOOL)value;
 - (void)setTranslateEnabled:(BOOL)value;
 - (void)setTabsToLinks:(BOOL)value;
-- (void)setBackgroundModeEnabled:(BOOL)value;
 - (void)displayPreferenceViewForPage:(OptionsPage)page
                              animate:(BOOL)animate;
 - (void)resetSubViews;
@@ -554,15 +601,6 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
   RemoveViewFromView(underTheHoodContentView_, enableLoggingCheckbox_);
 #endif  // !defined(GOOGLE_CHROME_BUILD)
 
-  // If BackgroundMode is not enabled, hide the related prefs UI.
-  if (!CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableBackgroundMode)) {
-    RemoveViewFromView(underTheHoodContentView_, backgroundModeTitle_);
-    RemoveViewFromView(underTheHoodContentView_, backgroundModeCheckbox_);
-    RemoveViewFromView(underTheHoodContentView_, backgroundModeDescription_);
-    RemoveViewFromView(underTheHoodContentView_, backgroundModeLearnMore_);
-  }
-
   // There are four problem children within the groups:
   //   Basics - Default Browser
   //   Personal Stuff - Sync
@@ -584,6 +622,8 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
       [GTMUILocalizerAndLayoutTweaker sizeToFitView:defaultBrowserButton];
   DCHECK_EQ(defaultBrowserChange.height, 0.0)
       << "Button should have been right height in nib";
+
+  [self configureInstant];
 
   // Size the sync row.
   CGFloat syncRowChange = SizeToFitButtonPair(syncButton_,
@@ -634,8 +674,20 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
   verticalShift += AutoSizeGroup(basicsGroupDefaultBrowser_,
                                  kAutoSizeGroupBehaviorVerticalFirstToFit,
                                  verticalShift);
+  // TODO(rsesek/rohitrao): This is ugly, when the instant experiement is no
+  // longer displayed, please remove this code, the NSTextField and IBOutlet
+  // needed.
+  DCHECK(instantExperiment_ != nil);
+  if (verticalShift) {
+    // If the default browser moved things up, move the experiment field up
+    // also, it is not in the SearchEngine group due to its position on screen.
+    NSPoint origin = [instantExperiment_ frame].origin;
+    origin.y += verticalShift;
+    [instantExperiment_ setFrameOrigin:origin];
+  }
+  // End TODO
   verticalShift += AutoSizeGroup(basicsGroupSearchEngine_,
-                                 kAutoSizeGroupBehaviorHorizontalFirstGrows,
+                                 kAutoSizeGroupBehaviorFirstTwoAsRowVerticalToFit,
                                  verticalShift);
   verticalShift += AutoSizeGroup(basicsGroupToolbar_,
                                  kAutoSizeGroupBehaviorVerticalToFit,
@@ -798,6 +850,7 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
                              prefs_, observer_.get());
   homepage_.Init(prefs::kHomePage, prefs_, observer_.get());
   showHomeButton_.Init(prefs::kShowHomeButton, prefs_, observer_.get());
+  instantEnabled_.Init(prefs::kInstantEnabled, prefs_, observer_.get());
 
   // Personal Stuff panel
   askSavePasswords_.Init(prefs::kPasswordManagerEnabled,
@@ -814,8 +867,6 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
   autoOpenFiles_.Init(
       prefs::kDownloadExtensionsToOpen, prefs_, observer_.get());
   translateEnabled_.Init(prefs::kEnableTranslate, prefs_, observer_.get());
-  backgroundModeEnabled_.Init(prefs::kBackgroundModeEnabled, prefs_,
-                              observer_.get());
   tabsToLinks_.Init(prefs::kWebkitTabsToLinks, prefs_, observer_.get());
 
   // During unit tests, there is no local state object, so we fall back to
@@ -936,6 +987,8 @@ class ManagedPrefsBannerState : public policy::ManagedPrefsBannerBase {
   } else if (*prefName == prefs::kShowHomeButton) {
     [self setShowHomeButton:showHomeButton_.GetValue() ? YES : NO];
     [self setShowHomeButtonEnabled:!showHomeButton_.IsManaged()];
+  } else if (*prefName == prefs::kInstantEnabled) {
+    [self configureInstant];
   }
 }
 
@@ -1184,6 +1237,29 @@ enum { kHomepageNewTabPage, kHomepageURL };
 
 - (IBAction)manageSearchEngines:(id)sender {
   [KeywordEditorCocoaController showKeywordEditor:profile_];
+}
+
+- (IBAction)toggleInstant:(id)sender {
+  if (instantEnabled_.GetValue()) {
+    InstantController::Disable(profile_);
+  } else {
+    [instantCheckbox_ setState:NSOffState];
+    browser::ShowInstantConfirmDialogIfNecessary([self window], profile_);
+  }
+}
+
+// Sets the state of the Instant checkbox and adds the type information to the
+// label.
+- (void)configureInstant {
+  bool enabled = instantEnabled_.GetValue();
+  NSInteger state = enabled ? NSOnState : NSOffState;
+  [instantCheckbox_ setState:state];
+
+  [instantExperiment_ setStringValue:@""];
+}
+
+- (IBAction)learnMoreAboutInstant:(id)sender {
+  browser::ShowOptionsURL(profile_, browser::InstantLearnMoreURL());
 }
 
 // Called when the user clicks the button to make Chromium the default
@@ -1438,10 +1514,6 @@ const int kDisabledIndex = 1;
   else if (*prefName == prefs::kEnableTranslate) {
     [self setTranslateEnabled:translateEnabled_.GetValue() ? YES : NO];
   }
-  else if (*prefName == prefs::kBackgroundModeEnabled) {
-    [self setBackgroundModeEnabled:backgroundModeEnabled_.GetValue() ?
-          YES : NO];
-  }
   else if (*prefName == prefs::kWebkitTabsToLinks) {
     [self setTabsToLinks:tabsToLinks_.GetValue() ? YES : NO];
   }
@@ -1503,12 +1575,6 @@ const int kDisabledIndex = 1;
   // We open a new browser window so the Options dialog doesn't get lost
   // behind other windows.
   browser::ShowOptionsURL(profile_, url);
-}
-
-- (IBAction)backgroundModeLearnMore:(id)sender {
-  browser::ShowOptionsURL(
-      profile_,
-      GURL(l10n_util::GetStringUTF16(IDS_LEARN_MORE_BACKGROUND_MODE_URL)));
 }
 
 - (IBAction)resetAutoOpenFiles:(id)sender {
@@ -1698,19 +1764,6 @@ const int kDisabledIndex = 1;
     [self recordUserAction:UserMetricsAction("Options_Translate_Disable")];
   }
   translateEnabled_.SetValue(value);
-}
-
-- (BOOL)backgroundModeEnabled {
-  return backgroundModeEnabled_.GetValue();
-}
-
-- (void)setBackgroundModeEnabled:(BOOL)value {
-  if (value) {
-    [self recordUserAction:UserMetricsAction("Options_BackgroundMode_Enable")];
-  } else {
-    [self recordUserAction:UserMetricsAction("Options_BackgroundMode_Disable")];
-  }
-  backgroundModeEnabled_.SetValue(value);
 }
 
 - (BOOL)tabsToLinks {

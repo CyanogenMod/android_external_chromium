@@ -27,10 +27,9 @@ class StatusTray;
 // are no open browser windows.
 //
 // Chrome enters background mode whenever there is an application with the
-// "background" permission installed and the appropriate user preference is
-// set (kBackgroundModeEnabled). This class monitors the set of installed/loaded
-// extensions to ensure that Chrome enters/exits background mode at the
-// appropriate time.
+// "background" permission installed. This class monitors the set of
+// installed/loaded extensions to ensure that Chrome enters/exits background
+// mode at the appropriate time.
 //
 // When Chrome is in background mode, it will continue running even after the
 // last browser window is closed, until the user explicitly exits the app.
@@ -46,6 +45,8 @@ class BackgroundModeManager
   virtual ~BackgroundModeManager();
 
   static void RegisterUserPrefs(PrefService* prefs);
+
+  static bool IsBackgroundModeEnabled(const CommandLine* command_line);
 
  private:
   friend class TestBackgroundModeManager;
@@ -93,12 +94,6 @@ class BackgroundModeManager
   // Invoked when an extension is uninstalled so we can ensure that
   // launch-on-startup is disabled if appropriate.
   void OnBackgroundAppUninstalled();
-
-  // Invoked when the kBackgroundModeEnabled preference has changed.
-  void OnBackgroundModePrefChanged();
-
-  // Returns true if the background mode preference is enabled
-  bool IsBackgroundModeEnabled();
 
   // Returns true if chrome has set "launch on startup" property for itself
   // earlier and is allowed to reset it later, reducing likelihood of
@@ -182,9 +177,6 @@ class BackgroundModeManager
 
   // Reference to our status icon (if any) - owned by the StatusTray.
   StatusIcon* status_icon_;
-
-  // Ensure observed preferences are properly cleaned up.
-  PrefChangeRegistrar pref_registrar_;
 
   DISALLOW_COPY_AND_ASSIGN(BackgroundModeManager);
 };

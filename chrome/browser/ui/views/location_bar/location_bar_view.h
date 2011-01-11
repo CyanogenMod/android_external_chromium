@@ -44,6 +44,7 @@ class Profile;
 class SelectedKeywordView;
 class StarView;
 class SuggestedTextView;
+class TabContentsWrapper;
 class TemplateURLModel;
 
 namespace views {
@@ -72,7 +73,7 @@ class LocationBarView : public LocationBar,
   class Delegate {
    public:
     // Should return the current tab contents.
-    virtual TabContents* GetTabContents() = 0;
+    virtual TabContentsWrapper* GetTabContentsWrapper() = 0;
 
     // Returns the InstantController, or NULL if there isn't one.
     virtual InstantController* GetInstant() = 0;
@@ -129,8 +130,8 @@ class LocationBarView : public LocationBar,
   void SetProfile(Profile* profile);
   Profile* profile() const { return profile_; }
 
-  // Returns the current TabContents.
-  TabContents* GetTabContents() const;
+  // Returns the current TabContentsWrapper.
+  TabContentsWrapper* GetTabContentsWrapper() const;
 
   // Sets |preview_enabled| for the PageAction View associated with this
   // |page_action|. If |preview_enabled| is true, the view will display the
@@ -312,6 +313,9 @@ class LocationBarView : public LocationBar,
 
   // Helper to show the first run info bubble.
   void ShowFirstRunBubbleInternal(FirstRun::BubbleType bubble_type);
+
+  // Returns true if the suggest text is valid.
+  bool HasValidSuggestText();
 
   // Current profile. Not owned by us.
   Profile* profile_;

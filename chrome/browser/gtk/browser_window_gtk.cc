@@ -27,6 +27,7 @@
 #include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/debugger/devtools_window.h"
+#include "chrome/browser/dom_ui/bug_report_ui.h"
 #include "chrome/browser/download/download_item_model.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/find_bar_controller.h"
@@ -69,6 +70,7 @@
 #include "chrome/browser/prefs/pref_service.h"
 #include "chrome/browser/profile.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tab_contents/tab_contents_view.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
@@ -78,6 +80,7 @@
 #include "chrome/common/native_web_keyboard_event.h"
 #include "chrome/common/notification_service.h"
 #include "chrome/common/pref_names.h"
+#include "gfx/gtk_util.h"
 #include "gfx/rect.h"
 #include "gfx/skia_utils_gtk.h"
 #include "grit/app_resources.h"
@@ -368,11 +371,6 @@ BrowserWindowGtk::~BrowserWindowGtk() {
   ActiveWindowWatcherX::RemoveObserver(this);
 
   browser_->tabstrip_model()->RemoveObserver(this);
-
-  if (frame_cursor_) {
-    gdk_cursor_unref(frame_cursor_);
-    frame_cursor_ = NULL;
-  }
 }
 
 gboolean BrowserWindowGtk::OnCustomFrameExpose(GtkWidget* widget,
@@ -549,8 +547,7 @@ void BrowserWindowGtk::DrawPopupFrame(cairo_t* cr,
   int image_name = GetThemeFrameResource();
   CairoCachedSurface* surface = theme_provider->GetUnthemedSurfaceNamed(
       image_name, widget);
-  surface->SetSource(
-      cr, 0, UseCustomFrame() ? 0 : -kCustomFrameBackgroundVerticalOffset);
+  surface->SetSource(cr, 0, GetVerticalOffset());
   cairo_pattern_set_extend(cairo_get_source(cr), CAIRO_EXTEND_REFLECT);
   cairo_rectangle(cr, event->area.x, event->area.y,
                   event->area.width, event->area.height);
@@ -568,9 +565,7 @@ void BrowserWindowGtk::DrawCustomFrame(cairo_t* cr,
   CairoCachedSurface* surface = theme_provider->GetSurfaceNamed(
       image_name, widget);
   if (event->area.y < surface->Height()) {
-    int offset = (IsMaximized() || (!UseCustomFrame())) ?
-                 -kCustomFrameBackgroundVerticalOffset : 0;
-    surface->SetSource(cr, 0, offset);
+    surface->SetSource(cr, 0, GetVerticalOffset());
 
     // The frame background isn't tiled vertically.
     cairo_pattern_set_extend(cairo_get_source(cr), CAIRO_EXTEND_REPEAT);
@@ -584,9 +579,14 @@ void BrowserWindowGtk::DrawCustomFrame(cairo_t* cr,
     CairoCachedSurface* theme_overlay = theme_provider->GetSurfaceNamed(
         IsActive() ? IDR_THEME_FRAME_OVERLAY
         : IDR_THEME_FRAME_OVERLAY_INACTIVE, widget);
-    theme_overlay->SetSource(cr, 0, 0);
+    theme_overlay->SetSource(cr, 0, GetVerticalOffset());
     cairo_paint(cr);
   }
+}
+
+int BrowserWindowGtk::GetVerticalOffset() {
+  return (IsMaximized() || (!UseCustomFrame())) ?
+      -kCustomFrameBackgroundVerticalOffset : 0;
 }
 
 int BrowserWindowGtk::GetThemeFrameResource() {
@@ -732,12 +732,12 @@ void BrowserWindowGtk::UpdateTitleBar() {
 }
 
 void BrowserWindowGtk::ShelfVisibilityChanged() {
-  MaybeShowBookmarkBar(browser_->GetSelectedTabContents(), false);
+  MaybeShowBookmarkBar(false);
 }
 
 void BrowserWindowGtk::UpdateDevTools() {
   UpdateDevToolsForContents(
-      browser_->tabstrip_model()->GetSelectedTabContents());
+      browser_->GetSelectedTabContents());
 }
 
 void BrowserWindowGtk::UpdateLoadingAnimations(bool should_animate) {
@@ -837,9 +837,9 @@ void BrowserWindowGtk::UpdateReloadStopState(bool is_loading, bool force) {
       force);
 }
 
-void BrowserWindowGtk::UpdateToolbar(TabContents* contents,
+void BrowserWindowGtk::UpdateToolbar(TabContentsWrapper* contents,
                                      bool should_restore_state) {
-  toolbar_->UpdateTabContents(contents, should_restore_state);
+  toolbar_->UpdateTabContents(contents->tab_contents(), should_restore_state);
 }
 
 void BrowserWindowGtk::FocusToolbar() {
@@ -917,7 +917,7 @@ DownloadShelf* BrowserWindowGtk::GetDownloadShelf() {
 }
 
 void BrowserWindowGtk::ShowReportBugDialog() {
-  NOTIMPLEMENTED();
+  browser::ShowHtmlBugReportView(window_, bounds_, browser_.get());
 }
 
 void BrowserWindowGtk::ShowClearBrowsingDataDialog() {
@@ -1086,8 +1086,14 @@ void BrowserWindowGtk::HandleKeyboardEvent(
     gtk_window_activate_key(window_, os_event);
 }
 
-void BrowserWindowGtk::ShowCreateShortcutsDialog(TabContents* tab_contents) {
-  CreateApplicationShortcutsDialogGtk::Show(window_, tab_contents);
+void BrowserWindowGtk::ShowCreateWebAppShortcutsDialog(
+    TabContents* tab_contents) {
+  CreateWebApplicationShortcutsDialogGtk::Show(window_, tab_contents);
+}
+
+void BrowserWindowGtk::ShowCreateChromeAppShortcutsDialog(
+    Profile* profile, const Extension* app) {
+  CreateChromeApplicationShortcutsDialogGtk::Show(window_, app);
 }
 
 void BrowserWindowGtk::Cut() {
@@ -1103,15 +1109,31 @@ void BrowserWindowGtk::Paste() {
 }
 
 void BrowserWindowGtk::PrepareForInstant() {
-  // TODO: implement fade as done on windows.
+  TabContents* contents = contents_container_->GetTabContents();
+  if (contents)
+    contents->FadeForInstant(true);
 }
 
 void BrowserWindowGtk::ShowInstant(TabContents* preview_contents) {
   contents_container_->SetPreviewContents(preview_contents);
+  MaybeShowBookmarkBar(false);
+
+  TabContents* contents = contents_container_->GetTabContents();
+  if (contents)
+    contents->CancelInstantFade();
 }
 
-void BrowserWindowGtk::HideInstant() {
+void BrowserWindowGtk::HideInstant(bool instant_is_active) {
   contents_container_->PopPreviewContents();
+  MaybeShowBookmarkBar(false);
+
+  TabContents* contents = contents_container_->GetTabContents();
+  if (contents) {
+    if (instant_is_active)
+      contents->FadeForInstant(false);
+    else
+      contents->CancelInstantFade();
+  }
 }
 
 gfx::Rect BrowserWindowGtk::GetInstantBounds() {
@@ -1127,7 +1149,7 @@ void BrowserWindowGtk::Observe(NotificationType type,
                                const NotificationDetails& details) {
   switch (type.value) {
     case NotificationType::BOOKMARK_BAR_VISIBILITY_PREF_CHANGED:
-      MaybeShowBookmarkBar(browser_->GetSelectedTabContents(), true);
+      MaybeShowBookmarkBar(true);
       break;
 
     case NotificationType::PREF_CHANGED: {
@@ -1145,48 +1167,44 @@ void BrowserWindowGtk::Observe(NotificationType type,
   }
 }
 
-void BrowserWindowGtk::TabDetachedAt(TabContents* contents, int index) {
+void BrowserWindowGtk::TabDetachedAt(TabContentsWrapper* contents, int index) {
   // We use index here rather than comparing |contents| because by this time
   // the model has already removed |contents| from its list, so
   // browser_->GetSelectedTabContents() will return NULL or something else.
   if (index == browser_->tabstrip_model()->selected_index())
     infobar_container_->ChangeTabContents(NULL);
-  contents_container_->DetachTabContents(contents);
+  contents_container_->DetachTabContents(contents->tab_contents());
   UpdateDevToolsForContents(NULL);
 }
 
-void BrowserWindowGtk::TabSelectedAt(TabContents* old_contents,
-                                     TabContents* new_contents,
+void BrowserWindowGtk::TabSelectedAt(TabContentsWrapper* old_contents,
+                                     TabContentsWrapper* new_contents,
                                      int index,
                                      bool user_gesture) {
   DCHECK(old_contents != new_contents);
 
-  if (old_contents && !old_contents->is_being_destroyed())
+  if (old_contents && !old_contents->tab_contents()->is_being_destroyed())
     old_contents->view()->StoreFocus();
 
   // Update various elements that are interested in knowing the current
   // TabContents.
-  infobar_container_->ChangeTabContents(new_contents);
-  contents_container_->SetTabContents(new_contents);
-  UpdateDevToolsForContents(new_contents);
+  infobar_container_->ChangeTabContents(new_contents->tab_contents());
+  contents_container_->SetTabContents(new_contents->tab_contents());
+  UpdateDevToolsForContents(new_contents->tab_contents());
 
-  new_contents->DidBecomeSelected();
+  new_contents->tab_contents()->DidBecomeSelected();
   // TODO(estade): after we manage browser activation, add a check to make sure
   // we are the active browser before calling RestoreFocus().
   if (!browser_->tabstrip_model()->closing_all()) {
     new_contents->view()->RestoreFocus();
-    if (new_contents->find_ui_active())
+    if (new_contents->tab_contents()->find_ui_active())
       browser_->GetFindBarController()->find_bar()->SetFocusAndSelection();
   }
 
   // Update all the UI bits.
   UpdateTitleBar();
   UpdateToolbar(new_contents, true);
-  UpdateUIForContents(new_contents);
-}
-
-void BrowserWindowGtk::TabStripEmpty() {
-  UpdateUIForContents(NULL);
+  MaybeShowBookmarkBar(false);
 }
 
 void BrowserWindowGtk::ActiveWindowChanged(GdkWindow* active_window) {
@@ -1217,11 +1235,11 @@ void BrowserWindowGtk::ActiveWindowChanged(GdkWindow* active_window) {
   }
 }
 
-void BrowserWindowGtk::MaybeShowBookmarkBar(TabContents* contents,
-                                            bool animate) {
+void BrowserWindowGtk::MaybeShowBookmarkBar(bool animate) {
   if (!IsBookmarkBarSupported())
     return;
 
+  TabContents* contents = GetDisplayedTabContents();
   bool show_bar = false;
 
   if (IsBookmarkBarSupported() && contents) {
@@ -1274,10 +1292,6 @@ void BrowserWindowGtk::UpdateDevToolsForContents(TabContents* contents) {
         prefs::kDevToolsSplitLocation, divider_offset);
     gtk_widget_hide(devtools_container_->widget());
   }
-}
-
-void BrowserWindowGtk::UpdateUIForContents(TabContents* contents) {
-  MaybeShowBookmarkBar(contents, false);
 }
 
 void BrowserWindowGtk::DestroyBrowser() {
@@ -1408,7 +1422,6 @@ void BrowserWindowGtk::ResetCustomFrameCursor() {
   if (!frame_cursor_)
     return;
 
-  gdk_cursor_unref(frame_cursor_);
   frame_cursor_ = NULL;
   gdk_window_set_cursor(GTK_WIDGET(window_)->window, NULL);
 }
@@ -1451,6 +1464,10 @@ void BrowserWindowGtk::BookmarkBarIsFloating(bool is_floating) {
   // This can be NULL during initialization of the bookmark bar.
   if (bookmark_bar_.get())
     PlaceBookmarkBar(is_floating);
+}
+
+TabContents* BrowserWindowGtk::GetDisplayedTabContents() {
+  return contents_container_->GetVisibleTabContents();
 }
 
 void BrowserWindowGtk::QueueToolbarRedraw() {
@@ -1861,7 +1878,7 @@ gboolean BrowserWindowGtk::OnKeyPress(GtkWidget* widget, GdkEventKey* event) {
   // If a widget besides the native view is focused, we have to try to handle
   // the custom accelerators before letting it handle them.
   TabContents* current_tab_contents =
-      browser()->tabstrip_model()->GetSelectedTabContents();
+      browser()->GetSelectedTabContents();
   // The current tab might not have a render view if it crashed.
   if (!current_tab_contents || !current_tab_contents->GetContentNativeView() ||
       !gtk_widget_is_focus(current_tab_contents->GetContentNativeView())) {
@@ -1896,7 +1913,6 @@ gboolean BrowserWindowGtk::OnMouseMoveEvent(GtkWidget* widget,
   if (!UseCustomFrame() || event->window != widget->window) {
     // Reset the cursor.
     if (frame_cursor_) {
-      gdk_cursor_unref(frame_cursor_);
       frame_cursor_ = NULL;
       gdk_window_set_cursor(GTK_WIDGET(window_)->window, NULL);
     }
@@ -1916,17 +1932,12 @@ gboolean BrowserWindowGtk::OnMouseMoveEvent(GtkWidget* widget,
     last_cursor = frame_cursor_->type;
 
   if (last_cursor != new_cursor) {
-    if (frame_cursor_) {
-      gdk_cursor_unref(frame_cursor_);
+    if (has_hit_edge) {
+      frame_cursor_ = gfx::GetCursor(new_cursor);
+    } else {
       frame_cursor_ = NULL;
     }
-    if (has_hit_edge) {
-      frame_cursor_ = gtk_util::GetCursor(new_cursor);
-      gdk_window_set_cursor(GTK_WIDGET(window_)->window,
-                            frame_cursor_);
-    } else {
-      gdk_window_set_cursor(GTK_WIDGET(window_)->window, NULL);
-    }
+    gdk_window_set_cursor(GTK_WIDGET(window_)->window, frame_cursor_);
   }
   return FALSE;
 }
@@ -2095,7 +2106,7 @@ void BrowserWindowGtk::ShowSupportedWindowFeatures() {
   }
 
   if (IsBookmarkBarSupported())
-    MaybeShowBookmarkBar(browser_->GetSelectedTabContents(), false);
+    MaybeShowBookmarkBar(false);
 }
 
 void BrowserWindowGtk::HideUnsupportedWindowFeatures() {

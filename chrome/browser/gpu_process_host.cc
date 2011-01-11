@@ -6,6 +6,7 @@
 
 #include "app/app_switches.h"
 #include "base/command_line.h"
+#include "base/metrics/histogram.h"
 #include "base/thread.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
@@ -13,6 +14,7 @@
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/renderer_host/resource_message_filter.h"
+#include "chrome/browser/tab_contents/render_view_host_delegate_helper.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/gpu_info.h"
 #include "chrome/common/gpu_messages.h"
@@ -22,11 +24,20 @@
 #include "media/base/media_switches.h"
 
 #if defined(OS_LINUX)
+#include <gdk/gdkwindow.h>
+#include <gdk/gdkx.h>
 #include "app/x11_util.h"
 #include "gfx/gtk_native_view_id_manager.h"
+#include "gfx/size.h"
 #endif
 
 namespace {
+
+enum GPUProcessLifetimeEvent {
+  kLaunched,
+  kCrashed,
+  kGPUProcessLifetimeEvent_Max
+  };
 
 // Tasks used by this file
 class RouteOnUIThreadTask : public Task {
@@ -47,6 +58,12 @@ class RouteOnUIThreadTask : public Task {
 // GpuProcessHost to be terminated on the same thread on which it is
 // initialized, the IO thread.
 static GpuProcessHost* sole_instance_ = NULL;
+
+// Number of times the gpu process has crashed in the current browser session.
+static int g_gpu_crash_count = 0;
+// Maximum number of times the gpu process is allowed to crash in a session.
+// Once this limit is reached, any request to launch the gpu process will fail.
+static const int kGpuMaxCrashCount = 3;
 
 void RouteOnUIThread(const IPC::Message& message) {
   BrowserThread::PostTask(BrowserThread::UI,
@@ -83,46 +100,10 @@ bool GpuProcessHost::Init() {
   if (!CreateChannel())
     return false;
 
-  const CommandLine& browser_command_line = *CommandLine::ForCurrentProcess();
-  CommandLine::StringType gpu_launcher =
-      browser_command_line.GetSwitchValueNative(switches::kGpuLauncher);
-
-  FilePath exe_path = ChildProcessHost::GetChildPath(gpu_launcher.empty());
-  if (exe_path.empty())
+  if (!CanLaunchGpuProcess())
     return false;
 
-  CommandLine* cmd_line = new CommandLine(exe_path);
-  cmd_line->AppendSwitchASCII(switches::kProcessType, switches::kGpuProcess);
-  cmd_line->AppendSwitchASCII(switches::kProcessChannelID, channel_id());
-
-  // Propagate relevant command line switches.
-  static const char* const kSwitchNames[] = {
-    switches::kUseGL,
-    switches::kDisableGpuVsync,
-    switches::kDisableGpuWatchdog,
-    switches::kDisableLogging,
-    switches::kEnableAcceleratedDecoding,
-    switches::kEnableLogging,
-    switches::kGpuStartupDialog,
-    switches::kLoggingLevel,
-  };
-  cmd_line->CopySwitchesFrom(browser_command_line, kSwitchNames,
-                             arraysize(kSwitchNames));
-
-  // If specified, prepend a launcher program to the command line.
-  if (!gpu_launcher.empty())
-    cmd_line->PrependWrapper(gpu_launcher);
-
-  Launch(
-#if defined(OS_WIN)
-      FilePath(),
-#elif defined(OS_POSIX)
-      false,  // Never use the zygote (GPU plugin can't be sandboxed).
-      base::environment_vector(),
-#endif
-      cmd_line);
-
-  return true;
+  return LaunchGpuProcess();
 }
 
 // static
@@ -197,11 +178,16 @@ void GpuProcessHost::OnControlMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_HANDLER(GpuHostMsg_SynchronizeReply, OnSynchronizeReply)
 #if defined(OS_LINUX)
     IPC_MESSAGE_HANDLER_DELAY_REPLY(GpuHostMsg_GetViewXID, OnGetViewXID)
+    IPC_MESSAGE_HANDLER(GpuHostMsg_ReleaseXID, OnReleaseXID)
+    IPC_MESSAGE_HANDLER_DELAY_REPLY(GpuHostMsg_ResizeXID, OnResizeXID)
 #elif defined(OS_MACOSX)
     IPC_MESSAGE_HANDLER(GpuHostMsg_AcceleratedSurfaceSetIOSurface,
                         OnAcceleratedSurfaceSetIOSurface)
     IPC_MESSAGE_HANDLER(GpuHostMsg_AcceleratedSurfaceBuffersSwapped,
                         OnAcceleratedSurfaceBuffersSwapped)
+#elif defined(OS_WIN)
+    IPC_MESSAGE_HANDLER_DELAY_REPLY(GpuHostMsg_GetCompositorHostWindow,
+                                    OnGetCompositorHostWindow)
 #endif
     // If the IO thread does not handle the message then automatically route it
     // to the UI thread. The UI thread will report an error if it does not
@@ -250,7 +236,29 @@ void GetViewXIDDispatcher(gfx::NativeViewId id, IPC::Message* reply_msg) {
       NewRunnableFunction(&SendDelayedReply, reply_msg));
 }
 
-} // namespace
+void ReleaseXIDDispatcher(unsigned long xid) {
+  GtkNativeViewManager* manager = Singleton<GtkNativeViewManager>::get();
+  manager->ReleasePermanentXID(xid);
+}
+
+void ResizeXIDDispatcher(unsigned long xid, gfx::Size size,
+    IPC::Message *reply_msg) {
+  GdkWindow* window = reinterpret_cast<GdkWindow*>(gdk_xid_table_lookup(xid));
+  if (window) {
+    Display* display = GDK_WINDOW_XDISPLAY(window);
+    gdk_window_resize(window, size.width(), size.height());
+    XSync(display, False);
+  }
+
+  GpuHostMsg_ResizeXID::WriteReplyParams(reply_msg, (window != NULL));
+
+  // Have to reply from IO thread.
+  BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
+      NewRunnableFunction(&SendDelayedReply, reply_msg));
+}
+
+}  // namespace
 
 void GpuProcessHost::OnGetViewXID(gfx::NativeViewId id,
                                   IPC::Message *reply_msg) {
@@ -258,6 +266,21 @@ void GpuProcessHost::OnGetViewXID(gfx::NativeViewId id,
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       NewRunnableFunction(&GetViewXIDDispatcher, id, reply_msg));
+}
+
+void GpuProcessHost::OnReleaseXID(unsigned long xid) {
+  // Have to release a permanent XID from UI thread.
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
+      NewRunnableFunction(&ReleaseXIDDispatcher, xid));
+}
+
+void GpuProcessHost::OnResizeXID(unsigned long xid, gfx::Size size,
+                                 IPC::Message *reply_msg) {
+  // Have to resize the window from UI thread.
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
+      NewRunnableFunction(&ResizeXIDDispatcher, xid, size, reply_msg));
 }
 
 #elif defined(OS_MACOSX)
@@ -305,14 +328,18 @@ namespace {
 class BuffersSwappedDispatcher : public Task {
  public:
   BuffersSwappedDispatcher(
-      int32 renderer_id,
-      int32 render_view_id,
+      int renderer_id,
+      int render_view_id,
       gfx::PluginWindowHandle window,
-      uint64 surface_id)
+      uint64 surface_id,
+      int32 route_id,
+      uint64 swap_buffers_count)
       : renderer_id_(renderer_id),
         render_view_id_(render_view_id),
         window_(window),
-        surface_id_(surface_id) {
+        surface_id_(surface_id),
+        route_id_(route_id),
+        swap_buffers_count_(swap_buffers_count) {
   }
 
   void Run() {
@@ -323,14 +350,23 @@ class BuffersSwappedDispatcher : public Task {
     RenderWidgetHostView* view = host->view();
     if (!view)
       return;
-    view->AcceleratedSurfaceBuffersSwapped(window_, surface_id_);
+    view->AcceleratedSurfaceBuffersSwapped(
+        // Parameters needed to swap the IOSurface.
+        window_,
+        surface_id_,
+        // Parameters needed to formulate an acknowledgment.
+        renderer_id_,
+        route_id_,
+        swap_buffers_count_);
   }
 
  private:
-  int32 renderer_id_;
-  int32 render_view_id_;
+  int renderer_id_;
+  int render_view_id_;
   gfx::PluginWindowHandle window_;
   uint64 surface_id_;
+  int32 route_id_;
+  uint64 swap_buffers_count_;
 
   DISALLOW_COPY_AND_ASSIGN(BuffersSwappedDispatcher);
 };
@@ -338,15 +374,67 @@ class BuffersSwappedDispatcher : public Task {
 }  // namespace
 
 void GpuProcessHost::OnAcceleratedSurfaceBuffersSwapped(
-    int32 renderer_id,
-    int32 render_view_id,
-    gfx::PluginWindowHandle window,
-    uint64 surface_id) {
+    const GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params& params) {
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       new BuffersSwappedDispatcher(
-          renderer_id, render_view_id, window, surface_id));
+          // These are the parameters needed to look up the IOSurface
+          // on this side.
+          params.renderer_id,
+          params.render_view_id,
+          params.window,
+          params.surface_id,
+          // These are additional parameters needed to formulate an
+          // acknowledgment.
+          params.route_id,
+          params.swap_buffers_count));
 }
+
+#elif defined(OS_WIN)
+
+namespace {
+
+void SendDelayedReply(IPC::Message* reply_msg) {
+  GpuProcessHost::Get()->Send(reply_msg);
+}
+
+void GetCompositorHostWindowDispatcher(
+    int renderer_id,
+    int render_view_id,
+    IPC::Message* reply_msg) {
+  RenderViewHost* host = RenderViewHost::FromID(renderer_id,
+                                                render_view_id);
+  if (!host) {
+    GpuHostMsg_GetCompositorHostWindow::WriteReplyParams(reply_msg,
+        gfx::kNullPluginWindow);
+    BrowserThread::PostTask(
+      BrowserThread::IO, FROM_HERE,
+      NewRunnableFunction(&SendDelayedReply, reply_msg));
+    return;
+  }
+
+  RenderWidgetHostView* view = host->view();
+  gfx::PluginWindowHandle id = view->GetCompositorHostWindow();
+
+
+  GpuHostMsg_GetCompositorHostWindow::WriteReplyParams(reply_msg, id);
+  BrowserThread::PostTask(
+    BrowserThread::IO, FROM_HERE,
+    NewRunnableFunction(&SendDelayedReply, reply_msg));
+}
+
+}  // namespace
+
+void GpuProcessHost::OnGetCompositorHostWindow(
+    int renderer_id,
+    int render_view_id,
+    IPC::Message* reply_message) {
+  BrowserThread::PostTask(
+      BrowserThread::UI, FROM_HERE,
+      NewRunnableFunction(&GetCompositorHostWindowDispatcher,
+          renderer_id, render_view_id, reply_message));
+}
+
 #endif
 
 void GpuProcessHost::SendEstablishChannelReply(
@@ -379,8 +467,68 @@ bool GpuProcessHost::CanShutdown() {
   return true;
 }
 
+void GpuProcessHost::OnChildDied() {
+  // Located in OnChildDied because OnProcessCrashed suffers from a race
+  // condition on Linux. The GPU process will only die if it crashes.
+  UMA_HISTOGRAM_ENUMERATION("GPU.GPUProcessLifetimeEvents",
+                            kCrashed, kGPUProcessLifetimeEvent_Max);
+  BrowserChildProcessHost::OnChildDied();
+}
+
 void GpuProcessHost::OnProcessCrashed() {
-  // TODO(alokp): Update gpu process crash rate.
+  if (++g_gpu_crash_count >= kGpuMaxCrashCount) {
+    // The gpu process is too unstable to use. Disable it for current session.
+    RenderViewHostDelegateHelper::set_gpu_enabled(false);
+  }
   BrowserChildProcessHost::OnProcessCrashed();
+}
+
+bool GpuProcessHost::CanLaunchGpuProcess() const {
+  return RenderViewHostDelegateHelper::gpu_enabled();
+}
+
+bool GpuProcessHost::LaunchGpuProcess() {
+  const CommandLine& browser_command_line = *CommandLine::ForCurrentProcess();
+  CommandLine::StringType gpu_launcher =
+      browser_command_line.GetSwitchValueNative(switches::kGpuLauncher);
+
+  FilePath exe_path = ChildProcessHost::GetChildPath(gpu_launcher.empty());
+  if (exe_path.empty())
+    return false;
+
+  CommandLine* cmd_line = new CommandLine(exe_path);
+  cmd_line->AppendSwitchASCII(switches::kProcessType, switches::kGpuProcess);
+  cmd_line->AppendSwitchASCII(switches::kProcessChannelID, channel_id());
+
+  // Propagate relevant command line switches.
+  static const char* const kSwitchNames[] = {
+    switches::kUseGL,
+    switches::kDisableGpuVsync,
+    switches::kDisableGpuWatchdog,
+    switches::kDisableLogging,
+    switches::kEnableAcceleratedDecoding,
+    switches::kEnableLogging,
+    switches::kGpuStartupDialog,
+    switches::kLoggingLevel,
+  };
+  cmd_line->CopySwitchesFrom(browser_command_line, kSwitchNames,
+                             arraysize(kSwitchNames));
+
+  // If specified, prepend a launcher program to the command line.
+  if (!gpu_launcher.empty())
+    cmd_line->PrependWrapper(gpu_launcher);
+
+  Launch(
+#if defined(OS_WIN)
+      FilePath(),
+#elif defined(OS_POSIX)
+      false,  // Never use the zygote (GPU plugin can't be sandboxed).
+      base::environment_vector(),
+#endif
+      cmd_line);
+
+  UMA_HISTOGRAM_ENUMERATION("GPU.GPUProcessLifetimeEvents",
+                            kLaunched, kGPUProcessLifetimeEvent_Max);
+  return true;
 }
 

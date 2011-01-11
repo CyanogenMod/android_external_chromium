@@ -75,7 +75,7 @@ class BrowserWindowGtk : public BrowserWindow,
   virtual LocationBar* GetLocationBar() const;
   virtual void SetFocusToLocationBar(bool select_all);
   virtual void UpdateReloadStopState(bool is_loading, bool force);
-  virtual void UpdateToolbar(TabContents* contents,
+  virtual void UpdateToolbar(TabContentsWrapper* contents,
                              bool should_restore_state);
   virtual void FocusToolbar();
   virtual void FocusAppMenu();
@@ -119,14 +119,16 @@ class BrowserWindowGtk : public BrowserWindow,
   virtual bool PreHandleKeyboardEvent(const NativeWebKeyboardEvent& event,
                                       bool* is_keyboard_shortcut);
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event);
-  virtual void ShowCreateShortcutsDialog(TabContents* tab_contents);
+  virtual void ShowCreateWebAppShortcutsDialog(TabContents*  tab_contents);
+  virtual void ShowCreateChromeAppShortcutsDialog(Profile* profile,
+                                                  const Extension* app);
   virtual void Cut();
   virtual void Copy();
   virtual void Paste();
   virtual void ToggleTabStripMode() {}
   virtual void PrepareForInstant();
   virtual void ShowInstant(TabContents* preview_contents);
-  virtual void HideInstant();
+  virtual void HideInstant(bool instant_is_active);
   virtual gfx::Rect GetInstantBounds();
 
   // Overridden from NotificationObserver:
@@ -135,12 +137,11 @@ class BrowserWindowGtk : public BrowserWindow,
                        const NotificationDetails& details);
 
   // Overridden from TabStripModelObserver:
-  virtual void TabDetachedAt(TabContents* contents, int index);
-  virtual void TabSelectedAt(TabContents* old_contents,
-                             TabContents* new_contents,
+  virtual void TabDetachedAt(TabContentsWrapper* contents, int index);
+  virtual void TabSelectedAt(TabContentsWrapper* old_contents,
+                             TabContentsWrapper* new_contents,
                              int index,
                              bool user_gesture);
-  virtual void TabStripEmpty();
 
   // Overridden from ActiveWindowWatcher::Observer.
   virtual void ActiveWindowChanged(GdkWindow* active_window);
@@ -152,8 +153,6 @@ class BrowserWindowGtk : public BrowserWindow,
   TabStripGtk* tabstrip() const { return tabstrip_.get(); }
 
   void UpdateDevToolsForContents(TabContents* contents);
-
-  void UpdateUIForContents(TabContents* contents);
 
   void OnBoundsChanged(const gfx::Rect& bounds);
   void OnDebouncedBoundsChanged();
@@ -200,6 +199,10 @@ class BrowserWindowGtk : public BrowserWindow,
   // This should only be called by the bookmark bar itself.
   void BookmarkBarIsFloating(bool is_floating);
 
+  // Returns the tab contents we're currently displaying in the tab contents
+  // container.
+  TabContents* GetDisplayedTabContents();
+
   static void RegisterUserPrefs(PrefService* prefs);
 
   // Returns whether to draw the content drop shadow on the sides and bottom
@@ -242,7 +245,7 @@ class BrowserWindowGtk : public BrowserWindow,
 
  private:
   // Show or hide the bookmark bar.
-  void MaybeShowBookmarkBar(TabContents* contents, bool animate);
+  void MaybeShowBookmarkBar(bool animate);
 
   // Sets the default size for the window and the the way the user is allowed to
   // resize it.
@@ -296,6 +299,11 @@ class BrowserWindowGtk : public BrowserWindow,
 
   // Draws the normal custom frame using theme_frame.
   void DrawCustomFrame(cairo_t* cr, GtkWidget* widget, GdkEventExpose* event);
+
+  // The background frame image needs to be offset by the size of the top of
+  // the window to the top of the tabs when the full skyline isn't displayed
+  // for some reason.
+  int GetVerticalOffset();
 
   // Returns which frame image we should use based on the window's current
   // activation state / incognito state.

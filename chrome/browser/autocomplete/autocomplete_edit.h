@@ -50,6 +50,10 @@ class AutocompleteEditController {
   // autocomplete. Returns true if the text was committed.
   virtual bool OnCommitSuggestedText(const std::wstring& typed_text) = 0;
 
+  // Accepts the currently showing instant preview, if any, and returns true.
+  // Returns false if there is no instant preview showing.
+  virtual bool AcceptCurrentInstantPreview() { return false; }
+
   // Sets the suggested search text to |suggested_text|.
   virtual void OnSetSuggestedSearchText(const string16& suggested_text) = 0;
 
@@ -157,9 +161,10 @@ class AutocompleteEditModel : public NotificationObserver {
   // Sets the url, and if known, the title and favicon.
   void GetDataForURLExport(GURL* url, std::wstring* title, SkBitmap* favicon);
 
-  // Returns true if inline autocomplete was prevented the last time
-  // autocomplete was run.
-  bool PreventInlineAutocomplete();
+  // Returns true if a verbatim query should be used for instant. A verbatim
+  // query is forced in certain situations, such as pressing delete at the end
+  // of the edit.
+  bool UseVerbatimInstant();
 
   // If the user presses ctrl-enter, it means "add .com to the the end".  The
   // desired TLD is the TLD the user desires to add to the end of the current
@@ -207,6 +212,10 @@ class AutocompleteEditModel : public NotificationObserver {
 
   // Sets the user_text_ to |text|.  Only the View should call this.
   void SetUserText(const std::wstring& text);
+
+  // Calls through to SearchProvider::FinalizeInstantQuery.
+  void FinalizeInstantQuery(const std::wstring& input_text,
+                            const std::wstring& suggest_text);
 
   // Reverts the edit model back to its unedited state (permanent text showing,
   // no user input in progress).

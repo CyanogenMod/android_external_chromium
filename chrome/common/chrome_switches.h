@@ -31,6 +31,7 @@ extern const char kApp[];
 extern const char kAppId[];
 extern const char kAppsGalleryReturnTokens[];
 extern const char kAppsGalleryURL[];
+extern const char kAppsGalleryUpdateURL[];
 extern const char kAppsNoThrob[];
 extern const char kAuthNegotiateDelegateWhitelist[];
 extern const char kAuthSchemes[];
@@ -55,6 +56,7 @@ extern const char kDisableAltWinstation[];
 extern const char kDisableApplicationCache[];
 extern const char kDisableAudio[];
 extern const char kDisableAuthNegotiateCnameLookup[];
+extern const char kDisableBackgroundMode[];
 extern const char kDisableBackgroundNetworking[];
 extern const char kDisableBackingStoreLimit[];
 extern const char kDisableConnectBackupJobs[];
@@ -116,12 +118,15 @@ extern const char kDnsServer[];
 extern const char kDomAutomationController[];
 extern const char kDumpHistogramsOnExit[];
 extern const char kEnableAccelerated2dCanvas[];
+extern const char kEnableAcceleratedLayers[];
 extern const char kEnableAccessibility[];
 extern const char kEnableAeroPeekTabs[];
 extern const char kEnableAppLauncher[];
 extern const char kEnableAuthNegotiatePort[];
 extern const char kEnableBackgroundMode[];
 extern const char kEnableBenchmarking[];
+extern const char kEnableBlockContentAnimation[];
+extern const char kEnableClientSidePhishingDetection[];
 extern const char kEnableClearServerData[];
 extern const char kEnableClickToPlay[];
 extern const char kEnableCloudPrintProxy[];
@@ -129,6 +134,7 @@ extern const char kEnableCloudPrint[];
 extern const char kEnableConfirmToQuit[];
 extern const char kEnableConnectBackupJobs[];
 extern const char kEnableContentPrefetch[];
+extern const char kEnableCrxlessWebApps[];
 extern const char kEnableDefaultApps[];
 extern const char kEnableDeviceMotion[];
 extern const char kEnableDNSCertProvenanceChecking[];
@@ -146,6 +152,7 @@ extern const char kEnableNaCl[];
 extern const char kEnableNaClDebug[];
 extern const char kEnableNativeWebWorkers[];
 extern const char kEnablePagePrerender[];
+extern const char kEnableSyncNewAutofill[];
 extern const char kEnablePreconnect[];
 extern const char kEnablePredictiveInstant[];
 extern const char kEnablePreparsedJsCaching[];
@@ -387,6 +394,10 @@ extern const char kWebSocketLiveExperimentHost[];
 
 #if !defined(OFFICIAL_BUILD)
 extern const char kRendererCheckFalseTest[];
+#endif
+
+#if defined(HAVE_XINPUT2)
+extern const char kTouchDevices[];
 #endif
 
 #if defined(USE_SECCOMP_SANDBOX)

@@ -15,8 +15,13 @@
 #include "gfx/native_widget_types.h"
 
 struct GpuHostMsg_AcceleratedSurfaceSetIOSurface_Params;
+struct GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params;
 class GPUInfo;
 class ResourceMessageFilter;
+
+namespace gfx {
+class Size;
+}
 
 namespace IPC {
 struct ChannelHandle;
@@ -82,13 +87,17 @@ class GpuProcessHost : public BrowserChildProcessHost, public NonThreadSafe {
   void OnSynchronizeReply();
 #if defined(OS_LINUX)
   void OnGetViewXID(gfx::NativeViewId id, IPC::Message* reply_msg);
+  void OnReleaseXID(unsigned long xid);
+  void OnResizeXID(unsigned long xid, gfx::Size size, IPC::Message* reply_msg);
 #elif defined(OS_MACOSX)
   void OnAcceleratedSurfaceSetIOSurface(
       const GpuHostMsg_AcceleratedSurfaceSetIOSurface_Params& params);
-  void OnAcceleratedSurfaceBuffersSwapped(int32 renderer_id,
-                                          int32 render_view_id,
-                                          gfx::PluginWindowHandle window,
-                                          uint64 surface_id);
+  void OnAcceleratedSurfaceBuffersSwapped(
+      const GpuHostMsg_AcceleratedSurfaceBuffersSwapped_Params& params);
+#elif defined(OS_WIN)
+  void OnGetCompositorHostWindow(int renderer_id,
+                                    int render_view_id,
+                                    IPC::Message* reply_message);
 #endif
 
   // Sends the response for establish channel request to the renderer.
@@ -105,7 +114,11 @@ class GpuProcessHost : public BrowserChildProcessHost, public NonThreadSafe {
       const ViewHostMsg_Resource_Request& request_data);
 
   virtual bool CanShutdown();
+  virtual void OnChildDied();
   virtual void OnProcessCrashed();
+
+  bool CanLaunchGpuProcess() const;
+  bool LaunchGpuProcess();
 
   bool initialized_;
   bool initialized_successfully_;

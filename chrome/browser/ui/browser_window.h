@@ -20,6 +20,7 @@ class LocationBar;
 class Profile;
 class StatusBubble;
 class TabContents;
+class TabContentsWrapper;
 class TemplateURL;
 class TemplateURLModel;
 #if !defined(OS_MACOSX)
@@ -34,6 +35,8 @@ class Rect;
 namespace views {
 class Window;
 }
+
+class Extension;
 
 ////////////////////////////////////////////////////////////////////////////////
 // BrowserWindow interface
@@ -139,7 +142,7 @@ class BrowserWindow {
   virtual void UpdateReloadStopState(bool is_loading, bool force) = 0;
 
   // Updates the toolbar with the state for the specified |contents|.
-  virtual void UpdateToolbar(TabContents* contents,
+  virtual void UpdateToolbar(TabContentsWrapper* contents,
                              bool should_restore_state) = 0;
 
   // Focuses the toolbar (for accessibility).
@@ -255,13 +258,6 @@ class BrowserWindow {
   virtual void ShowHTMLDialog(HtmlDialogUIDelegate* delegate,
                               gfx::NativeWindow parent_window) = 0;
 
-  // Asks the window to continue a drag operation begun in a different browser
-  // window. |tab_bounds| are the bounds of the Tab view that was dragged from
-  // the source window, in screen coordinates. The corresponding Tab view in
-  // this new window will be positioned at these bounds for a seamless
-  // appearance.
-  virtual void ContinueDraggingDetachedTab(const gfx::Rect& tab_bounds) {}
-
   // BrowserThemeProvider calls this when a user has changed his or her theme,
   // indicating that it's time to redraw everything.
   virtual void UserChangedTheme() = 0;
@@ -301,7 +297,11 @@ class BrowserWindow {
   virtual void HandleKeyboardEvent(const NativeWebKeyboardEvent& event) = 0;
 
   // Shows the create web app shortcut dialog box.
-  virtual void ShowCreateShortcutsDialog(TabContents* tab_contents) = 0;
+  virtual void ShowCreateWebAppShortcutsDialog(TabContents* tab_contents) = 0;
+
+  // Shows the create chrome app shortcut dialog box.
+  virtual void ShowCreateChromeAppShortcutsDialog(Profile* profile,
+                                                  const Extension* app) = 0;
 
   // Clipboard commands applied to the whole browser window.
   virtual void Cut() = 0;
@@ -323,7 +323,8 @@ class BrowserWindow {
   virtual void ShowInstant(TabContents* preview_contents) = 0;
 
   // Invoked when the instant's tab contents should be hidden.
-  virtual void HideInstant() = 0;
+  // |instant_is_active| indicates if instant is still active.
+  virtual void HideInstant(bool instant_is_active) = 0;
 
   // Returns the desired bounds for instant in screen coordinates. Note that if
   // instant isn't currently visible this returns the bounds instant would be

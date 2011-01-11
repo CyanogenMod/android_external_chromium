@@ -44,6 +44,7 @@ using base::TimeDelta;
 
 AutocompleteInput::AutocompleteInput()
   : type_(INVALID),
+    initial_prevent_inline_autocomplete_(false),
     prevent_inline_autocomplete_(false),
     prefer_keyword_(false),
     allow_exact_keyword_match_(true),
@@ -57,6 +58,7 @@ AutocompleteInput::AutocompleteInput(const std::wstring& text,
                                      bool allow_exact_keyword_match,
                                      bool synchronous_only)
     : desired_tld_(desired_tld),
+      initial_prevent_inline_autocomplete_(prevent_inline_autocomplete),
       prevent_inline_autocomplete_(prevent_inline_autocomplete),
       prefer_keyword_(prefer_keyword),
       allow_exact_keyword_match_(allow_exact_keyword_match),
@@ -80,11 +82,17 @@ AutocompleteInput::AutocompleteInput(const std::wstring& text,
       canonicalized_url_ = canonicalized_url;
   }
 
-  if (type_ == FORCED_QUERY && text_[0] == L'?')
-    text_.erase(0, 1);
+  RemoveForcedQueryStringIfNecessary(type_, &text_);
 }
 
 AutocompleteInput::~AutocompleteInput() {
+}
+
+// static
+void AutocompleteInput::RemoveForcedQueryStringIfNecessary(Type type,
+                                                           std::wstring* text) {
+  if (type == FORCED_QUERY && !text->empty() && (*text)[0] == L'?')
+    text->erase(0, 1);
 }
 
 // static
@@ -632,7 +640,8 @@ AutocompleteController::AutocompleteController(Profile* profile)
       delay_interval_has_passed_(false),
       have_committed_during_this_query_(false),
       done_(true) {
-  providers_.push_back(new SearchProvider(this, profile));
+  search_provider_ = new SearchProvider(this, profile);
+  providers_.push_back(search_provider_);
   if (!CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kDisableHistoryQuickProvider))
     providers_.push_back(new HistoryQuickProvider(this, profile));

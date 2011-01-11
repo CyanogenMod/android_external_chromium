@@ -10,12 +10,15 @@
 #include <map>
 #include <set>
 
+#include "base/scoped_ptr.h"
 #include "chrome/browser/automation/automation_provider_json.h"
 #include "chrome/browser/bookmarks/bookmark_model_observer.h"
 #include "chrome/browser/browsing_data_remover.h"
+#include "chrome/browser/cancelable_request.h"
 #include "chrome/browser/download/download_item.h"
 #include "chrome/browser/download/download_manager.h"
 #include "chrome/browser/history/history.h"
+#include "chrome/browser/history/history_types.h"
 #include "chrome/browser/importer/importer.h"
 #include "chrome/browser/importer/importer_data_types.h"
 #include "chrome/browser/password_manager/password_store.h"
@@ -37,6 +40,10 @@ class RenderViewHost;
 class SavePackage;
 class TabContents;
 class TranslateInfoBarDelegate;
+
+namespace history {
+class TopSites;
+}
 
 namespace IPC {
 class Message;
@@ -204,10 +211,10 @@ class TabCountChangeObserver : public TabStripModelObserver {
                          IPC::Message* reply_message,
                          int target_tab_count);
   // Implementation of TabStripModelObserver.
-  virtual void TabInsertedAt(TabContents* contents,
+  virtual void TabInsertedAt(TabContentsWrapper* contents,
                              int index,
                              bool foreground);
-  virtual void TabDetachedAt(TabContents* contents, int index);
+  virtual void TabDetachedAt(TabContentsWrapper* contents, int index);
   virtual void TabStripModelDeleted();
 
  private:
@@ -918,6 +925,31 @@ class PageSnapshotTaker : public DomOperationObserver {
   gfx::Size entire_page_size_;
 
   DISALLOW_COPY_AND_ASSIGN(PageSnapshotTaker);
+};
+
+class NTPInfoObserver : public NotificationObserver {
+ public:
+  NTPInfoObserver(AutomationProvider* automation,
+                  IPC::Message* reply_message,
+                  CancelableRequestConsumer* consumer);
+
+  virtual void Observe(NotificationType type,
+                       const NotificationSource& source,
+                       const NotificationDetails& details);
+
+ private:
+  void OnTopSitesLoaded();
+  void OnTopSitesReceived(const history::MostVisitedURLList& visited_list);
+
+  AutomationProvider* automation_;
+  IPC::Message* reply_message_;
+  CancelableRequestConsumer* consumer_;
+  CancelableRequestProvider::Handle request_;
+  scoped_ptr<DictionaryValue> ntp_info_;
+  history::TopSites* top_sites_;
+  NotificationRegistrar registrar_;
+
+  DISALLOW_COPY_AND_ASSIGN(NTPInfoObserver);
 };
 
 // Allows automation provider to wait until the autocomplete edit

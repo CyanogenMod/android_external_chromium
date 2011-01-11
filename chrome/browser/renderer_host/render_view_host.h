@@ -511,7 +511,8 @@ class RenderViewHost : public RenderWidgetHost {
                        bool verbatim);
   void SearchBoxCancel();
   void SearchBoxResize(const gfx::Rect& search_box_bounds);
-  void DetermineIfPageSupportsInstant(const string16& value);
+  void DetermineIfPageSupportsInstant(const string16& value,
+                                      bool verbatim);
 
 #if defined(UNIT_TEST)
   // These functions shouldn't be necessary outside of testing.
@@ -669,9 +670,10 @@ class RenderViewHost : public RenderWidgetHost {
                                     int32 status);
 
   void OnDidGetApplicationInfo(int32 page_id, const WebApplicationInfo& info);
+  void OnInstallApplication(const WebApplicationInfo& info);
   void OnMsgShouldCloseACK(bool proceed);
   void OnQueryFormFieldAutoFill(int request_id,
-                                bool form_autofilled,
+                                const webkit_glue::FormData& form,
                                 const webkit_glue::FormField& field);
   void OnDidShowAutoFillSuggestions();
   void OnRemoveAutocompleteEntry(const string16& field_name,
@@ -679,6 +681,7 @@ class RenderViewHost : public RenderWidgetHost {
   void OnShowAutoFillDialog();
   void OnFillAutoFillFormData(int query_id,
                               const webkit_glue::FormData& form,
+                              const webkit_glue::FormField& field,
                               int unique_id);
   void OnDidFillAutoFillFormData();
 
@@ -720,11 +723,7 @@ class RenderViewHost : public RenderWidgetHost {
                               const SkBitmap& thumbnail);
   void OnScriptEvalResponse(int id, bool result);
   void OnUpdateContentRestrictions(int restrictions);
-#if defined(OS_MACOSX) || defined(OS_WIN)
-  void OnPageReadyForPreview(const ViewHostMsg_DidPrintPage_Params& params);
-#else
-  void OnPagesReadyForPreview(int fd_in_browser);
-#endif
+  void OnPagesReadyForPreview(int document_cookie, int fd_in_browser);
 
 #if defined(OS_MACOSX)
   void OnMsgShowPopup(const ViewHostMsg_ShowPopup_Params& params);

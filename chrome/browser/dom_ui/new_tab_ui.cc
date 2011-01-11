@@ -27,6 +27,7 @@
 #include "chrome/browser/dom_ui/ntp_resource_cache.h"
 #include "chrome/browser/dom_ui/shown_sections_handler.h"
 #include "chrome/browser/dom_ui/tips_handler.h"
+#include "chrome/browser/dom_ui/value_helper.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/themes/browser_theme_provider.h"
 #include "chrome/browser/prefs/pref_service.h"
@@ -152,22 +153,6 @@ class RecentlyClosedTabsHandler : public DOMMessageHandler,
   virtual void TabRestoreServiceDestroyed(TabRestoreService* service);
 
  private:
-  // Converts a closed tab to the value sent down to the NTP. Returns true on
-  // success, false if the value shouldn't be sent down.
-  bool TabToValue(const TabRestoreService::Tab& tab,
-                  DictionaryValue* dictionary);
-
-  // Converts a closed window to the value sent down to the NTP. Returns true
-  // on success, false if the value shouldn't be sent down.
-  bool WindowToValue(const TabRestoreService::Window& window,
-                     DictionaryValue* dictionary);
-
-  // Adds tab to unique_items list if it is not present. Returns false if
-  // tab was already in the list, true if it was absent.  A tab is
-  // considered unique if no other tab shares both its title and its url.
-  bool EnsureTabIsUnique(const DictionaryValue* tab,
-                         std::set<std::string>* unique_items);
-
   // TabRestoreService that we are observing.
   TabRestoreService* tab_restore_service_;
 
@@ -222,102 +207,15 @@ void RecentlyClosedTabsHandler::HandleGetRecentlyClosedTabs(
 
 void RecentlyClosedTabsHandler::TabRestoreServiceChanged(
     TabRestoreService* service) {
-  const TabRestoreService::Entries& entries = service->entries();
   ListValue list_value;
-  std::set<std::string> unique_items;
-  int added_count = 0;
-  const int max_count = 10;
+  NewTabUI::AddRecentlyClosedEntries(service->entries(), &list_value);
 
-  // We filter the list of recently closed to only show 'interesting' entries,
-  // where an interesting entry is either a closed window or a closed tab
-  // whose selected navigation is not the new tab ui.
-  for (TabRestoreService::Entries::const_iterator it = entries.begin();
-       it != entries.end() && added_count < max_count; ++it) {
-    TabRestoreService::Entry* entry = *it;
-    DictionaryValue* value = new DictionaryValue();
-    if ((entry->type == TabRestoreService::TAB &&
-         TabToValue(*static_cast<TabRestoreService::Tab*>(entry), value) &&
-         EnsureTabIsUnique(value, &unique_items)) ||
-        (entry->type == TabRestoreService::WINDOW &&
-         WindowToValue(*static_cast<TabRestoreService::Window*>(entry),
-                       value))) {
-      value->SetInteger("sessionId", entry->id);
-      list_value.Append(value);
-      added_count++;
-    } else {
-      delete value;
-    }
-  }
   dom_ui_->CallJavascriptFunction(L"recentlyClosedTabs", list_value);
 }
 
 void RecentlyClosedTabsHandler::TabRestoreServiceDestroyed(
     TabRestoreService* service) {
   tab_restore_service_ = NULL;
-}
-
-bool RecentlyClosedTabsHandler::TabToValue(
-    const TabRestoreService::Tab& tab,
-    DictionaryValue* dictionary) {
-  if (tab.navigations.empty())
-    return false;
-
-  const TabNavigation& current_navigation =
-      tab.navigations.at(tab.current_navigation_index);
-  if (current_navigation.virtual_url() == GURL(chrome::kChromeUINewTabURL))
-    return false;
-
-  NewTabUI::SetURLTitleAndDirection(dictionary, current_navigation.title(),
-                                    current_navigation.virtual_url());
-  dictionary->SetString("type", "tab");
-  dictionary->SetReal("timestamp", tab.timestamp.ToDoubleT());
-  return true;
-}
-
-bool RecentlyClosedTabsHandler::WindowToValue(
-    const TabRestoreService::Window& window,
-    DictionaryValue* dictionary) {
-  if (window.tabs.empty()) {
-    NOTREACHED();
-    return false;
-  }
-
-  ListValue* tab_values = new ListValue();
-  for (size_t i = 0; i < window.tabs.size(); ++i) {
-    DictionaryValue* tab_value = new DictionaryValue();
-    if (TabToValue(window.tabs[i], tab_value))
-      tab_values->Append(tab_value);
-    else
-      delete tab_value;
-  }
-  if (tab_values->GetSize() == 0) {
-    delete tab_values;
-    return false;
-  }
-
-  dictionary->SetString("type", "window");
-  dictionary->SetReal("timestamp", window.timestamp.ToDoubleT());
-  dictionary->Set("tabs", tab_values);
-  return true;
-}
-
-bool RecentlyClosedTabsHandler::EnsureTabIsUnique(
-    const DictionaryValue* tab,
-    std::set<std::string>* unique_items) {
-  DCHECK(unique_items);
-  std::string title;
-  std::string url;
-  if (tab->GetString("title", &title) &&
-      tab->GetString("url", &url)) {
-    // TODO(viettrungluu): this isn't obviously reliable, since different
-    // combinations of titles/urls may conceivably yield the same string.
-    std::string unique_key = title + url;
-    if (unique_items->find(unique_key) != unique_items->end())
-      return false;
-    else
-      unique_items->insert(unique_key);
-  }
-  return true;
 }
 
 
@@ -405,6 +303,41 @@ void NewTabPageSetHomePageHandler::HandleSetHomePage(
   dom_ui_->CallJavascriptFunction(L"onHomePageSet", list_value);
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// NewTabPageClosePromoHandler
+
+// Turns off the promo line permanently when it has been explicitly closed by
+// the user.
+class NewTabPageClosePromoHandler : public DOMMessageHandler {
+ public:
+  NewTabPageClosePromoHandler() {}
+  virtual ~NewTabPageClosePromoHandler() {}
+
+  // DOMMessageHandler implementation.
+  virtual void RegisterMessages();
+
+  // Callback for "closePromo".
+  void HandleClosePromo(const ListValue* args);
+
+ private:
+
+  DISALLOW_COPY_AND_ASSIGN(NewTabPageClosePromoHandler);
+};
+
+void NewTabPageClosePromoHandler::RegisterMessages() {
+  dom_ui_->RegisterMessageCallback("closePromo", NewCallback(
+      this, &NewTabPageClosePromoHandler::HandleClosePromo));
+}
+
+void NewTabPageClosePromoHandler::HandleClosePromo(
+    const ListValue* args) {
+  dom_ui_->GetProfile()->GetPrefs()->SetBoolean(prefs::kNTPPromoClosed, true);
+  NotificationService* service = NotificationService::current();
+  service->Notify(NotificationType::WEB_RESOURCE_STATE_CHANGED,
+                  Source<NewTabPageClosePromoHandler>(this),
+                  NotificationService::NoDetails());
+}
+
 }  // namespace
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -450,6 +383,7 @@ NewTabUI::NewTabUI(TabContents* contents)
       AddMessageHandler((new AppLauncherHandler(service))->Attach(this));
 
     AddMessageHandler((new NewTabPageSetHomePageHandler())->Attach(this));
+    AddMessageHandler((new NewTabPageClosePromoHandler())->Attach(this));
   }
 
   // Initializing the CSS and HTML can require some CPU, so do it after
@@ -603,6 +537,57 @@ void NewTabUI::SetURLTitleAndDirection(DictionaryValue* dictionary,
   }
   dictionary->SetString("title", title_to_set);
   dictionary->SetString("direction", direction);
+}
+
+namespace {
+
+bool IsTabUnique(const DictionaryValue* tab,
+                 std::set<std::string>* unique_items) {
+  DCHECK(unique_items);
+  std::string title;
+  std::string url;
+  if (tab->GetString("title", &title) &&
+      tab->GetString("url", &url)) {
+    // TODO(viettrungluu): this isn't obviously reliable, since different
+    // combinations of titles/urls may conceivably yield the same string.
+    std::string unique_key = title + url;
+    if (unique_items->find(unique_key) != unique_items->end())
+      return false;
+    else
+      unique_items->insert(unique_key);
+  }
+  return true;
+}
+
+}  // namespace
+
+// static
+void NewTabUI::AddRecentlyClosedEntries(
+    const TabRestoreService::Entries& entries, ListValue* entry_list_value) {
+  const int max_count = 10;
+  int added_count = 0;
+  std::set<std::string> unique_items;
+  // We filter the list of recently closed to only show 'interesting' entries,
+  // where an interesting entry is either a closed window or a closed tab
+  // whose selected navigation is not the new tab ui.
+  for (TabRestoreService::Entries::const_iterator it = entries.begin();
+       it != entries.end() && added_count < max_count; ++it) {
+    TabRestoreService::Entry* entry = *it;
+    scoped_ptr<DictionaryValue> entry_dict(new DictionaryValue());
+    if ((entry->type == TabRestoreService::TAB &&
+         ValueHelper::TabToValue(
+             *static_cast<TabRestoreService::Tab*>(entry),
+             entry_dict.get()) &&
+         IsTabUnique(entry_dict.get(), &unique_items)) ||
+        (entry->type == TabRestoreService::WINDOW &&
+         ValueHelper::WindowToValue(
+             *static_cast<TabRestoreService::Window*>(entry),
+             entry_dict.get()))) {
+      entry_dict->SetInteger("sessionId", entry->id);
+      entry_list_value->Append(entry_dict.release());
+      added_count++;
+    }
+  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -20,7 +20,6 @@
 #include "chrome/browser/chromeos/login/shutdown_button.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
 #include "chrome/browser/chromeos/status/clock_menu_button.h"
-#include "chrome/browser/chromeos/status/feedback_menu_button.h"
 #include "chrome/browser/chromeos/status/input_method_menu_button.h"
 #include "chrome/browser/chromeos/status/network_menu_button.h"
 #include "chrome/browser/chromeos/status/status_area_view.h"
@@ -30,6 +29,7 @@
 #include "chrome/browser/views/dom_view.h"
 #include "cros/chromeos_wm_ipc_enums.h"
 #include "googleurl/src/gurl.h"
+#include "gfx/gtk_util.h"
 #include "grit/chromium_strings.h"
 #include "grit/generated_resources.h"
 #include "grit/theme_resources.h"
@@ -49,6 +49,25 @@ namespace {
 
 const SkColor kVersionColor = 0xff5c739f;
 
+// Returns the corresponding step id for step constant.
+int GetStepId(size_t step) {
+  switch (step) {
+    case chromeos::BackgroundView::SELECT_NETWORK:
+      return IDS_OOBE_SELECT_NETWORK;
+    case chromeos::BackgroundView::EULA:
+      return IDS_OOBE_EULA;
+    case chromeos::BackgroundView::SIGNIN:
+      return IDS_OOBE_SIGNIN;
+    case chromeos::BackgroundView::REGISTRATION:
+      return IDS_OOBE_REGISTRATION;
+    case chromeos::BackgroundView::PICTURE:
+      return IDS_OOBE_PICTURE;
+    default:
+      NOTREACHED();
+      return 0;
+  }
+}
+
 // The same as TextButton but switches cursor to hand cursor when mouse
 // is over the button.
 class TextButtonWithHandCursorOver : public views::TextButton {
@@ -66,7 +85,7 @@ class TextButtonWithHandCursorOver : public views::TextButton {
     if (!IsEnabled()) {
       return NULL;
     }
-    return gdk_cursor_new(GDK_HAND2);
+    return gfx::GetCursor(GDK_HAND2);
   }
 
  private:
@@ -121,11 +140,20 @@ void BackgroundView::Init(const GURL& background_url) {
   }
 }
 
-void BackgroundView::EnableShutdownButton() {
-  DCHECK(!shutdown_button_);
-  shutdown_button_ = new ShutdownButton();
-  shutdown_button_->Init();
-  AddChildView(shutdown_button_);
+void BackgroundView::EnableShutdownButton(bool enable) {
+  if (enable) {
+    if (shutdown_button_)
+      return;
+    shutdown_button_ = new ShutdownButton();
+    shutdown_button_->Init();
+    AddChildView(shutdown_button_);
+  } else {
+    if (!shutdown_button_)
+      return;
+    delete shutdown_button_;
+    shutdown_button_ = NULL;
+    SchedulePaint();
+  }
 }
 
 // static
@@ -175,9 +203,9 @@ bool BackgroundView::IsOobeProgressBarVisible() {
 }
 
 void BackgroundView::SetOobeProgress(LoginStep step) {
-  DCHECK(step <= PICTURE);
+  DCHECK(step < STEPS_COUNT);
   if (progress_bar_)
-    progress_bar_->SetProgress(step);
+    progress_bar_->SetStep(GetStepId(step));
 }
 
 void BackgroundView::ShowScreenSaver() {
@@ -271,7 +299,6 @@ bool BackgroundView::ShouldOpenButtonOptions(
     return true;
   }
   if (button_view == status_area_->clock_view() ||
-      button_view == status_area_->feedback_view() ||
       button_view == status_area_->input_method_view()) {
     return false;
   }
@@ -309,8 +336,6 @@ void BackgroundView::InitStatusArea() {
   DCHECK(status_area_ == NULL);
   status_area_ = new StatusAreaView(this);
   status_area_->Init();
-  // Feedback button shoudn't be visible on OOBE/login/screen lock.
-  status_area_->feedback_view()->SetVisible(false);
   AddChildView(status_area_);
 }
 
@@ -334,7 +359,9 @@ void BackgroundView::InitInfoLabels() {
     version_loader_.GetVersion(
         &version_consumer_,
         NewCallback(this, &BackgroundView::OnVersion),
-        !is_official_build_);
+        is_official_build_?
+            VersionLoader::VERSION_SHORT_WITH_DATE :
+            VersionLoader::VERSION_FULL);
     if (!is_official_build_) {
       boot_times_loader_.GetBootTimes(
           &boot_times_consumer_,
@@ -348,16 +375,16 @@ void BackgroundView::InitInfoLabels() {
 
 void BackgroundView::InitProgressBar() {
   std::vector<int> steps;
-  steps.push_back(IDS_OOBE_SELECT_NETWORK);
+  steps.push_back(GetStepId(SELECT_NETWORK));
 #if defined(OFFICIAL_BUILD)
-  steps.push_back(IDS_OOBE_EULA);
+  steps.push_back(GetStepId(EULA));
 #endif
-  steps.push_back(IDS_OOBE_SIGNIN);
+  steps.push_back(GetStepId(SIGNIN));
 #if defined(OFFICIAL_BUILD)
   if (WizardController::IsRegisterScreenDefined())
-    steps.push_back(IDS_OOBE_REGISTRATION);
+    steps.push_back(GetStepId(REGISTRATION));
 #endif
-  steps.push_back(IDS_OOBE_PICTURE);
+  steps.push_back(GetStepId(PICTURE));
   progress_bar_ = new OobeProgressBar(steps);
   AddChildView(progress_bar_);
 }
@@ -374,21 +401,25 @@ void BackgroundView::UpdateWindowType() {
 void BackgroundView::OnVersion(
     VersionLoader::Handle handle, std::string version) {
   // TODO(jungshik): Is string concatenation OK here?
-  std::string version_text = l10n_util::GetStringUTF8(IDS_PRODUCT_NAME);
+  std::string version_text = l10n_util::GetStringUTF8(IDS_PRODUCT_OS_NAME);
   version_text += ' ';
   version_text += l10n_util::GetStringUTF8(IDS_VERSION_FIELD_PREFIX);
   version_text += ' ';
   version_text += version;
+
+  // Workaround over incorrect width calculation in old fonts.
+  // TODO(glotov): remove the following line when new fonts are used.
+  version_text += ' ';
   os_version_label_->SetText(UTF8ToWide(version_text));
 }
 
 void BackgroundView::OnBootTimes(
     BootTimesLoader::Handle handle, BootTimesLoader::BootTimes boot_times) {
   const char* kBootTimesNoChromeExec =
-      "Boot took %.2f seconds (firmware %.2fs, kernel %.2fs, system %.2fs)";
+      "Non-firmware boot took %.2f seconds (kernel %.2fs, system %.2fs)";
   const char* kBootTimesChromeExec =
-      "Boot took %.2f seconds "
-      "(firmware %.2fs, kernel %.2fs, system %.2fs, chrome %.2fs)";
+      "Non-firmware boot took %.2f seconds "
+      "(kernel %.2fs, system %.2fs, chrome %.2fs)";
   std::string boot_times_text;
 
   if (boot_times.chrome > 0) {
@@ -396,7 +427,6 @@ void BackgroundView::OnBootTimes(
         base::StringPrintf(
             kBootTimesChromeExec,
             boot_times.total,
-            boot_times.firmware,
             boot_times.pre_startup,
             boot_times.system,
             boot_times.chrome);
@@ -405,7 +435,6 @@ void BackgroundView::OnBootTimes(
         base::StringPrintf(
             kBootTimesNoChromeExec,
             boot_times.total,
-            boot_times.firmware,
             boot_times.pre_startup,
             boot_times.system);
   }

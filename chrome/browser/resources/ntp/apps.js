@@ -21,6 +21,16 @@ function getAppsCallback(data) {
   var appsPromoPing = PING_WEBSTORE_LAUNCH_PREFIX + '+' + data.showPromo;
   var webStoreEntry;
 
+  // Hide menu options that are not supported on the OS or windowing system.
+
+  // The "Launch as Window" menu option.
+  $('apps-launch-type-window-menu-item').style.display =
+      (data.disableAppWindowLaunch ? 'none' : 'inline');
+
+  // The "Create App Shortcut" menu option.
+  $('apps-create-shortcut-command-menu-item').style.display =
+      (data.disableCreateAppShortcut ? 'none' : 'inline');
+
   appsMiniview.textContent = '';
   appsSectionContent.textContent = '';
 
@@ -97,11 +107,6 @@ var apps = (function() {
     return div;
   }
 
-  function createContextMenu(app) {
-    var menu = new cr.ui.Menu;
-    var button = document.createElement(button);
-  }
-
   function launchApp(appId) {
     var appsSection = $('apps');
     var expanded = !appsSection.classList.contains('hidden');
@@ -150,10 +155,11 @@ var apps = (function() {
   var LaunchType = {
     LAUNCH_PINNED: 0,
     LAUNCH_REGULAR: 1,
-    LAUNCH_FULLSCREEN: 2
+    LAUNCH_FULLSCREEN: 2,
+    LAUNCH_WINDOW: 3
   };
 
-  // Keep in sync with LaunchContainer in extension.h
+  // Keep in sync with LaunchContainer in extension_constants.h
   var LaunchContainer = {
     LAUNCH_WINDOW: 0,
     LAUNCH_PANEL: 1,
@@ -174,17 +180,23 @@ var apps = (function() {
         $('apps-launch-command').label = app['name'];
         $('apps-options-command').canExecuteChange();
 
-        var appLinkSel = '.app a[app-id=' + app['id'] + ']';
-        var launchType =
-            el.querySelector(appLinkSel).getAttribute('launch-type');
+        var launchTypeEl;
+        if (el.getAttribute('app-id') === app['id']) {
+          launchTypeEl = el;
+        } else {
+          appLinkSel = 'a[app-id=' + app['id'] + ']';
+          launchTypeEl = el.querySelector(appLinkSel);
+        }
 
+        var launchType = launchTypeEl.getAttribute('launch-type');
         var launchContainer = app['launch_container'];
         var isPanel = launchContainer == LaunchContainer.LAUNCH_PANEL;
 
         // Update the commands related to the launch type.
         var launchTypeIds = ['apps-launch-type-pinned',
                              'apps-launch-type-regular',
-                             'apps-launch-type-fullscreen'];
+                             'apps-launch-type-fullscreen',
+                             'apps-launch-type-window'];
         launchTypeIds.forEach(function(id) {
           var command = $(id);
           command.disabled = isPanel;
@@ -212,9 +224,13 @@ var apps = (function() {
       case 'apps-uninstall-command':
         chrome.send('uninstallApp', [currentApp['id']]);
         break;
+      case 'apps-create-shortcut-command':
+        chrome.send('createAppShortcut', [currentApp['id']]);
+        break;
       case 'apps-launch-type-pinned':
       case 'apps-launch-type-regular':
       case 'apps-launch-type-fullscreen':
+      case 'apps-launch-type-window':
         chrome.send('setLaunchType',
             [currentApp['id'], e.command.getAttribute('launch-type')]);
         break;
@@ -304,6 +320,9 @@ var apps = (function() {
       a.setAttribute('ping', PING_APP_LAUNCH_PREFIX + '+' + this.showPromo);
       a.style.backgroundImage = url(app['icon_small']);
       a.className = 'item';
+
+      addContextMenu(a, app);
+
       return a;
     },
 

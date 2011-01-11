@@ -240,8 +240,9 @@ BrowserRenderProcessHost::BrowserRenderProcessHost(Profile* profile)
   // PLATFORM_FILE_DELETE_ON_CLOSE are not granted, because no existing API
   // requests them.
   ChildProcessSecurityPolicy::GetInstance()->GrantPermissionsForFile(
-      id(), profile->GetPath().Append(
-          fileapi::FileSystemPathManager::kFileSystemDirectory),
+      id(),
+      fileapi::FileSystemPathManager::GetFileSystemCommonRootDirectory(
+          profile->GetPath()),
       base::PLATFORM_FILE_OPEN |
       base::PLATFORM_FILE_CREATE |
       base::PLATFORM_FILE_OPEN_ALWAYS |
@@ -628,6 +629,8 @@ void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
     switches::kDisableFileSystem,
     switches::kPpapiOutOfProcess,
     switches::kEnablePrintPreview,
+    switches::kEnableClientSidePhishingDetection,
+    switches::kEnableCrxlessWebApps
   };
   renderer_cmd->CopySwitchesFrom(browser_cmd, kSwitchNames,
                                  arraysize(kSwitchNames));
@@ -691,12 +694,9 @@ void BrowserRenderProcessHost::InitSpeechInput() {
     enabled = false;
 #if defined(GOOGLE_CHROME_BUILD)
   } else if (!command_line.HasSwitch(switches::kEnableSpeechInput)) {
-    // We need to evaluate whether IO is OK here. http://crbug.com/63335.
-    base::ThreadRestrictions::ScopedAllowIO allow_io;
     // Official Chrome builds don't have speech input enabled by default in the
     // beta and stable channels.
-    std::string channel = platform_util::GetVersionStringModifier();
-    enabled = (!channel.empty() && channel != "beta");
+    enabled = false;
 #endif
   }
 

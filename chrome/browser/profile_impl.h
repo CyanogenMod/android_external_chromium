@@ -124,10 +124,13 @@ class ProfileImpl : public Profile,
   virtual ExtensionInfoMap* GetExtensionInfoMap();
   virtual PromoCounter* GetInstantPromoCounter();
   virtual BrowserSignin* GetBrowserSignin();
+  virtual policy::ProfilePolicyContext* GetPolicyContext();
 
 #if defined(OS_CHROMEOS)
   virtual chromeos::ProxyConfigServiceImpl* GetChromeOSProxyConfigServiceImpl();
 #endif  // defined(OS_CHROMEOS)
+
+  virtual PrefProxyConfigTracker* GetProxyConfigTracker();
 
   // NotificationObserver implementation.
   virtual void Observe(NotificationType type,
@@ -178,6 +181,7 @@ class ProfileImpl : public Profile,
       transport_security_state_;
   scoped_refptr<TransportSecurityPersister>
       transport_security_persister_;
+  scoped_ptr<policy::ProfilePolicyContext> profile_policy_context_;
   scoped_ptr<PrefService> prefs_;
   scoped_ptr<NetPrefObserver> net_pref_observer_;
   scoped_ptr<TemplateURLFetcher> template_url_fetcher_;
@@ -277,6 +281,8 @@ class ProfileImpl : public Profile,
   scoped_refptr<chromeos::ProxyConfigServiceImpl>
       chromeos_proxy_config_service_impl_;
 #endif
+
+  scoped_refptr<PrefProxyConfigTracker> pref_proxy_config_tracker_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileImpl);
 };

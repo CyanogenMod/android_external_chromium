@@ -15,12 +15,9 @@
 #include "base/sys_string_conversions.h"
 #import "base/worker_pool_mac.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/browser.h"
-#include "chrome/browser/browser_list.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_shutdown.h"
 #include "chrome/browser/browser_thread.h"
-#include "chrome/browser/browser_window.h"
 #import "chrome/browser/cocoa/about_window_controller.h"
 #import "chrome/browser/cocoa/bookmarks/bookmark_menu_bridge.h"
 #import "chrome/browser/cocoa/browser_window_cocoa.h"
@@ -47,7 +44,10 @@
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/sync/sync_ui_util_mac.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_init.h"
+#include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/app_mode_common_mac.h"
 #include "chrome/common/chrome_paths_internal.h"
 #include "chrome/common/chrome_switches.h"
@@ -295,10 +295,8 @@ void RecordLastRunAppBundlePath() {
   // http://dev.chromium.org/developers/design-documents/confirm-to-quit-experiment
   NSEvent* currentEvent = [app currentEvent];
   if ([currentEvent type] == NSKeyDown) {
-    ConfirmQuitPanelController* quitPanel =
-        [[ConfirmQuitPanelController alloc] init];  // Releases self.
     // Show the info panel that explains what the user must to do confirm quit.
-    [quitPanel showWindow:self];
+    [[ConfirmQuitPanelController sharedController] showWindow:self];
 
     // How long the user must hold down Cmd+Q to confirm the quit.
     const NSTimeInterval kTimeToConfirmQuit = 1.5;
@@ -361,7 +359,7 @@ void RecordLastRunAppBundlePath() {
     } else {
       // Slowly fade the confirm window out in case the user doesn't
       // understand what they have to do to quit.
-      [quitPanel dismissPanel];
+      [[ConfirmQuitPanelController sharedController] dismissPanel];
       return NSTerminateCancel;
     }
   }  // if event type is KeyDown
@@ -890,7 +888,7 @@ void RecordLastRunAppBundlePath() {
       else
         Browser::OpenHelpWindow(defaultProfile);
       break;
-    case IDC_REPORT_BUG: {
+    case IDC_FEEDBACK: {
       Browser* browser = BrowserList::GetLastActive();
       TabContents* currentTab =
           browser ? browser->GetSelectedTabContents() : NULL;
@@ -1002,7 +1000,7 @@ void RecordLastRunAppBundlePath() {
   menuState_->UpdateCommandEnabled(IDC_MANAGE_EXTENSIONS, true);
   menuState_->UpdateCommandEnabled(IDC_HELP_PAGE, true);
   menuState_->UpdateCommandEnabled(IDC_IMPORT_SETTINGS, true);
-  menuState_->UpdateCommandEnabled(IDC_REPORT_BUG, true);
+  menuState_->UpdateCommandEnabled(IDC_FEEDBACK, true);
   menuState_->UpdateCommandEnabled(IDC_SYNC_BOOKMARKS, true);
   menuState_->UpdateCommandEnabled(IDC_TASK_MANAGER, true);
 }

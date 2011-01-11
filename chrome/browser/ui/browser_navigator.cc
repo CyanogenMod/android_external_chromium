@@ -14,6 +14,7 @@
 #include "chrome/browser/status_bubble.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/url_constants.h"
@@ -82,16 +83,18 @@ int GetIndexOfSingletonTab(browser::NavigateParams* params) {
                                            &reverse_on_redirect);
 
   for (int i = 0; i < params->browser->tab_count(); ++i) {
-    TabContents* tab = params->browser->GetTabContentsAt(i);
+    TabContentsWrapper* tab =
+        params->browser->GetTabContentsWrapperAt(i);
 
     url_canon::Replacements<char> replacements;
     replacements.ClearRef();
     if (params->ignore_path)
       replacements.ClearPath();
 
-    if (CompareURLsWithReplacements(tab->GetURL(), params->url, replacements) ||
-        CompareURLsWithReplacements(tab->GetURL(), rewritten_url,
-                                    replacements)) {
+    if (CompareURLsWithReplacements(tab->tab_contents()->GetURL(),
+                                    params->url, replacements) ||
+        CompareURLsWithReplacements(tab->tab_contents()->GetURL(),
+                                    rewritten_url, replacements)) {
       params->target_contents = tab;
       return i;
     }
@@ -130,7 +133,8 @@ Browser* GetBrowserForDisposition(browser::NavigateParams* params) {
   // target browser. This must happen first, before GetBrowserForDisposition()
   // has a chance to replace |params->browser| with another one.
   if (!params->source_contents && params->browser)
-    params->source_contents = params->browser->GetSelectedTabContents();
+    params->source_contents =
+        params->browser->GetSelectedTabContentsWrapper();
 
   Profile* profile =
       params->browser ? params->browser->profile() : params->profile;
@@ -158,7 +162,8 @@ Browser* GetBrowserForDisposition(browser::NavigateParams* params) {
       // |source| represents an app.
       Browser::Type type = Browser::TYPE_POPUP;
       if ((params->browser && params->browser->type() == Browser::TYPE_APP) ||
-          (params->source_contents && params->source_contents->is_app())) {
+          (params->source_contents &&
+              params->source_contents->is_app())) {
         type = Browser::TYPE_APP_POPUP;
       }
       if (profile) {
@@ -232,6 +237,26 @@ void NormalizeDisposition(browser::NavigateParams* params) {
   }
 }
 
+// Obtain the profile used by the code that originated the Navigate() request.
+// |source_browser| represents the Browser that was supplied in |params| before
+// it was modified.
+Profile* GetSourceProfile(browser::NavigateParams* params,
+    Browser* source_browser) {
+  if (params->source_contents)
+    return params->source_contents->profile();
+
+  if (source_browser)
+    return source_browser->profile();
+
+  if (params->profile)
+    return params->profile;
+
+  // We couldn't find one in any of the source metadata, so we'll fall back to
+  // the profile associated with the target browser.
+  return params->browser->profile();
+}
+
+
 // This class makes sure the Browser object held in |params| is made visible
 // by the time it goes out of scope, provided |params| wants it to be shown.
 class ScopedBrowserDisplayer {
@@ -272,13 +297,13 @@ class ScopedTargetContentsOwner {
   }
 
   // Relinquishes ownership of |params_|' target_contents.
-  TabContents* ReleaseOwnership() {
+  TabContentsWrapper* ReleaseOwnership() {
     return target_contents_owner_.release();
   }
 
  private:
   browser::NavigateParams* params_;
-  scoped_ptr<TabContents> target_contents_owner_;
+  scoped_ptr<TabContentsWrapper> target_contents_owner_;
   DISALLOW_COPY_AND_ASSIGN(ScopedTargetContentsOwner);
 };
 
@@ -298,12 +323,13 @@ NavigateParams::NavigateParams(
       tabstrip_index(-1),
       tabstrip_add_types(TabStripModel::ADD_SELECTED),
       show_window(false),
+      ignore_path(false),
       browser(a_browser),
       profile(NULL) {
 }
 
 NavigateParams::NavigateParams(Browser* a_browser,
-                               TabContents* a_target_contents)
+                               TabContentsWrapper* a_target_contents)
     : target_contents(a_target_contents),
       source_contents(NULL),
       disposition(CURRENT_TAB),
@@ -311,6 +337,7 @@ NavigateParams::NavigateParams(Browser* a_browser,
       tabstrip_index(-1),
       tabstrip_add_types(TabStripModel::ADD_SELECTED),
       show_window(false),
+      ignore_path(false),
       browser(a_browser),
       profile(NULL) {
 }
@@ -319,7 +346,7 @@ NavigateParams::~NavigateParams() {
 }
 
 void Navigate(NavigateParams* params) {
-  Browser* browser = params->browser;
+  Browser* source_browser = params->browser;
   AdjustNavigateParamsForURL(params);
 
   params->browser = GetBrowserForDisposition(params);
@@ -327,7 +354,14 @@ void Navigate(NavigateParams* params) {
     return;
   // Navigate() must not return early after this point.
 
-  if (browser != params->browser &&
+  if (GetSourceProfile(params, source_browser) != params->browser->profile()) {
+    // A tab is being opened from a link from a different profile, we must reset
+    // source information that may cause state to be shared.
+    params->source_contents = NULL;
+    params->referrer = GURL();
+  }
+
+  if (source_browser != params->browser &&
       params->browser->tabstrip_model()->empty()) {
     // A new window has been created. So it needs to be displayed.
     params->show_window = true;
@@ -350,16 +384,22 @@ void Navigate(NavigateParams* params) {
   bool user_initiated = base_transition == PageTransition::TYPED ||
                         base_transition == PageTransition::AUTO_BOOKMARK;
 
+  // Check if this is a singleton tab that already exists
+  int singleton_index = GetIndexOfSingletonTab(params);
+
   // If no target TabContents was specified, we need to construct one if we are
-  // supposed to target a new tab.
-  if (!params->target_contents) {
+  // supposed to target a new tab; unless it's a singleton that already exists.
+  if (!params->target_contents && singleton_index < 0) {
     if (params->disposition != CURRENT_TAB) {
+      TabContents* source_contents = params->source_contents ?
+          params->source_contents->tab_contents() : NULL;
       params->target_contents =
-          new TabContents(params->browser->profile(),
-                          GetSiteInstance(params->source_contents, params->url),
-                          MSG_ROUTING_NONE,
-                          params->source_contents,
-                          NULL);
+          Browser::TabContentsFactory(
+              params->browser->profile(),
+              GetSiteInstance(source_contents, params->url),
+              MSG_ROUTING_NONE,
+              source_contents,
+              NULL);
       // This function takes ownership of |params->target_contents| until it
       // is added to a TabStripModel.
       target_contents_owner.TakeOwnership();
@@ -370,7 +410,7 @@ void Navigate(NavigateParams* params) {
       // in the background, tell it that it's hidden.
       if ((params->tabstrip_add_types & TabStripModel::ADD_SELECTED) == 0) {
         // TabStripModel::AddTabContents invokes HideContents if not foreground.
-        params->target_contents->WasHidden();
+        params->target_contents->tab_contents()->WasHidden();
       }
     } else {
       // ... otherwise if we're loading in the current tab, the target is the
@@ -381,7 +421,7 @@ void Navigate(NavigateParams* params) {
 
     if (user_initiated) {
       RenderViewHostDelegate::BrowserIntegration* integration =
-          params->target_contents;
+          params->target_contents->tab_contents();
       integration->OnUserGesture();
     }
 
@@ -397,13 +437,12 @@ void Navigate(NavigateParams* params) {
   }
 
   if (params->source_contents == params->target_contents) {
-    // The navigation occurred in the source tab, so update the UI.
-    params->browser->UpdateUIForNavigationInTab(params->target_contents,
-                                                params->transition,
-                                                user_initiated);
+    // The navigation occurred in the source tab.
+    params->browser->UpdateUIForNavigationInTab(
+        params->target_contents,
+        params->transition,
+        user_initiated);
   } else {
-    // The navigation occurred in some other tab.
-    int singleton_index = GetIndexOfSingletonTab(params);
     if (params->disposition == SINGLETON_TAB && singleton_index >= 0) {
       TabContents* target = params->browser->GetTabContentsAt(singleton_index);
 

@@ -40,6 +40,9 @@ class InternetOptionsHandler
   virtual void OnCellularDataPlanChanged(chromeos::NetworkLibrary* network_lib);
 
  private:
+  // Open a modal popup dialog.
+  void CreateModalPopup(views::WindowDelegate* view);
+
   // Passes data needed to show details overlay for network.
   // |args| will be [ network_type, service_path, command ]
   // And command is one of 'options', 'connect', disconnect', or 'forget'
@@ -69,7 +72,7 @@ class InternetOptionsHandler
   // Converts CellularDataPlan structure into dictionary for JS. Formats
   // plan settings into human readable texts.
   DictionaryValue* CellularDataPlanToDictionary(
-      const chromeos::CellularDataPlan& plan);
+      const chromeos::CellularDataPlan* plan);
   // Creates the map of a network
   ListValue* GetNetwork(const std::string& service_path, const SkBitmap& icon,
       const std::string& name, bool connecting, bool connected,
@@ -90,6 +93,10 @@ class InternetOptionsHandler
 
   // If any network is currently active, this is its service path
   std::string active_network_;
+
+  // A boolean flag of whether to use DOMUI for connect UI. True to use DOMUI
+  // and false to use Views dialogs.
+  bool use_settings_ui_;
 
   DISALLOW_COPY_AND_ASSIGN(InternetOptionsHandler);
 };

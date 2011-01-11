@@ -455,13 +455,19 @@ void GtkIMContextWrapper::HandleCommit(const string16& text) {
 }
 
 void GtkIMContextWrapper::HandlePreeditStart() {
+  // Ignore preedit related signals triggered by CancelComposition() method.
+  if (suppress_next_commit_)
+    return;
   is_composing_text_ = true;
 }
 
 void GtkIMContextWrapper::HandlePreeditChanged(const gchar* text,
                                                PangoAttrList* attrs,
                                                int cursor_position) {
-  suppress_next_commit_ = false;
+  // Ignore preedit related signals triggered by CancelComposition() method.
+  if (suppress_next_commit_)
+    return;
+
   // Don't set is_preedit_changed_ to false if there is no change, because
   // this handler might be called multiple times with the same data.
   is_preedit_changed_ = true;
@@ -482,7 +488,8 @@ void GtkIMContextWrapper::HandlePreeditChanged(const gchar* text,
   // Nothing needs to do, if it's currently in ProcessKeyEvent()
   // handler, which will send preedit text to webkit later.
   // Otherwise, we need send it here if it's been changed.
-  if (!is_in_key_event_handler_ && host_view_->GetRenderWidgetHost()) {
+  if (!is_in_key_event_handler_ && is_composing_text_ &&
+      host_view_->GetRenderWidgetHost()) {
     host_view_->GetRenderWidgetHost()->ImeSetComposition(
         preedit_text_, preedit_underlines_, preedit_selection_start_,
         preedit_selection_end_);

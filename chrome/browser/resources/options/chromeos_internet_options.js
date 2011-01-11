@@ -38,6 +38,8 @@ cr.define('options', function() {
       options.internet.NetworkElement.decorate($('rememberedList'));
       $('rememberedList').load(templateData.rememberedList);
 
+      options.internet.CellularPlanElement.decorate($('planList'));
+
       $('wiredSection').hidden = (templateData.wiredList.length == 0);
       $('wirelessSection').hidden = (templateData.wirelessList.length == 0);
       $('rememberedSection').hidden = (templateData.rememberedList.length == 0);
@@ -71,10 +73,6 @@ cr.define('options', function() {
       $('purchaseMore').onclick = function(event) {
         chrome.send('buyDataPlan', []);
       };
-      $('moreInfo').onclick = function(event) {
-        chrome.send('showMorePlanInfo', []);
-      };
-
       this.showNetworkDetails_();
     },
 
@@ -89,6 +87,10 @@ cr.define('options', function() {
           [networkType, servicePath, "options"]);
     }
   };
+
+  // A boolean flag from InternerOptionsHandler to indicate whether to use
+  // inline DOMUI for ethernet/wifi login/options.
+  InternetOptions.useSettingsUI = false;
 
   // Network status update will be blocked while typing in WEP password etc.
   InternetOptions.updateLocked = false;
@@ -156,6 +158,8 @@ cr.define('options', function() {
       $('enableCellular').classList.add('hidden');
       $('disableCellular').classList.add('hidden');
     }
+
+    InternetOptions.useSettingsUI = data.networkUseSettingsUI;
   };
 
   // Prevent clobbering of password input field.
@@ -193,19 +197,27 @@ cr.define('options', function() {
 
   InternetOptions.updateCellularPlans = function (data) {
     var page = $('detailsInternetPage');
-    if (!data.plans || !data.plans.length || !data.plans[0].plan_type) {
-      // No cellular data plan.
-      page.setAttribute('nocellplan', true);
-      page.removeAttribute('hascellplan');
-    } else {
+    page.removeAttribute('cellplanloading');
+    if (data.plans && data.plans.length) {
       page.removeAttribute('nocellplan');
       page.setAttribute('hascellplan', true);
-      var plan = data.plans[0];
-      $('planSummary').textContent = plan.planSummary;
-      $('dataRemaining').textContent = plan.dataRemaining;
-      $('planExpires').textContent = plan.planExpires;
+      $('planList').load(data.plans);
+    } else {
+      page.setAttribute('nocellplan', true);
+      page.removeAttribute('hascellplan');
     }
-    page.removeAttribute('cellplanloading');
+    if (!data.needsPlan) {
+      page.setAttribute('hasactiveplan', true);
+    } else {
+      page.removeAttribute('hasactiveplan');
+    }
+
+    // Nudge webkit so that it redraws the details overlay page.
+    // See http://crosbug.com/9616 for details.
+    // Webkit bug: https://bugs.webkit.org/show_bug.cgi?id=50176
+    var dummy = page.ownerDocument.createTextNode(' ');
+    page.appendChild(dummy);
+    page.removeChild(dummy);
   };
 
   InternetOptions.showPasswordEntry = function (data) {

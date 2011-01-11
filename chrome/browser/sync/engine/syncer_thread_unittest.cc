@@ -732,6 +732,52 @@ TEST_F(SyncerThreadWithSyncerTest, NudgeWithDataTypes) {
   EXPECT_TRUE(syncer_thread()->vault_.pending_nudge_types_.none());
 }
 
+TEST_F(SyncerThreadWithSyncerTest, NudgeWithDataTypesCoalesced) {
+  SyncShareIntercept interceptor;
+  connection()->SetMidCommitObserver(&interceptor);
+  // We don't want a poll to happen during this test (except the first one).
+  PreventThreadFromPolling();
+  EXPECT_TRUE(syncer_thread()->Start());
+  metadb()->Open();
+  syncer_thread()->CreateSyncer(metadb()->name());
+  const TimeDelta poll_interval = TimeDelta::FromMinutes(5);
+  interceptor.WaitForSyncShare(1, poll_interval + poll_interval);
+  EXPECT_EQ(static_cast<unsigned int>(1),
+    interceptor.times_sync_occured().size());
+
+  // The SyncerThread should be waiting for the poll now.  Nudge it to sync
+  // immediately (5ms).
+  syncable::ModelTypeBitSet model_types;
+  model_types[syncable::BOOKMARKS] = true;
+
+  // Paused so we can verify the nudge types safely.
+  syncer_thread()->RequestPause();
+  syncer_thread()->NudgeSyncerWithDataTypes(100,
+      SyncerThread::kUnknown,
+      model_types);
+  EXPECT_EQ(model_types, syncer_thread()->vault_.pending_nudge_types_);
+
+  model_types[syncable::BOOKMARKS] = false;
+  model_types[syncable::AUTOFILL] = true;
+  syncer_thread()->NudgeSyncerWithDataTypes(0,
+      SyncerThread::kUnknown,
+      model_types);
+
+  // Reset BOOKMARKS for expectations.
+  model_types[syncable::BOOKMARKS] = true;
+  EXPECT_EQ(model_types, syncer_thread()->vault_.pending_nudge_types_);
+
+  syncer_thread()->RequestResume();
+
+  interceptor.WaitForSyncShare(1, TimeDelta::FromSeconds(1));
+  EXPECT_EQ(static_cast<unsigned int>(2),
+      interceptor.times_sync_occured().size());
+
+  // SyncerThread should be waiting again.  Signal it to stop.
+  EXPECT_TRUE(syncer_thread()->Stop(2000));
+  EXPECT_TRUE(syncer_thread()->vault_.pending_nudge_types_.none());
+}
+
 TEST_F(SyncerThreadWithSyncerTest, Throttling) {
   SyncShareIntercept interceptor;
   connection()->SetMidCommitObserver(&interceptor);
@@ -839,8 +885,7 @@ TEST_F(SyncerThreadWithSyncerTest, AuthInvalid) {
   ServerConnectionEvent e = {ServerConnectionEvent::STATUS_CHANGED,
                              HttpResponse::SERVER_CONNECTION_OK,
                              true};
-  FOR_EACH_OBSERVER(ServerConnectionEventListener, connection()->listeners_,
-                    OnServerConnectionEvent(e));
+  connection()->channel()->NotifyListeners(e);
 
   interceptor.WaitForSyncShare(1, TimeDelta::FromSeconds(10));
   EXPECT_FALSE(interceptor.times_sync_occured().empty());
@@ -848,7 +893,9 @@ TEST_F(SyncerThreadWithSyncerTest, AuthInvalid) {
   EXPECT_TRUE(syncer_thread()->Stop(2000));
 }
 
-TEST_F(SyncerThreadWithSyncerTest, Pause) {
+// TODO(zea): Disabled, along with PauseWhenNotConnected, due to stalling on
+// windows, preventing further sync unit tests from running. See crbug/39070.
+TEST_F(SyncerThreadWithSyncerTest, DISABLED_Pause) {
   WaitableEvent sync_cycle_ended_event(false, false);
   WaitableEvent paused_event(false, false);
   WaitableEvent resumed_event(false, false);
@@ -953,7 +1000,8 @@ TEST_F(SyncerThreadWithSyncerTest, StartWhenNotConnected) {
   EXPECT_TRUE(syncer_thread()->Stop(2000));
 }
 
-TEST_F(SyncerThreadWithSyncerTest, PauseWhenNotConnected) {
+// See TODO comment on the "Pause" test above.
+TEST_F(SyncerThreadWithSyncerTest, DISABLED_PauseWhenNotConnected) {
   WaitableEvent sync_cycle_ended_event(false, false);
   WaitableEvent event(false, false);
   ListenerMock listener;

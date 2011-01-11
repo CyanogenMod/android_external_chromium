@@ -19,6 +19,7 @@
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/site_instance.h"
 #include "chrome/browser/tab_contents/tab_contents.h"
+#include "chrome/browser/tab_contents_wrapper.h"
 #include "chrome/browser/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_paths.h"
@@ -244,12 +245,13 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, UnloadPageAction) {
 }
 
 // Flaky crash on Mac debug. http://crbug.com/45079
-// Stuck/time-out on XP test. http://crbug.com/51814
-#if defined(OS_MACOSX) || defined(OS_WIN)
-#define PageActionRefreshCrash DISABLED_PageActionRefreshCrash
+#if defined(OS_MACOSX)
+#define PageActionRefreshCrash PageActionRefreshCrash
 #endif
 // Tests that we can load page actions in the Omnibox.
 IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, PageActionRefreshCrash) {
+  base::TimeTicks start_time = base::TimeTicks::Now();
+
   ExtensionsService* service = browser()->profile()->GetExtensionsService();
 
   size_t size_before = service->extensions()->size();
@@ -262,21 +264,41 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, PageActionRefreshCrash) {
   ASSERT_EQ(size_before + 1, service->extensions()->size());
   const Extension* extensionA = service->extensions()->at(size_before);
 
+  LOG(INFO) << "Load extension A done  : "
+            << (base::TimeTicks::Now() - start_time).InMilliseconds()
+            << " ms" << std::flush;
+
   // Load extension B.
   ASSERT_TRUE(LoadExtension(base_path.AppendASCII("ExtB")));
   ASSERT_TRUE(WaitForPageActionVisibilityChangeTo(2));
   ASSERT_EQ(size_before + 2, service->extensions()->size());
   const Extension* extensionB = service->extensions()->at(size_before + 1);
 
+  LOG(INFO) << "Load extension B done  : "
+            << (base::TimeTicks::Now() - start_time).InMilliseconds()
+            << " ms" << std::flush;
+
   ReloadExtension(extensionA->id());
   // ExtensionA has changed, so refetch it.
   ASSERT_EQ(size_before + 2, service->extensions()->size());
   extensionA = service->extensions()->at(size_before + 1);
 
+  LOG(INFO) << "Reload extension A done: "
+            << (base::TimeTicks::Now() - start_time).InMilliseconds()
+            << " ms" << std::flush;
+
   ReloadExtension(extensionB->id());
+
+  LOG(INFO) << "Reload extension B done: "
+            << (base::TimeTicks::Now() - start_time).InMilliseconds()
+            << " ms" << std::flush;
 
   // This is where it would crash, before http://crbug.com/44415 was fixed.
   ReloadExtension(extensionA->id());
+
+  LOG(INFO) << "Test completed         : "
+            << (base::TimeTicks::Now() - start_time).InMilliseconds()
+            << " ms" << std::flush;
 }
 
 // Makes sure that the RSS detects RSS feed links, even when rel tag contains
@@ -794,7 +816,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionBrowserTest, DISABLED_OptionsPage) {
   ASSERT_EQ(2, tab_strip->count());
 
   EXPECT_EQ(extension->GetResourceURL("options.html"),
-            tab_strip->GetTabContentsAt(1)->GetURL());
+            tab_strip->GetTabContentsAt(1)->tab_contents()->GetURL());
 }
 
 // Test window.chrome.app.isInstalled .

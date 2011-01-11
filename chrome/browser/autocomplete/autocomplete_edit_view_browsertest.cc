@@ -33,6 +33,11 @@
 #include "net/base/mock_host_resolver.h"
 #include "views/event.h"
 
+#if defined(OS_LINUX)
+#include <gdk/gdk.h>
+#include <gtk/gtk.h>
+#endif
+
 using base::Time;
 using base::TimeDelta;
 
@@ -93,6 +98,19 @@ const struct TestHistoryEntry {
   // To trigger inline autocomplete.
   {"http://www.abc.com", "Page abc", kSearchText, 10000, 10000, true },
 };
+
+#if defined(OS_LINUX)
+// Returns the text stored in the PRIMARY clipboard.
+std::string GetPrimarySelectionText() {
+  GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_PRIMARY);
+  DCHECK(clipboard);
+
+  gchar* selection_text = gtk_clipboard_wait_for_text(clipboard);
+  std::string result(selection_text ? selection_text : "");
+  g_free(selection_text);
+  return result;
+}
+#endif
 
 }  // namespace
 
@@ -788,5 +806,48 @@ IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, UndoRedoLinux) {
   // Undo again.
   ASSERT_NO_FATAL_FAILURE(SendKey(app::VKEY_Z, true, false, false));
   EXPECT_TRUE(edit_view->GetText().empty());
+}
+
+// See http://crbug.com/63860
+IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest, PrimarySelection) {
+  browser()->FocusLocationBar();
+  AutocompleteEditView* edit_view = NULL;
+  ASSERT_NO_FATAL_FAILURE(GetAutocompleteEditView(&edit_view));
+  edit_view->SetUserText(L"Hello world");
+  EXPECT_FALSE(edit_view->IsSelectAll());
+
+  // Move the cursor to the end.
+  ASSERT_NO_FATAL_FAILURE(SendKey(app::VKEY_END, false, false, false));
+
+  // Select all text by pressing Shift+Home
+  ASSERT_NO_FATAL_FAILURE(SendKey(app::VKEY_HOME, false, true, false));
+  EXPECT_TRUE(edit_view->IsSelectAll());
+
+  // The selected content should be saved to the PRIMARY clipboard.
+  EXPECT_EQ("Hello world", GetPrimarySelectionText());
+
+  // Move the cursor to the end.
+  ASSERT_NO_FATAL_FAILURE(SendKey(app::VKEY_END, false, false, false));
+  EXPECT_FALSE(edit_view->IsSelectAll());
+
+  // The content in the PRIMARY clipboard should not be cleared.
+  EXPECT_EQ("Hello world", GetPrimarySelectionText());
+}
+
+// See http://crosbug.com/10306
+IN_PROC_BROWSER_TEST_F(AutocompleteEditViewTest,
+                       BackspaceDeleteHalfWidthKatakana) {
+  browser()->FocusLocationBar();
+  AutocompleteEditView* edit_view = NULL;
+  ASSERT_NO_FATAL_FAILURE(GetAutocompleteEditView(&edit_view));
+  // Insert text: ﾀﾞ
+  edit_view->SetUserText(UTF8ToWide("\357\276\200\357\276\236"));
+
+  // Move the cursor to the end.
+  ASSERT_NO_FATAL_FAILURE(SendKey(app::VKEY_END, false, false, false));
+
+  // Backspace should delete one character.
+  ASSERT_NO_FATAL_FAILURE(SendKey(app::VKEY_BACK, false, false, false));
+  EXPECT_EQ(UTF8ToWide("\357\276\200"), edit_view->GetText());
 }
 #endif

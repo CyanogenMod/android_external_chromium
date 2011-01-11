@@ -94,20 +94,23 @@ void ParamTraits<webkit_glue::FormField>::Write(Message* m,
   WriteParam(m, p.name());
   WriteParam(m, p.value());
   WriteParam(m, p.form_control_type());
-  WriteParam(m, p.size());
+  WriteParam(m, p.max_length());
+  WriteParam(m, p.is_autofilled());
   WriteParam(m, p.option_strings());
 }
 
 bool ParamTraits<webkit_glue::FormField>::Read(const Message* m, void** iter,
                                                param_type* p) {
   string16 label, name, value, form_control_type;
-  int size = 0;
+  int max_length = 0;
+  bool is_autofilled;
   std::vector<string16> options;
   bool result = ReadParam(m, iter, &label);
   result = result && ReadParam(m, iter, &name);
   result = result && ReadParam(m, iter, &value);
   result = result && ReadParam(m, iter, &form_control_type);
-  result = result && ReadParam(m, iter, &size);
+  result = result && ReadParam(m, iter, &max_length);
+  result = result && ReadParam(m, iter, &is_autofilled);
   result = result && ReadParam(m, iter, &options);
   if (!result)
     return false;
@@ -116,7 +119,8 @@ bool ParamTraits<webkit_glue::FormField>::Read(const Message* m, void** iter,
   p->set_name(name);
   p->set_value(value);
   p->set_form_control_type(form_control_type);
-  p->set_size(size);
+  p->set_max_length(max_length);
+  p->set_autofilled(is_autofilled);
   p->set_option_strings(options);
   return true;
 }
@@ -428,6 +432,8 @@ void ParamTraits<scoped_refptr<webkit_glue::ResourceDevToolsInfo> >::Write(
     Message* m, const param_type& p) {
   WriteParam(m, p.get() != NULL);
   if (p.get()) {
+    WriteParam(m, p->http_status_code);
+    WriteParam(m, p->http_status_text);
     WriteParam(m, p->request_headers);
     WriteParam(m, p->response_headers);
   }
@@ -442,6 +448,8 @@ bool ParamTraits<scoped_refptr<webkit_glue::ResourceDevToolsInfo> >::Read(
     return true;
   *r = new webkit_glue::ResourceDevToolsInfo();
   return
+      ReadParam(m, iter, &(*r)->http_status_code) &&
+      ReadParam(m, iter, &(*r)->http_status_text) &&
       ReadParam(m, iter, &(*r)->request_headers) &&
       ReadParam(m, iter, &(*r)->response_headers);
 }
@@ -721,12 +729,14 @@ void ParamTraits<WebPreferences>::Write(Message* m, const param_type& p) {
   WriteParam(m, p.user_style_sheet_enabled);
   WriteParam(m, p.user_style_sheet_location);
   WriteParam(m, p.author_and_user_styles_enabled);
+  WriteParam(m, p.frame_flattening_enabled);
   WriteParam(m, p.allow_universal_access_from_file_urls);
   WriteParam(m, p.allow_file_access_from_file_urls);
   WriteParam(m, p.experimental_webgl_enabled);
   WriteParam(m, p.show_composited_layer_borders);
   WriteParam(m, p.accelerated_compositing_enabled);
   WriteParam(m, p.accelerated_2d_canvas_enabled);
+  WriteParam(m, p.accelerated_layers_enabled);
   WriteParam(m, p.memory_info_enabled);
 }
 
@@ -770,12 +780,14 @@ bool ParamTraits<WebPreferences>::Read(const Message* m, void** iter,
       ReadParam(m, iter, &p->user_style_sheet_enabled) &&
       ReadParam(m, iter, &p->user_style_sheet_location) &&
       ReadParam(m, iter, &p->author_and_user_styles_enabled) &&
+      ReadParam(m, iter, &p->frame_flattening_enabled) &&
       ReadParam(m, iter, &p->allow_universal_access_from_file_urls) &&
       ReadParam(m, iter, &p->allow_file_access_from_file_urls) &&
       ReadParam(m, iter, &p->experimental_webgl_enabled) &&
       ReadParam(m, iter, &p->show_composited_layer_borders) &&
       ReadParam(m, iter, &p->accelerated_compositing_enabled) &&
       ReadParam(m, iter, &p->accelerated_2d_canvas_enabled) &&
+      ReadParam(m, iter, &p->accelerated_layers_enabled) &&
       ReadParam(m, iter, &p->memory_info_enabled);
 }
 

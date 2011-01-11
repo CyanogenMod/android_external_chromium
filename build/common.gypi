@@ -1168,6 +1168,9 @@
               # http://code.google.com/p/googletest/source/detail?r=446 .
               # TODO(thakis): Use -isystem instead (http://crbug.com/58751 ).
               '-Wno-unnamed-type-template-args',
+              # The integrated assembler chokes on one ffmpeg file.
+              # http://crbug.com/61931
+              '-no-integrated-as',
             ],
             'cflags!': [
               # Clang doesn't seem to know know this flag.
@@ -1276,6 +1279,8 @@
                 # Don't die on dtoa code that uses a char as an array index.
                 # This is required solely for base/third_party/dmg_fp/dtoa.cc.
                 '-Wno-char-subscripts',
+                # Clang spots more unused functions.
+                '-Wno-unused-function',
                 # Survive EXPECT_EQ(unnamed_enum, unsigned int) -- see
                 # http://code.google.com/p/googletest/source/detail?r=446 .
                 # TODO(thakis): Use -isystem instead (http://crbug.com/58751 ).

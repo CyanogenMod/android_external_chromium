@@ -71,9 +71,6 @@ static void ConvertHexadecimalToIDAlphabet(std::string* id) {
   }
 }
 
-const int kValidWebExtentSchemes =
-    URLPattern::SCHEME_HTTP | URLPattern::SCHEME_HTTPS;
-
 // These keys are allowed by all crx files (apps, extensions, themes, etc).
 static const char* kBaseCrxKeys[] = {
   keys::kCurrentLocale,
@@ -250,6 +247,13 @@ const size_t Extension::kNumHostedAppPermissions =
 // We purposefully don't put this into kPermissionNames.
 const char Extension::kOldUnlimitedStoragePermission[] = "unlimited_storage";
 
+const int Extension::kValidWebExtentSchemes =
+    URLPattern::SCHEME_HTTP | URLPattern::SCHEME_HTTPS;
+
+const int Extension::kValidHostPermissionSchemes =
+    (UserScript::kValidUserScriptSchemes |
+     URLPattern::SCHEME_CHROMEUI) & ~URLPattern::SCHEME_FILE;
+
 //
 // Extension
 //
@@ -264,6 +268,22 @@ scoped_refptr<Extension> Extension::Create(const FilePath& path,
   if (!extension->InitFromValue(value, require_key, error))
     return NULL;
   return extension;
+}
+
+namespace {
+const char* kGalleryUpdateHttpUrl =
+    "http://clients2.google.com/service/update2/crx";
+const char* kGalleryUpdateHttpsUrl =
+    "https://clients2.google.com/service/update2/crx";
+}  // namespace
+
+// static
+GURL Extension::GalleryUpdateUrl(bool secure) {
+  CommandLine* cmdline = CommandLine::ForCurrentProcess();
+  if (cmdline->HasSwitch(switches::kAppsGalleryUpdateURL))
+    return GURL(cmdline->GetSwitchValueASCII(switches::kAppsGalleryUpdateURL));
+  else
+    return GURL(secure ? kGalleryUpdateHttpsUrl : kGalleryUpdateHttpUrl);
 }
 
 // static
@@ -300,20 +320,47 @@ std::set<string16> Extension::GetSimplePermissionMessages() const {
   return messages;
 }
 
-std::vector<std::string> Extension::GetDistinctHosts() const {
-  return GetDistinctHosts(GetEffectiveHostPermissions().patterns());
+// static
+std::vector<std::string> Extension::GetDistinctHostsForDisplay(
+    const URLPatternList& list) {
+  return GetDistinctHosts(list, true);
+}
+
+// static
+bool Extension::IsElevatedHostList(
+    const URLPatternList& old_list, const URLPatternList& new_list) {
+  // TODO(jstritar): This is overly conservative with respect to subdomains.
+  // For example, going from *.google.com to www.google.com will be
+  // considered an elevation, even though it is not (http://crbug.com/65337).
+
+  std::vector<std::string> new_hosts = GetDistinctHosts(new_list, false);
+  std::vector<std::string> old_hosts = GetDistinctHosts(old_list, false);
+
+  std::set<std::string> old_hosts_set(old_hosts.begin(), old_hosts.end());
+  std::set<std::string> new_hosts_set(new_hosts.begin(), new_hosts.end());
+  std::set<std::string> new_hosts_only;
+
+  std::set_difference(new_hosts_set.begin(), new_hosts_set.end(),
+                      old_hosts_set.begin(), old_hosts_set.end(),
+                      std::inserter(new_hosts_only, new_hosts_only.begin()));
+
+  return new_hosts_only.size() > 0;
 }
 
 // static
 std::vector<std::string> Extension::GetDistinctHosts(
-    const URLPatternList& host_patterns) {
-
+    const URLPatternList& host_patterns, bool include_rcd) {
   // Vector because we later want to access these by index.
   std::vector<std::string> distinct_hosts;
 
   std::set<std::string> rcd_set;
   for (size_t i = 0; i < host_patterns.size(); ++i) {
     std::string candidate = host_patterns[i].host();
+
+    // Add the subdomain wildcard back to the host, if necessary.
+    if (host_patterns[i].match_subdomains())
+      candidate = "*." + candidate;
+
     size_t registry = net::RegistryControlledDomainService::GetRegistryLength(
         candidate, false);
     if (registry && registry != std::string::npos) {
@@ -321,6 +368,8 @@ std::vector<std::string> Extension::GetDistinctHosts(
       if (rcd_set.count(no_rcd))
         continue;
       rcd_set.insert(no_rcd);
+      if (!include_rcd)
+        candidate = no_rcd;
     }
     if (std::find(distinct_hosts.begin(), distinct_hosts.end(), candidate) ==
                   distinct_hosts.end()) {
@@ -335,7 +384,9 @@ string16 Extension::GetHostPermissionMessage() const {
   if (HasEffectiveAccessToAllHosts())
     return l10n_util::GetStringUTF16(IDS_EXTENSION_PROMPT_WARNING_ALL_HOSTS);
 
-  std::vector<std::string> hosts = GetDistinctHosts();
+  std::vector<std::string> hosts = GetDistinctHostsForDisplay(
+      GetEffectiveHostPermissions().patterns());
+
   if (hosts.size() == 1) {
     return l10n_util::GetStringFUTF16(IDS_EXTENSION_PROMPT_WARNING_1_HOST,
                                       UTF8ToUTF16(hosts[0]));
@@ -414,7 +465,7 @@ bool Extension::IdIsValid(const std::string& id) {
 std::string Extension::GenerateIdForPath(const FilePath& path) {
   FilePath new_path = Extension::MaybeNormalizePath(path);
   std::string id;
-  if (!GenerateId(WideToUTF8(new_path.ToWStringHack()),&id))
+  if (!GenerateId(WideToUTF8(new_path.ToWStringHack()), &id))
     return "";
   return id;
 }
@@ -1079,52 +1130,48 @@ bool Extension::FormatPEMForFileOutput(const std::string input,
 }
 
 // static
-// TODO(aa): A problem with this code is that we silently allow upgrades to
-// extensions that require less permissions than the current version, but then
-// we don't silently allow them to go back. In order to fix this, we would need
-// to remember the max set of permissions we ever granted a single extension.
-bool Extension::IsPrivilegeIncrease(const Extension* old_extension,
+bool Extension::IsPrivilegeIncrease(const bool granted_full_access,
+                                    const std::set<std::string>& granted_apis,
+                                    const ExtensionExtent& granted_extent,
                                     const Extension* new_extension) {
-  // If the old extension had native code access, we don't need to go any
-  // further. Things can't get any worse.
-  if (old_extension->plugins().size() > 0)
+  // If the extension had native code access, we don't need to go any further.
+  // Things can't get any worse.
+  if (granted_full_access)
     return false;
 
   // Otherwise, if the new extension has a plugin, it's a privilege increase.
-  if (new_extension->plugins().size() > 0)
+  if (new_extension->HasFullPermissions())
     return true;
 
-  // If we are increasing the set of hosts we have access to (not
-  // counting scheme differences), it's a privilege increase.
-  if (!old_extension->HasEffectiveAccessToAllHosts()) {
+  // If the extension hadn't been granted access to all hosts in the past, then
+  // see if the extension requires more host permissions.
+  if (!HasEffectiveAccessToAllHosts(granted_extent, granted_apis)) {
     if (new_extension->HasEffectiveAccessToAllHosts())
       return true;
 
-    // TODO(erikkay) This will trip when you add a new distinct hostname,
-    // but we should unique based on RCD as well.  crbug.com/57042
-    std::vector<std::string> old_hosts = old_extension->GetDistinctHosts();
-    std::vector<std::string> new_hosts = new_extension->GetDistinctHosts();
-    std::set<std::string> old_hosts_set(old_hosts.begin(), old_hosts.end());
-    std::set<std::string> new_hosts_set(new_hosts.begin(), new_hosts.end());
-    std::set<std::string> new_only;
-    std::set_difference(new_hosts_set.begin(), new_hosts_set.end(),
-                      old_hosts_set.begin(), old_hosts_set.end(),
-                      std::inserter(new_only, new_only.end()));
-    if (new_only.size())
+    const ExtensionExtent new_extent =
+        new_extension->GetEffectiveHostPermissions();
+
+    if (IsElevatedHostList(granted_extent.patterns(), new_extent.patterns()))
       return true;
   }
 
-  std::set<string16> old_messages =
-      old_extension->GetSimplePermissionMessages();
-  std::set<string16> new_messages =
-      new_extension->GetSimplePermissionMessages();
-  std::set<string16> new_only;
-  std::set_difference(new_messages.begin(), new_messages.end(),
-                      old_messages.begin(), old_messages.end(),
-                      std::inserter(new_only, new_only.end()));
+  std::set<std::string> new_apis = new_extension->api_permissions();
+  std::set<std::string> new_apis_only;
+  std::set_difference(new_apis.begin(), new_apis.end(),
+                      granted_apis.begin(), granted_apis.end(),
+                      std::inserter(new_apis_only, new_apis_only.begin()));
 
-  // If there are any new permission messages, then it's an increase.
-  if (!new_only.empty())
+  // Ignore API permissions that don't require user approval when deciding if
+  // an extension has increased its privileges.
+  size_t new_api_count = 0;
+  for (std::set<std::string>::iterator i = new_apis_only.begin();
+       i != new_apis_only.end(); ++i) {
+    if (GetPermissionMessageId(*i))
+      new_api_count++;
+  }
+
+  if (new_api_count)
     return true;
 
   return false;
@@ -1234,7 +1281,7 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
     *error = errors::kInvalidName;
     return false;
   }
-  base::i18n::AdjustStringForLocaleDirection(localized_name, &localized_name);
+  base::i18n::AdjustStringForLocaleDirection(&localized_name);
   name_ = UTF16ToUTF8(localized_name);
 
   // Initialize description (if present).
@@ -1706,29 +1753,30 @@ bool Extension::InitFromValue(const DictionaryValue& source, bool require_key,
         }
       }
 
-      // Otherwise, it's a host pattern permission.
+      // Check if it's a host pattern permission.
       URLPattern pattern = URLPattern(CanExecuteScriptEverywhere() ?
-          URLPattern::SCHEME_ALL :
-          (UserScript::kValidUserScriptSchemes |
-              URLPattern::SCHEME_CHROMEUI) & ~URLPattern::SCHEME_FILE);
+          URLPattern::SCHEME_ALL : kValidHostPermissionSchemes);
 
-      if (URLPattern::PARSE_SUCCESS != pattern.Parse(permission_str)) {
-        *error = ExtensionErrorUtils::FormatErrorMessage(
-            errors::kInvalidPermission, base::IntToString(i));
-        return false;
+
+      if (URLPattern::PARSE_SUCCESS == pattern.Parse(permission_str)) {
+        if (!CanSpecifyHostPermission(pattern)) {
+          *error = ExtensionErrorUtils::FormatErrorMessage(
+              errors::kInvalidPermissionScheme, base::IntToString(i));
+          return false;
+        }
+
+        // The path component is not used for host permissions, so we force it
+        // to match all paths.
+        pattern.set_path("/*");
+
+        host_permissions_.push_back(pattern);
       }
 
-      if (!CanSpecifyHostPermission(pattern)) {
-        *error = ExtensionErrorUtils::FormatErrorMessage(
-            errors::kInvalidPermissionScheme, base::IntToString(i));
-        return false;
-      }
-
-      // The path component is not used for host permissions, so we force it to
-      // match all paths.
-      pattern.set_path("/*");
-
-      host_permissions_.push_back(pattern);
+      // If it's not a host permission, then it's probably an unknown API
+      // permission. Do not throw an error so extensions can retain
+      // backwards compatability (http://crbug.com/42742).
+      // TODO(jstritar): We can improve error messages by adding better
+      // validation of API permissions here.
     }
   }
 
@@ -2122,30 +2170,32 @@ bool Extension::CanExecuteScriptOnPage(
   return false;
 }
 
-bool Extension::HasEffectiveAccessToAllHosts() const {
+// static
+bool Extension::HasEffectiveAccessToAllHosts(
+    const ExtensionExtent& effective_host_permissions,
+    const std::set<std::string>& api_permissions) {
   // Some APIs effectively grant access to every site.  New ones should be
   // added here.  (I'm looking at you, network API)
-  if (HasApiPermission(kProxyPermission))
+  if (HasApiPermission(api_permissions, kProxyPermission))
     return true;
 
-  for (URLPatternList::const_iterator host = host_permissions().begin();
-       host != host_permissions().end(); ++host) {
+  const URLPatternList patterns = effective_host_permissions.patterns();
+  for (URLPatternList::const_iterator host = patterns.begin();
+       host != patterns.end(); ++host) {
     if (host->match_subdomains() && host->host().empty())
       return true;
   }
 
-  for (UserScriptList::const_iterator content_script =
-       content_scripts().begin();
-       content_script != content_scripts().end(); ++content_script) {
-    UserScript::PatternList::const_iterator pattern =
-        content_script->url_patterns().begin();
-    for (; pattern != content_script->url_patterns().end(); ++pattern) {
-      if (pattern->match_subdomains() && pattern->host().empty())
-        return true;
-    }
-  }
-
   return false;
+}
+
+bool Extension::HasEffectiveAccessToAllHosts() const {
+  return HasEffectiveAccessToAllHosts(GetEffectiveHostPermissions(),
+                                      api_permissions());
+}
+
+bool Extension::HasFullPermissions() const {
+  return plugins().size() > 0;
 }
 
 bool Extension::IsAPIPermission(const std::string& str) const {
@@ -2188,8 +2238,8 @@ bool Extension::CanExecuteScriptEverywhere() const {
 }
 
 bool Extension::UpdatesFromGallery() const {
-  return update_url() == GURL(extension_urls::kGalleryUpdateHttpsUrl) ||
-      update_url() == GURL(extension_urls::kGalleryUpdateHttpUrl);
+  return update_url() == GalleryUpdateUrl(false) ||
+         update_url() == GalleryUpdateUrl(true);
 }
 
 ExtensionInfo::ExtensionInfo(const DictionaryValue* manifest,

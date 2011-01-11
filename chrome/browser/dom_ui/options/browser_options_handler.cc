@@ -77,7 +77,7 @@ void BrowserOptionsHandler::GetLocalizedValues(
   localized_strings->SetString("instantWarningText",
       l10n_util::GetStringUTF16(IDS_INSTANT_PREF_WARNING));
   localized_strings->SetString("instantLearnMoreLink",
-      ASCIIToUTF16(browser::kInstantLearnMoreURL));
+      ASCIIToUTF16(browser::InstantLearnMoreURL().spec()));
   localized_strings->SetString("instantConfirmTitle",
       l10n_util::GetStringUTF16(IDS_INSTANT_OPT_IN_TITLE));
   localized_strings->SetString("instantConfirmMessage",
@@ -197,9 +197,13 @@ void BrowserOptionsHandler::SetDefaultBrowserUIString(int status_string_id) {
   scoped_ptr<Value> is_default(Value::CreateBooleanValue(
       status_string_id == IDS_OPTIONS_DEFAULTBROWSER_DEFAULT));
 
+  scoped_ptr<Value> can_be_default(Value::CreateBooleanValue(
+      status_string_id == IDS_OPTIONS_DEFAULTBROWSER_DEFAULT ||
+      status_string_id == IDS_OPTIONS_DEFAULTBROWSER_NOTDEFAULT));
+
   dom_ui_->CallJavascriptFunction(
       L"BrowserOptions.updateDefaultBrowserState",
-      *(status_string.get()), *(is_default.get()));
+      *(status_string.get()), *(is_default.get()), *(can_be_default.get()));
 }
 
 void BrowserOptionsHandler::OnTemplateURLModelChanged() {

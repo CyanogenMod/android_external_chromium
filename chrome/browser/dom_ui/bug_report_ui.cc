@@ -54,16 +54,19 @@
 #include "chrome/browser/chromeos/login/user_manager.h"
 #endif
 
-static const char kScreenshotBaseUrl[] = "chrome://screenshots/";
-static const char kCurrentScreenshotUrl[] = "chrome://screenshots/current";
-#if defined(OS_CHROMEOS)
-static const char kSavedScreenshotsUrl[] = "chrome://screenshots/saved/";
+namespace {
 
-static const char kScreenshotPattern[] = "*.png";
-static const char kScreenshotsRelativePath[] = "/Screenshots";
+const char kScreenshotBaseUrl[] = "chrome://screenshots/";
+const char kCurrentScreenshotUrl[] = "chrome://screenshots/current";
+#if defined(OS_CHROMEOS)
+const char kSavedScreenshotsUrl[] = "chrome://screenshots/saved/";
+
+const char kScreenshotPattern[] = "*.png";
+const char kScreenshotsRelativePath[] = "/Screenshots";
+
+const size_t kMaxSavedScreenshots = 2;
 #endif
 
-namespace {
 #if defined(OS_CHROMEOS)
 
 void GetSavedScreenshots(std::vector<std::string>* saved_screenshots,
@@ -88,6 +91,9 @@ void GetSavedScreenshots(std::vector<std::string>* saved_screenshots,
   while (!screenshot.empty()) {
     saved_screenshots->push_back(std::string(kSavedScreenshotsUrl) +
                                  screenshot.BaseName().value());
+    if (saved_screenshots->size() >= kMaxSavedScreenshots)
+      break;
+
     screenshot = screenshots.Next();
   }
   done->Signal();
@@ -110,8 +116,20 @@ std::string GetUserEmail() {
   else
     return manager->logged_in_user().email();
 }
-
 #endif
+
+// Returns the index of the feedback tab if already open, -1 otherwise
+int GetIndexOfFeedbackTab(Browser* browser) {
+  GURL bug_report_url(chrome::kChromeUIBugReportURL);
+  for (int i = 0; i < browser->tab_count(); ++i) {
+    TabContents* tab = browser->GetTabContentsAt(i);
+    if (tab && tab->GetURL().GetWithEmptyPath() == bug_report_url)
+      return i;
+  }
+
+  return -1;
+}
+
 }  // namespace
 
 
@@ -121,7 +139,27 @@ namespace browser {
 std::vector<unsigned char>* last_screenshot_png = 0;
 gfx::Rect screen_size;
 
+// Get bounds in different ways for different OS's;
+#if defined(TOOLKIT_VIEWS)
+// Windows/ChromeOS support Views - so we get dimensions from the
+// views::Window object
 void RefreshLastScreenshot(views::Window* parent) {
+  gfx::NativeWindow window = parent->GetNativeWindow();
+  int width = parent->GetBounds().width();
+  int height = parent->GetBounds().height();
+#elif defined(OS_LINUX)
+// Linux provides its bounds and a native window handle to the screen
+void RefreshLastScreenshot(gfx::NativeWindow window,
+                           const gfx::Rect& bounds) {
+  int width = bounds.width();
+  int height = bounds.height();
+#elif defined(OS_MACOSX)
+// Mac gets its bounds from the GrabWindowSnapshot function
+void RefreshLastScreenshot(NSWindow* window) {
+  int width = 0;
+  int height = 0;
+#endif
+
   // Grab an exact snapshot of the window that the user is seeing (i.e. as
   // rendered--do not re-render, and include windowed plugins).
   if (last_screenshot_png)
@@ -130,24 +168,47 @@ void RefreshLastScreenshot(views::Window* parent) {
     last_screenshot_png = new std::vector<unsigned char>;
 
 #if defined(USE_X11)
-  screen_size = parent->GetBounds();
-  x11_util::GrabWindowSnapshot(parent->GetNativeWindow(), last_screenshot_png);
+  x11_util::GrabWindowSnapshot(window, last_screenshot_png);
 #elif defined(OS_MACOSX)
-  int width = 0, height = 0;
-  mac_util::GrabWindowSnapshot(parent->GetNativeWindow(), last_screenshot_png,
-                               &width, &height);
+  mac_util::GrabWindowSnapshot(window, last_screenshot_png, &width, &height);
 #elif defined(OS_WIN)
-  screen_size = parent->GetBounds();
-  win_util::GrabWindowSnapshot(parent->GetNativeWindow(), last_screenshot_png);
+  win_util::GrabWindowSnapshot(window, last_screenshot_png);
 #endif
+
+  screen_size.set_width(width);
+  screen_size.set_height(height);
 }
 
-// Global "display this dialog" function declared in browser_dialogs.h.
+#if defined(TOOLKIT_VIEWS)
 void ShowHtmlBugReportView(views::Window* parent, Browser* browser) {
+#elif defined(OS_LINUX)
+void ShowHtmlBugReportView(gfx::NativeWindow window, const gfx::Rect& bounds,
+                           Browser* browser) {
+#elif defined(OS_MACOSX)
+void ShowHtmlBugReportView(NSWindow* window, Browser* browser) {
+#endif
+
+  // First check if we're already open (we cannot depend on ShowSingletonTab
+  // for this functionality since we need to make *sure* we never get
+  // instantiated again while we are open - with singleton tabs, that can
+  // happen)
+  int feedback_tab_index = GetIndexOfFeedbackTab(browser);
+  if (feedback_tab_index >=0) {
+    // Do not refresh screenshot, do not create a new tab
+    browser->SelectTabContentsAt(feedback_tab_index, true);
+  }
+
+  // now for refreshing the last screenshot
+#if defined(TOOLKIT_VIEWS)
+  RefreshLastScreenshot(parent);
+#elif defined(OS_LINUX)
+  RefreshLastScreenshot(window, bounds);
+#elif defined(OS_MACOSX)
+  RefreshLastScreenshot(window);
+#endif
+
   std::string bug_report_url = std::string(chrome::kChromeUIBugReportURL) +
       "#" + base::IntToString(browser->selected_index());
-
-  RefreshLastScreenshot(parent);
   browser->ShowSingletonTab(GURL(bug_report_url), false);
 }
 
@@ -190,7 +251,10 @@ class BugReportHandler : public DOMMessageHandler,
 
  private:
   void HandleGetDialogDefaults(const ListValue* args);
-  void HandleRefreshScreenshots(const ListValue* args);
+  void HandleRefreshCurrentScreenshot(const ListValue* args);
+#if defined(OS_CHROMEOS)
+  void HandleRefreshSavedScreenshots(const ListValue* args);
+#endif
   void HandleSendReport(const ListValue* args);
   void HandleCancel(const ListValue* args);
   void HandleOpenSystemTab(const ListValue* args);
@@ -233,24 +297,36 @@ void BugReportUIHTMLSource::StartDataRequest(const std::string& path,
   DictionaryValue localized_strings;
   localized_strings.SetString(std::string("title"),
       l10n_util::GetStringUTF8(IDS_BUGREPORT_TITLE));
+  localized_strings.SetString(std::string("page-title"),
+      l10n_util::GetStringUTF8(IDS_BUGREPORT_REPORT_PAGE_TITLE));
   localized_strings.SetString(std::string("issue-with"),
       l10n_util::GetStringUTF8(IDS_BUGREPORT_ISSUE_WITH));
   localized_strings.SetString(std::string("page-url"),
       l10n_util::GetStringUTF8(IDS_BUGREPORT_REPORT_URL_LABEL));
   localized_strings.SetString(std::string("description"),
       l10n_util::GetStringUTF8(IDS_BUGREPORT_DESCRIPTION_LABEL));
-  localized_strings.SetString(std::string("screenshot"),
+  localized_strings.SetString(std::string("current-screenshot"),
       l10n_util::GetStringUTF8(IDS_BUGREPORT_SCREENSHOT_LABEL));
+  localized_strings.SetString(std::string("saved-screenshot"),
+      l10n_util::GetStringUTF8(IDS_BUGREPORT_SAVED_SCREENSHOT_LABEL));
 #if defined(OS_CHROMEOS)
   localized_strings.SetString(std::string("user-email"),
       l10n_util::GetStringUTF8(IDS_BUGREPORT_USER_EMAIL_LABEL));
+  localized_strings.SetString(std::string("sysinfo"),
+      l10n_util::GetStringUTF8(
+          IDS_BUGREPORT_INCLUDE_SYSTEM_INFORMATION_CHKBOX));
+
   localized_strings.SetString(std::string("currentscreenshots"),
       l10n_util::GetStringUTF8(IDS_BUGREPORT_CURRENT_SCREENSHOTS));
   localized_strings.SetString(std::string("savedscreenshots"),
       l10n_util::GetStringUTF8(IDS_BUGREPORT_SAVED_SCREENSHOTS));
-  localized_strings.SetString(std::string("sysinfo"),
+
+  localized_strings.SetString(std::string("choose-different-screenshot"),
       l10n_util::GetStringUTF8(
-          IDS_BUGREPORT_INCLUDE_SYSTEM_INFORMATION_CHKBOX));
+          IDS_BUGREPORT_CHOOSE_DIFFERENT_SCREENSHOT));
+  localized_strings.SetString(std::string("choose-original-screenshot"),
+      l10n_util::GetStringUTF8(
+          IDS_BUGREPORT_CHOOSE_ORIGINAL_SCREENSHOT));
 #else
   localized_strings.SetString(std::string("currentscreenshots"),
       l10n_util::GetStringUTF8(IDS_BUGREPORT_INCLUDE_NEW_SCREEN_IMAGE));
@@ -270,6 +346,14 @@ void BugReportUIHTMLSource::StartDataRequest(const std::string& path,
   localized_strings.SetString(std::string("no-issue-selected"),
       l10n_util::GetStringUTF8(IDS_BUGREPORT_NO_ISSUE_SELECTED));
 
+  localized_strings.SetString(std::string("no-description"),
+      l10n_util::GetStringUTF8(IDS_BUGREPORT_NO_DESCRIPTION));
+
+  localized_strings.SetString(std::string("no-saved-screenshots"),
+      l10n_util::GetStringUTF8(IDS_BUGREPORT_NO_SAVED_SCREENSHOTS_HELP));
+
+  localized_strings.SetString(std::string("privacy-note"),
+      l10n_util::GetStringUTF8(IDS_BUGREPORT_PRIVACY_NOTE));
 
   // TODO(rkc): Find some way to ensure this order of dropdowns is in sync
   // with the order in the userfeedback ChromeData proto buffer
@@ -413,8 +497,11 @@ BugReportHandler::BugReportHandler(TabContents* tab)
 
 BugReportHandler::~BugReportHandler() {
   // Just in case we didn't send off bug_report_ to SendReport
-  if (bug_report_)
+  if (bug_report_) {
+    // If we're deleting the report object, cancel feedback collection first
+    CancelFeedbackCollection();
     delete bug_report_;
+  }
 }
 
 void BugReportHandler::ClobberScreenshotsSource() {
@@ -497,8 +584,12 @@ base::StringPiece BugReportHandler::Init() {
 void BugReportHandler::RegisterMessages() {
   dom_ui_->RegisterMessageCallback("getDialogDefaults",
       NewCallback(this, &BugReportHandler::HandleGetDialogDefaults));
-  dom_ui_->RegisterMessageCallback("refreshScreenshots",
-      NewCallback(this, &BugReportHandler::HandleRefreshScreenshots));
+  dom_ui_->RegisterMessageCallback("refreshCurrentScreenshot",
+      NewCallback(this, &BugReportHandler::HandleRefreshCurrentScreenshot));
+#if defined(OS_CHROMEOS)
+  dom_ui_->RegisterMessageCallback("refreshSavedScreenshots",
+      NewCallback(this, &BugReportHandler::HandleRefreshSavedScreenshots));
+#endif
   dom_ui_->RegisterMessageCallback("sendReport",
       NewCallback(this, &BugReportHandler::HandleSendReport));
   dom_ui_->RegisterMessageCallback("cancel",
@@ -537,22 +628,25 @@ void BugReportHandler::HandleGetDialogDefaults(const ListValue*) {
   dom_ui_->CallJavascriptFunction(L"setupDialogDefaults", dialog_defaults);
 }
 
-void BugReportHandler::HandleRefreshScreenshots(const ListValue*) {
-  ListValue screenshots;
-  screenshots.Append(new StringValue(std::string(kCurrentScreenshotUrl)));
+void BugReportHandler::HandleRefreshCurrentScreenshot(const ListValue*) {
+  std::string current_screenshot(kCurrentScreenshotUrl);
+  StringValue screenshot(current_screenshot);
+  dom_ui_->CallJavascriptFunction(L"setupCurrentScreenshot", screenshot);
+}
 
 
 #if defined(OS_CHROMEOS)
+void BugReportHandler::HandleRefreshSavedScreenshots(const ListValue*) {
   std::vector<std::string> saved_screenshots;
   GetScreenshotUrls(&saved_screenshots);
 
-  ListValue* saved_screenshot_list = new ListValue();
+  ListValue screenshots_list;
   for (size_t i = 0; i < saved_screenshots.size(); ++i)
-    saved_screenshot_list->Append(new StringValue(saved_screenshots[i]));
-  screenshots.Append(saved_screenshot_list);
-#endif
-  dom_ui_->CallJavascriptFunction(L"setupScreenshots", screenshots);
+    screenshots_list.Append(new StringValue(saved_screenshots[i]));
+  dom_ui_->CallJavascriptFunction(L"setupSavedScreenshots", screenshots_list);
 }
+#endif
+
 
 void BugReportHandler::HandleSendReport(const ListValue* list_value) {
   ListValue::const_iterator i = list_value->begin();
@@ -623,6 +717,7 @@ void BugReportHandler::HandleSendReport(const ListValue* list_value) {
   // If we aren't sending the sys_info, cancel the gathering of the syslogs.
   if (!send_sys_info)
     CancelFeedbackCollection();
+#endif
 
   // Update the data in bug_report_ so it can be sent
   bug_report_->UpdateData(dom_ui_->GetProfile()
@@ -639,6 +734,7 @@ void BugReportHandler::HandleSendReport(const ListValue* list_value) {
 #endif
                           );
 
+#if defined(OS_CHROMEOS)
   // If we don't require sys_info, or we have it, or we never requested it
   // (because libcros failed to load), then send the report now.
   // Otherwise, the report will get sent when we receive sys_info.
@@ -660,7 +756,6 @@ void BugReportHandler::HandleSendReport(const ListValue* list_value) {
 }
 
 void BugReportHandler::HandleCancel(const ListValue*) {
-  CancelFeedbackCollection();
   CloseFeedbackTab();
 }
 

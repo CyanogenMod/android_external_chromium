@@ -48,6 +48,11 @@ void CompareLists(const std::vector<std::string>& expected,
   }
 }
 
+static void AddPattern(ExtensionExtent* extent, const std::string& pattern) {
+  int schemes = URLPattern::SCHEME_ALL;
+  extent->AddPattern(URLPattern(schemes, pattern));
+}
+
 }
 
 class ExtensionTest : public testing::Test {
@@ -252,9 +257,10 @@ TEST(ExtensionTest, InitFromValueInvalid) {
   EXPECT_FALSE(extension.InitFromValue(*input_value, true, &error));
   EXPECT_TRUE(MatchPattern(error, errors::kInvalidPermission));
 
+  // We allow unknown API permissions, so this will be valid until we better
+  // distinguish between API and host permissions.
   permissions->Set(0, Value::CreateStringValue("www.google.com"));
-  EXPECT_FALSE(extension.InitFromValue(*input_value, true, &error));
-  EXPECT_TRUE(MatchPattern(error, errors::kInvalidPermission));
+  EXPECT_TRUE(extension.InitFromValue(*input_value, true, &error));
 
   // Multiple page actions are not allowed.
   input_value.reset(static_cast<DictionaryValue*>(valid_value->DeepCopy()));
@@ -327,10 +333,11 @@ TEST(ExtensionTest, InitFromValueValid) {
   ListValue* permissions = new ListValue;
   permissions->Set(0, Value::CreateStringValue("file:///C:/foo.txt"));
   input_value.Set(keys::kPermissions, permissions);
-  EXPECT_FALSE(extension.InitFromValue(input_value, false, &error));
-  EXPECT_TRUE(MatchPattern(error, errors::kInvalidPermission));
+
+  // We allow unknown API permissions, so this will be valid until we better
+  // distinguish between API and host permissions.
+  EXPECT_TRUE(extension.InitFromValue(input_value, false, &error));
   input_value.Remove(keys::kPermissions, NULL);
-  error.clear();
 
   // Test with an options page.
   input_value.SetString(keys::kOptionsPage, "options.html");
@@ -383,7 +390,7 @@ TEST(ExtensionTest, InitFromValueValidNameInRTL) {
   EXPECT_TRUE(extension.InitFromValue(input_value, false, &error));
   EXPECT_EQ("", error);
   std::wstring localized_name(name);
-  base::i18n::AdjustStringForLocaleDirection(localized_name, &localized_name);
+  base::i18n::AdjustStringForLocaleDirection(&localized_name);
   EXPECT_EQ(localized_name, UTF8ToWide(extension.name()));
 
   // Strong RTL characters in name.
@@ -392,7 +399,7 @@ TEST(ExtensionTest, InitFromValueValidNameInRTL) {
   EXPECT_TRUE(extension.InitFromValue(input_value, false, &error));
   EXPECT_EQ("", error);
   localized_name = name;
-  base::i18n::AdjustStringForLocaleDirection(localized_name, &localized_name);
+  base::i18n::AdjustStringForLocaleDirection(&localized_name);
   EXPECT_EQ(localized_name, UTF8ToWide(extension.name()));
 
   // Reset locale.
@@ -816,29 +823,60 @@ TEST(ExtensionTest, EffectiveHostPermissions) {
 TEST(ExtensionTest, IsPrivilegeIncrease) {
   const struct {
     const char* base_name;
-    bool expect_success;
+    // Increase these sizes if you have more than 10.
+    const char* granted_apis[10];
+    const char* granted_hosts[10];
+    bool full_access;
+    bool expect_increase;
   } kTests[] = {
-    { "allhosts1", false },  // all -> all
-    { "allhosts2", false },  // all -> one
-    { "allhosts3", true },  // one -> all
-    { "hosts1", false },  // http://a,http://b -> http://a,http://b
-    { "hosts2", false },  // http://a,http://b -> https://a,http://*.b
-    { "hosts3", false },  // http://a,http://b -> http://a
-    { "hosts4", true },  // http://a -> http://a,http://b
-    { "hosts5", false },  // http://a,b,c -> http://a,b,c + https://a,b,c
-    { "hosts6", false },  // http://a.com -> http://a.com + http://a.co.uk
-    { "permissions1", false },  // tabs -> tabs
-    { "permissions2", true },  // tabs -> tabs,bookmarks
-    { "permissions3", true },  // http://a -> http://a,tabs
-    { "permissions5", true },  // bookmarks -> bookmarks,history
+    { "allhosts1", {NULL}, {"http://*/", NULL}, false,
+      false },  // all -> all
+    { "allhosts2", {NULL}, {"http://*/", NULL}, false,
+      false },  // all -> one
+    { "allhosts3", {NULL}, {NULL}, false, true },  // one -> all
+    { "hosts1", {NULL},
+      {"http://www.google.com/", "http://www.reddit.com/", NULL}, false,
+      false },  // http://a,http://b -> http://a,http://b
+    { "hosts2", {NULL},
+      {"http://www.google.com/", "http://www.reddit.com/", NULL}, false,
+      true },  // http://a,http://b -> https://a,http://*.b
+    { "hosts3", {NULL},
+      {"http://www.google.com/", "http://www.reddit.com/", NULL}, false,
+      false },  // http://a,http://b -> http://a
+    { "hosts4", {NULL},
+      {"http://www.google.com/", NULL}, false,
+      true },  // http://a -> http://a,http://b
+    { "hosts5", {"tabs", "notifications", NULL},
+      {"http://*.example.com/", "http://*.example.com/*",
+       "http://*.example.co.uk/*", "http://*.example.com.au/*",
+       NULL}, false,
+      false },  // http://a,b,c -> http://a,b,c + https://a,b,c
+    { "hosts6", {"tabs", "notifications", NULL},
+      {"http://*.example.com/", "http://*.example.com/*", NULL}, false,
+      false },  // http://a.com -> http://a.com + http://a.co.uk
+    { "permissions1", {"tabs", NULL},
+      {NULL}, false, false },  // tabs -> tabs
+    { "permissions2", {"tabs", NULL},
+      {NULL}, false, true },  // tabs -> tabs,bookmarks
+    { "permissions3", {NULL},
+      {"http://*/*", NULL},
+      false, true },  // http://a -> http://a,tabs
+    { "permissions5", {"bookmarks", NULL},
+      {NULL}, false, true },  // bookmarks -> bookmarks,history
 #if !defined(OS_CHROMEOS)  // plugins aren't allowed in ChromeOS
-    { "permissions4", false },  // plugin -> plugin,tabs
-    { "plugin1", false },  // plugin -> plugin
-    { "plugin2", false },  // plugin -> none
-    { "plugin3", true },  // none -> plugin
+    { "permissions4", {NULL},
+      {NULL}, true, false },  // plugin -> plugin,tabs
+    { "plugin1", {NULL},
+      {NULL}, true, false },  // plugin -> plugin
+    { "plugin2", {NULL},
+      {NULL}, true, false },  // plugin -> none
+    { "plugin3", {NULL},
+      {NULL}, false, true },  // none -> plugin
 #endif
-    { "storage", false },  // none -> storage
-    { "notifications", false }  // none -> notifications
+    { "storage", {NULL},
+      {NULL}, false, false },  // none -> storage
+    { "notifications", {NULL},
+      {NULL}, false, false }  // none -> notifications
   };
 
   for (size_t i = 0; i < ARRAYSIZE_UNSAFE(kTests); ++i) {
@@ -849,13 +887,22 @@ TEST(ExtensionTest, IsPrivilegeIncrease) {
         LoadManifest("allow_silent_upgrade",
                      std::string(kTests[i].base_name) + "_new.json"));
 
-    EXPECT_TRUE(old_extension.get()) << kTests[i].base_name << "_old.json";
+    std::set<std::string> granted_apis;
+    for (size_t j = 0; kTests[i].granted_apis[j] != NULL; ++j)
+      granted_apis.insert(kTests[i].granted_apis[j]);
+
+    ExtensionExtent granted_hosts;
+    for (size_t j = 0; kTests[i].granted_hosts[j] != NULL; ++j)
+      AddPattern(&granted_hosts, kTests[i].granted_hosts[j]);
+
     EXPECT_TRUE(new_extension.get()) << kTests[i].base_name << "_new.json";
-    if (!old_extension.get() || !new_extension.get())
+    if (!new_extension.get())
       continue;
 
-    EXPECT_EQ(kTests[i].expect_success,
-              Extension::IsPrivilegeIncrease(old_extension.get(),
+    EXPECT_EQ(kTests[i].expect_increase,
+              Extension::IsPrivilegeIncrease(kTests[i].full_access,
+                                             granted_apis,
+                                             granted_hosts,
                                              new_extension.get()))
         << kTests[i].base_name;
   }
@@ -1056,7 +1103,7 @@ TEST(ExtensionTest, ApiPermissions) {
   }
 }
 
-TEST(ExtensionTest, GetDistinctHosts) {
+TEST(ExtensionTest, GetDistinctHostsForDisplay) {
   std::vector<std::string> expected;
   expected.push_back("www.foo.com");
   expected.push_back("www.bar.com");
@@ -1074,7 +1121,7 @@ TEST(ExtensionTest, GetDistinctHosts) {
     actual.push_back(
         URLPattern(URLPattern::SCHEME_HTTP, "http://www.baz.com/path"));
     CompareLists(expected,
-                 Extension::GetDistinctHosts(actual));
+                 Extension::GetDistinctHostsForDisplay(actual));
   }
 
   {
@@ -1086,7 +1133,7 @@ TEST(ExtensionTest, GetDistinctHosts) {
     actual.push_back(
         URLPattern(URLPattern::SCHEME_HTTP, "http://www.baz.com/path"));
     CompareLists(expected,
-                 Extension::GetDistinctHosts(actual));
+                 Extension::GetDistinctHostsForDisplay(actual));
   }
 
   {
@@ -1096,7 +1143,7 @@ TEST(ExtensionTest, GetDistinctHosts) {
     actual.push_back(
         URLPattern(URLPattern::SCHEME_HTTPS, "https://www.bar.com/path"));
     CompareLists(expected,
-                 Extension::GetDistinctHosts(actual));
+                 Extension::GetDistinctHostsForDisplay(actual));
   }
 
   {
@@ -1106,7 +1153,7 @@ TEST(ExtensionTest, GetDistinctHosts) {
     actual.push_back(
         URLPattern(URLPattern::SCHEME_HTTP, "http://www.bar.com/pathypath"));
     CompareLists(expected,
-                 Extension::GetDistinctHosts(actual));
+                 Extension::GetDistinctHostsForDisplay(actual));
   }
 
   {
@@ -1122,7 +1169,7 @@ TEST(ExtensionTest, GetDistinctHosts) {
     expected.push_back("bar.com");
 
     CompareLists(expected,
-                 Extension::GetDistinctHosts(actual));
+                 Extension::GetDistinctHostsForDisplay(actual));
   }
 
   {
@@ -1149,8 +1196,77 @@ TEST(ExtensionTest, GetDistinctHosts) {
     expected.push_back("www.foo.xyzzy");
 
     CompareLists(expected,
-                 Extension::GetDistinctHosts(actual));
+                 Extension::GetDistinctHostsForDisplay(actual));
   }
+
+  {
+    SCOPED_TRACE("wildcards");
+
+    actual.push_back(
+        URLPattern(URLPattern::SCHEME_HTTP, "http://*.google.com/*"));
+
+    expected.push_back("*.google.com");
+
+    CompareLists(expected,
+                 Extension::GetDistinctHostsForDisplay(actual));
+  }
+}
+
+TEST(ExtensionTest, IsElevatedHostList) {
+  URLPatternList list1;
+  URLPatternList list2;
+
+  list1.push_back(
+      URLPattern(URLPattern::SCHEME_HTTP, "http://www.google.com.hk/path"));
+  list1.push_back(
+      URLPattern(URLPattern::SCHEME_HTTP, "http://www.google.com/path"));
+
+  // Test that the host order does not matter.
+  list2.push_back(
+      URLPattern(URLPattern::SCHEME_HTTP, "http://www.google.com/path"));
+  list2.push_back(
+      URLPattern(URLPattern::SCHEME_HTTP, "http://www.google.com.hk/path"));
+
+  EXPECT_FALSE(Extension::IsElevatedHostList(list1, list2));
+  EXPECT_FALSE(Extension::IsElevatedHostList(list2, list1));
+
+  // Test that paths are ignored.
+  list2.clear();
+  list2.push_back(
+      URLPattern(URLPattern::SCHEME_HTTP, "http://www.google.com/*"));
+  EXPECT_FALSE(Extension::IsElevatedHostList(list1, list2));
+  EXPECT_FALSE(Extension::IsElevatedHostList(list2, list1));
+
+  // Test that RCDs are ignored.
+  list2.clear();
+  list2.push_back(
+      URLPattern(URLPattern::SCHEME_HTTP, "http://www.google.com.hk/*"));
+  EXPECT_FALSE(Extension::IsElevatedHostList(list1, list2));
+  EXPECT_FALSE(Extension::IsElevatedHostList(list2, list1));
+
+  // Test that subdomain wildcards are handled properly.
+  list2.clear();
+  list2.push_back(
+      URLPattern(URLPattern::SCHEME_HTTP, "http://*.google.com.hk/*"));
+  EXPECT_TRUE(Extension::IsElevatedHostList(list1, list2));
+  //TODO(jstritar): Does not match subdomains properly. http://crbug.com/65337
+  //EXPECT_FALSE(Extension::IsElevatedHostList(list2, list1));
+
+  // Test that different domains count as different hosts.
+  list2.clear();
+  list2.push_back(
+      URLPattern(URLPattern::SCHEME_HTTP, "http://www.google.com/path"));
+  list2.push_back(
+      URLPattern(URLPattern::SCHEME_HTTP, "http://www.example.org/path"));
+  EXPECT_TRUE(Extension::IsElevatedHostList(list1, list2));
+  EXPECT_FALSE(Extension::IsElevatedHostList(list2, list1));
+
+  // Test that different subdomains count as different hosts.
+  list2.clear();
+  list2.push_back(
+      URLPattern(URLPattern::SCHEME_HTTP, "http://mail.google.com/*"));
+  EXPECT_TRUE(Extension::IsElevatedHostList(list1, list2));
+  EXPECT_TRUE(Extension::IsElevatedHostList(list2, list1));
 }
 
 TEST(ExtensionTest, GenerateId) {

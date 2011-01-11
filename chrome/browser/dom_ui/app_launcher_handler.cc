@@ -20,6 +20,7 @@
 #include "chrome/browser/tab_contents/tab_contents.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
+#include "chrome/browser/ui/browser_window.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/extension.h"
 #include "chrome/common/extensions/extension_constants.h"
@@ -97,7 +98,8 @@ void AppLauncherHandler::CreateAppInfo(const Extension* extension,
       std::string("chrome://favicon/") + extension->GetFullLaunchURL().spec()));
   value->SetInteger("launch_container", extension->launch_container());
   value->SetInteger("launch_type",
-      extension_prefs->GetLaunchType(extension->id()));
+      extension_prefs->GetLaunchType(extension->id(),
+                                     ExtensionPrefs::LAUNCH_REGULAR));
 
   int app_launch_index = extension_prefs->GetAppLaunchIndex(extension->id());
   if (app_launch_index == -1) {
@@ -137,6 +139,8 @@ void AppLauncherHandler::RegisterMessages() {
       NewCallback(this, &AppLauncherHandler::HandleUninstallApp));
   dom_ui_->RegisterMessageCallback("hideAppsPromo",
       NewCallback(this, &AppLauncherHandler::HandleHideAppsPromo));
+  dom_ui_->RegisterMessageCallback("createAppShortcut",
+      NewCallback(this, &AppLauncherHandler::HandleCreateAppShortcut));
 }
 
 void AppLauncherHandler::Observe(NotificationType type,
@@ -190,6 +194,12 @@ void AppLauncherHandler::FillAppDictionary(DictionaryValue* dictionary) {
   bool showLauncher =
       CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableAppLauncher);
   dictionary->SetBoolean("showLauncher", showLauncher);
+
+#if defined(OS_MACOSX)
+  // App windows are not yet implemented on mac.
+  dictionary->SetBoolean("disableAppWindowLaunch", true);
+  dictionary->SetBoolean("disableCreateAppShortcut", true);
+#endif
 }
 
 void AppLauncherHandler::HandleGetApps(const ListValue* args) {
@@ -248,8 +258,15 @@ void AppLauncherHandler::HandleLaunchApp(const ListValue* args) {
     old_contents = browser->GetSelectedTabContents();
 
   AnimateAppIcon(extension, rect);
+
+  // Look at preference to find the right launch container.  If no preference
+  // is set, launch as a regular tab.
+  extension_misc::LaunchContainer launch_container =
+      extensions_service_->extension_prefs()->GetLaunchContainer(
+          extension, ExtensionPrefs::LAUNCH_REGULAR);
+
   TabContents* new_contents = Browser::OpenApplication(
-      profile, extension, extension->launch_container(), old_contents);
+      profile, extension, launch_container, old_contents);
 
   if (new_contents != old_contents && browser->tab_count() > 1)
     browser->CloseTabContents(old_contents);
@@ -310,7 +327,25 @@ void AppLauncherHandler::HandleHideAppsPromo(const ListValue* args) {
   extensions_service_->default_apps()->SetPromoHidden();
 }
 
-//static
+void AppLauncherHandler::HandleCreateAppShortcut(const ListValue* args) {
+  std::string extension_id;
+  if (!args->GetString(0, &extension_id)) {
+    NOTREACHED();
+    return;
+  }
+
+  const Extension* extension =
+      extensions_service_->GetExtensionById(extension_id, false);
+  CHECK(extension);
+
+  Browser* browser = BrowserList::GetLastActive();
+  if (!browser)
+    return;
+  browser->window()->ShowCreateChromeAppShortcutsDialog(
+      browser->profile(), extension);
+}
+
+// static
 void AppLauncherHandler::RecordWebStoreLaunch(bool promo_active) {
   if (!promo_active) return;
 
@@ -319,7 +354,7 @@ void AppLauncherHandler::RecordWebStoreLaunch(bool promo_active) {
                             extension_misc::PROMO_BUCKET_BOUNDARY);
 }
 
-//static
+// static
 void AppLauncherHandler::RecordAppLaunch(bool promo_active) {
   // TODO(jstritar): record app launches that occur when the promo is not
   // active using a different histogram.

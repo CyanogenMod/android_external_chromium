@@ -228,6 +228,10 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
                                                                  bool root);
   virtual void DestroyFakePluginWindowHandle(gfx::PluginWindowHandle window);
 
+  // Exposed for testing.
+  AcceleratedPluginView* ViewForPluginWindowHandle(
+      gfx::PluginWindowHandle window);
+
   // Helper to do the actual cleanup after a plugin handle has been destroyed.
   // Required because DestroyFakePluginWindowHandle() isn't always called for
   // all handles (it's e.g. not called on navigation, when the RWHVMac gets
@@ -243,8 +247,12 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
       int32 width,
       int32 height,
       TransportDIB::Handle transport_dib);
-  virtual void AcceleratedSurfaceBuffersSwapped(gfx::PluginWindowHandle window,
-                                                uint64 surface_id);
+  virtual void AcceleratedSurfaceBuffersSwapped(
+      gfx::PluginWindowHandle window,
+      uint64 surface_id,
+      int32 renderer_id,
+      int32 route_id,
+      uint64 swap_buffers_count);
   virtual void GpuRenderingStateDidChange();
   void DrawAcceleratedSurfaceInstance(
       CGLContextObj context,
@@ -254,7 +262,7 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   // to be reloaded.
   void ForceTextureReload();
 
-  virtual void SetVisuallyDeemphasized(bool deemphasized);
+  virtual void SetVisuallyDeemphasized(const SkColor* color, bool animate);
 
   void KillSelf();
 
@@ -272,6 +280,12 @@ class RenderWidgetHostViewMac : public RenderWidgetHostView {
   // checks if the GPU view needs to be hidden and hides it if necessary. It
   // should be called after the software backing store has been painted to.
   void HandleDelayedGpuViewHiding();
+
+  // This is called from the display link thread, and provides the GPU
+  // process a notion of how quickly the browser is able to keep up with it.
+  void AcknowledgeSwapBuffers(int renderer_id,
+                              int32 route_id,
+                              uint64 swap_buffers_count);
 
   // These member variables should be private, but the associated ObjC class
   // needs access to them and can't be made a friend.

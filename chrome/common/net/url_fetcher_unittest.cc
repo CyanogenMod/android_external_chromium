@@ -8,11 +8,11 @@
 #include "build/build_config.h"
 #include "chrome/common/chrome_plugin_lib.h"
 #include "chrome/common/net/url_fetcher.h"
-#include "chrome/common/net/url_fetcher_protect.h"
 #include "chrome/common/net/url_request_context_getter.h"
 #include "net/http/http_response_headers.h"
-#include "net/url_request/url_request_unittest.h"
 #include "net/test/test_server.h"
+#include "net/url_request/url_request_throttler_manager.h"
+#include "net/url_request/url_request_unittest.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if defined(USE_NSS)
@@ -228,6 +228,20 @@ class CancelTestURLRequestContextGetter : public URLRequestContextGetter {
   scoped_refptr<URLRequestContext> context_;
 };
 
+// Version of URLFetcherTest that tests retying the same request twice.
+class URLFetcherMultipleAttemptTest : public URLFetcherTest {
+ public:
+  // URLFetcher::Delegate
+  virtual void OnURLFetchComplete(const URLFetcher* source,
+                                  const GURL& url,
+                                  const URLRequestStatus& status,
+                                  int response_code,
+                                  const ResponseCookies& cookies,
+                                  const std::string& data);
+ private:
+  std::string data_;
+};
+
 // Wrapper that lets us call CreateFetcher() on a thread of our choice.  We
 // could make URLFetcherTest refcounted and use PostTask(FROM_HERE.. ) to call
 // CreateFetcher() directly, but the ownership of the URLFetcherTest is a bit
@@ -312,6 +326,7 @@ void URLFetcherProtectTest::CreateFetcher(const GURL& url) {
   fetcher_->set_request_context(new TestURLRequestContextGetter(
       io_message_loop_proxy()));
   start_time_ = Time::Now();
+  fetcher_->set_max_retries(11);
   fetcher_->Start();
 }
 
@@ -338,7 +353,7 @@ void URLFetcherProtectTest::OnURLFetchComplete(const URLFetcher* source,
       fetcher_->Start();
     } else {
       // We have already sent 20 requests continuously. And we expect that
-      // it takes more than 1 second due to the overload pretection settings.
+      // it takes more than 1 second due to the overload protection settings.
       EXPECT_TRUE(Time::Now() - start_time_ >= one_second);
       URLFetcherTest::OnURLFetchComplete(source, url, status, response_code,
                                          cookies, data);
@@ -352,6 +367,7 @@ void URLFetcherProtectTestPassedThrough::CreateFetcher(const GURL& url) {
       io_message_loop_proxy()));
   fetcher_->set_automatically_retry_on_5xx(false);
   start_time_ = Time::Now();
+  fetcher_->set_max_retries(11);
   fetcher_->Start();
 }
 
@@ -419,6 +435,7 @@ void URLFetcherCancelTest::CreateFetcher(const GURL& url) {
   CancelTestURLRequestContextGetter* context_getter =
       new CancelTestURLRequestContextGetter(io_message_loop_proxy());
   fetcher_->set_request_context(context_getter);
+  fetcher_->set_max_retries(2);
   fetcher_->Start();
   // We need to wait for the creation of the URLRequestContext, since we
   // rely on it being destroyed as a signal to end the test.
@@ -443,6 +460,31 @@ void URLFetcherCancelTest::CancelRequest() {
   // The URLFetcher's test context will post a Quit task once it is
   // deleted. So if this test simply hangs, it means cancellation
   // did not work.
+}
+
+void URLFetcherMultipleAttemptTest::OnURLFetchComplete(
+    const URLFetcher* source,
+    const GURL& url,
+    const URLRequestStatus& status,
+    int response_code,
+    const ResponseCookies& cookies,
+    const std::string& data) {
+  EXPECT_TRUE(status.is_success());
+  EXPECT_EQ(200, response_code);  // HTTP OK
+  EXPECT_FALSE(data.empty());
+  if (!data.empty() && data_.empty()) {
+    data_ = data;
+    fetcher_->Start();
+  } else {
+    EXPECT_EQ(data, data_);
+    delete fetcher_;  // Have to delete this here and not in the destructor,
+                      // because the destructor won't necessarily run on the
+                      // same thread that CreateFetcher() did.
+
+    io_message_loop_proxy()->PostTask(FROM_HERE, new MessageLoop::QuitTask());
+    // If the current message loop is not the IO loop, it will be shut down when
+    // the main loop returns and this thread subsequently goes out of scope.
+  }
 }
 
 TEST_F(URLFetcherTest, SameThreadsTest) {
@@ -500,14 +542,16 @@ TEST_F(URLFetcherProtectTest, Overload) {
 
   // Registers an entry for test url. It only allows 3 requests to be sent
   // in 200 milliseconds.
-  URLFetcherProtectManager* manager = URLFetcherProtectManager::GetInstance();
-  URLFetcherProtectEntry* entry =
-      new URLFetcherProtectEntry(200, 3, 11, 1, 2.0, 0, 256);
-  manager->Register(url.host(), entry);
+  scoped_refptr<net::URLRequestThrottlerEntry> entry(
+      new net::URLRequestThrottlerEntry(200, 3, 1, 0, 2.0, 0.0, 256));
+  net::URLRequestThrottlerManager::GetInstance()->OverrideEntryForTests(
+      url, entry);
 
   CreateFetcher(url);
 
   MessageLoop::current()->Run();
+
+  net::URLRequestThrottlerManager::GetInstance()->EraseEntryForTests(url);
 }
 
 TEST_F(URLFetcherProtectTest, ServerUnavailable) {
@@ -520,14 +564,16 @@ TEST_F(URLFetcherProtectTest, ServerUnavailable) {
   //     new_backoff = 2.0 * old_backoff + 0
   // and maximum backoff time is 256 milliseconds.
   // Maximum retries allowed is set to 11.
-  URLFetcherProtectManager* manager = URLFetcherProtectManager::GetInstance();
-  URLFetcherProtectEntry* entry =
-      new URLFetcherProtectEntry(200, 3, 11, 1, 2.0, 0, 256);
-  manager->Register(url.host(), entry);
+  scoped_refptr<net::URLRequestThrottlerEntry> entry(
+      new net::URLRequestThrottlerEntry(200, 3, 1, 0, 2.0, 0.0, 256));
+  net::URLRequestThrottlerManager::GetInstance()->OverrideEntryForTests(
+      url, entry);
 
   CreateFetcher(url);
 
   MessageLoop::current()->Run();
+
+  net::URLRequestThrottlerManager::GetInstance()->EraseEntryForTests(url);
 }
 
 TEST_F(URLFetcherProtectTestPassedThrough, ServerUnavailablePropagateResponse) {
@@ -538,20 +584,21 @@ TEST_F(URLFetcherProtectTestPassedThrough, ServerUnavailablePropagateResponse) {
 
   // Registers an entry for test url. The backoff time is calculated by:
   //     new_backoff = 2.0 * old_backoff + 0
-  // and maximum backoff time is 256 milliseconds.
+  // and maximum backoff time is 150000 milliseconds.
   // Maximum retries allowed is set to 11.
-  URLFetcherProtectManager* manager = URLFetcherProtectManager::GetInstance();
+  scoped_refptr<net::URLRequestThrottlerEntry> entry(
+      new net::URLRequestThrottlerEntry(200, 3, 100, 0, 2.0, 0.0, 150000));
   // Total time if *not* for not doing automatic backoff would be 150s.
   // In reality it should be "as soon as server responds".
-  URLFetcherProtectEntry* entry =
-      new URLFetcherProtectEntry(200, 3, 11, 100, 2.0, 0, 150000);
-  manager->Register(url.host(), entry);
+  net::URLRequestThrottlerManager::GetInstance()->OverrideEntryForTests(
+      url, entry);
 
   CreateFetcher(url);
 
   MessageLoop::current()->Run();
-}
 
+  net::URLRequestThrottlerManager::GetInstance()->EraseEntryForTests(url);
+}
 
 TEST_F(URLFetcherBadHTTPSTest, BadHTTPSTest) {
   net::TestServer::HTTPSOptions https_options(
@@ -573,10 +620,10 @@ TEST_F(URLFetcherCancelTest, ReleasesContext) {
   //     new_backoff = 2.0 * old_backoff + 0
   // The initial backoff is 2 seconds and maximum backoff is 4 seconds.
   // Maximum retries allowed is set to 2.
-  URLFetcherProtectManager* manager = URLFetcherProtectManager::GetInstance();
-  URLFetcherProtectEntry* entry =
-      new URLFetcherProtectEntry(200, 3, 2, 2000, 2.0, 0, 4000);
-  manager->Register(url.host(), entry);
+  scoped_refptr<net::URLRequestThrottlerEntry> entry(
+      new net::URLRequestThrottlerEntry(200, 3, 2000, 0, 2.0, 0.0, 4000));
+  net::URLRequestThrottlerManager::GetInstance()->OverrideEntryForTests(
+      url, entry);
 
   // Create a separate thread that will create the URLFetcher.  The current
   // (main) thread will do the IO, and when the fetch is complete it will
@@ -588,6 +635,8 @@ TEST_F(URLFetcherCancelTest, ReleasesContext) {
   t.message_loop()->PostTask(FROM_HERE, new FetcherWrapperTask(this, url));
 
   MessageLoop::current()->Run();
+
+  net::URLRequestThrottlerManager::GetInstance()->EraseEntryForTests(url);
 }
 
 TEST_F(URLFetcherCancelTest, CancelWhileDelayedStartTaskPending) {
@@ -597,22 +646,14 @@ TEST_F(URLFetcherCancelTest, CancelWhileDelayedStartTaskPending) {
   GURL url(test_server.GetURL("files/server-unavailable.html"));
 
   // Register an entry for test url.
-  //
-  // Ideally we would mock URLFetcherProtectEntry to return XXX seconds
-  // in response to entry->UpdateBackoff(SEND).
-  //
-  // Unfortunately this function is time sensitive, so we fudge some numbers
-  // to make it at least somewhat likely to have a non-zero deferred
-  // delay when running.
-  //
-  // Using a sliding window of 2 seconds, and max of 1 request, under a fast
+  // Using a sliding window of 4 seconds, and max of 1 request, under a fast
   // run we expect to have a 4 second delay when posting the Start task.
-  URLFetcherProtectManager* manager = URLFetcherProtectManager::GetInstance();
-  URLFetcherProtectEntry* entry =
-      new URLFetcherProtectEntry(2000, 1, 2, 2000, 2.0, 0, 4000);
-  EXPECT_EQ(0, entry->UpdateBackoff(URLFetcherProtectEntry::SEND));
-  entry->UpdateBackoff(URLFetcherProtectEntry::SEND);  // Returns about 2000.
-  manager->Register(url.host(), entry);
+  scoped_refptr<net::URLRequestThrottlerEntry> entry(
+      new net::URLRequestThrottlerEntry(4000, 1, 2000, 0, 2.0, 0.0, 4000));
+  net::URLRequestThrottlerManager::GetInstance()->OverrideEntryForTests(
+      url, entry);
+  // Fake that a request has just started.
+  entry->ReserveSendingTimeForNextRequest(base::TimeTicks());
 
   // The next request we try to send will be delayed by ~4 seconds.
   // The slower the test runs, the less the delay will be (since it takes the
@@ -621,6 +662,20 @@ TEST_F(URLFetcherCancelTest, CancelWhileDelayedStartTaskPending) {
   base::Thread t("URLFetcher test thread");
   ASSERT_TRUE(t.Start());
   t.message_loop()->PostTask(FROM_HERE, new FetcherWrapperTask(this, url));
+
+  MessageLoop::current()->Run();
+
+  net::URLRequestThrottlerManager::GetInstance()->EraseEntryForTests(url);
+}
+
+TEST_F(URLFetcherMultipleAttemptTest, SameData) {
+  net::TestServer test_server(net::TestServer::TYPE_HTTP, FilePath(kDocRoot));
+  ASSERT_TRUE(test_server.Start());
+
+  // Create the fetcher on the main thread.  Since IO will happen on the main
+  // thread, this will test URLFetcher's ability to do everything on one
+  // thread.
+  CreateFetcher(test_server.GetURL("defaultresponse"));
 
   MessageLoop::current()->Run();
 }

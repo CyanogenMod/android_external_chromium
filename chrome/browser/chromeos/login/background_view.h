@@ -37,14 +37,13 @@ class BackgroundView : public views::View,
  public:
   enum LoginStep {
     SELECT_NETWORK,
-#if defined(OFFICIAL_BUILD)
     EULA,
-#endif
     SIGNIN,
-#if defined(OFFICIAL_BUILD)
     REGISTRATION,
-#endif
-    PICTURE
+    PICTURE,
+
+    // Steps count, must be the last in the enum.
+    STEPS_COUNT
   };
 
   BackgroundView();
@@ -53,8 +52,8 @@ class BackgroundView : public views::View,
   // it creates a DOMView background area that renders a webpage.
   void Init(const GURL& background_url);
 
-  // Enable shutdown button.
-  void EnableShutdownButton();
+  // Enable/disable shutdown button.
+  void EnableShutdownButton(bool enable);
 
   // Creates a window containing an instance of WizardContentsView as the root
   // view. The caller is responsible for showing (and closing) the returned

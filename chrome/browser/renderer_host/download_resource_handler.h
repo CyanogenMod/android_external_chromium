@@ -15,8 +15,11 @@
 
 class DownloadFileManager;
 class ResourceDispatcherHost;
-class URLRequest;
 struct DownloadBuffer;
+
+namespace net {
+class URLRequest;
+}  // namespace net
 
 // Forwards data to the download thread.
 class DownloadResourceHandler : public ResourceHandler {
@@ -27,7 +30,7 @@ class DownloadResourceHandler : public ResourceHandler {
                           int request_id,
                           const GURL& url,
                           DownloadFileManager* download_file_manager,
-                          URLRequest* request,
+                          net::URLRequest* request,
                           bool save_as,
                           const DownloadSaveInfo& save_info);
 
@@ -64,6 +67,8 @@ class DownloadResourceHandler : public ResourceHandler {
 
   void CheckWriteProgress();
 
+  std::string DebugString() const;
+
  private:
   ~DownloadResourceHandler();
 
@@ -77,7 +82,7 @@ class DownloadResourceHandler : public ResourceHandler {
   GURL url_;
   int64 content_length_;
   DownloadFileManager* download_file_manager_;
-  URLRequest* request_;
+  net::URLRequest* request_;
   bool save_as_;  // Request was initiated via "Save As" by the user.
   DownloadSaveInfo save_info_;
   DownloadBuffer* buffer_;

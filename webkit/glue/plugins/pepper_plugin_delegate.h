@@ -12,7 +12,6 @@
 #include "base/ref_counted.h"
 #include "base/shared_memory.h"
 #include "base/sync_socket.h"
-#include "base/task.h"
 #include "gfx/size.h"
 #include "googleurl/src/gurl.h"
 #include "ppapi/c/pp_completion_callback.h"
@@ -130,8 +129,6 @@ class PluginDelegate {
                                  base::SyncSocket::Handle socket) = 0;
     };
 
-    virtual ~PlatformAudio() {}
-
     // Starts the playback. Returns false on error or if called before the
     // stream is created or after the stream is closed.
     virtual bool StartPlayback() = 0;
@@ -143,6 +140,9 @@ class PluginDelegate {
     // Closes the stream. Make sure to call this before the object is
     // destructed.
     virtual void ShutDown() = 0;
+
+   protected:
+    virtual ~PlatformAudio() {}
   };
 
   class PlatformVideoDecoder {

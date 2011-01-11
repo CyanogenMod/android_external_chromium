@@ -33,7 +33,6 @@
 #include "base/basictypes.h"
 #include "base/eintr_wrapper.h"
 #include "base/file_path.h"
-#include "base/lock.h"
 #include "base/logging.h"
 #include "base/scoped_ptr.h"
 #include "base/singleton.h"
@@ -372,6 +371,29 @@ bool ReadFromFD(int fd, char* buffer, size_t bytes) {
     total_read += bytes_read;
   }
   return total_read == bytes;
+}
+
+bool CreateSymbolicLink(const FilePath& target_path,
+                        const FilePath& symlink_path) {
+  DCHECK(!symlink_path.empty());
+  DCHECK(!target_path.empty());
+  return ::symlink(target_path.value().c_str(),
+                   symlink_path.value().c_str()) != -1;
+}
+
+bool ReadSymbolicLink(const FilePath& symlink_path,
+                      FilePath* target_path) {
+  DCHECK(!symlink_path.empty());
+  DCHECK(target_path);
+  char buf[PATH_MAX];
+  ssize_t count = ::readlink(symlink_path.value().c_str(), buf, arraysize(buf));
+
+  if (count <= 0)
+    return false;
+
+  *target_path = FilePath(FilePath::StringType(buf, count));
+
+  return true;
 }
 
 // Creates and opens a temporary file in |directory|, returning the
@@ -865,4 +887,4 @@ bool CopyFile(const FilePath& from_path, const FilePath& to_path) {
 }
 #endif  // defined(OS_MACOSX)
 
-} // namespace file_util
+}  // namespace file_util

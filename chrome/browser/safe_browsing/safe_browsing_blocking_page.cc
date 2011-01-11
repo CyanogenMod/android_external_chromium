@@ -11,6 +11,7 @@
 #include "app/l10n_util.h"
 #include "app/resource_bundle.h"
 #include "base/i18n/rtl.h"
+#include "base/singleton.h"
 #include "base/string_number_conversions.h"
 #include "base/utf_string_conversions.h"
 #include "base/values.h"
@@ -293,8 +294,7 @@ void SafeBrowsingBlockingPage::PopulatePhishingStringDictionary(
       l10n_util::GetString(IDS_SAFE_BROWSING_PHISHING_HEADLINE),
       l10n_util::GetStringF(IDS_SAFE_BROWSING_PHISHING_DESCRIPTION1,
                             UTF8ToWide(url().host())),
-      l10n_util::GetStringF(IDS_SAFE_BROWSING_PHISHING_DESCRIPTION2,
-                            UTF8ToWide(url().host())),
+      l10n_util::GetString(IDS_SAFE_BROWSING_PHISHING_DESCRIPTION2),
       L"");
 
   strings->SetString("continue_button",

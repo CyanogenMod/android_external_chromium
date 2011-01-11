@@ -460,11 +460,16 @@ bool LocationBarViewGtk::OnCommitSuggestedText(
   if (!instant)
     return false;
 
-  bool updating_instant = update_instant_;
-  update_instant_ = false;
-  bool rv = location_entry_->CommitInstantSuggestion();
-  update_instant_ = updating_instant;
-  return rv;
+  return location_entry_->CommitInstantSuggestion();
+}
+
+bool LocationBarViewGtk::AcceptCurrentInstantPreview() {
+  InstantController* instant = browser_->instant();
+  if (instant && instant->IsCurrent()) {
+    instant->CommitCurrentPreview(INSTANT_COMMIT_PRESSED_ENTER);
+    return true;
+  }
+  return false;
 }
 
 void LocationBarViewGtk::OnSetSuggestedSearchText(
@@ -536,12 +541,20 @@ void LocationBarViewGtk::OnChanged() {
   if (update_instant_ && instant && GetTabContents()) {
     if (location_entry_->model()->user_input_in_progress() &&
         location_entry_->model()->popup_model()->IsOpen()) {
-      instant->Update(GetTabContents(),
-                      location_entry_->model()->CurrentMatch(),
-                      WideToUTF16(location_entry_->GetText()),
-                      &suggested_text);
+      instant->Update(
+          browser_->GetSelectedTabContentsWrapper(),
+          location_entry_->model()->CurrentMatch(),
+          WideToUTF16(location_entry_->GetText()),
+          location_entry_->model()->UseVerbatimInstant(),
+          &suggested_text);
+      if (!instant->MightSupportInstant()) {
+        location_entry_->model()->FinalizeInstantQuery(std::wstring(),
+                                                       std::wstring());
+      }
     } else {
       instant->DestroyPreviewContents();
+      location_entry_->model()->FinalizeInstantQuery(std::wstring(),
+                                                     std::wstring());
     }
   }
 
@@ -647,7 +660,7 @@ void LocationBarViewGtk::FocusSearch() {
 }
 
 void LocationBarViewGtk::UpdateContentSettingsIcons() {
-  const TabContents* tab_contents = GetTabContents();
+  TabContents* tab_contents = GetTabContents();
   bool any_visible = false;
   for (ScopedVector<ContentSettingImageViewGtk>::iterator i(
            content_setting_views_.begin());
@@ -1262,7 +1275,7 @@ LocationBarViewGtk::ContentSettingImageViewGtk::~ContentSettingImageViewGtk() {
 }
 
 void LocationBarViewGtk::ContentSettingImageViewGtk::UpdateFromTabContents(
-    const TabContents* tab_contents) {
+    TabContents* tab_contents) {
   content_setting_image_model_->UpdateFromTabContents(tab_contents);
   if (content_setting_image_model_->is_visible()) {
     gtk_image_set_from_pixbuf(GTK_IMAGE(image_.get()),

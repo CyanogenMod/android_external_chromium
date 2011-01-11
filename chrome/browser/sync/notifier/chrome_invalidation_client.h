@@ -13,6 +13,7 @@
 
 #include "base/basictypes.h"
 #include "base/non_thread_safe.h"
+#include "base/scoped_callback_factory.h"
 #include "base/scoped_ptr.h"
 #include "base/weak_ptr.h"
 #include "chrome/browser/sync/notifier/chrome_system_resources.h"
@@ -59,6 +60,11 @@ class ChromeInvalidationClient
 
   void Stop();
 
+  // Changes the task used to |base_task|, which must still be
+  // non-NULL.  Must only be called between calls to Start() and
+  // Stop().
+  void ChangeBaseTask(base::WeakPtr<talk_base::Task> base_task);
+
   // Register the sync types that we're interested in getting
   // notifications for.  Must only be called between calls to Start()
   // and Stop().
@@ -87,8 +93,17 @@ class ChromeInvalidationClient
   virtual void WriteState(const std::string& state);
 
  private:
+  friend class ChromeInvalidationClientTest;
+
+  // Should only be called between calls to Start() and Stop().
+  void HandleOutboundPacket(
+      invalidation::NetworkEndpoint* const& network_endpoint);
+
   NonThreadSafe non_thread_safe_;
   ChromeSystemResources chrome_system_resources_;
+  base::ScopedCallbackFactory<ChromeInvalidationClient>
+      scoped_callback_factory_;
+  scoped_ptr<invalidation::NetworkCallback> handle_outbound_packet_callback_;
   Listener* listener_;
   StateWriter* state_writer_;
   scoped_ptr<invalidation::InvalidationClient> invalidation_client_;
