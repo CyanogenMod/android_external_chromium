@@ -293,12 +293,8 @@ bool PersonalDataManager::ImportFormData(
     SaveImportedProfile();
   }
 
-<<<<<<< HEAD
-  return true;
-#endif
-=======
   return imported_profile_.get() || imported_credit_card_.get();
->>>>>>> Chromium.org at 9.0.597.55
+#endif
 }
 
 void PersonalDataManager::GetImportedFormData(AutoFillProfile** profile,

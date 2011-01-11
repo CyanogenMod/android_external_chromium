@@ -6,7 +6,6 @@
 #define CHROME_BROWSER_TAB_CONTENTS_TAB_CONTENTS_H_
 #pragma once
 
-<<<<<<< HEAD
 #ifdef ANDROID
 #include "android/autofill/profile_android.h"
 #include "base/scoped_ptr.h"
@@ -41,10 +40,6 @@ private:
 
 #else
 
-#include "build/build_config.h"
-
-=======
->>>>>>> Chromium.org at 9.0.597.55
 #include <deque>
 #include <map>
 #include <string>

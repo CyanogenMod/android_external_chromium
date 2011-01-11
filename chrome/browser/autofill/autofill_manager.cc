@@ -202,31 +202,8 @@ void AutoFillManager::FormsSeen(const std::vector<FormData>& forms) {
 
 bool AutoFillManager::GetAutoFillSuggestions(const FormData& form,
                                              const FormField& field) {
-<<<<<<< HEAD
-  if (!IsAutoFillEnabled())
-    return false;
-
-#ifdef ANDROID
-  // TODO: Refactor the Autofill methods for Chrome too so that
-  // they do not neet to get the render view host here
-  AutoFillHost* host = tab_contents_->autofill_host();
-#else
-  RenderViewHost* host = tab_contents_->render_view_host();
-#endif
-  if (!host)
-    return false;
-
-  if (personal_data_->profiles().empty() &&
-      personal_data_->credit_cards().empty())
-    return false;
-
-  // Loops through the cached FormStructures looking for the FormStructure that
-  // contains |field| and the associated AutoFillFieldType.
-  FormStructure* form = NULL;
-=======
   RenderViewHost* host = NULL;
   FormStructure* form_structure = NULL;
->>>>>>> Chromium.org at 9.0.597.55
   AutoFillField* autofill_field = NULL;
   if (!GetHost(personal_data_->profiles(),
                personal_data_->credit_cards(),
@@ -265,28 +242,7 @@ bool AutoFillManager::GetAutoFillSuggestions(const FormData& form,
   if (values.empty())
     return false;
 
-<<<<<<< HEAD
 #ifndef ANDROID
-  // Don't provide AutoFill suggestions when AutoFill is disabled, but provide a
-  // warning to the user.
-  if (!form->IsAutoFillable(true)) {
-    values.assign(
-        1, l10n_util::GetStringUTF16(IDS_AUTOFILL_WARNING_FORM_DISABLED));
-    labels.assign(1, string16());
-    icons.assign(1, string16());
-    unique_ids.assign(1, -1);
-    host->AutoFillSuggestionsReturned(values, labels, icons, unique_ids);
-    return true;
-  }
-#endif
-
-#ifndef ANDROID
-  // Don't provide credit card suggestions for non-HTTPS pages, but provide a
-  // warning to the user.
-  if (!FormIsHTTPS(form) && type.group() == AutoFillType::CREDIT_CARD) {
-    values.assign(
-        1, l10n_util::GetStringUTF16(IDS_AUTOFILL_WARNING_INSECURE_CONNECTION));
-=======
   // Don't provide AutoFill suggestions when AutoFill is disabled, and don't
   // provide credit card suggestions for non-HTTPS pages. However, provide a
   // warning to the user in these cases.
@@ -297,7 +253,6 @@ bool AutoFillManager::GetAutoFillSuggestions(const FormData& form,
     warning = IDS_AUTOFILL_WARNING_INSECURE_CONNECTION;
   if (warning) {
     values.assign(1, l10n_util::GetStringUTF16(warning));
->>>>>>> Chromium.org at 9.0.597.55
     labels.assign(1, string16());
     icons.assign(1, string16());
     unique_ids.assign(1, -1);
@@ -323,20 +278,6 @@ bool AutoFillManager::FillAutoFillFormData(int query_id,
                                            const FormData& form,
                                            const FormField& field,
                                            int unique_id) {
-<<<<<<< HEAD
-  if (!IsAutoFillEnabled())
-    return false;
-
-#ifdef ANDROID
-  AutoFillHost* host = tab_contents_->autofill_host();
-#else
-  RenderViewHost* host = tab_contents_->render_view_host();
-#endif
-  if (!host)
-    return false;
-
-=======
->>>>>>> Chromium.org at 9.0.597.55
   const std::vector<AutoFillProfile*>& profiles = personal_data_->profiles();
   const std::vector<CreditCard*>& credit_cards = personal_data_->credit_cards();
   RenderViewHost* host = NULL;
@@ -597,7 +538,11 @@ bool AutoFillManager::GetHost(const std::vector<AutoFillProfile*>& profiles,
   if (profiles.empty() && credit_cards.empty())
     return false;
 
+#ifdef ANDROID
+  *host = tab_contents_->autofill_host();
+#else
   *host = tab_contents_->render_view_host();
+#endif
   if (!(*host))
     return false;
 

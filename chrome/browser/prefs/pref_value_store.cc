@@ -43,7 +43,7 @@ PrefValueStore* PrefValueStore::CreatePrefValueStore(
     Profile* profile,
     bool user_only) {
 #ifdef ANDROID
-  return new PrefValueStore(NULL, NULL, NULL, NULL, NULL, NULL, new DefaultPrefStore());
+  return new PrefValueStore(NULL, NULL, NULL, NULL, NULL, NULL, new DefaultPrefStore(), profile);
 #else
   using policy::ConfigurationPolicyPrefStore;
   ConfigurationPolicyPrefStore* managed = NULL;
@@ -70,13 +70,9 @@ PrefValueStore* PrefValueStore::CreatePrefValueStore(
   }
 
   return new PrefValueStore(managed, device_management, extension,
-<<<<<<< HEAD
-                            command_line, user, recommended, default_store);
-#endif
-=======
                             command_line, user, recommended, default_store,
                             profile);
->>>>>>> Chromium.org at 9.0.597.55
+#endif
 }
 
 PrefValueStore::~PrefValueStore() {}
