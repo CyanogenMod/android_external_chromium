@@ -202,7 +202,11 @@ void AutoFillManager::FormsSeen(const std::vector<FormData>& forms) {
 
 bool AutoFillManager::GetAutoFillSuggestions(const FormData& form,
                                              const FormField& field) {
+#ifdef ANDROID
+  AutoFillHost* host = NULL;
+#else
   RenderViewHost* host = NULL;
+#endif
   FormStructure* form_structure = NULL;
   AutoFillField* autofill_field = NULL;
   if (!GetHost(personal_data_->profiles(),
@@ -280,7 +284,11 @@ bool AutoFillManager::FillAutoFillFormData(int query_id,
                                            int unique_id) {
   const std::vector<AutoFillProfile*>& profiles = personal_data_->profiles();
   const std::vector<CreditCard*>& credit_cards = personal_data_->credit_cards();
+#ifdef ANDROID
+  AutoFillHost* host = NULL;
+#else
   RenderViewHost* host = NULL;
+#endif
   FormStructure* form_structure = NULL;
   AutoFillField* autofill_field = NULL;
   if (!GetHost(profiles, credit_cards, &host) ||
@@ -530,7 +538,11 @@ AutoFillManager::AutoFillManager(TabContents* tab_contents,
 
 bool AutoFillManager::GetHost(const std::vector<AutoFillProfile*>& profiles,
                               const std::vector<CreditCard*>& credit_cards,
+#ifdef ANDROID
+                              AutoFillHost** host) {
+#else
                               RenderViewHost** host) {
+#endif
   if (!IsAutoFillEnabled())
     return false;
 
