@@ -9,6 +9,10 @@
 #include "base/scoped_ptr.h"
 #include "net/base/upload_data.h"
 
+#ifdef ANDROID
+#include "android/jni/platform_file_jni.h"
+#endif
+
 namespace net {
 
 class FileStream;
@@ -73,6 +77,10 @@ class UploadDataStream {
   // A stream to the currently open file, for next_element_ if the next element
   // is a TYPE_FILE element.
   scoped_ptr<FileStream> next_element_stream_;
+
+#ifdef ANDROID
+  scoped_ptr<android::JavaInputStreamWrapper> next_element_java_stream_;
+#endif
 
   // The number of bytes remaining to be read from the currently open file
   // if the next element is of TYPE_FILE.
