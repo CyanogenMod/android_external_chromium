@@ -94,7 +94,7 @@ int UploadDataStream::FillBuf() {
 #ifdef ANDROID
         if (element.file_path().value().find("content://") == 0) {
             next_element_java_stream_.reset(
-                new android::JavaInputStreamWrapper(element.file_path()));
+                new android::JavaISWrapper(element.file_path()));
         } else
 #endif
         next_element_stream_.reset(element.NewFileStreamForReading());
