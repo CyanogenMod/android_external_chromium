@@ -9,7 +9,7 @@
 
 namespace android {
 
-JavaInputStreamWrapper::JavaInputStreamWrapper(const FilePath& path) {
+JavaISWrapper::JavaISWrapper(const FilePath& path) {
   JNIEnv* env = GetJNIEnv();
   jclass inputStreamClass = env->FindClass("java/io/InputStream");
   m_read = env->GetMethodID(inputStreamClass, "read", "([B)I");
@@ -28,14 +28,14 @@ JavaInputStreamWrapper::JavaInputStreamWrapper(const FilePath& path) {
   env->DeleteLocalRef(inputStreamClass);
 }
 
-JavaInputStreamWrapper::~JavaInputStreamWrapper() {
+JavaISWrapper::~JavaISWrapper() {
   JNIEnv* env = GetJNIEnv();
   env->CallVoidMethod(m_inputStream, m_close);
   CheckException(env);
   env->DeleteGlobalRef(m_inputStream);
 }
 
-int JavaInputStreamWrapper::Read(char* out, int length) {
+int JavaISWrapper::Read(char* out, int length) {
   JNIEnv* env = GetJNIEnv();
   jbyteArray buffer = env->NewByteArray(length);
 

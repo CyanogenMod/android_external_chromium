@@ -79,7 +79,7 @@ class UploadDataStream {
   scoped_ptr<FileStream> next_element_stream_;
 
 #ifdef ANDROID
-  scoped_ptr<android::JavaInputStreamWrapper> next_element_java_stream_;
+  scoped_ptr<android::JavaISWrapper> next_element_java_stream_;
 #endif
 
   // The number of bytes remaining to be read from the currently open file

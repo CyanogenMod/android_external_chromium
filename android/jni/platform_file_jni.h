@@ -11,10 +11,10 @@ namespace android {
 
 uint64 contentUrlSize(const FilePath& name);
 
-class JavaInputStreamWrapper {
+class JavaISWrapper {
 public:
-  JavaInputStreamWrapper(const FilePath& path);
-  ~JavaInputStreamWrapper();
+  JavaISWrapper(const FilePath& path);
+  ~JavaISWrapper();
 
   int Read(char* out, int length);
 
