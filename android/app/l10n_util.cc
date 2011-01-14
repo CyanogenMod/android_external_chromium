@@ -52,8 +52,13 @@ JNIHelper::JNIHelper()
 
 JNIHelper::~JNIHelper()
 {
-    if (mEnv)
-        mEnv->DeleteGlobalRef(mClassRef);
+    if (mEnv) {
+        // Because the stored mEnv could be bad during c++ destruction phase
+        // since it's thread local.
+        JNIEnv* currentEnv = android::GetJNIEnv();
+        if (currentEnv)
+            currentEnv->DeleteGlobalRef(mClassRef);
+    }
 }
 
 string16 JNIHelper::getLocalisedString(int message_id)
