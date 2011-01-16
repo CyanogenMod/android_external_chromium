@@ -76,7 +76,22 @@ ExtensionInstallUI::ExtensionInstallUI(Profile* profile)
       extension_(NULL),
       delegate_(NULL),
       prompt_type_(NUM_PROMPT_TYPES),
-      ALLOW_THIS_IN_INITIALIZER_LIST(tracker_(this)) {}
+      ALLOW_THIS_IN_INITIALIZER_LIST(tracker_(this)) {
+  // Remember the current theme in case the user presses undo.
+  if (profile_) {
+    const Extension* previous_theme = profile_->GetTheme();
+    if (previous_theme)
+      previous_theme_id_ = previous_theme->id();
+#if defined(TOOLKIT_GTK)
+    // On Linux, we also need to take the user's system settings into account
+    // to undo theme installation.
+    previous_use_system_theme_ =
+        GtkThemeProvider::GetFrom(profile_)->UseGtkTheme();
+#else
+    DCHECK(!previous_use_system_theme_);
+#endif
+  }
+}
 
 ExtensionInstallUI::~ExtensionInstallUI() {
 }
@@ -91,20 +106,6 @@ void ExtensionInstallUI::ConfirmInstall(Delegate* delegate,
   // immediately installed, and then we show an infobar (see OnInstallSuccess)
   // to allow the user to revert if they don't like it.
   if (extension->is_theme()) {
-    // Remember the current theme in case the user pressed undo.
-    const Extension* previous_theme = profile_->GetTheme();
-    if (previous_theme)
-      previous_theme_id_ = previous_theme->id();
-
-#if defined(TOOLKIT_GTK)
-    // On Linux, we also need to take the user's system settings into account
-    // to undo theme installation.
-    previous_use_system_theme_ =
-        GtkThemeProvider::GetFrom(profile_)->UseGtkTheme();
-#else
-    DCHECK(!previous_use_system_theme_);
-#endif
-
     delegate->InstallUIProceed();
     return;
   }
@@ -121,18 +122,20 @@ void ExtensionInstallUI::ConfirmUninstall(Delegate* delegate,
   ShowConfirmation(UNINSTALL_PROMPT);
 }
 
-void ExtensionInstallUI::OnInstallSuccess(const Extension* extension) {
+void ExtensionInstallUI::OnInstallSuccess(const Extension* extension,
+                                          SkBitmap* icon) {
+  extension_ = extension;
+  SetIcon(icon);
+
   if (extension->is_theme()) {
     ShowThemeInfoBar(previous_theme_id_, previous_use_system_theme_,
                      extension, profile_);
     return;
   }
 
-  // Note that browser actions don't appear in incognito mode initially,
-  // so be sure to use a normal browser window.
-  Profile* profile = profile_;
-  if (extension->browser_action())
-    profile = profile->GetOriginalProfile();
+  // Extensions aren't enabled by default in incognito so we confirm
+  // the install in a normal window.
+  Profile* profile = profile_->GetOriginalProfile();
   Browser* browser = Browser::GetOrCreateTabbedBrowser(profile);
   if (browser->tab_count() == 0)
     browser->AddBlankTab(true);
@@ -180,8 +183,7 @@ void ExtensionInstallUI::OnInstallFailure(const std::string& error) {
       UTF8ToUTF16(error));
 }
 
-void ExtensionInstallUI::OnImageLoaded(
-    SkBitmap* image, ExtensionResource resource, int index) {
+void ExtensionInstallUI::SetIcon(SkBitmap* image) {
   if (image)
     icon_ = *image;
   else
@@ -195,6 +197,11 @@ void ExtensionInstallUI::OnImageLoaded(
           IDR_EXTENSION_DEFAULT_ICON);
     }
   }
+}
+
+void ExtensionInstallUI::OnImageLoaded(
+    SkBitmap* image, ExtensionResource resource, int index) {
+  SetIcon(image);
 
   switch (prompt_type_) {
     case INSTALL_PROMPT: {

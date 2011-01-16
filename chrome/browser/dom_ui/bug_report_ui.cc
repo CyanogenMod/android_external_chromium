@@ -196,6 +196,7 @@ void ShowHtmlBugReportView(NSWindow* window, Browser* browser) {
   if (feedback_tab_index >=0) {
     // Do not refresh screenshot, do not create a new tab
     browser->SelectTabContentsAt(feedback_tab_index, true);
+    return;
   }
 
   // now for refreshing the last screenshot
@@ -489,6 +490,7 @@ void BugReportData::SendReport() {
 BugReportHandler::BugReportHandler(TabContents* tab)
     : tab_(tab)
     , screenshot_source_(NULL)
+    , bug_report_(NULL)
 #if defined(OS_CHROMEOS)
     , syslogs_handle_(0)
 #endif

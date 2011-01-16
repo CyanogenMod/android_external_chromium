@@ -40,6 +40,11 @@ IPC_BEGIN_MESSAGES(Gpu)
   IPC_MESSAGE_CONTROL1(GpuMsg_EstablishChannel,
                        int /* renderer_id */)
 
+  // Tells the GPU process to close the channel identified by IPC channel
+  // handle.  If no channel can be identified, do nothing.
+  IPC_MESSAGE_CONTROL1(GpuMsg_CloseChannel,
+                       IPC::ChannelHandle /* channel_handle */)
+
   // Provides a synchronization point to guarantee that the processing of
   // previous asynchronous messages (i.e., GpuMsg_EstablishChannel) has
   // completed. (This message can't be synchronous because the
@@ -61,6 +66,13 @@ IPC_BEGIN_MESSAGES(Gpu)
                        int /* renderer_id */,
                        int32 /* route_id */,
                        uint64 /* swap_buffers_count */)
+
+// Tells the GPU process that the IOSurface of the buffer belonging to
+// |renderer_route_id| a given id was destroyed, either by the user closing the
+// tab hosting the surface, or by the renderer navigating to a new page.
+IPC_MESSAGE_CONTROL2(GpuMsg_DidDestroyAcceleratedSurface,
+                     int /* renderer_id */,
+                     int32 /* renderer_route_id */)
 #endif
 
   // Tells the GPU process to crash.

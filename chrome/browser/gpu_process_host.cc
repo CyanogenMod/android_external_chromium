@@ -5,20 +5,25 @@
 #include "chrome/browser/gpu_process_host.h"
 
 #include "app/app_switches.h"
+#include "app/resource_bundle.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram.h"
+#include "base/string_piece.h"
 #include "base/thread.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_thread.h"
+#include "chrome/browser/gpu_blacklist.h"
 #include "chrome/browser/gpu_process_host_ui_shim.h"
 #include "chrome/browser/renderer_host/render_view_host.h"
 #include "chrome/browser/renderer_host/render_widget_host_view.h"
 #include "chrome/browser/renderer_host/resource_message_filter.h"
 #include "chrome/browser/tab_contents/render_view_host_delegate_helper.h"
 #include "chrome/common/chrome_switches.h"
+#include "chrome/common/gpu_feature_flags.h"
 #include "chrome/common/gpu_info.h"
 #include "chrome/common/gpu_messages.h"
 #include "chrome/common/render_messages.h"
+#include "grit/browser_resources.h"
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_switches.h"
 #include "media/base/media_switches.h"
@@ -33,10 +38,16 @@
 
 namespace {
 
+enum GPUBlacklistTestResult {
+  BLOCKED,
+  ALLOWED,
+  BLACKLIST_TEST_RESULT_MAX
+};
+
 enum GPUProcessLifetimeEvent {
-  kLaunched,
-  kCrashed,
-  kGPUProcessLifetimeEvent_Max
+  LAUNCED,
+  CRASHED,
+  GPU_PROCESS_LIFETIME_EVENT_MAX
   };
 
 // Tasks used by this file
@@ -75,7 +86,8 @@ void RouteOnUIThread(const IPC::Message& message) {
 GpuProcessHost::GpuProcessHost()
     : BrowserChildProcessHost(GPU_PROCESS, NULL),
       initialized_(false),
-      initialized_successfully_(false) {
+      initialized_successfully_(false),
+      blacklist_result_recorded_(false) {
   DCHECK_EQ(sole_instance_, static_cast<GpuProcessHost*>(NULL));
 }
 
@@ -97,6 +109,9 @@ bool GpuProcessHost::EnsureInitialized() {
 }
 
 bool GpuProcessHost::Init() {
+  if (!LoadGpuBlacklist())
+    return false;
+
   if (!CreateChannel())
     return false;
 
@@ -199,8 +214,28 @@ void GpuProcessHost::OnControlMessageReceived(const IPC::Message& message) {
 void GpuProcessHost::OnChannelEstablished(
     const IPC::ChannelHandle& channel_handle,
     const GPUInfo& gpu_info) {
+  GpuFeatureFlags gpu_feature_flags;
+  if (channel_handle.name.size() != 0) {
+    gpu_feature_flags = gpu_blacklist_->DetermineGpuFeatureFlags(
+        GpuBlacklist::kOsAny, NULL, gpu_info);
+  }
   const ChannelRequest& request = sent_requests_.front();
-  SendEstablishChannelReply(channel_handle, gpu_info, request.filter);
+  // Currently if any of the GPU features are blacklised, we don't establish a
+  // GPU channel.
+  GPUBlacklistTestResult test_result;
+  if (gpu_feature_flags.flags() != 0) {
+    Send(new GpuMsg_CloseChannel(channel_handle));
+    SendEstablishChannelReply(IPC::ChannelHandle(), gpu_info, request.filter);
+    test_result = BLOCKED;
+  } else {
+    SendEstablishChannelReply(channel_handle, gpu_info, request.filter);
+    test_result = ALLOWED;
+  }
+  if (!blacklist_result_recorded_) {
+    UMA_HISTOGRAM_ENUMERATION("GPU.BlacklistTestResults",
+                              test_result, BLACKLIST_TEST_RESULT_MAX);
+    blacklist_result_recorded_ = true;
+  }
   sent_requests_.pop();
 }
 
@@ -471,7 +506,7 @@ void GpuProcessHost::OnChildDied() {
   // Located in OnChildDied because OnProcessCrashed suffers from a race
   // condition on Linux. The GPU process will only die if it crashes.
   UMA_HISTOGRAM_ENUMERATION("GPU.GPUProcessLifetimeEvents",
-                            kCrashed, kGPUProcessLifetimeEvent_Max);
+                            CRASHED, GPU_PROCESS_LIFETIME_EVENT_MAX);
   BrowserChildProcessHost::OnChildDied();
 }
 
@@ -528,7 +563,24 @@ bool GpuProcessHost::LaunchGpuProcess() {
       cmd_line);
 
   UMA_HISTOGRAM_ENUMERATION("GPU.GPUProcessLifetimeEvents",
-                            kLaunched, kGPUProcessLifetimeEvent_Max);
+                            LAUNCED, GPU_PROCESS_LIFETIME_EVENT_MAX);
   return true;
+}
+
+bool GpuProcessHost::LoadGpuBlacklist() {
+  if (gpu_blacklist_.get() != NULL)
+    return true;
+  static const base::StringPiece gpu_blacklist_json(
+      ResourceBundle::GetSharedInstance().GetRawDataResource(
+          IDR_GPU_BLACKLIST));
+  GpuBlacklist* blacklist = new GpuBlacklist();
+  const CommandLine& browser_command_line = *CommandLine::ForCurrentProcess();
+  if (browser_command_line.HasSwitch(switches::kIgnoreGpuBlacklist) ||
+      blacklist->LoadGpuBlacklist(gpu_blacklist_json.as_string(), true)) {
+    gpu_blacklist_.reset(blacklist);
+    return true;
+  }
+  delete blacklist;
+  return false;
 }
 

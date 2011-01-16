@@ -135,6 +135,12 @@ const char kDeviceManagementUrl[]           = "device-management-url";
 // Triggers a pletora of diagnostic modes.
 const char kDiagnostics[]                   = "diagnostics";
 
+// Disables client-visible 3D APIs, in particular WebGL and Pepper 3D.
+// This is controlled by policy and is kept separate from the other
+// enable/disable switches to avoid accidentally regressing the policy
+// support for controlling access to these APIs.
+const char kDisable3DAPIs[]                 = "disable-3d-apis";
+
 // Disables accelerated compositing.
 const char kDisableAcceleratedCompositing[] =
     "disable-accelerated-compositing";
@@ -210,9 +216,6 @@ const char kDisableExtensionsFileAccessCheck[] =
 
 // Disable FileSystem API.
 const char kDisableFileSystem[]             = "disable-file-system";
-
-// Disables the sandbox for the built-in flash player.
-const char kDisableFlashSandbox[]           = "disable-flash-sandbox";
 
 // Suppresses support for the Geolocation javascript API.
 const char kDisableGeolocation[]            = "disable-geolocation";
@@ -395,9 +398,6 @@ const char kEnableAccessibility[]           = "enable-accessibility";
 // Enables AeroPeek for each tab. (This switch only works on Windows 7).
 const char kEnableAeroPeekTabs[]            = "enable-aero-peek-tabs";
 
-// Enables the application section of the new tab page.
-const char kEnableAppLauncher[]             = "enable-app-launcher";
-
 // Enable the inclusion of non-standard ports when generating the Kerberos SPN
 // in response to a Negotiate challenge. See HttpAuthHandlerNegotiate::CreateSPN
 // for more background.
@@ -448,10 +448,6 @@ const char kEnableContentPrefetch[]         = "enable-content-prefetch";
 // Enables web developers to create apps for Chrome without using crx packages.
 const char kEnableCrxlessWebApps[]          = "enable-crxless-web-apps";
 
-// Whether default apps should be installed in this profile. This flag has no
-// effect on Chrome OS because default apps are always enabled  there.
-const char kEnableDefaultApps[]             = "enable-default-apps";
-
 // Enables device motion events.
 const char kEnableDeviceMotion[]            = "enable-device-motion";
 
@@ -475,6 +471,10 @@ const char kEnableFastback[]                = "enable-fastback";
 // By default, cookies are not allowed on file://. They are needed for
 // testing, for example page cycler and layout tests.  See bug 1157243.
 const char kEnableFileCookies[]             = "enable-file-cookies";
+
+// Enables the sandbox for the built-in flash player.
+const char kEnableFlashSandbox[]            = "enable-flash-sandbox";
+
 
 // Enable IPv6 support, even if probes suggest that it may not be fully
 // supported.  Some probes may require internet connections, and this flag will
@@ -716,6 +716,9 @@ const char kHostResolverParallelism[]       = "host-resolver-parallelism";
 
 // These mappings only apply to the host resolver.
 const char kHostResolverRules[]             = "host-resolver-rules";
+
+// Ignores GPU blacklist.
+const char kIgnoreGpuBlacklist[]            = "ignore-gpu-blacklist";
 
 // Perform importing from another browser. The value associated with this
 // setting encodes the target browser and what items to import.
