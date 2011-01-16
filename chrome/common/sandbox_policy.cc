@@ -532,7 +532,7 @@ base::ProcessHandle StartProcessWithAccess(CommandLine* cmd_line,
   if (!in_sandbox && (type == ChildProcessInfo::PLUGIN_PROCESS)) {
       in_sandbox = browser_command_line.HasSwitch(switches::kSafePlugins) ||
           (IsBuiltInFlash(cmd_line, NULL) &&
-           !browser_command_line.HasSwitch(switches::kDisableFlashSandbox));
+           browser_command_line.HasSwitch(switches::kEnableFlashSandbox));
   }
 
   if (browser_command_line.HasSwitch(switches::kNoSandbox)) {
@@ -546,7 +546,8 @@ base::ProcessHandle StartProcessWithAccess(CommandLine* cmd_line,
     in_sandbox = false;
   }
 #endif
-  if (!browser_command_line.HasSwitch(switches::kDisableExperimentalWebGL) &&
+  if (!browser_command_line.HasSwitch(switches::kDisable3DAPIs) &&
+      !browser_command_line.HasSwitch(switches::kDisableExperimentalWebGL) &&
       browser_command_line.HasSwitch(switches::kInProcessWebGL)) {
     // In process WebGL won't work if the sandbox is enabled.
     in_sandbox = false;

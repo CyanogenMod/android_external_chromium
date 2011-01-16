@@ -701,7 +701,7 @@ int HttpStreamRequest::DoInitConnectionComplete(int result) {
       }
     }
     if (result < 0)
-      return HandleSSLHandshakeError(result);
+      return result;
   }
 
   next_state_ = STATE_CREATE_STREAM;
@@ -848,6 +848,18 @@ scoped_refptr<SSLSocketParams> HttpStreamRequest::GenerateSSLParams(
     ssl_config()->tls1_enabled = false;
   }
 
+  if (proxy_info()->is_https() && ssl_config()->send_client_cert) {
+    // When connecting through an HTTPS proxy, disable TLS False Start so
+    // that client authentication errors can be distinguished between those
+    // originating from the proxy server (ERR_PROXY_CONNECTION_FAILED) and
+    // those originating from the endpoint (ERR_SSL_PROTOCOL_ERROR /
+    // ERR_BAD_SSL_CLIENT_AUTH_CERT).
+    // TODO(rch): This assumes that the HTTPS proxy will only request a
+    // client certificate during the initial handshake.
+    // http://crbug.com/FIXME
+    ssl_config()->false_start_enabled = false;
+  }
+
   UMA_HISTOGRAM_ENUMERATION("Net.ConnectionUsedSSLv3Fallback",
                             static_cast<int>(ssl_config()->ssl3_fallback), 2);
 
@@ -936,6 +948,11 @@ int HttpStreamRequest::ReconsiderProxyAfterError(int error) {
     return error;
   }
 
+  if (proxy_info()->is_https() && ssl_config_->send_client_cert) {
+    session_->ssl_client_auth_cache()->Remove(
+        proxy_info()->proxy_server().host_port_pair().ToString());
+  }
+
   int rv = session_->proxy_service()->ReconsiderProxyAfterError(
       request_info().url, proxy_info(), &io_callback_, &pac_request_,
       net_log_);
@@ -979,35 +996,6 @@ int HttpStreamRequest::HandleCertificateError(int error) {
     load_flags |= LOAD_IGNORE_ALL_CERT_ERRORS;
   if (ssl_socket->IgnoreCertError(error, load_flags))
     return OK;
-  return error;
-}
-
-int HttpStreamRequest::HandleSSLHandshakeError(int error) {
-  if (ssl_config()->send_client_cert &&
-      (error == ERR_SSL_PROTOCOL_ERROR ||
-       error == ERR_BAD_SSL_CLIENT_AUTH_CERT)) {
-    session_->ssl_client_auth_cache()->Remove(
-        GetHostAndPort(request_info().url));
-  }
-
-  switch (error) {
-    case ERR_SSL_PROTOCOL_ERROR:
-    case ERR_SSL_VERSION_OR_CIPHER_MISMATCH:
-    case ERR_SSL_DECOMPRESSION_FAILURE_ALERT:
-    case ERR_SSL_BAD_RECORD_MAC_ALERT:
-      if (ssl_config()->tls1_enabled &&
-          !SSLConfigService::IsKnownStrictTLSServer(
-          request_info().url.host())) {
-        // This could be a TLS-intolerant server, an SSL 3.0 server that
-        // chose a TLS-only cipher suite or a server with buggy DEFLATE
-        // support. Turn off TLS 1.0, DEFLATE support and retry.
-        factory_->AddTLSIntolerantServer(request_info().url);
-        next_state_ = STATE_INIT_CONNECTION;
-        DCHECK(!connection_.get() || !connection_->socket());
-        error = OK;
-      }
-      break;
-  }
   return error;
 }
 

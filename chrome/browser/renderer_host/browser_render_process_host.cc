@@ -48,6 +48,7 @@
 #include "chrome/browser/renderer_host/render_widget_host.h"
 #include "chrome/browser/renderer_host/resource_message_filter.h"
 #include "chrome/browser/renderer_host/web_cache_manager.h"
+#include "chrome/browser/speech/speech_input_manager.h"
 #include "chrome/browser/spellcheck_host.h"
 #include "chrome/browser/metrics/user_metrics.h"
 #include "chrome/browser/visitedlink_master.h"
@@ -519,11 +520,19 @@ void BrowserRenderProcessHost::AppendRendererCommandLine(
   if (!user_data_dir.empty())
     command_line->AppendSwitchPath(switches::kUserDataDir, user_data_dir);
 #if defined(OS_CHROMEOS)
-  const std::string& profile =
+  const std::string& login_profile =
       browser_command_line.GetSwitchValueASCII(switches::kLoginProfile);
-  if (!profile.empty())
-    command_line->AppendSwitchASCII(switches::kLoginProfile, profile);
+  if (!login_profile.empty())
+    command_line->AppendSwitchASCII(switches::kLoginProfile, login_profile);
 #endif
+
+  PrefService* prefs = profile()->GetPrefs();
+  // Currently this pref is only registered if applied via a policy.
+  if (prefs->HasPrefPath(prefs::kDisable3DAPIs) &&
+      prefs->GetBoolean(prefs::kDisable3DAPIs)) {
+    // Turn this policy into a command line switch.
+    command_line->AppendSwitch(switches::kDisable3DAPIs);
+  }
 }
 
 void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
@@ -630,7 +639,8 @@ void BrowserRenderProcessHost::PropagateBrowserCommandLineToRenderer(
     switches::kPpapiOutOfProcess,
     switches::kEnablePrintPreview,
     switches::kEnableClientSidePhishingDetection,
-    switches::kEnableCrxlessWebApps
+    switches::kEnableCrxlessWebApps,
+    switches::kDisable3DAPIs
   };
   renderer_cmd->CopySwitchesFrom(browser_cmd, kSwitchNames,
                                  arraysize(kSwitchNames));
@@ -687,20 +697,8 @@ void BrowserRenderProcessHost::InitExtensions() {
 }
 
 void BrowserRenderProcessHost::InitSpeechInput() {
-  bool enabled = true;
-  const CommandLine& command_line = *CommandLine::ForCurrentProcess();
-
-  if (command_line.HasSwitch(switches::kDisableSpeechInput)) {
-    enabled = false;
-#if defined(GOOGLE_CHROME_BUILD)
-  } else if (!command_line.HasSwitch(switches::kEnableSpeechInput)) {
-    // Official Chrome builds don't have speech input enabled by default in the
-    // beta and stable channels.
-    enabled = false;
-#endif
-  }
-
-  Send(new ViewMsg_SpeechInput_SetFeatureEnabled(enabled));
+  Send(new ViewMsg_SpeechInput_SetFeatureEnabled(
+          speech_input::SpeechInputManager::IsFeatureEnabled()));
 }
 
 void BrowserRenderProcessHost::SendUserScriptsUpdate(
