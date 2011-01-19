@@ -38,6 +38,12 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
 
   const HostPortPair& host_and_port() const { return host_and_port_; }
 
+#ifdef ANDROID
+  // Callback from the SSL layer to check which NPN protocol we are supporting
+  int SelectNextProtoCallback(unsigned char** out, unsigned char* outlen,
+                              const unsigned char* in, unsigned int inlen);
+#endif
+
   // SSLClientSocket methods:
   virtual void GetSSLInfo(SSLInfo* ssl_info);
   virtual void GetSSLCertRequestInfo(SSLCertRequestInfo* cert_request_info);
@@ -141,6 +147,10 @@ class SSLClientSocketOpenSSL : public SSLClientSocket {
     STATE_VERIFY_CERT_COMPLETE,
   };
   State next_handshake_state_;
+#ifdef ANDROID
+  NextProtoStatus npn_status_;
+  std::string npn_proto_;
+#endif
   BoundNetLog net_log_;
 };
 
