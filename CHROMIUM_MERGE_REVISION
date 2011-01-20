@@ -2,5 +2,5 @@ We use a Chromium revision that has been used for a Chromium release.
 
 We are currently tracking the 9.0.597.0 release branch.
 
-http://src.chromium.org/svn/releases/9.0.597.69/DEPS
-/branches/597/src@71538
+http://src.chromium.org/svn/releases/9.0.597.76/DEPS
+/branches/597/src@71851
