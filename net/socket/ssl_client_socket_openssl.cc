@@ -9,6 +9,9 @@
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#ifdef ANDROID
+#include <string>
+#endif
 
 #include "base/lock.h"
 #include "base/metrics/histogram.h"
@@ -173,6 +176,15 @@ class SSLContext {
     SSL_CTX_sess_set_remove_cb(ssl_ctx_.get(), RemoveSessionCallbackStatic);
     SSL_CTX_set_timeout(ssl_ctx_.get(), kSessionCacheTimeoutSeconds);
     SSL_CTX_sess_set_cache_size(ssl_ctx_.get(), kSessionCacheMaxEntires);
+#ifdef ANDROID
+#if defined(OPENSSL_NPN_NEGOTIATED)
+    // TODO(kristianm): Only select this if ssl_config_.next_proto is not empty.
+    // It would be better if the callback were not a global setting,
+    // but that is an OpenSSL issue.
+    SSL_CTX_set_next_proto_select_cb(ssl_ctx_.get(), SelectNextProtoCallback,
+                                     NULL);
+#endif
+#endif
   }
 
   static int NewSessionCallbackStatic(SSL* ssl, SSL_SESSION* session) {
@@ -193,6 +205,16 @@ class SSLContext {
     DCHECK(ctx == ssl_ctx());
     session_cache_.OnSessionRemoved(session);
   }
+
+#ifdef ANDROID
+  static int SelectNextProtoCallback(SSL* ssl,
+                                     unsigned char** out, unsigned char* outlen,
+                                     const unsigned char* in,
+                                     unsigned int inlen, void* arg) {
+    SSLClientSocketOpenSSL* socket = Get()->GetClientSocketFromSSL(ssl);
+    return socket->SelectNextProtoCallback(out, outlen, in, inlen);
+  }
+#endif
 
   // This is the index used with SSL_get_ex_data to retrieve the owner
   // SSLClientSocketOpenSSL object from an SSL instance.
@@ -227,6 +249,9 @@ SSLClientSocketOpenSSL::SSLClientSocketOpenSSL(
       host_and_port_(host_and_port),
       ssl_config_(ssl_config),
       trying_cached_session_(false),
+#ifdef ANDROID
+      npn_status_(kNextProtoUnsupported),
+#endif
       net_log_(transport_socket->socket()->NetLog()) {
 }
 
@@ -330,8 +355,10 @@ void SSLClientSocketOpenSSL::GetSSLCertRequestInfo(
 
 SSLClientSocket::NextProtoStatus SSLClientSocketOpenSSL::GetNextProto(
     std::string* proto) {
-  proto->clear();
-  return kNextProtoUnsupported;
+#ifdef ANDROID
+  *proto = npn_proto_;
+  return npn_status_;
+#endif
 }
 
 void SSLClientSocketOpenSSL::DoReadCallback(int rv) {
@@ -487,6 +514,44 @@ int SSLClientSocketOpenSSL::DoHandshake() {
   }
   return net_error;
 }
+
+#ifdef ANDROID
+int SSLClientSocketOpenSSL::SelectNextProtoCallback(unsigned char** out,
+                                                    unsigned char* outlen,
+                                                    const unsigned char* in,
+                                                    unsigned int inlen) {
+#if defined(OPENSSL_NPN_NEGOTIATED)
+  if (ssl_config_.next_protos.empty()) {
+    *out = reinterpret_cast<uint8*>(const_cast<char*>("http/1.1"));
+    *outlen = 8;
+    npn_status_ = SSLClientSocket::kNextProtoUnsupported;
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+  int status = SSL_select_next_proto(
+      out, outlen, in, inlen,
+      reinterpret_cast<const unsigned char*>(ssl_config_.next_protos.data()),
+      ssl_config_.next_protos.size());
+
+  npn_proto_.assign(reinterpret_cast<const char*>(*out), *outlen);
+  switch (status) {
+    case OPENSSL_NPN_UNSUPPORTED:
+      npn_status_ = SSLClientSocket::kNextProtoUnsupported;
+      break;
+    case OPENSSL_NPN_NEGOTIATED:
+      npn_status_ = SSLClientSocket::kNextProtoNegotiated;
+      break;
+    case OPENSSL_NPN_NO_OVERLAP:
+      npn_status_ = SSLClientSocket::kNextProtoNoOverlap;
+      break;
+    default:
+      NOTREACHED() << status;
+      break;
+  }
+#endif
+  return SSL_TLSEXT_ERR_OK;
+}
+#endif
 
 int SSLClientSocketOpenSSL::DoVerifyCert(int result) {
   DCHECK(server_cert_);
