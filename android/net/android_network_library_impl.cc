@@ -120,8 +120,9 @@ void AndroidNetworkLibraryImpl::InitWithApplicationContext(JNIEnv* env,
                                                            jobject context) {
   // Currently ignoring |context| as it is not needed (but remains in signature
   // for API consistency with the equivalent method on class AndroidOS).
-  net::AndroidNetworkLibrary::RegisterSharedInstance(
-      new AndroidNetworkLibraryImpl(env));
+  if (!net::AndroidNetworkLibrary::GetSharedInstance())
+    net::AndroidNetworkLibrary::RegisterSharedInstance(
+        new AndroidNetworkLibraryImpl(env));
 }
 
 AndroidNetworkLibraryImpl::AndroidNetworkLibraryImpl(JNIEnv* env)
