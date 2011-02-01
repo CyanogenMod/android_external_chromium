@@ -428,7 +428,11 @@ bool InitTable(sql::Connection* db) {
 
   // Try to create the index every time. Older versions did not have this index,
   // so we want those people to get it. Ignore errors, since it may exist.
+#ifdef ANDROID
+  db->Execute("CREATE INDEX IF NOT EXISTS cookie_times ON cookies (creation_utc)");
+#else
   db->Execute("CREATE INDEX cookie_times ON cookies (creation_utc)");
+#endif
   return true;
 }
 
