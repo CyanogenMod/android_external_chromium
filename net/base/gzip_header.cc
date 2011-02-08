@@ -105,6 +105,9 @@ GZipHeader::Status GZipHeader::ReadMore(const char* inbuf, int inbuf_len,
         // of them as are actually present so far.
         const int num_extra_bytes = static_cast<const int>(std::min(
             static_cast<ptrdiff_t>(extra_length_),
+#ifdef ANDROID
+            static_cast<ptrdiff_t>
+#endif
             (end - pos)));
         pos += num_extra_bytes;
         extra_length_ -= num_extra_bytes;
