@@ -325,8 +325,12 @@ void SQLitePersistentCookieStore::Backend::Commit() {
 void SQLitePersistentCookieStore::Backend::Flush(Task* completion_task) {
 // Keep this #ifdef when upstreaming to Chromium.
 #if defined(ANDROID)
-    if (!getDbThread())
+    if (!getDbThread()) {
+      if (completion_task)
+        MessageLoop::current()->PostTask(FROM_HERE, completion_task);
       return;
+    }
+
     MessageLoop* loop = getDbThread()->message_loop();
     loop->PostTask(FROM_HERE, NewRunnableMethod(
         this, &Backend::Commit, completion_task));
@@ -596,6 +600,10 @@ void SQLitePersistentCookieStore::DeleteCookie(
 void SQLitePersistentCookieStore::Flush(Task* completion_callback) {
   if (backend_.get())
     backend_->Flush(completion_callback);
+  else {
+    if (completion_callback)
+      MessageLoop::current()->PostTask(FROM_HERE, completion_callback);
+  }
 }
 #endif
 
