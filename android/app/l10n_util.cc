@@ -29,6 +29,8 @@
 #include "base/string_util.h"
 #include "base/utf_string_conversions.h"
 
+#include <utils/threads.h>
+
 namespace l10n_util {
 
 class JNIHelper {
@@ -38,46 +40,45 @@ class JNIHelper {
         string16 getLocalisedString(int message_id);
 
     private:
-        JNIEnv* mEnv;
+        bool mInited;
         jclass mClassRef;
         string16 mMessageCache[ANDROID_L10N_IDS_MESSAGE_COUNT];
+        android::Mutex mGetStringLock;
 };
 
 JNIHelper jniHelper;
 
 JNIHelper::JNIHelper()
-    : mEnv(0)
+    : mInited(false)
 {
 }
 
 JNIHelper::~JNIHelper()
 {
-    if (mEnv) {
-        // Because the stored mEnv could be bad during c++ destruction phase
-        // since it's thread local.
-        JNIEnv* currentEnv = android::GetJNIEnv();
-        if (currentEnv)
-            currentEnv->DeleteGlobalRef(mClassRef);
-    }
+    JNIEnv* currentEnv = android::GetJNIEnv();
+    if (currentEnv)
+        currentEnv->DeleteGlobalRef(mClassRef);
 }
 
 string16 JNIHelper::getLocalisedString(int message_id)
 {
-    if (!mEnv) {
-        mEnv = android::GetJNIEnv();
-        jclass localClass = mEnv->FindClass("android/webkit/L10nUtils");
-        mClassRef = static_cast<jclass>(mEnv->NewGlobalRef(localClass));
-        mEnv->DeleteLocalRef(localClass);
+    android::Mutex::Autolock lock(mGetStringLock);
+    JNIEnv* env = android::GetJNIEnv();
+    if (!mInited) {
+        jclass localClass = env->FindClass("android/webkit/L10nUtils");
+        mClassRef = static_cast<jclass>(env->NewGlobalRef(localClass));
+        env->DeleteLocalRef(localClass);
+        mInited = true;
     }
 
     if (!mMessageCache[message_id].empty())
         return mMessageCache[message_id];
 
-    DCHECK(mEnv);
-    static jmethodID getLocalisedString = mEnv->GetStaticMethodID(mClassRef, "getLocalisedString", "(I)Ljava/lang/String;");
-    jstring result = static_cast<jstring>(mEnv->CallStaticObjectMethod(mClassRef, getLocalisedString, message_id));
-    string16 str = android::JstringToString16(mEnv, result);
-    mEnv->DeleteLocalRef(result);
+
+    static jmethodID getLocalisedString = env->GetStaticMethodID(mClassRef, "getLocalisedString", "(I)Ljava/lang/String;");
+    jstring result = static_cast<jstring>(env->CallStaticObjectMethod(mClassRef, getLocalisedString, message_id));
+    string16 str = android::JstringToString16(env, result);
+    env->DeleteLocalRef(result);
     mMessageCache[message_id] = str;
     return str;
 }
