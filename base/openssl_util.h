@@ -7,6 +7,7 @@
 #pragma once
 
 #include "base/basictypes.h"
+#include "base/compiler_specific.h"
 #include "base/tracked.h"
 
 namespace base {
@@ -28,6 +29,11 @@ class ScopedOpenSSL {
       if (ptr_) (*destructor)(ptr_);
       ptr_ = ptr;
     }
+  }
+  T* release() WARN_UNUSED_RESULT {
+    T* result = ptr_;
+    ptr_ = NULL;
+    return result;
   }
 
  private:
