@@ -42,7 +42,6 @@ class JNIHelper {
     private:
         bool mInited;
         jclass mClassRef;
-        string16 mMessageCache[ANDROID_L10N_IDS_MESSAGE_COUNT];
         android::Mutex mGetStringLock;
 };
 
@@ -71,15 +70,10 @@ string16 JNIHelper::getLocalisedString(int message_id)
         mInited = true;
     }
 
-    if (!mMessageCache[message_id].empty())
-        return mMessageCache[message_id];
-
-
     static jmethodID getLocalisedString = env->GetStaticMethodID(mClassRef, "getLocalisedString", "(I)Ljava/lang/String;");
     jstring result = static_cast<jstring>(env->CallStaticObjectMethod(mClassRef, getLocalisedString, message_id));
     string16 str = android::JstringToString16(env, result);
     env->DeleteLocalRef(result);
-    mMessageCache[message_id] = str;
     return str;
 }
 
