@@ -234,7 +234,11 @@ int SystemHostResolverProc(const std::string& host,
     err = getaddrinfo(host.c_str(), NULL, &hints, &ai);
   }
 
+#ifdef ANDROID
+  if (err || ai == NULL) {
+#else
   if (err) {
+#endif
 #if defined(OS_WIN)
     err = WSAGetLastError();
 #endif
