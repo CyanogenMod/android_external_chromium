@@ -10,6 +10,8 @@
 #include <nss.h>
 #include <pk11pub.h>
 #include "base/nss_util.h"
+#elif defined(USE_OPENSSL)
+#include <openssl/des.h>
 #elif defined(OS_MACOSX)
 #include <CommonCrypto/CommonCryptor.h>
 #elif defined(OS_WIN)
@@ -87,8 +89,14 @@ void DESMakeKey(const uint8* raw, uint8* key) {
 #if defined(USE_OPENSSL)
 
 void DESEncrypt(const uint8* key, const uint8* src, uint8* hash) {
-  // TODO(joth): When implementing consider splitting up this file by platform.
-  NOTIMPLEMENTED();
+  DES_cblock des_key;
+  DES_key_schedule schedule;
+
+  memcpy(des_key, key, 8);
+  DES_set_odd_parity(&des_key);
+  DES_set_key_checked(&des_key, &schedule);
+
+  DES_ecb_encrypt((C_Block *)src, (C_Block *)hash, &schedule, DES_ENCRYPT);
 }
 
 #elif defined(USE_NSS)
@@ -204,14 +212,6 @@ void DESEncrypt(const uint8* key, const uint8* src, uint8* hash) {
     DWORD hash_len = 8;
     CryptEncrypt(key, 0, FALSE, 0, hash, &hash_len, 8);
   }
-}
-
-#elif defined(USE_OPENSSL) && defined(ANDROID)
-
-// To be implemented with openssl
-void DESEncrypt(const uint8* key, const uint8* src, uint8* hash) {
-    int* a = NULL;
-    int c = *a;
 }
 
 #endif
