@@ -11,6 +11,9 @@
 #include <pk11pub.h>
 #include "base/nss_util.h"
 #elif defined(USE_OPENSSL)
+#ifndef ANDROID
+#include "base/openssl_util.h"
+#endif
 #include <openssl/des.h>
 #elif defined(OS_MACOSX)
 #include <CommonCrypto/CommonCryptor.h>
@@ -89,14 +92,16 @@ void DESMakeKey(const uint8* raw, uint8* key) {
 #if defined(USE_OPENSSL)
 
 void DESEncrypt(const uint8* key, const uint8* src, uint8* hash) {
-  DES_cblock des_key;
-  DES_key_schedule schedule;
+#ifndef ANDROID
+  base::EnsureOpenSSLInit();
 
-  memcpy(des_key, key, 8);
-  DES_set_odd_parity(&des_key);
-  DES_set_key_checked(&des_key, &schedule);
+#endif
+  DES_key_schedule ks;
+  DES_set_key_unchecked(
+      reinterpret_cast<const_DES_cblock*>(const_cast<uint8*>(key)), &ks);
 
-  DES_ecb_encrypt((C_Block *)src, (C_Block *)hash, &schedule, DES_ENCRYPT);
+  DES_ecb_encrypt(reinterpret_cast<const_DES_cblock*>(const_cast<uint8*>(src)),
+                  reinterpret_cast<DES_cblock*>(hash), &ks, DES_ENCRYPT);
 }
 
 #elif defined(USE_NSS)
