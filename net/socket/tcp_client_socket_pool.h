@@ -26,13 +26,21 @@ class ClientSocketFactory;
 class TCPSocketParams : public base::RefCounted<TCPSocketParams> {
  public:
   TCPSocketParams(const HostPortPair& host_port_pair, RequestPriority priority,
-                  const GURL& referrer, bool disable_resolver_cache);
+                  const GURL& referrer, bool disable_resolver_cache
+#ifdef ANDROID
+                  , bool ignore_limits
+#endif
+                 );
 
   // TODO(willchan): Update all unittests so we don't need this.
   TCPSocketParams(const std::string& host, int port, RequestPriority priority,
                   const GURL& referrer, bool disable_resolver_cache);
 
   const HostResolver::RequestInfo& destination() const { return destination_; }
+
+#ifdef ANDROID
+  bool ignore_limits() const { return ignore_limits_; }
+#endif
 
  private:
   friend class base::RefCounted<TCPSocketParams>;
@@ -50,6 +58,9 @@ class TCPSocketParams : public base::RefCounted<TCPSocketParams> {
   }
 
   HostResolver::RequestInfo destination_;
+#ifdef ANDROID
+  bool ignore_limits_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(TCPSocketParams);
 };

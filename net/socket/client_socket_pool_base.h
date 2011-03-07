@@ -171,6 +171,9 @@ class ClientSocketPoolBaseHelper
     Request(ClientSocketHandle* handle,
             CompletionCallback* callback,
             RequestPriority priority,
+#ifdef ANDROID
+            bool ignore_limits,
+#endif
             Flags flags,
             const BoundNetLog& net_log);
 
@@ -179,6 +182,9 @@ class ClientSocketPoolBaseHelper
     ClientSocketHandle* handle() const { return handle_; }
     CompletionCallback* callback() const { return callback_; }
     RequestPriority priority() const { return priority_; }
+#ifdef ANDROID
+    bool ignore_limits() const { return ignore_limits_; }
+#endif
     Flags flags() const { return flags_; }
     const BoundNetLog& net_log() const { return net_log_; }
 
@@ -186,6 +192,9 @@ class ClientSocketPoolBaseHelper
     ClientSocketHandle* const handle_;
     CompletionCallback* const callback_;
     const RequestPriority priority_;
+#ifdef ANDROID
+    bool ignore_limits_;
+#endif
     const Flags flags_;
     BoundNetLog net_log_;
 
@@ -559,11 +568,14 @@ class ClientSocketPoolBase {
     Request(ClientSocketHandle* handle,
             CompletionCallback* callback,
             RequestPriority priority,
+#ifdef ANDROID
+            bool ignore_limits,
+#endif
             internal::ClientSocketPoolBaseHelper::Flags flags,
             const scoped_refptr<SocketParams>& params,
             const BoundNetLog& net_log)
         : internal::ClientSocketPoolBaseHelper::Request(
-              handle, callback, priority, flags, net_log),
+              handle, callback, priority, ignore_limits, flags, net_log),
           params_(params) {}
 
     const scoped_refptr<SocketParams>& params() const { return params_; }
@@ -618,8 +630,14 @@ class ClientSocketPoolBase {
                     ClientSocketHandle* handle,
                     CompletionCallback* callback,
                     const BoundNetLog& net_log) {
+#ifdef ANDROID
+    bool ignore_limits = params->ignore_limits();
+#endif
     Request* request =
         new Request(handle, callback, priority,
+#ifdef ANDROID
+                    ignore_limits,
+#endif
                     internal::ClientSocketPoolBaseHelper::NORMAL,
                     params, net_log);
     return helper_.RequestSocket(group_name, request);
@@ -632,9 +650,15 @@ class ClientSocketPoolBase {
                       const scoped_refptr<SocketParams>& params,
                       int num_sockets,
                       const BoundNetLog& net_log) {
+#ifdef ANDROID
+    bool ignore_limits = params->ignore_limits();
+#endif
     const Request request(NULL /* no handle */,
                           NULL /* no callback */,
                           LOWEST,
+#ifdef ANDROID
+                          ignore_limits,
+#endif
                           internal::ClientSocketPoolBaseHelper::NO_IDLE_SOCKETS,
                           params,
                           net_log);
