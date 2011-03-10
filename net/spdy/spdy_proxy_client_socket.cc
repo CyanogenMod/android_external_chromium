@@ -69,7 +69,15 @@ SpdyProxyClientSocket::~SpdyProxyClientSocket() {
 // by creating a new stream for the subsequent request.
 // TODO(rch): create a more appropriate error code to disambiguate
 // the HTTPS Proxy tunnel failure from an HTTP Proxy tunnel failure.
-int SpdyProxyClientSocket::Connect(CompletionCallback* callback) {
+#ifdef ANDROID
+// TODO(kristianm): handle the case when wait_for_connect is true
+// (sync requests)
+#endif
+int SpdyProxyClientSocket::Connect(CompletionCallback* callback
+#ifdef ANDROID
+                                   , bool wait_for_connect
+#endif
+                                  ) {
   DCHECK(!read_callback_);
   if (next_state_ == STATE_OPEN)
     return OK;

@@ -571,7 +571,15 @@ SSLClientSocketMac::~SSLClientSocketMac() {
   Disconnect();
 }
 
-int SSLClientSocketMac::Connect(CompletionCallback* callback) {
+#ifdef ANDROID
+// TODO(kristianm): handle the case when wait_for_connect is true
+// (sync requests)
+#endif
+int SSLClientSocketMac::Connect(CompletionCallback* callback
+#ifdef ANDROID
+                                , bool wait_for_connect
+#endif
+                               ) {
   DCHECK(transport_.get());
   DCHECK(next_handshake_state_ == STATE_NONE);
   DCHECK(!user_connect_callback_);

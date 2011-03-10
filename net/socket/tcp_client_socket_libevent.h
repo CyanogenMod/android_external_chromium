@@ -40,7 +40,11 @@ class TCPClientSocketLibevent : public ClientSocket, NonThreadSafe {
   void AdoptSocket(int socket);
 
   // ClientSocket methods:
-  virtual int Connect(CompletionCallback* callback);
+  virtual int Connect(CompletionCallback* callback
+#ifdef ANDROID
+                      , bool wait_for_connect
+#endif
+                     );
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;
@@ -191,6 +195,11 @@ class TCPClientSocketLibevent : public ClientSocket, NonThreadSafe {
   // True when TCP FastOpen is in use and we have done the connect.
   bool tcp_fastopen_connected_;
 
+#ifdef ANDROID
+  // True if connect should block and not return before the socket is connected
+  bool wait_for_connect_;
+
+#endif
   DISALLOW_COPY_AND_ASSIGN(TCPClientSocketLibevent);
 };
 

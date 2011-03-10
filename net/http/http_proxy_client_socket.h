@@ -70,7 +70,11 @@ class HttpProxyClientSocket : public ClientSocket {
   // ClientSocket methods:
 
   // Authenticates to the Http Proxy and then passes data freely.
-  virtual int Connect(CompletionCallback* callback);
+  virtual int Connect(CompletionCallback* callback
+#ifdef ANDROID
+                      , bool wait_for_connect
+#endif
+                     );
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;

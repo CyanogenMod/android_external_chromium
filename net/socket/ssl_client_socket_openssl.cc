@@ -414,7 +414,15 @@ void SSLClientSocketOpenSSL::DoWriteCallback(int rv) {
 
 // ClientSocket methods
 
-int SSLClientSocketOpenSSL::Connect(CompletionCallback* callback) {
+#ifdef ANDROID
+// TODO(kristianm): handle the case when wait_for_connect is true
+// (sync requests)
+#endif
+int SSLClientSocketOpenSSL::Connect(CompletionCallback* callback
+#ifdef ANDROID
+                                    , bool wait_for_connect
+#endif
+                                   ) {
   net_log_.BeginEvent(NetLog::TYPE_SSL_CONNECT, NULL);
 
   // Set up new ssl object.

@@ -51,7 +51,11 @@ class SOCKS5ClientSocket : public ClientSocket {
   // ClientSocket methods:
 
   // Does the SOCKS handshake and completes the protocol.
-  virtual int Connect(CompletionCallback* callback);
+  virtual int Connect(CompletionCallback* callback
+#ifdef ANDROID
+                      , bool wait_for_connect
+#endif
+                     );
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;

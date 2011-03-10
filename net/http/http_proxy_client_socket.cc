@@ -59,7 +59,15 @@ HttpProxyClientSocket::~HttpProxyClientSocket() {
   Disconnect();
 }
 
-int HttpProxyClientSocket::Connect(CompletionCallback* callback) {
+#ifdef ANDROID
+// TODO(kristianm): handle the case when wait_for_connect is true
+// (sync requests)
+#endif
+int HttpProxyClientSocket::Connect(CompletionCallback* callback
+#ifdef ANDROID
+                                   , bool wait_for_connect
+#endif
+                                  ) {
   DCHECK(transport_.get());
   DCHECK(transport_->socket());
   DCHECK(!user_callback_);
@@ -436,9 +444,16 @@ int HttpProxyClientSocket::DoDrainBodyComplete(int result) {
   return OK;
 }
 
+#ifdef ANDROID
+// TODO(kristianm): Check if we can find out if Connect should block
+#endif
 int HttpProxyClientSocket::DoTCPRestart() {
   next_state_ = STATE_TCP_RESTART_COMPLETE;
-  return transport_->socket()->Connect(&io_callback_);
+  return transport_->socket()->Connect(&io_callback_
+#ifdef ANDROID
+                                       , false
+#endif
+                                      );
 }
 
 int HttpProxyClientSocket::DoTCPRestartComplete(int result) {
