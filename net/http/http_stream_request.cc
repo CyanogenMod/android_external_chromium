@@ -476,13 +476,21 @@ int HttpStreamRequest::DoInitConnection() {
   if (proxy_info()->is_direct()) {
     tcp_params = new TCPSocketParams(endpoint_, request_info().priority,
                                      request_info().referrer,
-                                     disable_resolver_cache);
+                                     disable_resolver_cache
+#ifdef ANDROID
+                                     , request_info().load_flags & LOAD_IGNORE_LIMITS
+#endif
+                                     );
   } else {
     ProxyServer proxy_server = proxy_info()->proxy_server();
     proxy_host_port.reset(new HostPortPair(proxy_server.host_port_pair()));
     scoped_refptr<TCPSocketParams> proxy_tcp_params(
         new TCPSocketParams(*proxy_host_port, request_info().priority,
-                            request_info().referrer, disable_resolver_cache));
+                            request_info().referrer, disable_resolver_cache
+#ifdef ANDROID
+                            , request_info().load_flags & LOAD_IGNORE_LIMITS
+#endif
+                           ));
 
     if (proxy_info()->is_http() || proxy_info()->is_https()) {
       GURL authentication_url = request_info().url;

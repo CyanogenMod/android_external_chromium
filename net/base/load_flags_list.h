@@ -102,3 +102,9 @@ LOAD_FLAG(REPORT_RAW_HEADERS, 1 << 22)
 // and is (in theory) not intended for the current frame.
 LOAD_FLAG(PREFETCH, 1 << 23)
 
+#ifdef ANDROID
+// Indicates that this is a load that ignores limits and should complete
+// immediately
+LOAD_FLAG(IGNORE_LIMITS, 1 << 24)
+#endif
+

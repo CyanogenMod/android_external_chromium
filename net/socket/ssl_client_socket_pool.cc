@@ -44,18 +44,27 @@ SSLSocketParams::SSLSocketParams(
       DCHECK(tcp_params_.get() != NULL);
       DCHECK(http_proxy_params_.get() == NULL);
       DCHECK(socks_params_.get() == NULL);
+#ifdef ANDROID
+      ignore_limits_ = tcp_params_->ignore_limits();
+#endif
       break;
     case ProxyServer::SCHEME_HTTP:
     case ProxyServer::SCHEME_HTTPS:
       DCHECK(tcp_params_.get() == NULL);
       DCHECK(http_proxy_params_.get() != NULL);
       DCHECK(socks_params_.get() == NULL);
+#ifdef ANDROID
+      ignore_limits_ = http_proxy_params_->ignore_limits();
+#endif
       break;
     case ProxyServer::SCHEME_SOCKS4:
     case ProxyServer::SCHEME_SOCKS5:
       DCHECK(tcp_params_.get() == NULL);
       DCHECK(http_proxy_params_.get() == NULL);
       DCHECK(socks_params_.get() != NULL);
+#ifdef ANDROID
+      ignore_limits_ = socks_params_->ignore_limits();
+#endif
       break;
     default:
       LOG(DFATAL) << "unknown proxy type";
