@@ -23,8 +23,12 @@ namespace net {
 
 TCPSocketParams::TCPSocketParams(const HostPortPair& host_port_pair,
                                  RequestPriority priority, const GURL& referrer,
-                                 bool disable_resolver_cache)
-    : destination_(host_port_pair) {
+                                 bool disable_resolver_cache, bool ignore_limits)
+    : destination_(host_port_pair)
+#ifdef ANDROID
+      , ignore_limits_(ignore_limits)
+#endif
+    {
   Initialize(priority, referrer, disable_resolver_cache);
 }
 
@@ -32,7 +36,11 @@ TCPSocketParams::TCPSocketParams(const HostPortPair& host_port_pair,
 TCPSocketParams::TCPSocketParams(const std::string& host, int port,
                                  RequestPriority priority, const GURL& referrer,
                                  bool disable_resolver_cache)
-    : destination_(HostPortPair(host, port)) {
+    : destination_(HostPortPair(host, port))
+#ifdef ANDROID
+      , ignore_limits_(false)
+#endif
+    {
   Initialize(priority, referrer, disable_resolver_cache);
 }
 
