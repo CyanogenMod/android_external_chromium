@@ -293,6 +293,9 @@ int HttpProxyConnectJob::DoSpdyProxyCreateStream() {
                                     &callback_);
 }
 
+#ifdef ANDROID
+// TODO(kristianm): Find out if Connect should block
+#endif
 int HttpProxyConnectJob::DoSpdyProxyCreateStreamComplete(int result) {
   if (result < 0)
     return result;
@@ -306,9 +309,16 @@ int HttpProxyConnectJob::DoSpdyProxyCreateStreamComplete(int result) {
                                 params_->destination().host_port_pair(),
                                 params_->http_auth_cache(),
                                 params_->http_auth_handler_factory()));
-  return transport_socket_->Connect(&callback_);
+  return transport_socket_->Connect(&callback_
+#ifdef ANDROID
+                                    , false
+#endif
+                                   );
 }
 
+#ifdef ANDROID
+// TODO(kristianm): Find out if Connect should block
+#endif
 int HttpProxyConnectJob::DoHttpProxyConnect() {
   next_state_ = STATE_HTTP_PROXY_CONNECT_COMPLETE;
   const HostResolver::RequestInfo& tcp_destination = params_->destination();
@@ -325,7 +335,11 @@ int HttpProxyConnectJob::DoHttpProxyConnect() {
                                 params_->http_auth_handler_factory(),
                                 params_->tunnel(),
                                 using_spdy_));
-  return transport_socket_->Connect(&callback_);
+  return transport_socket_->Connect(&callback_
+#ifdef ANDROID
+                                    , false
+#endif
+                                   );
 }
 
 int HttpProxyConnectJob::DoHttpProxyConnectComplete(int result) {

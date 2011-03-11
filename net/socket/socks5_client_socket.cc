@@ -64,7 +64,14 @@ SOCKS5ClientSocket::~SOCKS5ClientSocket() {
   Disconnect();
 }
 
-int SOCKS5ClientSocket::Connect(CompletionCallback* callback) {
+#ifdef ANDROID
+// TODO(kristianm): Find out if Connect should block
+#endif
+int SOCKS5ClientSocket::Connect(CompletionCallback* callback
+#ifdef ANDROID
+                                , bool wait_for_connect
+#endif
+                               ) {
   DCHECK(transport_.get());
   DCHECK(transport_->socket());
   DCHECK_EQ(STATE_NONE, next_state_);

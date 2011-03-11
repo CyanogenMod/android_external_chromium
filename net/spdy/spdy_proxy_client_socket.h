@@ -62,7 +62,11 @@ class SpdyProxyClientSocket : public ClientSocket, public SpdyStream::Delegate {
   }
 
   // ClientSocket methods:
+#ifdef ANDROID
+  virtual int Connect(CompletionCallback* callback, bool wait_for_connect);
+#else
   virtual int Connect(CompletionCallback* callback);
+#endif
   virtual void Disconnect();
   virtual bool IsConnected() const;
   virtual bool IsConnectedAndIdle() const;

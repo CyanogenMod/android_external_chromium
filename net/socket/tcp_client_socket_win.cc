@@ -315,7 +315,15 @@ void TCPClientSocketWin::AdoptSocket(SOCKET socket) {
   use_history_.set_was_ever_connected();
 }
 
-int TCPClientSocketWin::Connect(CompletionCallback* callback) {
+#ifdef ANDROID
+// TODO(kristianm): handle the case when wait_for_connect is true
+// (sync requests)
+#endif
+int TCPClientSocketWin::Connect(CompletionCallback* callback
+#ifdef ANDROID
+                                , bool wait_for_connect
+#endif
+                               ) {
   DCHECK(CalledOnValidThread());
 
   // If already connected, then just return OK.

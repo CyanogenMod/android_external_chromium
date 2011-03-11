@@ -154,7 +154,11 @@ int TCPConnectJob::DoTCPConnect() {
   set_socket(client_socket_factory_->CreateTCPClientSocket(
         addresses_, net_log().net_log(), net_log().source()));
   connect_start_time_ = base::TimeTicks::Now();
-  return socket()->Connect(&callback_);
+  return socket()->Connect(&callback_,
+#ifdef ANDROID
+                           params_->ignore_limits()
+#endif
+                          );
 }
 
 int TCPConnectJob::DoTCPConnectComplete(int result) {

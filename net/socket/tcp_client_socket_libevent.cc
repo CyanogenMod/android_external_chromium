@@ -125,7 +125,11 @@ TCPClientSocketLibevent::TCPClientSocketLibevent(
       net_log_(BoundNetLog::Make(net_log, NetLog::SOURCE_SOCKET)),
       previously_disconnected_(false),
       use_tcp_fastopen_(false),
-      tcp_fastopen_connected_(false) {
+      tcp_fastopen_connected_(false)
+#ifdef ANDROID
+      , wait_for_connect_(false)
+#endif
+{
   scoped_refptr<NetLog::EventParameters> params;
   if (source.is_valid())
     params = new NetLogSourceParameter("source_dependency", source);
@@ -152,7 +156,14 @@ void TCPClientSocketLibevent::AdoptSocket(int socket) {
   use_history_.set_was_ever_connected();
 }
 
-int TCPClientSocketLibevent::Connect(CompletionCallback* callback) {
+int TCPClientSocketLibevent::Connect(CompletionCallback* callback
+#ifdef ANDROID
+                                     , bool wait_for_connect
+#endif
+                                    ) {
+#ifdef ANDROID
+  wait_for_connect_ = wait_for_connect;
+#endif
   DCHECK(CalledOnValidThread());
 
   // If already connected, then just return OK.
@@ -237,6 +248,19 @@ int TCPClientSocketLibevent::DoConnect() {
                               static_cast<int>(current_ai_->ai_addrlen)))) {
       // Connected without waiting!
       return OK;
+#ifdef ANDROID
+    } else if (errno == EINPROGRESS && wait_for_connect_) {
+      fd_set writeset;
+      FD_ZERO(&writeset);
+      FD_SET(socket_, &writeset);
+      timeval tv;
+      tv.tv_sec = 20;
+      tv.tv_usec = 0;
+      int res = HANDLE_EINTR(select(socket_ + 1, 0, &writeset, 0, &tv));
+      if (res > 0)
+        return OK;
+      return MapConnectError(ETIMEDOUT);
+#endif
     }
   } else {
     // With TCP FastOpen, we pretend that the socket is connected.

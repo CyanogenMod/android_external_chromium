@@ -299,7 +299,11 @@ int SSLConnectJob::DoSSLConnect() {
   ssl_socket_.reset(client_socket_factory_->CreateSSLClientSocket(
       transport_socket_handle_.release(), params_->host_and_port(),
       params_->ssl_config(), ssl_host_info_.release(), dns_cert_checker_));
-  return ssl_socket_->Connect(&callback_);
+  return ssl_socket_->Connect(&callback_
+#ifdef ANDROID
+                              , params_->ignore_limits()
+#endif
+                             );
 }
 
 int SSLConnectJob::DoSSLConnectComplete(int result) {
