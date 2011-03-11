@@ -157,7 +157,11 @@ int SOCKSConnectJob::DoSOCKSConnect() {
                                         socks_params_->destination(),
                                         resolver_));
   }
-  return socket_->Connect(&callback_);
+  return socket_->Connect(&callback_
+#ifdef ANDROID
+                          , socks_params_->ignore_limits()
+#endif
+                         );
 }
 
 int SOCKSConnectJob::DoSOCKSConnectComplete(int result) {

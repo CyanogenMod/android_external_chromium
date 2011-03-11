@@ -31,7 +31,11 @@ class ClientSocket : public Socket {
   //
   // Connect may also be called again after a call to the Disconnect method.
   //
-  virtual int Connect(CompletionCallback* callback) = 0;
+  virtual int Connect(CompletionCallback* callback
+#ifdef ANDROID
+                      , bool wait_for_connect
+#endif
+                     ) = 0;
 
   // Called to disconnect a socket.  Does nothing if the socket is already
   // disconnected.  After calling Disconnect it is possible to call Connect
