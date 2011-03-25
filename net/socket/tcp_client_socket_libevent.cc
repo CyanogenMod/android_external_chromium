@@ -55,7 +55,7 @@ void SetTCPKeepAlive(int fd) {
   }
 #if defined(OS_LINUX)
   // Set seconds until first TCP keep alive.
-  optval = 45;
+  optval = 25;
   if (setsockopt(fd, SOL_TCP, TCP_KEEPIDLE, &optval, optlen)) {
     PLOG(ERROR) << "Failed to set TCP_KEEPIDLE on fd: " << fd;
     return;
