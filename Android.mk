@@ -1,36 +1,9 @@
-####################################
-# Build libevent as separate library
-
-LOCAL_PATH := $(call my-dir)
-
-include $(CLEAR_VARS)
-
-LOCAL_MODULE:= libevent
-LOCAL_MODULE_TAGS:= optional
-
-LOCAL_SRC_FILES := \
-    third_party/libevent/event.c \
-    third_party/libevent/evutil.c \
-    third_party/libevent/epoll.c \
-    third_party/libevent/log.c \
-    third_party/libevent/poll.c \
-    third_party/libevent/select.c \
-    third_party/libevent/signal.c
-
-LOCAL_C_INCLUDES := \
-    $(LOCAL_PATH)/third_party/libevent \
-    $(LOCAL_PATH)/third_party/libevent/android \
-
-LOCAL_CFLAGS := -DHAVE_CONFIG_H -DANDROID -fvisibility=hidden
-ifeq ($(TARGET_SIMULATOR),true)
-LOCAL_CFLAGS += -D_EVENT_HAVE_FD_MASK=1
-endif
-
-include $(BUILD_STATIC_LIBRARY)
-
-
 ###################################
 # Build the libchromium_net library
+
+LOCAL_PATH := $(call my-dir)
+include external/chromium/third_party/libevent/Android.mk
+include external/chromium/third_party/modp_b64/Android.mk
 
 include $(CLEAR_VARS)
 
@@ -160,8 +133,6 @@ LOCAL_SRC_FILES := \
     base/third_party/nss/sha512.cc \
     \
     chrome/browser/net/sqlite_persistent_cookie_store.cc \
-    \
-    third_party/modp_b64/modp_b64.cc \
     \
     net/base/address_list.cc \
     net/base/address_list_net_log_param.cc \
@@ -500,7 +471,7 @@ LOCAL_C_INCLUDES := \
 	$(LOCAL_C_INCLUDES)
 
 #LOCAL_STATIC_LIBRARIES += libevent
-LOCAL_WHOLE_STATIC_LIBRARIES += libevent libprotobuf-cpp-2.3.0-lite
+LOCAL_WHOLE_STATIC_LIBRARIES += libevent libprotobuf-cpp-2.3.0-lite modp_b64
 
 # Including this will modify the include path
 include external/stlport/libstlport.mk
