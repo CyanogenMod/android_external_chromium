@@ -4,6 +4,7 @@
 LOCAL_PATH := $(call my-dir)
 include external/chromium/third_party/libevent/Android.mk
 include external/chromium/third_party/modp_b64/Android.mk
+include external/chromium/base/third_party/dmg_fp/Android.mk
 
 include $(CLEAR_VARS)
 
@@ -122,9 +123,6 @@ LOCAL_SRC_FILES := \
     base/metrics/histogram.cc \
     base/metrics/stats_counters.cc \
     base/metrics/stats_table.cc \
-    \
-    base/third_party/dmg_fp/dtoa.cc \
-    base/third_party/dmg_fp/g_fmt.cc \
     \
     base/third_party/icu/icu_utf.cc \
     \
@@ -469,7 +467,7 @@ LOCAL_C_INCLUDES := \
 	$(LOCAL_C_INCLUDES)
 
 #LOCAL_STATIC_LIBRARIES += libevent
-LOCAL_WHOLE_STATIC_LIBRARIES += libevent libprotobuf-cpp-2.3.0-lite modp_b64
+LOCAL_WHOLE_STATIC_LIBRARIES += libevent libprotobuf-cpp-2.3.0-lite modp_b64 dmg_fp
 
 # Including this will modify the include path
 include external/stlport/libstlport.mk
