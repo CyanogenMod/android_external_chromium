@@ -18,7 +18,6 @@
 #endif
 #if defined(OS_POSIX)
 #include "base/message_pump_libevent.h"
-#include "base/third_party/valgrind/valgrind.h"
 #endif
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
 #include "base/message_pump_glib.h"
