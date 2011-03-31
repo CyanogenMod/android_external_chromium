@@ -76,7 +76,7 @@ LOCAL_SRC_FILES := \
     base/ref_counted.cc \
     base/safe_strerror_posix.cc \
     base/sha1_portable.cc \
-    base/sha2.cc \
+    base/sha2_openssl.cc \
     base/shared_memory_posix.cc \
     base/string_number_conversions.cc \
     base/string_piece.cc \
@@ -129,8 +129,6 @@ LOCAL_SRC_FILES := \
     base/third_party/icu/icu_utf.cc \
     \
     base/third_party/nspr/prtime.cc \
-    \
-    base/third_party/nss/sha512.cc \
     \
     chrome/browser/net/sqlite_persistent_cookie_store.cc \
     \
